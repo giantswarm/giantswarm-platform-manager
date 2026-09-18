@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"flag"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,7 +23,7 @@ var shapes = []string{"public-customer", "giantswarm-owned"}
 
 func loadInput(t *testing.T, shape string) (map[string]any, map[string]string) {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("testdata", shape, "input.yaml"))
+	raw, err := fs.ReadFile(os.DirFS(filepath.Join("testdata", shape)), "input.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,25 +70,25 @@ func TestGolden(t *testing.T) {
 					t.Fatal(err)
 				}
 				for name, content := range got {
-					if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
+					if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o750); err != nil {
 						t.Fatal(err)
 					}
-					if err := os.WriteFile(filepath.Join(dir, name), content, 0o644); err != nil {
+					if err := os.WriteFile(filepath.Join(dir, name), content, 0o600); err != nil {
 						t.Fatal(err)
 					}
 				}
 			}
 			want := map[string][]byte{}
-			err = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+			golden := os.DirFS(dir)
+			err = fs.WalkDir(golden, ".", func(path string, d fs.DirEntry, err error) error {
 				if err != nil || d.IsDir() {
 					return err
 				}
-				content, err := os.ReadFile(path)
+				content, err := fs.ReadFile(golden, path)
 				if err != nil {
 					return err
 				}
-				rel, _ := filepath.Rel(dir, path)
-				want[rel] = content
+				want[filepath.FromSlash(path)] = content
 				return nil
 			})
 			if err != nil {
@@ -179,8 +180,8 @@ func TestRefusals(t *testing.T) {
 	}{
 		{"unknown top-level key", clone(func(m map[string]any) { m["colourScheme"] = "dark" }), secrets, ErrInput, "colourScheme"},
 		{"unknown nested key", clone(func(m map[string]any) { m["kagent"].(map[string]any)["replicas"] = 3 }), secrets, ErrInput, "replicas"},
-		{"empty model key", clone(func(m map[string]any) { m["kagent"].(map[string]any)["modelKeySecret"] = "managed" }), nil, ErrEmptySecret, "kagent.modelKey"},
-		{"unknown secret value", base, map[string]string{"kagent.modelKey": "x"}, ErrUnknownSecret, "kagent.modelKey"},
+		{"empty model key", clone(func(m map[string]any) { m["kagent"].(map[string]any)["modelKeySecret"] = "managed" }), nil, ErrEmptySecret, fieldModelKey},
+		{"unknown secret value", base, map[string]string{fieldModelKey: "x"}, ErrUnknownSecret, fieldModelKey},
 		{"klaus-gateway on a customer", clone(func(m map[string]any) { m["klausGateway"] = map[string]any{"enabled": true} }), secrets, ErrPolicy, "klaus-gateway"},
 		{"login pin on a customer", clone(func(m map[string]any) { m["identity"] = map[string]any{"loginConnectorId": "x"} }), secrets, ErrPolicy, "identity.loginConnectorId"},
 		{"hub outputs", clone(func(m map[string]any) {

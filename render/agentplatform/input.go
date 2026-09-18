@@ -34,6 +34,10 @@ var (
 	ErrNotRendered = errors.New("agent-platform: not rendered by this definition")
 )
 
+// fieldModelKey is the supplied secret field carrying the model provider key
+// when kagent.modelKeySecret is managed.
+const fieldModelKey = "kagent.modelKey"
+
 // Input is the typed form of definitions/agent-platform/schema.json. The
 // schema is the contract; this struct is how the renderer reads it.
 type Input struct {
@@ -403,7 +407,7 @@ func (in *Input) check(secrets map[string]string) error {
 func (in *Input) suppliedSecretFields() []string {
 	var fields []string
 	if in.Kagent.Enabled && in.Kagent.ModelKeySecret == "managed" {
-		fields = append(fields, "kagent.modelKey")
+		fields = append(fields, fieldModelKey)
 	}
 	for _, s := range in.ToolAccess.AdditionalServers {
 		if s.Auth.Mode == "oauth" {

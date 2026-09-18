@@ -289,7 +289,7 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 		add(dexClientSecretFile("kagent"), dexClientSecret("kagent", "kagent-dex-client-secret"))
 		if in.Kagent.ModelKeySecret == "managed" {
 			add("kagent-anthropic-key.yaml", render.Secret("kagent-anthropic-key", kagentNamespace, team,
-				render.ValueKey("ANTHROPIC_API_KEY", secrets["kagent.modelKey"])))
+				render.ValueKey("ANTHROPIC_API_KEY", secrets[fieldModelKey])))
 		}
 	}
 	for _, hub := range in.Federation.Hubs {
