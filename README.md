@@ -200,6 +200,30 @@ Flags, each with an environment variable (`--listen` / `LISTEN`, `--mcp-path` / 
 them. The chart in [`helm/giantswarm-platform-manager`](helm/giantswarm-platform-manager/README.md)
 sets them from its values.
 
+## platformctl
+
+`platformctl` is the laptop and CI surface, built from `cmd/platformctl` in this repository and attached
+to every release as `platformctl-<os>-<arch>` (Linux, macOS and Windows on amd64 and arm64, each with its
+cosign bundle) next to the image and the chart. It has no logic of its own:
+
+- `platformctl template <shape> --inputs <file> [--out <dir>]` renders a capability's fileset locally by
+  importing the [render library](render/README.md) — no token, no network. The inputs document carries
+  `input` (the definition's inputs) and `secrets` (the values you supply); it is the document of the golden
+  filesets, and the output is their tree — `<owner>/<repo>/<path>` per file, `includes.txt` with the shared
+  kustomization entries — so `template` reproduces the goldens byte for byte. Shapes: `agent-platform`.
+- `platformctl installation list [<installation>…] [--customer <name>]`,
+  `platformctl installation enable <installation> <capability> --dry-run [--input k=v]… [--content]`,
+  `platformctl installation reconcile <installation>|--all <capability> --dry-run [--input k=v]… [--content]`,
+  `platformctl action get <name>` and `platformctl action list [--installation <name>] [--capability <name>]`
+  call the manager's tools and format the answers for a terminal; `--output json` prints the manager's
+  answer as it is, for CI. `--input kagent.enabled=true` nests dotted keys into the tool's `inputs`; a value
+  that parses as JSON is that value, anything else a string. `--commit` and `installation verify` follow
+  the manager's `mode: commit` and `verify_capability`.
+- The calls go through `muster agent --mcp-server`, muster's own bridge: it takes the aggregator from
+  muster's configuration (`--endpoint` names another) and signs you in to muster when needed. A manager
+  you have not connected yet answers with its sign-in URL and exit code 3; `muster auth login --server
+  giantswarm-platform-manager` is the same sign-in.
+
 ## Render library
 
 `render/` turns an installation's capability inputs into the files of its GitOps repositories, with no I/O of its own; see [render/README.md](render/README.md).
@@ -220,5 +244,7 @@ sets them from its values.
   (`tests/oauth-values.yaml`) and lab (`tests/lab-oauth-values.yaml`) values.
 - `make docker-build` — a local image; CI builds and publishes the multi-arch image and the chart on
   every tag.
+- `make build-platformctl` — the CLI for this machine; CI cross-compiles it and attaches the binaries to
+  the release (`go-build-platformctl` and `upload-platformctl` in `.circleci/custom.yml`).
 
 Public repository: every fixture uses invented installation names and placeholder values.
