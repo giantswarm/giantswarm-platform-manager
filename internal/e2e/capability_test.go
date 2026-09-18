@@ -92,7 +92,7 @@ func TestEnableCapabilityDryRunRendersOneInstallation(t *testing.T) {
 	if p.State != installations.StateNotEnabled || p.CommitRefused != "" || p.Refused != "" || p.OptIn == nil || p.OptIn.State != installations.OptedIn {
 		t.Fatalf("plan head: state %q commitRefused %q refused %q optIn %+v", p.State, p.CommitRefused, p.Refused, p.OptIn)
 	}
-	if len(p.Files) < 15 || p.Diff[plan.ChangeCreate] != len(p.Files) {
+	if len(p.Files) < 15 || p.Diff[plan.ChangeUpdate] != 1 || p.Diff[plan.ChangeCreate] != len(p.Files)-1 {
 		t.Fatalf("files: %d, diff %v", len(p.Files), p.Diff)
 	}
 	for _, f := range p.Files {
@@ -124,7 +124,7 @@ func TestEnableCapabilityDryRunRendersOneInstallation(t *testing.T) {
 	for _, d := range p.DexClients {
 		muster = muster || (d.Client == "muster" && d.ID == "muster-rowan" && d.SecretRef == "dex-client-muster")
 	}
-	if !muster || len(p.SuppliedSecrets) != 0 || len(p.Probes) == 0 || len(p.Includes) == 0 || p.Includes[0].Repository != acmeMCs {
+	if !muster || len(p.SuppliedSecrets) != 0 || len(p.Probes) == 0 || len(p.Includes) == 0 || p.Includes[0].Repository != acmeMCs || p.Includes[0].List != plan.ListResources || p.Includes[0].Change != plan.ChangeUpdate {
 		t.Fatalf("dex clients %+v, supplied %v, probes %d, includes %+v", p.DexClients, p.SuppliedSecrets, len(p.Probes), p.Includes)
 	}
 }
@@ -211,7 +211,7 @@ func TestReconcileCapabilityDryRunOverTheSet(t *testing.T) {
 		t.Fatalf("skipped: %+v", out.Skipped)
 	}
 	hazel := findPlan(t, out, hub)
-	if hazel.Diff[plan.ChangeUpdate] != 1 || hazel.Diff[plan.ChangeCreate] != len(hazel.Files)-1 || hazel.Files[0].Content != "" {
+	if hazel.Diff[plan.ChangeUpdate] != 1 || hazel.Diff[plan.ChangeUnchanged] != 1 || hazel.Diff[plan.ChangeCreate] != len(hazel.Files)-2 || hazel.Files[0].Content != "" {
 		t.Fatalf("hazel diff %v, first file %+v", hazel.Diff, hazel.Files[0])
 	}
 	seen := map[string]int{}

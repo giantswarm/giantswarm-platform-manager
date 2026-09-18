@@ -261,11 +261,22 @@ type target struct {
 	exists map[string]bool
 }
 
+// targetAt is repository's target, made on first use.
+func targetAt(targets map[string]*target, repository string) *target {
+	tg := targets[repository]
+	if tg == nil {
+		tg = &target{exists: map[string]bool{}}
+		targets[repository] = tg
+	}
+	return tg
+}
+
 // targetsOf pairs the render with the supplied values against the plan (the
 // render with markers): only files that change are committed, a secret file
 // that exists on record is never generated again, and a plain file must be
 // byte-identical to the plan — a supplied value never lands outside a
-// secret file.
+// secret file. A kustomization the includes land in is committed as the
+// plan edited it, read as the caller now.
 func targetsOf(p plan.Installation, rendered render.Fileset, inst, hub installations.Installation) (map[string]*target, error) {
 	planned := map[string]plan.File{}
 	for _, f := range p.Files {
@@ -285,17 +296,26 @@ func targetsOf(p plan.Installation, rendered render.Fileset, inst, hub installat
 			if !sopsenc.IsSecretFile(path) && string(f.Content) != pf.Content {
 				return nil, fmt.Errorf("%s:%s is a plain file and a supplied value would land in it; nothing is committed", resolved, path)
 			}
-			tg := out[resolved]
-			if tg == nil {
-				tg = &target{exists: map[string]bool{}}
-				out[resolved] = tg
-			}
+			tg := targetAt(out, resolved)
 			tg.exists[path] = pf.Change == plan.ChangeUpdate
 			sf := sopsenc.File{Path: path, Content: f.Content}
 			for _, g := range f.Generated {
 				sf.Generated = append(sf.Generated, sopsenc.Generated{Name: g.Name, Placeholder: g.Placeholder, Kind: sopsenc.Kind(g.Kind), Length: g.Length})
 			}
 			tg.files = append(tg.files, sf)
+		}
+	}
+	for _, inc := range p.Includes {
+		pf, ok := planned[inc.Repository+":"+inc.Path]
+		if !ok {
+			return nil, fmt.Errorf("%s:%s lists %s but the kustomization is not in the plan", inc.Repository, inc.Path, inc.Resource)
+		}
+		if pf.Change != plan.ChangeUpdate {
+			continue
+		}
+		if tg := targetAt(out, inc.Repository); !tg.exists[inc.Path] {
+			tg.exists[inc.Path] = true
+			tg.files = append(tg.files, sopsenc.File{Path: inc.Path, Content: []byte(pf.Content)})
 		}
 	}
 	for _, tg := range out {
