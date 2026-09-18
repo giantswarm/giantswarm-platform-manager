@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/giantswarm/giantswarm-platform-manager/main/definitions/customer-portal/schema.json",
   "title": "customer-portal definition inputs",
-  "description": "The closed input set of the customer-portal capability: an installation's own developer portal, released from the fleet's backstage bases into extras/backstage of its management-clusters repository, signing people in on the installation's Dex. The renderer turns these inputs into the portal's fileset — the two kustomizations, the app-config and values ConfigMaps, the Secrets the chart reads its credentials from, the plugin signing keys, the tunnel's SPIFFE bundle reference — and, on an installation without the agent platform, the portal's Dex client in the installation's dex-app configmap patch. A key an installation carries that no input renders and that removals.yaml does not list refuses the render, naming the key. Annotations: x-source says where a value comes from (registry: read from the installations registry, never typed; person: typed by the person enabling or reconciling; generated: created by the engine once and read back from the checkout afterwards). x-feature names the consistency feature of features.yaml the input's dimensions roll up to. x-renders lists the key paths the input produces, prefixed by the file: backstage:kustomization (extras/backstage/kustomization.yaml and extras/backstage/backstage/kustomization.yaml), backstage:app-config (the app-config ConfigMap's backstage.appConfig), backstage:user-values (the user-values ConfigMap), backstage:file (a file of the portal's directory), dex-configmap (the dex-app configmap patch). List indices are written [*], per-installation map keys <name>. A default is declared only where every portal agrees.",
+  "description": "The closed input set of the customer-portal capability: an installation's own developer portal, released from the fleet's backstage bases into extras/backstage of its management-clusters repository, signing people in on the installation's Dex. The renderer turns these inputs into the portal's fileset — the two kustomizations (without apiVersion and kind, as the fleet writes them, over the fleet's backstage bases in their single-slash URL form), the app-config and values ConfigMaps, the Secrets the chart reads its credentials from, the plugin signing keys, the tunnel's SPIFFE bundle reference — and, on an installation without the agent platform, the portal's Dex client in the installation's dex-app configmap patch. A key an installation carries that no input renders and that removals.yaml does not list refuses the render, naming the key. Annotations: x-source says where a value comes from (registry: read from the installations registry, never typed; person: typed by the person enabling or reconciling; generated: created by the engine once and read back from the checkout afterwards). x-feature names the consistency feature of features.yaml the input's dimensions roll up to. x-renders lists the key paths the input produces, prefixed by the file: backstage:kustomization (extras/backstage/kustomization.yaml and extras/backstage/backstage/kustomization.yaml), backstage:app-config (the app-config ConfigMap's backstage.appConfig), backstage:user-values (the user-values ConfigMap), backstage:file (a file of the portal's directory), dex-configmap (the dex-app configmap patch). List indices are written [*], per-installation map keys <name>. A default is declared only where every portal agrees.",
   "type": "object",
   "additionalProperties": false,
   "required": ["installation", "portal", "chart", "plugins", "tunnel"],
@@ -11,7 +11,7 @@
       "type": "object",
       "description": "Facts about the installation that are on record. Read from the installations registry; never typed.",
       "additionalProperties": false,
-      "required": ["name", "baseDomain", "customer", "provider", "region", "pipeline", "agentPlatform"],
+      "required": ["name", "baseDomain", "customer", "provider", "pipeline", "agentPlatform"],
       "properties": {
         "name": {
           "type": "string",
@@ -27,7 +27,7 @@
         },
         "customer": {"type": "string", "description": "The owning organisation as the management-clusters and configs repositories name it.", "x-source": "registry", "x-feature": "portal", "x-renders": []},
         "provider": {"type": "string", "enum": ["capa", "capz", "capv", "cloud-director"], "description": "The infrastructure provider, shown on the installation entry.", "x-source": "registry", "x-feature": "portal", "x-renders": ["backstage:app-config:gs.installations.<name>.providers[*]"]},
-        "region": {"type": "string", "description": "The installation's region, shown on the installation entry.", "x-source": "registry", "x-feature": "portal", "x-renders": ["backstage:app-config:gs.installations.<name>.region"]},
+        "region": {"type": "string", "description": "The installation's region, shown on the installation entry; a provider without regions (cloud-director) has none and the entry carries no region.", "x-source": "registry", "x-feature": "portal", "x-renders": ["backstage:app-config:gs.installations.<name>.region"]},
         "pipeline": {"type": "string", "description": "The installation's release pipeline (stable, testing), shown on the installation entry.", "x-source": "registry", "x-feature": "portal", "x-renders": ["backstage:app-config:gs.installations.<name>.pipeline"]},
         "agentPlatform": {
           "type": "boolean",
@@ -41,7 +41,7 @@
       "type": "object",
       "description": "The portal as the person names it.",
       "additionalProperties": false,
-      "required": ["domain", "organization", "supportUrl"],
+      "required": ["domain", "organization"],
       "properties": {
         "domain": {
           "type": "string", "format": "hostname",
@@ -51,7 +51,7 @@
         },
         "title": {"type": "string", "default": "Dev Portal", "description": "The portal's title.", "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:app-config:app.title"]},
         "organization": {"type": "string", "description": "The organisation's name as the portal shows it.", "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:app-config:organization.name"]},
-        "supportUrl": {"type": "string", "format": "uri", "description": "Where the home page's support link goes: the customer's support channel.", "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:app-config:gs.homepage.resources[*]"]},
+        "supportUrl": {"type": "string", "format": "uri", "description": "Where the home page's support link goes: the customer's support channel. Without it, no home page resources block.", "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:app-config:gs.homepage.resources[*]"]},
         "telemetrydeckAppId": {"type": "string", "description": "The TelemetryDeck app the portal reports usage to; the salt is generated. Without it, no telemetry block.", "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:app-config:app.telemetrydeck"]}
       }
     },

@@ -32,7 +32,7 @@ const (
 	// dexNamespace is where the installation's Dex runs and reads client Secrets.
 	dexNamespace = "giantswarm"
 	// basesRepository is the fleet base the extras reference.
-	basesRepository = "https://github.com/giantswarm/management-cluster-bases//extras/backstage/"
+	basesRepository = "https://github.com/giantswarm/management-cluster-bases/extras/backstage/"
 	// releaseName is the portal's HelmRelease and OCIRepository.
 	releaseName = "backstage"
 	// portalDir is the portal's directory under extras/.
@@ -70,9 +70,6 @@ const (
 	// fileHeader opens every rendered YAML file.
 	fileHeader = "# Rendered by giantswarm-platform-manager, customer-portal definition. Do not edit by hand:\n# the next reconcile writes it again from the installation's inputs.\n"
 )
-
-// teamLabels mark the platform team's Secrets.
-var teamLabels = map[string]string{"application.giantswarm.io/team": "bumblebee"}
 
 // Render turns an installation's inputs into its fileset. raw is the decoded
 // input document (map[string]any at the top, as a YAML or JSON decoder returns
@@ -124,10 +121,10 @@ func (in *Input) authProvider() string { return render.PortalAuthProvider(in.Ins
 
 // extrasKustomization is extras/backstage/kustomization.yaml: the fleet's
 // backstage base (the namespace), the portal's directory and, with the
-// platform enabled, the agent-platform definition's Component.
+// platform enabled, the agent-platform definition's Component. As the fleet
+// writes its portal kustomizations, without apiVersion and kind.
 func (in *Input) extrasKustomization() render.File {
-	k := render.Map{e("apiVersion", "kustomize.config.k8s.io/v1beta1"), e("kind", "Kustomization"),
-		e("resources", []string{basesRepository + "base?ref=main", "./" + portalDir + "/"})}
+	k := render.Map{e("resources", []string{basesRepository + "base?ref=main", "./" + portalDir + "/"})}
 	if in.Installation.AgentPlatform {
 		k = append(k, e("components", []string{render.PortalPlatformComponent()}))
 	}
@@ -169,8 +166,7 @@ func (in *Input) portalFiles(r *render.Result, repo render.Repository, dir strin
 	releasePatch := render.Map{e("apiVersion", "helm.toolkit.fluxcd.io/v2"), e("kind", "HelmRelease"),
 		e("metadata", render.Map{e("name", releaseName), e("namespace", fluxNamespace)}),
 		e("spec", render.Map{e("valuesFrom", sources)})}
-	k := render.Map{e("apiVersion", "kustomize.config.k8s.io/v1beta1"), e("kind", "Kustomization"),
-		e("resources", resources),
+	k := render.Map{e("resources", resources),
 		e("patches", []render.Map{
 			{e("patch", string(render.MustYAML(ociPatch))), e("target", render.Map{e("kind", "OCIRepository"), e("name", releaseName), e("namespace", fluxNamespace)})},
 			{e("patch", string(render.MustYAML(releasePatch))), e("target", render.Map{e("kind", "HelmRelease"), e("name", releaseName), e("namespace", fluxNamespace)})},
@@ -187,9 +183,10 @@ func configMap(name, key string, value any) render.Map {
 
 // valuesSecret renders a Secret whose single key values carries chart values
 // as YAML text, with the generated placeholders in it listed for the commit
-// step.
+// step. No labels: the fleet's portal Secrets carry none, and a Secret file
+// on record is never generated again.
 func valuesSecret(name string, values render.Map, generated ...render.Generated) render.File {
-	f := render.Secret(name, fluxNamespace, teamLabels, render.ValueKey("values", string(render.MustYAML(values))))
+	f := render.Secret(name, fluxNamespace, nil, render.ValueKey("values", string(render.MustYAML(values))))
 	f.Generated = append(f.Generated, generated...)
 	return f
 }
