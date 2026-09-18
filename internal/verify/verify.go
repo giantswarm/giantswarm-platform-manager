@@ -197,7 +197,7 @@ type fileDiff struct {
 // compare renders the inputs on record, reads every rendered file as the
 // caller and names each difference an input or drift.
 func compare(ctx context.Context, opts Options) (*comparison, error) {
-	base, res, err := renderFlat(opts)
+	base, res, in, err := renderFlat(opts)
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +206,7 @@ func compare(ctx context.Context, opts Options) (*comparison, error) {
 	for _, files := range res.Files {
 		for path, f := range files {
 			if strings.HasSuffix(path, "/apps/dex-app/configmap-values.yaml.patch") {
-				c.dexClients = plan.DexClients(f.Content)
+				c.dexClients = plan.DexClients(f.Content, in)
 			}
 		}
 	}
@@ -234,14 +234,14 @@ func compare(ctx context.Context, opts Options) (*comparison, error) {
 
 // renderFlat renders values through the definition and flattens every file
 // to its YAML leaves, by file key in the registry's repositories.
-func renderFlat(opts Options) (map[string]map[string]string, *render.Result, error) {
+func renderFlat(opts Options) (map[string]map[string]string, *render.Result, *agentplatform.Input, error) {
 	in, err := agentplatform.Parse(opts.Inputs.Values)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	res, err := agentplatform.Render(opts.Inputs.Values, in.SuppliedMarkers())
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	out := map[string]map[string]string{}
 	for repo, files := range res.Files {
@@ -250,7 +250,7 @@ func renderFlat(opts Options) (map[string]map[string]string, *render.Result, err
 			out[fileKey(target, path)] = flattenYAML(string(f.Content))
 		}
 	}
-	return out, res, nil
+	return out, res, in, nil
 }
 
 // drivenPaths names, for every rendered leaf an input drives, the input that
@@ -268,7 +268,7 @@ func drivenPaths(opts Options, base map[string]map[string]string) map[string]str
 		for _, alt := range perturbations(l.value) {
 			raw := deepCopy(opts.Inputs.Values)
 			set(raw, l.path, alt)
-			other, _, err := renderFlat(Options{Installation: opts.Installation, Hub: opts.Hub, Inputs: Inputs{Values: raw}})
+			other, _, _, err := renderFlat(Options{Installation: opts.Installation, Hub: opts.Hub, Inputs: Inputs{Values: raw}})
 			if err != nil {
 				continue
 			}

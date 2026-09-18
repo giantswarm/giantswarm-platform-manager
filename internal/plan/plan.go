@@ -56,12 +56,18 @@ type GeneratedSecret struct {
 	Files  []string `json:"files"`
 }
 
-// DexClient is one client the dex patch declares, with its redirect URIs.
+// DexClient is one Dex client the rendered dex patch touches. An extra static
+// client is declared whole: id, name, redirect URIs and the reference to its
+// Secret. A built-in client of the dex-app chart (muster, mcpKubernetes) has
+// its id and redirect URI rendered by the fleet's shared template; the patch
+// adds only the Secret reference, so Client names the chart's key and ID is
+// filled where the installation's record knows the client id.
 type DexClient struct {
-	ID           string   `json:"id"`
+	ID           string   `json:"id,omitempty"`
+	Client       string   `json:"client,omitempty"`
 	Name         string   `json:"name,omitempty"`
 	Public       bool     `json:"public,omitempty"`
-	Secret       string   `json:"secret,omitempty"`
+	SecretRef    string   `json:"secretRef,omitempty"`
 	RedirectURIs []string `json:"redirectURIs,omitempty"`
 	TrustedPeers []string `json:"trustedPeers,omitempty"`
 }
@@ -184,7 +190,7 @@ func Build(ctx context.Context, opts Options) Installation {
 			p.Diff[pf.Change]++
 			p.Files = append(p.Files, pf)
 			if strings.HasSuffix(path, "/apps/dex-app/configmap-values.yaml.patch") {
-				p.DexClients = DexClients(f.Content)
+				p.DexClients = DexClients(f.Content, in)
 			}
 		}
 	}
@@ -340,9 +346,10 @@ func customerActions(installation string, in *agentplatform.Input) []CustomerAct
 	return out
 }
 
-// DexClients reads the clients of the rendered dex patch: the static clients
-// by key and the extra static clients by id, each with its redirect URIs.
-func DexClients(patch []byte) []DexClient {
+// DexClients reads the clients of the rendered dex patch: the built-in
+// clients by the chart's key, with the id the input knows, and the extra
+// static clients as declared.
+func DexClients(patch []byte, in *agentplatform.Input) []DexClient {
 	var doc struct {
 		OIDC struct {
 			StaticClients      yaml.Node `yaml:"staticClients"`
@@ -371,10 +378,11 @@ func DexClients(patch []byte) []DexClient {
 			TrustedPeers []string `yaml:"trustedPeers"`
 		}
 		_ = doc.OIDC.StaticClients.Content[i+1].Decode(&body)
-		out = append(out, DexClient{ID: doc.OIDC.StaticClients.Content[i].Value, Secret: body.ClientSecretRef.Name, RedirectURIs: body.RedirectURIs, TrustedPeers: body.TrustedPeers})
+		key := doc.OIDC.StaticClients.Content[i].Value
+		out = append(out, DexClient{ID: in.BuiltInDexClientID(key), Client: key, SecretRef: body.ClientSecretRef.Name, RedirectURIs: body.RedirectURIs, TrustedPeers: body.TrustedPeers})
 	}
 	for _, c := range doc.OIDC.ExtraStaticClients {
-		out = append(out, DexClient{ID: c.ID, Name: c.Name, Public: c.Public, Secret: c.SecretRef.Name, RedirectURIs: c.RedirectURIs, TrustedPeers: c.TrustedPeers})
+		out = append(out, DexClient{ID: c.ID, Name: c.Name, Public: c.Public, SecretRef: c.SecretRef.Name, RedirectURIs: c.RedirectURIs, TrustedPeers: c.TrustedPeers})
 	}
 	return out
 }

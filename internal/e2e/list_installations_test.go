@@ -93,7 +93,7 @@ func fixtures(g *fakeGitHub) {
 	g.addRepo(acmeConfigs, map[string]string{
 		installations.ConfigPatchPath("alder"):                 "codename: alder\nbase: acme.test\n",
 		installations.ConfigPatchPath("birch"):                 "codename: birch\nbase: acme.test\nmanagementCluster:\n  private: true\n",
-		installations.ConfigPatchPath("rowan"):                 "codename: rowan\nbase: acme.test\n",
+		installations.ConfigPatchPath("rowan"):                 "codename: rowan\nbase: acme.test\nservices:\n  muster:\n    clientId: muster-rowan\n",
 		installations.Capabilities()[0].EnabledMarker("birch"): "configmap: {}\n",
 	})
 	g.addRepo("example/umbrella-management-clusters", map[string]string{installations.OptInPath("willow"): "optIn: false\n"})
