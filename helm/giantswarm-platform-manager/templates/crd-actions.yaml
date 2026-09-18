@@ -61,6 +61,12 @@ spec:
                   description: enable or reconcile.
                   type: string
                   enum: [enable, reconcile]
+                customer:
+                  description: The target is a customer installation; the notice channel is told of the review.
+                  type: boolean
+                change:
+                  description: The plan's change in one clause, as the review states it; never a value.
+                  type: string
                 installations:
                   description: The installations of the set, in the wave's order.
                   type: array
@@ -75,7 +81,7 @@ spec:
                 state:
                   description: The action's state, one of the installations' states an action produces, or refused (the opt-in gate refused it before any write).
                   type: string
-                  enum: ["pending approval", "rolling out", "waiting for the customer", enabled, drifted, failed, refused]
+                  enum: ["pending approval", "rolling out", "waiting for the customer", enabled, drifted, failed, refused, denied]
                 pullRequests:
                   type: array
                   items:
@@ -86,11 +92,15 @@ spec:
                       number: {type: integer}
                       url: {type: string}
                       state: {type: string}
+                      head: {type: string}
+                      headSha: {type: string}
                 approval:
                   type: object
                   properties:
                     channel: {type: string}
                     reviewId: {type: string}
+                    noticeChannel: {type: string}
+                    postedAt: {type: string, format: date-time}
                     decision: {type: string}
                     decidedBy: {type: string}
                     reason: {type: string}

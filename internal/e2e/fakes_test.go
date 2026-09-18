@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"maps"
@@ -8,10 +9,14 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/giantswarm/gitops-commit/commit"
 )
 
 // fakeGitHub answers the calls of the identity chain and the registry reads:
@@ -55,7 +60,7 @@ func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{message: badCredentials})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"login": login, "id": userID(login)})
+		writeJSON(w, http.StatusOK, map[string]any{"login": login, "id": userID(login), "email": login + "@example.test"})
 	})
 	mux.HandleFunc("GET /api/v3/repos/{owner}/{repo}", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := g.logins[bearer(r)]; !ok {
@@ -242,4 +247,119 @@ func (rt rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	r2.Header.Set(probeHostHeader, req.URL.Host)
 	r2.URL.Scheme, r2.URL.Host, r2.Host = u.Scheme, u.Host, u.Host
 	return http.DefaultTransport.RoundTrip(r2)
+}
+
+// fixtureSA is the projected ServiceAccount token the manager under test
+// reads from its token file and the fake gateway accepts.
+const fixtureSA = "sa-fixture-for-klaus-gateway"
+
+// errorKey is the key of the fake gateway's error bodies.
+const errorKey = "error"
+
+// fakeReview is one review the fake gateway received, as the manager sent it.
+type fakeReview struct {
+	ID      string
+	Body    map[string]any
+	Results []map[string]any
+}
+
+// fakeGateway stands in for klaus-gateway's team-review endpoint: POST
+// /reviews answers a receipt, POST /reviews/{id}/results appends to the
+// review's thread — 404 for a review it does not hold (forgotten, as after a
+// restart on the memory store). Any other bearer than fixtureSA is 401.
+type fakeGateway struct {
+	*httptest.Server
+	mu      sync.Mutex
+	reviews []*fakeReview
+	next    int
+}
+
+func newFakeGateway(t *testing.T) *fakeGateway {
+	t.Helper()
+	g := &fakeGateway{}
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /reviews", func(w http.ResponseWriter, r *http.Request) {
+		if bearer(r) != fixtureSA {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{errorKey: "unauthorized"})
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
+			return
+		}
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		g.next++
+		rv := &fakeReview{ID: "rev-" + strconv.Itoa(g.next), Body: body}
+		g.reviews = append(g.reviews, rv)
+		receipt := map[string]any{"id": rv.ID, "channel": body["channel"], "ts": "1700000000.000100"}
+		if body["noticeChannel"] != nil {
+			receipt["notice_ts"] = "1700000000.000099"
+		}
+		writeJSON(w, http.StatusCreated, receipt)
+	})
+	mux.HandleFunc("POST /reviews/{id}/results", func(w http.ResponseWriter, r *http.Request) {
+		if bearer(r) != fixtureSA {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{errorKey: "unauthorized"})
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		for _, rv := range g.reviews {
+			if rv.ID == r.PathValue("id") {
+				rv.Results = append(rv.Results, body)
+				writeJSON(w, http.StatusCreated, map[string]any{"id": rv.ID, "channel": rv.Body["channel"], "ts": "1700000000.000200"})
+				return
+			}
+		}
+		writeJSON(w, http.StatusNotFound, map[string]any{errorKey: "no such review"})
+	})
+	g.Server = httptest.NewServer(mux)
+	t.Cleanup(g.Close)
+	return g
+}
+
+// posted returns every review received, oldest first.
+func (g *fakeGateway) posted() []fakeReview {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	out := make([]fakeReview, 0, len(g.reviews))
+	for _, rv := range g.reviews {
+		out = append(out, *rv)
+	}
+	return out
+}
+
+// forget drops the gateway's record of review id, as a restart would.
+func (g *fakeGateway) forget(id string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.reviews = slices.DeleteFunc(g.reviews, func(rv *fakeReview) bool { return rv.ID == id })
+}
+
+// asRemote is the remote the manager under test opens with a person's token:
+// gitops-commit's Fake, with the identity behind each approval, close and
+// merge recorded on the stack — what "as the member" and "as the actor" mean.
+type asRemote struct {
+	commit.Remote
+	login string
+	st    *stack
+}
+
+func (r asRemote) Approve(ctx context.Context, pr commit.PullRequest, body string) error {
+	r.st.record(r.login, commit.OpApprove, pr)
+	return r.Remote.Approve(ctx, pr, body)
+}
+
+func (r asRemote) Close(ctx context.Context, pr commit.PullRequest, deleteBranch bool) error {
+	r.st.record(r.login, commit.OpClose, pr)
+	return r.Remote.Close(ctx, pr, deleteBranch)
+}
+
+func (r asRemote) Merge(ctx context.Context, pr commit.PullRequest) error {
+	r.st.record(r.login, commit.OpMerge, pr)
+	return r.Remote.Merge(ctx, pr)
 }
