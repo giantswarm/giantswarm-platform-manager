@@ -1,0 +1,51 @@
+{{- if .Values.muster.mcpServer.enabled }}
+{{- /*
+Registers this server with muster. Tools appear as x_<name>_<tool>. With
+oauth.enabled the CR pins the GitHub App giantswarm-platform-manager as the
+authorization server: muster runs the consent once per person, stores and
+refreshes their user token and puts it on every call as the bearer, which this
+server verifies with GET /user and acts with. The pin carries a scope
+parameter only when one is set: GitHub takes none, an authorization server
+that needs one (a Dex in a lab) gets it. Without OAuth muster connects
+anonymously and nothing acts as a person.
+*/}}
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: {{ .Values.muster.mcpServer.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    muster.giantswarm.io/type: giantswarm-platform-manager
+    {{- include "giantswarm-platform-manager.labels" . | nindent 4 }}
+    {{- with .Values.muster.mcpServer.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  autoStart: {{ .Values.muster.mcpServer.autoStart }}
+  type: streamable-http
+  timeout: {{ .Values.muster.mcpServer.timeout }}
+  url: {{ include "giantswarm-platform-manager.serviceURL" . }}{{ .Values.mcp.path }}
+  {{- with .Values.muster.mcpServer.description }}
+  description: {{ . | quote }}
+  {{- end }}
+  {{- if .Values.oauth.enabled }}
+  {{- with .Values.muster.mcpServer.auth.authorizationServer }}
+  auth:
+    type: oauth
+    authorizationServer:
+      issuer: {{ .issuer | quote }}
+      {{- with .expectedIssuer }}
+      expectedIssuer: {{ . | quote }}
+      {{- end }}
+      authorizationEndpoint: {{ .authorizationEndpoint | quote }}
+      tokenEndpoint: {{ .tokenEndpoint | quote }}
+      {{- with .scopes }}
+      scopes: {{ . | quote }}
+      {{- end }}
+      clientCredentialsSecretRef:
+        name: {{ .clientCredentialsSecretRef.name | quote }}
+        namespace: {{ .clientCredentialsSecretRef.namespace | default $.Release.Namespace | quote }}
+      grantScope: {{ .grantScope | quote }}
+  {{- end }}
+  {{- end }}
+{{- end }}

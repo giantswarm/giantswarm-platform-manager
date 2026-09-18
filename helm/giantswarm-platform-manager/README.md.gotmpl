@@ -1,0 +1,19 @@
+{{ template "chart.header" . }}
+{{ template "chart.deprecationWarning" . }}
+
+{{ template "chart.description" . }}
+
+The chart deploys the server as one Deployment behind a ClusterIP Service. The
+server holds no state and no token of its own: behind muster every request
+carries the person's GitHub user token — their authorization of the GitHub App
+`giantswarm-platform-manager`, pinned as the authorization server on the
+`MCPServer` the chart renders with `muster.mcpServer.enabled` and
+`oauth.enabled` — and every write lands as that person.
+
+Giant Swarm-specific: it manages the giantswarm org's installations and ships
+as its own app on the hub installation, not as a component of the
+`agent-platform` meta chart.
+
+{{ template "chart.requirementsSection" . }}
+
+{{ template "chart.valuesSection" . }}
