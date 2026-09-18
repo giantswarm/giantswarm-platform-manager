@@ -52,6 +52,11 @@ const (
 	githubAppFile   = "github-app-credentials.enc.yaml" // #nosec G101 -- a file name, not a value
 	pluginKeysFile  = "plugin-keys-secret.enc.yaml"     // #nosec G101 -- a file name, not a value
 	tunnelFile      = "tunnelport-spiffe-bundle.yaml"
+	// tunnelBundleName is the Secret the tunnel bundle lands in and the
+	// volume the chart mounts it from; tunnelBundleMount is where the
+	// portal's Node runtime reads it.
+	tunnelBundleName  = "tunnelport-spiffe-bundle"
+	tunnelBundleMount = "/app/tunnelport-spiffe-bundle"
 	// dexClientFile is the portal's Dex client Secret; the name matches the
 	// fleet's .sops.yaml rules (.*(secret|credential).*) and the directory's
 	// .enc.yaml convention.
@@ -252,10 +257,12 @@ func (in *Input) dexPatch() render.Map {
 }
 
 // userValues is user-values-backstage: the portal's route on the
-// installation's gateway. backstage.extraEnvVars is the agent-platform
-// definition's list and is not set here.
+// installation's gateway and, with the tunnel on, the SPIFFE bundle's volume
+// and mount — the chart mounts nothing of its own, so the portal's Node
+// runtime finds the bundle only through them. backstage.extraEnvVars is the
+// agent-platform definition's list and is not set here.
 func (in *Input) userValues() render.Map {
-	return render.Map{e("route", render.Map{
+	values := render.Map{e("route", render.Map{
 		e("enabled", true),
 		e("parentRefs", []render.Map{{e("name", "giantswarm-default"), e("namespace", "envoy-gateway-system")}}),
 		e("hostnames", []string{in.Portal.Domain}),
@@ -274,6 +281,14 @@ func (in *Input) userValues() render.Map {
 			}),
 		}),
 	})}
+	if in.Tunnel.Enabled {
+		// A directory mount, no subPath, so a refreshed bundle reaches the file.
+		values = append(values, e("backstage", render.Map{
+			e("extraVolumes", []render.Map{{e("name", tunnelBundleName), e("secret", render.Map{e("secretName", tunnelBundleName)})}}),
+			e("extraVolumeMounts", []render.Map{{e("name", tunnelBundleName), e("mountPath", tunnelBundleMount), e("readOnly", true)}}),
+		}))
+	}
+	return values
 }
 
 // tunnelBundle is tunnelport-spiffe-bundle.yaml: the tunnel's SPIFFE trust

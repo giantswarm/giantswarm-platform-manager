@@ -21,6 +21,7 @@ features:
       - {id: gs-homepage-and-installation, kind: backstage, key: app-config gs.homepage.resources / gs.installations.<name>}
       - {id: route, kind: backstage, key: user-values route}
       - {id: tunnel-bundle, kind: backstage, key: file tunnelport-spiffe-bundle.yaml}
+      - {id: tunnel-mount, kind: backstage, key: user-values backstage.extraVolumeMounts}
       - {id: live-helmrelease-ready, kind: live, key: HelmRelease backstage Ready in flux-giantswarm}
       - {id: live-pods-running, kind: live, key: the portal's pods Running in namespace backstage}
       - {id: live-portal-root, kind: live, key: / answered 200}

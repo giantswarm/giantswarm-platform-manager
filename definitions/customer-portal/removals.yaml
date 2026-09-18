@@ -27,9 +27,10 @@ removals:
   - {key: "backstage:app-config:gs.containerRegistry", kind: not-rendered, reason: the hub's registry access}
   - {key: "backstage:app-config:gs.installations.<name>", kind: not-rendered, reason: an installation other than this one is the hub's registry of the installations it federates; this definition renders the installation's own entry only}
   - {key: "backstage:app-config:backend.actions", kind: not-rendered, reason: the hub's action plugin sources and filters}
-  - {key: "backstage:app-config:backend.database.client", kind: not-rendered, reason: the hub runs on Postgres; a customer portal runs on the in-memory database}
+  - {key: "backstage:app-config:backend.database", kind: not-rendered, reason: the hub runs on Postgres with its connection and plugin division; a customer portal runs on the in-memory database this definition renders}
 
   # --- Backstage user-values.yaml ---
+  - {key: "backstage:user-values:database", kind: not-rendered, reason: the hub's Postgres engine and volume; a customer portal runs on the in-memory database}
   - {key: "backstage:user-values:google", kind: other-definition, reason: a Vertex chat's Google project and location are the agent-platform Component's values}
   - {key: "backstage:user-values:backstage.extraEnvVars", kind: other-definition, reason: the avatars image source is the agent-platform Component's values, appended last to the HelmRelease's sources so its list wins}
   - {key: "backstage:user-values:backstage.extraAppConfig", kind: other-definition, reason: the platform's fragment mount is the agent-platform Component's values}
