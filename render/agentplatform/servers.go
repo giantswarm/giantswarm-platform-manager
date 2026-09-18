@@ -178,7 +178,7 @@ func (s serverDefinition) extras(result *render.Result, repo render.Repository, 
 		resources = append(resources, dexClientSecretFile(s.name))
 		result.Add(repo, dir+"/"+dexClientSecretFile(s.name), dexClientSecret(s.name, valueName))
 	}
-	k := kustomizationDoc{APIVersion: "kustomize.config.k8s.io/v1beta1", Kind: "Kustomization", Resources: resources}
+	k := kustomizationDoc{APIVersion: kustomizationAPIVersion, Kind: kustomizationKind, Resources: resources}
 	if privateURLs {
 		result.Add(repo, dir+"/"+userValuesFile, yamlFile(s.privateURLValues(in.Installation.Private)))
 		k.withUserValues(s.name)
@@ -196,6 +196,9 @@ func (s serverDefinition) extras(result *render.Result, repo render.Repository, 
 		render.GeneratedKey(valkeyAuthKey, valkeyValue, render.Alphanumeric, 32),
 	))
 }
+
+// The kustomize Kustomization's API version and kind.
+const kustomizationAPIVersion, kustomizationKind = "kustomize.config.k8s.io/v1beta1", "Kustomization"
 
 // kustomizationDoc is a kustomize Kustomization: the resources and, where a
 // directory carries user values, the ConfigMap generated from them and the
@@ -249,6 +252,6 @@ func (k *kustomizationDoc) withUserValues(helmRelease string) {
 // kustomization renders a kustomize Kustomization listing resources.
 func kustomization(resources ...string) []byte {
 	return append([]byte(fileHeader), render.MustYAML(kustomizationDoc{
-		APIVersion: "kustomize.config.k8s.io/v1beta1", Kind: "Kustomization", Resources: resources,
+		APIVersion: kustomizationAPIVersion, Kind: kustomizationKind, Resources: resources,
 	})...)
 }

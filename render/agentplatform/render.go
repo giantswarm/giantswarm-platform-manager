@@ -316,7 +316,7 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 		Resources  []string `yaml:"resources"`
 		Patches    []patch  `yaml:"patches,omitempty"`
 	}
-	k := kustomizationWithPatches{APIVersion: "kustomize.config.k8s.io/v1beta1", Kind: "Kustomization",
+	k := kustomizationWithPatches{APIVersion: kustomizationAPIVersion, Kind: kustomizationKind,
 		Resources: []string{basesRepository + "agent-platform?ref=main", "./secrets"}}
 	if in.Chart.Semver != "" {
 		k.Patches = []patch{{
