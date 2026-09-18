@@ -10,10 +10,12 @@ import (
 )
 
 const (
-	templateCmd   = "template"
-	kagentEnabled = "kagent.enabled=true"
-	agentPlatform = installations.AgentPlatform
-	publicInput   = "../../render/agentplatform/testdata/public-customer/input.yaml"
+	templateCmd     = "template"
+	installationCmd = "installation"
+	actionCmd       = "action"
+	kagentEnabled   = "kagent.enabled=true"
+	agentPlatform   = installations.AgentPlatform
+	publicInput     = "../../render/agentplatform/testdata/public-customer/input.yaml"
 )
 
 func TestNest(t *testing.T) {
@@ -63,7 +65,7 @@ func TestNestRefusals(t *testing.T) {
 }
 
 func TestUsage(t *testing.T) {
-	installation := func(sub string, rest ...string) []string { return append([]string{"installation", sub}, rest...) }
+	installation := func(sub string, rest ...string) []string { return append([]string{installationCmd, sub}, rest...) }
 	tmpl := func(rest ...string) []string { return append([]string{templateCmd}, rest...) }
 	for _, c := range []struct {
 		args []string
@@ -72,13 +74,22 @@ func TestUsage(t *testing.T) {
 	}{
 		{nil, exitUsage, "platformctl template <shape>"},
 		{[]string{"nonsense"}, exitUsage, `"nonsense" is not a command`},
-		{[]string{"installation"}, exitUsage, "needs one of its subcommands"},
-		{installation("enable", "hazel", agentPlatform), exitUsage, "--dry-run is required"},
-		{installation("enable", "hazel"), exitUsage, "installation enable <installation> <capability> --dry-run"},
+		{[]string{installationCmd}, exitUsage, "needs one of its subcommands"},
+		{installation("enable", "hazel", agentPlatform), exitUsage, "one of --dry-run and --commit"},
+		{installation("enable", "hazel", agentPlatform, "--dry-run", "--commit"), exitUsage, "one of --dry-run and --commit"},
+		{installation("enable", "hazel"), exitUsage, "installation enable <installation> <capability> --dry-run|--commit"},
 		{installation("reconcile", "--all", "hazel", agentPlatform, "--dry-run"), exitUsage, "<installation>|--all <capability>"},
+		{installation("enable", "--all", "hazel", agentPlatform, "--commit"), exitUsage, "flag provided but not defined: -all"},
+		{installation("enable", "hazel", agentPlatform, "--dry-run", "--secret", "kagent.modelKey=env:KEY"), exitUsage, "--secret goes with --commit"},
+		{installation("enable", "hazel", agentPlatform, "--commit", "--secret", "kagent.modelKey=PLACEHOLDER-TYPED-VALUE"), exitUsage, "--secret kagent.modelKey: " + secretSyntax},
+		{installation("enable", "hazel", agentPlatform, "--commit", "--secret", "kagent.modelKey=env:UNSET_FOR_THIS_TEST"), exitError, "UNSET_FOR_THIS_TEST is not set"},
+		{installation("verify", "hazel"), exitUsage, "installation verify <installation> <capability>"},
 		{installation("list", "--output", "yaml"), exitUsage, "--output is text or json"},
-		{[]string{"action", "get"}, exitUsage, "action get <name>"},
-		{[]string{"action", "list", "extra"}, exitUsage, "action list ["},
+		{[]string{actionCmd, "get"}, exitUsage, "action get <name>"},
+		{[]string{actionCmd, "list", "extra"}, exitUsage, "action list ["},
+		{[]string{actionCmd, "approve"}, exitUsage, "action approve <name>"},
+		{[]string{actionCmd, "deny", "enable-hazel-abc123"}, exitUsage, "action deny <name> --reason <text>"},
+		{[]string{actionCmd, "merge", "one", "two"}, exitUsage, "action merge <name>"},
 		{tmpl(agentPlatform), exitUsage, "--inputs <file>"},
 		{tmpl("cluster", "--inputs", publicInput), exitError, "not a capability definition"},
 		{tmpl(agentPlatform, "--inputs", "/nonexistent"), exitError, "no such file"},

@@ -26,10 +26,14 @@ const usage = `platformctl — the laptop and CI surface of giantswarm-platform-
       Render a capability's fileset locally from an inputs document (` + "`input`" + ` and ` + "`secrets`" + `);
       no token, no network. Without --out the files are printed.
   platformctl installation list [<installation>...] [--customer <name>]
-  platformctl installation enable <installation> <capability> --dry-run [--input k=v]... [--content]
-  platformctl installation reconcile <installation>|--all <capability> --dry-run [--input k=v]... [--content]
+  platformctl installation enable <installation> <capability> --dry-run|--commit [--input k=v]... [--secret f=src]... [--content]
+  platformctl installation reconcile <installation>|--all <capability> --dry-run|--commit [--input k=v]... [--secret f=src]... [--content]
+  platformctl installation verify <installation> <capability>
   platformctl action get <name>
   platformctl action list [--installation <name>] [--capability <name>]
+  platformctl action approve <name>
+  platformctl action deny <name> --reason <text>
+  platformctl action merge <name>
   platformctl version
 
 The installation and action commands call the manager's tools through muster's own
@@ -42,6 +46,14 @@ bridge (muster agent --mcp-server), which signs you in to muster when needed. Th
 
 --input kagent.enabled=true nests dotted keys into the tool's inputs; a value that parses as
 JSON is that value (true, 3, ["hazel"]), anything else is a string.
+
+--dry-run renders the change and writes nothing; --commit is the manager's mode commit: the pull
+requests opened as you, the Team review asked — for one installation the action, for reconcile
+--all the wave over the set, one action rolled out a stage per merge. --secret <field>=@<file>,
+<field>=env:<NAME> or <field>=- (stdin, one field) supplies a secret the plan's suppliedSecrets
+name; the value is sent once, never printed, and never taken from the command line.
+verify prints the features of the definition with their marks and dimensions. approve, deny and
+merge are the review's tools called as you; the manager's answer says what follows.
 
 Exit codes: 0 done; 1 the tool refused or the call failed; 2 usage; 3 sign in required.
 `
@@ -78,9 +90,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "template":
 		return cmdTemplate(args[1:], stdout, stderr)
 	case "installation":
-		return group("installation", args[1:], stdout, stderr, map[string]leaf{"list": cmdInstallationList, "enable": cmdEnable, "reconcile": cmdReconcile})
+		return group("installation", args[1:], stdout, stderr, map[string]leaf{"list": cmdInstallationList, "enable": cmdEnable, "reconcile": cmdReconcile, "verify": cmdVerify})
 	case "action":
-		return group("action", args[1:], stdout, stderr, map[string]leaf{"get": cmdActionGet, "list": cmdActionList})
+		return group("action", args[1:], stdout, stderr, map[string]leaf{"get": cmdActionGet, "list": cmdActionList, "approve": cmdActionApprove, "deny": cmdActionDeny, "merge": cmdActionMerge})
 	case "version":
 		say(stdout, "%s\n", version.String())
 		return exitOK
