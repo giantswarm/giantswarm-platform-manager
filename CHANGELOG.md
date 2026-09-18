@@ -36,6 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The write framework: `dryRun` and `mode` on every write tool, `mode: apply` refused for every write tool before it runs, `mode: commit` as the caller.
 - The Helm chart with the oauth-pinned `MCPServer`, the Dockerfile, and the muster scenario harness with a mock authorization server and a fake GitHub `/user` in CI.
 
+### Fixed
+
+- The Action CRD declares the actor's `email`: the API server pruned it on create, so the review was posted without its actor and the gateway's own actor check never engaged — the actor's Approve was refused one hop later, by the manager. A test holds the CRD to every field the Action types write.
+
 ### Security
 
 - Bumped `google.golang.org/grpc` to v1.83.1 (GHSA-2v4p-qf9q-27wj, GHSA-vp52-pcj8-j9qc, GHSA-qc2q-p7wx-3px3) and the `go.opentelemetry.io/otel` modules to v1.45.0 (GHSA-8wmf-6v46-5gfg); both are indirect dependencies reached through sops.
