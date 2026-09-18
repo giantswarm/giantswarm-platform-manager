@@ -97,3 +97,16 @@ func newClient(apiURL string, opts ...github.ClientOptionsFunc) (*github.Client,
 	}
 	return c, nil
 }
+
+// DefaultBranch is the branch owner/repo's pull requests land on, read as the
+// person: the base of every branch this manager pushes.
+func DefaultBranch(ctx context.Context, c *github.Client, owner, repo string) (string, error) {
+	r, _, err := c.Repositories.Get(ctx, owner, repo)
+	if err != nil {
+		return "", fmt.Errorf("%s/%s: %w", owner, repo, classify(err))
+	}
+	if r.GetDefaultBranch() == "" {
+		return "", fmt.Errorf("%s/%s: GitHub named no default branch", owner, repo)
+	}
+	return r.GetDefaultBranch(), nil
+}

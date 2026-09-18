@@ -2,11 +2,13 @@
 // manager's API group on the hub, one per enablement or reconcile a person
 // commits — who asked for what on which installations, the pull requests,
 // the approval, the rollout, the probes and the result. get_action and
-// list_actions read it; commit creates it. The chart ships the CRD.
+// list_actions read it; commit creates it and moves its state. The chart
+// ships the CRD.
 package actions
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"slices"
@@ -20,6 +22,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
+
+	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 )
 
 // The API group and version of the Action, as the chart's CRD declares them.
@@ -229,4 +233,88 @@ func Unstructured(a Action) *unstructured.Unstructured {
 // Includes says whether the action names installation.
 func (a Action) Includes(installation string) bool {
 	return slices.Contains(a.Spec.Installations, installation)
+}
+
+// The states an Action carries in status.state. pending approval, rolling
+// out, waiting for the customer, enabled, drifted and failed are the
+// installations' states an action produces (installations.State); refused is
+// the action's own: the opt-in gate refused it before any write, and the
+// installation's state read from its repositories stands.
+const (
+	StatePendingApproval = string(installations.StatePendingApproval)
+	StateFailed          = string(installations.StateFailed)
+	StateRefused         = "refused"
+)
+
+// The kinds of an action, spec.kind.
+const (
+	KindEnable    = "enable"
+	KindReconcile = "reconcile"
+)
+
+// PullRequestOpen is the state of a pull request the action opened and no
+// one has merged or closed.
+const PullRequestOpen = "open"
+
+// Writer creates Actions and moves their status; commit writes with it, as
+// the manager's own ServiceAccount.
+type Writer interface {
+	// Create stores a new Action; its name must be unique in the namespace.
+	Create(ctx context.Context, a Action) (*Action, error)
+	// UpdateStatus replaces the status of the Action called name.
+	UpdateStatus(ctx context.Context, name string, s Status) (*Action, error)
+}
+
+// Store reads and writes Actions: what the tools run with.
+type Store interface {
+	Reader
+	Writer
+}
+
+// Create stores a new Action.
+func (c *Client) Create(ctx context.Context, a Action) (*Action, error) {
+	a.Namespace = c.ns
+	if a.CreatedAt.IsZero() {
+		a.CreatedAt = time.Now()
+	}
+	u, err := c.c.Resource(GVR).Namespace(c.ns).Create(ctx, Unstructured(a), metav1.CreateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("actions: create %s/%s: %w", c.ns, a.Name, err)
+	}
+	// The status subresource is written apart from the object: a Create
+	// carries none, so the initial status follows in its own write.
+	if _, err := c.UpdateStatus(ctx, a.Name, a.Status); err != nil {
+		return nil, err
+	}
+	return fromUnstructured(u)
+}
+
+// UpdateStatus replaces the status of the Action called name.
+func (c *Client) UpdateStatus(ctx context.Context, name string, s Status) (*Action, error) {
+	res := c.c.Resource(GVR).Namespace(c.ns)
+	u, err := res.Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("actions: status of %s/%s: %w", c.ns, name, err)
+	}
+	status, _ := runtime.DefaultUnstructuredConverter.ToUnstructured(&s)
+	u.Object["status"] = status
+	u, err = res.UpdateStatus(ctx, u, metav1.UpdateOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("actions: update status of %s/%s: %w", c.ns, name, err)
+	}
+	return fromUnstructured(u)
+}
+
+// NewName is a fresh Action name: <kind>-<installation>-<six random
+// lowercase alphanumerics>, a DNS label the API server accepts.
+func NewName(kind, installation string) (string, error) {
+	const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+	suffix := make([]byte, 6)
+	if _, err := rand.Read(suffix); err != nil {
+		return "", fmt.Errorf("actions: name: %w", err)
+	}
+	for i, b := range suffix {
+		suffix[i] = alphabet[int(b)%len(alphabet)]
+	}
+	return kind + "-" + installation + "-" + string(suffix), nil
 }

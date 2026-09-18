@@ -14,10 +14,11 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
+	"sync"
 	"testing"
 
+	"github.com/giantswarm/gitops-commit/commit"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -59,19 +60,43 @@ type stack struct {
 	srv    *httptest.Server
 	// dyn is the fake hub API server the Action records are seeded into.
 	dyn dynamic.Interface
+	// remote is gitops-commit's in-process remote the commits land on.
+	remote *commit.Fake
+	// logs is everything the server logged at Info and above.
+	logs *syncBuffer
 	// committedAs is the caller the test write's Commit ran as.
 	committedAs string
 }
 
+// syncBuffer is a bytes.Buffer the server's log handler and the test share.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
+
 func newStack(t *testing.T) *stack {
 	t.Helper()
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	st := &stack{ghs: newFakeGitHub(t, map[string]string{aliceToken: alice}), probes: newFakeProbes(t),
+	logs := &syncBuffer{}
+	log := slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	st := &stack{ghs: newFakeGitHub(t, map[string]string{aliceToken: alice}), probes: newFakeProbes(t), remote: commit.NewFake(), logs: logs,
 		dyn: dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{actions.GVR: actions.Kind + "List"})}
 	apiURL := st.ghs.URL + "/api/v3"
 	ts := tools.New(tools.Deps{Version: testVersion, GitHubAPIURL: apiURL, AuthorizationServer: server.DefaultAuthorizationServer, Log: log,
 		Actions:     actions.New(st.dyn, actionsNamespace),
 		Probes:      st.probes.client(),
+		Remote:      func(string) (commit.Remote, error) { return st.remote, nil },
 		Approvals:   tools.Approvals{GatewayURL: "http://klaus-gateway.test:8080", Channel: "platform-approvals"},
 		Definitions: []tools.Definition{{Name: "example-capability", Description: "a fixture", InputSchema: json.RawMessage(`{"type":"object"}`)}},
 		Registry:    registrySources})

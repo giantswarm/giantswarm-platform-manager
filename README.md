@@ -41,13 +41,38 @@ Behind muster the tools appear as `x_giantswarm-platform-manager_<tool>`.
 |---|---|---|
 | `get_info` | read | The version, the caller (login and id), the pinned authorization server, the capability definitions with their input schemas, the write modes, the write tools, the approval channel configuration and the tools still to come. Call first. |
 | `list_installations` | read | Every installation of the registry with, per capability, its state, the inputs on record and the last action; the opt-in declaration read at call time. `installations` (names) and `customer` narrow the answer. |
-| `enable_capability` | write | Enable a capability on one installation (`installation`) or a set (`installations`): with `dryRun: true` the plan — files per repository with the change each one is against the repository now, pull requests in dependency order, generated secrets by name, Dex clients and redirect URIs, the secrets the person supplies at commit (by field), customer actions, probes. `inputs` are the definition's typed inputs over the facts on record. |
+| `enable_capability` | write | Enable a capability on one installation (`installation`) or a set (`installations`): with `dryRun: true` the plan — files per repository with the change each one is against the repository now, pull requests in dependency order, generated secrets by name, Dex clients and redirect URIs, the secrets the person supplies at commit (by field), customer actions, probes. `inputs` are the definition's typed inputs over the facts on record. With `mode: "commit"` and one `installation`: the opt-in gate, the Action in *pending approval*, the pull requests as the person (see [The commit](#the-commit)); `secrets` carries the supplied values by field. |
 | `reconcile_capability` | write | The same render over a set (empty: every installation of the registry), every file compared with the repository: all *unchanged* is an empty diff. Installations not opted in are listed as *skipped*. |
 | `get_action`, `list_actions` | read | The Action records on the hub: one per enablement or reconcile a person commits — actor, installations, capability, inputs, pull requests, approval, rollout, probes, result. |
 | `verify_capability` | planned | The extension point the next slice fills; `get_info` lists it as `plannedTools` until it is registered. |
 
-`mode: "commit"` of the two write tools — the pull requests as the person and the Action on the hub — is
-not implemented yet; the tools answer so, and `dryRun: true` is the way to use them today.
+## The commit
+
+`mode: "commit"` of the two write tools takes **one** `installation` (a set is the dry run's) and runs, in
+this order, writing nothing before the gate:
+
+1. **The opt-in gate** — the one condition the manager checks itself: `management-clusters/<name>/platform-manager.yaml`
+   in the installation's management-clusters repository, read as the person at call time, never cached. Absent,
+   `optIn: false` or unreadable refuses the commit naming the installation and the file, and records the refusal
+   as an Action in state *refused* (the installation's state read from its repositories stands). A withdrawn
+   opt-in stops the next action.
+2. **The plan**, as the dry run renders it; a definition's refusal, a file that could not be compared as the
+   person, or a supplied secret left out of `secrets` (or one the plan does not ask for) refuses the commit
+   before any write. Every file on record already: nothing to commit, no Action.
+3. **The Action** — created in *pending approval* with the actor, the capability, the installation and the
+   inputs (never a secret value: `secrets` is its own argument and lands nowhere but the encrypted files).
+4. **The files**: the plan rendered again with the supplied values; a plain file must be byte-identical to the
+   plan (a value never lands outside a secret file), the secret files get their generated values and are
+   encrypted with gitops-commit's `sopsenc` for the recipients of the repository's `.sops.yaml` (read as the
+   person; a repository without one refuses the commit). A secret file on record is never generated again.
+5. **The pull requests** through gitops-commit, as the person, in dependency order (configs before
+   management-clusters), one commit per repository, on branch `platform/<action>/<installation>` with the action
+   id in the title and body. The Action records them and stays in *pending approval*: the approval, the merge
+   and the rollout follow in a later version. A failure on the way moves the Action to *failed* with the pull
+   requests opened so far.
+
+The answer is the Action, the pull requests and the plan; no secret value appears in it, in a log or in a
+pull request. The manager holds no token of its own: `GITHUB_API_URL` is the GitHub the person's token goes to.
 
 ## The dry run
 
@@ -81,12 +106,14 @@ namespaced, on the hub in the manager's namespace, read and written with the man
 the record is the manager's, not the person's. `spec` is written once (`actor`, `capability`, `kind`
 enable|reconcile, `installations` in the wave's order, `inputs`); `status` is a subresource (`state` — one
 of *pending approval*, *rolling out*, *waiting for the customer*, *enabled*, *drifted*, *failed* —
-`pullRequests`, `approval`, `rollout`, `probes`, `result`). `get_action` and `list_actions` read it;
+`pullRequests`, `approval`, `rollout`, `probes`, `result`; *refused* is the gate's own state). `get_action`
+and `list_actions` read it; `mode: "commit"` creates it and moves its state;
 `list_installations` carries the newest Action of an installation and capability as `lastAction`, and an
 unfinished or failed action's state stands over the state read from the files. The chart renders the CRD,
 a Role over `actions` and `actions/status` in the release namespace and its binding (`actions.enabled`,
 `actions.installCRD`), and hands the namespace to the server as `ACTIONS_NAMESPACE`; without it
-`get_action` and `list_actions` refuse with the reason and `get_info` reports `actions.configured: false`.
+`get_action`, `list_actions` and `mode: "commit"` refuse with the reason and `get_info` reports
+`actions.configured: false`.
 
 Every write tool is registered through one framework, which owns two arguments:
 

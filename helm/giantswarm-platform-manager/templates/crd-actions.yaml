@@ -73,9 +73,9 @@ spec:
               type: object
               properties:
                 state:
-                  description: The action's state, one of the installations' states an action produces.
+                  description: The action's state, one of the installations' states an action produces, or refused (the opt-in gate refused it before any write).
                   type: string
-                  enum: ["pending approval", "rolling out", "waiting for the customer", enabled, drifted, failed]
+                  enum: ["pending approval", "rolling out", "waiting for the customer", enabled, drifted, failed, refused]
                 pullRequests:
                   type: array
                   items:
