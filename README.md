@@ -238,9 +238,11 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
   dimensions; `approve`, `deny` and `merge` are the review's tools called as you, the manager's answer
   saying what follows.
 - The calls go through `muster agent --mcp-server`, muster's own bridge: it takes the aggregator from
-  muster's configuration (`--endpoint` names another) and signs you in to muster when needed. A manager
-  you have not connected yet answers with its sign-in URL and exit code 3; `muster auth login --server
-  giantswarm-platform-manager` is the same sign-in.
+  muster's configuration (`--endpoint` names another) and signs you in to muster when needed. The bridge
+  exposes muster's meta tools only, so every manager tool is called through its `call_tool` and the
+  answer read out of the document `call_tool` returns. A manager you have not connected yet answers with
+  its sign-in URL and exit code 3; `muster auth login --server giantswarm-platform-manager` is the same
+  sign-in.
 
 ## Render library
 

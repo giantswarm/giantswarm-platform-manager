@@ -2,8 +2,11 @@
 // does: through muster's own CLI. `muster agent --mcp-server` is muster's
 // stdio-to-HTTP bridge — it takes the aggregator endpoint from muster's
 // configuration and runs the person's OAuth login when the aggregator asks for
-// one — and this package speaks MCP to it, nothing more. Behind muster the
-// manager's tools appear as x_<server>_<tool>; a server the person has not
+// one — and this package speaks MCP to it, nothing more. The bridge exposes
+// muster's meta tools only (call_tool, list_tools, describe_tool, …); the
+// aggregator's tools are one level down, behind call_tool {name, arguments},
+// which answers the tool's own result as one JSON document. Behind muster the
+// manager's tools are named x_<server>_<tool>; a server the person has not
 // connected yet exposes no tools, and muster's core_auth_login answers the
 // sign-in URL, which this package hands back as an AuthRequired error.
 package muster
@@ -31,6 +34,13 @@ const Server = tools.ToolPrefix
 
 // DefaultBinary is the muster CLI as found on PATH.
 const DefaultBinary = "muster"
+
+// The bridge's meta tool every aggregator tool is called through, and the
+// aggregator's own tool that connects a server for the person.
+const (
+	metaCallTool  = "call_tool"
+	toolAuthLogin = "core_auth_login"
+)
 
 // Options say how the bridge is started.
 type Options struct {
@@ -79,7 +89,7 @@ func Open(ctx context.Context, o Options) (*Session, error) {
 }
 
 // New initializes the MCP session over an already constructed client — the
-// bridge from Open, or an in-process server in tests.
+// bridge from Open, or an in-process bridge in tests.
 func New(ctx context.Context, c *client.Client) (*Session, error) {
 	if err := c.Start(ctx); err != nil {
 		return nil, fmt.Errorf("connect to muster: %w", err)
@@ -102,35 +112,79 @@ func (s *Session) Close() error { return s.c.Close() }
 // refusal is a *ToolError; a server the person has not connected yet is an
 // *AuthRequired carrying the sign-in URL muster answered.
 func (s *Session) Call(ctx context.Context, tool string, args map[string]any) (json.RawMessage, error) {
-	name := "x_" + Server + "_" + tool
-	req := mcp.CallToolRequest{}
-	req.Params.Name = name
-	req.Params.Arguments = args
-	res, err := s.c.CallTool(ctx, req)
+	res, err := s.call(ctx, "x_"+Server+"_"+tool, args)
 	if err != nil {
 		if auth := s.signIn(ctx); auth != nil {
 			return nil, auth
 		}
-		return nil, fmt.Errorf("%s: %w", name, err)
+		return nil, err
 	}
-	text := textOf(res)
 	if res.IsError {
 		if auth := s.signIn(ctx); auth != nil {
 			return nil, auth
 		}
-		return nil, &ToolError{Tool: tool, Message: text}
+		return nil, &ToolError{Tool: tool, Message: textOf(res)}
 	}
-	return json.RawMessage(text), nil
+	return json.RawMessage(textOf(res)), nil
+}
+
+// call runs one aggregator tool through the bridge's call_tool and returns
+// the tool's own result, unwrapped from the document call_tool answers. An
+// error is the bridge's or call_tool's own refusal — a tool it does not know,
+// a lost connection — never the tool's answer.
+func (s *Session) call(ctx context.Context, name string, args map[string]any) (*mcp.CallToolResult, error) {
+	req := mcp.CallToolRequest{}
+	req.Params.Name = metaCallTool
+	req.Params.Arguments = map[string]any{"name": name, "arguments": args}
+	res, err := s.c.CallTool(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", name, err)
+	}
+	return unwrap(name, res)
+}
+
+// envelope is what call_tool answers as its first text content: the called
+// tool's result serialized as one JSON document.
+type envelope struct {
+	IsError bool `json:"isError"`
+	Content []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	} `json:"content"`
+	StructuredContent any `json:"structuredContent"`
+}
+
+// unwrap reads the called tool's result out of call_tool's answer. The bridge
+// may append its own notices after the envelope; only the first text counts.
+func unwrap(name string, res *mcp.CallToolResult) (*mcp.CallToolResult, error) {
+	var text string
+	for _, c := range res.Content {
+		if t, ok := mcp.AsTextContent(c); ok {
+			text = t.Text
+			break
+		}
+	}
+	var e envelope
+	if err := json.Unmarshal([]byte(text), &e); err != nil || e.Content == nil {
+		if res.IsError {
+			return nil, fmt.Errorf("%s: %s", name, text)
+		}
+		return nil, fmt.Errorf("%s: muster's %s answered something other than a tool result: %q", name, metaCallTool, text)
+	}
+	out := &mcp.CallToolResult{IsError: e.IsError, StructuredContent: e.StructuredContent}
+	for _, c := range e.Content {
+		if c.Type == "text" {
+			out.Content = append(out.Content, mcp.NewTextContent(c.Text))
+		}
+	}
+	return out, nil
 }
 
 // signIn asks muster whether the manager is connected for this person: its
 // core_auth_login answers a challenge with the sign-in URL when it is not, and
 // something else when it is. Only a challenge is an AuthRequired.
 func (s *Session) signIn(ctx context.Context) *AuthRequired {
-	req := mcp.CallToolRequest{}
-	req.Params.Name = "core_auth_login"
-	req.Params.Arguments = map[string]any{"server": Server}
-	res, err := s.c.CallTool(ctx, req)
+	res, err := s.call(ctx, toolAuthLogin, map[string]any{"server": Server})
 	if err != nil || res.IsError {
 		return nil
 	}
