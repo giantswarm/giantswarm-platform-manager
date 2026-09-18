@@ -221,13 +221,22 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
   filesets, and the output is their tree — `<owner>/<repo>/<path>` per file, `includes.txt` with the shared
   kustomization entries — so `template` reproduces the goldens byte for byte. Shapes: `agent-platform`.
 - `platformctl installation list [<installation>…] [--customer <name>]`,
-  `platformctl installation enable <installation> <capability> --dry-run [--input k=v]… [--content]`,
-  `platformctl installation reconcile <installation>|--all <capability> --dry-run [--input k=v]… [--content]`,
-  `platformctl action get <name>` and `platformctl action list [--installation <name>] [--capability <name>]`
-  call the manager's tools and format the answers for a terminal; `--output json` prints the manager's
-  answer as it is, for CI. `--input kagent.enabled=true` nests dotted keys into the tool's `inputs`; a value
-  that parses as JSON is that value, anything else a string. `--commit` and `installation verify` follow
-  the manager's `mode: commit` and `verify_capability`.
+  `platformctl installation enable <installation> <capability> --dry-run|--commit [--input k=v]… [--secret f=src]… [--content]`,
+  `platformctl installation reconcile <installation>|--all <capability> --dry-run|--commit [--input k=v]… [--secret f=src]… [--content]`,
+  `platformctl installation verify <installation> <capability>`,
+  `platformctl action get <name>`, `platformctl action list [--installation <name>] [--capability <name>]`,
+  `platformctl action approve <name>`, `platformctl action deny <name> --reason <text>` and
+  `platformctl action merge <name>` call the manager's tools and format the answers for a terminal;
+  `--output json` prints the manager's answer as it is, for CI. `--input kagent.enabled=true` nests dotted
+  keys into the tool's `inputs`; a value that parses as JSON is that value, anything else a string.
+  `--dry-run` is the tool's `dryRun`; `--commit` its `mode: commit` — the pull requests opened as you, the
+  Team review asked: for one installation the action, for `reconcile --all` the wave over the set, one
+  action rolled out a stage per merge. `--secret <field>=@<file>`, `<field>=env:<NAME>` or
+  `<field>=-` (stdin, one field) supplies a secret the plan's `suppliedSecrets` name; the value is sent
+  once in the call's `secrets`, never printed, and never taken from the command line — a value typed there
+  is refused naming only the field. `verify` prints the definition's features with their marks and
+  dimensions; `approve`, `deny` and `merge` are the review's tools called as you, the manager's answer
+  saying what follows.
 - The calls go through `muster agent --mcp-server`, muster's own bridge: it takes the aggregator from
   muster's configuration (`--endpoint` names another) and signs you in to muster when needed. A manager
   you have not connected yet answers with its sign-in URL and exit code 3; `muster auth login --server

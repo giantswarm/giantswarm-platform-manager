@@ -12,6 +12,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/platformctl/muster"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 )
 
 // Invented installations and repositories, as in the manager's own fixtures.
@@ -183,3 +184,123 @@ var errClosed = &closedError{}
 type closedError struct{}
 
 func (*closedError) Error() string { return "closed" }
+
+func TestCommitNamesTheActionAndItsPullRequests(t *testing.T) {
+	r := tools.CommitResult{
+		Caller: someone, Tool: tools.ToolEnableCapability, Capability: agentPlatform, Hub: hazel, Installation: rowan,
+		Action: &actions.Action{Name: "enable-rowan-abc123", Status: actions.Status{State: actions.StatePendingApproval}},
+		Plan:   plan.Installation{Name: rowan, State: enabled, SuppliedSecrets: []string{"kagent.modelKey"}},
+		PullRequests: []actions.PullRequest{
+			{Repository: acmeConfigs, Number: 7, URL: "https://github.com/" + acmeConfigs + "/pull/7"},
+			{Repository: acmeMCs, Number: 8, URL: "https://github.com/" + acmeMCs + "/pull/8"},
+		},
+		UnchangedRepositories: []string{"giantswarm/acme-other"},
+		Next:                  "the Team review decides",
+	}
+	var buf bytes.Buffer
+	if err := Commit(&buf, r, false); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, buf.String(),
+		"enable_capability commit: agent-platform on rowan (hub hazel), as someone",
+		"Action: enable-rowan-abc123 (pending approval)",
+		"1. "+acmeConfigs+"#7 https://github.com/"+acmeConfigs+"/pull/7",
+		"2. "+acmeMCs+"#8",
+		"Nothing to commit in: giantswarm/acme-other",
+		"You supply at commit: kagent.modelKey",
+		"Next: the Team review decides")
+}
+
+func TestVerifyPrintsFeaturesWithMarksAndDimensions(t *testing.T) {
+	r := verify.Result{
+		Caller: someone, Installation: rowan, Capability: agentPlatform, Hub: hazel, State: "drifted",
+		Inputs:  verify.Inputs{Source: "action enable-rowan-abc123"},
+		Summary: map[verify.Mark]int{verify.AsDefined: 2, verify.Drifted: 1, verify.NotChecked: 1},
+		Features: []verify.Feature{
+			{ID: kagent, Title: "kagent, the agent runtime", Mark: verify.Drifted, Marks: map[verify.Mark]int{verify.AsDefined: 1, verify.Drifted: 1, verify.NotChecked: 1},
+				Dimensions: []verify.Dimension{
+					{ID: "runtime/patch-top-level-keys", Kind: "configmap", Key: "patch top-level keys", Mark: verify.Drifted,
+						Files:       []string{acmeConfigs + ":management-clusters/rowan/kagent.yaml"},
+						Differences: []verify.Difference{{File: acmeConfigs + ":management-clusters/rowan/kagent.yaml", Path: "spec.values.replicas", Rendered: "1", Current: "3"}}},
+					{ID: "runtime/private", Kind: "configmap", Key: "installation.private", Mark: verify.DiffersByInput,
+						Differences: []verify.Difference{{File: acmeConfigs + ":x.yaml", Path: "spec.private", Input: "installation.private", Rendered: "false", Current: "true"}}},
+					{ID: "kagent/live", Kind: "live", Key: "deployment", Mark: verify.NotChecked, Reason: verify.ReasonAuthority},
+					{ID: "oauth2-proxy-gate", Kind: "probe", Key: "gate", Mark: verify.AsDefined,
+						Probe: &verify.ProbeResult{Expect: []int{302, 403}, Requests: []verify.Request{{URL: "https://kagent.rowan.example/", Status: 302, OK: true}}}},
+					{ID: "dex-auth-request", Kind: "probe", Key: "dex", Mark: verify.Drifted,
+						Probe: &verify.ProbeResult{Expect: []int{302}, Requests: []verify.Request{{URL: "https://dex.rowan.example/auth", Client: kagent, Error: "dial tcp: timeout", OK: false}}}},
+				}},
+		},
+	}
+	var buf bytes.Buffer
+	if err := Verify(&buf, r); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, buf.String(),
+		"verify agent-platform on rowan (hub hazel), as someone",
+		"State: drifted   Inputs on record: action enable-rowan-abc123",
+		"Summary: 1 drifted, 2 as defined, 1 not checked",
+		"kagent, the agent runtime: drifted (1 drifted, 1 as defined, 1 not checked)",
+		"[drifted] runtime/patch-top-level-keys (configmap: patch top-level keys)",
+		"in "+acmeConfigs+":management-clusters/rowan/kagent.yaml",
+		"kagent.yaml spec.values.replicas: rendered \"1\", current \"3\" (drift)",
+		"x.yaml spec.private: rendered \"false\", current \"true\" (input installation.private)",
+		"[not checked] kagent/live (live: deployment) — "+verify.ReasonAuthority,
+		"expect 302|403",
+		"ok   https://kagent.rowan.example/ → 302",
+		"FAIL https://dex.rowan.example/auth (kagent) — dial tcp: timeout")
+}
+
+func TestDecisionAndMergeCarryTheMessageAndTheAction(t *testing.T) {
+	a := &actions.Action{Name: "enable-rowan-abc123", Spec: actions.Spec{Kind: actions.KindEnable, Capability: agentPlatform, Installations: []string{rowan}}, Status: actions.Status{State: actions.StatePendingApproval}}
+	var buf bytes.Buffer
+	if err := Decision(&buf, tools.Decision{Message: "approved by carol; the actor merges", Action: a}); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, buf.String(), "approved by carol; the actor merges", "Action enable-rowan-abc123", "State: pending approval")
+
+	buf.Reset()
+	m := tools.MergeResult{Message: "one merged, one waiting", Action: a,
+		Merged:  []actions.PullRequest{{Repository: acmeConfigs, Number: 7, URL: "https://github.com/" + acmeConfigs + "/pull/7"}},
+		Waiting: acmeMCs + "#8: checks pending"}
+	if err := Merge(&buf, m); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, buf.String(), "one merged, one waiting", "Merged by this call, in order:", acmeConfigs+"#7 https://", "Waiting: "+acmeMCs+"#8: checks pending", "Action enable-rowan-abc123")
+
+	buf.Reset()
+	if err := Decision(&buf, tools.Decision{Message: "denied"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := buf.String(); got != "denied\n" {
+		t.Errorf("a decision without an action prints only the message, got %q", got)
+	}
+}
+
+func TestWaveNamesTheOrderTheSkippedAndTheStages(t *testing.T) {
+	r := tools.WaveResult{
+		Caller: someone, Tool: tools.ToolReconcileCapability, Capability: agentPlatform, Hub: hazel,
+		Action:    &actions.Action{Name: "reconcile-wave-abc123", Status: actions.Status{State: actions.StatePendingApproval}},
+		Order:     []string{rowan, hazel},
+		Skipped:   []actions.Skipped{{Name: oak, Reason: "not opted in"}},
+		Unchanged: []string{"alder"},
+		PullRequests: []actions.PullRequest{
+			{Installation: rowan, Repository: acmeConfigs, Number: 7, URL: "https://github.com/" + acmeConfigs + "/pull/7"},
+			{Installation: hazel, Repository: acmeMCs, Number: 8, URL: "https://github.com/" + acmeMCs + "/pull/8"},
+		},
+		Next: "the Team review decides; merge rolls out one stage per call",
+	}
+	var buf bytes.Buffer
+	if err := Wave(&buf, r); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, buf.String(),
+		"reconcile_capability commit: agent-platform wave on hub hazel, as someone",
+		"Action: reconcile-wave-abc123 (pending approval)",
+		"Order: rowan, hazel",
+		"  oak: not opted in",
+		"Unchanged: alder",
+		"1. rowan: "+acmeConfigs+"#7 https://github.com/"+acmeConfigs+"/pull/7",
+		"2. hazel: "+acmeMCs+"#8",
+		"Next: the Team review decides; merge rolls out one stage per call")
+}

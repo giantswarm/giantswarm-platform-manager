@@ -17,6 +17,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/platformctl/muster"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 )
 
 // JSON writes the tool's document re-indented, as the manager answered it.
@@ -315,6 +316,189 @@ func filter(f actions.Filter) string {
 		return ""
 	}
 	return " for " + strings.Join(parts, ", ")
+}
+
+// Commit is mode commit of enable_capability or reconcile_capability: the
+// Action started, its pull requests in order, the plan they carry (markers,
+// never values) and what follows.
+func Commit(w io.Writer, r tools.CommitResult, content bool) error {
+	p := &printer{w: w}
+	p.f("%s commit: %s on %s (hub %s), as %s\n", r.Tool, r.Capability, r.Installation, dash(r.Hub), dash(r.Caller))
+	if a := r.Action; a != nil {
+		p.f("Action: %s (%s)\n", a.Name, dash(a.Status.State))
+	}
+	if len(r.PullRequests) > 0 {
+		p.f("Pull requests, in order:\n")
+		for i, pr := range r.PullRequests {
+			p.f("  %d. %s#%d %s\n", i+1, pr.Repository, pr.Number, pr.URL)
+		}
+	}
+	if len(r.UnchangedRepositories) > 0 {
+		p.f("Nothing to commit in: %s\n", strings.Join(r.UnchangedRepositories, ", "))
+	}
+	p.installation(r.Plan, content)
+	if r.Next != "" {
+		p.f("\nNext: %s\n", r.Next)
+	}
+	return p.err
+}
+
+// Wave is mode commit of reconcile_capability over a set: the one Action, the
+// rollout order, the installations skipped and unchanged, the pull requests
+// per stage and what follows.
+func Wave(w io.Writer, r tools.WaveResult) error {
+	p := &printer{w: w}
+	p.f("%s commit: %s wave on hub %s, as %s\n", r.Tool, r.Capability, dash(r.Hub), dash(r.Caller))
+	if a := r.Action; a != nil {
+		p.f("Action: %s (%s)\n", a.Name, dash(a.Status.State))
+	}
+	if len(r.Order) > 0 {
+		p.f("Order: %s\n", strings.Join(r.Order, ", "))
+	}
+	if len(r.Skipped) > 0 {
+		p.f("Skipped:\n")
+		for _, s := range r.Skipped {
+			p.f("  %s: %s\n", s.Name, s.Reason)
+		}
+	}
+	if len(r.Unchanged) > 0 {
+		p.f("Unchanged: %s\n", strings.Join(r.Unchanged, ", "))
+	}
+	if len(r.PullRequests) > 0 {
+		p.f("Pull requests, in order:\n")
+		for i, pr := range r.PullRequests {
+			p.f("  %d. %s: %s#%d %s\n", i+1, dash(pr.Installation), pr.Repository, pr.Number, pr.URL)
+		}
+	}
+	if r.Next != "" {
+		p.f("\nNext: %s\n", r.Next)
+	}
+	return p.err
+}
+
+// Verify is verify_capability: the state, the inputs on record, every feature
+// of the definition with its mark and, under it, its dimensions with theirs —
+// a difference names the file, the path and the input that drives it or
+// drift; a probe its requests.
+func Verify(w io.Writer, r verify.Result) error {
+	p := &printer{w: w}
+	p.f("verify %s on %s (hub %s), as %s\n", r.Capability, r.Installation, dash(r.Hub), dash(r.Caller))
+	p.f("State: %s   Inputs on record: %s\n", dash(string(r.State)), dash(r.Inputs.Source))
+	p.f("Summary: %s\n", marks(r.Summary))
+	if r.Refused != "" {
+		p.f("Refused: %s\n", r.Refused)
+	}
+	for _, f := range r.Features {
+		p.f("\n%s: %s (%s)\n", f.Title, f.Mark, marks(f.Marks))
+		for _, d := range f.Dimensions {
+			p.dimension(d)
+		}
+	}
+	return p.err
+}
+
+func (p *printer) dimension(d verify.Dimension) {
+	p.f("  [%s] %s (%s: %s)%s\n", d.Mark, d.ID, d.Kind, d.Key, reason(d.Reason))
+	if len(d.Files) > 0 {
+		p.f("      in %s\n", strings.Join(d.Files, ", "))
+	}
+	for _, diff := range d.Differences {
+		where := diff.File
+		if diff.Path != "" {
+			where += " " + diff.Path
+		}
+		cause := "drift"
+		if diff.Input != "" {
+			cause = "input " + diff.Input
+		}
+		p.f("      %s: rendered %q, current %q (%s)\n", where, diff.Rendered, diff.Current, cause)
+	}
+	if pr := d.Probe; pr != nil {
+		p.f("      expect %s\n", statuses(pr.Expect))
+		for _, req := range pr.Requests {
+			p.f("      %s %s%s%s\n", probeMark(req.OK), req.URL, client(req.Client), outcome(req))
+		}
+	}
+}
+
+// marks counts the marks in their severity order, the way the result rolls up.
+func marks(m map[verify.Mark]int) string {
+	var parts []string
+	for _, mark := range []verify.Mark{verify.Drifted, verify.DiffersByInput, verify.AsDefined, verify.NotChecked} {
+		if n := m[mark]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", n, mark))
+		}
+	}
+	if len(parts) == 0 {
+		return "none"
+	}
+	return strings.Join(parts, ", ")
+}
+
+func statuses(codes []int) string {
+	parts := make([]string, 0, len(codes))
+	for _, c := range codes {
+		parts = append(parts, fmt.Sprint(c))
+	}
+	return strings.Join(parts, "|")
+}
+
+func probeMark(ok bool) string {
+	if ok {
+		return "ok  "
+	}
+	return "FAIL"
+}
+
+func client(c string) string {
+	if c == "" {
+		return ""
+	}
+	return " (" + c + ")"
+}
+
+func outcome(req verify.Request) string {
+	if req.Error != "" {
+		return " — " + req.Error
+	}
+	return fmt.Sprintf(" → %d", req.Status)
+}
+
+// Decision is approve_action or deny_action: the manager's message, then the
+// Action as it stands.
+func Decision(w io.Writer, d tools.Decision) error {
+	p := &printer{w: w}
+	p.f("%s\n", d.Message)
+	return p.action(d.Action)
+}
+
+// Merge is merge_action: the manager's message, the pull requests this call
+// merged, where it stopped when it did, then the Action as it stands.
+func Merge(w io.Writer, r tools.MergeResult) error {
+	p := &printer{w: w}
+	p.f("%s\n", r.Message)
+	if len(r.Merged) > 0 {
+		p.f("Merged by this call, in order:\n")
+		for _, pr := range r.Merged {
+			p.f("  %s#%d %s\n", pr.Repository, pr.Number, pr.URL)
+		}
+	}
+	if r.Waiting != "" {
+		p.f("Waiting: %s\n", r.Waiting)
+	}
+	return p.action(r.Action)
+}
+
+// action appends the Action an answer carries, when it carries one.
+func (p *printer) action(a *actions.Action) error {
+	if p.err != nil || a == nil {
+		return p.err
+	}
+	p.f("\n")
+	if p.err != nil {
+		return p.err
+	}
+	return Action(p.w, *a)
 }
 
 // printer writes to w and keeps the first error; every function of this
