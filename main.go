@@ -20,6 +20,7 @@ import (
 	"syscall"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/approvals"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/server"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
@@ -29,7 +30,7 @@ import (
 type options struct {
 	listen, mcpPath, githubAPIURL string
 
-	approvalsURL, approvalsChannel string
+	approvalsURL, approvalsTeam, approvalsChannel, approvalsNoticeChannel, approvalsTokenFile string
 
 	registryRepository, registryPath, hub string
 
@@ -45,8 +46,11 @@ func parseFlags(args []string) (*options, error) {
 	f.StringVar(&o.listen, "listen", envOr("LISTEN", ":8080"), "Listen address (LISTEN)")
 	f.StringVar(&o.mcpPath, "mcp-path", envOr("MCP_PATH", "/mcp"), "MCP endpoint path (MCP_PATH)")
 	f.StringVar(&o.githubAPIURL, "github-api-url", envOr("GITHUB_API_URL", ""), "GitHub API base URL the caller's calls go to; empty is api.github.com (GITHUB_API_URL)")
-	f.StringVar(&o.approvalsURL, "approvals-url", envOr("APPROVALS_URL", ""), "klaus-gateway's base URL for the team-review endpoint the asks of a write go to; empty leaves the asks undelivered and get_info says so (APPROVALS_URL)")
-	f.StringVar(&o.approvalsChannel, "approvals-channel", envOr("APPROVALS_CHANNEL", ""), "The channel the asks land in, as the gateway names it (APPROVALS_CHANNEL)")
+	f.StringVar(&o.approvalsURL, "approvals-url", envOr("APPROVALS_URL", ""), "klaus-gateway's base URL for the team-review endpoint an action's review goes to; empty refuses mode commit and get_info says so (APPROVALS_URL)")
+	f.StringVar(&o.approvalsTeam, "approvals-team", envOr("APPROVALS_TEAM", ""), "The team whose members decide, as the gateway names it (APPROVALS_TEAM)")
+	f.StringVar(&o.approvalsChannel, "approvals-channel", envOr("APPROVALS_CHANNEL", ""), "The capability-owning team's channel the reviews land in (APPROVALS_CHANNEL)")
+	f.StringVar(&o.approvalsNoticeChannel, "approvals-notice-channel", envOr("APPROVALS_NOTICE_CHANNEL", ""), "The channel told of a review that targets a customer installation, without buttons (APPROVALS_NOTICE_CHANNEL)")
+	f.StringVar(&o.approvalsTokenFile, "approvals-token-file", envOr("APPROVALS_TOKEN_FILE", ""), "File with the projected ServiceAccount token, in the gateway's audience, the review requests carry (APPROVALS_TOKEN_FILE)")
 	f.StringVar(&o.registryRepository, "registry-repository", envOr("REGISTRY_REPOSITORY", "giantswarm/github"), "Repository (owner/repo) holding the installations catalog, read as the caller (REGISTRY_REPOSITORY)")
 	f.StringVar(&o.registryPath, "registry-path", envOr("REGISTRY_PATH", "catalog/installations.yaml"), "Path of the installations catalog in the registry repository (REGISTRY_PATH)")
 	f.StringVar(&o.hub, "hub", envOr("HUB_INSTALLATION", ""), "Name of the hub installation this manager runs on: its management-clusters repository holds the Dev Portal's app-config the registry also reads, and the hub side of every capability lands in its repositories (HUB_INSTALLATION)")
@@ -76,7 +80,7 @@ func main() {
 // run wires the components and serves until ctx is done.
 func run(ctx context.Context, o *options, log *slog.Logger) error {
 	deps := tools.Deps{Version: version.String(), GitHubAPIURL: o.githubAPIURL, Log: log, Remote: tools.GitHubRemote(o.githubAPIURL),
-		Approvals: tools.Approvals{GatewayURL: o.approvalsURL, Channel: o.approvalsChannel},
+		Approvals: approvals.Config{GatewayURL: o.approvalsURL, Team: o.approvalsTeam, Channel: o.approvalsChannel, NoticeChannel: o.approvalsNoticeChannel, TokenFile: o.approvalsTokenFile},
 		Registry:  installations.Sources{Catalog: installations.Location{Repository: o.registryRepository, Path: o.registryPath}, Hub: o.hub}}
 	if o.actionsNamespace != "" {
 		store, err := actions.InCluster(o.actionsNamespace)
@@ -84,6 +88,9 @@ func run(ctx context.Context, o *options, log *slog.Logger) error {
 			return err
 		}
 		deps.Actions = store
+	}
+	if err := deps.Approvals.Validate(); err != nil {
+		return err
 	}
 	cfg := server.Config{Addr: o.listen, MCPPath: o.mcpPath}
 	if o.oauthEnabled {

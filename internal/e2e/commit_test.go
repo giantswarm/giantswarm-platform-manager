@@ -28,7 +28,11 @@ const (
 	// scenario hunts for everywhere it must not appear.
 	modelKeyField = "kagent.modelKey"
 	modelKeyValue = "sk-fixture-model-key-4f9c1e"
-	willow        = "willow"
+	// managedModelKey is the modelKeySecret input that makes the manager generate and hold the key.
+	managedModelKey = "managed"
+	// modelKeySecretKey is the kagent input that says where the model key comes from.
+	modelKeySecretKey = "modelKeySecret"
+	willow            = "willow"
 )
 
 // leakMarkers must appear in no log, pull request, commit or committed file:
@@ -159,7 +163,7 @@ func TestCommitOpensPullRequestsAndPendsApproval(t *testing.T) {
 	sopsFixtures(t, st.ghs)
 	seedRemote(t, st)
 	c := st.mcpClient(t, aliceToken)
-	inputs := minimalInputs(map[string]any{kagentKey: map[string]any{enabledKey: true, "modelKeySecret": "managed"}})
+	inputs := minimalInputs(map[string]any{kagentKey: map[string]any{enabledKey: true, modelKeySecretKey: managedModelKey}})
 
 	if _, text, isErr := commitCall(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallations: []any{rowan}, tools.ArgInputs: inputs}); !isErr || !strings.Contains(text, "one installation") {
 		t.Fatalf("a set: %v %s", isErr, text)

@@ -30,16 +30,16 @@ func AsPerson(apiURL, accessToken string) (*github.Client, error) {
 
 // User is the person the token belongs to (GET /user): the call that verifies
 // a bearer. A refusal keeps GitHub's *github.ErrorResponse in the chain.
-func User(ctx context.Context, apiURL, accessToken string) (login string, id int64, err error) {
+func User(ctx context.Context, apiURL, accessToken string) (login string, id int64, email string, err error) {
 	c, err := AsPerson(apiURL, accessToken)
 	if err != nil {
-		return "", 0, err
+		return "", 0, "", err
 	}
 	u, _, err := c.Users.Get(ctx, "")
 	if err != nil {
-		return "", 0, fmt.Errorf("github: GET /user as the person: %w", err)
+		return "", 0, "", fmt.Errorf("github: GET /user as the person: %w", err)
 	}
-	return u.GetLogin(), u.GetID(), nil
+	return u.GetLogin(), u.GetID(), u.GetEmail(), nil
 }
 
 // ReadFile is the content of path on the default branch of owner/repo, read

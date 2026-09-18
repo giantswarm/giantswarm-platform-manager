@@ -64,12 +64,25 @@ actions:
 
 approvals:
   # -- klaus-gateway's base URL as reached from the pod (for example
-  # `http://klaus-gateway.agent-platform.svc:8080`): the team-review endpoint
-  # the asks a write raises go to. Empty leaves the asks undelivered; `get_info`
-  # reports `approvals.configured: false`.
+  # `http://klaus-gateway.agent-platform.svc:8080`): the team-review endpoint an
+  # action's approval request goes to. Empty refuses `mode: commit` (nothing is
+  # committed that no one can approve); `get_info` reports
+  # `approvals.configured: false`. The requests carry the pod's projected
+  # ServiceAccount token in the gateway's audience; the gateway's
+  # `reviews.allowedCallers` must name this ServiceAccount.
   gatewayURL: ""
-  # -- The channel the asks land in, as the gateway names it.
+  # -- The team whose members decide, as the gateway names it.
+  team: ""
+  # -- The capability-owning team's channel the reviews land in (a Slack
+  # channel ID).
   channel: ""
+  # -- The channel told of a review that targets a customer installation,
+  # without buttons (the Account Engineers' channel ID). Must differ from
+  # `channel`; empty sends no notice.
+  noticeChannel: ""
+  # -- Audience of the projected ServiceAccount token the requests carry: the
+  # gateway's TokenReview audience.
+  audience: klaus-gateway
 
 oauth:
   # -- Require a GitHub user token as the bearer of every MCP request, verified
