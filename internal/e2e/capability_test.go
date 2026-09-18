@@ -152,7 +152,7 @@ func TestEnableCapabilityDryRunTypedInputs(t *testing.T) {
 	fixtures(st.ghs)
 	c := st.mcpClient(t, aliceToken)
 	out, text, isErr := dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan,
-		tools.ArgInputs: minimalInputs(map[string]any{"installation": map[string]any{"provider": capz}, kagentKey: map[string]any{enabledKey: true, "modelKeySecret": "managed"}})})
+		tools.ArgInputs: minimalInputs(map[string]any{"installation": map[string]any{"provider": capz}, kagentKey: map[string]any{enabledKey: true, modelKeySecretKey: managedModelKey}})})
 	if isErr {
 		t.Fatal(text)
 	}

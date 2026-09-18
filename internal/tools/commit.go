@@ -81,6 +81,9 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	if t.d.Remote == nil {
 		return nil, fmt.Errorf("%s: mode commit has no git remote to open the pull requests on", tool)
 	}
+	if t.approvals == nil {
+		return nil, fmt.Errorf("%s: mode commit asks the team's approval through klaus-gateway's Team review and no gateway is configured (chart approvals.gatewayURL; get_info reports approvals.configured): nothing is committed that no one can approve", tool)
+	}
 	one, _ := args[ArgInstallation].(string)
 	if one == "" || len(stringSlice(args[ArgInstallations])) > 0 {
 		return nil, fmt.Errorf("%s: mode commit takes one installation (%s) — one action per installation; %s (a set) is the dry run's", tool, ArgInstallation, ArgInstallations)
@@ -104,7 +107,8 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	if inputs == nil {
 		inputs = typed
 	}
-	spec := actions.Spec{Actor: actions.Actor{Login: id.Login, ID: id.ID}, Capability: out.Capability, Installations: []string{one}, Inputs: inputs, Kind: kind}
+	spec := actions.Spec{Actor: actions.Actor{Login: id.Login, ID: id.ID, Email: id.Email}, Capability: out.Capability, Installations: []string{one}, Inputs: inputs, Kind: kind,
+		Customer: env.byName[one].Customer != env.hub.Customer}
 
 	// The opt-in gate: the one condition the manager checks itself, read now.
 	if refusal := gateRefusal(*out, env.reports[one]); refusal != "" {
@@ -123,6 +127,7 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	if p.Refused != "" {
 		return nil, fmt.Errorf("%s: the definition refuses these inputs for %s: %s", tool, one, p.Refused)
 	}
+	spec.Change = changeSummary(p)
 	if n := p.Diff[plan.ChangeUnknown]; n > 0 {
 		return nil, fmt.Errorf("%s: %d file(s) of %s could not be compared against the repository as you (%s); nothing is committed blind", tool, n, one, unknownFiles(p))
 	}
@@ -183,7 +188,7 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 		}
 		opened, err := commit.Open(ctx, remote, req, []commit.Change{{Location: loc, Files: files}})
 		for _, o := range opened {
-			prs = append(prs, actions.PullRequest{Repository: o.Repository.String(), Number: o.Number, URL: o.URL, State: actions.PullRequestOpen})
+			prs = append(prs, actions.PullRequest{Repository: o.Repository.String(), Number: o.Number, URL: o.URL, State: actions.PullRequestOpen, Head: o.Head, HeadSHA: o.HeadSHA})
 		}
 		if err != nil {
 			return nil, t.fail(ctx, tool, a, prs, remoteError(planned.Repository, err))
@@ -194,9 +199,13 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 		return nil, fmt.Errorf("%s: the pull requests are open (%s) and the action could not record them: %w", tool, prList(prs), err)
 	}
 	t.d.Log.Info(tool, identity.LogAttr(ctx), "action", a.Name, "installation", one, "state", a.Status.State, "pullRequests", len(prs))
+	a, err = t.askApproval(ctx, a, tool)
+	if err != nil {
+		return nil, fmt.Errorf("%w — the pull requests are open (%s) and the action pends approval; %s posts the review", err, prList(prs), ToolMergeAction)
+	}
 	res.Action = a
 	res.PullRequests = prs
-	res.Next = "the action waits for the team's approval; the pull requests are open as you and nothing is merged until it is given"
+	res.Next = fmt.Sprintf("the action waits for the team's approval (review %s in %s); the pull requests are open as you, and once approved and green you merge them with %s", a.Status.Approval.ReviewID, a.Status.Approval.Channel, ToolMergeAction)
 	return res, nil
 }
 

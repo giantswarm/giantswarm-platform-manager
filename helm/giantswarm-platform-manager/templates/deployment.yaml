@@ -74,6 +74,12 @@ spec:
               value: {{ .Values.approvals.gatewayURL | quote }}
             - name: APPROVALS_CHANNEL
               value: {{ .Values.approvals.channel | quote }}
+            - name: APPROVALS_TEAM
+              value: {{ .Values.approvals.team | quote }}
+            - name: APPROVALS_NOTICE_CHANNEL
+              value: {{ .Values.approvals.noticeChannel | quote }}
+            - name: APPROVALS_TOKEN_FILE
+              value: /var/run/secrets/klaus-gateway/token
             {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
@@ -103,9 +109,25 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- if .Values.approvals.gatewayURL }}
+            - name: gateway-token
+              mountPath: /var/run/secrets/klaus-gateway
+              readOnly: true
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- if .Values.approvals.gatewayURL }}
+        # The bearer of the review requests: a token for the gateway's audience,
+        # rotated by the kubelet and read on every call.
+        - name: gateway-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: {{ .Values.approvals.audience | quote }}
+                  expirationSeconds: 600
+                  path: token
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

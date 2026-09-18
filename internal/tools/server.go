@@ -14,6 +14,7 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/approvals"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 )
@@ -53,8 +54,13 @@ type Deps struct {
 	// (the App giantswarm-platform-manager's), reported by get_info; empty
 	// when the server runs without OAuth.
 	AuthorizationServer string
-	// Approvals is where the asks a write raises go.
-	Approvals Approvals
+	// Approvals is where the reviews of an action go: klaus-gateway's
+	// team-review endpoint, the team, its channel, the notice channel and the
+	// projected token file. Without a gateway URL mode commit is refused:
+	// nothing is committed that no one can approve. ApprovalsHTTP is the
+	// client the requests go through (tests); nil is one with a timeout.
+	Approvals     approvals.Config
+	ApprovalsHTTP *http.Client
 	// Definitions are the capability definitions the manager knows, with
 	// their input schemas; empty until the definitions slice lands.
 	Definitions []Definition
@@ -83,19 +89,13 @@ type Definition struct {
 	InputSchema json.RawMessage `json:"inputSchema,omitempty"`
 }
 
-// Approvals is the approval channel configuration: the team-review endpoint
-// (klaus-gateway's base URL) the asks go to and the channel they land in.
-// Empty leaves the asks undelivered; get_info says so.
-type Approvals struct {
-	GatewayURL string
-	Channel    string
-}
-
 // Tools is the tool set: get_info and the writes registered through the
 // framework before MCPServer builds the server.
 type Tools struct {
 	d      Deps
 	writes []WriteTool
+	// approvals is the gateway client, nil without a gateway URL.
+	approvals *approvals.Client
 }
 
 // New builds the tool set.
@@ -104,6 +104,9 @@ func New(d Deps) *Tools {
 		d.Log = slog.Default()
 	}
 	t := &Tools{d: d}
+	if d.Approvals.Configured() {
+		t.approvals = approvals.New(d.Approvals, d.ApprovalsHTTP)
+	}
 	t.AddWrite(t.enableCapabilityTool())
 	t.AddWrite(t.reconcileCapabilityTool())
 	return t
@@ -117,7 +120,7 @@ func (t *Tools) AddWrite(wt WriteTool) { t.writes = append(t.writes, wt) }
 func (t *Tools) MCPServer() *mcpserver.MCPServer {
 	s := mcpserver.NewMCPServer(ToolPrefix, t.d.Version,
 		mcpserver.WithToolCapabilities(false),
-		mcpserver.WithInstructions("Giant Swarm's installation manager: enables, reconciles and verifies platform capabilities on opted-in installations as the person calling. Call get_info first: it reports who you are to this server (the GitHub login of the token muster put on the call — your own authorization of the App giantswarm-platform-manager), the capability definitions and their input schemas, the write modes and the approval channel. list_installations reads the installations registry and every installation's opt-in declaration with your token, now, and answers the state of each capability per installation. enable_capability and reconcile_capability with dryRun: true render an installation (or a set) through the capability's definition and answer the plan: files, pull requests in dependency order, generated secrets by name, Dex clients, the secrets you supply, customer actions and probes. get_action and list_actions read the Action records on the hub. verify_capability compares one installation against the definition — the repositories' files against the render from the inputs on record, the anonymous probes — grouped into features with one mark each. Every write tool takes dryRun and mode; the only write mode is commit — a pull request to the installation's GitOps repository opened as you — and apply is refused: every target of this manager is GitOps-owned."),
+		mcpserver.WithInstructions("Giant Swarm's installation manager: enables, reconciles and verifies platform capabilities on opted-in installations as the person calling. Call get_info first: it reports who you are to this server (the GitHub login of the token muster put on the call — your own authorization of the App giantswarm-platform-manager), the capability definitions and their input schemas, the write modes and the approval channel. list_installations reads the installations registry and every installation's opt-in declaration with your token, now, and answers the state of each capability per installation. enable_capability and reconcile_capability with dryRun: true render an installation (or a set) through the capability's definition and answer the plan: files, pull requests in dependency order, generated secrets by name, Dex clients, the secrets you supply, customer actions and probes. get_action and list_actions read the Action records on the hub. An action in mode commit asks the capability-owning team's approval through a Team review in Slack: approve_action and deny_action are its buttons (called as the clicking member; the actor cannot approve their own action), merge_action merges the approved pull requests as the actor once their checks are green and moves the action to rolling out. verify_capability compares one installation against the definition — the repositories' files against the render from the inputs on record, the anonymous probes — grouped into features with one mark each. Every write tool takes dryRun and mode; the only write mode is commit — a pull request to the installation's GitOps repository opened as you — and apply is refused: every target of this manager is GitOps-owned."),
 	)
 	s.AddTool(mcp.NewTool(ToolGetInfo,
 		mcp.WithDescription("Read-only. Report the service version and how this call is authenticated: the caller (the GitHub login and id GET /user answered for the bearer muster put on the call — the person's own user token through the App giantswarm-platform-manager) and the authorization server pinned for it; the capability definitions with their input schemas; the write modes (commit only, apply refused) and the write tools; the approval channel configuration; where the Action records live; the tools still to come. Call first."),
@@ -126,6 +129,7 @@ func (t *Tools) MCPServer() *mcpserver.MCPServer {
 	s.AddTool(listInstallationsTool(), t.listInstallations)
 	s.AddTool(verifyCapabilityTool(), t.verifyCapability)
 	t.registerActionTools(s)
+	t.registerApprovalTools(s)
 	for _, wt := range t.writes {
 		registerWrite(s, wt)
 	}
@@ -193,10 +197,13 @@ type Capabilities struct {
 
 // ApprovalsInfo is the approval channel as configured.
 type ApprovalsInfo struct {
-	// Configured says whether asks are delivered at all (a gateway URL is set).
-	Configured bool   `json:"configured"`
-	GatewayURL string `json:"gatewayUrl,omitempty"`
-	Channel    string `json:"channel,omitempty"`
+	// Configured says whether reviews are posted at all (a gateway URL is
+	// set); without it mode commit is refused.
+	Configured    bool   `json:"configured"`
+	GatewayURL    string `json:"gatewayUrl,omitempty"`
+	Team          string `json:"team,omitempty"`
+	Channel       string `json:"channel,omitempty"`
+	NoticeChannel string `json:"noticeChannel,omitempty"`
 }
 
 func (t *Tools) getInfo(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -210,7 +217,7 @@ func (t *Tools) getInfo(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallTo
 		GitHub:       GitHubInfo{APIURL: apiURL(t.d.GitHubAPIURL)},
 		Definitions:  append([]Definition{}, t.d.Definitions...),
 		Capabilities: Capabilities{Commit: true, Modes: []string{string(ModeCommit)}, ApplyRefused: true, WriteTools: names},
-		Approvals:    ApprovalsInfo{Configured: t.d.Approvals.GatewayURL != "", GatewayURL: t.d.Approvals.GatewayURL, Channel: t.d.Approvals.Channel},
+		Approvals:    ApprovalsInfo{Configured: t.d.Approvals.Configured(), GatewayURL: t.d.Approvals.GatewayURL, Team: t.d.Approvals.Team, Channel: t.d.Approvals.Channel, NoticeChannel: t.d.Approvals.NoticeChannel},
 		Registry:     RegistryConfig{Catalog: t.d.Registry.Catalog, Hub: t.d.Registry.Hub, Configured: t.d.Registry.Hub != ""},
 		Actions:      t.actionsInfo(),
 		PlannedTools: PlannedTools(),

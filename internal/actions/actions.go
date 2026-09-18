@@ -58,12 +58,19 @@ type Spec struct {
 	Inputs        map[string]any `json:"inputs,omitempty"`
 	// Kind is "enable" or "reconcile".
 	Kind string `json:"kind"`
+	// Customer marks a customer installation as the target: the Account
+	// Engineers' channel is told of the review.
+	Customer bool `json:"customer,omitempty"`
+	// Change is the plan's change in one clause — files by change, generated
+	// secrets by name — as the review states it; never a value.
+	Change string `json:"change,omitempty"`
 }
 
 // Actor is the person the action ran as.
 type Actor struct {
 	Login string `json:"login"`
 	ID    int64  `json:"id,omitempty"`
+	Email string `json:"email,omitempty"`
 }
 
 // Status is how the action went, under the status subresource.
@@ -84,16 +91,22 @@ type PullRequest struct {
 	Number     int    `json:"number"`
 	URL        string `json:"url,omitempty"`
 	State      string `json:"state,omitempty"`
+	// Head and HeadSHA are the branch and the commit the pull request was
+	// opened with; the merge refuses a head that moved since.
+	Head    string `json:"head,omitempty"`
+	HeadSHA string `json:"headSha,omitempty"`
 }
 
 // Approval is the team review the action asked for and its decision.
 type Approval struct {
-	Channel   string     `json:"channel,omitempty"`
-	ReviewID  string     `json:"reviewId,omitempty"`
-	Decision  string     `json:"decision,omitempty"`
-	DecidedBy string     `json:"decidedBy,omitempty"`
-	Reason    string     `json:"reason,omitempty"`
-	At        *time.Time `json:"at,omitempty"`
+	Channel       string     `json:"channel,omitempty"`
+	ReviewID      string     `json:"reviewId,omitempty"`
+	NoticeChannel string     `json:"noticeChannel,omitempty"`
+	PostedAt      *time.Time `json:"postedAt,omitempty"`
+	Decision      string     `json:"decision,omitempty"`
+	DecidedBy     string     `json:"decidedBy,omitempty"`
+	Reason        string     `json:"reason,omitempty"`
+	At            *time.Time `json:"at,omitempty"`
 }
 
 // Rollout is the wave over the installations, in order.
@@ -244,6 +257,8 @@ const (
 	StatePendingApproval = string(installations.StatePendingApproval)
 	StateFailed          = string(installations.StateFailed)
 	StateRefused         = "refused"
+	StateRollingOut      = string(installations.StateRollingOut)
+	StateDenied          = "denied"
 )
 
 // The kinds of an action, spec.kind.
@@ -252,9 +267,19 @@ const (
 	KindReconcile = "reconcile"
 )
 
-// PullRequestOpen is the state of a pull request the action opened and no
-// one has merged or closed.
-const PullRequestOpen = "open"
+// The states of a pull request the action opened: open until merged as the
+// actor or closed by a denial.
+const (
+	PullRequestOpen   = "open"
+	PullRequestMerged = "merged"
+	PullRequestClosed = "closed"
+)
+
+// The decisions of an approval.
+const (
+	DecisionApproved = "approved"
+	DecisionDenied   = "denied"
+)
 
 // Writer creates Actions and moves their status; commit writes with it, as
 // the manager's own ServiceAccount.

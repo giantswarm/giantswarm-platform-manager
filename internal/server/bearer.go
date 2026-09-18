@@ -171,11 +171,11 @@ func (g *bearerGuard) verify(ctx context.Context, token string) (*identity.Ident
 	if ok && now.Before(e.until) {
 		return e.id, nil
 	}
-	login, id, err := gh.User(ctx, g.cfg.GitHubAPIURL, token)
+	login, id, email, err := gh.User(ctx, g.cfg.GitHubAPIURL, token)
 	if err != nil {
 		return nil, err
 	}
-	who := &identity.Identity{Login: login, ID: id}
+	who := &identity.Identity{Login: login, ID: id, Email: email}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if len(g.cache) >= cacheMax {

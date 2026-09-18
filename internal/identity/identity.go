@@ -21,6 +21,9 @@ const SignIn = "connect giantswarm-platform-manager in muster (core_auth_login s
 type Identity struct {
 	Login string `json:"login"`
 	ID    int64  `json:"id"`
+	// Email is the public email GET /user answers, or empty: what the
+	// gateway knows a linked Slack member by.
+	Email string `json:"email,omitempty"`
 }
 
 // String is the caller as logged: the GitHub login.

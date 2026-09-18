@@ -11,9 +11,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -28,6 +31,7 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/approvals"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/server"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
@@ -39,6 +43,8 @@ const (
 	// one GitHub refuses (never authorized, or revoked).
 	aliceToken  = "alice-token"
 	bobToken    = "bob-token"
+	carol       = "carol"
+	carolToken  = "carol-token"
 	testVersion = "test"
 	// baseURL is where muster reaches the server: the resource of the
 	// protected-resource metadata (the listener is httptest's).
@@ -66,6 +72,11 @@ type stack struct {
 	logs *syncBuffer
 	// committedAs is the caller the test write's Commit ran as.
 	committedAs string
+	// gateway is the fake klaus-gateway the reviews go to.
+	gateway *fakeGateway
+	// remoteCalls are the approvals, closes and merges by identity: "<login> <op> <owner/repo>#<n>".
+	mu          sync.Mutex
+	remoteCalls []string
 }
 
 // syncBuffer is a bytes.Buffer the server's log handler and the test share.
@@ -90,14 +101,21 @@ func newStack(t *testing.T) *stack {
 	t.Helper()
 	logs := &syncBuffer{}
 	log := slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	st := &stack{ghs: newFakeGitHub(t, map[string]string{aliceToken: alice}), probes: newFakeProbes(t), remote: commit.NewFake(), logs: logs,
+	logins := map[string]string{aliceToken: alice, carolToken: carol}
+	tokenFile := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(tokenFile, []byte(fixtureSA+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st := &stack{ghs: newFakeGitHub(t, logins), probes: newFakeProbes(t), remote: commit.NewFake(), logs: logs, gateway: newFakeGateway(t),
 		dyn: dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{actions.GVR: actions.Kind + "List"})}
 	apiURL := st.ghs.URL + "/api/v3"
 	ts := tools.New(tools.Deps{Version: testVersion, GitHubAPIURL: apiURL, AuthorizationServer: server.DefaultAuthorizationServer, Log: log,
-		Actions:     actions.New(st.dyn, actionsNamespace),
-		Probes:      st.probes.client(),
-		Remote:      func(string) (commit.Remote, error) { return st.remote, nil },
-		Approvals:   tools.Approvals{GatewayURL: "http://klaus-gateway.test:8080", Channel: "platform-approvals"},
+		Actions: actions.New(st.dyn, actionsNamespace),
+		Probes:  st.probes.client(),
+		Remote: func(token string) (commit.Remote, error) {
+			return asRemote{Remote: st.remote, login: logins[token], st: st}, nil
+		},
+		Approvals:   approvals.Config{GatewayURL: st.gateway.URL, Team: reviewTeam, Channel: reviewChannel, NoticeChannel: noticeChannel, TokenFile: tokenFile},
 		Definitions: []tools.Definition{{Name: "example-capability", Description: "a fixture", InputSchema: json.RawMessage(`{"type":"object"}`)}},
 		Registry:    registrySources})
 	ts.AddWrite(tools.WriteTool{Name: testWrite, Description: "A fixture write.",
@@ -225,7 +243,7 @@ func TestGetInfoNamesTheCaller(t *testing.T) {
 		t.Fatalf("capabilities: %+v", info.Capabilities)
 	case len(info.Definitions) != 1 || info.Definitions[0].Name != "example-capability" || compact(t, info.Definitions[0].InputSchema) != `{"type":"object"}`:
 		t.Fatalf("definitions: %+v", info.Definitions)
-	case !info.Approvals.Configured || info.Approvals.Channel != "platform-approvals":
+	case !info.Approvals.Configured || info.Approvals.Channel != reviewChannel || info.Approvals.Team != reviewTeam || info.Approvals.NoticeChannel != noticeChannel:
 		t.Fatalf("approvals: %+v", info.Approvals)
 	case strings.Join(info.PlannedTools, ",") != strings.Join(tools.PlannedTools(), ","):
 		t.Fatalf("planned tools: %v", info.PlannedTools)
@@ -269,4 +287,25 @@ func TestWriteFrameworkRefusesApply(t *testing.T) {
 	if text, isErr := call(t, c, testWrite, map[string]any{tools.ArgMode: "commit"}); isErr || !strings.Contains(text, `"as": "alice"`) || st.committedAs != alice {
 		t.Fatalf("commit: error %v %q (as %q)", isErr, text, st.committedAs)
 	}
+}
+
+// The review configuration of the stack: the team, its channel and the
+// notice channel, as chart values would name them.
+const (
+	reviewTeam    = "team-fixture"
+	reviewChannel = "C-fixture-team"
+	noticeChannel = "C-fixture-notice"
+)
+
+func (st *stack) record(login, op string, pr commit.PullRequest) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.remoteCalls = append(st.remoteCalls, fmt.Sprintf("%s %s %s#%d", login, op, pr.Repository, pr.Number))
+}
+
+// calls returns the recorded remote calls, in order.
+func (st *stack) calls() []string {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return append([]string{}, st.remoteCalls...)
 }
