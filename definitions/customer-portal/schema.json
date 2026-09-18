@@ -133,7 +133,7 @@
       "additionalProperties": false,
       "required": ["enabled"],
       "properties": {
-        "enabled": {"type": "boolean", "description": "Render the tunnel's SPIFFE trust bundle reference: the ExternalSecret that copies the bundle from the platform namespace into the portal's, with its store and reader.", "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:file:tunnelport-spiffe-bundle.yaml", "backstage:kustomization:resources[*]"]}
+        "enabled": {"type": "boolean", "description": "Render the tunnel's SPIFFE trust bundle reference: the ExternalSecret that copies the bundle from the platform namespace into the portal's, with its store and reader, and the volume and mount that put it under /app/tunnelport-spiffe-bundle in the portal's container.", "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:file:tunnelport-spiffe-bundle.yaml", "backstage:kustomization:resources[*]", "backstage:user-values:backstage.extraVolumes[*]", "backstage:user-values:backstage.extraVolumeMounts[*]"]}
       }
     },
     "pluginKeys": {

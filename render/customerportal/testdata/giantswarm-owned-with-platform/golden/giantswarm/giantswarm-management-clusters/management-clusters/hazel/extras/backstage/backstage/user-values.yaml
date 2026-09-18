@@ -28,3 +28,12 @@ data:
               requestTimeout: 0s
             tcp:
               connectTimeout: 10s
+    backstage:
+      extraVolumes:
+        - name: tunnelport-spiffe-bundle
+          secret:
+            secretName: tunnelport-spiffe-bundle
+      extraVolumeMounts:
+        - name: tunnelport-spiffe-bundle
+          mountPath: /app/tunnelport-spiffe-bundle
+          readOnly: true
