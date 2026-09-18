@@ -74,6 +74,18 @@ func portalConfig(names ...string) string {
 // declaration), birch (opted in, enabled, private), rowan (opted in, not
 // enabled), willow (optIn: false), oak (repositories the person may not
 // read) and larch (portal only, no repositories on record).
+// The kustomizations other owners write, which the includes land in: an
+// installation's extras, and the portal's tree on rowan.
+const (
+	extrasKustomization         = "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./monitoring/\n"
+	extrasListingEverything     = extrasKustomization + "  - ./agent-platform/\n  - ./mcp-capi/\n  - ./mcp-kubernetes/\n  - ./mcp-prometheus/\n"
+	rowanBackstageKustomization = "management-clusters/rowan/extras/backstage/kustomization.yaml"
+)
+
+func extrasKustomizationPath(installation string) string {
+	return "management-clusters/" + installation + "/extras/kustomization.yaml"
+}
+
 func fixtures(g *fakeGitHub) {
 	g.addRepo(registryRepo, map[string]string{registryPath: "---\napiVersion: backstage.io/v1alpha1\nkind: Group\nmetadata:\n    name: acme\nspec:\n    type: customer\n" +
 		resource(hub, "example", "capa", "example.test") + resource("alder", "acme", "capa", "acme.test") + resource("birch", "acme", "capa", "acme.test") +
@@ -81,6 +93,7 @@ func fixtures(g *fakeGitHub) {
 	g.addRepo(hubMCs, map[string]string{
 		installations.PortalConfigPath(hub): portalConfig(hub, "alder", "birch", "rowan", "willow", "oak", "larch"),
 		installations.OptInPath(hub):        optedIn,
+		extrasKustomizationPath(hub):        extrasListingEverything,
 	})
 	g.addRepo(hubConfigs, map[string]string{
 		installations.ConfigPatchPath(hub):                 "codename: hazel\nbase: example.test\ncustomer: example\nmanagementCluster:\n  private: false\nagentPlatform:\n  kagentApiV2: true\nservices:\n  muster:\n    clientId: muster-hazel\n",
@@ -88,7 +101,10 @@ func fixtures(g *fakeGitHub) {
 	})
 	g.addRepo(acmeMCs, map[string]string{
 		installations.OptInPath("birch"): optedIn,
+		extrasKustomizationPath("birch"): extrasListingEverything,
 		installations.OptInPath("rowan"): optedIn,
+		extrasKustomizationPath("rowan"): extrasKustomization,
+		rowanBackstageKustomization:      "# The portal's tree; the platform's fragment joins it as a Component.\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./backstage/\n",
 	})
 	g.addRepo(acmeConfigs, map[string]string{
 		installations.ConfigPatchPath("alder"):                 "codename: alder\nbase: acme.test\n",
