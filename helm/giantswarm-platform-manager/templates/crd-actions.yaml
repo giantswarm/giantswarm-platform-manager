@@ -71,6 +71,15 @@ spec:
                   description: The installations of the set, in the wave's order.
                   type: array
                   items: {type: string}
+                skipped:
+                  description: The installations of the set a wave left out, and why; never a target.
+                  type: array
+                  items:
+                    type: object
+                    required: [name, reason]
+                    properties:
+                      name: {type: string}
+                      reason: {type: string}
                 inputs:
                   description: The typed inputs of the action as given, merged over the facts on record; never a secret value.
                   type: object
@@ -88,6 +97,7 @@ spec:
                     type: object
                     required: [repository, number]
                     properties:
+                      installation: {type: string}
                       repository: {type: string}
                       number: {type: integer}
                       url: {type: string}

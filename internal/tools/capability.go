@@ -56,7 +56,7 @@ type planned struct {
 }
 
 // commitNext says what mode commit does with a dry run, word for word.
-const commitNext = `mode "commit" with installation (one installation) opens the pull requests above as you, in this order, and records the Action on the hub in pending approval; ` +
+const commitNext = `mode "commit" with installation (one installation) opens the pull requests above as you, in this order, and records the Action on the hub in pending approval; reconcile_capability with installations (a set) is one wave: one action, one approval, the pull requests per installation, merged one installation after the other in the order above, each verified before the next; ` +
 	`secrets carries the values of suppliedSecrets by field, and no value leaves the encrypted files`
 
 // Skipped is an installation of the set the dry run did not render, and why.
@@ -78,6 +78,7 @@ func capabilityOptions() []mcp.ToolOption {
 	return []mcp.ToolOption{
 		mcp.WithString(ArgInstallation, mcp.Description("The one installation to render, by name. Rendered whether or not it is opted in; the answer names the opt-in state and why a commit would be refused.")),
 		mcp.WithArray(ArgInstallations, mcp.Description("The set to render; empty with no installation is every installation of the registry. Installations not opted in are skipped, listed with the reason."), mcp.Items(map[string]any{"type": "string"})),
+		mcp.WithArray(ArgOrder, mcp.Description("The rollout order of the set when the default (Giant Swarm's test installations, the hub, the customers) is not the one wanted: every rendered installation of the set exactly once."), mcp.Items(map[string]any{"type": "string"})),
 		mcp.WithString(ArgCapability, mcp.Description(`The capability; "agent-platform" is the one there is (the default).`), mcp.Enum(installations.AgentPlatform)),
 		mcp.WithObject(ArgInputs, mcp.Description("The typed inputs of the definition (get_info lists the schema), merged over the facts on record: a typed installation.* key overrides the record; an unknown key, and a required section or choice left out, refuse with its name — the schema is the contract, nothing is chosen for you. Never a secret value.")),
 		mcp.WithBoolean(ArgContent, mcp.Description("Include the rendered content of every file (default true); false answers paths and changes only.")),
@@ -188,6 +189,9 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 		}
 		out.Order = append(out.Order, r.Name)
 		out.Installations = append(out.Installations, p)
+	}
+	if err := applyOrder(&out, stringSlice(args[ArgOrder])); err != nil {
+		return nil, nil, fmt.Errorf("%s: %w", tool, err)
 	}
 	out.PullRequests = plan.PullRequests(out.Installations, byName, hub)
 	return &out, env, nil

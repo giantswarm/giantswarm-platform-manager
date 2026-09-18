@@ -85,8 +85,14 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 		return nil, fmt.Errorf("%s: mode commit asks the team's approval through klaus-gateway's Team review and no gateway is configured (chart approvals.gatewayURL; get_info reports approvals.configured): nothing is committed that no one can approve", tool)
 	}
 	one, _ := args[ArgInstallation].(string)
-	if one == "" || len(stringSlice(args[ArgInstallations])) > 0 {
-		return nil, fmt.Errorf("%s: mode commit takes one installation (%s) — one action per installation; %s (a set) is the dry run's", tool, ArgInstallation, ArgInstallations)
+	set := stringSlice(args[ArgInstallations])
+	switch {
+	case one != "" && len(set) > 0:
+		return nil, fmt.Errorf("%s: mode commit takes %s (one installation) or %s (a set), not both", tool, ArgInstallation, ArgInstallations)
+	case one == "" && tool == ToolEnableCapability:
+		return nil, fmt.Errorf("%s: mode commit takes one installation (%s) — an enablement supplies its secret values; a set is %s's wave", tool, ArgInstallation, ToolReconcileCapability)
+	case one == "":
+		return t.capabilityWave(ctx, tool, args)
 	}
 	secrets, err := secretValues(args[ArgSecrets])
 	if err != nil {
@@ -138,12 +144,11 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	if err != nil {
 		return nil, fmt.Errorf("%s: render with the supplied values: %w", tool, err)
 	}
-	targets, err := targetsOf(p, rendered.Files, env.byName[one], env.hub)
-	if err != nil {
+	if _, err := targetsOf(p, rendered.Files, env.byName[one], env.hub); err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
 	}
 	res := CommitResult{Caller: identity.Caller(ctx), Tool: tool, Capability: out.Capability, Hub: out.Hub, Installation: one, Plan: p, PullRequests: []actions.PullRequest{}}
-	if len(targets) == 0 {
+	if len(p.Files)-p.Diff[plan.ChangeUnchanged] == 0 {
 		res.Next = "every file is on record as the definition renders it: nothing to commit, no action recorded"
 		return res, nil
 	}
@@ -156,43 +161,11 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	if err != nil {
 		return nil, t.fail(ctx, tool, a, nil, err)
 	}
-	req := commit.Request{Branch: branchPrefix + a.Name + "/" + one, Title: fmt.Sprintf("%s %s on %s (%s)", kind, out.Capability, one, a.Name), Body: prBody(a, p, out.PullRequests)}
-	prs := []actions.PullRequest{}
-	for _, planned := range out.PullRequests {
-		tg := targets[planned.Repository]
-		if tg == nil {
-			continue
-		}
-		files, err := t.encrypt(ctx, env.c, planned.Repository, tg)
-		if err != nil {
-			return nil, t.fail(ctx, tool, a, prs, err)
-		}
-		if len(files) == 0 {
-			res.UnchangedRepositories = append(res.UnchangedRepositories, planned.Repository)
-			continue
-		}
-		if leak := placeholderLeak(files); leak != "" {
-			return nil, t.fail(ctx, tool, a, prs, fmt.Errorf("%s: %s still carries a placeholder after encryption; nothing is committed", planned.Repository, leak))
-		}
-		owner, repo, err := gh.SplitRepo(planned.Repository)
-		if err != nil {
-			return nil, t.fail(ctx, tool, a, prs, err)
-		}
-		base, err := gh.DefaultBranch(ctx, env.c, owner, repo)
-		if err != nil {
-			return nil, t.fail(ctx, tool, a, prs, err)
-		}
-		loc, err := provenance.Explicit(planned.Repository, base, "")
-		if err != nil {
-			return nil, t.fail(ctx, tool, a, prs, err)
-		}
-		opened, err := commit.Open(ctx, remote, req, []commit.Change{{Location: loc, Files: files}})
-		for _, o := range opened {
-			prs = append(prs, actions.PullRequest{Repository: o.Repository.String(), Number: o.Number, URL: o.URL, State: actions.PullRequestOpen, Head: o.Head, HeadSHA: o.HeadSHA})
-		}
-		if err != nil {
-			return nil, t.fail(ctx, tool, a, prs, remoteError(planned.Repository, err))
-		}
+	title := fmt.Sprintf("%s %s on %s (%s)", kind, out.Capability, one, a.Name)
+	prs, unchanged, err := t.openPullRequests(ctx, env, a, p, out.PullRequests, rendered.Files, remote, title, prBody(a, p, out.PullRequests))
+	res.UnchangedRepositories = unchanged
+	if err != nil {
+		return nil, t.fail(ctx, tool, a, prs, err)
 	}
 	a, err = t.d.Actions.UpdateStatus(ctx, a.Name, actions.Status{State: actions.StatePendingApproval, PullRequests: prs})
 	if err != nil {
@@ -207,6 +180,58 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	res.PullRequests = prs
 	res.Next = fmt.Sprintf("the action waits for the team's approval (review %s in %s); the pull requests are open as you, and once approved and green you merge them with %s", a.Status.Approval.ReviewID, a.Status.Approval.Channel, ToolMergeAction)
 	return res, nil
+}
+
+// openPullRequests opens one installation's pull requests as the caller, one
+// per repository in planned's order on platform/<action>/<installation>: the
+// secret files encrypted for the repository's recipients, a plain file
+// byte-equal to the plan. It answers the pull requests opened (also on
+// error, for the record) and the repositories left with nothing to commit.
+func (t *Tools) openPullRequests(ctx context.Context, env *planned, a *actions.Action, p plan.Installation, planned []plan.PullRequest, rendered render.Fileset, remote commit.Remote, title, body string) ([]actions.PullRequest, []string, error) {
+	targets, err := targetsOf(p, rendered, env.byName[p.Name], env.hub)
+	if err != nil {
+		return nil, nil, err
+	}
+	req := commit.Request{Branch: branchPrefix + a.Name + "/" + p.Name, Title: title, Body: body}
+	var prs []actions.PullRequest
+	var unchanged []string
+	for _, pl := range planned {
+		tg := targets[pl.Repository]
+		if tg == nil {
+			continue
+		}
+		files, err := t.encrypt(ctx, env.c, pl.Repository, tg)
+		if err != nil {
+			return prs, unchanged, err
+		}
+		if len(files) == 0 {
+			unchanged = append(unchanged, pl.Repository)
+			continue
+		}
+		if leak := placeholderLeak(files); leak != "" {
+			return prs, unchanged, fmt.Errorf("%s: %s still carries a placeholder after encryption; nothing is committed", pl.Repository, leak)
+		}
+		owner, repo, err := gh.SplitRepo(pl.Repository)
+		if err != nil {
+			return prs, unchanged, err
+		}
+		base, err := gh.DefaultBranch(ctx, env.c, owner, repo)
+		if err != nil {
+			return prs, unchanged, err
+		}
+		loc, err := provenance.Explicit(pl.Repository, base, "")
+		if err != nil {
+			return prs, unchanged, err
+		}
+		opened, err := commit.Open(ctx, remote, req, []commit.Change{{Location: loc, Files: files}})
+		for _, o := range opened {
+			prs = append(prs, actions.PullRequest{Installation: p.Name, Repository: o.Repository.String(), Number: o.Number, URL: o.URL, State: actions.PullRequestOpen, Head: o.Head, HeadSHA: o.HeadSHA})
+		}
+		if err != nil {
+			return prs, unchanged, remoteError(pl.Repository, err)
+		}
+	}
+	return prs, unchanged, nil
 }
 
 // record creates the Action with its initial status.

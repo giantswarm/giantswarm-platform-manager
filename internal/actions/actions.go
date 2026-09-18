@@ -64,6 +64,15 @@ type Spec struct {
 	// Change is the plan's change in one clause — files by change, generated
 	// secrets by name — as the review states it; never a value.
 	Change string `json:"change,omitempty"`
+	// Skipped are the installations of the set a wave left out, and why:
+	// never a target, no pull request.
+	Skipped []Skipped `json:"skipped,omitempty"`
+}
+
+// Skipped is an installation of a wave's set that is not a target.
+type Skipped struct {
+	Name   string `json:"name"`
+	Reason string `json:"reason"`
 }
 
 // Actor is the person the action ran as.
@@ -87,10 +96,12 @@ type Status struct {
 
 // PullRequest is one PR the action opened.
 type PullRequest struct {
-	Repository string `json:"repository"`
-	Number     int    `json:"number"`
-	URL        string `json:"url,omitempty"`
-	State      string `json:"state,omitempty"`
+	// Installation is the wave's stage the pull request belongs to.
+	Installation string `json:"installation,omitempty"`
+	Repository   string `json:"repository"`
+	Number       int    `json:"number"`
+	URL          string `json:"url,omitempty"`
+	State        string `json:"state,omitempty"`
 	// Head and HeadSHA are the branch and the commit the pull request was
 	// opened with; the merge refuses a head that moved since.
 	Head    string `json:"head,omitempty"`
@@ -258,8 +269,39 @@ const (
 	StateFailed          = string(installations.StateFailed)
 	StateRefused         = "refused"
 	StateRollingOut      = string(installations.StateRollingOut)
+	StateEnabled         = string(installations.StateEnabled)
 	StateDenied          = "denied"
 )
+
+// InstallationState is the state the action gives installation: its stage of
+// the rollout when the rollout has one, else the action's state. A stage the
+// wave never reached answers "" — the state read from the files stands.
+func (a Action) InstallationState(installation string) string {
+	if a.Status.Rollout != nil {
+		for _, r := range a.Status.Rollout.Installations {
+			if r.Name == installation {
+				return r.State
+			}
+		}
+	}
+	return a.Status.State
+}
+
+// StagePullRequests are the pull requests of one stage of the wave; a pull
+// request recorded without a stage belongs to the action's first installation.
+func (a Action) StagePullRequests(installation string) []int {
+	var idx []int
+	for i, pr := range a.Status.PullRequests {
+		stage := pr.Installation
+		if stage == "" && len(a.Spec.Installations) > 0 {
+			stage = a.Spec.Installations[0]
+		}
+		if stage == installation {
+			idx = append(idx, i)
+		}
+	}
+	return idx
+}
 
 // The kinds of an action, spec.kind.
 const (
