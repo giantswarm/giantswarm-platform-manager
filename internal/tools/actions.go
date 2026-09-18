@@ -52,7 +52,7 @@ func (t *Tools) registerActionTools(s *mcpserver.MCPServer) {
 		mcp.WithDescription("Read-only. The Action records on the hub, newest first; narrow with installation and capability."),
 		mcp.WithReadOnlyHintAnnotation(true), mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithString(ArgInstallation, mcp.Description("Only actions that include this installation.")),
-		mcp.WithString(ArgCapability, mcp.Description("Only actions of this capability."), mcp.Enum(installations.AgentPlatform)),
+		mcp.WithString(ArgCapability, mcp.Description("Only actions of this capability."), mcp.Enum(installations.CapabilityNames()...)),
 	), t.listActions)
 }
 

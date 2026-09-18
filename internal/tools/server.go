@@ -7,12 +7,14 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
+	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/approvals"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
@@ -61,9 +63,6 @@ type Deps struct {
 	// client the requests go through (tests); nil is one with a timeout.
 	Approvals     approvals.Config
 	ApprovalsHTTP *http.Client
-	// Definitions are the capability definitions the manager knows, with
-	// their input schemas; empty until the definitions slice lands.
-	Definitions []Definition
 	// Registry names the installations catalog and the hub installation
 	// list_installations reads the registry from, as the caller.
 	Registry installations.Sources
@@ -81,12 +80,35 @@ type Deps struct {
 	Log    *slog.Logger
 }
 
-// Definition is a capability definition as get_info reports it: the name, what
-// it enables and the JSON schema of its inputs.
+// Definition is a capability definition as get_info reports it: the name,
+// what it enables, the JSON schema of its inputs and the consistency features
+// the verify marks — read from the registry (installations.Capabilities) and
+// the embedded definitions/<name>/.
 type Definition struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	InputSchema json.RawMessage `json:"inputSchema,omitempty"`
+	Name        string                `json:"name"`
+	Description string                `json:"description,omitempty"`
+	InputSchema json.RawMessage       `json:"inputSchema"`
+	Features    []definitions.Feature `json:"features"`
+}
+
+// definitionList reads every registered definition with its schema and
+// features; a definition whose data is missing from the embedded FS is an
+// error, never left out.
+func definitionList() ([]Definition, error) {
+	caps := installations.Capabilities()
+	out := make([]Definition, 0, len(caps))
+	for _, c := range caps {
+		schema, err := c.Schema()
+		if err != nil {
+			return nil, fmt.Errorf("definition %s: %w", c.Name, err)
+		}
+		feats, err := definitions.Features(c.Name)
+		if err != nil {
+			return nil, fmt.Errorf("definition %s: %w", c.Name, err)
+		}
+		out = append(out, Definition{Name: c.Name, Description: c.Description, InputSchema: schema, Features: feats})
+	}
+	return out, nil
 }
 
 // Tools is the tool set: get_info and the writes registered through the
@@ -211,11 +233,15 @@ func (t *Tools) getInfo(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallTo
 	for _, wt := range t.writes {
 		names = append(names, wt.Name)
 	}
+	defs, err := definitionList()
+	if err != nil {
+		return result(nil, err)
+	}
 	info := Info{
 		Version:      t.d.Version,
 		ToolPrefix:   ToolPrefix,
 		GitHub:       GitHubInfo{APIURL: apiURL(t.d.GitHubAPIURL)},
-		Definitions:  append([]Definition{}, t.d.Definitions...),
+		Definitions:  defs,
 		Capabilities: Capabilities{Commit: true, Modes: []string{string(ModeCommit)}, ApplyRefused: true, WriteTools: names},
 		Approvals:    ApprovalsInfo{Configured: t.d.Approvals.Configured(), GatewayURL: t.d.Approvals.GatewayURL, Team: t.d.Approvals.Team, Channel: t.d.Approvals.Channel, NoticeChannel: t.d.Approvals.NoticeChannel},
 		Registry:     RegistryConfig{Catalog: t.d.Registry.Catalog, Hub: t.d.Registry.Hub, Configured: t.d.Registry.Hub != ""},
