@@ -13,7 +13,7 @@ removals:
   - {key: "backstage:app-config:agentPlatform", kind: other-definition, reason: the platform's section is the agent-platform Component's fragment}
   - {key: "backstage:app-config:aiChat", kind: other-definition, reason: the AI chat on the platform's model provider is the agent-platform Component's fragment}
   - {key: "backstage:app-config:mcpActions", kind: other-definition, reason: the chat's tool naming is the agent-platform Component's fragment}
-  - {key: "backstage:app-config:app.extensions.$include", kind: other-definition, reason: the shared extensions list this definition includes is shared-config.yaml#extensions; the agent-platform Component's fragment includes #extensionsAgentPlatform over it}
+  - {key: "backstage:app-config:app.extensions.$include", kind: other-definition, reason: "the shared extensions list this definition includes is shared-config.yaml#extensions; the agent-platform Component's fragment includes #extensionsAgentPlatform over it"}
 
   # --- Backstage app-config.yaml: the hub's Dev Portal ---
   - {key: "backstage:app-config:pagerDuty", kind: not-rendered, reason: the hub's incident links}
