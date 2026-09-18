@@ -3,6 +3,8 @@
 /giantswarm-platform-manager-linux-*
 /giantswarm-platform-manager-darwin-*
 /giantswarm-platform-manager-windows-*
+/platformctl
+/platformctl-*
 /build/
 /dist/
 # Helm pulls dependency archives here; nothing is committed there.

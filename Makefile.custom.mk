@@ -7,6 +7,10 @@ CHART_DIR := helm/$(BINARY)
 build-linux-amd64: ## Build the linux/amd64 binary the Dockerfile expects.
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o $(BINARY)-linux-amd64 .
 
+.PHONY: build-platformctl
+build-platformctl: ## Build platformctl for this machine (CI cross-compiles it and attaches the binaries to the release).
+	CGO_ENABLED=0 go build -trimpath -o platformctl ./cmd/platformctl
+
 .PHONY: docker-build
 docker-build: build-linux-amd64 ## Build a local dev image (TAG=giantswarm-platform-manager:dev).
 	docker build --build-arg TARGETOS=linux --build-arg TARGETARCH=amd64 -t $(or $(TAG),$(BINARY):dev) .

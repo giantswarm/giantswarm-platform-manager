@@ -11,6 +11,10 @@
 #     render/agentplatform/testdata/consumption/charts.yaml, checked against
 #     every emitted Secret (render/README.md). Needs helm, kustomize and the
 #     network, so it is not part of `make test`.
+#   - go-build-platformctl + upload-platformctl: the CLI from cmd/platformctl,
+#     cross-compiled for laptops and CI runners and attached to the GitHub
+#     Release of the tag next to the image and the chart the generated jobs
+#     publish. The generated go-build builds the server binary the image needs.
 version: 2.1
 
 jobs:
@@ -86,3 +90,34 @@ workflows:
         filters:
           tags:
             only: /^v.*/
+
+    # platformctl: the orb's go-build once more, for the second binary of the
+    # module. No test_target: the generated go-build runs `make test` already.
+    # Six architectures cold after every go.sum bump, so concurrently on a
+    # larger box (see agentlab's go-build for the same reasoning).
+    - architect/go-build:
+        name: go-build-platformctl
+        binary: platformctl
+        path: ./cmd/platformctl
+        context: architect
+        # yamllint disable-line rule:line-length
+        architectures: "linux/amd64,linux/arm64,darwin/amd64,darwin/arm64,windows/amd64,windows/arm64"
+        build_concurrency: auto
+        resource_class: large
+        filters:
+          tags:
+            only: /^v.*/
+
+    # Attach platformctl-<os>-<arch> and the cosign bundles to the release of
+    # the tag; the release itself comes from the auto-release workflow.
+    - architect/upload-release-assets:
+        name: upload-platformctl
+        context: architect
+        binary: platformctl
+        requires:
+        - go-build-platformctl
+        filters:
+          tags:
+            only: /^v.*/
+          branches:
+            ignore: /.*/
