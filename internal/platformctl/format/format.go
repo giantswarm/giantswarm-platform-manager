@@ -163,7 +163,7 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 		p.table(4, rows)
 	}
 	for _, inc := range inst.Includes {
-		p.f("  Includes: %s:%s %s\n", inc.Repository, inc.Path, inc.Resource)
+		p.f("  Includes: %s:%s %s %s (%s)\n", inc.Repository, inc.Path, inc.List, inc.Resource, inc.Change)
 	}
 	if len(inst.GeneratedSecrets) > 0 {
 		p.f("  Generated at commit:\n")

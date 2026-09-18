@@ -30,7 +30,9 @@ const (
 	ChangeCreate    Change = "create"
 	ChangeUpdate    Change = "update"
 	ChangeUnchanged Change = "unchanged"
-	// ChangeUnknown: the current file could not be read as the caller.
+	// ChangeUnknown: the current file could not be read as the caller; for
+	// a kustomization the includes land in, also one that is absent or no
+	// mapping.
 	ChangeUnknown Change = "unknown"
 )
 
@@ -40,8 +42,9 @@ type File struct {
 	Path       string `json:"path"`
 	Change     Change `json:"change"`
 	// Content is the rendered file, plaintext with GENERATED(<name>) and
-	// SUPPLIED(<field>) markers where the commit step puts values; omitted
-	// when the caller asked for paths only.
+	// SUPPLIED(<field>) markers where the commit step puts values — or, for
+	// a kustomization the includes land in, the file as the commit step
+	// writes it; omitted when the caller asked for paths only.
 	Content string `json:"content,omitempty"`
 	// Generated names the values the commit step generates into this file.
 	Generated []string `json:"generated,omitempty"`
@@ -88,11 +91,25 @@ type Probe struct {
 	Key     string `json:"key"`
 }
 
-// Include is a shared kustomization entry the commit step adds.
+// The lists of a kustomization.yaml an Include lands in.
+const (
+	ListResources  = "resources"
+	ListComponents = "components"
+)
+
+// Include is one entry the commit step lists in a kustomization.yaml other
+// owners write: Resource under List (resources, or components for a
+// kustomize Component). Change is the entry's: unchanged when it is listed,
+// update when it is to be added, unknown when the kustomization could not
+// be read or is absent. The kustomization itself is among the Files, as
+// the commit step writes it.
 type Include struct {
 	Repository string `json:"repository"`
 	Path       string `json:"path"`
+	List       string `json:"list"`
 	Resource   string `json:"resource"`
+	Change     Change `json:"change"`
+	Error      string `json:"error,omitempty"`
 }
 
 // Installation is the dry run of one installation.
@@ -194,9 +211,13 @@ func Build(ctx context.Context, opts Options) Installation {
 			}
 		}
 	}
-	for _, inc := range res.Includes {
-		p.Includes = append(p.Includes, Include{Repository: ResolveRepository(string(inc.Repository), opts.Installation, opts.Hub), Path: inc.Path, Resource: inc.Resource})
-	}
+	p.includes(ctx, opts, res.Includes)
+	sort.SliceStable(p.Files, func(i, j int) bool {
+		if p.Files[i].Repository != p.Files[j].Repository {
+			return p.Files[i].Repository < p.Files[j].Repository
+		}
+		return p.Files[i].Path < p.Files[j].Path
+	})
 	for _, gs := range generated {
 		p.GeneratedSecrets = append(p.GeneratedSecrets, *gs)
 	}
@@ -217,6 +238,74 @@ func change(ctx context.Context, read Reader, repo, path, rendered string) (Chan
 	default:
 		return ChangeUnknown, err.Error()
 	}
+}
+
+// includes records every entry and files each kustomization they land in
+// among the Files, read once as the caller and edited with its entries in
+// order.
+func (p *Installation) includes(ctx context.Context, opts Options, incs []render.Include) {
+	byFile := map[string][]int{} // "<repository>:<path>" → indexes into p.Includes
+	var files []string
+	for _, inc := range incs {
+		entry := Include{Repository: ResolveRepository(string(inc.Repository), opts.Installation, opts.Hub), Path: inc.Path, List: ListResources, Resource: inc.Resource}
+		if inc.Component {
+			entry.List = ListComponents
+		}
+		key := entry.Repository + ":" + entry.Path
+		if _, seen := byFile[key]; !seen {
+			files = append(files, key)
+		}
+		byFile[key] = append(byFile[key], len(p.Includes))
+		p.Includes = append(p.Includes, entry)
+	}
+	for _, key := range files {
+		entries := byFile[key]
+		f := p.kustomization(ctx, opts, p.Includes[entries[0]].Repository, p.Includes[entries[0]].Path, entries)
+		p.Diff[f.Change]++
+		p.Files = append(p.Files, f)
+	}
+}
+
+// kustomization reads repository's kustomization at path as the caller and
+// lists the entries (indexes into Includes) in it: update when one was
+// added, unchanged when every one was listed, unknown when the file could
+// not be read — or is absent, because a kustomization other owners write is
+// never created here — and every entry takes the file's change then.
+func (p *Installation) kustomization(ctx context.Context, opts Options, repository, path string, entries []int) File {
+	f := File{Repository: repository, Path: path, Change: ChangeUnchanged}
+	current, err := opts.Read(ctx, repository, path)
+	switch {
+	case errors.Is(err, gh.ErrNotFound):
+		f.Change, f.Error = ChangeUnknown, "absent: a kustomization other owners write is not created here"
+	case err != nil:
+		f.Change, f.Error = ChangeUnknown, err.Error()
+	}
+	content := []byte(current)
+	for _, i := range entries {
+		if f.Change == ChangeUnknown {
+			break
+		}
+		edited, changed, err := listEntry(content, p.Includes[i].List, p.Includes[i].Resource)
+		switch {
+		case err != nil:
+			f.Change, f.Error = ChangeUnknown, err.Error()
+		case changed:
+			content, f.Change = edited, ChangeUpdate
+			p.Includes[i].Change = ChangeUpdate
+		default:
+			p.Includes[i].Change = ChangeUnchanged
+		}
+	}
+	if f.Change == ChangeUnknown {
+		for _, i := range entries {
+			p.Includes[i].Change, p.Includes[i].Error = ChangeUnknown, f.Error
+		}
+		return f
+	}
+	if opts.Content {
+		f.Content = string(content)
+	}
+	return f
 }
 
 // ResolveRepository maps a repository as the definition names it
