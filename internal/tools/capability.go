@@ -95,12 +95,9 @@ func (t *Tools) capabilityDryRun(ctx context.Context, tool string, args map[stri
 	if !ok {
 		return nil, errors.New(tool + " needs a caller: the request carried no GitHub user token to read the registry and the installations' repositories as; " + identity.SignIn)
 	}
-	capability, _ := args[ArgCapability].(string)
-	if capability == "" {
-		capability = installations.AgentPlatform
-	}
-	if capability != installations.AgentPlatform {
-		return nil, fmt.Errorf("capability %q is not known: %q is the one there is", capability, installations.AgentPlatform)
+	capability, err := capabilityArg(args)
+	if err != nil {
+		return nil, err
 	}
 	one, _ := args[ArgInstallation].(string)
 	set := stringSlice(args[ArgInstallations])
@@ -139,13 +136,7 @@ func (t *Tools) capabilityDryRun(ctx context.Context, tool string, args map[stri
 	out := CapabilityResult{Caller: identity.Caller(ctx), Tool: tool, Capability: capability, Hub: reg.Hub, DryRun: true,
 		Order: []string{}, Installations: []plan.Installation{}, PullRequests: []plan.PullRequest{}, Skipped: []Skipped{},
 		Commit: `mode "commit" opens the pull requests above as you, in this order, and records the Action on the hub — delivered by a later version; today it answers not implemented`}
-	read := func(ctx context.Context, repository, path string) (string, error) {
-		owner, repo, err := gh.SplitRepo(repository)
-		if err != nil {
-			return "", err
-		}
-		return gh.ReadFile(ctx, c, owner, repo, path)
-	}
+	read := readAs(c)
 	for _, r := range waveOrder(reports, hub) {
 		if skip, ok := skipped(r, r.Name == one); ok {
 			out.Skipped = append(out.Skipped, skip)
@@ -167,6 +158,29 @@ func (t *Tools) capabilityDryRun(ctx context.Context, tool string, args map[stri
 	out.PullRequests = plan.PullRequests(out.Installations, byName, hub)
 	t.d.Log.Info(tool, identity.LogAttr(ctx), "dryRun", true, "installations", len(out.Installations), "skipped", len(out.Skipped), "pullRequests", len(out.PullRequests))
 	return out, nil
+}
+
+// capabilityArg is the capability named in args, the one there is by default.
+func capabilityArg(args map[string]any) (string, error) {
+	capability, _ := args[ArgCapability].(string)
+	if capability == "" {
+		capability = installations.AgentPlatform
+	}
+	if capability != installations.AgentPlatform {
+		return "", fmt.Errorf("capability %q is not known: %q is the one there is", capability, installations.AgentPlatform)
+	}
+	return capability, nil
+}
+
+// readAs reads a repository file as the caller c stands for.
+func readAs(c *github.Client) plan.Reader {
+	return func(ctx context.Context, repository, path string) (string, error) {
+		owner, repo, err := gh.SplitRepo(repository)
+		if err != nil {
+			return "", err
+		}
+		return gh.ReadFile(ctx, c, owner, repo, path)
+	}
 }
 
 // registry loads the registry as the caller, naming the App requirement on a

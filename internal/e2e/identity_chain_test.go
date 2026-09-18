@@ -54,7 +54,9 @@ const (
 
 type stack struct {
 	ghs *fakeGitHub
-	srv *httptest.Server
+	// probes answers the anonymous probes of verify_capability.
+	probes *fakeProbes
+	srv    *httptest.Server
 	// dyn is the fake hub API server the Action records are seeded into.
 	dyn dynamic.Interface
 	// committedAs is the caller the test write's Commit ran as.
@@ -64,11 +66,12 @@ type stack struct {
 func newStack(t *testing.T) *stack {
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	st := &stack{ghs: newFakeGitHub(t, map[string]string{aliceToken: alice}),
+	st := &stack{ghs: newFakeGitHub(t, map[string]string{aliceToken: alice}), probes: newFakeProbes(t),
 		dyn: dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{actions.GVR: actions.Kind + "List"})}
 	apiURL := st.ghs.URL + "/api/v3"
 	ts := tools.New(tools.Deps{Version: testVersion, GitHubAPIURL: apiURL, AuthorizationServer: server.DefaultAuthorizationServer, Log: log,
 		Actions:     actions.New(st.dyn, actionsNamespace),
+		Probes:      st.probes.client(),
 		Approvals:   tools.Approvals{GatewayURL: "http://klaus-gateway.test:8080", Channel: "platform-approvals"},
 		Definitions: []tools.Definition{{Name: "example-capability", Description: "a fixture", InputSchema: json.RawMessage(`{"type":"object"}`)}},
 		Registry:    registrySources})

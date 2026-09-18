@@ -1,0 +1,24 @@
+# The anonymous HTTP probes of the agent-platform definition: requests that carry no identity and
+# run direct from the manager against the installation's public endpoints. Each probe is a dimension
+# of the feature it names (kind probe) in the verify's result; the live dimensions of features.yaml
+# (kind live) are the reads that need the person's authority on the installation.
+# url is a Go template over {{.BaseDomain}} (the installation's), and for perDexClient probes
+# {{.ClientID}} and {{.RedirectURI}} (query-escaped) of every client the rendered dex patch declares.
+# expect lists the HTTP status codes that mean "as defined"; any other answer is drift.
+probes:
+  - id: dex-auth-request
+    feature: identity
+    key: Dex accepts the auth request of every client the definition declares (302 to the login)
+    url: https://dex.{{.BaseDomain}}/auth?client_id={{.ClientID}}&redirect_uri={{.RedirectURI}}&response_type=code&scope=openid
+    perDexClient: true
+    expect: [302]
+  - id: oauth2-proxy-gate
+    feature: identity
+    key: the kagent UI behind oauth2-proxy refuses an anonymous request (302 to the login or 403)
+    url: https://kagent.{{.BaseDomain}}/
+    expect: [302, 403]
+  - id: muster-protected-resource-metadata
+    feature: tool-access
+    key: the edge publishes muster's OAuth protected-resource metadata (200)
+    url: https://agentgateway.{{.BaseDomain}}/.well-known/oauth-protected-resource
+    expect: [200]

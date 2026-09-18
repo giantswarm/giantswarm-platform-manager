@@ -159,7 +159,7 @@ func Build(ctx context.Context, opts Options) Installation {
 	p.Probes = Probes()
 	generated := map[string]*GeneratedSecret{}
 	for _, repo := range sortedRepositories(res.Files) {
-		target := resolveRepository(string(repo), opts.Installation, opts.Hub)
+		target := ResolveRepository(string(repo), opts.Installation, opts.Hub)
 		paths := make([]string, 0, len(res.Files[repo]))
 		for path := range res.Files[repo] {
 			paths = append(paths, path)
@@ -184,12 +184,12 @@ func Build(ctx context.Context, opts Options) Installation {
 			p.Diff[pf.Change]++
 			p.Files = append(p.Files, pf)
 			if strings.HasSuffix(path, "/apps/dex-app/configmap-values.yaml.patch") {
-				p.DexClients = dexClients(f.Content)
+				p.DexClients = DexClients(f.Content)
 			}
 		}
 	}
 	for _, inc := range res.Includes {
-		p.Includes = append(p.Includes, Include{Repository: resolveRepository(string(inc.Repository), opts.Installation, opts.Hub), Path: inc.Path, Resource: inc.Resource})
+		p.Includes = append(p.Includes, Include{Repository: ResolveRepository(string(inc.Repository), opts.Installation, opts.Hub), Path: inc.Path, Resource: inc.Resource})
 	}
 	for _, gs := range generated {
 		p.GeneratedSecrets = append(p.GeneratedSecrets, *gs)
@@ -213,11 +213,11 @@ func change(ctx context.Context, read Reader, repo, path, rendered string) (Chan
 	}
 }
 
-// resolveRepository maps a repository as the definition names it
+// ResolveRepository maps a repository as the definition names it
 // (giantswarm/<customer>-configs, giantswarm/<customer>-management-clusters)
 // to the repository the registry has on record for the installation or the
 // hub; every other repository (teleport-fleet) is as rendered.
-func resolveRepository(rendered string, inst, hub installations.Installation) string {
+func ResolveRepository(rendered string, inst, hub installations.Installation) string {
 	for _, i := range []installations.Installation{inst, hub} {
 		if !i.Repositories.Known() {
 			continue
@@ -340,9 +340,9 @@ func customerActions(installation string, in *agentplatform.Input) []CustomerAct
 	return out
 }
 
-// dexClients reads the clients of the rendered dex patch: the static clients
+// DexClients reads the clients of the rendered dex patch: the static clients
 // by key and the extra static clients by id, each with its redirect URIs.
-func dexClients(patch []byte) []DexClient {
+func DexClients(patch []byte) []DexClient {
 	var doc struct {
 		OIDC struct {
 			StaticClients      yaml.Node `yaml:"staticClients"`
@@ -382,29 +382,15 @@ func dexClients(patch []byte) []DexClient {
 // Probes are the live dimensions of the definition's features: what the
 // verify checks against the running installation.
 func Probes() []Probe {
-	raw, err := definitions.FS.ReadFile("agent-platform/features.yaml")
+	feats, err := definitions.Features(installations.AgentPlatform)
 	if err != nil {
 		return nil
 	}
-	var doc struct {
-		Features yaml.Node `yaml:"features"`
-	}
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
-		return nil
-	}
 	var out []Probe
-	for i := 0; i+1 < len(doc.Features.Content); i += 2 {
-		var f struct {
-			Dimensions []struct {
-				ID   string `yaml:"id"`
-				Kind string `yaml:"kind"`
-				Key  string `yaml:"key"`
-			} `yaml:"dimensions"`
-		}
-		_ = doc.Features.Content[i+1].Decode(&f)
+	for _, f := range feats {
 		for _, d := range f.Dimensions {
-			if d.Kind == "live" {
-				out = append(out, Probe{ID: d.ID, Feature: doc.Features.Content[i].Value, Key: d.Key})
+			if d.Kind == definitions.KindLive {
+				out = append(out, Probe{ID: d.ID, Feature: f.ID, Key: d.Key})
 			}
 		}
 	}
