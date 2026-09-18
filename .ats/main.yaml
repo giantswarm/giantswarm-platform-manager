@@ -6,16 +6,14 @@
 #
 # The smoke (tests/ats/test_smoke.py) is the chart-level install check: the
 # chart installs on a bare cluster and its Deployment — the server with the
-# image the branch build pushed — becomes ready. It is skipped until the
-# generated CI carries the image job (push-to-registries), which the
-# align-files run renders once a Dockerfile is on main: without the image the
-# install cannot become ready.
+# image the branch build pushed (branchPublish in giantswarm/github makes
+# execute-chart-tests wait on that push) — becomes ready.
 app-tests-app-config-file: tests/test-values.yaml
 app-tests-deploy-namespace: giantswarm-platform-manager
 
 # Manifests applied before the install: ATS's bundled CRDs.
 cluster-crds: /etc/ats/crds
 
-# smoke: on once the image job exists. functional: no second scenario.
-# upgrade: an upgrade from the last release in the catalog is a follow-up.
-skip-steps: [smoke, functional, upgrade]
+# functional: no second scenario. upgrade: an upgrade from the last release in
+# the catalog is a follow-up.
+skip-steps: [functional, upgrade]
