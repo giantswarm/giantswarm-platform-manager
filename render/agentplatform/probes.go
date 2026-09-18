@@ -126,7 +126,8 @@ type dexRedirectClient struct {
 
 // dexRedirectClients are the clients the dex patch renders whose client id and
 // redirect URI the definition knows, in the patch's order: muster, kagent's UI,
-// and the additional clients that name a redirect URI. The hubs' token-exchange
+// the portal's when the patch carries it, and the additional clients that name
+// a redirect URI. The hubs' token-exchange
 // clients have no redirect URI and are not probed.
 func (in *Input) dexRedirectClients() []dexRedirectClient {
 	// The built-in clients carry their client id, not their name: muster's is the
@@ -135,6 +136,9 @@ func (in *Input) dexRedirectClients() []dexRedirectClient {
 	clients := []dexRedirectClient{{id: in.Installation.MusterClientID, redirectURI: "https://" + in.host("muster") + "/oauth/callback"}}
 	if in.Kagent.Enabled {
 		clients = append(clients, dexRedirectClient{id: "kagent", redirectURI: in.kagentRedirectURI()})
+	}
+	if in.Portal.Domain != "" {
+		clients = append(clients, dexRedirectClient{id: render.PortalDexClientID, redirectURI: render.PortalRedirectURI(in.Portal.Domain, in.Installation.Name)})
 	}
 	for _, c := range in.Identity.AdditionalDexClients {
 		if len(c.RedirectURIs) > 0 {

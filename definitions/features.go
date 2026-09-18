@@ -10,12 +10,13 @@ import (
 // against the render, probe is an anonymous HTTP request, live is a read on
 // the installation with the person's authority.
 const (
-	KindConfigMap = "configmap"
-	KindDexSecret = "dex-secret"
-	KindExtras    = "extras"
-	KindBackstage = "backstage"
-	KindLive      = "live"
-	KindProbe     = "probe"
+	KindConfigMap    = "configmap"
+	KindDexSecret    = "dex-secret"
+	KindDexConfigMap = "dex-configmap"
+	KindExtras       = "extras"
+	KindBackstage    = "backstage"
+	KindLive         = "live"
+	KindProbe        = "probe"
 )
 
 // Feature is one consistency feature of a definition: what the verify rolls
@@ -39,7 +40,9 @@ type Probe struct {
 	ID      string `yaml:"id"`
 	Feature string `yaml:"feature"`
 	Key     string `yaml:"key"`
-	// URL is a Go template over BaseDomain and, per Dex client, ClientID and RedirectURI.
+	// URL is a Go template over BaseDomain and Installation (the
+	// installation's), PortalDomain (the portal's hostname, where the
+	// definition has one) and, per Dex client, ClientID and RedirectURI.
 	URL string `yaml:"url"`
 	// PerDexClient runs the probe once per client of the rendered dex patch.
 	PerDexClient bool `yaml:"perDexClient"`

@@ -17,6 +17,7 @@ input:
   identity: {}
   portal:
     enabled: true
+    domain: portal.kestrel.oakridge.example
     clientIds:
       - portal-client-id-one
       - portal-client-id-two

@@ -1,0 +1,147 @@
+# Rendered by giantswarm-platform-manager, customer-portal definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config-backstage
+  namespace: flux-giantswarm
+data:
+  values: |
+    backstage:
+      appConfig: |
+        app:
+          title: Example Portal
+          baseUrl: https://portal.hazel.example.test
+          extensions:
+            $include: shared-config.yaml#extensions
+          routes:
+            $include: shared-config.yaml#routes
+          errorReporter:
+            sentry:
+              dsn: $${SENTRY_DSN_APP}
+              environment: production
+              releaseVersion: $${VERSION}
+              tracesSampleRate: 0.5
+          telemetrydeck:
+            appID: 00000000-0000-4000-8000-000000000001
+            salt: $${TELEMETRYDECK_SALT}
+        organization:
+          name: Example
+        backend:
+          auth:
+            pluginKeyStore:
+              type: static
+              static:
+                keys:
+                  - publicKeyFile: /app/plugin-keys/plugin-to-plugin/public.key
+                    privateKeyFile: /app/plugin-keys/plugin-to-plugin/private.key
+                    keyId: plugin-to-plugin
+          baseUrl: https://portal.hazel.example.test
+          listen:
+            port: 7007
+            host: 0.0.0.0
+          cors:
+            origin: https://portal.hazel.example.test
+            methods:
+              - GET
+              - HEAD
+              - PATCH
+              - POST
+              - PUT
+              - DELETE
+            credentials: true
+          csp:
+            report-uri:
+              - $${SENTRY_REPORT_URI}
+            connect-src:
+              $include: shared-config.yaml#csp.connectSrc
+            img-src:
+              $include: shared-config.yaml#csp.imgSrc
+            script-src:
+              $include: shared-config.yaml#csp.scriptSrc
+            worker-src:
+              $include: shared-config.yaml#csp.workerSrc
+          database:
+            client: better-sqlite3
+            connection: ':memory:'
+          cache:
+            store: memory
+          reading:
+            allow:
+              - host: '*.hazel.example.test'
+          errorReporter:
+            sentry:
+              dsn: $${SENTRY_DSN_BACKEND}
+              environment: production
+              releaseVersion: $${VERSION}
+              tracesSampleRate: 0.5
+        integrations:
+          github:
+            - host: github.com
+              apps:
+                - $include: github-app-credentials.yaml
+        permission:
+          enabled: true
+        techdocs:
+          builder: local
+          generator:
+            runIn: local
+          publisher:
+            type: local
+        kubernetes:
+          serviceLocatorMethod:
+            type: multiTenant
+          clusterLocatorMethods:
+            - type: config
+              clusters:
+                - name: hazel
+                  url: https://happaapi.hazel.example.test
+                  authProvider: oidc
+                  oidcTokenProvider: oidc-hazel
+        auth:
+          environment: production
+          session:
+            secret: $${AUTH_SESSION_SECRET}
+          providers:
+            oidc-hazel:
+              development:
+                metadataUrl: https://dex.hazel.example.test/.well-known/openid-configuration
+                clientId: $${AUTH_DEX_HAZEL_CLIENT_ID}
+                clientSecret: $${AUTH_DEX_HAZEL_CLIENT_SECRET}
+              production:
+                metadataUrl: https://dex.hazel.example.test/.well-known/openid-configuration
+                clientId: $${AUTH_DEX_HAZEL_CLIENT_ID}
+                clientSecret: $${AUTH_DEX_HAZEL_CLIENT_SECRET}
+        flux:
+          gitRepositoryPatterns:
+            - targetUrl: https://$${{HOSTNAME}}/projects/$${{PROJECT_NAME}}/repos/$${{REPOSITORY_NAME}}/browse/$${{PATH}}?at=$${{REVISION}}
+              gitRepositoryUrlPattern: ^https:\/\/(?<HOSTNAME>git.example.test)\/scm\/(?<PROJECT_NAME>.+?)\/(?<REPOSITORY_NAME>.+?)(\.git)?$
+        gs:
+          authProvider: oidc-hazel
+          auth:
+            extraScopes:
+              $include: shared-config.yaml#auth.extraScopes
+          homepage:
+            resources:
+              - $include: shared-config.yaml#homepageResources.gsDocs
+              - $include: shared-config.yaml#homepageResources.gsGitHub
+              - $include: shared-config.yaml#homepageResources.portalChangelog
+              - $include: shared-config.yaml#homepageResources.portalRoadmap
+              - label: "Giant Swarm \n Support"
+                icon: LiveHelp
+                url: https://support.example.test/
+          installations:
+            hazel:
+              authProvider: oidc
+              baseDomain: hazel.example.test
+              oidcTokenProvider: oidc-hazel
+              pipeline: testing
+              providers:
+                - capa
+              region: example-region-2
+          adminGroups:
+            $include: shared-config.yaml#adminGroups
+          kubernetesVersions:
+            $include: shared-config.yaml#kubernetesVersions
+        catalog:
+          $include: shared-config.yaml#catalog

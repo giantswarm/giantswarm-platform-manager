@@ -1,0 +1,36 @@
+# A customer's portal on the 0.x chart line: GitHub App and Grafana plugins, no
+# agent platform (so this definition renders the Dex client into the dex-app
+# patch), no tunnel, no Sentry. Invented names, placeholder values.
+input:
+  installation:
+    name: maple
+    baseDomain: maple.acme.example.test
+    customer: acme
+    provider: capz
+    region: example-region-1
+    pipeline: stable
+    agentPlatform: false
+  portal:
+    domain: portal.maple.acme.example.test
+    organization: ACME
+    supportUrl: https://support.acme.example.test/
+  chart:
+    line: ">=0.244.7 <1.0.0"
+  plugins:
+    github:
+      enabled: true
+      appId: 123456
+    grafana:
+      enabled: true
+      domain: https://grafana.maple.acme.example.test
+    flux:
+      enabled: false
+    sentry:
+      enabled: false
+  tunnel:
+    enabled: false
+secrets:
+  plugins.github.clientId: Iv1.placeholder-client-id
+  plugins.github.clientSecret: placeholder-client-secret
+  plugins.github.privateKey: placeholder-private-key
+  plugins.github.webhookSecret: placeholder-webhook-secret

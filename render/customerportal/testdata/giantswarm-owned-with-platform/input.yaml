@@ -1,0 +1,44 @@
+# A Giant Swarm-owned portal on the 2.x chart line with the agent platform
+# enabled (the platform's Component listed, the Dex client carried by the
+# agent-platform definition), the tunnel's SPIFFE bundle, Sentry and the Flux
+# plugin, telemetry on, a title of its own. Invented names, placeholder values.
+input:
+  installation:
+    name: hazel
+    baseDomain: hazel.example.test
+    customer: giantswarm
+    provider: capa
+    region: example-region-2
+    pipeline: testing
+    agentPlatform: true
+  portal:
+    domain: portal.hazel.example.test
+    title: Example Portal
+    organization: Example
+    supportUrl: https://support.example.test/
+    telemetrydeckAppId: 00000000-0000-4000-8000-000000000001
+  chart:
+    line: ">=2.1.0 <3.0.0"
+  plugins:
+    github:
+      enabled: true
+      appId: 654321
+    grafana:
+      enabled: false
+    flux:
+      enabled: true
+      gitRepositoryPatterns:
+        - targetUrl: 'https://$${{HOSTNAME}}/projects/$${{PROJECT_NAME}}/repos/$${{REPOSITORY_NAME}}/browse/$${{PATH}}?at=$${{REVISION}}'
+          gitRepositoryUrlPattern: '^https:\/\/(?<HOSTNAME>git.example.test)\/scm\/(?<PROJECT_NAME>.+?)\/(?<REPOSITORY_NAME>.+?)(\.git)?$'
+    sentry:
+      enabled: true
+  tunnel:
+    enabled: true
+secrets:
+  plugins.github.clientId: Iv1.placeholder-client-id
+  plugins.github.clientSecret: placeholder-client-secret
+  plugins.github.privateKey: placeholder-private-key
+  plugins.github.webhookSecret: placeholder-webhook-secret
+  plugins.sentry.appDsn: https://placeholder@sentry.example.test/1
+  plugins.sentry.backendDsn: https://placeholder@sentry.example.test/2
+  plugins.sentry.reportUri: https://sentry.example.test/api/1/security/?sentry_key=placeholder

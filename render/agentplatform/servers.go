@@ -102,7 +102,7 @@ const (
 	// dexNamespace is where the installation's Dex runs and reads client Secrets.
 	dexNamespace = "giantswarm"
 	// dexSecretKey is the key every Dex client Secret carries.
-	dexSecretKey = "secret"
+	dexSecretKey = render.DexSecretKey
 	// platformNamespace is muster's namespace.
 	platformNamespace = "agent-platform"
 	// kagentNamespace is where kagent and its oauth2-proxy run.
@@ -132,7 +132,7 @@ func (in *Input) BuiltInDexClientID(key string) string {
 // dexClientSecretName is the Secret in Dex's namespace that carries a
 // component's client secret.
 func dexClientSecretName(component string) string {
-	return "dex-client-" + component
+	return render.DexClientSecretName(component)
 }
 
 // dexClientSecretFile is that Secret's file name; it matches the fleet's

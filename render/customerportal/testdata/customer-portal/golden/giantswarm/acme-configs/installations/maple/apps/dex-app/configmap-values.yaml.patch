@@ -1,0 +1,11 @@
+# Rendered by giantswarm-platform-manager, customer-portal definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+oidc:
+  extraStaticClients:
+    - id: backstage
+      name: Dev Portal
+      redirectURIs:
+        - https://portal.maple.acme.example.test/api/auth/oidc-maple/handler/frame
+      secretRef:
+        name: dex-client-backstage
+        key: secret

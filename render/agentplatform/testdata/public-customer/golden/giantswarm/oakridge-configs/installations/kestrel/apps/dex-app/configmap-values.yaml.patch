@@ -31,6 +31,13 @@ oidc:
         key: secret
       redirectURIs:
         - https://kagent.kestrel.oakridge.example/oauth2/callback
+    - id: backstage
+      name: Dev Portal
+      redirectURIs:
+        - https://portal.kestrel.oakridge.example/api/auth/oidc-kestrel/handler/frame
+      secretRef:
+        name: dex-client-backstage
+        key: secret
     - id: heron-token-exchange
       name: heron token exchange
       secretRef:

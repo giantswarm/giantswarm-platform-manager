@@ -1,0 +1,1 @@
+giantswarm/acme-management-clusters:management-clusters/maple/extras/kustomization.yaml resources ./backstage/

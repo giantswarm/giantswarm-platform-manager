@@ -1,0 +1,1 @@
+giantswarm/giantswarm-management-clusters:management-clusters/hazel/extras/kustomization.yaml resources ./backstage/

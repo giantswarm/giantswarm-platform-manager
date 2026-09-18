@@ -17,7 +17,7 @@ import (
 
 // Document is the inputs file: the definition's input document under `input`
 // and the secret values a person supplies under `secrets` — the document the
-// golden filesets are rendered from (render/agentplatform/testdata/<shape>/input.yaml).
+// golden filesets are rendered from (render/<definition>/testdata/<shape>/input.yaml).
 type Document struct {
 	Input   map[string]any    `yaml:"input"`
 	Secrets map[string]string `yaml:"secrets"`

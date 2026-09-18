@@ -55,7 +55,7 @@ func Render(raw any, secrets map[string]string) (*render.Result, error) {
 	if in.Portal.Enabled {
 		backstage := "management-clusters/" + in.portalHost() + "/extras/backstage/"
 		in.portalFiles(r, clusters, backstage+portalDir, secrets)
-		r.IncludeComponent(clusters, backstage+"kustomization.yaml", "./"+portalDir+"/")
+		r.IncludeComponent(clusters, backstage+"kustomization.yaml", render.PortalPlatformComponent())
 	}
 	r.Probes = in.probes()
 	r.Actions = in.actions()
@@ -256,7 +256,11 @@ func hubClient(hub string) string { return hub + "-token-exchange" }
 
 // dexPatch is installations/<name>/apps/dex-app/configmap-values.yaml.patch:
 // the platform's clients in plaintext, every secret a reference to a Secret
-// in Dex's namespace. It never touches the encrypted secret patch.
+// in Dex's namespace. It never touches the encrypted secret patch. The patch
+// is one file with one owner: on an installation with the platform enabled
+// this definition owns it, so the portal's client (portal.domain) is carried
+// here, byte for byte the entry the customer-portal definition renders on an
+// installation without the platform.
 func (in *Input) dexPatch() render.Map {
 	static := render.Map{e("muster", render.Map{e("clientSecretRef", dexClientRef("muster"))})}
 	for _, s := range servers {
@@ -276,6 +280,9 @@ func (in *Input) dexPatch() render.Map {
 		extra = append(extra, render.Map{e("id", "kagent"), e("name", "kagent-ui"),
 			e("secretRef", dexClientRef("kagent")),
 			e("redirectURIs", []string{in.kagentRedirectURI()})})
+	}
+	if in.Portal.Domain != "" {
+		extra = append(extra, render.PortalDexClient(in.Portal.Domain, in.Installation.Name))
 	}
 	for _, hub := range in.Federation.Hubs {
 		extra = append(extra, render.Map{e("id", hubClient(hub)), e("name", hub+" token exchange"),

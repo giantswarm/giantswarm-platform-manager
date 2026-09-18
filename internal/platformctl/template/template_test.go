@@ -8,53 +8,59 @@ import (
 	"testing"
 )
 
-const testdata = "../../../render/agentplatform/testdata"
+// testdata are the render library's golden shapes, by definition.
+var testdata = map[string]string{
+	"agent-platform":  "../../../render/agentplatform/testdata",
+	"customer-portal": "../../../render/customerportal/testdata",
+}
 
 // TestGoldenByteForByte is the acceptance criterion: `platformctl template`
 // reproduces every golden fileset of the render library, file for file and
 // byte for byte, from the same inputs document.
 func TestGoldenByteForByte(t *testing.T) {
-	entries, err := os.ReadDir(testdata)
-	if err != nil {
-		t.Fatal(err)
-	}
-	root := os.DirFS(testdata)
-	shapes := 0
-	for _, e := range entries {
-		shape := e.Name()
-		if _, err := fs.Stat(root, shape+"/input.yaml"); err != nil {
-			continue // not an installation shape (the consumption fixtures)
+	for definition, dir := range testdata {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
 		}
-		shapes++
-		t.Run(shape, func(t *testing.T) {
-			inputs, err := fs.ReadFile(root, shape+"/input.yaml")
-			if err != nil {
-				t.Fatal(err)
+		root := os.DirFS(dir)
+		shapes := 0
+		for _, e := range entries {
+			shape := e.Name()
+			if _, err := fs.Stat(root, shape+"/input.yaml"); err != nil {
+				continue // not an installation shape (the consumption fixtures)
 			}
-			got, err := Render("agent-platform", inputs)
-			if err != nil {
-				t.Fatal(err)
-			}
-			out := t.TempDir()
-			if err := Write(out, got); err != nil {
-				t.Fatal(err)
-			}
-			want := readTree(t, testdata+"/"+shape+"/golden")
-			written := readTree(t, out)
-			for name, content := range want {
-				if !bytes.Equal(written[name], content) {
-					t.Errorf("%s differs from the golden", name)
+			shapes++
+			t.Run(definition+"/"+shape, func(t *testing.T) {
+				inputs, err := fs.ReadFile(root, shape+"/input.yaml")
+				if err != nil {
+					t.Fatal(err)
 				}
-			}
-			for name := range written {
-				if _, ok := want[name]; !ok {
-					t.Errorf("%s written but not in the golden", name)
+				got, err := Render(definition, inputs)
+				if err != nil {
+					t.Fatal(err)
 				}
-			}
-		})
-	}
-	if shapes == 0 {
-		t.Fatal("no golden shape found under " + testdata)
+				out := t.TempDir()
+				if err := Write(out, got); err != nil {
+					t.Fatal(err)
+				}
+				want := readTree(t, dir+"/"+shape+"/golden")
+				written := readTree(t, out)
+				for name, content := range want {
+					if !bytes.Equal(written[name], content) {
+						t.Errorf("%s differs from the golden", name)
+					}
+				}
+				for name := range written {
+					if _, ok := want[name]; !ok {
+						t.Errorf("%s written but not in the golden", name)
+					}
+				}
+			})
+		}
+		if shapes == 0 {
+			t.Fatal("no golden shape found under " + dir)
+		}
 	}
 }
 
@@ -95,7 +101,7 @@ func TestRenderRefusals(t *testing.T) {
 }
 
 func TestShapes(t *testing.T) {
-	if got := Shapes(); len(got) != 1 || got[0] != "agent-platform" {
+	if got := Shapes(); len(got) != 2 || got[0] != "agent-platform" || got[1] != "customer-portal" {
 		t.Fatalf("got %v", got)
 	}
 }

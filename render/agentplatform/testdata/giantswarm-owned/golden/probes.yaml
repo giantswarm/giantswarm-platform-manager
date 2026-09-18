@@ -152,6 +152,12 @@
   url: https://dex.gopher.example.io/auth?client_id=kagent&redirect_uri=https://kagent.gopher.example.io/oauth2/callback&response_type=code&scope=openid
   expect:
     status: 302
+- id: live-dex-auth-per-client
+  feature: identity
+  kind: HTTP
+  url: https://dex.gopher.example.io/auth?client_id=backstage&redirect_uri=https://portal.gopher.example.io/api/auth/oidc-gopher/handler/frame&response_type=code&scope=openid
+  expect:
+    status: 302
 - id: live-muster-protected-resource
   feature: tool-access
   kind: HTTP

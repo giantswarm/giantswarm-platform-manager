@@ -1,6 +1,6 @@
 # render — the capability render library
 
-`render` and its definitions (`render/agentplatform`) turn an installation's inputs into the files of
+`render` and its definitions (`render/agentplatform`, `render/customerportal`) turn an installation's inputs into the files of
 its GitOps repositories: a `Result` with the files by repository and repository-relative path, and the
 entries a shared `kustomization.yaml` must list.
 

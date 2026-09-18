@@ -172,6 +172,12 @@
           "x-renders": ["backstage:app-config:muster.installations[*]", "backstage:app-config:app.extensions.$include", "backstage:user-values:backstage.extraEnvVars[*]"]
         },
         "installation": {"type": "string", "description": "The installation whose management-clusters tree hosts the portal, when it is not this one.", "x-source": "person", "x-feature": "portal", "x-renders": []},
+        "domain": {
+          "type": "string", "format": "hostname",
+          "description": "The portal's hostname on this installation, when the portal signs people in on this installation's Dex. The dex-app configmap patch is one file with one owner: with the platform enabled this definition owns it, so it carries the portal's Dex client (id backstage, redirect URI https://<domain>/api/auth/oidc-<name>/handler/frame, secret referenced from the customer-portal definition's Secret dex-client-backstage) — the entry the customer-portal definition renders itself on an installation without the platform.",
+          "x-source": "person", "x-feature": "identity",
+          "x-renders": ["dex-configmap:oidc.extraStaticClients[*]"]
+        },
         "clientIds": {
           "type": "array", "items": {"type": "string"}, "minItems": 1,
           "description": "Dex client ids of the portal instances that sign people in on this installation. Their main-login tokens are accepted by the kagent UI's oauth2-proxy, by muster, by Dex's authenticator client and, where the agentgateway validates JWTs at the edge, by its JWT policy.",

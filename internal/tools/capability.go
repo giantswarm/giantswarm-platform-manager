@@ -74,6 +74,11 @@ const (
 	SkippedNoRepositories = "no repositories on record"
 )
 
+// capabilityArgDescription describes the capability argument of the write
+// tools and the verify: every registered definition is selectable, one is
+// taken today.
+const capabilityArgDescription = `The capability (default agent-platform). Every definition get_info lists is selectable; the tool takes agent-platform today and refuses the others as not implemented.`
+
 // stringItems is the schema of an array-of-strings argument.
 func stringItems() map[string]any { return map[string]any{"type": "string"} }
 
@@ -82,7 +87,7 @@ func capabilityOptions() []mcp.ToolOption {
 		mcp.WithString(ArgInstallation, mcp.Description("The one installation to render, by name. Rendered whether or not it is opted in; the answer names the opt-in state and why a commit would be refused.")),
 		mcp.WithArray(ArgInstallations, mcp.Description("The set to render; empty with no installation is every installation of the registry. Installations not opted in are skipped, listed with the reason."), mcp.Items(stringItems())),
 		mcp.WithArray(ArgOrder, mcp.Description("The rollout order of the set when the default (Giant Swarm's test installations, the hub, the customers) is not the one wanted: every rendered installation of the set exactly once."), mcp.Items(stringItems())),
-		mcp.WithString(ArgCapability, mcp.Description(`The capability; "agent-platform" is the one there is (the default).`), mcp.Enum(installations.CapabilityNames()...)),
+		mcp.WithString(ArgCapability, mcp.Description(capabilityArgDescription), mcp.Enum(installations.CapabilityNames()...)),
 		mcp.WithObject(ArgInputs, mcp.Description("The typed inputs of the definition (get_info lists the schema), merged over the facts on record: a typed installation.* key overrides the record; an unknown key, and a required section or choice left out, refuse with its name — the schema is the contract, nothing is chosen for you. Never a secret value.")),
 		mcp.WithBoolean(ArgContent, mcp.Description("Include the rendered content of every file (default true); false answers paths and changes only.")),
 		mcp.WithObject(ArgSecrets, mcp.Description("mode commit only: the secret values the plan's suppliedSecrets name, by field. They land inside the encrypted files and nowhere else — not in the Action, not in a log, not in an answer.")),
@@ -200,16 +205,22 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 	return &out, env, nil
 }
 
-// capabilityArg is the capability named in args, the one there is by default.
+// capabilityArg is the capability named in args, agent-platform by default —
+// the one definition the capability tools take today. Another registered
+// definition is refused as not implemented, naming the tools that do take
+// it; a name the registry does not know is refused with the registry's names.
 func capabilityArg(args map[string]any) (string, error) {
 	capability, _ := args[ArgCapability].(string)
 	if capability == "" {
 		capability = installations.AgentPlatform
 	}
-	if capability != installations.AgentPlatform {
-		return "", fmt.Errorf("capability %q is not known: %q is the one there is", capability, installations.AgentPlatform)
+	if capability == installations.AgentPlatform {
+		return capability, nil
 	}
-	return capability, nil
+	if _, ok := installations.FindCapability(capability); ok {
+		return "", fmt.Errorf("capability %q: its enable, reconcile and verify through this tool are %w (get_info lists the definition, platformctl template renders it); %q is the one the tool takes", capability, ErrNotImplemented, installations.AgentPlatform)
+	}
+	return "", fmt.Errorf("capability %q is not known: the definitions are %s", capability, strings.Join(installations.CapabilityNames(), ", "))
 }
 
 // readAs reads a repository file as the caller c stands for.

@@ -245,6 +245,10 @@ func TestGetInfoNamesTheCaller(t *testing.T) {
 		t.Fatal("definitions: empty; the registry's definitions are missing from get_info")
 	case !definitionListed(t, info.Definitions, installations.AgentPlatform):
 		t.Fatalf("definitions: %s missing its schema or features: %+v", installations.AgentPlatform, info.Definitions)
+	case !definitionListed(t, info.Definitions, installations.CustomerPortal):
+		t.Fatalf("definitions: %s missing its schema or features: %+v", installations.CustomerPortal, info.Definitions)
+	case len(info.Definitions) != len(installations.Capabilities()):
+		t.Fatalf("definitions: %d listed, the registry has %d", len(info.Definitions), len(installations.Capabilities()))
 	case !info.Approvals.Configured || info.Approvals.Channel != reviewChannel || info.Approvals.Team != reviewTeam || info.Approvals.NoticeChannel != noticeChannel:
 		t.Fatalf("approvals: %+v", info.Approvals)
 	case strings.Join(info.PlannedTools, ",") != strings.Join(tools.PlannedTools(), ","):

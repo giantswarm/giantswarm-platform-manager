@@ -6,6 +6,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 	"github.com/giantswarm/giantswarm-platform-manager/render/agentplatform"
+	"github.com/giantswarm/giantswarm-platform-manager/render/customerportal"
 )
 
 // State is a capability's state on an installation. The first three are read
@@ -38,15 +39,17 @@ const (
 )
 
 // Capability is a platform capability the manager knows about: the
-// definition's name, what it enables, the marker whose presence in the
-// installation's configs repository means the capability is enabled there —
-// the first file of its fileset — and the render of its definition. Its data
+// definition's name, what it enables, the marker whose presence in one of the
+// installation's repositories means the capability is enabled there — the
+// first file of its fileset — and the render of its definition. Its data
 // (the input schema, the features, the probes, the removals, the policy) is
 // the embedded definitions/<name>/ directory.
 type Capability struct {
 	Name string
 	// Description is what the capability enables, in one sentence.
 	Description string
+	// MarkerRepository is the repository the marker is read from.
+	MarkerRepository MarkerRepository
 	// EnabledMarker is the path of the marker for installation name.
 	EnabledMarker func(installation string) string
 	// Render is the definition's render: the decoded input document and the
@@ -63,9 +66,26 @@ func (c Capability) Schema() (json.RawMessage, error) {
 	return json.RawMessage(raw), nil
 }
 
-// AgentPlatform is the agent-platform capability: enabled once the
-// installation's configs repository carries the agent-platform values patch.
-const AgentPlatform = "agent-platform"
+// MarkerRepository names one of an installation's two GitOps repositories.
+type MarkerRepository string
+
+const (
+	// ConfigsRepository is the <customer>-configs repository.
+	ConfigsRepository MarkerRepository = "configs"
+	// ManagementClustersRepository is the <customer>-management-clusters repository.
+	ManagementClustersRepository MarkerRepository = "management-clusters"
+)
+
+// The capabilities.
+const (
+	// AgentPlatform is the agent-platform capability: enabled once the
+	// installation's configs repository carries the agent-platform values patch.
+	AgentPlatform = "agent-platform"
+	// CustomerPortal is the customer-portal capability: enabled once the
+	// installation's management-clusters repository carries the portal's
+	// app-config.
+	CustomerPortal = "customer-portal"
+)
 
 // Capabilities is the registry of the capability definitions the manager
 // knows — the one list get_info, list_installations, the write tools, the
@@ -73,12 +93,19 @@ const AgentPlatform = "agent-platform"
 // under definitions/<name>/, nowhere else.
 func Capabilities() []Capability {
 	return []Capability{{
-		Name:        AgentPlatform,
-		Description: "The agent platform on an installation: muster with its MCP servers, kagent and its agents, the Dex clients, the developer portal's section, the hub's federation, klaus-gateway and cluster-manager.",
+		Name:             AgentPlatform,
+		Description:      "The agent platform on an installation: muster with its MCP servers, kagent and its agents, the Dex clients, the developer portal's section, the hub's federation, klaus-gateway and cluster-manager.",
+		MarkerRepository: ConfigsRepository,
 		EnabledMarker: func(installation string) string {
 			return "installations/" + installation + "/apps/agent-platform/configmap-values.yaml.patch"
 		},
 		Render: agentplatform.Render,
+	}, {
+		Name:             CustomerPortal,
+		Description:      "The developer portal on an installation: its extras/backstage tree over the fleet's bases, its Dex client, the plugin keys and the session secret.",
+		MarkerRepository: ManagementClustersRepository,
+		EnabledMarker:    PortalConfigPath,
+		Render:           customerportal.Render,
 	}}
 }
 
@@ -100,6 +127,14 @@ func FindCapability(name string) (Capability, bool) {
 		}
 	}
 	return Capability{}, false
+}
+
+// Repository is the installation's repository the capability's marker is read from.
+func (c Capability) Repository(repos Repositories) string {
+	if c.MarkerRepository == ManagementClustersRepository {
+		return repos.ManagementClusters
+	}
+	return repos.Configs
 }
 
 // FromAction says whether s is a state the Action record produces — one an
