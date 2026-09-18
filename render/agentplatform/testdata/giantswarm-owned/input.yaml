@@ -1,0 +1,66 @@
+# A Giant Swarm-owned installation: the login connector pinned, a managed model
+# key, an additional model, in-cluster agents trusted through the cluster's
+# service-account issuer, the chart range lifted. Invented names, placeholder values.
+input:
+  installation:
+    name: gopher
+    baseDomain: gopher.example.io
+    customer: giantswarm
+    provider: capa
+    private: false
+    chartLine: "4"
+    musterClientId: 00000000-0000-4000-8000-000000000002
+  secrets: {}
+  kagent:
+    enabled: true
+    modelKeySecret: managed
+    defaultModel: example-model-medium
+    additionalModelConfigs:
+      - name: example-large
+        displayName: Example Large
+        provider: Anthropic
+        model: example-model-large
+        apiKeySecret: kagent-anthropic-key
+        apiKeySecretKey: ANTHROPIC_API_KEY
+        baseUrl: http://agentgateway.agent-platform.svc:8081
+  identity:
+    loginConnectorId: giantswarm-github
+    postLoginRedirectAllowlist:
+      - https://portal.example.io/
+    trustedIssuers:
+      - issuer: https://irsa.gopher.example.io
+        jwksUrl: https://irsa.gopher.example.io/keys.json
+        allowedAudiences:
+          - https://muster.gopher.example.io/mcp
+        allowedClaims:
+          sub: "system:serviceaccount:kagent:*"
+        acceptedTypHeaders:
+          - ""
+  portal:
+    enabled: true
+    clientIds:
+      - portal-client-id-home
+  toolAccess:
+    agentManager:
+      enabled: true
+    additionalServers:
+      - name: example-tools
+        cluster: gopher
+        group: example
+        url: http://example-tools.agent-platform.svc:8080/mcp
+        timeout: 30
+        auth:
+          mode: forward
+  federation:
+    targets: []
+    hubs: []
+  chart:
+    semver: ">=4.0.0 <5.0.0"
+  muster:
+    resources:
+      requests:
+        memory: 256Mi
+      limits:
+        memory: 1Gi
+secrets:
+  kagent.modelKey: PLACEHOLDER-MODEL-KEY

@@ -1,0 +1,29 @@
+# A public customer installation: invented names, placeholder values. The hub
+# "heron" federates into it; two portal instances sign people in on it.
+input:
+  installation:
+    name: kestrel
+    baseDomain: kestrel.oakridge.example
+    customer: oakridge
+    provider: capa
+    private: false
+    chartLine: "3"
+    musterClientId: 00000000-0000-4000-8000-000000000001
+  secrets: {}
+  kagent:
+    enabled: true
+    modelKeySecret: customer-provided
+  identity: {}
+  portal:
+    enabled: true
+    clientIds:
+      - portal-client-id-one
+      - portal-client-id-two
+  toolAccess:
+    agentManager:
+      enabled: true
+  federation:
+    targets: []
+    hubs:
+      - heron
+secrets: {}

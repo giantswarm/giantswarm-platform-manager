@@ -1,0 +1,23 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+oidc:
+  staticClients:
+    muster:
+      clientSecretRef:
+        name: dex-client-muster
+        key: secret
+    mcpKubernetes:
+      clientSecretRef:
+        name: dex-client-mcp-kubernetes
+        key: secret
+    dexK8SAuthenticator:
+      trustedPeers:
+        - portal-client-id-home
+  extraStaticClients:
+    - id: kagent
+      name: kagent-ui
+      secretRef:
+        name: dex-client-kagent
+        key: secret
+      redirectURIs:
+        - https://kagent.gopher.example.io/oauth2/callback

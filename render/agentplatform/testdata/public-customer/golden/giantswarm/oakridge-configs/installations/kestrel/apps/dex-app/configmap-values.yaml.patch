@@ -1,0 +1,30 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+oidc:
+  staticClients:
+    muster:
+      clientSecretRef:
+        name: dex-client-muster
+        key: secret
+    mcpKubernetes:
+      clientSecretRef:
+        name: dex-client-mcp-kubernetes
+        key: secret
+    dexK8SAuthenticator:
+      trustedPeers:
+        - portal-client-id-one
+        - portal-client-id-two
+        - heron-token-exchange
+  extraStaticClients:
+    - id: kagent
+      name: kagent-ui
+      secretRef:
+        name: dex-client-kagent
+        key: secret
+      redirectURIs:
+        - https://kagent.kestrel.oakridge.example/oauth2/callback
+    - id: heron-token-exchange
+      name: heron token exchange
+      secretRef:
+        name: dex-client-heron-token-exchange
+        key: secret
