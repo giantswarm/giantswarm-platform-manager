@@ -1,0 +1,21 @@
+// Repo-specific Renovate rules; renovate.json5 (generated) extends this file.
+{
+  packageRules: [
+    {
+      // The render-consumption test (render/agentplatform/testdata/consumption/
+      // charts.yaml) renders the agent-platform meta chart on its 3.x line: the
+      // 4.x line needs inputs the definition does not carry
+      // (kagent.harness.snapshotLocation), and the fleet base the extras
+      // reference carries the same ceiling (<4.0.0). The connectivity chart
+      // follows the meta chart's line. Lift this together with the definition.
+      matchDatasources: [
+        'docker',
+      ],
+      matchPackageNames: [
+        'gsoci.azurecr.io/charts/giantswarm/agent-platform',
+        'gsoci.azurecr.io/charts/giantswarm/agent-platform-connectivity',
+      ],
+      allowedVersions: '<4.0.0',
+    },
+  ],
+}

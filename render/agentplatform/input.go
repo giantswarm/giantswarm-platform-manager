@@ -38,6 +38,10 @@ var (
 // when kagent.modelKeySecret is managed.
 const fieldModelKey = "kagent.modelKey"
 
+// modelKeyManaged is the kagent.modelKeySecret value under which the platform
+// team supplies the model key; any other value leaves it to the customer.
+const modelKeyManaged = "managed"
+
 // Input is the typed form of definitions/agent-platform/schema.json. The
 // schema is the contract; this struct is how the renderer reads it.
 type Input struct {
@@ -406,7 +410,7 @@ func (in *Input) check(secrets map[string]string) error {
 // the commit step from the placeholders in the fileset.
 func (in *Input) suppliedSecretFields() []string {
 	var fields []string
-	if in.Kagent.Enabled && in.Kagent.ModelKeySecret == "managed" {
+	if in.Kagent.Enabled && in.Kagent.ModelKeySecret == modelKeyManaged {
 		fields = append(fields, fieldModelKey)
 	}
 	for _, s := range in.ToolAccess.AdditionalServers {

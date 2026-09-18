@@ -1,0 +1,21 @@
+# Stands in for the mcp-capi Konfiguration ConfigMap (the shared template in the
+# fleet's config repository, not in this repository): the values that select the
+# Secrets the chart reads. Invented hostnames; nothing here is asserted, only
+# what the chart reads with it.
+oauth:
+  enabled: true
+  provider: dex
+  baseURL: https://mcp-capi.example.test
+  dex:
+    issuerURL: https://dex.example.test
+    clientID: mcp-capi
+    kubernetesAuthenticatorClientID: dex-k8s-authenticator
+  existingSecret: mcp-capi-oauth-credentials
+  downstream:
+    enabled: true
+  storage:
+    type: valkey
+    valkey:
+      url: mcp-capi-valkey.mcp-capi.svc:6379
+      existingSecret: mcp-capi-valkey-auth
+      secretKeyPassword: default

@@ -1,0 +1,19 @@
+# Stands in for the mcp-kubernetes Konfiguration ConfigMap (the shared template in
+# the fleet's config repository, not in this repository): the values that select
+# the Secrets the chart reads, and the base URL the chart requires with OAuth on.
+# Invented hostnames; nothing here is asserted, only what the chart reads with it.
+mcpKubernetes:
+  oauth:
+    enabled: true
+    encryptionKey: true
+    existingSecret: mcp-kubernetes-oauth-credentials
+    baseURL: https://mcp-kubernetes.example.test
+    dex:
+      issuerURL: https://dex.example.test
+      clientID: mcp-kubernetes
+    storage:
+      type: valkey
+      valkey:
+        url: mcp-kubernetes-valkey.mcp-kubernetes.svc:6379
+        existingSecret: mcp-kubernetes-valkey-auth
+        secretKeyPassword: default

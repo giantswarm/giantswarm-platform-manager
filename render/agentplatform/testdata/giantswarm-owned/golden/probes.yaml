@@ -1,0 +1,225 @@
+- id: live-helmreleases-ready
+  feature: runtime
+  kind: HelmReleaseReady
+  namespace: flux-giantswarm
+  resource: HelmRelease
+  name: agent-platform
+- id: live-helmreleases-ready
+  feature: runtime
+  kind: HelmReleaseReady
+  namespace: flux-giantswarm
+  resource: HelmRelease
+  name: kagent
+- id: live-helmreleases-ready
+  feature: runtime
+  kind: HelmReleaseReady
+  namespace: flux-giantswarm
+  resource: HelmRelease
+  name: agent-platform-connectivity
+- id: live-helmreleases-ready
+  feature: runtime
+  kind: HelmReleaseReady
+  namespace: flux-giantswarm
+  resource: HelmRelease
+  name: muster
+- id: live-helmreleases-ready
+  feature: runtime
+  kind: HelmReleaseReady
+  namespace: flux-giantswarm
+  resource: HelmRelease
+  name: agent-platform-mcps
+- id: live-helmreleases-ready
+  feature: runtime
+  kind: HelmReleaseReady
+  namespace: flux-giantswarm
+  resource: HelmRelease
+  name: mcp-kubernetes
+- id: live-helmreleases-ready
+  feature: runtime
+  kind: HelmReleaseReady
+  namespace: flux-giantswarm
+  resource: HelmRelease
+  name: mcp-kubernetes-valkey
+- id: live-helmreleases-ready
+  feature: runtime
+  kind: HelmReleaseReady
+  namespace: flux-giantswarm
+  resource: HelmRelease
+  name: mcp-prometheus
+- id: live-helmreleases-ready
+  feature: runtime
+  kind: HelmReleaseReady
+  namespace: flux-giantswarm
+  resource: HelmRelease
+  name: mcp-prometheus-valkey
+- id: live-helmreleases-ready
+  feature: runtime
+  kind: HelmReleaseReady
+  namespace: flux-giantswarm
+  resource: HelmRelease
+  name: mcp-capi
+- id: live-helmreleases-ready
+  feature: runtime
+  kind: HelmReleaseReady
+  namespace: flux-giantswarm
+  resource: HelmRelease
+  name: mcp-capi-valkey
+- id: live-kagent-workloads
+  feature: runtime
+  kind: Condition
+  namespace: kagent
+  resource: Deployment
+  name: kagent-controller
+  expect:
+    condition: Available
+    conditionStatus: "True"
+- id: live-kagent-workloads
+  feature: runtime
+  kind: Condition
+  namespace: kagent
+  resource: Deployment
+  name: kagent-ui
+  expect:
+    condition: Available
+    conditionStatus: "True"
+- id: live-kagent-workloads
+  feature: runtime
+  kind: Condition
+  namespace: kagent
+  resource: Deployment
+  name: kagent-oauth2-proxy
+  expect:
+    condition: Available
+    conditionStatus: "True"
+- id: live-kagent-workloads
+  feature: runtime
+  kind: Condition
+  namespace: kagent
+  resource: Cluster.postgresql.cnpg.io
+  name: kagent-pg
+  expect:
+    condition: Ready
+    conditionStatus: "True"
+- id: live-oauth2-proxy-secret-and-flux-sa
+  feature: secrets
+  kind: ResourcePresent
+  namespace: kagent
+  resource: Secret
+  name: kagent-oauth2-proxy-credentials
+  expect:
+    keys:
+      - client-id
+      - client-secret
+      - cookie-secret
+- id: live-oauth2-proxy-secret-and-flux-sa
+  feature: secrets
+  kind: ResourcePresent
+  namespace: kagent
+  resource: ServiceAccount
+  name: kagent-flux
+- id: live-model-configs
+  feature: runtime
+  kind: Condition
+  namespace: kagent
+  resource: ModelConfig.kagent.dev
+  name: default-model-config
+  expect:
+    condition: Accepted
+    conditionStatus: "True"
+- id: live-kagent-api-protected
+  feature: identity
+  kind: HTTP
+  url: https://kagent.gopher.example.io/api/agents
+  expect:
+    status: 403
+- id: live-kagent-login-redirect
+  feature: identity
+  kind: HTTP
+  url: https://kagent.gopher.example.io/oauth2/start
+  expect:
+    status: 302
+    locationContains: client_id=kagent
+    note: the login redirects to Dex at https://dex.gopher.example.io/auth as client kagent
+- id: live-dex-auth-per-client
+  feature: identity
+  kind: HTTP
+  url: https://dex.gopher.example.io/auth?client_id=00000000-0000-4000-8000-000000000002&redirect_uri=https://muster.gopher.example.io/oauth/callback&response_type=code&scope=openid
+  expect:
+    status: 302
+- id: live-dex-auth-per-client
+  feature: identity
+  kind: HTTP
+  url: https://dex.gopher.example.io/auth?client_id=kagent&redirect_uri=https://kagent.gopher.example.io/oauth2/callback&response_type=code&scope=openid
+  expect:
+    status: 302
+- id: live-muster-protected-resource
+  feature: tool-access
+  kind: HTTP
+  url: https://muster.gopher.example.io/.well-known/oauth-protected-resource
+  expect:
+    status: 200
+    bodyContains: '"resource":"https://muster.gopher.example.io/mcp"'
+- id: live-own-mcp-servers
+  feature: tool-access
+  kind: ResourcePresent
+  namespace: agent-platform
+  resource: MCPServer.muster.giantswarm.io
+  name: gopher-mcp-kubernetes
+- id: live-own-mcp-servers
+  feature: tool-access
+  kind: ResourcePresent
+  namespace: agent-platform
+  resource: MCPServer.muster.giantswarm.io
+  name: gopher-mcp-prometheus
+- id: live-own-mcp-servers
+  feature: tool-access
+  kind: ResourcePresent
+  namespace: agent-platform
+  resource: MCPServer.muster.giantswarm.io
+  name: gopher-mcp-capi
+- id: live-oauth2-proxy-audience
+  feature: identity
+  kind: LogAbsent
+  namespace: kagent
+  resource: Deployment
+  name: kagent-oauth2-proxy
+  expect:
+    absent: audience .* does not match
+- id: live-drift
+  feature: runtime
+  kind: Drift
+  namespace: flux-giantswarm
+  resource: HelmRelease
+  name: agent-platform
+- id: live-kagent-provider-values
+  feature: runtime
+  kind: Drift
+  namespace: flux-giantswarm
+  resource: HelmRelease
+  name: kagent
+  expect:
+    note: .spec.values.kagent.providers are the rendered kagent.providers
+- id: live-oauth2-proxy-extra-audience
+  feature: identity
+  kind: Drift
+  namespace: kagent
+  resource: Deployment
+  name: kagent-oauth2-proxy
+  expect:
+    note: --oidc-extra-audience carries the rendered audiences
+- id: live-muster-trusted-audiences
+  feature: identity
+  kind: Drift
+  namespace: agent-platform
+  resource: ConfigMap
+  name: muster-config
+  expect:
+    note: trustedAudiences are the rendered muster.muster.oauth.server.trustedAudiences
+- id: live-muster-connector-and-client-id
+  feature: identity
+  kind: Drift
+  namespace: agent-platform
+  resource: ConfigMap
+  name: muster-config
+  expect:
+    note: the Dex connectorId and clientId are the rendered ones

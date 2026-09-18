@@ -13,6 +13,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
@@ -38,7 +39,8 @@ func loadInput(t *testing.T, shape string) (map[string]any, map[string]string) {
 }
 
 // flatten writes a Result as the golden tree: one file per rendered file under
-// <owner>/<repo>/<path>, and includes.txt with the shared kustomization entries.
+// <owner>/<repo>/<path>, includes.txt with the shared kustomization entries,
+// and probes.yaml and actions.yaml with the probes and actions as data.
 func flatten(r *render.Result) map[string][]byte {
 	out := map[string][]byte{}
 	for repo, files := range r.Files {
@@ -52,6 +54,8 @@ func flatten(r *render.Result) map[string][]byte {
 	}
 	sort.Strings(includes)
 	out["includes.txt"] = []byte(strings.Join(includes, "\n") + "\n")
+	out["probes.yaml"] = render.MustYAML(r.Probes)
+	out["actions.yaml"] = render.MustYAML(r.Actions)
 	return out
 }
 
@@ -159,6 +163,78 @@ func TestOwnedPathsOnly(t *testing.T) {
 	// delta is exactly the rendered paths, and every one of them may be deleted.
 	if result.Len() == 0 {
 		t.Fatal("an enabled installation renders no files")
+	}
+}
+
+// TestProbesAreLiveDimensions holds the probes to features.yaml: every probe
+// observes a kind: live dimension of the feature it names, every action names
+// a feature, and every live dimension has at least one probe on the
+// public-customer shape.
+func TestProbesAreLiveDimensions(t *testing.T) {
+	raw, err := definitions.FS.ReadFile("agent-platform/features.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Features map[string]struct {
+			Dimensions []struct {
+				ID   string `yaml:"id"`
+				Kind string `yaml:"kind"`
+			} `yaml:"dimensions"`
+		} `yaml:"features"`
+	}
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	live := map[string]string{} // dimension id -> feature
+	for feature, f := range doc.Features {
+		for _, d := range f.Dimensions {
+			if d.Kind == "live" {
+				live[d.ID] = feature
+			}
+		}
+	}
+	if len(live) == 0 {
+		t.Fatal("features.yaml has no live dimension")
+	}
+	probed := map[string]bool{}
+	for _, shape := range shapes {
+		input, secrets := loadInput(t, shape)
+		result, err := Render(input, secrets)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Probes) == 0 {
+			t.Errorf("%s: no probes", shape)
+		}
+		for _, p := range result.Probes {
+			feature, ok := live[p.ID]
+			if !ok {
+				t.Errorf("%s: probe %s is not a live dimension of features.yaml", shape, p.ID)
+				continue
+			}
+			if feature != p.Feature {
+				t.Errorf("%s: probe %s names feature %s, features.yaml has it under %s", shape, p.ID, p.Feature, feature)
+			}
+			if shape == "public-customer" {
+				probed[p.ID] = true
+			}
+		}
+		for _, a := range result.Actions {
+			if _, ok := doc.Features[a.Feature]; !ok {
+				t.Errorf("%s: action %s names feature %s, which features.yaml does not have", shape, a.ID, a.Feature)
+			}
+		}
+	}
+	ids := make([]string, 0, len(live))
+	for id := range live {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		if !probed[id] {
+			t.Errorf("live dimension %s of feature %s has no probe on the public-customer shape", id, live[id])
+		}
 	}
 }
 

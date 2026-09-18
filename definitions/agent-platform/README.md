@@ -7,7 +7,7 @@ renderer drops, and the consistency features. Data only; the render library read
 |---|---|
 | `schema.json` | JSON Schema (draft 2020-12, `additionalProperties: false`) of the inputs. Every leaf input carries `x-source` (registry, person or generated), `x-feature` and `x-renders`: the key paths of the fileset it produces. A default is declared only where every enabled installation agrees. |
 | `removals.yaml` | Keys an enabled installation carries today that no input renders, each with the reason it is dropped: the shared template renders it, it becomes a referenced Secret, the platform does not read it, or the customer-portal definition owns it. |
-| `features.yaml` | The consistency features and the dimensions each one rolls up, one mark per feature, every dimension exactly once. |
+| `features.yaml` | The consistency features and the dimensions each one rolls up, one mark per feature, every dimension exactly once. The `kind: live` dimensions are the definition's probes of the running installation: the render carries one or more probes per live dimension as data (`Result.Probes`), and the verify slice executes them. |
 
 ## The fileset
 

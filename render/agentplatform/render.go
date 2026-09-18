@@ -1,6 +1,7 @@
 // Package agentplatform is the agent-platform capability definition over the
 // render library: an installation's inputs (definitions/agent-platform/schema.json)
-// in, the files of its configs and management-clusters repositories out.
+// in, the files of its configs and management-clusters repositories out, with
+// the probes of the running installation and the customer's actions as data.
 //
 // This version renders a public or private installation's own platform: the
 // agent-platform configmap patch, the dex-app configmap patch with every Dex
@@ -56,6 +57,8 @@ func Render(raw any, secrets map[string]string) (*render.Result, error) {
 		s.extras(r, clusters, extras+s.name)
 		r.Include(clusters, extras+"kustomization.yaml", "./"+s.name+"/")
 	}
+	r.Probes = in.probes()
+	r.Actions = in.actions()
 	return r, nil
 }
 
@@ -68,6 +71,12 @@ func e(key string, value any) render.Entry { return render.Entry{Key: key, Value
 // host is a platform hostname on the installation's base domain.
 func (in *Input) host(component string) string {
 	return component + "." + in.Installation.BaseDomain
+}
+
+// kagentRedirectURI is where Dex sends the kagent UI's login back to: its
+// oauth2-proxy's callback.
+func (in *Input) kagentRedirectURI() string {
+	return "https://" + in.host("kagent") + "/oauth2/callback"
 }
 
 // audiences are the Dex client ids whose tokens the platform accepts as
@@ -217,7 +226,7 @@ func (in *Input) dexPatch() render.Map {
 	if in.Kagent.Enabled {
 		extra = append(extra, render.Map{e("id", "kagent"), e("name", "kagent-ui"),
 			e("secretRef", dexClientRef("kagent")),
-			e("redirectURIs", []string{"https://" + in.host("kagent") + "/oauth2/callback"})})
+			e("redirectURIs", []string{in.kagentRedirectURI()})})
 	}
 	for _, hub := range in.Federation.Hubs {
 		extra = append(extra, render.Map{e("id", hubClient(hub)), e("name", hub+" token exchange"),
@@ -287,7 +296,7 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 			render.GeneratedKey("client-secret", "kagent-dex-client-secret", render.Base64, 32),
 			render.GeneratedKey("cookie-secret", "kagent-cookie-secret", render.Alphanumeric, 32)))
 		add(dexClientSecretFile("kagent"), dexClientSecret("kagent", "kagent-dex-client-secret"))
-		if in.Kagent.ModelKeySecret == "managed" {
+		if in.Kagent.ModelKeySecret == modelKeyManaged {
 			add("kagent-anthropic-key.yaml", render.Secret("kagent-anthropic-key", kagentNamespace, team,
 				render.ValueKey("ANTHROPIC_API_KEY", secrets[fieldModelKey])))
 		}

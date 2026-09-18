@@ -3,6 +3,7 @@ module github.com/giantswarm/giantswarm-platform-manager
 go 1.26.5
 
 require (
+	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/google/go-github/v92 v92.0.0
 	github.com/mark3labs/mcp-go v1.1.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2

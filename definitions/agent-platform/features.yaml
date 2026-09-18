@@ -2,7 +2,8 @@
 # A feature shows one mark (as defined, differs by input, drifted) and expands to its dimensions on demand.
 # Every dimension appears under exactly one feature. `kind` says where the dimension is observed:
 # configmap, dex-secret, extras and backstage are files of the fileset (compared against the render);
-# live is a probe against the running installation.
+# live is a probe against the running installation, which the definition renders as data (Result.Probes)
+# and the verify slice executes.
 features:
   identity:
     title: Identity
@@ -24,6 +25,10 @@ features:
       - {id: live-oauth2-proxy-extra-audience, kind: live, key: oauth2-proxy --oidc-extra-audience argument}
       - {id: live-muster-trusted-audiences, kind: live, key: muster ConfigMap trustedAudiences}
       - {id: live-muster-connector-and-client-id, kind: live, key: muster ConfigMap dex connectorId and clientId}
+      - {id: live-kagent-api-protected, kind: live, key: /api/agents answered 403 by oauth2-proxy}
+      - {id: live-kagent-login-redirect, kind: live, key: /oauth2/start 302 to Dex with client_id=kagent}
+      - {id: live-dex-auth-per-client, kind: live, key: Dex /auth 302 for every rendered client}
+      - {id: live-oauth2-proxy-audience, kind: live, key: no audience mismatch in oauth2-proxy's log}
   secrets:
     title: Secrets
     description: Every referenced Secret present and shaped as the platform reads it; nothing inline.
@@ -53,6 +58,8 @@ features:
       - {id: live-model-configs, kind: live, key: ModelConfigs in the kagent namespace}
       - {id: live-kagent-provider-values, kind: live, key: kagent HelmRelease .spec.values.kagent.providers}
       - {id: live-helmreleases-ready, kind: live, key: HelmReleases agent-platform, kagent, connectivity, muster, mcps Ready}
+      - {id: live-kagent-workloads, kind: live, key: kagent pods Running and the CNPG cluster healthy}
+      - {id: live-drift, kind: live, key: live values equal the rendered manifests}
   tool-access:
     title: Tool access
     description: muster and the MCP servers of the installation itself, and the agent-manager.
@@ -61,6 +68,7 @@ features:
       - {id: own-mcp-servers, kind: configmap, key: agent-platform-mcps.mcpServers entries of the installation itself}
       - {id: own-mcp-kubernetes-url, kind: configmap, key: the installation's own mcp-kubernetes URL (in-cluster)}
       - {id: live-own-mcp-servers, kind: live, key: MCPServer objects of the installation itself}
+      - {id: live-muster-protected-resource, kind: live, key: muster's OAuth protected-resource metadata}
   federation:
     title: Federation and tunnels
     description: The hub's token exchange into other installations, their MCP servers, and the tunnel to private ones.

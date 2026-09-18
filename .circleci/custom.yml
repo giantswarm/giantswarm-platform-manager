@@ -6,6 +6,11 @@
 #     scenario harness with a mocked GitHub (tests/scenarios), and the server
 #     half against a fake GitHub (internal/e2e). `make test` runs the same Go
 #     tests; this job is the one with the harness.
+#   - render-consumption: the charts that consume the agent-platform
+#     definition's files, rendered at the versions pinned in
+#     render/agentplatform/testdata/consumption/charts.yaml, checked against
+#     every emitted Secret (render/README.md). Needs helm, kustomize and the
+#     network, so it is not part of `make test`.
 version: 2.1
 
 jobs:
@@ -38,12 +43,46 @@ jobs:
           paths:
             - /home/circleci/go/pkg/mod
 
+  render-consumption:
+    docker:
+      - image: cimg/go:1.27
+    resource_class: medium
+    environment:
+      HELM_VERSION: v4.3.0
+      KUSTOMIZE_VERSION: v5.8.1
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - go-mod-v1-{{ checksum "go.sum" }}
+      - run:
+          name: Install helm and kustomize
+          command: |
+            set -euo pipefail
+            curl -sSfL --retry 5 --retry-delay 10 --retry-all-errors "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" | tar -xzO linux-amd64/helm > /tmp/helm
+            sudo install -m 0755 /tmp/helm /usr/local/bin/helm
+            curl -sSfL --retry 5 --retry-delay 10 --retry-all-errors "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" | tar -xzO kustomize > /tmp/kustomize
+            sudo install -m 0755 /tmp/kustomize /usr/local/bin/kustomize
+            helm version --short
+            kustomize version
+      - run:
+          name: Render-consumption test (the consuming charts at their pins)
+          command: make test-render-consumption
+      - save_cache:
+          key: go-mod-v1-{{ checksum "go.sum" }}
+          paths:
+            - /home/circleci/go/pkg/mod
+
 workflows:
   build:
     jobs:
     # Independent of go-build: the proofs need the harness, not the image.
     # Same tag filter as the other test jobs.
     - scenario-test:
+        filters:
+          tags:
+            only: /^v.*/
+    - render-consumption:
         filters:
           tags:
             only: /^v.*/
