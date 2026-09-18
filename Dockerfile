@@ -11,7 +11,7 @@ COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
 ARG TARGETOS
 ARG TARGETARCH
-COPY giantswarm-platform-manager-- /giantswarm-platform-manager
+COPY giantswarm-platform-manager-${TARGETOS}-${TARGETARCH} /giantswarm-platform-manager
 USER giantswarm
 
 ENTRYPOINT ["/giantswarm-platform-manager"]

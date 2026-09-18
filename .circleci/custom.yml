@@ -24,7 +24,7 @@ jobs:
           name: Install muster
           command: |
             set -euo pipefail
-            curl -sSfL --retry 5 --retry-delay 10 --retry-all-errors -o /tmp/muster "https://github.com/giantswarm/muster/releases/download//muster-linux-amd64"
+            curl -sSfL --retry 5 --retry-delay 10 --retry-all-errors -o /tmp/muster "https://github.com/giantswarm/muster/releases/download/${MUSTER_VERSION}/muster-linux-amd64"
             sudo install -m 0755 /tmp/muster /usr/local/bin/muster
             muster version
       - run:
