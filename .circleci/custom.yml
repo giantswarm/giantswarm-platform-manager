@@ -1,0 +1,49 @@
+# Repo-owned additions to the generated .circleci/workflows.yml. The setup
+# workflow in config.yml deep-merges this file into it at pipeline runtime;
+# devctl never touches it.
+#
+#   - scenario-test: the muster half of the authentication in muster's own
+#     scenario harness with a mocked GitHub (tests/scenarios), and the server
+#     half against a fake GitHub (internal/e2e). `make test` runs the same Go
+#     tests; this job is the one with the harness.
+version: 2.1
+
+jobs:
+  scenario-test:
+    docker:
+      - image: cimg/go:1.27
+    resource_class: medium
+    environment:
+      MUSTER_VERSION: v5.27.1
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - go-mod-v1-{{ checksum "go.sum" }}
+      - run:
+          name: Install muster
+          command: |
+            set -euo pipefail
+            curl -sSfL --retry 5 --retry-delay 10 --retry-all-errors -o /tmp/muster "https://github.com/giantswarm/muster/releases/download/${MUSTER_VERSION}/muster-linux-amd64"
+            sudo install -m 0755 /tmp/muster /usr/local/bin/muster
+            muster version
+      - run:
+          name: Scenario tests (muster harness, mocked GitHub)
+          command: make scenario-test
+      - run:
+          name: Identity chain against the fake GitHub
+          command: make test-e2e
+      - save_cache:
+          key: go-mod-v1-{{ checksum "go.sum" }}
+          paths:
+            - /home/circleci/go/pkg/mod
+
+workflows:
+  build:
+    jobs:
+    # Independent of go-build: the proofs need the harness, not the image.
+    # Same tag filter as the other test jobs.
+    - scenario-test:
+        filters:
+          tags:
+            only: /^v.*/

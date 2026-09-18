@@ -1,0 +1,4 @@
+# Values for chart tests / local installs on kind: the defaults. The server
+# runs without OAuth and without muster here; tests/oauth-values.yaml and
+# tests/lab-oauth-values.yaml add the platform and the lab shape on top.
+{}

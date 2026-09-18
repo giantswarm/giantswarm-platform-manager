@@ -1,0 +1,9 @@
+giantswarm-platform-manager is running.
+
+  Health : http://{{ include "giantswarm-platform-manager.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/healthz
+  MCP    : {{ include "giantswarm-platform-manager.serviceURL" . }}{{ .Values.mcp.path }}{{ if .Values.oauth.enabled }} (bearer: the person's user token through the App {{ .Values.muster.mcpServer.auth.authorizationServer.issuer }}){{ end }}
+
+Try it:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "giantswarm-platform-manager.fullname" . }} 8080:{{ .Values.service.port }}
+  curl -s localhost:8080/readyz

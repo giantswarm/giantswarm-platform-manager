@@ -1,0 +1,179 @@
+# Default values for giantswarm-platform-manager.
+
+# -- Platform-wide values an umbrella chart shares with every component and
+# Helm forwards here; this chart reads none of them.
+global: {}  # @schema type: object; additionalProperties: true
+
+# -- Number of replicas. The server holds no state; more than one is fine.
+replicaCount: 1
+
+image:
+  # -- Image registry.
+  registry: gsoci.azurecr.io
+  # -- Image repository.
+  repository: giantswarm/giantswarm-platform-manager
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+  # -- Image tag. Defaults to the chart appVersion.
+  tag: ""
+
+# -- Image pull secrets.
+imagePullSecrets: []
+# -- Override the chart name.
+nameOverride: ""
+# -- Override the fully qualified app name.
+fullnameOverride: ""
+
+mcp:
+  # -- MCP streamable-HTTP endpoint path.
+  path: /mcp
+
+github:
+  # -- GitHub API base URL the caller's calls go to; empty is api.github.com.
+  apiURL: ""
+
+approvals:
+  # -- klaus-gateway's base URL as reached from the pod (for example
+  # `http://klaus-gateway.agent-platform.svc:8080`): the team-review endpoint
+  # the asks a write raises go to. Empty leaves the asks undelivered; `get_info`
+  # reports `approvals.configured: false`.
+  gatewayURL: ""
+  # -- The channel the asks land in, as the gateway names it.
+  channel: ""
+
+oauth:
+  # -- Require a GitHub user token as the bearer of every MCP request, verified
+  # with `GET /user`; the server then acts as that person. Behind muster the
+  # token is the person's own: muster runs the consent for the GitHub App
+  # `giantswarm-platform-manager` once (the MCPServer's `authorizationServer`
+  # pin under `muster.mcpServer.auth`), stores and refreshes the user token and
+  # puts it on every call. Off: anonymous — no caller, nothing acts as a
+  # person, the tools say so; only for a server nothing but a trusted proxy
+  # can reach.
+  enabled: false
+  # -- URL muster reaches this server at, without the MCP path: the resource
+  # of its OAuth protected-resource metadata. Empty derives the in-cluster
+  # Service URL, `http://<fullname>.<namespace>.svc.cluster.local:<service.port>`.
+  baseURL: ""
+
+muster:
+  mcpServer:
+    # -- Register this server with muster by rendering an
+    # `mcpservers.muster.giantswarm.io` CR in the release namespace. Tools then
+    # appear as `x_<name>_<tool>`.
+    enabled: false
+    # -- MCPServer CR name (drives the tool prefix).
+    name: giantswarm-platform-manager
+    # -- Start the server connection when muster initializes.
+    autoStart: true
+    # -- Seconds muster waits for one call before it cancels it (the CR's
+    # `spec.timeout`; muster's own default is 30, the CRD allows 1–300). 120
+    # because a write in `mode: commit` renders the change and opens the pull
+    # request within the one call.
+    timeout: 120  # @schema minimum: 1; maximum: 300
+    # -- Human-readable description shown by muster.
+    description: Giant Swarm's installation manager — platform capabilities on opted-in installations, every write as the person
+    # -- Extra labels on the MCPServer CR.
+    labels: {}  # @schema additionalProperties: true
+    # -- How muster authenticates to this server; rendered only with
+    # `oauth.enabled`: `auth.type: oauth` with the GitHub App
+    # `giantswarm-platform-manager` pinned as the authorization server — the
+    # pattern of the `github` and `pro` servers on the platform. GitHub
+    # publishes no discovery document, so the endpoints are named; the App's
+    # client credentials come from a Secret; no `scopes` for GitHub (the App's
+    # permissions are the App's), a `scopes` value for an authorization server
+    # that needs one. muster runs the consent once per person and puts their
+    # user token on every call.
+    auth:
+      authorizationServer:
+        # -- The issuer identity the person's grant is filed under: the App's
+        # own, so the login App's GitHub grant stays separate.
+        issuer: https://github.com/apps/giantswarm-platform-manager
+        # -- The issuer the authorization server puts in the RFC 9207 `iss`
+        # parameter of its authorization response — GitHub's is
+        # `https://github.com/login/oauth` for every App, while `issuer` stays
+        # the App's own identity the grant is filed under. Empty omits the field.
+        expectedIssuer: https://github.com/login/oauth
+        # -- GitHub's authorize endpoint.
+        authorizationEndpoint: https://github.com/login/oauth/authorize
+        # -- GitHub's token endpoint.
+        tokenEndpoint: https://github.com/login/oauth/access_token
+        # -- The OAuth `scope` parameter of the authorization request
+        # (space-separated), only for an authorization server that needs one —
+        # a Dex standing in for GitHub in a lab takes
+        # `openid profile email offline_access`. Leave empty for GitHub: a
+        # GitHub App's permissions are the App's, and the token endpoint takes
+        # no scope. Empty omits the field.
+        scopes: ""
+        clientCredentialsSecretRef:
+          # -- Secret with the App's OAuth client under `client-id` and
+          # `client-secret`.
+          name: giantswarm-platform-manager-oauth-client
+          # -- Namespace of that Secret; empty is the release namespace.
+          namespace: ""
+        # -- `subject`: the grant belongs to the person, not to one login
+        # session — every session of theirs (the portal, an agent, a Slack
+        # click) carries the same token.
+        grantScope: subject
+
+serviceAccount:
+  # -- Create a ServiceAccount.
+  create: true
+  # -- Annotations on the ServiceAccount.
+  annotations: {}  # @schema additionalProperties: true
+  # -- ServiceAccount name (generated when empty).
+  name: ""
+
+# -- Annotations on the pod.
+podAnnotations: {}  # @schema additionalProperties: true
+# -- Labels on the pod.
+podLabels: {}  # @schema additionalProperties: true
+
+# -- Pod security context.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- Container security context.
+securityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+service:
+  # -- Service type.
+  type: ClusterIP
+  # -- Service port (the container listens on 8080).
+  port: 8080
+
+# -- Container resources.
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# -- Extra container arguments.
+extraArgs: []
+# -- Extra environment variables.
+extraEnv: []  # @schema item: object ; itemProperties: {name: {type: string}, value: {type: string}, valueFrom: {type: object, additionalProperties: true}}
+
+# -- Node selector.
+nodeSelector: {}  # @schema additionalProperties: true
+# -- Tolerations.
+tolerations: []  # @schema item: object ; itemProperties: {key: {type: string}, operator: {type: string}, value: {type: string}, effect: {type: string}, tolerationSeconds: {type: integer}}
+# -- Affinity.
+affinity: {}  # @schema additionalProperties: true
