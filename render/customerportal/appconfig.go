@@ -148,23 +148,32 @@ func (in *Input) oidcProvider() render.Map {
 }
 
 // gsSection is gs: the Giant Swarm plugin's sign-in provider, the home page's
-// resources, the installation it shows and the shared groups and versions.
+// resources where the portal has a support link, the installation it shows
+// (its region where it has one) and the shared groups and versions.
 func (in *Input) gsSection() render.Map {
 	provider := in.authProvider()
-	resources := []render.Map{
-		include("homepageResources.gsDocs"), include("homepageResources.gsGitHub"),
-		include("homepageResources.portalChangelog"), include("homepageResources.portalRoadmap"),
-		{e("label", supportLabel), e("icon", "LiveHelp"), e("url", in.Portal.SupportURL)},
-	}
-	return render.Map{
+	m := render.Map{
 		e("authProvider", provider),
 		e("auth", render.Map{e("extraScopes", include("auth.extraScopes"))}),
-		e("homepage", render.Map{e("resources", resources)}),
-		e("installations", render.Map{e(in.Installation.Name, render.Map{
-			e("authProvider", "oidc"), e("baseDomain", in.Installation.BaseDomain),
-			e("oidcTokenProvider", provider), e("pipeline", in.Installation.Pipeline),
-			e("providers", []string{in.Installation.Provider}), e("region", in.Installation.Region)})}),
+	}
+	if in.Portal.SupportURL != "" {
+		m = append(m, e("homepage", render.Map{e("resources", []render.Map{
+			include("homepageResources.gsDocs"), include("homepageResources.gsGitHub"),
+			include("homepageResources.portalChangelog"), include("homepageResources.portalRoadmap"),
+			{e("label", supportLabel), e("icon", "LiveHelp"), e("url", in.Portal.SupportURL)},
+		})}))
+	}
+	entry := render.Map{
+		e("authProvider", "oidc"), e("baseDomain", in.Installation.BaseDomain),
+		e("oidcTokenProvider", provider), e("pipeline", in.Installation.Pipeline),
+		e("providers", []string{in.Installation.Provider}),
+	}
+	if in.Installation.Region != "" {
+		entry = append(entry, e("region", in.Installation.Region))
+	}
+	return append(m,
+		e("installations", render.Map{e(in.Installation.Name, entry)}),
 		e("adminGroups", include("adminGroups")),
 		e("kubernetesVersions", include("kubernetesVersions")),
-	}
+	)
 }

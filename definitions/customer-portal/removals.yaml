@@ -30,9 +30,11 @@ removals:
   - {key: "backstage:app-config:backend.database.client", kind: not-rendered, reason: the hub runs on Postgres; a customer portal runs on the in-memory database}
 
   # --- Backstage user-values.yaml ---
+  - {key: "backstage:user-values:google", kind: other-definition, reason: a Vertex chat's Google project and location are the agent-platform Component's values}
   - {key: "backstage:user-values:backstage.extraEnvVars", kind: other-definition, reason: the avatars image source is the agent-platform Component's values, appended last to the HelmRelease's sources so its list wins}
   - {key: "backstage:user-values:backstage.extraAppConfig", kind: other-definition, reason: the platform's fragment mount is the agent-platform Component's values}
 
   # --- Backstage kustomization.yaml and files ---
+  - {key: "backstage:kustomization:patches[*] HelmRelease spec.valuesFrom[*] Secret/google-credentials-backstage/values", kind: other-definition, reason: a Vertex chat's Google credentials are the agent-platform Component's values source}
   - {key: "backstage:kustomization:resources[*] google-credentials.enc.yaml", kind: other-definition, reason: a Vertex chat's Google credentials are the agent-platform Component's Secret}
   - {key: "backstage:file:google-credentials.enc.yaml", kind: other-definition, reason: a Vertex chat's Google credentials are the agent-platform Component's Secret}
