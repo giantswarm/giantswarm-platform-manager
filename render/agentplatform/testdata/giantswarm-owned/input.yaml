@@ -17,6 +17,9 @@ input:
     enabled: true
     modelKeySecret: managed
     defaultModel: example-model-medium
+    uiIngressPeers:
+      - app: example-tunnel-agent
+        namespace: example-system
     additionalModelConfigs:
       - name: example-large
         displayName: Example Large
