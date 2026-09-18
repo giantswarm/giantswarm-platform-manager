@@ -1,0 +1,121 @@
+# Keys found in an enabled installation's agent-platform fileset that no input of schema.json renders.
+# Each is dropped from the fileset by the renderer, for the reason given. Key paths use the file prefixes and
+# the normalisation of schema.json's x-renders ([*] for a list index, <name> for a per-installation map key).
+#
+# kinds:
+#   template            the shared-configs template renders the key (or its intended value) from the installation
+#                       facts; the hand-written copy is redundant or contradicts it
+#   referenced-secret   a credential the dex-app prerequisite turns into a referenced Secret; never written into
+#                       a patch again
+#   not-platform        the installation carries it in one of the platform's files, but it configures something
+#                       the platform does not read: the installation's login connectors, Dex's ingress, agents
+#                       and MCP servers registered on the platform (out of the definition's scope)
+#   other-definition    a developer-portal key that belongs to the customer-portal definition, which owns the
+#                       portal; this definition writes only the portal's agent-platform section
+removals:
+  # --- agent-platform configmap-values.yaml.patch ---
+  - key: configmap:gitops.forbidInlineSecrets
+    kind: template
+    reason: the template sets it for every installation
+  - key: configmap:muster.muster.oauth.server.dex.clientId
+    kind: template
+    reason: rendered from services.muster.clientId in config.yaml.patch; an installation with its own client id declares it there
+  - key: configmap:muster.muster.oauth.server.dex.allowPrivateIPOIDC
+    kind: template
+    reason: rendered from managementCluster.private in config.yaml.patch; a private installation declares it there
+  - key: configmap:components.agent-platform-mcps.enabled
+    kind: template
+    reason: the template enables the component for every installation
+  - key: configmap:agent-platform-mcps.agentgateway.oauthMode
+    kind: template
+    reason: equals the template's value; the edge cannot validate muster's opaque tokens, so no other value exists
+
+  # --- dex-app secret-values.yaml.patch ---
+  - key: dex-secret:oidc.staticClients.muster.clientID
+    kind: template
+    reason: rendered from services.muster.clientId in config.yaml.patch
+  - key: dex-secret:oidc.staticClients.muster.clientSecret
+    kind: referenced-secret
+    reason: the platform client's secret becomes a referenced Secret
+  - key: dex-secret:oidc.staticClients.dexK8SAuthenticator.clientSecret
+    kind: referenced-secret
+    reason: the authenticator client's secret becomes a referenced Secret
+  - key: dex-secret:oidc.staticClients.mcpKubernetes.clientSecret
+    kind: referenced-secret
+    reason: the MCP server client's secret becomes a referenced Secret
+  - key: dex-secret:oidc.staticClients.mcpPrometheus.clientSecret
+    kind: referenced-secret
+    reason: the MCP server client's secret becomes a referenced Secret
+  - key: dex-secret:oidc.staticClients.mcpCapi.clientSecret
+    kind: referenced-secret
+    reason: the MCP server client's secret becomes a referenced Secret
+  - key: dex-secret:oidc.muster.clientSecret
+    kind: referenced-secret
+    reason: a misplaced copy of the platform client's secret (the chart reads oidc.staticClients.muster); becomes a referenced Secret
+  - key: dex-secret:oidc.customer
+    kind: not-platform
+    reason: the installation's login connectors; owned by the installation's Dex, not read by the platform
+
+  # --- dex-app configmap-values.yaml.patch ---
+  - key: dex-configmap:oidc.customer
+    kind: not-platform
+    reason: the installation's login connectors; owned by the installation's Dex, not read by the platform
+  - key: dex-configmap:ingress
+    kind: not-platform
+    reason: Dex's own ingress tuning
+
+  # --- management-clusters extras/agent-platform/ ---
+  - key: extras:agents
+    kind: not-platform
+    reason: agents deployed on the platform are workloads, out of the definition's scope
+  - key: extras:mcpservers
+    kind: not-platform
+    reason: MCP servers registered on the platform are workloads, out of the definition's scope
+
+  # --- Backstage app-config.yaml (portal keys outside the agent-platform section) ---
+  - {key: "backstage:app-config:app.title", kind: other-definition, reason: portal identity}
+  - {key: "backstage:app-config:app.baseUrl", kind: other-definition, reason: portal identity}
+  - {key: "backstage:app-config:app.routes", kind: other-definition, reason: portal routing}
+  - {key: "backstage:app-config:app.extensions", kind: other-definition, reason: an inline extension list is the portal's; the platform contributes its extensions through the shared include}
+  - {key: "backstage:app-config:app.errorReporter", kind: other-definition, reason: portal telemetry}
+  - {key: "backstage:app-config:app.telemetrydeck", kind: other-definition, reason: portal telemetry}
+  - {key: "backstage:app-config:app.support", kind: other-definition, reason: portal support links}
+  - {key: "backstage:app-config:organization", kind: other-definition, reason: portal identity}
+  - {key: "backstage:app-config:backend", kind: other-definition, reason: portal backend, database, CSP and plugin key store}
+  - {key: "backstage:app-config:integrations", kind: other-definition, reason: portal source integrations}
+  - {key: "backstage:app-config:permission", kind: other-definition, reason: portal permissions}
+  - {key: "backstage:app-config:techdocs", kind: other-definition, reason: portal docs}
+  - {key: "backstage:app-config:kubernetes", kind: other-definition, reason: portal cluster access}
+  - {key: "backstage:app-config:auth", kind: other-definition, reason: portal sign-in providers and session}
+  - {key: "backstage:app-config:grafana", kind: other-definition, reason: portal observability links}
+  - {key: "backstage:app-config:flux", kind: other-definition, reason: portal GitOps links}
+  - {key: "backstage:app-config:gs.authProvider", kind: other-definition, reason: portal sign-in}
+  - {key: "backstage:app-config:gs.auth", kind: other-definition, reason: portal sign-in scopes}
+  - {key: "backstage:app-config:gs.signInProvider", kind: other-definition, reason: portal sign-in}
+  - {key: "backstage:app-config:gs.signInFallbackProvider", kind: other-definition, reason: portal sign-in}
+  - {key: "backstage:app-config:gs.homepage", kind: other-definition, reason: portal home page}
+  - {key: "backstage:app-config:gs.installations", kind: other-definition, reason: the portal's installation registry}
+  - {key: "backstage:app-config:gs.friendlyLabels", kind: other-definition, reason: portal presentation}
+  - {key: "backstage:app-config:gs.friendlyAnnotations", kind: other-definition, reason: portal presentation}
+  - {key: "backstage:app-config:gs.adminGroups", kind: other-definition, reason: portal authorization}
+  - {key: "backstage:app-config:gs.kubernetesVersions", kind: other-definition, reason: portal cluster data}
+  - {key: "backstage:app-config:gs.clusterDetails", kind: other-definition, reason: portal presentation}
+  - {key: "backstage:app-config:gs.containerRegistry", kind: other-definition, reason: portal registry access}
+  - {key: "backstage:app-config:gs.github", kind: other-definition, reason: portal GitHub pages through muster}
+  - {key: "backstage:app-config:catalog", kind: other-definition, reason: portal catalog}
+  - {key: "backstage:app-config:scaffolder", kind: other-definition, reason: portal scaffolder}
+  - {key: "backstage:app-config:pagerDuty", kind: other-definition, reason: portal incident links}
+  - {key: "backstage:app-config:proxy", kind: other-definition, reason: portal API proxies}
+  - {key: "backstage:app-config:repositories", kind: other-definition, reason: portal repositories page through muster}
+  - {key: "backstage:app-config:plans", kind: other-definition, reason: portal plans page through muster}
+  - {key: "backstage:app-config:roadmap", kind: other-definition, reason: portal roadmap page through muster}
+
+  # --- Backstage user-values.yaml and kustomization.yaml ---
+  - {key: "backstage:user-values:route", kind: other-definition, reason: the portal's route}
+  - {key: "backstage:user-values:replicas", kind: other-definition, reason: portal sizing}
+  - {key: "backstage:user-values:database", kind: other-definition, reason: portal database}
+  - {key: "backstage:kustomization:resources", kind: other-definition, reason: the portal's file list; the platform adds its files to it}
+  - {key: "backstage:kustomization:patches[*]", kind: other-definition, reason: the portal's chart range and values sources}
+  - {key: "backstage:file:user-secrets.enc.yaml", kind: other-definition, reason: portal credentials}
+  - {key: "backstage:file:github-app-credentials.enc.yaml", kind: other-definition, reason: portal GitHub App}
+  - {key: "backstage:file:plugin-keys-secret.enc.yaml", kind: other-definition, reason: portal plugin key store}

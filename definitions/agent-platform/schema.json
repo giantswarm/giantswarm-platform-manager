@@ -1,0 +1,392 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/giantswarm/giantswarm-platform-manager/main/definitions/agent-platform/schema.json",
+  "title": "agent-platform definition inputs",
+  "description": "The closed input set of the agent-platform capability. The renderer turns these inputs into the installation's fileset: the agent-platform configmap patch and the dex-app secret patch in the configs repository, the extras/agent-platform tree and the platform section of the Backstage config in the management-clusters repository. A key an installation carries that no input renders and that removals.yaml does not list refuses the render, naming the key. Annotations: x-source says where a value comes from (registry: read from the installations registry or the configs checkout, never typed; person: typed by the person enabling or reconciling; generated: created by the engine once and read back from the checkout afterwards). x-feature names the consistency feature of features.yaml the input's dimensions roll up to. x-renders lists the key paths the input produces, prefixed by the file: configmap (agent-platform configmap-values.yaml.patch), dex-secret and dex-configmap (dex-app patches), extras (extras/agent-platform/ in the management-clusters repository), backstage:app-config, backstage:user-values, backstage:kustomization, backstage:file (the Backstage directory). List indices are written [*], per-installation map keys <name>. A default is declared only where every enabled installation agrees.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["installation", "secrets", "kagent", "portal", "toolAccess", "federation"],
+  "properties": {
+    "installation": {
+      "type": "object",
+      "description": "Facts about the installation that are on record. Read from the installations registry and the installation's config.yaml.patch; never typed.",
+      "additionalProperties": false,
+      "required": ["name", "baseDomain", "customer", "provider", "private", "chartLine", "musterClientId"],
+      "properties": {
+        "name": {"type": "string", "description": "The installation's codename.", "x-source": "registry", "x-feature": "runtime", "x-renders": []},
+        "baseDomain": {
+          "type": "string",
+          "description": "The installation's base domain; every public hostname of the platform (muster, agentgateway, dex, kagent, avatars) derives from it.",
+          "x-source": "registry", "x-feature": "runtime",
+          "x-renders": ["configmap:global.domain"]
+        },
+        "customer": {"type": "string", "description": "The owning organisation as the configs repository names it.", "x-source": "registry", "x-feature": "runtime", "x-renders": []},
+        "provider": {"type": "string", "enum": ["capa", "capz", "capv", "cloud-director"], "description": "The infrastructure provider; selects the Postgres backup shape and the storage class default.", "x-source": "registry", "x-feature": "runtime", "x-renders": []},
+        "private": {
+          "type": "boolean",
+          "description": "The installation's API and ingress sit behind a private load balancer (managementCluster.private). Every allowPrivateIP knob of the installation's own components follows it.",
+          "x-source": "registry", "x-feature": "identity",
+          "x-renders": ["configmap:muster.muster.oauth.server.allowPrivateIPClientMetadata", "configmap:muster.muster.oauth.server.allowPrivateIPRedirectURIs"]
+        },
+        "chartLine": {
+          "type": "string", "enum": ["3", "4"],
+          "description": "The meta chart line the installation runs (agentPlatform.kagentApiV2 in config.yaml.patch selects 4). On the 4 line the managers derive issuer, client and secret from the template's global.identity block and the manager oauth keys are not rendered.",
+          "x-source": "registry", "x-feature": "runtime", "x-renders": []
+        },
+        "musterClientId": {"type": "string", "description": "The platform's Dex client id (services.muster.clientId). The template renders it; the definition never writes it into a patch.", "x-source": "registry", "x-feature": "identity", "x-renders": []}
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "description": "Names of the referenced Secrets the platform reads its credentials from. The engine creates each Secret in extras/agent-platform/secrets/ with generated values, encrypted for the repository's recipients, and names it in the patch. Every enabled installation uses the same names, hence the defaults.",
+      "additionalProperties": false,
+      "properties": {
+        "musterOAuth": {
+          "type": "string", "default": "muster-oauth-credentials",
+          "description": "Secret with keys dex-client-secret, oauth-encryption-key and registration-token in the platform namespace.",
+          "x-source": "generated", "x-feature": "secrets",
+          "x-renders": ["configmap:muster.muster.oauth.server.existingSecret", "extras:secrets/muster-oauth-credentials.yaml", "extras:secrets/kustomization.yaml", "extras:kustomization.yaml:apiVersion", "extras:kustomization.yaml:kind", "extras:kustomization.yaml:resources"]
+        },
+        "musterValkey": {
+          "type": "string", "default": "muster-valkey-credentials",
+          "description": "Secret with key valkey-password, read by muster's session store and by the bundled Valkey.",
+          "x-source": "generated", "x-feature": "secrets",
+          "x-renders": ["configmap:muster.muster.oauth.server.storage.valkey.existingSecret", "configmap:valkey.valkey.auth.usersExistingSecret", "configmap:valkey.valkey.auth.aclUsers.default.passwordKey", "extras:secrets/muster-valkey-credentials.yaml"]
+        }
+      }
+    },
+    "kagent": {
+      "type": "object",
+      "description": "The agent runtime: kagent with the platform Postgres, the kagent UI behind oauth2-proxy and Dex, inference routed through the agentgateway LLM listener.",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Runs kagent and the platform Postgres. Renders the component switches, the model provider wiring (Secret reference and agentgateway base URL), the oauth2-proxy credentials Secret and its Dex client, and the portal's kagent entry for this installation.",
+          "x-source": "person", "x-feature": "runtime",
+          "x-renders": ["configmap:components.kagent.enabled", "configmap:postgres.enabled", "configmap:llmRouting.enabled", "configmap:kagent.providers.anthropic.apiKeySecretRef", "configmap:kagent.providers.anthropic.config.baseUrl", "configmap:kagent.oauth2-proxy.config.existingSecret", "extras:secrets/kagent-oauth2-proxy-credentials.yaml", "dex-secret:oidc.extraStaticClients[*]", "backstage:app-config:agentPlatform.kagent.installations.<name>", "backstage:app-config:agentPlatform.fluxServiceAccountName"]
+        },
+        "modelKeySecret": {
+          "type": "string", "enum": ["managed", "customer-provided"],
+          "description": "Who provides the model provider key Secret the default ModelConfig references: managed renders it into extras/agent-platform/secrets/ from a value the person supplies; customer-provided renders nothing and the installation's owners create the Secret themselves.",
+          "x-source": "person", "x-feature": "secrets",
+          "x-renders": ["extras:secrets/kagent-anthropic-key.yaml"]
+        },
+        "defaultModel": {"type": "string", "description": "Model of the default provider when it deviates from the template's.", "x-source": "person", "x-feature": "runtime", "x-renders": ["configmap:kagent.providers.anthropic.model"]},
+        "additionalModelConfigs": {
+          "type": "array",
+          "description": "ModelConfigs rendered next to the default one.",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["name", "displayName", "provider", "model", "apiKeySecret", "apiKeySecretKey", "baseUrl"],
+            "properties": {
+              "name": {"type": "string"}, "displayName": {"type": "string"}, "provider": {"type": "string"}, "model": {"type": "string"},
+              "apiKeySecret": {"type": "string"}, "apiKeySecretKey": {"type": "string"}, "baseUrl": {"type": "string", "format": "uri"}
+            }
+          },
+          "x-source": "person", "x-feature": "runtime",
+          "x-renders": ["configmap:kagent.modelConfigs[*]"]
+        },
+        "storageClass": {"type": "string", "description": "Storage class of the platform Postgres where the cluster default is unsuitable. Omitted, the chart default applies.", "x-source": "person", "x-feature": "runtime", "x-renders": ["configmap:postgres.storage.storageClass"]},
+        "postgresBackupAzureSubscriptionId": {"type": "string", "description": "Subscription the Postgres backup bucket is provisioned in; capz installations only.", "x-source": "person", "x-feature": "runtime", "x-renders": ["configmap:postgres.backup.crossplane.azure.subscriptionId"]},
+        "controllerResources": {
+          "type": "object", "description": "Resource requests and limits of the kagent controller when the chart defaults do not fit.",
+          "additionalProperties": false,
+          "properties": {
+            "requests": {"type": "object", "additionalProperties": false, "properties": {"cpu": {"type": "string"}, "memory": {"type": "string"}}},
+            "limits": {"type": "object", "additionalProperties": false, "properties": {"cpu": {"type": "string"}, "memory": {"type": "string"}}}
+          },
+          "x-source": "person", "x-feature": "runtime",
+          "x-renders": ["configmap:kagent.controller.resources"]
+        },
+        "bundledAgents": {
+          "type": "array", "uniqueItems": true,
+          "items": {"type": "string", "enum": ["kagent-tools", "promql-agent", "cilium-policy-agent"]},
+          "description": "The kagent chart's bundled sample agents to enable.",
+          "x-source": "person", "x-feature": "runtime",
+          "x-renders": ["configmap:kagent.kagent-tools.enabled", "configmap:kagent.promql-agent.enabled", "configmap:kagent.cilium-policy-agent.enabled"]
+        },
+        "uiIngressPeers": {
+          "type": "array",
+          "description": "Additional workloads allowed to reach the kagent UI's oauth2-proxy, by pod label and namespace.",
+          "items": {"type": "object", "additionalProperties": false, "required": ["app", "namespace"], "properties": {"app": {"type": "string"}, "namespace": {"type": "string"}}},
+          "x-source": "person", "x-feature": "runtime",
+          "x-renders": ["configmap:kagent.oauth2ProxyIngress.additionalPeers[*]"]
+        }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "description": "The platform's login and token trust beyond what the template renders from the installation facts.",
+      "additionalProperties": false,
+      "properties": {
+        "loginConnectorId": {"type": "string", "description": "Pins muster's Dex login to one connector. Giant Swarm's own installations only; the meta chart refuses a pin on a customer installation.", "x-source": "person", "x-feature": "identity", "x-renders": ["configmap:muster.muster.oauth.server.dex.connectorId"]},
+        "extraTrustedAudiences": {"type": "array", "items": {"type": "string"}, "description": "Dex client ids whose tokens muster accepts as bearer tokens, on top of dex-k8s-authenticator, kagent and the portal clients.", "x-source": "person", "x-feature": "identity", "x-renders": ["configmap:muster.muster.oauth.server.trustedAudiences"]},
+        "trustedIssuers": {
+          "type": "array",
+          "description": "Issuers other than the installation's Dex whose tokens muster accepts: the cluster's service-account token issuer for in-cluster agents, another Dex.",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["issuer", "allowedAudiences"],
+            "properties": {
+              "issuer": {"type": "string", "format": "uri"}, "jwksUrl": {"type": "string", "format": "uri"},
+              "allowedAudiences": {"type": "array", "items": {"type": "string"}},
+              "acceptedTypHeaders": {"type": "array", "items": {"type": "string"}},
+              "allowedClaims": {"type": "object", "additionalProperties": {"type": "string"}},
+              "subjectClaim": {"type": "string"},
+              "allowPrivateIPJWKS": {"type": "boolean"},
+              "allowPrivateIPJWKSHosts": {"type": "array", "items": {"type": "string"}}
+            }
+          },
+          "x-source": "person", "x-feature": "identity",
+          "x-renders": ["configmap:muster.muster.oauth.server.trustedIssuers[*]"]
+        },
+        "postLoginRedirectAllowlist": {"type": "array", "items": {"type": "string", "format": "uri"}, "description": "Targets muster may send the browser to after a connector sign-in, beyond the template's agentgateway completion landing.", "x-source": "person", "x-feature": "identity", "x-renders": ["configmap:muster.muster.oauth.mcpClient.postLoginRedirectAllowlist"]},
+        "publicRegistrationRedirectURIs": {"type": "array", "items": {"type": "string", "format": "uri"}, "description": "Redirect URIs a public client may register dynamically with muster.", "x-source": "person", "x-feature": "identity", "x-renders": ["configmap:muster.muster.oauth.server.trustedPublicRegistrationRedirectURIs"]},
+        "additionalDexClients": {
+          "type": "array",
+          "description": "Dex clients of the installation that are not the platform's own (kagent, portal, hub token exchange). Their secrets are generated.",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["id", "name"],
+            "properties": {
+              "id": {"type": "string"}, "name": {"type": "string"}, "public": {"type": "boolean"},
+              "redirectURIs": {"type": "array", "items": {"type": "string", "format": "uri"}},
+              "trustedPeers": {"type": "array", "items": {"type": "string"}}
+            }
+          },
+          "x-source": "person", "x-feature": "identity",
+          "x-renders": ["dex-secret:oidc.extraStaticClients[*]"]
+        }
+      }
+    },
+    "portal": {
+      "type": "object",
+      "description": "The developer portal's agent-platform section. The portal itself is the customer-portal definition's; this definition writes only what the platform contributes to it.",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "A developer portal exists for this installation. Renders the platform's muster entry, the agent-platform extensions and the avatars image source.",
+          "x-source": "person", "x-feature": "portal",
+          "x-renders": ["backstage:app-config:muster.installations[*]", "backstage:app-config:app.extensions.$include", "backstage:user-values:backstage.extraEnvVars[*]"]
+        },
+        "installation": {"type": "string", "description": "The installation whose management-clusters tree hosts the portal, when it is not this one.", "x-source": "person", "x-feature": "portal", "x-renders": []},
+        "clientIds": {
+          "type": "array", "items": {"type": "string"}, "minItems": 1,
+          "description": "Dex client ids of the portal instances that sign people in on this installation. Their main-login tokens are accepted by the kagent UI's oauth2-proxy, by muster, by Dex's authenticator client and, where the agentgateway validates JWTs at the edge, by its JWT policy.",
+          "x-source": "person", "x-feature": "identity",
+          "x-renders": ["configmap:kagent.oauth2-proxy.extraArgs.oidc-extra-audience", "configmap:muster.muster.oauth.server.trustedAudiences", "configmap:agent-platform-mcps.agentgateway.jwt.extraProviders[*]", "configmap:gateway.jwksEgress.enabled", "configmap:extraObjects[*]", "dex-secret:oidc.staticClients.dexK8SAuthenticator.trustedPeers", "dex-configmap:oidc.staticClients.dexK8SAuthenticator.trustedPeers"]
+        },
+        "skillsRepositories": {
+          "type": "array", "items": {"type": "string", "format": "uri"}, "minItems": 1,
+          "description": "Skill repositories the portal offers to agents. A private repository renders the token Secret its checkout needs.",
+          "x-source": "person", "x-feature": "portal",
+          "x-renders": ["backstage:app-config:agentPlatform.skills.repositories", "extras:secrets/kagent-private-skills-token.yaml"]
+        },
+        "aiChat": {
+          "type": "object",
+          "description": "The portal's AI chat on the platform's model provider.",
+          "additionalProperties": false,
+          "required": ["enabled"],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "model": {"type": "string"},
+            "provider": {"type": "string", "enum": ["anthropic", "vertex"]},
+            "google": {"type": "object", "additionalProperties": false, "required": ["project", "location"], "properties": {"project": {"type": "string"}, "location": {"type": "string"}}}
+          },
+          "x-source": "person", "x-feature": "portal",
+          "x-renders": ["backstage:app-config:aiChat", "backstage:app-config:mcpActions.namespacedToolNames", "backstage:user-values:google", "backstage:file:google-credentials.enc.yaml"]
+        }
+      }
+    },
+    "toolAccess": {
+      "type": "object",
+      "description": "What agents and people reach through muster: the installation's MCP servers and the agent-manager.",
+      "additionalProperties": false,
+      "required": ["agentManager"],
+      "properties": {
+        "agentManager": {
+          "type": "object", "additionalProperties": false, "required": ["enabled"],
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Runs the agent-manager as an MCP server on the platform. Its base URL, issuer, client id and Secret derive from the installation facts and the secrets input; on chart line 4 the identity keys are not rendered because the template's global.identity block carries them.",
+              "x-source": "person", "x-feature": "tool-access",
+              "x-renders": ["configmap:components.agent-manager.enabled", "configmap:agent-manager.oauth.baseURL", "configmap:agent-manager.oauth.dex.issuerURL", "configmap:agent-manager.oauth.dex.clientID", "configmap:agent-manager.oauth.existingSecret", "configmap:agent-manager.oauth.trustedAudiences"]
+            }
+          }
+        },
+        "additionalServers": {
+          "type": "array",
+          "description": "MCP servers registered with muster beyond the template's own-cluster kubernetes, prometheus and capi servers and the federated ones. Because a patch replaces the mcpServers list as a whole, the renderer emits the template's own entries again whenever this list or federation.targets is non-empty, and omits the key otherwise. An oauth server names the Secret with its client credentials, rendered next to it.",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["cluster", "group", "url", "auth"],
+            "properties": {
+              "name": {"type": "string"}, "cluster": {"type": "string"}, "group": {"type": "string"}, "url": {"type": "string", "format": "uri"},
+              "timeout": {"type": "integer", "minimum": 1}, "toolPrefix": {"type": "string"},
+              "auth": {
+                "type": "object", "additionalProperties": false, "required": ["mode"],
+                "properties": {
+                  "mode": {"type": "string", "enum": ["forward", "exchange", "none", "oauth"]},
+                  "provider": {"type": "string"},
+                  "audiences": {"type": "array", "items": {"type": "string"}},
+                  "authorizationServer": {
+                    "type": "object", "additionalProperties": false, "required": ["issuer", "authorizationEndpoint", "tokenEndpoint", "scopes", "clientCredentialsSecretRef"],
+                    "properties": {
+                      "issuer": {"type": "string", "format": "uri"}, "authorizationEndpoint": {"type": "string", "format": "uri"}, "tokenEndpoint": {"type": "string", "format": "uri"},
+                      "scopes": {"type": "string"}, "grantScope": {"type": "string"}, "expectedIssuer": {"type": "string", "format": "uri"},
+                      "clientCredentialsSecretRef": {"type": "object", "additionalProperties": false, "required": ["name", "namespace"], "properties": {"name": {"type": "string"}, "namespace": {"type": "string"}}}
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "x-source": "person", "x-feature": "tool-access",
+          "x-renders": ["configmap:agent-platform-mcps.mcpServers[*]", "configmap:muster.muster.oauth.server.tokenExchangeBroker.targets.<name>.grantIssuer", "extras:secrets/<name>-oauth-client.yaml"]
+        }
+      }
+    },
+    "federation": {
+      "type": "object",
+      "description": "Cross-installation access: this installation as a hub whose muster exchanges tokens for other installations' MCP servers, and this installation as a target of hubs. A private target is reached through the tunnel, which renders the tunnel release, the hub-side RemoteApp, the SPIFFE bundle trust and the portal's in-cluster kagent URL.",
+      "additionalProperties": false,
+      "required": ["targets", "hubs"],
+      "properties": {
+        "connectorId": {
+          "type": "string",
+          "description": "The connector in every target's Dex that trusts this hub's issuer. Required when targets is non-empty.",
+          "x-source": "person", "x-feature": "federation",
+          "x-renders": ["configmap:muster.muster.oauth.server.tokenExchangeBroker.targets.<name>.connectorId", "configmap:agent-platform-mcps.identityProviders.<name>.connectorId"]
+        },
+        "brokerClientId": {
+          "type": "string",
+          "description": "Dex client id of the hub's token-exchange broker client; registered once, read back from the checkout afterwards. Required when targets is non-empty.",
+          "x-source": "generated", "x-feature": "federation",
+          "x-renders": ["configmap:muster.muster.oauth.server.tokenExchangeBroker.brokerClients.<name>", "configmap:muster.muster.oauth.server.tokenExchangeBroker.clientAudiences.<name>", "extras:secrets/muster-broker-clients.yaml", "backstage:app-config:gs.clusterTokenBroker"]
+        },
+        "targets": {
+          "type": "array",
+          "description": "Installations this hub federates: a token-exchange target, an identity provider for the agentgateway, the target's MCP servers with exchange auth, and the hub-side credentials Secret per target.",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["installation", "private", "groups"],
+            "properties": {
+              "installation": {"type": "string"},
+              "private": {"type": "boolean", "default": false},
+              "groups": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "enum": ["kubernetes", "prometheus", "capi"]}}
+            }
+          },
+          "x-source": "person", "x-feature": "federation",
+          "x-renders": ["configmap:muster.muster.oauth.server.tokenExchangeBroker.targets.<name>", "configmap:muster.muster.oauth.server.tokenExchangeBroker.allowPrivateIP", "configmap:muster.muster.oauth.mcpClient.tokenExchange.allowPrivateIP", "configmap:agent-platform-mcps.identityProviders.<name>", "configmap:agent-platform-mcps.mcpServers[*]", "configmap:muster.muster.extraCaFile", "extras:secrets/<name>-token-exchange-credentials.yaml", "extras:tunnelport/helm-release.yaml", "extras:tunnelport/oci-repository.yaml", "extras:tunnelport/remoteapps.yaml", "extras:tunnelport/kustomization.yaml", "backstage:app-config:agentPlatform.kagent.installations.<name>.apiBaseUrl", "backstage:user-values:backstage.extraVolumes[*]", "backstage:user-values:backstage.extraVolumeMounts[*]", "backstage:file:tunnelport-spiffe-bundle.yaml"]
+        },
+        "hubs": {
+          "type": "array", "items": {"type": "string"}, "uniqueItems": true,
+          "description": "Installations whose broker exchanges tokens into this one. Each renders a token-exchange client in this installation's Dex and its place among the authenticator client's trusted peers.",
+          "x-source": "person", "x-feature": "federation",
+          "x-renders": ["dex-secret:oidc.extraStaticClients[*]", "dex-secret:oidc.staticClients.dexK8SAuthenticator.trustedPeers", "dex-configmap:oidc.staticClients.dexK8SAuthenticator.trustedPeers"]
+        }
+      }
+    },
+    "chart": {
+      "type": "object",
+      "description": "The meta chart release range when the installation deviates from the fleet base.",
+      "additionalProperties": false,
+      "properties": {
+        "semver": {"type": "string", "description": "Semver range patched onto the agent-platform OCIRepository.", "x-source": "person", "x-feature": "runtime", "x-renders": ["extras:kustomization.yaml:patches[*]"]}
+      }
+    },
+    "muster": {
+      "type": "object",
+      "description": "muster's own deployment knobs when the chart defaults do not fit.",
+      "additionalProperties": false,
+      "properties": {
+        "resources": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "requests": {"type": "object", "additionalProperties": false, "properties": {"cpu": {"type": "string"}, "memory": {"type": "string"}}},
+            "limits": {"type": "object", "additionalProperties": false, "properties": {"cpu": {"type": "string"}, "memory": {"type": "string"}}}
+          },
+          "x-source": "person", "x-feature": "runtime",
+          "x-renders": ["configmap:muster.resources"]
+        }
+      }
+    },
+    "agentSandbox": {
+      "type": "object", "additionalProperties": false, "required": ["enabled"],
+      "properties": {
+        "enabled": {"type": "boolean", "description": "Runs the agent sandbox component.", "x-source": "person", "x-feature": "runtime", "x-renders": ["configmap:components.agent-sandbox.enabled"]}
+      }
+    },
+    "klausGateway": {
+      "type": "object",
+      "description": "The chat gateway component (Slack front door to the platform's agents, on-behalf-of connector links, A2A). Its Slack and OBO credentials render as referenced Secrets; its routes and URLs derive from the installation facts.",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "x-source": "person", "x-feature": "runtime",
+          "x-renders": ["configmap:components.klaus-gateway.enabled", "configmap:klausGateway.agentgatewayRoute", "configmap:klausGateway.obo.enabled", "configmap:klausGateway.obo.existingSecret", "configmap:klausGateway.obo.musterUrl", "configmap:klausGateway.obo.callbackBaseUrl", "configmap:klausGateway.obo.storePath", "configmap:klausGateway.obo.persistence", "configmap:klausGateway.routing.store", "configmap:klausGateway.slack.enabled", "configmap:klausGateway.slack.secretName", "configmap:klausGateway.slack.dmMode", "extras:secrets/klaus-gateway-obo-keys.yaml", "extras:secrets/klaus-gateway-slack-credentials.yaml"]
+        },
+        "slack": {
+          "type": "object", "additionalProperties": false, "required": ["mode", "channelMode"],
+          "properties": {
+            "mode": {"type": "string", "enum": ["events", "socketmode"]},
+            "channelMode": {"type": "string", "enum": ["all", "allowlist"]},
+            "channelAllowlist": {"type": "array", "items": {"type": "string"}}
+          },
+          "x-source": "person", "x-feature": "runtime",
+          "x-renders": ["configmap:klausGateway.slack.mode", "configmap:klausGateway.slack.channelMode", "configmap:klausGateway.slack.channelAllowlist"]
+        },
+        "obo": {
+          "type": "object", "additionalProperties": false,
+          "properties": {"connectors": {"type": "boolean", "description": "Offers connector links (sign in to a third party through muster) in the chat."}},
+          "x-source": "person", "x-feature": "runtime",
+          "x-renders": ["configmap:klausGateway.obo.connectors"]
+        },
+        "a2a": {
+          "type": "object", "additionalProperties": false, "required": ["defaultAgent"],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "defaultAgent": {"type": "string"},
+            "saTokenAudience": {"type": "string", "description": "Audience of the projected service-account token the gateway presents to agents, when it authenticates with one."}
+          },
+          "x-source": "person", "x-feature": "runtime",
+          "x-renders": ["configmap:klausGateway.a2a"]
+        },
+        "reviews": {
+          "type": "object", "additionalProperties": false, "required": ["enabled"],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "audience": {"type": "string"},
+            "allowedCallers": {"type": "array", "items": {"type": "string"}, "description": "Service accounts allowed to open team reviews."}
+          },
+          "x-source": "person", "x-feature": "runtime",
+          "x-renders": ["configmap:klausGateway.reviews"]
+        }
+      }
+    },
+    "clusterManager": {
+      "type": "object",
+      "description": "The cluster-manager component on a hub. Its installation name and base URL derive from the installation facts.",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {"type": "boolean", "x-source": "person", "x-feature": "runtime", "x-renders": ["configmap:components.cluster-manager.enabled", "configmap:cluster-manager.installation.name", "configmap:cluster-manager.oauth.baseURL"]},
+        "networkPolicy": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "workloadClusterFqdnPatterns": {"type": "array", "items": {"type": "string"}, "description": "FQDN patterns of the workload cluster API endpoints the manager may reach."},
+            "egressFqdns": {
+              "type": "array",
+              "items": {"type": "object", "additionalProperties": false, "minProperties": 1, "maxProperties": 1, "properties": {"matchName": {"type": "string"}, "matchPattern": {"type": "string"}}}
+            }
+          },
+          "x-source": "person", "x-feature": "runtime",
+          "x-renders": ["configmap:clusterManager.networkPolicy"]
+        }
+      }
+    }
+  }
+}
