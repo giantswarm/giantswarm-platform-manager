@@ -219,3 +219,11 @@ func InspectAll(ctx context.Context, c *github.Client, insts []Installation, cap
 	wg.Wait()
 	return reports
 }
+
+// Input is the record in the shape of the definitions' installation input:
+// every key present, so the schema sees the facts on record and the person
+// types only what is not there.
+func (r *Record) Input() map[string]any {
+	return map[string]any{"name": r.Name, "baseDomain": r.BaseDomain, "customer": r.Customer, "provider": r.Provider,
+		"private": r.Private, "chartLine": r.ChartLine, "musterClientId": r.MusterClientID}
+}

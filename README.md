@@ -41,7 +41,52 @@ Behind muster the tools appear as `x_giantswarm-platform-manager_<tool>`.
 |---|---|---|
 | `get_info` | read | The version, the caller (login and id), the pinned authorization server, the capability definitions with their input schemas, the write modes, the write tools, the approval channel configuration and the tools still to come. Call first. |
 | `list_installations` | read | Every installation of the registry with, per capability, its state, the inputs on record and the last action; the opt-in declaration read at call time. `installations` (names) and `customer` narrow the answer. |
-| `enable_capability`, `reconcile_capability`, `verify_capability`, `get_action`, `list_actions` | planned | The extension points the next slices fill; `get_info` lists them as `plannedTools` until each is registered. |
+| `enable_capability` | write | Enable a capability on one installation (`installation`) or a set (`installations`): with `dryRun: true` the plan — files per repository with the change each one is against the repository now, pull requests in dependency order, generated secrets by name, Dex clients and redirect URIs, the secrets the person supplies at commit (by field), customer actions, probes. `inputs` are the definition's typed inputs over the facts on record. |
+| `reconcile_capability` | write | The same render over a set (empty: every installation of the registry), every file compared with the repository: all *unchanged* is an empty diff. Installations not opted in are listed as *skipped*. |
+| `get_action`, `list_actions` | read | The Action records on the hub: one per enablement or reconcile a person commits — actor, installations, capability, inputs, pull requests, approval, rollout, probes, result. |
+| `verify_capability` | planned | The extension point the next slice fills; `get_info` lists it as `plannedTools` until it is registered. |
+
+`mode: "commit"` of the two write tools — the pull requests as the person and the Action on the hub — is
+not implemented yet; the tools answer so, and `dryRun: true` is the way to use them today.
+
+## The dry run
+
+`enable_capability` and `reconcile_capability` with `dryRun: true` render an installation through the
+capability's definition (the [render library](render/README.md)) from the facts on record — the
+registry's and the installation's `config.yaml.patch` — with the person's typed `inputs` over them. The
+schema is the contract: a typed `installation.*` key overrides the record, an unknown key refuses with its
+name, a required choice left out (`kagent.enabled`, `portal.enabled`, `toolAccess.agentManager`,
+`federation.targets`/`hubs`) refuses naming it — nothing is chosen for the person, and an input this
+version of the definition does not render refuses as *not rendered*. A refusal is the installation's
+answer in the plan, not a tool error, so a set still answers for the others.
+
+The plan per installation: its state and opt-in, the effective inputs, the files with their repository
+(the registry's, not the definition's `giantswarm/<customer>-…` names), path, rendered content and change
+(*create*, *update*, *unchanged*, *unknown* when the current file could not be read as the person), the
+shared-kustomization includes, the generated secrets by name, kind and length, the secret values the person
+supplies at commit by field (rendered as `SUPPLIED(<field>)` markers — no secret value ever appears in a dry
+run), the Dex clients with their redirect URIs from the rendered dex patch, the customer actions (Secrets the
+definition references and never renders) and the probes (the definition's live dimensions). Over the set:
+the pull requests, one per repository in dependency order — an installation's configs before its
+management-clusters, the hub's pair after, `teleport-fleet` last — with the files, changes and generated
+secrets each carries; the wave's `order` (Giant Swarm's own test installations, the hub, then the
+customers' installations); and `skipped` with the reason (*not opted in*, *unreadable*, *no repositories on
+record*). An installation named as `installation` is rendered whether or not it is opted in, with
+`commitRefused` saying why a commit would be refused and how its owners opt in.
+
+## The Action record
+
+Every enablement or reconcile a person commits is an `Action` — `platform-manager.giantswarm.io/v1alpha1`,
+namespaced, on the hub in the manager's namespace, read and written with the manager's own ServiceAccount:
+the record is the manager's, not the person's. `spec` is written once (`actor`, `capability`, `kind`
+enable|reconcile, `installations` in the wave's order, `inputs`); `status` is a subresource (`state` — one
+of *pending approval*, *rolling out*, *waiting for the customer*, *enabled*, *drifted*, *failed* —
+`pullRequests`, `approval`, `rollout`, `probes`, `result`). `get_action` and `list_actions` read it;
+`list_installations` carries the newest Action of an installation and capability as `lastAction`, and an
+unfinished or failed action's state stands over the state read from the files. The chart renders the CRD,
+a Role over `actions` and `actions/status` in the release namespace and its binding (`actions.enabled`,
+`actions.installCRD`), and hands the namespace to the server as `ACTIONS_NAMESPACE`; without it
+`get_action` and `list_actions` refuse with the reason and `get_info` reports `actions.configured: false`.
 
 Every write tool is registered through one framework, which owns two arguments:
 

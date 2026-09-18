@@ -1,0 +1,130 @@
+{{- if and .Values.actions.enabled .Values.actions.installCRD }}
+# The Action record: one per enablement or reconcile a person commits. The
+# spec is written once by the commit; the status (a subresource) follows the
+# pull requests, the approval, the rollout, the probes and the result.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: actions.platform-manager.giantswarm.io
+  labels:
+    {{- include "giantswarm-platform-manager.labels" . | nindent 4 }}
+spec:
+  group: platform-manager.giantswarm.io
+  scope: Namespaced
+  names:
+    kind: Action
+    listKind: ActionList
+    plural: actions
+    singular: action
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Capability
+          type: string
+          jsonPath: .spec.capability
+        - name: Kind
+          type: string
+          jsonPath: .spec.kind
+        - name: Actor
+          type: string
+          jsonPath: .spec.actor.login
+        - name: State
+          type: string
+          jsonPath: .status.state
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [actor, capability, installations, kind]
+              properties:
+                actor:
+                  description: The person the action ran as — the GitHub login and id of the token the call carried.
+                  type: object
+                  required: [login]
+                  properties:
+                    login: {type: string}
+                    id: {type: integer, format: int64}
+                capability:
+                  description: The capability acted on.
+                  type: string
+                kind:
+                  description: enable or reconcile.
+                  type: string
+                  enum: [enable, reconcile]
+                installations:
+                  description: The installations of the set, in the wave's order.
+                  type: array
+                  items: {type: string}
+                inputs:
+                  description: The typed inputs of the action as given, merged over the facts on record; never a secret value.
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+            status:
+              type: object
+              properties:
+                state:
+                  description: The action's state, one of the installations' states an action produces.
+                  type: string
+                  enum: ["pending approval", "rolling out", "waiting for the customer", enabled, drifted, failed]
+                pullRequests:
+                  type: array
+                  items:
+                    type: object
+                    required: [repository, number]
+                    properties:
+                      repository: {type: string}
+                      number: {type: integer}
+                      url: {type: string}
+                      state: {type: string}
+                approval:
+                  type: object
+                  properties:
+                    channel: {type: string}
+                    reviewId: {type: string}
+                    decision: {type: string}
+                    decidedBy: {type: string}
+                    reason: {type: string}
+                    at: {type: string, format: date-time}
+                rollout:
+                  type: object
+                  properties:
+                    startedAt: {type: string, format: date-time}
+                    finishedAt: {type: string, format: date-time}
+                    installations:
+                      type: array
+                      items:
+                        type: object
+                        required: [name]
+                        properties:
+                          name: {type: string}
+                          state: {type: string}
+                          message: {type: string}
+                probes:
+                  type: array
+                  items:
+                    type: object
+                    required: [id]
+                    properties:
+                      id: {type: string}
+                      installation: {type: string}
+                      result: {type: string}
+                      message: {type: string}
+                      at: {type: string, format: date-time}
+                result:
+                  type: object
+                  required: [state]
+                  properties:
+                    state: {type: string}
+                    message: {type: string}
+                    at: {type: string, format: date-time}
+{{- end }}

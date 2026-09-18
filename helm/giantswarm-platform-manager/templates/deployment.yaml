@@ -63,6 +63,12 @@ spec:
             - name: HUB_INSTALLATION
               value: {{ . | quote }}
             {{- end }}
+            {{- if .Values.actions.enabled }}
+            - name: ACTIONS_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            {{- end }}
             {{- if .Values.approvals.gatewayURL }}
             - name: APPROVALS_URL
               value: {{ .Values.approvals.gatewayURL | quote }}

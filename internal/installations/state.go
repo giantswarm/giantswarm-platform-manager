@@ -51,3 +51,13 @@ func Capabilities() []Capability {
 		},
 	}}
 }
+
+// FromAction says whether s is a state the Action record produces — one an
+// unfinished or failed action lets stand over the state read from the files.
+func (s State) FromAction() bool {
+	switch s {
+	case StatePendingApproval, StateRollingOut, StateWaitingForCustomer, StateDrifted, StateFailed:
+		return true
+	}
+	return false
+}

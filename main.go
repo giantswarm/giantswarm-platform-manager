@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"syscall"
 
+	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/server"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
@@ -31,6 +32,8 @@ type options struct {
 	approvalsURL, approvalsChannel string
 
 	registryRepository, registryPath, hub string
+
+	actionsNamespace string
 
 	oauthEnabled                           bool
 	oauthBaseURL, oauthAuthorizationServer string
@@ -47,6 +50,7 @@ func parseFlags(args []string) (*options, error) {
 	f.StringVar(&o.registryRepository, "registry-repository", envOr("REGISTRY_REPOSITORY", "giantswarm/github"), "Repository (owner/repo) holding the installations catalog, read as the caller (REGISTRY_REPOSITORY)")
 	f.StringVar(&o.registryPath, "registry-path", envOr("REGISTRY_PATH", "catalog/installations.yaml"), "Path of the installations catalog in the registry repository (REGISTRY_PATH)")
 	f.StringVar(&o.hub, "hub", envOr("HUB_INSTALLATION", ""), "Name of the hub installation this manager runs on: its management-clusters repository holds the Dev Portal's app-config the registry also reads, and the hub side of every capability lands in its repositories (HUB_INSTALLATION)")
+	f.StringVar(&o.actionsNamespace, "actions-namespace", envOr("ACTIONS_NAMESPACE", ""), "Namespace on the hub the Action records live in, read with the pod's ServiceAccount; empty runs without the records and get_action/list_actions say so (ACTIONS_NAMESPACE)")
 	f.BoolVar(&o.oauthEnabled, "enable-oauth", envBool("OAUTH_ENABLED"), "Require a GitHub user token as the bearer of every MCP request — behind muster the person's own, through the App giantswarm-platform-manager — verified with GET /user; the caller and the token travel with the request (OAUTH_ENABLED)")
 	f.StringVar(&o.oauthBaseURL, "oauth-base-url", envOr("OAUTH_BASE_URL", ""), "URL muster reaches this server at, without the MCP path: the resource of its OAuth protected-resource metadata (OAUTH_BASE_URL)")
 	f.StringVar(&o.oauthAuthorizationServer, "oauth-authorization-server", envOr("OAUTH_AUTHORIZATION_SERVER", server.DefaultAuthorizationServer), "Issuer identity of the authorization server muster pins for this server, named in the protected-resource metadata (OAUTH_AUTHORIZATION_SERVER)")
@@ -74,6 +78,13 @@ func run(ctx context.Context, o *options, log *slog.Logger) error {
 	deps := tools.Deps{Version: version(), GitHubAPIURL: o.githubAPIURL, Log: log,
 		Approvals: tools.Approvals{GatewayURL: o.approvalsURL, Channel: o.approvalsChannel},
 		Registry:  installations.Sources{Catalog: installations.Location{Repository: o.registryRepository, Path: o.registryPath}, Hub: o.hub}}
+	if o.actionsNamespace != "" {
+		reader, err := actions.InCluster(o.actionsNamespace)
+		if err != nil {
+			return err
+		}
+		deps.Actions = reader
+	}
 	cfg := server.Config{Addr: o.listen, MCPPath: o.mcpPath}
 	if o.oauthEnabled {
 		cfg.OAuth = &server.OAuthConfig{BaseURL: o.oauthBaseURL, AuthorizationServer: o.oauthAuthorizationServer, GitHubAPIURL: o.githubAPIURL}
@@ -85,7 +96,7 @@ func run(ctx context.Context, o *options, log *slog.Logger) error {
 	}
 	log.Info("giantswarm-platform-manager starting", "version", deps.Version, "listen", o.listen, "mcp", o.mcpPath,
 		"oauth", o.oauthEnabled, "authorizationServer", deps.AuthorizationServer, "approvals", o.approvalsURL != "", "approvalsChannel", o.approvalsChannel,
-		"registry", deps.Registry.Catalog.String(), "hub", o.hub)
+		"registry", deps.Registry.Catalog.String(), "hub", o.hub, "actionsNamespace", o.actionsNamespace)
 	return srv.Run(ctx)
 }
 

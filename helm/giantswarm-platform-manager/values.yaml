@@ -48,6 +48,20 @@ registry:
 # `registry.configured: false`.
 hub: ""
 
+actions:
+  # -- Keep the Action records — one `Action` (`platform-manager.giantswarm.io/v1alpha1`)
+  # per enablement or reconcile a person commits: actor, installations,
+  # capability, inputs, pull requests, approval, rollout, probes, result — as
+  # custom resources in the release namespace, read and written with the
+  # pod's ServiceAccount (the CRD, a Role and its binding are rendered). Off:
+  # no ServiceAccount token is mounted, `get_action` and `list_actions`
+  # refuse with the reason and `get_info` reports `actions.configured: false`.
+  enabled: true
+  # -- Render the `actions.platform-manager.giantswarm.io` CRD from the chart's
+  # templates (so upgrades follow the chart). Off when the CRD is delivered
+  # separately.
+  installCRD: true
+
 approvals:
   # -- klaus-gateway's base URL as reached from the pod (for example
   # `http://klaus-gateway.agent-platform.svc:8080`): the team-review endpoint
