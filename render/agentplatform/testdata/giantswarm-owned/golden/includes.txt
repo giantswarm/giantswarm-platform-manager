@@ -1,0 +1,4 @@
+giantswarm/giantswarm-management-clusters:management-clusters/gopher/extras/kustomization.yaml ./agent-platform/
+giantswarm/giantswarm-management-clusters:management-clusters/gopher/extras/kustomization.yaml ./mcp-capi/
+giantswarm/giantswarm-management-clusters:management-clusters/gopher/extras/kustomization.yaml ./mcp-kubernetes/
+giantswarm/giantswarm-management-clusters:management-clusters/gopher/extras/kustomization.yaml ./mcp-prometheus/

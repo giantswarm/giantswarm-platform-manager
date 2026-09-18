@@ -1,0 +1,13 @@
+# Fleet policy of the agent-platform definition: which components an owning organisation may
+# enable. Encoded once, here; the renderer refuses an input that enables a component its
+# customer is not offered, naming the component. A component absent from this list is offered
+# to every installation.
+components:
+  klaus-gateway:
+    customers: [giantswarm]
+  cluster-manager:
+    customers: [giantswarm]
+# A pinned login connector (muster.muster.oauth.server.dex.connectorId): the meta chart refuses the
+# pin on a customer installation, so the definition refuses it first.
+loginConnectorPin:
+  customers: [giantswarm]

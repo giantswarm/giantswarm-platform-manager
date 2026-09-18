@@ -59,6 +59,10 @@ Flags, each with an environment variable (`--listen` / `LISTEN`, `--mcp-path` / 
 them. The chart in [`helm/giantswarm-platform-manager`](helm/giantswarm-platform-manager/README.md)
 sets them from its values.
 
+## Render library
+
+`render/` turns an installation's capability inputs into the files of its GitOps repositories, with no I/O of its own; see [render/README.md](render/README.md).
+
 ## Development
 
 - `make test` — the Go tests, among them the identity chain in `internal/e2e` against a fake GitHub:

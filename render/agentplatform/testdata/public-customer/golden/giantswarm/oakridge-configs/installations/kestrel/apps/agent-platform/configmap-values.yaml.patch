@@ -1,0 +1,53 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+global:
+  domain: kestrel.oakridge.example
+components:
+  kagent:
+    enabled: true
+  agent-manager:
+    enabled: true
+postgres:
+  enabled: true
+llmRouting:
+  enabled: true
+kagent:
+  providers:
+    anthropic:
+      apiKeySecretRef: kagent-anthropic-key
+      config:
+        baseUrl: http://agentgateway.agent-platform.svc:8081
+  oauth2-proxy:
+    config:
+      existingSecret: kagent-oauth2-proxy-credentials
+    extraArgs:
+      oidc-extra-audience: dex-k8s-authenticator,kagent,portal-client-id-one,portal-client-id-two # gitleaks:allow
+muster:
+  muster:
+    oauth:
+      server:
+        existingSecret: muster-oauth-credentials
+        storage:
+          valkey:
+            existingSecret: muster-valkey-credentials
+        trustedAudiences:
+          - dex-k8s-authenticator
+          - kagent
+          - portal-client-id-one
+          - portal-client-id-two
+agent-manager:
+  oauth:
+    baseURL: https://agentgateway.kestrel.oakridge.example/agent-manager
+    dex:
+      issuerURL: https://dex.kestrel.oakridge.example
+      clientID: 00000000-0000-4000-8000-000000000001
+    existingSecret: muster-oauth-credentials
+    trustedAudiences:
+      - 00000000-0000-4000-8000-000000000001
+valkey:
+  valkey:
+    auth:
+      usersExistingSecret: muster-valkey-credentials
+      aclUsers:
+        default:
+          passwordKey: valkey-password
