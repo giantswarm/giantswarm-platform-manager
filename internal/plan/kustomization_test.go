@@ -9,6 +9,7 @@ import (
 // entry already listed changes nothing, a missing list is appended, an
 // empty or null one is filled, and anything but a mapping is refused.
 func TestListEntry(t *testing.T) {
+	const entry = "./a/"
 	const extras = "# The installation's extras.\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./monitoring/ # keep\n"
 	cases := []struct {
 		name, current, list, entry, want string
@@ -20,11 +21,11 @@ func TestListEntry(t *testing.T) {
 		{name: "listed already", current: extras, list: ListResources, entry: "./monitoring/", want: extras},
 		{name: "adds a missing list", current: extras, list: ListComponents, entry: "./agent-platform/", changed: true,
 			want: "# The installation's extras.\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./monitoring/ # keep\ncomponents:\n  - ./agent-platform/\n"},
-		{name: "fills an empty list", current: "kind: Kustomization\nresources: []\n", list: ListResources, entry: "./a/", changed: true, want: "kind: Kustomization\nresources:\n  - ./a/\n"},
-		{name: "fills a null list", current: "kind: Kustomization\nresources:\n", list: ListResources, entry: "./a/", changed: true, want: "kind: Kustomization\nresources:\n  - ./a/\n"},
-		{name: "not a mapping", current: "- a\n", list: ListResources, entry: "./a/", err: true},
-		{name: "empty file", current: "", list: ListResources, entry: "./a/", err: true},
-		{name: "the list is a mapping", current: "resources:\n  a: b\n", list: ListResources, entry: "./a/", err: true},
+		{name: "fills an empty list", current: "kind: Kustomization\nresources: []\n", list: ListResources, entry: entry, changed: true, want: "kind: Kustomization\nresources:\n  - ./a/\n"},
+		{name: "fills a null list", current: "kind: Kustomization\nresources:\n", list: ListResources, entry: entry, changed: true, want: "kind: Kustomization\nresources:\n  - ./a/\n"},
+		{name: "not a mapping", current: "- a\n", list: ListResources, entry: entry, err: true},
+		{name: "empty file", current: "", list: ListResources, entry: entry, err: true},
+		{name: "the list is a mapping", current: "resources:\n  a: b\n", list: ListResources, entry: entry, err: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
