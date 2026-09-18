@@ -13,18 +13,22 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 )
 
 // ToolPrefix is the MCPServer name muster registers this server under.
 const ToolPrefix = "giantswarm-platform-manager"
 
-// ToolGetInfo is the one tool of the scaffold.
+// ToolGetInfo is the tool to call first.
 const ToolGetInfo = "get_info"
+
+// ToolListInstallations is the registry read: every installation with, per
+// capability, its state, inputs on record and last action.
+const ToolListInstallations = "list_installations"
 
 // The extension points: the tool names the later slices fill, by name only.
 // get_info lists them as plannedTools until each is registered.
 const (
-	ToolListInstallations   = "list_installations"
 	ToolEnableCapability    = "enable_capability"
 	ToolReconcileCapability = "reconcile_capability"
 	ToolVerifyCapability    = "verify_capability"
@@ -34,7 +38,7 @@ const (
 
 // PlannedTools are the extension points, in the order the slices land.
 func PlannedTools() []string {
-	return []string{ToolListInstallations, ToolEnableCapability, ToolReconcileCapability, ToolVerifyCapability, ToolGetAction, ToolListActions}
+	return []string{ToolEnableCapability, ToolReconcileCapability, ToolVerifyCapability, ToolGetAction, ToolListActions}
 }
 
 // Deps are what the tools run with. The server holds no token of its own:
@@ -53,7 +57,10 @@ type Deps struct {
 	// Definitions are the capability definitions the manager knows, with
 	// their input schemas; empty until the definitions slice lands.
 	Definitions []Definition
-	Log         *slog.Logger
+	// Registry names the installations catalog and the hub installation
+	// list_installations reads the registry from, as the caller.
+	Registry installations.Sources
+	Log      *slog.Logger
 }
 
 // Definition is a capability definition as get_info reports it: the name, what
@@ -95,12 +102,13 @@ func (t *Tools) AddWrite(wt WriteTool) { t.writes = append(t.writes, wt) }
 func (t *Tools) MCPServer() *mcpserver.MCPServer {
 	s := mcpserver.NewMCPServer(ToolPrefix, t.d.Version,
 		mcpserver.WithToolCapabilities(false),
-		mcpserver.WithInstructions("Giant Swarm's installation manager: enables, reconciles and verifies platform capabilities on opted-in installations as the person calling. Call get_info first: it reports who you are to this server (the GitHub login of the token muster put on the call — your own authorization of the App giantswarm-platform-manager), the capability definitions and their input schemas, the write modes and the approval channel. Every write tool takes dryRun and mode; the only write mode is commit — a pull request to the installation's GitOps repository opened as you — and apply is refused: every target of this manager is GitOps-owned."),
+		mcpserver.WithInstructions("Giant Swarm's installation manager: enables, reconciles and verifies platform capabilities on opted-in installations as the person calling. Call get_info first: it reports who you are to this server (the GitHub login of the token muster put on the call — your own authorization of the App giantswarm-platform-manager), the capability definitions and their input schemas, the write modes and the approval channel. list_installations reads the installations registry and every installation's opt-in declaration with your token, now, and answers the state of each capability per installation. Every write tool takes dryRun and mode; the only write mode is commit — a pull request to the installation's GitOps repository opened as you — and apply is refused: every target of this manager is GitOps-owned."),
 	)
 	s.AddTool(mcp.NewTool(ToolGetInfo,
 		mcp.WithDescription("Read-only. Report the service version and how this call is authenticated: the caller (the GitHub login and id GET /user answered for the bearer muster put on the call — the person's own user token through the App giantswarm-platform-manager) and the authorization server pinned for it; the capability definitions with their input schemas; the write modes (commit only, apply refused) and the write tools; the approval channel configuration; the tools still to come. Call first."),
 		mcp.WithReadOnlyHintAnnotation(true),
 	), t.getInfo)
+	s.AddTool(listInstallationsTool(), t.listInstallations)
 	for _, wt := range t.writes {
 		registerWrite(s, wt)
 	}
@@ -118,7 +126,17 @@ type Info struct {
 	Definitions  []Definition       `json:"definitions"`
 	Capabilities Capabilities       `json:"capabilities"`
 	Approvals    ApprovalsInfo      `json:"approvals"`
+	Registry     RegistryConfig     `json:"registry"`
 	PlannedTools []string           `json:"plannedTools"`
+}
+
+// RegistryConfig is where list_installations reads the registry from.
+type RegistryConfig struct {
+	Catalog installations.Location `json:"catalog"`
+	Hub     string                 `json:"hub"`
+	// Configured says whether the hub is set; without it list_installations
+	// refuses, and says so.
+	Configured bool `json:"configured"`
 }
 
 // Authentication modes get_info reports.
@@ -175,6 +193,7 @@ func (t *Tools) getInfo(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallTo
 		Definitions:  append([]Definition{}, t.d.Definitions...),
 		Capabilities: Capabilities{Commit: true, Modes: []string{string(ModeCommit)}, ApplyRefused: true, WriteTools: names},
 		Approvals:    ApprovalsInfo{Configured: t.d.Approvals.GatewayURL != "", GatewayURL: t.d.Approvals.GatewayURL, Channel: t.d.Approvals.Channel},
+		Registry:     RegistryConfig{Catalog: t.d.Registry.Catalog, Hub: t.d.Registry.Hub, Configured: t.d.Registry.Hub != ""},
 		PlannedTools: PlannedTools(),
 	}
 	if id, ok := identity.FromContext(ctx); ok {

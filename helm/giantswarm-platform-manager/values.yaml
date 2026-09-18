@@ -32,6 +32,22 @@ github:
   # -- GitHub API base URL the caller's calls go to; empty is api.github.com.
   apiURL: ""
 
+registry:
+  # -- Repository (`owner/repo`) holding the installations catalog, read as
+  # the caller: the GitHub App `giantswarm-platform-manager` must be installed
+  # on it with contents read.
+  repository: giantswarm/github
+  # -- Path of the installations catalog in that repository: a Backstage
+  # catalog file, one `Resource` of type `installation` per installation.
+  path: catalog/installations.yaml
+
+# -- Name of the hub installation this manager runs on. Its management-clusters
+# repository holds the Dev Portal's app-config the registry also reads, and the
+# hub side of every capability lands in its repositories. Empty leaves
+# `list_installations` refusing with the reason; `get_info` reports
+# `registry.configured: false`.
+hub: ""
+
 approvals:
   # -- klaus-gateway's base URL as reached from the pod (for example
   # `http://klaus-gateway.agent-platform.svc:8080`): the team-review endpoint

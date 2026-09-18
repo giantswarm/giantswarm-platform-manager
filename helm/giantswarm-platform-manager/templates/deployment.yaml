@@ -55,6 +55,14 @@ spec:
             - name: GITHUB_API_URL
               value: {{ . | quote }}
             {{- end }}
+            - name: REGISTRY_REPOSITORY
+              value: {{ .Values.registry.repository | quote }}
+            - name: REGISTRY_PATH
+              value: {{ .Values.registry.path | quote }}
+            {{- with .Values.hub }}
+            - name: HUB_INSTALLATION
+              value: {{ . | quote }}
+            {{- end }}
             {{- if .Values.approvals.gatewayURL }}
             - name: APPROVALS_URL
               value: {{ .Values.approvals.gatewayURL | quote }}
