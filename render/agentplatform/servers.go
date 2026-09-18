@@ -77,6 +77,20 @@ const (
 	fileHeader = "# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:\n# the next reconcile writes it again from the installation's inputs.\n"
 )
 
+// BuiltInDexClientID is the Dex client id of a built-in client of the dex-app
+// chart, by the chart's key, where the installation knows it: muster's is the
+// record's client id, the authenticator's is fixed. The other built-in clients'
+// ids are the fleet's shared template's; empty here.
+func (in *Input) BuiltInDexClientID(key string) string {
+	switch key {
+	case "muster":
+		return in.Installation.MusterClientID
+	case "dexK8SAuthenticator":
+		return authenticatorClient
+	}
+	return ""
+}
+
 // dexClientSecretName is the Secret in Dex's namespace that carries a
 // component's client secret.
 func dexClientSecretName(component string) string {

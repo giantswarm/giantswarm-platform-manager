@@ -13,3 +13,6 @@ __pycache__/
 .idea/
 .vscode/
 .DS_Store
+# CircleCI go-build writes the architecture list for push-to-registries next
+# to the binaries; untracked, it would mark the build dirty (vcs.modified).
+/.platforms
