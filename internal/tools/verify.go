@@ -36,7 +36,7 @@ func (t *Tools) verify(ctx context.Context, args map[string]any) (any, error) {
 	if !ok {
 		return nil, errors.New(ToolVerifyCapability + " needs a caller: the request carried no GitHub user token to read the registry and the installation's repositories as; " + identity.SignIn)
 	}
-	capability, err := capabilityArg(args)
+	def, err := capabilityArg(args)
 	if err != nil {
 		return nil, err
 	}
@@ -44,12 +44,13 @@ func (t *Tools) verify(ctx context.Context, args map[string]any) (any, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%s needs %s", ToolVerifyCapability, ArgInstallation)
 	}
-	return t.verifyInstallation(ctx, token, name, capability)
+	return t.verifyInstallation(ctx, token, name, def)
 }
 
-// verifyInstallation is the verify of one installation as the person whose
-// token this is: the tool's body, and the wave's gate between two stages.
-func (t *Tools) verifyInstallation(ctx context.Context, token, name, capability string) (*verify.Result, error) {
+// verifyInstallation is the verify of one installation against def as the
+// person whose token this is: the tool's body, and the wave's gate between
+// two stages.
+func (t *Tools) verifyInstallation(ctx context.Context, token, name string, def installations.Capability) (*verify.Result, error) {
 	c, err := gh.AsPerson(t.d.GitHubAPIURL, token)
 	if err != nil {
 		return nil, err
@@ -69,7 +70,7 @@ func (t *Tools) verifyInstallation(ctx context.Context, token, name, capability 
 	}
 	in := verify.Inputs{Source: InputsNone}
 	if r.Record != nil && t.d.Actions != nil {
-		acts, err := t.d.Actions.List(ctx, actions.Filter{Installation: name, Capability: capability})
+		acts, err := t.d.Actions.List(ctx, actions.Filter{Installation: name, Capability: def.Name})
 		if err != nil {
 			return nil, err
 		}
@@ -77,7 +78,7 @@ func (t *Tools) verifyInstallation(ctx context.Context, token, name, capability 
 			if a.Spec.Inputs == nil {
 				continue
 			}
-			values, err := mergeInputs(r.Record, a.Spec.Inputs)
+			values, err := mergeInputs(def, r, a.Spec.Inputs)
 			if err != nil {
 				return nil, err
 			}
@@ -85,7 +86,7 @@ func (t *Tools) verifyInstallation(ctx context.Context, token, name, capability 
 			break
 		}
 	}
-	out := verify.Compare(ctx, verify.Options{Installation: r.Installation, Hub: hub, State: capabilityState(r, capability), Inputs: in, Read: readAs(c), Probes: t.d.Probes})
+	out := verify.Compare(ctx, verify.Options{Definition: def, Installation: r.Installation, Hub: hub, State: capabilityState(r, def.Name), Inputs: in, Read: readAs(c), Probes: t.d.Probes})
 	out.Caller = identity.Caller(ctx)
 	t.d.Log.Info(ToolVerifyCapability, identity.LogAttr(ctx), "installation", name, "inputs", in.Source, "state", out.State, "summary", out.Summary)
 	return &out, nil

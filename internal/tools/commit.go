@@ -20,7 +20,6 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 	"github.com/giantswarm/giantswarm-platform-manager/render"
-	"github.com/giantswarm/giantswarm-platform-manager/render/agentplatform"
 )
 
 // ArgSecrets is the commit's own argument: the supplied secret values by
@@ -363,7 +362,7 @@ func targetsOf(ctx context.Context, c *github.Client, p plan.Installation, rende
 			tg.exists[path] = pf.Change == plan.ChangeUpdate
 			sf := sopsenc.File{Path: path, Content: content}
 			for _, g := range f.Generated {
-				sf.Generated = append(sf.Generated, sopsenc.Generated{Name: g.Name, Placeholder: g.Placeholder, Kind: sopsenc.Kind(g.Kind), Length: g.Length})
+				sf.Generated = append(sf.Generated, sopsenc.Generated{Name: g.Name, Placeholder: g.Placeholder, Kind: sopsenc.Kind(g.Kind), Length: g.Length, Half: sopsenc.Half(g.Half)})
 			}
 			tg.files = append(tg.files, sf)
 		}
@@ -403,7 +402,7 @@ func encrypt(repository string, tg *target) (map[string][]byte, error) {
 }
 
 // The prefixes a generated and a supplied placeholder open with.
-var placeholderPrefixes = []string{strings.TrimSuffix(render.Placeholder(""), ")"), strings.TrimSuffix(agentplatform.Supplied(""), ")")}
+var placeholderPrefixes = []string{strings.TrimSuffix(render.Placeholder(""), ")"), strings.TrimSuffix(render.Supplied(""), ")")}
 
 // placeholderLeak names a file whose outgoing content still carries a
 // generated or supplied placeholder, or "".

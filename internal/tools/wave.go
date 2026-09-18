@@ -10,7 +10,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
-	"github.com/giantswarm/giantswarm-platform-manager/render/agentplatform"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // ArgOrder is the wave's own argument: the targets in the order to roll out,
@@ -120,7 +120,7 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		// (checked above) and never generated again, so no marker leaves.
 		markers := make(map[string]string, len(p.SuppliedSecrets))
 		for _, field := range p.SuppliedSecrets {
-			markers[field] = agentplatform.Supplied(field)
+			markers[field] = render.Supplied(field)
 		}
 		rendered, err := def.Render(env.inputs[p.Name], markers)
 		if err != nil {
@@ -155,7 +155,7 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 // file; whether it is encrypted is the commit step's decision from the
 // repository's rules.
 func suppliedFilesToCreate(p plan.Installation) []string {
-	marker := strings.TrimSuffix(agentplatform.Supplied(""), ")")
+	marker := strings.TrimSuffix(render.Supplied(""), ")")
 	var files []string
 	for _, f := range p.Files {
 		if f.Change == plan.ChangeCreate && strings.Contains(f.Content, marker) {

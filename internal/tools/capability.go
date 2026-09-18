@@ -75,9 +75,8 @@ const (
 )
 
 // capabilityArgDescription describes the capability argument of the write
-// tools and the verify: every registered definition is selectable, one is
-// taken today.
-const capabilityArgDescription = `The capability (default agent-platform). Every definition get_info lists is selectable; the tool takes agent-platform today and refuses the others as not implemented.`
+// tools and the verify: every registered definition.
+const capabilityArgDescription = `The capability (default agent-platform): one of the definitions get_info lists, rendered from its own schema and compared against its own files.`
 
 // stringItems is the schema of an array-of-strings argument.
 func stringItems() map[string]any { return map[string]any{"type": "string"} }
@@ -136,7 +135,7 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 	if !ok {
 		return nil, nil, errors.New(tool + " needs a caller: the request carried no GitHub user token to read the registry and the installations' repositories as; " + identity.SignIn)
 	}
-	capability, err := capabilityArg(args)
+	def, err := capabilityArg(args)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -174,7 +173,7 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 	}
 	caps := installations.Capabilities()
 	reports := installations.InspectAll(ctx, c, selected, caps)
-	out := CapabilityResult{Caller: identity.Caller(ctx), Tool: tool, Capability: capability, Hub: reg.Hub, DryRun: true,
+	out := CapabilityResult{Caller: identity.Caller(ctx), Tool: tool, Capability: def.Name, Hub: reg.Hub, DryRun: true,
 		Order: []string{}, Installations: []plan.Installation{}, PullRequests: []plan.PullRequest{}, Skipped: []Skipped{}, Commit: commitNext}
 	env := &planned{c: c, hub: hub, byName: byName, reports: map[string]installations.Report{}, inputs: map[string]map[string]any{}}
 	read := readAs(c)
@@ -184,13 +183,13 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 			out.Skipped = append(out.Skipped, skip)
 			continue
 		}
-		merged, err := mergeInputs(r.Record, inputs)
+		merged, err := mergeInputs(def, r, inputs)
 		if err != nil {
 			return nil, nil, err
 		}
 		env.inputs[r.Name] = merged
-		p := plan.Build(ctx, plan.Options{Installation: r.Installation, Hub: hub, Inputs: merged, Content: content, Read: read})
-		p.State = capabilityState(r, capability)
+		p := plan.Build(ctx, plan.Options{Definition: def, Installation: r.Installation, Hub: hub, Inputs: merged, Content: content, Read: read})
+		p.State = capabilityState(r, def.Name)
 		p.OptIn = r.OptIn
 		if r.OptIn != nil && r.OptIn.State != installations.OptedIn {
 			p.CommitRefused = fmt.Sprintf("%s is %s: %s", r.Name, r.OptIn.State, r.OptIn.HowToOptIn)
@@ -205,22 +204,19 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 	return &out, env, nil
 }
 
-// capabilityArg is the capability named in args, agent-platform by default —
-// the one definition the capability tools take today. Another registered
-// definition is refused as not implemented, naming the tools that do take
-// it; a name the registry does not know is refused with the registry's names.
-func capabilityArg(args map[string]any) (string, error) {
+// capabilityArg is the definition named in args, agent-platform by default,
+// from the registry; a name the registry does not know is refused with the
+// registry's names.
+func capabilityArg(args map[string]any) (installations.Capability, error) {
 	capability, _ := args[ArgCapability].(string)
 	if capability == "" {
 		capability = installations.AgentPlatform
 	}
-	if capability == installations.AgentPlatform {
-		return capability, nil
+	def, ok := installations.FindCapability(capability)
+	if !ok {
+		return installations.Capability{}, fmt.Errorf("capability %q is not known: the definitions are %s", capability, strings.Join(installations.CapabilityNames(), ", "))
 	}
-	if _, ok := installations.FindCapability(capability); ok {
-		return "", fmt.Errorf("capability %q: its enable, reconcile and verify through this tool are %w (get_info lists the definition, platformctl template renders it); %q is the one the tool takes", capability, ErrNotImplemented, installations.AgentPlatform)
-	}
-	return "", fmt.Errorf("capability %q is not known: the definitions are %s", capability, strings.Join(installations.CapabilityNames(), ", "))
+	return def, nil
 }
 
 // readAs reads a repository file as the caller c stands for.
@@ -259,11 +255,16 @@ func skipped(r installations.Report, named bool) (Skipped, bool) {
 	return Skipped{}, false
 }
 
-// mergeInputs lays the typed inputs over the record: the record's
-// installation.* first, the person's keys over it. What the schema requires
-// and the person left out, the definition names in its refusal.
-func mergeInputs(rec *installations.Record, typed map[string]any) (map[string]any, error) {
-	merged := map[string]any{"installation": rec.Input()}
+// mergeInputs lays the typed inputs over the facts on record: the facts
+// def's schema names under installation first, the person's keys over them.
+// What the schema requires and the person left out, the definition names in
+// its refusal.
+func mergeInputs(def installations.Capability, r installations.Report, typed map[string]any) (map[string]any, error) {
+	facts, err := def.Facts(r.Facts())
+	if err != nil {
+		return nil, err
+	}
+	merged := map[string]any{"installation": facts}
 	for k, v := range typed {
 		if k == "installation" {
 			over, ok := v.(map[string]any)

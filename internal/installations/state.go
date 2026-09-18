@@ -2,6 +2,7 @@ package installations
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/render"
@@ -52,6 +53,9 @@ type Capability struct {
 	MarkerRepository MarkerRepository
 	// EnabledMarker is the path of the marker for installation name.
 	EnabledMarker func(installation string) string
+	// Parse is the definition's read of the decoded input document: the
+	// typed input, or the definition's refusal naming the location.
+	Parse func(raw any) (render.Input, error)
 	// Render is the definition's render: the decoded input document and the
 	// person-supplied secret values by field in, the fileset out.
 	Render func(raw any, secrets map[string]string) (*render.Result, error)
@@ -64,6 +68,34 @@ func (c Capability) Schema() (json.RawMessage, error) {
 		return nil, err
 	}
 	return json.RawMessage(raw), nil
+}
+
+// Facts picks from all — every fact on record (Report.Facts) — the ones the
+// definition's schema names under installation. The schema is the contract:
+// a fact it does not name is not an input of this definition, and one it
+// requires and the record lacks is the definition's refusal to name.
+func (c Capability) Facts(all map[string]any) (map[string]any, error) {
+	raw, err := c.Schema()
+	if err != nil {
+		return nil, err
+	}
+	var schema struct {
+		Properties struct {
+			Installation struct {
+				Properties map[string]json.RawMessage `json:"properties"`
+			} `json:"installation"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		return nil, fmt.Errorf("%s: schema: %w", c.Name, err)
+	}
+	out := make(map[string]any, len(schema.Properties.Installation.Properties))
+	for k := range schema.Properties.Installation.Properties {
+		if v, ok := all[k]; ok {
+			out[k] = v
+		}
+	}
+	return out, nil
 }
 
 // MarkerRepository names one of an installation's two GitOps repositories.
@@ -99,12 +131,14 @@ func Capabilities() []Capability {
 		EnabledMarker: func(installation string) string {
 			return "installations/" + installation + "/apps/agent-platform/configmap-values.yaml.patch"
 		},
+		Parse:  func(raw any) (render.Input, error) { return agentplatform.Parse(raw) },
 		Render: agentplatform.Render,
 	}, {
 		Name:             CustomerPortal,
 		Description:      "The developer portal on an installation: its extras/backstage tree over the fleet's bases, its Dex client, the plugin keys and the session secret.",
 		MarkerRepository: ManagementClustersRepository,
 		EnabledMarker:    PortalConfigPath,
+		Parse:            func(raw any) (render.Input, error) { return customerportal.Parse(raw) },
 		Render:           customerportal.Render,
 	}}
 }

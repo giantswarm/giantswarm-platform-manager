@@ -35,12 +35,17 @@ type File struct {
 
 // Generated describes one placeholder in a File. Two files that carry the same
 // Name receive the same value: that is how a Dex client and the workload that
-// presents its secret agree on it.
+// presents its secret agree on it. A key pair is one Name declared twice, each
+// declaration naming the Half its placeholder receives.
 type Generated struct {
 	Name        string
 	Placeholder string
 	Kind        GeneratedKind
-	Length      int
+	// Length is the size of a Base64 or Alphanumeric value; a key pair has none.
+	Length int
+	// Half is the half of a KeyPairES256 the placeholder receives; a Base64 or
+	// Alphanumeric value has none.
+	Half Half
 }
 
 // GeneratedKind is the shape of a generated value.
@@ -51,7 +56,48 @@ const (
 	Base64 GeneratedKind = "base64"
 	// Alphanumeric is Length characters of [A-Za-z0-9].
 	Alphanumeric GeneratedKind = "alphanumeric"
+	// KeyPairES256 is an ECDSA P-256 key pair, drawn once per Name: the
+	// private half a PKCS #8 PEM, the public half a SubjectPublicKeyInfo PEM,
+	// each written as one YAML scalar. The private half lands only in a
+	// secret file; the commit step refuses a pair declared without it.
+	KeyPairES256 GeneratedKind = "keypair-es256"
 )
+
+// Half is the half of a key pair a placeholder receives.
+type Half string
+
+const (
+	// Private is the private key; only a secret file may receive it.
+	Private Half = "private"
+	// Public is the public key; a plain file may receive it too.
+	Public Half = "public"
+)
+
+// KeyPair declares one half of the key pair name: the placeholder is the
+// name's, qualified by the half, so the two halves of one pair never share a
+// placeholder.
+func KeyPair(name string, half Half) Generated {
+	return Generated{Name: name, Placeholder: Placeholder(name + "." + string(half)), Kind: KeyPairES256, Half: half}
+}
+
+// Input is a definition's parsed input document, as the plan and the verify
+// read it beyond the render: the markers and fields of the secret values a
+// person supplies at commit, the id of a built-in Dex client the dex-app
+// chart's key names (empty where the definition has none), and the actions
+// the customer takes that no pull request delivers.
+type Input interface {
+	SuppliedMarkers() map[string]string
+	SuppliedSecretFields() []string
+	BuiltInDexClientID(key string) string
+	CustomerActions() []CustomerAction
+}
+
+// CustomerAction is something the rollout needs from the customer that no
+// pull request of the manager delivers: what to do, and why it is theirs.
+type CustomerAction struct {
+	Action string
+	Why    string
+}
 
 // Include is an entry a kustomization.yaml the definition does not own must
 // list for the rendered files to take effect: the installation's
@@ -191,6 +237,10 @@ func (f Fileset) Paths() []string {
 func Placeholder(name string) string {
 	return "GENERATED(" + name + ")"
 }
+
+// Supplied is the marker a definition writes where the value a person
+// supplies at commit for field goes; the commit step replaces it.
+func Supplied(field string) string { return "SUPPLIED(" + field + ")" }
 
 // YAML marshals v with two-space indentation, the shape the fleet's
 // hand-written files use. Struct field order is the key order.

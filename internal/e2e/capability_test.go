@@ -26,6 +26,7 @@ const (
 	acme, capz          = "acme", "capz"
 	enabledKey          = "enabled"
 	kagentKey           = "kagent"
+	portalKey           = "portal"
 	approvalsChannel    = "platform-approvals"
 )
 
@@ -48,7 +49,7 @@ func dryRun(t *testing.T, c *client.Client, tool string, args map[string]any) (t
 // minimalInputs are the choices the definition's schema requires and never
 // chooses for the person: nothing enabled, no federation.
 func minimalInputs(over map[string]any) map[string]any {
-	in := map[string]any{"secrets": map[string]any{}, kagentKey: map[string]any{enabledKey: false}, "portal": map[string]any{enabledKey: false},
+	in := map[string]any{"secrets": map[string]any{}, kagentKey: map[string]any{enabledKey: false}, portalKey: map[string]any{enabledKey: false},
 		"toolAccess": map[string]any{"agentManager": map[string]any{enabledKey: false}}, "federation": map[string]any{"targets": []any{}, "hubs": []any{}}}
 	for k, v := range over {
 		in[k] = v
@@ -129,22 +130,59 @@ func TestEnableCapabilityDryRunRendersOneInstallation(t *testing.T) {
 	}
 }
 
-// The customer-portal definition is in the registry, so the capability
-// tools list it in their enum — and refuse it by name as not implemented,
-// before any read of the installation, until its reconcile lands.
-func TestCapabilityToolsRefuseTheCustomerPortal(t *testing.T) {
+// The customer-portal definition is in the registry, so the capability tools
+// take it as they take agent-platform: the plan rendered from the portal's
+// schema over the facts the schema names (the registry's region and pipeline,
+// the agent-platform capability's enabled state; not the chart line), its
+// files the portal's tree, its Dex client the portal's, its plugin signing
+// keys one ES256 pair; the verify answers for it.
+func TestCapabilityToolsTakeTheCustomerPortal(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	c := st.mcpClient(t, aliceToken)
-	for _, tool := range []string{tools.ToolEnableCapability, tools.ToolReconcileCapability, tools.ToolVerifyCapability} {
-		args := map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.CustomerPortal}
-		if tool != tools.ToolVerifyCapability {
-			args[tools.ArgDryRun] = true
+	inputs := map[string]any{
+		portalKey: map[string]any{"domain": "portal.rowan.acme.test", "organization": "ACME", "supportUrl": "https://support.acme.test/"},
+		"chart":   map[string]any{"line": ">=2.1.0 <3.0.0"},
+		"plugins": map[string]any{"github": map[string]any{enabledKey: false}, "grafana": map[string]any{enabledKey: false}, "flux": map[string]any{enabledKey: false}, "sentry": map[string]any{enabledKey: false}},
+		"tunnel":  map[string]any{enabledKey: false},
+	}
+	for _, tool := range []string{tools.ToolEnableCapability, tools.ToolReconcileCapability} {
+		out, text, isErr := dryRun(t, c, tool, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.CustomerPortal, tools.ArgInputs: inputs})
+		if isErr {
+			t.Fatal(text)
 		}
-		text, isErr := call(t, c, tool, args)
-		if !isErr || !strings.Contains(text, installations.CustomerPortal) || !strings.Contains(text, tools.ErrNotImplemented.Error()) || !strings.Contains(text, installations.AgentPlatform) {
-			t.Fatalf("%s customer-portal: isErr %v, %s", tool, isErr, text)
+		p := findPlan(t, out, rowan)
+		if out.Capability != installations.CustomerPortal || p.Refused != "" || p.State != installations.StateNotEnabled {
+			t.Fatalf("%s: capability %q, refused %q, state %q", tool, out.Capability, p.Refused, p.State)
 		}
+		facts, _ := p.Inputs["installation"].(map[string]any)
+		if _, chartLine := facts["chartLine"]; chartLine || facts["agentPlatform"] != false || facts["region"] != "eu-central-1" || facts["pipeline"] != "stable" {
+			t.Fatalf("%s: facts %v", tool, facts)
+		}
+		var portalFiles, dexPatch int
+		for _, f := range p.Files {
+			if strings.Contains(f.Path, "/extras/backstage/") {
+				portalFiles++
+			}
+			if strings.HasSuffix(f.Path, "/apps/dex-app/configmap-values.yaml.patch") {
+				dexPatch++
+			}
+		}
+		var pair bool
+		for _, g := range p.GeneratedSecrets {
+			pair = pair || (g.Name == "backstage-plugin-keys" && g.Kind == "keypair-es256" && g.Length == 0 && len(g.Files) == 1)
+		}
+		var backstage bool
+		for _, d := range p.DexClients {
+			backstage = backstage || (d.ID == "backstage" && d.SecretRef == "dex-client-backstage" && len(d.RedirectURIs) > 0)
+		}
+		if portalFiles == 0 || dexPatch != 1 || !pair || !backstage || len(p.Probes) == 0 || len(p.CustomerActions) != 0 {
+			t.Fatalf("%s: portal files %d, dex patch %d, key pair %v, backstage client %v, probes %d, actions %d", tool, portalFiles, dexPatch, pair, backstage, len(p.Probes), len(p.CustomerActions))
+		}
+	}
+	text, isErr := call(t, c, tools.ToolVerifyCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.CustomerPortal})
+	if isErr || !strings.Contains(text, `"capability": "`+installations.CustomerPortal+`"`) || !strings.Contains(text, tools.InputsNone) {
+		t.Fatalf("verify customer-portal: isErr %v, %s", isErr, text)
 	}
 }
 

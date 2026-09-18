@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -20,7 +21,6 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/render"
-	"github.com/giantswarm/giantswarm-platform-manager/render/agentplatform"
 )
 
 // Change is what a rendered file is against the repository now.
@@ -169,6 +169,8 @@ type Reader func(ctx context.Context, repository, path string) (string, error)
 
 // Options shape one installation's plan.
 type Options struct {
+	// Definition is the capability rendered, from the registry.
+	Definition   installations.Capability
 	Installation installations.Installation
 	Hub          installations.Installation
 	Inputs       map[string]any
@@ -176,25 +178,25 @@ type Options struct {
 	Read         Reader
 }
 
-// Build renders raw through the definition and answers the plan for opts'
-// installation. A refusal of the definition is the answer, not an error.
+// Build renders the inputs through opts' definition and answers the plan for
+// opts' installation. A refusal of the definition is the answer, not an error.
 func Build(ctx context.Context, opts Options) Installation {
 	p := Installation{Name: opts.Installation.Name, Inputs: opts.Inputs,
 		Files: []File{}, Includes: []Include{}, GeneratedSecrets: []GeneratedSecret{}, SuppliedSecrets: []string{},
 		DexClients: []DexClient{}, CustomerActions: []CustomerAction{}, Probes: []Probe{}, Diff: map[Change]int{}}
-	in, err := agentplatform.Parse(opts.Inputs)
+	in, err := opts.Definition.Parse(opts.Inputs)
 	if err != nil {
 		p.Refused = err.Error()
 		return p
 	}
-	res, err := agentplatform.Render(opts.Inputs, in.SuppliedMarkers())
+	res, err := opts.Definition.Render(opts.Inputs, in.SuppliedMarkers())
 	if err != nil {
 		p.Refused = err.Error()
 		return p
 	}
 	p.SuppliedSecrets = in.SuppliedSecretFields()
 	p.CustomerActions = customerActions(opts.Installation.Name, in)
-	p.Probes = Probes()
+	p.Probes = Probes(opts.Definition.Name)
 	generated := map[string]*GeneratedSecret{}
 	for _, repo := range SortedRepositories(res.Files) {
 		target := ResolveRepository(string(repo), opts.Installation, opts.Hub)
@@ -213,7 +215,9 @@ func Build(ctx context.Context, opts Options) Installation {
 					gs = &GeneratedSecret{Name: g.Name, Kind: string(g.Kind), Length: g.Length}
 					generated[g.Name] = gs
 				}
-				gs.Files = append(gs.Files, target+":"+path)
+				if file := target + ":" + path; !slices.Contains(gs.Files, file) {
+					gs.Files = append(gs.Files, file)
+				}
 			}
 			content := string(f.Content)
 			current, err := opts.Read(ctx, target, path)
@@ -446,18 +450,12 @@ func keys(m map[string]bool) []string {
 	return out
 }
 
-// customerActions names what the rollout needs from the customer beyond the
-// pull requests: the provider-key Secrets of additional model configs, which
-// the definition references and never renders.
-func customerActions(installation string, in *agentplatform.Input) []CustomerAction {
+// customerActions are the definition's customer actions, named for the
+// installation.
+func customerActions(installation string, in render.Input) []CustomerAction {
 	out := []CustomerAction{}
-	for _, m := range in.Kagent.AdditionalModelConfigs {
-		if m.APIKeySecret == "" {
-			continue
-		}
-		out = append(out, CustomerAction{Installation: installation,
-			Action: fmt.Sprintf("create the Secret %q (key %q) in namespace kagent with the provider key of model config %q", m.APIKeySecret, m.APIKeySecretKey, m.Name),
-			Why:    "the definition references the Secret and renders no value for it; the model config stays unusable until it exists"})
+	for _, a := range in.CustomerActions() {
+		out = append(out, CustomerAction{Installation: installation, Action: a.Action, Why: a.Why})
 	}
 	return out
 }
@@ -465,7 +463,7 @@ func customerActions(installation string, in *agentplatform.Input) []CustomerAct
 // DexClients reads the clients of the rendered dex patch: the built-in
 // clients by the chart's key, with the id the input knows, and the extra
 // static clients as declared.
-func DexClients(patch []byte, in *agentplatform.Input) []DexClient {
+func DexClients(patch []byte, in render.Input) []DexClient {
 	var doc struct {
 		OIDC struct {
 			StaticClients      yaml.Node `yaml:"staticClients"`
@@ -503,10 +501,10 @@ func DexClients(patch []byte, in *agentplatform.Input) []DexClient {
 	return out
 }
 
-// Probes are the live dimensions of the definition's features: what the
-// verify checks against the running installation.
-func Probes() []Probe {
-	feats, err := definitions.Features(installations.AgentPlatform)
+// Probes are the live dimensions of the named definition's features: what
+// the verify checks against the running installation.
+func Probes(capability string) []Probe {
+	feats, err := definitions.Features(capability)
 	if err != nil {
 		return nil
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/approvals"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 )
@@ -241,7 +242,11 @@ func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
 		// The stage in flight: merged on an earlier call, verified now; a red
 		// probe stops the wave here, with the stages after it untouched.
 		if st.State == actions.StateRollingOut && allMerged(a, st.Name) {
-			result, err := t.verifyInstallation(ctx, token, st.Name, a.Spec.Capability)
+			def, ok := installations.FindCapability(a.Spec.Capability)
+			if !ok {
+				return nil, fmt.Errorf("%s: action %s names capability %q, which is not a definition of this version", ToolMergeAction, a.Name, a.Spec.Capability)
+			}
+			result, err := t.verifyInstallation(ctx, token, st.Name, def)
 			if err != nil {
 				return nil, fmt.Errorf("%s: the verify of %s, which gates the wave, failed: %w", ToolMergeAction, st.Name, err)
 			}

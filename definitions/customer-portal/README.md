@@ -48,7 +48,12 @@ is `<name>`. A path covers every key beneath it.
 - The hub's Dev Portal — the pages it serves over muster, its incident links, proxies and scaffolder, its
   registry of federated installations — is out of the definition until a hub shape exists; those keys are
   `not-rendered` removals.
-- Today `get_info` lists the definition with its schema and features, `list_installations` answers its state
-  (marker: the portal's app-config in the management-clusters repository) and `platformctl template` renders it;
-  `enable_capability`, `reconcile_capability` and `verify_capability` list it in their `capability` enum and
-  refuse it as not implemented — its reconcile through them is part 2.
+- `get_info` lists the definition with its schema and features, `list_installations` answers its state (marker:
+  the portal's app-config in the management-clusters repository), `platformctl template` renders it, and
+  `enable_capability`, `reconcile_capability` (one installation or the wave) and `verify_capability` take
+  `capability: customer-portal` as they take `agent-platform`: the plan is rendered from this schema over the
+  facts on record — the schema names the facts it takes under `installation` (`agentPlatform` is the
+  agent-platform capability's enabled state on the installation) — and compared against the portal's own files.
+- The plugin-to-plugin signing keys are one generated key pair (`backstage-plugin-keys`, ES256): the commit
+  step draws an ECDSA P-256 pair once and writes the private half (PKCS #8 PEM) and the public half (SPKI PEM)
+  into `plugin-keys-secret.enc.yaml`; a pair on record is frozen as a whole.
