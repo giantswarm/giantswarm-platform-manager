@@ -6,8 +6,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/giantswarm/gitops-commit/sopsenc"
-
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
@@ -152,13 +150,15 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 	return res, nil
 }
 
-// suppliedFilesToCreate names the secret files of p that carry a supplied
-// value and are not on record: a wave cannot fill them.
+// suppliedFilesToCreate names the files of p that carry a supplied value
+// and are not on record: a wave cannot fill them. The placeholder names the
+// file; whether it is encrypted is the commit step's decision from the
+// repository's rules.
 func suppliedFilesToCreate(p plan.Installation) []string {
 	marker := strings.TrimSuffix(agentplatform.Supplied(""), ")")
 	var files []string
 	for _, f := range p.Files {
-		if f.Change == plan.ChangeCreate && sopsenc.IsSecretFile(f.Path) && strings.Contains(f.Content, marker) {
+		if f.Change == plan.ChangeCreate && strings.Contains(f.Content, marker) {
 			files = append(files, f.Repository+":"+f.Path)
 		}
 	}

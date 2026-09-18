@@ -60,3 +60,44 @@ func listEntry(current []byte, list, entry string) ([]byte, bool, error) {
 	}
 	return buf.Bytes(), true, nil
 }
+
+// keptLists are the lists of a kustomization.yaml other owners add entries to.
+var keptLists = []string{ListResources, ListComponents}
+
+// keep answers rendered with every entry of current's resources and
+// components lists that rendered does not list, appended in current's
+// order, and names what it kept. The platform writes the file; an entry
+// another owner listed in it (an installation's agents, its MCP servers, a
+// tunnel) is theirs and stays. Nothing kept leaves rendered as it is.
+func keep(rendered, current []byte) ([]byte, []Kept, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(current, &doc); err != nil {
+		return nil, nil, err
+	}
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode {
+		return nil, nil, errNoMapping
+	}
+	m := doc.Content[0]
+	var kept []Kept
+	for _, list := range keptLists {
+		for i := 0; i+1 < len(m.Content); i += 2 {
+			if m.Content[i].Value != list || m.Content[i+1].Kind != yaml.SequenceNode {
+				continue
+			}
+			for _, item := range m.Content[i+1].Content {
+				if item.Kind != yaml.ScalarNode {
+					continue
+				}
+				edited, changed, err := listEntry(rendered, list, item.Value)
+				if err != nil {
+					return nil, nil, err
+				}
+				if changed {
+					rendered = edited
+					kept = append(kept, Kept{List: list, Entry: item.Value})
+				}
+			}
+		}
+	}
+	return rendered, kept, nil
+}

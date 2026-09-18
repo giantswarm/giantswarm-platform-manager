@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The plan keeps every entry of an installation's current `kustomization.yaml` that the definition does not render — an installation's agents, its MCP servers, a tunnel listed under `resources:` or `components:` of a file the platform writes — appended after the platform's entries, named in the plan as `kept`, and committed so; a reconcile no longer drops other owners' entries.
+- The commit step decides which files are secret files from the target repository's `.sops.yaml` rules by path (gitops-commit v0.6.0), not from the file name — a repository without `.sops.yaml` is refused before an action is recorded; a wave names the files a supplied value lands in by the placeholder alone.
+- The managed model key of kagent is rendered as `secrets/kagent-anthropic-key.yaml`, the name the installations carry.
+
 - `get_info` lists the capability definitions the binary embeds — `agent-platform` with its description, its input schema and its consistency features; the list was empty in every release because the embedded definition was never handed to the tool server. The registry of definitions (`installations.Capabilities`: name, description, enabled marker, render) is the one list `get_info`, `list_installations`, the write tools' capability enum, the commit and `platformctl template` read; the identity-chain proof fails when the list is empty or `agent-platform` lacks its schema or features.
 
 ### Added
