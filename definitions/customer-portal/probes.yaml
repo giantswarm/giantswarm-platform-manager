@@ -1,0 +1,25 @@
+# The anonymous HTTP probes of the customer-portal definition: requests that carry no identity and
+# run direct from the manager against the portal's and the installation's public endpoints. Each probe
+# is a dimension of the feature it names (kind probe) in the verify's result; the live dimensions of
+# features.yaml (kind live) are the reads that need the person's authority on the installation.
+# url is a Go template over {{.BaseDomain}} (the installation's), {{.Installation}} (its codename),
+# {{.PortalDomain}} (the portal's hostname, portal.domain) and, for perDexClient probes, {{.ClientID}}
+# and {{.RedirectURI}} (query-escaped) of every client the rendered dex patch declares.
+# expect lists the HTTP status codes that mean "as defined"; any other answer is drift.
+probes:
+  - id: portal-root
+    feature: portal
+    key: the portal serves its home page (200)
+    url: https://{{.PortalDomain}}/
+    expect: [200]
+  - id: portal-oidc-start
+    feature: identity
+    key: the portal's sign-in on the installation's Dex starts with a redirect to it (302)
+    url: https://{{.PortalDomain}}/api/auth/oidc-{{.Installation}}/start?env=production
+    expect: [302]
+  - id: dex-auth-request
+    feature: identity
+    key: Dex accepts the auth request of every client the definition declares (302 to the login)
+    url: https://dex.{{.BaseDomain}}/auth?client_id={{.ClientID}}&redirect_uri={{.RedirectURI}}&response_type=code&scope=openid
+    perDexClient: true
+    expect: [302]

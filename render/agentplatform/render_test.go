@@ -18,8 +18,14 @@ import (
 
 var update = flag.Bool("update", false, "rewrite the golden filesets from the current render")
 
-// shapes are the installation shapes with a golden fileset under testdata/<shape>/.
-var shapes = []string{"public-customer", "giantswarm-owned"}
+// The installation shapes with a golden fileset under testdata/<shape>/.
+const (
+	shapePublicCustomer  = "public-customer"
+	shapeGiantswarmOwned = "giantswarm-owned"
+)
+
+// shapes are the installation shapes, in the order the goldens are rendered.
+var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned}
 
 func loadInput(t *testing.T, shape string) (map[string]any, map[string]string) {
 	t.Helper()
@@ -119,7 +125,7 @@ func TestSecretFilesCarryNoValues(t *testing.T) {
 }
 
 func TestOwnedPathsOnly(t *testing.T) {
-	input, secrets := loadInput(t, "public-customer")
+	input, secrets := loadInput(t, shapePublicCustomer)
 	result, err := Render(input, secrets)
 	if err != nil {
 		t.Fatal(err)
@@ -194,7 +200,7 @@ func TestProbesAreLiveDimensions(t *testing.T) {
 			if feature != p.Feature {
 				t.Errorf("%s: probe %s names feature %s, features.yaml has it under %s", shape, p.ID, p.Feature, feature)
 			}
-			if shape == "public-customer" {
+			if shape == shapePublicCustomer {
 				probed[p.ID] = true
 			}
 		}
@@ -217,7 +223,7 @@ func TestProbesAreLiveDimensions(t *testing.T) {
 }
 
 func TestRefusals(t *testing.T) {
-	base, secrets := loadInput(t, "public-customer")
+	base, secrets := loadInput(t, shapePublicCustomer)
 	clone := func(mutate func(map[string]any)) map[string]any {
 		var c map[string]any
 		b, _ := yaml.Marshal(base)

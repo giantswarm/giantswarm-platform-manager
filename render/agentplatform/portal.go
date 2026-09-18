@@ -20,7 +20,7 @@ const (
 	// mounts ConfigMaps from.
 	backstageNamespace = "backstage"
 	// portalDir is the platform's directory under the portal's extras/backstage/.
-	portalDir = "agent-platform"
+	portalDir = render.PortalPlatformDir
 	// portalAppConfigMap carries the platform's app-config fragment.
 	portalAppConfigMap = "agent-platform-app-config-backstage"
 	// portalAppConfigFile is the fragment's file name in the portal's container.
@@ -66,7 +66,7 @@ func (in *Input) portalHost() string {
 
 // portalAuthProvider is the portal's sign-in provider on this installation's
 // Dex, named as every installation-hosted portal names it.
-func (in *Input) portalAuthProvider() string { return "oidc-" + in.Installation.Name }
+func (in *Input) portalAuthProvider() string { return render.PortalAuthProvider(in.Installation.Name) }
 
 func (in *Input) aiChatEnabled() bool {
 	return in.Portal.Enabled && in.Portal.AIChat != nil && in.Portal.AIChat.Enabled

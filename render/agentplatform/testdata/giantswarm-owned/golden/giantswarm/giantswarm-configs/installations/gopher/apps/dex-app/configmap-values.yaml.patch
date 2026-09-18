@@ -29,3 +29,10 @@ oidc:
         key: secret
       redirectURIs:
         - https://kagent.gopher.example.io/oauth2/callback
+    - id: backstage
+      name: Dev Portal
+      redirectURIs:
+        - https://portal.gopher.example.io/api/auth/oidc-gopher/handler/frame
+      secretRef:
+        name: dex-client-backstage
+        key: secret

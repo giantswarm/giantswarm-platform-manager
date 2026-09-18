@@ -43,6 +43,7 @@ input:
           - ""
   portal:
     enabled: true
+    domain: portal.gopher.example.io
     clientIds:
       - portal-client-id-home
     skillsRepositories:

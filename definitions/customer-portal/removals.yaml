@@ -1,0 +1,38 @@
+# Keys found in a portal installation's extras/backstage fileset that no input of schema.json renders.
+# Each is dropped from the fileset by the renderer, for the reason given. Key paths use the file prefixes and
+# the normalisation of schema.json's x-renders ([*] for a list index, <name> for a per-installation map key).
+#
+# kinds:
+#   other-definition    the portal's agent-platform section, which the agent-platform definition renders as its
+#                       own Component next to the portal's files; this definition never writes it into them
+#   not-rendered        a section of the hub's Dev Portal (pages the hub serves over muster, the hub's incident,
+#                       proxy and scaffolder configuration); out of the definition until a hub shape exists
+removals:
+  # --- Backstage app-config.yaml: the agent-platform section ---
+  - {key: "backstage:app-config:muster", kind: other-definition, reason: the platform's muster entries are the agent-platform Component's fragment}
+  - {key: "backstage:app-config:agentPlatform", kind: other-definition, reason: the platform's section is the agent-platform Component's fragment}
+  - {key: "backstage:app-config:aiChat", kind: other-definition, reason: the AI chat on the platform's model provider is the agent-platform Component's fragment}
+  - {key: "backstage:app-config:mcpActions", kind: other-definition, reason: the chat's tool naming is the agent-platform Component's fragment}
+  - {key: "backstage:app-config:app.extensions.$include", kind: other-definition, reason: the shared extensions list this definition includes is shared-config.yaml#extensions; the agent-platform Component's fragment includes #extensionsAgentPlatform over it}
+
+  # --- Backstage app-config.yaml: the hub's Dev Portal ---
+  - {key: "backstage:app-config:pagerDuty", kind: not-rendered, reason: the hub's incident links}
+  - {key: "backstage:app-config:proxy", kind: not-rendered, reason: the hub's API proxies}
+  - {key: "backstage:app-config:repositories", kind: not-rendered, reason: the hub's repositories page through muster}
+  - {key: "backstage:app-config:plans", kind: not-rendered, reason: the hub's plans page through muster}
+  - {key: "backstage:app-config:roadmap", kind: not-rendered, reason: the hub's roadmap page through muster}
+  - {key: "backstage:app-config:scaffolder", kind: not-rendered, reason: the hub's scaffolder}
+  - {key: "backstage:app-config:gs.github", kind: not-rendered, reason: the hub's GitHub pages through muster}
+  - {key: "backstage:app-config:gs.clusterTokenBroker", kind: not-rendered, reason: the hub's token broker for the installations it federates}
+  - {key: "backstage:app-config:gs.containerRegistry", kind: not-rendered, reason: the hub's registry access}
+  - {key: "backstage:app-config:gs.installations.<name>", kind: not-rendered, reason: an installation other than this one is the hub's registry of the installations it federates; this definition renders the installation's own entry only}
+  - {key: "backstage:app-config:backend.actions", kind: not-rendered, reason: the hub's action plugin sources and filters}
+  - {key: "backstage:app-config:backend.database.client", kind: not-rendered, reason: the hub runs on Postgres; a customer portal runs on the in-memory database}
+
+  # --- Backstage user-values.yaml ---
+  - {key: "backstage:user-values:backstage.extraEnvVars", kind: other-definition, reason: the avatars image source is the agent-platform Component's values, appended last to the HelmRelease's sources so its list wins}
+  - {key: "backstage:user-values:backstage.extraAppConfig", kind: other-definition, reason: the platform's fragment mount is the agent-platform Component's values}
+
+  # --- Backstage kustomization.yaml and files ---
+  - {key: "backstage:kustomization:resources[*] google-credentials.enc.yaml", kind: other-definition, reason: a Vertex chat's Google credentials are the agent-platform Component's Secret}
+  - {key: "backstage:file:google-credentials.enc.yaml", kind: other-definition, reason: a Vertex chat's Google credentials are the agent-platform Component's Secret}

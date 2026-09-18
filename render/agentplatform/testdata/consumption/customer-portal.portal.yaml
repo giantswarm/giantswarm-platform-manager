@@ -1,0 +1,31 @@
+# A portal-only installation: no agent platform, so the portal's files alone
+# compose the backstage release and this definition renders the installation's
+# dex-app patch with the portal's client. The chart line holds the pin in
+# charts.yaml. Invented names; the supplied values are dry-run markers.
+input:
+  installation:
+    name: linden
+    baseDomain: linden.acme.example.test
+    customer: acme
+    provider: capz
+    region: example-region-1
+    pipeline: stable
+    agentPlatform: false
+  portal:
+    domain: portal.linden.acme.example.test
+    organization: ACME
+    supportUrl: https://support.acme.example.test/
+  chart:
+    line: ">=2.0.0 <3.0.0"
+  plugins:
+    github:
+      enabled: true
+      appId: 123456
+    grafana:
+      enabled: false
+    flux:
+      enabled: false
+    sentry:
+      enabled: false
+  tunnel:
+    enabled: false

@@ -1,0 +1,128 @@
+# Rendered by giantswarm-platform-manager, customer-portal definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config-backstage
+  namespace: flux-giantswarm
+data:
+  values: |
+    backstage:
+      appConfig: |
+        app:
+          title: Dev Portal
+          baseUrl: https://portal.maple.acme.example.test
+          extensions:
+            $include: shared-config.yaml#extensions
+          routes:
+            $include: shared-config.yaml#routes
+        organization:
+          name: ACME
+        backend:
+          auth:
+            pluginKeyStore:
+              type: static
+              static:
+                keys:
+                  - publicKeyFile: /app/plugin-keys/plugin-to-plugin/public.key
+                    privateKeyFile: /app/plugin-keys/plugin-to-plugin/private.key
+                    keyId: plugin-to-plugin
+          baseUrl: https://portal.maple.acme.example.test
+          listen:
+            port: 7007
+            host: 0.0.0.0
+          cors:
+            origin: https://portal.maple.acme.example.test
+            methods:
+              - GET
+              - HEAD
+              - PATCH
+              - POST
+              - PUT
+              - DELETE
+            credentials: true
+          csp:
+            connect-src:
+              $include: shared-config.yaml#csp.connectSrc
+            img-src:
+              $include: shared-config.yaml#csp.imgSrc
+            script-src:
+              $include: shared-config.yaml#csp.scriptSrc
+            worker-src:
+              $include: shared-config.yaml#csp.workerSrc
+          database:
+            client: better-sqlite3
+            connection: ':memory:'
+          cache:
+            store: memory
+          reading:
+            allow:
+              - host: '*.maple.acme.example.test'
+        integrations:
+          github:
+            - host: github.com
+              apps:
+                - $include: github-app-credentials.yaml
+        permission:
+          enabled: true
+        techdocs:
+          builder: local
+          generator:
+            runIn: local
+          publisher:
+            type: local
+        kubernetes:
+          serviceLocatorMethod:
+            type: multiTenant
+          clusterLocatorMethods:
+            - type: config
+              clusters:
+                - name: maple
+                  url: https://happaapi.maple.acme.example.test
+                  authProvider: oidc
+                  oidcTokenProvider: oidc-maple
+        auth:
+          environment: production
+          session:
+            secret: $${AUTH_SESSION_SECRET}
+          providers:
+            oidc-maple:
+              development:
+                metadataUrl: https://dex.maple.acme.example.test/.well-known/openid-configuration
+                clientId: $${AUTH_DEX_MAPLE_CLIENT_ID}
+                clientSecret: $${AUTH_DEX_MAPLE_CLIENT_SECRET}
+              production:
+                metadataUrl: https://dex.maple.acme.example.test/.well-known/openid-configuration
+                clientId: $${AUTH_DEX_MAPLE_CLIENT_ID}
+                clientSecret: $${AUTH_DEX_MAPLE_CLIENT_SECRET}
+        grafana:
+          domain: https://grafana.maple.acme.example.test
+        gs:
+          authProvider: oidc-maple
+          auth:
+            extraScopes:
+              $include: shared-config.yaml#auth.extraScopes
+          homepage:
+            resources:
+              - $include: shared-config.yaml#homepageResources.gsDocs
+              - $include: shared-config.yaml#homepageResources.gsGitHub
+              - $include: shared-config.yaml#homepageResources.portalChangelog
+              - $include: shared-config.yaml#homepageResources.portalRoadmap
+              - label: "Giant Swarm \n Support"
+                icon: LiveHelp
+                url: https://support.acme.example.test/
+          installations:
+            maple:
+              authProvider: oidc
+              baseDomain: maple.acme.example.test
+              oidcTokenProvider: oidc-maple
+              pipeline: stable
+              providers:
+                - capz
+              region: example-region-1
+          adminGroups:
+            $include: shared-config.yaml#adminGroups
+          kubernetesVersions:
+            $include: shared-config.yaml#kubernetesVersions
+        catalog:
+          $include: shared-config.yaml#catalog

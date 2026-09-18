@@ -8,5 +8,5 @@ import "embed"
 
 // FS holds every file under definitions/<capability>/.
 //
-//go:embed agent-platform/*.json agent-platform/*.yaml
+//go:embed agent-platform/*.json agent-platform/*.yaml customer-portal/*.json customer-portal/*.yaml
 var FS embed.FS

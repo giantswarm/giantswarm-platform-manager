@@ -153,6 +153,7 @@ type DexClient struct {
 type Portal struct {
 	Enabled            bool     `json:"enabled"`
 	Installation       string   `json:"installation"`
+	Domain             string   `json:"domain"`
 	ClientIDs          []string `json:"clientIds"`
 	SkillsRepositories []string `json:"skillsRepositories"`
 	AIChat             *AIChat  `json:"aiChat"`

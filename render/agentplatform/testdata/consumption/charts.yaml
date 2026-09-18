@@ -1,4 +1,4 @@
-# The charts that consume the files the agent-platform definition renders, pinned
+# The charts that consume the files the definitions render, pinned
 # to the versions the render-consumption test (consumption_test.go) renders them
 # at. Renovate bumps every `version:` through the org preset's regex manager (a
 # `registry:` line followed by a `version:` line, datasource docker); a bump that
@@ -56,8 +56,10 @@ charts:
   - name: cluster-manager
     registry: gsoci.azurecr.io/charts/giantswarm/cluster-manager
     version: 0.14.0
-  # The developer portal, rendered over the fleet base with the platform's
-  # component: its values ConfigMap and the Vertex credentials Secret.
+  # The developer portal, rendered over the fleet base with the customer-portal
+  # definition's own files (its app-config, values and Secrets) and, in the
+  # platform shapes, the agent-platform definition's Component: its values
+  # ConfigMap and the Vertex credentials Secret.
   - name: backstage
     registry: gsoci.azurecr.io/charts/giantswarm/backstage
     version: 2.30.0

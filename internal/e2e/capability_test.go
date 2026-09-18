@@ -129,6 +129,25 @@ func TestEnableCapabilityDryRunRendersOneInstallation(t *testing.T) {
 	}
 }
 
+// The customer-portal definition is in the registry, so the capability
+// tools list it in their enum — and refuse it by name as not implemented,
+// before any read of the installation, until its reconcile lands.
+func TestCapabilityToolsRefuseTheCustomerPortal(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	for _, tool := range []string{tools.ToolEnableCapability, tools.ToolReconcileCapability, tools.ToolVerifyCapability} {
+		args := map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.CustomerPortal}
+		if tool != tools.ToolVerifyCapability {
+			args[tools.ArgDryRun] = true
+		}
+		text, isErr := call(t, c, tool, args)
+		if !isErr || !strings.Contains(text, installations.CustomerPortal) || !strings.Contains(text, tools.ErrNotImplemented.Error()) || !strings.Contains(text, installations.AgentPlatform) {
+			t.Fatalf("%s customer-portal: isErr %v, %s", tool, isErr, text)
+		}
+	}
+}
+
 // An installation without the opt-in still gets its dry run; the answer says
 // a commit would be refused and how the owners opt in.
 func TestEnableCapabilityDryRunWithoutOptIn(t *testing.T) {

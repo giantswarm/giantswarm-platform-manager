@@ -63,10 +63,12 @@ type CapabilityState struct {
 	// installation facts; the person's inputs read back from the checkout
 	// follow with the renderer.
 	Inputs map[string]any `json:"inputs,omitempty"`
-	// EnabledMarker is the file whose presence in the configs repository
-	// means enabled, and Enabled whether it is there.
-	EnabledMarker string `json:"enabledMarker"`
-	Enabled       bool   `json:"enabled"`
+	// EnabledMarker is the file whose presence in MarkerRepository (the
+	// installation's configs or management-clusters repository) means
+	// enabled, and Enabled whether it is there.
+	EnabledMarker    string           `json:"enabledMarker"`
+	MarkerRepository MarkerRepository `json:"markerRepository"`
+	Enabled          bool             `json:"enabled"`
 	// LastAction is the last Action record for this capability on this
 	// installation; null until the Action record exists.
 	LastAction *ActionRef `json:"lastAction"`
@@ -119,12 +121,19 @@ func Inspect(ctx context.Context, c *github.Client, inst Installation, caps []Ca
 
 	r.Readable = optIn.State != OptInUnreadable && err == nil
 	for _, cap := range caps {
-		cs := CapabilityState{Name: cap.Name, EnabledMarker: cap.EnabledMarker(inst.Name), State: StateUnknown}
+		cs := CapabilityState{Name: cap.Name, EnabledMarker: cap.EnabledMarker(inst.Name), MarkerRepository: cap.MarkerRepository, State: StateUnknown}
 		if r.Record != nil {
 			cs.Inputs = map[string]any{"installation": r.Record}
 		}
 		if r.Readable {
-			enabled, err := exists(ctx, c, owner, repo, cs.EnabledMarker)
+			markerOwner, markerRepo, err := gh.SplitRepo(cap.Repository(inst.Repositories))
+			if err != nil {
+				r.Errors = append(r.Errors, err.Error())
+				r.Readable = false
+				r.Capabilities = append(r.Capabilities, cs)
+				continue
+			}
+			enabled, err := exists(ctx, c, markerOwner, markerRepo, cs.EnabledMarker)
 			if err != nil {
 				r.Errors = append(r.Errors, err.Error())
 				r.Readable = false
@@ -153,7 +162,7 @@ func stateOf(optIn OptInState, enabled bool) State {
 func unknownCapabilities(caps []Capability, name string) []CapabilityState {
 	out := make([]CapabilityState, 0, len(caps))
 	for _, cap := range caps {
-		out = append(out, CapabilityState{Name: cap.Name, State: StateUnknown, EnabledMarker: cap.EnabledMarker(name)})
+		out = append(out, CapabilityState{Name: cap.Name, State: StateUnknown, EnabledMarker: cap.EnabledMarker(name), MarkerRepository: cap.MarkerRepository})
 	}
 	return out
 }

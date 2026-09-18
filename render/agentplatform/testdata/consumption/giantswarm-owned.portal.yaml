@@ -1,0 +1,33 @@
+# The customer-portal definition's input for the giantswarm-owned shape: the
+# same installation as ../giantswarm-owned/input.yaml with the platform enabled,
+# Sentry on (its DSNs join user-secrets-backstage) and the tunnel's SPIFFE
+# bundle. The chart line holds the pin in charts.yaml. Invented names; the
+# supplied values are dry-run markers.
+input:
+  installation:
+    name: gopher
+    baseDomain: gopher.example.io
+    customer: giantswarm
+    provider: capa
+    region: example-region-2
+    pipeline: testing
+    agentPlatform: true
+  portal:
+    domain: portal.gopher.example.io
+    title: Example Portal
+    organization: Example
+    supportUrl: https://support.example.io/
+  chart:
+    line: ">=2.0.0 <3.0.0"
+  plugins:
+    github:
+      enabled: true
+      appId: 654321
+    grafana:
+      enabled: false
+    flux:
+      enabled: false
+    sentry:
+      enabled: true
+  tunnel:
+    enabled: true

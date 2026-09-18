@@ -1,6 +1,6 @@
 # render — the capability render library
 
-`render` and its definitions (`render/agentplatform`) turn an installation's inputs into the files of
+`render` and its definitions (`render/agentplatform`, `render/customerportal`) turn an installation's inputs into the files of
 its GitOps repositories: a `Result` with the files by repository and repository-relative path, and the
 entries a shared `kustomization.yaml` must list.
 
@@ -69,17 +69,24 @@ probe to a live dimension of the feature it names and every live dimension to at
 ## The render-consumption test
 
 The goldens prove what the definition renders; `TestRenderConsumption` (`render/agentplatform/consumption_test.go`)
-proves that the charts on the other side read it. For every golden shape it writes the fileset out, builds each
-emitted `extras/<x>/` directory over the public fleet base with `kustomize`, and renders every HelmRelease that
-yields with `helm template`: the servers' charts and their Valkeys, the agent-platform meta chart with the
-emitted configmap patch and, in turn, every child HelmRelease the meta chart renders that names an emitted
-Secret (muster, kagent, valkey, agent-manager, klaus-gateway, cluster-manager, the connectivity chart), plus dex-app
-with the emitted dex patch and, for a shape with a portal, backstage over the fleet base composed the way the
-portal's tree composes it: a stand-in for the portal's own directory with the one patch that gives the HelmRelease
-its values sources, and the platform's Component listed next to it. A ConfigMap a HelmRelease takes values from
-that the same build emitted (the platform's `agent-platform-values-backstage`) is rendered with its data; the
-test then asserts the portal Deployment mounts the platform's app-config fragment, passes it as `--config`, and
-that the fragment lists the installation under `agentPlatform.kagent.installations`.
+proves that the charts on the other side read it. Its shapes are its own table: the two agent-platform golden
+shapes, each with the customer-portal definition's input for the same installation
+(`render/agentplatform/testdata/consumption/<shape>.portal.yaml`, the supplied values as dry-run markers), and a
+portal-only installation without the platform. For every shape it writes both definitions' filesets into one
+tree (a path both render fails the test: one file, one owner), builds each emitted `extras/<x>/` directory over
+the public fleet base with `kustomize`, and renders every HelmRelease that yields with `helm template`: the
+portal's tree first — `extras/backstage/` as the customer-portal definition renders it, its directory over the
+fleet base with the HelmRelease's values sources patched in and, with the platform, the agent-platform
+definition's Component listed next to it — then the servers' charts and their Valkeys, the agent-platform meta
+chart with the emitted configmap patch and, in turn, every child HelmRelease the meta chart renders that names
+an emitted Secret (muster, kagent, valkey, agent-manager, klaus-gateway, cluster-manager, the connectivity
+chart), plus dex-app with the emitted dex patch: the agent-platform definition's in the platform shapes, the
+portal's own without the platform. A ConfigMap a HelmRelease takes values from that the same build emitted (the
+portal's app-config and values, the platform's `agent-platform-values-backstage`) is rendered with its data, and
+the HelmRelease's own Secret sources (the portal's `user-secrets-backstage`, `plugin-keys-backstage`,
+`github-app-credentials-backstage`) count as read by the release. The test then asserts the portal Deployment
+mounts the platform's app-config fragment, passes it as `--config`, and that the fragment lists the installation
+under `agentPlatform.kagent.installations` — and, without the platform, that it mounts none.
 Values a shared template supplies on an installation — the Konfiguration ConfigMap a HelmRelease takes its
 values from — come from a stand-in per chart in `render/agentplatform/testdata/consumption/<chart>.values.yaml`,
 carrying only the Secret-selecting values and what the chart refuses to render without.

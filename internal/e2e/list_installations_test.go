@@ -151,7 +151,7 @@ func TestListInstallationsStates(t *testing.T) {
 	if isErr {
 		t.Fatal(text)
 	}
-	if out.Caller != alice || out.Hub != hub || len(out.Installations) != 7 || len(out.Capabilities) != 1 || out.Capabilities[0] != installations.AgentPlatform ||
+	if out.Caller != alice || out.Hub != hub || len(out.Installations) != 7 || len(out.Capabilities) != 2 || out.Capabilities[0] != installations.AgentPlatform || out.Capabilities[1] != installations.CustomerPortal ||
 		out.Registry.Catalog.Repository != registryRepo || out.Registry.Portal.Repository != hubMCs || out.Registry.Portal.Path != installations.PortalConfigPath(hub) {
 		t.Fatalf("answer: %s", text)
 	}
@@ -162,6 +162,11 @@ func TestListInstallationsStates(t *testing.T) {
 		hazel.AuthProvider != "oidc" || len(hazel.Sources) != 2 || hazel.Capabilities[0].LastAction != nil {
 		t.Fatalf("hazel: %+v", hazel)
 	}
+	// The hub's portal app-config is the portal's marker, read in the management-clusters repository.
+	if portal := hazel.Capabilities[1]; portal.Name != installations.CustomerPortal || portal.State != installations.StateEnabled || !portal.Enabled ||
+		portal.MarkerRepository != installations.ManagementClustersRepository || portal.EnabledMarker != installations.PortalConfigPath(hub) {
+		t.Fatalf("hazel portal: %+v", portal)
+	}
 	if in, ok := hazel.Capabilities[0].Inputs["installation"].(map[string]any); !ok || in["chartLine"] != "4" {
 		t.Fatalf("hazel inputs on record: %+v", hazel.Capabilities[0].Inputs)
 	}
@@ -169,14 +174,15 @@ func TestListInstallationsStates(t *testing.T) {
 	alder := find(t, out, "alder")
 	if alder.Hub || alder.OptIn.State != installations.NotOptedIn || alder.OptIn.Present || alder.OptIn.Path != installations.OptInPath("alder") || alder.OptIn.Repository != acmeMCs ||
 		!strings.Contains(alder.OptIn.HowToOptIn, "optIn: true") || !strings.Contains(alder.OptIn.HowToOptIn, acmeMCs) || !strings.Contains(alder.OptIn.HowToOptIn, "never") ||
-		alder.Capabilities[0].State != installations.StateNotOptedIn || alder.Capabilities[0].Enabled || !alder.Readable ||
+		alder.Capabilities[0].State != installations.StateNotOptedIn || alder.Capabilities[0].Enabled || alder.Capabilities[1].State != installations.StateNotOptedIn || !alder.Readable ||
 		alder.Customer != "acme" || alder.AccountEngineer != "Ada Example" || alder.Record == nil || alder.Record.ChartLine != "3" {
 		t.Fatalf("alder: %+v %+v", alder, alder.OptIn)
 	}
 
 	birch := find(t, out, "birch")
 	if birch.OptIn.State != installations.OptedIn || birch.Capabilities[0].State != installations.StateEnabled || !birch.Capabilities[0].Enabled || !birch.Record.Private ||
-		birch.Capabilities[0].EnabledMarker != "installations/birch/apps/agent-platform/configmap-values.yaml.patch" {
+		birch.Capabilities[0].EnabledMarker != "installations/birch/apps/agent-platform/configmap-values.yaml.patch" ||
+		birch.Capabilities[1].State != installations.StateNotEnabled || birch.Capabilities[1].Enabled || birch.Capabilities[1].MarkerRepository != installations.ManagementClustersRepository {
 		t.Fatalf("birch: %+v", birch)
 	}
 
@@ -192,13 +198,13 @@ func TestListInstallationsStates(t *testing.T) {
 	}
 
 	oak := find(t, out, "oak")
-	if oak.Readable || oak.OptIn.State != installations.OptInUnreadable || oak.Capabilities[0].State != installations.StateUnknown || len(oak.Errors) == 0 ||
+	if oak.Readable || oak.OptIn.State != installations.OptInUnreadable || oak.Capabilities[0].State != installations.StateUnknown || oak.Capabilities[1].State != installations.StateUnknown || len(oak.Errors) == 0 ||
 		!strings.Contains(strings.Join(oak.Errors, " "), "forbidden") {
 		t.Fatalf("oak: %+v %+v", oak, oak.OptIn)
 	}
 
 	larch := find(t, out, "larch")
-	if larch.Readable || larch.Repositories.Known() || larch.OptIn != nil || larch.Capabilities[0].State != installations.StateUnknown || len(larch.Errors) != 1 ||
+	if larch.Readable || larch.Repositories.Known() || larch.OptIn != nil || len(larch.Capabilities) != 2 || larch.Capabilities[1].State != installations.StateUnknown || len(larch.Errors) != 1 ||
 		len(larch.Sources) != 1 || larch.Sources[0] != installations.SourcePortal || larch.BaseDomain != "larch.example.test" {
 		t.Fatalf("larch: %+v", larch)
 	}
