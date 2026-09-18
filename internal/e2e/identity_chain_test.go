@@ -21,7 +21,12 @@ import (
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 
+	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/server"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
@@ -43,11 +48,15 @@ const (
 	testWrite       = "test_write"
 	argInstallation = "installation"
 	installation    = "example"
+	// actionsNamespace is where the Action records live on the fake hub.
+	actionsNamespace = "platform-manager"
 )
 
 type stack struct {
 	ghs *fakeGitHub
 	srv *httptest.Server
+	// dyn is the fake hub API server the Action records are seeded into.
+	dyn dynamic.Interface
 	// committedAs is the caller the test write's Commit ran as.
 	committedAs string
 }
@@ -55,9 +64,11 @@ type stack struct {
 func newStack(t *testing.T) *stack {
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	st := &stack{ghs: newFakeGitHub(t, map[string]string{aliceToken: alice})}
+	st := &stack{ghs: newFakeGitHub(t, map[string]string{aliceToken: alice}),
+		dyn: dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{actions.GVR: actions.Kind + "List"})}
 	apiURL := st.ghs.URL + "/api/v3"
 	ts := tools.New(tools.Deps{Version: testVersion, GitHubAPIURL: apiURL, AuthorizationServer: server.DefaultAuthorizationServer, Log: log,
+		Actions:     actions.New(st.dyn, actionsNamespace),
 		Approvals:   tools.Approvals{GatewayURL: "http://klaus-gateway.test:8080", Channel: "platform-approvals"},
 		Definitions: []tools.Definition{{Name: "example-capability", Description: "a fixture", InputSchema: json.RawMessage(`{"type":"object"}`)}},
 		Registry:    registrySources})
@@ -182,7 +193,7 @@ func TestGetInfoNamesTheCaller(t *testing.T) {
 		t.Fatalf("caller: %+v", info.Caller)
 	case info.Auth.Mode != tools.AuthModeBearer || info.Auth.AuthorizationServer != server.DefaultAuthorizationServer:
 		t.Fatalf("auth: %+v", info.Auth)
-	case !info.Capabilities.Commit || info.Capabilities.Apply || !info.Capabilities.ApplyRefused || len(info.Capabilities.WriteTools) != 1 || info.Capabilities.WriteTools[0] != testWrite:
+	case !info.Capabilities.Commit || info.Capabilities.Apply || !info.Capabilities.ApplyRefused || strings.Join(info.Capabilities.WriteTools, ",") != strings.Join([]string{tools.ToolEnableCapability, tools.ToolReconcileCapability, testWrite}, ","):
 		t.Fatalf("capabilities: %+v", info.Capabilities)
 	case len(info.Definitions) != 1 || info.Definitions[0].Name != "example-capability" || compact(t, info.Definitions[0].InputSchema) != `{"type":"object"}`:
 		t.Fatalf("definitions: %+v", info.Definitions)
@@ -190,6 +201,8 @@ func TestGetInfoNamesTheCaller(t *testing.T) {
 		t.Fatalf("approvals: %+v", info.Approvals)
 	case strings.Join(info.PlannedTools, ",") != strings.Join(tools.PlannedTools(), ","):
 		t.Fatalf("planned tools: %v", info.PlannedTools)
+	case !info.Actions.Configured || info.Actions.Namespace != actionsNamespace || info.Actions.Group != actions.Group:
+		t.Fatalf("actions: %+v", info.Actions)
 	}
 	if _, isErr := call(t, c, tools.ToolGetInfo, nil); isErr {
 		t.Fatal("second get_info failed")

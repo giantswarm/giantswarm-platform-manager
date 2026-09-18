@@ -3,8 +3,6 @@ package tools
 import (
 	"context"
 	"errors"
-	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -80,31 +78,13 @@ func (t *Tools) listInstallations(ctx context.Context, req mcp.CallToolRequest) 
 	if err != nil {
 		return result(nil, err)
 	}
-	reg, err := installations.Load(ctx, c, t.d.Registry)
+	reg, err := t.registry(ctx, c)
 	if err != nil {
-		if errors.Is(err, gh.ErrNotFound) || errors.Is(err, gh.ErrForbidden) {
-			err = fmt.Errorf("%w — the registry is read as you through the App %s: the App must be installed on the repository (contents: read) and you must be able to read it", err, ToolPrefix)
-		}
 		return result(nil, err)
 	}
-	wanted := req.GetStringSlice(ArgInstallations, nil)
-	customer := strings.TrimSpace(req.GetString(ArgCustomer, ""))
-	selected := make([]installations.Installation, 0, len(reg.Installations))
-	for _, inst := range reg.Installations {
-		if len(wanted) > 0 && !slices.Contains(wanted, inst.Name) {
-			continue
-		}
-		if customer != "" && inst.Customer != customer {
-			continue
-		}
-		selected = append(selected, inst)
-	}
-	if len(wanted) > 0 {
-		for _, w := range wanted {
-			if !slices.ContainsFunc(reg.Installations, func(i installations.Installation) bool { return i.Name == w }) {
-				return result(nil, fmt.Errorf("installation %q is not in the registry (%s, %s)", w, reg.Catalog, reg.Portal))
-			}
-		}
+	selected, err := reg.Select(req.GetStringSlice(ArgInstallations, nil), strings.TrimSpace(req.GetString(ArgCustomer, "")))
+	if err != nil {
+		return result(nil, err)
 	}
 	caps := installations.Capabilities()
 	out := ListInstallationsResult{
@@ -114,6 +94,9 @@ func (t *Tools) listInstallations(ctx context.Context, req mcp.CallToolRequest) 
 		Installations: installations.InspectAll(ctx, c, selected, caps),
 		Unreadable:    []string{},
 		States:        statesInfo(),
+	}
+	if err := t.lastActions(ctx, out.Installations); err != nil {
+		return result(nil, err)
 	}
 	for _, cap := range caps {
 		out.Capabilities = append(out.Capabilities, cap.Name)

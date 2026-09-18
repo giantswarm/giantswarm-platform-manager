@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 
@@ -305,4 +306,36 @@ func parsePortal(data string) (map[string]portalEntry, error) {
 		return nil, errors.New("backstage.appConfig has no gs.installations")
 	}
 	return appConfig.GS.Installations, nil
+}
+
+// Find answers the installation called name.
+func (r *Registry) Find(name string) (Installation, bool) {
+	for _, inst := range r.Installations {
+		if inst.Name == name {
+			return inst, true
+		}
+	}
+	return Installation{}, false
+}
+
+// Select narrows the registry to the names wanted (empty: every
+// installation) and, when customer is set, to that customer's; a wanted name
+// the registry does not have is an error naming the sources.
+func (r *Registry) Select(wanted []string, customer string) ([]Installation, error) {
+	for _, w := range wanted {
+		if _, ok := r.Find(w); !ok {
+			return nil, fmt.Errorf("installation %q is not in the registry (%s, %s)", w, r.Catalog, r.Portal)
+		}
+	}
+	selected := make([]Installation, 0, len(r.Installations))
+	for _, inst := range r.Installations {
+		if len(wanted) > 0 && !slices.Contains(wanted, inst.Name) {
+			continue
+		}
+		if customer != "" && inst.Customer != customer {
+			continue
+		}
+		selected = append(selected, inst)
+	}
+	return selected, nil
 }

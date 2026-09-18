@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `enable_capability` and `reconcile_capability` with `dryRun: true`: the render of one installation or a set through the capability's definition from the facts on record and the typed `inputs` — the files with their change against the repository now, the pull requests in dependency order, the generated secrets by name, the Dex clients and redirect URIs, the secrets supplied at commit by field, the customer actions and the probes; a set skips the installations not opted in and lists them; no secret value in a dry run. `mode: commit` answers not implemented.
+- The Action record: the `actions.platform-manager.giantswarm.io` CRD (status subresource), the Role and binding in the chart (`actions.enabled`, `actions.installCRD`), `get_action` and `list_actions` over it, and `lastAction` in `list_installations` with the action's state standing over the files'.
+
 - `list_installations`: the installations registry — the catalog in the registry repository and the hub's Dev Portal app-config, read as the caller — with, per installation and capability, the state (*not opted in*, *not enabled*, *enabled* from the repositories; the Action-record states carried in the model), the inputs on record from the installation's `config.yaml.patch` and the last action; the opt-in declaration `management-clusters/<name>/platform-manager.yaml` read at call time, never cached, with the path and the owners' pull request that would add it when absent; `installations` and `customer` narrow the answer.
 - The registry configuration: `--registry-repository`, `--registry-path`, `--hub` (chart values `registry.repository`, `registry.path`, `hub`); `get_info` reports them under `registry`.
 
