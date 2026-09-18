@@ -7,13 +7,13 @@ package e2e
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 
 	"filippo.io/age"
 	"github.com/giantswarm/gitops-commit/provenance"
-	"github.com/giantswarm/gitops-commit/sopsenc"
 	"github.com/mark3labs/mcp-go/client"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
@@ -65,8 +65,18 @@ func sopsFixtures(t *testing.T, g *fakeGitHub) {
 		t.Fatal(err)
 	}
 	for _, repo := range []string{acmeConfigs, acmeMCs} {
-		g.addFile(repo, tools.SopsConfig, "creation_rules:\n  - path_regex: .*\n    age: "+id.Recipient().String()+"\n")
+		g.addFile(repo, tools.SopsConfig, "creation_rules:\n  - path_regex: "+sopsPathRegex+"\n    age: "+id.Recipient().String()+"\n")
 	}
+}
+
+// sopsPathRegex is the fixture repositories' .sops.yaml rule: the fleet's
+// shape, a secret file by its path.
+const sopsPathRegex = `.*(secret|credential).*`
+
+// isSecretFile is the fixture rule as sopsenc decides it: the path matches,
+// and a kustomize entry point is never a secret file.
+func isSecretFile(path string) bool {
+	return filepath.Base(path) != "kustomization.yaml" && regexp.MustCompile(sopsPathRegex).MatchString(path)
 }
 
 // seedRemote gives the in-process remote every fixture repository on its
@@ -227,7 +237,7 @@ func TestCommitOpensPullRequestsAndPendsApproval(t *testing.T) {
 		}
 		assertNoLeak(t, f.Repository+":"+f.Path, string(content))
 		switch {
-		case sopsenc.IsSecretFile(f.Path):
+		case isSecretFile(f.Path):
 			if !strings.Contains(string(content), "ENC[") || !strings.Contains(string(content), "sops:") {
 				t.Fatalf("%s:%s is not encrypted:\n%s", f.Repository, f.Path, content)
 			}
@@ -272,8 +282,9 @@ func TestCommitOpensPullRequestsAndPendsApproval(t *testing.T) {
 	}
 }
 
-// A repository without .sops.yaml: nothing is written blind — the commit is
-// refused naming the file, the Action records the failure, no pull request.
+// A repository without .sops.yaml: nothing is written blind — its rules
+// decide which files are secret files, so the commit is refused naming the
+// file before anything is recorded: no Action, no pull request.
 func TestCommitFailsWithoutSopsConfig(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
@@ -283,8 +294,7 @@ func TestCommitFailsWithoutSopsConfig(t *testing.T) {
 	if !isErr || !strings.Contains(text, tools.SopsConfig) || !strings.Contains(text, acmeConfigs) {
 		t.Fatalf("without .sops.yaml: %v %s", isErr, text)
 	}
-	got := listActionsOf(t, c, rowan)
-	if len(got) != 1 || got[0].Status.State != actions.StateFailed || got[0].Status.Result == nil || !strings.Contains(got[0].Status.Result.Message, tools.SopsConfig) || len(got[0].Status.PullRequests) != 0 {
+	if got := listActionsOf(t, c, rowan); len(got) != 0 {
 		t.Fatalf("recorded action: %+v", got)
 	}
 	if prs := st.remote.PullRequests(); len(prs) != 0 {

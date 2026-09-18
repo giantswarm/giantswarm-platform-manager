@@ -148,7 +148,7 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	if err != nil {
 		return nil, fmt.Errorf("%s: render with the supplied values: %w", tool, err)
 	}
-	if _, err := targetsOf(p, rendered.Files, env.byName[one], env.hub); err != nil {
+	if _, err := targetsOf(ctx, env.c, p, rendered.Files, env.byName[one], env.hub); err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
 	}
 	res := CommitResult{Caller: identity.Caller(ctx), Tool: tool, Capability: out.Capability, Hub: out.Hub, Installation: one, Plan: p, PullRequests: []actions.PullRequest{}}
@@ -192,7 +192,7 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 // byte-equal to the plan. It answers the pull requests opened (also on
 // error, for the record) and the repositories left with nothing to commit.
 func (t *Tools) openPullRequests(ctx context.Context, env *planned, a *actions.Action, p plan.Installation, planned []plan.PullRequest, rendered render.Fileset, remote commit.Remote, title, body string) ([]actions.PullRequest, []string, error) {
-	targets, err := targetsOf(p, rendered, env.byName[p.Name], env.hub)
+	targets, err := targetsOf(ctx, env.c, p, rendered, env.byName[p.Name], env.hub)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -204,7 +204,7 @@ func (t *Tools) openPullRequests(ctx context.Context, env *planned, a *actions.A
 		if tg == nil {
 			continue
 		}
-		files, err := t.encrypt(ctx, env.c, pl.Repository, tg)
+		files, err := encrypt(pl.Repository, tg)
 		if err != nil {
 			return prs, unchanged, err
 		}
@@ -284,37 +284,64 @@ func gateRefusal(out CapabilityResult, r installations.Report) string {
 }
 
 // target is one repository's share of the commit: the files that change,
-// with the supplied values in, and which of them exist on record.
+// with the supplied values in, which of them exist on record, and the
+// encrypter built from the repository's .sops.yaml — whose rules decide,
+// by path, which files are secret files.
 type target struct {
+	enc    *sopsenc.Encryptor
 	files  []sopsenc.File
 	exists map[string]bool
 }
 
-// targetAt is repository's target, made on first use.
-func targetAt(targets map[string]*target, repository string) *target {
-	tg := targets[repository]
-	if tg == nil {
-		tg = &target{exists: map[string]bool{}}
-		targets[repository] = tg
+// targetAt is repository's target, made on first use with its encrypter,
+// read as the caller.
+func targetAt(ctx context.Context, c *github.Client, targets map[string]*target, repository string) (*target, error) {
+	if tg := targets[repository]; tg != nil {
+		return tg, nil
 	}
-	return tg
+	enc, err := encrypter(ctx, c, repository)
+	if err != nil {
+		return nil, err
+	}
+	tg := &target{enc: enc, exists: map[string]bool{}}
+	targets[repository] = tg
+	return tg, nil
+}
+
+// encrypter reads repository's .sops.yaml as the caller and builds the
+// encrypter for its recipients and its rules.
+func encrypter(ctx context.Context, c *github.Client, repository string) (*sopsenc.Encryptor, error) {
+	owner, repo, err := gh.SplitRepo(repository)
+	if err != nil {
+		return nil, err
+	}
+	sopsYAML, err := gh.ReadFile(ctx, c, owner, repo, SopsConfig)
+	if err != nil {
+		return nil, fmt.Errorf("%s has no %s readable as you (%w): the generated secrets are encrypted for the repository's recipients and nothing is written without them", repository, SopsConfig, err)
+	}
+	enc, err := sopsenc.New([]byte(sopsYAML))
+	if err != nil {
+		return nil, fmt.Errorf("%s/%s: %w", repository, SopsConfig, err)
+	}
+	return enc, nil
 }
 
 // targetsOf pairs the render with the supplied values against the plan (the
 // render with markers): only files that change are committed, a secret file
-// that exists on record is never generated again, and a plain file must be
-// byte-identical to the plan — a supplied value never lands outside a
-// secret file. A kustomization the includes land in is committed as the
-// plan edited it, read as the caller now.
-func targetsOf(p plan.Installation, rendered render.Fileset, inst, hub installations.Installation) (map[string]*target, error) {
+// (by the repository's .sops.yaml rules) that exists on record is never
+// generated again, and a plain file must be byte-identical to the plan — a
+// supplied value never lands outside a secret file. A kustomization is
+// committed as the plan wrote it: the includes landed in it, or the entries
+// of other owners kept in it, read as the caller now.
+func targetsOf(ctx context.Context, c *github.Client, p plan.Installation, rendered render.Fileset, inst, hub installations.Installation) (map[string]*target, error) {
 	planned := map[string]plan.File{}
 	for _, f := range p.Files {
 		planned[f.Repository+":"+f.Path] = f
 	}
 	out := map[string]*target{}
-	for repo, files := range rendered {
+	for _, repo := range plan.SortedRepositories(rendered) {
 		resolved := plan.ResolveRepository(string(repo), inst, hub)
-		for path, f := range files {
+		for path, f := range rendered[repo] {
 			pf, ok := planned[resolved+":"+path]
 			if !ok {
 				return nil, fmt.Errorf("%s:%s is rendered but not in the plan", resolved, path)
@@ -322,12 +349,19 @@ func targetsOf(p plan.Installation, rendered render.Fileset, inst, hub installat
 			if pf.Change == plan.ChangeUnchanged {
 				continue
 			}
-			if !sopsenc.IsSecretFile(path) && string(f.Content) != pf.Content {
-				return nil, fmt.Errorf("%s:%s is a plain file and a supplied value would land in it; nothing is committed", resolved, path)
+			tg, err := targetAt(ctx, c, out, resolved)
+			if err != nil {
+				return nil, err
 			}
-			tg := targetAt(out, resolved)
+			content := f.Content
+			if !tg.enc.IsSecretFile(path) {
+				if len(pf.Kept) == 0 && string(f.Content) != pf.Content {
+					return nil, fmt.Errorf("%s:%s is a plain file and a supplied value would land in it; nothing is committed", resolved, path)
+				}
+				content = []byte(pf.Content)
+			}
 			tg.exists[path] = pf.Change == plan.ChangeUpdate
-			sf := sopsenc.File{Path: path, Content: f.Content}
+			sf := sopsenc.File{Path: path, Content: content}
 			for _, g := range f.Generated {
 				sf.Generated = append(sf.Generated, sopsenc.Generated{Name: g.Name, Placeholder: g.Placeholder, Kind: sopsenc.Kind(g.Kind), Length: g.Length})
 			}
@@ -342,7 +376,11 @@ func targetsOf(p plan.Installation, rendered render.Fileset, inst, hub installat
 		if pf.Change != plan.ChangeUpdate {
 			continue
 		}
-		if tg := targetAt(out, inc.Repository); !tg.exists[inc.Path] {
+		tg, err := targetAt(ctx, c, out, inc.Repository)
+		if err != nil {
+			return nil, err
+		}
+		if !tg.exists[inc.Path] {
 			tg.exists[inc.Path] = true
 			tg.files = append(tg.files, sopsenc.File{Path: inc.Path, Content: []byte(pf.Content)})
 		}
@@ -354,22 +392,10 @@ func targetsOf(p plan.Installation, rendered render.Fileset, inst, hub installat
 }
 
 // encrypt fills the generated values in and encrypts every secret file of
-// repository for the recipients its .sops.yaml names, read as the caller;
-// plain files pass through. A secret file on record is left out.
-func (t *Tools) encrypt(ctx context.Context, c *github.Client, repository string, tg *target) (map[string][]byte, error) {
-	owner, repo, err := gh.SplitRepo(repository)
-	if err != nil {
-		return nil, err
-	}
-	sopsYAML, err := gh.ReadFile(ctx, c, owner, repo, SopsConfig)
-	if err != nil {
-		return nil, fmt.Errorf("%s has no %s readable as you (%w): the generated secrets are encrypted for the repository's recipients and nothing is written without them", repository, SopsConfig, err)
-	}
-	enc, err := sopsenc.New([]byte(sopsYAML))
-	if err != nil {
-		return nil, fmt.Errorf("%s/%s: %w", repository, SopsConfig, err)
-	}
-	files, err := enc.Encrypt(tg.files, func(path string) bool { return tg.exists[path] })
+// repository for the recipients its .sops.yaml names; plain files pass
+// through. A secret file on record is left out.
+func encrypt(repository string, tg *target) (map[string][]byte, error) {
+	files, err := tg.enc.Encrypt(tg.files, func(path string) bool { return tg.exists[path] })
 	if err != nil {
 		return nil, fmt.Errorf("%s: encrypt: %w", repository, err)
 	}

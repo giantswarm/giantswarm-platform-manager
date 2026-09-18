@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -43,13 +44,27 @@ type File struct {
 	Change     Change `json:"change"`
 	// Content is the rendered file, plaintext with GENERATED(<name>) and
 	// SUPPLIED(<field>) markers where the commit step puts values — or, for
-	// a kustomization the includes land in, the file as the commit step
-	// writes it; omitted when the caller asked for paths only.
+	// a kustomization (the includes land in, or the platform writes with
+	// other owners' entries kept), the file as the commit step writes it;
+	// omitted when the caller asked for paths only.
 	Content string `json:"content,omitempty"`
 	// Generated names the values the commit step generates into this file.
 	Generated []string `json:"generated,omitempty"`
-	Error     string   `json:"error,omitempty"`
+	// Kept are the entries of the installation's current kustomization that
+	// are not the platform's, kept in the file as the plan writes it.
+	Kept  []Kept `json:"kept,omitempty"`
+	Error string `json:"error,omitempty"`
 }
+
+// Kept is one entry of a kustomization.yaml the platform writes that another
+// owner listed (resources or components): it stays, after the platform's.
+type Kept struct {
+	List  string `json:"list"`
+	Entry string `json:"entry"`
+}
+
+// kustomizationFile is the base name of the files other owners add entries to.
+const kustomizationFile = "kustomization.yaml"
 
 // GeneratedSecret is one value the commit step generates, by name only.
 type GeneratedSecret struct {
@@ -181,7 +196,7 @@ func Build(ctx context.Context, opts Options) Installation {
 	p.CustomerActions = customerActions(opts.Installation.Name, in)
 	p.Probes = Probes()
 	generated := map[string]*GeneratedSecret{}
-	for _, repo := range sortedRepositories(res.Files) {
+	for _, repo := range SortedRepositories(res.Files) {
 		target := ResolveRepository(string(repo), opts.Installation, opts.Hub)
 		paths := make([]string, 0, len(res.Files[repo]))
 		for path := range res.Files[repo] {
@@ -191,9 +206,6 @@ func Build(ctx context.Context, opts Options) Installation {
 		for _, path := range paths {
 			f := res.Files[repo][path]
 			pf := File{Repository: target, Path: path}
-			if opts.Content {
-				pf.Content = string(f.Content)
-			}
 			for _, g := range f.Generated {
 				pf.Generated = append(pf.Generated, g.Name)
 				gs := generated[g.Name]
@@ -203,7 +215,20 @@ func Build(ctx context.Context, opts Options) Installation {
 				}
 				gs.Files = append(gs.Files, target+":"+path)
 			}
-			pf.Change, pf.Error = change(ctx, opts.Read, target, path, string(f.Content))
+			content := string(f.Content)
+			current, err := opts.Read(ctx, target, path)
+			if err == nil && filepath.Base(path) == kustomizationFile {
+				edited, kept, kerr := keep(f.Content, []byte(current))
+				if kerr != nil {
+					err = fmt.Errorf("%s is on record but takes no entry: %w", path, kerr)
+				} else {
+					content, pf.Kept = string(edited), kept
+				}
+			}
+			if opts.Content {
+				pf.Content = content
+			}
+			pf.Change, pf.Error = change(current, err, content)
 			p.Diff[pf.Change]++
 			p.Files = append(p.Files, pf)
 			if strings.HasSuffix(path, "/apps/dex-app/configmap-values.yaml.patch") {
@@ -225,9 +250,9 @@ func Build(ctx context.Context, opts Options) Installation {
 	return p
 }
 
-// change compares the rendered content with the repository's file, as the caller.
-func change(ctx context.Context, read Reader, repo, path, rendered string) (Change, string) {
-	current, err := read(ctx, repo, path)
+// change is what rendered is against the repository's file, read as the
+// caller: current with err.
+func change(current string, err error, rendered string) (Change, string) {
 	switch {
 	case err == nil && current == rendered:
 		return ChangeUnchanged, ""
@@ -349,7 +374,9 @@ func rank(repo string, inst, hub installations.Installation) int {
 	return 6
 }
 
-func sortedRepositories(fs render.Fileset) []render.Repository {
+// SortedRepositories are the repositories of fs in a stable order: an
+// installation's configs before its management-clusters.
+func SortedRepositories(fs render.Fileset) []render.Repository {
 	repos := make([]render.Repository, 0, len(fs))
 	for r := range fs {
 		repos = append(repos, r)

@@ -17,7 +17,6 @@ import (
 	"testing"
 
 	"github.com/giantswarm/gitops-commit/commit"
-	"github.com/giantswarm/gitops-commit/sopsenc"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
@@ -64,7 +63,7 @@ func TestWaveOverASetStopsAtARedProbe(t *testing.T) {
 	}
 	for _, p := range dry.Installations {
 		for _, f := range p.Files {
-			if sopsenc.IsSecretFile(f.Path) && strings.Contains(f.Content, "SUPPLIED(") {
+			if isSecretFile(f.Path) && strings.Contains(f.Content, "SUPPLIED(") {
 				st.ghs.addFile(f.Repository, f.Path, "sops: on record\n")
 			}
 		}

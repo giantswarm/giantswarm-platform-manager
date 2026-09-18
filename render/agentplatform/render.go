@@ -353,7 +353,7 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 			render.GeneratedKey("cookie-secret", "kagent-cookie-secret", render.Alphanumeric, 32)))
 		add(dexClientSecretFile("kagent"), dexClientSecret("kagent", "kagent-dex-client-secret"))
 		if in.Kagent.ModelKeySecret == modelKeyManaged {
-			add("kagent-anthropic-key-secret.yaml", render.Secret("kagent-anthropic-key", kagentNamespace, team,
+			add("kagent-anthropic-key.yaml", render.Secret("kagent-anthropic-key", kagentNamespace, team,
 				render.ValueKey("ANTHROPIC_API_KEY", secrets[fieldModelKey])))
 		}
 	}
