@@ -6,6 +6,12 @@ import (
 	"testing"
 )
 
+// The invented customer's repositories.
+const (
+	acmeConfigs = "example/acme-configs"
+	acmeMCs     = "example/acme-management-clusters"
+)
+
 // The catalog fixture: two installations of invented customers and a Group
 // the parser skips.
 const catalogFixture = `---
@@ -63,7 +69,7 @@ func TestParseCatalog(t *testing.T) {
 	alder := got[0]
 	if alder.Name != "alder" || alder.Customer != "acme" || alder.Provider != "capa" || alder.Pipeline != "stable" || alder.Region != "eu-central-1" ||
 		alder.BaseDomain != "alder.acme.test" || alder.AccountEngineer != "Ada Example" ||
-		alder.Repositories.Configs != "example/acme-configs" || alder.Repositories.ManagementClusters != "example/acme-management-clusters" ||
+		alder.Repositories.Configs != acmeConfigs || alder.Repositories.ManagementClusters != acmeMCs ||
 		len(alder.Sources) != 1 || alder.Sources[0] != SourceCatalog {
 		t.Fatalf("alder: %+v", alder)
 	}
@@ -145,8 +151,8 @@ func TestLoadNeedsTheHub(t *testing.T) {
 
 func TestRepoFromURL(t *testing.T) {
 	for in, want := range map[string]string{
-		"https://github.com/example/acme-configs":  "example/acme-configs",
-		"https://github.com/example/acme-configs/": "example/acme-configs",
+		"https://github.com/example/acme-configs":  acmeConfigs,
+		"https://github.com/example/acme-configs/": acmeConfigs,
 		"https://grafana.alder.acme.test/":         "",
 		"https://github.com/example":               "",
 	} {

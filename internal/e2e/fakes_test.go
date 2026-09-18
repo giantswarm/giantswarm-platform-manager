@@ -32,6 +32,9 @@ type fakeGitHub struct {
 	contentsCalls map[string]int
 }
 
+// message is the key of GitHub's error bodies.
+const message = "message"
+
 func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 	t.Helper()
 	g := &fakeGitHub{logins: logins, files: map[string]map[string]string{}, forbidden: map[string]bool{}, contentsCalls: map[string]int{}}
@@ -40,14 +43,14 @@ func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 		g.userCalls.Add(1)
 		login, ok := g.logins[bearer(r)]
 		if !ok {
-			writeJSON(w, http.StatusUnauthorized, map[string]any{"message": "Bad credentials"})
+			writeJSON(w, http.StatusUnauthorized, map[string]any{message: "Bad credentials"})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"login": login, "id": userID(login)})
 	})
 	mux.HandleFunc("GET /api/v3/repos/{owner}/{repo}/contents/{path...}", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := g.logins[bearer(r)]; !ok {
-			writeJSON(w, http.StatusUnauthorized, map[string]any{"message": "Bad credentials"})
+			writeJSON(w, http.StatusUnauthorized, map[string]any{message: "Bad credentials"})
 			return
 		}
 		repo := r.PathValue("owner") + "/" + r.PathValue("repo")
@@ -56,12 +59,12 @@ func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 		defer g.mu.Unlock()
 		g.contentsCalls[repo+":"+p]++
 		if g.forbidden[repo] {
-			writeJSON(w, http.StatusForbidden, map[string]any{"message": "Resource not accessible by integration"})
+			writeJSON(w, http.StatusForbidden, map[string]any{message: "Resource not accessible by integration"})
 			return
 		}
 		content, ok := g.files[repo][p]
 		if !ok {
-			writeJSON(w, http.StatusNotFound, map[string]any{"message": "Not Found"})
+			writeJSON(w, http.StatusNotFound, map[string]any{message: "Not Found"})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"type": "file", "encoding": "base64", "name": path.Base(p), "path": p,
