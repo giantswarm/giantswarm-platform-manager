@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"errors"
 	"strings"
 	"testing"
 
@@ -34,23 +33,22 @@ func TestCheckMode(t *testing.T) {
 	}
 }
 
-// The capability argument: agent-platform by name or by default passes; a
-// registered definition the tools do not take yet is refused as not
-// implemented, naming the tools that do take it; an unknown name is refused
-// with the registry's names.
+// The capability argument: agent-platform by default, every registered
+// definition by name from the one registry; an unknown name is refused with
+// the registry's names.
 func TestCapabilityArg(t *testing.T) {
-	for _, name := range []string{"", installations.AgentPlatform} {
+	got, err := capabilityArg(map[string]any{})
+	if err != nil || got.Name != installations.AgentPlatform {
+		t.Errorf("default: got %q, %v", got.Name, err)
+	}
+	for _, name := range installations.CapabilityNames() {
 		got, err := capabilityArg(map[string]any{ArgCapability: name})
-		if err != nil || got != installations.AgentPlatform {
-			t.Errorf("capability %q: got %q, %v", name, got, err)
+		if err != nil || got.Name != name || got.Parse == nil || got.Render == nil {
+			t.Errorf("capability %q: got %q, %v", name, got.Name, err)
 		}
 	}
-	_, err := capabilityArg(map[string]any{ArgCapability: installations.CustomerPortal})
-	if !errors.Is(err, ErrNotImplemented) || !strings.Contains(err.Error(), installations.CustomerPortal) || !strings.Contains(err.Error(), "platformctl template") {
-		t.Errorf("customer-portal: got %v", err)
-	}
 	_, err = capabilityArg(map[string]any{ArgCapability: "cluster"})
-	if err == nil || errors.Is(err, ErrNotImplemented) || !strings.Contains(err.Error(), "not known") || !strings.Contains(err.Error(), installations.CustomerPortal) {
+	if err == nil || !strings.Contains(err.Error(), "not known") || !strings.Contains(err.Error(), installations.CustomerPortal) {
 		t.Errorf("unknown: got %v", err)
 	}
 }

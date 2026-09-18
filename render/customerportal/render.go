@@ -61,8 +61,9 @@ const (
 	generatedSessionSecret   = "backstage-session-secret"    // #nosec G101 -- a placeholder name, not a value
 	generatedDexClientSecret = "backstage-dex-client-secret" // #nosec G101 -- a placeholder name, not a value
 	generatedTelemetrySalt   = "backstage-telemetrydeck-salt"
-	generatedPluginPublic    = "backstage-plugin-key-public"
-	generatedPluginPrivate   = "backstage-plugin-key-private"
+	// generatedPluginKeys is the plugin-to-plugin signing key pair, one
+	// name for both halves.
+	generatedPluginKeys = "backstage-plugin-keys"
 	// platformAppConfigMap is the platform's app-config fragment the
 	// agent-platform Component mounts into the portal.
 	platformAppConfigMap = "agent-platform-app-config-backstage"
@@ -236,11 +237,11 @@ func (in *Input) githubAppCredentials(secrets map[string]string) render.File {
 }
 
 // pluginKeys is plugin-keys-backstage: the plugin-to-plugin signing key pair
-// the chart mounts under /app/plugin-keys/<keyId>/, where backend.auth of the
-// app-config reads it.
+// (ES256) the chart mounts under /app/plugin-keys/<keyId>/, where
+// backend.auth of the app-config reads it — each half a PEM as one scalar.
 func (in *Input) pluginKeys() render.File {
-	public := generated(generatedPluginPublic, render.Base64, 32)
-	private := generated(generatedPluginPrivate, render.Base64, 32)
+	public := render.KeyPair(generatedPluginKeys, render.Public)
+	private := render.KeyPair(generatedPluginKeys, render.Private)
 	return valuesSecret(pluginKeysName, render.Map{e("pluginKeys", []render.Map{{
 		e("keyId", in.PluginKeys.KeyID), e("publicKey", public.Placeholder), e("privateKey", private.Placeholder)}})},
 		public, private)

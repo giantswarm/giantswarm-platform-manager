@@ -173,7 +173,7 @@ func TestCommitOpensPullRequestsAndPendsApproval(t *testing.T) {
 	sopsFixtures(t, st.ghs)
 	seedRemote(t, st)
 	c := st.mcpClient(t, aliceToken)
-	inputs := minimalInputs(map[string]any{kagentKey: map[string]any{enabledKey: true, modelKeySecretKey: managedModelKey}, "portal": map[string]any{enabledKey: true, "clientIds": []any{"portal-client-id"}}})
+	inputs := minimalInputs(map[string]any{kagentKey: map[string]any{enabledKey: true, modelKeySecretKey: managedModelKey}, portalKey: map[string]any{enabledKey: true, "clientIds": []any{"portal-client-id"}}})
 
 	if _, text, isErr := commitCall(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallations: []any{rowan}, tools.ArgInputs: inputs}); !isErr || !strings.Contains(text, "one installation") {
 		t.Fatalf("a set: %v %s", isErr, text)

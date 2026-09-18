@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `enable_capability`, `reconcile_capability` (one installation and the wave), `verify_capability` and `platformctl installation enable|reconcile|verify` take every definition of the registry — `customer-portal` as `agent-platform` — through the definition's own `Parse` and `Render`; the plan, the verify and the commit hold nothing of one definition. The installation facts a definition receives are the ones its schema names under `installation`, from the record, the registry (`region`, `pipeline`) and the capabilities' enabled states (`agentPlatform`, `customerPortal`); a fact the schema does not name is not passed.
+- The portal's plugin signing keys render as one generated key pair (`backstage-plugin-keys`, kind `keypair-es256`, gitops-commit v0.7.0): the commit step draws an ECDSA P-256 pair once, the private half into the secret file as PKCS #8 PEM, the public half as SPKI PEM — in place of two unrelated base64 values.
+
 ### Fixed
 
 - The plan keeps every entry of an installation's current `kustomization.yaml` that the definition does not render — an installation's agents, its MCP servers, a tunnel listed under `resources:` or `components:` of a file the platform writes — appended after the platform's entries, named in the plan as `kept`, and committed so; a reconcile no longer drops other owners' entries.

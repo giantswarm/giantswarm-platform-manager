@@ -25,7 +25,6 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 	"github.com/giantswarm/giantswarm-platform-manager/render"
-	"github.com/giantswarm/giantswarm-platform-manager/render/agentplatform"
 )
 
 // Mark is what a dimension, and a feature rolled up from its dimensions, shows.
@@ -110,6 +109,8 @@ type Result struct {
 
 // Options shape one verify.
 type Options struct {
+	// Definition is the capability verified, from the registry.
+	Definition   installations.Capability
 	Installation installations.Installation
 	Hub          installations.Installation
 	State        installations.State
@@ -121,14 +122,14 @@ type Options struct {
 
 // Compare answers the verify of opts' installation.
 func Compare(ctx context.Context, opts Options) Result {
-	r := Result{Installation: opts.Installation.Name, Capability: installations.AgentPlatform, Hub: opts.Hub.Name,
+	r := Result{Installation: opts.Installation.Name, Capability: opts.Definition.Name, Hub: opts.Hub.Name,
 		State: opts.State, Inputs: opts.Inputs, Features: []Feature{}, Summary: map[Mark]int{}}
-	feats, err := definitions.Features(installations.AgentPlatform)
+	feats, err := definitions.Features(opts.Definition.Name)
 	if err != nil {
 		r.Refused = err.Error()
 		return r
 	}
-	probes, err := definitions.Probes(installations.AgentPlatform)
+	probes, err := definitions.Probes(opts.Definition.Name)
 	if err != nil {
 		r.Refused = err.Error()
 		return r
@@ -234,12 +235,12 @@ func compare(ctx context.Context, opts Options) (*comparison, error) {
 
 // renderFlat renders values through the definition and flattens every file
 // to its YAML leaves, by file key in the registry's repositories.
-func renderFlat(opts Options) (map[string]map[string]string, *render.Result, *agentplatform.Input, error) {
-	in, err := agentplatform.Parse(opts.Inputs.Values)
+func renderFlat(opts Options) (map[string]map[string]string, *render.Result, render.Input, error) {
+	in, err := opts.Definition.Parse(opts.Inputs.Values)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	res, err := agentplatform.Render(opts.Inputs.Values, in.SuppliedMarkers())
+	res, err := opts.Definition.Render(opts.Inputs.Values, in.SuppliedMarkers())
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -268,7 +269,7 @@ func drivenPaths(opts Options, base map[string]map[string]string) map[string]str
 		for _, alt := range perturbations(l.value) {
 			raw := deepCopy(opts.Inputs.Values)
 			set(raw, l.path, alt)
-			other, _, _, err := renderFlat(Options{Installation: opts.Installation, Hub: opts.Hub, Inputs: Inputs{Values: raw}})
+			other, _, _, err := renderFlat(Options{Definition: opts.Definition, Installation: opts.Installation, Hub: opts.Hub, Inputs: Inputs{Values: raw}})
 			if err != nil {
 				continue
 			}

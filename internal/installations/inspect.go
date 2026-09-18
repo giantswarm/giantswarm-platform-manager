@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/google/go-github/v92/github"
@@ -253,4 +254,33 @@ func InspectAll(ctx context.Context, c *github.Client, insts []Installation, cap
 func (r *Record) Input() map[string]any {
 	return map[string]any{"name": r.Name, "baseDomain": r.BaseDomain, "customer": r.Customer, "provider": r.Provider,
 		"private": r.Private, "chartLine": r.ChartLine, "musterClientId": r.MusterClientID}
+}
+
+// Facts are every installation fact on record, as a definition's inputs name
+// them under installation: the record's (config.yaml.patch), the registry's
+// region and pipeline, and per capability whether it is enabled here
+// (agentPlatform, customerPortal). A definition takes the ones its schema
+// names (Capability.Facts).
+func (r Report) Facts() map[string]any {
+	facts := map[string]any{}
+	if r.Record != nil {
+		facts = r.Record.Input()
+	}
+	facts["region"], facts["pipeline"] = r.Region, r.Pipeline
+	for _, cs := range r.Capabilities {
+		facts[factKey(cs.Name)] = cs.Enabled
+	}
+	return facts
+}
+
+// factKey is the fact a capability's enabled state is named by: the
+// definition's name in lowerCamelCase (agent-platform: agentPlatform).
+func factKey(capability string) string {
+	parts := strings.Split(capability, "-")
+	for i := 1; i < len(parts); i++ {
+		if parts[i] != "" {
+			parts[i] = strings.ToUpper(parts[i][:1]) + parts[i][1:]
+		}
+	}
+	return strings.Join(parts, "")
 }
