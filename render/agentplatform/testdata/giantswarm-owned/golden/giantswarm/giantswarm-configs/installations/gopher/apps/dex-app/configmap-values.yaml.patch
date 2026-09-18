@@ -10,6 +10,14 @@ oidc:
       clientSecretRef:
         name: dex-client-mcp-kubernetes
         key: secret
+    mcpPrometheus:
+      clientSecretRef:
+        name: dex-client-mcp-prometheus
+        key: secret
+    mcpCapi:
+      clientSecretRef:
+        name: dex-client-mcp-capi
+        key: secret
     dexK8SAuthenticator:
       trustedPeers:
         - portal-client-id-home

@@ -1,0 +1,19 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-platform-values-backstage
+  namespace: flux-giantswarm
+data:
+  values: |
+    backstage:
+      extraAppConfig:
+        - filename: app-config.agent-platform.yaml
+          configMapRef: agent-platform-app-config-backstage
+      extraEnvVars:
+        - name: BACKSTAGE_AVATARS_IMG_SRC
+          value: https://avatars.gopher.example.io
+    google:
+      project: example-project
+      location: example-location1

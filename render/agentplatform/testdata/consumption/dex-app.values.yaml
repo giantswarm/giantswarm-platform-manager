@@ -2,7 +2,7 @@
 # fleet's config repository, not in this repository), under the emitted dex-app
 # configmap-values.yaml.patch: the management-cluster facts and the ids and
 # redirect URIs of the built-in static clients the patch references (the chart
-# renders muster and mcpKubernetes with a clientSecretRef). Invented values.
+# renders muster and every MCP server with a clientSecretRef). Invented values.
 isManagementCluster: true
 managementCluster:
   name: example
@@ -17,3 +17,9 @@ oidc:
     mcpKubernetes:
       clientID: mcp-kubernetes
       redirectURI: https://mcp-kubernetes.example.test/oauth/callback
+    mcpPrometheus:
+      clientID: mcp-prometheus
+      redirectURI: https://mcp-prometheus.example.test/oauth/callback
+    mcpCapi:
+      clientID: mcp-capi
+      redirectURI: https://mcp-capi.example.test/oauth/callback

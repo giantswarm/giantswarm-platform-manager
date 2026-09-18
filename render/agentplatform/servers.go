@@ -15,8 +15,10 @@ type serverDefinition struct {
 	// renders id and redirect URI for; the definition adds the secret reference.
 	dexClient string
 	// dexSecretRef says whether the dex-app chart reads clientSecretRef on that
-	// built-in client (it does for muster and mcpKubernetes); where it does
-	// not, the client keeps its inline secret and no reference is rendered.
+	// built-in client: it does for every server since dex-app 3.2.0, the
+	// version the definition targets (below it mcpPrometheus and mcpCapi were
+	// no built-ins and their keys were dropped). Where it is false, the client
+	// keeps its inline secret and no reference is rendered.
 	dexSecretRef bool
 	// oauthKeys is the key contract of the server's oauth-credentials Secret:
 	// the names its chart reads the values by.
@@ -56,8 +58,8 @@ const valkeyAuthKey = "default"
 // registers with muster on every installation.
 var servers = []serverDefinition{
 	{name: "mcp-kubernetes", group: "kubernetes", dexClient: "mcpKubernetes", dexSecretRef: true, oauthKeys: keyedOAuthKeys},
-	{name: "mcp-prometheus", group: "prometheus", dexClient: "mcpPrometheus", oauthKeys: envOAuthKeys},
-	{name: "mcp-capi", group: "capi", dexClient: "mcpCapi", oauthKeys: keyedOAuthKeys},
+	{name: "mcp-prometheus", group: "prometheus", dexClient: "mcpPrometheus", dexSecretRef: true, oauthKeys: envOAuthKeys},
+	{name: "mcp-capi", group: "capi", dexClient: "mcpCapi", dexSecretRef: true, oauthKeys: keyedOAuthKeys},
 }
 
 const (

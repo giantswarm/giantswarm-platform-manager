@@ -1,4 +1,5 @@
-giantswarm/oakridge-management-clusters:management-clusters/kestrel/extras/kustomization.yaml ./agent-platform/
-giantswarm/oakridge-management-clusters:management-clusters/kestrel/extras/kustomization.yaml ./mcp-capi/
-giantswarm/oakridge-management-clusters:management-clusters/kestrel/extras/kustomization.yaml ./mcp-kubernetes/
-giantswarm/oakridge-management-clusters:management-clusters/kestrel/extras/kustomization.yaml ./mcp-prometheus/
+giantswarm/oakridge-management-clusters:management-clusters/kestrel/extras/backstage/kustomization.yaml components ./agent-platform/
+giantswarm/oakridge-management-clusters:management-clusters/kestrel/extras/kustomization.yaml resources ./agent-platform/
+giantswarm/oakridge-management-clusters:management-clusters/kestrel/extras/kustomization.yaml resources ./mcp-capi/
+giantswarm/oakridge-management-clusters:management-clusters/kestrel/extras/kustomization.yaml resources ./mcp-kubernetes/
+giantswarm/oakridge-management-clusters:management-clusters/kestrel/extras/kustomization.yaml resources ./mcp-prometheus/

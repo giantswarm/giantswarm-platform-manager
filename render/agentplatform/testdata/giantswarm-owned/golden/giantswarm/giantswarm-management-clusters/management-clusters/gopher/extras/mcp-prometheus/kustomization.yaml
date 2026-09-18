@@ -6,3 +6,4 @@ resources:
   - https://github.com/giantswarm/management-cluster-bases//extras/mcp-prometheus?ref=main
   - oauth-credentials.enc.yaml
   - valkey-credentials.enc.yaml
+  - dex-client-mcp-prometheus-secret.yaml

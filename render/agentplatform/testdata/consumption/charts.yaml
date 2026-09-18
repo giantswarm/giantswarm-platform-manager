@@ -4,8 +4,6 @@
 # `registry:` line followed by a `version:` line, datasource docker); a bump that
 # breaks a Secret contract fails the test with the chart, Secret and key named.
 #
-# backstage is not pinned: the definition renders no portal files yet, so no
-# rendered Secret has the portal as its consumer.
 charts:
   # The installation's own MCP servers: the fleet bases' HelmReleases over the
   # emitted extras/<server>/ directories.
@@ -22,10 +20,12 @@ charts:
   - name: valkey
     registry: gsoci.azurecr.io/charts/giantswarm/valkey
     version: 0.1.4
-  # The installation's Dex, rendered with the emitted dex-app patch.
+  # The installation's Dex, rendered with the emitted dex-app patch. 3.2.0 is the
+  # first version with mcpPrometheus and mcpCapi as built-in clients reading a
+  # clientSecretRef, the version the definition targets.
   - name: dex-app
     registry: gsoci.azurecr.io/charts/giantswarm/dex-app
-    version: 3.1.0
+    version: 3.2.0
   # The meta chart, the 3.x line: the fleet base caps it <4.0.0, and the 4.x line
   # needs inputs the definition does not carry (kagent.harness.snapshotLocation).
   # renovate-custom.json5 keeps this pin below 4.0.0.
@@ -48,3 +48,16 @@ charts:
   - name: agent-manager
     registry: gsoci.azurecr.io/charts/giantswarm/agent-manager
     version: 0.4.5
+  # The meta chart's children the policy offers Giant Swarm-owned installations;
+  # rendered when a shape on the pinned line enables them.
+  - name: klaus-gateway
+    registry: gsoci.azurecr.io/charts/giantswarm/klaus-gateway
+    version: 1.14.1
+  - name: cluster-manager
+    registry: gsoci.azurecr.io/charts/giantswarm/cluster-manager
+    version: 0.14.0
+  # The developer portal, rendered over the fleet base with the platform's
+  # component: its values ConfigMap and the Vertex credentials Secret.
+  - name: backstage
+    registry: gsoci.azurecr.io/charts/giantswarm/backstage
+    version: 2.30.0

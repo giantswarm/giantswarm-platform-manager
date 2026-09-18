@@ -7,6 +7,10 @@ components:
     enabled: true
   agent-manager:
     enabled: true
+  klaus-gateway:
+    enabled: true
+  cluster-manager:
+    enabled: true
 postgres:
   enabled: true
 llmRouting:
@@ -89,6 +93,50 @@ agent-platform-mcps:
       timeout: 30
       auth:
         mode: forward
+klausGateway:
+  agentgatewayRoute:
+    enabled: true
+    hostname: agentgateway.gopher.example.io
+  slack:
+    enabled: true
+    mode: events
+    secretName: klaus-gateway-slack-credentials
+    dmMode: serve
+    channelMode: allowlist
+    channelAllowlist:
+      - CEXAMPLE00001
+  obo:
+    enabled: true
+    connectors:
+      enabled: true
+    existingSecret: klaus-gateway-obo-keys
+    musterUrl: https://muster.gopher.example.io
+    callbackBaseUrl: https://agentgateway.gopher.example.io
+    storePath: /var/lib/klaus-gateway/obo/links.bolt
+    persistence:
+      enabled: true
+      size: 64Mi
+  a2a:
+    enabled: true
+    defaultAgent: example-agent
+    saToken:
+      enabled: true
+      audience: kagent
+  reviews:
+    enabled: true
+    allowedCallers:
+      - system:serviceaccount:giantswarm-platform-manager:giantswarm-platform-manager
+cluster-manager:
+  installation:
+    name: gopher
+clusterManager:
+  networkPolicy:
+    workloadClusters:
+      fqdns:
+        - matchPattern: api.*.gopher.example.io
+    egress:
+      fqdns:
+        - matchName: registry.example.io
 valkey:
   valkey:
     auth:
