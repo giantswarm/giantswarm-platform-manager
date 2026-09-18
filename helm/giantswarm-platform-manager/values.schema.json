@@ -22,6 +22,37 @@
                 }
             }
         },
+        "baseDomain": {
+            "type": "string"
+        },
+        "bootstrapMode": {
+            "type": "object",
+            "additionalProperties": true
+        },
+        "chartOperator": {
+            "type": "object",
+            "additionalProperties": true
+        },
+        "ciliumNetworkPolicy": {
+            "type": "object",
+            "additionalProperties": true
+        },
+        "cluster": {
+            "type": "object",
+            "additionalProperties": true
+        },
+        "clusterCA": {
+            "type": "string"
+        },
+        "clusterCIDR": {
+            "type": "string"
+        },
+        "clusterDNSIP": {
+            "type": "string"
+        },
+        "clusterID": {
+            "type": "string"
+        },
         "extraArgs": {
             "type": "array",
             "description": "Extra container arguments."
@@ -49,6 +80,9 @@
         "fullnameOverride": {
             "type": "string",
             "description": "Override the fully qualified app name."
+        },
+        "gcpProject": {
+            "type": "string"
         },
         "github": {
             "type": "object",
@@ -252,6 +286,9 @@
                 }
             }
         },
+        "provider": {
+            "type": "string"
+        },
         "replicaCount": {
             "type": "integer",
             "description": "Number of replicas. The server holds no state; more than one is fine."
@@ -362,6 +399,9 @@
                     "description": "ServiceAccount name (generated when empty)."
                 }
             }
+        },
+        "subscriptionID": {
+            "type": "string"
         },
         "tolerations": {
             "type": "array",
