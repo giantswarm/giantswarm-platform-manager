@@ -1,0 +1,19 @@
+# Stands in for the dex-app Konfiguration ConfigMap (the shared template in the
+# fleet's config repository, not in this repository), under the emitted dex-app
+# configmap-values.yaml.patch: the management-cluster facts and the ids and
+# redirect URIs of the built-in static clients the patch references (the chart
+# renders muster and mcpKubernetes with a clientSecretRef). Invented values.
+isManagementCluster: true
+managementCluster:
+  name: example
+oidc:
+  issuerAddress: dex.example.test
+  staticClients:
+    dexK8SAuthenticator:
+      clientAddress: https://login.example.test
+    muster:
+      clientID: muster
+      redirectURI: https://muster.example.test/oauth/callback
+    mcpKubernetes:
+      clientID: mcp-kubernetes
+      redirectURI: https://mcp-kubernetes.example.test/oauth/callback

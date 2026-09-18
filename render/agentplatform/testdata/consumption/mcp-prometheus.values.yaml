@@ -1,0 +1,24 @@
+# Stands in for the mcp-prometheus Konfiguration ConfigMap (the shared template in
+# the fleet's config repository, not in this repository): the values that select
+# the Secret the chart reads — with envFrom, so the Secret's keys are the
+# environment variable names — and the environment the chart requires with OAuth
+# on. Invented hostnames; nothing here is asserted, only what the chart reads.
+app:
+  oauth:
+    enabled: true
+    existingSecret: mcp-prometheus-oauth-credentials
+    storage:
+      type: valkey
+      valkey:
+        url: mcp-prometheus-valkey.mcp-prometheus.svc:6379
+  env:
+    - name: DEX_ISSUER_URL
+      value: https://dex.example.test
+    - name: DEX_CLIENT_ID
+      value: mcp-prometheus
+    - name: DEX_REDIRECT_URL
+      value: https://mcp-prometheus.example.test/oauth/callback
+    - name: MCP_OAUTH_ISSUER
+      value: https://mcp-prometheus.example.test
+    - name: PROMETHEUS_URL
+      value: http://prometheus.example.test/prometheus

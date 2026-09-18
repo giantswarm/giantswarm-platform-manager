@@ -18,14 +18,46 @@ type serverDefinition struct {
 	// built-in client (it does for muster and mcpKubernetes); where it does
 	// not, the client keeps its inline secret and no reference is rendered.
 	dexSecretRef bool
+	// oauthKeys is the key contract of the server's oauth-credentials Secret:
+	// the names its chart reads the values by.
+	oauthKeys oauthSecretKeys
 }
+
+// oauthSecretKeys names the keys of a server's oauth-credentials Secret as its
+// chart reads them. A chart that reads the Secret key by key (secretKeyRef)
+// names lower-case keys; one that loads it whole into the environment (envFrom)
+// names the environment variables themselves.
+type oauthSecretKeys struct {
+	// dexClientSecret carries the Dex client secret, shared with the Dex-side client.
+	dexClientSecret string
+	// encryptionKey carries the OAuth token-encryption key.
+	encryptionKey string
+	// valkeyPassword carries the Valkey password for a chart that takes it from
+	// this Secret rather than from the valkey-auth Secret; empty for a chart
+	// that reads the valkey-auth Secret's key directly.
+	valkeyPassword string
+}
+
+// keyedOAuthKeys is the contract of the charts that read the Secret key by key
+// (mcp-kubernetes, mcp-capi); they take the Valkey password from the
+// valkey-auth Secret.
+var keyedOAuthKeys = oauthSecretKeys{dexClientSecret: "dex-client-secret", encryptionKey: "oauth-encryption-key"} // #nosec G101 -- Secret key names, not values
+
+// envOAuthKeys is the contract of a chart that loads the Secret with envFrom
+// (mcp-prometheus): the keys are the variables its process reads, the Valkey
+// password included.
+var envOAuthKeys = oauthSecretKeys{dexClientSecret: "DEX_CLIENT_SECRET", encryptionKey: "MCP_OAUTH_ENCRYPTION_KEY", valkeyPassword: "VALKEY_PASSWORD"} // #nosec G101 -- Secret key names, not values
+
+// valkeyAuthKey is the key of a server's valkey-auth Secret: the fleet base's
+// Valkey reads the default user's password from it (aclUsers.default.passwordKey).
+const valkeyAuthKey = "default"
 
 // servers are the platform's own MCP servers, the set the shared template
 // registers with muster on every installation.
 var servers = []serverDefinition{
-	{name: "mcp-kubernetes", group: "kubernetes", dexClient: "mcpKubernetes", dexSecretRef: true},
-	{name: "mcp-prometheus", group: "prometheus", dexClient: "mcpPrometheus"},
-	{name: "mcp-capi", group: "capi", dexClient: "mcpCapi"},
+	{name: "mcp-kubernetes", group: "kubernetes", dexClient: "mcpKubernetes", dexSecretRef: true, oauthKeys: keyedOAuthKeys},
+	{name: "mcp-prometheus", group: "prometheus", dexClient: "mcpPrometheus", oauthKeys: envOAuthKeys},
+	{name: "mcp-capi", group: "capi", dexClient: "mcpCapi", oauthKeys: keyedOAuthKeys},
 }
 
 const (
@@ -90,24 +122,32 @@ func (s serverDefinition) mcpServerEntry(installation string) MCPServer {
 }
 
 // extras renders the server's extras directory: the kustomization over the
-// fleet base and the Secrets its chart reads — the OAuth credentials
-// (dex-client-secret shared with the Dex client, oauth-encryption-key) and the
-// Valkey password — plus, where the dex-app chart reads a reference for the
-// client, the Dex-side copy of the client secret.
+// fleet base and the Secrets its chart reads — the OAuth credentials under the
+// server's key contract (the Dex client secret shared with the Dex client, the
+// encryption key, and the Valkey password where the chart takes it from this
+// Secret) and the valkey-auth Secret the fleet base's Valkey reads — plus,
+// where the dex-app chart reads a reference for the client, the Dex-side copy
+// of the client secret. The Valkey password is one generated value, so the
+// server and its Valkey agree wherever each reads it.
 func (s serverDefinition) extras(result *render.Result, repo render.Repository, dir string) {
 	valueName := s.name + "-dex-client-secret"
+	valkeyValue := s.name + "-valkey-password"
 	resources := []string{basesRepository + s.name + "?ref=main", "oauth-credentials.enc.yaml", "valkey-credentials.enc.yaml"}
 	if s.dexSecretRef {
 		resources = append(resources, dexClientSecretFile(s.name))
 		result.Add(repo, dir+"/"+dexClientSecretFile(s.name), dexClientSecret(s.name, valueName))
 	}
 	result.Add(repo, dir+"/kustomization.yaml", render.File{Content: kustomization(resources...)})
-	result.Add(repo, dir+"/oauth-credentials.enc.yaml", render.Secret(s.name+"-oauth-credentials", s.name, nil,
-		render.GeneratedKey("dex-client-secret", valueName, render.Base64, 32),
-		render.GeneratedKey("oauth-encryption-key", s.name+"-oauth-encryption-key", render.Base64, 32),
-	))
+	oauth := []render.SecretKey{
+		render.GeneratedKey(s.oauthKeys.dexClientSecret, valueName, render.Base64, 32),
+		render.GeneratedKey(s.oauthKeys.encryptionKey, s.name+"-oauth-encryption-key", render.Base64, 32),
+	}
+	if s.oauthKeys.valkeyPassword != "" {
+		oauth = append(oauth, render.GeneratedKey(s.oauthKeys.valkeyPassword, valkeyValue, render.Alphanumeric, 32))
+	}
+	result.Add(repo, dir+"/oauth-credentials.enc.yaml", render.Secret(s.name+"-oauth-credentials", s.name, nil, oauth...))
 	result.Add(repo, dir+"/valkey-credentials.enc.yaml", render.Secret(s.name+"-valkey-auth", s.name, nil,
-		render.GeneratedKey("default", s.name+"-valkey-password", render.Alphanumeric, 32),
+		render.GeneratedKey(valkeyAuthKey, valkeyValue, render.Alphanumeric, 32),
 	))
 }
 
