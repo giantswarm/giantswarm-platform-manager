@@ -99,6 +99,10 @@
             "description": "Platform-wide values an umbrella chart shares with every component and Helm forwards here; this chart reads none of them.",
             "additionalProperties": true
         },
+        "hub": {
+            "type": "string",
+            "description": "Name of the hub installation this manager runs on. Its management-clusters repository holds the Dev Portal's app-config the registry also reads, and the hub side of every capability lands in its repositories. Empty leaves `list_installations` refusing with the reason; `get_info` reports `registry.configured: false`."
+        },
         "image": {
             "type": "object",
             "additionalProperties": false,
@@ -288,6 +292,20 @@
         },
         "provider": {
             "type": "string"
+        },
+        "registry": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Path of the installations catalog in that repository: a Backstage catalog file, one `Resource` of type `installation` per installation."
+                },
+                "repository": {
+                    "type": "string",
+                    "description": "Repository (`owner/repo`) holding the installations catalog, read as the caller: the GitHub App `giantswarm-platform-manager` must be installed on it with contents read."
+                }
+            }
         },
         "replicaCount": {
             "type": "integer",
