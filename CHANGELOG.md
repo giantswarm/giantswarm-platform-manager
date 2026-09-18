@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `get_info` lists the capability definitions the binary embeds — `agent-platform` with its description, its input schema and its consistency features; the list was empty in every release because the embedded definition was never handed to the tool server. The registry of definitions (`installations.Capabilities`: name, description, enabled marker, render) is the one list `get_info`, `list_installations`, the write tools' capability enum, the commit and `platformctl template` read; the identity-chain proof fails when the list is empty or `agent-platform` lacks its schema or features.
+
 ### Added
 
 - The wave: `reconcile_capability` with `mode: commit` over a set (`installations`; empty: every installation of the registry) is one action with one approval — one dry run listing the pull requests per installation and the installations *skipped: not opted in*, one review listing the targets in the rollout order and the skipped, one Action carrying every installation's state (`spec.skipped`, `status.rollout.installations[]`, `installation` on every recorded pull request), the pull requests per installation on `platform/<action>/<installation>`. `merge_action` rolls the wave out one stage per call: it merges the first installation's pull requests once green; the next call verifies the installation rolling out (`verify_capability` as the actor) and, green, merges the next; a red probe stops the wave — the installation *failed*, the stages after it not started, the remaining pull requests open, the result naming where and why. The default order is Giant Swarm's test installations, the hub, then the customers; `order` on the dry run and the commit names another. A wave carries no supplied secret values: a target whose supplied secret files are not on record refuses the wave before any write. A single-installation action is a wave of one: the call after its merge verifies it and moves it to *enabled*.

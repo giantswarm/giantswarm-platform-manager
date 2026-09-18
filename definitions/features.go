@@ -21,17 +21,17 @@ const (
 // Feature is one consistency feature of a definition: what the verify rolls
 // its dimensions up into.
 type Feature struct {
-	ID          string      `yaml:"-"`
-	Title       string      `yaml:"title"`
-	Description string      `yaml:"description"`
-	Dimensions  []Dimension `yaml:"dimensions"`
+	ID          string      `yaml:"-" json:"id"`
+	Title       string      `yaml:"title" json:"title"`
+	Description string      `yaml:"description" json:"description"`
+	Dimensions  []Dimension `yaml:"dimensions" json:"dimensions"`
 }
 
 // Dimension is one observed aspect of a feature.
 type Dimension struct {
-	ID   string `yaml:"id"`
-	Kind string `yaml:"kind"`
-	Key  string `yaml:"key"`
+	ID   string `yaml:"id" json:"id"`
+	Kind string `yaml:"kind" json:"kind"`
+	Key  string `yaml:"key" json:"key"`
 }
 
 // Probe is one anonymous HTTP probe of a definition (probes.yaml).

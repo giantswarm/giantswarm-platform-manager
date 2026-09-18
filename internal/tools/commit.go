@@ -140,7 +140,11 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	if err := checkSupplied(p.SuppliedSecrets, secrets); err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
 	}
-	rendered, err := agentplatform.Render(inputs, secrets)
+	def, ok := installations.FindCapability(out.Capability)
+	if !ok {
+		return nil, fmt.Errorf("%s: %q is not a capability definition", tool, out.Capability)
+	}
+	rendered, err := def.Render(inputs, secrets)
 	if err != nil {
 		return nil, fmt.Errorf("%s: render with the supplied values: %w", tool, err)
 	}

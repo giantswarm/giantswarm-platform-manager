@@ -13,8 +13,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
-	"github.com/giantswarm/giantswarm-platform-manager/render"
-	"github.com/giantswarm/giantswarm-platform-manager/render/agentplatform"
 )
 
 // Document is the inputs file: the definition's input document under `input`
@@ -25,19 +23,9 @@ type Document struct {
 	Secrets map[string]string `yaml:"secrets"`
 }
 
-// renderer is a capability definition's Render.
-type renderer func(raw any, secrets map[string]string) (*render.Result, error)
-
-var shapes = map[string]renderer{
-	installations.AgentPlatform: agentplatform.Render,
-}
-
-// Shapes are the capability definitions the library renders, sorted.
+// Shapes are the capability definitions the registry renders, sorted.
 func Shapes() []string {
-	names := make([]string, 0, len(shapes))
-	for name := range shapes {
-		names = append(names, name)
-	}
+	names := installations.CapabilityNames()
 	sort.Strings(names)
 	return names
 }
@@ -46,7 +34,7 @@ func Shapes() []string {
 // definition, answering the fileset as a tree (render.Result.Tree). A
 // definition's refusal comes back as its error.
 func Render(shape string, inputs []byte) (map[string][]byte, error) {
-	r, ok := shapes[shape]
+	def, ok := installations.FindCapability(shape)
 	if !ok {
 		return nil, fmt.Errorf("shape %q is not a capability definition; the definitions are: %s", shape, strings.Join(Shapes(), ", "))
 	}
@@ -57,7 +45,7 @@ func Render(shape string, inputs []byte) (map[string][]byte, error) {
 	if doc.Input == nil {
 		return nil, fmt.Errorf("the inputs document has no `input` mapping; it carries `input` (the definition's inputs) and `secrets` (the values you supply)")
 	}
-	result, err := r(doc.Input, doc.Secrets)
+	result, err := def.Render(doc.Input, doc.Secrets)
 	if err != nil {
 		return nil, err
 	}
