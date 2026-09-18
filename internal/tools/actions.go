@@ -109,7 +109,7 @@ func (t *Tools) lastActions(ctx context.Context, reports []installations.Report)
 					continue
 				}
 				cs.LastAction = &installations.ActionRef{Name: a.Name, Result: a.Status.State}
-				if s := installations.State(a.Status.State); cs.State != installations.StateUnknown && s.FromAction() {
+				if s := installations.State(a.InstallationState(reports[i].Name)); cs.State != installations.StateUnknown && s.FromAction() {
 					cs.State = s
 				}
 				break

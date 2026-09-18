@@ -192,8 +192,13 @@ func TestApproveAsMemberThenMergeAsActor(t *testing.T) {
 	if r := find(t, li, rowan); r.Capabilities[0].State != installations.StateRollingOut || r.Capabilities[0].LastAction.Name != name {
 		t.Fatalf("after the merge: %+v", r.Capabilities[0])
 	}
-	if _, text, isErr := mergeCall(t, aliceC, name); !isErr || !strings.Contains(text, actions.StateRollingOut) {
+	// The next call is the verify of the installation rolling out: green
+	// (every probe answers), the wave of one is done.
+	if m, text, isErr := mergeCall(t, aliceC, name); isErr || m.Verified != rowan || m.Action.Status.State != actions.StateEnabled || m.Action.Status.Rollout.FinishedAt == nil || len(m.Action.Status.Probes) == 0 {
 		t.Fatalf("merge again: %v %s", isErr, text)
+	}
+	if _, text, isErr := mergeCall(t, aliceC, name); !isErr || !strings.Contains(text, actions.StateEnabled) {
+		t.Fatalf("merge a done action: %v %s", isErr, text)
 	}
 	assertNoLeak(t, "the server's log", st.logs.String())
 }

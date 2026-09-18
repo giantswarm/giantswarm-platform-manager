@@ -64,7 +64,7 @@ func listInstallationsTool() mcp.Tool {
 		mcp.WithDescription("Read-only, as you. Every installation of the registry — the installations catalog and the Dev Portal's app-config, read with your GitHub token now — with, per capability, its state (not opted in, not enabled, enabled; pending approval, rolling out, waiting for the customer, drifted and failed once the Action record exists), the inputs on record (the installation facts from the registry and its config.yaml.patch) and the last action. The opt-in declaration management-clusters/<name>/platform-manager.yaml is read at call time from the installation's management-clusters repository, never cached; an installation without it (or with optIn: false) is not opted in, and the answer names the file and the pull request by its owners that would add it. An installation whose repositories you cannot read is listed as unreadable with the reason. Narrow with installations (names) or customer to read less."),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithIdempotentHintAnnotation(true),
-		mcp.WithArray(ArgInstallations, mcp.Description("Installation names to answer for; empty is every installation of the registry."), mcp.Items(map[string]any{"type": "string"})),
+		mcp.WithArray(ArgInstallations, mcp.Description("Installation names to answer for; empty is every installation of the registry."), mcp.Items(stringItems())),
 		mcp.WithString(ArgCustomer, mcp.Description("Answer only for this customer's installations, as the catalog names the customer.")),
 	)
 }

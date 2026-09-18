@@ -44,6 +44,12 @@ func (t *Tools) verify(ctx context.Context, args map[string]any) (any, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%s needs %s", ToolVerifyCapability, ArgInstallation)
 	}
+	return t.verifyInstallation(ctx, token, name, capability)
+}
+
+// verifyInstallation is the verify of one installation as the person whose
+// token this is: the tool's body, and the wave's gate between two stages.
+func (t *Tools) verifyInstallation(ctx context.Context, token, name, capability string) (*verify.Result, error) {
 	c, err := gh.AsPerson(t.d.GitHubAPIURL, token)
 	if err != nil {
 		return nil, err
@@ -82,5 +88,5 @@ func (t *Tools) verify(ctx context.Context, args map[string]any) (any, error) {
 	out := verify.Compare(ctx, verify.Options{Installation: r.Installation, Hub: hub, State: capabilityState(r, capability), Inputs: in, Read: readAs(c), Probes: t.d.Probes})
 	out.Caller = identity.Caller(ctx)
 	t.d.Log.Info(ToolVerifyCapability, identity.LogAttr(ctx), "installation", name, "inputs", in.Source, "state", out.State, "summary", out.Summary)
-	return out, nil
+	return &out, nil
 }

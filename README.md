@@ -97,7 +97,16 @@ management-clusters, the hub's pair after, `teleport-fleet` last — with the fi
 secrets each carries; the wave's `order` (Giant Swarm's own test installations, the hub, then the
 customers' installations); and `skipped` with the reason (*not opted in*, *unreadable*, *no repositories on
 record*). An installation named as `installation` is rendered whether or not it is opted in, with
-`commitRefused` saying why a commit would be refused and how its owners opt in.
+`commitRefused` saying why a commit would be refused and how its owners opt in. `order` names another
+rollout order for the set (every rendered installation exactly once).
+
+`reconcile_capability` with `mode: "commit"` over a set is **one wave**: one Action, one review listing the
+targets in the rollout order and the skipped, the pull requests per installation on their own branches.
+`merge_action` (the actor's) advances it one stage per call — merge the first installation's pull requests
+once green; on the next call verify the installation rolling out and, green, merge the next — and a red
+probe stops it: that installation *failed*, the stages after it not started, their pull requests open, the
+result naming where and why. A wave carries no supplied secret values; an installation whose secret files
+are not on record is enabled alone.
 
 ## The Action record
 
