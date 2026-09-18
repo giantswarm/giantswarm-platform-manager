@@ -1,6 +1,10 @@
 package agentplatform
 
-import "github.com/giantswarm/giantswarm-platform-manager/render"
+import (
+	"strings"
+
+	"github.com/giantswarm/giantswarm-platform-manager/render"
+)
 
 // serverDefinition is one MCP server of the installation itself, as data: the
 // fleet base its extras reference, the Secrets its chart reads and their key
@@ -23,6 +27,13 @@ type serverDefinition struct {
 	// oauthKeys is the key contract of the server's oauth-credentials Secret:
 	// the names its chart reads the values by.
 	oauthKeys oauthSecretKeys
+	// valuesKey is the top-level key the server's chart reads its values
+	// under: mcp-kubernetes has its own, mcp-prometheus the fleet base's app,
+	// mcp-capi reads them at the root (empty).
+	valuesKey string
+	// ssoPrivateIPs says whether the chart has a separate flag for the SSO
+	// forwarded-token JWKS fetch reaching private addresses (oauth.sso.allowPrivateIPs).
+	ssoPrivateIPs bool
 }
 
 // oauthSecretKeys names the keys of a server's oauth-credentials Secret as its
@@ -57,9 +68,34 @@ const valkeyAuthKey = "default"
 // servers are the platform's own MCP servers, the set the shared template
 // registers with muster on every installation.
 var servers = []serverDefinition{
-	{name: "mcp-kubernetes", group: "kubernetes", dexClient: "mcpKubernetes", dexSecretRef: true, oauthKeys: keyedOAuthKeys},
-	{name: "mcp-prometheus", group: "prometheus", dexClient: "mcpPrometheus", dexSecretRef: true, oauthKeys: envOAuthKeys},
+	{name: "mcp-kubernetes", group: "kubernetes", dexClient: "mcpKubernetes", dexSecretRef: true, oauthKeys: keyedOAuthKeys, valuesKey: "mcpKubernetes", ssoPrivateIPs: true},
+	{name: "mcp-prometheus", group: "prometheus", dexClient: "mcpPrometheus", dexSecretRef: true, oauthKeys: envOAuthKeys, valuesKey: "app"},
 	{name: "mcp-capi", group: "capi", dexClient: "mcpCapi", dexSecretRef: true, oauthKeys: keyedOAuthKeys},
+}
+
+// userValuesFile is the per-server values file the kustomization turns into a
+// ConfigMap the HelmRelease reads (valuesFrom).
+const userValuesFile = "user-values.yaml"
+
+// privateURLValues are the chart values a server needs when Dex is reached on
+// private addresses: the OAuth issuer URL may resolve to a private IP and,
+// where the chart has the flags, so may the SSO forwarded-token JWKS fetch
+// and, on a private installation, the clients' metadata documents and
+// redirect URIs.
+func (s serverDefinition) privateURLValues(private bool) render.Map {
+	oauth := render.Map{e("allowPrivateURLs", true)}
+	if s.ssoPrivateIPs {
+		oauth = append(oauth, e("sso", render.Map{e("allowPrivateIPs", true)}))
+		if private {
+			oauth = append(oauth, e("cimd", render.Map{e("allowPrivateIPs", true)}),
+				e("redirectURISecurity", render.Map{e("allowPrivateIPRedirectURIs", true)}))
+		}
+	}
+	values := render.Map{e("oauth", oauth)}
+	if s.valuesKey == "" {
+		return values
+	}
+	return render.Map{e(s.valuesKey, values)}
 }
 
 const (
@@ -130,8 +166,11 @@ func (s serverDefinition) mcpServerEntry(installation string) MCPServer {
 // Secret) and the valkey-auth Secret the fleet base's Valkey reads — plus,
 // where the dex-app chart reads a reference for the client, the Dex-side copy
 // of the client secret. The Valkey password is one generated value, so the
-// server and its Valkey agree wherever each reads it.
-func (s serverDefinition) extras(result *render.Result, repo render.Repository, dir string) {
+// server and its Valkey agree wherever each reads it. With privateURLs the
+// directory also carries the server's user values and the kustomization turns
+// them into a ConfigMap the HelmRelease reads.
+func (s serverDefinition) extras(result *render.Result, repo render.Repository, dir string, in *Input) {
+	privateURLs := in.ToolAccess.PrivateURLs
 	valueName := s.name + "-dex-client-secret"
 	valkeyValue := s.name + "-valkey-password"
 	resources := []string{basesRepository + s.name + "?ref=main", "oauth-credentials.enc.yaml", "valkey-credentials.enc.yaml"}
@@ -139,7 +178,12 @@ func (s serverDefinition) extras(result *render.Result, repo render.Repository, 
 		resources = append(resources, dexClientSecretFile(s.name))
 		result.Add(repo, dir+"/"+dexClientSecretFile(s.name), dexClientSecret(s.name, valueName))
 	}
-	result.Add(repo, dir+"/kustomization.yaml", render.File{Content: kustomization(resources...)})
+	k := kustomizationDoc{APIVersion: kustomizationAPIVersion, Kind: kustomizationKind, Resources: resources}
+	if privateURLs {
+		result.Add(repo, dir+"/"+userValuesFile, yamlFile(s.privateURLValues(in.Installation.Private)))
+		k.withUserValues(s.name)
+	}
+	result.Add(repo, dir+"/kustomization.yaml", render.File{Content: append([]byte(fileHeader), render.MustYAML(k)...)})
 	oauth := []render.SecretKey{
 		render.GeneratedKey(s.oauthKeys.dexClientSecret, valueName, render.Base64, 32),
 		render.GeneratedKey(s.oauthKeys.encryptionKey, s.name+"-oauth-encryption-key", render.Base64, 32),
@@ -153,14 +197,61 @@ func (s serverDefinition) extras(result *render.Result, repo render.Repository, 
 	))
 }
 
+// The kustomize Kustomization's API version and kind.
+const kustomizationAPIVersion, kustomizationKind = "kustomize.config.k8s.io/v1beta1", "Kustomization"
+
+// kustomizationDoc is a kustomize Kustomization: the resources and, where a
+// directory carries user values, the ConfigMap generated from them and the
+// patch that hands it to the HelmRelease.
+type kustomizationDoc struct {
+	APIVersion         string               `yaml:"apiVersion"`
+	Kind               string               `yaml:"kind"`
+	Resources          []string             `yaml:"resources"`
+	GeneratorOptions   *generatorOptions    `yaml:"generatorOptions,omitempty"`
+	ConfigMapGenerator []configMapGenerator `yaml:"configMapGenerator,omitempty"`
+	Patches            []kustomizePatch     `yaml:"patches,omitempty"`
+}
+
+type generatorOptions struct {
+	DisableNameSuffixHash bool `yaml:"disableNameSuffixHash"`
+}
+
+type configMapGenerator struct {
+	Name      string   `yaml:"name"`
+	Namespace string   `yaml:"namespace"`
+	Files     []string `yaml:"files"`
+}
+
+type kustomizePatch struct {
+	Patch  string      `yaml:"patch"`
+	Target patchTarget `yaml:"target"`
+}
+
+type patchTarget struct {
+	Kind string `yaml:"kind"`
+	Name string `yaml:"name"`
+}
+
+// withUserValues generates the ConfigMap <helmRelease>-user-values from the
+// directory's user values (a stable name, no hash suffix) and appends it to
+// the HelmRelease's valuesFrom.
+func (k *kustomizationDoc) withUserValues(helmRelease string) {
+	name := helmRelease + "-user-values"
+	type op struct {
+		Op    string         `yaml:"op"`
+		Path  string         `yaml:"path"`
+		Value map[string]any `yaml:"value"`
+	}
+	patch := render.MustYAML([]op{{Op: "add", Path: "/spec/valuesFrom/-",
+		Value: map[string]any{"kind": "ConfigMap", "name": name, "valuesKey": "values"}}})
+	k.GeneratorOptions = &generatorOptions{DisableNameSuffixHash: true}
+	k.ConfigMapGenerator = []configMapGenerator{{Name: name, Namespace: fluxNamespace, Files: []string{"values=" + userValuesFile}}}
+	k.Patches = []kustomizePatch{{Patch: strings.TrimRight(string(patch), "\n"), Target: patchTarget{Kind: "HelmRelease", Name: helmRelease}}}
+}
+
 // kustomization renders a kustomize Kustomization listing resources.
 func kustomization(resources ...string) []byte {
-	type k struct {
-		APIVersion string   `yaml:"apiVersion"`
-		Kind       string   `yaml:"kind"`
-		Resources  []string `yaml:"resources"`
-	}
-	return append([]byte(fileHeader), render.MustYAML(k{
-		APIVersion: "kustomize.config.k8s.io/v1beta1", Kind: "Kustomization", Resources: resources,
+	return append([]byte(fileHeader), render.MustYAML(kustomizationDoc{
+		APIVersion: kustomizationAPIVersion, Kind: kustomizationKind, Resources: resources,
 	})...)
 }

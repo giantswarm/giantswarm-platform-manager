@@ -49,7 +49,7 @@ func Render(raw any, secrets map[string]string) (*render.Result, error) {
 	in.platformExtras(r, clusters, extras+"agent-platform", secrets)
 	r.Include(clusters, extras+"kustomization.yaml", "./agent-platform/")
 	for _, s := range servers {
-		s.extras(r, clusters, extras+s.name)
+		s.extras(r, clusters, extras+s.name, in)
 		r.Include(clusters, extras+"kustomization.yaml", "./"+s.name+"/")
 	}
 	if in.Portal.Enabled {
@@ -117,13 +117,22 @@ func (in *Input) configmapPatch() render.Map {
 	}
 
 	m = append(m, e("muster", in.musterValues()))
+	var mcps render.Map
 	if len(in.ToolAccess.AdditionalServers) > 0 {
 		list := make([]MCPServer, 0, len(servers)+len(in.ToolAccess.AdditionalServers))
 		for _, s := range servers {
 			list = append(list, s.mcpServerEntry(in.Installation.Name))
 		}
 		list = append(list, in.ToolAccess.AdditionalServers...)
-		m = append(m, e("agent-platform-mcps", render.Map{e("mcpServers", list)}))
+		mcps = append(mcps, e("mcpServers", list))
+	}
+	if in.edgeJWTProvider() {
+		m = append(m, e("gateway", render.Map{e("jwksEgress", render.Map{e("enabled", true)})}),
+			e("extraObjects", []render.Map{in.dexJWKSReferenceGrant()}))
+		mcps = append(mcps, e("agentgateway", render.Map{e("jwt", render.Map{e("extraProviders", []render.Map{in.portalJWTProvider()})})}))
+	}
+	if len(mcps) > 0 {
+		m = append(m, e("agent-platform-mcps", mcps))
 	}
 	if in.ToolAccess.AgentManager.Enabled && in.Installation.ChartLine == "3" {
 		m = append(m, e("agent-manager", render.Map{e("oauth", in.managerOAuth("agent-manager"))}))
@@ -134,6 +143,44 @@ func (in *Input) configmapPatch() render.Map {
 		e("aclUsers", render.Map{e("default", render.Map{e("passwordKey", "valkey-password")})}),
 	})})}))
 	return m
+}
+
+// edgeJWTProvider says whether the edge accepts the portal's Dex ID token: the
+// portal's AI chat forwards the signed-in person's token to the edge on /mcp,
+// which on the 4 chart line validates it against a JWT provider of its own
+// (the 3 line's edge forwards the bearer untouched).
+func (in *Input) edgeJWTProvider() bool {
+	return in.Installation.ChartLine == "4" && in.Portal.Enabled && in.Portal.AIChat != nil && in.Portal.AIChat.Enabled
+}
+
+// dexService is the in-cluster Dex Service the edge fetches the JWKS from.
+const dexService, dexServicePort = "dex", 5556
+
+// dexJWKSReferenceGrant lets the edge's AgentgatewayPolicy in the platform's
+// namespace reference the Dex Service in Dex's namespace for the JWKS fetch.
+func (in *Input) dexJWKSReferenceGrant() render.Map {
+	return render.Map{
+		e("apiVersion", "gateway.networking.k8s.io/v1beta1"), e("kind", "ReferenceGrant"),
+		e("metadata", render.Map{e("name", "agentgateway-jwks-dex"), e("namespace", dexNamespace)}),
+		e("spec", render.Map{
+			e("from", []render.Map{{e("group", "agentgateway.dev"), e("kind", "AgentgatewayPolicy"), e("namespace", platformNamespace)}}),
+			e("to", []render.Map{{e("group", ""), e("kind", "Service"), e("name", dexService)}}),
+		}),
+	}
+}
+
+// portalJWTProvider is the edge's JWT provider for the portals' ID tokens:
+// the installation's Dex as issuer, the portals' client ids as audiences, the
+// JWKS fetched in-cluster from the Dex Service.
+func (in *Input) portalJWTProvider() render.Map {
+	return render.Map{
+		e("issuer", "https://"+in.host("dex")),
+		e("audiences", in.Portal.ClientIDs),
+		e("jwks", render.Map{e("remote", render.Map{
+			e("backendRef", render.Map{e("name", dexService), e("namespace", dexNamespace), e("port", dexServicePort)}),
+			e("jwksPath", "/keys"), e("cacheDuration", "5m"),
+		})}),
+	}
 }
 
 func (in *Input) kagentValues() render.Map {
@@ -269,11 +316,11 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 		Resources  []string `yaml:"resources"`
 		Patches    []patch  `yaml:"patches,omitempty"`
 	}
-	k := kustomizationWithPatches{APIVersion: "kustomize.config.k8s.io/v1beta1", Kind: "Kustomization",
+	k := kustomizationWithPatches{APIVersion: kustomizationAPIVersion, Kind: kustomizationKind,
 		Resources: []string{basesRepository + "agent-platform?ref=main", "./secrets"}}
 	if in.Chart.Semver != "" {
 		k.Patches = []patch{{
-			Patch:  "- op: replace\n  path: /spec/ref/semver\n  value: " + fmt.Sprintf("%q", in.Chart.Semver) + "\n",
+			Patch:  "- op: replace\n  path: /spec/ref/semver\n  value: " + fmt.Sprintf("%q", in.Chart.Semver),
 			Target: render.Map{e("kind", "OCIRepository"), e("name", "agent-platform")},
 		}}
 	}

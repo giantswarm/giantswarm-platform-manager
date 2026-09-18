@@ -87,11 +87,19 @@ func (in *Input) componentValues(m render.Map) render.Map {
 	return m
 }
 
-// klausGatewayValues is the gateway's section: its public route, the OBO
-// links and Slack with their Secrets referenced, A2A and team reviews as given.
+// slackEventsMode is the Slack mode in which Slack calls the gateway over its
+// public route; in socket mode the gateway connects out and needs no route.
+const slackEventsMode = "events"
+
+// klausGatewayValues is the gateway's section: its routing store, its public
+// route where Slack calls in, the OBO links and Slack with their Secrets
+// referenced, A2A and team reviews as given.
 func (in *Input) klausGatewayValues() render.Map {
 	g := in.KlausGateway
-	m := render.Map{e("agentgatewayRoute", render.Map{e("enabled", true), e("hostname", in.host("agentgateway"))})}
+	m := render.Map{e("routing", render.Map{e("store", "valkey")})}
+	if g.Slack != nil && g.Slack.Mode == slackEventsMode {
+		m = append(m, e("agentgatewayRoute", render.Map{e("enabled", true), e("hostname", in.host("agentgateway"))}))
+	}
 	if g.Slack != nil {
 		slack := render.Map{e("enabled", true), e("mode", g.Slack.Mode), e("secretName", klausGatewaySlackSecret),
 			e("dmMode", slackDMMode), e("channelMode", g.Slack.ChannelMode)}

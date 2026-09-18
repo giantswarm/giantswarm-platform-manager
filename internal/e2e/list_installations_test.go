@@ -114,6 +114,7 @@ func fixtures(g *fakeGitHub) {
 	})
 	g.addRepo("example/umbrella-management-clusters", map[string]string{installations.OptInPath("willow"): "optIn: false\n"})
 	g.addRepo("example/umbrella-configs", map[string]string{installations.ConfigPatchPath("willow"): "codename: willow\n"})
+	g.addRepo("example/shared-configs", map[string]string{"default/config.yaml": "services:\n  muster:\n    clientId: muster-shared\n"})
 	g.forbid("example/sealed-management-clusters")
 	g.forbid("example/sealed-configs")
 }

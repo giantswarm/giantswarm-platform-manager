@@ -158,7 +158,12 @@ func unknownCapabilities(caps []Capability, name string) []CapabilityState {
 	return out
 }
 
-// readRecord reads the installation's config.yaml.patch into the record.
+// sharedConfigsRepository holds the fleet's shared configuration; its default
+// config is what every installation's config.yaml.patch overlays.
+const sharedConfigsRepository, sharedDefaultConfig = "shared-configs", "default/config.yaml"
+
+// readRecord reads the installation's config.yaml.patch into the record, the
+// platform's client id from the shared default where the patch has none.
 func readRecord(ctx context.Context, c *github.Client, owner, repo string, inst Installation) (*Record, error) {
 	data, err := gh.ReadFile(ctx, c, owner, repo, ConfigPatchPath(inst.Name))
 	if err != nil {
@@ -170,6 +175,19 @@ func readRecord(ctx context.Context, c *github.Client, owner, repo string, inst 
 	}
 	rec := &Record{Name: inst.Name, BaseDomain: inst.BaseDomain, Customer: inst.Customer, Provider: inst.Provider,
 		Private: p.ManagementCluster.Private, ChartLine: "3", MusterClientID: p.Services.Muster.ClientID}
+	if rec.MusterClientID == "" {
+		// konfigure overlays the patch on the shared default: an installation
+		// without its own client id runs on the fleet's.
+		shared, err := gh.ReadFile(ctx, c, owner, sharedConfigsRepository, sharedDefaultConfig)
+		if err != nil {
+			return nil, fmt.Errorf("the facts on record: %s in %s/%s: %w", sharedDefaultConfig, owner, sharedConfigsRepository, err)
+		}
+		var d configPatch
+		if err := yaml.Unmarshal([]byte(shared), &d); err != nil {
+			return nil, fmt.Errorf("the facts on record: %s in %s/%s: %w", sharedDefaultConfig, owner, sharedConfigsRepository, err)
+		}
+		rec.MusterClientID = d.Services.Muster.ClientID
+	}
 	if p.AgentPlatform.KagentAPIV2 {
 		rec.ChartLine = "4"
 	}

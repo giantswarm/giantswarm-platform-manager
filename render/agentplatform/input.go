@@ -175,6 +175,7 @@ type Google struct {
 // ToolAccess is what agents and people reach through muster.
 type ToolAccess struct {
 	AgentManager      Toggle      `json:"agentManager"`
+	PrivateURLs       bool        `json:"privateURLs"`
 	AdditionalServers []MCPServer `json:"additionalServers"`
 }
 

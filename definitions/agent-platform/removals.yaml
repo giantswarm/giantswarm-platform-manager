@@ -35,6 +35,12 @@ removals:
   - key: configmap:agent-platform-mcps.identityProviders
     kind: template
     reason: an empty map repeats the template; a hub's federation targets render the real entries
+  - key: configmap:agent-manager.oauth
+    kind: template
+    reason: on the 4 chart line the chart derives the manager's OAuth (issuer, client, Secret, base URL) from the template's global.identity and global.domain; the definition writes the block on the 3 line only, where the template has no identity block
+  - key: configmap:cluster-manager.oauth
+    kind: template
+    reason: on the 4 chart line the chart derives the manager's OAuth from the template's global.identity and global.domain; the definition writes the block on the 3 line only
 
   # --- dex-app secret-values.yaml.patch ---
   - key: dex-secret:oidc.staticClients.muster.clientID
