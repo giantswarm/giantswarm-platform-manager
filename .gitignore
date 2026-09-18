@@ -1,0 +1,15 @@
+# local builds
+/giantswarm-platform-manager
+/giantswarm-platform-manager-linux-*
+/giantswarm-platform-manager-darwin-*
+/giantswarm-platform-manager-windows-*
+/build/
+/dist/
+# Helm pulls dependency archives here; nothing is committed there.
+/helm/*/charts/
+# Python bytecode (ATS test runs)
+__pycache__/
+# editor / OS
+.idea/
+.vscode/
+.DS_Store

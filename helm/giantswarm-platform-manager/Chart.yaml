@@ -1,0 +1,27 @@
+apiVersion: v2
+name: giantswarm-platform-manager
+description: Giant Swarm's installation manager — an MCP server behind muster that enables, reconciles and verifies platform capabilities on opted-in installations as the person, every write a pull request to the installation's GitOps repository
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/giantswarm/giantswarm-platform-manager
+icon: https://s.giantswarm.io/app-icons/giantswarm/1/dark.svg
+sources:
+  - https://github.com/giantswarm/giantswarm-platform-manager
+keywords:
+  - mcp
+  - installations
+  - capabilities
+  - gitops
+  - agent-platform
+maintainers:
+  - name: Giant Swarm
+    email: team-bumblebee@giantswarm.io
+annotations:
+  # Team ownership (OCI-compliant format)
+  io.giantswarm.application.team: bumblebee
+  # Giant Swarm-specific: the giantswarm org's installations, of no use to
+  # other Agent Platform users.
+  io.giantswarm.application.audience: giantswarm
+  # App is managed/supported by Giant Swarm
+  io.giantswarm.application.managed: "true"

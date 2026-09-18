@@ -1,0 +1,27 @@
+# .schema.yaml
+# yaml-language-server: $schema=https://github.com/losisin/helm-values-schema-json/raw/refs/heads/main/config.schema.json
+#
+# The shape `devctl gen precommit` writes for every chart; the align-files run
+# takes this file over and adds the generated app-platform values file.
+values:
+  - helm/giantswarm-platform-manager/values.yaml
+
+draft: 2020
+indent: 4
+output: helm/giantswarm-platform-manager/values.schema.json
+
+bundle: true
+bundleRoot: ""
+bundleWithoutID: true
+
+k8sSchemaURL:
+  https://raw.githubusercontent.com/yannh/kubernetes-json-schema/refs/heads/master/v1.33.1/
+k8sSchemaVersion: "v1.33.1"
+
+useHelmDocs: true
+
+noAdditionalProperties: true
+noDefaultGlobal: false
+
+schemaRoot:
+  additionalProperties: false

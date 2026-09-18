@@ -1,0 +1,21 @@
+# app-test-suite (ATS >= 1.0) config, consumed by the generated
+# `run-tests-with-ats` CircleCI job (execute-chart-tests). The job creates a
+# kind cluster; ATS applies the CRDs listed below, installs the packaged chart
+# with `helm upgrade --install --wait` (tests/test-values.yaml, the namespace
+# below) and runs `pytest -m smoke` in tests/ats.
+#
+# The smoke (tests/ats/test_smoke.py) is the chart-level install check: the
+# chart installs on a bare cluster and its Deployment — the server with the
+# image the branch build pushed — becomes ready. It is skipped until the
+# generated CI carries the image job (push-to-registries), which the
+# align-files run renders once a Dockerfile is on main: without the image the
+# install cannot become ready.
+app-tests-app-config-file: tests/test-values.yaml
+app-tests-deploy-namespace: giantswarm-platform-manager
+
+# Manifests applied before the install: ATS's bundled CRDs.
+cluster-crds: /etc/ats/crds
+
+# smoke: on once the image job exists. functional: no second scenario.
+# upgrade: an upgrade from the last release in the catalog is a follow-up.
+skip-steps: [smoke, functional, upgrade]
