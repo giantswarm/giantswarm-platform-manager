@@ -29,6 +29,12 @@ removals:
   - key: configmap:agent-platform-mcps.agentgateway.oauthMode
     kind: template
     reason: equals the template's value; the edge cannot validate muster's opaque tokens, so no other value exists
+  - key: configmap:agent-platform-mcps.mcpServers
+    kind: template
+    reason: the template renders the installation's own servers; the definition writes the list only when additional servers join it
+  - key: configmap:agent-platform-mcps.identityProviders
+    kind: template
+    reason: an empty map repeats the template; a hub's federation targets render the real entries
 
   # --- dex-app secret-values.yaml.patch ---
   - key: dex-secret:oidc.staticClients.muster.clientID
