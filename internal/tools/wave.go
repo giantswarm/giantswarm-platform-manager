@@ -10,6 +10,7 @@ import (
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 	"github.com/giantswarm/giantswarm-platform-manager/render/agentplatform"
 )
@@ -99,6 +100,10 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		rollout.Installations = append(rollout.Installations, actions.InstallationRollout{Name: p.Name, State: actions.StatePendingApproval, Message: fmt.Sprintf("stage %d of %d", i+1, len(targets))})
 	}
 	spec.Change = strings.Join(changes, "; ")
+	def, ok := installations.FindCapability(out.Capability)
+	if !ok {
+		return nil, fmt.Errorf("%s: %q is not a capability definition", tool, out.Capability)
+	}
 	name, err := actions.NewName(actions.KindReconcile, "wave")
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
@@ -119,7 +124,7 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		for _, field := range p.SuppliedSecrets {
 			markers[field] = agentplatform.Supplied(field)
 		}
-		rendered, err := agentplatform.Render(env.inputs[p.Name], markers)
+		rendered, err := def.Render(env.inputs[p.Name], markers)
 		if err != nil {
 			return nil, t.fail(ctx, tool, a, prs, fmt.Errorf("%s: render: %w", p.Name, err))
 		}

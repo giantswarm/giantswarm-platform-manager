@@ -33,6 +33,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/approvals"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/server"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
 )
@@ -115,9 +116,8 @@ func newStack(t *testing.T) *stack {
 		Remote: func(token string) (commit.Remote, error) {
 			return asRemote{Remote: st.remote, login: logins[token], st: st}, nil
 		},
-		Approvals:   approvals.Config{GatewayURL: st.gateway.URL, Team: reviewTeam, Channel: reviewChannel, NoticeChannel: noticeChannel, TokenFile: tokenFile},
-		Definitions: []tools.Definition{{Name: "example-capability", Description: "a fixture", InputSchema: json.RawMessage(`{"type":"object"}`)}},
-		Registry:    registrySources})
+		Approvals: approvals.Config{GatewayURL: st.gateway.URL, Team: reviewTeam, Channel: reviewChannel, NoticeChannel: noticeChannel, TokenFile: tokenFile},
+		Registry:  registrySources})
 	ts.AddWrite(tools.WriteTool{Name: testWrite, Description: "A fixture write.",
 		DryRun: func(_ context.Context, args map[string]any) (any, error) {
 			return map[string]any{"rendered": true, "args": args}, nil
@@ -241,8 +241,10 @@ func TestGetInfoNamesTheCaller(t *testing.T) {
 		t.Fatalf("auth: %+v", info.Auth)
 	case !info.Capabilities.Commit || info.Capabilities.Apply || !info.Capabilities.ApplyRefused || strings.Join(info.Capabilities.WriteTools, ",") != strings.Join([]string{tools.ToolEnableCapability, tools.ToolReconcileCapability, testWrite}, ","):
 		t.Fatalf("capabilities: %+v", info.Capabilities)
-	case len(info.Definitions) != 1 || info.Definitions[0].Name != "example-capability" || compact(t, info.Definitions[0].InputSchema) != `{"type":"object"}`:
-		t.Fatalf("definitions: %+v", info.Definitions)
+	case len(info.Definitions) == 0:
+		t.Fatal("definitions: empty; the registry's definitions are missing from get_info")
+	case !definitionListed(t, info.Definitions, installations.AgentPlatform):
+		t.Fatalf("definitions: %s missing its schema or features: %+v", installations.AgentPlatform, info.Definitions)
 	case !info.Approvals.Configured || info.Approvals.Channel != reviewChannel || info.Approvals.Team != reviewTeam || info.Approvals.NoticeChannel != noticeChannel:
 		t.Fatalf("approvals: %+v", info.Approvals)
 	case strings.Join(info.PlannedTools, ",") != strings.Join(tools.PlannedTools(), ","):
@@ -258,14 +260,24 @@ func TestGetInfoNamesTheCaller(t *testing.T) {
 	}
 }
 
-// compact is raw as one line: MarshalIndent re-indents a RawMessage.
-func compact(t *testing.T, raw json.RawMessage) string {
+// definitionListed says whether defs carry the definition name with an input
+// schema that declares the installation inputs and at least one feature.
+func definitionListed(t *testing.T, defs []tools.Definition, name string) bool {
 	t.Helper()
-	var b bytes.Buffer
-	if err := json.Compact(&b, raw); err != nil {
-		t.Fatal(err)
+	for _, d := range defs {
+		if d.Name != name {
+			continue
+		}
+		var schema struct {
+			Properties map[string]json.RawMessage `json:"properties"`
+		}
+		if err := json.Unmarshal(d.InputSchema, &schema); err != nil {
+			t.Fatalf("definition %s: input schema: %v", name, err)
+		}
+		_, hasInstallation := schema.Properties["installation"]
+		return hasInstallation && d.Description != "" && len(d.Features) > 0
 	}
-	return b.String()
+	return false
 }
 
 // The framework refuses mode apply for a write tool before the tool runs,

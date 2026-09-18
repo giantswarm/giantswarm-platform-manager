@@ -48,12 +48,13 @@ spec:
               required: [actor, capability, installations, kind]
               properties:
                 actor:
-                  description: The person the action ran as — the GitHub login and id of the token the call carried.
+                  description: The person the action ran as — the GitHub login, id and email of the token the call carried; the email names the actor on the review.
                   type: object
                   required: [login]
                   properties:
                     login: {type: string}
                     id: {type: integer, format: int64}
+                    email: {type: string}
                 capability:
                   description: The capability acted on.
                   type: string
