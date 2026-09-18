@@ -14,7 +14,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
-	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden filesets from the current render")
@@ -38,27 +37,6 @@ func loadInput(t *testing.T, shape string) (map[string]any, map[string]string) {
 	return doc.Input, doc.Secrets
 }
 
-// flatten writes a Result as the golden tree: one file per rendered file under
-// <owner>/<repo>/<path>, includes.txt with the shared kustomization entries,
-// and probes.yaml and actions.yaml with the probes and actions as data.
-func flatten(r *render.Result) map[string][]byte {
-	out := map[string][]byte{}
-	for repo, files := range r.Files {
-		for path, f := range files {
-			out[filepath.Join(string(repo), path)] = f.Content
-		}
-	}
-	var includes []string
-	for _, inc := range r.Includes {
-		includes = append(includes, string(inc.Repository)+":"+inc.Path+" "+inc.Resource)
-	}
-	sort.Strings(includes)
-	out["includes.txt"] = []byte(strings.Join(includes, "\n") + "\n")
-	out["probes.yaml"] = render.MustYAML(r.Probes)
-	out["actions.yaml"] = render.MustYAML(r.Actions)
-	return out
-}
-
 func TestGolden(t *testing.T) {
 	for _, shape := range shapes {
 		t.Run(shape, func(t *testing.T) {
@@ -67,7 +45,7 @@ func TestGolden(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got := flatten(result)
+			got := result.Tree()
 			dir := filepath.Join("testdata", shape, "golden")
 			if *update {
 				if err := os.RemoveAll(dir); err != nil {

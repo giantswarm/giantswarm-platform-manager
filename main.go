@@ -16,7 +16,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"runtime/debug"
 	"strconv"
 	"syscall"
 
@@ -24,6 +23,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/server"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/version"
 )
 
 type options struct {
@@ -75,7 +75,7 @@ func main() {
 
 // run wires the components and serves until ctx is done.
 func run(ctx context.Context, o *options, log *slog.Logger) error {
-	deps := tools.Deps{Version: version(), GitHubAPIURL: o.githubAPIURL, Log: log, Remote: tools.GitHubRemote(o.githubAPIURL),
+	deps := tools.Deps{Version: version.String(), GitHubAPIURL: o.githubAPIURL, Log: log, Remote: tools.GitHubRemote(o.githubAPIURL),
 		Approvals: tools.Approvals{GatewayURL: o.approvalsURL, Channel: o.approvalsChannel},
 		Registry:  installations.Sources{Catalog: installations.Location{Repository: o.registryRepository, Path: o.registryPath}, Hub: o.hub}}
 	if o.actionsNamespace != "" {
@@ -98,36 +98,6 @@ func run(ctx context.Context, o *options, log *slog.Logger) error {
 		"oauth", o.oauthEnabled, "authorizationServer", deps.AuthorizationServer, "approvals", o.approvalsURL != "", "approvalsChannel", o.approvalsChannel,
 		"registry", deps.Registry.Catalog.String(), "hub", o.hub, "actionsNamespace", o.actionsNamespace)
 	return srv.Run(ctx)
-}
-
-// version is the module version of the build, else the VCS revision — the
-// org convention: no -ldflags, debug.ReadBuildInfo() is the source.
-func version() string {
-	bi, ok := debug.ReadBuildInfo()
-	if !ok {
-		return "unknown"
-	}
-	if v := bi.Main.Version; v != "" && v != "(devel)" {
-		return v
-	}
-	rev, dirty := "", ""
-	for _, s := range bi.Settings {
-		switch s.Key {
-		case "vcs.revision":
-			rev = s.Value
-		case "vcs.modified":
-			if s.Value == "true" {
-				dirty = "-dirty"
-			}
-		}
-	}
-	if len(rev) > 12 {
-		rev = rev[:12]
-	}
-	if rev == "" {
-		return "dev"
-	}
-	return "dev-" + rev + dirty
 }
 
 func envOr(key, def string) string {
