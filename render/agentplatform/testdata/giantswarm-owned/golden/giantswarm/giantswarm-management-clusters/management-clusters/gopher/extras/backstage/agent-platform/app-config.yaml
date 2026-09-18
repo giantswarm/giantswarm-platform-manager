@@ -1,0 +1,40 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-platform-app-config-backstage
+  namespace: backstage
+data:
+  app-config.agent-platform.yaml: |
+    app:
+      extensions:
+        $include: shared-config.yaml#extensionsAgentPlatform
+    agentPlatform:
+      fluxServiceAccountName: kagent-flux
+      kagent:
+        installations:
+          gopher: {}
+      skills:
+        repositories:
+          - https://github.com/example-org/agent-skills
+          - https://github.com/example-org/private-skills
+    muster:
+      installations:
+        - name: gopher
+          url: https://muster.gopher.example.io/mcp
+          authProvider: oidc-gopher
+    aiChat:
+      model: example-model-large
+      anthropic:
+        provider: vertex
+      google:
+        project: example-project
+        location: example-location1
+        keyFilename: /app/google/credentials.json
+      mcp:
+        - name: muster
+          url: https://muster.gopher.example.io/mcp
+          authProvider: oidc-gopher
+    mcpActions:
+      namespacedToolNames: false

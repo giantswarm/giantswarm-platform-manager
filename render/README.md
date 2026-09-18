@@ -23,8 +23,20 @@ list entry with a `secretRef` and a new Secret file.
 Inputs are exactly the keys of `definitions/agent-platform/schema.json`, validated against it: an
 unknown key refuses the render naming the key; a supplied secret value that is needed and empty refuses
 naming the field. The fleet policy (`definitions/agent-platform/policy.yaml`) says which components an
-owning organisation may enable. What this version does not render (the hub outputs of
-`federation.targets`, the portal's files, klaus-gateway and cluster-manager) it refuses with
+owning organisation may enable; where it does, klaus-gateway and cluster-manager render as data
+(`components.go`): the gateway's route, OBO links and Slack with their Secrets referenced (the OBO keys
+generated, the Slack credentials supplied as `klausGateway.slack.<key>`), the manager's installation and, on
+the 3 chart line, the OAuth section a manager needs without the template's global identity block. The
+developer portal's section (`portal.go`) is a directory of the platform's own, `extras/backstage/agent-platform/`
+in the portal host's tree, a kustomize Component the portal's `extras/backstage/kustomization.yaml` lists
+(`Include.Component`): the platform's Backstage configuration as an extra app-config file the chart mounts from a
+ConfigMap, the chart values that mount it and name the installation's avatars host, the Google credentials of a
+Vertex chat (supplied as `portal.aiChat.google.credentialsJson`), and a patch appending those sources to the
+portal HelmRelease's `valuesFrom` — last, so the platform's values win; Helm replaces lists, so a portal that
+sets `backstage.extraEnvVars` itself loses that list to the platform's. A private skills repository's token is
+the one optional supplied value (`portal.skillsToken`): given, it renders `kagent-skills-token` in namespace
+`kagent`. The definition targets dex-app 3.2.0 or later, where every MCP server's Dex client reads a
+`clientSecretRef`. What this version does not render (the hub outputs of `federation.targets`) it refuses with
 `ErrNotRendered` naming the input rather than emitting an incomplete fileset.
 
 The golden filesets under `render/agentplatform/testdata/<shape>/golden/` are the reference output for
@@ -61,7 +73,13 @@ proves that the charts on the other side read it. For every golden shape it writ
 emitted `extras/<x>/` directory over the public fleet base with `kustomize`, and renders every HelmRelease that
 yields with `helm template`: the servers' charts and their Valkeys, the agent-platform meta chart with the
 emitted configmap patch and, in turn, every child HelmRelease the meta chart renders that names an emitted
-Secret (muster, kagent, valkey, agent-manager, the connectivity chart), plus dex-app with the emitted dex patch.
+Secret (muster, kagent, valkey, agent-manager, klaus-gateway, cluster-manager, the connectivity chart), plus dex-app
+with the emitted dex patch and, for a shape with a portal, backstage over the fleet base composed the way the
+portal's tree composes it: a stand-in for the portal's own directory with the one patch that gives the HelmRelease
+its values sources, and the platform's Component listed next to it. A ConfigMap a HelmRelease takes values from
+that the same build emitted (the platform's `agent-platform-values-backstage`) is rendered with its data; the
+test then asserts the portal Deployment mounts the platform's app-config fragment, passes it as `--config`, and
+that the fragment lists the installation under `agentPlatform.kagent.installations`.
 Values a shared template supplies on an installation — the Konfiguration ConfigMap a HelmRelease takes its
 values from — come from a stand-in per chart in `render/agentplatform/testdata/consumption/<chart>.values.yaml`,
 carrying only the Secret-selecting values and what the chart refuses to render without.
@@ -82,8 +100,8 @@ version); the org's Renovate preset bumps each `version:` through its `registry:
 the definition does not carry, and the fleet base has the same ceiling. The test asserts each pin lies in the
 range the OCIRepository follows. A shape whose input lifts `chart.semver` to a line the pin file does not carry
 (the Giant Swarm-owned shape asks for 4.x) renders that line's values and is skipped naming the reason: it is
-not proven here. backstage is not pinned: the definition renders no portal files yet, so no emitted Secret has
-the portal as its consumer. An emitted Secret a consumer does not read because of a tracked defect in the
+not proven here; klaus-gateway and cluster-manager, offered to Giant Swarm-owned installations only, are pinned
+for the day such a shape stays on the pinned line. An emitted Secret a consumer does not read because of a tracked defect in the
 consumer is listed in `known-gaps.yaml` with its issue: the test reports it instead of failing, and fails once
 the Secret is read so the entry leaves with the fix.
 

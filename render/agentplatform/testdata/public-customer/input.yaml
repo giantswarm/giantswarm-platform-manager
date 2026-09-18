@@ -1,5 +1,6 @@
 # A public customer installation: invented names, placeholder values. The hub
-# "heron" federates into it; two portal instances sign people in on it.
+# "heron" federates into it; two portal instances sign people in on it; its own
+# portal offers a skills repository and the AI chat on the portal's Anthropic key.
 input:
   installation:
     name: kestrel
@@ -19,6 +20,12 @@ input:
     clientIds:
       - portal-client-id-one
       - portal-client-id-two
+    skillsRepositories:
+      - https://github.com/oakridge-example/agent-skills
+    aiChat:
+      enabled: true
+      model: example-model-medium
+      provider: anthropic
   toolAccess:
     agentManager:
       enabled: true

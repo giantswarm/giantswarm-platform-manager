@@ -1,0 +1,11 @@
+# Stands in for the portal's own values (the customer-portal definition's
+# app-config and user-values ConfigMaps, not in this repository) under the
+# platform's values ConfigMap: what the chart needs to render a Deployment.
+# Invented values.
+name: backstage
+backstage:
+  appConfig: |
+    app:
+      baseUrl: https://backstage.example.test
+    backend:
+      baseUrl: https://backstage.example.test

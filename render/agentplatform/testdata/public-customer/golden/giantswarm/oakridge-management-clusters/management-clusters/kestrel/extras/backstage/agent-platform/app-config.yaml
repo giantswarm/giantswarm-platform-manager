@@ -1,0 +1,35 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-platform-app-config-backstage
+  namespace: backstage
+data:
+  app-config.agent-platform.yaml: |
+    app:
+      extensions:
+        $include: shared-config.yaml#extensionsAgentPlatform
+    agentPlatform:
+      fluxServiceAccountName: kagent-flux
+      kagent:
+        installations:
+          kestrel: {}
+      skills:
+        repositories:
+          - https://github.com/oakridge-example/agent-skills
+    muster:
+      installations:
+        - name: kestrel
+          url: https://muster.kestrel.oakridge.example/mcp
+          authProvider: oidc-kestrel
+    aiChat:
+      model: example-model-medium
+      anthropic:
+        apiKey: $${ANTHROPIC_API_KEY}
+      mcp:
+        - name: muster
+          url: https://muster.kestrel.oakridge.example/mcp
+          authProvider: oidc-kestrel
+    mcpActions:
+      namespacedToolNames: false

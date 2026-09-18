@@ -62,6 +62,10 @@ type Include struct {
 	Repository Repository
 	Path       string
 	Resource   string
+	// Component says the entry is a kustomize Component and belongs under the
+	// kustomization's components list, not its resources: a directory that
+	// patches objects the listing kustomization composes.
+	Component bool
 }
 
 // Result is what a definition renders for one installation.
@@ -151,6 +155,12 @@ func (r *Result) Add(repo Repository, path string, f File) {
 // Include records an entry a shared kustomization must carry.
 func (r *Result) Include(repo Repository, path, resource string) {
 	r.Includes = append(r.Includes, Include{Repository: repo, Path: path, Resource: resource})
+}
+
+// IncludeComponent records a kustomize Component a shared kustomization must
+// list under components.
+func (r *Result) IncludeComponent(repo Repository, path, component string) {
+	r.Includes = append(r.Includes, Include{Repository: repo, Path: path, Resource: component, Component: true})
 }
 
 // Len is the number of files across every repository.

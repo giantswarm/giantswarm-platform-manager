@@ -1,0 +1,25 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - app-config.yaml
+  - values.yaml
+  - google-credentials.enc.yaml
+patches:
+  - patch: |
+      - op: add
+        path: /spec/valuesFrom/-
+        value:
+          kind: ConfigMap
+          name: agent-platform-values-backstage
+          valuesKey: values
+      - op: add
+        path: /spec/valuesFrom/-
+        value:
+          kind: Secret
+          name: agent-platform-google-credentials-backstage
+          valuesKey: values
+    target:
+      kind: HelmRelease
+      name: backstage

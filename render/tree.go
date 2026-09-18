@@ -8,8 +8,9 @@ import (
 
 // The entries of a Tree beside the rendered files: IncludesFile lists the
 // shared kustomization entries the Result asks for, one per line as
-// "<owner>/<repo>:<path> <resource>", sorted; ProbesFile and ActionsFile carry
-// the probes and the customer actions as YAML data.
+// "<owner>/<repo>:<path> <list> <resource>" where <list> is resources or
+// components, sorted; ProbesFile and ActionsFile carry the probes and the
+// customer actions as YAML data.
 const (
 	IncludesFile = "includes.txt"
 	ProbesFile   = "probes.yaml"
@@ -29,7 +30,11 @@ func (r *Result) Tree() map[string][]byte {
 	}
 	includes := make([]string, 0, len(r.Includes))
 	for _, inc := range r.Includes {
-		includes = append(includes, string(inc.Repository)+":"+inc.Path+" "+inc.Resource)
+		list := "resources"
+		if inc.Component {
+			list = "components"
+		}
+		includes = append(includes, string(inc.Repository)+":"+inc.Path+" "+list+" "+inc.Resource)
 	}
 	sort.Strings(includes)
 	out[IncludesFile] = []byte(strings.Join(includes, "\n") + "\n")

@@ -41,6 +41,7 @@ func TestRenderConsumption(t *testing.T) {
 const (
 	consumptionDir = "testdata/consumption"
 	kindSecret     = "Secret"
+	kindConfigMap  = "ConfigMap"
 	kindHelmRel    = "HelmRelease"
 	kindOCIRepo    = "OCIRepository"
 	fieldSpec      = "spec"
@@ -226,6 +227,10 @@ type consumption struct {
 	emitted map[string]emittedSecret
 	refs    []secretRef
 	volumes []volumeRef
+	// rendered are the releases templated so far; configMaps the emitted
+	// ConfigMaps releases took values from.
+	rendered   []*release
+	configMaps []object
 }
 
 // knownGap is one entry of known-gaps.yaml: an emitted Secret a consuming chart
@@ -284,6 +289,11 @@ func consume(t *testing.T, shape string, charts *chartStore) {
 	if err != nil || len(extras) == 0 {
 		t.Fatalf("no extras directories rendered (%v)", err)
 	}
+	// The portal first: a shape whose meta chart line the pin file does not
+	// carry is skipped at the meta chart, and its portal is proven before that.
+	if in.Portal.Enabled {
+		c.backstage()
+	}
 	for _, k := range extras {
 		c.extras(filepath.Dir(k))
 	}
@@ -296,9 +306,15 @@ func consume(t *testing.T, shape string, charts *chartStore) {
 // extras builds one emitted extras directory over the fleet base and renders
 // every HelmRelease it yields; the meta chart's children are rendered in turn.
 func (c *consumption) extras(dir string) {
-	objects := decode(c.t, run(c.t, "kustomize", "build", dir))
+	c.build(decode(c.t, run(c.t, "kustomize", "build", dir)))
+}
+
+// build records the emitted Secrets among built objects and renders every
+// HelmRelease they carry, the children of a meta chart in turn.
+func (c *consumption) build(objects []object) {
 	for _, o := range objects {
-		if o.kind() == kindSecret {
+		switch o.kind() {
+		case kindSecret:
 			s := emittedSecret{ns: o.namespace(""), name: o.name(), keys: map[string]bool{}}
 			for _, field := range []string{"stringData", "data"} {
 				for k := range mapOf(get(o, field)) {
@@ -306,6 +322,8 @@ func (c *consumption) extras(dir string) {
 				}
 			}
 			c.emitted[s.String()] = s
+		case kindConfigMap:
+			c.configMaps = append(c.configMaps, o)
 		}
 	}
 	pending := c.helmReleases(objects, true)
@@ -317,7 +335,108 @@ func (c *consumption) extras(dir string) {
 	}
 }
 
+// backstage renders the developer portal the way its tree composes it:
+// the portal's own directory over the fleet base, standing in for the
+// customer-portal definition's files with the one patch that gives the
+// HelmRelease its values sources, and the platform's Component listed next to
+// it. The Component's patch appends the platform's values and its Vertex
+// credentials to those sources; the chart then mounts the platform's
+// app-config fragment and passes it as a --config file.
+func (c *consumption) backstage() {
+	t := c.t
+	host := c.in.portalHost()
+	component, err := filepath.Glob(filepath.Join(c.dir, "giantswarm", "*-management-clusters", "management-clusters", host, "extras", "backstage", portalDir))
+	if err != nil || len(component) != 1 {
+		t.Fatalf("portal enabled but no %s directory rendered under the host's extras/backstage (%v)", portalDir, err)
+	}
+	tree := filepath.Join(c.dir, "portal")
+	portal := filepath.Join(tree, "backstage")
+	if err := os.MkdirAll(portal, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	standIn := "resources:\n  - " + basesRepository + "backstage/main?ref=main\n" +
+		"patches:\n  - patch: |\n      apiVersion: helm.toolkit.fluxcd.io/v2\n      kind: HelmRelease\n      metadata:\n        name: backstage\n        namespace: flux-giantswarm\n" +
+		"      spec:\n        valuesFrom:\n          - kind: ConfigMap\n            name: user-values-backstage\n            valuesKey: values\n" +
+		"    target:\n      kind: HelmRelease\n      name: backstage\n"
+	if err := os.WriteFile(filepath.Join(portal, "kustomization.yaml"), []byte(standIn), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	relative, err := filepath.Rel(tree, component[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tree, "kustomization.yaml"), []byte("resources:\n  - ./backstage/\ncomponents:\n  - "+relative+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	objects := decode(t, run(t, "kustomize", "build", tree))
+	c.build(objects)
+	for _, rel := range c.rendered {
+		if rel.chart.Name != "backstage" {
+			continue
+		}
+		c.assertPortalFragment(rel)
+		return
+	}
+	t.Fatalf("the portal tree yielded no backstage release")
+}
+
+// assertPortalFragment checks the rendered portal reads the platform's
+// app-config fragment: the Deployment mounts the emitted ConfigMap and passes
+// the file as --config, and the fragment names this installation's kagent.
+func (c *consumption) assertPortalFragment(rel *release) {
+	t := c.t
+	mounted, arg := false, false
+	for _, o := range rel.objects {
+		for _, pod := range podSpecs(map[string]any(o)) {
+			for _, v := range list(pod["volumes"]) {
+				if str(get(v, "configMap", fieldName)) == portalAppConfigMap {
+					mounted = true
+				}
+			}
+			for _, ctr := range list(pod["containers"]) {
+				for _, a := range list(get(ctr, "args")) {
+					if str(a) == portalAppConfigFile {
+						arg = true
+					}
+				}
+			}
+		}
+	}
+	if !mounted || !arg {
+		t.Errorf("backstage %s: the platform's app-config fragment is not consumed: ConfigMap %s mounted %v, --config %s passed %v", rel.chart.Version, portalAppConfigMap, mounted, portalAppConfigFile, arg)
+	}
+	fragment := c.renderedConfigMap(portalAppConfigMap)
+	var cfg map[string]any
+	if err := yaml.Unmarshal([]byte(str(get(fragment, "data", portalAppConfigFile))), &cfg); err != nil {
+		t.Fatalf("the platform's app-config fragment is not YAML: %v", err)
+	}
+	if c.in.Kagent.Enabled && get(cfg, "agentPlatform", "kagent", "installations", c.in.Installation.Name) == nil {
+		t.Errorf("the platform's app-config fragment does not list this installation under agentPlatform.kagent.installations")
+	}
+}
+
+// renderedConfigMap is an emitted ConfigMap the fileset must carry.
+func (c *consumption) renderedConfigMap(name string) object {
+	o := c.emittedConfigMap(name)
+	if o == nil {
+		c.t.Fatalf("ConfigMap %s was not rendered", name)
+	}
+	return o
+}
+
 func mapOf(v any) map[string]any { m, _ := v.(map[string]any); return m }
+
+// emittedConfigMap is an emitted ConfigMap by name — a HelmRelease's values
+// source of the definition's own, rendered with its data — or nil when the
+// ConfigMap is a shared template's, not in the fileset.
+func (c *consumption) emittedConfigMap(name string) object {
+	for _, o := range c.configMaps {
+		if o.name() == name {
+			return o
+		}
+	}
+	return nil
+}
 
 // helmReleases turns the HelmReleases among objects into releases to render:
 // chart and pin from the OCIRepository they reference, values from spec.values
@@ -371,7 +490,15 @@ func (c *consumption) helmReleases(objects []object, fleet bool) []*release {
 			rel.ns = hr.namespace("")
 		}
 		for _, vf := range list(get(hr, fieldSpec, "valuesFrom")) {
-			if str(get(vf, fieldKind)) != "ConfigMap" {
+			if str(get(vf, fieldKind)) != kindConfigMap {
+				continue
+			}
+			if emitted := c.emittedConfigMap(str(get(vf, fieldName))); emitted != nil {
+				key := str(get(vf, "valuesKey"))
+				if key == "" {
+					key = "values.yaml"
+				}
+				rel.values = append(rel.values, c.writeValues(emitted.name(), []byte(str(get(emitted, "data", key)))))
 				continue
 			}
 			standIn := filepath.Join(consumptionDir, chart+".values.yaml")
@@ -450,6 +577,7 @@ func (c *consumption) template(rel *release) {
 	out := run(c.t, "helm", append([]string{"template", rel.name, c.charts.pull(c.t, rel.chart), "-n", rel.ns}, flags(rel.values)...)...)
 	rel.text = string(out)
 	rel.objects = decode(c.t, out)
+	c.rendered = append(c.rendered, rel)
 	for _, o := range rel.objects {
 		c.collect(rel, o)
 	}

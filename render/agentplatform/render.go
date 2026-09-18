@@ -3,12 +3,13 @@
 // in, the files of its configs and management-clusters repositories out, with
 // the probes of the running installation and the customer's actions as data.
 //
-// This version renders a public or private installation's own platform: the
-// agent-platform configmap patch, the dex-app configmap patch with every Dex
-// client as a plaintext entry referencing a Secret, the extras/agent-platform
-// tree and the extras of the installation's own MCP servers. It refuses, naming
-// the input, what it does not render yet: the hub outputs of federation.targets,
-// the portal's files and the klaus-gateway and cluster-manager components.
+// It renders a public or private installation's own platform: the
+// agent-platform configmap patch with the components the policy offers, the
+// dex-app configmap patch with every Dex client as a plaintext entry
+// referencing a Secret, the extras/agent-platform tree, the extras of the
+// installation's own MCP servers and the platform's section of the developer
+// portal. It refuses, naming the input, what it does not render yet: the hub
+// outputs of federation.targets.
 package agentplatform
 
 import (
@@ -32,12 +33,6 @@ func Render(raw any, secrets map[string]string) (*render.Result, error) {
 	if err := in.check(secrets); err != nil {
 		return nil, err
 	}
-	if in.KlausGateway != nil && in.KlausGateway.Enabled {
-		return nil, fmt.Errorf("%w: klausGateway (the chat gateway component)", ErrNotRendered)
-	}
-	if in.ClusterManager != nil && in.ClusterManager.Enabled {
-		return nil, fmt.Errorf("%w: clusterManager (the cluster-manager component)", ErrNotRendered)
-	}
 
 	name := in.Installation.Name
 	configs := render.Repository("giantswarm/" + in.Installation.Customer + "-configs")
@@ -56,6 +51,11 @@ func Render(raw any, secrets map[string]string) (*render.Result, error) {
 	for _, s := range servers {
 		s.extras(r, clusters, extras+s.name)
 		r.Include(clusters, extras+"kustomization.yaml", "./"+s.name+"/")
+	}
+	if in.Portal.Enabled {
+		backstage := "management-clusters/" + in.portalHost() + "/extras/backstage/"
+		in.portalFiles(r, clusters, backstage+portalDir, secrets)
+		r.IncludeComponent(clusters, backstage+"kustomization.yaml", "./"+portalDir+"/")
 	}
 	r.Probes = in.probes()
 	r.Actions = in.actions()
@@ -102,7 +102,7 @@ func (in *Input) configmapPatch() render.Map {
 	if in.AgentSandbox != nil {
 		components = append(components, e("agent-sandbox", render.Map{e("enabled", in.AgentSandbox.Enabled)}))
 	}
-	m = append(m, e("components", components))
+	m = append(m, e("components", in.componentToggles(components)))
 
 	if in.Kagent.Enabled {
 		postgres := render.Map{e("enabled", true)}
@@ -126,13 +126,9 @@ func (in *Input) configmapPatch() render.Map {
 		m = append(m, e("agent-platform-mcps", render.Map{e("mcpServers", list)}))
 	}
 	if in.ToolAccess.AgentManager.Enabled && in.Installation.ChartLine == "3" {
-		m = append(m, e("agent-manager", render.Map{e("oauth", render.Map{
-			e("baseURL", "https://"+in.host("agentgateway")+"/agent-manager"),
-			e("dex", render.Map{e("issuerURL", "https://"+in.host("dex")), e("clientID", in.Installation.MusterClientID)}),
-			e("existingSecret", in.Secrets.MusterOAuth),
-			e("trustedAudiences", []string{in.Installation.MusterClientID}),
-		})}))
+		m = append(m, e("agent-manager", render.Map{e("oauth", in.managerOAuth("agent-manager"))}))
 	}
+	m = in.componentValues(m)
 	m = append(m, e("valkey", render.Map{e("valkey", render.Map{e("auth", render.Map{
 		e("usersExistingSecret", in.Secrets.MusterValkey),
 		e("aclUsers", render.Map{e("default", render.Map{e("passwordKey", "valkey-password")})}),
@@ -277,7 +273,7 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 	}
 	r.Add(repo, dir+"/kustomization.yaml", yamlFile(k))
 
-	team := map[string]string{"application.giantswarm.io/team": "bumblebee"}
+	team := teamLabels
 	files := render.Map{}
 	add := func(file string, f render.File) {
 		files = append(files, e(file, nil))
@@ -317,6 +313,10 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 				render.ValueKey("client-secret", secrets[field+".client-secret"])))
 		}
 	}
+	if token := secrets[fieldSkillsToken]; token != "" {
+		add(skillsTokenFile, render.Secret(skillsTokenSecret, kagentNamespace, team, render.ValueKey("token", token)))
+	}
+	in.componentSecrets(add, secrets)
 	names := make([]string, 0, len(files))
 	for _, f := range files {
 		names = append(names, f.Key)

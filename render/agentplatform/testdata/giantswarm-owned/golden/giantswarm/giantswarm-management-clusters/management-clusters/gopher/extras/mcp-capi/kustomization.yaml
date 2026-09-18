@@ -6,3 +6,4 @@ resources:
   - https://github.com/giantswarm/management-cluster-bases//extras/mcp-capi?ref=main
   - oauth-credentials.enc.yaml
   - valkey-credentials.enc.yaml
+  - dex-client-mcp-capi-secret.yaml

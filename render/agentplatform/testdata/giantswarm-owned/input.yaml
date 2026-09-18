@@ -1,6 +1,8 @@
 # A Giant Swarm-owned installation: the login connector pinned, a managed model
 # key, an additional model, in-cluster agents trusted through the cluster's
-# service-account issuer, the chart range lifted. Invented names, placeholder values.
+# service-account issuer, the chart range lifted, the chat gateway and the
+# cluster-manager the policy offers, a portal with a private skills repository
+# and the AI chat on Vertex. Invented names, placeholder values.
 input:
   installation:
     name: gopher
@@ -40,6 +42,16 @@ input:
     enabled: true
     clientIds:
       - portal-client-id-home
+    skillsRepositories:
+      - https://github.com/example-org/agent-skills
+      - https://github.com/example-org/private-skills
+    aiChat:
+      enabled: true
+      model: example-model-large
+      provider: vertex
+      google:
+        project: example-project
+        location: example-location1
   toolAccess:
     agentManager:
       enabled: true
@@ -62,5 +74,33 @@ input:
         memory: 256Mi
       limits:
         memory: 1Gi
+  klausGateway:
+    enabled: true
+    slack:
+      mode: events
+      channelMode: allowlist
+      channelAllowlist:
+        - CEXAMPLE00001
+    obo:
+      connectors: true
+    a2a:
+      enabled: true
+      defaultAgent: example-agent
+      saTokenAudience: kagent
+    reviews:
+      enabled: true
+      allowedCallers:
+        - system:serviceaccount:giantswarm-platform-manager:giantswarm-platform-manager
+  clusterManager:
+    enabled: true
+    networkPolicy:
+      workloadClusterFqdnPatterns:
+        - "api.*.gopher.example.io"
+      egressFqdns:
+        - matchName: registry.example.io
 secrets:
   kagent.modelKey: PLACEHOLDER-MODEL-KEY
+  klausGateway.slack.bot-token: PLACEHOLDER-SLACK-BOT-TOKEN
+  klausGateway.slack.signing-secret: PLACEHOLDER-SLACK-SIGNING-SECRET
+  portal.aiChat.google.credentialsJson: PLACEHOLDER-GOOGLE-CREDENTIALS-JSON
+  portal.skillsToken: PLACEHOLDER-SKILLS-TOKEN
