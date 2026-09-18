@@ -61,9 +61,14 @@ type Deps struct {
 	// Registry names the installations catalog and the hub installation
 	// list_installations reads the registry from, as the caller.
 	Registry installations.Sources
-	// Actions reads the Action records on the hub; nil when the manager
-	// runs without the hub's API server, and get_action/list_actions say so.
-	Actions actions.Reader
+	// Actions reads and writes the Action records on the hub; nil when the
+	// manager runs without the hub's API server, and get_action,
+	// list_actions and mode commit say so.
+	Actions actions.Store
+	// Remote opens the git remote a commit lands on, with the caller's
+	// token: GitHub in production (GitHubRemote), gitops-commit's Fake in
+	// tests. nil refuses mode commit naming the configuration.
+	Remote RemoteFactory
 	// Probes sends verify_capability's anonymous HTTP probes; nil is a
 	// client with a timeout that does not follow redirects.
 	Probes *http.Client

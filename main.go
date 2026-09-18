@@ -75,15 +75,15 @@ func main() {
 
 // run wires the components and serves until ctx is done.
 func run(ctx context.Context, o *options, log *slog.Logger) error {
-	deps := tools.Deps{Version: version(), GitHubAPIURL: o.githubAPIURL, Log: log,
+	deps := tools.Deps{Version: version(), GitHubAPIURL: o.githubAPIURL, Log: log, Remote: tools.GitHubRemote(o.githubAPIURL),
 		Approvals: tools.Approvals{GatewayURL: o.approvalsURL, Channel: o.approvalsChannel},
 		Registry:  installations.Sources{Catalog: installations.Location{Repository: o.registryRepository, Path: o.registryPath}, Hub: o.hub}}
 	if o.actionsNamespace != "" {
-		reader, err := actions.InCluster(o.actionsNamespace)
+		store, err := actions.InCluster(o.actionsNamespace)
 		if err != nil {
 			return err
 		}
-		deps.Actions = reader
+		deps.Actions = store
 	}
 	cfg := server.Config{Addr: o.listen, MCPPath: o.mcpPath}
 	if o.oauthEnabled {

@@ -3,6 +3,7 @@ package e2e
 import (
 	"encoding/base64"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -15,7 +16,8 @@ import (
 
 // fakeGitHub answers the calls of the identity chain and the registry reads:
 // GET /user as the person — the bearer verification — and GET
-// /repos/{owner}/{repo}/contents/{path} for the fixture repositories. A
+// /repos/{owner}/{repo}/contents/{path} for the fixture repositories, and
+// GET /repos/{owner}/{repo} naming their default branch. A
 // repository that is not a fixture is 404 (as GitHub answers for one the
 // person may not see), one in forbidden is 403, a missing file 404. Every
 // other path is 404.
@@ -36,6 +38,9 @@ type fakeGitHub struct {
 // message is the key of GitHub's error bodies.
 const message = "message"
 
+// defaultBranch is every fixture repository's default branch.
+const defaultBranch = "main"
+
 func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 	t.Helper()
 	g := &fakeGitHub{logins: logins, files: map[string]map[string]string{}, forbidden: map[string]bool{}, contentsCalls: map[string]int{}}
@@ -48,6 +53,23 @@ func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"login": login, "id": userID(login)})
+	})
+	mux.HandleFunc("GET /api/v3/repos/{owner}/{repo}", func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := g.logins[bearer(r)]; !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{message: "Bad credentials"})
+			return
+		}
+		repo := r.PathValue("owner") + "/" + r.PathValue("repo")
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		switch {
+		case g.forbidden[repo]:
+			writeJSON(w, http.StatusForbidden, map[string]any{message: "Resource not accessible by integration"})
+		case g.files[repo] == nil:
+			writeJSON(w, http.StatusNotFound, map[string]any{message: "Not Found"})
+		default:
+			writeJSON(w, http.StatusOK, map[string]any{"full_name": repo, "default_branch": defaultBranch})
+		}
 	})
 	mux.HandleFunc("GET /api/v3/repos/{owner}/{repo}/contents/{path...}", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := g.logins[bearer(r)]; !ok {
@@ -81,6 +103,24 @@ func (g *fakeGitHub) addRepo(repo string, files map[string]string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.files[repo] = files
+}
+
+// addFile adds one file to the fixture owner/repo.
+func (g *fakeGitHub) addFile(repo, p, content string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.files[repo][p] = content
+}
+
+// repos are the fixture repositories with their files, for seeding a remote.
+func (g *fakeGitHub) repos() map[string]map[string]string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	out := map[string]map[string]string{}
+	for repo, files := range g.files {
+		out[repo] = maps.Clone(files)
+	}
+	return out
 }
 
 // forbid makes every read of owner/repo a 403.

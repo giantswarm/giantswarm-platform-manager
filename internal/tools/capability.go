@@ -41,9 +41,23 @@ type CapabilityResult struct {
 	Installations []plan.Installation `json:"installations"`
 	PullRequests  []plan.PullRequest  `json:"pullRequests"`
 	Skipped       []Skipped           `json:"skipped"`
-	// Commit says what mode commit does with this plan; slice 13 delivers it.
+	// Commit says what mode commit does with this plan.
 	Commit string `json:"commit"`
 }
+
+// planned is what the render leaves behind for the commit: the caller's
+// client, the hub, the reports and the effective inputs per installation.
+type planned struct {
+	c       *github.Client
+	hub     installations.Installation
+	byName  map[string]installations.Installation
+	reports map[string]installations.Report
+	inputs  map[string]map[string]any
+}
+
+// commitNext says what mode commit does with a dry run, word for word.
+const commitNext = `mode "commit" with installation (one installation) opens the pull requests above as you, in this order, and records the Action on the hub in pending approval; ` +
+	`secrets carries the values of suppliedSecrets by field, and no value leaves the encrypted files`
 
 // Skipped is an installation of the set the dry run did not render, and why.
 type Skipped struct {
@@ -67,6 +81,7 @@ func capabilityOptions() []mcp.ToolOption {
 		mcp.WithString(ArgCapability, mcp.Description(`The capability; "agent-platform" is the one there is (the default).`), mcp.Enum(installations.AgentPlatform)),
 		mcp.WithObject(ArgInputs, mcp.Description("The typed inputs of the definition (get_info lists the schema), merged over the facts on record: a typed installation.* key overrides the record; an unknown key, and a required section or choice left out, refuse with its name — the schema is the contract, nothing is chosen for you. Never a secret value.")),
 		mcp.WithBoolean(ArgContent, mcp.Description("Include the rendered content of every file (default true); false answers paths and changes only.")),
+		mcp.WithObject(ArgSecrets, mcp.Description("mode commit only: the secret values the plan's suppliedSecrets name, by field. They land inside the encrypted files and nowhere else — not in the Action, not in a log, not in an answer.")),
 	}
 }
 
@@ -76,6 +91,9 @@ func (t *Tools) enableCapabilityTool() WriteTool {
 		Options:     capabilityOptions(),
 		DryRun: func(ctx context.Context, args map[string]any) (any, error) {
 			return t.capabilityDryRun(ctx, ToolEnableCapability, args)
+		},
+		Commit: func(ctx context.Context, args map[string]any) (any, error) {
+			return t.capabilityCommit(ctx, ToolEnableCapability, args)
 		}}
 }
 
@@ -85,24 +103,38 @@ func (t *Tools) reconcileCapabilityTool() WriteTool {
 		Options:     capabilityOptions(),
 		DryRun: func(ctx context.Context, args map[string]any) (any, error) {
 			return t.capabilityDryRun(ctx, ToolReconcileCapability, args)
+		},
+		Commit: func(ctx context.Context, args map[string]any) (any, error) {
+			return t.capabilityCommit(ctx, ToolReconcileCapability, args)
 		}}
 }
 
-// capabilityDryRun is the dry run of both tools: the render over one
-// installation or a set, every read as the caller.
+// capabilityDryRun is the dry run of both tools: the plan, and nothing else.
 func (t *Tools) capabilityDryRun(ctx context.Context, tool string, args map[string]any) (any, error) {
+	out, _, err := t.capabilityPlan(ctx, tool, args)
+	if err != nil {
+		return nil, err
+	}
+	t.d.Log.Info(tool, identity.LogAttr(ctx), "dryRun", true, "installations", len(out.Installations), "skipped", len(out.Skipped), "pullRequests", len(out.PullRequests))
+	return out, nil
+}
+
+// capabilityPlan is the render of both tools over one installation or a set,
+// every read as the caller: the dry run's answer, and what a commit of it
+// needs.
+func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string]any) (*CapabilityResult, *planned, error) {
 	token, ok := identity.TokenFromContext(ctx)
 	if !ok {
-		return nil, errors.New(tool + " needs a caller: the request carried no GitHub user token to read the registry and the installations' repositories as; " + identity.SignIn)
+		return nil, nil, errors.New(tool + " needs a caller: the request carried no GitHub user token to read the registry and the installations' repositories as; " + identity.SignIn)
 	}
 	capability, err := capabilityArg(args)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	one, _ := args[ArgInstallation].(string)
 	set := stringSlice(args[ArgInstallations])
 	if one == "" && tool == ToolEnableCapability && len(set) == 0 {
-		return nil, fmt.Errorf("%s needs %s (one installation) or %s (a set)", tool, ArgInstallation, ArgInstallations)
+		return nil, nil, fmt.Errorf("%s needs %s (one installation) or %s (a set)", tool, ArgInstallation, ArgInstallations)
 	}
 	inputs, _ := args[ArgInputs].(map[string]any)
 	content := true
@@ -112,11 +144,11 @@ func (t *Tools) capabilityDryRun(ctx context.Context, tool string, args map[stri
 
 	c, err := gh.AsPerson(t.d.GitHubAPIURL, token)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	reg, err := t.registry(ctx, c)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	wanted := set
 	if one != "" {
@@ -124,7 +156,7 @@ func (t *Tools) capabilityDryRun(ctx context.Context, tool string, args map[stri
 	}
 	selected, err := reg.Select(wanted, "")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	hub, _ := reg.Find(reg.Hub)
 	byName := map[string]installations.Installation{}
@@ -134,18 +166,20 @@ func (t *Tools) capabilityDryRun(ctx context.Context, tool string, args map[stri
 	caps := installations.Capabilities()
 	reports := installations.InspectAll(ctx, c, selected, caps)
 	out := CapabilityResult{Caller: identity.Caller(ctx), Tool: tool, Capability: capability, Hub: reg.Hub, DryRun: true,
-		Order: []string{}, Installations: []plan.Installation{}, PullRequests: []plan.PullRequest{}, Skipped: []Skipped{},
-		Commit: `mode "commit" opens the pull requests above as you, in this order, and records the Action on the hub — delivered by a later version; today it answers not implemented`}
+		Order: []string{}, Installations: []plan.Installation{}, PullRequests: []plan.PullRequest{}, Skipped: []Skipped{}, Commit: commitNext}
+	env := &planned{c: c, hub: hub, byName: byName, reports: map[string]installations.Report{}, inputs: map[string]map[string]any{}}
 	read := readAs(c)
 	for _, r := range waveOrder(reports, hub) {
+		env.reports[r.Name] = r
 		if skip, ok := skipped(r, r.Name == one); ok {
 			out.Skipped = append(out.Skipped, skip)
 			continue
 		}
 		merged, err := mergeInputs(r.Record, inputs)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
+		env.inputs[r.Name] = merged
 		p := plan.Build(ctx, plan.Options{Installation: r.Installation, Hub: hub, Inputs: merged, Content: content, Read: read})
 		p.State = capabilityState(r, capability)
 		p.OptIn = r.OptIn
@@ -156,8 +190,7 @@ func (t *Tools) capabilityDryRun(ctx context.Context, tool string, args map[stri
 		out.Installations = append(out.Installations, p)
 	}
 	out.PullRequests = plan.PullRequests(out.Installations, byName, hub)
-	t.d.Log.Info(tool, identity.LogAttr(ctx), "dryRun", true, "installations", len(out.Installations), "skipped", len(out.Skipped), "pullRequests", len(out.PullRequests))
-	return out, nil
+	return &out, env, nil
 }
 
 // capabilityArg is the capability named in args, the one there is by default.
