@@ -33,7 +33,7 @@
           "description": "The meta chart line the installation runs (agentPlatform.kagentApiV2 in config.yaml.patch selects 4). On the 4 line the managers derive issuer, client and secret from the template's global.identity block and the manager oauth keys are not rendered.",
           "x-source": "registry", "x-feature": "runtime", "x-renders": []
         },
-        "musterClientId": {"type": "string", "description": "The platform's Dex client id (services.muster.clientId). The template renders it; the definition never writes it into a patch.", "x-source": "registry", "x-feature": "identity", "x-renders": []}
+        "musterClientId": {"type": "string", "minLength": 1, "description": "The platform's Dex client id: services.muster.clientId of the installation's config.yaml.patch, else the shared default's. The template renders it; the definition never writes it into a patch, and an empty id refuses.", "x-source": "registry", "x-feature": "identity", "x-renders": []}
       }
     },
     "secrets": {
@@ -196,7 +196,7 @@
             "google": {"type": "object", "additionalProperties": false, "required": ["project", "location"], "properties": {"project": {"type": "string"}, "location": {"type": "string"}}}
           },
           "x-source": "person", "x-feature": "portal",
-          "x-renders": ["backstage:app-config:aiChat", "backstage:app-config:mcpActions.namespacedToolNames", "backstage:user-values:google", "backstage:file:google-credentials.enc.yaml"]
+          "x-renders": ["backstage:app-config:aiChat", "backstage:app-config:mcpActions.namespacedToolNames", "backstage:user-values:google", "backstage:file:google-credentials.enc.yaml", "configmap:gateway.jwksEgress.enabled", "configmap:extraObjects[*]", "configmap:agent-platform-mcps.agentgateway.jwt.extraProviders[*]"]
         }
       }
     },
@@ -206,6 +206,12 @@
       "additionalProperties": false,
       "required": ["agentManager"],
       "properties": {
+        "privateURLs": {
+          "type": "boolean",
+          "description": "The installation's MCP servers reach Dex on private addresses: their OAuth issuer URL and SSO JWKS fetch may resolve to private IPs. Renders each server's user values and the ConfigMap its HelmRelease reads them from. Not derived from installation.private: a public installation with an internal Dex route needs it too.",
+          "x-source": "person", "x-feature": "tool-access",
+          "x-renders": ["extras:mcp-kubernetes/user-values.yaml", "extras:mcp-prometheus/user-values.yaml", "extras:mcp-capi/user-values.yaml", "extras:mcp-kubernetes/kustomization.yaml:configMapGenerator", "extras:mcp-prometheus/kustomization.yaml:configMapGenerator", "extras:mcp-capi/kustomization.yaml:configMapGenerator"]
+        },
         "agentManager": {
           "type": "object", "additionalProperties": false, "required": ["enabled"],
           "properties": {

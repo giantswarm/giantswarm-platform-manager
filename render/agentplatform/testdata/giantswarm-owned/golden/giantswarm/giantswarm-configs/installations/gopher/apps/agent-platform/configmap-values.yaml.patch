@@ -70,6 +70,24 @@ muster:
               - ""
             allowedClaims:
               sub: system:serviceaccount:kagent:*
+gateway:
+  jwksEgress:
+    enabled: true
+extraObjects:
+  - apiVersion: gateway.networking.k8s.io/v1beta1
+    kind: ReferenceGrant
+    metadata:
+      name: agentgateway-jwks-dex
+      namespace: giantswarm
+    spec:
+      from:
+        - group: agentgateway.dev
+          kind: AgentgatewayPolicy
+          namespace: agent-platform
+      to:
+        - group: ""
+          kind: Service
+          name: dex
 agent-platform-mcps:
   mcpServers:
     - cluster: gopher
@@ -97,7 +115,23 @@ agent-platform-mcps:
       timeout: 30
       auth:
         mode: forward
+  agentgateway:
+    jwt:
+      extraProviders:
+        - issuer: https://dex.gopher.example.io
+          audiences:
+            - portal-client-id-home
+          jwks:
+            remote:
+              backendRef:
+                name: dex
+                namespace: giantswarm
+                port: 5556
+              jwksPath: /keys
+              cacheDuration: 5m
 klausGateway:
+  routing:
+    store: valkey
   agentgatewayRoute:
     enabled: true
     hostname: agentgateway.gopher.example.io

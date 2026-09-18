@@ -29,6 +29,7 @@ input:
   toolAccess:
     agentManager:
       enabled: true
+    privateURLs: true
   federation:
     targets: []
     hubs:

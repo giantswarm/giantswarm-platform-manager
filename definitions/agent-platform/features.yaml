@@ -67,6 +67,7 @@ features:
       - {id: agent-manager, kind: configmap, key: components.agent-manager.enabled / agent-manager.oauth}
       - {id: own-mcp-servers, kind: configmap, key: agent-platform-mcps.mcpServers entries of the installation itself}
       - {id: own-mcp-kubernetes-url, kind: configmap, key: the installation's own mcp-kubernetes URL (in-cluster)}
+      - {id: own-mcp-private-urls, kind: extras, key: mcp-*/user-values.yaml and the ConfigMap the HelmRelease reads it from}
       - {id: live-own-mcp-servers, kind: live, key: MCPServer objects of the installation itself}
       - {id: live-muster-protected-resource, kind: live, key: muster's OAuth protected-resource metadata}
   federation:
@@ -89,6 +90,7 @@ features:
       - {id: portal-flux-service-account, kind: backstage, key: agentPlatform.fluxServiceAccountName}
       - {id: portal-skills-repositories, kind: backstage, key: agentPlatform.skills.repositories}
       - {id: portal-kagent-installations, kind: backstage, key: agentPlatform.kagent.installations}
+      - {id: portal-edge-jwt-provider, kind: configmap, key: gateway.jwksEgress / the ReferenceGrant in extraObjects / agent-platform-mcps.agentgateway.jwt.extraProviders (the chat's ID token at the edge on the 4 line)}
       - {id: portal-catalog, kind: backstage, key: catalog}
       - {id: portal-auth-extra-scopes, kind: backstage, key: gs.auth.extraScopes}
       - {id: portal-auth-provider, kind: backstage, key: gs.authProvider / auth.providers}
