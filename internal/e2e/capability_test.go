@@ -122,7 +122,7 @@ func TestEnableCapabilityDryRunRendersOneInstallation(t *testing.T) {
 	}
 	var muster bool
 	for _, d := range p.DexClients {
-		muster = muster || (d.ID == "muster" && d.Secret == "dex-client-muster")
+		muster = muster || (d.Client == "muster" && d.ID == "muster-rowan" && d.SecretRef == "dex-client-muster")
 	}
 	if !muster || len(p.SuppliedSecrets) != 0 || len(p.Probes) == 0 || len(p.Includes) == 0 || p.Includes[0].Repository != acmeMCs {
 		t.Fatalf("dex clients %+v, supplied %v, probes %d, includes %+v", p.DexClients, p.SuppliedSecrets, len(p.Probes), p.Includes)
@@ -165,7 +165,7 @@ func TestEnableCapabilityDryRunTypedInputs(t *testing.T) {
 		marker = marker || strings.Contains(f.Content, "SUPPLIED(kagent.modelKey)")
 	}
 	for _, d := range p.DexClients {
-		kagent = kagent || (d.ID == kagentKey && len(d.RedirectURIs) == 1 && strings.HasSuffix(d.RedirectURIs[0], "/oauth2/callback"))
+		kagent = kagent || (d.ID == kagentKey && d.SecretRef == "dex-client-kagent" && len(d.RedirectURIs) == 1 && strings.HasSuffix(d.RedirectURIs[0], "/oauth2/callback"))
 	}
 	if !marker || !kagent {
 		t.Fatalf("marker %v, kagent client %v: %+v", marker, kagent, p.DexClients)
