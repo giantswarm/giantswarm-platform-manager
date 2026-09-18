@@ -7,7 +7,11 @@
 #                       own Component next to the portal's files; this definition never writes it into them
 #   not-rendered        a section of the hub's Dev Portal (pages the hub serves over muster, the hub's incident,
 #                       proxy and scaffolder configuration); out of the definition until a hub shape exists
+#   off-value           a flag at the value it has when the key is absent; dropping it changes nothing
 removals:
+  # --- Backstage app-config.yaml: flags at their off value ---
+  - {key: "backstage:app-config:auth.experimentalClientIdMetadataDocuments", kind: off-value, reason: "an experimental flag of the auth backend at false, its value without the key"}
+
   # --- Backstage app-config.yaml: the agent-platform section ---
   - {key: "backstage:app-config:muster", kind: other-definition, reason: the platform's muster entries are the agent-platform Component's fragment}
   - {key: "backstage:app-config:agentPlatform", kind: other-definition, reason: the platform's section is the agent-platform Component's fragment}
@@ -23,9 +27,8 @@ removals:
   - {key: "backstage:app-config:roadmap", kind: not-rendered, reason: the hub's roadmap page through muster}
   - {key: "backstage:app-config:scaffolder", kind: not-rendered, reason: the hub's scaffolder}
   - {key: "backstage:app-config:gs.github", kind: not-rendered, reason: the hub's GitHub pages through muster}
-  - {key: "backstage:app-config:gs.clusterTokenBroker", kind: not-rendered, reason: the hub's token broker for the installations it federates}
   - {key: "backstage:app-config:gs.containerRegistry", kind: not-rendered, reason: the hub's registry access}
-  - {key: "backstage:app-config:gs.installations.<name>", kind: not-rendered, reason: an installation other than this one is the hub's registry of the installations it federates; this definition renders the installation's own entry only}
+  - {key: "backstage:app-config:gs.installations.<name>", kind: not-rendered, reason: an installation neither the portal's own nor listed under federation.installations is the hub's registry of every installation; this definition renders the entries of the installations the portal shows}
   - {key: "backstage:app-config:backend.actions", kind: not-rendered, reason: the hub's action plugin sources and filters}
   - {key: "backstage:app-config:backend.database", kind: not-rendered, reason: the hub runs on Postgres with its connection and plugin division; a customer portal runs on the in-memory database this definition renders}
 

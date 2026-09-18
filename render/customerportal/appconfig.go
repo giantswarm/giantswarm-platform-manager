@@ -32,10 +32,15 @@ func include(anchor string) render.Map {
 // fleet's substitution.
 func envVar(name string) string { return "$${" + name + "}" }
 
-// dexEnv is the chart's environment variable for the portal's Dex client
-// under the provider's name (dexAuthCredentials.<name>).
-func (in *Input) dexEnv(suffix string) string {
-	return envVar("AUTH_DEX_" + strings.ToUpper(in.Installation.Name) + "_" + suffix)
+// brokerCredentials is the dexAuthCredentials key of the token broker's
+// client; the chart exposes it as AUTH_DEX_MUSTER_BROKER_CLIENT_ID and
+// _CLIENT_SECRET.
+const brokerCredentials = "musterBroker"
+
+// dexEnv is the chart's environment variable for a Dex client under an
+// installation's name (dexAuthCredentials.<name>).
+func dexEnv(installation, suffix string) string {
+	return envVar("AUTH_DEX_" + strings.ToUpper(installation) + "_" + suffix)
 }
 
 // sentryReporter is the error reporter block of the app or the backend.
@@ -47,7 +52,6 @@ func sentryReporter(dsnEnv string) render.Map {
 
 // appConfig is backstage.appConfig of the app-config ConfigMap.
 func (in *Input) appConfig() render.Map {
-	provider := in.authProvider()
 	m := render.Map{
 		e("app", in.appSection()),
 		e("organization", render.Map{e("name", in.Portal.Organization)}),
@@ -64,18 +68,12 @@ func (in *Input) appConfig() render.Map {
 		e("techdocs", render.Map{e("builder", "local"), e("generator", render.Map{e("runIn", "local")}), e("publisher", render.Map{e("type", "local")})}),
 		e("kubernetes", render.Map{
 			e("serviceLocatorMethod", render.Map{e("type", "multiTenant")}),
-			e("clusterLocatorMethods", []render.Map{{
-				e("type", "config"),
-				e("clusters", []render.Map{{
-					e("name", in.Installation.Name), e("url", "https://"+in.host("happaapi")),
-					e("authProvider", "oidc"), e("oidcTokenProvider", provider)}}),
-			}}),
+			e("clusterLocatorMethods", []render.Map{{e("type", "config"), e("clusters", in.clusters())}}),
 		}),
 		e("auth", render.Map{
 			e("environment", "production"),
 			e("session", render.Map{e("secret", envVar("AUTH_SESSION_SECRET"))}),
-			e("providers", render.Map{e(provider, render.Map{
-				e("development", in.oidcProvider()), e("production", in.oidcProvider())})}),
+			e("providers", in.oidcProviders()),
 		}),
 	)
 	if in.Plugins.Grafana.Enabled {
@@ -139,22 +137,53 @@ func (in *Input) backendSection() render.Map {
 	return b
 }
 
-// oidcProvider is one environment of the portal's Dex provider.
-func (in *Input) oidcProvider() render.Map {
+// clusters are the Kubernetes cluster entries: one per installation the
+// portal shows, each read through the installation's own provider.
+func (in *Input) clusters() []render.Map {
+	var out []render.Map
+	for _, inst := range in.installations() {
+		out = append(out, render.Map{
+			e("name", inst.Name), e("url", "https://"+hostOn("happaapi", inst.BaseDomain)),
+			e("authProvider", "oidc"), e("oidcTokenProvider", render.PortalAuthProvider(inst.Name))})
+	}
+	return out
+}
+
+// oidcProviders are the Dex providers, each with its development and
+// production environment: one per installation the portal shows, or the
+// sign-in installation's alone where a token broker serves the others.
+func (in *Input) oidcProviders() render.Map {
+	providers := render.Map{}
+	for _, inst := range in.providerInstallations() {
+		providers = append(providers, e(render.PortalAuthProvider(inst.Name), render.Map{
+			e("development", oidcProvider(inst)), e("production", oidcProvider(inst))}))
+	}
+	return providers
+}
+
+// oidcProvider is one environment of an installation's Dex provider.
+func oidcProvider(inst FederatedInstallation) render.Map {
 	return render.Map{
-		e("metadataUrl", "https://"+in.host("dex")+"/.well-known/openid-configuration"),
-		e("clientId", in.dexEnv("CLIENT_ID")), e("clientSecret", in.dexEnv("CLIENT_SECRET")),
+		e("metadataUrl", "https://"+hostOn("dex", inst.BaseDomain)+"/.well-known/openid-configuration"),
+		e("clientId", dexEnv(inst.Name, "CLIENT_ID")), e("clientSecret", dexEnv(inst.Name, "CLIENT_SECRET")),
 	}
 }
 
-// gsSection is gs: the Giant Swarm plugin's sign-in provider, the home page's
-// resources where the portal has a support link, the installation it shows
-// (its region where it has one) and the shared groups and versions.
+// gsSection is gs: the Giant Swarm plugin's sign-in provider, the token
+// broker where one installation brokers cluster tokens for the others, the
+// home page's resources where the portal has a support link, the friendly
+// names, the installations it shows (each with its region where it has one
+// and its token audience where the broker is another) and the shared groups
+// and versions.
 func (in *Input) gsSection() render.Map {
-	provider := in.authProvider()
 	m := render.Map{
-		e("authProvider", provider),
+		e("authProvider", in.authProvider()),
 		e("auth", render.Map{e("extraScopes", include("auth.extraScopes"))}),
+	}
+	if broker := in.tokenBroker(); broker != "" {
+		m = append(m, e("clusterTokenBroker", render.Map{
+			e("clientId", envVar("AUTH_DEX_MUSTER_BROKER_CLIENT_ID")), e("clientSecret", envVar("AUTH_DEX_MUSTER_BROKER_CLIENT_SECRET")),
+			e("tokenUrl", "https://"+hostOn("muster", in.installation(broker).BaseDomain)+"/oauth/token")}))
 	}
 	if in.Portal.SupportURL != "" {
 		m = append(m, e("homepage", render.Map{e("resources", []render.Map{
@@ -163,17 +192,33 @@ func (in *Input) gsSection() render.Map {
 			{e("label", supportLabel), e("icon", "LiveHelp"), e("url", in.Portal.SupportURL)},
 		})}))
 	}
-	entry := render.Map{
-		e("authProvider", "oidc"), e("baseDomain", in.Installation.BaseDomain),
-		e("oidcTokenProvider", provider), e("pipeline", in.Installation.Pipeline),
-		e("providers", []string{in.Installation.Provider}),
+	if len(in.Portal.FriendlyLabels) > 0 {
+		m = append(m, e("friendlyLabels", in.Portal.FriendlyLabels))
 	}
-	if in.Installation.Region != "" {
-		entry = append(entry, e("region", in.Installation.Region))
+	if len(in.Portal.FriendlyAnnotations) > 0 {
+		m = append(m, e("friendlyAnnotations", in.Portal.FriendlyAnnotations))
+	}
+	entries := render.Map{}
+	for _, inst := range in.installations() {
+		entries = append(entries, e(inst.Name, in.installationEntry(inst)))
 	}
 	return append(m,
-		e("installations", render.Map{e(in.Installation.Name, entry)}),
+		e("installations", entries),
 		e("adminGroups", include("adminGroups")),
 		e("kubernetesVersions", include("kubernetesVersions")),
 	)
+}
+
+// installationEntry is one installation as the portal's gs.installations
+// shows it.
+func (in *Input) installationEntry(inst FederatedInstallation) render.Map {
+	entry := render.Map{e("authProvider", "oidc"), e("baseDomain", inst.BaseDomain)}
+	if broker := in.tokenBroker(); broker != "" && broker != inst.Name {
+		entry = append(entry, e("clusterTokenAudience", inst.Name))
+	}
+	entry = append(entry, e("oidcTokenProvider", render.PortalAuthProvider(inst.Name)), e("pipeline", inst.Pipeline), e("providers", inst.Providers))
+	if inst.Region != "" {
+		entry = append(entry, e("region", inst.Region))
+	}
+	return entry
 }

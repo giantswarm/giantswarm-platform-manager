@@ -1,0 +1,5 @@
+# Rendered by giantswarm-platform-manager, customer-portal definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+resources:
+  - https://github.com/giantswarm/management-cluster-bases/extras/backstage/base?ref=main
+  - ./backstage/

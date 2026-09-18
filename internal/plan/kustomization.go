@@ -18,14 +18,10 @@ var errNoMapping = errors.New("not a YAML mapping")
 // edit is made on the YAML nodes, so every comment and the order of
 // everything else stay; a missing list is appended, an empty one filled.
 func listEntry(current []byte, list, entry string) ([]byte, bool, error) {
-	var doc yaml.Node
-	if err := yaml.Unmarshal(current, &doc); err != nil {
+	doc, m, err := mapping(current)
+	if err != nil {
 		return nil, false, err
 	}
-	if doc.Kind != yaml.DocumentNode || len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode {
-		return nil, false, errNoMapping
-	}
-	m := doc.Content[0]
 	var seq *yaml.Node
 	for i := 0; i+1 < len(m.Content); i += 2 {
 		if m.Content[i].Value == list {
@@ -49,16 +45,36 @@ func listEntry(current []byte, list, entry string) ([]byte, bool, error) {
 	}
 	seq.Content = append(seq.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: entry})
 	seq.Style = 0
+	out, err := encode(doc)
+	return out, true, err
+}
+
+// mapping parses data as one YAML document whose root is a mapping and
+// answers the document and that mapping; anything else is errNoMapping.
+func mapping(data []byte) (*yaml.Node, *yaml.Node, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, nil, err
+	}
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode {
+		return nil, nil, errNoMapping
+	}
+	return &doc, doc.Content[0], nil
+}
+
+// encode writes doc the way every file of the plan is written: two-space
+// indent, the comments of the nodes kept.
+func encode(doc *yaml.Node) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(&doc); err != nil {
-		return nil, false, err
+	if err := enc.Encode(doc); err != nil {
+		return nil, err
 	}
 	if err := enc.Close(); err != nil {
-		return nil, false, err
+		return nil, err
 	}
-	return buf.Bytes(), true, nil
+	return buf.Bytes(), nil
 }
 
 // keptLists are the lists of a kustomization.yaml other owners add entries to.
@@ -70,14 +86,10 @@ var keptLists = []string{ListResources, ListComponents}
 // another owner listed in it (an installation's agents, its MCP servers, a
 // tunnel) is theirs and stays. Nothing kept leaves rendered as it is.
 func keep(rendered, current []byte) ([]byte, []Kept, error) {
-	var doc yaml.Node
-	if err := yaml.Unmarshal(current, &doc); err != nil {
+	_, m, err := mapping(current)
+	if err != nil {
 		return nil, nil, err
 	}
-	if doc.Kind != yaml.DocumentNode || len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode {
-		return nil, nil, errNoMapping
-	}
-	m := doc.Content[0]
 	var kept []Kept
 	for _, list := range keptLists {
 		for i := 0; i+1 < len(m.Content); i += 2 {
