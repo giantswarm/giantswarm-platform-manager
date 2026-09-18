@@ -1,0 +1,50 @@
+# The charts that consume the files the agent-platform definition renders, pinned
+# to the versions the render-consumption test (consumption_test.go) renders them
+# at. Renovate bumps every `version:` through the org preset's regex manager (a
+# `registry:` line followed by a `version:` line, datasource docker); a bump that
+# breaks a Secret contract fails the test with the chart, Secret and key named.
+#
+# backstage is not pinned: the definition renders no portal files yet, so no
+# rendered Secret has the portal as its consumer.
+charts:
+  # The installation's own MCP servers: the fleet bases' HelmReleases over the
+  # emitted extras/<server>/ directories.
+  - name: mcp-kubernetes
+    registry: gsoci.azurecr.io/charts/giantswarm/mcp-kubernetes
+    version: 1.2.22
+  - name: mcp-prometheus
+    registry: gsoci.azurecr.io/charts/giantswarm/mcp-prometheus
+    version: 0.10.8
+  - name: mcp-capi
+    registry: gsoci.azurecr.io/charts/giantswarm/mcp-capi
+    version: 0.5.20
+  # Every server's Valkey (the fleet base) and muster's (a child of the meta chart).
+  - name: valkey
+    registry: gsoci.azurecr.io/charts/giantswarm/valkey
+    version: 0.1.4
+  # The installation's Dex, rendered with the emitted dex-app patch.
+  - name: dex-app
+    registry: gsoci.azurecr.io/charts/giantswarm/dex-app
+    version: 3.1.0
+  # The meta chart, the 3.x line: the fleet base caps it <4.0.0, and the 4.x line
+  # needs inputs the definition does not carry (kagent.harness.snapshotLocation).
+  # renovate-custom.json5 keeps this pin below 4.0.0.
+  - name: agent-platform
+    registry: gsoci.azurecr.io/charts/giantswarm/agent-platform
+    version: 3.23.1
+  # The meta chart hands its connectivity child the whole platform values, Secret
+  # names included, so the test renders it too; it follows the meta chart's line.
+  - name: agent-platform-connectivity
+    registry: gsoci.azurecr.io/charts/giantswarm/agent-platform-connectivity
+    version: 3.23.1
+  # The meta chart's children that read the platform Secrets, at the newest
+  # versions inside the ranges the meta chart declares for them.
+  - name: muster
+    registry: gsoci.azurecr.io/charts/giantswarm/muster
+    version: 5.27.2
+  - name: kagent
+    registry: gsoci.azurecr.io/charts/giantswarm/kagent
+    version: 0.3.3
+  - name: agent-manager
+    registry: gsoci.azurecr.io/charts/giantswarm/agent-manager
+    version: 0.4.5

@@ -38,3 +38,9 @@ helm-schema: ## Regenerate values.schema.json (needs helm-values-schema-json and
 	helm-values-schema-json --config $(CHART_DIR)/.schema.yaml
 	python3 -c 'import json,sys; h=lambda o: {**{k:v for k,v in o.items() if k!="additionalProperties"},"unevaluatedProperties":False} if ("$ref" in o and o.get("additionalProperties") is False) else o; p=sys.argv[1]; f=open(p,encoding="utf-8"); d=json.load(f,object_hook=h); f.close(); f=open(p,"w",encoding="utf-8"); json.dump(d,f); f.close()' $(CHART_DIR)/values.schema.json
 	schemalint normalize $(CHART_DIR)/values.schema.json -o $(CHART_DIR)/values.schema.json --force
+
+##@ Render
+
+.PHONY: test-render-consumption
+test-render-consumption: ## Render the charts that consume the definition's files at their pins (render/agentplatform/testdata/consumption) and check every emitted Secret against what they read. Needs helm, kustomize and the network.
+	RENDER_CONSUMPTION=1 go test -count=1 -run TestRenderConsumption ./render/...

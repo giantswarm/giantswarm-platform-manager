@@ -1,0 +1,22 @@
+# Stands in for the agent-platform Konfiguration ConfigMap (the shared template
+# in the fleet's config repository, not in this repository), under the emitted
+# configmap-values.yaml.patch: the request topology and the cluster's public
+# Gateway the children's routes attach to (the connectivity chart refuses to
+# render without them), and the UI login the definition renders a Dex client and
+# the oauth2-proxy Secret for, switched on there rather than in the patch.
+# Invented names; nothing here is asserted, only what the children read with it.
+global:
+  gatewayApi:
+    parentRefs:
+      - name: public-gateway
+        namespace: kube-system
+ingress:
+  mode: agentgateway-muster
+  hostnames:
+    - muster.example.test
+components:
+  agentgateway:
+    enabled: true
+kagent:
+  oauth2-proxy:
+    enabled: true
