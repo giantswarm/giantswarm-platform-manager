@@ -144,13 +144,7 @@
 - id: live-dex-auth-per-client
   feature: identity
   kind: HTTP
-  url: https://dex.kestrel.oakridge.example/auth?client_id=muster&redirect_uri=https://muster.kestrel.oakridge.example/oauth/callback&response_type=code&scope=openid
-  expect:
-    status: 302
-- id: live-dex-auth-per-client
-  feature: identity
-  kind: HTTP
-  url: https://dex.kestrel.oakridge.example/auth?client_id=mcp-kubernetes&redirect_uri=https://mcp-kubernetes.kestrel.oakridge.example/oauth/callback&response_type=code&scope=openid
+  url: https://dex.kestrel.oakridge.example/auth?client_id=00000000-0000-4000-8000-000000000001&redirect_uri=https://muster.kestrel.oakridge.example/oauth/callback&response_type=code&scope=openid
   expect:
     status: 302
 - id: live-dex-auth-per-client
