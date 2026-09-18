@@ -163,7 +163,7 @@ func TestCommitOpensPullRequestsAndPendsApproval(t *testing.T) {
 	sopsFixtures(t, st.ghs)
 	seedRemote(t, st)
 	c := st.mcpClient(t, aliceToken)
-	inputs := minimalInputs(map[string]any{kagentKey: map[string]any{enabledKey: true, modelKeySecretKey: managedModelKey}})
+	inputs := minimalInputs(map[string]any{kagentKey: map[string]any{enabledKey: true, modelKeySecretKey: managedModelKey}, "portal": map[string]any{enabledKey: true, "clientIds": []any{"portal-client-id"}}})
 
 	if _, text, isErr := commitCall(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallations: []any{rowan}, tools.ArgInputs: inputs}); !isErr || !strings.Contains(text, "one installation") {
 		t.Fatalf("a set: %v %s", isErr, text)
@@ -177,6 +177,19 @@ func TestCommitOpensPullRequestsAndPendsApproval(t *testing.T) {
 	dry, dryText, isErr := dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: inputs})
 	if isErr || len(dry.Installations) != 1 || strings.Join(dry.Installations[0].SuppliedSecrets, ",") != modelKeyField {
 		t.Fatalf("dry run: %s", dryText)
+	}
+	// The portal's fragment is a kustomize Component: the dry run lists it
+	// under components of the portal host's kustomization, everything else
+	// under resources of the installation's extras; each is to be added.
+	lists := map[string]string{}
+	for _, inc := range dry.Installations[0].Includes {
+		if inc.Repository != acmeMCs || inc.Change != plan.ChangeUpdate {
+			t.Fatalf("include %+v", inc)
+		}
+		lists[inc.Path+" "+inc.Resource] = inc.List
+	}
+	if len(lists) < 3 || lists[rowanBackstageKustomization+" ./agent-platform/"] != plan.ListComponents || lists[extrasKustomizationPath(rowan)+" ./agent-platform/"] != plan.ListResources {
+		t.Fatalf("includes: %v", lists)
 	}
 
 	out, text, isErr := commitCall(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: inputs, tools.ArgSecrets: map[string]any{modelKeyField: modelKeyValue}})
@@ -222,6 +235,16 @@ func TestCommitOpensPullRequestsAndPendsApproval(t *testing.T) {
 			t.Fatalf("%s:%s differs from the plan", f.Repository, f.Path)
 		}
 	}
+	// The kustomizations land edited on their nodes: the Component under
+	// components, the comment and the owners' entries kept; the extras under
+	// resources, never a components list.
+	onBranch := st.remote.Files(repoOf(t, acmeMCs), branch)
+	if got, want := string(onBranch[rowanBackstageKustomization]), "# The portal's tree; the platform's fragment joins it as a Component.\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./backstage/\ncomponents:\n  - ./agent-platform/\n"; got != want {
+		t.Fatalf("the portal's kustomization on the branch:\n%s", got)
+	}
+	if got := string(onBranch[extrasKustomizationPath(rowan)]); !strings.HasPrefix(got, extrasKustomization+"  - ./agent-platform/\n  - ./mcp-") || strings.Contains(got, "components:") {
+		t.Fatalf("the extras kustomization on the branch:\n%s", got)
+	}
 	for _, repo := range []string{acmeConfigs, acmeMCs} {
 		commits := st.remote.Commits(repoOf(t, repo), branch)
 		if len(commits) != 1 || !strings.Contains(commits[0].Message, out.Action.Name) || len(commits[0].Files) == 0 {
@@ -244,7 +267,7 @@ func TestCommitOpensPullRequestsAndPendsApproval(t *testing.T) {
 	if r := find(t, li, rowan); r.Capabilities[0].State != installations.StatePendingApproval || r.Capabilities[0].LastAction == nil || r.Capabilities[0].LastAction.Name != out.Action.Name {
 		t.Fatalf("after the commit: %+v", r.Capabilities[0])
 	}
-	if out.Plan.Diff[plan.ChangeCreate] != len(out.Plan.Files) {
+	if out.Plan.Diff[plan.ChangeUpdate] != 2 || out.Plan.Diff[plan.ChangeCreate] != len(out.Plan.Files)-2 {
 		t.Fatalf("plan diff %v", out.Plan.Diff)
 	}
 }
