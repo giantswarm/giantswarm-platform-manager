@@ -1,0 +1,67 @@
+- id: live-helmrelease-ready
+  feature: portal
+  kind: HelmReleaseReady
+  namespace: flux-giantswarm
+  resource: HelmRelease
+  name: backstage
+- id: live-pods-running
+  feature: portal
+  kind: PodsRunning
+  namespace: backstage
+  resource: Pod
+  name: app.kubernetes.io/name=backstage
+- id: live-portal-root
+  feature: portal
+  kind: HTTP
+  url: https://portal.birch.acme.example.test/
+  expect:
+    status: 200
+- id: live-oidc-start
+  feature: identity
+  kind: HTTP
+  url: https://portal.birch.acme.example.test/api/auth/oidc-alder/start?env=production
+  expect:
+    status: 302
+    locationContains: https://dex.birch.acme.example.test/auth
+    note: the sign-in redirects to the installation's Dex
+- id: live-oidc-start
+  feature: identity
+  kind: HTTP
+  url: https://portal.birch.acme.example.test/api/auth/oidc-alder/start?env=production
+  expect:
+    status: 302
+    locationContains: client_id=backstage
+    note: the sign-in redirects as the portal's client
+- id: live-dex-auth-portal-client
+  feature: identity
+  kind: HTTP
+  url: https://dex.birch.acme.example.test/auth?client_id=backstage&redirect_uri=https://portal.birch.acme.example.test/api/auth/oidc-birch/handler/frame&response_type=code&scope=openid
+  expect:
+    status: 302
+- id: live-values-secrets
+  feature: secrets
+  kind: ResourcePresent
+  namespace: flux-giantswarm
+  resource: Secret
+  name: user-secrets-backstage
+  expect:
+    keys:
+      - values
+- id: live-values-secrets
+  feature: secrets
+  kind: ResourcePresent
+  namespace: flux-giantswarm
+  resource: Secret
+  name: plugin-keys-backstage
+  expect:
+    keys:
+      - values
+- id: live-dex-client-secret
+  feature: secrets
+  kind: ResourcePresent
+  namespace: giantswarm
+  resource: Secret
+  name: dex-client-backstage
+  expect:
+    keys:
+      - secret

@@ -27,6 +27,12 @@
         },
         "customer": {"type": "string", "description": "The owning organisation as the management-clusters and configs repositories name it.", "x-source": "registry", "x-feature": "portal", "x-renders": []},
         "provider": {"type": "string", "enum": ["capa", "capz", "capv", "cloud-director"], "description": "The infrastructure provider, shown on the installation entry.", "x-source": "registry", "x-feature": "portal", "x-renders": ["backstage:app-config:gs.installations.<name>.providers[*]"]},
+        "providers": {
+          "type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/provider"},
+          "description": "The providers the installation's entry lists: its own and, where it runs clusters on another besides (capv next to capa), that one too. Its own provider alone when absent.",
+          "x-source": "registry", "x-feature": "portal",
+          "x-renders": ["backstage:app-config:gs.installations.<name>.providers[*]"]
+        },
         "region": {"type": "string", "description": "The installation's region, shown on the installation entry; a provider without regions (cloud-director) has none and the entry carries no region.", "x-source": "registry", "x-feature": "portal", "x-renders": ["backstage:app-config:gs.installations.<name>.region"]},
         "pipeline": {"type": "string", "description": "The installation's release pipeline (stable, testing), shown on the installation entry.", "x-source": "registry", "x-feature": "portal", "x-renders": ["backstage:app-config:gs.installations.<name>.pipeline"]},
         "agentPlatform": {
@@ -52,7 +58,42 @@
         "title": {"type": "string", "default": "Dev Portal", "description": "The portal's title.", "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:app-config:app.title"]},
         "organization": {"type": "string", "description": "The organisation's name as the portal shows it.", "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:app-config:organization.name"]},
         "supportUrl": {"type": "string", "format": "uri", "description": "Where the home page's support link goes: the customer's support channel. Without it, no home page resources block.", "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:app-config:gs.homepage.resources[*]"]},
-        "telemetrydeckAppId": {"type": "string", "description": "The TelemetryDeck app the portal reports usage to; the salt is generated. Without it, no telemetry block.", "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:app-config:app.telemetrydeck"]}
+        "telemetrydeckAppId": {"type": "string", "description": "The TelemetryDeck app the portal reports usage to; the salt is generated. Without it, no telemetry block.", "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:app-config:app.telemetrydeck"]},
+        "friendlyLabels": {
+          "type": "array", "minItems": 1, "items": {"$ref": "#/$defs/friendlyName"},
+          "description": "Labels the portal's cluster pages show under a friendly name: a selector (a label key, or a glob over keys) with the name shown, a colour variant and a map of shown values. Without it, no friendly labels.",
+          "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:app-config:gs.friendlyLabels[*]"]
+        },
+        "friendlyAnnotations": {
+          "type": "array", "minItems": 1, "items": {"$ref": "#/$defs/friendlyName"},
+          "description": "Annotations the portal's cluster pages show under a friendly name, in the same form as friendlyLabels. Without it, no friendly annotations.",
+          "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:app-config:gs.friendlyAnnotations[*]"]
+        }
+      }
+    },
+    "federation": {
+      "type": "object",
+      "description": "A portal over several installations of one customer. Every installation listed is shown next to the portal's own — a Kubernetes cluster entry and an installation entry — and has a provider oidc-<name> on its Dex whose client credentials are supplied at commit (federation.<name>.clientId and clientSecret, into user-secrets-backstage under dexAuthCredentials.<name>). signInInstallation names the installation whose Dex signs people in to the portal, the portal's own when absent. tokenBroker names the installation whose muster brokers cluster tokens for the others: then the portal has the sign-in installation's provider alone, the broker's client credentials are supplied at commit (federation.tokenBroker.clientId and clientSecret, dexAuthCredentials.musterBroker) and every installation other than the broker's carries clusterTokenAudience. Without a federation, the portal shows its own installation alone.",
+      "additionalProperties": false,
+      "required": ["installations"],
+      "properties": {
+        "installations": {
+          "type": "array", "minItems": 1,
+          "description": "The other installations the portal shows, with their facts on record.",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["name", "baseDomain", "providers", "pipeline"],
+            "properties": {
+              "name": {"type": "string", "description": "The installation's codename: its provider oidc-<name>, its cluster entry, its installation entry and its credentials' environment variables derive from it.", "x-source": "registry", "x-feature": "identity", "x-renders": ["backstage:app-config:auth.providers.<name>", "backstage:app-config:kubernetes.clusterLocatorMethods[*].clusters[*].name", "backstage:app-config:gs.installations.<name>", "backstage:file:user-secrets.enc.yaml:dexAuthCredentials.<name>"]},
+              "baseDomain": {"type": "string", "description": "The installation's base domain; its Dex and API hosts derive from it.", "x-source": "registry", "x-feature": "portal", "x-renders": ["backstage:app-config:auth.providers.<name>.*.metadataUrl", "backstage:app-config:kubernetes.clusterLocatorMethods[*].clusters[*].url", "backstage:app-config:gs.installations.<name>.baseDomain"]},
+              "providers": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/provider"}, "description": "The providers the installation's entry lists.", "x-source": "registry", "x-feature": "portal", "x-renders": ["backstage:app-config:gs.installations.<name>.providers[*]"]},
+              "region": {"type": "string", "description": "The installation's region; a provider without regions has none.", "x-source": "registry", "x-feature": "portal", "x-renders": ["backstage:app-config:gs.installations.<name>.region"]},
+              "pipeline": {"type": "string", "description": "The installation's release pipeline.", "x-source": "registry", "x-feature": "portal", "x-renders": ["backstage:app-config:gs.installations.<name>.pipeline"]}
+            }
+          },
+          "x-source": "registry", "x-feature": "portal", "x-renders": ["backstage:app-config:kubernetes.clusterLocatorMethods[*].clusters[*]", "backstage:app-config:auth.providers.<name>", "backstage:app-config:gs.installations.<name>"]
+        },
+        "signInInstallation": {"type": "string", "description": "The installation whose Dex signs people in to the portal: its own or one it federates.", "x-source": "person", "x-feature": "identity", "x-renders": ["backstage:app-config:gs.authProvider"]},
+        "tokenBroker": {"type": "string", "description": "The installation whose muster brokers cluster tokens for the others: its own or one it federates.", "x-source": "person", "x-feature": "identity", "x-renders": ["backstage:app-config:gs.clusterTokenBroker", "backstage:app-config:gs.installations.<name>.clusterTokenAudience", "backstage:file:user-secrets.enc.yaml:dexAuthCredentials.musterBroker"]}
       }
     },
     "chart": {
@@ -147,6 +188,18 @@
           "x-source": "generated", "x-feature": "secrets",
           "x-renders": ["backstage:app-config:backend.auth.pluginKeyStore", "backstage:file:plugin-keys-secret.enc.yaml", "backstage:file:user-secrets.enc.yaml:authSessionSecret", "backstage:file:user-secrets.enc.yaml:telemetrydeck.salt", "backstage:file:dex-client-backstage-secret.enc.yaml"]
         }
+      }
+    }
+  },
+  "$defs": {
+    "provider": {"type": "string", "enum": ["capa", "capz", "capv", "cloud-director"]},
+    "friendlyName": {
+      "type": "object", "additionalProperties": false, "required": ["selector"],
+      "properties": {
+        "selector": {"type": "string", "description": "The label or annotation key, or a glob over keys."},
+        "key": {"type": "string", "description": "The name shown in place of the key."},
+        "variant": {"type": "string", "description": "The colour variant of the chip."},
+        "valueMap": {"type": "object", "additionalProperties": {"type": "string"}, "description": "The value shown per raw value."}
       }
     }
   }

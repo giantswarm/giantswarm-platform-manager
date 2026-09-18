@@ -22,7 +22,7 @@ import (
 var update = flag.Bool("update", false, "rewrite the golden filesets from the current render")
 
 // shapes are the portal shapes with a golden fileset under testdata/<shape>/.
-var shapes = []string{"customer-portal", "giantswarm-owned-with-platform"}
+var shapes = []string{"customer-portal", "giantswarm-owned-with-platform", "federated-portal"}
 
 // enabledKey is the on/off switch of every plugin section.
 const enabledKey = "enabled"
@@ -330,6 +330,16 @@ func TestRefusals(t *testing.T) {
 		return c
 	}
 	withoutGitHub := clone(func(m map[string]any) { m["plugins"].(map[string]any)["github"] = map[string]any{enabledKey: false} })
+	// federation is a federation input over the installations listed, each
+	// with its facts on record, and the fields given (signInInstallation).
+	federation := func(fields map[string]any, names ...string) map[string]any {
+		var insts []any
+		for _, name := range names {
+			insts = append(insts, map[string]any{"name": name, "baseDomain": name + ".acme.example.test", "providers": []any{"capa"}, "pipeline": "stable"})
+		}
+		fields["installations"] = insts
+		return fields
+	}
 	cases := []struct {
 		name    string
 		input   map[string]any
@@ -346,6 +356,12 @@ func TestRefusals(t *testing.T) {
 		{"missing supplied secret", base, map[string]string{fieldGitHubClientID: "x"}, ErrEmptySecret, fieldGitHubClientSecret},
 		{"unknown secret value", withoutGitHub, map[string]string{fieldGitHubClientID: "x"}, ErrUnknownSecret, fieldGitHubClientID},
 		{"sentry without its values", clone(func(m map[string]any) { m["plugins"].(map[string]any)["sentry"] = map[string]any{enabledKey: true} }), secrets, ErrEmptySecret, fieldSentryAppDSN},
+		{"providers without the installation's own", clone(func(m map[string]any) { m["installation"].(map[string]any)["providers"] = []any{"capv"} }), secrets, ErrInput, "installation.providers"},
+		{"federation lists the portal's own installation", clone(func(m map[string]any) { m["federation"] = federation(map[string]any{}, "maple") }), secrets, ErrInput, "federation.installations"},
+		{"sign-in through an installation the portal does not show", clone(func(m map[string]any) {
+			m["federation"] = federation(map[string]any{"signInInstallation": "elm"}, "alder")
+		}), secrets, ErrInput, "federation.signInInstallation"},
+		{"federation without its credentials", clone(func(m map[string]any) { m["federation"] = federation(map[string]any{}, "alder") }), secrets, ErrEmptySecret, "federation.alder.clientId"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

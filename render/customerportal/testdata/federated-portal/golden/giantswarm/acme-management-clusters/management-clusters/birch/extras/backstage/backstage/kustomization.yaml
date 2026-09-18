@@ -1,0 +1,47 @@
+# Rendered by giantswarm-platform-manager, customer-portal definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+resources:
+  - https://github.com/giantswarm/management-cluster-bases/extras/backstage/main?ref=main
+  - app-config.yaml
+  - user-values.yaml
+  - user-secrets.enc.yaml
+  - plugin-keys-secret.enc.yaml
+  - dex-client-backstage-secret.enc.yaml
+patches:
+  - patch: |
+      - op: remove
+        path: /spec/ref/tag
+      - op: add
+        path: /spec/ref/semver
+        value: '>=0.244.7 <1.0.0'
+    target:
+      kind: OCIRepository
+      name: backstage
+      namespace: flux-giantswarm
+  - patch: |
+      apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      metadata:
+        name: backstage
+        namespace: flux-giantswarm
+      spec:
+        valuesFrom:
+          - kind: ConfigMap
+            name: app-config-backstage
+            valuesKey: values
+          - kind: ConfigMap
+            name: shared-config-backstage
+            valuesKey: values
+          - kind: ConfigMap
+            name: user-values-backstage
+            valuesKey: values
+          - kind: Secret
+            name: user-secrets-backstage
+            valuesKey: values
+          - kind: Secret
+            name: plugin-keys-backstage
+            valuesKey: values
+    target:
+      kind: HelmRelease
+      name: backstage
+      namespace: flux-giantswarm

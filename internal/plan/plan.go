@@ -44,20 +44,25 @@ type File struct {
 	Change     Change `json:"change"`
 	// Content is the rendered file, plaintext with GENERATED(<name>) and
 	// SUPPLIED(<field>) markers where the commit step puts values — or, for
-	// a kustomization (the includes land in, or the platform writes with
-	// other owners' entries kept), the file as the commit step writes it;
-	// omitted when the caller asked for paths only.
+	// a file other owners write into (a kustomization the includes land in
+	// or the platform writes, the dex-app configmap patch), the file as the
+	// commit step writes it, with their part kept; omitted when the caller
+	// asked for paths only.
 	Content string `json:"content,omitempty"`
 	// Generated names the values the commit step generates into this file.
 	Generated []string `json:"generated,omitempty"`
-	// Kept are the entries of the installation's current kustomization that
-	// are not the platform's, kept in the file as the plan writes it.
+	// Kept is the part of the installation's current file that is not the
+	// platform's, kept in the file as the plan writes it.
 	Kept  []Kept `json:"kept,omitempty"`
 	Error string `json:"error,omitempty"`
 }
 
-// Kept is one entry of a kustomization.yaml the platform writes that another
-// owner listed (resources or components): it stays, after the platform's.
+// Kept is one entry of a file the platform writes that another owner carries;
+// it stays, after the platform's. In a kustomization.yaml List is resources or
+// components and Entry the entry. In the dex-app configmap patch List is the
+// mapping the key is kept in (empty for the file's top level, oidc,
+// oidc.staticClients) and Entry the key — or List is oidc.extraStaticClients
+// and Entry the id of a client no definition declares.
 type Kept struct {
 	List  string `json:"list"`
 	Entry string `json:"entry"`
@@ -65,6 +70,24 @@ type Kept struct {
 
 // kustomizationFile is the base name of the files other owners add entries to.
 const kustomizationFile = "kustomization.yaml"
+
+// dexPatchFile ends the path of an installation's dex-app configmap patch:
+// the one file the two definitions and the installation's own Dex settings
+// share.
+const dexPatchFile = "/apps/dex-app/configmap-values.yaml.patch"
+
+// keeper is how a file other owners write into keeps their part when the
+// platform writes it: a kustomization's lists, the dex patch's keys and
+// clients; nil for a file the definition owns whole.
+func keeper(path string) func(rendered, current []byte) ([]byte, []Kept, error) {
+	switch {
+	case filepath.Base(path) == kustomizationFile:
+		return keep
+	case strings.HasSuffix(path, dexPatchFile):
+		return keepDexPatch
+	}
+	return nil
+}
 
 // GeneratedSecret is one value the commit step generates, by name only.
 type GeneratedSecret struct {
@@ -221,8 +244,8 @@ func Build(ctx context.Context, opts Options) Installation {
 			}
 			content := string(f.Content)
 			current, err := opts.Read(ctx, target, path)
-			if err == nil && filepath.Base(path) == kustomizationFile {
-				edited, kept, kerr := keep(f.Content, []byte(current))
+			if k := keeper(path); err == nil && k != nil {
+				edited, kept, kerr := k(f.Content, []byte(current))
 				if kerr != nil {
 					err = fmt.Errorf("%s is on record but takes no entry: %w", path, kerr)
 				} else {
@@ -235,7 +258,7 @@ func Build(ctx context.Context, opts Options) Installation {
 			pf.Change, pf.Error = change(current, err, content)
 			p.Diff[pf.Change]++
 			p.Files = append(p.Files, pf)
-			if strings.HasSuffix(path, "/apps/dex-app/configmap-values.yaml.patch") {
+			if strings.HasSuffix(path, dexPatchFile) {
 				p.DexClients = DexClients(f.Content, in)
 			}
 		}

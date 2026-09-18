@@ -115,14 +115,18 @@ func e(key string, value any) render.Entry { return render.Entry{Key: key, Value
 
 // host is a hostname on the installation's base domain.
 func (in *Input) host(component string) string {
-	return component + "." + in.Installation.BaseDomain
+	return hostOn(component, in.Installation.BaseDomain)
 }
+
+// hostOn is a hostname on an installation's base domain.
+func hostOn(component, baseDomain string) string { return component + "." + baseDomain }
 
 // portalURL is the portal's origin.
 func (in *Input) portalURL() string { return "https://" + in.Portal.Domain }
 
-// authProvider is the portal's sign-in provider on this installation's Dex.
-func (in *Input) authProvider() string { return render.PortalAuthProvider(in.Installation.Name) }
+// authProvider is the portal's sign-in provider: on the Dex of the
+// installation that signs people in.
+func (in *Input) authProvider() string { return render.PortalAuthProvider(in.signInInstallation()) }
 
 // extrasKustomization is extras/backstage/kustomization.yaml: the fleet's
 // backstage base (the namespace), the portal's directory and, with the
@@ -202,17 +206,29 @@ func generated(name string, kind render.GeneratedKind, length int) render.Genera
 }
 
 // userSecrets is user-secrets-backstage: the chart values the portal reads
-// its own credentials from — the session secret, the Dex client under the
-// provider's name (the chart exposes them as AUTH_DEX_<NAME>_CLIENT_ID and
-// _CLIENT_SECRET), the telemetry salt and, with sentry on, the DSNs.
+// its own credentials from — the session secret, the Dex clients under the
+// installations' names (the chart exposes them as AUTH_DEX_<NAME>_CLIENT_ID
+// and _CLIENT_SECRET: the portal's own generated; another installation's the
+// portal has a provider for, and the token broker's, supplied), the
+// telemetry salt and, with sentry on, the DSNs.
 func (in *Input) userSecrets(secrets map[string]string) render.File {
 	session := generated(generatedSessionSecret, render.Base64, 32)
 	client := generated(generatedDexClientSecret, render.Base64, 32)
 	salt := generated(generatedTelemetrySalt, render.Alphanumeric, 32)
+	credentials := render.Map{e(in.Installation.Name, render.Map{e("clientID", render.PortalDexClientID), e("clientSecret", client.Placeholder)})}
+	for _, inst := range in.providerInstallations() {
+		if inst.Name != in.Installation.Name {
+			credentials = append(credentials, e(inst.Name, render.Map{
+				e("clientID", secrets[federationField(inst.Name, suffixClientID)]), e("clientSecret", secrets[federationField(inst.Name, suffixClientSecret)])}))
+		}
+	}
+	if in.tokenBroker() != "" {
+		credentials = append(credentials, e(brokerCredentials, render.Map{
+			e("clientID", secrets[fieldTokenBroker+suffixClientID]), e("clientSecret", secrets[fieldTokenBroker+suffixClientSecret])}))
+	}
 	values := render.Map{
 		e("authSessionSecret", session.Placeholder),
-		e("dexAuthCredentials", render.Map{e(in.Installation.Name, render.Map{
-			e("clientID", render.PortalDexClientID), e("clientSecret", client.Placeholder)})}),
+		e("dexAuthCredentials", credentials),
 		e("telemetrydeck", render.Map{e("salt", salt.Placeholder)}),
 	}
 	if in.Plugins.Sentry.Enabled {

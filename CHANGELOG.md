@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The `customer-portal` definition takes a portal over several installations of one customer (`federation`: the installations with their facts on record, the installation whose Dex signs people in, the installation whose muster brokers cluster tokens for the others — each listed installation a cluster entry and an installation entry, a Dex provider per installation or the sign-in installation's alone with a broker, the clients' credentials supplied at commit), an installation's several providers (`installation.providers`) and the cluster pages' friendly labels and annotations (`portal.friendlyLabels`, `portal.friendlyAnnotations`). `auth.experimentalClientIdMetadataDocuments` at its off value is a removal.
+
 ### Changed
 
 - `enable_capability`, `reconcile_capability` (one installation and the wave), `verify_capability` and `platformctl installation enable|reconcile|verify` take every definition of the registry — `customer-portal` as `agent-platform` — through the definition's own `Parse` and `Render`; the plan, the verify and the commit hold nothing of one definition. The installation facts a definition receives are the ones its schema names under `installation`, from the record, the registry (`region`, `pipeline`) and the capabilities' enabled states (`agentPlatform`, `customerPortal`); a fact the schema does not name is not passed.
@@ -17,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - `platformctl` reaches the manager's tools through muster's bridge the way the bridge exposes them: `muster agent --mcp-server` lists muster's meta tools only, so every manager tool is called through `call_tool {name, arguments}` and its answer read out of the document `call_tool` returns; `core_auth_login` takes the same path, so a manager not connected yet still answers its sign-in URL (exit 3). Calling the tools by their `x_giantswarm-platform-manager_*` names on the bridge failed with `tool not found` before anything reached the manager.
+- The plan keeps every part of an installation's current dex-app configmap patch that no definition owns — the installation's login connectors under `oidc.customer`, Dex's `ingress` tuning, a built-in or extra static client of another owner — after the definition's clients, named in the plan as `kept`, whichever definition writes the patch; a reconcile no longer deletes the installation's connectors.
 - The plan keeps every entry of an installation's current `kustomization.yaml` that the definition does not render — an installation's agents, its MCP servers, a tunnel listed under `resources:` or `components:` of a file the platform writes — appended after the platform's entries, named in the plan as `kept`, and committed so; a reconcile no longer drops other owners' entries.
 - The commit step decides which files are secret files from the target repository's `.sops.yaml` rules by path (gitops-commit v0.6.0), not from the file name — a repository without `.sops.yaml` is refused before an action is recorded; a wave names the files a supplied value lands in by the placeholder alone.
 - The managed model key of kagent is rendered as `secrets/kagent-anthropic-key.yaml`, the name the installations carry.

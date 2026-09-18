@@ -71,10 +71,10 @@ removals:
   # --- dex-app configmap-values.yaml.patch ---
   - key: dex-configmap:oidc.customer
     kind: not-platform
-    reason: the installation's login connectors; owned by the installation's Dex, not read by the platform
+    reason: the installation's login connectors; owned by the installation's Dex, not read by the platform — the plan keeps them on the patch as another owner's key
   - key: dex-configmap:ingress
     kind: not-platform
-    reason: Dex's own ingress tuning
+    reason: Dex's own ingress tuning — the plan keeps it on the patch as another owner's key
 
   # --- management-clusters extras/agent-platform/ ---
   - key: extras:agents

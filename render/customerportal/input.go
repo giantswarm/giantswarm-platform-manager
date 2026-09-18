@@ -37,7 +37,16 @@ const (
 	fieldSentryAppDSN        = "plugins.sentry.appDsn"
 	fieldSentryBackendDSN    = "plugins.sentry.backendDsn"
 	fieldSentryReportURI     = "plugins.sentry.reportUri"
+	// fieldTokenBroker prefixes the broker client's credentials; a federated
+	// installation's are federation.<name>.clientId and clientSecret.
+	fieldTokenBroker   = "federation.tokenBroker"
+	suffixClientID     = ".clientId"
+	suffixClientSecret = ".clientSecret" // #nosec G101 -- a field name, not a value
 )
+
+// federationField is the supplied field of a federated installation's or the
+// broker's client credential.
+func federationField(name, suffix string) string { return "federation." + name + suffix }
 
 // defaultPluginKeyID names the portal's plugin-to-plugin signing key pair.
 const defaultPluginKeyID = "plugin-to-plugin"
@@ -51,26 +60,56 @@ type Input struct {
 	Plugins      Plugins      `json:"plugins"`
 	Tunnel       Toggle       `json:"tunnel"`
 	PluginKeys   PluginKeys   `json:"pluginKeys"`
+	Federation   *Federation  `json:"federation"`
 }
 
 // Installation is the facts on record; see the schema for each field.
 type Installation struct {
-	Name          string `json:"name"`
-	BaseDomain    string `json:"baseDomain"`
-	Customer      string `json:"customer"`
-	Provider      string `json:"provider"`
-	Region        string `json:"region"`
-	Pipeline      string `json:"pipeline"`
-	AgentPlatform bool   `json:"agentPlatform"`
+	Name          string   `json:"name"`
+	BaseDomain    string   `json:"baseDomain"`
+	Customer      string   `json:"customer"`
+	Provider      string   `json:"provider"`
+	Providers     []string `json:"providers"`
+	Region        string   `json:"region"`
+	Pipeline      string   `json:"pipeline"`
+	AgentPlatform bool     `json:"agentPlatform"`
 }
 
 // Portal is the portal as the person names it.
 type Portal struct {
-	Domain           string `json:"domain"`
-	Title            string `json:"title"`
-	Organization     string `json:"organization"`
-	SupportURL       string `json:"supportUrl"`
-	TelemetryDeckApp string `json:"telemetrydeckAppId"`
+	Domain              string         `json:"domain"`
+	Title               string         `json:"title"`
+	Organization        string         `json:"organization"`
+	SupportURL          string         `json:"supportUrl"`
+	TelemetryDeckApp    string         `json:"telemetrydeckAppId"`
+	FriendlyLabels      []FriendlyName `json:"friendlyLabels"`
+	FriendlyAnnotations []FriendlyName `json:"friendlyAnnotations"`
+}
+
+// FriendlyName is a label or annotation the portal's cluster pages show under
+// a friendly name.
+type FriendlyName struct {
+	Key      string            `json:"key,omitempty" yaml:"key,omitempty"`
+	Selector string            `json:"selector" yaml:"selector"`
+	Variant  string            `json:"variant,omitempty" yaml:"variant,omitempty"`
+	ValueMap map[string]string `json:"valueMap,omitempty" yaml:"valueMap,omitempty"`
+}
+
+// Federation is a portal over several installations of one customer.
+type Federation struct {
+	Installations      []FederatedInstallation `json:"installations"`
+	SignInInstallation string                  `json:"signInInstallation"`
+	TokenBroker        string                  `json:"tokenBroker"`
+}
+
+// FederatedInstallation is another installation the portal shows, with its
+// facts on record.
+type FederatedInstallation struct {
+	Name       string   `json:"name"`
+	BaseDomain string   `json:"baseDomain"`
+	Providers  []string `json:"providers"`
+	Region     string   `json:"region"`
+	Pipeline   string   `json:"pipeline"`
 }
 
 // Chart is the portal chart's release range.
@@ -166,6 +205,9 @@ func Parse(raw any) (*Input, error) {
 	if in.PluginKeys.KeyID == "" {
 		in.PluginKeys.KeyID = defaultPluginKeyID
 	}
+	if len(in.Installation.Providers) == 0 {
+		in.Installation.Providers = []string{in.Installation.Provider}
+	}
 	return &in, nil
 }
 
@@ -177,6 +219,12 @@ func (in *Input) check(secrets map[string]string) error {
 	}
 	if in.Plugins.Grafana.Enabled && in.Plugins.Grafana.Domain == "" {
 		return fmt.Errorf("%w: plugins.grafana.domain: the Grafana instance the plugin links to", ErrInput)
+	}
+	if !slices.Contains(in.Installation.Providers, in.Installation.Provider) {
+		return fmt.Errorf("%w: installation.providers: the installation's own provider %s is not among them", ErrInput, in.Installation.Provider)
+	}
+	if err := in.checkFederation(); err != nil {
+		return err
 	}
 	needed := in.suppliedSecretFields()
 	for _, field := range needed {
@@ -195,6 +243,28 @@ func (in *Input) check(secrets map[string]string) error {
 	return nil
 }
 
+// checkFederation applies the federation's rules: every listed installation
+// is another one, listed once; the sign-in installation and the token broker
+// are the portal's own or one it federates.
+func (in *Input) checkFederation() error {
+	if in.Federation == nil {
+		return nil
+	}
+	names := map[string]bool{in.Installation.Name: true}
+	for _, f := range in.Federation.Installations {
+		if names[f.Name] {
+			return fmt.Errorf("%w: federation.installations: %s is the portal's own installation or listed twice", ErrInput, f.Name)
+		}
+		names[f.Name] = true
+	}
+	for field, name := range map[string]string{"signInInstallation": in.Federation.SignInInstallation, "tokenBroker": in.Federation.TokenBroker} {
+		if name != "" && !names[name] {
+			return fmt.Errorf("%w: federation.%s: %s is neither the portal's own installation nor one it federates", ErrInput, field, name)
+		}
+	}
+	return nil
+}
+
 // suppliedSecretFields lists the secret values the person supplies for this
 // input, by field name. Everything else the portal needs is generated by the
 // commit step from the placeholders in the fileset.
@@ -206,6 +276,65 @@ func (in *Input) suppliedSecretFields() []string {
 	if in.Plugins.Sentry.Enabled {
 		fields = append(fields, fieldSentryAppDSN, fieldSentryBackendDSN, fieldSentryReportURI)
 	}
+	for _, inst := range in.providerInstallations() {
+		if inst.Name != in.Installation.Name {
+			fields = append(fields, federationField(inst.Name, suffixClientID), federationField(inst.Name, suffixClientSecret))
+		}
+	}
+	if in.tokenBroker() != "" {
+		fields = append(fields, fieldTokenBroker+suffixClientID, fieldTokenBroker+suffixClientSecret)
+	}
 	sort.Strings(fields)
 	return fields
+}
+
+// providerInstallations are the installations the portal has a Dex provider
+// and client credentials for: every one it shows — or, with a token broker,
+// the sign-in installation alone, since cluster tokens for the others come
+// through the broker.
+func (in *Input) providerInstallations() []FederatedInstallation {
+	if in.tokenBroker() != "" {
+		return []FederatedInstallation{in.installation(in.signInInstallation())}
+	}
+	return in.installations()
+}
+
+// installations are the installations the portal shows, its own among the
+// federation's, by name.
+func (in *Input) installations() []FederatedInstallation {
+	own := in.Installation
+	all := []FederatedInstallation{{Name: own.Name, BaseDomain: own.BaseDomain, Providers: own.Providers, Region: own.Region, Pipeline: own.Pipeline}}
+	if in.Federation != nil {
+		all = append(all, in.Federation.Installations...)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
+	return all
+}
+
+// installation is the listed installation of that name.
+func (in *Input) installation(name string) FederatedInstallation {
+	for _, i := range in.installations() {
+		if i.Name == name {
+			return i
+		}
+	}
+	return FederatedInstallation{}
+}
+
+// signInInstallation is the installation whose Dex signs people in to the
+// portal: the federation's, else the portal's own.
+func (in *Input) signInInstallation() string {
+	if in.Federation != nil && in.Federation.SignInInstallation != "" {
+		return in.Federation.SignInInstallation
+	}
+	return in.Installation.Name
+}
+
+// tokenBroker is the installation whose muster brokers cluster tokens for
+// the others; empty without one.
+func (in *Input) tokenBroker() string {
+	if in.Federation == nil {
+		return ""
+	}
+	return in.Federation.TokenBroker
 }
