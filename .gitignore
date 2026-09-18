@@ -16,5 +16,8 @@ __pycache__/
 .vscode/
 .DS_Store
 # CircleCI go-build writes the architecture list for push-to-registries next
-# to the binaries; untracked, it would mark the build dirty (vcs.modified).
+# to the binaries, and go-test the ldflags go-build reads; untracked, either
+# would mark the build dirty (vcs.modified) and every binary of a release
+# would report its version as vX.Y.Z+dirty.
 /.platforms
+/.ldflags
