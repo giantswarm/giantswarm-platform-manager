@@ -6,8 +6,8 @@
 #     scenario harness with a mocked GitHub (tests/scenarios), and the server
 #     half against a fake GitHub (internal/e2e). `make test` runs the same Go
 #     tests; this job is the one with the harness.
-#   - render-consumption: the charts that consume the agent-platform
-#     definition's files, rendered at the versions pinned in
+#   - render-consumption: the charts that consume the agent-platform and
+#     customer-portal definitions' files, rendered at the versions pinned in
 #     render/agentplatform/testdata/consumption/charts.yaml, checked against
 #     every emitted Secret (render/README.md). Needs helm, kustomize and the
 #     network, so it is not part of `make test`.

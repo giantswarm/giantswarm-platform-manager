@@ -16,26 +16,50 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"gopkg.in/yaml.v3"
+
+	"github.com/giantswarm/giantswarm-platform-manager/render"
+	"github.com/giantswarm/giantswarm-platform-manager/render/customerportal"
 )
 
-// TestRenderConsumption renders the charts that consume the definition's files —
+// TestRenderConsumption renders the charts that consume the definitions' files —
 // the fleet bases' HelmReleases over the emitted extras (kustomize build), the
-// agent-platform meta chart and the children it renders, dex-app — at the
-// versions pinned in testdata/consumption/charts.yaml, and checks every emitted
-// Secret against what the rendered workloads read: a Secret nobody reads, a key
-// a chart reads that the Secret does not carry, a Dex client whose secret the
-// Deployment does not load. Values a shared template supplies on an
-// installation (a Konfiguration ConfigMap) come from a stand-in file per chart
-// in the same directory. The test needs helm, kustomize and the network and
-// runs only with RENDER_CONSUMPTION=1.
+// portal's tree with backstage, the agent-platform meta chart and the children
+// it renders, dex-app — at the versions pinned in testdata/consumption/charts.yaml,
+// and checks every emitted Secret against what the rendered workloads read: a
+// Secret nobody reads, a key a chart reads that the Secret does not carry, a Dex
+// client whose secret the Deployment does not load. Values a shared template
+// supplies on an installation (a Konfiguration ConfigMap) come from a stand-in
+// file per chart in the same directory. The test needs helm, kustomize and the
+// network and runs only with RENDER_CONSUMPTION=1.
 func TestRenderConsumption(t *testing.T) {
 	if os.Getenv("RENDER_CONSUMPTION") != "1" {
 		t.Skip("set RENDER_CONSUMPTION=1 to render the consuming charts (needs helm, kustomize and the network)")
 	}
 	charts := &chartStore{dir: t.TempDir(), pins: loadPins(t)}
-	for _, shape := range shapes {
-		t.Run(shape, func(t *testing.T) { consume(t, shape, charts) })
+	for _, shape := range consumptionShapes {
+		t.Run(shape.name, func(t *testing.T) { consume(t, shape, charts) })
 	}
+}
+
+// consumptionShape is one installation the test proves: the customer-portal
+// definition's input under testdata/consumption/ whose files compose the
+// portal's tree, and the agent-platform shape (testdata/<platform>) whose
+// files the portal's tree lists as its Component — "" for a portal-only
+// installation, where the portal's files alone compose the backstage release
+// and its own dex patch carries its Dex client.
+type consumptionShape struct {
+	name     string
+	platform string
+	portal   string
+}
+
+// portalInputSuffix names a shape's portal input under testdata/consumption/.
+const portalInputSuffix = ".portal.yaml"
+
+var consumptionShapes = []consumptionShape{
+	{name: shapePublicCustomer, platform: shapePublicCustomer, portal: shapePublicCustomer + portalInputSuffix},
+	{name: shapeGiantswarmOwned, platform: shapeGiantswarmOwned, portal: shapeGiantswarmOwned + portalInputSuffix},
+	{name: "customer-portal", portal: "customer-portal" + portalInputSuffix},
 }
 
 const (
@@ -219,14 +243,17 @@ type volumeSource struct {
 
 // consumption is everything collected for one shape.
 type consumption struct {
-	t       *testing.T
-	in      *Input
-	dir     string
-	charts  *chartStore
-	gaps    map[string]knownGap
-	emitted map[string]emittedSecret
-	refs    []secretRef
-	volumes []volumeRef
+	t *testing.T
+	// installation is the installation both definitions render for; platform
+	// is the agent-platform definition's input, nil for a portal-only shape.
+	installation string
+	platform     *Input
+	dir          string
+	charts       *chartStore
+	gaps         map[string]knownGap
+	emitted      map[string]emittedSecret
+	refs         []secretRef
+	volumes      []volumeRef
 	// rendered are the releases templated so far; configMaps the emitted
 	// ConfigMaps releases took values from.
 	rendered   []*release
@@ -263,44 +290,91 @@ func loadGaps(t *testing.T) map[string]knownGap {
 	return gaps
 }
 
-func consume(t *testing.T, shape string, charts *chartStore) {
-	input, secrets := loadInput(t, shape)
-	in, err := Parse(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := Render(input, secrets)
-	if err != nil {
-		t.Fatal(err)
-	}
-	c := &consumption{t: t, in: in, dir: t.TempDir(), charts: charts, gaps: loadGaps(t), emitted: map[string]emittedSecret{}}
-	for repo, files := range result.Files {
-		for path, f := range files {
-			full := filepath.Join(c.dir, string(repo), path)
-			if err := os.MkdirAll(filepath.Dir(full), 0o750); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(full, f.Content, 0o600); err != nil {
-				t.Fatal(err)
-			}
+func consume(t *testing.T, shape consumptionShape, charts *chartStore) {
+	c := &consumption{t: t, dir: t.TempDir(), charts: charts, gaps: loadGaps(t), emitted: map[string]emittedSecret{}}
+	portal := c.renderPortal(shape.portal)
+	c.installation = portal.Installation.Name
+	if shape.platform != "" {
+		input, secrets := loadInput(t, shape.platform)
+		in, err := Parse(input)
+		if err != nil {
+			t.Fatal(err)
 		}
+		if in.Installation.Name != c.installation || !in.Portal.Enabled || in.Portal.Domain != portal.Portal.Domain || !portal.Installation.AgentPlatform {
+			t.Fatalf("%s and %s/%s must describe one installation with the platform and its portal", shape.platform, consumptionDir, shape.portal)
+		}
+		result, err := Render(input, secrets)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c.write(result)
+		c.platform = in
+	} else if portal.Installation.AgentPlatform {
+		t.Fatalf("%s/%s enables the platform but the shape renders none", consumptionDir, shape.portal)
 	}
-	extras, err := filepath.Glob(filepath.Join(c.dir, "giantswarm", "*-management-clusters", "management-clusters", in.Installation.Name, "extras", "*", "kustomization.yaml"))
+	extras, err := filepath.Glob(filepath.Join(c.dir, "giantswarm", "*-management-clusters", "management-clusters", c.installation, "extras", "*", "kustomization.yaml"))
 	if err != nil || len(extras) == 0 {
 		t.Fatalf("no extras directories rendered (%v)", err)
 	}
 	// The portal first: a shape whose meta chart line the pin file does not
 	// carry is skipped at the meta chart, and its portal is proven before that.
-	if in.Portal.Enabled {
-		c.backstage()
-	}
+	backstage := filepath.Join(c.dir, "giantswarm", portal.Installation.Customer+"-management-clusters", "management-clusters", c.installation, "extras", "backstage")
+	c.backstage(backstage)
 	for _, k := range extras {
-		c.extras(filepath.Dir(k))
+		if dir := filepath.Dir(k); dir != backstage {
+			c.extras(dir)
+		}
 	}
 	c.dex()
 	c.assertRead()
 	c.assertKeys()
 	c.assertWholeSecrets()
+}
+
+// renderPortal renders the customer-portal definition from its input under
+// testdata/consumption/, the supplied values as dry-run markers, writes the
+// fileset and returns the parsed input.
+func (c *consumption) renderPortal(file string) *customerportal.Input {
+	t := c.t
+	raw, err := fs.ReadFile(os.DirFS(consumptionDir), file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Input map[string]any `yaml:"input"`
+	}
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	in, err := customerportal.Parse(doc.Input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := customerportal.Render(doc.Input, in.SuppliedMarkers())
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.write(result)
+	return in
+}
+
+// write puts a definition's fileset into the shape's tree. A path already
+// written is a second owner for one file, which the definitions rule out.
+func (c *consumption) write(result *render.Result) {
+	for repo, files := range result.Files {
+		for path, f := range files {
+			full := filepath.Join(c.dir, string(repo), path)
+			if _, err := os.Stat(full); err == nil {
+				c.t.Fatalf("%s:%s is rendered by both definitions", repo, path)
+			}
+			if err := os.MkdirAll(filepath.Dir(full), 0o750); err != nil {
+				c.t.Fatal(err)
+			}
+			if err := os.WriteFile(full, f.Content, 0o600); err != nil {
+				c.t.Fatal(err)
+			}
+		}
+	}
 }
 
 // extras builds one emitted extras directory over the fleet base and renders
@@ -335,41 +409,20 @@ func (c *consumption) build(objects []object) {
 	}
 }
 
-// backstage renders the developer portal the way its tree composes it:
-// the portal's own directory over the fleet base, standing in for the
-// customer-portal definition's files with the one patch that gives the
-// HelmRelease its values sources, and the platform's Component listed next to
-// it. The Component's patch appends the platform's values and its Vertex
+// backstage builds the portal's tree as the customer-portal definition renders
+// it — extras/backstage/ of the host's management-clusters repository: the
+// portal's own directory over the fleet base with the HelmRelease's values
+// sources patched in and, with the platform, the agent-platform definition's
+// Component listed next to it — and renders the backstage release it yields.
+// The Component's patch appends the platform's values and its Vertex
 // credentials to those sources; the chart then mounts the platform's
 // app-config fragment and passes it as a --config file.
-func (c *consumption) backstage() {
+func (c *consumption) backstage(dir string) {
 	t := c.t
-	host := c.in.portalHost()
-	component, err := filepath.Glob(filepath.Join(c.dir, "giantswarm", "*-management-clusters", "management-clusters", host, "extras", "backstage", portalDir))
-	if err != nil || len(component) != 1 {
-		t.Fatalf("portal enabled but no %s directory rendered under the host's extras/backstage (%v)", portalDir, err)
+	if _, err := os.Stat(filepath.Join(dir, portalDir)); c.platform != nil && err != nil {
+		t.Fatalf("platform enabled but no %s directory rendered under the host's extras/backstage (%v)", portalDir, err)
 	}
-	tree := filepath.Join(c.dir, "portal")
-	portal := filepath.Join(tree, "backstage")
-	if err := os.MkdirAll(portal, 0o750); err != nil {
-		t.Fatal(err)
-	}
-	standIn := "resources:\n  - " + basesRepository + "backstage/main?ref=main\n" +
-		"patches:\n  - patch: |\n      apiVersion: helm.toolkit.fluxcd.io/v2\n      kind: HelmRelease\n      metadata:\n        name: backstage\n        namespace: flux-giantswarm\n" +
-		"      spec:\n        valuesFrom:\n          - kind: ConfigMap\n            name: user-values-backstage\n            valuesKey: values\n" +
-		"    target:\n      kind: HelmRelease\n      name: backstage\n"
-	if err := os.WriteFile(filepath.Join(portal, "kustomization.yaml"), []byte(standIn), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	relative, err := filepath.Rel(tree, component[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(tree, "kustomization.yaml"), []byte("resources:\n  - ./backstage/\ncomponents:\n  - "+relative+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	objects := decode(t, run(t, "kustomize", "build", tree))
-	c.build(objects)
+	c.extras(dir)
 	for _, rel := range c.rendered {
 		if rel.chart.Name != "backstage" {
 			continue
@@ -381,11 +434,35 @@ func (c *consumption) backstage() {
 }
 
 // assertPortalFragment checks the rendered portal reads the platform's
-// app-config fragment: the Deployment mounts the emitted ConfigMap and passes
-// the file as --config, and the fragment names this installation's kagent.
+// app-config fragment when the platform is on — the Deployment mounts the
+// emitted ConfigMap and passes the file as --config, and the fragment names
+// this installation's kagent — and reads none without it: the portal's files
+// alone compose the release.
 func (c *consumption) assertPortalFragment(rel *release) {
 	t := c.t
-	mounted, arg := false, false
+	mounted, arg := c.fragmentConsumed(rel)
+	if c.platform == nil {
+		if mounted || arg {
+			t.Errorf("backstage %s: the portal-only shape consumes the platform's app-config fragment: ConfigMap %s mounted %v, --config %s passed %v", rel.chart.Version, portalAppConfigMap, mounted, portalAppConfigFile, arg)
+		}
+		return
+	}
+	if !mounted || !arg {
+		t.Errorf("backstage %s: the platform's app-config fragment is not consumed: ConfigMap %s mounted %v, --config %s passed %v", rel.chart.Version, portalAppConfigMap, mounted, portalAppConfigFile, arg)
+	}
+	fragment := c.renderedConfigMap(portalAppConfigMap)
+	var cfg map[string]any
+	if err := yaml.Unmarshal([]byte(str(get(fragment, "data", portalAppConfigFile))), &cfg); err != nil {
+		t.Fatalf("the platform's app-config fragment is not YAML: %v", err)
+	}
+	if c.platform.Kagent.Enabled && get(cfg, "agentPlatform", "kagent", "installations", c.installation) == nil {
+		t.Errorf("the platform's app-config fragment does not list this installation under agentPlatform.kagent.installations")
+	}
+}
+
+// fragmentConsumed says whether the rendered portal mounts the platform's
+// app-config ConfigMap and passes its file as --config.
+func (c *consumption) fragmentConsumed(rel *release) (mounted, arg bool) {
 	for _, o := range rel.objects {
 		for _, pod := range podSpecs(map[string]any(o)) {
 			for _, v := range list(pod["volumes"]) {
@@ -402,17 +479,7 @@ func (c *consumption) assertPortalFragment(rel *release) {
 			}
 		}
 	}
-	if !mounted || !arg {
-		t.Errorf("backstage %s: the platform's app-config fragment is not consumed: ConfigMap %s mounted %v, --config %s passed %v", rel.chart.Version, portalAppConfigMap, mounted, portalAppConfigFile, arg)
-	}
-	fragment := c.renderedConfigMap(portalAppConfigMap)
-	var cfg map[string]any
-	if err := yaml.Unmarshal([]byte(str(get(fragment, "data", portalAppConfigFile))), &cfg); err != nil {
-		t.Fatalf("the platform's app-config fragment is not YAML: %v", err)
-	}
-	if c.in.Kagent.Enabled && get(cfg, "agentPlatform", "kagent", "installations", c.in.Installation.Name) == nil {
-		t.Errorf("the platform's app-config fragment does not list this installation under agentPlatform.kagent.installations")
-	}
+	return mounted, arg
 }
 
 // renderedConfigMap is an emitted ConfigMap the fileset must carry.
@@ -514,6 +581,12 @@ func (c *consumption) helmReleases(objects []object, fleet bool) []*release {
 		if values != nil {
 			rel.values = append(rel.values, c.writeValues(rel.name, values))
 		}
+		// A fleet HelmRelease's own Secret sources (the portal's valuesFrom)
+		// are references of the release; a child's were collected with the
+		// meta chart's render.
+		if fleet {
+			c.collect(rel, hr)
+		}
 		out = append(out, rel)
 	}
 	return out
@@ -535,7 +608,7 @@ func (c *consumption) checkRange(p pin, hr, rng string) {
 	if constraint.Check(semver.MustParse(p.Version)) {
 		return
 	}
-	if rng == c.in.Chart.Semver {
+	if c.platform != nil && rng == c.platform.Chart.Semver {
 		c.t.Skipf("the installation asks for %s %s and the test pins %s: a line %s/charts.yaml does not carry is not proven here", p.Name, rng, p.Version, consumptionDir)
 	}
 	c.t.Fatalf("chart %s: pinned %s is outside the range %s that HelmRelease %s follows", p.Name, p.Version, rng, hr)
@@ -553,7 +626,7 @@ func (c *consumption) mentionsEmitted(text string) bool {
 // configsFile is the emitted configmap patch of an app in the installation's
 // configs repository, or "" when the definition renders none for it.
 func (c *consumption) configsFile(app string) string {
-	matches, _ := filepath.Glob(filepath.Join(c.dir, "giantswarm", "*-configs", "installations", c.in.Installation.Name, "apps", app, "configmap-values.yaml.patch"))
+	matches, _ := filepath.Glob(filepath.Join(c.dir, "giantswarm", "*-configs", "installations", c.installation, "apps", app, "configmap-values.yaml.patch"))
 	if len(matches) == 0 {
 		return ""
 	}
@@ -674,10 +747,12 @@ func podSpecs(v any) []map[string]any {
 	return out
 }
 
-// dex renders dex-app with the stand-in of its shared template and the emitted
-// patch, and checks every static client whose secret is a reference: the
-// rendered configuration names an environment variable for it and the
-// Deployment loads that variable from an emitted dex-client Secret's key.
+// dex renders dex-app with the stand-in of its shared template — the
+// installation's Konfiguration with the platform's built-in clients, or
+// without them on a portal-only installation — and the emitted patch, and
+// checks every static client whose secret is a reference: the rendered
+// configuration names an environment variable for it and the Deployment loads
+// that variable from an emitted dex-client Secret's key.
 func (c *consumption) dex() {
 	t := c.t
 	p, ok := c.charts.pins["dex-app"]
@@ -685,6 +760,9 @@ func (c *consumption) dex() {
 		t.Fatalf("chart dex-app is not pinned in %s/charts.yaml", consumptionDir)
 	}
 	standIn := filepath.Join(consumptionDir, "dex-app.values.yaml")
+	if c.platform == nil {
+		standIn = filepath.Join(consumptionDir, "dex-app.without-platform.values.yaml")
+	}
 	patch := c.configsFile("dex-app")
 	if patch == "" {
 		t.Fatal("dex-app: the definition rendered no configmap-values.yaml.patch for it")
