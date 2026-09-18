@@ -1,0 +1,87 @@
+package definitions
+
+import (
+	"fmt"
+
+	"gopkg.in/yaml.v3"
+)
+
+// The kinds of a dimension: where it is observed. The file kinds are compared
+// against the render, probe is an anonymous HTTP request, live is a read on
+// the installation with the person's authority.
+const (
+	KindConfigMap = "configmap"
+	KindDexSecret = "dex-secret"
+	KindExtras    = "extras"
+	KindBackstage = "backstage"
+	KindLive      = "live"
+	KindProbe     = "probe"
+)
+
+// Feature is one consistency feature of a definition: what the verify rolls
+// its dimensions up into.
+type Feature struct {
+	ID          string      `yaml:"-"`
+	Title       string      `yaml:"title"`
+	Description string      `yaml:"description"`
+	Dimensions  []Dimension `yaml:"dimensions"`
+}
+
+// Dimension is one observed aspect of a feature.
+type Dimension struct {
+	ID   string `yaml:"id"`
+	Kind string `yaml:"kind"`
+	Key  string `yaml:"key"`
+}
+
+// Probe is one anonymous HTTP probe of a definition (probes.yaml).
+type Probe struct {
+	ID      string `yaml:"id"`
+	Feature string `yaml:"feature"`
+	Key     string `yaml:"key"`
+	// URL is a Go template over BaseDomain and, per Dex client, ClientID and RedirectURI.
+	URL string `yaml:"url"`
+	// PerDexClient runs the probe once per client of the rendered dex patch.
+	PerDexClient bool `yaml:"perDexClient"`
+	// Expect are the status codes that mean as defined.
+	Expect []int `yaml:"expect"`
+}
+
+// Features reads a capability's features in file order.
+func Features(capability string) ([]Feature, error) {
+	raw, err := FS.ReadFile(capability + "/features.yaml")
+	if err != nil {
+		return nil, err
+	}
+	var doc struct {
+		Features yaml.Node `yaml:"features"`
+	}
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return nil, fmt.Errorf("%s/features.yaml: %w", capability, err)
+	}
+	out := make([]Feature, 0, len(doc.Features.Content)/2)
+	for i := 0; i+1 < len(doc.Features.Content); i += 2 {
+		var f Feature
+		if err := doc.Features.Content[i+1].Decode(&f); err != nil {
+			return nil, fmt.Errorf("%s/features.yaml: feature %s: %w", capability, doc.Features.Content[i].Value, err)
+		}
+		f.ID = doc.Features.Content[i].Value
+		out = append(out, f)
+	}
+	return out, nil
+}
+
+// Probes reads a capability's anonymous probes in file order.
+func Probes(capability string) ([]Probe, error) {
+	raw, err := FS.ReadFile(capability + "/probes.yaml")
+	if err != nil {
+		return nil, err
+	}
+	var doc struct {
+		Probes []Probe `yaml:"probes"`
+	}
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return nil, fmt.Errorf("%s/probes.yaml: %w", capability, err)
+	}
+	return doc.Probes, nil
+}
