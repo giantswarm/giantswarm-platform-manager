@@ -60,7 +60,9 @@ the definition does not carry, and the fleet base has the same ceiling. The test
 range the OCIRepository follows. A shape whose input lifts `chart.semver` to a line the pin file does not carry
 (the Giant Swarm-owned shape asks for 4.x) renders that line's values and is skipped naming the reason: it is
 not proven here. backstage is not pinned: the definition renders no portal files yet, so no emitted Secret has
-the portal as its consumer.
+the portal as its consumer. An emitted Secret a consumer does not read because of a tracked defect in the
+consumer is listed in `known-gaps.yaml` with its issue: the test reports it instead of failing, and fails once
+the Secret is read so the entry leaves with the fix.
 
 The test needs `helm`, `kustomize` and the network (gsoci charts, the fleet base on GitHub) and runs only with
 `RENDER_CONSUMPTION=1`; `make test-render-consumption` runs it, and the `render-consumption` CircleCI job runs

@@ -222,9 +222,40 @@ type consumption struct {
 	in      *Input
 	dir     string
 	charts  *chartStore
+	gaps    map[string]knownGap
 	emitted map[string]emittedSecret
 	refs    []secretRef
 	volumes []volumeRef
+}
+
+// knownGap is one entry of known-gaps.yaml: an emitted Secret a consuming chart
+// does not read yet because of a tracked defect in the consumer.
+type knownGap struct {
+	Secret string `yaml:"secret"`
+	Issue  string `yaml:"issue"`
+	Reason string `yaml:"reason"`
+}
+
+func loadGaps(t *testing.T) map[string]knownGap {
+	t.Helper()
+	var file struct {
+		Gaps []knownGap `yaml:"gaps"`
+	}
+	raw, err := fs.ReadFile(os.DirFS(consumptionDir), "known-gaps.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := yaml.Unmarshal(raw, &file); err != nil {
+		t.Fatal(err)
+	}
+	gaps := map[string]knownGap{}
+	for _, g := range file.Gaps {
+		if g.Secret == "" || g.Issue == "" {
+			t.Fatalf("known-gaps.yaml: every entry needs a namespace/name secret and an issue, got %+v", g)
+		}
+		gaps[g.Secret] = g
+	}
+	return gaps
 }
 
 func consume(t *testing.T, shape string, charts *chartStore) {
@@ -237,7 +268,7 @@ func consume(t *testing.T, shape string, charts *chartStore) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := &consumption{t: t, in: in, dir: t.TempDir(), charts: charts, emitted: map[string]emittedSecret{}}
+	c := &consumption{t: t, in: in, dir: t.TempDir(), charts: charts, gaps: loadGaps(t), emitted: map[string]emittedSecret{}}
 	for repo, files := range result.Files {
 		for path, f := range files {
 			full := filepath.Join(c.dir, string(repo), path)
@@ -589,7 +620,8 @@ func (c *consumption) dex() {
 }
 
 // assertRead fails for every emitted Secret no rendered consumer references in
-// its namespace.
+// its namespace. A Secret listed in known-gaps.yaml is reported with its issue
+// instead; once a consumer reads it, the entry has to go with the fix.
 func (c *consumption) assertRead() {
 	read := map[string][]string{}
 	for _, r := range c.refs {
@@ -601,7 +633,13 @@ func (c *consumption) assertRead() {
 		}
 	}
 	for _, name := range sortedKeys(c.emitted) {
-		if len(read[name]) == 0 {
+		gap, known := c.gaps[name]
+		switch {
+		case len(read[name]) > 0 && known:
+			c.t.Errorf("Secret %s: the known gap tracked by %s has closed (read by %v): remove the entry from %s/known-gaps.yaml", name, gap.Issue, read[name], consumptionDir)
+		case len(read[name]) == 0 && known:
+			c.t.Logf("Secret %s: emitted but nothing reads it — known gap, %s (%s)", name, gap.Reason, gap.Issue)
+		case len(read[name]) == 0:
 			c.t.Errorf("Secret %s: emitted but nothing reads it — no rendered chart references it in its namespace", name)
 		}
 	}
