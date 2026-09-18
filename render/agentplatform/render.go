@@ -158,7 +158,13 @@ func (in *Input) kagentValues() render.Map {
 		e("extraArgs", render.Map{e("oidc-extra-audience", strings.Join(in.audiences(), ","))}),
 	}))
 	if len(in.Kagent.UIIngressPeers) > 0 {
-		k = append(k, e("oauth2ProxyIngress", render.Map{e("additionalPeers", in.Kagent.UIIngressPeers)}))
+		// The chart's peer selector is a Cilium endpoint selector: the namespace is the
+		// io.kubernetes.pod.namespace label, not a field of its own.
+		peers := make([]render.Map, 0, len(in.Kagent.UIIngressPeers))
+		for _, p := range in.Kagent.UIIngressPeers {
+			peers = append(peers, render.Map{e("app", p.App), e("io.kubernetes.pod.namespace", p.Namespace)})
+		}
+		k = append(k, e("oauth2ProxyIngress", render.Map{e("additionalPeers", peers)}))
 	}
 	return k
 }

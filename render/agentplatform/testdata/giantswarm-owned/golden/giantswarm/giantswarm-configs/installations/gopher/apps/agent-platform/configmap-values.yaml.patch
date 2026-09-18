@@ -35,6 +35,10 @@ kagent:
       existingSecret: kagent-oauth2-proxy-credentials
     extraArgs:
       oidc-extra-audience: dex-k8s-authenticator,kagent,portal-client-id-home # gitleaks:allow
+  oauth2ProxyIngress:
+    additionalPeers:
+      - app: example-tunnel-agent
+        io.kubernetes.pod.namespace: example-system
 muster:
   resources:
     requests:
