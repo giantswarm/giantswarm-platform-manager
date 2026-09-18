@@ -3,11 +3,13 @@
 //
 // The library has no I/O. A definition takes an installation's inputs and
 // returns a Result: the files of the installation's GitOps repositories,
-// repository by repository-relative path, and the entries a shared
-// kustomization must list. It runs no git, no sops and no network, and it
-// generates no secret: a Secret manifest is emitted in plaintext with a
-// placeholder per generated value, described in File.Generated for the commit
-// step (gitops-commit's sopsenc) to fill in and encrypt.
+// repository by repository-relative path, the entries a shared kustomization
+// must list, and, as data, the probes of the running installation and the
+// actions left to people outside the platform team. It runs no git, no sops
+// and no network, executes no probe, and it generates no secret: a Secret
+// manifest is emitted in plaintext with a placeholder per generated value,
+// described in File.Generated for the commit step (gitops-commit's sopsenc)
+// to fill in and encrypt.
 package render
 
 import (
@@ -66,7 +68,70 @@ type Include struct {
 type Result struct {
 	Files    Fileset
 	Includes []Include
+	Probes   []Probe  // what the verify slice checks on the running installation, in order
+	Actions  []Action // what a person outside the platform team still has to do
 }
+
+// Probe is one check of the running installation, as data: the definition
+// describes it, the verify slice executes it. ID is the live dimension of the
+// definition's features.yaml it observes; Feature its feature.
+type Probe struct {
+	ID        string      `yaml:"id"`
+	Feature   string      `yaml:"feature"`
+	Kind      ProbeKind   `yaml:"kind"`
+	Namespace string      `yaml:"namespace,omitempty"` // resource probes: the object's namespace
+	Resource  string      `yaml:"resource,omitempty"`  // resource probes: kind or kind.group, e.g. "HelmRelease", "Cluster.postgresql.cnpg.io"
+	Name      string      `yaml:"name,omitempty"`      // resource probes: the object's name (or a pod label selector, "app=…")
+	URL       string      `yaml:"url,omitempty"`       // HTTP probes: the address
+	Expect    Expectation `yaml:"expect,omitempty"`    // what the probe expects; empty where existence or readiness is the check
+}
+
+// ProbeKind is what a probe does.
+type ProbeKind string
+
+const (
+	// HelmReleaseReady is a HelmRelease whose Ready condition is True.
+	HelmReleaseReady ProbeKind = "HelmReleaseReady"
+	// PodsRunning is every pod the selector in Name matches being Running.
+	PodsRunning ProbeKind = "PodsRunning"
+	// ResourcePresent is an object that exists; a Secret carries Expect.Keys.
+	ResourcePresent ProbeKind = "ResourcePresent"
+	// Condition is an object whose condition Expect.Condition has Expect.ConditionStatus.
+	Condition ProbeKind = "Condition"
+	// HTTP is a GET of URL, redirects not followed, answered as Expect says.
+	HTTP ProbeKind = "HTTP"
+	// LogAbsent is a workload whose log matches Expect.Absent nowhere.
+	LogAbsent ProbeKind = "LogAbsent"
+	// Drift is a live object whose values equal what the rendered files imply.
+	Drift ProbeKind = "Drift"
+)
+
+// Expectation is what a probe expects; the fields its kind does not read stay zero.
+type Expectation struct {
+	Status           int      `yaml:"status,omitempty"`           // HTTP: the status code
+	LocationContains string   `yaml:"locationContains,omitempty"` // HTTP: a substring of the Location header (302 probes)
+	BodyContains     string   `yaml:"bodyContains,omitempty"`     // HTTP: a substring of the body (200 probes)
+	Condition        string   `yaml:"condition,omitempty"`        // Condition: the type, e.g. Accepted, Ready
+	ConditionStatus  string   `yaml:"conditionStatus,omitempty"`  // Condition: True or False
+	Absent           string   `yaml:"absent,omitempty"`           // LogAbsent: a pattern that must not appear in the workload's log
+	Keys             []string `yaml:"keys,omitempty"`             // ResourcePresent on a Secret: the keys it carries
+	Note             string   `yaml:"note,omitempty"`             // one sentence a person reads next to the mark (e.g. what a False means)
+}
+
+// Action is something outside the platform team's hands, rendered as a note
+// with a state. Feature is the features.yaml feature it holds up.
+type Action struct {
+	ID      string      `yaml:"id"`
+	Feature string      `yaml:"feature"`
+	State   ActionState `yaml:"state"`
+	Note    string      `yaml:"note"` // what to do, in one sentence
+}
+
+// ActionState is where an action stands.
+type ActionState string
+
+// WaitingForCustomer is an action whose next step is the customer's.
+const WaitingForCustomer ActionState = "WaitingForCustomer"
 
 // Add puts a file into the result. A path rendered twice is a bug in the
 // definition and panics.

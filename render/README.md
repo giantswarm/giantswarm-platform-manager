@@ -31,6 +31,29 @@ The golden filesets under `render/agentplatform/testdata/<shape>/golden/` are th
 a public customer and a Giant Swarm-owned installation (invented names, placeholder values) and are
 diffed on every pull request; `go test ./render/... -update` rewrites them after an intended change.
 
+## Probes and customer actions
+
+A `Result` also says what the running installation has to show for the render to count as working, as data.
+`Probes` are the checks of the installation, one or more per `kind: live` dimension of
+`definitions/agent-platform/features.yaml`, in the order they are run: the HelmReleases Ready, kagent's
+workloads and its Postgres cluster, the oauth2-proxy Secret and the Flux ServiceAccount, the default
+ModelConfig's `Accepted` condition, `/api/agents` answered 403, `/oauth2/start` redirected to Dex as client
+`kagent`, Dex's `/auth` answering 302 for every rendered client with a redirect URI, muster's
+protected-resource metadata, the installation's own MCPServer objects, no audience mismatch in oauth2-proxy's
+log, and the drift of live values against the rendered files. Each probe carries its kind, its target (an
+object by namespace, resource and name, or a URL), its expectation and the feature it marks; everything
+kagent's is probed only when kagent is enabled. Nothing here connects to a cluster or an endpoint: the verify
+slice executes the probes and shows the marks.
+
+`Actions` are what a person outside the platform team still has to do, as a note with a state. A
+customer-provided model key is one: `WaitingForCustomer` until the Secret `kagent-anthropic-key` (key
+`ANTHROPIC_API_KEY`) exists in namespace `kagent` or a ModelConfig is added in the portal, and the ModelConfig
+probe expects `Accepted=False` until then. With a managed key there is no action and the probe expects
+`Accepted=True`.
+
+The goldens carry both as `probes.yaml` and `actions.yaml` per shape; `TestProbesAreLiveDimensions` holds every
+probe to a live dimension of the feature it names and every live dimension to at least one probe.
+
 ## The render-consumption test
 
 The goldens prove what the definition renders; `TestRenderConsumption` (`render/agentplatform/consumption_test.go`)

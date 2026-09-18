@@ -1,0 +1,179 @@
+package agentplatform
+
+import "github.com/giantswarm/giantswarm-platform-manager/render"
+
+// The features of definitions/agent-platform/features.yaml a probe or an
+// action belongs to.
+const (
+	featureIdentity   = "identity"
+	featureSecrets    = "secrets"
+	featureRuntime    = "runtime"
+	featureToolAccess = "tool-access"
+)
+
+const (
+	// fluxNamespace is where the installation's HelmReleases live.
+	fluxNamespace = "flux-giantswarm"
+	// oauth2ProxyDeployment is the kagent UI's oauth2-proxy, the workload that
+	// protects the UI and the API.
+	oauth2ProxyDeployment = "kagent-oauth2-proxy"
+	// musterConfigMap carries muster's server configuration as the chart renders it.
+	musterConfigMap = "muster-config"
+	// conditionTrue and conditionFalse are the statuses a Condition probe expects.
+	conditionTrue  = "True"
+	conditionFalse = "False"
+)
+
+// probes are the checks of the running installation, one or more per live
+// dimension of features.yaml, in the order the verify slice runs them: the
+// releases, kagent's workloads, the Secrets, the model configuration, the
+// identity chain over HTTP, the tool access, the logs, and the drift of live
+// values against the render. Everything kagent's is probed only when kagent
+// is enabled. Nothing here runs anything: a probe is data.
+func (in *Input) probes() []render.Probe {
+	var p []render.Probe
+	for _, name := range in.helmReleases() {
+		p = append(p, resourceProbe("live-helmreleases-ready", featureRuntime, render.HelmReleaseReady, fluxNamespace, "HelmRelease", name))
+	}
+	if in.Kagent.Enabled {
+		for _, name := range []string{"kagent-controller", "kagent-ui", oauth2ProxyDeployment} {
+			p = append(p, conditionProbe("live-kagent-workloads", featureRuntime, kagentNamespace, "Deployment", name, "Available", conditionTrue))
+		}
+		p = append(p, conditionProbe("live-kagent-workloads", featureRuntime, kagentNamespace, "Cluster.postgresql.cnpg.io", "kagent-pg", "Ready", conditionTrue))
+		credentials := resourceProbe("live-oauth2-proxy-secret-and-flux-sa", featureSecrets, render.ResourcePresent, kagentNamespace, "Secret", "kagent-oauth2-proxy-credentials")
+		credentials.Expect.Keys = []string{"client-id", "client-secret", "cookie-secret"}
+		p = append(p, credentials,
+			resourceProbe("live-oauth2-proxy-secret-and-flux-sa", featureSecrets, render.ResourcePresent, kagentNamespace, "ServiceAccount", "kagent-flux"),
+			in.modelConfigProbe(),
+			httpProbe("live-kagent-api-protected", featureIdentity, "https://"+in.host("kagent")+"/api/agents", render.Expectation{Status: 403}),
+			httpProbe("live-kagent-login-redirect", featureIdentity, "https://"+in.host("kagent")+"/oauth2/start", render.Expectation{
+				Status: 302, LocationContains: "client_id=kagent",
+				Note: "the login redirects to Dex at https://" + in.host("dex") + "/auth as client kagent",
+			}))
+	}
+	for _, c := range in.dexRedirectClients() {
+		p = append(p, httpProbe("live-dex-auth-per-client", featureIdentity, in.dexAuthURL(c), render.Expectation{Status: 302}))
+	}
+	p = append(p, httpProbe("live-muster-protected-resource", featureToolAccess, "https://"+in.host("muster")+"/.well-known/oauth-protected-resource", render.Expectation{
+		Status: 200, BodyContains: `"resource":"https://` + in.host("muster") + `/mcp"`,
+	}))
+	for _, s := range servers {
+		p = append(p, resourceProbe("live-own-mcp-servers", featureToolAccess, render.ResourcePresent, platformNamespace, "MCPServer.muster.giantswarm.io", in.Installation.Name+"-"+s.name))
+	}
+	if in.Kagent.Enabled {
+		audience := resourceProbe("live-oauth2-proxy-audience", featureIdentity, render.LogAbsent, kagentNamespace, "Deployment", oauth2ProxyDeployment)
+		audience.Expect.Absent = "audience .* does not match"
+		p = append(p, audience)
+	}
+	p = append(p, resourceProbe("live-drift", featureRuntime, render.Drift, fluxNamespace, "HelmRelease", "agent-platform"))
+	if in.Kagent.Enabled {
+		p = append(p,
+			driftProbe("live-kagent-provider-values", featureRuntime, fluxNamespace, "HelmRelease", "kagent",
+				".spec.values.kagent.providers are the rendered kagent.providers"),
+			driftProbe("live-oauth2-proxy-extra-audience", featureIdentity, kagentNamespace, "Deployment", oauth2ProxyDeployment,
+				"--oidc-extra-audience carries the rendered audiences"))
+	}
+	return append(p,
+		driftProbe("live-muster-trusted-audiences", featureIdentity, platformNamespace, "ConfigMap", musterConfigMap,
+			"trustedAudiences are the rendered muster.muster.oauth.server.trustedAudiences"),
+		driftProbe("live-muster-connector-and-client-id", featureIdentity, platformNamespace, "ConfigMap", musterConfigMap,
+			"the Dex connectorId and clientId are the rendered ones"))
+}
+
+// actions are what a person outside the platform team still has to do for the
+// installation to work as rendered: the model key, when the customer provides
+// it rather than the platform team.
+func (in *Input) actions() []render.Action {
+	if !in.Kagent.Enabled || in.Kagent.ModelKeySecret == modelKeyManaged {
+		return nil
+	}
+	return []render.Action{{ID: "model-key", Feature: featureRuntime, State: render.WaitingForCustomer,
+		Note: "Create Secret kagent-anthropic-key in namespace kagent with key ANTHROPIC_API_KEY, or add a ModelConfig in the portal; until then default-model-config stays Accepted=False."}}
+}
+
+// helmReleases are the HelmReleases the installation's platform consists of:
+// the meta chart, kagent when it runs, the connectivity chart, muster, the
+// servers' registration, and every own MCP server with its Valkey.
+func (in *Input) helmReleases() []string {
+	names := []string{"agent-platform"}
+	if in.Kagent.Enabled {
+		names = append(names, "kagent")
+	}
+	names = append(names, "agent-platform-connectivity", "muster", "agent-platform-mcps")
+	for _, s := range servers {
+		names = append(names, s.name, s.name+"-valkey")
+	}
+	return names
+}
+
+// modelConfigProbe is the default ModelConfig's Accepted condition: True with a
+// managed model key; False, and a note saying whose move it is, until the
+// customer provides the key.
+func (in *Input) modelConfigProbe() render.Probe {
+	p := conditionProbe("live-model-configs", featureRuntime, kagentNamespace, "ModelConfig.kagent.dev", "default-model-config", "Accepted", conditionTrue)
+	if in.Kagent.ModelKeySecret != modelKeyManaged {
+		p.Expect.ConditionStatus = conditionFalse
+		p.Expect.Note = "waiting for the customer's model key (Secret kagent-anthropic-key, key ANTHROPIC_API_KEY, or a ModelConfig in the portal)"
+	}
+	return p
+}
+
+// dexRedirectClient is a Dex client of the installation with the redirect URI
+// an authorization request names.
+type dexRedirectClient struct {
+	id, redirectURI string
+}
+
+// dexRedirectClients are the clients the dex patch renders that have a
+// redirect URI, in the patch's order: muster, the servers whose client the
+// patch references, kagent's UI, and the additional clients that name one. The
+// hubs' token-exchange clients have none and are not probed.
+func (in *Input) dexRedirectClients() []dexRedirectClient {
+	callback := func(component string) string { return "https://" + in.host(component) + "/oauth/callback" }
+	clients := []dexRedirectClient{{id: "muster", redirectURI: callback("muster")}}
+	for _, s := range servers {
+		if s.dexSecretRef {
+			clients = append(clients, dexRedirectClient{id: s.name, redirectURI: callback(s.name)})
+		}
+	}
+	if in.Kagent.Enabled {
+		clients = append(clients, dexRedirectClient{id: "kagent", redirectURI: in.kagentRedirectURI()})
+	}
+	for _, c := range in.Identity.AdditionalDexClients {
+		if len(c.RedirectURIs) > 0 {
+			clients = append(clients, dexRedirectClient{id: c.ID, redirectURI: c.RedirectURIs[0]})
+		}
+	}
+	return clients
+}
+
+// dexAuthURL is the authorization request Dex answers with a redirect for a
+// client it knows: 302 to the login, never an error page.
+func (in *Input) dexAuthURL(c dexRedirectClient) string {
+	return "https://" + in.host("dex") + "/auth?client_id=" + c.id + "&redirect_uri=" + c.redirectURI + "&response_type=code&scope=openid"
+}
+
+// resourceProbe is a probe of one object, by kind, namespace, resource and name.
+func resourceProbe(id, feature string, kind render.ProbeKind, namespace, resource, name string) render.Probe {
+	return render.Probe{ID: id, Feature: feature, Kind: kind, Namespace: namespace, Resource: resource, Name: name}
+}
+
+// conditionProbe is a Condition probe: the object's condition has the status.
+func conditionProbe(id, feature, namespace, resource, name, condition, status string) render.Probe {
+	p := resourceProbe(id, feature, render.Condition, namespace, resource, name)
+	p.Expect = render.Expectation{Condition: condition, ConditionStatus: status}
+	return p
+}
+
+// driftProbe is a Drift probe of one object, with the note saying which of
+// its values are compared to the render.
+func driftProbe(id, feature, namespace, resource, name, note string) render.Probe {
+	p := resourceProbe(id, feature, render.Drift, namespace, resource, name)
+	p.Expect.Note = note
+	return p
+}
+
+// httpProbe is a GET of url answered as expect says.
+func httpProbe(id, feature, url string, expect render.Expectation) render.Probe {
+	return render.Probe{ID: id, Feature: feature, Kind: render.HTTP, URL: url, Expect: expect}
+}
