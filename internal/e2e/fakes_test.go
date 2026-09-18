@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path"
 	"strings"
 	"sync"
@@ -113,4 +114,89 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// addFiles adds files to the fixture owner/repo, over the ones it has.
+func (g *fakeGitHub) addFiles(repo string, files map[string]string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.files[repo] == nil {
+		g.files[repo] = map[string]string{}
+	}
+	for p, c := range files {
+		g.files[repo][p] = c
+	}
+}
+
+// probeHostHeader carries the host a probe was addressed to through the
+// rewrite to the fake.
+const probeHostHeader = "X-Probe-Host"
+
+// fakeProbes stands in for every public endpoint the anonymous probes reach:
+// a request to any host lands here, answered as the definition expects unless
+// a test set an answer for host+path.
+type fakeProbes struct {
+	*httptest.Server
+	mu      sync.Mutex
+	answers map[string]int
+}
+
+func newFakeProbes(t *testing.T) *fakeProbes {
+	t.Helper()
+	f := &fakeProbes{answers: map[string]int{}}
+	f.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Header.Get(probeHostHeader)
+		f.mu.Lock()
+		status, ok := f.answers[host+r.URL.Path]
+		f.mu.Unlock()
+		if !ok {
+			status = expectedAnswer(host, r)
+		}
+		if status == http.StatusFound {
+			w.Header().Set("Location", "https://"+host+"/login")
+		}
+		w.WriteHeader(status)
+	}))
+	t.Cleanup(f.Close)
+	return f
+}
+
+// expectedAnswer is what a healthy installation answers an anonymous probe.
+func expectedAnswer(host string, r *http.Request) int {
+	switch {
+	case strings.HasPrefix(host, "dex.") && r.URL.Path == "/auth" && r.URL.Query().Get("client_id") != "":
+		return http.StatusFound
+	case strings.HasPrefix(host, "kagent."):
+		return http.StatusFound
+	case r.URL.Path == "/.well-known/oauth-protected-resource":
+		return http.StatusOK
+	}
+	return http.StatusNotFound
+}
+
+// answer makes host+path answer status.
+func (f *fakeProbes) answer(hostPath string, status int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.answers[hostPath] = status
+}
+
+// client is the HTTP client the manager under test probes with: every
+// request is rewritten to the fake, redirects are not followed.
+func (f *fakeProbes) client() *http.Client {
+	return &http.Client{Transport: rewriteTransport{target: f.URL},
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+}
+
+type rewriteTransport struct{ target string }
+
+func (rt rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	u, err := url.Parse(rt.target)
+	if err != nil {
+		return nil, err
+	}
+	r2 := req.Clone(req.Context())
+	r2.Header.Set(probeHostHeader, req.URL.Host)
+	r2.URL.Scheme, r2.URL.Host, r2.Host = u.Scheme, u.Host, u.Host
+	return http.DefaultTransport.RoundTrip(r2)
 }
