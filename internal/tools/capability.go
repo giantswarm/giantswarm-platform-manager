@@ -192,6 +192,8 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 		p.State = capabilityState(r, def.Name)
 		p.OptIn = r.OptIn
 		switch refusal := p.FrozenRefusal(); {
+		case p.Refused != "":
+			p.CommitRefused = fmt.Sprintf("the definition refuses these inputs for %s (refused says why); nothing is committed", r.Name)
 		case r.OptIn != nil && r.OptIn.State != installations.OptedIn:
 			p.CommitRefused = fmt.Sprintf("%s is %s: %s", r.Name, r.OptIn.State, r.OptIn.HowToOptIn)
 		case refusal != "":

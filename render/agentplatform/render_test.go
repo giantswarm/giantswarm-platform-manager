@@ -14,6 +14,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden filesets from the current render")
@@ -96,6 +97,39 @@ func TestGolden(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestGoldensCoverBothLines holds the golden shapes to the meta chart's lines:
+// at least one shape renders on each line; a 3-line shape's configmap patch
+// carries no key of a 4-line-only component (the 3 line's schema refuses
+// them); a 4-line shape the policy grants the cluster-manager carries its
+// toggle and values.
+func TestGoldensCoverBothLines(t *testing.T) {
+	rendered := map[string]bool{}
+	for _, shape := range shapes {
+		input, secrets := loadInput(t, shape)
+		in, err := Parse(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := Render(input, secrets)
+		if err != nil {
+			t.Fatal(err)
+		}
+		line := in.Installation.ChartLine
+		rendered[line] = true
+		patch := string(result.Files[render.Repository("giantswarm/"+in.Installation.Customer+"-configs")]["installations/"+in.Installation.Name+"/apps/agent-platform/configmap-values.yaml.patch"].Content)
+		for _, c := range lineFourComponents {
+			if named := strings.Contains(patch, c+":"); named != (line == lineFour && in.Components[c]) {
+				t.Errorf("%s (line %s, %s granted %v): the configmap patch names %s: %v", shape, line, c, in.Components[c], c, named)
+			}
+		}
+	}
+	for _, line := range []string{lineThree, lineFour} {
+		if !rendered[line] {
+			t.Errorf("no golden shape renders on the %s line", line)
+		}
 	}
 }
 
@@ -277,6 +311,11 @@ func TestProbesAreLiveDimensions(t *testing.T) {
 func TestRefusals(t *testing.T) {
 	base, secrets := loadInput(t, shapePublicCustomer)
 	slackApp, _ := loadInput(t, shapeGiantswarmSlackApp)
+	// A Giant Swarm-owned installation — the policy grants it the cluster-manager —
+	// whose record has no agentPlatform.kagentApiV2 and so selects the 3 line.
+	lineThreeOwned, _ := loadInput(t, shapeGiantswarmOwned)
+	lineThreeOwned["installation"].(map[string]any)["chartLine"] = lineThree
+	delete(lineThreeOwned, "modelServing")
 	target := func(private bool) map[string]any {
 		return map[string]any{"installation": "x", "baseDomain": "x.example", "private": private}
 	}
@@ -304,6 +343,7 @@ func TestRefusals(t *testing.T) {
 		{"a Slack credential where no gateway runs", base, map[string]string{fieldSlack + "bot-token": "x"}, ErrUnknownSecret, fieldSlack + "bot-token"},
 		{"the model key is never supplied", base, map[string]string{"kagent.modelKey": "x"}, ErrUnknownSecret, "kagent.modelKey"},
 		{"serving on the 3 line", clone(func(m map[string]any) { m["modelServing"] = map[string]any{"enabled": true} }), secrets, ErrInput, "modelServing.enabled"},
+		{"a component of the 4 line on a record that selects the 3 line", lineThreeOwned, nil, ErrInput, "cluster-manager needs the platform's 4 chart line and the record selects the 3 line; agentPlatform.kagentApiV2: true in installations/gopher/config.yaml.patch selects 4"},
 		{"targets without a broker client", clone(func(m map[string]any) {
 			federation(m)["targets"] = []any{target(false)}
 		}), secrets, ErrInput, "federation.brokerClientId"},

@@ -1,0 +1,16 @@
+# Stands in, over agent-platform.values.yaml, for what the shared template carries
+# on the 4 line alone. The identity block the managers derive their OAuth from
+# (issuer, the platform's client, the muster credentials Secret the definition
+# emits — the 3 line's patch carries each manager's oauth section instead), and
+# the actors' snapshot store the platform Harness writes to, which the template
+# provisions per provider through Crossplane and the chart derives the location
+# of; the stand-in gives the derived location, which is all the children read.
+# Invented names; nothing here is asserted, only what the children read with it.
+global:
+  identity:
+    issuerUrl: https://dex.example.test
+    clientId: muster-example
+    existingSecret: muster-oauth-credentials
+kagent:
+  harness:
+    snapshotLocation: s3://example-substrate/kagent

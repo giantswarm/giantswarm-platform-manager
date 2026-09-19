@@ -24,8 +24,9 @@ import (
 // TestRenderConsumption renders the charts that consume the definitions' files —
 // the fleet bases' HelmReleases over the emitted extras (kustomize build), the
 // portal's tree with backstage, the agent-platform meta chart and the children
-// it renders, dex-app — at the versions pinned in testdata/consumption/charts.yaml,
-// and checks every emitted Secret against what the rendered workloads read: a
+// it renders, dex-app — at the versions pinned in testdata/consumption/charts.yaml
+// (the meta chart on both of its lines, each shape at the line its record
+// selects), and checks every emitted Secret against what the rendered workloads read: a
 // Secret nobody reads, a key a chart reads that the Secret does not carry, a Dex
 // client whose secret the Deployment does not load. Values a shared template
 // supplies on an installation (a Konfiguration ConfigMap) come from a stand-in
@@ -76,11 +77,24 @@ const (
 )
 
 // pin is one entry of charts.yaml: a consuming chart, its OCI repository and the
-// version the test renders.
+// version the test renders — for the meta chart and the children whose range
+// differs by line, one entry per meta chart line (line), found by the shape's
+// installation.chartLine; an entry without a line serves every shape.
 type pin struct {
 	Name     string `yaml:"name"`
+	Line     string `yaml:"line"`
 	Registry string `yaml:"registry"`
 	Version  string `yaml:"version"`
+}
+
+// key names a pin in the pin map: the chart, and the line where it has one.
+func (p pin) key() string { return pinKey(p.Name, p.Line) }
+
+func pinKey(chart, line string) string {
+	if line == "" {
+		return chart
+	}
+	return chart + "@" + line
 }
 
 func loadPins(t *testing.T) map[string]pin {
@@ -100,7 +114,13 @@ func loadPins(t *testing.T) map[string]pin {
 		if _, err := semver.NewVersion(p.Version); err != nil || p.Registry == "" {
 			t.Fatalf("charts.yaml: %s: needs a registry and a semver version, got %q %q", p.Name, p.Registry, p.Version)
 		}
-		pins[p.Name] = p
+		if p.Line != "" && p.Line != lineThree && p.Line != lineFour {
+			t.Fatalf("charts.yaml: %s: line %q is not a meta chart line the record selects (%s or %s)", p.Name, p.Line, lineThree, lineFour)
+		}
+		if _, dup := pins[p.key()]; dup {
+			t.Fatalf("charts.yaml: %s is pinned twice", p.key())
+		}
+		pins[p.key()] = p
 	}
 	return pins
 }
@@ -319,8 +339,7 @@ func consume(t *testing.T, shape consumptionShape, charts *chartStore) {
 	if err != nil || len(extras) == 0 {
 		t.Fatalf("no extras directories rendered (%v)", err)
 	}
-	// The portal first: a shape whose meta chart line the pin file does not
-	// carry is skipped at the meta chart, and its portal is proven before that.
+	// The portal first, then every other extras directory.
 	backstage := filepath.Join(c.dir, "giantswarm", portal.Installation.Customer+"-management-clusters", "management-clusters", c.installation, "extras", "backstage")
 	c.backstage(backstage)
 	for _, k := range extras {
@@ -540,7 +559,7 @@ func (c *consumption) helmReleases(objects []object, fleet bool) []*release {
 				t.Fatal(err)
 			}
 		}
-		p, pinned := c.charts.pins[chart]
+		p, pinned := c.pin(chart)
 		if !pinned {
 			if fleet || c.mentionsEmitted(string(values)) {
 				t.Fatalf("HelmRelease %s: chart %s (%s) is not pinned in %s/charts.yaml", hr.name(), chart, url, consumptionDir)
@@ -571,11 +590,11 @@ func (c *consumption) helmReleases(objects []object, fleet bool) []*release {
 				rel.values = append(rel.values, c.writeValues(emitted.name(), []byte(str(get(emitted, "data", key)))))
 				continue
 			}
-			standIn := filepath.Join(consumptionDir, chart+".values.yaml")
-			if _, err := os.Stat(standIn); err != nil {
-				t.Fatalf("HelmRelease %s takes values from ConfigMap %s (a shared template, not in this repository): add %s with the Secret-selecting values it carries", hr.name(), str(get(vf, fieldName)), standIn)
+			standIns := c.standIns(chart)
+			if !fileExists(standIns[0]) {
+				t.Fatalf("HelmRelease %s takes values from ConfigMap %s (a shared template, not in this repository): add %s with the Secret-selecting values it carries", hr.name(), str(get(vf, fieldName)), standIns[0])
 			}
-			rel.values = append(rel.values, standIn)
+			rel.values = append(rel.values, standIns...)
 			patch := c.configsFile(hr.name())
 			if patch != "" {
 				rel.values = append(rel.values, patch)
@@ -595,11 +614,22 @@ func (c *consumption) helmReleases(objects []object, fleet bool) []*release {
 	return out
 }
 
+// pin is chart's pin for this shape: the entry of the shape's meta chart line
+// where charts.yaml carries one, else the entry without a line.
+func (c *consumption) pin(chart string) (pin, bool) {
+	if c.platform != nil {
+		if p, ok := c.charts.pins[pinKey(chart, c.platform.Installation.ChartLine)]; ok {
+			return p, true
+		}
+	}
+	p, ok := c.charts.pins[chart]
+	return p, ok
+}
+
 // checkRange asserts the pin lies in the range the OCIRepository follows. The
-// one range the definition writes itself — chart.semver from the installation's
-// input, on the meta chart — is the installation's choice of line; a shape that
-// asks for a line the pin file does not carry renders values of that line and
-// cannot be proven against the pinned one, so it is skipped naming the reason.
+// meta chart's own range is the record's line (the 4 line pins itself, the 3
+// line runs the base's range), and a child's range is the line's: a pin outside
+// it is an entry of charts.yaml for the other line, or none for this one.
 func (c *consumption) checkRange(p pin, hr, rng string) {
 	if rng == "" {
 		return
@@ -611,10 +641,29 @@ func (c *consumption) checkRange(p pin, hr, rng string) {
 	if constraint.Check(semver.MustParse(p.Version)) {
 		return
 	}
-	if c.platform != nil && rng == c.platform.chartSemver() {
-		c.t.Skipf("the installation asks for %s %s and the test pins %s: a line %s/charts.yaml does not carry is not proven here", p.Name, rng, p.Version, consumptionDir)
+	line := ""
+	if c.platform != nil {
+		line = c.platform.Installation.ChartLine
 	}
-	c.t.Fatalf("chart %s: pinned %s is outside the range %s that HelmRelease %s follows", p.Name, p.Version, rng, hr)
+	c.t.Fatalf("chart %s: pinned %s is outside the range %s that HelmRelease %s follows on the %s line — %s/charts.yaml needs an entry for it with line: %q", p.Name, p.Version, rng, hr, line, consumptionDir, line)
+}
+
+// standIns are the files standing in for the shared template's ConfigMap of a
+// chart: <chart>.values.yaml and, over it, <chart>.<line>.values.yaml where the
+// template carries values on one meta chart line alone.
+func (c *consumption) standIns(chart string) []string {
+	files := []string{filepath.Join(consumptionDir, chart+".values.yaml")}
+	if c.platform != nil {
+		if byLine := filepath.Join(consumptionDir, chart+"."+c.platform.Installation.ChartLine+".values.yaml"); fileExists(byLine) {
+			files = append(files, byLine)
+		}
+	}
+	return files
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func (c *consumption) mentionsEmitted(text string) bool {

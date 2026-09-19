@@ -45,6 +45,20 @@ const (
 // installation's Slack app (klausGateway.installations).
 var organisationComponents = []string{componentKagent, componentAgentManager, componentClusterManager}
 
+// lineFourComponents are the components the meta chart carries on its 4 line
+// only: the 3 line's values schema has no key for them and refuses a patch
+// that names them. A record on the 3 line whose policy grants one is refused
+// at plan time instead (checkRecord).
+var lineFourComponents = []string{componentClusterManager}
+
+// The meta chart lines a record selects (installation.chartLine): the 4 line
+// carries every component and the serving slice; the 3 line runs the base's
+// range and the managers' own OAuth sections.
+const (
+	lineThree = "3"
+	lineFour  = "4"
+)
+
 // The referenced Secrets every installation names alike.
 const (
 	musterOAuthSecret  = "muster-oauth-credentials"  // #nosec G101 -- a Secret name, not a value
@@ -241,8 +255,8 @@ type document struct {
 // the schema does not know, a missing required key or a wrong shape is
 // ErrInput naming the location; a record the definition cannot render as it
 // stands (a hub without its broker client, a private target on a hub without a
-// published service-account issuer, the serving slice on the 3 chart line) is
-// ErrInput too.
+// published service-account issuer, the serving slice or a component of the 4
+// chart line on a record that selects the 3 line) is ErrInput too.
 func Parse(raw any) (*Input, error) {
 	schemaBytes, err := definitions.FS.ReadFile("agent-platform/schema.json")
 	if err != nil {
@@ -305,8 +319,13 @@ func (in *Input) checkRecord() error {
 	if in.hasPrivateTarget() && in.serviceAccountIssuer() == "" {
 		return fmt.Errorf("%w: installation.federation.targets: a private target's tunnel joins Teleport by this hub's published service-account issuer, and a %s installation publishes none the definition knows", ErrInput, in.Installation.Provider)
 	}
-	if in.ModelServing && in.Installation.ChartLine != "4" {
+	if in.ModelServing && in.Installation.ChartLine != lineFour {
 		return fmt.Errorf("%w: modelServing.enabled: the serving slice is the 4 chart line's; this installation runs the %s line", ErrInput, in.Installation.ChartLine)
+	}
+	for _, c := range lineFourComponents {
+		if in.Components[c] && in.Installation.ChartLine != lineFour {
+			return fmt.Errorf("%w: installation.chartLine: %s needs the platform's 4 chart line and the record selects the %s line; agentPlatform.kagentApiV2: true in installations/%s/config.yaml.patch selects 4", ErrInput, c, in.Installation.ChartLine, in.Installation.Name)
+		}
 	}
 	return nil
 }
@@ -337,7 +356,7 @@ func (in *Input) portalHost() string {
 // chartSemver is the range patched onto the agent-platform OCIRepository: the 4
 // line pins itself; the 3 line runs the base's range.
 func (in *Input) chartSemver() string {
-	if in.Installation.ChartLine == "4" {
+	if in.Installation.ChartLine == lineFour {
 		return ">=4.0.0 <5.0.0"
 	}
 	return ""

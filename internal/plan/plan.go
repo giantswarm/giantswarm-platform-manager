@@ -192,7 +192,9 @@ type Installation struct {
 	// render); the rest is empty then.
 	Refused string `json:"refused,omitempty"`
 	// CommitRefused says why a commit of this dry run would be refused (the
-	// installation is not opted in); empty when a commit could go ahead.
+	// definition refuses the inputs, the installation is not opted in, a
+	// generated value is frozen where it cannot rotate); empty when a commit
+	// could go ahead.
 	CommitRefused    string            `json:"commitRefused,omitempty"`
 	Files            []File            `json:"files"`
 	Includes         []Include         `json:"includes"`

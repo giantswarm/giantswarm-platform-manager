@@ -19,6 +19,10 @@ input:
     federation:
       hubs: []
       targets: []
+  # The serving slice is chosen on the hub-private-target shape: the connectivity
+  # chart of the 4 line renders it only with a certificate for the models Gateway,
+  # which the definition does not name yet (#67), and this shape is the one
+  # the render-consumption test renders on the 4 line.
   modelServing:
-    enabled: true
+    enabled: false
 secrets: {}
