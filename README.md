@@ -67,18 +67,24 @@ this order, writing nothing before the gate:
 4. **The files**: the plan rendered again with the supplied values; a plain file must be byte-identical to the
    plan (a value never lands outside a secret file), the secret files get their generated values and are
    encrypted with gitops-commit's `sopsenc` for the recipients of the repository's `.sops.yaml` (read as the
-   person; a repository without one refuses the commit). A secret file on record is never generated again —
-   the manager decrypts nothing, so the values in it are *frozen*: no new file can share one. When a file to
-   create needs a frozen value (a server's Dex client Secret next to its existing credentials file), the plan
-   **rotates** the name: one new value is drawn and written into every file that holds it, the existing file
-   rewritten and encrypted anew — and every other value that file holds rotates with it, down to the files
-   sharing those (the server's Valkey password into its Valkey Secret). The dry run says so
-   (`generatedSecrets[].frozenIn`, `rotates`), the Action records the rotated names (`status.rotated`), the
-   pull request names them. For the running installation a rotation means both sides roll: the server and
-   the Dex client take the new value with their Secrets, and the client is unusable between the two
-   rollouts. A frozen value needed by no new file keeps its file as it is. A value frozen in a file the
-   definition does not own whole (one with several owners) cannot rotate and refuses the commit naming the
-   file.
+   person; a repository without one refuses the commit). A secret file on record is **kept** as long as the
+   render changes nothing outside its values: the manager decrypts nothing, so the two are compared as YAML
+   with the values the record holds encrypted (the fields under the repository's `encrypted_regex`) and the
+   values the commit fills in left out — same keys, same metadata, same plaintext fields → `unchanged`, the
+   values in it *frozen* and its generated names `kept`; nothing is written. A reconcile of an installation
+   the manager enabled therefore rewrites no secret and rotates nothing. A name **rotates** only when a file
+   of the name has to be written — a file to create (a server's Dex client Secret next to its existing
+   credentials file), an existing file whose plaintext skeleton the render changes (a field added to its
+   template), or a plain file to write carrying a key pair's public half: one new value is drawn and written
+   into every file that holds it, the kept files rewritten and encrypted anew — and every other value a
+   rewritten file holds rotates with it, down to the files sharing those (the server's Valkey password into
+   its Valkey Secret). The dry run says so (`generatedSecrets[].frozenIn`, `kept`, `rotates` with `forcedBy`,
+   the file that forced it), the Action records the rotated names (`status.rotated`), the pull request names
+   them. For the running installation a rotation means both sides roll: the server and the Dex client take
+   the new value with their Secrets, and the client is unusable between the two rollouts. Unseen by the
+   comparison: a literal the render changes under an encrypted field — the record holds it encrypted. A
+   value frozen in a file the definition does not own whole (one with several owners) cannot rotate and
+   refuses the commit naming the file.
 5. **The pull requests** through gitops-commit, as the person, in dependency order (configs before
    management-clusters), one commit per repository, on branch `platform/<action>/<installation>`, titled in
    conventional-commit form — `feat(<installation>): enable <capability> (<action>)`, `fix(<installation>):
@@ -106,8 +112,9 @@ The plan per installation: its state and opt-in, the effective inputs, the files
 (the registry's, not the definition's `giantswarm/<customer>-…` names), path, rendered content and change
 (*create*, *update*, *unchanged*, *unknown* when the current file could not be read as the person), the
 shared-kustomization includes, the generated secrets by name, kind and length — with `frozenIn`, the files
-on record that hold the value already, and `rotates` when a new file needs it and the commit draws a new
-value into every file of the name (see [The commit](#the-commit)) — the secret values the person
+on record that hold the value already, `kept` when the value on record stands and no file of the name is
+written, and `rotates` with `forcedBy`, the file that has to be written, when the commit draws a new value
+into every file of the name (see [The commit](#the-commit)) — the secret values the person
 supplies at commit by field (rendered as `SUPPLIED(<field>)` markers — no secret value ever appears in a dry
 run), the Dex clients with their redirect URIs from the rendered dex patch, the customer actions (Secrets the
 definition references and never renders) and the probes (the definition's live dimensions). Over the set:

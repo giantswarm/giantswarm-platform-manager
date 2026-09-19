@@ -15,6 +15,7 @@ const (
 	client      = "client"
 	key         = "key"
 	password    = "valkey"
+	pair        = "pair"
 )
 
 func generatedOf(names ...string) map[string]*GeneratedSecret {
@@ -25,22 +26,38 @@ func generatedOf(names ...string) map[string]*GeneratedSecret {
 	return out
 }
 
-// The server's credentials file exists and the Dex client Secret is new: the
-// client secret rotates into both; the credentials file being rewritten, the
-// encryption key it alone holds rotates too, and so does the valkey password
-// it shares with the Valkey Secret on record — that file is rewritten as
-// well. Nothing is refused.
+func rotating(t *testing.T, g map[string]*GeneratedSecret, name, forcedBy string, frozenIn ...string) {
+	t.Helper()
+	if gs := g[name]; !gs.Rotates || gs.Kept || gs.Refusal != "" || gs.ForcedBy != forcedBy || !slices.Equal(gs.FrozenIn, frozenIn) {
+		t.Fatalf("%s: %+v, want rotating, forced by %s, frozen in %v", name, gs, forcedBy, frozenIn)
+	}
+}
+
+func kept(t *testing.T, g map[string]*GeneratedSecret, name string, frozenIn ...string) {
+	t.Helper()
+	if gs := g[name]; gs.Rotates || !gs.Kept || gs.Refusal != "" || gs.ForcedBy != "" || !slices.Equal(gs.FrozenIn, frozenIn) {
+		t.Fatalf("%s: %+v, want kept, frozen in %v", name, gs, frozenIn)
+	}
+}
+
+// The server's credentials file and its Valkey Secret are on record as the
+// render has them and the Dex client Secret is new: the client secret
+// rotates into both, forced by the new file; the credentials file being
+// rewritten, the encryption key it alone holds rotates too, and so does the
+// valkey password it shares with the Valkey Secret — that file is rewritten
+// as well, both forced by the credentials file. Nothing is refused.
 func TestFrozenRotatesThroughTheRewrittenFiles(t *testing.T) {
 	g := generatedOf(client, key, password)
-	frozen(g, []holder{
-		{file: credentials, change: ChangeUpdate, secret: []string{client, key, password}},
-		{file: valkey, change: ChangeUpdate, secret: []string{password}},
+	rewrite := frozen(g, []holder{
+		{file: credentials, change: ChangeUnchanged, secret: []string{client, key, password}},
+		{file: valkey, change: ChangeUnchanged, secret: []string{password}},
 		{file: dexClient, change: ChangeCreate, secret: []string{client}},
 	})
-	for name, want := range map[string][]string{client: {credentials}, key: {credentials}, password: {credentials, valkey}} {
-		if gs := g[name]; !gs.Rotates || gs.Refusal != "" || !slices.Equal(gs.FrozenIn, want) {
-			t.Fatalf("%s: %+v", name, gs)
-		}
+	rotating(t, g, client, dexClient, credentials)
+	rotating(t, g, key, credentials, credentials)
+	rotating(t, g, password, credentials, credentials, valkey)
+	if len(rewrite) != 2 || !rewrite[credentials] || !rewrite[valkey] {
+		t.Fatalf("rewritten files %v", rewrite)
 	}
 	p := Installation{GeneratedSecrets: []GeneratedSecret{*g[client], *g[key], *g[password]}}
 	if rotated := p.Rotated(); len(rotated) != 2 || !rotated[credentials] || !rotated[valkey] {
@@ -51,42 +68,71 @@ func TestFrozenRotatesThroughTheRewrittenFiles(t *testing.T) {
 	}
 }
 
-// Both files exist: no file needs the frozen values, nothing rotates; the
-// names are listed as frozen so the reader knows the values on record stand.
-// An unchanged or unreadable file takes no part.
-func TestFrozenWithoutANewFileKeepsTheValues(t *testing.T) {
+// Every file is on record as the render has it outside the values: no file
+// is written, every name is kept — listed as frozen so the reader knows the
+// values on record stand. An unreadable file takes no part.
+func TestFrozenKeepsTheValuesWhenNoFileIsWritten(t *testing.T) {
 	g := generatedOf(client, password, "other")
-	frozen(g, []holder{
-		{file: credentials, change: ChangeUpdate, secret: []string{client, password}},
-		{file: dexClient, change: ChangeUpdate, secret: []string{client}},
+	rewrite := frozen(g, []holder{
+		{file: credentials, change: ChangeUnchanged, secret: []string{client, password}},
+		{file: dexClient, change: ChangeUnchanged, secret: []string{client}},
 		{file: valkey, change: ChangeUnchanged, secret: []string{password}},
 		{file: "acme/mcs:extras/other.yaml", change: ChangeUnknown, secret: []string{"other"}},
 	})
-	if gs := g[client]; gs.Rotates || !slices.Equal(gs.FrozenIn, []string{dexClient, credentials}) {
-		t.Fatalf("client: %+v", gs)
-	}
-	if gs := g[password]; gs.Rotates || !slices.Equal(gs.FrozenIn, []string{credentials}) {
-		t.Fatalf("valkey: %+v", gs)
-	}
-	if gs := g["other"]; gs.Rotates || len(gs.FrozenIn) != 0 {
+	kept(t, g, client, dexClient, credentials)
+	kept(t, g, password, credentials, valkey)
+	if gs := g["other"]; gs.Rotates || gs.Kept || len(gs.FrozenIn) != 0 {
 		t.Fatalf("other: %+v", gs)
 	}
 	p := Installation{GeneratedSecrets: []GeneratedSecret{*g[client], *g[password]}}
-	if len(p.Rotated()) != 0 || len(p.Rotating()) != 0 {
-		t.Fatalf("rotation without a new file: %v %v", p.Rotated(), p.Rotating())
+	if len(rewrite) != 0 || len(p.Rotated()) != 0 || len(p.Rotating()) != 0 {
+		t.Fatalf("rotation without a file to write: %v %v %v", rewrite, p.Rotated(), p.Rotating())
+	}
+}
+
+// The render changes the credentials file's plaintext skeleton (a field
+// added): the file is written anew, so every name it holds rotates, forced
+// by the file itself; the Dex client Secret kept on record shares the client
+// secret and is rewritten with it. The Valkey Secret shares nothing with it
+// and keeps its password.
+func TestFrozenARewrittenSkeletonForcesItsNames(t *testing.T) {
+	g := generatedOf(client, key, password)
+	rewrite := frozen(g, []holder{
+		{file: credentials, change: ChangeUpdate, secret: []string{client, key}},
+		{file: dexClient, change: ChangeUnchanged, secret: []string{client}},
+		{file: valkey, change: ChangeUnchanged, secret: []string{password}},
+	})
+	rotating(t, g, client, credentials, dexClient, credentials)
+	rotating(t, g, key, credentials, credentials)
+	kept(t, g, password, valkey)
+	if len(rewrite) != 2 || !rewrite[credentials] || !rewrite[dexClient] {
+		t.Fatalf("rewritten files %v", rewrite)
 	}
 }
 
 // A key pair's public half in a plain file to write needs the pair; the
-// private half frozen in the secret file on record makes the pair rotate.
+// private half frozen in the secret file on record makes the pair rotate,
+// forced by the plain file. The other way round, a rotation of the pair
+// rewrites the plain file kept on record with the public half.
 func TestFrozenPublicHalfNeedsThePair(t *testing.T) {
-	g := generatedOf("pair")
-	frozen(g, []holder{
-		{file: "acme/mcs:portal/plugin-keys-secret.enc.yaml", change: ChangeUpdate, secret: []string{"pair"}},
-		{file: "acme/mcs:portal/configmap.yaml", change: ChangeUpdate, public: []string{"pair"}},
+	const keys, configmap = "acme/mcs:portal/plugin-keys-secret.enc.yaml", "acme/mcs:portal/configmap.yaml"
+	g := generatedOf(pair)
+	rewrite := frozen(g, []holder{
+		{file: keys, change: ChangeUnchanged, secret: []string{pair}},
+		{file: configmap, change: ChangeUpdate, public: []string{pair}},
 	})
-	if gs := g["pair"]; !gs.Rotates || len(gs.FrozenIn) != 1 {
-		t.Fatalf("pair: %+v", gs)
+	rotating(t, g, pair, configmap, keys)
+	if len(rewrite) != 2 || !rewrite[keys] || !rewrite[configmap] {
+		t.Fatalf("rewritten files %v", rewrite)
+	}
+	g = generatedOf(pair)
+	rewrite = frozen(g, []holder{
+		{file: keys, change: ChangeUpdate, secret: []string{pair}},
+		{file: configmap, change: ChangeUnchanged, public: []string{pair}},
+	})
+	rotating(t, g, pair, keys, keys)
+	if len(rewrite) != 2 || !rewrite[configmap] {
+		t.Fatalf("the plain file kept with the public half is not rewritten: %v", rewrite)
 	}
 }
 
@@ -95,11 +141,11 @@ func TestFrozenPublicHalfNeedsThePair(t *testing.T) {
 func TestFrozenInASharedFileIsRefused(t *testing.T) {
 	g := generatedOf(client)
 	frozen(g, []holder{
-		{file: patch, change: ChangeUpdate, shared: true, secret: []string{client}},
+		{file: patch, change: ChangeUnchanged, shared: true, secret: []string{client}},
 		{file: dexClient, change: ChangeCreate, secret: []string{client}},
 	})
 	gs := g[client]
-	if gs.Rotates || !strings.Contains(gs.Refusal, client) || !strings.Contains(gs.Refusal, patch) {
+	if gs.Rotates || gs.Kept || gs.ForcedBy != "" || !strings.Contains(gs.Refusal, client) || !strings.Contains(gs.Refusal, patch) {
 		t.Fatalf("client: %+v", gs)
 	}
 	p := Installation{GeneratedSecrets: []GeneratedSecret{*gs}}

@@ -2,6 +2,7 @@ package plan
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -18,49 +19,69 @@ type holder struct {
 	public []string
 }
 
+// names are every generated name the file holds.
+func (h holder) names() []string {
+	return append(slices.Clone(h.secret), h.public...)
+}
+
 // frozen decides, for every generated name, what the commit step does with
-// the files on record that hold it. The manager decrypts nothing: a secret
-// file that exists is never read, so its value cannot be written into a
-// second file — the name is frozen in it. A file to create (or a plain file
-// to write) that needs a frozen name makes the commit rotate: a new value is
-// drawn and written into every file of the name, the frozen ones rewritten.
-// A rewritten file gives every name it holds a new value, so a name frozen in
-// it rotates as well — down to the files that share those (a valkey password
-// held by the server's credentials and by its Valkey's). A frozen name needed
-// by no file keeps its value; the file on record is left alone. A rotation
-// through a file the definition does not own whole would write over the
-// other owners' values: refused, naming the file.
-func frozen(generated map[string]*GeneratedSecret, holders []holder) {
-	frozenIn := map[string][]string{}
-	needing := map[string]bool{}
+// the files on record that hold it, and answers the files on record a
+// rotation rewrites. The manager decrypts nothing: a secret file that exists
+// is never read, so its value cannot be written into a second file — the
+// name is frozen in it. A file on record the render leaves as it is
+// (unchanged: the same outside the values) keeps its names: the value on
+// record stands and nothing is written. A file that has to be written and
+// holds a frozen name forces a rotation — a file to create, an existing file
+// whose plaintext skeleton the render changes, a plain file to write that
+// carries a key pair's public half: a new value is drawn and written into
+// every file of the name, the kept ones rewritten. A rewritten file gives
+// every name it holds a new value, so a name kept in it rotates as well —
+// down to the files that share those (a valkey password held by the server's
+// credentials and by its Valkey's). Every rotating name says which file
+// forced it. A rotation through a file the definition does not own whole
+// would write over the other owners' values: refused, naming the file.
+func frozen(generated map[string]*GeneratedSecret, holders []holder) map[string]bool {
+	frozenIn := map[string][]string{} // name → the secret files on record that hold it
+	onRecord := map[string][]string{} // name → every file on record that holds it, a rotation rewrites them
 	byFile := map[string]holder{}
+	needing := map[string]bool{}
+	forcedBy := map[string]string{}
+	need := func(names []string, by string) {
+		for _, n := range names {
+			if !needing[n] {
+				needing[n] = true
+				forcedBy[n] = by
+			}
+		}
+	}
 	for _, h := range holders {
 		byFile[h.file] = h
-		switch {
-		case h.change == ChangeUnchanged || h.change == ChangeUnknown:
-		case h.change == ChangeUpdate && len(h.secret) > 0:
+		switch h.change {
+		case ChangeUnknown:
+			continue
+		case ChangeUnchanged, ChangeUpdate:
 			for _, n := range h.secret {
 				frozenIn[n] = append(frozenIn[n], h.file)
 			}
-		default:
-			for _, n := range append(h.secret, h.public...) {
-				needing[n] = true
+			for _, n := range h.names() {
+				onRecord[n] = append(onRecord[n], h.file)
 			}
+		}
+		if h.change != ChangeUnchanged {
+			need(h.names(), h.file)
 		}
 	}
 	rewrite := map[string]bool{}
 	for changed := true; changed; {
 		changed = false
-		for n := range needing {
-			for _, f := range frozenIn[n] {
+		for _, n := range keys(needing) {
+			for _, f := range onRecord[n] {
 				if rewrite[f] {
 					continue
 				}
 				rewrite[f] = true
 				changed = true
-				for _, m := range byFile[f].secret {
-					needing[m] = true
-				}
+				need(byFile[f].names(), f)
 			}
 		}
 	}
@@ -68,18 +89,25 @@ func frozen(generated map[string]*GeneratedSecret, holders []holder) {
 		files := frozenIn[name]
 		sort.Strings(files)
 		gs.FrozenIn = files
-		if len(files) == 0 || !needing[name] {
+		if len(files) == 0 {
+			continue
+		}
+		if !needing[name] {
+			gs.Kept = true
 			continue
 		}
 		gs.Rotates = true
+		gs.ForcedBy = forcedBy[name]
 		for _, f := range files {
 			if byFile[f].shared {
 				gs.Rotates = false
+				gs.ForcedBy = ""
 				gs.Refusal = fmt.Sprintf("%s is frozen in %s, a file the definition does not own whole: rotating it would write over the other owners' values, and the manager decrypts nothing", name, f)
 				break
 			}
 		}
 	}
+	return rewrite
 }
 
 // Rotated are the files on record the commit rewrites with a new value:
