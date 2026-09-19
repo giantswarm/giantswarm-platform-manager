@@ -56,6 +56,11 @@ type Spec struct {
 	Capability    string         `json:"capability"`
 	Installations []string       `json:"installations"`
 	Inputs        map[string]any `json:"inputs,omitempty"`
+	// InputsByInstallation are the inputs each installation was rendered
+	// from at commit — the typed inputs over the facts on record — so a
+	// verify that has no GitHub token to re-read the facts (the live
+	// registration) renders the same document. Keyed by installation.
+	InputsByInstallation map[string]map[string]any `json:"inputsByInstallation,omitempty"`
 	// Kind is "enable" or "reconcile".
 	Kind string `json:"kind"`
 	// Customer marks a customer installation as the target: the Account
@@ -257,6 +262,22 @@ func Unstructured(a Action) *unstructured.Unstructured {
 // Includes says whether the action names installation.
 func (a Action) Includes(installation string) bool {
 	return slices.Contains(a.Spec.Installations, installation)
+}
+
+// InputsOnRecord are the inputs installation was rendered from, as the
+// record carries them: its entry of InputsByInstallation, else the action's
+// inputs when they are a single installation's merged document (the shape
+// commit records for one installation), else nil.
+func (a Action) InputsOnRecord(installation string) map[string]any {
+	if in, ok := a.Spec.InputsByInstallation[installation]; ok {
+		return in
+	}
+	if facts, ok := a.Spec.Inputs["installation"].(map[string]any); ok {
+		if name, _ := facts["name"].(string); name == installation {
+			return a.Spec.Inputs
+		}
+	}
+	return nil
 }
 
 // The states an Action carries in status.state. pending approval, rolling

@@ -51,6 +51,34 @@ spec:
             - name: OAUTH_AUTHORIZATION_SERVER
               value: {{ .Values.muster.mcpServer.auth.authorizationServer.issuer | quote }}
             {{- end }}
+            {{- if include "giantswarm-platform-manager.liveEnabled" . }}
+            - name: LIVE_ENABLED
+              value: "true"
+            - name: LIVE_PATH
+              value: {{ .Values.live.path | quote }}
+            - name: LIVE_ISSUER
+              value: {{ required "live.issuer is required with muster.liveServer.enabled" .Values.live.issuer | quote }}
+            - name: LIVE_AUDIENCE
+              value: {{ required "live.audience is required with muster.liveServer.enabled" .Values.live.audience | quote }}
+            {{- with .Values.live.jwksURL }}
+            - name: LIVE_JWKS_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.live.allowPrivateIPJWKS }}
+            - name: LIVE_ALLOW_PRIVATE_IP_JWKS
+              value: "true"
+            {{- end }}
+            {{- if .Values.live.caSecret }}
+            - name: LIVE_CA_FILE
+              value: /etc/giantswarm-platform-manager/live-ca/ca.crt
+            {{- end }}
+            - name: MUSTER_URL
+              value: {{ include "giantswarm-platform-manager.musterURL" . | quote }}
+            - name: LIVE_KUBERNETES_FAMILY
+              value: {{ .Values.live.muster.kubernetesFamily | quote }}
+            - name: LIVE_KUBERNETES_INSTANCE_ARG
+              value: {{ .Values.live.muster.kubernetesInstanceArg | quote }}
+            {{- end }}
             {{- with .Values.github.apiURL }}
             - name: GITHUB_API_URL
               value: {{ . | quote }}
@@ -114,6 +142,11 @@ spec:
               mountPath: /var/run/secrets/klaus-gateway
               readOnly: true
             {{- end }}
+            {{- if and (include "giantswarm-platform-manager.liveEnabled" .) .Values.live.caSecret }}
+            - name: live-ca
+              mountPath: /etc/giantswarm-platform-manager/live-ca
+              readOnly: true
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
@@ -127,6 +160,16 @@ spec:
                   audience: {{ .Values.approvals.audience | quote }}
                   expirationSeconds: 600
                   path: token
+        {{- end }}
+        {{- if and (include "giantswarm-platform-manager.liveEnabled" .) .Values.live.caSecret }}
+        # The CA the identity provider's certificate chains to, for the key
+        # set the forwarded tokens are checked against.
+        - name: live-ca
+          secret:
+            secretName: {{ .Values.live.caSecret | quote }}
+            items:
+              - key: ca.crt
+                path: ca.crt
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

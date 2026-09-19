@@ -24,7 +24,7 @@ features:
       - {id: dex-other-oidc-keys, kind: dex-secret, key: oidc.* other than staticClients and extraStaticClients}
       - {id: live-oauth2-proxy-extra-audience, kind: live, key: oauth2-proxy --oidc-extra-audience argument}
       - {id: live-muster-trusted-audiences, kind: live, key: muster ConfigMap trustedAudiences}
-      - {id: live-muster-connector-and-client-id, kind: live, key: muster ConfigMap dex connectorId and clientId}
+      - {id: live-muster-connector-and-client-id, kind: live, key: muster ConfigMap dex connectorId, where the definition renders one}
       - {id: live-kagent-api-protected, kind: live, key: /api/agents answered 403 by oauth2-proxy}
       - {id: live-kagent-login-redirect, kind: live, key: /oauth2/start 302 to Dex with client_id=kagent}
       - {id: live-dex-auth-per-client, kind: live, key: Dex /auth 302 for every rendered client}

@@ -15,6 +15,8 @@ import (
 	"time"
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
+
+	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 )
 
 // Config configures the listener.
@@ -24,6 +26,19 @@ type Config struct {
 	// OAuth, when set, makes the MCP endpoint require a GitHub user token as
 	// the bearer — behind muster the person's — verified with GET /user.
 	OAuth *OAuthConfig
+	// Live, when set, serves the second MCP surface at its path: the
+	// registration muster forwards the person's own ID token to.
+	Live *LiveConfig
+}
+
+// LiveConfig is the live surface: where it listens, how a forwarded token is
+// verified, and the tool set it serves.
+type LiveConfig struct {
+	Path string
+	// Verify validates the bearer — the ID token muster forwarded — and
+	// names the person; an error is a refusal.
+	Verify func(ctx context.Context, token string) (*identity.Identity, error)
+	Server *mcpserver.MCPServer
 }
 
 // Server is the assembled HTTP server.
@@ -57,6 +72,14 @@ func New(cfg Config, mcpSrv *mcpserver.MCPServer, log *slog.Logger) (*Server, er
 		s.guard = g
 	}
 	mux.Handle(cfg.MCPPath, s.protect(mcpserver.NewStreamableHTTPServer(mcpSrv, mcpserver.WithEndpointPath(cfg.MCPPath))))
+	if cfg.Live != nil {
+		if cfg.Live.Path == "" || cfg.Live.Path == cfg.MCPPath || cfg.Live.Verify == nil || cfg.Live.Server == nil {
+			return nil, errors.New("live: a path other than the MCP path, a token check and a tool set are required")
+		}
+		g := &liveGuard{verify: cfg.Live.Verify, log: log}
+		mux.Handle(cfg.Live.Path, g.protect(mcpserver.NewStreamableHTTPServer(cfg.Live.Server, mcpserver.WithEndpointPath(cfg.Live.Path))))
+		log.Info("live surface enabled", "path", cfg.Live.Path)
+	}
 
 	s.http = &http.Server{
 		Addr:              cfg.Addr,

@@ -376,13 +376,21 @@ func Wave(w io.Writer, r tools.WaveResult) error {
 	return p.err
 }
 
-// Verify is verify_capability: the state, the inputs on record, every feature
-// of the definition with its mark and, under it, its dimensions with theirs —
-// a difference names the file, the path and the input that drives it or
-// drift; a probe its requests.
-func Verify(w io.Writer, r verify.Result) error {
+// Verify is the verify of one installation — verify_capability's repository
+// comparison merged with verify_installation's live one: the state, the
+// inputs on record, every feature of the definition with its mark and, under
+// it, its dimensions with theirs — a difference names the file or the live
+// object, the path and the input that drives it or drift; a probe its
+// requests, a live dimension its checks. liveErr says why there is no live
+// side when the live registration did not answer.
+func Verify(w io.Writer, r verify.Result, liveErr error) error {
 	p := &printer{w: w}
 	p.f("verify %s on %s (hub %s), as %s\n", r.Capability, r.Installation, dash(r.Hub), dash(r.Caller))
+	if liveErr != nil {
+		p.f("Live: not checked — %s\n", liveErr.Error())
+	} else if r.LiveCaller != "" {
+		p.f("Live: read as %s\n", r.LiveCaller)
+	}
 	p.f("State: %s   Inputs on record: %s\n", dash(string(r.State)), dash(r.Inputs.Source))
 	p.f("Summary: %s\n", marks(r.Summary))
 	if r.Refused != "" {
@@ -404,6 +412,9 @@ func (p *printer) dimension(d verify.Dimension) {
 	}
 	for _, diff := range d.Differences {
 		where := diff.File
+		if diff.Object != "" {
+			where = diff.Object
+		}
 		if diff.Path != "" {
 			where += " " + diff.Path
 		}
@@ -419,6 +430,39 @@ func (p *printer) dimension(d verify.Dimension) {
 			p.f("      %s %s%s%s\n", probeMark(req.OK), req.URL, client(req.Client), outcome(req))
 		}
 	}
+	if lv := d.Live; lv != nil {
+		if lv.AuthRequired != nil {
+			p.f("      muster: %s\n", strings.TrimSpace(lv.AuthRequired.Message))
+		}
+		for _, c := range lv.Checks {
+			p.f("      [%s] %s %s%s%s\n", c.Mark, c.Kind, target(c), message(c.Message), note(c.Note))
+		}
+	}
+}
+
+// target names what a live check looked at.
+func target(c verify.Check) string {
+	if c.URL != "" {
+		return c.URL
+	}
+	if c.Namespace != "" {
+		return c.Resource + " " + c.Namespace + "/" + c.Name
+	}
+	return c.Resource + " " + c.Name
+}
+
+func message(m string) string {
+	if m == "" {
+		return ""
+	}
+	return ": " + m
+}
+
+func note(n string) string {
+	if n == "" {
+		return ""
+	}
+	return " — " + n
 }
 
 // marks counts the marks in their severity order, the way the result rolls up.

@@ -76,14 +76,16 @@ func (in *Input) probes() []render.Probe {
 				"--oidc-extra-audience carries the rendered audiences",
 				render.Comparison{Live: "spec.template.spec.containers[0].args[args]", Prefix: "--oidc-extra-audience=", Rendered: "kagent.oauth2-proxy.extraArgs.oidc-extra-audience"}))
 	}
-	return append(p,
-		driftProbe("live-muster-trusted-audiences", featureIdentity, platformNamespace, "ConfigMap", musterConfigMap,
-			"trustedAudiences are the rendered muster.muster.oauth.server.trustedAudiences",
-			render.Comparison{Live: "data.config.yaml:aggregator.oauth.server.trustedAudiences", Rendered: "muster.muster.oauth.server.trustedAudiences"}),
-		driftProbe("live-muster-connector-and-client-id", featureIdentity, platformNamespace, "ConfigMap", musterConfigMap,
-			"the Dex connectorId and clientId are the rendered ones",
-			render.Comparison{Live: "data.config.yaml:aggregator.oauth.server.dex.connectorId", Rendered: "muster.muster.oauth.server.dex.connectorId"},
-			render.Comparison{Live: "data.config.yaml:aggregator.oauth.server.dex.clientId", Rendered: "muster.muster.oauth.server.dex.clientId"}))
+	p = append(p, driftProbe("live-muster-trusted-audiences", featureIdentity, platformNamespace, "ConfigMap", musterConfigMap,
+		"trustedAudiences are the rendered muster.muster.oauth.server.trustedAudiences",
+		render.Comparison{Live: "data.config.yaml:aggregator.oauth.server.trustedAudiences", Rendered: "muster.muster.oauth.server.trustedAudiences"}))
+	// The Dex client id is the shared template's, never rendered here; the
+	// connector id is rendered only when the installation pins a login
+	// connector — without one the verify says the render carries no value
+	// to hold the live one against.
+	return append(p, driftProbe("live-muster-connector-and-client-id", featureIdentity, platformNamespace, "ConfigMap", musterConfigMap,
+		"the Dex connectorId is the rendered muster.muster.oauth.server.dex.connectorId",
+		render.Comparison{Live: "data.config.yaml:aggregator.oauth.server.dex.connectorId", Rendered: "muster.muster.oauth.server.dex.connectorId"}))
 }
 
 // actions are what a person outside the platform team still has to do for the

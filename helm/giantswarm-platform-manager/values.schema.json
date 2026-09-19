@@ -155,6 +155,54 @@
             "type": "array",
             "description": "Image pull secrets."
         },
+        "live": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "allowPrivateIPJWKS": {
+                    "type": "boolean",
+                    "description": "Let the issuer or its key set resolve to a private address (an in-cluster identity provider)."
+                },
+                "audience": {
+                    "type": "string",
+                    "description": "Audience every forwarded token carries: the platform's OAuth client muster's sessions log in with (`agent-platform` on the platform). Required with `muster.liveServer.enabled`."
+                },
+                "caSecret": {
+                    "type": "string",
+                    "description": "Secret in the release namespace with a PEM bundle under `ca.crt` the issuer's certificate chains to (a lab CA); empty is the system trust."
+                },
+                "issuer": {
+                    "type": "string",
+                    "description": "Issuer of the forwarded tokens: the platform identity provider's, `https://dex.<base domain>/dex` on an installation. Required with `muster.liveServer.enabled`."
+                },
+                "jwksURL": {
+                    "type": "string",
+                    "description": "The issuer's key set; empty reads it from the issuer's OpenID discovery document. A lab whose Dex is reached by another name than its issuer names the Service here."
+                },
+                "muster": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "kubernetesFamily": {
+                            "type": "string",
+                            "description": "The muster family the installations' kubernetes tools are aggregated under — the tools are `x_<family>_get`, `_list` and `_logs` — and the family's argument that selects the installation. The platform's agent-platform-mcps chart registers every installation's mcp-kubernetes under the family `kubernetes` with `management_cluster`; a lab with one singleton server names it (`mcp-kubernetes`) and leaves the argument empty."
+                        },
+                        "kubernetesInstanceArg": {
+                            "type": "string",
+                            "description": "The family's instance argument; empty for a singleton server."
+                        },
+                        "url": {
+                            "type": "string",
+                            "description": "muster's own MCP endpoint as reached from the pod: where a live read loops back to with the person's token. Empty derives `http://muster.<namespace>.svc.cluster.local:8090/mcp` in the release namespace."
+                        }
+                    }
+                },
+                "path": {
+                    "type": "string",
+                    "description": "MCP streamable-HTTP endpoint path of the live surface: the second registration muster forwards the person's own ID token to (`muster.liveServer`). Served when that registration is enabled."
+                }
+            }
+        },
         "mcp": {
             "type": "object",
             "additionalProperties": false,
@@ -169,6 +217,30 @@
             "type": "object",
             "additionalProperties": false,
             "properties": {
+                "liveServer": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "description": {
+                            "type": "string",
+                            "description": "Human-readable description shown by muster."
+                        },
+                        "enabled": {
+                            "type": "boolean",
+                            "description": "Register the live surface with muster as a second MCPServer of the same Deployment: `auth.type: oauth` with `forwardToken: true` and no authorization server, so muster puts the person's own ID token on every call and runs no consent. Its tool `verify_installation` reads an installation through muster's kubernetes tools as the person. Rendered with `muster.mcpServer.enabled` and `oauth.enabled`; needs `live.issuer` and `live.audience`. Off: the live dimensions of every verify read not checked, and `get_info` reports `live.configured: false`."
+                        },
+                        "name": {
+                            "type": "string",
+                            "description": "MCPServer CR name (drives the tool prefix)."
+                        },
+                        "timeout": {
+                            "type": "integer",
+                            "description": "Seconds muster waits for one call: a verify reads every object of the definition's probes through muster and the installation's mcp-kubernetes within the one call.",
+                            "maximum": 300,
+                            "minimum": 1
+                        }
+                    }
+                },
                 "mcpServer": {
                     "type": "object",
                     "additionalProperties": false,

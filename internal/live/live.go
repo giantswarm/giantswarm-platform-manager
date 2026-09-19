@@ -1,0 +1,436 @@
+// Package live is the manager's second surface: the registration muster
+// forwards the person's own ID token to (MCPServer auth.forwardToken), and
+// the loop-back that reads an installation with it. The bearer of a request
+// on the live path is the platform identity provider's ID token for the
+// person; it is validated the way the platform's forward-mode servers
+// validate theirs (mcp-oauth's OIDC primitives: the issuer's JWKS, the
+// issuer, the audience every forwarded token carries). A live read then opens
+// — or reuses, per person — an MCP session at muster's own endpoint with that
+// token and calls the installation's kubernetes tools through it: muster's
+// per-installation token exchange, the tunnel to a private installation, the
+// installation's mcp-kubernetes and the person's RBAC decide what is read.
+// The manager holds no credential of its own on any installation.
+package live
+
+import (
+	"context"
+	"crypto/x509"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"net/url"
+	"os"
+	"regexp"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/giantswarm/mcp-oauth/providers/oidc"
+
+	"github.com/giantswarm/giantswarm-platform-manager/internal/aggregator"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
+)
+
+// Config is the live path's configuration, from the chart's values.
+type Config struct {
+	// Path is where the live MCP endpoint listens, next to the App-pinned one.
+	Path string
+	// Issuer is the platform identity provider's issuer: the iss every
+	// forwarded token carries.
+	Issuer string
+	// Audience is the OAuth client every forwarded token carries in aud —
+	// the platform client muster's sessions log in with.
+	Audience string
+	// JWKSURL is the issuer's key set; empty reads it from the issuer's
+	// OpenID discovery document.
+	JWKSURL string
+	// AllowPrivateIPJWKS lets the issuer or its key set resolve to a private
+	// address (an in-cluster Dex).
+	AllowPrivateIPJWKS bool
+	// CAFile is a PEM bundle the issuer's certificate chains to; empty is
+	// the system trust.
+	CAFile string
+	// MusterURL is muster's own MCP endpoint as reached from the pod: where
+	// the loop-back session goes.
+	MusterURL string
+	// KubernetesFamily is the muster family (or singleton server name) the
+	// installations' kubernetes tools are aggregated under: the tools are
+	// x_<family>_get, _list and _logs. KubernetesInstanceArg is the family's
+	// argument that selects the installation; empty for a singleton.
+	KubernetesFamily      string
+	KubernetesInstanceArg string
+	// IdleLifetime is how long a person's loop-back session is kept without
+	// a call before it is closed. Zero is DefaultIdleLifetime.
+	IdleLifetime time.Duration
+	// Version is what the loop-back session says it is.
+	Version string
+}
+
+// DefaultIdleLifetime is how long an idle loop-back session lives.
+const DefaultIdleLifetime = 15 * time.Minute
+
+// ClientName is the clientInfo.name of the loop-back session at muster.
+const ClientName = "giantswarm-platform-manager"
+
+// Validate checks required fields.
+func (c Config) Validate() error {
+	for _, f := range []struct{ what, v string }{{"path", c.Path}, {"issuer", c.Issuer}, {"audience", c.Audience}, {"muster URL", c.MusterURL}, {"kubernetes family", c.KubernetesFamily}} {
+		if strings.TrimSpace(f.v) == "" {
+			return fmt.Errorf("live: %s is required", f.what)
+		}
+	}
+	for _, f := range []struct{ what, v string }{{"issuer", c.Issuer}, {"muster URL", c.MusterURL}} {
+		u, err := url.Parse(f.v)
+		if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+			return fmt.Errorf("live: %s must be an absolute http(s) URL: %q", f.what, f.v)
+		}
+	}
+	if !strings.HasPrefix(c.Path, "/") {
+		return fmt.Errorf("live: path must start with /: %q", c.Path)
+	}
+	return nil
+}
+
+// Info is the live path as get_info reports it.
+type Info struct {
+	Path                  string `json:"path"`
+	Issuer                string `json:"issuer"`
+	Audience              string `json:"audience"`
+	MusterURL             string `json:"musterUrl"`
+	KubernetesFamily      string `json:"kubernetesFamily"`
+	KubernetesInstanceArg string `json:"kubernetesInstanceArg,omitempty"`
+}
+
+// Client validates forwarded tokens and holds the loop-back sessions.
+type Client struct {
+	cfg  Config
+	log  *slog.Logger
+	jwks *oidc.JWKSClient
+	http *http.Client
+
+	mu       sync.Mutex
+	jwksURL  string
+	sessions map[string]*session
+}
+
+// New builds the client; the key set is read on the first token.
+func New(cfg Config, log *slog.Logger) (*Client, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	if cfg.IdleLifetime <= 0 {
+		cfg.IdleLifetime = DefaultIdleLifetime
+	}
+	if log == nil {
+		log = slog.Default()
+	}
+	pool, err := rootCAs(cfg.CAFile)
+	if err != nil {
+		return nil, fmt.Errorf("live: %w", err)
+	}
+	var hc *http.Client
+	if cfg.AllowPrivateIPJWKS {
+		hc = oidc.NewPrivateIPAllowedHTTPClient(oidc.DefaultHTTPTimeout, pool)
+	} else {
+		hc = oidc.NewSSRFSafeHTTPClient(oidc.DefaultHTTPTimeout, pool)
+	}
+	c := &Client{cfg: cfg, log: log, http: hc, jwksURL: cfg.JWKSURL, sessions: map[string]*session{},
+		jwks: oidc.NewJWKSClientWithOptions(oidc.JWKSClientOptions{HTTPClient: hc, AllowPrivateIP: cfg.AllowPrivateIPJWKS, RootCAs: pool, Logger: log})}
+	log.Info("live path enabled", "path", cfg.Path, "issuer", cfg.Issuer, "audience", cfg.Audience, "jwks", cfg.JWKSURL, "muster", cfg.MusterURL, "kubernetesFamily", cfg.KubernetesFamily, "instanceArg", cfg.KubernetesInstanceArg)
+	return c, nil
+}
+
+// rootCAs is the system pool plus the PEM bundle at file; nil without a file.
+func rootCAs(file string) (*x509.CertPool, error) {
+	if file == "" {
+		return nil, nil
+	}
+	pem, err := os.ReadFile(file) // #nosec G304 -- the operator's path
+	if err != nil {
+		return nil, fmt.Errorf("read CA file %s: %w", file, err)
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil {
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(pem) {
+		return nil, fmt.Errorf("no CA certificate in %s", file)
+	}
+	return pool, nil
+}
+
+// Info is the configuration as reported.
+func (c *Client) Info() Info {
+	return Info{Path: c.cfg.Path, Issuer: c.cfg.Issuer, Audience: c.cfg.Audience, MusterURL: c.cfg.MusterURL, KubernetesFamily: c.cfg.KubernetesFamily, KubernetesInstanceArg: c.cfg.KubernetesInstanceArg}
+}
+
+// Path is where the live endpoint listens.
+func (c *Client) Path() string { return c.cfg.Path }
+
+// Verify validates a forwarded token: signature against the issuer's key
+// set, issuer, audience, time; the person it names comes back.
+func (c *Client) Verify(ctx context.Context, token string) (*identity.Identity, error) {
+	jwksURL, err := c.keySet(ctx)
+	if err != nil {
+		return nil, err
+	}
+	claims, err := oidc.ValidateIDToken(ctx, token, c.jwks, jwksURL, c.cfg.Issuer, []string{c.cfg.Audience})
+	if err != nil {
+		return nil, err
+	}
+	if claims.Subject == "" {
+		return nil, errors.New("the token names no subject")
+	}
+	return &identity.Identity{Subject: claims.Subject, Email: claims.Email}, nil
+}
+
+// keySet is the JWKS URL: configured, or read once from the issuer's
+// discovery document.
+func (c *Client) keySet(ctx context.Context) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.jwksURL != "" {
+		return c.jwksURL, nil
+	}
+	doc, err := oidc.NewDiscoveryClient(c.http, 0, c.log).Discover(ctx, c.cfg.Issuer)
+	if err != nil {
+		return "", fmt.Errorf("discover the issuer %s: %w", c.cfg.Issuer, err)
+	}
+	c.jwksURL = doc.JWKSUri
+	c.log.Info("issuer discovered", "issuer", c.cfg.Issuer, "jwks", c.jwksURL)
+	return c.jwksURL, nil
+}
+
+// session is one person's loop-back session at muster.
+type session struct {
+	s     *aggregator.Session
+	mu    sync.Mutex
+	token string
+	last  time.Time
+}
+
+func (s *session) bearer() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.token
+}
+
+// Cluster opens, or reuses, the person's loop-back session with their token
+// and answers the reads of one installation through it.
+func (c *Client) Cluster(ctx context.Context, token string, id *identity.Identity, installation string) (verify.Cluster, error) {
+	s, err := c.session(ctx, id.Subject, token)
+	if err != nil {
+		return nil, err
+	}
+	return &cluster{c: c, s: s, installation: installation, person: id.String()}, nil
+}
+
+func (c *Client) session(ctx context.Context, sub, token string) (*session, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := time.Now()
+	for k, s := range c.sessions {
+		if k != sub && now.Sub(s.last) > c.cfg.IdleLifetime {
+			_ = s.s.Close()
+			delete(c.sessions, k)
+		}
+	}
+	if s, ok := c.sessions[sub]; ok {
+		s.mu.Lock()
+		s.token, s.last = token, now
+		s.mu.Unlock()
+		return s, nil
+	}
+	s := &session{token: token, last: now}
+	agg, err := aggregator.Open(ctx, c.cfg.MusterURL, s.bearer, ClientName, c.cfg.Version, nil)
+	if err != nil {
+		return nil, fmt.Errorf("the loop-back to muster at %s: %w", c.cfg.MusterURL, err)
+	}
+	s.s = agg
+	c.sessions[sub] = s
+	c.log.Info("loop-back session opened", "sub", sub, "muster", c.cfg.MusterURL)
+	return s, nil
+}
+
+// Close ends every loop-back session.
+func (c *Client) Close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for k, s := range c.sessions {
+		_ = s.s.Close()
+		delete(c.sessions, k)
+	}
+}
+
+// cluster reads one installation through the person's session.
+type cluster struct {
+	c            *Client
+	s            *session
+	installation string
+	person       string
+}
+
+// The kubernetes tools' operations, x_<family>_<op>.
+const (
+	opGet  = "get"
+	opList = "list"
+	opLogs = "logs"
+)
+
+// fanOutWait bounds how long a first call waits for muster to connect the
+// person's session to the installation's servers: muster's SSO fan-out runs
+// in the background right after initialize, and the tools appear when it is
+// done.
+const fanOutWait = 15 * time.Second
+
+func (k *cluster) tool(op string) string { return "x_" + k.c.cfg.KubernetesFamily + "_" + op }
+
+// call runs one kubernetes tool for the installation and answers its text,
+// the tool's refusal mapped to the verify's errors.
+func (k *cluster) call(ctx context.Context, op string, args map[string]any) (string, error) {
+	if k.c.cfg.KubernetesInstanceArg != "" {
+		args[k.c.cfg.KubernetesInstanceArg] = k.installation
+	}
+	name := k.tool(op)
+	res, err := k.s.s.Call(ctx, name, args)
+	if err != nil && isToolNotFound(err) {
+		if werr := k.waitForTool(ctx, name); werr != nil {
+			return "", werr
+		}
+		res, err = k.s.s.Call(ctx, name, args)
+	}
+	if err != nil {
+		return "", err
+	}
+	text := aggregator.TextOf(res)
+	if res.IsError {
+		return "", classify(text)
+	}
+	return text, nil
+}
+
+func isToolNotFound(err error) bool {
+	return strings.Contains(err.Error(), "tool not found") || strings.Contains(err.Error(), "unknown tool")
+}
+
+// waitForTool waits, bounded, for muster to list name for this session.
+func (k *cluster) waitForTool(ctx context.Context, name string) error {
+	deadline := time.Now().Add(fanOutWait)
+	for {
+		names, err := k.s.s.Tools(ctx)
+		if err != nil {
+			return err
+		}
+		for _, n := range names {
+			if n == name {
+				return nil
+			}
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("muster lists no %s for %s: the person's session is not connected to the installations' kubernetes servers (the family %q under muster.liveServer.kubernetes)", name, k.person, k.c.cfg.KubernetesFamily)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+}
+
+var (
+	authServerRe = regexp.MustCompile(`server '([^']+)'`)
+	urlRe        = regexp.MustCompile(`https?://\S+`)
+	userRe       = regexp.MustCompile(`User "([^"]+)"`)
+)
+
+// classify maps a tool's refusal to the verify's errors: muster's
+// auth_required for the installation, the apiserver's forbidden naming the
+// person, an object that does not exist, anything else as it was said.
+func classify(text string) error {
+	switch {
+	case strings.HasPrefix(text, "auth_required") || strings.Contains(text, "requires authentication"):
+		a := &verify.AuthRequired{Message: text}
+		if m := authServerRe.FindStringSubmatch(text); m != nil {
+			a.Server = m[1]
+		}
+		a.URL = urlRe.FindString(text)
+		return a
+	case strings.Contains(text, "is forbidden"):
+		f := &verify.Forbidden{Reason: strings.TrimSpace(text)}
+		if m := userRe.FindStringSubmatch(text); m != nil {
+			f.Person = m[1]
+		}
+		return f
+	case strings.Contains(text, "not found"):
+		return fmt.Errorf("%w: %s", verify.ErrNotFound, strings.TrimSpace(text))
+	}
+	return errors.New(strings.TrimSpace(text))
+}
+
+// kindArgs are mcp-kubernetes's resourceType and apiGroup for a probe's
+// resource (kind, or kind.group).
+func kindArgs(resource string) (string, string) {
+	kind, group, _ := strings.Cut(resource, ".")
+	return strings.ToLower(kind), group
+}
+
+// Get reads one object, whole.
+func (k *cluster) Get(ctx context.Context, namespace, resource, name string) (map[string]any, error) {
+	kind, group := kindArgs(resource)
+	args := map[string]any{"resourceType": kind, "name": name, "output": "full"}
+	if namespace != "" {
+		args["namespace"] = namespace
+	}
+	if group != "" {
+		args["apiGroup"] = group
+	}
+	text, err := k.call(ctx, opGet, args)
+	if err != nil {
+		return nil, err
+	}
+	var doc struct {
+		Resource map[string]any `json:"resource"`
+	}
+	if err := decode(text, &doc); err != nil || doc.Resource == nil {
+		return nil, fmt.Errorf("%s answered something other than an object for %s %s/%s: %.200q", k.tool(opGet), resource, namespace, name, text)
+	}
+	return doc.Resource, nil
+}
+
+// List reads the objects a label selector matches, whole.
+func (k *cluster) List(ctx context.Context, namespace, resource, labelSelector string) ([]map[string]any, error) {
+	kind, group := kindArgs(resource)
+	args := map[string]any{"resourceType": kind, "fullOutput": true, "output": "full", "limit": 200}
+	if namespace != "" {
+		args["namespace"] = namespace
+	}
+	if group != "" {
+		args["apiGroup"] = group
+	}
+	if labelSelector != "" {
+		args["labelSelector"] = labelSelector
+	}
+	text, err := k.call(ctx, opList, args)
+	if err != nil {
+		return nil, err
+	}
+	var doc struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := decode(text, &doc); err != nil {
+		return nil, fmt.Errorf("%s answered something other than a list for %s in %s: %.200q", k.tool(opList), resource, namespace, text)
+	}
+	return doc.Items, nil
+}
+
+// Logs reads a pod's log, the last lines.
+func (k *cluster) Logs(ctx context.Context, namespace, pod string) (string, error) {
+	return k.call(ctx, opLogs, map[string]any{"namespace": namespace, "podName": pod, "tailLines": 1000})
+}
+
+func decode(text string, v any) error {
+	return json.Unmarshal([]byte(text), v)
+}

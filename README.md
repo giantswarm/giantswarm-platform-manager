@@ -44,7 +44,8 @@ Behind muster the tools appear as `x_giantswarm-platform-manager_<tool>`.
 | `enable_capability` | write | Enable a capability on one installation (`installation`) or a set (`installations`): with `dryRun: true` the plan — files per repository with the change each one is against the repository now, pull requests in dependency order, generated secrets by name, Dex clients and redirect URIs, the secrets the person supplies at commit (by field), customer actions, probes. `inputs` are the definition's typed inputs over the facts on record. With `mode: "commit"` and one `installation`: the opt-in gate, the Action in *pending approval*, the pull requests as the person (see [The commit](#the-commit)); `secrets` carries the supplied values by field. |
 | `reconcile_capability` | write | The same render over a set (empty: every installation of the registry), every file compared with the repository: all *unchanged* is an empty diff. Installations not opted in are listed as *skipped*. |
 | `get_action`, `list_actions` | read | The Action records on the hub: one per enablement or reconcile a person commits — actor, installations, capability, inputs, pull requests, approval, rollout, probes, result. |
-| `verify_capability` | planned | The extension point the next slice fills; `get_info` lists it as `plannedTools` until it is registered. |
+| `verify_capability` | read | One installation against a capability's definition, grouped into the definition's features with one mark each — *as defined*, *differs by input*, *drifted* — and expanded to its dimensions: the owning repositories' files, read as the person, against the render from the inputs on record (every difference names the file, the path and the input that drives it or drift), and the definition's anonymous HTTP probes. The live dimensions read *not checked* here: they are `verify_installation`'s. |
+| `verify_installation` | read, **live registration** | The same installation's running objects against the definition's probes — HelmReleases Ready, workloads Available, Secrets and MCPServer objects present, conditions, logs, the live values against the render — read through muster's kubernetes tools **as the person**, with the ID token muster forwards to the second registration `giantswarm-platform-manager-live` (`muster.liveServer`). What the person may read decides what is checked: an object they may not read is *not checked, forbidden for them*, an installation they are not connected to answers with muster's own sign-in. The result is recorded on the installation's newest action and feeds `list_installations`: *drifted*, or *waiting for the customer* when the only red dimension is the one the customer's action holds up. A portal or `platformctl` shows the two verifies as one result. |
 
 ## The commit
 
@@ -230,7 +231,10 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
   keys into the tool's `inputs`; a value that parses as JSON is that value, anything else a string.
   `--dry-run` is the tool's `dryRun`; `--commit` its `mode: commit` — the pull requests opened as you, the
   Team review asked: for one installation the action, for `reconcile --all` the wave over the set, one
-  action rolled out a stage per merge. `--secret <field>=@<file>`, `<field>=env:<NAME>` or
+  action rolled out a stage per merge. `installation verify` calls `verify_capability` on the App-pinned
+  registration and `verify_installation` on the live one and prints the two as one result — per dimension
+  the side that checked it; when the live registration does not answer (not registered, not connected),
+  the repository result stands and the live line says why. `--secret <field>=@<file>`, `<field>=env:<NAME>` or
   `<field>=-` (stdin, one field) supplies a secret the plan's `suppliedSecrets` name; the value is sent
   once in the call's `secrets`, never printed, and never taken from the command line — a value typed there
   is refused naming only the field. `verify` prints the definition's features with their marks and

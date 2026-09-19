@@ -95,6 +95,8 @@
   namespace: flux-giantswarm
   resource: HelmRelease
   name: agent-platform
+  expect:
+    note: the values the HelmRelease reads from its ConfigMaps are the rendered values
 - id: live-muster-trusted-audiences
   feature: identity
   kind: Drift
@@ -103,6 +105,9 @@
   name: muster-config
   expect:
     note: trustedAudiences are the rendered muster.muster.oauth.server.trustedAudiences
+    compare:
+      - live: data.config.yaml:aggregator.oauth.server.trustedAudiences
+        rendered: muster.muster.oauth.server.trustedAudiences
 - id: live-muster-connector-and-client-id
   feature: identity
   kind: Drift
@@ -110,4 +115,7 @@
   resource: ConfigMap
   name: muster-config
   expect:
-    note: the Dex connectorId and clientId are the rendered ones
+    note: the Dex connectorId is the rendered muster.muster.oauth.server.dex.connectorId
+    compare:
+      - live: data.config.yaml:aggregator.oauth.server.dex.connectorId
+        rendered: muster.muster.oauth.server.dex.connectorId

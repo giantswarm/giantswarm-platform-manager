@@ -1,0 +1,33 @@
+{{- if and .Values.muster.mcpServer.enabled .Values.muster.liveServer.enabled .Values.oauth.enabled }}
+{{- /*
+The second registration of the same Deployment, split from the first by
+authority: muster forwards the person's own ID token to it (forwardToken) and
+runs no consent, so its tool — verify_installation — reads an installation
+through muster's kubernetes tools as the person, with the person's access on
+that installation. Tools appear as x_<name>_<tool>. No authorizationServer:
+the two exclude each other on one MCPServer, which is why the manager is
+registered twice.
+*/}}
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: {{ .Values.muster.liveServer.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    muster.giantswarm.io/type: giantswarm-platform-manager
+    {{- include "giantswarm-platform-manager.labels" . | nindent 4 }}
+    {{- with .Values.muster.mcpServer.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  autoStart: {{ .Values.muster.mcpServer.autoStart }}
+  type: streamable-http
+  timeout: {{ .Values.muster.liveServer.timeout }}
+  url: {{ include "giantswarm-platform-manager.serviceURL" . }}{{ .Values.live.path }}
+  {{- with .Values.muster.liveServer.description }}
+  description: {{ . | quote }}
+  {{- end }}
+  auth:
+    type: oauth
+    forwardToken: true
+{{- end }}

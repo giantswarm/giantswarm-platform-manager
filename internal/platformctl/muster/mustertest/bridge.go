@@ -19,8 +19,9 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 )
 
-// Tool answers one aggregator tool.
-type Tool func(args map[string]any) *mcp.CallToolResult
+// Tool answers one aggregator tool; ctx is the request's, carrying whatever
+// the HTTP layer put there (the bearer, in a fake behind a listener).
+type Tool func(ctx context.Context, args map[string]any) *mcp.CallToolResult
 
 // Answers of the fake manager, for tests to compare against.
 const (
@@ -31,9 +32,11 @@ const (
 	// LoginURL is the sign-in core_auth_login offers for a server not
 	// connected yet.
 	LoginURL = "https://example.test/login"
-	// Caller and Hub are the fake manager's answers to who asks and where.
-	Caller = "admin"
-	Hub    = "hub"
+	// Caller and Hub are the fake manager's answers to who asks and where;
+	// LiveCaller is who the live registration says the reads ran as.
+	Caller     = "admin"
+	Hub        = "hub"
+	LiveCaller = "admin@example.test"
 )
 
 // Bridge is an in-process bridge over the aggregator tools given by their
@@ -62,14 +65,14 @@ func Bridge(aggregator map[string]Tool) *mcpserver.MCPServer {
 // document, the outer isError following the tool's; a name the aggregator
 // does not have is call_tool's own refusal.
 func callTool(aggregator map[string]Tool) mcpserver.ToolHandlerFunc {
-	return func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		name := req.GetString("name", "")
 		tool, ok := aggregator[name]
 		if !ok {
 			return mcp.NewToolResultError("Tool execution failed: tool not found: " + name), nil
 		}
 		args, _ := req.GetArguments()["arguments"].(map[string]any)
-		res := tool(args)
+		res := tool(ctx, args)
 		content := make([]map[string]string, 0, len(res.Content))
 		for _, c := range res.Content {
 			if t, ok := mcp.AsTextContent(c); ok {
@@ -93,7 +96,7 @@ func Manager(connected bool) map[string]Tool {
 	server := tools.ToolPrefix
 	m := map[string]Tool{}
 	if !connected {
-		m["core_auth_login"] = func(map[string]any) *mcp.CallToolResult {
+		m["core_auth_login"] = func(context.Context, map[string]any) *mcp.CallToolResult {
 			return &mcp.CallToolResult{
 				Content:           []mcp.Content{mcp.NewTextContent("Authentication Required\n\nServer: " + server)},
 				StructuredContent: map[string]any{"authUrl": LoginURL},
@@ -101,16 +104,16 @@ func Manager(connected bool) map[string]Tool {
 		}
 		return m
 	}
-	m["core_auth_login"] = func(map[string]any) *mcp.CallToolResult {
+	m["core_auth_login"] = func(context.Context, map[string]any) *mcp.CallToolResult {
 		return mcp.NewToolResultText("Already authenticated to " + server)
 	}
-	m["x_"+server+"_"+tools.ToolGetInfo] = func(map[string]any) *mcp.CallToolResult {
+	m["x_"+server+"_"+tools.ToolGetInfo] = func(context.Context, map[string]any) *mcp.CallToolResult {
 		return mcp.NewToolResultText(Info)
 	}
-	m["x_"+server+"_"+tools.ToolListInstallations] = func(map[string]any) *mcp.CallToolResult {
+	m["x_"+server+"_"+tools.ToolListInstallations] = func(context.Context, map[string]any) *mcp.CallToolResult {
 		return mcp.NewToolResultError(Refusal)
 	}
-	m["x_"+server+"_"+tools.ToolEnableCapability] = func(args map[string]any) *mcp.CallToolResult {
+	m["x_"+server+"_"+tools.ToolEnableCapability] = func(_ context.Context, args map[string]any) *mcp.CallToolResult {
 		dryRun, _ := args[tools.ArgDryRun].(bool)
 		return document(tools.CapabilityResult{
 			Caller: Caller, Hub: Hub, Tool: tools.ToolEnableCapability,
@@ -118,9 +121,16 @@ func Manager(connected bool) map[string]Tool {
 			Order: []string{str(args[tools.ArgInstallation])},
 		})
 	}
-	m["x_"+server+"_"+tools.ToolVerifyCapability] = func(args map[string]any) *mcp.CallToolResult {
+	m["x_"+server+"_"+tools.ToolVerifyCapability] = func(_ context.Context, args map[string]any) *mcp.CallToolResult {
 		return document(verify.Result{
 			Caller: Caller, Hub: Hub,
+			Installation: str(args[tools.ArgInstallation]), Capability: str(args[tools.ArgCapability]),
+			State: "enabled", Inputs: verify.Inputs{Source: "none"},
+		})
+	}
+	m["x_"+tools.LiveToolPrefix+"_"+tools.ToolVerifyInstallation] = func(_ context.Context, args map[string]any) *mcp.CallToolResult {
+		return document(verify.Result{
+			Caller:       LiveCaller,
 			Installation: str(args[tools.ArgInstallation]), Capability: str(args[tools.ArgCapability]),
 			State: "enabled", Inputs: verify.Inputs{Source: "none"},
 		})
