@@ -202,8 +202,8 @@ func TestEnableCapabilityDryRunWithoutOptIn(t *testing.T) {
 }
 
 // Typed inputs lay over the record; a supplied secret is a field name and a
-// marker; an unknown key and an input the definition does not render refuse
-// with their names, as the plan's answer.
+// marker; an unknown key and a hub without the connector its targets trust it
+// through refuse with their names, as the plan's answer.
 func TestEnableCapabilityDryRunTypedInputs(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
@@ -235,12 +235,12 @@ func TestEnableCapabilityDryRunTypedInputs(t *testing.T) {
 	if p := findPlan(t, out, rowan); !strings.Contains(p.Refused, "bogus") || len(p.Files) != 0 || len(out.PullRequests) != 0 {
 		t.Fatalf("unknown key: refused %q files %d prs %d", p.Refused, len(p.Files), len(out.PullRequests))
 	}
-	out, text, isErr = dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(map[string]any{"federation": map[string]any{"targets": []any{map[string]any{"installation": alder, "private": false, "groups": []any{"kubernetes"}}}, "hubs": []any{}}})})
+	out, text, isErr = dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(map[string]any{"federation": map[string]any{"targets": []any{map[string]any{"installation": alder, "baseDomain": alder + ".example", "private": false, "groups": []any{"kubernetes"}}}, "hubs": []any{}}})})
 	if isErr {
 		t.Fatal(text)
 	}
-	if p := findPlan(t, out, rowan); !strings.Contains(p.Refused, "not rendered") {
-		t.Fatalf("not rendered: %q", p.Refused)
+	if p := findPlan(t, out, rowan); !strings.Contains(p.Refused, "federation.connectorId") || len(p.Files) != 0 {
+		t.Fatalf("hub without a connector: refused %q files %d", p.Refused, len(p.Files))
 	}
 	if text, isErr := call(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgDryRun: true}); !isErr || !strings.Contains(text, "needs installation") {
 		t.Fatalf("without an installation: %s", text)

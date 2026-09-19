@@ -1,0 +1,128 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+global:
+  domain: gopher.example.io
+components:
+  kagent:
+    enabled: false
+  agent-manager:
+    enabled: true
+muster:
+  muster:
+    extraCaFile:
+      path: /etc/muster/ca/spiffe-bundle.pem
+      secret:
+        name: tunnelport-spiffe-bundle
+        key: svid_bundle.pem
+    oauth:
+      server:
+        existingSecret: muster-oauth-credentials
+        storage:
+          valkey:
+            existingSecret: muster-valkey-credentials
+        trustedAudiences:
+          - dex-k8s-authenticator
+        tokenExchangeBroker:
+          allowPrivateIP: true
+          brokerClients:
+            broker-client-id-placeholder:
+              clientCredentialsSecretRef:
+                name: muster-broker-clients
+          clientAudiences:
+            broker-client-id-placeholder:
+              - burrow
+              - marmot
+          targets:
+            burrow:
+              dexTokenEndpoint: https://dex-burrow.agent-platform.svc.cluster.local:8443/token
+              expectedIssuer: https://dex.burrow.example.io
+              connectorId: giantswarm-simple-oidc
+              scopes: openid profile email groups audience:server:client_id:dex-k8s-authenticator
+              clientCredentialsSecretRef:
+                name: burrow-token-exchange-credentials
+            marmot:
+              dexTokenEndpoint: https://dex.marmot.example.io/token
+              connectorId: giantswarm-simple-oidc
+              scopes: openid profile email groups audience:server:client_id:dex-k8s-authenticator
+              clientCredentialsSecretRef:
+                name: marmot-token-exchange-credentials
+agent-platform-mcps:
+  identityProviders:
+    burrow:
+      tokenEndpoint: https://dex-burrow.agent-platform.svc.cluster.local:8443/token
+      expectedIssuer: https://dex.burrow.example.io
+      connectorId: giantswarm-simple-oidc
+      scopes: openid profile email groups
+      credentialsSecret:
+        name: burrow-token-exchange-credentials
+        clientIdKey: client-id
+        clientSecretKey: client-secret
+    marmot:
+      tokenEndpoint: https://dex.marmot.example.io/token
+      connectorId: giantswarm-simple-oidc
+      scopes: openid profile email groups
+      credentialsSecret:
+        name: marmot-token-exchange-credentials
+        clientIdKey: client-id
+        clientSecretKey: client-secret
+  mcpServers:
+    - cluster: gopher
+      group: kubernetes
+      url: http://mcp-kubernetes.mcp-kubernetes.svc:8080/mcp
+      timeout: 30
+      auth:
+        mode: forward
+    - cluster: gopher
+      group: prometheus
+      url: http://mcp-prometheus.mcp-prometheus.svc:8080/mcp
+      timeout: 30
+      auth:
+        mode: forward
+    - cluster: gopher
+      group: capi
+      url: http://mcp-capi.mcp-capi.svc:8080/mcp
+      timeout: 30
+      auth:
+        mode: forward
+    - cluster: burrow
+      group: kubernetes
+      url: https://mcp-kubernetes-burrow.agent-platform.svc.cluster.local:8443/mcp
+      timeout: 30
+      auth:
+        mode: exchange
+        provider: burrow
+    - cluster: burrow
+      group: prometheus
+      url: https://mcp-prometheus-burrow.agent-platform.svc.cluster.local:8443/mcp
+      timeout: 30
+      auth:
+        mode: exchange
+        provider: burrow
+    - cluster: burrow
+      group: capi
+      url: https://mcp-capi-burrow.agent-platform.svc.cluster.local:8443/mcp
+      timeout: 30
+      auth:
+        mode: exchange
+        provider: burrow
+    - cluster: marmot
+      group: kubernetes
+      url: https://mcp-kubernetes.marmot.example.io/mcp
+      timeout: 30
+      auth:
+        mode: exchange
+        provider: marmot
+    - cluster: marmot
+      group: prometheus
+      url: https://mcp-prometheus.marmot.example.io/mcp
+      timeout: 30
+      auth:
+        mode: exchange
+        provider: marmot
+valkey:
+  valkey:
+    auth:
+      usersExistingSecret: muster-valkey-credentials
+      aclUsers:
+        default:
+          passwordKey: valkey-password

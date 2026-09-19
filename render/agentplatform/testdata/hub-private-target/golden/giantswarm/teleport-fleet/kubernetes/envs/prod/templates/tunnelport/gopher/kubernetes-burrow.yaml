@@ -1,0 +1,69 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+# The tunnel from the hub gopher to burrow's kubernetes: the role reaches the one Teleport app the
+# target advertises as kubernetes-burrow and nothing else; the token admits the hub's RemoteApp ServiceAccount.
+apiVersion: resources.teleport.dev/v1
+kind: TeleportRoleV7
+metadata:
+  name: kubernetes-burrow-tunnel
+  namespace: teleport
+spec:
+  allow:
+    app_labels:
+      cluster:
+        - burrow
+      app:
+        - kubernetes
+    workload_identity_labels:
+      remoteapp:
+        - kubernetes-burrow
+    rules:
+      - resources:
+          - workload_identity
+        verbs:
+          - list
+          - read
+    logins:
+      - tunnelport
+---
+apiVersion: resources.teleport.dev/v1
+kind: TeleportBotV1
+metadata:
+  name: kubernetes-burrow-bot
+  namespace: teleport
+spec:
+  roles:
+    - kubernetes-burrow-tunnel
+---
+apiVersion: resources.teleport.dev/v2
+kind: TeleportProvisionToken
+metadata:
+  name: kubernetes-burrow-bot-token
+  namespace: teleport
+spec:
+  roles:
+    - Bot
+  bot_name: kubernetes-burrow-bot
+  join_method: kubernetes
+  kubernetes:
+    type: static_jwks
+    static_jwks:
+      jwks: '{"keys":[{"use":"sig","kty":"RSA","kid":"example-key-id","alg":"RS256","n":"example-modulus","e":"AQAB"}]}'
+    allow:
+      - service_account: agent-platform:kubernetes-burrow
+---
+apiVersion: resources.teleport.dev/v1
+kind: TeleportWorkloadIdentityV1
+metadata:
+  name: kubernetes-burrow-svid
+  namespace: teleport
+  labels:
+    remoteapp: kubernetes-burrow
+spec:
+  spiffe:
+    id: /bot/kubernetes-burrow-bot
+    x509:
+      dns_sans:
+        - '{{ "{{ join.kubernetes.service_account.name }}.{{ join.kubernetes.service_account.namespace }}.svc.cluster.local" }}'
+        - '{{ "{{ join.kubernetes.service_account.name }}.{{ join.kubernetes.service_account.namespace }}.svc" }}'
+        - '{{ "{{ join.kubernetes.service_account.name }}.{{ join.kubernetes.service_account.namespace }}" }}'

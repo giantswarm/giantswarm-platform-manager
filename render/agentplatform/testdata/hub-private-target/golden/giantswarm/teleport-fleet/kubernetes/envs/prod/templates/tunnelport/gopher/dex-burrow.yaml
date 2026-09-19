@@ -1,0 +1,69 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+# The tunnel from the hub gopher to burrow's dex: the role reaches the one Teleport app the
+# target advertises as dex-burrow and nothing else; the token admits the hub's RemoteApp ServiceAccount.
+apiVersion: resources.teleport.dev/v1
+kind: TeleportRoleV7
+metadata:
+  name: dex-burrow-tunnel
+  namespace: teleport
+spec:
+  allow:
+    app_labels:
+      cluster:
+        - burrow
+      app:
+        - dex
+    workload_identity_labels:
+      remoteapp:
+        - dex-burrow
+    rules:
+      - resources:
+          - workload_identity
+        verbs:
+          - list
+          - read
+    logins:
+      - tunnelport
+---
+apiVersion: resources.teleport.dev/v1
+kind: TeleportBotV1
+metadata:
+  name: dex-burrow-bot
+  namespace: teleport
+spec:
+  roles:
+    - dex-burrow-tunnel
+---
+apiVersion: resources.teleport.dev/v2
+kind: TeleportProvisionToken
+metadata:
+  name: dex-burrow-bot-token
+  namespace: teleport
+spec:
+  roles:
+    - Bot
+  bot_name: dex-burrow-bot
+  join_method: kubernetes
+  kubernetes:
+    type: static_jwks
+    static_jwks:
+      jwks: '{"keys":[{"use":"sig","kty":"RSA","kid":"example-key-id","alg":"RS256","n":"example-modulus","e":"AQAB"}]}'
+    allow:
+      - service_account: agent-platform:dex-burrow
+---
+apiVersion: resources.teleport.dev/v1
+kind: TeleportWorkloadIdentityV1
+metadata:
+  name: dex-burrow-svid
+  namespace: teleport
+  labels:
+    remoteapp: dex-burrow
+spec:
+  spiffe:
+    id: /bot/dex-burrow-bot
+    x509:
+      dns_sans:
+        - '{{ "{{ join.kubernetes.service_account.name }}.{{ join.kubernetes.service_account.namespace }}.svc.cluster.local" }}'
+        - '{{ "{{ join.kubernetes.service_account.name }}.{{ join.kubernetes.service_account.namespace }}.svc" }}'
+        - '{{ "{{ join.kubernetes.service_account.name }}.{{ join.kubernetes.service_account.namespace }}" }}'

@@ -1,0 +1,54 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+# One RemoteApp per tunnelled app of every private target: a tbot + ghostunnel Deployment and a
+# Service named <app>-<target> on :8443, TLS terminated with the app's SVID. spec.port is the
+# tunnel's loopback port; the upstream port is the Teleport app's, advertised by the target.
+apiVersion: access.giantswarm.io/v1alpha1
+kind: RemoteApp
+metadata:
+  name: dex-burrow
+  namespace: agent-platform
+spec:
+  appName: dex-burrow
+  port: 5556
+  tokenName: dex-burrow-bot-token
+---
+apiVersion: access.giantswarm.io/v1alpha1
+kind: RemoteApp
+metadata:
+  name: mcp-kubernetes-burrow
+  namespace: agent-platform
+spec:
+  appName: mcp-kubernetes-burrow
+  port: 8080
+  tokenName: mcp-kubernetes-burrow-bot-token
+---
+apiVersion: access.giantswarm.io/v1alpha1
+kind: RemoteApp
+metadata:
+  name: mcp-prometheus-burrow
+  namespace: agent-platform
+spec:
+  appName: mcp-prometheus-burrow
+  port: 8080
+  tokenName: mcp-prometheus-burrow-bot-token
+---
+apiVersion: access.giantswarm.io/v1alpha1
+kind: RemoteApp
+metadata:
+  name: mcp-capi-burrow
+  namespace: agent-platform
+spec:
+  appName: mcp-capi-burrow
+  port: 8080
+  tokenName: mcp-capi-burrow-bot-token
+---
+apiVersion: access.giantswarm.io/v1alpha1
+kind: RemoteApp
+metadata:
+  name: kubernetes-burrow
+  namespace: agent-platform
+spec:
+  appName: kubernetes-burrow
+  port: 6443
+  tokenName: kubernetes-burrow-bot-token

@@ -36,11 +36,26 @@ portal HelmRelease's `valuesFrom` — last, so the platform's values win; Helm r
 sets `backstage.extraEnvVars` itself loses that list to the platform's. A private skills repository's token is
 the one optional supplied value (`portal.skillsToken`): given, it renders `kagent-skills-token` in namespace
 `kagent`. The definition targets dex-app 3.2.0 or later, where every MCP server's Dex client reads a
-`clientSecretRef`. What this version does not render (the hub outputs of `federation.targets`) it refuses with
-`ErrNotRendered` naming the input rather than emitting an incomplete fileset.
+`clientSecretRef`.
+
+A hub's `federation.targets` render the hub side (`hub.go`): the token-exchange broker's targets and the
+agentgateway's identity providers in the configmap patch, the targets' MCP servers with exchange auth,
+and a credentials Secret per target whose generated client secret is named after the pair
+(`<hub>-token-exchange-<target>-client-secret`) — the same name the target's own render gives its
+Dex-side copy, so the two filesets agree on the value they share. A private target adds the tunnel:
+the tunnelport release and a RemoteApp per tunnelled app (the target's Dex, each federated group's MCP
+server, the API server) under the hub's `extras/agent-platform/tunnelport/`, muster's `extraCaFile`
+trust in the SPIFFE bundle, and in `giantswarm/teleport-fleet` the tunnel's Teleport objects as
+operator CRDs (`kubernetes/envs/prod/templates/tunnelport/<hub>/`): per app a `TeleportRoleV7` pinned
+to the one Teleport app, its `TeleportBotV1`, a `TeleportProvisionToken` with the kubernetes join and
+the hub's JWKS admitting the RemoteApp's ServiceAccount, and the `TeleportWorkloadIdentityV1` whose
+SANs are templated off the join attributes; plus the hub's trust-bundle singleton where
+`federation.tunnel.trustBundleProvisioned` is false. The Teleport rendering (`teleport.go` and the
+teleport-fleet subtree of the goldens) is co-owned by Shield in `CODEOWNERS`.
 
 The golden filesets under `render/agentplatform/testdata/<shape>/golden/` are the reference output for
-a public customer and a Giant Swarm-owned installation (invented names, placeholder values) and are
+a public customer, a Giant Swarm-owned installation, a hub with a private target (tunnel and Teleport
+outputs) and a multi-cluster customer with one aggregator (invented names, placeholder values) and are
 diffed on every pull request; `go test ./render/... -update` rewrites them after an intended change.
 
 ## Probes and customer actions

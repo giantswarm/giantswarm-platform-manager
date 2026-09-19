@@ -43,6 +43,11 @@ is `<name>`. A path covers every key beneath it.
   (`kagent.modelKey`), an oauth server's client credentials, the Slack app's `klausGateway.slack.bot-token`,
   `signing-secret` and, in socket mode, `app-token`, a Vertex chat's `portal.aiChat.google.credentialsJson`,
   and optionally `portal.skillsToken` for a private skills repository.
+- A hub's targets (`federation.targets`) render the hub side of federation into the hub's own repositories;
+  a private target adds the tunnel on the hub and the tunnel's Teleport objects in teleport-fleet
+  (`federation.tunnel` carries the hub's JWKS, the Teleport cluster and whether the hub's trust-bundle
+  singleton exists). The target advertises the tunnelled apps (`dex-<target>`, `mcp-<group>-<target>`,
+  `kubernetes-<target>`) through its own Teleport agent; that side is not this definition's output.
 - The developer portal is the `customer-portal` definition's. This definition writes the portal's agent-platform
   section only — as files of its own next to the portal's, never into them; every other portal key is listed in
   `removals.yaml` as `other-definition`. The portal signs people in on this installation through the provider

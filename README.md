@@ -81,9 +81,8 @@ capability's definition (the [render library](render/README.md)) from the facts 
 registry's and the installation's `config.yaml.patch` — with the person's typed `inputs` over them. The
 schema is the contract: a typed `installation.*` key overrides the record, an unknown key refuses with its
 name, a required choice left out (`kagent.enabled`, `portal.enabled`, `toolAccess.agentManager`,
-`federation.targets`/`hubs`) refuses naming it — nothing is chosen for the person, and an input this
-version of the definition does not render refuses as *not rendered*. A refusal is the installation's
-answer in the plan, not a tool error, so a set still answers for the others.
+`federation.targets`/`hubs`) refuses naming it — nothing is chosen for the person. A refusal is the
+installation's answer in the plan, not a tool error, so a set still answers for the others.
 
 The plan per installation: its state and opt-in, the effective inputs, the files with their repository
 (the registry's, not the definition's `giantswarm/<customer>-…` names), path, rendered content and change
