@@ -167,7 +167,7 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	if err != nil {
 		return nil, t.fail(ctx, tool, a, nil, nil, err)
 	}
-	title := fmt.Sprintf("%s %s on %s (%s)", kind, out.Capability, one, a.Name)
+	title := prTitle(kind, one, out.Capability, a.Name, "")
 	prs, unchanged, err := t.openPullRequests(ctx, env, a, p, out.PullRequests, rendered.Files, remote, title, prBody(a, p, out.PullRequests))
 	res.UnchangedRepositories = unchanged
 	if err != nil {
@@ -520,6 +520,28 @@ func remoteError(repository string, err error) error {
 		return fmt.Errorf("GitHub refused your token on %s (%s, HTTP %d): the App %s must be installed on the repository with contents: write and pull requests: write, and you must be able to write there — %w", repository, auth.Op, auth.Status, ToolPrefix, err)
 	}
 	return fmt.Errorf("%s: %w", repository, err)
+}
+
+// prType is the conventional-commit type of an action's pull requests: an
+// enablement adds the capability to the installation (feat), a reconcile
+// brings the record back to the definition (fix).
+func prType(kind string) string {
+	if kind == actions.KindReconcile {
+		return "fix"
+	}
+	return "feat"
+}
+
+// prTitle is the title of every pull request of an action, in the
+// conventional-commit form the repositories' semantic-pull-request check
+// accepts as opened: `<type>(<installation>): <kind> <capability> (<action>)`,
+// a detail (a wave's stage) after the action id. The action id stays in the
+// title; TestPRTitleIsSemantic holds the shape to the check's default pattern.
+func prTitle(kind, installation, capability, action, detail string) string {
+	if detail != "" {
+		action += ", " + detail
+	}
+	return fmt.Sprintf("%s(%s): %s %s (%s)", prType(kind), installation, kind, capability, action)
 }
 
 // prBody is the text of every pull request of the action: the action id, the

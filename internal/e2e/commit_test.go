@@ -226,7 +226,7 @@ func TestCommitOpensPullRequestsAndPendsApproval(t *testing.T) {
 		t.Fatalf("the remote has %d pull request(s)", len(prs))
 	}
 	for i, pr := range prs {
-		if pr.Repository.String() != out.PullRequests[i].Repository || pr.Head != branch || pr.Base != defaultBranch || pr.Merged || !strings.Contains(pr.Body, out.Action.Name) || !strings.Contains(pr.Title, out.Action.Name) {
+		if pr.Repository.String() != out.PullRequests[i].Repository || pr.Head != branch || pr.Base != defaultBranch || pr.Merged || !strings.Contains(pr.Body, out.Action.Name) || pr.Title != "feat("+rowan+"): enable agent-platform ("+out.Action.Name+")" {
 			t.Fatalf("remote pull request %d: %+v", i, pr)
 		}
 		assertNoLeak(t, "pull request body", pr.Body+pr.Title)
