@@ -3,6 +3,7 @@ package live
 import (
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
@@ -64,11 +65,34 @@ func TestConfigValidateNamesTheMissingField(t *testing.T) {
 		{"muster URL", func(c *Config) { c.MusterURL = "not a url" }},
 		{"kubernetes family", func(c *Config) { c.KubernetesFamily = "" }},
 		{"path", func(c *Config) { c.Path = "mcp" }},
+		{"JWKS URL over plain http", func(c *Config) { c.JWKSURL = "http://dex.dex.svc.cluster.local:5556/dex/keys" }},
+		{"JWKS URL without a host", func(c *Config) { c.JWKSURL = "https:///keys" }},
 	} {
 		bad := cfg
 		c.mut(&bad)
 		if err := bad.Validate(); err == nil {
 			t.Errorf("%s: accepted %+v", c.name, bad)
+		}
+	}
+}
+
+// A key set is read over TLS only: a plain-http JWKS URL is refused when the
+// configuration is read, naming the requirement, and never on the tokens; an
+// https one — a private Service name included — is what the allowance is for.
+func TestConfigValidateRefusesAPlainHTTPKeySet(t *testing.T) {
+	cfg := Config{Path: "/mcp/live", Issuer: "https://dex.example.test/dex", Audiences: []string{platformClient}, MusterURL: "http://muster:8090/mcp", KubernetesFamily: "kubernetes",
+		JWKSURL: "https://dex.dex.svc.cluster.local:5556/dex/keys", AllowPrivateIPJWKS: true}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("an https key set on a private name: %v", err)
+	}
+	cfg.JWKSURL = "http://dex.dex.svc.cluster.local:5556/dex/keys"
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("a plain-http key set was accepted")
+	}
+	for _, want := range []string{"https://", cfg.JWKSURL, "TLS only"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not name %q: %v", want, err)
 		}
 	}
 }
