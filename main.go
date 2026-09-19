@@ -71,7 +71,7 @@ func parseFlags(args []string) (*options, error) {
 	f.StringVar(&o.liveCAFile, "live-ca-file", envOr("LIVE_CA_FILE", ""), "PEM bundle the issuer's certificate chains to; empty is the system trust (LIVE_CA_FILE)")
 	f.StringVar(&o.musterURL, "muster-url", envOr("MUSTER_URL", ""), "muster's own MCP endpoint as reached from the pod: where a live read loops back to with the person's token (MUSTER_URL)")
 	f.StringVar(&o.liveKubernetesFamily, "live-kubernetes-family", envOr("LIVE_KUBERNETES_FAMILY", "kubernetes"), "The muster family, or singleton server, the installations' kubernetes tools are aggregated under: x_<family>_get, _list, _logs (LIVE_KUBERNETES_FAMILY)")
-	f.StringVar(&o.liveKubernetesInstanceArg, "live-kubernetes-instance-arg", envOr("LIVE_KUBERNETES_INSTANCE_ARG", "management_cluster"), "The family's argument that selects the installation; empty for a singleton server (LIVE_KUBERNETES_INSTANCE_ARG)")
+	f.StringVar(&o.liveKubernetesInstanceArg, "live-kubernetes-instance-arg", envSet("LIVE_KUBERNETES_INSTANCE_ARG", "management_cluster"), "The family's argument that selects the installation; empty for a singleton server, which takes no argument (LIVE_KUBERNETES_INSTANCE_ARG, an empty value counts)")
 	if err := f.Parse(args); err != nil {
 		return nil, err
 	}
@@ -136,6 +136,16 @@ func run(ctx context.Context, o *options, log *slog.Logger) error {
 
 func envOr(key, def string) string {
 	if v, ok := os.LookupEnv(key); ok && v != "" {
+		return v
+	}
+	return def
+}
+
+// envSet is the environment variable's value when it is set, empty included
+// — for a setting whose empty value means something (no instance argument:
+// a singleton server) — else def.
+func envSet(key, def string) string {
+	if v, ok := os.LookupEnv(key); ok {
 		return v
 	}
 	return def
