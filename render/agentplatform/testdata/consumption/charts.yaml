@@ -52,7 +52,7 @@ charts:
   # rendered when a shape on the pinned line enables them.
   - name: klaus-gateway
     registry: gsoci.azurecr.io/charts/giantswarm/klaus-gateway
-    version: 1.14.1
+    version: 1.15.1
   - name: cluster-manager
     registry: gsoci.azurecr.io/charts/giantswarm/cluster-manager
     version: 0.14.0
