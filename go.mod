@@ -7,6 +7,7 @@ require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/giantswarm/gitops-commit v0.7.0
 	github.com/giantswarm/mcp-oauth v1.4.2
+	github.com/go-jose/go-jose/v4 v4.1.5
 	github.com/google/go-github/v92 v92.0.0
 	github.com/mark3labs/mcp-go v1.1.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
@@ -72,7 +73,6 @@ require (
 	github.com/fxamacker/cbor/v2 v2.9.1 // indirect
 	github.com/getsops/gopgagent v0.0.0-20241224165529-7044f28e491e // indirect
 	github.com/getsops/sops/v3 v3.13.3 // indirect
-	github.com/go-jose/go-jose/v4 v4.1.5 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/jsonpointer v1.0.0 // indirect
