@@ -96,7 +96,7 @@ func (in *Input) probes() []render.Probe {
 // Accepted.
 const (
 	modelKeySecret    = "kagent-anthropic-key" // #nosec G101 -- a Secret name, not a value
-	modelKeySecretKey = "ANTHROPIC_API_KEY"
+	modelKeySecretKey = "ANTHROPIC_API_KEY" // #nosec G101 -- a Secret key name, not a value
 	modelKeyActionID  = "model-key"
 	modelKeyDimension = "live-model-configs"
 	modelKeyNote      = "Create Secret " + modelKeySecret + " in namespace " + kagentNamespace + " with key " + modelKeySecretKey + ", or add a ModelConfig in the portal; until then default-model-config stays Accepted=False."
