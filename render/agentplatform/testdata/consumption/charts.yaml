@@ -47,7 +47,7 @@ charts:
     version: 0.3.3
   - name: agent-manager
     registry: gsoci.azurecr.io/charts/giantswarm/agent-manager
-    version: 0.4.5
+    version: 1.1.12
   # The meta chart's children the policy offers Giant Swarm-owned installations;
   # rendered when a shape on the pinned line enables them.
   - name: klaus-gateway
