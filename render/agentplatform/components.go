@@ -3,11 +3,12 @@ package agentplatform
 import "github.com/giantswarm/giantswarm-platform-manager/render"
 
 // The klaus-gateway and cluster-manager components. The fleet policy
-// (policy.yaml) gives them to some organisations; where it does, their values
-// in the configmap patch and the Secrets their charts read are data here. The
-// gateway's shape is the policy's, its routes and URLs derive from the
-// installation facts; its Slack credentials are supplied by the person, its
-// OBO keys generated. The cluster-manager's egress derives from the provider.
+// (policy.yaml) runs the gateway on the installations with a Slack app and
+// the cluster-manager where an organisation's list names it; where one runs,
+// its values in the configmap patch and the Secrets its chart reads are data
+// here. The gateway's shape is the policy's, its routes and URLs derive from
+// the installation facts; its Slack credentials are supplied by the person,
+// its OBO keys generated. The cluster-manager's egress derives from the provider.
 
 const (
 	// klausGatewayOBOSecret carries the gateway's HMAC keys for the

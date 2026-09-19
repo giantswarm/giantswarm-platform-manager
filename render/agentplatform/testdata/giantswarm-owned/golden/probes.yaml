@@ -126,6 +126,7 @@
   expect:
     condition: Accepted
     conditionStatus: "True"
+    note: waiting for the customer's model key (Secret kagent-anthropic-key, key ANTHROPIC_API_KEY, or a ModelConfig in the portal)
 - id: live-kagent-api-protected
   feature: identity
   kind: HTTP

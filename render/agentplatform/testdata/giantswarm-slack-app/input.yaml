@@ -1,0 +1,29 @@
+# A Giant Swarm-owned test installation with a Slack app: one the policy's klausGateway.installations
+# names, so the chat gateway renders with its generated OBO keys and its Slack credentials supplied
+# at commit — the only supplied values of any shape. Reached through Teleport (private) on the 4
+# chart line, with its own portal beside the hub's ("gopher") and the hub's token-exchange client in
+# its Dex. The codename is the policy's; the domain and every value are invented.
+input:
+  installation:
+    name: glean
+    baseDomain: glean.example.io
+    customer: giantswarm
+    provider: capz
+    private: true
+    chartLine: "4"
+    musterClientId: 00000000-0000-4000-8000-000000000004
+    portals:
+      - installation: gopher
+        customer: giantswarm
+        domain: portal.example.io
+      - installation: glean
+        customer: giantswarm
+        domain: portal.glean.example.io
+    federation:
+      hubs: [gopher]
+      targets: []
+  modelServing:
+    enabled: false
+secrets:
+  klausGateway.slack.bot-token: PLACEHOLDER-SLACK-BOT-TOKEN
+  klausGateway.slack.signing-secret: PLACEHOLDER-SLACK-SIGNING-SECRET

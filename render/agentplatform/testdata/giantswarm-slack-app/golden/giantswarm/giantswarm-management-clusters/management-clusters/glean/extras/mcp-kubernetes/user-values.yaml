@@ -1,0 +1,11 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+mcpKubernetes:
+  oauth:
+    allowPrivateURLs: true
+    sso:
+      allowPrivateIPs: true
+    cimd:
+      allowPrivateIPs: true
+    redirectURISecurity:
+      allowPrivateIPRedirectURIs: true

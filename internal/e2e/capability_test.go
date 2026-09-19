@@ -223,7 +223,7 @@ func TestEnableCapabilityDryRunTypedInputs(t *testing.T) {
 	for _, d := range p.DexClients {
 		kagent = kagent || (d.ID == kagentKey && d.SecretRef == "dex-client-kagent" && len(d.RedirectURIs) == 1 && strings.HasSuffix(d.RedirectURIs[0], "/oauth2/callback"))
 	}
-	// A customer's model key is theirs: no supplied value, no marker; the kagent client is rendered all the same.
+	// The model key is the installation's own: no supplied value, no marker; the kagent client is rendered all the same.
 	if marker || !kagent {
 		t.Fatalf("marker %v, kagent client %v: %+v", marker, kagent, p.DexClients)
 	}

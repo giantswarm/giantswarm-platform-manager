@@ -1,7 +1,8 @@
-# A Giant Swarm-owned installation on the 4 chart line: every component the policy gives the
-# organisation (kagent with the managed model key, the agent-manager, the chat gateway, the
-# cluster-manager), its own portal, the chart range pinned, and the one choice made:
-# it serves models. Invented names, placeholder values.
+# A Giant Swarm-owned installation without a Slack app on the 4 chart line: the components the
+# policy gives the organisation (kagent, the agent-manager, the cluster-manager; no chat gateway,
+# since the policy names no Slack app for it), its own portal, the chart range pinned, and the one
+# choice made: it serves models. Nothing is supplied at commit; the model key Secret is the
+# installation's own. Invented names, placeholder values.
 input:
   installation:
     name: gopher
@@ -20,7 +21,4 @@ input:
       targets: []
   modelServing:
     enabled: true
-secrets:
-  kagent.modelKey: PLACEHOLDER-MODEL-KEY
-  klausGateway.slack.bot-token: PLACEHOLDER-SLACK-BOT-TOKEN
-  klausGateway.slack.signing-secret: PLACEHOLDER-SLACK-SIGNING-SECRET
+secrets: {}

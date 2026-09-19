@@ -22,12 +22,13 @@ var update = flag.Bool("update", false, "rewrite the golden filesets from the cu
 const (
 	shapePublicCustomer         = "public-customer"
 	shapeGiantswarmOwned        = "giantswarm-owned"
+	shapeGiantswarmSlackApp     = "giantswarm-slack-app"
 	shapeHubPrivateTarget       = "hub-private-target"
 	shapeMultiClusterAggregator = "multi-cluster-aggregator"
 )
 
 // shapes are the installation shapes, in the order the goldens are rendered.
-var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned, shapeHubPrivateTarget, shapeMultiClusterAggregator}
+var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned, shapeGiantswarmSlackApp, shapeHubPrivateTarget, shapeMultiClusterAggregator}
 
 func loadInput(t *testing.T, shape string) (map[string]any, map[string]string) {
 	t.Helper()
@@ -275,7 +276,7 @@ func TestProbesAreLiveDimensions(t *testing.T) {
 
 func TestRefusals(t *testing.T) {
 	base, secrets := loadInput(t, shapePublicCustomer)
-	owned, _ := loadInput(t, shapeGiantswarmOwned)
+	slackApp, _ := loadInput(t, shapeGiantswarmSlackApp)
 	target := func(private bool) map[string]any {
 		return map[string]any{"installation": "x", "baseDomain": "x.example", "private": private}
 	}
@@ -299,8 +300,9 @@ func TestRefusals(t *testing.T) {
 		{"unknown top-level key", clone(func(m map[string]any) { m["colourScheme"] = "dark" }), secrets, ErrInput, "colourScheme"},
 		{"a former input is unknown", clone(func(m map[string]any) { m["kagent"] = map[string]any{"enabled": true} }), secrets, ErrInput, "kagent"},
 		{"unknown record key", clone(func(m map[string]any) { m["installation"].(map[string]any)["replicas"] = 3 }), secrets, ErrInput, "replicas"},
-		{"empty model key", owned, nil, ErrEmptySecret, fieldModelKey},
-		{"unknown secret value", base, map[string]string{fieldModelKey: "x"}, ErrUnknownSecret, fieldModelKey},
+		{"empty Slack credential where the gateway runs", slackApp, nil, ErrEmptySecret, fieldSlack + "bot-token"},
+		{"a Slack credential where no gateway runs", base, map[string]string{fieldSlack + "bot-token": "x"}, ErrUnknownSecret, fieldSlack + "bot-token"},
+		{"the model key is never supplied", base, map[string]string{"kagent.modelKey": "x"}, ErrUnknownSecret, "kagent.modelKey"},
 		{"serving on the 3 line", clone(func(m map[string]any) { m["modelServing"] = map[string]any{"enabled": true} }), secrets, ErrInput, "modelServing.enabled"},
 		{"targets without a broker client", clone(func(m map[string]any) {
 			federation(m)["targets"] = []any{target(false)}

@@ -23,15 +23,17 @@ import (
 )
 
 const (
-	// modelKeyField is the one supplied secret an enabled kagent with a
-	// managed model key asks for; modelKeyValue is the invented value the
-	// scenario hunts for everywhere it must not appear.
+	// modelKeyField is a field no installation asks for — the model key is
+	// never supplied at commit, its Secret is the installation's own — so a
+	// value for it is refused by field; modelKeyValue is the invented value
+	// the scenario hunts for everywhere it must not appear.
 	modelKeyField = "kagent.modelKey"
 	modelKeyValue = "sk-fixture-model-key-4f9c1e"
 	willow        = "willow"
-	// suppliedFields are the secret values a customer's installation (rowan in
-	// the fixtures) asks for: none — the model key is the customer's and the
-	// gateway is not theirs. A value supplied anyway is refused by field.
+	// suppliedFields are the secret values an installation without a Slack app
+	// (rowan in the fixtures) asks for: none — the model key is never
+	// supplied and no gateway runs there. A value supplied anyway is refused
+	// by field.
 	suppliedFields = ""
 )
 
