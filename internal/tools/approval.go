@@ -65,7 +65,7 @@ func (t *Tools) registerApprovalTools(s *mcpserver.MCPServer) {
 		mcp.WithString(ArgAction, mcp.Required(), mcp.Description("The Action's name (the action id of the review).")),
 	), t.approveAction)
 	s.AddTool(mcp.NewTool(ToolDenyAction,
-		mcp.WithDescription("The Deny button of an action's Team review, called as the clicking member (the actor included: a denial withdraws the action): records the reason on the Action, closes every pull request of the action as you and moves the Action to denied."),
+		mcp.WithDescription("The Deny button of an action's Team review, called as the clicking member (the actor included: a denial withdraws the action): records the reason on the Action, closes every pull request of the action as you and moves the Action to denied. A failed action is denied too: any pull request its failure left open is closed, the reason recorded, the action stays failed."),
 		mcp.WithIdempotentHintAnnotation(true), mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithString(ArgAction, mcp.Required(), mcp.Description("The Action's name.")),
 		mcp.WithString(ArgReason, mcp.Required(), mcp.Description("Why the action is denied; recorded on the Action.")),
@@ -169,10 +169,18 @@ func (t *Tools) denyAction(ctx context.Context, req mcp.CallToolRequest) (*mcp.C
 	return result(t.deny(ctx, req.GetArguments()))
 }
 
+// deny withdraws an action pending approval: its pull requests are closed as
+// the member and it moves to denied. A failed action is denied too — a
+// commit that failed after opening pull requests closes them itself, and the
+// denial closes whatever it could not (the remote refused a close) and
+// records the reason; the action stays failed, the failure being its result.
 func (t *Tools) deny(ctx context.Context, args map[string]any) (any, error) {
-	a, id, err := t.pendingAction(ctx, ToolDenyAction, args)
+	a, id, err := t.loadAction(ctx, ToolDenyAction, args, actions.StatePendingApproval, actions.StateFailed)
 	if err != nil {
 		return nil, err
+	}
+	if a.Status.Approval != nil && a.Status.Approval.Decision != "" {
+		return nil, fmt.Errorf("%s: action %s is already %s by %s", ToolDenyAction, a.Name, a.Status.Approval.Decision, a.Status.Approval.DecidedBy)
 	}
 	reason, _ := args[ArgReason].(string)
 	if reason = strings.TrimSpace(reason); reason == "" {
@@ -184,30 +192,25 @@ func (t *Tools) deny(ctx context.Context, args map[string]any) (any, error) {
 		return nil, fmt.Errorf("%s: %w", ToolDenyAction, err)
 	}
 	status := a.Status
-	for i, pr := range status.PullRequests {
-		if pr.State != actions.PullRequestOpen {
-			continue
-		}
-		cpr, err := commitPR(pr)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", ToolDenyAction, err)
-		}
-		if err := remote.Close(ctx, cpr, true); err != nil {
-			return nil, fmt.Errorf("%s: closing %s#%d as %s: %w", ToolDenyAction, pr.Repository, pr.Number, id.Login, remoteError(pr.Repository, err))
-		}
-		status.PullRequests[i].State = actions.PullRequestClosed
+	open := len(openPRs(status.PullRequests))
+	if left := closeOpen(ctx, remote, status.PullRequests); len(left) > 0 {
+		return nil, fmt.Errorf("%s: closing as %s: %s", ToolDenyAction, id.Login, strings.Join(left, "; "))
 	}
 	approval := *approvalOf(&status)
 	approval.Decision, approval.DecidedBy, approval.Reason, approval.At = actions.DecisionDenied, id.Login, reason, now()
 	status.Approval = &approval
-	status.State = actions.StateDenied
-	status.Result = &actions.Result{State: actions.StateDenied, Message: fmt.Sprintf("denied by %s: %s", id.Login, reason), At: now()}
+	if status.State == actions.StateFailed {
+		status.Result.Message += fmt.Sprintf("; denied by %s: %s (%d pull request(s) closed)", id.Login, reason, open)
+	} else {
+		status.State = actions.StateDenied
+		status.Result = &actions.Result{State: actions.StateDenied, Message: fmt.Sprintf("denied by %s: %s", id.Login, reason), At: now()}
+	}
 	a, err = t.d.Actions.UpdateStatus(ctx, a.Name, status)
 	if err != nil {
 		return nil, fmt.Errorf("%s: the pull requests are closed and the action could not record the denial: %w", ToolDenyAction, err)
 	}
-	t.d.Log.Info("action_denied", identity.LogAttr(ctx), "action", a.Name, "pullRequests", len(a.Status.PullRequests))
-	return Decision{Action: a, Message: fmt.Sprintf("%s denied action %s: %s — %d pull request(s) closed (%s).", id.Login, a.Name, reason, len(a.Status.PullRequests), prList(a.Status.PullRequests))}, nil
+	t.d.Log.Info("action_denied", identity.LogAttr(ctx), "action", a.Name, "state", a.Status.State, "pullRequests", len(a.Status.PullRequests), "closed", open)
+	return Decision{Action: a, Message: fmt.Sprintf("%s denied action %s (%s): %s — %d pull request(s) closed (%s).", id.Login, a.Name, a.Status.State, reason, open, prList(a.Status.PullRequests))}, nil
 }
 
 func (t *Tools) mergeAction(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -295,7 +298,7 @@ func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
 			case errors.Is(err, commit.ErrChecksFailed):
 				res.Waiting = fmt.Sprintf("%s#%d: a check failed", pr.Repository, pr.Number)
 			case errors.Is(err, commit.ErrHeadMoved):
-				return nil, t.fail(ctx, ToolMergeAction, a, status.PullRequests, fmt.Errorf("%s#%d: %w — the approval covered the head the pull request was opened with; open a new action", pr.Repository, pr.Number, err))
+				return nil, t.fail(ctx, ToolMergeAction, a, nil, status.PullRequests, fmt.Errorf("%s#%d: %w — the approval covered the head the pull request was opened with; open a new action", pr.Repository, pr.Number, err))
 			default:
 				if _, err2 := t.d.Actions.UpdateStatus(ctx, a.Name, status); err2 != nil {
 					return nil, fmt.Errorf("%s: %w; and the action could not record the pull requests merged so far: %v", ToolMergeAction, remoteError(pr.Repository, err), err2)
@@ -554,6 +557,9 @@ func changeSummary(p plan.Installation) string {
 			names = append(names, g.Name)
 		}
 		parts = append(parts, "generated secrets "+strings.Join(names, ", "))
+	}
+	if rotating := p.Rotating(); len(rotating) > 0 {
+		parts = append(parts, "rotates "+strings.Join(rotating, ", ")+" (a new value over the one on record; both sides roll)")
 	}
 	return strings.Join(parts, ", ")
 }

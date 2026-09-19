@@ -191,8 +191,11 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 		p := plan.Build(ctx, plan.Options{Definition: def, Installation: r.Installation, Hub: hub, Inputs: merged, Content: content, Read: read})
 		p.State = capabilityState(r, def.Name)
 		p.OptIn = r.OptIn
-		if r.OptIn != nil && r.OptIn.State != installations.OptedIn {
+		switch refusal := p.FrozenRefusal(); {
+		case r.OptIn != nil && r.OptIn.State != installations.OptedIn:
 			p.CommitRefused = fmt.Sprintf("%s is %s: %s", r.Name, r.OptIn.State, r.OptIn.HowToOptIn)
+		case refusal != "":
+			p.CommitRefused = refusal
 		}
 		out.Order = append(out.Order, r.Name)
 		out.Installations = append(out.Installations, p)

@@ -58,19 +58,33 @@ this order, writing nothing before the gate:
    as an Action in state *refused* (the installation's state read from its repositories stands). A withdrawn
    opt-in stops the next action.
 2. **The plan**, as the dry run renders it; a definition's refusal, a file that could not be compared as the
-   person, or a supplied secret left out of `secrets` (or one the plan does not ask for) refuses the commit
-   before any write. Every file on record already: nothing to commit, no Action.
+   person, a generated value frozen where no rotation is possible (below), or a supplied secret left out of
+   `secrets` (or one the plan does not ask for) refuses the commit before any write. Every file on record
+   already: nothing to commit, no Action.
 3. **The Action** — created in *pending approval* with the actor, the capability, the installation and the
    inputs (never a secret value: `secrets` is its own argument and lands nowhere but the encrypted files).
 4. **The files**: the plan rendered again with the supplied values; a plain file must be byte-identical to the
    plan (a value never lands outside a secret file), the secret files get their generated values and are
    encrypted with gitops-commit's `sopsenc` for the recipients of the repository's `.sops.yaml` (read as the
-   person; a repository without one refuses the commit). A secret file on record is never generated again.
+   person; a repository without one refuses the commit). A secret file on record is never generated again —
+   the manager decrypts nothing, so the values in it are *frozen*: no new file can share one. When a file to
+   create needs a frozen value (a server's Dex client Secret next to its existing credentials file), the plan
+   **rotates** the name: one new value is drawn and written into every file that holds it, the existing file
+   rewritten and encrypted anew — and every other value that file holds rotates with it, down to the files
+   sharing those (the server's Valkey password into its Valkey Secret). The dry run says so
+   (`generatedSecrets[].frozenIn`, `rotates`), the Action records the rotated names (`status.rotated`), the
+   pull request names them. For the running installation a rotation means both sides roll: the server and
+   the Dex client take the new value with their Secrets, and the client is unusable between the two
+   rollouts. A frozen value needed by no new file keeps its file as it is. A value frozen in a file the
+   definition does not own whole (one with several owners) cannot rotate and refuses the commit naming the
+   file.
 5. **The pull requests** through gitops-commit, as the person, in dependency order (configs before
    management-clusters), one commit per repository, on branch `platform/<action>/<installation>` with the action
    id in the title and body. The Action records them and stays in *pending approval*: the approval, the merge
-   and the rollout follow in a later version. A failure on the way moves the Action to *failed* with the pull
-   requests opened so far.
+   and the rollout follow. A failure on the way moves the Action to *failed* and closes the pull requests
+   opened so far as the person, branches deleted, recorded *closed* with the reason on the Action; one the
+   remote refused to close stays open on the record, and `deny_action` — which takes a failed action too —
+   closes it, records the reason and leaves the action failed.
 
 The answer is the Action, the pull requests and the plan; no secret value appears in it, in a log or in a
 pull request. The manager holds no token of its own: `GITHUB_API_URL` is the GitHub the person's token goes to.
@@ -88,7 +102,9 @@ installation's answer in the plan, not a tool error, so a set still answers for 
 The plan per installation: its state and opt-in, the effective inputs, the files with their repository
 (the registry's, not the definition's `giantswarm/<customer>-…` names), path, rendered content and change
 (*create*, *update*, *unchanged*, *unknown* when the current file could not be read as the person), the
-shared-kustomization includes, the generated secrets by name, kind and length, the secret values the person
+shared-kustomization includes, the generated secrets by name, kind and length — with `frozenIn`, the files
+on record that hold the value already, and `rotates` when a new file needs it and the commit draws a new
+value into every file of the name (see [The commit](#the-commit)) — the secret values the person
 supplies at commit by field (rendered as `SUPPLIED(<field>)` markers — no secret value ever appears in a dry
 run), the Dex clients with their redirect URIs from the rendered dex patch, the customer actions (Secrets the
 definition references and never renders) and the probes (the definition's live dimensions). Over the set:
