@@ -58,8 +58,8 @@ type CommitResult struct {
 	Plan         plan.Installation `json:"plan"`
 	// PullRequests are the ones opened, in dependency order.
 	PullRequests []actions.PullRequest `json:"pullRequests"`
-	// UnchangedRepositories had nothing to commit once the secret files on
-	// record were left alone (a value on record is never generated again).
+	// UnchangedRepositories had nothing to commit: every file of theirs is on
+	// record as the render has it, the secret files kept with their values.
 	UnchangedRepositories []string `json:"unchangedRepositories,omitempty"`
 	// Next says what follows.
 	Next string `json:"next"`
@@ -372,13 +372,14 @@ func encrypter(ctx context.Context, c *github.Client, repository string) (*sopse
 }
 
 // targetsOf pairs the render with the supplied values against the plan (the
-// render with markers): only files that change are committed, a secret file
-// (by the repository's .sops.yaml rules) that exists on record is never
-// generated again — unless the plan rotates it: a new file needs a value
-// frozen in it, so it is written anew with every value it holds (the plan
-// says which, and the dry run showed it) — and a plain file must be
-// byte-identical to the plan — a supplied value never lands outside a secret
-// file. A file with several owners
+// render with markers): only files that change are committed — a secret file
+// on record that the render leaves as it is outside the values is unchanged
+// and never generated again; one the plan writes (its plaintext skeleton
+// changed, or a rotation rewrites it: a file to write needs a value frozen in
+// it) is written anew with every value it holds, the plan saying which and
+// the dry run having shown it — and a plain file must be byte-identical to
+// the plan — a supplied value never lands outside a secret file. A file with
+// several owners
 // is committed as the plan wrote it: a kustomization with the includes landed
 // in it or the entries of other owners kept, the dex patch with their keys
 // kept, the tunnelport values with the hub's entries edited in, read as the
@@ -411,7 +412,11 @@ func targetsOf(ctx context.Context, c *github.Client, p plan.Installation, rende
 				}
 				content = []byte(pf.Content)
 			}
-			tg.exists[path] = pf.Change == plan.ChangeUpdate && !rotated[resolved+":"+path]
+			// A secret file the plan updates is written anew: its skeleton
+			// changed, or a rotation rewrites it. The guard stays for a
+			// generated value on record the plan does not rotate: never
+			// generated again.
+			tg.exists[path] = pf.Change == plan.ChangeUpdate && len(f.Generated) > 0 && !rotated[resolved+":"+path]
 			sf := sopsenc.File{Path: path, Content: content}
 			for _, g := range f.Generated {
 				sf.Generated = append(sf.Generated, sopsenc.Generated{Name: g.Name, Placeholder: g.Placeholder, Kind: sopsenc.Kind(g.Kind), Length: g.Length, Half: sopsenc.Half(g.Half)})
@@ -557,8 +562,11 @@ func prBody(a *actions.Action, p plan.Installation, prs []plan.PullRequest) stri
 		b.WriteString("\nGenerated secrets, by name; the values exist only inside the encrypted files:\n")
 		for _, g := range p.GeneratedSecrets {
 			fmt.Fprintf(&b, "- %s (%s, %d)", g.Name, g.Kind, g.Length)
-			if g.Rotates {
-				fmt.Fprintf(&b, " — rotated: a new value replaces the one on record in %s", strings.Join(g.FrozenIn, ", "))
+			switch {
+			case g.Rotates:
+				fmt.Fprintf(&b, " — rotated: a new value replaces the one on record in %s (forced by %s)", strings.Join(g.FrozenIn, ", "), g.ForcedBy)
+			case g.Kept:
+				fmt.Fprintf(&b, " — kept: the value on record in %s stands, nothing written", strings.Join(g.FrozenIn, ", "))
 			}
 			b.WriteString("\n")
 		}

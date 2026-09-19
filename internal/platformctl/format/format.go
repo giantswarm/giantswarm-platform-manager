@@ -174,9 +174,9 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 			case g.Refusal != "":
 				p.f("      refused: %s\n", g.Refusal)
 			case g.Rotates:
-				p.f("      rotates: %s (%s) — a new value replaces the one on record; both sides roll, the client is unusable between the two rollouts\n", g.Name, strings.Join(g.FrozenIn, ", "))
-			case len(g.FrozenIn) > 0:
-				p.f("      on record in %s: the value stands, no file needs it anew\n", strings.Join(g.FrozenIn, ", "))
+				p.f("      rotates: %s (forced by %s) — a new value replaces the one on record in %s; both sides roll, the client is unusable between the two rollouts\n", g.Name, g.ForcedBy, strings.Join(g.FrozenIn, ", "))
+			case g.Kept:
+				p.f("      kept: the value on record in %s stands, nothing is written\n", strings.Join(g.FrozenIn, ", "))
 			}
 		}
 	}

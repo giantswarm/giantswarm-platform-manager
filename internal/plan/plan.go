@@ -115,12 +115,18 @@ type GeneratedSecret struct {
 	Files  []string `json:"files"`
 	// FrozenIn are the Files that exist encrypted on record: the value they
 	// hold cannot be read back (the manager decrypts nothing), so no other
-	// file can share it — the commit either leaves them alone or rotates.
+	// file can share it — the commit either keeps them or rotates.
 	FrozenIn []string `json:"frozenIn,omitempty"`
-	// Rotates: a file to create shares the name with a frozen one, so the
-	// commit draws a new value and writes it into every one of Files, the
-	// frozen ones rewritten — both sides roll on the installation.
-	Rotates bool `json:"rotates,omitempty"`
+	// Kept: every file of the name is on record as the render has it outside
+	// the values, so the value on record stands and no file is written.
+	Kept bool `json:"kept,omitempty"`
+	// Rotates: a file of the name has to be written — ForcedBy names it: a
+	// file to create, an existing file whose plaintext skeleton the render
+	// changes, or a file rewritten for another rotating name — so the commit
+	// draws a new value and writes it into every one of Files, the frozen
+	// ones rewritten; both sides roll on the installation.
+	Rotates  bool   `json:"rotates,omitempty"`
+	ForcedBy string `json:"forcedBy,omitempty"`
 	// Refusal is why a commit of this plan is refused before any write: the
 	// name is frozen in a file the definition does not own whole.
 	Refusal string `json:"refusal,omitempty"`
@@ -253,6 +259,7 @@ func Build(ctx context.Context, opts Options) Installation {
 	p.Probes = Probes(opts.Definition.Name)
 	generated := map[string]*GeneratedSecret{}
 	var holders []holder
+	held := map[string]int{} // a holder's file → its index in p.Files
 	for _, repo := range SortedRepositories(res.Files) {
 		target := ResolveRepository(string(repo), opts.Installation, opts.Hub)
 		paths := make([]string, 0, len(res.Files[repo]))
@@ -300,17 +307,26 @@ func Build(ctx context.Context, opts Options) Installation {
 			}
 			pf.Change, pf.Error = change(current, err, content)
 			p.Diff[pf.Change]++
-			p.Files = append(p.Files, pf)
 			if len(f.Generated) > 0 {
 				h.change = pf.Change
 				holders = append(holders, h)
+				held[h.file] = len(p.Files)
 			}
+			p.Files = append(p.Files, pf)
 			if strings.HasSuffix(path, dexPatchFile) {
 				p.DexClients = DexClients(f.Content, in)
 			}
 		}
 	}
-	frozen(generated, holders)
+	// A file kept as it is that holds a rotating name is rewritten with the
+	// new value: an update after all.
+	for file := range frozen(generated, holders) {
+		if pf := &p.Files[held[file]]; pf.Change == ChangeUnchanged {
+			pf.Change = ChangeUpdate
+			p.Diff[ChangeUnchanged]--
+			p.Diff[ChangeUpdate]++
+		}
+	}
 	p.includes(ctx, opts, res.Includes)
 	sort.SliceStable(p.Files, func(i, j int) bool {
 		if p.Files[i].Repository != p.Files[j].Repository {
@@ -326,10 +342,12 @@ func Build(ctx context.Context, opts Options) Installation {
 }
 
 // change is what rendered is against the repository's file, read as the
-// caller: current with err.
+// caller: current with err. A file on record that differs from the render
+// only in the values the commit fills in — encrypted on record, or a plain
+// file's public half of a key pair — is unchanged: the values stand.
 func change(current string, err error, rendered string) (Change, string) {
 	switch {
-	case err == nil && current == rendered:
+	case err == nil && (current == rendered || sameSkeleton(rendered, current)):
 		return ChangeUnchanged, ""
 	case err == nil:
 		return ChangeUpdate, ""
