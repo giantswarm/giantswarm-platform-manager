@@ -62,7 +62,7 @@ spec:
 // portalConfig renders the hub's app-config ConfigMap with gs.installations.
 func portalConfig(names ...string) string {
 	var b strings.Builder
-	b.WriteString("apiVersion: v1\nkind: ConfigMap\ndata:\n  values: |\n    backstage:\n      appConfig: |\n        gs:\n          installations:\n")
+	b.WriteString("apiVersion: v1\nkind: ConfigMap\ndata:\n  values: |\n    backstage:\n      appConfig: |\n        app:\n          baseUrl: https://portal." + hub + ".example.test\n        gs:\n          installations:\n")
 	for _, n := range names {
 		b.WriteString("            " + n + ":\n              authProvider: oidc\n              baseDomain: " + n + ".example.test\n              providers:\n                - capa\n")
 	}
@@ -94,6 +94,8 @@ func fixtures(g *fakeGitHub) {
 		installations.PortalConfigPath(hub): portalConfig(hub, "alder", "birch", "rowan", "willow", "oak", "larch"),
 		installations.OptInPath(hub):        optedIn,
 		extrasKustomizationPath(hub):        extrasListingEverything,
+		// The hub's portal lists the hub itself: the platform's fragment joins the hub's portal tree as a Component.
+		"management-clusters/" + hub + "/extras/backstage/kustomization.yaml": "# The portal's tree; the platform's fragment joins it as a Component.\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./backstage/\n",
 	})
 	g.addRepo(hubConfigs, map[string]string{
 		installations.ConfigPatchPath(hub):                 "codename: hazel\nbase: example.test\ncustomer: example\nmanagementCluster:\n  private: false\nagentPlatform:\n  kagentApiV2: true\nservices:\n  muster:\n    clientId: muster-hazel\n",

@@ -3,10 +3,11 @@ package agentplatform
 import "github.com/giantswarm/giantswarm-platform-manager/render"
 
 // The klaus-gateway and cluster-manager components. The fleet policy
-// (policy.yaml) offers them to some customers only; where it does, their
-// values in the configmap patch and the Secrets their charts read are data
-// here. The gateway's routes and URLs derive from the installation facts; its
-// Slack credentials are supplied by the person, its OBO keys generated.
+// (policy.yaml) gives them to some organisations; where it does, their values
+// in the configmap patch and the Secrets their charts read are data here. The
+// gateway's shape is the policy's, its routes and URLs derive from the
+// installation facts; its Slack credentials are supplied by the person, its
+// OBO keys generated. The cluster-manager's egress derives from the provider.
 
 const (
 	// klausGatewayOBOSecret carries the gateway's HMAC keys for the
@@ -24,6 +25,9 @@ const (
 	slackDMMode = "serve"
 	// slackSocketMode is the Slack mode that needs the app-level token.
 	slackSocketMode = "socketmode"
+	// slackEventsMode is the Slack mode in which Slack calls the gateway over
+	// its public route; in socket mode the gateway connects out and needs no route.
+	slackEventsMode = "events"
 	// fieldSlack prefixes the supplied Slack credential fields.
 	fieldSlack = "klausGateway.slack."
 )
@@ -31,28 +35,20 @@ const (
 // teamLabels mark the platform team's Secrets.
 var teamLabels = map[string]string{"application.giantswarm.io/team": "bumblebee"}
 
-func (in *Input) klausGatewayEnabled() bool {
-	return in.KlausGateway != nil && in.KlausGateway.Enabled
-}
-
-func (in *Input) clusterManagerEnabled() bool {
-	return in.ClusterManager != nil && in.ClusterManager.Enabled
-}
-
 // slackSecretKeys are the keys of the Slack Secret, supplied by the person as
 // klausGateway.slack.<key>.
 func (in *Input) slackSecretKeys() []string {
 	keys := []string{"bot-token", "signing-secret"}
-	if in.KlausGateway.Slack.Mode == slackSocketMode {
+	if in.Gateway.Slack.Mode == slackSocketMode {
 		keys = append(keys, "app-token")
 	}
 	return keys
 }
 
 // componentSecretFields are the supplied secret values the components need:
-// the Slack app's credentials when the gateway fronts Slack.
+// the Slack app's credentials where the gateway runs.
 func (in *Input) componentSecretFields() []string {
-	if !in.klausGatewayEnabled() || in.KlausGateway.Slack == nil {
+	if !in.klausGateway() {
 		return nil
 	}
 	var fields []string
@@ -62,80 +58,58 @@ func (in *Input) componentSecretFields() []string {
 	return fields
 }
 
-// componentToggles adds the components' enabled flags to the components map.
+// componentToggles adds the policy's components to the components map.
 func (in *Input) componentToggles(components render.Map) render.Map {
-	if in.KlausGateway != nil {
-		components = append(components, e("klaus-gateway", render.Map{e("enabled", in.KlausGateway.Enabled)}))
+	if in.klausGateway() {
+		components = append(components, e(componentKlausGateway, render.Map{e("enabled", true)}))
 	}
-	if in.ClusterManager != nil {
-		components = append(components, e("cluster-manager", render.Map{e("enabled", in.ClusterManager.Enabled)}))
+	if in.clusterManager() {
+		components = append(components, e(componentClusterManager, render.Map{e("enabled", true)}))
 	}
 	return components
 }
 
 // componentValues appends the enabled components' values to the configmap patch.
 func (in *Input) componentValues(m render.Map) render.Map {
-	if in.klausGatewayEnabled() {
+	if in.klausGateway() {
 		m = append(m, e("klausGateway", in.klausGatewayValues()))
 	}
-	if in.clusterManagerEnabled() {
-		m = append(m, e("cluster-manager", in.clusterManagerValues()))
-		if in.ClusterManager.NetworkPolicy != nil {
-			m = append(m, e("clusterManager", render.Map{e("networkPolicy", in.clusterManagerNetworkPolicy())}))
+	if in.clusterManager() {
+		m = append(m, e(componentClusterManager, in.clusterManagerValues()))
+		if np := in.clusterManagerNetworkPolicy(); len(np) > 0 {
+			m = append(m, e("clusterManager", render.Map{e("networkPolicy", np)}))
 		}
 	}
 	return m
 }
 
-// slackEventsMode is the Slack mode in which Slack calls the gateway over its
-// public route; in socket mode the gateway connects out and needs no route.
-const slackEventsMode = "events"
-
 // klausGatewayValues is the gateway's section: its routing store, its public
 // route where Slack calls in, the OBO links and Slack with their Secrets
-// referenced, A2A and team reviews as given.
+// referenced, A2A and team reviews as the policy shapes them.
 func (in *Input) klausGatewayValues() render.Map {
-	g := in.KlausGateway
+	g := in.Gateway
 	m := render.Map{e("routing", render.Map{e("store", "valkey")})}
-	if g.Slack != nil && g.Slack.Mode == slackEventsMode {
+	if g.Slack.Mode == slackEventsMode {
 		m = append(m, e("agentgatewayRoute", render.Map{e("enabled", true), e("hostname", in.host("agentgateway"))}))
 	}
-	if g.Slack != nil {
-		slack := render.Map{e("enabled", true), e("mode", g.Slack.Mode), e("secretName", klausGatewaySlackSecret),
-			e("dmMode", slackDMMode), e("channelMode", g.Slack.ChannelMode)}
-		if len(g.Slack.ChannelAllowlist) > 0 {
-			slack = append(slack, e("channelAllowlist", g.Slack.ChannelAllowlist))
-		}
-		m = append(m, e("slack", slack))
-	}
-	obo := render.Map{e("enabled", true)}
-	if g.OBO != nil {
-		obo = append(obo, e("connectors", render.Map{e("enabled", g.OBO.Connectors)}))
-	}
-	obo = append(obo, e("existingSecret", klausGatewayOBOSecret),
+	m = append(m, e("slack", render.Map{e("enabled", true), e("mode", g.Slack.Mode), e("secretName", klausGatewaySlackSecret),
+		e("dmMode", slackDMMode), e("channelMode", g.Slack.ChannelMode)}))
+	m = append(m, e("obo", render.Map{e("enabled", true),
+		e("connectors", render.Map{e("enabled", g.OBO.Connectors)}),
+		e("existingSecret", klausGatewayOBOSecret),
 		e("musterUrl", "https://"+in.host("muster")),
 		e("callbackBaseUrl", "https://"+in.host("agentgateway")),
 		e("storePath", oboStorePath),
-		e("persistence", render.Map{e("enabled", true), e("size", "64Mi")}))
-	m = append(m, e("obo", obo))
-	if g.A2A != nil {
-		a2a := render.Map{e("enabled", g.A2A.Enabled), e("defaultAgent", g.A2A.DefaultAgent)}
-		if g.A2A.SATokenAudience != "" {
-			a2a = append(a2a, e("saToken", render.Map{e("enabled", true), e("audience", g.A2A.SATokenAudience)}))
-		}
-		m = append(m, e("a2a", a2a))
+		e("persistence", render.Map{e("enabled", true), e("size", "64Mi")})}))
+	m = append(m, e("a2a", render.Map{e("enabled", g.A2A.Enabled), e("defaultAgent", g.A2A.DefaultAgent)}))
+	reviews := render.Map{e("enabled", g.Reviews.Enabled)}
+	if g.Reviews.Audience != "" {
+		reviews = append(reviews, e("audience", g.Reviews.Audience))
 	}
-	if g.Reviews != nil {
-		reviews := render.Map{e("enabled", g.Reviews.Enabled)}
-		if g.Reviews.Audience != "" {
-			reviews = append(reviews, e("audience", g.Reviews.Audience))
-		}
-		if len(g.Reviews.AllowedCallers) > 0 {
-			reviews = append(reviews, e("allowedCallers", g.Reviews.AllowedCallers))
-		}
-		m = append(m, e("reviews", reviews))
+	if len(g.Reviews.AllowedCallers) > 0 {
+		reviews = append(reviews, e("allowedCallers", g.Reviews.AllowedCallers))
 	}
-	return m
+	return append(m, e("reviews", reviews))
 }
 
 // managerOAuth is a manager's OAuth section on the 3 chart line, where the
@@ -146,7 +120,7 @@ func (in *Input) managerOAuth(path string) render.Map {
 	return render.Map{
 		e("baseURL", "https://"+in.host("agentgateway")+"/"+path),
 		e("dex", render.Map{e("issuerURL", "https://"+in.host("dex")), e("clientID", in.Installation.MusterClientID)}),
-		e("existingSecret", in.Secrets.MusterOAuth),
+		e("existingSecret", musterOAuthSecret),
 		e("trustedAudiences", []string{in.Installation.MusterClientID}),
 	}
 }
@@ -157,42 +131,43 @@ func (in *Input) managerOAuth(path string) render.Map {
 func (in *Input) clusterManagerValues() render.Map {
 	m := render.Map{e("installation", render.Map{e("name", in.Installation.Name)})}
 	if in.Installation.ChartLine == "3" {
-		m = append(m, e("oauth", in.managerOAuth("cluster-manager")))
+		m = append(m, e("oauth", in.managerOAuth(componentClusterManager)))
 	}
 	return m
 }
 
+// The cluster-manager's egress by provider: the workload clusters' API servers
+// sit behind the provider's load balancers; the registry and the Azure blob
+// endpoints (release assets, model caches) are the same everywhere.
+var (
+	workloadClusterAPIPatterns = map[string][]string{"capa": {"*.*.elb.amazonaws.com"}}
+	clusterManagerEgress       = []render.Map{{e("matchName", "gsoci.azurecr.io")}, {e("matchPattern", "*.blob.core.windows.net")}}
+)
+
 // clusterManagerNetworkPolicy is the manager's egress as the connectivity
 // chart reads it: Cilium FQDN selectors for the workload clusters' API servers
-// and for other egress.
+// (where the definition knows the provider's pattern) and for other egress.
 func (in *Input) clusterManagerNetworkPolicy() render.Map {
-	np := in.ClusterManager.NetworkPolicy
 	m := render.Map{}
-	if len(np.WorkloadClusterFQDNPatterns) > 0 {
+	if patterns := workloadClusterAPIPatterns[in.Installation.Provider]; len(patterns) > 0 {
 		var fqdns []render.Map
-		for _, p := range np.WorkloadClusterFQDNPatterns {
+		for _, p := range patterns {
 			fqdns = append(fqdns, render.Map{e("matchPattern", p)})
 		}
 		m = append(m, e("workloadClusters", render.Map{e("fqdns", fqdns)}))
 	}
-	if len(np.EgressFQDNs) > 0 {
-		m = append(m, e("egress", render.Map{e("fqdns", np.EgressFQDNs)}))
-	}
-	return m
+	return append(m, e("egress", render.Map{e("fqdns", clusterManagerEgress)}))
 }
 
 // componentSecrets adds the enabled components' Secrets to the platform
 // extras: the gateway's generated OBO keys and its supplied Slack credentials.
 func (in *Input) componentSecrets(add func(file string, f render.File), secrets map[string]string) {
-	if !in.klausGatewayEnabled() {
+	if !in.klausGateway() {
 		return
 	}
 	add(klausGatewayOBOSecret+".yaml", render.Secret(klausGatewayOBOSecret, platformNamespace, teamLabels,
 		render.GeneratedKey("state-key", "klaus-gateway-obo-state-key", render.Base64, 32),
 		render.GeneratedKey("store-key", "klaus-gateway-obo-store-key", render.Base64, 32)))
-	if in.KlausGateway.Slack == nil {
-		return
-	}
 	var keys []render.SecretKey
 	for _, k := range in.slackSecretKeys() {
 		keys = append(keys, render.ValueKey(k, secrets[fieldSlack+k]))

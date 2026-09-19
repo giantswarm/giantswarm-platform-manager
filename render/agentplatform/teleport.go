@@ -41,8 +41,8 @@ func (in *Input) teleportObjects(r *render.Result) {
 	}
 	hub := in.Installation.Name
 	dir := teleportTemplates + hub + "/"
-	jwks := in.Federation.Tunnel.JWKS
-	if !in.Federation.Tunnel.TrustBundleProvisioned {
+	jwks := in.Installation.Federation.Tunnel.JWKS
+	if !in.Installation.Federation.Tunnel.TrustBundleProvisioned {
 		// The singleton's SVID is never presented to a verifier, only its CA chain
 		// is: no SANs, and its own selector key.
 		name, bot := trustBundleServiceAccount+"-"+hub, trustBundleServiceAccount+"-bot-"+hub
@@ -54,7 +54,7 @@ func (in *Input) teleportObjects(r *render.Result) {
 			teleportWorkloadIdentity(name, trustBundleLabel, name, bot, false),
 		))
 	}
-	for _, t := range in.Federation.Targets {
+	for _, t := range in.Installation.Federation.Targets {
 		if !t.Private {
 			continue
 		}

@@ -14,6 +14,3 @@ data:
       extraEnvVars:
         - name: BACKSTAGE_AVATARS_IMG_SRC
           value: https://avatars.gopher.example.io
-    google:
-      project: example-project
-      location: example-location1

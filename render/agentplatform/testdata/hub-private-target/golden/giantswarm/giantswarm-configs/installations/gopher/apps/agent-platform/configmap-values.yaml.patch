@@ -4,9 +4,30 @@ global:
   domain: gopher.example.io
 components:
   kagent:
-    enabled: false
+    enabled: true
   agent-manager:
     enabled: true
+  agent-sandbox:
+    enabled: true
+  klaus-gateway:
+    enabled: true
+  cluster-manager:
+    enabled: true
+postgres:
+  enabled: true
+llmRouting:
+  enabled: true
+kagent:
+  providers:
+    anthropic:
+      apiKeySecretRef: kagent-anthropic-key
+      config:
+        baseUrl: http://agentgateway.agent-platform.svc:8081
+  oauth2-proxy:
+    config:
+      existingSecret: kagent-oauth2-proxy-credentials
+    extraArgs:
+      oidc-extra-audience: dex-k8s-authenticator,kagent # gitleaks:allow
 muster:
   muster:
     extraCaFile:
@@ -15,6 +36,9 @@ muster:
         name: tunnelport-spiffe-bundle
         key: svid_bundle.pem
     oauth:
+      mcpClient:
+        postLoginRedirectAllowlist:
+          - https://agentgateway.gopher.example.io/connectors/complete
       server:
         existingSecret: muster-oauth-credentials
         storage:
@@ -22,6 +46,7 @@ muster:
             existingSecret: muster-valkey-credentials
         trustedAudiences:
           - dex-k8s-authenticator
+          - kagent
         tokenExchangeBroker:
           allowPrivateIP: true
           brokerClients:
@@ -119,6 +144,57 @@ agent-platform-mcps:
       auth:
         mode: exchange
         provider: marmot
+    - cluster: marmot
+      group: capi
+      url: https://mcp-capi.marmot.example.io/mcp
+      timeout: 30
+      auth:
+        mode: exchange
+        provider: marmot
+klausGateway:
+  routing:
+    store: valkey
+  agentgatewayRoute:
+    enabled: true
+    hostname: agentgateway.gopher.example.io
+  slack:
+    enabled: true
+    mode: events
+    secretName: klaus-gateway-slack-credentials
+    dmMode: serve
+    channelMode: all
+  obo:
+    enabled: true
+    connectors:
+      enabled: true
+    existingSecret: klaus-gateway-obo-keys
+    musterUrl: https://muster.gopher.example.io
+    callbackBaseUrl: https://agentgateway.gopher.example.io
+    storePath: /var/lib/klaus-gateway/obo/links.bolt
+    persistence:
+      enabled: true
+      size: 64Mi
+  a2a:
+    enabled: true
+    defaultAgent: swarmgeist
+  reviews:
+    enabled: true
+    audience: klaus-gateway
+    allowedCallers:
+      - system:serviceaccount:agent-platform:giantswarm-repo-manager
+      - system:serviceaccount:marge:marge-bumblebee-sweep
+cluster-manager:
+  installation:
+    name: gopher
+clusterManager:
+  networkPolicy:
+    workloadClusters:
+      fqdns:
+        - matchPattern: '*.*.elb.amazonaws.com'
+    egress:
+      fqdns:
+        - matchName: gsoci.azurecr.io
+        - matchPattern: '*.blob.core.windows.net'
 valkey:
   valkey:
     auth:

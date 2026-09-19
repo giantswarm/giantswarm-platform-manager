@@ -64,7 +64,7 @@ func (t *Tools) verifyInstallation(ctx context.Context, token, name string, def 
 		return nil, err
 	}
 	hub, _ := reg.Find(reg.Hub)
-	r := installations.InspectAll(ctx, c, selected, installations.Capabilities())[0]
+	r := reg.InspectAll(ctx, c, selected, installations.Capabilities())[0]
 	if !r.Repositories.Known() {
 		return nil, fmt.Errorf("%s has no repositories on record: nothing to compare the definition against", name)
 	}
@@ -74,10 +74,9 @@ func (t *Tools) verifyInstallation(ctx context.Context, token, name string, def 
 		if err != nil {
 			return nil, err
 		}
+		// The newest Action rendered the capability: its typed inputs — possibly
+		// none, the record and the defaults being the whole input — over the record.
 		for _, a := range acts {
-			if a.Spec.Inputs == nil {
-				continue
-			}
 			values, err := mergeInputs(def, r, a.Spec.Inputs)
 			if err != nil {
 				return nil, err

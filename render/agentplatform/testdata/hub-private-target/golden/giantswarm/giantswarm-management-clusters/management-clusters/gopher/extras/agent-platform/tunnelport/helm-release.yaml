@@ -26,8 +26,8 @@ spec:
     imagePullSecret: ""
     installNamespace: agent-platform
     teleport:
-      clusterName: teleport.example.io
-      proxyAddr: teleport.example.io:443
+      clusterName: teleport.giantswarm.io
+      proxyAddr: teleport.giantswarm.io:443
     monitoring:
       prometheusRule:
         labels:

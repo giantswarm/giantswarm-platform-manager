@@ -141,11 +141,11 @@ func Load(ctx context.Context, c *github.Client, s Sources) (*Registry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("registry: read the portal config %s as the caller: %w", portal, err)
 	}
-	portalEntries, err := parsePortal(portalYAML)
+	portalConfig, err := parsePortalConfig(portalYAML)
 	if err != nil {
 		return nil, fmt.Errorf("registry: portal config %s: %w", portal, err)
 	}
-	for name, p := range portalEntries {
+	for name, p := range portalConfig.Installations {
 		inst, ok := byName[name]
 		if !ok {
 			entries = append(entries, Installation{Name: name})
@@ -271,7 +271,15 @@ type portalEntry struct {
 // parsePortal reads gs.installations out of the hub's app-config: a ConfigMap
 // whose data.values is the chart's values as YAML text, whose
 // backstage.appConfig is the app-config as YAML text.
-func parsePortal(data string) (map[string]portalEntry, error) {
+// portalConfig is what the registry reads of a portal's app-config: the
+// installations it lists, its base URL and its cluster-token broker.
+type portalConfig struct {
+	Installations  map[string]portalEntry
+	BaseURL        string
+	BrokerTokenURL string
+}
+
+func parsePortalConfig(data string) (*portalConfig, error) {
 	var cm struct {
 		Data struct {
 			Values string `yaml:"values"`
@@ -295,8 +303,14 @@ func parsePortal(data string) (map[string]portalEntry, error) {
 		return nil, errors.New("data.values has no backstage.appConfig")
 	}
 	var appConfig struct {
+		App struct {
+			BaseURL string `yaml:"baseUrl"`
+		} `yaml:"app"`
 		GS struct {
-			Installations map[string]portalEntry `yaml:"installations"`
+			Installations      map[string]portalEntry `yaml:"installations"`
+			ClusterTokenBroker struct {
+				TokenURL string `yaml:"tokenUrl"`
+			} `yaml:"clusterTokenBroker"`
 		} `yaml:"gs"`
 	}
 	if err := yaml.Unmarshal([]byte(values.Backstage.AppConfig), &appConfig); err != nil {
@@ -305,7 +319,7 @@ func parsePortal(data string) (map[string]portalEntry, error) {
 	if len(appConfig.GS.Installations) == 0 {
 		return nil, errors.New("backstage.appConfig has no gs.installations")
 	}
-	return appConfig.GS.Installations, nil
+	return &portalConfig{Installations: appConfig.GS.Installations, BaseURL: appConfig.App.BaseURL, BrokerTokenURL: appConfig.GS.ClusterTokenBroker.TokenURL}, nil
 }
 
 // Find answers the installation called name.

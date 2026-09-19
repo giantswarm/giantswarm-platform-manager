@@ -35,7 +35,7 @@ func (in *Input) probes() []render.Probe {
 	for _, name := range in.helmReleases() {
 		p = append(p, resourceProbe("live-helmreleases-ready", featureRuntime, render.HelmReleaseReady, fluxNamespace, "HelmRelease", name))
 	}
-	if in.Kagent.Enabled {
+	if in.kagent() {
 		for _, name := range []string{"kagent-controller", "kagent-ui", oauth2ProxyDeployment} {
 			p = append(p, conditionProbe("live-kagent-workloads", featureRuntime, kagentNamespace, "Deployment", name, "Available", conditionTrue))
 		}
@@ -60,13 +60,13 @@ func (in *Input) probes() []render.Probe {
 	for _, s := range servers {
 		p = append(p, resourceProbe("live-own-mcp-servers", featureToolAccess, render.ResourcePresent, platformNamespace, "MCPServer.muster.giantswarm.io", in.Installation.Name+"-"+s.name))
 	}
-	if in.Kagent.Enabled {
+	if in.kagent() {
 		audience := resourceProbe("live-oauth2-proxy-audience", featureIdentity, render.LogAbsent, kagentNamespace, "Deployment", oauth2ProxyDeployment)
 		audience.Expect.Absent = "audience .* does not match"
 		p = append(p, audience)
 	}
 	p = append(p, resourceProbe("live-drift", featureRuntime, render.Drift, fluxNamespace, "HelmRelease", "agent-platform"))
-	if in.Kagent.Enabled {
+	if in.kagent() {
 		p = append(p,
 			driftProbe("live-kagent-provider-values", featureRuntime, fluxNamespace, "HelmRelease", "kagent",
 				".spec.values.kagent.providers are the rendered kagent.providers"),
@@ -84,7 +84,7 @@ func (in *Input) probes() []render.Probe {
 // installation to work as rendered: the model key, when the customer provides
 // it rather than the platform team.
 func (in *Input) actions() []render.Action {
-	if !in.Kagent.Enabled || in.Kagent.ModelKeySecret == modelKeyManaged {
+	if !in.kagent() || in.ModelKeyManaged {
 		return nil
 	}
 	return []render.Action{{ID: "model-key", Feature: featureRuntime, State: render.WaitingForCustomer,
@@ -96,7 +96,7 @@ func (in *Input) actions() []render.Action {
 // servers' registration, and every own MCP server with its Valkey.
 func (in *Input) helmReleases() []string {
 	names := []string{"agent-platform"}
-	if in.Kagent.Enabled {
+	if in.kagent() {
 		names = append(names, "kagent")
 	}
 	names = append(names, "agent-platform-connectivity", "muster", "agent-platform-mcps")
@@ -111,7 +111,7 @@ func (in *Input) helmReleases() []string {
 // customer provides the key.
 func (in *Input) modelConfigProbe() render.Probe {
 	p := conditionProbe("live-model-configs", featureRuntime, kagentNamespace, "ModelConfig.kagent.dev", "default-model-config", "Accepted", conditionTrue)
-	if in.Kagent.ModelKeySecret != modelKeyManaged {
+	if !in.ModelKeyManaged {
 		p.Expect.ConditionStatus = conditionFalse
 		p.Expect.Note = "waiting for the customer's model key (Secret kagent-anthropic-key, key ANTHROPIC_API_KEY, or a ModelConfig in the portal)"
 	}
@@ -126,24 +126,18 @@ type dexRedirectClient struct {
 
 // dexRedirectClients are the clients the dex patch renders whose client id and
 // redirect URI the definition knows, in the patch's order: muster, kagent's UI,
-// the portal's when the patch carries it, and the additional clients that name
-// a redirect URI. The hubs' token-exchange
+// the portals' client with each portal's redirect URI. The hubs' token-exchange
 // clients have no redirect URI and are not probed.
 func (in *Input) dexRedirectClients() []dexRedirectClient {
 	// The built-in clients carry their client id, not their name: muster's is the
 	// installation's musterClientId; the MCP servers' ids are the shared template's
 	// and no input here, so their clients are not probed.
 	clients := []dexRedirectClient{{id: in.Installation.MusterClientID, redirectURI: "https://" + in.host("muster") + "/oauth/callback"}}
-	if in.Kagent.Enabled {
+	if in.kagent() {
 		clients = append(clients, dexRedirectClient{id: "kagent", redirectURI: in.kagentRedirectURI()})
 	}
-	if in.Portal.Domain != "" {
-		clients = append(clients, dexRedirectClient{id: render.PortalDexClientID, redirectURI: render.PortalRedirectURI(in.Portal.Domain, in.Installation.Name)})
-	}
-	for _, c := range in.Identity.AdditionalDexClients {
-		if len(c.RedirectURIs) > 0 {
-			clients = append(clients, dexRedirectClient{id: c.ID, redirectURI: c.RedirectURIs[0]})
-		}
+	for _, p := range in.Installation.Portals {
+		clients = append(clients, dexRedirectClient{id: render.PortalDexClientID, redirectURI: render.PortalRedirectURI(p.Domain, in.Installation.Name)})
 	}
 	return clients
 }

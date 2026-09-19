@@ -1,13 +1,52 @@
-# Fleet policy of the agent-platform definition: which components an owning organisation may
-# enable. Encoded once, here; the renderer refuses an input that enables a component its
-# customer is not offered, naming the component. A component absent from this list is offered
-# to every installation.
+# Fleet policy of the agent-platform definition: the decisions the platform team takes once for
+# every installation, keyed by the owning organisation as the configs repository names it. The
+# renderer reads the installation's customer from the record and applies these; nobody types them.
+
+# The components an organisation's installations run beside muster and its three MCP servers
+# (kubernetes, prometheus, capi), which every installation runs. `default` is what an organisation
+# not listed under `customers` gets. An organisation listed with an empty list runs muster and the
+# servers only.
 components:
-  klaus-gateway:
-    customers: [giantswarm]
-  cluster-manager:
-    customers: [giantswarm]
-# A pinned login connector (muster.muster.oauth.server.dex.connectorId): the meta chart refuses the
-# pin on a customer installation, so the definition refuses it first.
-loginConnectorPin:
-  customers: [giantswarm]
+  default: [kagent, agent-manager]
+  customers:
+    # Giant Swarm's own installations run everything, the hub included.
+    giantswarm: [kagent, agent-manager, agent-sandbox, klaus-gateway, cluster-manager]
+    # Agents without the agent-manager's create/edit surface.
+    fleetio: [kagent]
+    # Tool access only: muster and the MCP servers, no agents.
+    boschpt: []
+    dvag: []
+    vorwerk: []
+
+# Whose model key it is. An organisation listed here has the key supplied by the platform team at
+# commit (field kagent.modelKey), rendered as the Secret kagent-anthropic-key; every other
+# organisation creates that Secret itself (the customer action the plan names).
+modelKey:
+  managed: [giantswarm]
+
+# The chat gateway's shape where the policy runs it: Slack in events mode over the public route,
+# every channel, the on-behalf-of connectors, agent-to-agent with the hub's agent as default, and
+# team reviews the platform's own workloads may call.
+klausGateway:
+  slack:
+    mode: events
+    channelMode: all
+  obo:
+    connectors: true
+  a2a:
+    enabled: true
+    defaultAgent: swarmgeist
+  reviews:
+    enabled: true
+    audience: klaus-gateway
+    allowedCallers:
+      - system:serviceaccount:agent-platform:giantswarm-repo-manager
+      - system:serviceaccount:marge:marge-bumblebee-sweep
+
+# The hub side of federation: the connector every target's Dex registers for its hub, as a Go
+# template over the hub's record ({{ .Customer }}), and the Teleport cluster a tunnel joins.
+federation:
+  connector: "{{ .Customer }}-simple-oidc"
+  teleport:
+    clusterName: teleport.giantswarm.io
+    proxyAddr: teleport.giantswarm.io:443

@@ -4,9 +4,24 @@ global:
   domain: heron.oakridge.example
 components:
   kagent:
-    enabled: false
+    enabled: true
   agent-manager:
     enabled: true
+postgres:
+  enabled: true
+llmRouting:
+  enabled: true
+kagent:
+  providers:
+    anthropic:
+      apiKeySecretRef: kagent-anthropic-key
+      config:
+        baseUrl: http://agentgateway.agent-platform.svc:8081
+  oauth2-proxy:
+    config:
+      existingSecret: kagent-oauth2-proxy-credentials
+    extraArgs:
+      oidc-extra-audience: dex-k8s-authenticator,kagent,backstage # gitleaks:allow
 muster:
   muster:
     oauth:
@@ -17,6 +32,8 @@ muster:
             existingSecret: muster-valkey-credentials
         trustedAudiences:
           - dex-k8s-authenticator
+          - kagent
+          - backstage
         tokenExchangeBroker:
           brokerClients:
             broker-client-id-placeholder:
@@ -29,13 +46,13 @@ muster:
           targets:
             kestrel:
               dexTokenEndpoint: https://dex.kestrel.oakridge.example/token
-              connectorId: heron-oidc
+              connectorId: oakridge-simple-oidc
               scopes: openid profile email groups audience:server:client_id:dex-k8s-authenticator
               clientCredentialsSecretRef:
                 name: kestrel-token-exchange-credentials
             plover:
               dexTokenEndpoint: https://dex.plover.oakridge.example/token
-              connectorId: heron-oidc
+              connectorId: oakridge-simple-oidc
               scopes: openid profile email groups audience:server:client_id:dex-k8s-authenticator
               clientCredentialsSecretRef:
                 name: plover-token-exchange-credentials
@@ -43,7 +60,7 @@ agent-platform-mcps:
   identityProviders:
     kestrel:
       tokenEndpoint: https://dex.kestrel.oakridge.example/token
-      connectorId: heron-oidc
+      connectorId: oakridge-simple-oidc
       scopes: openid profile email groups
       credentialsSecret:
         name: kestrel-token-exchange-credentials
@@ -51,7 +68,7 @@ agent-platform-mcps:
         clientSecretKey: client-secret
     plover:
       tokenEndpoint: https://dex.plover.oakridge.example/token
-      connectorId: heron-oidc
+      connectorId: oakridge-simple-oidc
       scopes: openid profile email groups
       credentialsSecret:
         name: plover-token-exchange-credentials
@@ -90,9 +107,23 @@ agent-platform-mcps:
       auth:
         mode: exchange
         provider: kestrel
+    - cluster: kestrel
+      group: capi
+      url: https://mcp-capi.kestrel.oakridge.example/mcp
+      timeout: 30
+      auth:
+        mode: exchange
+        provider: kestrel
     - cluster: plover
       group: kubernetes
       url: https://mcp-kubernetes.plover.oakridge.example/mcp
+      timeout: 30
+      auth:
+        mode: exchange
+        provider: plover
+    - cluster: plover
+      group: prometheus
+      url: https://mcp-prometheus.plover.oakridge.example/mcp
       timeout: 30
       auth:
         mode: exchange

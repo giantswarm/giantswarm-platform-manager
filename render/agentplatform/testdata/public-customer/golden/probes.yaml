@@ -159,6 +159,12 @@
   url: https://dex.kestrel.oakridge.example/auth?client_id=backstage&redirect_uri=https://portal.kestrel.oakridge.example/api/auth/oidc-kestrel/handler/frame&response_type=code&scope=openid
   expect:
     status: 302
+- id: live-dex-auth-per-client
+  feature: identity
+  kind: HTTP
+  url: https://dex.kestrel.oakridge.example/auth?client_id=backstage&redirect_uri=https://portal.example.io/api/auth/oidc-kestrel/handler/frame&response_type=code&scope=openid
+  expect:
+    status: 302
 - id: live-muster-protected-resource
   feature: tool-access
   kind: HTTP

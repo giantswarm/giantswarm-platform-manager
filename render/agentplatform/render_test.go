@@ -138,10 +138,17 @@ func testOwnedPathsOnly(t *testing.T, shape string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	name := input["installation"].(map[string]any)["name"].(string)
+	in, err := Parse(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := in.Installation.Name
+	// The platform's portal section lives in the organisation's own portal, which
+	// another installation of the organisation may host.
+	portal := "management-clusters/" + in.portalHost() + "/extras/backstage/" + portalDir + "/"
 	for repo, files := range result.Files {
 		for path := range files {
-			if !strings.Contains(path, "/"+name+"/") {
+			if !strings.Contains(path, "/"+name+"/") && !strings.HasPrefix(path, portal) {
 				t.Errorf("%s: %s is outside the installation's own directories", repo, path)
 			}
 			for _, inc := range result.Includes {
@@ -232,8 +239,9 @@ func TestProbesAreLiveDimensions(t *testing.T) {
 
 func TestRefusals(t *testing.T) {
 	base, secrets := loadInput(t, shapePublicCustomer)
+	owned, _ := loadInput(t, shapeGiantswarmOwned)
 	target := func(private bool) map[string]any {
-		return map[string]any{"installation": "x", "baseDomain": "x.example", "private": private, "groups": []any{"kubernetes"}}
+		return map[string]any{"installation": "x", "baseDomain": "x.example", "private": private}
 	}
 	clone := func(mutate func(map[string]any)) map[string]any {
 		var c map[string]any
@@ -241,6 +249,9 @@ func TestRefusals(t *testing.T) {
 		_ = yaml.Unmarshal(b, &c)
 		mutate(c)
 		return c
+	}
+	federation := func(m map[string]any) map[string]any {
+		return m["installation"].(map[string]any)["federation"].(map[string]any)
 	}
 	cases := []struct {
 		name    string
@@ -250,22 +261,22 @@ func TestRefusals(t *testing.T) {
 		names   string
 	}{
 		{"unknown top-level key", clone(func(m map[string]any) { m["colourScheme"] = "dark" }), secrets, ErrInput, "colourScheme"},
-		{"unknown nested key", clone(func(m map[string]any) { m["kagent"].(map[string]any)["replicas"] = 3 }), secrets, ErrInput, "replicas"},
-		{"empty model key", clone(func(m map[string]any) { m["kagent"].(map[string]any)["modelKeySecret"] = "managed" }), nil, ErrEmptySecret, fieldModelKey},
+		{"a former input is unknown", clone(func(m map[string]any) { m["kagent"] = map[string]any{"enabled": true} }), secrets, ErrInput, "kagent"},
+		{"unknown record key", clone(func(m map[string]any) { m["installation"].(map[string]any)["replicas"] = 3 }), secrets, ErrInput, "replicas"},
+		{"empty model key", owned, nil, ErrEmptySecret, fieldModelKey},
 		{"unknown secret value", base, map[string]string{fieldModelKey: "x"}, ErrUnknownSecret, fieldModelKey},
-		{"klaus-gateway on a customer", clone(func(m map[string]any) { m["klausGateway"] = map[string]any{"enabled": true} }), secrets, ErrPolicy, "klaus-gateway"},
-		{"login pin on a customer", clone(func(m map[string]any) { m["identity"] = map[string]any{"loginConnectorId": "x"} }), secrets, ErrPolicy, "identity.loginConnectorId"},
-		{"targets without a connector", clone(func(m map[string]any) {
-			m["federation"].(map[string]any)["targets"] = []any{target(false)}
-		}), secrets, ErrInput, "federation.connectorId"},
+		{"serving on the 3 line", clone(func(m map[string]any) { m["modelServing"] = map[string]any{"enabled": true} }), secrets, ErrInput, "modelServing.enabled"},
+		{"targets without a broker client", clone(func(m map[string]any) {
+			federation(m)["targets"] = []any{target(false)}
+		}), secrets, ErrInput, "federation.brokerClientId"},
 		{"private target without the tunnel", clone(func(m map[string]any) {
-			f := m["federation"].(map[string]any)
-			f["connectorId"], f["brokerClientId"], f["targets"] = "c", "b", []any{target(true)}
+			f := federation(m)
+			f["brokerClientId"], f["targets"] = "b", []any{target(true)}
 		}), secrets, ErrInput, "federation.tunnel"},
 		{"tunnel without a private target", clone(func(m map[string]any) {
-			f := m["federation"].(map[string]any)
-			f["connectorId"], f["brokerClientId"], f["targets"] = "c", "b", []any{target(false)}
-			f["tunnel"] = map[string]any{"jwks": "{}", "trustBundleProvisioned": true, "teleport": map[string]any{"clusterName": "t", "proxyAddr": "t:443"}}
+			f := federation(m)
+			f["brokerClientId"], f["targets"] = "b", []any{target(false)}
+			f["tunnel"] = map[string]any{"jwks": "{}", "trustBundleProvisioned": true}
 		}), secrets, ErrInput, "federation.tunnel"},
 	}
 	for _, c := range cases {

@@ -300,7 +300,10 @@ func consume(t *testing.T, shape consumptionShape, charts *chartStore) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if in.Installation.Name != c.installation || !in.Portal.Enabled || in.Portal.Domain != portal.Portal.Domain || !portal.Installation.AgentPlatform {
+		ownPortal := slices.ContainsFunc(in.Installation.Portals, func(p PortalRef) bool {
+			return p.Customer == in.Installation.Customer && p.Domain == portal.Portal.Domain
+		})
+		if in.Installation.Name != c.installation || !ownPortal || !portal.Installation.AgentPlatform {
 			t.Fatalf("%s and %s/%s must describe one installation with the platform and its portal", shape.platform, consumptionDir, shape.portal)
 		}
 		result, err := Render(input, secrets)
@@ -455,7 +458,7 @@ func (c *consumption) assertPortalFragment(rel *release) {
 	if err := yaml.Unmarshal([]byte(str(get(fragment, "data", portalAppConfigFile))), &cfg); err != nil {
 		t.Fatalf("the platform's app-config fragment is not YAML: %v", err)
 	}
-	if c.platform.Kagent.Enabled && get(cfg, "agentPlatform", "kagent", "installations", c.installation) == nil {
+	if c.platform.kagent() && get(cfg, "agentPlatform", "kagent", "installations", c.installation) == nil {
 		t.Errorf("the platform's app-config fragment does not list this installation under agentPlatform.kagent.installations")
 	}
 }
@@ -608,7 +611,7 @@ func (c *consumption) checkRange(p pin, hr, rng string) {
 	if constraint.Check(semver.MustParse(p.Version)) {
 		return
 	}
-	if c.platform != nil && rng == c.platform.Chart.Semver {
+	if c.platform != nil && rng == c.platform.chartSemver() {
 		c.t.Skipf("the installation asks for %s %s and the test pins %s: a line %s/charts.yaml does not carry is not proven here", p.Name, rng, p.Version, consumptionDir)
 	}
 	c.t.Fatalf("chart %s: pinned %s is outside the range %s that HelmRelease %s follows", p.Name, p.Version, rng, hr)

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strings"
+	"text/template"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"gopkg.in/yaml.v3"
@@ -17,166 +19,141 @@ import (
 // Errors the render refuses with. Every message names the key, field or
 // component concerned.
 var (
-	// ErrInput is an input the schema rejects: an unknown key, a missing
-	// required one, a value of the wrong shape.
+	// ErrInput is an input the schema rejects (an unknown key, a missing
+	// required one, a value of the wrong shape) or a record the definition
+	// cannot render as it stands.
 	ErrInput = errors.New("agent-platform: input")
 	// ErrEmptySecret is a supplied secret value the render needs and did not
 	// get, or got empty.
 	ErrEmptySecret = errors.New("agent-platform: empty secret value")
 	// ErrUnknownSecret is a supplied secret value no input asks for.
 	ErrUnknownSecret = errors.New("agent-platform: unknown secret value")
-	// ErrPolicy is a component or pin the fleet policy does not offer the
-	// installation's customer.
+	// ErrPolicy is a policy.yaml the renderer cannot apply.
 	ErrPolicy = errors.New("agent-platform: fleet policy")
 )
 
 // fieldModelKey is the supplied secret field carrying the model provider key
-// when kagent.modelKeySecret is managed.
+// when the policy has the platform team supply it.
 const fieldModelKey = "kagent.modelKey"
 
-// modelKeyManaged is the kagent.modelKeySecret value under which the platform
-// team supplies the model key; any other value leaves it to the customer.
-const modelKeyManaged = "managed"
+// The components policy.yaml may list for an organisation.
+const (
+	componentKagent         = "kagent"
+	componentAgentManager   = "agent-manager"
+	componentAgentSandbox   = "agent-sandbox"
+	componentKlausGateway   = "klaus-gateway"
+	componentClusterManager = "cluster-manager"
+)
 
-// Input is the typed form of definitions/agent-platform/schema.json. The
-// schema is the contract; this struct is how the renderer reads it.
+var knownComponents = []string{componentKagent, componentAgentManager, componentAgentSandbox, componentKlausGateway, componentClusterManager}
+
+// The referenced Secrets every installation names alike.
+const (
+	musterOAuthSecret  = "muster-oauth-credentials"  // #nosec G101 -- a Secret name, not a value
+	musterValkeySecret = "muster-valkey-credentials" // #nosec G101 -- a Secret name, not a value
+)
+
+// Input is the resolved inputs of one installation: the record
+// (definitions/agent-platform/schema.json's installation.*, read from the
+// registry and the repositories), the fleet policy (policy.yaml) applied to
+// it, and the one choice a person makes. The renderer reads nothing else.
 type Input struct {
-	Installation   Installation    `json:"installation"`
-	Secrets        SecretNames     `json:"secrets"`
-	Kagent         Kagent          `json:"kagent"`
-	Identity       Identity        `json:"identity"`
-	Portal         Portal          `json:"portal"`
-	ToolAccess     ToolAccess      `json:"toolAccess"`
-	Federation     Federation      `json:"federation"`
-	Chart          Chart           `json:"chart"`
-	Muster         MusterKnobs     `json:"muster"`
-	AgentSandbox   *Toggle         `json:"agentSandbox"`
-	KlausGateway   *KlausGateway   `json:"klausGateway"`
-	ClusterManager *ClusterManager `json:"clusterManager"`
+	Installation Installation
+	// ModelServing is the person's choice: the meta chart's serving slice.
+	ModelServing bool
+	// Components are the components the policy gives the installation's
+	// organisation, by name.
+	Components map[string]bool
+	// ModelKeyManaged says the platform team supplies the model key at commit;
+	// otherwise the organisation creates the Secret itself.
+	ModelKeyManaged bool
+	// Gateway is the chat gateway's shape, where the policy runs it.
+	Gateway GatewayPolicy
+	// Connector is the connector every target's Dex registers for this hub.
+	Connector string
+	// Teleport is the Teleport cluster a tunnel joins.
+	Teleport Teleport
 }
 
-// Installation is the facts on record; see the schema for each field.
+// Installation is the record; see the schema for each field.
 type Installation struct {
-	Name           string `json:"name"`
-	BaseDomain     string `json:"baseDomain"`
-	Customer       string `json:"customer"`
-	Provider       string `json:"provider"`
-	Private        bool   `json:"private"`
-	ChartLine      string `json:"chartLine"`
-	MusterClientID string `json:"musterClientId"`
+	Name           string      `json:"name"`
+	BaseDomain     string      `json:"baseDomain"`
+	Customer       string      `json:"customer"`
+	Provider       string      `json:"provider"`
+	Private        bool        `json:"private"`
+	ChartLine      string      `json:"chartLine"`
+	MusterClientID string      `json:"musterClientId"`
+	Portals        []PortalRef `json:"portals"`
+	Federation     Federation  `json:"federation"`
 }
 
-// SecretNames names the referenced Secrets; empty fields take the schema's defaults.
-type SecretNames struct {
-	MusterOAuth  string `json:"musterOAuth"`
-	MusterValkey string `json:"musterValkey"`
+// PortalRef is a developer portal that signs people in on the installation:
+// its host, the host's organisation and its hostname.
+type PortalRef struct {
+	Installation string `json:"installation"`
+	Customer     string `json:"customer"`
+	Domain       string `json:"domain"`
 }
 
-// Kagent is the agent runtime section.
-type Kagent struct {
-	Enabled                           bool          `json:"enabled"`
-	ModelKeySecret                    string        `json:"modelKeySecret"`
-	DefaultModel                      string        `json:"defaultModel"`
-	AdditionalModelConfigs            []ModelConfig `json:"additionalModelConfigs"`
-	StorageClass                      string        `json:"storageClass"`
-	PostgresBackupAzureSubscriptionID string        `json:"postgresBackupAzureSubscriptionId"`
-	ControllerResources               *Resources    `json:"controllerResources"`
-	BundledAgents                     []string      `json:"bundledAgents"`
-	UIIngressPeers                    []Peer        `json:"uiIngressPeers"`
+// Federation is the installation's place in the fleet's token exchange.
+type Federation struct {
+	Hubs           []string `json:"hubs"`
+	Targets        []Target `json:"targets"`
+	BrokerClientID string   `json:"brokerClientId"`
+	Tunnel         *Tunnel  `json:"tunnel"`
 }
 
-// ModelConfig is one additional kagent ModelConfig.
-type ModelConfig struct {
-	Name            string `json:"name" yaml:"name"`
-	DisplayName     string `json:"displayName" yaml:"displayName"`
-	Provider        string `json:"provider" yaml:"provider"`
-	Model           string `json:"model" yaml:"model"`
-	APIKeySecret    string `json:"apiKeySecret" yaml:"apiKeySecret"`
-	APIKeySecretKey string `json:"apiKeySecretKey" yaml:"apiKeySecretKey"`
-	BaseURL         string `json:"baseUrl" yaml:"baseUrl"`
+// Target is an installation a hub brokers for.
+type Target struct {
+	Installation string `json:"installation"`
+	BaseDomain   string `json:"baseDomain"`
+	Private      bool   `json:"private"`
 }
 
-// Resources is a requests/limits pair.
-type Resources struct {
-	Requests *ResourceList `json:"requests" yaml:"requests,omitempty"`
-	Limits   *ResourceList `json:"limits" yaml:"limits,omitempty"`
+// groups are the federated MCP server groups of every target: the target's
+// own three servers, the set the shared template registers everywhere.
+func (t Target) groups() []string {
+	groups := make([]string, 0, len(servers))
+	for _, s := range servers {
+		groups = append(groups, s.group)
+	}
+	return groups
 }
 
-// ResourceList is cpu and memory.
-type ResourceList struct {
-	CPU    string `json:"cpu" yaml:"cpu,omitempty"`
-	Memory string `json:"memory" yaml:"memory,omitempty"`
+// Tunnel is the live facts of a hub that reaches a private target.
+type Tunnel struct {
+	JWKS                   string `json:"jwks"`
+	TrustBundleProvisioned bool   `json:"trustBundleProvisioned"`
 }
 
-// Peer is a workload by pod label and namespace.
-type Peer struct {
-	App       string `json:"app" yaml:"app"`
-	Namespace string `json:"namespace" yaml:"namespace"`
+// Teleport is the Teleport cluster the tunnel joins.
+type Teleport struct {
+	ClusterName string `yaml:"clusterName"`
+	ProxyAddr   string `yaml:"proxyAddr"`
 }
 
-// Identity is the login and token trust section.
-type Identity struct {
-	LoginConnectorID               string          `json:"loginConnectorId"`
-	ExtraTrustedAudiences          []string        `json:"extraTrustedAudiences"`
-	TrustedIssuers                 []TrustedIssuer `json:"trustedIssuers"`
-	PostLoginRedirectAllowlist     []string        `json:"postLoginRedirectAllowlist"`
-	PublicRegistrationRedirectURIs []string        `json:"publicRegistrationRedirectURIs"`
-	AdditionalDexClients           []DexClient     `json:"additionalDexClients"`
+// GatewayPolicy is policy.yaml's klausGateway block.
+type GatewayPolicy struct {
+	Slack struct {
+		Mode        string `yaml:"mode"`
+		ChannelMode string `yaml:"channelMode"`
+	} `yaml:"slack"`
+	OBO struct {
+		Connectors bool `yaml:"connectors"`
+	} `yaml:"obo"`
+	A2A struct {
+		Enabled      bool   `yaml:"enabled"`
+		DefaultAgent string `yaml:"defaultAgent"`
+	} `yaml:"a2a"`
+	Reviews struct {
+		Enabled        bool     `yaml:"enabled"`
+		Audience       string   `yaml:"audience"`
+		AllowedCallers []string `yaml:"allowedCallers"`
+	} `yaml:"reviews"`
 }
 
-// TrustedIssuer is an issuer muster accepts besides the installation's Dex.
-type TrustedIssuer struct {
-	Issuer                  string            `json:"issuer" yaml:"issuer"`
-	JWKSURL                 string            `json:"jwksUrl" yaml:"jwksUrl,omitempty"`
-	AllowedAudiences        []string          `json:"allowedAudiences" yaml:"allowedAudiences"`
-	AcceptedTypHeaders      []string          `json:"acceptedTypHeaders" yaml:"acceptedTypHeaders,omitempty"`
-	AllowedClaims           map[string]string `json:"allowedClaims" yaml:"allowedClaims,omitempty"`
-	SubjectClaim            string            `json:"subjectClaim" yaml:"subjectClaim,omitempty"`
-	AllowPrivateIPJWKS      bool              `json:"allowPrivateIPJWKS" yaml:"allowPrivateIPJWKS,omitempty"`
-	AllowPrivateIPJWKSHosts []string          `json:"allowPrivateIPJWKSHosts" yaml:"allowPrivateIPJWKSHosts,omitempty"`
-}
-
-// DexClient is a Dex client of the installation beyond the platform's own.
-type DexClient struct {
-	ID           string   `json:"id"`
-	Name         string   `json:"name"`
-	Public       bool     `json:"public"`
-	RedirectURIs []string `json:"redirectURIs"`
-	TrustedPeers []string `json:"trustedPeers"`
-}
-
-// Portal is the developer portal's agent-platform section.
-type Portal struct {
-	Enabled            bool     `json:"enabled"`
-	Installation       string   `json:"installation"`
-	Domain             string   `json:"domain"`
-	ClientIDs          []string `json:"clientIds"`
-	SkillsRepositories []string `json:"skillsRepositories"`
-	AIChat             *AIChat  `json:"aiChat"`
-}
-
-// AIChat is the portal's AI chat.
-type AIChat struct {
-	Enabled  bool    `json:"enabled"`
-	Model    string  `json:"model"`
-	Provider string  `json:"provider"`
-	Google   *Google `json:"google"`
-}
-
-// Google is a Vertex project and location.
-type Google struct {
-	Project  string `json:"project"`
-	Location string `json:"location"`
-}
-
-// ToolAccess is what agents and people reach through muster.
-type ToolAccess struct {
-	AgentManager      Toggle      `json:"agentManager"`
-	PrivateURLs       bool        `json:"privateURLs"`
-	AdditionalServers []MCPServer `json:"additionalServers"`
-}
-
-// MCPServer is one server registered with muster.
+// MCPServer is one server registered with muster, in the mcps chart's shape.
 type MCPServer struct {
 	Name       string  `json:"name" yaml:"name,omitempty"`
 	Cluster    string  `json:"cluster" yaml:"cluster"`
@@ -189,147 +166,82 @@ type MCPServer struct {
 
 // MCPAuth is how muster authenticates to a server.
 type MCPAuth struct {
-	Mode                string               `json:"mode" yaml:"mode"`
-	Provider            string               `json:"provider" yaml:"provider,omitempty"`
-	Audiences           []string             `json:"audiences" yaml:"audiences,omitempty"`
-	AuthorizationServer *AuthorizationServer `json:"authorizationServer" yaml:"authorizationServer,omitempty"`
-}
-
-// AuthorizationServer is an oauth server's authorization server.
-type AuthorizationServer struct {
-	Issuer                     string    `json:"issuer" yaml:"issuer"`
-	AuthorizationEndpoint      string    `json:"authorizationEndpoint" yaml:"authorizationEndpoint"`
-	TokenEndpoint              string    `json:"tokenEndpoint" yaml:"tokenEndpoint"`
-	Scopes                     string    `json:"scopes" yaml:"scopes"`
-	GrantScope                 string    `json:"grantScope" yaml:"grantScope,omitempty"`
-	ExpectedIssuer             string    `json:"expectedIssuer" yaml:"expectedIssuer,omitempty"`
-	ClientCredentialsSecretRef SecretRef `json:"clientCredentialsSecretRef" yaml:"clientCredentialsSecretRef"`
-}
-
-// SecretRef names a Secret in a namespace.
-type SecretRef struct {
-	Name      string `json:"name" yaml:"name"`
-	Namespace string `json:"namespace" yaml:"namespace"`
-}
-
-// Federation is the cross-installation section.
-type Federation struct {
-	ConnectorID    string   `json:"connectorId"`
-	BrokerClientID string   `json:"brokerClientId"`
-	Targets        []Target `json:"targets"`
-	Hubs           []string `json:"hubs"`
-	Tunnel         *Tunnel  `json:"tunnel"`
-}
-
-// Target is an installation a hub federates.
-type Target struct {
-	Installation string   `json:"installation"`
-	BaseDomain   string   `json:"baseDomain"`
-	Private      bool     `json:"private"`
-	Groups       []string `json:"groups"`
-}
-
-// Tunnel is how a hub reaches its private targets through Teleport.
-type Tunnel struct {
-	JWKS                   string   `json:"jwks"`
-	TrustBundleProvisioned bool     `json:"trustBundleProvisioned"`
-	Teleport               Teleport `json:"teleport"`
-}
-
-// Teleport is the Teleport cluster the tunnel joins.
-type Teleport struct {
-	ClusterName string `json:"clusterName"`
-	ProxyAddr   string `json:"proxyAddr"`
-}
-
-// hasPrivateTarget says whether any federated target is reached through the tunnel.
-func (in *Input) hasPrivateTarget() bool {
-	return slices.ContainsFunc(in.Federation.Targets, func(t Target) bool { return t.Private })
-}
-
-// Chart is the meta chart release range.
-type Chart struct {
-	Semver string `json:"semver"`
-}
-
-// MusterKnobs is muster's deployment knobs.
-type MusterKnobs struct {
-	Resources *Resources `json:"resources"`
-}
-
-// Toggle is an enabled flag.
-type Toggle struct {
-	Enabled bool `json:"enabled"`
-}
-
-// KlausGateway is the chat gateway section.
-type KlausGateway struct {
-	Enabled bool     `json:"enabled"`
-	Slack   *Slack   `json:"slack"`
-	OBO     *OBO     `json:"obo"`
-	A2A     *A2A     `json:"a2a"`
-	Reviews *Reviews `json:"reviews"`
-}
-
-// Slack is the gateway's Slack mode.
-type Slack struct {
-	Mode             string   `json:"mode" yaml:"mode"`
-	ChannelMode      string   `json:"channelMode" yaml:"channelMode"`
-	ChannelAllowlist []string `json:"channelAllowlist" yaml:"channelAllowlist,omitempty"`
-}
-
-// OBO is the on-behalf-of section.
-type OBO struct {
-	Connectors bool `json:"connectors"`
-}
-
-// A2A is the agent-to-agent section.
-type A2A struct {
-	Enabled         bool   `json:"enabled" yaml:"enabled"`
-	DefaultAgent    string `json:"defaultAgent" yaml:"defaultAgent"`
-	SATokenAudience string `json:"saTokenAudience" yaml:"saTokenAudience,omitempty"`
-}
-
-// Reviews is the team-reviews section.
-type Reviews struct {
-	Enabled        bool     `json:"enabled" yaml:"enabled"`
-	Audience       string   `json:"audience" yaml:"audience,omitempty"`
-	AllowedCallers []string `json:"allowedCallers" yaml:"allowedCallers,omitempty"`
-}
-
-// ClusterManager is the cluster-manager section.
-type ClusterManager struct {
-	Enabled       bool           `json:"enabled"`
-	NetworkPolicy *NetworkPolicy `json:"networkPolicy"`
-}
-
-// NetworkPolicy is the cluster-manager's egress policy.
-type NetworkPolicy struct {
-	WorkloadClusterFQDNPatterns []string            `json:"workloadClusterFqdnPatterns" yaml:"workloadClusterFqdnPatterns,omitempty"`
-	EgressFQDNs                 []map[string]string `json:"egressFqdns" yaml:"egressFqdns,omitempty"`
+	Mode     string `json:"mode" yaml:"mode"`
+	Provider string `json:"provider" yaml:"provider,omitempty"`
 }
 
 // policy is definitions/agent-platform/policy.yaml.
 type policy struct {
-	Components map[string]struct {
-		Customers []string `yaml:"customers"`
+	Components struct {
+		Default   []string            `yaml:"default"`
+		Customers map[string][]string `yaml:"customers"`
 	} `yaml:"components"`
-	LoginConnectorPin struct {
-		Customers []string `yaml:"customers"`
-	} `yaml:"loginConnectorPin"`
+	ModelKey struct {
+		Managed []string `yaml:"managed"`
+	} `yaml:"modelKey"`
+	KlausGateway GatewayPolicy `yaml:"klausGateway"`
+	Federation   struct {
+		Connector string   `yaml:"connector"`
+		Teleport  Teleport `yaml:"teleport"`
+	} `yaml:"federation"`
 }
 
-// offered says whether the policy offers the customer a component; a component
-// the policy does not list is offered to everyone.
-func (p policy) offered(component, customer string) bool {
-	rule, listed := p.Components[component]
-	return !listed || slices.Contains(rule.Customers, customer)
+func loadPolicy() (*policy, error) {
+	raw, err := definitions.FS.ReadFile("agent-platform/policy.yaml")
+	if err != nil {
+		return nil, err
+	}
+	var pol policy
+	if err := yaml.Unmarshal(raw, &pol); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrPolicy, err)
+	}
+	return &pol, nil
 }
 
-// Parse validates raw against the schema and returns the typed input. raw is
+// components are the components the policy gives an organisation.
+func (p *policy) components(customer string) (map[string]bool, error) {
+	list, listed := p.Components.Customers[customer]
+	if !listed {
+		list = p.Components.Default
+	}
+	out := map[string]bool{}
+	for _, c := range list {
+		if !slices.Contains(knownComponents, c) {
+			return nil, fmt.Errorf("%w: components: %q is not a component the definition renders", ErrPolicy, c)
+		}
+		out[c] = true
+	}
+	return out, nil
+}
+
+// connector renders the hub connector's name from the record.
+func (p *policy) connector(inst Installation) (string, error) {
+	tpl, err := template.New("connector").Option("missingkey=error").Parse(p.Federation.Connector)
+	if err != nil {
+		return "", fmt.Errorf("%w: federation.connector: %w", ErrPolicy, err)
+	}
+	var b strings.Builder
+	if err := tpl.Execute(&b, inst); err != nil {
+		return "", fmt.Errorf("%w: federation.connector: %w", ErrPolicy, err)
+	}
+	return b.String(), nil
+}
+
+// document is the input document as the schema shapes it.
+type document struct {
+	Installation Installation `json:"installation"`
+	ModelServing struct {
+		Enabled bool `json:"enabled"`
+	} `json:"modelServing"`
+}
+
+// Parse validates raw against the schema and resolves the inputs: the record
+// as given, the policy applied to its organisation, the choice as made. raw is
 // the decoded document (from YAML or JSON): map[string]any at the top. A key
 // the schema does not know, a missing required key or a wrong shape is
-// ErrInput naming the location.
+// ErrInput naming the location; a record the definition cannot render as it
+// stands (a hub without its broker client, a private target without the
+// tunnel's facts, the serving slice on the 3 chart line) is ErrInput too.
 func Parse(raw any) (*Input, error) {
 	schemaBytes, err := definitions.FS.ReadFile("agent-platform/schema.json")
 	if err != nil {
@@ -362,70 +274,90 @@ func Parse(raw any) (*Input, error) {
 	}
 	dec := json.NewDecoder(bytes.NewReader(encoded))
 	dec.DisallowUnknownFields()
-	var in Input
-	if err := dec.Decode(&in); err != nil {
+	var d document
+	if err := dec.Decode(&d); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInput, err)
 	}
-	if in.Secrets.MusterOAuth == "" {
-		in.Secrets.MusterOAuth = "muster-oauth-credentials"
+	pol, err := loadPolicy()
+	if err != nil {
+		return nil, err
 	}
-	if in.Secrets.MusterValkey == "" {
-		in.Secrets.MusterValkey = "muster-valkey-credentials"
+	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, Gateway: pol.KlausGateway, Teleport: pol.Federation.Teleport}
+	if in.Components, err = pol.components(in.Installation.Customer); err != nil {
+		return nil, err
 	}
-	return &in, nil
+	in.ModelKeyManaged = slices.Contains(pol.ModelKey.Managed, in.Installation.Customer)
+	if in.Connector, err = pol.connector(in.Installation); err != nil {
+		return nil, err
+	}
+	if err := in.checkRecord(); err != nil {
+		return nil, err
+	}
+	return in, nil
 }
 
-// check applies the rules the schema cannot express: the fleet policy, what
-// this version renders, and the supplied secret values.
-func (in *Input) check(secrets map[string]string) error {
-	var pol policy
-	raw, err := definitions.FS.ReadFile("agent-platform/policy.yaml")
-	if err != nil {
-		return err
+// checkRecord refuses a record the definition cannot render as it stands.
+func (in *Input) checkRecord() error {
+	fed := in.Installation.Federation
+	if len(fed.Targets) > 0 && fed.BrokerClientID == "" {
+		return fmt.Errorf("%w: installation.federation.brokerClientId: a hub's broker client is registered once and read back from its patch; none is on record", ErrInput)
 	}
-	if err := yaml.Unmarshal(raw, &pol); err != nil {
-		return fmt.Errorf("agent-platform: policy: %w", err)
+	if in.hasPrivateTarget() && fed.Tunnel == nil {
+		return fmt.Errorf("%w: installation.federation.tunnel: a private target is reached through the tunnel; the hub's JWKS and trust-bundle state are not on record", ErrInput)
 	}
-	customer := in.Installation.Customer
-	if in.KlausGateway != nil && in.KlausGateway.Enabled && !pol.offered("klaus-gateway", customer) {
-		return fmt.Errorf("%w: component klaus-gateway is not offered to customer %q", ErrPolicy, customer)
+	if !in.hasPrivateTarget() && fed.Tunnel != nil {
+		return fmt.Errorf("%w: installation.federation.tunnel: no target is private", ErrInput)
 	}
-	if in.ClusterManager != nil && in.ClusterManager.Enabled && !pol.offered("cluster-manager", customer) {
-		return fmt.Errorf("%w: component cluster-manager is not offered to customer %q", ErrPolicy, customer)
+	if in.ModelServing && in.Installation.ChartLine != "4" {
+		return fmt.Errorf("%w: modelServing.enabled: the serving slice is the 4 chart line's; this installation runs the %s line", ErrInput, in.Installation.ChartLine)
 	}
-	if in.Identity.LoginConnectorID != "" && !slices.Contains(pol.LoginConnectorPin.Customers, customer) {
-		return fmt.Errorf("%w: identity.loginConnectorId: a login connector pin is not offered to customer %q", ErrPolicy, customer)
-	}
-	if len(in.Federation.Targets) > 0 {
-		if in.Federation.ConnectorID == "" {
-			return fmt.Errorf("%w: federation.connectorId: a hub names the connector its targets' Dex trusts it through", ErrInput)
-		}
-		if in.Federation.BrokerClientID == "" {
-			return fmt.Errorf("%w: federation.brokerClientId: a hub names its token-exchange broker client", ErrInput)
-		}
-	}
-	if in.hasPrivateTarget() && in.Federation.Tunnel == nil {
-		return fmt.Errorf("%w: federation.tunnel: a private target is reached through the tunnel", ErrInput)
-	}
-	if !in.hasPrivateTarget() && in.Federation.Tunnel != nil {
-		return fmt.Errorf("%w: federation.tunnel: no target is private", ErrInput)
-	}
-	if in.Portal.Enabled && len(in.Portal.ClientIDs) == 0 {
-		return fmt.Errorf("%w: portal.clientIds: a portal that signs people in on this installation has at least one Dex client id", ErrInput)
-	}
-	if in.aiChatVertex() && in.Portal.AIChat.Google == nil {
-		return fmt.Errorf("%w: portal.aiChat.google: a chat on the vertex provider names its Google project and location", ErrInput)
-	}
+	return nil
+}
 
+// hasPrivateTarget says whether any federated target is reached through the tunnel.
+func (in *Input) hasPrivateTarget() bool {
+	return slices.ContainsFunc(in.Installation.Federation.Targets, func(t Target) bool { return t.Private })
+}
+
+func (in *Input) kagent() bool         { return in.Components[componentKagent] }
+func (in *Input) agentManager() bool   { return in.Components[componentAgentManager] }
+func (in *Input) agentSandbox() bool   { return in.Components[componentAgentSandbox] }
+func (in *Input) klausGateway() bool   { return in.Components[componentKlausGateway] }
+func (in *Input) clusterManager() bool { return in.Components[componentClusterManager] }
+
+// portalHost is the installation whose management-clusters tree hosts the
+// organisation's own portal — the one the platform's portal section is written
+// into; empty when no portal of the organisation lists this installation (the
+// hub's Dev Portal carries its own section for other organisations' installations).
+func (in *Input) portalHost() string {
+	for _, p := range in.Installation.Portals {
+		if p.Customer == in.Installation.Customer {
+			return p.Installation
+		}
+	}
+	return ""
+}
+
+// chartSemver is the range patched onto the agent-platform OCIRepository: the 4
+// line pins itself; the 3 line runs the base's range.
+func (in *Input) chartSemver() string {
+	if in.Installation.ChartLine == "4" {
+		return ">=4.0.0 <5.0.0"
+	}
+	return ""
+}
+
+// check applies the rules the schema cannot express to the supplied secret
+// values: what the policy has the person supply is there and nothing else is.
+func (in *Input) check(secrets map[string]string) error {
 	needed := in.suppliedSecretFields()
 	for _, field := range needed {
 		if secrets[field] == "" {
 			return fmt.Errorf("%w: %s", ErrEmptySecret, field)
 		}
 	}
-	optional := in.optionalSecretFields()
 	for field, value := range secrets {
-		if !slices.Contains(needed, field) && !slices.Contains(optional, field) {
+		if !slices.Contains(needed, field) {
 			return fmt.Errorf("%w: %s", ErrUnknownSecret, field)
 		}
 		if value == "" {
@@ -436,25 +368,16 @@ func (in *Input) check(secrets map[string]string) error {
 }
 
 // suppliedSecretFields lists the secret values the person supplies for this
-// input, by field name: the model key, an oauth server's client credentials,
-// the Slack app's credentials, a Vertex chat's Google credentials. Everything
-// else the platform needs is generated by the commit step from the
-// placeholders in the fileset; optionalSecretFields lists what the person may
-// add on top.
+// installation, by field name: the model key where the policy has the platform
+// team supply it, the Slack app's credentials where the gateway runs. Everything
+// else the platform needs is generated by the commit step from the placeholders
+// in the fileset.
 func (in *Input) suppliedSecretFields() []string {
 	var fields []string
-	if in.Kagent.Enabled && in.Kagent.ModelKeySecret == modelKeyManaged {
+	if in.kagent() && in.ModelKeyManaged {
 		fields = append(fields, fieldModelKey)
 	}
 	fields = append(fields, in.componentSecretFields()...)
-	fields = append(fields, in.portalSecretFields()...)
-	for _, s := range in.ToolAccess.AdditionalServers {
-		if s.Auth.Mode == "oauth" {
-			fields = append(fields,
-				"toolAccess.additionalServers."+s.Name+".client-id",
-				"toolAccess.additionalServers."+s.Name+".client-secret")
-		}
-	}
 	sort.Strings(fields)
 	return fields
 }

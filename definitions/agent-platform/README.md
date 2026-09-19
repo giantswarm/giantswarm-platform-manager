@@ -1,57 +1,31 @@
 # agent-platform definition
 
-The first content of the `agent-platform` capability definition: its closed input set, the keys the
-renderer drops, and the consistency features. Data only; the render library reads it.
+The `agent-platform` capability as data: what a person decides, what the record supplies, what the fleet
+policy decides once, and what the definition drops. The render library reads it.
 
 | File | What it is |
 |---|---|
-| `schema.json` | JSON Schema (draft 2020-12, `additionalProperties: false`) of the inputs. Every leaf input carries `x-source` (registry, person or generated), `x-feature` and `x-renders`: the key paths of the fileset it produces. A default is declared only where every enabled installation agrees. |
-| `removals.yaml` | Keys an enabled installation carries today that no input renders, each with the reason it is dropped: the shared template renders it, it becomes a referenced Secret, the platform does not read it, or the customer-portal definition owns it. |
-| `features.yaml` | The consistency features and the dimensions each one rolls up, one mark per feature, every dimension exactly once. The `kind: live` dimensions are the definition's probes of the running installation: the render carries one or more probes per live dimension as data (`Result.Probes`), and the verify slice executes them. |
+| `schema.json` | JSON Schema (draft 2020-12, `additionalProperties: false`) of the inputs: the record under `installation` (read, never typed) and the one choice, `modelServing.enabled` (default false). Every leaf carries `x-source`, `x-feature` and `x-renders`. |
+| `policy.yaml` | The fleet's decisions, keyed by the owning organisation: which components its installations run, whose model key it is, the chat gateway's shape, the hub connector's name and the Teleport cluster. |
+| `removals.yaml` | Keys an enabled installation carries today that the definition does not render, each with the reason it is dropped: the template renders it, it becomes a referenced Secret, the platform does not read it, the customer-portal definition owns it, or it is a named migration (M12…) of a former input. |
+| `features.yaml`, `probes.yaml` | The consistency features and their dimensions; the live probes the verify runs. |
 
-## The fileset
+## What the definition derives, from where
 
-The definition renders four places of an installation's two GitOps repositories:
+| Value | Source |
+|---|---|
+| Every hostname and URL, `global.domain`, the chart range, the private-address flags of muster and the MCP servers, the managers' OAuth on the 3 line | the record: `config.yaml.patch` and the catalog (`installation.name`, `baseDomain`, `private`, `chartLine`, `musterClientId`, `provider`) |
+| Which components run (kagent, agent-manager, agent-sandbox, klaus-gateway, cluster-manager), whose model key it is, the gateway's Slack/OBO/A2A/reviews shape, the cluster-manager's egress | `policy.yaml` by `installation.customer`; the egress by `installation.provider` |
+| The portals' Dex client (`backstage`, one redirect URI per portal), the audiences muster and the kagent UI accept, the edge's JWT provider on the 4 line, the post-login allowlist where the gateway runs, the portal section in the organisation's own portal | `installation.portals`: every portal whose `gs.installations` lists the installation (the hub's Dev Portal, the organisation's `customer-portal` installations) |
+| The hubs' token-exchange clients in this Dex; a hub's broker, identity providers, the targets' MCP servers, credentials Secrets, the tunnel and its Teleport objects | `installation.federation`: the portals' `clusterTokenBroker` names the hub, its `gs.installations` the targets; the broker client id is read back from the hub's patch; a private target's tunnel needs the hub's live JWKS |
+| The serving slice (`components.kserve-llmisvc-*`, `components.modelServing`, `modelServing.serving`, `modelServing.modelsGateway`) | the one choice, `modelServing.enabled`, on the 4 chart line |
+| The platform's own MCP servers, the login connector, `allowPrivateIPOIDC`, `forbidInlineSecrets`, the default model, muster's trusted issuers, resources | the shared-configs template — a hand-written copy is a removal, not an input |
 
-- configs: `installations/<name>/apps/agent-platform/configmap-values.yaml.patch` (`configmap:`) and the
-  dex-app patches `apps/dex-app/secret-values.yaml.patch` (`dex-secret:`) and `configmap-values.yaml.patch`
-  (`dex-configmap:`);
-- management-clusters: `management-clusters/<name>/extras/agent-platform/` (`extras:`) and the platform's
-  section of the portal (`backstage:app-config:`, `backstage:user-values:`, `backstage:kustomization:`,
-  `backstage:file:`), rendered as the platform's own directory `management-clusters/<host>/extras/backstage/agent-platform/`
-  — a kustomize Component the portal's `extras/backstage/kustomization.yaml` lists — where `<host>` is
-  `portal.installation` or the installation itself.
+Credentials are generated by the engine as SOPS-encrypted Secrets under `extras/agent-platform/secrets/`; every
+Dex client is a referenced Secret in Dex's namespace (dex-app 3.2.0 or later). What a person supplies at commit is
+named by field and follows the policy: the model key (`kagent.modelKey`) where the platform team holds it, the
+Slack app's `klausGateway.slack.bot-token` and `signing-secret` where the gateway runs. Everything a customer's
+installation needs beyond the pull requests is one action: the model key Secret, theirs.
 
-Key paths in `x-renders` and `removals.yaml` are normalised: a list index is `[*]`, a per-installation map key
-is `<name>`. A path covers every key beneath it.
-
-## Rules the inputs encode
-
-- The installation facts (`installation.*`) are read, never typed: the codename, base domain, provider,
-  private flag, meta chart line and platform client id come from the installations registry and the
-  installation's `config.yaml.patch`. Every hostname and URL of the fileset derives from them.
-- The shared-configs template renders the platform's own MCP servers, the login connector rule, the
-  `allowPrivateIPOIDC` flag, `forbidInlineSecrets` and the component defaults. A hand-written copy of such a key
-  is a removal, not an input.
-- `mcpServers` is replaced as a whole by a patch. The renderer emits the template's own entries again only
-  when the installation adds servers (`toolAccess.additionalServers`) or federates targets
-  (`federation.targets`); otherwise it omits the key.
-- Credentials are generated by the engine and written as SOPS-encrypted Secrets under
-  `extras/agent-platform/secrets/`, named in the patch through the `secrets.*` inputs. Every Dex client is a
-  referenced Secret in Dex's namespace; the MCP servers' clients need dex-app 3.2.0 or later, the version the
-  definition targets. What a person supplies at commit is named by field: the model key
-  (`kagent.modelKey`), an oauth server's client credentials, the Slack app's `klausGateway.slack.bot-token`,
-  `signing-secret` and, in socket mode, `app-token`, a Vertex chat's `portal.aiChat.google.credentialsJson`,
-  and optionally `portal.skillsToken` for a private skills repository.
-- A hub's targets (`federation.targets`) render the hub side of federation into the hub's own repositories;
-  a private target adds the tunnel on the hub and the tunnel's Teleport objects in teleport-fleet
-  (`federation.tunnel` carries the hub's JWKS, the Teleport cluster and whether the hub's trust-bundle
-  singleton exists). The target advertises the tunnelled apps (`dex-<target>`, `mcp-<group>-<target>`,
-  `kubernetes-<target>`) through its own Teleport agent; that side is not this definition's output.
-- The developer portal is the `customer-portal` definition's. This definition writes the portal's agent-platform
-  section only — as files of its own next to the portal's, never into them; every other portal key is listed in
-  `removals.yaml` as `other-definition`. The portal signs people in on this installation through the provider
-  `oidc-<name>`, the name every installation-hosted portal uses; the platform's values source is the last of the
-  portal HelmRelease's, so `backstage.extraEnvVars` is the platform's list.
-- "Customer inputs" is not a feature: it is the `x-source: person` property of an input, cutting across every
-  feature.
+Key paths in `x-renders` and `removals.yaml` are normalised: a list index is `[*]`, a per-installation map key is
+`<name>`. A path covers every key beneath it.

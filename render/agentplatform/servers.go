@@ -170,7 +170,7 @@ func (s serverDefinition) mcpServerEntry(installation string) MCPServer {
 // directory also carries the server's user values and the kustomization turns
 // them into a ConfigMap the HelmRelease reads.
 func (s serverDefinition) extras(result *render.Result, repo render.Repository, dir string, in *Input) {
-	privateURLs := in.ToolAccess.PrivateURLs
+	privateURLs := in.Installation.Private
 	valueName := s.name + "-dex-client-secret"
 	valkeyValue := s.name + "-valkey-password"
 	resources := []string{basesRepository + s.name + "?ref=main", "oauth-credentials.enc.yaml", "valkey-credentials.enc.yaml"}

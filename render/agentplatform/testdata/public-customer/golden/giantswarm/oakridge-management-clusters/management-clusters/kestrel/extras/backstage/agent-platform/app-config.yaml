@@ -15,21 +15,8 @@ data:
       kagent:
         installations:
           kestrel: {}
-      skills:
-        repositories:
-          - https://github.com/oakridge-example/agent-skills
     muster:
       installations:
         - name: kestrel
           url: https://muster.kestrel.oakridge.example/mcp
           authProvider: oidc-kestrel
-    aiChat:
-      model: example-model-medium
-      anthropic:
-        apiKey: $${ANTHROPIC_API_KEY}
-      mcp:
-        - name: muster
-          url: https://muster.kestrel.oakridge.example/mcp
-          authProvider: oidc-kestrel
-    mcpActions:
-      namespacedToolNames: false

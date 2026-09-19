@@ -115,10 +115,11 @@ data:
 `
 
 func TestParsePortal(t *testing.T) {
-	got, err := parsePortal(portalFixture)
+	cfg, err := parsePortalConfig(portalFixture)
 	if err != nil {
 		t.Fatal(err)
 	}
+	got := cfg.Installations
 	if len(got) != 2 || got["alder"].AuthProvider != "oidc" || got["alder"].BaseDomain != "alder.acme.test" || got["alder"].Providers[0] != "capa" ||
 		got["larch"].AuthProvider != "gs" || len(got["larch"].Providers) != 2 {
 		t.Fatalf("portal: %+v", got)
@@ -131,7 +132,7 @@ func TestParsePortalWithoutTheBlockIsAnError(t *testing.T) {
 		"data:\n  values: |\n    backstage: {}\n",
 		strings.Replace(portalFixture, "installations:", "other:", 1),
 	} {
-		if _, err := parsePortal(data); err == nil {
+		if _, err := parsePortalConfig(data); err == nil {
 			t.Fatalf("parsed without gs.installations: %q", data)
 		}
 	}
