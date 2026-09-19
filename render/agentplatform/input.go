@@ -40,12 +40,11 @@ const fieldModelKey = "kagent.modelKey"
 const (
 	componentKagent         = "kagent"
 	componentAgentManager   = "agent-manager"
-	componentAgentSandbox   = "agent-sandbox"
 	componentKlausGateway   = "klaus-gateway"
 	componentClusterManager = "cluster-manager"
 )
 
-var knownComponents = []string{componentKagent, componentAgentManager, componentAgentSandbox, componentKlausGateway, componentClusterManager}
+var knownComponents = []string{componentKagent, componentAgentManager, componentKlausGateway, componentClusterManager}
 
 // The referenced Secrets every installation names alike.
 const (
@@ -321,7 +320,6 @@ func (in *Input) hasPrivateTarget() bool {
 
 func (in *Input) kagent() bool         { return in.Components[componentKagent] }
 func (in *Input) agentManager() bool   { return in.Components[componentAgentManager] }
-func (in *Input) agentSandbox() bool   { return in.Components[componentAgentSandbox] }
 func (in *Input) klausGateway() bool   { return in.Components[componentKlausGateway] }
 func (in *Input) clusterManager() bool { return in.Components[componentClusterManager] }
 

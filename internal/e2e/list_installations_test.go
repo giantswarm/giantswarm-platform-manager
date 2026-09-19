@@ -60,18 +60,32 @@ spec:
 }
 
 // portalConfig renders the hub's app-config ConfigMap with gs.installations.
+// privateFixture is the installation the hub's portal reaches through the
+// tunnel on the hub (its Kubernetes cluster entry names the tunnel's Service):
+// the record's private flag.
+const privateFixture = "birch"
+
 func portalConfig(names ...string) string {
 	var b strings.Builder
 	b.WriteString("apiVersion: v1\nkind: ConfigMap\ndata:\n  values: |\n    backstage:\n      appConfig: |\n        app:\n          baseUrl: https://portal." + hub + ".example.test\n        gs:\n          installations:\n")
 	for _, n := range names {
 		b.WriteString("            " + n + ":\n              authProvider: oidc\n              baseDomain: " + n + ".example.test\n              providers:\n                - capa\n")
 	}
+	b.WriteString("        kubernetes:\n          clusterLocatorMethods:\n            - type: config\n              clusters:\n")
+	for _, n := range names {
+		url := "https://happaapi." + n + ".example.test"
+		if n == privateFixture {
+			url = "https://kubernetes-" + n + ".agent-platform.svc.cluster.local:8443"
+		}
+		b.WriteString("                - name: " + n + "\n                  url: " + url + "\n")
+	}
 	return b.String()
 }
 
 // fixtures loads the registry and the installations' repositories into the
 // fake: hazel (the hub, opted in, enabled, chart line 4), alder (no
-// declaration), birch (opted in, enabled, private), rowan (opted in, not
+// declaration), birch (opted in, enabled, private: the hub's portal reaches
+// it through the tunnel), rowan (opted in, not
 // enabled), willow (optIn: false), oak (repositories the person may not
 // read) and larch (portal only, no repositories on record).
 // The kustomizations other owners write, which the includes land in: an
@@ -110,7 +124,7 @@ func fixtures(g *fakeGitHub) {
 	})
 	g.addRepo(acmeConfigs, map[string]string{
 		installations.ConfigPatchPath("alder"):                 "codename: alder\nbase: acme.test\n",
-		installations.ConfigPatchPath("birch"):                 "codename: birch\nbase: acme.test\nmanagementCluster:\n  private: true\n",
+		installations.ConfigPatchPath("birch"):                 "codename: birch\nbase: acme.test\n",
 		installations.ConfigPatchPath("rowan"):                 "codename: rowan\nbase: acme.test\nservices:\n  muster:\n    clientId: muster-rowan\n",
 		installations.Capabilities()[0].EnabledMarker("birch"): "configmap: {}\n",
 	})

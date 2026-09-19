@@ -171,8 +171,8 @@ func (s serverDefinition) mcpServerEntry(installation string) MCPServer {
 // them into a ConfigMap the HelmRelease reads.
 func (s serverDefinition) extras(result *render.Result, repo render.Repository, dir string, in *Input) {
 	privateURLs := in.Installation.Private
-	valueName := s.name + "-dex-client-secret"
-	valkeyValue := s.name + "-valkey-password"
+	valueName := in.generatedName(s.name + "-dex-client-secret")
+	valkeyValue := in.generatedName(s.name + "-valkey-password")
 	resources := []string{basesRepository + s.name + "?ref=main", "oauth-credentials.enc.yaml", "valkey-credentials.enc.yaml"}
 	if s.dexSecretRef {
 		resources = append(resources, dexClientSecretFile(s.name))
@@ -186,7 +186,7 @@ func (s serverDefinition) extras(result *render.Result, repo render.Repository, 
 	result.Add(repo, dir+"/kustomization.yaml", render.File{Content: append([]byte(fileHeader), render.MustYAML(k)...)})
 	oauth := []render.SecretKey{
 		render.GeneratedKey(s.oauthKeys.dexClientSecret, valueName, render.Base64, 32),
-		render.GeneratedKey(s.oauthKeys.encryptionKey, s.name+"-oauth-encryption-key", render.Base64, 32),
+		in.generated(s.oauthKeys.encryptionKey, s.name+"-oauth-encryption-key", render.Base64, 32),
 	}
 	if s.oauthKeys.valkeyPassword != "" {
 		oauth = append(oauth, render.GeneratedKey(s.oauthKeys.valkeyPassword, valkeyValue, render.Alphanumeric, 32))

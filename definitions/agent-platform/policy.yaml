@@ -10,7 +10,7 @@ components:
   default: [kagent, agent-manager]
   customers:
     # Giant Swarm's own installations run everything, the hub included.
-    giantswarm: [kagent, agent-manager, agent-sandbox, klaus-gateway, cluster-manager]
+    giantswarm: [kagent, agent-manager, klaus-gateway, cluster-manager]
     # Agents without the agent-manager's create/edit surface.
     fleetio: [kagent]
     # Tool access only: muster and the MCP servers, no agents.

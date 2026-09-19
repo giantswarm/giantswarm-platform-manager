@@ -7,8 +7,6 @@ components:
     enabled: true
   agent-manager:
     enabled: true
-  agent-sandbox:
-    enabled: true
   klaus-gateway:
     enabled: true
   cluster-manager:

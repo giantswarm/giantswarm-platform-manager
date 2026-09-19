@@ -166,8 +166,8 @@ func (in *Input) componentSecrets(add func(file string, f render.File), secrets 
 		return
 	}
 	add(klausGatewayOBOSecret+".yaml", render.Secret(klausGatewayOBOSecret, platformNamespace, teamLabels,
-		render.GeneratedKey("state-key", "klaus-gateway-obo-state-key", render.Base64, 32),
-		render.GeneratedKey("store-key", "klaus-gateway-obo-store-key", render.Base64, 32)))
+		in.generated("state-key", "klaus-gateway-obo-state-key", render.Base64, 32),
+		in.generated("store-key", "klaus-gateway-obo-store-key", render.Base64, 32)))
 	var keys []render.SecretKey
 	for _, k := range in.slackSecretKeys() {
 		keys = append(keys, render.ValueKey(k, secrets[fieldSlack+k]))

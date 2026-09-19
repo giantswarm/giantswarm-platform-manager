@@ -25,7 +25,9 @@ type Record struct {
 	BaseDomain string `json:"baseDomain,omitempty"`
 	Customer   string `json:"customer,omitempty"`
 	Provider   string `json:"provider,omitempty"`
-	// Private: managementCluster.private in config.yaml.patch.
+	// Private: reached through Teleport — a portal on record reaches the
+	// installation's Kubernetes API through the tunnel on its host
+	// (kubernetes-<name>.agent-platform.svc.cluster.local); set by derive.
 	Private bool `json:"private"`
 	// ChartLine is the agent-platform meta chart line: "4" when
 	// agentPlatform.kagentApiV2 is set in config.yaml.patch, else "3".
@@ -37,12 +39,9 @@ type Record struct {
 
 // configPatch is the part of config.yaml.patch the record reads.
 type configPatch struct {
-	Codename          string `yaml:"codename"`
-	Base              string `yaml:"base"`
-	Customer          string `yaml:"customer"`
-	ManagementCluster struct {
-		Private bool `yaml:"private"`
-	} `yaml:"managementCluster"`
+	Codename string `yaml:"codename"`
+	Base     string `yaml:"base"`
+	Customer string `yaml:"customer"`
 	Provider struct {
 		Kind string `yaml:"kind"`
 	} `yaml:"provider"`
@@ -188,7 +187,7 @@ func readRecord(ctx context.Context, c *github.Client, owner, repo string, inst 
 		return nil, fmt.Errorf("the facts on record: %s in %s: %w", ConfigPatchPath(inst.Name), inst.Repositories.Configs, err)
 	}
 	rec := &Record{Name: inst.Name, BaseDomain: inst.BaseDomain, Customer: inst.Customer, Provider: inst.Provider,
-		Private: p.ManagementCluster.Private, ChartLine: "3", MusterClientID: p.Services.Muster.ClientID}
+		ChartLine: "3", MusterClientID: p.Services.Muster.ClientID}
 	if rec.MusterClientID == "" {
 		// konfigure overlays the patch on the shared default: an installation
 		// without its own client id runs on the fleet's.

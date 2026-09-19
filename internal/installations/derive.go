@@ -24,14 +24,16 @@ import (
 // person for them.
 
 // Portal is a developer portal on record: the installation hosting it and its
-// organisation, its hostname, the installations it lists and the installation
-// whose muster brokers its cluster tokens (empty when it brokers none).
+// organisation, its hostname, the installations it lists, the installation
+// whose muster brokers its cluster tokens (empty when it brokers none) and the
+// installations it reaches through the tunnel on its host.
 type Portal struct {
 	Host          string
 	Customer      string
 	Domain        string
 	Broker        string
 	Installations []string
+	Tunnelled     []string
 }
 
 // PortalRef is a portal that signs people in on an installation, as the
@@ -103,6 +105,10 @@ func (r *Registry) readPortal(ctx context.Context, c *github.Client, host Instal
 		p.Installations = append(p.Installations, name)
 	}
 	sort.Strings(p.Installations)
+	for name := range cfg.Tunnelled {
+		p.Tunnelled = append(p.Tunnelled, name)
+	}
+	sort.Strings(p.Tunnelled)
 	if broker := hostOf(cfg.BrokerTokenURL); broker != "" {
 		for _, inst := range r.Installations {
 			if inst.BaseDomain != "" && broker == "muster."+inst.BaseDomain {
@@ -116,7 +122,7 @@ func (r *Registry) readPortal(ctx context.Context, c *github.Client, host Instal
 	return p, nil
 }
 
-// hostOf is the host of a URL, empty for none.
+// hostOf is the hostname of a URL (no port), empty for none.
 func hostOf(raw string) string {
 	if raw == "" {
 		return ""
@@ -125,7 +131,15 @@ func hostOf(raw string) string {
 	if err != nil {
 		return ""
 	}
-	return u.Host
+	return u.Hostname()
+}
+
+// tunnelled says whether an installation is reached through Teleport: a
+// portal on record reaches its Kubernetes API through the tunnel on the
+// portal's host. That is the record's private flag — its own MCP servers
+// reach Dex on private addresses, and a hub brokers for it through the tunnel.
+func tunnelled(portals []Portal, name string) bool {
+	return slices.ContainsFunc(portals, func(p Portal) bool { return slices.Contains(p.Tunnelled, name) })
 }
 
 // Portals reads every portal that may list one of insts, in parallel. A host
@@ -164,10 +178,12 @@ func (r *Registry) Portals(ctx context.Context, c *github.Client, insts []Instal
 }
 
 // derive fills the report's portal and federation facts from the portals on
-// record. A target's private flag is its record's; a target not among the
-// reports has its record read. A hub's broker client id is read back from its
-// patch. What cannot be read is an error of the report: the record is then
-// incomplete and the installation is not planned.
+// record, and the record's private flag: whether a portal reaches the
+// installation through the tunnel. A target's private flag is the same fact;
+// a target not among the reports has its record read for its base domain. A
+// hub's broker client id is read back from its patch. What cannot be read is
+// an error of the report: the record is then incomplete and the installation
+// is not planned.
 func (r *Registry) derive(ctx context.Context, c *github.Client, reports []Report, portals []Portal) {
 	byName := map[string]*Report{}
 	for i := range reports {
@@ -179,8 +195,9 @@ func (r *Registry) derive(ctx context.Context, c *github.Client, reports []Repor
 			continue
 		}
 		targets := rep.derivePortals(portals)
+		rep.Record.Private = tunnelled(portals, rep.Name)
 		for _, name := range targets {
-			target, err := r.target(ctx, c, name, byName[name])
+			target, err := r.target(ctx, c, name, byName[name], tunnelled(portals, name))
 			if err != nil {
 				rep.fail(fmt.Sprintf("federation target %s: %v", name, err))
 				continue
@@ -228,9 +245,10 @@ func (r *Report) fail(msg string) {
 	r.Readable = false
 }
 
-// target is a federated target's facts: the registry's base domain and the
-// record's private flag, read where the target was not inspected.
-func (r *Registry) target(ctx context.Context, c *github.Client, name string, inspected *Report) (FederatedTarget, error) {
+// target is a federated target's facts: the registry's base domain (the
+// record's, read where the target was not inspected) and whether it is reached
+// through the tunnel.
+func (r *Registry) target(ctx context.Context, c *github.Client, name string, inspected *Report, private bool) (FederatedTarget, error) {
 	inst, ok := r.Find(name)
 	if !ok {
 		return FederatedTarget{}, errors.New("not in the registry")
@@ -251,7 +269,7 @@ func (r *Registry) target(ctx context.Context, c *github.Client, name string, in
 			return FederatedTarget{}, err
 		}
 	}
-	return FederatedTarget{Installation: name, BaseDomain: rec.BaseDomain, Private: rec.Private}, nil
+	return FederatedTarget{Installation: name, BaseDomain: rec.BaseDomain, Private: private}, nil
 }
 
 // brokerClientID reads a hub's broker client id back from its patch: the one

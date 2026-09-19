@@ -160,9 +160,10 @@ Per installation the manager then reads, as the caller:
 - the **opt-in declaration** `management-clusters/<name>/platform-manager.yaml` in its
   management-clusters repository (below);
 - the **facts on record** in `installations/<name>/config.yaml.patch` of its configs repository —
-  `managementCluster.private`, the meta chart line (`agentPlatform.kagentApiV2` selects `4`),
-  `services.muster.clientId` — which, with the registry's name, base domain, customer and provider,
-  are the definitions' `installation.*` inputs: read, never typed;
+  the meta chart line (`agentPlatform.kagentApiV2` selects `4`), `services.muster.clientId` — which,
+  with the registry's name, base domain, customer and provider and the portals' app-configs (which
+  portals sign people in, whose broker exchanges tokens into it, whether a portal reaches it through
+  the tunnel: `private`), are the definitions' `installation.*` inputs: read, never typed;
 - the **enabled marker** of each capability: for `agent-platform`,
   `installations/<name>/apps/agent-platform/configmap-values.yaml.patch`.
 

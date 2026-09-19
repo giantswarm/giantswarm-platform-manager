@@ -1,6 +1,6 @@
 # A Giant Swarm-owned installation on the 4 chart line: every component the policy gives the
-# organisation (kagent with the managed model key, the agent-manager, the agent sandbox, the chat
-# gateway, the cluster-manager), its own portal, the chart range pinned, and the one choice made:
+# organisation (kagent with the managed model key, the agent-manager, the chat gateway, the
+# cluster-manager), its own portal, the chart range pinned, and the one choice made:
 # it serves models. Invented names, placeholder values.
 input:
   installation:

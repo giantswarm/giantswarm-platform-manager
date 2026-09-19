@@ -163,7 +163,7 @@ func (in *Input) hubSecrets(add func(file string, f render.File)) {
 	add(brokerClients+".yaml", render.Secret(brokerClients, platformNamespace,
 		map[string]string{"muster.giantswarm.io/type": "broker-client-credentials"},
 		render.ValueKey("client-id", in.Installation.Federation.BrokerClientID),
-		render.GeneratedKey("client-secret", "muster-broker-client-secret", render.Base64, 32)))
+		in.generated("client-secret", "muster-broker-client-secret", render.Base64, 32)))
 	for _, t := range in.Installation.Federation.Targets {
 		add(t.credentialsSecret()+".yaml", render.Secret(t.credentialsSecret(), platformNamespace,
 			map[string]string{"muster.giantswarm.io/management-cluster": t.Installation, "muster.giantswarm.io/type": "token-exchange-credentials"},

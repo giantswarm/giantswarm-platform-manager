@@ -116,9 +116,6 @@ func (in *Input) configmapPatch() render.Map {
 
 	components := render.Map{e("kagent", render.Map{e("enabled", in.kagent())}),
 		e("agent-manager", render.Map{e("enabled", in.agentManager())})}
-	if in.agentSandbox() {
-		components = append(components, e("agent-sandbox", render.Map{e("enabled", true)}))
-	}
 	components = in.componentToggles(components)
 	if in.ModelServing {
 		for _, c := range servingComponents {
@@ -263,6 +260,18 @@ func dexClientRef(component string) render.Map {
 	return render.Map{e("name", dexClientSecretName(component)), e("key", dexSecretKey)}
 }
 
+// generated is a SecretKey whose value the commit step generates for this
+// installation alone: the name carries the installation, because the commit
+// step draws one value per name across every file of a pull request and a
+// wave commits several installations of one organisation into one — no client
+// secret is ever shared between installations.
+func (in *Input) generated(key, base string, kind render.GeneratedKind, length int) render.SecretKey {
+	return render.GeneratedKey(key, in.generatedName(base), kind, length)
+}
+
+// generatedName names a generated value of this installation.
+func (in *Input) generatedName(base string) string { return in.Installation.Name + "-" + base }
+
 // hubClient is the id of the token-exchange client a hub uses in this installation's Dex.
 func hubClient(hub string) string { return hub + "-token-exchange" }
 
@@ -354,25 +363,25 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 		r.Add(repo, dir+"/secrets/"+file, f)
 	}
 	add(musterOAuthSecret+".yaml", render.Secret(musterOAuthSecret, platformNamespace, team,
-		render.GeneratedKey("dex-client-secret", "muster-dex-client-secret", render.Base64, 32),
-		render.GeneratedKey("registration-token", "muster-registration-token", render.Base64, 32),
-		render.GeneratedKey("oauth-encryption-key", "muster-oauth-encryption-key", render.Base64, 32)))
+		in.generated("dex-client-secret", "muster-dex-client-secret", render.Base64, 32),
+		in.generated("registration-token", "muster-registration-token", render.Base64, 32),
+		in.generated("oauth-encryption-key", "muster-oauth-encryption-key", render.Base64, 32)))
 	add(musterValkeySecret+".yaml", render.Secret(musterValkeySecret, platformNamespace, team,
-		render.GeneratedKey("valkey-password", "muster-valkey-password", render.Alphanumeric, 32)))
-	add(dexClientSecretFile("muster"), dexClientSecret("muster", "muster-dex-client-secret"))
+		in.generated("valkey-password", "muster-valkey-password", render.Alphanumeric, 32)))
+	add(dexClientSecretFile("muster"), dexClientSecret("muster", in.generatedName("muster-dex-client-secret")))
 	if in.kagent() {
 		add("kagent-oauth2-proxy-credentials.yaml", render.Secret("kagent-oauth2-proxy-credentials", kagentNamespace, team,
 			render.ValueKey("client-id", "kagent"),
-			render.GeneratedKey("client-secret", "kagent-dex-client-secret", render.Base64, 32),
-			render.GeneratedKey("cookie-secret", "kagent-cookie-secret", render.Alphanumeric, 32)))
-		add(dexClientSecretFile("kagent"), dexClientSecret("kagent", "kagent-dex-client-secret"))
+			in.generated("client-secret", "kagent-dex-client-secret", render.Base64, 32),
+			in.generated("cookie-secret", "kagent-cookie-secret", render.Alphanumeric, 32)))
+		add(dexClientSecretFile("kagent"), dexClientSecret("kagent", in.generatedName("kagent-dex-client-secret")))
 		if in.ModelKeyManaged {
 			add("kagent-anthropic-key.yaml", render.Secret("kagent-anthropic-key", kagentNamespace, team,
 				render.ValueKey("ANTHROPIC_API_KEY", secrets[fieldModelKey])))
 		}
 	}
 	if in.hasPortal() {
-		add(dexClientSecretFile(render.PortalDexClientID), dexClientSecret(render.PortalDexClientID, render.PortalDexClientID+"-dex-client-secret"))
+		add(dexClientSecretFile(render.PortalDexClientID), dexClientSecret(render.PortalDexClientID, in.generatedName(render.PortalDexClientID+"-dex-client-secret")))
 	}
 	for _, hub := range in.Installation.Federation.Hubs {
 		add(dexClientSecretFile(hubClient(hub)), dexClientSecret(hubClient(hub), exchangeSecretName(hub, in.Installation.Name)))
