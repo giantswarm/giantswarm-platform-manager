@@ -109,6 +109,10 @@ spec:
                       state: {type: string}
                       head: {type: string}
                       headSha: {type: string}
+                rotated:
+                  description: The generated values the commit drew anew over a value on record, by name — a new file needed a value frozen in an existing encrypted file, so every file of the name got the new one.
+                  type: array
+                  items: {type: string}
                 approval:
                   type: object
                   properties:

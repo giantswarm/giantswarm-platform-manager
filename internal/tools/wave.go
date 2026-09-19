@@ -116,10 +116,12 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 	}
 	remote, err := t.d.Remote(token)
 	if err != nil {
-		return nil, t.fail(ctx, tool, a, nil, err)
+		return nil, t.fail(ctx, tool, a, nil, nil, err)
 	}
 	prs := []actions.PullRequest{}
+	var rotated []string
 	for i, p := range targets {
+		rotated = append(rotated, p.Rotating()...)
 		// The supplied fields render as markers: their files are on record
 		// (checked above) and never generated again, so no marker leaves.
 		markers := make(map[string]string, len(p.SuppliedSecrets))
@@ -128,17 +130,17 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		}
 		rendered, err := def.Render(env.inputs[p.Name], markers)
 		if err != nil {
-			return nil, t.fail(ctx, tool, a, prs, fmt.Errorf("%s: render: %w", p.Name, err))
+			return nil, t.fail(ctx, tool, a, remote, prs, fmt.Errorf("%s: render: %w", p.Name, err))
 		}
 		planned := plan.PullRequests([]plan.Installation{p}, env.byName, env.hub)
 		title := fmt.Sprintf("%s %s on %s (%s, stage %d of %d)", actions.KindReconcile, out.Capability, p.Name, a.Name, i+1, len(targets))
 		opened, _, err := t.openPullRequests(ctx, env, a, p, planned, rendered.Files, remote, title, prBody(a, p, planned)+waveBody(res.Order, res.Skipped))
 		prs = append(prs, opened...)
 		if err != nil {
-			return nil, t.fail(ctx, tool, a, prs, err)
+			return nil, t.fail(ctx, tool, a, remote, prs, err)
 		}
 	}
-	a, err = t.d.Actions.UpdateStatus(ctx, a.Name, actions.Status{State: actions.StatePendingApproval, PullRequests: prs, Rollout: rollout})
+	a, err = t.d.Actions.UpdateStatus(ctx, a.Name, actions.Status{State: actions.StatePendingApproval, PullRequests: prs, Rotated: rotated, Rollout: rollout})
 	if err != nil {
 		return nil, fmt.Errorf("%s: the pull requests are open (%s) and the action could not record them: %w", tool, prList(prs), err)
 	}

@@ -136,6 +136,9 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	if n := p.Diff[plan.ChangeUnknown]; n > 0 {
 		return nil, fmt.Errorf("%s: %d file(s) of %s could not be compared against the repository as you (%s); nothing is committed blind", tool, n, one, unknownFiles(p))
 	}
+	if refusal := p.FrozenRefusal(); refusal != "" {
+		return nil, fmt.Errorf("%s: %s: %s; nothing is committed", tool, one, refusal)
+	}
 	if err := checkSupplied(p.SuppliedSecrets, secrets); err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
 	}
@@ -162,15 +165,15 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	}
 	remote, err := t.d.Remote(token)
 	if err != nil {
-		return nil, t.fail(ctx, tool, a, nil, err)
+		return nil, t.fail(ctx, tool, a, nil, nil, err)
 	}
 	title := fmt.Sprintf("%s %s on %s (%s)", kind, out.Capability, one, a.Name)
 	prs, unchanged, err := t.openPullRequests(ctx, env, a, p, out.PullRequests, rendered.Files, remote, title, prBody(a, p, out.PullRequests))
 	res.UnchangedRepositories = unchanged
 	if err != nil {
-		return nil, t.fail(ctx, tool, a, prs, err)
+		return nil, t.fail(ctx, tool, a, remote, prs, err)
 	}
-	a, err = t.d.Actions.UpdateStatus(ctx, a.Name, actions.Status{State: actions.StatePendingApproval, PullRequests: prs})
+	a, err = t.d.Actions.UpdateStatus(ctx, a.Name, actions.Status{State: actions.StatePendingApproval, PullRequests: prs, Rotated: p.Rotating()})
 	if err != nil {
 		return nil, fmt.Errorf("%s: the pull requests are open (%s) and the action could not record them: %w", tool, prList(prs), err)
 	}
@@ -246,15 +249,58 @@ func (t *Tools) record(ctx context.Context, spec actions.Spec, status actions.St
 	return t.d.Actions.Create(ctx, actions.Action{Name: name, Spec: spec, Status: status})
 }
 
-// fail moves the Action to failed with the pull requests opened so far and
-// answers the error naming the action.
-func (t *Tools) fail(ctx context.Context, tool string, a *actions.Action, prs []actions.PullRequest, cause error) error {
-	status := actions.Status{State: actions.StateFailed, PullRequests: prs, Result: &actions.Result{State: actions.StateFailed, Message: cause.Error(), At: now()}}
+// fail moves the Action to failed and answers the error naming the action.
+// With a remote, the pull requests opened so far are closed as the caller
+// with their branches — a failed commit leaves nothing open for someone to
+// find — and recorded closed; one the remote refused to close stays open on
+// the record and in the answer, for deny_action. Without a remote (a merge
+// whose head moved: the pull request carries someone's commit) they stay
+// open, and the answer says so.
+func (t *Tools) fail(ctx context.Context, tool string, a *actions.Action, remote commit.Remote, prs []actions.PullRequest, cause error) error {
+	var left []string
+	open := len(openPRs(prs))
+	if remote != nil && open > 0 {
+		left = closeOpen(ctx, remote, prs)
+	}
+	var outcome string
+	switch {
+	case open == 0:
+		outcome = "no pull request open"
+	case remote == nil:
+		outcome = fmt.Sprintf("%d pull request(s) open (%s)", open, prList(prs))
+	case len(left) > 0:
+		outcome = fmt.Sprintf("%d pull request(s) closed, %d could not be closed and stay open (%s) — %s closes them", open-len(left), len(left), strings.Join(left, "; "), ToolDenyAction)
+	default:
+		outcome = fmt.Sprintf("its %d pull request(s) closed (%s)", open, prList(prs))
+	}
+	status := actions.Status{State: actions.StateFailed, PullRequests: prs, Result: &actions.Result{State: actions.StateFailed, Message: cause.Error() + "; " + outcome, At: now()}}
 	if _, err := t.d.Actions.UpdateStatus(ctx, a.Name, status); err != nil {
 		return fmt.Errorf("%s: %w; and action %s could not record the failure: %v", tool, cause, a.Name, err)
 	}
-	t.d.Log.Info(tool, "action", a.Name, "state", actions.StateFailed, "pullRequests", len(prs))
-	return fmt.Errorf("%s: %w — action %s is failed with %d pull request(s) open (%s)", tool, cause, a.Name, len(prs), prList(prs))
+	t.d.Log.Info(tool, "action", a.Name, "state", actions.StateFailed, "pullRequests", len(prs), "stillOpen", len(openPRs(prs)))
+	return fmt.Errorf("%s: %w — action %s is failed, %s", tool, cause, a.Name, outcome)
+}
+
+// closeOpen closes every open pull request of prs as the remote's person,
+// deleting the branch, and marks it closed in place. It answers what could
+// not be closed, each with its error.
+func closeOpen(ctx context.Context, remote commit.Remote, prs []actions.PullRequest) []string {
+	var left []string
+	for i, pr := range prs {
+		if pr.State != actions.PullRequestOpen {
+			continue
+		}
+		cpr, err := commitPR(pr)
+		if err == nil {
+			err = remote.Close(ctx, cpr, true)
+		}
+		if err != nil {
+			left = append(left, fmt.Sprintf("%s#%d: %v", pr.Repository, pr.Number, remoteError(pr.Repository, err)))
+			continue
+		}
+		prs[i].State = actions.PullRequestClosed
+	}
+	return left
 }
 
 // gateRefusal is why the commit for r is refused, or "": the installation is
@@ -328,8 +374,11 @@ func encrypter(ctx context.Context, c *github.Client, repository string) (*sopse
 // targetsOf pairs the render with the supplied values against the plan (the
 // render with markers): only files that change are committed, a secret file
 // (by the repository's .sops.yaml rules) that exists on record is never
-// generated again, and a plain file must be byte-identical to the plan — a
-// supplied value never lands outside a secret file. A file with several owners
+// generated again — unless the plan rotates it: a new file needs a value
+// frozen in it, so it is written anew with every value it holds (the plan
+// says which, and the dry run showed it) — and a plain file must be
+// byte-identical to the plan — a supplied value never lands outside a secret
+// file. A file with several owners
 // is committed as the plan wrote it: a kustomization with the includes landed
 // in it or the entries of other owners kept, the dex patch with their keys
 // kept, the tunnelport values with the hub's entries edited in, read as the
@@ -339,6 +388,7 @@ func targetsOf(ctx context.Context, c *github.Client, p plan.Installation, rende
 	for _, f := range p.Files {
 		planned[f.Repository+":"+f.Path] = f
 	}
+	rotated := p.Rotated()
 	out := map[string]*target{}
 	for _, repo := range plan.SortedRepositories(rendered) {
 		resolved := plan.ResolveRepository(string(repo), inst, hub)
@@ -361,7 +411,7 @@ func targetsOf(ctx context.Context, c *github.Client, p plan.Installation, rende
 				}
 				content = []byte(pf.Content)
 			}
-			tg.exists[path] = pf.Change == plan.ChangeUpdate
+			tg.exists[path] = pf.Change == plan.ChangeUpdate && !rotated[resolved+":"+path]
 			sf := sopsenc.File{Path: path, Content: content}
 			for _, g := range f.Generated {
 				sf.Generated = append(sf.Generated, sopsenc.Generated{Name: g.Name, Placeholder: g.Placeholder, Kind: sopsenc.Kind(g.Kind), Length: g.Length, Half: sopsenc.Half(g.Half)})
@@ -394,7 +444,7 @@ func targetsOf(ctx context.Context, c *github.Client, p plan.Installation, rende
 
 // encrypt fills the generated values in and encrypts every secret file of
 // repository for the recipients its .sops.yaml names; plain files pass
-// through. A secret file on record is left out.
+// through. A secret file on record is left out, unless the plan rotates it.
 func encrypt(repository string, tg *target) (map[string][]byte, error) {
 	files, err := tg.enc.Encrypt(tg.files, func(path string) bool { return tg.exists[path] })
 	if err != nil {
@@ -484,7 +534,11 @@ func prBody(a *actions.Action, p plan.Installation, prs []plan.PullRequest) stri
 	if len(p.GeneratedSecrets) > 0 {
 		b.WriteString("\nGenerated secrets, by name; the values exist only inside the encrypted files:\n")
 		for _, g := range p.GeneratedSecrets {
-			fmt.Fprintf(&b, "- %s (%s, %d)\n", g.Name, g.Kind, g.Length)
+			fmt.Fprintf(&b, "- %s (%s, %d)", g.Name, g.Kind, g.Length)
+			if g.Rotates {
+				fmt.Fprintf(&b, " — rotated: a new value replaces the one on record in %s", strings.Join(g.FrozenIn, ", "))
+			}
+			b.WriteString("\n")
 		}
 	}
 	if len(p.SuppliedSecrets) > 0 {

@@ -170,6 +170,14 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 		p.f("  Generated at commit:\n")
 		for _, g := range inst.GeneratedSecrets {
 			p.f("    %s (%s, %d): %s\n", g.Name, g.Kind, g.Length, strings.Join(g.Files, ", "))
+			switch {
+			case g.Refusal != "":
+				p.f("      refused: %s\n", g.Refusal)
+			case g.Rotates:
+				p.f("      rotates: %s (%s) — a new value replaces the one on record; both sides roll, the client is unusable between the two rollouts\n", g.Name, strings.Join(g.FrozenIn, ", "))
+			case len(g.FrozenIn) > 0:
+				p.f("      on record in %s: the value stands, no file needs it anew\n", strings.Join(g.FrozenIn, ", "))
+			}
 		}
 	}
 	if len(inst.SuppliedSecrets) > 0 {

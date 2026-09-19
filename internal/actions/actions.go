@@ -93,10 +93,14 @@ type Status struct {
 	// approval, rolling out, waiting for the customer, enabled, failed.
 	State        string        `json:"state,omitempty"`
 	PullRequests []PullRequest `json:"pullRequests,omitempty"`
-	Approval     *Approval     `json:"approval,omitempty"`
-	Rollout      *Rollout      `json:"rollout,omitempty"`
-	Probes       []Probe       `json:"probes,omitempty"`
-	Result       *Result       `json:"result,omitempty"`
+	// Rotated names the generated values the commit drew anew over a value
+	// on record: a new file needed a value frozen in an existing encrypted
+	// file, so every file of the name got the new one. Names only.
+	Rotated  []string  `json:"rotated,omitempty"`
+	Approval *Approval `json:"approval,omitempty"`
+	Rollout  *Rollout  `json:"rollout,omitempty"`
+	Probes   []Probe   `json:"probes,omitempty"`
+	Result   *Result   `json:"result,omitempty"`
 }
 
 // PullRequest is one PR the action opened.

@@ -113,6 +113,17 @@ type GeneratedSecret struct {
 	Kind   string   `json:"kind"`
 	Length int      `json:"length"`
 	Files  []string `json:"files"`
+	// FrozenIn are the Files that exist encrypted on record: the value they
+	// hold cannot be read back (the manager decrypts nothing), so no other
+	// file can share it — the commit either leaves them alone or rotates.
+	FrozenIn []string `json:"frozenIn,omitempty"`
+	// Rotates: a file to create shares the name with a frozen one, so the
+	// commit draws a new value and writes it into every one of Files, the
+	// frozen ones rewritten — both sides roll on the installation.
+	Rotates bool `json:"rotates,omitempty"`
+	// Refusal is why a commit of this plan is refused before any write: the
+	// name is frozen in a file the definition does not own whole.
+	Refusal string `json:"refusal,omitempty"`
 }
 
 // DexClient is one Dex client the rendered dex patch touches. An extra static
@@ -239,6 +250,7 @@ func Build(ctx context.Context, opts Options) Installation {
 	p.CustomerActions = customerActions(opts.Installation.Name, in)
 	p.Probes = Probes(opts.Definition.Name)
 	generated := map[string]*GeneratedSecret{}
+	var holders []holder
 	for _, repo := range SortedRepositories(res.Files) {
 		target := ResolveRepository(string(repo), opts.Installation, opts.Hub)
 		paths := make([]string, 0, len(res.Files[repo]))
@@ -249,6 +261,7 @@ func Build(ctx context.Context, opts Options) Installation {
 		for _, path := range paths {
 			f := res.Files[repo][path]
 			pf := File{Repository: target, Path: path}
+			h := holder{file: target + ":" + path, shared: Shared(path)}
 			for _, g := range f.Generated {
 				pf.Generated = append(pf.Generated, g.Name)
 				gs := generated[g.Name]
@@ -256,8 +269,13 @@ func Build(ctx context.Context, opts Options) Installation {
 					gs = &GeneratedSecret{Name: g.Name, Kind: string(g.Kind), Length: g.Length}
 					generated[g.Name] = gs
 				}
-				if file := target + ":" + path; !slices.Contains(gs.Files, file) {
-					gs.Files = append(gs.Files, file)
+				if !slices.Contains(gs.Files, h.file) {
+					gs.Files = append(gs.Files, h.file)
+				}
+				if g.Half == render.Public {
+					h.public = append(h.public, g.Name)
+				} else {
+					h.secret = append(h.secret, g.Name)
 				}
 			}
 			content := string(f.Content)
@@ -281,11 +299,16 @@ func Build(ctx context.Context, opts Options) Installation {
 			pf.Change, pf.Error = change(current, err, content)
 			p.Diff[pf.Change]++
 			p.Files = append(p.Files, pf)
+			if len(f.Generated) > 0 {
+				h.change = pf.Change
+				holders = append(holders, h)
+			}
 			if strings.HasSuffix(path, dexPatchFile) {
 				p.DexClients = DexClients(f.Content, in)
 			}
 		}
 	}
+	frozen(generated, holders)
 	p.includes(ctx, opts, res.Includes)
 	sort.SliceStable(p.Files, func(i, j int) bool {
 		if p.Files[i].Repository != p.Files[j].Repository {
