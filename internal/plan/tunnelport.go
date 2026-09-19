@@ -189,7 +189,7 @@ func nodeUnder(m *yaml.Node, key string, kind yaml.Kind) (*yaml.Node, error) {
 	switch {
 	case n == nil:
 		n = &yaml.Node{Kind: kind, Tag: tag}
-		m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, n)
+		m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: tagStr, Value: key}, n)
 		m.Style = 0
 	case n.Kind == yaml.ScalarNode && n.Tag == "!!null":
 		*n = yaml.Node{Kind: kind, Tag: tag}
