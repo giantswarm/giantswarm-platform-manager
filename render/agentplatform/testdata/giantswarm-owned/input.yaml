@@ -1,8 +1,7 @@
-# A Giant Swarm-owned installation: the login connector pinned, a managed model
-# key, an additional model, in-cluster agents trusted through the cluster's
-# service-account issuer, the chart range lifted, the chat gateway and the
-# cluster-manager the policy offers, a portal with a private skills repository
-# and the AI chat on Vertex. Invented names, placeholder values.
+# A Giant Swarm-owned installation on the 4 chart line: every component the policy gives the
+# organisation (kagent with the managed model key, the agent-manager, the chat gateway, the
+# cluster-manager), its own portal, the chart range pinned, and the one choice made:
+# it serves models. Invented names, placeholder values.
 input:
   installation:
     name: gopher
@@ -12,135 +11,16 @@ input:
     private: false
     chartLine: "4"
     musterClientId: 00000000-0000-4000-8000-000000000002
-  secrets: {}
-  kagent:
+    portals:
+      - installation: gopher
+        customer: giantswarm
+        domain: portal.gopher.example.io
+    federation:
+      hubs: []
+      targets: []
+  modelServing:
     enabled: true
-    modelKeySecret: managed
-    defaultModel: example-model-medium
-    uiIngressPeers:
-      - app: example-tunnel-agent
-        namespace: example-system
-    additionalModelConfigs:
-      - name: example-large
-        displayName: Example Large
-        provider: Anthropic
-        model: example-model-large
-        apiKeySecret: kagent-anthropic-key
-        apiKeySecretKey: ANTHROPIC_API_KEY
-        baseUrl: http://agentgateway.agent-platform.svc:8081
-  identity:
-    loginConnectorId: giantswarm-github
-    postLoginRedirectAllowlist:
-      - https://portal.example.io/
-    trustedIssuers:
-      - issuer: https://irsa.gopher.example.io
-        jwksUrl: https://irsa.gopher.example.io/keys.json
-        allowedAudiences:
-          - https://muster.gopher.example.io/mcp
-        allowedClaims:
-          sub: "system:serviceaccount:kagent:*"
-        acceptedTypHeaders:
-          - ""
-  portal:
-    enabled: true
-    domain: portal.gopher.example.io
-    clientIds:
-      - portal-client-id-home
-    skillsRepositories:
-      - https://github.com/example-org/agent-skills
-      - https://github.com/example-org/private-skills
-    aiChat:
-      enabled: true
-      model: example-model-large
-      provider: vertex
-      google:
-        project: example-project
-        location: example-location1
-  toolAccess:
-    agentManager:
-      enabled: true
-    additionalServers:
-      - name: example-tools
-        cluster: gopher
-        group: example
-        url: http://example-tools.agent-platform.svc:8080/mcp
-        timeout: 30
-        auth:
-          mode: forward
-      # Two servers behind one OAuth App: the client credentials Secret the authorization server names is
-      # written once, under its own name.
-      - name: example-issues
-        cluster: gopher
-        group: issues
-        url: http://example-issues.agent-platform.svc:8080/mcp
-        timeout: 120
-        toolPrefix: issues
-        auth:
-          mode: oauth
-          authorizationServer:
-            issuer: https://issues.example.com/oauth
-            authorizationEndpoint: https://issues.example.com/oauth/authorize
-            tokenEndpoint: https://issues.example.com/oauth/token
-            scopes: read
-            grantScope: subject
-            clientCredentialsSecretRef: {name: example-oauth-client, namespace: agent-platform}
-      - name: example-boards
-        cluster: gopher
-        group: boards
-        url: http://example-boards.agent-platform.svc:8080/mcp
-        timeout: 120
-        toolPrefix: boards
-        auth:
-          mode: oauth
-          authorizationServer:
-            issuer: https://issues.example.com/oauth
-            authorizationEndpoint: https://issues.example.com/oauth/authorize
-            tokenEndpoint: https://issues.example.com/oauth/token
-            scopes: read
-            grantScope: subject
-            clientCredentialsSecretRef: {name: example-oauth-client, namespace: agent-platform}
-  federation:
-    targets: []
-    hubs: []
-  chart:
-    semver: ">=4.0.0 <5.0.0"
-  muster:
-    resources:
-      requests:
-        memory: 256Mi
-      limits:
-        memory: 1Gi
-  klausGateway:
-    enabled: true
-    slack:
-      mode: events
-      channelMode: allowlist
-      channelAllowlist:
-        - CEXAMPLE00001
-    obo:
-      connectors: true
-    a2a:
-      enabled: true
-      defaultAgent: example-agent
-      saTokenAudience: kagent
-    reviews:
-      enabled: true
-      allowedCallers:
-        - system:serviceaccount:giantswarm-platform-manager:giantswarm-platform-manager
-  clusterManager:
-    enabled: true
-    networkPolicy:
-      workloadClusterFqdnPatterns:
-        - "api.*.gopher.example.io"
-      egressFqdns:
-        - matchName: registry.example.io
 secrets:
   kagent.modelKey: PLACEHOLDER-MODEL-KEY
   klausGateway.slack.bot-token: PLACEHOLDER-SLACK-BOT-TOKEN
   klausGateway.slack.signing-secret: PLACEHOLDER-SLACK-SIGNING-SECRET
-  portal.aiChat.google.credentialsJson: PLACEHOLDER-GOOGLE-CREDENTIALS-JSON
-  portal.skillsToken: PLACEHOLDER-SKILLS-TOKEN
-  toolAccess.additionalServers.example-issues.client-id: PLACEHOLDER-ISSUES-CLIENT-ID
-  toolAccess.additionalServers.example-issues.client-secret: PLACEHOLDER-ISSUES-CLIENT-SECRET
-  toolAccess.additionalServers.example-boards.client-id: PLACEHOLDER-ISSUES-CLIENT-ID
-  toolAccess.additionalServers.example-boards.client-secret: PLACEHOLDER-ISSUES-CLIENT-SECRET

@@ -172,7 +172,7 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 		byName[inst.Name] = inst
 	}
 	caps := installations.Capabilities()
-	reports := installations.InspectAll(ctx, c, selected, caps)
+	reports := reg.InspectAll(ctx, c, selected, caps)
 	out := CapabilityResult{Caller: identity.Caller(ctx), Tool: tool, Capability: def.Name, Hub: reg.Hub, DryRun: true,
 		Order: []string{}, Installations: []plan.Installation{}, PullRequests: []plan.PullRequest{}, Skipped: []Skipped{}, Commit: commitNext}
 	env := &planned{c: c, hub: hub, byName: byName, reports: map[string]installations.Report{}, inputs: map[string]map[string]any{}}

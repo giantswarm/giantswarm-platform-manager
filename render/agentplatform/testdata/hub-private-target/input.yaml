@@ -1,8 +1,9 @@
 # A Giant Swarm-owned hub with a private target reached through the tunnel and a public one:
 # the broker and the identity provider per target, the targets' MCP servers with exchange auth,
 # the credentials Secret per target, the tunnelport release with a RemoteApp per tunnelled app,
-# and the tunnel's Teleport objects in teleport-fleet, trust-bundle singleton included.
-# Invented names, placeholder values; the JWKS is a placeholder key set.
+# and the tunnel's Teleport objects in teleport-fleet, trust-bundle singleton included. The
+# broker client id is read back from the hub's patch; the JWKS is a placeholder key set.
+# Invented names, placeholder values.
 input:
   installation:
     name: gopher
@@ -12,33 +13,21 @@ input:
     private: false
     chartLine: "4"
     musterClientId: 00000000-0000-4000-8000-000000000002
-  secrets: {}
-  kagent:
-    enabled: false
-    modelKeySecret: customer-provided
-  identity: {}
-  portal:
-    enabled: false
-  toolAccess:
-    agentManager:
-      enabled: true
-  federation:
-    connectorId: giantswarm-simple-oidc
-    brokerClientId: broker-client-id-placeholder
-    targets:
-      - installation: burrow
-        baseDomain: burrow.example.io
-        private: true
-        groups: [kubernetes, prometheus, capi]
-      - installation: marmot
-        baseDomain: marmot.example.io
-        private: false
-        groups: [kubernetes, prometheus]
-    hubs: []
-    tunnel:
-      jwks: '{"keys":[{"use":"sig","kty":"RSA","kid":"example-key-id","alg":"RS256","n":"example-modulus","e":"AQAB"}]}'
-      trustBundleProvisioned: false
-      teleport:
-        clusterName: teleport.example.io
-        proxyAddr: teleport.example.io:443
-secrets: {}
+    portals: []
+    federation:
+      hubs: []
+      brokerClientId: broker-client-id-placeholder
+      targets:
+        - installation: burrow
+          baseDomain: burrow.example.io
+          private: true
+        - installation: marmot
+          baseDomain: marmot.example.io
+          private: false
+      tunnel:
+        jwks: '{"keys":[{"use":"sig","kty":"RSA","kid":"example-key-id","alg":"RS256","n":"example-modulus","e":"AQAB"}]}'
+        trustBundleProvisioned: false
+secrets:
+  kagent.modelKey: PLACEHOLDER-MODEL-KEY
+  klausGateway.slack.bot-token: PLACEHOLDER-SLACK-BOT-TOKEN
+  klausGateway.slack.signing-secret: PLACEHOLDER-SLACK-SIGNING-SECRET

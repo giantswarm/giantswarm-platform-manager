@@ -18,3 +18,11 @@ oidc:
       clientSecretRef:
         name: dex-client-mcp-capi
         key: secret
+  extraStaticClients:
+    - id: kagent
+      name: kagent-ui
+      secretRef:
+        name: dex-client-kagent
+        key: secret
+      redirectURIs:
+        - https://kagent.gopher.example.io/oauth2/callback

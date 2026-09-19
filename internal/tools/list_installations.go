@@ -91,7 +91,7 @@ func (t *Tools) listInstallations(ctx context.Context, req mcp.CallToolRequest) 
 		Caller:        identity.Caller(ctx),
 		Hub:           reg.Hub,
 		Registry:      RegistryInfo{Catalog: reg.Catalog, Portal: reg.Portal},
-		Installations: installations.InspectAll(ctx, c, selected, caps),
+		Installations: reg.InspectAll(ctx, c, selected, caps),
 		Unreadable:    []string{},
 		States:        statesInfo(),
 	}

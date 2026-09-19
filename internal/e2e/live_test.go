@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -150,7 +151,9 @@ func recordedProbes(t *testing.T, st *stack) map[string]actions.Probe {
 
 // The live path takes the ID token muster forwards and nothing else: no
 // bearer, a GitHub token, a token for another audience and an expired one
-// are refused with the challenge, before any tool runs.
+// are refused with the challenge, before any tool runs; a token for any of
+// the trusted audiences — the platform's client, the audience the live
+// registration requires — is taken.
 func TestLivePathRefusesTokensItCannotVerify(t *testing.T) {
 	st := newStack(t)
 	post := func(bearer string) *http.Response {
@@ -178,8 +181,16 @@ func TestLivePathRefusesTokensItCannotVerify(t *testing.T) {
 			t.Errorf("%s: %d %q", name, resp.StatusCode, resp.Header.Get("WWW-Authenticate"))
 		}
 	}
-	if resp := post(st.dex.token(t, liveAdmin, []string{liveAudience}, time.Hour)); resp.StatusCode != http.StatusOK {
-		t.Errorf("the forwarded token: %d", resp.StatusCode)
+	// An unlisted audience is refused with the token check's own words: the
+	// token's audiences and the trusted list, so a hub's operator sees which
+	// client the person signed in with.
+	if h := post(st.dex.token(t, liveAdmin, []string{"other-client"}, time.Hour)).Header.Get("WWW-Authenticate"); !strings.Contains(h, "audience mismatch: token audiences [other-client] not in trusted ["+liveAudience+" "+liveRequiredAudience+"]") {
+		t.Errorf("other audience: %q", h)
+	}
+	for name, aud := range map[string]string{"the platform client": liveAudience, "the required audience": liveRequiredAudience} {
+		if resp := post(st.dex.token(t, liveAdmin, []string{aud}, time.Hour)); resp.StatusCode != http.StatusOK {
+			t.Errorf("a token for %s: %d", name, resp.StatusCode)
+		}
 	}
 	if len(st.muster.seen()) != 0 {
 		t.Errorf("nothing reached muster: %+v", st.muster.seen())
@@ -296,21 +307,25 @@ func TestVerifyInstallationDriftedNamesTheObject(t *testing.T) {
 	}
 }
 
-// The live values express another value of an input than the one on record:
-// the difference names the input, the dimension differs by input, nothing
-// drifted.
+// The live values express another value of an input than the one on record
+// (a base domain other than the registry's): the difference names the input,
+// the dimension differs by input, nothing drifted.
 func TestVerifyInstallationDiffersByInput(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	enableRowanLive(t, st, st.mcpClient(t, aliceToken), kagentEnabled())
 	st.inst.edit("ConfigMap", fluxNamespace, konfiguration, func(obj map[string]any) {
 		data := obj["data"].(map[string]any)
-		data[valuesFileKey] = strings.Replace(data[valuesFileKey].(string), "  kagent:\n    enabled: true\n", "  kagent:\n    enabled: false\n", 1)
+		values, _ := data[valuesFileKey].(string)
+		if !strings.Contains(values, "  domain: rowan.acme.test\n") {
+			t.Fatalf("the live values carry no global.domain of the record:\n%s", values)
+		}
+		data[valuesFileKey] = strings.Replace(values, "  domain: rowan.acme.test\n", "  domain: rowan.elsewhere.test\n", 1)
 	})
 
 	res := verifyLive(t, st.liveClient(t, st.dex.token(t, liveAdmin, []string{liveAudience}, time.Hour)), rowan)
 	d := liveDimensions(res)["live-drift"]
-	if d.Mark != verify.DiffersByInput || len(d.Differences) != 1 || d.Differences[0].Input != kagentKey+"."+enabledKey || d.Differences[0].Path != "components.kagent.enabled" {
+	if d.Mark != verify.DiffersByInput || len(d.Differences) != 1 || d.Differences[0].Input != "installation.baseDomain" || d.Differences[0].Path != "global.domain" {
 		t.Fatalf("live-drift: %+v", d)
 	}
 	if res.Summary[verify.Drifted] != 0 || res.State != installations.StateEnabled {
@@ -378,7 +393,7 @@ func TestVerifyInstallationWaitingForTheCustomer(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	alice := st.mcpClient(t, aliceToken)
-	enableRowanLive(t, st, alice, minimalInputs(map[string]any{kagentKey: map[string]any{enabledKey: true, "modelKeySecret": "customer-provided"}}))
+	enableRowanLive(t, st, alice, minimalInputs(nil)) // rowan's organisation is not in the policy's modelKey.managed: the key is the customer's
 	st.inst.edit("ModelConfig", kagentNamespace, "default-model-config", func(obj map[string]any) {
 		obj[statusKey] = map[string]any{conditionsKey: []any{map[string]any{typeKey: "Accepted", statusKey: "False", message: "secret kagent-anthropic-key not found"}}}
 	})
@@ -427,7 +442,8 @@ func TestGetInfoReportsTheLiveSurface(t *testing.T) {
 	if err := json.Unmarshal([]byte(text), &info); err != nil {
 		t.Fatal(err)
 	}
-	if !info.Live.Configured || info.Live.ToolPrefix != tools.LiveToolPrefix || info.Live.Tool != tools.ToolVerifyInstallation || info.Live.Issuer != st.dex.issuer || info.Live.KubernetesFamily != kubernetesFamily {
+	if !info.Live.Configured || info.Live.ToolPrefix != tools.LiveToolPrefix || info.Live.Tool != tools.ToolVerifyInstallation || info.Live.Issuer != st.dex.issuer || info.Live.KubernetesFamily != kubernetesFamily ||
+		!reflect.DeepEqual(info.Live.Audiences, []string{liveAudience, liveRequiredAudience}) {
 		t.Errorf("live: %+v", info.Live)
 	}
 }

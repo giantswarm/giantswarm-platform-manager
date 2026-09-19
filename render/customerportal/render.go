@@ -64,7 +64,7 @@ const (
 	// The generated values, named so the Dex client Secret and the portal's
 	// own Secret receive the same client secret.
 	generatedSessionSecret   = "backstage-session-secret"    // #nosec G101 -- a placeholder name, not a value
-	generatedDexClientSecret = "backstage-dex-client-secret" // #nosec G101 -- a placeholder name, not a value
+	generatedDexClientSecret = "backstage-dex-client-secret" // #nosec G101 -- a placeholder name, not a value; prefixed with the installation: never shared between installations
 	generatedTelemetrySalt   = "backstage-telemetrydeck-salt"
 	// generatedPluginKeys is the plugin-to-plugin signing key pair, one
 	// name for both halves.
@@ -168,7 +168,7 @@ func (in *Input) portalFiles(r *render.Result, repo render.Repository, dir strin
 		resources = append(resources, tunnelFile)
 	}
 	r.Add(repo, dir+dexClientFile, render.Secret(render.DexClientSecretName(render.PortalDexClientID), dexNamespace, nil,
-		render.GeneratedKey(render.DexSecretKey, generatedDexClientSecret, render.Base64, 32)))
+		render.GeneratedKey(render.DexSecretKey, in.Installation.Name+"-"+generatedDexClientSecret, render.Base64, 32)))
 	resources = append(resources, dexClientFile)
 
 	ociPatch := []render.Map{{e("op", "remove"), e("path", "/spec/ref/tag")}, {e("op", "add"), e("path", "/spec/ref/semver"), e("value", in.Chart.Line)}}
@@ -213,7 +213,7 @@ func generated(name string, kind render.GeneratedKind, length int) render.Genera
 // telemetry salt and, with sentry on, the DSNs.
 func (in *Input) userSecrets(secrets map[string]string) render.File {
 	session := generated(generatedSessionSecret, render.Base64, 32)
-	client := generated(generatedDexClientSecret, render.Base64, 32)
+	client := generated(in.Installation.Name+"-"+generatedDexClientSecret, render.Base64, 32)
 	salt := generated(generatedTelemetrySalt, render.Alphanumeric, 32)
 	credentials := render.Map{e(in.Installation.Name, render.Map{e("clientID", render.PortalDexClientID), e("clientSecret", client.Placeholder)})}
 	for _, inst := range in.providerInstallations() {

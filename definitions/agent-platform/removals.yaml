@@ -12,7 +12,76 @@
 #                       and MCP servers registered on the platform (out of the definition's scope)
 #   other-definition    a developer-portal key that belongs to the customer-portal definition, which owns the
 #                       portal; this definition writes only the portal's agent-platform section
+#   migration           a value the fleet carries today that is no input of the definition: it moves to where
+#                       it belongs (the template, the policy, a workload manifest) or goes; the reason names
+#                       the migration (M12…) the empty-diff driver classifies it under
 removals:
+  # --- former inputs: migrations (giantswarm#37837) ---
+  - key: configmap:components.agent-sandbox
+    kind: migration
+    reason: M13 — the agent sandbox is no component of the definition; the one installation running it stops
+  - key: configmap:kagent.providers.anthropic.model
+    kind: migration
+    reason: M26 — the default model is the template's; an installation's override moves there or goes
+  - key: configmap:kagent.modelConfigs
+    kind: migration
+    reason: M25 — ModelConfigs are workloads registered on the platform, a manifest beside the agents
+  - key: configmap:kagent.controller.resources
+    kind: migration
+    reason: M23 — resource tuning is the chart's or the template's
+  - key: configmap:muster.resources
+    kind: migration
+    reason: M23 — resource tuning is the chart's or the template's
+  - key: configmap:kagent.kagent-tools
+    kind: migration
+    reason: M24 — the chart's bundled sample agents are workloads
+  - key: configmap:kagent.cilium-policy-agent
+    kind: migration
+    reason: M24 — the chart's bundled sample agents are workloads
+  - key: configmap:kagent.promql-agent
+    kind: migration
+    reason: M24 — the chart's bundled sample agents are workloads
+  - key: configmap:kagent.oauth2ProxyIngress
+    kind: migration
+    reason: M22 — a private installation's peer rule belongs to the template
+  - key: configmap:postgres.storage
+    kind: migration
+    reason: M17 — the platform Postgres block is the template's, by provider
+  - key: configmap:postgres.backup
+    kind: migration
+    reason: M17 — the platform Postgres block is the template's, from the record's subscription
+  - key: configmap:muster.muster.oauth.server.dex.connectorId
+    kind: migration
+    reason: M27 — the login connector pin is the template's; one installation's own pin goes there or goes
+  - key: configmap:muster.muster.oauth.server.trustedIssuers
+    kind: migration
+    reason: M15 — the template renders muster's trusted issuers (the installation's Dex, the cluster's service-account issuer) from the record
+  - key: configmap:muster.muster.oauth.server.trustedPublicRegistrationRedirectURIs
+    kind: migration
+    reason: M20 — a customer's consumers register with muster, not in the patch; where the registration lands is giantswarm/giantswarm#37876
+  - key: configmap:muster.muster.oauth.mcpClient.tokenExchange
+    kind: migration
+    reason: M16 — an identity-provider-only federation is no shape of the definition; the hub's targets come from its portal
+  - key: configmap:agent-platform-mcps.mcpServers
+    kind: migration
+    reason: M19 — servers registered with muster beyond the installation's own three are platform objects, not the patch; where they land is giantswarm/giantswarm#37876
+  - key: configmap:klausGateway.slack.channelAllowlist
+    kind: migration
+    reason: M28 — the gateway's Slack shape is the policy's; a channel allowlist is never a definition's value
+  - key: configmap:klausGateway.a2a.saToken
+    kind: migration
+    reason: M29 — the gateway's A2A shape is the policy's
+  - key: backstage:app-config:aiChat
+    kind: other-definition
+    reason: M18 — the portal's chat is the customer-portal definition's
+  - key: backstage:app-config:mcpActions
+    kind: other-definition
+    reason: M18 — the portal's chat is the customer-portal definition's
+  - key: backstage:app-config:agentPlatform.skills
+    kind: other-definition
+    reason: the portal's skill repositories are the customer-portal definition's
+
+
   # --- agent-platform configmap-values.yaml.patch ---
   - key: configmap:gitops.forbidInlineSecrets
     kind: template
@@ -29,9 +98,6 @@ removals:
   - key: configmap:agent-platform-mcps.agentgateway.oauthMode
     kind: template
     reason: equals the template's value; the edge cannot validate muster's opaque tokens, so no other value exists
-  - key: configmap:agent-platform-mcps.mcpServers
-    kind: template
-    reason: the template renders the installation's own servers; the definition writes the list only when additional servers join it
   - key: configmap:agent-platform-mcps.identityProviders
     kind: template
     reason: an empty map repeats the template; a hub's federation targets render the real entries

@@ -10,7 +10,9 @@
 #     customer-portal definitions' files, rendered at the versions pinned in
 #     render/agentplatform/testdata/consumption/charts.yaml, checked against
 #     every emitted Secret (render/README.md). Needs helm, kustomize and the
-#     network, so it is not part of `make test`.
+#     network, so it is not part of `make test`. The same job renders this
+#     repository's own chart over the test values (internal/chart), the
+#     proofs `make test` skips where helm is absent.
 #   - go-build-platformctl + upload-platformctl: the CLI from cmd/platformctl,
 #     cross-compiled for laptops and CI runners and attached to the GitHub
 #     Release of the tag next to the image and the chart the generated jobs
@@ -72,6 +74,9 @@ jobs:
       - run:
           name: Render-consumption test (the consuming charts at their pins)
           command: make test-render-consumption
+      - run:
+          name: Chart render proofs (the chart over the test values)
+          command: make test-chart
       - save_cache:
           key: go-mod-v1-{{ checksum "go.sum" }}
           paths:

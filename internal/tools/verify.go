@@ -64,7 +64,7 @@ func (t *Tools) verifyInstallation(ctx context.Context, token, name string, def 
 		return nil, err
 	}
 	hub, _ := reg.Find(reg.Hub)
-	r := installations.InspectAll(ctx, c, selected, installations.Capabilities())[0]
+	r := reg.InspectAll(ctx, c, selected, installations.Capabilities())[0]
 	if !r.Repositories.Known() {
 		return nil, fmt.Errorf("%s has no repositories on record: nothing to compare the definition against", name)
 	}
@@ -74,20 +74,19 @@ func (t *Tools) verifyInstallation(ctx context.Context, token, name string, def 
 		if err != nil {
 			return nil, err
 		}
-		for _, a := range acts {
-			recorded := a.InputsOnRecord(name)
+		// The newest Action rendered the capability: its inputs on record (a
+		// wave's entry for this installation, else its own document) — possibly
+		// none, the record and the defaults being the whole input — over the record.
+		if len(acts) > 0 {
+			recorded := acts[0].InputsOnRecord(name)
 			if recorded == nil {
-				recorded = a.Spec.Inputs
-			}
-			if recorded == nil {
-				continue
+				recorded = acts[0].Spec.Inputs
 			}
 			values, err := mergeInputs(def, r, recorded)
 			if err != nil {
 				return nil, err
 			}
-			in = verify.Inputs{Source: "action " + a.Name, Values: values}
-			break
+			in = verify.Inputs{Source: "action " + acts[0].Name, Values: values}
 		}
 	}
 	out := verify.Compare(ctx, verify.Options{Definition: def, Installation: r.Installation, Hub: hub, State: capabilityState(r, def.Name), Inputs: in, Read: readAs(c), Probes: t.d.Probes})

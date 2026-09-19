@@ -11,6 +11,14 @@ components:
     enabled: true
   cluster-manager:
     enabled: true
+  kserve-llmisvc-crd:
+    enabled: true
+  kserve-llmisvc-resources:
+    enabled: true
+  kserve-runtime-configs:
+    enabled: true
+  modelServing:
+    enabled: true
 postgres:
   enabled: true
 llmRouting:
@@ -18,58 +26,35 @@ llmRouting:
 kagent:
   providers:
     anthropic:
-      model: example-model-medium
       apiKeySecretRef: kagent-anthropic-key
       config:
         baseUrl: http://agentgateway.agent-platform.svc:8081
-  modelConfigs:
-    - name: example-large
-      displayName: Example Large
-      provider: Anthropic
-      model: example-model-large
-      apiKeySecret: kagent-anthropic-key
-      apiKeySecretKey: ANTHROPIC_API_KEY
-      baseUrl: http://agentgateway.agent-platform.svc:8081
   oauth2-proxy:
     config:
       existingSecret: kagent-oauth2-proxy-credentials
     extraArgs:
-      oidc-extra-audience: dex-k8s-authenticator,kagent,portal-client-id-home # gitleaks:allow
-  oauth2ProxyIngress:
-    additionalPeers:
-      - app: example-tunnel-agent
-        io.kubernetes.pod.namespace: example-system
+      oidc-extra-audience: dex-k8s-authenticator,kagent,backstage # gitleaks:allow
+modelServing:
+  serving:
+    runtimeClassName: nvidia
+  modelsGateway:
+    enabled: true
 muster:
-  resources:
-    requests:
-      memory: 256Mi
-    limits:
-      memory: 1Gi
   muster:
     oauth:
       mcpClient:
         postLoginRedirectAllowlist:
-          - https://portal.example.io/
+          - https://agentgateway.gopher.example.io/connectors/complete
+          - https://portal.gopher.example.io/
       server:
         existingSecret: muster-oauth-credentials
         storage:
           valkey:
             existingSecret: muster-valkey-credentials
-        dex:
-          connectorId: giantswarm-github
         trustedAudiences:
           - dex-k8s-authenticator
           - kagent
-          - portal-client-id-home
-        trustedIssuers:
-          - issuer: https://irsa.gopher.example.io
-            jwksUrl: https://irsa.gopher.example.io/keys.json
-            allowedAudiences:
-              - https://muster.gopher.example.io/mcp
-            acceptedTypHeaders:
-              - ""
-            allowedClaims:
-              sub: system:serviceaccount:kagent:*
+          - backstage
 gateway:
   jwksEgress:
     enabled: true
@@ -89,72 +74,12 @@ extraObjects:
           kind: Service
           name: dex
 agent-platform-mcps:
-  mcpServers:
-    - cluster: gopher
-      group: kubernetes
-      url: http://mcp-kubernetes.mcp-kubernetes.svc:8080/mcp
-      timeout: 30
-      auth:
-        mode: forward
-    - cluster: gopher
-      group: prometheus
-      url: http://mcp-prometheus.mcp-prometheus.svc:8080/mcp
-      timeout: 30
-      auth:
-        mode: forward
-    - cluster: gopher
-      group: capi
-      url: http://mcp-capi.mcp-capi.svc:8080/mcp
-      timeout: 30
-      auth:
-        mode: forward
-    - name: example-tools
-      cluster: gopher
-      group: example
-      url: http://example-tools.agent-platform.svc:8080/mcp
-      timeout: 30
-      auth:
-        mode: forward
-    - name: example-issues
-      cluster: gopher
-      group: issues
-      url: http://example-issues.agent-platform.svc:8080/mcp
-      timeout: 120
-      toolPrefix: issues
-      auth:
-        mode: oauth
-        authorizationServer:
-          issuer: https://issues.example.com/oauth
-          authorizationEndpoint: https://issues.example.com/oauth/authorize
-          tokenEndpoint: https://issues.example.com/oauth/token
-          scopes: read
-          grantScope: subject
-          clientCredentialsSecretRef:
-            name: example-oauth-client
-            namespace: agent-platform
-    - name: example-boards
-      cluster: gopher
-      group: boards
-      url: http://example-boards.agent-platform.svc:8080/mcp
-      timeout: 120
-      toolPrefix: boards
-      auth:
-        mode: oauth
-        authorizationServer:
-          issuer: https://issues.example.com/oauth
-          authorizationEndpoint: https://issues.example.com/oauth/authorize
-          tokenEndpoint: https://issues.example.com/oauth/token
-          scopes: read
-          grantScope: subject
-          clientCredentialsSecretRef:
-            name: example-oauth-client
-            namespace: agent-platform
   agentgateway:
     jwt:
       extraProviders:
         - issuer: https://dex.gopher.example.io
           audiences:
-            - portal-client-id-home
+            - backstage
           jwks:
             remote:
               backendRef:
@@ -174,9 +99,7 @@ klausGateway:
     mode: events
     secretName: klaus-gateway-slack-credentials
     dmMode: serve
-    channelMode: allowlist
-    channelAllowlist:
-      - CEXAMPLE00001
+    channelMode: all
   obo:
     enabled: true
     connectors:
@@ -190,14 +113,13 @@ klausGateway:
       size: 64Mi
   a2a:
     enabled: true
-    defaultAgent: example-agent
-    saToken:
-      enabled: true
-      audience: kagent
+    defaultAgent: swarmgeist
   reviews:
     enabled: true
+    audience: klaus-gateway
     allowedCallers:
-      - system:serviceaccount:giantswarm-platform-manager:giantswarm-platform-manager
+      - system:serviceaccount:agent-platform:giantswarm-repo-manager
+      - system:serviceaccount:marge:marge-bumblebee-sweep
 cluster-manager:
   installation:
     name: gopher
@@ -205,10 +127,11 @@ clusterManager:
   networkPolicy:
     workloadClusters:
       fqdns:
-        - matchPattern: api.*.gopher.example.io
+        - matchPattern: '*.*.elb.amazonaws.com'
     egress:
       fqdns:
-        - matchName: registry.example.io
+        - matchName: gsoci.azurecr.io
+        - matchPattern: '*.blob.core.windows.net'
 valkey:
   valkey:
     auth:

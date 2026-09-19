@@ -37,6 +37,10 @@ helm-lint: ## Lint the chart with the default, the oauth and the lab values.
 helm-template: ## Render the chart with defaults.
 	helm template $(BINARY) $(CHART_DIR)
 
+.PHONY: test-chart
+test-chart: ## The chart's render proofs over the test values (internal/chart; needs helm on PATH, skipped without it).
+	go test -count=1 -v ./internal/chart/...
+
 .PHONY: helm-schema
 helm-schema: ## Regenerate values.schema.json (needs helm-values-schema-json and schemalint on PATH; the pre-commit hook checks the result).
 	helm-values-schema-json --config $(CHART_DIR)/.schema.yaml

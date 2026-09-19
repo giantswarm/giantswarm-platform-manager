@@ -47,7 +47,7 @@ type tunnelledApp struct {
 // group's MCP server and the API server the broker's tokens are for.
 func (t Target) tunnelledApps() []tunnelledApp {
 	apps := []tunnelledApp{{"dex", 5556}}
-	for _, g := range t.Groups {
+	for _, g := range t.groups() {
 		apps = append(apps, tunnelledApp{"mcp-" + g, 8080})
 	}
 	return append(apps, tunnelledApp{"kubernetes", 6443})
@@ -100,22 +100,22 @@ func (in *Input) brokerValues() render.Map {
 		// SSRF guard would refuse it.
 		m = append(m, e("allowPrivateIP", true))
 	}
-	names := make([]string, 0, len(in.Federation.Targets))
+	names := make([]string, 0, len(in.Installation.Federation.Targets))
 	targets := render.Map{}
-	for _, t := range in.Federation.Targets {
+	for _, t := range in.Installation.Federation.Targets {
 		names = append(names, t.Installation)
 		entry := render.Map{e("dexTokenEndpoint", t.dexTokenEndpoint())}
 		if t.Private {
 			entry = append(entry, e("expectedIssuer", t.issuer()))
 		}
-		entry = append(entry, e("connectorId", in.Federation.ConnectorID), e("scopes", brokerScopes),
+		entry = append(entry, e("connectorId", in.Connector), e("scopes", brokerScopes),
 			e("clientCredentialsSecretRef", render.Map{e("name", t.credentialsSecret())}))
 		targets = append(targets, e(t.Installation, entry))
 	}
 	return append(m,
-		e("brokerClients", render.Map{e(in.Federation.BrokerClientID,
+		e("brokerClients", render.Map{e(in.Installation.Federation.BrokerClientID,
 			render.Map{e("clientCredentialsSecretRef", render.Map{e("name", brokerClients)})})}),
-		e("clientAudiences", render.Map{e(in.Federation.BrokerClientID, names)}),
+		e("clientAudiences", render.Map{e(in.Installation.Federation.BrokerClientID, names)}),
 		e("targets", targets))
 }
 
@@ -130,12 +130,12 @@ func extraCaFile() render.Map {
 // each target's Dex that the targets' MCP servers authenticate through.
 func (in *Input) identityProviders() render.Map {
 	providers := render.Map{}
-	for _, t := range in.Federation.Targets {
+	for _, t := range in.Installation.Federation.Targets {
 		entry := render.Map{e("tokenEndpoint", t.dexTokenEndpoint())}
 		if t.Private {
 			entry = append(entry, e("expectedIssuer", t.issuer()))
 		}
-		entry = append(entry, e("connectorId", in.Federation.ConnectorID), e("scopes", providerScopes),
+		entry = append(entry, e("connectorId", in.Connector), e("scopes", providerScopes),
 			e("credentialsSecret", render.Map{e("name", t.credentialsSecret()),
 				e("clientIdKey", "client-id"), e("clientSecretKey", "client-secret")}))
 		providers = append(providers, e(t.Installation, entry))
@@ -147,8 +147,8 @@ func (in *Input) identityProviders() render.Map {
 // by the exchange at its target's provider.
 func (in *Input) targetServers() []MCPServer {
 	var list []MCPServer
-	for _, t := range in.Federation.Targets {
-		for _, g := range t.Groups {
+	for _, t := range in.Installation.Federation.Targets {
+		for _, g := range t.groups() {
 			list = append(list, MCPServer{Cluster: t.Installation, Group: g, URL: t.serverURL(g), Timeout: 30,
 				Auth: MCPAuth{Mode: "exchange", Provider: t.Installation}})
 		}
@@ -162,9 +162,9 @@ func (in *Input) hubSecrets(add func(file string, f render.File)) {
 	hub := in.Installation.Name
 	add(brokerClients+".yaml", render.Secret(brokerClients, platformNamespace,
 		map[string]string{"muster.giantswarm.io/type": "broker-client-credentials"},
-		render.ValueKey("client-id", in.Federation.BrokerClientID),
-		render.GeneratedKey("client-secret", "muster-broker-client-secret", render.Base64, 32)))
-	for _, t := range in.Federation.Targets {
+		render.ValueKey("client-id", in.Installation.Federation.BrokerClientID),
+		in.generated("client-secret", "muster-broker-client-secret", render.Base64, 32)))
+	for _, t := range in.Installation.Federation.Targets {
 		add(t.credentialsSecret()+".yaml", render.Secret(t.credentialsSecret(), platformNamespace,
 			map[string]string{"muster.giantswarm.io/management-cluster": t.Installation, "muster.giantswarm.io/type": "token-exchange-credentials"},
 			render.ValueKey("client-id", hubClient(hub)),
@@ -200,7 +200,7 @@ func (in *Input) tunnelExtras(r *render.Result, repo render.Repository, dir stri
 				e("imagePullSecret", ""),
 				// Where the trust-bundle Secret and ServiceAccount are created; the trust-bundle token admits exactly this ServiceAccount.
 				e("installNamespace", platformNamespace),
-				e("teleport", render.Map{e("clusterName", in.Federation.Tunnel.Teleport.ClusterName), e("proxyAddr", in.Federation.Tunnel.Teleport.ProxyAddr)}),
+				e("teleport", render.Map{e("clusterName", in.Teleport.ClusterName), e("proxyAddr", in.Teleport.ProxyAddr)}),
 				// Mimir loads a rule only with its tenant label.
 				e("monitoring", render.Map{e("prometheusRule", render.Map{e("labels", render.Map{e("observability.giantswarm.io/tenant", "giantswarm")})})}),
 				e("trustBundle", render.Map{e("enabled", true), e("secretName", spiffeBundle), e("tokenName", trustBundleTokenName(in.Installation.Name))}),
@@ -208,7 +208,7 @@ func (in *Input) tunnelExtras(r *render.Result, repo render.Repository, dir stri
 		}),
 	}))
 	var docs [][]byte
-	for _, t := range in.Federation.Targets {
+	for _, t := range in.Installation.Federation.Targets {
 		if !t.Private {
 			continue
 		}

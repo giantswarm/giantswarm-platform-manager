@@ -15,26 +15,8 @@ data:
       kagent:
         installations:
           gopher: {}
-      skills:
-        repositories:
-          - https://github.com/example-org/agent-skills
-          - https://github.com/example-org/private-skills
     muster:
       installations:
         - name: gopher
           url: https://muster.gopher.example.io/mcp
           authProvider: oidc-gopher
-    aiChat:
-      model: example-model-large
-      anthropic:
-        provider: vertex
-      google:
-        project: example-project
-        location: example-location1
-        keyFilename: /app/google/credentials.json
-      mcp:
-        - name: muster
-          url: https://muster.gopher.example.io/mcp
-          authProvider: oidc-gopher
-    mcpActions:
-      namespacedToolNames: false

@@ -49,8 +49,7 @@ func dryRun(t *testing.T, c *client.Client, tool string, args map[string]any) (t
 // minimalInputs are the choices the definition's schema requires and never
 // chooses for the person: nothing enabled, no federation.
 func minimalInputs(over map[string]any) map[string]any {
-	in := map[string]any{"secrets": map[string]any{}, kagentKey: map[string]any{enabledKey: false}, portalKey: map[string]any{enabledKey: false},
-		"toolAccess": map[string]any{"agentManager": map[string]any{enabledKey: false}}, "federation": map[string]any{"targets": []any{}, "hubs": []any{}}}
+	in := map[string]any{}
 	for k, v := range over {
 		in[k] = v
 	}
@@ -79,8 +78,8 @@ func TestEnableCapabilityDryRunRendersOneInstallation(t *testing.T) {
 	if isErr {
 		t.Fatal(text)
 	}
-	if bare := findPlan(t, out, rowan); !strings.Contains(bare.Refused, "'kagent'") || len(bare.Files) != 0 {
-		t.Fatalf("without the choices the schema requires: refused %q, files %d", bare.Refused, len(bare.Files))
+	if bare := findPlan(t, out, rowan); bare.Refused != "" || len(bare.Files) == 0 {
+		t.Fatalf("the record alone renders (the one choice defaults): refused %q, files %d", bare.Refused, len(bare.Files))
 	}
 	out, text, isErr = dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(nil)})
 	if isErr {
@@ -209,12 +208,12 @@ func TestEnableCapabilityDryRunTypedInputs(t *testing.T) {
 	fixtures(st.ghs)
 	c := st.mcpClient(t, aliceToken)
 	out, text, isErr := dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan,
-		tools.ArgInputs: minimalInputs(map[string]any{"installation": map[string]any{"provider": capz}, kagentKey: map[string]any{enabledKey: true, modelKeySecretKey: managedModelKey}})})
+		tools.ArgInputs: minimalInputs(map[string]any{argInstallation: map[string]any{"provider": capz}})})
 	if isErr {
 		t.Fatal(text)
 	}
 	p := findPlan(t, out, rowan)
-	if p.Refused != "" || p.Inputs["installation"].(map[string]any)["provider"] != capz || strings.Join(p.SuppliedSecrets, ",") != "kagent.modelKey" {
+	if p.Refused != "" || p.Inputs["installation"].(map[string]any)["provider"] != capz || strings.Join(p.SuppliedSecrets, ",") != suppliedFields {
 		t.Fatalf("plan: refused %q inputs %v supplied %v", p.Refused, p.Inputs["installation"], p.SuppliedSecrets)
 	}
 	var marker, kagent bool
@@ -224,23 +223,24 @@ func TestEnableCapabilityDryRunTypedInputs(t *testing.T) {
 	for _, d := range p.DexClients {
 		kagent = kagent || (d.ID == kagentKey && d.SecretRef == "dex-client-kagent" && len(d.RedirectURIs) == 1 && strings.HasSuffix(d.RedirectURIs[0], "/oauth2/callback"))
 	}
-	if !marker || !kagent {
+	// A customer's model key is theirs: no supplied value, no marker; the kagent client is rendered all the same.
+	if marker || !kagent {
 		t.Fatalf("marker %v, kagent client %v: %+v", marker, kagent, p.DexClients)
 	}
 
-	out, text, isErr = dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(map[string]any{kagentKey: map[string]any{enabledKey: false, "bogus": true}})})
+	out, text, isErr = dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(map[string]any{"modelServing": map[string]any{enabledKey: false, "bogus": true}})})
 	if isErr {
 		t.Fatal(text)
 	}
 	if p := findPlan(t, out, rowan); !strings.Contains(p.Refused, "bogus") || len(p.Files) != 0 || len(out.PullRequests) != 0 {
 		t.Fatalf("unknown key: refused %q files %d prs %d", p.Refused, len(p.Files), len(out.PullRequests))
 	}
-	out, text, isErr = dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(map[string]any{"federation": map[string]any{"targets": []any{map[string]any{"installation": alder, "baseDomain": alder + ".example", "private": false, "groups": []any{"kubernetes"}}}, "hubs": []any{}}})})
+	out, text, isErr = dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(map[string]any{argInstallation: map[string]any{"federation": map[string]any{"targets": []any{map[string]any{"installation": alder, "baseDomain": alder + ".example", "private": false}}, "hubs": []any{}}}})})
 	if isErr {
 		t.Fatal(text)
 	}
-	if p := findPlan(t, out, rowan); !strings.Contains(p.Refused, "federation.connectorId") || len(p.Files) != 0 {
-		t.Fatalf("hub without a connector: refused %q files %d", p.Refused, len(p.Files))
+	if p := findPlan(t, out, rowan); !strings.Contains(p.Refused, "federation.brokerClientId") || len(p.Files) != 0 {
+		t.Fatalf("hub without a broker client on record: refused %q files %d", p.Refused, len(p.Files))
 	}
 	if text, isErr := call(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgDryRun: true}); !isErr || !strings.Contains(text, "needs installation") {
 		t.Fatalf("without an installation: %s", text)
@@ -268,7 +268,8 @@ func TestReconcileCapabilityDryRunOverTheSet(t *testing.T) {
 		t.Fatalf("skipped: %+v", out.Skipped)
 	}
 	hazel := findPlan(t, out, hub)
-	if hazel.Diff[plan.ChangeUpdate] != 1 || hazel.Diff[plan.ChangeUnchanged] != 1 || hazel.Diff[plan.ChangeCreate] != len(hazel.Files)-2 || hazel.Files[0].Content != "" {
+	// The updates: the hub's patch and its portal tree's kustomization, which the platform's Component joins.
+	if hazel.Diff[plan.ChangeUpdate] != 2 || hazel.Diff[plan.ChangeUnchanged] != 1 || hazel.Diff[plan.ChangeCreate] != len(hazel.Files)-3 || hazel.Files[0].Content != "" {
 		t.Fatalf("hazel diff %v, first file %+v", hazel.Diff, hazel.Files[0])
 	}
 	seen := map[string]int{}

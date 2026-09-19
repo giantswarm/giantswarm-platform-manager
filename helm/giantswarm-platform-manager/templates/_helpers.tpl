@@ -86,6 +86,15 @@ with the first and OAuth. Renders "true" or nothing.
 {{- end }}
 
 {{/*
+The audiences the live surface trusts, comma-separated: live.audiences and
+the live registration's requiredAudiences, in that order, without duplicates.
+Empty when neither names one.
+*/}}
+{{- define "giantswarm-platform-manager.liveAudiences" -}}
+{{- concat (default (list) .Values.live.audiences) (default (list) .Values.muster.liveServer.requiredAudiences) | uniq | join "," -}}
+{{- end }}
+
+{{/*
 muster's own MCP endpoint the live reads loop back to: live.muster.url, else
 muster's Service in the release namespace.
 */}}

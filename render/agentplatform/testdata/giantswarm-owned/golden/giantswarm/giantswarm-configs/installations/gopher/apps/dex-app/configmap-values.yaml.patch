@@ -20,7 +20,7 @@ oidc:
         key: secret
     dexK8SAuthenticator:
       trustedPeers:
-        - portal-client-id-home
+        - backstage
   extraStaticClients:
     - id: kagent
       name: kagent-ui
