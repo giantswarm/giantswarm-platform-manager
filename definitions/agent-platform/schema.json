@@ -47,7 +47,7 @@
               "type": "array",
               "x-source": "registry",
               "x-feature": "federation",
-              "x-renders": ["configmap:muster.muster.oauth.server.tokenExchangeBroker", "configmap:agent-platform-mcps.identityProviders.<name>", "configmap:agent-platform-mcps.mcpServers", "configmap:muster.muster.extraCaFile", "extras:agent-platform/secrets/muster-broker-client-credentials.yaml", "extras:agent-platform/secrets/<name>-token-exchange-credentials.yaml", "extras:agent-platform/tunnelport/*", "teleport:*"],
+              "x-renders": ["configmap:muster.muster.oauth.server.tokenExchangeBroker", "configmap:agent-platform-mcps.identityProviders.<name>", "configmap:agent-platform-mcps.mcpServers", "configmap:muster.muster.extraCaFile", "extras:agent-platform/secrets/muster-broker-client-credentials.yaml", "extras:agent-platform/secrets/<name>-token-exchange-credentials.yaml", "extras:agent-platform/tunnelport/*", "teleport:values:tunnelport.tunnels[<app>-<name>]", "teleport:values:tunnelport.consumers.<hub>", "teleport:values:tunnelport.trustBundle.tokens[tunnelport-trust-bundle-token-<hub>]"],
               "description": "Installations this one brokers for: the portal whose cluster-token broker is this installation's muster lists them. Each target's own three MCP servers (kubernetes, prometheus, capi) join muster's list with exchange auth; a private target is reached through the tunnel.",
               "items": {
                 "type": "object",
@@ -56,21 +56,11 @@
                 "properties": {
                   "installation": {"type": "string", "minLength": 1},
                   "baseDomain": {"type": "string", "minLength": 1},
-                  "private": {"type": "boolean", "description": "The target's record: reached through Teleport, so this hub tunnels to it."}
+                  "private": {"type": "boolean", "description": "The target's record: reached through Teleport, so this hub tunnels to it — a RemoteApp per tunnelled app on this hub and the app's tunnel entry among this hub's entries of teleport-fleet's tunnelport values; the tunnel's bots join by this hub's published service-account issuer (irsa.<base domain> on capa; another provider refuses a private target)."}
                 }
               }
             },
-            "brokerClientId": {"type": "string", "x-source": "generated", "x-feature": "federation", "x-renders": ["configmap:muster.muster.oauth.server.tokenExchangeBroker.brokerClients.<id>", "configmap:muster.muster.oauth.server.tokenExchangeBroker.clientAudiences.<id>", "extras:agent-platform/secrets/muster-broker-client-credentials.yaml"], "description": "Dex client id of the hub's token-exchange broker client; registered once, read back from the hub's patch afterwards. Required on a hub."},
-            "tunnel": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["jwks", "trustBundleProvisioned"],
-              "description": "Live facts of a hub with a private target.",
-              "properties": {
-                "jwks": {"type": "string", "minLength": 2, "x-source": "registry", "x-feature": "federation", "x-renders": ["teleport:ProvisionToken.spec.kubernetes.static_jwks.jwks"], "description": "This hub cluster's service-account signing keys (GET /openid/v1/jwks on the hub), the JSON document verbatim. Public verification material, not a secret."},
-                "trustBundleProvisioned": {"type": "boolean", "x-source": "registry", "x-feature": "federation", "x-renders": ["teleport:tunnelport-trust-bundle-<hub>"], "description": "Whether this hub's trust-bundle singleton already exists in teleport-fleet; false renders it."}
-              }
-            }
+            "brokerClientId": {"type": "string", "x-source": "generated", "x-feature": "federation", "x-renders": ["configmap:muster.muster.oauth.server.tokenExchangeBroker.brokerClients.<id>", "configmap:muster.muster.oauth.server.tokenExchangeBroker.clientAudiences.<id>", "extras:agent-platform/secrets/muster-broker-client-credentials.yaml"], "description": "Dex client id of the hub's token-exchange broker client; registered once, read back from the hub's patch afterwards. Required on a hub."}
           }
         }
       }

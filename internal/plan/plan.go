@@ -45,9 +45,9 @@ type File struct {
 	// Content is the rendered file, plaintext with GENERATED(<name>) and
 	// SUPPLIED(<field>) markers where the commit step puts values — or, for
 	// a file other owners write into (a kustomization the includes land in
-	// or the platform writes, the dex-app configmap patch), the file as the
-	// commit step writes it, with their part kept; omitted when the caller
-	// asked for paths only.
+	// or the platform writes, the dex-app configmap patch, teleport-fleet's
+	// tunnelport values), the file as the commit step writes it, with their
+	// part kept; omitted when the caller asked for paths only.
 	Content string `json:"content,omitempty"`
 	// Generated names the values the commit step generates into this file.
 	Generated []string `json:"generated,omitempty"`
@@ -57,12 +57,15 @@ type File struct {
 	Error string `json:"error,omitempty"`
 }
 
-// Kept is one entry of a file the platform writes that another owner carries;
-// it stays, after the platform's. In a kustomization.yaml List is resources or
-// components and Entry the entry. In the dex-app configmap patch List is the
-// mapping the key is kept in (empty for the file's top level, oidc,
+// Kept is one entry of a file with several owners that another owner carries;
+// it stays. In a kustomization.yaml List is resources or components and Entry
+// the entry, kept after the platform's. In the dex-app configmap patch List is
+// the mapping the key is kept in (empty for the file's top level, oidc,
 // oidc.staticClients) and Entry the key — or List is oidc.extraStaticClients
-// and Entry the id of a client no definition declares.
+// and Entry the id of a client no definition declares. In teleport-fleet's
+// tunnelport values List is tunnelport.consumers, tunnelport.trustBundle.tokens
+// or tunnelport.tunnels and Entry the consumer or the entry's name, kept in
+// place: there the platform's entries are the ones edited in.
 type Kept struct {
 	List  string `json:"list"`
 	Entry string `json:"entry"`
@@ -76,18 +79,33 @@ const kustomizationFile = "kustomization.yaml"
 // share.
 const dexPatchFile = "/apps/dex-app/configmap-values.yaml.patch"
 
-// keeper is how a file other owners write into keeps their part when the
-// platform writes it: a kustomization's lists, the dex patch's keys and
-// clients; nil for a file the definition owns whole.
-func keeper(path string) func(rendered, current []byte) ([]byte, []Kept, error) {
+// shared is how a file with several owners is written: edit merges the
+// definition's render with the file on record and names what it kept. theirs
+// marks a file the definition edits entries into and never writes whole
+// (teleport-fleet's tunnelport values): absent on record, it is not created.
+type shared struct {
+	edit   func(rendered, current []byte) ([]byte, []Kept, error)
+	theirs bool
+}
+
+// sharedFile is the shared file at path — a kustomization's lists, the dex
+// patch's keys and clients, the tunnelport values' entries — or nil for a file
+// the definition owns whole.
+func sharedFile(path string) *shared {
 	switch {
 	case filepath.Base(path) == kustomizationFile:
-		return keep
+		return &shared{edit: keep}
 	case strings.HasSuffix(path, dexPatchFile):
-		return keepDexPatch
+		return &shared{edit: keepDexPatch}
+	case path == tunnelportValuesFile:
+		return &shared{edit: keepTunnelportValues, theirs: true}
 	}
 	return nil
 }
+
+// Shared says whether path is a file with several owners, written as the plan
+// writes it: its content in the plan is never the render's bytes alone.
+func Shared(path string) bool { return sharedFile(path) != nil }
 
 // GeneratedSecret is one value the commit step generates, by name only.
 type GeneratedSecret struct {
@@ -244,12 +262,17 @@ func Build(ctx context.Context, opts Options) Installation {
 			}
 			content := string(f.Content)
 			current, err := opts.Read(ctx, target, path)
-			if k := keeper(path); err == nil && k != nil {
-				edited, kept, kerr := k(f.Content, []byte(current))
-				if kerr != nil {
-					err = fmt.Errorf("%s is on record but takes no entry: %w", path, kerr)
-				} else {
-					content, pf.Kept = string(edited), kept
+			if s := sharedFile(path); s != nil {
+				switch {
+				case err == nil:
+					edited, kept, kerr := s.edit(f.Content, []byte(current))
+					if kerr != nil {
+						err = fmt.Errorf("%s is on record but takes no entry: %w", path, kerr)
+					} else {
+						content, pf.Kept = string(edited), kept
+					}
+				case s.theirs && errors.Is(err, gh.ErrNotFound):
+					err = errors.New("absent: a file other owners write is not created here")
 				}
 			}
 			if opts.Content {

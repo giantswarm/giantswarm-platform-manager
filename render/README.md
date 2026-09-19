@@ -45,17 +45,27 @@ and a credentials Secret per target whose generated client secret is named after
 Dex-side copy, so the two filesets agree on the value they share. A private target adds the tunnel:
 the tunnelport release and a RemoteApp per tunnelled app (the target's Dex, each federated group's MCP
 server, the API server) under the hub's `extras/agent-platform/tunnelport/`, muster's `extraCaFile`
-trust in the SPIFFE bundle, and in `giantswarm/teleport-fleet` the tunnel's Teleport objects as
-operator CRDs (`kubernetes/envs/prod/templates/tunnelport/<hub>/`): per app a `TeleportRoleV7` pinned
-to the one Teleport app, its `TeleportBotV1`, a `TeleportProvisionToken` with the kubernetes join and
-the hub's JWKS admitting the RemoteApp's ServiceAccount, and the `TeleportWorkloadIdentityV1` whose
-SANs are templated off the join attributes; plus the hub's trust-bundle singleton where
-`federation.tunnel.trustBundleProvisioned` is false. The Teleport rendering (`teleport.go` and the
-teleport-fleet subtree of the goldens) is co-owned by Shield in `CODEOWNERS`.
+trust in the SPIFFE bundle, and in `giantswarm/teleport-fleet` the hub's entries of the tunnelport
+values (`kubernetes/envs/prod/values.yaml`, read by the fleet's `templates/tunnelport.yaml`, which
+renders every tunnel's Teleport objects): the hub as a consumer (`installNamespace: agent-platform`,
+`issuer: https://irsa.<hub base domain>` — the oidc join by the hub's published service-account
+issuer, which capa publishes; a hub whose provider publishes none the definition knows refuses a
+private target), the hub's trust-bundle token (`tunnelport-trust-bundle-token-<hub>`, the one its
+tunnelport release names) and one tunnel per tunnelled app (`name: <app>-<target>`, `appLabels`
+pinning the app on `app`, `cluster` and the fleet's Teleport tenancy label `customer: giantswarm`,
+one token for this hub; the SVIDs' DNS SANs are the template's, templated off the join attributes).
+The values file has several
+owners: the definition renders its entries as a values document of their own (the golden) and the
+plan edits them into the file on record — an entry replaces the one of its name or is appended,
+every other consumer, token and tunnel stays and is named `kept` — and never creates the file:
+without the template on record its values mean nothing, so a values file without `tunnelport` is
+`unknown`, which refuses the commit. The trust-bundle singleton (bot, role, workload identity) is
+the template's. The Teleport rendering (`teleport.go` and the teleport-fleet subtree of the goldens)
+is co-owned by Shield in `CODEOWNERS`.
 
 The golden filesets under `render/agentplatform/testdata/<shape>/golden/` are the reference output for
-a public customer, a Giant Swarm-owned installation, a hub with a private target (tunnel and Teleport
-outputs) and a multi-cluster customer with one aggregator (invented names, placeholder values) and are
+a public customer, a Giant Swarm-owned installation, a hub with a private target (tunnel and tunnelport
+values) and a multi-cluster customer with one aggregator (invented names, placeholder values) and are
 diffed on every pull request; `go test ./render/... -update` rewrites them after an intended change.
 
 ## Probes and customer actions
