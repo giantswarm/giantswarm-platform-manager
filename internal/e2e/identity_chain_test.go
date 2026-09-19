@@ -119,7 +119,7 @@ func newStack(t *testing.T) *stack {
 		dyn: dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{actions.GVR: actions.Kind + "List"}),
 		dex: newFakeDex(t), inst: newFakeInstallation()}
 	st.muster = newFakeMuster(t, st.inst, rowan)
-	lc, err := live.New(live.Config{Path: livePath, Issuer: st.dex.issuer, Audience: liveAudience, JWKSURL: st.dex.issuer + "/keys", AllowPrivateIPJWKS: true, CAFile: st.dex.caFile,
+	lc, err := live.New(live.Config{Path: livePath, Issuer: st.dex.issuer, Audiences: []string{liveAudience, liveRequiredAudience}, JWKSURL: st.dex.issuer + "/keys", AllowPrivateIPJWKS: true, CAFile: st.dex.caFile,
 		MusterURL: st.muster.URL + "/mcp", KubernetesFamily: kubernetesFamily, KubernetesInstanceArg: instanceArg, Version: testVersion}, log)
 	if err != nil {
 		t.Fatal(err)

@@ -40,8 +40,8 @@ type options struct {
 	oauthEnabled                           bool
 	oauthBaseURL, oauthAuthorizationServer string
 
-	liveEnabled, liveAllowPrivateIPJWKS                                                                                     bool
-	livePath, liveIssuer, liveAudience, liveJWKSURL, liveCAFile, musterURL, liveKubernetesFamily, liveKubernetesInstanceArg string
+	liveEnabled, liveAllowPrivateIPJWKS                                                                                      bool
+	livePath, liveIssuer, liveAudiences, liveJWKSURL, liveCAFile, musterURL, liveKubernetesFamily, liveKubernetesInstanceArg string
 }
 
 func parseFlags(args []string) (*options, error) {
@@ -65,7 +65,7 @@ func parseFlags(args []string) (*options, error) {
 	f.BoolVar(&o.liveEnabled, "enable-live", envBool("LIVE_ENABLED"), "Serve the live surface: a second MCP endpoint muster forwards the person's own ID token to (MCPServer auth.forwardToken), with verify_installation reading an installation through muster as the person (LIVE_ENABLED)")
 	f.StringVar(&o.livePath, "live-path", envOr("LIVE_PATH", "/mcp/live"), "Path of the live MCP endpoint (LIVE_PATH)")
 	f.StringVar(&o.liveIssuer, "live-issuer", envOr("LIVE_ISSUER", ""), "Issuer of the forwarded tokens: the platform identity provider (LIVE_ISSUER)")
-	f.StringVar(&o.liveAudience, "live-audience", envOr("LIVE_AUDIENCE", ""), "Audience every forwarded token carries: the platform's OAuth client (LIVE_AUDIENCE)")
+	f.StringVar(&o.liveAudiences, "live-audiences", envOr("LIVE_AUDIENCES", ""), "Audiences a forwarded token may carry, comma-separated: the OAuth clients people sign in with — the platform's own, a portal's — and the audiences the live registration requires; a token is accepted when one of its audiences is listed (LIVE_AUDIENCES)")
 	f.StringVar(&o.liveJWKSURL, "live-jwks-url", envOr("LIVE_JWKS_URL", ""), "The issuer's key set; empty reads it from the issuer's discovery document (LIVE_JWKS_URL)")
 	f.BoolVar(&o.liveAllowPrivateIPJWKS, "live-allow-private-ip-jwks", envBool("LIVE_ALLOW_PRIVATE_IP_JWKS"), "Let the issuer or its key set resolve to a private address, an in-cluster identity provider (LIVE_ALLOW_PRIVATE_IP_JWKS)")
 	f.StringVar(&o.liveCAFile, "live-ca-file", envOr("LIVE_CA_FILE", ""), "PEM bundle the issuer's certificate chains to; empty is the system trust (LIVE_CA_FILE)")
@@ -112,7 +112,7 @@ func run(ctx context.Context, o *options, log *slog.Logger) error {
 		deps.AuthorizationServer = o.oauthAuthorizationServer
 	}
 	if o.liveEnabled {
-		lc, err := live.New(live.Config{Path: o.livePath, Issuer: o.liveIssuer, Audience: o.liveAudience, JWKSURL: o.liveJWKSURL, AllowPrivateIPJWKS: o.liveAllowPrivateIPJWKS,
+		lc, err := live.New(live.Config{Path: o.livePath, Issuer: o.liveIssuer, Audiences: live.ParseAudiences(o.liveAudiences), JWKSURL: o.liveJWKSURL, AllowPrivateIPJWKS: o.liveAllowPrivateIPJWKS,
 			CAFile: o.liveCAFile, MusterURL: o.musterURL, KubernetesFamily: o.liveKubernetesFamily, KubernetesInstanceArg: o.liveKubernetesInstanceArg, Version: deps.Version}, log)
 		if err != nil {
 			return err

@@ -3,7 +3,7 @@ giantswarm-platform-manager is running.
   Health : http://{{ include "giantswarm-platform-manager.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/healthz
   MCP    : {{ include "giantswarm-platform-manager.serviceURL" . }}{{ .Values.mcp.path }}{{ if .Values.oauth.enabled }} (bearer: the person's user token through the App {{ .Values.muster.mcpServer.auth.authorizationServer.issuer }}){{ end }}
 {{- if include "giantswarm-platform-manager.liveEnabled" . }}
-  Live   : {{ include "giantswarm-platform-manager.serviceURL" . }}{{ .Values.live.path }} (bearer: the person's ID token muster forwards; issuer {{ .Values.live.issuer }}, audience {{ .Values.live.audience }}; loops back to {{ include "giantswarm-platform-manager.musterURL" . }})
+  Live   : {{ include "giantswarm-platform-manager.serviceURL" . }}{{ .Values.live.path }} (bearer: the person's ID token muster forwards; issuer {{ .Values.live.issuer }}, audiences {{ include "giantswarm-platform-manager.liveAudiences" . }}; loops back to {{ include "giantswarm-platform-manager.musterURL" . }})
 {{- end }}
 
 Try it:

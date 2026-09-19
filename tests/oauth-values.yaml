@@ -7,15 +7,20 @@
 # renders the MCPServer with the pin; the Deployment carries OAUTH_ENABLED,
 # OAUTH_BASE_URL and OAUTH_AUTHORIZATION_SERVER. The live registration
 # (`muster.liveServer`, templates/mcpserver-live.yaml) takes the
-# installation's own Dex issuer and the platform client under `live`; an
-# installation's values name them.
+# installation's own Dex issuer and the clients people sign in with under
+# `live`, and requires the cross-client audience the platform's other
+# forwarded-token servers require; the Deployment's LIVE_AUDIENCES is the
+# union. An installation's values name them.
 oauth:
   enabled: true
 live:
   issuer: https://dex.example.test/dex
-  audience: agent-platform
+  audiences:
+    - agent-platform
 muster:
   liveServer:
     enabled: true
+    requiredAudiences:
+      - dex-k8s-authenticator
   mcpServer:
     enabled: true

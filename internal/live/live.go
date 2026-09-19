@@ -4,7 +4,7 @@
 // on the live path is the platform identity provider's ID token for the
 // person; it is validated the way the platform's forward-mode servers
 // validate theirs (mcp-oauth's OIDC primitives: the issuer's JWKS, the
-// issuer, the audience every forwarded token carries). A live read then opens
+// issuer, the audiences the forwarded tokens carry). A live read then opens
 // — or reuses, per person — an MCP session at muster's own endpoint with that
 // token and calls the installation's kubernetes tools through it: muster's
 // per-installation token exchange, the tunnel to a private installation, the
@@ -41,9 +41,13 @@ type Config struct {
 	// Issuer is the platform identity provider's issuer: the iss every
 	// forwarded token carries.
 	Issuer string
-	// Audience is the OAuth client every forwarded token carries in aud —
-	// the platform client muster's sessions log in with.
-	Audience string
+	// Audiences are the OAuth clients a forwarded token may carry in aud: a
+	// person's ID token names the client they signed in with — the
+	// platform's own, a portal's — and the audiences the live registration
+	// requires of muster, which every forwarded token carries by
+	// construction. A token is accepted when one of its audiences is listed.
+	// At least one is required: an empty list would accept any audience.
+	Audiences []string
 	// JWKSURL is the issuer's key set; empty reads it from the issuer's
 	// OpenID discovery document.
 	JWKSURL string
@@ -77,10 +81,13 @@ const ClientName = "giantswarm-platform-manager"
 
 // Validate checks required fields.
 func (c Config) Validate() error {
-	for _, f := range []struct{ what, v string }{{"path", c.Path}, {"issuer", c.Issuer}, {"audience", c.Audience}, {"muster URL", c.MusterURL}, {"kubernetes family", c.KubernetesFamily}} {
+	for _, f := range []struct{ what, v string }{{"path", c.Path}, {"issuer", c.Issuer}, {"muster URL", c.MusterURL}, {"kubernetes family", c.KubernetesFamily}} {
 		if strings.TrimSpace(f.v) == "" {
 			return fmt.Errorf("live: %s is required", f.what)
 		}
+	}
+	if len(c.audiences()) == 0 {
+		return errors.New("live: audiences is required: at least one OAuth client whose ID tokens the live surface accepts (an empty list would accept every audience)")
 	}
 	for _, f := range []struct{ what, v string }{{"issuer", c.Issuer}, {"muster URL", c.MusterURL}} {
 		u, err := url.Parse(f.v)
@@ -94,14 +101,33 @@ func (c Config) Validate() error {
 	return nil
 }
 
+// audiences is the configured list, normalized.
+func (c Config) audiences() []string { return ParseAudiences(strings.Join(c.Audiences, ",")) }
+
+// ParseAudiences reads a comma-separated audience list as the flag and the
+// chart pass it: trimmed, without empties and without duplicates, in order.
+func ParseAudiences(s string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, a := range strings.Split(s, ",") {
+		a = strings.TrimSpace(a)
+		if a == "" || seen[a] {
+			continue
+		}
+		seen[a] = true
+		out = append(out, a)
+	}
+	return out
+}
+
 // Info is the live path as get_info reports it.
 type Info struct {
-	Path                  string `json:"path"`
-	Issuer                string `json:"issuer"`
-	Audience              string `json:"audience"`
-	MusterURL             string `json:"musterUrl"`
-	KubernetesFamily      string `json:"kubernetesFamily"`
-	KubernetesInstanceArg string `json:"kubernetesInstanceArg,omitempty"`
+	Path                  string   `json:"path"`
+	Issuer                string   `json:"issuer"`
+	Audiences             []string `json:"audiences"`
+	MusterURL             string   `json:"musterUrl"`
+	KubernetesFamily      string   `json:"kubernetesFamily"`
+	KubernetesInstanceArg string   `json:"kubernetesInstanceArg,omitempty"`
 }
 
 // Client validates forwarded tokens and holds the loop-back sessions.
@@ -121,6 +147,7 @@ func New(cfg Config, log *slog.Logger) (*Client, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
+	cfg.Audiences = cfg.audiences()
 	if cfg.IdleLifetime <= 0 {
 		cfg.IdleLifetime = DefaultIdleLifetime
 	}
@@ -139,7 +166,7 @@ func New(cfg Config, log *slog.Logger) (*Client, error) {
 	}
 	c := &Client{cfg: cfg, log: log, http: hc, jwksURL: cfg.JWKSURL, sessions: map[string]*session{},
 		jwks: oidc.NewJWKSClientWithOptions(oidc.JWKSClientOptions{HTTPClient: hc, AllowPrivateIP: cfg.AllowPrivateIPJWKS, RootCAs: pool, Logger: log})}
-	log.Info("live path enabled", "path", cfg.Path, "issuer", cfg.Issuer, "audience", cfg.Audience, "jwks", cfg.JWKSURL, "muster", cfg.MusterURL, "kubernetesFamily", cfg.KubernetesFamily, "instanceArg", cfg.KubernetesInstanceArg)
+	log.Info("live path enabled", "path", cfg.Path, "issuer", cfg.Issuer, "audiences", cfg.Audiences, "jwks", cfg.JWKSURL, "muster", cfg.MusterURL, "kubernetesFamily", cfg.KubernetesFamily, "instanceArg", cfg.KubernetesInstanceArg)
 	return c, nil
 }
 
@@ -164,20 +191,20 @@ func rootCAs(file string) (*x509.CertPool, error) {
 
 // Info is the configuration as reported.
 func (c *Client) Info() Info {
-	return Info{Path: c.cfg.Path, Issuer: c.cfg.Issuer, Audience: c.cfg.Audience, MusterURL: c.cfg.MusterURL, KubernetesFamily: c.cfg.KubernetesFamily, KubernetesInstanceArg: c.cfg.KubernetesInstanceArg}
+	return Info{Path: c.cfg.Path, Issuer: c.cfg.Issuer, Audiences: c.cfg.Audiences, MusterURL: c.cfg.MusterURL, KubernetesFamily: c.cfg.KubernetesFamily, KubernetesInstanceArg: c.cfg.KubernetesInstanceArg}
 }
 
 // Path is where the live endpoint listens.
 func (c *Client) Path() string { return c.cfg.Path }
 
 // Verify validates a forwarded token: signature against the issuer's key
-// set, issuer, audience, time; the person it names comes back.
+// set, issuer, one of the audiences, time; the person it names comes back.
 func (c *Client) Verify(ctx context.Context, token string) (*identity.Identity, error) {
 	jwksURL, err := c.keySet(ctx)
 	if err != nil {
 		return nil, err
 	}
-	claims, err := oidc.ValidateIDToken(ctx, token, c.jwks, jwksURL, c.cfg.Issuer, []string{c.cfg.Audience})
+	claims, err := oidc.ValidateIDToken(ctx, token, c.jwks, jwksURL, c.cfg.Issuer, c.cfg.Audiences)
 	if err != nil {
 		return nil, err
 	}
