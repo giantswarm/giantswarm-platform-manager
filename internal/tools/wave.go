@@ -133,7 +133,7 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 			return nil, t.fail(ctx, tool, a, remote, prs, fmt.Errorf("%s: render: %w", p.Name, err))
 		}
 		planned := plan.PullRequests([]plan.Installation{p}, env.byName, env.hub)
-		title := fmt.Sprintf("%s %s on %s (%s, stage %d of %d)", actions.KindReconcile, out.Capability, p.Name, a.Name, i+1, len(targets))
+		title := prTitle(actions.KindReconcile, p.Name, out.Capability, a.Name, fmt.Sprintf("stage %d of %d", i+1, len(targets)))
 		opened, _, err := t.openPullRequests(ctx, env, a, p, planned, rendered.Files, remote, title, prBody(a, p, planned)+waveBody(res.Order, res.Skipped))
 		prs = append(prs, opened...)
 		if err != nil {

@@ -79,8 +79,10 @@ this order, writing nothing before the gate:
    definition does not own whole (one with several owners) cannot rotate and refuses the commit naming the
    file.
 5. **The pull requests** through gitops-commit, as the person, in dependency order (configs before
-   management-clusters), one commit per repository, on branch `platform/<action>/<installation>` with the action
-   id in the title and body. The Action records them and stays in *pending approval*: the approval, the merge
+   management-clusters), one commit per repository, on branch `platform/<action>/<installation>`, titled in
+   conventional-commit form — `feat(<installation>): enable <capability> (<action>)`, `fix(<installation>):
+   reconcile <capability> (<action>)` — so the repositories' semantic-pull-request check passes as opened, the
+   action id in the title and body. The Action records them and stays in *pending approval*: the approval, the merge
    and the rollout follow. A failure on the way moves the Action to *failed* and closes the pull requests
    opened so far as the person, branches deleted, recorded *closed* with the reason on the Action; one the
    remote refused to close stays open on the record, and `deny_action` — which takes a failed action too —
