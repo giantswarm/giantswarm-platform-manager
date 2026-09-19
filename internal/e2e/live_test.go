@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -150,7 +151,9 @@ func recordedProbes(t *testing.T, st *stack) map[string]actions.Probe {
 
 // The live path takes the ID token muster forwards and nothing else: no
 // bearer, a GitHub token, a token for another audience and an expired one
-// are refused with the challenge, before any tool runs.
+// are refused with the challenge, before any tool runs; a token for any of
+// the trusted audiences — the platform's client, the audience the live
+// registration requires — is taken.
 func TestLivePathRefusesTokensItCannotVerify(t *testing.T) {
 	st := newStack(t)
 	post := func(bearer string) *http.Response {
@@ -178,8 +181,16 @@ func TestLivePathRefusesTokensItCannotVerify(t *testing.T) {
 			t.Errorf("%s: %d %q", name, resp.StatusCode, resp.Header.Get("WWW-Authenticate"))
 		}
 	}
-	if resp := post(st.dex.token(t, liveAdmin, []string{liveAudience}, time.Hour)); resp.StatusCode != http.StatusOK {
-		t.Errorf("the forwarded token: %d", resp.StatusCode)
+	// An unlisted audience is refused with the token check's own words: the
+	// token's audiences and the trusted list, so a hub's operator sees which
+	// client the person signed in with.
+	if h := post(st.dex.token(t, liveAdmin, []string{"other-client"}, time.Hour)).Header.Get("WWW-Authenticate"); !strings.Contains(h, "audience mismatch: token audiences [other-client] not in trusted ["+liveAudience+" "+liveRequiredAudience+"]") {
+		t.Errorf("other audience: %q", h)
+	}
+	for name, aud := range map[string]string{"the platform client": liveAudience, "the required audience": liveRequiredAudience} {
+		if resp := post(st.dex.token(t, liveAdmin, []string{aud}, time.Hour)); resp.StatusCode != http.StatusOK {
+			t.Errorf("a token for %s: %d", name, resp.StatusCode)
+		}
 	}
 	if len(st.muster.seen()) != 0 {
 		t.Errorf("nothing reached muster: %+v", st.muster.seen())
@@ -431,7 +442,8 @@ func TestGetInfoReportsTheLiveSurface(t *testing.T) {
 	if err := json.Unmarshal([]byte(text), &info); err != nil {
 		t.Fatal(err)
 	}
-	if !info.Live.Configured || info.Live.ToolPrefix != tools.LiveToolPrefix || info.Live.Tool != tools.ToolVerifyInstallation || info.Live.Issuer != st.dex.issuer || info.Live.KubernetesFamily != kubernetesFamily {
+	if !info.Live.Configured || info.Live.ToolPrefix != tools.LiveToolPrefix || info.Live.Tool != tools.ToolVerifyInstallation || info.Live.Issuer != st.dex.issuer || info.Live.KubernetesFamily != kubernetesFamily ||
+		!reflect.DeepEqual(info.Live.Audiences, []string{liveAudience, liveRequiredAudience}) {
 		t.Errorf("live: %+v", info.Live)
 	}
 }

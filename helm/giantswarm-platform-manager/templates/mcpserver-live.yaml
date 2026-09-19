@@ -6,7 +6,9 @@ runs no consent, so its tool — verify_installation — reads an installation
 through muster's kubernetes tools as the person, with the person's access on
 that installation. Tools appear as x_<name>_<tool>. No authorizationServer:
 the two exclude each other on one MCPServer, which is why the manager is
-registered twice.
+registered twice. requiredAudiences are what muster asks the identity
+provider for at login, so every forwarded token carries them; the server
+trusts them next to live.audiences.
 */}}
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: MCPServer
@@ -30,4 +32,8 @@ spec:
   auth:
     type: oauth
     forwardToken: true
+    {{- with .Values.muster.liveServer.requiredAudiences }}
+    requiredAudiences:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
 {{- end }}
