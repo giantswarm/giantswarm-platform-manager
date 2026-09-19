@@ -41,7 +41,7 @@ charts:
   # versions inside the ranges the meta chart declares for them.
   - name: muster
     registry: gsoci.azurecr.io/charts/giantswarm/muster
-    version: 5.27.8
+    version: 5.27.10
   - name: kagent
     registry: gsoci.azurecr.io/charts/giantswarm/kagent
     version: 0.3.3
