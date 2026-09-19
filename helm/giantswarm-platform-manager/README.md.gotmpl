@@ -14,6 +14,17 @@ Giant Swarm-specific: it manages the giantswarm org's installations and ships
 as its own app on the hub installation, not as a component of the
 `agent-platform` meta chart.
 
+The live surface — the second registration muster forwards the person's own
+ID token to, whose `verify_installation` reads an installation as the person —
+is two switches, turned on in two releases: `live.enabled` serves the path in
+the Deployment (`live.issuer`, `live.audiences`, the key set over HTTPS), and
+`muster.liveServer.enabled`, in the release after it, renders the `MCPServer`
+that registers the path with muster. The chart refuses to render the
+registration without the path: muster probes a registration once, a probe
+that reaches a pod without the path leaves the registration failed until it
+is restarted, and a probe that finds the path answering reads *Auth Required*
+— *Connected* once the first person's session connects.
+
 {{ template "chart.requirementsSection" . }}
 
 {{ template "chart.valuesSection" . }}

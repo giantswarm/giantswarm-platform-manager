@@ -10,8 +10,16 @@ description: |
   surface is there for every signed-in person while the App-pinned
   registration still asks for the GitHub consent.
 
+    - the registration is created the way the chart's two releases do it:
+      the live path answers first (live.enabled), the registration comes
+      second (muster.liveServer.enabled). muster probes a registration once;
+      a probe that reaches a pod without the path records the registration
+      failed for good, so the order is the whole point. Against an answering
+      path the probe is a 401 with the challenge and the registration reads
+      auth_required — never failed, never a "legacy SSE server";
     - a person signed in to muster has the live tool without any consent;
-      the backend receives the person's ID token as the bearer (echoed);
+      the backend receives the person's ID token as the bearer (echoed), and
+      the registration reads connected once her session connected;
     - the same person still has to authorize the App for the App-pinned
       registration: its tool is not authenticated until the consent;
     - a second person, never consented anywhere, has the live tool too.
@@ -66,8 +74,11 @@ pre_configuration:
                   auth:
                     mode: "bearer"
 
-    # The live registration, as the chart's mcpserver-live.yaml registers it:
-    # the person's ID token forwarded, no authorization server.
+    # The live path as the Deployment serves it on live.enabled: a backend
+    # that answers a token-less initialize with a 401 and the challenge, and
+    # echoes the forwarded ID token. The harness registers every mock at boot;
+    # the steps below remove that registration and create it again the way
+    # the chart's second release does — after the path answers.
     - name: "giantswarm-platform-manager-live"
       config:
         type: "streamable-http"
@@ -85,13 +96,58 @@ pre_configuration:
                   state: "enabled"
 
 steps:
+  - id: live-path-answers
+    description: "The live path is up before anything registers it: its URL is what the registration will name"
+    tool: "core_mcpserver_get"
+    args:
+      name: "giantswarm-platform-manager-live"
+    expected:
+      success: true
+      json_path:
+        name: "giantswarm-platform-manager-live"
+        type: "streamable-http"
+
+  - id: boot-registration-removed
+    description: "The harness's boot-time registration goes, so the registration is created against a path that already answers"
+    tool: "core_mcpserver_delete"
+    args:
+      name: "giantswarm-platform-manager-live"
+    expected:
+      success: true
+
+  - id: live-registered-after-the-path
+    description: "The second release: the live registration as the chart's mcpserver-live.yaml renders it, the path answering"
+    tool: "core_mcpserver_create"
+    args:
+      name: "giantswarm-platform-manager-live"
+      type: "streamable-http"
+      autoStart: true
+      url: "{{ live-path-answers.url }}"
+      timeout: 180
+      auth:
+        type: "oauth"
+        forwardToken: true
+    expected:
+      success: true
+
+  - id: registration-reads-auth-required
+    description: "muster's one probe found the path: a 401 with the challenge reads auth_required, not failed"
+    tool: "core_service_status"
+    args:
+      name: "giantswarm-platform-manager-live"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "giantswarm-platform-manager-live"
+        state: "auth_required"
+
   - id: registered
     description: "Both registrations are there"
     tool: "core_mcpserver_list"
     args: {}
     expected:
       success: true
-      wait_for_state: "30s"
       contains: ["giantswarm-platform-manager", "giantswarm-platform-manager-live"]
 
   - id: login-alice
@@ -128,6 +184,18 @@ steps:
       server: "giantswarm-platform-manager-live"
     expected:
       success: true
+
+  - id: registration-reads-connected
+    description: "A person's session connected with her forwarded token: the registration reads connected"
+    tool: "core_service_status"
+    args:
+      name: "giantswarm-platform-manager-live"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        name: "giantswarm-platform-manager-live"
+        state: "connected"
 
   - id: alice-live-call-carries-her-id-token
     as_user: "alice"
@@ -191,3 +259,10 @@ steps:
     expected:
       success: false
       error_contains: ["not authenticated"]
+
+# The probe of a registration against an answering path never reads its 401
+# as a missing path: that verdict is the one a pod without the path produces,
+# and it is terminal in muster.
+instance_logs:
+  not_contains:
+    - "likely a legacy SSE server"
