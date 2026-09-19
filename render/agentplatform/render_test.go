@@ -20,12 +20,14 @@ var update = flag.Bool("update", false, "rewrite the golden filesets from the cu
 
 // The installation shapes with a golden fileset under testdata/<shape>/.
 const (
-	shapePublicCustomer  = "public-customer"
-	shapeGiantswarmOwned = "giantswarm-owned"
+	shapePublicCustomer         = "public-customer"
+	shapeGiantswarmOwned        = "giantswarm-owned"
+	shapeHubPrivateTarget       = "hub-private-target"
+	shapeMultiClusterAggregator = "multi-cluster-aggregator"
 )
 
 // shapes are the installation shapes, in the order the goldens are rendered.
-var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned}
+var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned, shapeHubPrivateTarget, shapeMultiClusterAggregator}
 
 func loadInput(t *testing.T, shape string) (map[string]any, map[string]string) {
 	t.Helper()
@@ -125,7 +127,13 @@ func TestSecretFilesCarryNoValues(t *testing.T) {
 }
 
 func TestOwnedPathsOnly(t *testing.T) {
-	input, secrets := loadInput(t, shapePublicCustomer)
+	for _, shape := range shapes {
+		t.Run(shape, func(t *testing.T) { testOwnedPathsOnly(t, shape) })
+	}
+}
+
+func testOwnedPathsOnly(t *testing.T, shape string) {
+	input, secrets := loadInput(t, shape)
 	result, err := Render(input, secrets)
 	if err != nil {
 		t.Fatal(err)
@@ -224,6 +232,9 @@ func TestProbesAreLiveDimensions(t *testing.T) {
 
 func TestRefusals(t *testing.T) {
 	base, secrets := loadInput(t, shapePublicCustomer)
+	target := func(private bool) map[string]any {
+		return map[string]any{"installation": "x", "baseDomain": "x.example", "private": private, "groups": []any{"kubernetes"}}
+	}
 	clone := func(mutate func(map[string]any)) map[string]any {
 		var c map[string]any
 		b, _ := yaml.Marshal(base)
@@ -244,9 +255,18 @@ func TestRefusals(t *testing.T) {
 		{"unknown secret value", base, map[string]string{fieldModelKey: "x"}, ErrUnknownSecret, fieldModelKey},
 		{"klaus-gateway on a customer", clone(func(m map[string]any) { m["klausGateway"] = map[string]any{"enabled": true} }), secrets, ErrPolicy, "klaus-gateway"},
 		{"login pin on a customer", clone(func(m map[string]any) { m["identity"] = map[string]any{"loginConnectorId": "x"} }), secrets, ErrPolicy, "identity.loginConnectorId"},
-		{"hub outputs", clone(func(m map[string]any) {
-			m["federation"].(map[string]any)["targets"] = []any{map[string]any{"installation": "x", "private": false, "groups": []any{"kubernetes"}}}
-		}), secrets, ErrNotRendered, "federation.targets"},
+		{"targets without a connector", clone(func(m map[string]any) {
+			m["federation"].(map[string]any)["targets"] = []any{target(false)}
+		}), secrets, ErrInput, "federation.connectorId"},
+		{"private target without the tunnel", clone(func(m map[string]any) {
+			f := m["federation"].(map[string]any)
+			f["connectorId"], f["brokerClientId"], f["targets"] = "c", "b", []any{target(true)}
+		}), secrets, ErrInput, "federation.tunnel"},
+		{"tunnel without a private target", clone(func(m map[string]any) {
+			f := m["federation"].(map[string]any)
+			f["connectorId"], f["brokerClientId"], f["targets"] = "c", "b", []any{target(false)}
+			f["tunnel"] = map[string]any{"jwks": "{}", "trustBundleProvisioned": true, "teleport": map[string]any{"clusterName": "t", "proxyAddr": "t:443"}}
+		}), secrets, ErrInput, "federation.tunnel"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -1,0 +1,59 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+# The trust-bundle singleton of the hub gopher: its tbot mints the SPIFFE bundle every caller
+# on the hub verifies the tunnels' SVIDs with. It reaches no application.
+apiVersion: resources.teleport.dev/v1
+kind: TeleportRoleV7
+metadata:
+  name: tunnelport-trust-bundle-gopher
+  namespace: teleport
+spec:
+  allow:
+    workload_identity_labels:
+      trust-bundle:
+        - tunnelport-trust-bundle-gopher
+    rules:
+      - resources:
+          - workload_identity
+        verbs:
+          - list
+          - read
+    logins:
+      - tunnelport
+---
+apiVersion: resources.teleport.dev/v1
+kind: TeleportBotV1
+metadata:
+  name: tunnelport-trust-bundle-bot-gopher
+  namespace: teleport
+spec:
+  roles:
+    - tunnelport-trust-bundle-gopher
+---
+apiVersion: resources.teleport.dev/v2
+kind: TeleportProvisionToken
+metadata:
+  name: tunnelport-trust-bundle-token-gopher
+  namespace: teleport
+spec:
+  roles:
+    - Bot
+  bot_name: tunnelport-trust-bundle-bot-gopher
+  join_method: kubernetes
+  kubernetes:
+    type: static_jwks
+    static_jwks:
+      jwks: '{"keys":[{"use":"sig","kty":"RSA","kid":"example-key-id","alg":"RS256","n":"example-modulus","e":"AQAB"}]}'
+    allow:
+      - service_account: agent-platform:tunnelport-trust-bundle
+---
+apiVersion: resources.teleport.dev/v1
+kind: TeleportWorkloadIdentityV1
+metadata:
+  name: tunnelport-trust-bundle-gopher
+  namespace: teleport
+  labels:
+    trust-bundle: tunnelport-trust-bundle-gopher
+spec:
+  spiffe:
+    id: /bot/tunnelport-trust-bundle-bot-gopher

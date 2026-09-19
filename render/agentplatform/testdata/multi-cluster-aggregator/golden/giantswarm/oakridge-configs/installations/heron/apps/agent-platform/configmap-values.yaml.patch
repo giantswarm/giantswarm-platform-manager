@@ -1,0 +1,122 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+global:
+  domain: heron.oakridge.example
+components:
+  kagent:
+    enabled: false
+  agent-manager:
+    enabled: true
+muster:
+  muster:
+    oauth:
+      server:
+        existingSecret: muster-oauth-credentials
+        storage:
+          valkey:
+            existingSecret: muster-valkey-credentials
+        trustedAudiences:
+          - dex-k8s-authenticator
+        tokenExchangeBroker:
+          brokerClients:
+            broker-client-id-placeholder:
+              clientCredentialsSecretRef:
+                name: muster-broker-clients
+          clientAudiences:
+            broker-client-id-placeholder:
+              - kestrel
+              - plover
+          targets:
+            kestrel:
+              dexTokenEndpoint: https://dex.kestrel.oakridge.example/token
+              connectorId: heron-oidc
+              scopes: openid profile email groups audience:server:client_id:dex-k8s-authenticator
+              clientCredentialsSecretRef:
+                name: kestrel-token-exchange-credentials
+            plover:
+              dexTokenEndpoint: https://dex.plover.oakridge.example/token
+              connectorId: heron-oidc
+              scopes: openid profile email groups audience:server:client_id:dex-k8s-authenticator
+              clientCredentialsSecretRef:
+                name: plover-token-exchange-credentials
+agent-platform-mcps:
+  identityProviders:
+    kestrel:
+      tokenEndpoint: https://dex.kestrel.oakridge.example/token
+      connectorId: heron-oidc
+      scopes: openid profile email groups
+      credentialsSecret:
+        name: kestrel-token-exchange-credentials
+        clientIdKey: client-id
+        clientSecretKey: client-secret
+    plover:
+      tokenEndpoint: https://dex.plover.oakridge.example/token
+      connectorId: heron-oidc
+      scopes: openid profile email groups
+      credentialsSecret:
+        name: plover-token-exchange-credentials
+        clientIdKey: client-id
+        clientSecretKey: client-secret
+  mcpServers:
+    - cluster: heron
+      group: kubernetes
+      url: http://mcp-kubernetes.mcp-kubernetes.svc:8080/mcp
+      timeout: 30
+      auth:
+        mode: forward
+    - cluster: heron
+      group: prometheus
+      url: http://mcp-prometheus.mcp-prometheus.svc:8080/mcp
+      timeout: 30
+      auth:
+        mode: forward
+    - cluster: heron
+      group: capi
+      url: http://mcp-capi.mcp-capi.svc:8080/mcp
+      timeout: 30
+      auth:
+        mode: forward
+    - cluster: kestrel
+      group: kubernetes
+      url: https://mcp-kubernetes.kestrel.oakridge.example/mcp
+      timeout: 30
+      auth:
+        mode: exchange
+        provider: kestrel
+    - cluster: kestrel
+      group: prometheus
+      url: https://mcp-prometheus.kestrel.oakridge.example/mcp
+      timeout: 30
+      auth:
+        mode: exchange
+        provider: kestrel
+    - cluster: plover
+      group: kubernetes
+      url: https://mcp-kubernetes.plover.oakridge.example/mcp
+      timeout: 30
+      auth:
+        mode: exchange
+        provider: plover
+    - cluster: plover
+      group: capi
+      url: https://mcp-capi.plover.oakridge.example/mcp
+      timeout: 30
+      auth:
+        mode: exchange
+        provider: plover
+agent-manager:
+  oauth:
+    baseURL: https://agentgateway.heron.oakridge.example/agent-manager
+    dex:
+      issuerURL: https://dex.heron.oakridge.example
+      clientID: 00000000-0000-4000-8000-000000000003
+    existingSecret: muster-oauth-credentials
+    trustedAudiences:
+      - 00000000-0000-4000-8000-000000000003
+valkey:
+  valkey:
+    auth:
+      usersExistingSecret: muster-valkey-credentials
+      aclUsers:
+        default:
+          passwordKey: valkey-password

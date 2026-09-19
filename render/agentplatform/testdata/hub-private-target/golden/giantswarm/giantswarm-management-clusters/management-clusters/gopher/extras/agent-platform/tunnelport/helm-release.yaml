@@ -1,0 +1,38 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: tunnelport
+  namespace: flux-giantswarm
+spec:
+  releaseName: tunnelport
+  chartRef:
+    kind: OCIRepository
+    name: tunnelport
+    namespace: flux-giantswarm
+  interval: 10m
+  targetNamespace: agent-platform
+  timeout: 10m
+  install:
+    remediation:
+      retries: 10
+      remediateLastFailure: false
+  upgrade:
+    remediation:
+      retries: 10
+      remediateLastFailure: false
+  values:
+    imagePullSecret: ""
+    installNamespace: agent-platform
+    teleport:
+      clusterName: teleport.example.io
+      proxyAddr: teleport.example.io:443
+    monitoring:
+      prometheusRule:
+        labels:
+          observability.giantswarm.io/tenant: giantswarm
+    trustBundle:
+      enabled: true
+      secretName: tunnelport-spiffe-bundle
+      tokenName: tunnelport-trust-bundle-token-gopher

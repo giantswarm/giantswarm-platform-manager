@@ -1,0 +1,13 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: tunnelport
+  namespace: flux-giantswarm
+spec:
+  interval: 10m
+  url: oci://gsoci.azurecr.io/charts/giantswarm/tunnelport
+  ref:
+    semver: '>=1.0.4'
+  provider: generic

@@ -276,21 +276,39 @@
           "type": "string",
           "description": "Dex client id of the hub's token-exchange broker client; registered once, read back from the checkout afterwards. Required when targets is non-empty.",
           "x-source": "generated", "x-feature": "federation",
-          "x-renders": ["configmap:muster.muster.oauth.server.tokenExchangeBroker.brokerClients.<name>", "configmap:muster.muster.oauth.server.tokenExchangeBroker.clientAudiences.<name>", "extras:secrets/muster-broker-clients.yaml", "backstage:app-config:gs.clusterTokenBroker"]
+          "x-renders": ["configmap:muster.muster.oauth.server.tokenExchangeBroker.brokerClients.<name>", "configmap:muster.muster.oauth.server.tokenExchangeBroker.clientAudiences.<name>", "extras:secrets/muster-broker-client-credentials.yaml", "backstage:app-config:gs.clusterTokenBroker"]
         },
         "targets": {
           "type": "array",
           "description": "Installations this hub federates: a token-exchange target, an identity provider for the agentgateway, the target's MCP servers with exchange auth, and the hub-side credentials Secret per target.",
           "items": {
-            "type": "object", "additionalProperties": false, "required": ["installation", "private", "groups"],
+            "type": "object", "additionalProperties": false, "required": ["installation", "baseDomain", "private", "groups"],
             "properties": {
-              "installation": {"type": "string"},
-              "private": {"type": "boolean", "default": false},
+              "installation": {"type": "string", "description": "The target's codename."},
+              "baseDomain": {"type": "string", "description": "The target's base domain: its Dex issuer and, for a public target, its MCP servers' hostnames derive from it."},
+              "private": {"type": "boolean", "default": false, "description": "The target sits behind a private load balancer and is reached through the tunnel: a RemoteApp per tunnelled app on this hub, the app's Teleport objects in teleport-fleet, the exchange pinned to the target's public Dex issuer."},
               "groups": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "enum": ["kubernetes", "prometheus", "capi"]}}
             }
           },
           "x-source": "person", "x-feature": "federation",
-          "x-renders": ["configmap:muster.muster.oauth.server.tokenExchangeBroker.targets.<name>", "configmap:muster.muster.oauth.server.tokenExchangeBroker.allowPrivateIP", "configmap:muster.muster.oauth.mcpClient.tokenExchange.allowPrivateIP", "configmap:agent-platform-mcps.identityProviders.<name>", "configmap:agent-platform-mcps.mcpServers[*]", "configmap:muster.muster.extraCaFile", "extras:secrets/<name>-token-exchange-credentials.yaml", "extras:tunnelport/helm-release.yaml", "extras:tunnelport/oci-repository.yaml", "extras:tunnelport/remoteapps.yaml", "extras:tunnelport/kustomization.yaml", "backstage:app-config:agentPlatform.kagent.installations.<name>.apiBaseUrl", "backstage:user-values:backstage.extraVolumes[*]", "backstage:user-values:backstage.extraVolumeMounts[*]", "backstage:file:tunnelport-spiffe-bundle.yaml"]
+          "x-renders": ["configmap:muster.muster.oauth.server.tokenExchangeBroker.targets.<name>", "configmap:muster.muster.oauth.server.tokenExchangeBroker.allowPrivateIP", "configmap:agent-platform-mcps.identityProviders.<name>", "configmap:agent-platform-mcps.mcpServers[*]", "configmap:muster.muster.extraCaFile", "extras:secrets/<name>-token-exchange-credentials.yaml", "extras:tunnelport/helm-release.yaml", "extras:tunnelport/oci-repository.yaml", "extras:tunnelport/remoteapps.yaml", "extras:tunnelport/kustomization.yaml", "teleport:tunnelport/<hub>/<app>-<name>.yaml", "backstage:app-config:agentPlatform.kagent.installations.<name>.apiBaseUrl", "backstage:user-values:backstage.extraVolumes[*]", "backstage:user-values:backstage.extraVolumeMounts[*]", "backstage:file:tunnelport-spiffe-bundle.yaml"]
+        },
+        "tunnel": {
+          "type": "object", "additionalProperties": false, "required": ["jwks", "trustBundleProvisioned", "teleport"],
+          "description": "How this hub reaches its private targets: tbot workloads on this hub join Teleport and terminate TLS with a SPIFFE SVID in front of each tunnelled app. Required when a target is private; refused when none is.",
+          "properties": {
+            "jwks": {"type": "string", "minLength": 1, "description": "This hub cluster's service-account signing keys (GET /openid/v1/jwks on the hub), the JSON document verbatim; every provision token the tunnel's bots join with embeds it. Public verification material, not a secret.", "x-source": "registry", "x-feature": "federation", "x-renders": ["teleport:tunnelport/<hub>/<app>-<name>.yaml", "teleport:tunnelport/<hub>/trust-bundle.yaml"]},
+            "trustBundleProvisioned": {"type": "boolean", "description": "Whether this hub's trust-bundle singleton (the role, bot, provision token and workload identity named tunnelport-trust-bundle-<hub>) already exists in teleport-fleet; false renders it.", "x-source": "registry", "x-feature": "federation", "x-renders": ["teleport:tunnelport/<hub>/trust-bundle.yaml"]},
+            "teleport": {
+              "type": "object", "additionalProperties": false, "required": ["clusterName", "proxyAddr"],
+              "description": "The Teleport cluster the tunnel joins.",
+              "properties": {
+                "clusterName": {"type": "string", "minLength": 1},
+                "proxyAddr": {"type": "string", "minLength": 1, "description": "host:port of the Teleport proxy."}
+              },
+              "x-source": "registry", "x-feature": "federation", "x-renders": ["extras:tunnelport/helm-release.yaml"]
+            }
+          }
         },
         "hubs": {
           "type": "array", "items": {"type": "string"}, "uniqueItems": true,

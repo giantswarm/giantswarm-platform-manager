@@ -8,8 +8,10 @@
 // dex-app configmap patch with every Dex client as a plaintext entry
 // referencing a Secret, the extras/agent-platform tree, the extras of the
 // installation's own MCP servers and the platform's section of the developer
-// portal. It refuses, naming the input, what it does not render yet: the hub
-// outputs of federation.targets.
+// portal; and the hub side of federation.targets: the broker and identity
+// provider per target, the targets' MCP servers, the credentials Secrets and,
+// for a private target, the tunnel on the hub (hub.go) with its Teleport
+// objects in teleport-fleet (teleport.go).
 package agentplatform
 
 import (
@@ -57,6 +59,7 @@ func Render(raw any, secrets map[string]string) (*render.Result, error) {
 		in.portalFiles(r, clusters, backstage+portalDir, secrets)
 		r.IncludeComponent(clusters, backstage+"kustomization.yaml", render.PortalPlatformComponent())
 	}
+	in.teleportObjects(r)
 	r.Probes = in.probes()
 	r.Actions = in.actions()
 	return r, nil
@@ -118,12 +121,17 @@ func (in *Input) configmapPatch() render.Map {
 
 	m = append(m, e("muster", in.musterValues()))
 	var mcps render.Map
-	if len(in.ToolAccess.AdditionalServers) > 0 {
+	if len(in.Federation.Targets) > 0 {
+		mcps = append(mcps, e("identityProviders", in.identityProviders()))
+	}
+	if len(in.ToolAccess.AdditionalServers) > 0 || len(in.Federation.Targets) > 0 {
+		// A patch replaces the list as a whole, so the template's own entries come first.
 		list := make([]MCPServer, 0, len(servers)+len(in.ToolAccess.AdditionalServers))
 		for _, s := range servers {
 			list = append(list, s.mcpServerEntry(in.Installation.Name))
 		}
 		list = append(list, in.ToolAccess.AdditionalServers...)
+		list = append(list, in.targetServers()...)
 		mcps = append(mcps, e("mcpServers", list))
 	}
 	if in.edgeJWTProvider() {
@@ -234,6 +242,9 @@ func (in *Input) musterValues() render.Map {
 	if len(in.Identity.PublicRegistrationRedirectURIs) > 0 {
 		server = append(server, e("trustedPublicRegistrationRedirectURIs", in.Identity.PublicRegistrationRedirectURIs))
 	}
+	if len(in.Federation.Targets) > 0 {
+		server = append(server, e("tokenExchangeBroker", in.brokerValues()))
+	}
 	oauth := render.Map{}
 	if len(in.Identity.PostLoginRedirectAllowlist) > 0 {
 		oauth = append(oauth, e("mcpClient", render.Map{e("postLoginRedirectAllowlist", in.Identity.PostLoginRedirectAllowlist)}))
@@ -243,7 +254,11 @@ func (in *Input) musterValues() render.Map {
 	if in.Muster.Resources != nil {
 		m = append(m, e("resources", in.Muster.Resources))
 	}
-	return append(m, e("muster", render.Map{e("oauth", oauth)}))
+	muster := render.Map{}
+	if in.hasPrivateTarget() {
+		muster = append(muster, e("extraCaFile", extraCaFile()))
+	}
+	return append(m, e("muster", append(muster, e("oauth", oauth))))
 }
 
 // dexClientRef is the referenced-Secret form of a Dex client secret.
@@ -325,6 +340,9 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 	}
 	k := kustomizationWithPatches{APIVersion: kustomizationAPIVersion, Kind: kustomizationKind,
 		Resources: []string{basesRepository + "agent-platform?ref=main", "./secrets"}}
+	if in.hasPrivateTarget() {
+		k.Resources = append(k.Resources, "./tunnelport")
+	}
 	if in.Chart.Semver != "" {
 		k.Patches = []patch{{
 			Patch:  "- op: replace\n  path: /spec/ref/semver\n  value: " + fmt.Sprintf("%q", in.Chart.Semver),
@@ -358,7 +376,10 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 		}
 	}
 	for _, hub := range in.Federation.Hubs {
-		add(dexClientSecretFile(hubClient(hub)), dexClientSecret(hubClient(hub), hubClient(hub)+"-client-secret"))
+		add(dexClientSecretFile(hubClient(hub)), dexClientSecret(hubClient(hub), exchangeSecretName(hub, in.Installation.Name)))
+	}
+	if len(in.Federation.Targets) > 0 {
+		in.hubSecrets(add)
 	}
 	for _, c := range in.Identity.AdditionalDexClients {
 		if !c.Public {
@@ -382,4 +403,7 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 		names = append(names, f.Key)
 	}
 	r.Add(repo, dir+"/secrets/kustomization.yaml", render.File{Content: kustomization(names...)})
+	if in.hasPrivateTarget() {
+		in.tunnelExtras(r, repo, dir+"/tunnelport")
+	}
 }

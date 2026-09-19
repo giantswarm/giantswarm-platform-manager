@@ -1,0 +1,4 @@
+giantswarm/oakridge-management-clusters:management-clusters/heron/extras/kustomization.yaml resources ./agent-platform/
+giantswarm/oakridge-management-clusters:management-clusters/heron/extras/kustomization.yaml resources ./mcp-capi/
+giantswarm/oakridge-management-clusters:management-clusters/heron/extras/kustomization.yaml resources ./mcp-kubernetes/
+giantswarm/oakridge-management-clusters:management-clusters/heron/extras/kustomization.yaml resources ./mcp-prometheus/

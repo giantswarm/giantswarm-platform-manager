@@ -1,0 +1,35 @@
+# A customer with several installations and one aggregator: the hub "heron" exchanges tokens into
+# its public siblings and lists their MCP servers, no tunnel. Invented names, placeholder values.
+input:
+  installation:
+    name: heron
+    baseDomain: heron.oakridge.example
+    customer: oakridge
+    provider: capz
+    private: false
+    chartLine: "3"
+    musterClientId: 00000000-0000-4000-8000-000000000003
+  secrets: {}
+  kagent:
+    enabled: false
+    modelKeySecret: customer-provided
+  identity: {}
+  portal:
+    enabled: false
+  toolAccess:
+    agentManager:
+      enabled: true
+  federation:
+    connectorId: heron-oidc
+    brokerClientId: broker-client-id-placeholder
+    targets:
+      - installation: kestrel
+        baseDomain: kestrel.oakridge.example
+        private: false
+        groups: [kubernetes, prometheus]
+      - installation: plover
+        baseDomain: plover.oakridge.example
+        private: false
+        groups: [kubernetes, capi]
+    hubs: []
+secrets: {}

@@ -28,10 +28,6 @@ var (
 	// ErrPolicy is a component or pin the fleet policy does not offer the
 	// installation's customer.
 	ErrPolicy = errors.New("agent-platform: fleet policy")
-	// ErrNotRendered is an input this version of the definition accepts by
-	// schema but has no rendering for; it refuses rather than emit a fileset
-	// that is missing the input's files.
-	ErrNotRendered = errors.New("agent-platform: not rendered by this definition")
 )
 
 // fieldModelKey is the supplied secret field carrying the model provider key
@@ -222,13 +218,33 @@ type Federation struct {
 	BrokerClientID string   `json:"brokerClientId"`
 	Targets        []Target `json:"targets"`
 	Hubs           []string `json:"hubs"`
+	Tunnel         *Tunnel  `json:"tunnel"`
 }
 
 // Target is an installation a hub federates.
 type Target struct {
 	Installation string   `json:"installation"`
+	BaseDomain   string   `json:"baseDomain"`
 	Private      bool     `json:"private"`
 	Groups       []string `json:"groups"`
+}
+
+// Tunnel is how a hub reaches its private targets through Teleport.
+type Tunnel struct {
+	JWKS                   string   `json:"jwks"`
+	TrustBundleProvisioned bool     `json:"trustBundleProvisioned"`
+	Teleport               Teleport `json:"teleport"`
+}
+
+// Teleport is the Teleport cluster the tunnel joins.
+type Teleport struct {
+	ClusterName string `json:"clusterName"`
+	ProxyAddr   string `json:"proxyAddr"`
+}
+
+// hasPrivateTarget says whether any federated target is reached through the tunnel.
+func (in *Input) hasPrivateTarget() bool {
+	return slices.ContainsFunc(in.Federation.Targets, func(t Target) bool { return t.Private })
 }
 
 // Chart is the meta chart release range.
@@ -381,7 +397,18 @@ func (in *Input) check(secrets map[string]string) error {
 		return fmt.Errorf("%w: identity.loginConnectorId: a login connector pin is not offered to customer %q", ErrPolicy, customer)
 	}
 	if len(in.Federation.Targets) > 0 {
-		return fmt.Errorf("%w: federation.targets (the hub outputs)", ErrNotRendered)
+		if in.Federation.ConnectorID == "" {
+			return fmt.Errorf("%w: federation.connectorId: a hub names the connector its targets' Dex trusts it through", ErrInput)
+		}
+		if in.Federation.BrokerClientID == "" {
+			return fmt.Errorf("%w: federation.brokerClientId: a hub names its token-exchange broker client", ErrInput)
+		}
+	}
+	if in.hasPrivateTarget() && in.Federation.Tunnel == nil {
+		return fmt.Errorf("%w: federation.tunnel: a private target is reached through the tunnel", ErrInput)
+	}
+	if !in.hasPrivateTarget() && in.Federation.Tunnel != nil {
+		return fmt.Errorf("%w: federation.tunnel: no target is private", ErrInput)
 	}
 	if in.Portal.Enabled && len(in.Portal.ClientIDs) == 0 {
 		return fmt.Errorf("%w: portal.clientIds: a portal that signs people in on this installation has at least one Dex client id", ErrInput)
