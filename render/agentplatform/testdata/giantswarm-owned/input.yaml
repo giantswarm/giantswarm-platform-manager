@@ -67,6 +67,38 @@ input:
         timeout: 30
         auth:
           mode: forward
+      # Two servers behind one OAuth App: the client credentials Secret the authorization server names is
+      # written once, under its own name.
+      - name: example-issues
+        cluster: gopher
+        group: issues
+        url: http://example-issues.agent-platform.svc:8080/mcp
+        timeout: 120
+        toolPrefix: issues
+        auth:
+          mode: oauth
+          authorizationServer:
+            issuer: https://issues.example.com/oauth
+            authorizationEndpoint: https://issues.example.com/oauth/authorize
+            tokenEndpoint: https://issues.example.com/oauth/token
+            scopes: read
+            grantScope: subject
+            clientCredentialsSecretRef: {name: example-oauth-client, namespace: agent-platform}
+      - name: example-boards
+        cluster: gopher
+        group: boards
+        url: http://example-boards.agent-platform.svc:8080/mcp
+        timeout: 120
+        toolPrefix: boards
+        auth:
+          mode: oauth
+          authorizationServer:
+            issuer: https://issues.example.com/oauth
+            authorizationEndpoint: https://issues.example.com/oauth/authorize
+            tokenEndpoint: https://issues.example.com/oauth/token
+            scopes: read
+            grantScope: subject
+            clientCredentialsSecretRef: {name: example-oauth-client, namespace: agent-platform}
   federation:
     targets: []
     hubs: []
@@ -108,3 +140,7 @@ secrets:
   klausGateway.slack.signing-secret: PLACEHOLDER-SLACK-SIGNING-SECRET
   portal.aiChat.google.credentialsJson: PLACEHOLDER-GOOGLE-CREDENTIALS-JSON
   portal.skillsToken: PLACEHOLDER-SKILLS-TOKEN
+  toolAccess.additionalServers.example-issues.client-id: PLACEHOLDER-ISSUES-CLIENT-ID
+  toolAccess.additionalServers.example-issues.client-secret: PLACEHOLDER-ISSUES-CLIENT-SECRET
+  toolAccess.additionalServers.example-boards.client-id: PLACEHOLDER-ISSUES-CLIENT-ID
+  toolAccess.additionalServers.example-boards.client-secret: PLACEHOLDER-ISSUES-CLIENT-SECRET
