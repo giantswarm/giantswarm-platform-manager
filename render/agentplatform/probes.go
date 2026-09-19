@@ -88,15 +88,28 @@ func (in *Input) probes() []render.Probe {
 		render.Comparison{Live: "data.config.yaml:aggregator.oauth.server.dex.connectorId", Rendered: "muster.muster.oauth.server.dex.connectorId"}))
 }
 
+// The model provider key is the installation's own, on every installation:
+// kagent is wired to the Secret by name, the definition renders no file for
+// it and nobody supplies a value at commit; the person creates the Secret
+// afterwards — the one step the platform leaves to them (CustomerActions),
+// held up live by the model-key action until the default ModelConfig is
+// Accepted.
+const (
+	modelKeySecret    = "kagent-anthropic-key" // #nosec G101 -- a Secret name, not a value
+	modelKeySecretKey = "ANTHROPIC_API_KEY"    // #nosec G101 -- a Secret key name, not a value
+	modelKeyActionID  = "model-key"
+	modelKeyDimension = "live-model-configs"
+	modelKeyNote      = "Create Secret " + modelKeySecret + " in namespace " + kagentNamespace + " with key " + modelKeySecretKey + ", or add a ModelConfig in the portal; until then default-model-config stays Accepted=False."
+	modelKeyWhy       = "the model key is the installation's own: the definition references the Secret and renders no value for it, and no value is supplied at commit; until the Secret exists the verify reads the runtime feature as waiting for the customer"
+)
+
 // actions are what a person outside the platform team still has to do for the
-// installation to work as rendered: the model key, when the customer provides
-// it rather than the platform team.
+// installation to work as rendered: the model key, wherever kagent runs.
 func (in *Input) actions() []render.Action {
-	if !in.kagent() || in.ModelKeyManaged {
+	if !in.kagent() {
 		return nil
 	}
-	return []render.Action{{ID: "model-key", Feature: featureRuntime, State: render.WaitingForCustomer, Dimension: "live-model-configs",
-		Note: "Create Secret kagent-anthropic-key in namespace kagent with key ANTHROPIC_API_KEY, or add a ModelConfig in the portal; until then default-model-config stays Accepted=False."}}
+	return []render.Action{{ID: modelKeyActionID, Feature: featureRuntime, State: render.WaitingForCustomer, Dimension: modelKeyDimension, Note: modelKeyNote}}
 }
 
 // helmReleases are the HelmReleases the installation's platform consists of:
@@ -114,15 +127,13 @@ func (in *Input) helmReleases() []string {
 	return names
 }
 
-// modelConfigProbe is the default ModelConfig's Accepted condition, True. With
-// a model key the customer provides the note says whose move a False is, and
-// the model-key action (actions) names this dimension: until the customer
-// acts it reads waiting for the customer, not drifted.
+// modelConfigProbe is the default ModelConfig's Accepted condition, True. The
+// note says whose move a False is, and the model-key action (actions) names
+// this dimension: until the person acts it reads waiting for the customer,
+// not drifted.
 func (in *Input) modelConfigProbe() render.Probe {
-	p := conditionProbe("live-model-configs", featureRuntime, kagentNamespace, "ModelConfig.kagent.dev", "default-model-config", "Accepted", conditionTrue)
-	if !in.ModelKeyManaged {
-		p.Expect.Note = "waiting for the customer's model key (Secret kagent-anthropic-key, key ANTHROPIC_API_KEY, or a ModelConfig in the portal)"
-	}
+	p := conditionProbe(modelKeyDimension, featureRuntime, kagentNamespace, "ModelConfig.kagent.dev", "default-model-config", "Accepted", conditionTrue)
+	p.Expect.Note = "waiting for the customer's model key (Secret " + modelKeySecret + ", key " + modelKeySecretKey + ", or a ModelConfig in the portal)"
 	return p
 }
 

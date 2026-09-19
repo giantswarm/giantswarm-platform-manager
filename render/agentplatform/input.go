@@ -32,11 +32,7 @@ var (
 	ErrPolicy = errors.New("agent-platform: fleet policy")
 )
 
-// fieldModelKey is the supplied secret field carrying the model provider key
-// when the policy has the platform team supply it.
-const fieldModelKey = "kagent.modelKey"
-
-// The components policy.yaml may list for an organisation.
+// The components of the definition beside muster and its servers.
 const (
 	componentKagent         = "kagent"
 	componentAgentManager   = "agent-manager"
@@ -44,7 +40,10 @@ const (
 	componentClusterManager = "cluster-manager"
 )
 
-var knownComponents = []string{componentKagent, componentAgentManager, componentKlausGateway, componentClusterManager}
+// organisationComponents are the components policy.yaml lists per
+// organisation. The chat gateway is not among them: it follows the
+// installation's Slack app (klausGateway.installations).
+var organisationComponents = []string{componentKagent, componentAgentManager, componentClusterManager}
 
 // The referenced Secrets every installation names alike.
 const (
@@ -60,12 +59,10 @@ type Input struct {
 	Installation Installation
 	// ModelServing is the person's choice: the meta chart's serving slice.
 	ModelServing bool
-	// Components are the components the policy gives the installation's
-	// organisation, by name.
+	// Components are the components the policy gives the installation, by
+	// name: its organisation's list and, where the policy names a Slack app
+	// for the installation, the chat gateway.
 	Components map[string]bool
-	// ModelKeyManaged says the platform team supplies the model key at commit;
-	// otherwise the organisation creates the Secret itself.
-	ModelKeyManaged bool
 	// Gateway is the chat gateway's shape, where the policy runs it.
 	Gateway GatewayPolicy
 	// Connector is the connector every target's Dex registers for this hub.
@@ -125,9 +122,14 @@ type Teleport struct {
 	ProxyAddr   string `yaml:"proxyAddr"`
 }
 
-// GatewayPolicy is policy.yaml's klausGateway block.
+// GatewayPolicy is policy.yaml's klausGateway block: the installations with a
+// Slack app, where the gateway runs, and its shape, one for all of them.
 type GatewayPolicy struct {
-	Slack struct {
+	// Installations are the installations a Slack app exists for — the one
+	// entry of the policy keyed by installation, a fact of each rather than a
+	// tuning. The gateway renders there and nowhere else.
+	Installations []string `yaml:"installations"`
+	Slack         struct {
 		Mode        string `yaml:"mode"`
 		ChannelMode string `yaml:"channelMode"`
 	} `yaml:"slack"`
@@ -168,9 +170,6 @@ type policy struct {
 		Default   []string            `yaml:"default"`
 		Customers map[string][]string `yaml:"customers"`
 	} `yaml:"components"`
-	ModelKey struct {
-		Managed []string `yaml:"managed"`
-	} `yaml:"modelKey"`
 	KlausGateway GatewayPolicy `yaml:"klausGateway"`
 	Federation   struct {
 		Connector string   `yaml:"connector"`
@@ -190,18 +189,27 @@ func loadPolicy() (*policy, error) {
 	return &pol, nil
 }
 
-// components are the components the policy gives an organisation.
-func (p *policy) components(customer string) (map[string]bool, error) {
-	list, listed := p.Components.Customers[customer]
+// components are the components the policy gives an installation: its
+// organisation's list and, where klausGateway.installations names the
+// installation, the chat gateway. An organisation's list naming the gateway is
+// refused: the gateway follows a Slack app, which an installation has or not.
+func (p *policy) components(inst Installation) (map[string]bool, error) {
+	list, listed := p.Components.Customers[inst.Customer]
 	if !listed {
 		list = p.Components.Default
 	}
 	out := map[string]bool{}
 	for _, c := range list {
-		if !slices.Contains(knownComponents, c) {
+		if c == componentKlausGateway {
+			return nil, fmt.Errorf("%w: components: the chat gateway follows the installation's Slack app; an installation with one is named under klausGateway.installations", ErrPolicy)
+		}
+		if !slices.Contains(organisationComponents, c) {
 			return nil, fmt.Errorf("%w: components: %q is not a component the definition renders", ErrPolicy, c)
 		}
 		out[c] = true
+	}
+	if slices.Contains(p.KlausGateway.Installations, inst.Name) {
+		out[componentKlausGateway] = true
 	}
 	return out, nil
 }
@@ -276,10 +284,9 @@ func Parse(raw any) (*Input, error) {
 		return nil, err
 	}
 	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, Gateway: pol.KlausGateway, Teleport: pol.Federation.Teleport}
-	if in.Components, err = pol.components(in.Installation.Customer); err != nil {
+	if in.Components, err = pol.components(in.Installation); err != nil {
 		return nil, err
 	}
-	in.ModelKeyManaged = slices.Contains(pol.ModelKey.Managed, in.Installation.Customer)
 	if in.Connector, err = pol.connector(in.Installation); err != nil {
 		return nil, err
 	}
@@ -357,16 +364,13 @@ func (in *Input) check(secrets map[string]string) error {
 }
 
 // suppliedSecretFields lists the secret values the person supplies for this
-// installation, by field name: the model key where the policy has the platform
-// team supply it, the Slack app's credentials where the gateway runs. Everything
-// else the platform needs is generated by the commit step from the placeholders
-// in the fileset.
+// installation, by field name: the Slack app's credentials where the gateway
+// runs, and nothing else — an installation without a Slack app commits with no
+// supplied secret. Everything else the platform needs is generated by the
+// commit step from the placeholders in the fileset; the model key is never
+// supplied, its Secret is the installation's own (CustomerActions).
 func (in *Input) suppliedSecretFields() []string {
-	var fields []string
-	if in.kagent() && in.ModelKeyManaged {
-		fields = append(fields, fieldModelKey)
-	}
-	fields = append(fields, in.componentSecretFields()...)
+	fields := in.componentSecretFields()
 	sort.Strings(fields)
 	return fields
 }

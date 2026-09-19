@@ -23,9 +23,11 @@ list entry with a `secretRef` and a new Secret file.
 Inputs are exactly the keys of `definitions/agent-platform/schema.json`, validated against it: an
 unknown key refuses the render naming the key; a supplied secret value that is needed and empty refuses
 naming the field. The fleet policy (`definitions/agent-platform/policy.yaml`) says which components an
-owning organisation may enable; where it does, klaus-gateway and cluster-manager render as data
+owning organisation's installations run and which installations a Slack app exists for; where one does,
+klaus-gateway renders (and cluster-manager where the organisation's list names it) as data
 (`components.go`): the gateway's route, OBO links and Slack with their Secrets referenced (the OBO keys
-generated, the Slack credentials supplied as `klausGateway.slack.<key>`), the manager's installation and, on
+generated, the Slack credentials supplied as `klausGateway.slack.<key>` — the only values a person supplies at
+commit), the manager's installation and, on
 the 3 chart line, the OAuth section a manager needs without the template's global identity block. The
 developer portal's section (`portal.go`) is a directory of the platform's own, `extras/backstage/agent-platform/`
 in the portal host's tree, a kustomize Component the portal's `extras/backstage/kustomization.yaml` lists
@@ -87,9 +89,10 @@ field as `field:path`, an argument list as `[args]` with a prefix — against a 
 without any, it compares a HelmRelease's whole user values (its `valuesFrom` ConfigMaps, then `spec.values`)
 against the rendered values file.
 
-`Actions` are what a person outside the platform team still has to do, as a note with a state. A
-customer-provided model key is one: `WaitingForCustomer` until the Secret `kagent-anthropic-key` (key
-`ANTHROPIC_API_KEY`) exists in namespace `kagent` or a ModelConfig is added in the portal. The action names
+`Actions` are what a person outside the platform team still has to do, as a note with a state. The model
+key is one, on every installation that runs kagent — the definition renders no file for it and nobody supplies
+it at commit: `WaitingForCustomer` until the Secret `kagent-anthropic-key` (key `ANTHROPIC_API_KEY`) exists in
+namespace `kagent` or a ModelConfig is added in the portal; the same step is the plan's customer action. The action names
 the live dimension it holds up (`live-model-configs`): the ModelConfig probe expects `Accepted=True` either
 way, and while the customer's move is pending the verify reads the installation as *waiting for the
 customer* rather than *drifted*.

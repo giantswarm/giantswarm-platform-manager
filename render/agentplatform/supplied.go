@@ -3,10 +3,9 @@ package agentplatform
 import "github.com/giantswarm/giantswarm-platform-manager/render"
 
 // SuppliedSecretFields names the secret values the person supplies at commit
-// for this installation, by field: the model key where the policy has the
-// platform team supply it, the Slack app's credentials where the gateway
-// runs. A dry run passes Supplied markers for exactly these fields and lists
-// them by name; no value ever appears in a dry run.
+// for this installation, by field: the Slack app's credentials where the
+// gateway runs, nothing else. A dry run passes Supplied markers for exactly
+// these fields and lists them by name; no value ever appears in a dry run.
 func (in *Input) SuppliedSecretFields() []string { return in.suppliedSecretFields() }
 
 // Supplied is the marker a dry run renders in place of a supplied secret
@@ -23,8 +22,13 @@ func (in *Input) SuppliedMarkers() map[string]string {
 	return m
 }
 
-// CustomerActions names what the rollout needs from the customer beyond the
-// pull requests. The one thing the platform leaves to the customer — the
-// model key where the policy does not have the platform team supply it — is
-// a live action of the runtime feature (actions), not a step before it.
-func (in *Input) CustomerActions() []render.CustomerAction { return nil }
+// CustomerActions names what the rollout needs from the person beyond the
+// pull requests: the model key Secret, wherever kagent runs — the step the
+// runtime feature's model-key action (actions) holds up live until the default
+// ModelConfig is Accepted.
+func (in *Input) CustomerActions() []render.CustomerAction {
+	if !in.kagent() {
+		return nil
+	}
+	return []render.CustomerAction{{Action: modelKeyNote, Why: modelKeyWhy}}
+}

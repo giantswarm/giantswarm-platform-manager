@@ -1,0 +1,4 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+oauth:
+  allowPrivateURLs: true

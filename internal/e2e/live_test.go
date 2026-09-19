@@ -393,7 +393,7 @@ func TestVerifyInstallationWaitingForTheCustomer(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	alice := st.mcpClient(t, aliceToken)
-	enableRowanLive(t, st, alice, minimalInputs(nil)) // rowan's organisation is not in the policy's modelKey.managed: the key is the customer's
+	enableRowanLive(t, st, alice, minimalInputs(nil)) // the model key is the installation's own on every installation
 	st.inst.edit("ModelConfig", kagentNamespace, "default-model-config", func(obj map[string]any) {
 		obj[statusKey] = map[string]any{conditionsKey: []any{map[string]any{typeKey: "Accepted", statusKey: "False", message: "secret kagent-anthropic-key not found"}}}
 	})

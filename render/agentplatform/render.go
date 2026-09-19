@@ -26,9 +26,10 @@ import (
 // Render turns an installation's record and choice into its fileset. raw is
 // the decoded input document (map[string]any at the top, as a YAML or JSON
 // decoder returns it); secrets carries the values the person supplies, by
-// field name — the model key where the policy has the platform team supply
-// it, the Slack app's credentials where the gateway runs. Everything else the
-// platform needs is a placeholder the commit step generates.
+// field name — the Slack app's credentials where the gateway runs, nothing
+// else. Everything else the platform needs is a placeholder the commit step
+// generates, except the model key, which nobody supplies: kagent references
+// the Secret by name and the person creates it (CustomerActions).
 func Render(raw any, secrets map[string]string) (*render.Result, error) {
 	in, err := Parse(raw)
 	if err != nil {
@@ -205,13 +206,14 @@ func (in *Input) portalJWTProvider() render.Map {
 	}
 }
 
-// kagentValues is the kagent section: the model provider wired to the
-// platform's key Secret through the edge, and the UI's oauth2-proxy with its
-// credentials Secret and the audiences it accepts.
+// kagentValues is the kagent section: the model provider wired through the
+// edge to the key Secret the installation creates (modelKeySecret; no file is
+// rendered for it), and the UI's oauth2-proxy with its credentials Secret and
+// the audiences it accepts.
 func (in *Input) kagentValues() render.Map {
 	return render.Map{
 		e("providers", render.Map{e("anthropic", render.Map{
-			e("apiKeySecretRef", "kagent-anthropic-key"),
+			e("apiKeySecretRef", modelKeySecret),
 			e("config", render.Map{e("baseUrl", "http://agentgateway.agent-platform.svc:8081")}),
 		})}),
 		e("oauth2-proxy", render.Map{
@@ -376,10 +378,6 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 			in.generated("client-secret", "kagent-dex-client-secret", render.Base64, 32),
 			in.generated("cookie-secret", "kagent-cookie-secret", render.Alphanumeric, 32)))
 		add(dexClientSecretFile("kagent"), dexClientSecret("kagent", in.generatedName("kagent-dex-client-secret")))
-		if in.ModelKeyManaged {
-			add("kagent-anthropic-key.yaml", render.Secret("kagent-anthropic-key", kagentNamespace, team,
-				render.ValueKey("ANTHROPIC_API_KEY", secrets[fieldModelKey])))
-		}
 	}
 	if in.hasPortal() {
 		add(dexClientSecretFile(render.PortalDexClientID), dexClientSecret(render.PortalDexClientID, in.generatedName(render.PortalDexClientID+"-dex-client-secret")))

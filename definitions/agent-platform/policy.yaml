@@ -1,16 +1,20 @@
 # Fleet policy of the agent-platform definition: the decisions the platform team takes once for
 # every installation, keyed by the owning organisation as the configs repository names it. The
 # renderer reads the installation's customer from the record and applies these; nobody types them.
+# One entry is keyed by installation: the chat gateway's list of Slack apps, a fact of each
+# installation rather than a tuning. The model provider key is no decision here: every
+# installation's is its own, created by its people after the commit (README.md).
 
 # The components an organisation's installations run beside muster and its three MCP servers
 # (kubernetes, prometheus, capi), which every installation runs. `default` is what an organisation
 # not listed under `customers` gets. An organisation listed with an empty list runs muster and the
-# servers only.
+# servers only. The chat gateway is not a component of these lists: it runs where a Slack app
+# exists (klausGateway.installations).
 components:
   default: [kagent, agent-manager]
   customers:
-    # Giant Swarm's own installations run everything, the hub included.
-    giantswarm: [kagent, agent-manager, klaus-gateway, cluster-manager]
+    # Giant Swarm's own installations run the cluster-manager too, the hub included.
+    giantswarm: [kagent, agent-manager, cluster-manager]
     # Agents without the agent-manager's create/edit surface.
     fleetio: [kagent]
     # Tool access only: muster and the MCP servers, no agents.
@@ -18,16 +22,15 @@ components:
     dvag: []
     vorwerk: []
 
-# Whose model key it is. An organisation listed here has the key supplied by the platform team at
-# commit (field kagent.modelKey), rendered as the Secret kagent-anthropic-key; every other
-# organisation creates that Secret itself (the customer action the plan names).
-modelKey:
-  managed: [giantswarm]
-
-# The chat gateway's shape where the policy runs it: Slack in events mode over the public route,
-# every channel, the on-behalf-of connectors, agent-to-agent with the hub's agent as default, and
-# team reviews the platform's own workloads may call.
+# The chat gateway: where it runs and its shape. A Slack app exists per installation named under
+# `installations` — the hub and the two test installations today — and the gateway runs there and
+# nowhere else, its app's credentials supplied at commit (klausGateway.slack.bot-token and
+# signing-secret); an installation not named runs no gateway and asks for nothing. The shape is one
+# for all: Slack in events mode over the public route, every channel, the on-behalf-of connectors,
+# agent-to-agent with the hub's agent as default, and team reviews the platform's own workloads
+# may call.
 klausGateway:
+  installations: [gazelle, glean, graveler]
   slack:
     mode: events
     channelMode: all

@@ -7,8 +7,6 @@ components:
     enabled: true
   agent-manager:
     enabled: true
-  klaus-gateway:
-    enabled: true
   cluster-manager:
     enabled: true
 postgres:
@@ -34,9 +32,6 @@ muster:
         name: tunnelport-spiffe-bundle
         key: svid_bundle.pem
     oauth:
-      mcpClient:
-        postLoginRedirectAllowlist:
-          - https://agentgateway.gopher.example.io/connectors/complete
       server:
         existingSecret: muster-oauth-credentials
         storage:
@@ -149,38 +144,6 @@ agent-platform-mcps:
       auth:
         mode: exchange
         provider: marmot
-klausGateway:
-  routing:
-    store: valkey
-  agentgatewayRoute:
-    enabled: true
-    hostname: agentgateway.gopher.example.io
-  slack:
-    enabled: true
-    mode: events
-    secretName: klaus-gateway-slack-credentials
-    dmMode: serve
-    channelMode: all
-  obo:
-    enabled: true
-    connectors:
-      enabled: true
-    existingSecret: klaus-gateway-obo-keys
-    musterUrl: https://muster.gopher.example.io
-    callbackBaseUrl: https://agentgateway.gopher.example.io
-    storePath: /var/lib/klaus-gateway/obo/links.bolt
-    persistence:
-      enabled: true
-      size: 64Mi
-  a2a:
-    enabled: true
-    defaultAgent: swarmgeist
-  reviews:
-    enabled: true
-    audience: klaus-gateway
-    allowedCallers:
-      - system:serviceaccount:agent-platform:giantswarm-repo-manager
-      - system:serviceaccount:marge:marge-bumblebee-sweep
 cluster-manager:
   installation:
     name: gopher
