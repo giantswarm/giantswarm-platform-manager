@@ -208,7 +208,7 @@ func TestEnableCapabilityDryRunTypedInputs(t *testing.T) {
 	fixtures(st.ghs)
 	c := st.mcpClient(t, aliceToken)
 	out, text, isErr := dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan,
-		tools.ArgInputs: minimalInputs(map[string]any{"installation": map[string]any{"provider": capz}})})
+		tools.ArgInputs: minimalInputs(map[string]any{argInstallation: map[string]any{"provider": capz}})})
 	if isErr {
 		t.Fatal(text)
 	}
@@ -235,7 +235,7 @@ func TestEnableCapabilityDryRunTypedInputs(t *testing.T) {
 	if p := findPlan(t, out, rowan); !strings.Contains(p.Refused, "bogus") || len(p.Files) != 0 || len(out.PullRequests) != 0 {
 		t.Fatalf("unknown key: refused %q files %d prs %d", p.Refused, len(p.Files), len(out.PullRequests))
 	}
-	out, text, isErr = dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(map[string]any{"installation": map[string]any{"federation": map[string]any{"targets": []any{map[string]any{"installation": alder, "baseDomain": alder + ".example", "private": false}}, "hubs": []any{}}}})})
+	out, text, isErr = dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(map[string]any{argInstallation: map[string]any{"federation": map[string]any{"targets": []any{map[string]any{"installation": alder, "baseDomain": alder + ".example", "private": false}}, "hubs": []any{}}}})})
 	if isErr {
 		t.Fatal(text)
 	}

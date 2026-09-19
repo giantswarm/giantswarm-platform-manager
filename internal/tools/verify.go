@@ -76,13 +76,12 @@ func (t *Tools) verifyInstallation(ctx context.Context, token, name string, def 
 		}
 		// The newest Action rendered the capability: its typed inputs — possibly
 		// none, the record and the defaults being the whole input — over the record.
-		for _, a := range acts {
-			values, err := mergeInputs(def, r, a.Spec.Inputs)
+		if len(acts) > 0 {
+			values, err := mergeInputs(def, r, acts[0].Spec.Inputs)
 			if err != nil {
 				return nil, err
 			}
-			in = verify.Inputs{Source: "action " + a.Name, Values: values}
-			break
+			in = verify.Inputs{Source: "action " + acts[0].Name, Values: values}
 		}
 	}
 	out := verify.Compare(ctx, verify.Options{Definition: def, Installation: r.Installation, Hub: hub, State: capabilityState(r, def.Name), Inputs: in, Read: readAs(c), Probes: t.d.Probes})

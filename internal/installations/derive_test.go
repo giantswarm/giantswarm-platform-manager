@@ -10,36 +10,36 @@ import (
 // is the hub of every other listed installation and brokers for them all.
 func TestDeriveFromPortals(t *testing.T) {
 	reg := &Registry{Installations: []Installation{
-		{Name: "hazel", Customer: "example", BaseDomain: "hazel.example.test", Hub: true},
-		{Name: "maple", Customer: "acme", BaseDomain: "maple.acme.test", Repositories: Repositories{Configs: "example/acme-configs", ManagementClusters: "example/acme-management-clusters"}},
-		{Name: "birch", Customer: "acme", BaseDomain: "birch.acme.test", Repositories: Repositories{Configs: "example/acme-configs", ManagementClusters: "example/acme-management-clusters"}},
+		{Name: "aspen", Customer: "fleet", BaseDomain: "aspen.fleet.test", Hub: true},
+		{Name: "linden", Customer: "umbra", BaseDomain: "linden.umbra.test", Repositories: Repositories{Configs: "fleet/umbra-configs", ManagementClusters: "fleet/umbra-management-clusters"}},
+		{Name: "rowanberry", Customer: "umbra", BaseDomain: "rowanberry.umbra.test", Repositories: Repositories{Configs: "fleet/umbra-configs", ManagementClusters: "fleet/umbra-management-clusters"}},
 	}}
 	reports := []Report{
-		{Installation: reg.Installations[0], Record: &Record{Name: "hazel", BaseDomain: "hazel.example.test"}, Readable: true},
-		{Installation: reg.Installations[1], Record: &Record{Name: "maple", BaseDomain: "maple.acme.test"}, Readable: true},
-		{Installation: reg.Installations[2], Record: &Record{Name: "birch", BaseDomain: "birch.acme.test", Private: true}, Readable: true},
+		{Installation: reg.Installations[0], Record: &Record{Name: "aspen", BaseDomain: "aspen.fleet.test"}, Readable: true},
+		{Installation: reg.Installations[1], Record: &Record{Name: "linden", BaseDomain: "linden.umbra.test"}, Readable: true},
+		{Installation: reg.Installations[2], Record: &Record{Name: "rowanberry", BaseDomain: "rowanberry.umbra.test", Private: true}, Readable: true},
 	}
 	portals := []Portal{
-		{Host: "hazel", Customer: "example", Domain: "portal.example.test", Broker: "", Installations: []string{"hazel", "maple", "birch"}},
-		{Host: "maple", Customer: "acme", Domain: "portal.maple.acme.test", Broker: "maple", Installations: []string{"maple", "birch"}},
+		{Host: "aspen", Customer: "fleet", Domain: "portal.fleet.test", Broker: "", Installations: []string{"aspen", "linden", "rowanberry"}},
+		{Host: "linden", Customer: "umbra", Domain: "portal.linden.umbra.test", Broker: "linden", Installations: []string{"linden", "rowanberry"}},
 	}
 	_ = reg
 	targets := reports[1].derivePortals(portals)
 	if !slices.Equal(reports[2].derivePortals(portals), nil) {
 		t.Fatalf("birch brokers for nobody")
 	}
-	maple, birch := reports[1], reports[2]
-	if len(maple.Portals) != 2 || maple.Portals[1].Customer != "acme" || len(maple.Federation.Hubs) != 0 || !slices.Equal(targets, []string{"birch"}) {
-		t.Fatalf("maple: %+v %+v %v", maple.Portals, maple.Federation, targets)
+	linden, birch := reports[1], reports[2]
+	if len(linden.Portals) != 2 || linden.Portals[1].Customer != "umbra" || len(linden.Federation.Hubs) != 0 || !slices.Equal(targets, []string{"rowanberry"}) {
+		t.Fatalf("linden: %+v %+v %v", linden.Portals, linden.Federation, targets)
 	}
-	if !slices.Equal(birch.Federation.Hubs, []string{"maple"}) || len(birch.Portals) != 2 {
+	if !slices.Equal(birch.Federation.Hubs, []string{"linden"}) || len(birch.Portals) != 2 {
 		t.Fatalf("birch: %+v %+v", birch.Portals, birch.Federation)
 	}
-	facts := maple.Facts()
+	facts := linden.Facts()
 	if facts["portals"] == nil || facts["federation"] == nil {
 		t.Fatalf("facts: %v", facts)
 	}
-	if !maple.Readable {
-		t.Fatalf("maple readable: %v", maple.Errors)
+	if !linden.Readable {
+		t.Fatalf("maple readable: %v", linden.Errors)
 	}
 }
