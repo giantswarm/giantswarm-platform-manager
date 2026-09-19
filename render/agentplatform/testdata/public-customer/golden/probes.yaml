@@ -125,7 +125,7 @@
   name: default-model-config
   expect:
     condition: Accepted
-    conditionStatus: "False"
+    conditionStatus: "True"
     note: waiting for the customer's model key (Secret kagent-anthropic-key, key ANTHROPIC_API_KEY, or a ModelConfig in the portal)
 - id: live-kagent-api-protected
   feature: identity
@@ -204,6 +204,8 @@
   namespace: flux-giantswarm
   resource: HelmRelease
   name: agent-platform
+  expect:
+    note: the values the HelmRelease reads from its ConfigMaps are the rendered values
 - id: live-kagent-provider-values
   feature: runtime
   kind: Drift
@@ -211,7 +213,10 @@
   resource: HelmRelease
   name: kagent
   expect:
-    note: .spec.values.kagent.providers are the rendered kagent.providers
+    note: .spec.values.providers are the rendered kagent.providers (the meta chart forwards its kagent block flat)
+    compare:
+      - live: spec.values.providers
+        rendered: kagent.providers
 - id: live-oauth2-proxy-extra-audience
   feature: identity
   kind: Drift
@@ -220,6 +225,10 @@
   name: kagent-oauth2-proxy
   expect:
     note: --oidc-extra-audience carries the rendered audiences
+    compare:
+      - live: spec.template.spec.containers[0].args[args]
+        rendered: kagent.oauth2-proxy.extraArgs.oidc-extra-audience
+        prefix: --oidc-extra-audience=
 - id: live-muster-trusted-audiences
   feature: identity
   kind: Drift
@@ -228,6 +237,9 @@
   name: muster-config
   expect:
     note: trustedAudiences are the rendered muster.muster.oauth.server.trustedAudiences
+    compare:
+      - live: data.config.yaml:aggregator.oauth.server.trustedAudiences
+        rendered: muster.muster.oauth.server.trustedAudiences
 - id: live-muster-connector-and-client-id
   feature: identity
   kind: Drift
@@ -235,4 +247,7 @@
   resource: ConfigMap
   name: muster-config
   expect:
-    note: the Dex connectorId and clientId are the rendered ones
+    note: the Dex connectorId is the rendered muster.muster.oauth.server.dex.connectorId
+    compare:
+      - live: data.config.yaml:aggregator.oauth.server.dex.connectorId
+        rendered: muster.muster.oauth.server.dex.connectorId

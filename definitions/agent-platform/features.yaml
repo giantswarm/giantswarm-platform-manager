@@ -24,7 +24,7 @@ features:
       - {id: dex-other-oidc-keys, kind: dex-secret, key: oidc.* other than staticClients and extraStaticClients}
       - {id: live-oauth2-proxy-extra-audience, kind: live, key: oauth2-proxy --oidc-extra-audience argument}
       - {id: live-muster-trusted-audiences, kind: live, key: muster ConfigMap trustedAudiences}
-      - {id: live-muster-connector-and-client-id, kind: live, key: muster ConfigMap dex connectorId and clientId}
+      - {id: live-muster-connector-and-client-id, kind: live, key: muster ConfigMap dex connectorId, where the definition renders one}
       - {id: live-kagent-api-protected, kind: live, key: /api/agents answered 403 by oauth2-proxy}
       - {id: live-kagent-login-redirect, kind: live, key: /oauth2/start 302 to Dex with client_id=kagent}
       - {id: live-dex-auth-per-client, kind: live, key: Dex /auth 302 for every rendered client}
@@ -56,7 +56,7 @@ features:
       - {id: patch-top-level-keys, kind: configmap, key: the patch's top-level keys}
       - {id: extras-kustomization-resources, kind: extras, key: kustomization.yaml resources and patches}
       - {id: live-model-configs, kind: live, key: ModelConfigs in the kagent namespace}
-      - {id: live-kagent-provider-values, kind: live, key: kagent HelmRelease .spec.values.kagent.providers}
+      - {id: live-kagent-provider-values, kind: live, key: kagent HelmRelease .spec.values.providers}
       - {id: live-helmreleases-ready, kind: live, key: HelmReleases agent-platform, kagent, connectivity, muster, mcps Ready}
       - {id: live-kagent-workloads, kind: live, key: kagent pods Running and the CNPG cluster healthy}
       - {id: live-drift, kind: live, key: live values equal the rendered manifests}

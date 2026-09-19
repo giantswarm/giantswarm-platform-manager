@@ -65,19 +65,27 @@ func (in *Input) probes() []render.Probe {
 		audience.Expect.Absent = "audience .* does not match"
 		p = append(p, audience)
 	}
-	p = append(p, resourceProbe("live-drift", featureRuntime, render.Drift, fluxNamespace, "HelmRelease", "agent-platform"))
+	p = append(p, driftProbe("live-drift", featureRuntime, fluxNamespace, "HelmRelease", "agent-platform",
+		"the values the HelmRelease reads from its ConfigMaps are the rendered values"))
 	if in.kagent() {
 		p = append(p,
 			driftProbe("live-kagent-provider-values", featureRuntime, fluxNamespace, "HelmRelease", "kagent",
-				".spec.values.kagent.providers are the rendered kagent.providers"),
+				".spec.values.providers are the rendered kagent.providers (the meta chart forwards its kagent block flat)",
+				render.Comparison{Live: "spec.values.providers", Rendered: "kagent.providers"}),
 			driftProbe("live-oauth2-proxy-extra-audience", featureIdentity, kagentNamespace, "Deployment", oauth2ProxyDeployment,
-				"--oidc-extra-audience carries the rendered audiences"))
+				"--oidc-extra-audience carries the rendered audiences",
+				render.Comparison{Live: "spec.template.spec.containers[0].args[args]", Prefix: "--oidc-extra-audience=", Rendered: "kagent.oauth2-proxy.extraArgs.oidc-extra-audience"}))
 	}
-	return append(p,
-		driftProbe("live-muster-trusted-audiences", featureIdentity, platformNamespace, "ConfigMap", musterConfigMap,
-			"trustedAudiences are the rendered muster.muster.oauth.server.trustedAudiences"),
-		driftProbe("live-muster-connector-and-client-id", featureIdentity, platformNamespace, "ConfigMap", musterConfigMap,
-			"the Dex connectorId and clientId are the rendered ones"))
+	p = append(p, driftProbe("live-muster-trusted-audiences", featureIdentity, platformNamespace, "ConfigMap", musterConfigMap,
+		"trustedAudiences are the rendered muster.muster.oauth.server.trustedAudiences",
+		render.Comparison{Live: "data.config.yaml:aggregator.oauth.server.trustedAudiences", Rendered: "muster.muster.oauth.server.trustedAudiences"}))
+	// The Dex client id is the shared template's, never rendered here; the
+	// connector id is rendered only when the installation pins a login
+	// connector — without one the verify says the render carries no value
+	// to hold the live one against.
+	return append(p, driftProbe("live-muster-connector-and-client-id", featureIdentity, platformNamespace, "ConfigMap", musterConfigMap,
+		"the Dex connectorId is the rendered muster.muster.oauth.server.dex.connectorId",
+		render.Comparison{Live: "data.config.yaml:aggregator.oauth.server.dex.connectorId", Rendered: "muster.muster.oauth.server.dex.connectorId"}))
 }
 
 // actions are what a person outside the platform team still has to do for the
@@ -87,7 +95,7 @@ func (in *Input) actions() []render.Action {
 	if !in.kagent() || in.ModelKeyManaged {
 		return nil
 	}
-	return []render.Action{{ID: "model-key", Feature: featureRuntime, State: render.WaitingForCustomer,
+	return []render.Action{{ID: "model-key", Feature: featureRuntime, State: render.WaitingForCustomer, Dimension: "live-model-configs",
 		Note: "Create Secret kagent-anthropic-key in namespace kagent with key ANTHROPIC_API_KEY, or add a ModelConfig in the portal; until then default-model-config stays Accepted=False."}}
 }
 
@@ -106,13 +114,13 @@ func (in *Input) helmReleases() []string {
 	return names
 }
 
-// modelConfigProbe is the default ModelConfig's Accepted condition: True with a
-// managed model key; False, and a note saying whose move it is, until the
-// customer provides the key.
+// modelConfigProbe is the default ModelConfig's Accepted condition, True. With
+// a model key the customer provides the note says whose move a False is, and
+// the model-key action (actions) names this dimension: until the customer
+// acts it reads waiting for the customer, not drifted.
 func (in *Input) modelConfigProbe() render.Probe {
 	p := conditionProbe("live-model-configs", featureRuntime, kagentNamespace, "ModelConfig.kagent.dev", "default-model-config", "Accepted", conditionTrue)
 	if !in.ModelKeyManaged {
-		p.Expect.ConditionStatus = conditionFalse
 		p.Expect.Note = "waiting for the customer's model key (Secret kagent-anthropic-key, key ANTHROPIC_API_KEY, or a ModelConfig in the portal)"
 	}
 	return p
@@ -160,11 +168,12 @@ func conditionProbe(id, feature, namespace, resource, name, condition, status st
 	return p
 }
 
-// driftProbe is a Drift probe of one object, with the note saying which of
-// its values are compared to the render.
-func driftProbe(id, feature, namespace, resource, name, note string) render.Probe {
+// driftProbe is a Drift probe of one object: the note says which of its
+// values are compared to the render, compare names the places — none compares
+// the object's whole user values to the rendered values file.
+func driftProbe(id, feature, namespace, resource, name, note string, compare ...render.Comparison) render.Probe {
 	p := resourceProbe(id, feature, render.Drift, namespace, resource, name)
-	p.Expect.Note = note
+	p.Expect.Note, p.Expect.Compare = note, compare
 	return p
 }
 

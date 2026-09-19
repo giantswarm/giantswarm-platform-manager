@@ -72,11 +72,17 @@ object by namespace, resource and name, or a URL), its expectation and the featu
 kagent's is probed only when kagent is enabled. Nothing here connects to a cluster or an endpoint: the verify
 slice executes the probes and shows the marks.
 
+A `Drift` probe names the places it compares (`Expect.Compare`: a live path — a YAML document in a string
+field as `field:path`, an argument list as `[args]` with a prefix — against a path of the rendered values file);
+without any, it compares a HelmRelease's whole user values (its `valuesFrom` ConfigMaps, then `spec.values`)
+against the rendered values file.
+
 `Actions` are what a person outside the platform team still has to do, as a note with a state. A
 customer-provided model key is one: `WaitingForCustomer` until the Secret `kagent-anthropic-key` (key
-`ANTHROPIC_API_KEY`) exists in namespace `kagent` or a ModelConfig is added in the portal, and the ModelConfig
-probe expects `Accepted=False` until then. With a managed key there is no action and the probe expects
-`Accepted=True`.
+`ANTHROPIC_API_KEY`) exists in namespace `kagent` or a ModelConfig is added in the portal. The action names
+the live dimension it holds up (`live-model-configs`): the ModelConfig probe expects `Accepted=True` either
+way, and while the customer's move is pending the verify reads the installation as *waiting for the
+customer* rather than *drifted*.
 
 The goldens carry both as `probes.yaml` and `actions.yaml` per shape; `TestProbesAreLiveDimensions` holds every
 probe to a live dimension of the feature it names and every live dimension to at least one probe.

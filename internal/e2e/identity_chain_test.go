@@ -34,6 +34,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/approvals"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/live"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/server"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
 )
@@ -58,6 +59,8 @@ const (
 	installation    = "example"
 	// actionsNamespace is where the Action records live on the fake hub.
 	actionsNamespace = "platform-manager"
+	// livePath is where the live surface listens.
+	livePath = "/mcp/live"
 )
 
 type stack struct {
@@ -75,6 +78,11 @@ type stack struct {
 	committedAs string
 	// gateway is the fake klaus-gateway the reviews go to.
 	gateway *fakeGateway
+	// dex is the platform identity provider of the live path, muster the
+	// aggregator its loop-back reaches, inst the installation behind it.
+	dex    *fakeDex
+	muster *fakeMuster
+	inst   *fakeInstallation
 	// remoteCalls are the approvals, closes and merges by identity: "<login> <op> <owner/repo>#<n>".
 	mu          sync.Mutex
 	remoteCalls []string
@@ -108,9 +116,17 @@ func newStack(t *testing.T) *stack {
 		t.Fatal(err)
 	}
 	st := &stack{ghs: newFakeGitHub(t, logins), probes: newFakeProbes(t), remote: commit.NewFake(), logs: logs, gateway: newFakeGateway(t),
-		dyn: dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{actions.GVR: actions.Kind + "List"})}
+		dyn: dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{actions.GVR: actions.Kind + "List"}),
+		dex: newFakeDex(t), inst: newFakeInstallation()}
+	st.muster = newFakeMuster(t, st.inst, rowan)
+	lc, err := live.New(live.Config{Path: livePath, Issuer: st.dex.issuer, Audience: liveAudience, JWKSURL: st.dex.issuer + "/keys", AllowPrivateIPJWKS: true, CAFile: st.dex.caFile,
+		MusterURL: st.muster.URL + "/mcp", KubernetesFamily: kubernetesFamily, KubernetesInstanceArg: instanceArg, Version: testVersion}, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(lc.Close)
 	apiURL := st.ghs.URL + "/api/v3"
-	ts := tools.New(tools.Deps{Version: testVersion, GitHubAPIURL: apiURL, AuthorizationServer: server.DefaultAuthorizationServer, Log: log,
+	ts := tools.New(tools.Deps{Version: testVersion, GitHubAPIURL: apiURL, AuthorizationServer: server.DefaultAuthorizationServer, Log: log, Live: lc,
 		Actions: actions.New(st.dyn, actionsNamespace),
 		Probes:  st.probes.client(),
 		Remote: func(token string) (commit.Remote, error) {
@@ -127,7 +143,8 @@ func newStack(t *testing.T) *stack {
 			return map[string]any{"committed": true, "as": st.committedAs}, nil
 		}})
 	s, err := server.New(server.Config{Addr: "127.0.0.1:0", MCPPath: "/mcp",
-		OAuth: &server.OAuthConfig{BaseURL: baseURL, AuthorizationServer: server.DefaultAuthorizationServer, GitHubAPIURL: apiURL}}, ts.MCPServer(), log)
+		OAuth: &server.OAuthConfig{BaseURL: baseURL, AuthorizationServer: server.DefaultAuthorizationServer, GitHubAPIURL: apiURL},
+		Live:  &server.LiveConfig{Path: livePath, Verify: lc.Verify, Server: ts.LiveMCPServer()}}, ts.MCPServer(), log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +156,19 @@ func newStack(t *testing.T) *stack {
 // mcpClient is a connected MCP client carrying token as the bearer.
 func (st *stack) mcpClient(t *testing.T, token string) *client.Client {
 	t.Helper()
-	c, err := client.NewStreamableHttpClient(st.srv.URL+"/mcp", transport.WithHTTPHeaders(map[string]string{"Authorization": "Bearer " + token}))
+	return st.clientAt(t, "/mcp", token)
+}
+
+// liveClient is a session on the live path with the bearer muster would
+// forward: the person's ID token.
+func (st *stack) liveClient(t *testing.T, token string) *client.Client {
+	t.Helper()
+	return st.clientAt(t, livePath, token)
+}
+
+func (st *stack) clientAt(t *testing.T, path, token string) *client.Client {
+	t.Helper()
+	c, err := client.NewStreamableHttpClient(st.srv.URL+path, transport.WithHTTPHeaders(map[string]string{"Authorization": "Bearer " + token}))
 	if err != nil {
 		t.Fatal(err)
 	}

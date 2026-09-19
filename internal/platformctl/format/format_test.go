@@ -233,7 +233,7 @@ func TestVerifyPrintsFeaturesWithMarksAndDimensions(t *testing.T) {
 		},
 	}
 	var buf bytes.Buffer
-	if err := Verify(&buf, r); err != nil {
+	if err := Verify(&buf, r, nil); err != nil {
 		t.Fatal(err)
 	}
 	contains(t, buf.String(),

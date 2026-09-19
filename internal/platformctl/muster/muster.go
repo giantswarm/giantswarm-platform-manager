@@ -2,13 +2,12 @@
 // does: through muster's own CLI. `muster agent --mcp-server` is muster's
 // stdio-to-HTTP bridge — it takes the aggregator endpoint from muster's
 // configuration and runs the person's OAuth login when the aggregator asks for
-// one — and this package speaks MCP to it, nothing more. The bridge exposes
-// muster's meta tools only (call_tool, list_tools, describe_tool, …); the
-// aggregator's tools are one level down, behind call_tool {name, arguments},
-// which answers the tool's own result as one JSON document. Behind muster the
-// manager's tools are named x_<server>_<tool>; a server the person has not
-// connected yet exposes no tools, and muster's core_auth_login answers the
-// sign-in URL, which this package hands back as an AuthRequired error.
+// one — and this package speaks MCP to it through the aggregator package,
+// nothing more. Behind muster the manager's tools are named
+// x_<server>_<tool>: the App-pinned registration's under Server, the live
+// registration's under LiveServer; a server the person has not connected yet
+// exposes no tools, and muster's core_auth_login answers the sign-in URL,
+// which this package hands back as an AuthRequired error.
 package muster
 
 import (
@@ -22,25 +21,26 @@ import (
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
-	"github.com/mark3labs/mcp-go/mcp"
 
+	"github.com/giantswarm/giantswarm-platform-manager/internal/aggregator"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/version"
 )
 
-// Server is the manager's name in muster: the MCPServer the chart registers,
-// and the server core_auth_login connects.
-const Server = tools.ToolPrefix
+// Server is the manager's name in muster: the App-pinned MCPServer the chart
+// registers, and the server core_auth_login connects. LiveServer is the
+// second registration of the same Deployment, the one muster forwards the
+// person's own token to: nothing to sign in to.
+const (
+	Server     = tools.ToolPrefix
+	LiveServer = tools.LiveToolPrefix
+)
 
 // DefaultBinary is the muster CLI as found on PATH.
 const DefaultBinary = "muster"
 
-// The bridge's meta tool every aggregator tool is called through, and the
-// aggregator's own tool that connects a server for the person.
-const (
-	metaCallTool  = "call_tool"
-	toolAuthLogin = "core_auth_login"
-)
+// toolAuthLogin is the aggregator's own tool that connects a server for the person.
+const toolAuthLogin = "core_auth_login"
 
 // Options say how the bridge is started.
 type Options struct {
@@ -58,7 +58,7 @@ type Options struct {
 
 // Session is one connection to muster with the manager's tools in reach.
 type Session struct {
-	c *client.Client
+	s *aggregator.Session
 }
 
 // Open starts `muster agent --mcp-server` and initializes the MCP session.
@@ -91,100 +91,48 @@ func Open(ctx context.Context, o Options) (*Session, error) {
 // New initializes the MCP session over an already constructed client — the
 // bridge from Open, or an in-process bridge in tests.
 func New(ctx context.Context, c *client.Client) (*Session, error) {
-	if err := c.Start(ctx); err != nil {
-		return nil, fmt.Errorf("connect to muster: %w", err)
+	s, err := aggregator.New(ctx, c, "platformctl", version.String())
+	if err != nil {
+		return nil, err
 	}
-	req := mcp.InitializeRequest{}
-	req.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
-	req.Params.ClientInfo = mcp.Implementation{Name: "platformctl", Version: version.String()}
-	if _, err := c.Initialize(ctx, req); err != nil {
-		_ = c.Close()
-		return nil, fmt.Errorf("initialize the MCP session with muster: %w", err)
-	}
-	return &Session{c: c}, nil
+	return &Session{s: s}, nil
 }
 
 // Close ends the session and the bridge process.
-func (s *Session) Close() error { return s.c.Close() }
+func (s *Session) Close() error { return s.s.Close() }
 
-// Call runs one of the manager's tools by its plain name (list_installations,
-// enable_capability, …) and returns the JSON document it answered. A tool
-// refusal is a *ToolError; a server the person has not connected yet is an
-// *AuthRequired carrying the sign-in URL muster answered.
+// Call runs one of the App-pinned manager's tools by its plain name
+// (list_installations, enable_capability, …) and returns the JSON document
+// it answered. A tool refusal is a *ToolError; a server the person has not
+// connected yet is an *AuthRequired carrying the sign-in URL muster answered.
 func (s *Session) Call(ctx context.Context, tool string, args map[string]any) (json.RawMessage, error) {
-	res, err := s.call(ctx, "x_"+Server+"_"+tool, args)
+	return s.CallServer(ctx, Server, tool, args)
+}
+
+// CallServer is Call against the named registration of the manager: Server
+// or LiveServer.
+func (s *Session) CallServer(ctx context.Context, server, tool string, args map[string]any) (json.RawMessage, error) {
+	res, err := s.s.Call(ctx, "x_"+server+"_"+tool, args)
 	if err != nil {
-		if auth := s.signIn(ctx); auth != nil {
+		if auth := s.signIn(ctx, server); auth != nil {
 			return nil, auth
 		}
 		return nil, err
 	}
 	if res.IsError {
-		if auth := s.signIn(ctx); auth != nil {
+		if auth := s.signIn(ctx, server); auth != nil {
 			return nil, auth
 		}
-		return nil, &ToolError{Tool: tool, Message: textOf(res)}
+		return nil, &ToolError{Tool: tool, Message: aggregator.TextOf(res)}
 	}
-	return json.RawMessage(textOf(res)), nil
+	return json.RawMessage(aggregator.TextOf(res)), nil
 }
 
-// call runs one aggregator tool through the bridge's call_tool and returns
-// the tool's own result, unwrapped from the document call_tool answers. An
-// error is the bridge's or call_tool's own refusal — a tool it does not know,
-// a lost connection — never the tool's answer.
-func (s *Session) call(ctx context.Context, name string, args map[string]any) (*mcp.CallToolResult, error) {
-	req := mcp.CallToolRequest{}
-	req.Params.Name = metaCallTool
-	req.Params.Arguments = map[string]any{"name": name, "arguments": args}
-	res, err := s.c.CallTool(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", name, err)
-	}
-	return unwrap(name, res)
-}
-
-// envelope is what call_tool answers as its first text content: the called
-// tool's result serialized as one JSON document.
-type envelope struct {
-	IsError bool `json:"isError"`
-	Content []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	} `json:"content"`
-	StructuredContent any `json:"structuredContent"`
-}
-
-// unwrap reads the called tool's result out of call_tool's answer. The bridge
-// may append its own notices after the envelope; only the first text counts.
-func unwrap(name string, res *mcp.CallToolResult) (*mcp.CallToolResult, error) {
-	var text string
-	for _, c := range res.Content {
-		if t, ok := mcp.AsTextContent(c); ok {
-			text = t.Text
-			break
-		}
-	}
-	var e envelope
-	if err := json.Unmarshal([]byte(text), &e); err != nil || e.Content == nil {
-		if res.IsError {
-			return nil, fmt.Errorf("%s: %s", name, text)
-		}
-		return nil, fmt.Errorf("%s: muster's %s answered something other than a tool result: %q", name, metaCallTool, text)
-	}
-	out := &mcp.CallToolResult{IsError: e.IsError, StructuredContent: e.StructuredContent}
-	for _, c := range e.Content {
-		if c.Type == "text" {
-			out.Content = append(out.Content, mcp.NewTextContent(c.Text))
-		}
-	}
-	return out, nil
-}
-
-// signIn asks muster whether the manager is connected for this person: its
+// signIn asks muster whether server is connected for this person: its
 // core_auth_login answers a challenge with the sign-in URL when it is not, and
 // something else when it is. Only a challenge is an AuthRequired.
-func (s *Session) signIn(ctx context.Context) *AuthRequired {
-	res, err := s.call(ctx, toolAuthLogin, map[string]any{"server": Server})
+func (s *Session) signIn(ctx context.Context, server string) *AuthRequired {
+	res, err := s.s.Call(ctx, toolAuthLogin, map[string]any{"server": server})
 	if err != nil || res.IsError {
 		return nil
 	}
@@ -193,17 +141,7 @@ func (s *Session) signIn(ctx context.Context) *AuthRequired {
 	if url == "" {
 		return nil
 	}
-	return &AuthRequired{Server: Server, URL: url, Message: textOf(res)}
-}
-
-func textOf(res *mcp.CallToolResult) string {
-	parts := make([]string, 0, len(res.Content))
-	for _, c := range res.Content {
-		if t, ok := mcp.AsTextContent(c); ok {
-			parts = append(parts, t.Text)
-		}
-	}
-	return strings.Join(parts, "\n")
+	return &AuthRequired{Server: server, URL: url, Message: aggregator.TextOf(res)}
 }
 
 // AuthRequired says the person has not connected the manager in muster yet:

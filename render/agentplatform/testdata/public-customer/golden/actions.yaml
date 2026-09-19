@@ -2,3 +2,4 @@
   feature: runtime
   state: WaitingForCustomer
   note: Create Secret kagent-anthropic-key in namespace kagent with key ANTHROPIC_API_KEY, or add a ModelConfig in the portal; until then default-model-config stays Accepted=False.
+  dimension: live-model-configs

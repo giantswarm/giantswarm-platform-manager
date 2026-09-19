@@ -196,6 +196,53 @@ func (c *conn) call(tool string, args map[string]any, stdout, stderr io.Writer, 
 	return exitOK
 }
 
+// callBoth is call over the two registrations of the manager: tool on the
+// App-pinned one and liveTool on the live one, with the same arguments; the
+// live answer, or why there is none, goes to show with the App-pinned one.
+// A live registration the person cannot reach — not registered, not
+// connected — is not a failure of the command: the repository result stands
+// and the live side says why. --output json prints the two documents as one
+// object, {"repository": …, "live": …|null, "liveError": …}.
+func (c *conn) callBoth(tool, liveTool string, args map[string]any, stdout, stderr io.Writer, show func(repo, live json.RawMessage, liveErr error) error) int {
+	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
+	defer cancel()
+	s, err := muster.Open(ctx, muster.Options{Binary: c.binary, Endpoint: c.endpoint, ConfigPath: c.configPath, Stderr: stderr})
+	if err != nil {
+		return fail(stderr, err)
+	}
+	defer func() { _ = s.Close() }()
+	repo, err := s.Call(ctx, tool, args)
+	if err != nil {
+		if auth, ok := muster.IsAuthRequired(err); ok {
+			if c.output == outputJSON {
+				b, _ := json.Marshal(auth)
+				_ = format.JSON(stdout, b)
+			} else {
+				_ = format.AuthRequired(stderr, auth)
+			}
+			return exitSignIn
+		}
+		return fail(stderr, err)
+	}
+	live, liveErr := s.CallServer(ctx, muster.LiveServer, liveTool, args)
+	if c.output == outputJSON {
+		doc := map[string]any{"repository": repo, "live": nil}
+		if liveErr != nil {
+			doc["liveError"] = liveErr.Error()
+		} else {
+			doc["live"] = live
+		}
+		b, _ := json.Marshal(doc)
+		err = format.JSON(stdout, b)
+	} else {
+		err = show(repo, live, liveErr)
+	}
+	if err != nil {
+		return fail(stderr, err)
+	}
+	return exitOK
+}
+
 // decode reads the tool's document into the manager's own type.
 func decode(raw json.RawMessage, v any) error {
 	if err := json.Unmarshal(raw, v); err != nil {

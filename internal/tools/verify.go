@@ -19,7 +19,7 @@ const InputsNone = "none"
 
 func verifyCapabilityTool() mcp.Tool {
 	return mcp.NewTool(ToolVerifyCapability,
-		mcp.WithDescription("Read-only. Verify one installation against a capability's definition and answer the result grouped into the definition's features, each rolled up to one mark — as defined, differs by input, drifted — and expanded to its dimensions. Compares the owning repositories' files, read as you, against the render from the inputs on record (the installation's record under the newest Action's inputs): every difference names the file, the path and either the input that drives it or drift. Runs the definition's anonymous HTTP probes direct. The live dimensions — objects on the installation, read with your authority — are reported as not checked until the read side lands. Works for any installation of the registry, opted in or not."),
+		mcp.WithDescription("Read-only. Verify one installation against a capability's definition and answer the result grouped into the definition's features, each rolled up to one mark — as defined, differs by input, drifted — and expanded to its dimensions. Compares the owning repositories' files, read as you, against the render from the inputs on record (the installation's record under the newest Action's inputs): every difference names the file, the path and either the input that drives it or drift. Runs the definition's anonymous HTTP probes direct. The live dimensions — objects on the installation, read with your authority — are verify_installation's, the tool of the registration muster forwards your own token to; here they read not checked. Works for any installation of the registry, opted in or not."),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithString(ArgInstallation, mcp.Required(), mcp.Description("The installation to verify, by name.")),
 		mcp.WithString(ArgCapability, mcp.Description(capabilityArgDescription), mcp.Enum(installations.CapabilityNames()...)),
@@ -74,10 +74,15 @@ func (t *Tools) verifyInstallation(ctx context.Context, token, name string, def 
 		if err != nil {
 			return nil, err
 		}
-		// The newest Action rendered the capability: its typed inputs — possibly
+		// The newest Action rendered the capability: its inputs on record (a
+		// wave's entry for this installation, else its own document) — possibly
 		// none, the record and the defaults being the whole input — over the record.
 		if len(acts) > 0 {
-			values, err := mergeInputs(def, r, acts[0].Spec.Inputs)
+			recorded := acts[0].InputsOnRecord(name)
+			if recorded == nil {
+				recorded = acts[0].Spec.Inputs
+			}
+			values, err := mergeInputs(def, r, recorded)
 			if err != nil {
 				return nil, err
 			}
