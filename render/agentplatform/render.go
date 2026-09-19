@@ -12,7 +12,8 @@
 // the organisation's developer portal; and the hub side of federation: the
 // broker and identity provider per target, the targets' MCP servers, the
 // credentials Secrets and, for a private target, the tunnel on the hub
-// (hub.go) with its Teleport objects in teleport-fleet (teleport.go).
+// (hub.go) with the hub's entries of teleport-fleet's tunnelport values
+// (teleport.go).
 package agentplatform
 
 import (
@@ -60,7 +61,7 @@ func Render(raw any, secrets map[string]string) (*render.Result, error) {
 		in.portalFiles(r, clusters, backstage+portalDir)
 		r.IncludeComponent(clusters, backstage+"kustomization.yaml", render.PortalPlatformComponent())
 	}
-	in.teleportObjects(r)
+	in.tunnelValues(r)
 	r.Probes = in.probes()
 	r.Actions = in.actions()
 	return r, nil

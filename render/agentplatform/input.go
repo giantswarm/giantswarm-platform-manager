@@ -100,7 +100,6 @@ type Federation struct {
 	Hubs           []string `json:"hubs"`
 	Targets        []Target `json:"targets"`
 	BrokerClientID string   `json:"brokerClientId"`
-	Tunnel         *Tunnel  `json:"tunnel"`
 }
 
 // Target is an installation a hub brokers for.
@@ -118,12 +117,6 @@ func (t Target) groups() []string {
 		groups = append(groups, s.group)
 	}
 	return groups
-}
-
-// Tunnel is the live facts of a hub that reaches a private target.
-type Tunnel struct {
-	JWKS                   string `json:"jwks"`
-	TrustBundleProvisioned bool   `json:"trustBundleProvisioned"`
 }
 
 // Teleport is the Teleport cluster the tunnel joins.
@@ -239,8 +232,9 @@ type document struct {
 // the decoded document (from YAML or JSON): map[string]any at the top. A key
 // the schema does not know, a missing required key or a wrong shape is
 // ErrInput naming the location; a record the definition cannot render as it
-// stands (a hub without its broker client, a private target without the
-// tunnel's facts, the serving slice on the 3 chart line) is ErrInput too.
+// stands (a hub without its broker client, a private target on a hub without a
+// published service-account issuer, the serving slice on the 3 chart line) is
+// ErrInput too.
 func Parse(raw any) (*Input, error) {
 	schemaBytes, err := definitions.FS.ReadFile("agent-platform/schema.json")
 	if err != nil {
@@ -301,11 +295,8 @@ func (in *Input) checkRecord() error {
 	if len(fed.Targets) > 0 && fed.BrokerClientID == "" {
 		return fmt.Errorf("%w: installation.federation.brokerClientId: a hub's broker client is registered once and read back from its patch; none is on record", ErrInput)
 	}
-	if in.hasPrivateTarget() && fed.Tunnel == nil {
-		return fmt.Errorf("%w: installation.federation.tunnel: a private target is reached through the tunnel; the hub's JWKS and trust-bundle state are not on record", ErrInput)
-	}
-	if !in.hasPrivateTarget() && fed.Tunnel != nil {
-		return fmt.Errorf("%w: installation.federation.tunnel: no target is private", ErrInput)
+	if in.hasPrivateTarget() && in.serviceAccountIssuer() == "" {
+		return fmt.Errorf("%w: installation.federation.targets: a private target's tunnel joins Teleport by this hub's published service-account issuer, and a %s installation publishes none the definition knows", ErrInput, in.Installation.Provider)
 	}
 	if in.ModelServing && in.Installation.ChartLine != "4" {
 		return fmt.Errorf("%w: modelServing.enabled: the serving slice is the 4 chart line's; this installation runs the %s line", ErrInput, in.Installation.ChartLine)

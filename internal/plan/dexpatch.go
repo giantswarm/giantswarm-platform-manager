@@ -92,10 +92,10 @@ func keepClients(ren, cur *yaml.Node, kept *[]Kept) {
 	}
 }
 
-// entry is the value node under key in the mapping m; nil when m is no
-// mapping or lacks the key.
+// entry is the value node under key in the mapping m; nil when m is nil or no
+// mapping, or lacks the key.
 func entry(m *yaml.Node, key string) *yaml.Node {
-	if m.Kind != yaml.MappingNode {
+	if m == nil || m.Kind != yaml.MappingNode {
 		return nil
 	}
 	for i := 0; i+1 < len(m.Content); i += 2 {

@@ -329,9 +329,11 @@ func encrypter(ctx context.Context, c *github.Client, repository string) (*sopse
 // render with markers): only files that change are committed, a secret file
 // (by the repository's .sops.yaml rules) that exists on record is never
 // generated again, and a plain file must be byte-identical to the plan — a
-// supplied value never lands outside a secret file. A kustomization is
-// committed as the plan wrote it: the includes landed in it, or the entries
-// of other owners kept in it, read as the caller now.
+// supplied value never lands outside a secret file. A file with several owners
+// is committed as the plan wrote it: a kustomization with the includes landed
+// in it or the entries of other owners kept, the dex patch with their keys
+// kept, the tunnelport values with the hub's entries edited in, read as the
+// caller now.
 func targetsOf(ctx context.Context, c *github.Client, p plan.Installation, rendered render.Fileset, inst, hub installations.Installation) (map[string]*target, error) {
 	planned := map[string]plan.File{}
 	for _, f := range p.Files {
@@ -354,7 +356,7 @@ func targetsOf(ctx context.Context, c *github.Client, p plan.Installation, rende
 			}
 			content := f.Content
 			if !tg.enc.IsSecretFile(path) {
-				if len(pf.Kept) == 0 && string(f.Content) != pf.Content {
+				if !plan.Shared(path) && string(f.Content) != pf.Content {
 					return nil, fmt.Errorf("%s:%s is a plain file and a supplied value would land in it; nothing is committed", resolved, path)
 				}
 				content = []byte(pf.Content)

@@ -11,7 +11,8 @@ import (
 // identity providers in the configmap patch, the targets' MCP servers with
 // exchange auth in muster's list, a credentials Secret per target, and for a
 // private target the tunnel on this hub: the tunnelport release next to muster
-// and a RemoteApp per tunnelled app. The Teleport objects the tunnel joins with
+// and a RemoteApp per tunnelled app. The hub's entries of teleport-fleet's
+// tunnelport values, which render the Teleport objects the tunnel joins with,
 // are teleport.go's.
 
 const (
@@ -173,7 +174,8 @@ func (in *Input) hubSecrets(add func(file string, f render.File)) {
 }
 
 // trustBundleTokenName is the provision token of this hub's trust-bundle bot,
-// named in the tunnelport release and rendered into teleport-fleet.
+// named in the tunnelport release and among the hub's entries of the
+// tunnelport values.
 func trustBundleTokenName(hub string) string { return "tunnelport-trust-bundle-token-" + hub }
 
 // tunnelExtras is extras/agent-platform/tunnelport/: the tunnelport operator
