@@ -132,3 +132,46 @@ func TestLiveRegistrationRefusesNoAudience(t *testing.T) {
 		t.Errorf("rendered, or refused for another reason: %q", msg)
 	}
 }
+
+// The path and the registration are two switches: live.enabled serves the
+// path in the Deployment on its own, so the release that turns it on can roll
+// out before the release that registers it — muster's one probe of the
+// registration then finds the path answering.
+func TestLivePathServedBeforeTheRegistration(t *testing.T) {
+	objects, msg := render(t, "-f", filepath.Join("../../tests", "oauth-values.yaml"), "--set", "muster.liveServer.enabled=false")
+	if msg != "" {
+		t.Fatal(msg)
+	}
+	if live := objects["MCPServer/"+liveName]; live != nil {
+		t.Error("the live MCPServer rendered without muster.liveServer.enabled")
+	}
+	deployment := objects["Deployment/giantswarm-platform-manager"]
+	if got := at(deployment, "spec.template.spec.containers.giantswarm-platform-manager.env.LIVE_ENABLED.value"); got != "true" {
+		t.Errorf("LIVE_ENABLED: %v", got)
+	}
+	if got := liveEnv(t, objects); got != "agent-platform,dex-k8s-authenticator" {
+		t.Errorf("LIVE_AUDIENCES: %q", got)
+	}
+}
+
+// A registration of a path the Deployment does not serve is refused by name:
+// a probe that finds no path leaves the registration failed in muster.
+func TestLiveRegistrationRequiresThePath(t *testing.T) {
+	_, msg := render(t, "-f", filepath.Join("../../tests", "oauth-values.yaml"), "--set", "live.enabled=false")
+	for _, want := range []string{"live.enabled", "muster.liveServer.enabled", "release of its own first"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("the refusal does not name %q: %q", want, msg)
+		}
+	}
+}
+
+// The key set is read over TLS only: a plain-http jwksURL is refused at
+// render, naming the allowances that exist, not at the first token.
+func TestLiveRefusesAPlainHTTPKeySet(t *testing.T) {
+	_, msg := render(t, "-f", filepath.Join("../../tests", "lab-oauth-values.yaml"), "--set", "live.jwksURL=http://dex.dex.svc.cluster.local:5556/dex/keys")
+	for _, want := range []string{"live.jwksURL must be an https:// URL", "http://dex.dex.svc.cluster.local:5556/dex/keys", "live.allowPrivateIPJWKS", "live.caSecret"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("the refusal does not name %q: %q", want, msg)
+		}
+	}
+}

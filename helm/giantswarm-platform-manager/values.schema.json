@@ -161,11 +161,11 @@
             "properties": {
                 "allowPrivateIPJWKS": {
                     "type": "boolean",
-                    "description": "Let the issuer or its key set resolve to a private address (an in-cluster identity provider)."
+                    "description": "Let the issuer's discovery document or the key set be read from a private address (an in-cluster identity provider's Service): the allowance of the SSRF guard, not of the transport — the URL stays `https://`."
                 },
                 "audiences": {
                     "type": "array",
-                    "description": "OAuth clients whose ID tokens the live surface accepts: a person's forwarded token names the client they signed in with, so this lists the platform's own client (`agent-platform` on the platform) and every other client people reach muster through (a developer portal's). The server trusts the union of this list and `muster.liveServer.requiredAudiences`: every forwarded token carries the required audiences by construction. The union must name at least one audience with `muster.liveServer.enabled`; the chart refuses to render otherwise.",
+                    "description": "OAuth clients whose ID tokens the live surface accepts: a person's forwarded token names the client they signed in with, so this lists the platform's own client (`agent-platform` on the platform) and every other client people reach muster through (a developer portal's). The server trusts the union of this list and `muster.liveServer.requiredAudiences`: every forwarded token carries the required audiences by construction. The union must name at least one audience with `live.enabled`; the chart refuses to render otherwise.",
                     "items": {
                         "type": "string"
                     }
@@ -174,13 +174,17 @@
                     "type": "string",
                     "description": "Secret in the release namespace with a PEM bundle under `ca.crt` the issuer's certificate chains to (a lab CA); empty is the system trust."
                 },
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Serve the live surface: a second MCP endpoint at `live.path` muster forwards the person's own ID token to, whose tool `verify_installation` reads an installation through muster as the person. The Deployment serves the path; `muster.liveServer.enabled` registers it with muster and needs this on. Turn the path on in a release of its own and register it in the next: muster probes a registration once, and a probe that reaches the previous pod — still behind the Service while the release that turns the path on rolls out — finds no path there and leaves the registration failed until it is restarted by hand (giantswarm/muster#1295). Off: the live dimensions of every verify read not checked, and `get_info` reports `live.configured: false`."
+                },
                 "issuer": {
                     "type": "string",
-                    "description": "Issuer of the forwarded tokens: the platform identity provider's, `https://dex.<base domain>/dex` on an installation. Required with `muster.liveServer.enabled`."
+                    "description": "Issuer of the forwarded tokens: the platform identity provider's, `https://dex.<base domain>/dex` on an installation. Required with `live.enabled`."
                 },
                 "jwksURL": {
                     "type": "string",
-                    "description": "The issuer's key set; empty reads it from the issuer's OpenID discovery document. A lab whose Dex is reached by another name than its issuer names the Service here."
+                    "description": "The issuer's key set, an `https://` URL; empty reads it from the issuer's OpenID discovery document (an `https://` issuer on a public address). The key set is read over TLS only: a plain-`http://` URL is refused by the chart and at start-up, never fallen back from. An in-cluster identity provider is named by the Service name its certificate carries — `https://dex.dex.svc.cluster.local:5556/dex/keys` in a lab — with `allowPrivateIPJWKS` for the private address and `caSecret` for the CA the certificate chains to."
                 },
                 "muster": {
                     "type": "object",
@@ -202,7 +206,7 @@
                 },
                 "path": {
                     "type": "string",
-                    "description": "MCP streamable-HTTP endpoint path of the live surface: the second registration muster forwards the person's own ID token to (`muster.liveServer`). Served when that registration is enabled."
+                    "description": "MCP streamable-HTTP endpoint path of the live surface, next to `mcp.path` on the same Deployment."
                 }
             }
         },
@@ -230,7 +234,7 @@
                         },
                         "enabled": {
                             "type": "boolean",
-                            "description": "Register the live surface with muster as a second MCPServer of the same Deployment: `auth.type: oauth` with `forwardToken: true` and no authorization server, so muster puts the person's own ID token on every call and runs no consent. Its tool `verify_installation` reads an installation through muster's kubernetes tools as the person. Rendered with `muster.mcpServer.enabled` and `oauth.enabled`; needs `live.issuer` and `live.audiences`. Off: the live dimensions of every verify read not checked, and `get_info` reports `live.configured: false`."
+                            "description": "Register the live surface with muster as a second MCPServer of the same Deployment: `auth.type: oauth` with `forwardToken: true` and no authorization server, so muster puts the person's own ID token on every call and runs no consent. Its tool `verify_installation` reads an installation through muster's kubernetes tools as the person. Rendered with `muster.mcpServer.enabled` and `oauth.enabled`; needs `live.enabled` — the chart refuses to render the registration of a path the Deployment does not serve — in a release before this one, so that muster's one probe of the registration finds the path answering (its state is then *Auth Required* until the first person's session connects, *Connected* after)."
                         },
                         "name": {
                             "type": "string",

@@ -23,6 +23,7 @@
 oauth:
   enabled: true
 live:
+  enabled: true
   issuer: https://localhost:32000/dex
   audiences:
     - agent-platform

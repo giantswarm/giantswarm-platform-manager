@@ -48,11 +48,14 @@ type Config struct {
 	// construction. A token is accepted when one of its audiences is listed.
 	// At least one is required: an empty list would accept any audience.
 	Audiences []string
-	// JWKSURL is the issuer's key set; empty reads it from the issuer's
-	// OpenID discovery document.
+	// JWKSURL is the issuer's key set, an https URL; empty reads it from the
+	// issuer's OpenID discovery document. The key set is read over TLS only
+	// (the JWKS client refuses anything else on every fetch), so a plain-http
+	// URL is refused here, at start-up, instead of on every token.
 	JWKSURL string
-	// AllowPrivateIPJWKS lets the issuer or its key set resolve to a private
-	// address (an in-cluster Dex).
+	// AllowPrivateIPJWKS lets the issuer's discovery document or its key set
+	// be read from a private address (an in-cluster Dex): the SSRF guard's
+	// allowance, not the transport's.
 	AllowPrivateIPJWKS bool
 	// CAFile is a PEM bundle the issuer's certificate chains to; empty is
 	// the system trust.
@@ -97,6 +100,11 @@ func (c Config) Validate() error {
 	}
 	if !strings.HasPrefix(c.Path, "/") {
 		return fmt.Errorf("live: path must start with /: %q", c.Path)
+	}
+	if c.JWKSURL != "" {
+		if u, err := url.Parse(c.JWKSURL); err != nil || u.Host == "" || u.Scheme != "https" {
+			return fmt.Errorf("live: JWKS URL must be an absolute https:// URL, got %q: the key set is read over TLS only — name an in-cluster identity provider by the Service name its certificate carries, with the private-IP allowance for the address and the CA file for its CA", c.JWKSURL)
+		}
 	}
 	return nil
 }

@@ -1,3 +1,6 @@
+{{- if and .Values.muster.liveServer.enabled (not .Values.live.enabled) }}
+{{- fail "muster.liveServer.enabled registers the live path with muster, and live.enabled, which serves it, is off: set live.enabled in a release of its own first, then muster.liveServer.enabled — muster probes a registration once, and a probe that finds no path at the URL leaves the registration failed until it is restarted (giantswarm/muster#1295)" }}
+{{- end }}
 {{- if and .Values.muster.mcpServer.enabled .Values.muster.liveServer.enabled .Values.oauth.enabled }}
 {{- /*
 The second registration of the same Deployment, split from the first by
@@ -8,7 +11,10 @@ that installation. Tools appear as x_<name>_<tool>. No authorizationServer:
 the two exclude each other on one MCPServer, which is why the manager is
 registered twice. requiredAudiences are what muster asks the identity
 provider for at login, so every forwarded token carries them; the server
-trusts them next to live.audiences.
+trusts them next to live.audiences. The path it names is served by the
+Deployment on live.enabled, in a release before this registration: muster
+probes a registration once, and the probe has to find the path answering
+(a 401 with the challenge reads Auth Required; no path reads failed).
 */}}
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: MCPServer

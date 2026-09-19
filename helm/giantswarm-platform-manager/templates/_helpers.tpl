@@ -78,14 +78,6 @@ oauth.baseURL, else the in-cluster Service URL.
 {{- end }}
 
 {{/*
-Whether the live surface is served: the second registration is enabled along
-with the first and OAuth. Renders "true" or nothing.
-*/}}
-{{- define "giantswarm-platform-manager.liveEnabled" -}}
-{{- if and .Values.muster.mcpServer.enabled .Values.muster.liveServer.enabled .Values.oauth.enabled }}true{{- end }}
-{{- end }}
-
-{{/*
 The audiences the live surface trusts, comma-separated: live.audiences and
 the live registration's requiredAudiences, in that order, without duplicates.
 Empty when neither names one.
