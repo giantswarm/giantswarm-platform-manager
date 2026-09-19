@@ -28,8 +28,8 @@ func commitRowan(t *testing.T, st *stack) (tools.CommitResult, *client.Client) {
 	sopsFixtures(t, st.ghs)
 	seedRemote(t, st)
 	c := st.mcpClient(t, aliceToken)
-	inputs := minimalInputs(map[string]any{kagentKey: map[string]any{enabledKey: true, modelKeySecretKey: managedModelKey}})
-	out, text, isErr := commitCall(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: inputs, tools.ArgSecrets: map[string]any{modelKeyField: modelKeyValue}})
+	inputs := minimalInputs(nil)
+	out, text, isErr := commitCall(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: inputs})
 	if isErr || out.Action == nil || len(out.PullRequests) != 2 {
 		t.Fatal(text)
 	}

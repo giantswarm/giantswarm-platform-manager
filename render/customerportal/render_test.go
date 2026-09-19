@@ -177,8 +177,8 @@ func TestDexClientOwnership(t *testing.T) {
 	}
 	// The agent-platform definition, given the portal's domain, carries the same entry.
 	apInput, apSecrets := agentPlatformInput(t)
-	apInput["portal"].(map[string]any)["domain"] = "portal.hazel.example.test"
 	apInput["installation"].(map[string]any)["name"] = "hazel"
+	apInput["installation"].(map[string]any)["portals"] = []any{map[string]any{"installation": "hazel", "customer": "oakridge", "domain": "portal.hazel.example.test"}}
 	apResult, err := agentplatform.Render(apInput, apSecrets)
 	if err != nil {
 		t.Fatal(err)

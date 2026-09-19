@@ -25,7 +25,9 @@ type Record struct {
 	BaseDomain string `json:"baseDomain,omitempty"`
 	Customer   string `json:"customer,omitempty"`
 	Provider   string `json:"provider,omitempty"`
-	// Private: managementCluster.private in config.yaml.patch.
+	// Private: reached through Teleport — a portal on record reaches the
+	// installation's Kubernetes API through the tunnel on its host
+	// (kubernetes-<name>.agent-platform.svc.cluster.local); set by derive.
 	Private bool `json:"private"`
 	// ChartLine is the agent-platform meta chart line: "4" when
 	// agentPlatform.kagentApiV2 is set in config.yaml.patch, else "3".
@@ -37,12 +39,9 @@ type Record struct {
 
 // configPatch is the part of config.yaml.patch the record reads.
 type configPatch struct {
-	Codename          string `yaml:"codename"`
-	Base              string `yaml:"base"`
-	Customer          string `yaml:"customer"`
-	ManagementCluster struct {
-		Private bool `yaml:"private"`
-	} `yaml:"managementCluster"`
+	Codename string `yaml:"codename"`
+	Base     string `yaml:"base"`
+	Customer string `yaml:"customer"`
 	Provider struct {
 		Kind string `yaml:"kind"`
 	} `yaml:"provider"`
@@ -91,6 +90,10 @@ type Report struct {
 	// the caller; Errors carries what could not.
 	Readable bool     `json:"readable"`
 	Errors   []string `json:"errors,omitempty"`
+	// Portals and Federation are the facts derived from the portals on record
+	// (derive.go); nil until a registry inspection filled them.
+	Portals    []PortalRef `json:"portals,omitempty"`
+	Federation *Federation `json:"federation,omitempty"`
 }
 
 // Inspect reads inst's opt-in, record and enabled markers as the person, now.
@@ -184,7 +187,7 @@ func readRecord(ctx context.Context, c *github.Client, owner, repo string, inst 
 		return nil, fmt.Errorf("the facts on record: %s in %s: %w", ConfigPatchPath(inst.Name), inst.Repositories.Configs, err)
 	}
 	rec := &Record{Name: inst.Name, BaseDomain: inst.BaseDomain, Customer: inst.Customer, Provider: inst.Provider,
-		Private: p.ManagementCluster.Private, ChartLine: "3", MusterClientID: p.Services.Muster.ClientID}
+		ChartLine: "3", MusterClientID: p.Services.Muster.ClientID}
 	if rec.MusterClientID == "" {
 		// konfigure overlays the patch on the shared default: an installation
 		// without its own client id runs on the fleet's.
@@ -230,8 +233,24 @@ func exists(ctx context.Context, c *github.Client, owner, repo, path string) (bo
 const maxParallel = 8
 
 // InspectAll inspects every installation, at most maxParallel at a time, and
-// returns the reports in the registry's order.
-func InspectAll(ctx context.Context, c *github.Client, insts []Installation, caps []Capability) []Report {
+// returns the reports in the registry's order, each with the facts the
+// portals on record derive for it. A portal that cannot be read as the person
+// is an error of every report: no record is complete without it.
+func (r *Registry) InspectAll(ctx context.Context, c *github.Client, insts []Installation, caps []Capability) []Report {
+	reports := inspectAll(ctx, c, insts, caps)
+	portals, failed := r.Portals(ctx, c, insts)
+	for i := range reports {
+		for _, key := range []string{"", reports[i].Customer} {
+			if err := failed[key]; err != nil {
+				reports[i].fail(fmt.Sprintf("the portals on record: %v", err))
+			}
+		}
+	}
+	r.derive(ctx, c, reports, portals)
+	return reports
+}
+
+func inspectAll(ctx context.Context, c *github.Client, insts []Installation, caps []Capability) []Report {
 	reports := make([]Report, len(insts))
 	sem := make(chan struct{}, maxParallel)
 	var wg sync.WaitGroup
@@ -267,6 +286,12 @@ func (r Report) Facts() map[string]any {
 		facts = r.Record.Input()
 	}
 	facts["region"], facts["pipeline"] = r.Region, r.Pipeline
+	if r.Portals != nil {
+		facts["portals"] = r.Portals
+	}
+	if r.Federation != nil {
+		facts["federation"] = r.Federation
+	}
 	for _, cs := range r.Capabilities {
 		facts[factKey(cs.Name)] = cs.Enabled
 	}

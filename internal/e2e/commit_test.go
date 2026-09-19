@@ -28,11 +28,11 @@ const (
 	// scenario hunts for everywhere it must not appear.
 	modelKeyField = "kagent.modelKey"
 	modelKeyValue = "sk-fixture-model-key-4f9c1e"
-	// managedModelKey is the modelKeySecret input that makes the manager generate and hold the key.
-	managedModelKey = "managed"
-	// modelKeySecretKey is the kagent input that says where the model key comes from.
-	modelKeySecretKey = "modelKeySecret"
-	willow            = "willow"
+	willow        = "willow"
+	// suppliedFields are the secret values a customer's installation (rowan in
+	// the fixtures) asks for: none — the model key is the customer's and the
+	// gateway is not theirs. A value supplied anyway is refused by field.
+	suppliedFields = ""
 )
 
 // leakMarkers must appear in no log, pull request, commit or committed file:
@@ -173,19 +173,19 @@ func TestCommitOpensPullRequestsAndPendsApproval(t *testing.T) {
 	sopsFixtures(t, st.ghs)
 	seedRemote(t, st)
 	c := st.mcpClient(t, aliceToken)
-	inputs := minimalInputs(map[string]any{kagentKey: map[string]any{enabledKey: true, modelKeySecretKey: managedModelKey}, portalKey: map[string]any{enabledKey: true, "clientIds": []any{"portal-client-id"}}})
+	inputs := minimalInputs(nil)
 
 	if _, text, isErr := commitCall(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallations: []any{rowan}, tools.ArgInputs: inputs}); !isErr || !strings.Contains(text, "one installation") {
 		t.Fatalf("a set: %v %s", isErr, text)
 	}
-	if _, text, isErr := commitCall(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: inputs}); !isErr || !strings.Contains(text, modelKeyField) {
-		t.Fatalf("without the supplied value: %v %s", isErr, text)
+	if _, text, isErr := commitCall(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: inputs, tools.ArgSecrets: map[string]any{modelKeyField: modelKeyValue}}); !isErr || !strings.Contains(text, modelKeyField) {
+		t.Fatalf("a supplied value nothing asks for: %v %s", isErr, text)
 	}
 	if got := listActionsOf(t, c, rowan); len(got) != 0 {
 		t.Fatalf("a refused argument recorded %d action(s)", len(got))
 	}
 	dry, dryText, isErr := dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: inputs})
-	if isErr || len(dry.Installations) != 1 || strings.Join(dry.Installations[0].SuppliedSecrets, ",") != modelKeyField {
+	if isErr || len(dry.Installations) != 1 || strings.Join(dry.Installations[0].SuppliedSecrets, ",") != suppliedFields {
 		t.Fatalf("dry run: %s", dryText)
 	}
 	// The portal's fragment is a kustomize Component: the dry run lists it
@@ -198,11 +198,11 @@ func TestCommitOpensPullRequestsAndPendsApproval(t *testing.T) {
 		}
 		lists[inc.Path+" "+inc.Resource] = inc.List
 	}
-	if len(lists) < 3 || lists[rowanBackstageKustomization+" ./agent-platform/"] != plan.ListComponents || lists[extrasKustomizationPath(rowan)+" ./agent-platform/"] != plan.ListResources {
+	if len(lists) < 2 || lists[extrasKustomizationPath(rowan)+" ./agent-platform/"] != plan.ListResources {
 		t.Fatalf("includes: %v", lists)
 	}
 
-	out, text, isErr := commitCall(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: inputs, tools.ArgSecrets: map[string]any{modelKeyField: modelKeyValue}})
+	out, text, isErr := commitCall(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: inputs})
 	if isErr {
 		t.Fatal(text)
 	}
@@ -214,7 +214,7 @@ func TestCommitOpensPullRequestsAndPendsApproval(t *testing.T) {
 		out.PullRequests[0].State != actions.PullRequestOpen || out.PullRequests[0].URL == "" {
 		t.Fatalf("pull requests: %+v", out.PullRequests)
 	}
-	if secrets, ok := out.Action.Spec.Inputs["secrets"].(map[string]any); !ok || len(secrets) != 0 {
+	if _, ok := out.Action.Spec.Inputs["secrets"]; ok {
 		t.Fatalf("the action's inputs carry %v", out.Action.Spec.Inputs["secrets"])
 	}
 
@@ -249,9 +249,6 @@ func TestCommitOpensPullRequestsAndPendsApproval(t *testing.T) {
 	// components, the comment and the owners' entries kept; the extras under
 	// resources, never a components list.
 	onBranch := st.remote.Files(repoOf(t, acmeMCs), branch)
-	if got, want := string(onBranch[rowanBackstageKustomization]), "# The portal's tree; the platform's fragment joins it as a Component.\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./backstage/\ncomponents:\n  - ./agent-platform/\n"; got != want {
-		t.Fatalf("the portal's kustomization on the branch:\n%s", got)
-	}
 	if got := string(onBranch[extrasKustomizationPath(rowan)]); !strings.HasPrefix(got, extrasKustomization+"  - ./agent-platform/\n  - ./mcp-") || strings.Contains(got, "components:") {
 		t.Fatalf("the extras kustomization on the branch:\n%s", got)
 	}
@@ -277,7 +274,7 @@ func TestCommitOpensPullRequestsAndPendsApproval(t *testing.T) {
 	if r := find(t, li, rowan); r.Capabilities[0].State != installations.StatePendingApproval || r.Capabilities[0].LastAction == nil || r.Capabilities[0].LastAction.Name != out.Action.Name {
 		t.Fatalf("after the commit: %+v", r.Capabilities[0])
 	}
-	if out.Plan.Diff[plan.ChangeUpdate] != 2 || out.Plan.Diff[plan.ChangeCreate] != len(out.Plan.Files)-2 {
+	if out.Plan.Diff[plan.ChangeUpdate] != 1 || out.Plan.Diff[plan.ChangeCreate] != len(out.Plan.Files)-1 {
 		t.Fatalf("plan diff %v", out.Plan.Diff)
 	}
 }

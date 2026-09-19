@@ -1,6 +1,6 @@
-# A public customer installation: invented names, placeholder values. The hub
-# "heron" federates into it; two portal instances sign people in on it; its own
-# portal offers a skills repository and the AI chat on the portal's Anthropic key.
+# A public customer installation on the 3 chart line: invented names, placeholder values. Two
+# portals sign people in on it — the organisation's own on this installation and the fleet hub's
+# ("gopher") — and the hub's muster brokers tokens into it. The policy's default components.
 input:
   installation:
     name: kestrel
@@ -10,29 +10,14 @@ input:
     private: false
     chartLine: "3"
     musterClientId: 00000000-0000-4000-8000-000000000001
-  secrets: {}
-  kagent:
-    enabled: true
-    modelKeySecret: customer-provided
-  identity: {}
-  portal:
-    enabled: true
-    domain: portal.kestrel.oakridge.example
-    clientIds:
-      - portal-client-id-one
-      - portal-client-id-two
-    skillsRepositories:
-      - https://github.com/oakridge-example/agent-skills
-    aiChat:
-      enabled: true
-      model: example-model-medium
-      provider: anthropic
-  toolAccess:
-    agentManager:
-      enabled: true
-    privateURLs: true
-  federation:
-    targets: []
-    hubs:
-      - heron
+    portals:
+      - installation: kestrel
+        customer: oakridge
+        domain: portal.kestrel.oakridge.example
+      - installation: gopher
+        customer: giantswarm
+        domain: portal.example.io
+    federation:
+      hubs: [gopher]
+      targets: []
 secrets: {}

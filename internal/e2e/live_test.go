@@ -296,21 +296,25 @@ func TestVerifyInstallationDriftedNamesTheObject(t *testing.T) {
 	}
 }
 
-// The live values express another value of an input than the one on record:
-// the difference names the input, the dimension differs by input, nothing
-// drifted.
+// The live values express another value of an input than the one on record
+// (a base domain other than the registry's): the difference names the input,
+// the dimension differs by input, nothing drifted.
 func TestVerifyInstallationDiffersByInput(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	enableRowanLive(t, st, st.mcpClient(t, aliceToken), kagentEnabled())
 	st.inst.edit("ConfigMap", fluxNamespace, konfiguration, func(obj map[string]any) {
 		data := obj["data"].(map[string]any)
-		data[valuesFileKey] = strings.Replace(data[valuesFileKey].(string), "  kagent:\n    enabled: true\n", "  kagent:\n    enabled: false\n", 1)
+		values, _ := data[valuesFileKey].(string)
+		if !strings.Contains(values, "  domain: rowan.acme.test\n") {
+			t.Fatalf("the live values carry no global.domain of the record:\n%s", values)
+		}
+		data[valuesFileKey] = strings.Replace(values, "  domain: rowan.acme.test\n", "  domain: rowan.elsewhere.test\n", 1)
 	})
 
 	res := verifyLive(t, st.liveClient(t, st.dex.token(t, liveAdmin, []string{liveAudience}, time.Hour)), rowan)
 	d := liveDimensions(res)["live-drift"]
-	if d.Mark != verify.DiffersByInput || len(d.Differences) != 1 || d.Differences[0].Input != kagentKey+"."+enabledKey || d.Differences[0].Path != "components.kagent.enabled" {
+	if d.Mark != verify.DiffersByInput || len(d.Differences) != 1 || d.Differences[0].Input != "installation.baseDomain" || d.Differences[0].Path != "global.domain" {
 		t.Fatalf("live-drift: %+v", d)
 	}
 	if res.Summary[verify.Drifted] != 0 || res.State != installations.StateEnabled {
@@ -378,7 +382,7 @@ func TestVerifyInstallationWaitingForTheCustomer(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	alice := st.mcpClient(t, aliceToken)
-	enableRowanLive(t, st, alice, minimalInputs(map[string]any{kagentKey: map[string]any{enabledKey: true, "modelKeySecret": "customer-provided"}}))
+	enableRowanLive(t, st, alice, minimalInputs(nil)) // rowan's organisation is not in the policy's modelKey.managed: the key is the customer's
 	st.inst.edit("ModelConfig", kagentNamespace, "default-model-config", func(obj map[string]any) {
 		obj[statusKey] = map[string]any{conditionsKey: []any{map[string]any{typeKey: "Accepted", statusKey: "False", message: "secret kagent-anthropic-key not found"}}}
 	})

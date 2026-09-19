@@ -141,11 +141,11 @@ func Load(ctx context.Context, c *github.Client, s Sources) (*Registry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("registry: read the portal config %s as the caller: %w", portal, err)
 	}
-	portalEntries, err := parsePortal(portalYAML)
+	portalConfig, err := parsePortalConfig(portalYAML)
 	if err != nil {
 		return nil, fmt.Errorf("registry: portal config %s: %w", portal, err)
 	}
-	for name, p := range portalEntries {
+	for name, p := range portalConfig.Installations {
 		inst, ok := byName[name]
 		if !ok {
 			entries = append(entries, Installation{Name: name})
@@ -259,6 +259,16 @@ func repoFromURL(u string) string {
 	return ""
 }
 
+// tunnelServiceSuffix is the DNS suffix of the tunnel's Services on a host:
+// a portal that reaches an installation's Kubernetes API at
+// kubernetes-<name>.agent-platform.svc.cluster.local reaches it through the
+// tunnel, not at its API — the installation is private.
+const tunnelServiceSuffix = ".agent-platform.svc.cluster.local"
+
+// tunnelKubernetesHost is the tunnel Service a portal reaches a private
+// installation's Kubernetes API through.
+func tunnelKubernetesHost(name string) string { return "kubernetes-" + name + tunnelServiceSuffix }
+
 // portalEntry is one installation of the portal's gs.installations block.
 type portalEntry struct {
 	AuthProvider string   `yaml:"authProvider"`
@@ -271,7 +281,17 @@ type portalEntry struct {
 // parsePortal reads gs.installations out of the hub's app-config: a ConfigMap
 // whose data.values is the chart's values as YAML text, whose
 // backstage.appConfig is the app-config as YAML text.
-func parsePortal(data string) (map[string]portalEntry, error) {
+// portalConfig is what the registry reads of a portal's app-config: the
+// installations it lists, its base URL, its cluster-token broker and the
+// installations whose Kubernetes API it reaches through the tunnel on its host.
+type portalConfig struct {
+	Installations  map[string]portalEntry
+	BaseURL        string
+	BrokerTokenURL string
+	Tunnelled      map[string]bool
+}
+
+func parsePortalConfig(data string) (*portalConfig, error) {
 	var cm struct {
 		Data struct {
 			Values string `yaml:"values"`
@@ -295,9 +315,23 @@ func parsePortal(data string) (map[string]portalEntry, error) {
 		return nil, errors.New("data.values has no backstage.appConfig")
 	}
 	var appConfig struct {
+		App struct {
+			BaseURL string `yaml:"baseUrl"`
+		} `yaml:"app"`
 		GS struct {
-			Installations map[string]portalEntry `yaml:"installations"`
+			Installations      map[string]portalEntry `yaml:"installations"`
+			ClusterTokenBroker struct {
+				TokenURL string `yaml:"tokenUrl"`
+			} `yaml:"clusterTokenBroker"`
 		} `yaml:"gs"`
+		Kubernetes struct {
+			ClusterLocatorMethods []struct {
+				Clusters []struct {
+					Name string `yaml:"name"`
+					URL  string `yaml:"url"`
+				} `yaml:"clusters"`
+			} `yaml:"clusterLocatorMethods"`
+		} `yaml:"kubernetes"`
 	}
 	if err := yaml.Unmarshal([]byte(values.Backstage.AppConfig), &appConfig); err != nil {
 		return nil, fmt.Errorf("decode backstage.appConfig: %w", err)
@@ -305,7 +339,15 @@ func parsePortal(data string) (map[string]portalEntry, error) {
 	if len(appConfig.GS.Installations) == 0 {
 		return nil, errors.New("backstage.appConfig has no gs.installations")
 	}
-	return appConfig.GS.Installations, nil
+	cfg := &portalConfig{Installations: appConfig.GS.Installations, BaseURL: appConfig.App.BaseURL, BrokerTokenURL: appConfig.GS.ClusterTokenBroker.TokenURL, Tunnelled: map[string]bool{}}
+	for _, m := range appConfig.Kubernetes.ClusterLocatorMethods {
+		for _, cluster := range m.Clusters {
+			if hostOf(cluster.URL) == tunnelKubernetesHost(cluster.Name) {
+				cfg.Tunnelled[cluster.Name] = true
+			}
+		}
+	}
+	return cfg, nil
 }
 
 // Find answers the installation called name.

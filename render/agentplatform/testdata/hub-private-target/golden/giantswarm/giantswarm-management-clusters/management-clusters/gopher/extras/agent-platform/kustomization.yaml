@@ -6,3 +6,11 @@ resources:
   - https://github.com/giantswarm/management-cluster-bases//extras/agent-platform?ref=main
   - ./secrets
   - ./tunnelport
+patches:
+  - patch: |-
+      - op: replace
+        path: /spec/ref/semver
+        value: ">=4.0.0 <5.0.0"
+    target:
+      kind: OCIRepository
+      name: agent-platform

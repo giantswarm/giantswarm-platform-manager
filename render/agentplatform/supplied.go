@@ -1,16 +1,12 @@
 package agentplatform
 
-import (
-	"fmt"
-
-	"github.com/giantswarm/giantswarm-platform-manager/render"
-)
+import "github.com/giantswarm/giantswarm-platform-manager/render"
 
 // SuppliedSecretFields names the secret values the person supplies at commit
-// for this input, by field: the model key when kagent.modelKeySecret is
-// managed, the client credentials of every oauth server in
-// toolAccess.additionalServers. A dry run passes Supplied markers for exactly
-// these fields and lists them by name; no value ever appears in a dry run.
+// for this installation, by field: the model key where the policy has the
+// platform team supply it, the Slack app's credentials where the gateway
+// runs. A dry run passes Supplied markers for exactly these fields and lists
+// them by name; no value ever appears in a dry run.
 func (in *Input) SuppliedSecretFields() []string { return in.suppliedSecretFields() }
 
 // Supplied is the marker a dry run renders in place of a supplied secret
@@ -28,17 +24,7 @@ func (in *Input) SuppliedMarkers() map[string]string {
 }
 
 // CustomerActions names what the rollout needs from the customer beyond the
-// pull requests: the provider-key Secrets of additional model configs, which
-// the definition references and never renders.
-func (in *Input) CustomerActions() []render.CustomerAction {
-	var out []render.CustomerAction
-	for _, m := range in.Kagent.AdditionalModelConfigs {
-		if m.APIKeySecret == "" {
-			continue
-		}
-		out = append(out, render.CustomerAction{
-			Action: fmt.Sprintf("create the Secret %q (key %q) in namespace kagent with the provider key of model config %q", m.APIKeySecret, m.APIKeySecretKey, m.Name),
-			Why:    "the definition references the Secret and renders no value for it; the model config stays unusable until it exists"})
-	}
-	return out
-}
+// pull requests. The one thing the platform leaves to the customer — the
+// model key where the policy does not have the platform team supply it — is
+// a live action of the runtime feature (actions), not a step before it.
+func (in *Input) CustomerActions() []render.CustomerAction { return nil }

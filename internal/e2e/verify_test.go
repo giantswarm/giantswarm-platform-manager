@@ -90,7 +90,7 @@ func enableRowan(t *testing.T, st *stack, c *client.Client, onRecord, inRepos ma
 }
 
 func kagentEnabled() map[string]any {
-	return minimalInputs(map[string]any{kagentKey: map[string]any{enabledKey: true}})
+	return minimalInputs(nil)
 }
 
 // The repositories hold exactly the render from the inputs on record and

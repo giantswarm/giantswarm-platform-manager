@@ -9,6 +9,12 @@
   kind: HelmReleaseReady
   namespace: flux-giantswarm
   resource: HelmRelease
+  name: kagent
+- id: live-helmreleases-ready
+  feature: runtime
+  kind: HelmReleaseReady
+  namespace: flux-giantswarm
+  resource: HelmRelease
   name: agent-platform-connectivity
 - id: live-helmreleases-ready
   feature: runtime
@@ -58,10 +64,99 @@
   namespace: flux-giantswarm
   resource: HelmRelease
   name: mcp-capi-valkey
+- id: live-kagent-workloads
+  feature: runtime
+  kind: Condition
+  namespace: kagent
+  resource: Deployment
+  name: kagent-controller
+  expect:
+    condition: Available
+    conditionStatus: "True"
+- id: live-kagent-workloads
+  feature: runtime
+  kind: Condition
+  namespace: kagent
+  resource: Deployment
+  name: kagent-ui
+  expect:
+    condition: Available
+    conditionStatus: "True"
+- id: live-kagent-workloads
+  feature: runtime
+  kind: Condition
+  namespace: kagent
+  resource: Deployment
+  name: kagent-oauth2-proxy
+  expect:
+    condition: Available
+    conditionStatus: "True"
+- id: live-kagent-workloads
+  feature: runtime
+  kind: Condition
+  namespace: kagent
+  resource: Cluster.postgresql.cnpg.io
+  name: kagent-pg
+  expect:
+    condition: Ready
+    conditionStatus: "True"
+- id: live-oauth2-proxy-secret-and-flux-sa
+  feature: secrets
+  kind: ResourcePresent
+  namespace: kagent
+  resource: Secret
+  name: kagent-oauth2-proxy-credentials
+  expect:
+    keys:
+      - client-id
+      - client-secret
+      - cookie-secret
+- id: live-oauth2-proxy-secret-and-flux-sa
+  feature: secrets
+  kind: ResourcePresent
+  namespace: kagent
+  resource: ServiceAccount
+  name: kagent-flux
+- id: live-model-configs
+  feature: runtime
+  kind: Condition
+  namespace: kagent
+  resource: ModelConfig.kagent.dev
+  name: default-model-config
+  expect:
+    condition: Accepted
+    conditionStatus: "True"
+    note: waiting for the customer's model key (Secret kagent-anthropic-key, key ANTHROPIC_API_KEY, or a ModelConfig in the portal)
+- id: live-kagent-api-protected
+  feature: identity
+  kind: HTTP
+  url: https://kagent.heron.oakridge.example/api/agents
+  expect:
+    status: 403
+- id: live-kagent-login-redirect
+  feature: identity
+  kind: HTTP
+  url: https://kagent.heron.oakridge.example/oauth2/start
+  expect:
+    status: 302
+    locationContains: client_id=kagent
+    note: the login redirects to Dex at https://dex.heron.oakridge.example/auth as client kagent
 - id: live-dex-auth-per-client
   feature: identity
   kind: HTTP
   url: https://dex.heron.oakridge.example/auth?client_id=00000000-0000-4000-8000-000000000003&redirect_uri=https://muster.heron.oakridge.example/oauth/callback&response_type=code&scope=openid
+  expect:
+    status: 302
+- id: live-dex-auth-per-client
+  feature: identity
+  kind: HTTP
+  url: https://dex.heron.oakridge.example/auth?client_id=kagent&redirect_uri=https://kagent.heron.oakridge.example/oauth2/callback&response_type=code&scope=openid
+  expect:
+    status: 302
+- id: live-dex-auth-per-client
+  feature: identity
+  kind: HTTP
+  url: https://dex.heron.oakridge.example/auth?client_id=backstage&redirect_uri=https://portal.kestrel.oakridge.example/api/auth/oidc-heron/handler/frame&response_type=code&scope=openid
   expect:
     status: 302
 - id: live-muster-protected-resource
@@ -89,6 +184,14 @@
   namespace: agent-platform
   resource: MCPServer.muster.giantswarm.io
   name: heron-mcp-capi
+- id: live-oauth2-proxy-audience
+  feature: identity
+  kind: LogAbsent
+  namespace: kagent
+  resource: Deployment
+  name: kagent-oauth2-proxy
+  expect:
+    absent: audience .* does not match
 - id: live-drift
   feature: runtime
   kind: Drift
@@ -97,6 +200,29 @@
   name: agent-platform
   expect:
     note: the values the HelmRelease reads from its ConfigMaps are the rendered values
+- id: live-kagent-provider-values
+  feature: runtime
+  kind: Drift
+  namespace: flux-giantswarm
+  resource: HelmRelease
+  name: kagent
+  expect:
+    note: .spec.values.providers are the rendered kagent.providers (the meta chart forwards its kagent block flat)
+    compare:
+      - live: spec.values.providers
+        rendered: kagent.providers
+- id: live-oauth2-proxy-extra-audience
+  feature: identity
+  kind: Drift
+  namespace: kagent
+  resource: Deployment
+  name: kagent-oauth2-proxy
+  expect:
+    note: --oidc-extra-audience carries the rendered audiences
+    compare:
+      - live: spec.template.spec.containers[0].args[args]
+        rendered: kagent.oauth2-proxy.extraArgs.oidc-extra-audience
+        prefix: --oidc-extra-audience=
 - id: live-muster-trusted-audiences
   feature: identity
   kind: Drift
