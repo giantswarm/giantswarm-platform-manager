@@ -4,9 +4,9 @@ package e2e
 // lab-shaped installations, one without the opt-in. The dry run and the
 // review list two targets in the wave's order and one skipped; one Action
 // carries every installation's state; the pull requests are merged one
-// installation after the other, each verified before the next; a red probe
-// on the installation rolling out stops the wave with the next one's pull
-// requests open, and the summary names the stop.
+// installation after the other, each carried to enabled by the watch before
+// the next is merged; a red probe on the installation rolling out stops the
+// wave with the next one's pull requests open, and the summary names the stop.
 
 import (
 	"encoding/json"
@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/giantswarm/gitops-commit/commit"
+	"github.com/mark3labs/mcp-go/client"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
@@ -32,8 +33,12 @@ func waveArgs(extra map[string]any) map[string]any {
 	return args
 }
 
-func TestWaveOverASetStopsAtARedProbe(t *testing.T) {
-	st := newStack(t)
+// waveStage1 runs the wave over birch, rowan (alder skipped) up to the first
+// stage merged: the dry run and its order, the commit, carol's approval,
+// alice's merge of birch's pull requests — and birch's installation behind
+// the fake muster, built from the action's inputs on record.
+func waveStage1(t *testing.T, st *stack) (actions.Action, *client.Client, *fakeInstallation) {
+	t.Helper()
 	fixtures(st.ghs)
 	sopsFixtures(t, st.ghs)
 	aliceC, carolC := st.mcpClient(t, aliceToken), st.mcpClient(t, carolToken)
@@ -101,7 +106,7 @@ func TestWaveOverASetStopsAtARedProbe(t *testing.T) {
 		st.remote.SetChecks(pr.PullRequest, commit.ChecksSuccess)
 	}
 	m, text, isErr := mergeCall(t, aliceC, a.Name)
-	if isErr || m.Stage != birch || len(m.Merged) == 0 || m.Action.Status.State != actions.StateRollingOut || !strings.Contains(m.Message, rowan) {
+	if isErr || m.Stage != birch || len(m.Merged) == 0 || m.Action.Status.State != actions.StateRollingOut || !strings.Contains(m.Message, rowan) || !strings.Contains(m.Message, tools.ToolWatchAction) {
 		t.Fatalf("stage 1: %v %s", isErr, text)
 	}
 	for _, pr := range m.Merged {
@@ -116,30 +121,42 @@ func TestWaveOverASetStopsAtARedProbe(t *testing.T) {
 	if isErr || find(t, li, birch).Capabilities[0].State != installations.StateRollingOut || find(t, li, rowan).Capabilities[0].State != installations.StateRollingOut {
 		t.Fatalf("list_installations during the wave: %v %s", isErr, text)
 	}
+	// Another merge before the watch: refused, the watch decides.
+	if _, text, isErr := mergeCall(t, aliceC, a.Name); !isErr || !strings.Contains(text, birch+" is "+actions.StateRollingOut) || !strings.Contains(text, tools.ToolWatchAction) || !strings.Contains(text, rowan) {
+		t.Fatalf("merge before the watch: %v %s", isErr, text)
+	}
+	birchInst := newFakeInstallation()
+	st.muster.serve(birch, birchInst)
+	populateStage(t, birchInst, *m.Action, birch)
+	return *m.Action, aliceC, birchInst
+}
 
-	// birch's probe answers wrong: the verify that gates stage 2 is red, the
-	// wave stops before rowan with rowan's pull requests open, the summary
-	// names where and why.
-	text, isErr = call(t, aliceC, tools.ToolVerifyCapability, map[string]any{tools.ArgInstallation: birch})
+// birch's probe answers wrong: the watch that gates stage 2 is red, the wave
+// stops before rowan with rowan's pull requests open, the summary and the
+// thread name where and why; nothing merges or watches a stopped wave.
+func TestWaveOverASetStopsAtARedProbe(t *testing.T) {
+	st := newStack(t)
+	a, aliceC, _ := waveStage1(t, st)
+	text, isErr := call(t, aliceC, tools.ToolVerifyCapability, map[string]any{tools.ArgInstallation: birch})
 	var v verify.Result
 	if isErr || json.Unmarshal([]byte(text), &v) != nil {
 		t.Fatalf("verify birch: %v %s", isErr, text)
 	}
-	probe := dimension(t, feature(t, v, "tool-access"), "muster-protected-resource-metadata")
-	u, err := url.Parse(probe.Probe.Requests[0].URL)
+	u, err := url.Parse(dimension(t, feature(t, v, "tool-access"), edgeProbe).Probe.Requests[0].URL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	st.probes.answer(u.Host+u.Path, http.StatusNotFound)
-	m, text, isErr = mergeCall(t, aliceC, a.Name)
-	if isErr || m.Stopped != birch || len(m.Merged) != 0 || m.Action.Status.State != actions.StateFailed || m.Action.Status.Result == nil ||
-		!strings.Contains(m.Action.Status.Result.Message, "stopped at "+birch) || !strings.Contains(m.Action.Status.Result.Message, "muster-protected-resource-metadata") || !strings.Contains(m.Action.Status.Result.Message, "stay open") {
+
+	w, text, isErr := watchCall(t, adminLive(t, st), a.Name)
+	if isErr || w.Installation != birch || !w.Ready || w.State != actions.StateFailed || w.Action.Status.State != actions.StateFailed || w.Action.Status.Result == nil ||
+		!strings.Contains(w.Action.Status.Result.Message, "stopped at "+birch+" (stage 1 of 2)") || !strings.Contains(w.Action.Status.Result.Message, edgeProbe) || !strings.Contains(w.Action.Status.Result.Message, "stay open") {
 		t.Fatalf("the stop: %v %s", isErr, text)
 	}
-	if r := m.Action.Status.Rollout; r.FinishedAt == nil || r.Installations[0].State != actions.StateFailed || r.Installations[1].State != "" || !strings.Contains(r.Installations[1].Message, "stopped at "+birch) {
+	if r := w.Action.Status.Rollout; r.FinishedAt == nil || r.Installations[0].State != actions.StateFailed || r.Installations[1].State != "" || !strings.Contains(r.Installations[1].Message, "stopped at "+birch) {
 		t.Fatalf("stages after the stop: %+v", r.Installations)
 	}
-	for _, pr := range m.Action.Status.PullRequests {
+	for _, pr := range w.Action.Status.PullRequests {
 		if (pr.Installation == rowan) != (pr.State == actions.PullRequestOpen) {
 			t.Fatalf("after the stop: %+v", pr)
 		}
@@ -149,14 +166,68 @@ func TestWaveOverASetStopsAtARedProbe(t *testing.T) {
 			t.Fatalf("rowan's pull request touched: %+v", pr)
 		}
 	}
-	if n := len(m.Action.Status.Probes); n == 0 || m.Action.Status.Probes[0].Installation != birch {
-		t.Fatalf("probes on record: %+v", m.Action.Status.Probes)
+	if p, ok := probeOnRecord(w.Action, birch, edgeProbe); !ok || p.Result != string(verify.Drifted) {
+		t.Fatalf("probes on record: %+v", w.Action.Status.Probes)
 	}
-	li, text, isErr = listInstallations(t, aliceC, map[string]any{tools.ArgInstallations: []string{birch, rowan}})
+	if th := thread(t, st); len(th) != 2 || !strings.Contains(th[1], "*"+birch+"* is *"+actions.StateFailed+"* (stage 1 of 2)") || !strings.Contains(th[1], "stay open") || !strings.Contains(th[1], "❌ "+edgeProbe) {
+		t.Fatalf("the thread: %q", th)
+	}
+	li, text, isErr := listInstallations(t, aliceC, map[string]any{tools.ArgInstallations: []string{birch, rowan}})
 	if isErr || find(t, li, birch).Capabilities[0].State != installations.StateFailed || find(t, li, rowan).Capabilities[0].State != installations.StateNotEnabled {
 		t.Fatalf("list_installations after the stop: %v %s", isErr, text)
 	}
 	if _, text, isErr := mergeCall(t, aliceC, a.Name); !isErr || !strings.Contains(text, actions.StateFailed) {
 		t.Fatalf("merge a stopped wave: %v %s", isErr, text)
+	}
+	if _, text, isErr := watchCall(t, adminLive(t, st), a.Name); !isErr || !strings.Contains(text, actions.StateFailed) {
+		t.Fatalf("watch a stopped wave: %v %s", isErr, text)
+	}
+}
+
+// birch's watch says enabled: its report names the next stage, the actor's
+// merge takes rowan's pull requests, rowan's watch ends the wave enabled.
+func TestWaveAdvancesOnceTheWatchSaysEnabled(t *testing.T) {
+	st := newStack(t)
+	a, aliceC, _ := waveStage1(t, st)
+	admin := adminLive(t, st)
+
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || w.Installation != birch || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateRollingOut || w.Action.Status.Result != nil || !strings.Contains(w.Next, tools.ToolMergeAction) || !strings.Contains(w.Next, rowan) {
+		t.Fatalf("birch's watch: %v %s", isErr, text)
+	}
+	if r := w.Action.Status.Rollout; r.Installations[0].State != actions.StateEnabled || r.Installations[1].State != actions.StateRollingOut || r.FinishedAt != nil {
+		t.Fatalf("stages after birch: %+v", r.Installations)
+	}
+	if th := thread(t, st); len(th) != 2 || !strings.Contains(th[1], "*"+birch+"* is *"+actions.StateEnabled+"* (stage 1 of 2)") || !strings.Contains(th[1], "Next: "+alice+" merges the pull requests of *"+rowan+"*") {
+		t.Fatalf("the thread: %q", th)
+	}
+
+	m, text, isErr := mergeCall(t, aliceC, a.Name)
+	if isErr || m.Stage != rowan || len(m.Merged) == 0 || m.Action.Status.State != actions.StateRollingOut {
+		t.Fatalf("stage 2: %v %s", isErr, text)
+	}
+	for _, pr := range m.Action.Status.PullRequests {
+		if pr.State != actions.PullRequestMerged {
+			t.Fatalf("after stage 2: %+v", pr)
+		}
+	}
+	populateStage(t, st.inst, *m.Action, rowan)
+	w, text, isErr = watchCall(t, admin, a.Name)
+	if isErr || w.Installation != rowan || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled || w.Action.Status.Result == nil ||
+		w.Action.Status.Result.Message != "every installation of the wave is verified: "+birch+", "+rowan || w.Action.Status.Rollout.FinishedAt == nil {
+		t.Fatalf("rowan's watch: %v %s", isErr, text)
+	}
+	if th := thread(t, st); len(th) != 4 || !strings.Contains(th[3], "(stage 2 of 2)") || !strings.Contains(th[3], "Done: the action is "+actions.StateEnabled) {
+		t.Fatalf("the thread: %q", th)
+	}
+	// list_installations reads the files' state again (the fake GitHub store
+	// is not synced from the remote after a merge: birch carried the marker
+	// in the fixtures, rowan did not) with the wave's result as the last action.
+	li, text, isErr := listInstallations(t, aliceC, map[string]any{tools.ArgInstallations: []string{birch, rowan}})
+	if isErr || find(t, li, birch).Capabilities[0].State != installations.StateEnabled || find(t, li, rowan).Capabilities[0].LastAction.Result != actions.StateEnabled {
+		t.Fatalf("list_installations after the wave: %v %s", isErr, text)
+	}
+	if _, text, isErr := mergeCall(t, aliceC, a.Name); !isErr || !strings.Contains(text, actions.StateEnabled) {
+		t.Fatalf("merge a done wave: %v %s", isErr, text)
 	}
 }

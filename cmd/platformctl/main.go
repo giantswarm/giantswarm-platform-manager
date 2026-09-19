@@ -34,6 +34,7 @@ const usage = `platformctl — the laptop and CI surface of giantswarm-platform-
   platformctl action approve <name>
   platformctl action deny <name> --reason <text>
   platformctl action merge <name>
+  platformctl action watch <name>
   platformctl version
 
 The installation and action commands call the manager's tools through muster's own
@@ -53,7 +54,10 @@ requests opened as you, the Team review asked — for one installation the actio
 <field>=env:<NAME> or <field>=- (stdin, one field) supplies a secret the plan's suppliedSecrets
 name; the value is sent once, never printed, and never taken from the command line.
 verify prints the features of the definition with their marks and dimensions. approve, deny and
-merge are the review's tools called as you; the manager's answer says what follows.
+merge are the review's tools called as you; the manager's answer says what follows. watch reads
+the rollout of a merged action as you (the live registration): the Flux objects, then the probes,
+and carries the action to enabled, waiting for the customer or failed — call it again while it
+is rolling out.
 
 Exit codes: 0 done; 1 the tool refused or the call failed; 2 usage; 3 sign in required.
 `
@@ -92,7 +96,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "installation":
 		return group("installation", args[1:], stdout, stderr, map[string]leaf{"list": cmdInstallationList, "enable": cmdEnable, "reconcile": cmdReconcile, "verify": cmdVerify})
 	case "action":
-		return group("action", args[1:], stdout, stderr, map[string]leaf{"get": cmdActionGet, "list": cmdActionList, "approve": cmdActionApprove, "deny": cmdActionDeny, "merge": cmdActionMerge})
+		return group("action", args[1:], stdout, stderr, map[string]leaf{"get": cmdActionGet, "list": cmdActionList, "approve": cmdActionApprove, "deny": cmdActionDeny, "merge": cmdActionMerge, "watch": cmdActionWatch})
 	case "version":
 		say(stdout, "%s\n", version.String())
 		return exitOK
@@ -162,9 +166,15 @@ func (c *conn) valid() error {
 	return nil
 }
 
-// call runs one tool and prints its answer: as JSON when asked, else through
-// show, which decodes the document into the manager's type and formats it.
+// call runs one tool of the App-pinned registration and prints its answer:
+// as JSON when asked, else through show, which decodes the document into the
+// manager's type and formats it.
 func (c *conn) call(tool string, args map[string]any, stdout, stderr io.Writer, show func(json.RawMessage) error) int {
+	return c.callOn(muster.Server, tool, args, stdout, stderr, show)
+}
+
+// callOn is call against the named registration of the manager.
+func (c *conn) callOn(server, tool string, args map[string]any, stdout, stderr io.Writer, show func(json.RawMessage) error) int {
 	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
 	defer cancel()
 	s, err := muster.Open(ctx, muster.Options{Binary: c.binary, Endpoint: c.endpoint, ConfigPath: c.configPath, Stderr: stderr})
@@ -172,7 +182,7 @@ func (c *conn) call(tool string, args map[string]any, stdout, stderr io.Writer, 
 		return fail(stderr, err)
 	}
 	defer func() { _ = s.Close() }()
-	raw, err := s.Call(ctx, tool, args)
+	raw, err := s.CallServer(ctx, server, tool, args)
 	if err != nil {
 		if auth, ok := muster.IsAuthRequired(err); ok {
 			if c.output == outputJSON {

@@ -46,6 +46,7 @@ Behind muster the tools appear as `x_giantswarm-platform-manager_<tool>`.
 | `get_action`, `list_actions` | read | The Action records on the hub: one per enablement or reconcile a person commits — actor, installations, capability, inputs, pull requests, approval, rollout, probes, result. |
 | `verify_capability` | read | One installation against a capability's definition, grouped into the definition's features with one mark each — *as defined*, *differs by input*, *drifted* — and expanded to its dimensions: the owning repositories' files, read as the person, against the render from the inputs on record (every difference names the file, the path and the input that drives it or drift), and the definition's anonymous HTTP probes. The live dimensions read *not checked* here: they are `verify_installation`'s. |
 | `verify_installation` | read, **live registration** | The same installation's running objects against the definition's probes — HelmReleases Ready, workloads Available, Secrets and MCPServer objects present, conditions, logs, the live values against the render — read through muster's kubernetes tools **as the person**, with the ID token muster forwards to the second registration `giantswarm-platform-manager-live` (`muster.liveServer`). What the person may read decides what is checked: an object they may not read is *not checked, forbidden for them*, an installation they are not connected to answers with muster's own sign-in. The result is recorded on the installation's newest action and feeds `list_installations`: *drifted*, or *waiting for the customer* when the only red dimension is the one the customer's action holds up. A portal or `platformctl` shows the two verifies as one result. |
+| `watch_action` | **live registration** | The rollout watch of an action whose pull requests are merged, **as the person calling** — the manager holds no token beyond a call, so the watch is a call (the portal's page, `platformctl action watch`, an agent), never a loop. Reads the Flux objects the definition names on the installation rolling out (the HelmReleases with their Ready condition and revision) through muster's kubernetes tools and answers the picture; once every one is Ready it runs the definition's probes — the live dimensions as the person, the anonymous HTTP probes direct — and the stage moves to *enabled*, *waiting for the customer* (the customer's own action is the only thing open) or *failed* (a probe is red, named). The report — pull requests, rollout per object, each probe, the open customer actions — goes into the review's thread and onto the Action (`status.rollout.installations[]`, `status.probes`, `status.result`). Nothing is waited for or hurried: call again while it is rolling out. Anyone signed in may watch; the reads are theirs, and the state follows the picture whoever read it. An action *waiting for the customer* or *enabled* is re-read: the customer's action done flips it to *enabled*. |
 
 ## The commit
 
@@ -121,10 +122,12 @@ rollout order for the set (every rendered installation exactly once).
 `reconcile_capability` with `mode: "commit"` over a set is **one wave**: one Action, one review listing the
 targets in the rollout order and the skipped, the pull requests per installation on their own branches.
 `merge_action` (the actor's) advances it one stage per call — merge the first installation's pull requests
-once green; on the next call verify the installation rolling out and, green, merge the next — and a red
+once green; `watch_action` (the live registration, anyone's) carries the installation rolling out to
+*enabled*; only then does the next `merge_action` take the next installation's pull requests — and a red
 probe stops it: that installation *failed*, the stages after it not started, their pull requests open, the
-result naming where and why. A wave carries no supplied secret values; an installation whose secret files
-are not on record is enabled alone.
+result naming where and why. A stage *waiting for the customer* holds the wave too: `merge_action` says
+so, and the customer's action done flips the stage on the next watch. A wave carries no supplied secret
+values; an installation whose secret files are not on record is enabled alone.
 
 ## The Action record
 
@@ -244,8 +247,9 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
   `platformctl installation reconcile <installation>|--all <capability> --dry-run|--commit [--input k=v]… [--secret f=src]… [--content]`,
   `platformctl installation verify <installation> <capability>`,
   `platformctl action get <name>`, `platformctl action list [--installation <name>] [--capability <name>]`,
-  `platformctl action approve <name>`, `platformctl action deny <name> --reason <text>` and
-  `platformctl action merge <name>` call the manager's tools and format the answers for a terminal;
+  `platformctl action approve <name>`, `platformctl action deny <name> --reason <text>`,
+  `platformctl action merge <name>` and `platformctl action watch <name>` call the manager's tools and
+  format the answers for a terminal;
   `--output json` prints the manager's answer as it is, for CI. `--input kagent.enabled=true` nests dotted
   keys into the tool's `inputs`; a value that parses as JSON is that value, anything else a string.
   `--dry-run` is the tool's `dryRun`; `--commit` its `mode: commit` — the pull requests opened as you, the
@@ -258,7 +262,8 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
   once in the call's `secrets`, never printed, and never taken from the command line — a value typed there
   is refused naming only the field. `verify` prints the definition's features with their marks and
   dimensions; `approve`, `deny` and `merge` are the review's tools called as you, the manager's answer
-  saying what follows.
+  saying what follows; `watch` is `watch_action` on the live registration — the rollout picture object by
+  object, the dimensions that decided, the report, what follows — called again while it is rolling out.
 - The calls go through `muster agent --mcp-server`, muster's own bridge: it takes the aggregator from
   muster's configuration (`--endpoint` names another) and signs you in to muster when needed. The bridge
   exposes muster's meta tools only, so every manager tool is called through its `call_tool` and the

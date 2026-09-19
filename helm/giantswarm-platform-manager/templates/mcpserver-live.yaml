@@ -5,7 +5,7 @@
 {{- /*
 The second registration of the same Deployment, split from the first by
 authority: muster forwards the person's own ID token to it (forwardToken) and
-runs no consent, so its tool — verify_installation — reads an installation
+runs no consent, so its tools — verify_installation, watch_action — read an installation
 through muster's kubernetes tools as the person, with the person's access on
 that installation. Tools appear as x_<name>_<tool>. No authorizationServer:
 the two exclude each other on one MCPServer, which is why the manager is

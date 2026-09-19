@@ -86,8 +86,8 @@ approvals:
 
 live:
   # -- Serve the live surface: a second MCP endpoint at `live.path` muster
-  # forwards the person's own ID token to, whose tool `verify_installation`
-  # reads an installation through muster as the person. The Deployment serves
+  # forwards the person's own ID token to, whose tools `verify_installation`
+  # and `watch_action` read an installation through muster as the person. The Deployment serves
   # the path; `muster.liveServer.enabled` registers it with muster and needs
   # this on. Turn the path on in a release of its own and register it in the
   # next: muster probes a registration once, and a probe that reaches the
@@ -225,8 +225,9 @@ muster:
     # -- Register the live surface with muster as a second MCPServer of the
     # same Deployment: `auth.type: oauth` with `forwardToken: true` and no
     # authorization server, so muster puts the person's own ID token on every
-    # call and runs no consent. Its tool `verify_installation` reads an
-    # installation through muster's kubernetes tools as the person. Rendered
+    # call and runs no consent. Its tools `verify_installation` and
+    # `watch_action` read an installation through muster's kubernetes tools
+    # as the person. Rendered
     # with `muster.mcpServer.enabled` and `oauth.enabled`; needs `live.enabled`
     # — the chart refuses to render the registration of a path the Deployment
     # does not serve — in a release before this one, so that muster's one
@@ -249,7 +250,7 @@ muster:
     # mcp-kubernetes within the one call.
     timeout: 180  # @schema minimum: 1; maximum: 300
     # -- Human-readable description shown by muster.
-    description: Giant Swarm's installation manager, the live surface — verify_installation reads an installation as you
+    description: Giant Swarm's installation manager, the live surface — verify_installation and watch_action read an installation as you
 
 serviceAccount:
   # -- Create a ServiceAccount.

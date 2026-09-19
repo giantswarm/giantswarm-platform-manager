@@ -26,6 +26,7 @@ const (
 	acmeMCs       = "giantswarm/acme-management-clusters"
 	namespace     = "platform-manager"
 	someone       = "someone"
+	rowanAction   = "enable-rowan-abc123"
 	kagent        = "kagent"
 	// dexClientKagent names the Secret a Dex client's secretRef points at.
 	dexClientKagent = "dex-client-kagent"
@@ -188,7 +189,7 @@ func (*closedError) Error() string { return "closed" }
 func TestCommitNamesTheActionAndItsPullRequests(t *testing.T) {
 	r := tools.CommitResult{
 		Caller: someone, Tool: tools.ToolEnableCapability, Capability: agentPlatform, Hub: hazel, Installation: rowan,
-		Action: &actions.Action{Name: "enable-rowan-abc123", Status: actions.Status{State: actions.StatePendingApproval}},
+		Action: &actions.Action{Name: rowanAction, Status: actions.Status{State: actions.StatePendingApproval}},
 		Plan:   plan.Installation{Name: rowan, State: enabled, SuppliedSecrets: []string{"kagent.modelKey"}},
 		PullRequests: []actions.PullRequest{
 			{Repository: acmeConfigs, Number: 7, URL: "https://github.com/" + acmeConfigs + "/pull/7"},
@@ -203,7 +204,7 @@ func TestCommitNamesTheActionAndItsPullRequests(t *testing.T) {
 	}
 	contains(t, buf.String(),
 		"enable_capability commit: agent-platform on rowan (hub hazel), as someone",
-		"Action: enable-rowan-abc123 (pending approval)",
+		"Action: "+rowanAction+" (pending approval)",
 		"1. "+acmeConfigs+"#7 https://github.com/"+acmeConfigs+"/pull/7",
 		"2. "+acmeMCs+"#8",
 		"Nothing to commit in: giantswarm/acme-other",
@@ -214,7 +215,7 @@ func TestCommitNamesTheActionAndItsPullRequests(t *testing.T) {
 func TestVerifyPrintsFeaturesWithMarksAndDimensions(t *testing.T) {
 	r := verify.Result{
 		Caller: someone, Installation: rowan, Capability: agentPlatform, Hub: hazel, State: "drifted",
-		Inputs:  verify.Inputs{Source: "action enable-rowan-abc123"},
+		Inputs:  verify.Inputs{Source: "action " + rowanAction},
 		Summary: map[verify.Mark]int{verify.AsDefined: 2, verify.Drifted: 1, verify.NotChecked: 1},
 		Features: []verify.Feature{
 			{ID: kagent, Title: "kagent, the agent runtime", Mark: verify.Drifted, Marks: map[verify.Mark]int{verify.AsDefined: 1, verify.Drifted: 1, verify.NotChecked: 1},
@@ -238,7 +239,7 @@ func TestVerifyPrintsFeaturesWithMarksAndDimensions(t *testing.T) {
 	}
 	contains(t, buf.String(),
 		"verify agent-platform on rowan (hub hazel), as someone",
-		"State: drifted   Inputs on record: action enable-rowan-abc123",
+		"State: drifted   Inputs on record: action "+rowanAction,
 		"Summary: 1 drifted, 2 as defined, 1 not checked",
 		"kagent, the agent runtime: drifted (1 drifted, 1 as defined, 1 not checked)",
 		"[drifted] runtime/patch-top-level-keys (configmap: patch top-level keys)",
@@ -252,12 +253,12 @@ func TestVerifyPrintsFeaturesWithMarksAndDimensions(t *testing.T) {
 }
 
 func TestDecisionAndMergeCarryTheMessageAndTheAction(t *testing.T) {
-	a := &actions.Action{Name: "enable-rowan-abc123", Spec: actions.Spec{Kind: actions.KindEnable, Capability: agentPlatform, Installations: []string{rowan}}, Status: actions.Status{State: actions.StatePendingApproval}}
+	a := &actions.Action{Name: rowanAction, Spec: actions.Spec{Kind: actions.KindEnable, Capability: agentPlatform, Installations: []string{rowan}}, Status: actions.Status{State: actions.StatePendingApproval}}
 	var buf bytes.Buffer
 	if err := Decision(&buf, tools.Decision{Message: "approved by carol; the actor merges", Action: a}); err != nil {
 		t.Fatal(err)
 	}
-	contains(t, buf.String(), "approved by carol; the actor merges", "Action enable-rowan-abc123", "State: pending approval")
+	contains(t, buf.String(), "approved by carol; the actor merges", "Action "+rowanAction, "State: pending approval")
 
 	buf.Reset()
 	m := tools.MergeResult{Message: "one merged, one waiting", Action: a,
@@ -266,7 +267,7 @@ func TestDecisionAndMergeCarryTheMessageAndTheAction(t *testing.T) {
 	if err := Merge(&buf, m); err != nil {
 		t.Fatal(err)
 	}
-	contains(t, buf.String(), "one merged, one waiting", "Merged by this call, in order:", acmeConfigs+"#7 https://", "Waiting: "+acmeMCs+"#8: checks pending", "Action enable-rowan-abc123")
+	contains(t, buf.String(), "one merged, one waiting", "Merged by this call, in order:", acmeConfigs+"#7 https://", "Waiting: "+acmeMCs+"#8: checks pending", "Action "+rowanAction)
 
 	buf.Reset()
 	if err := Decision(&buf, tools.Decision{Message: "denied"}); err != nil {
@@ -275,6 +276,22 @@ func TestDecisionAndMergeCarryTheMessageAndTheAction(t *testing.T) {
 	if got := buf.String(); got != "denied\n" {
 		t.Errorf("a decision without an action prints only the message, got %q", got)
 	}
+}
+
+func TestWatchPrintsTheRolloutPictureAndTheReport(t *testing.T) {
+	a := &actions.Action{Name: rowanAction, Spec: actions.Spec{Kind: actions.KindEnable, Capability: agentPlatform, Installations: []string{rowan}}, Status: actions.Status{State: actions.StateEnabled}}
+	r := tools.WatchResult{Message: "rowan is enabled (action " + rowanAction + ", enabled): verified: 9 as defined", Action: a, Installation: rowan, State: actions.StateEnabled, Ready: true,
+		Objects: []actions.RolloutObject{{Kind: "HelmRelease", Namespace: "flux-giantswarm", Name: "agent-platform", Ready: "True", Revision: "4.44.1"}, {Kind: "HelmRelease", Namespace: "flux-giantswarm", Name: "muster", Ready: "False", Message: "Ready=False: install retries exhausted"}},
+		Red:     []string{"live-model-configs (runtime): Accepted=False: secret not found"},
+		Verify:  &verify.Result{Summary: map[verify.Mark]int{verify.AsDefined: 9, verify.Drifted: 1}},
+		Report:  "*rowan* is *enabled* — watched as someone.\nProbes: ✅ 9 as defined",
+		Next:    "nothing: the action is enabled"}
+	var buf bytes.Buffer
+	if err := Watch(&buf, r); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, buf.String(), "rowan is enabled (action "+rowanAction+", enabled)", "Rollout of rowan (ready: yes):", "HelmRelease flux-giantswarm/agent-platform", "Ready=True", "4.44.1",
+		"HelmRelease flux-giantswarm/muster", "Ready=False", "install retries exhausted", "Red:", "live-model-configs (runtime)", "Probes: 1 drifted, 9 as defined", "Report:", "  Probes: ✅ 9 as defined", "Next: nothing: the action is enabled", "Action "+rowanAction)
 }
 
 func TestWaveNamesTheOrderTheSkippedAndTheStages(t *testing.T) {

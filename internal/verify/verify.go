@@ -157,7 +157,11 @@ func Compare(ctx context.Context, opts Options) Result {
 		}
 		for _, p := range probes {
 			if p.Feature == fd.ID {
-				f.Dimensions = append(f.Dimensions, probe(ctx, opts, c, p))
+				var clients []plan.DexClient
+				if c != nil {
+					clients = c.dexClients
+				}
+				f.Dimensions = append(f.Dimensions, probe(ctx, opts.Probes, opts.Installation.BaseDomain, clients, c != nil, p))
 			}
 		}
 		for _, d := range f.Dimensions {

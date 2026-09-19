@@ -541,6 +541,37 @@ func Merge(w io.Writer, r tools.MergeResult) error {
 	return p.action(r.Action)
 }
 
+// Watch is watch_action: the manager's message, the rollout picture object
+// by object, the dimensions that decided, what follows, then the Action.
+func Watch(w io.Writer, r tools.WatchResult) error {
+	p := &printer{w: w}
+	p.f("%s\n", r.Message)
+	if len(r.Objects) > 0 {
+		p.f("Rollout of %s (ready: %s):\n", dash(r.Installation), yesNo(r.Ready))
+		rows := make([][]string, 0, len(r.Objects))
+		for _, o := range r.Objects {
+			rows = append(rows, []string{o.Kind + " " + o.Namespace + "/" + o.Name, "Ready=" + dash(o.Ready), dash(o.Revision), o.Message})
+		}
+		p.table(2, rows)
+	}
+	if len(r.Red) > 0 {
+		p.f("Red:\n")
+		for _, d := range r.Red {
+			p.f("  %s\n", d)
+		}
+	}
+	if r.Verify != nil {
+		p.f("Probes: %s\n", marks(r.Verify.Summary))
+	}
+	if r.Report != "" {
+		p.f("Report:\n  %s\n", strings.ReplaceAll(r.Report, "\n", "\n  "))
+	}
+	if r.Next != "" {
+		p.f("Next: %s\n", r.Next)
+	}
+	return p.action(r.Action)
+}
+
 // action appends the Action an answer carries, when it carries one.
 func (p *printer) action(a *actions.Action) error {
 	if p.err != nil || a == nil {

@@ -286,6 +286,15 @@ type fakeGateway struct {
 	mu      sync.Mutex
 	reviews []*fakeReview
 	next    int
+	// down makes the results endpoint answer 502, as a gateway Slack refuses.
+	down bool
+}
+
+// setDown turns the results endpoint's failure on or off.
+func (g *fakeGateway) setDown(down bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.down = down
 }
 
 func newFakeGateway(t *testing.T) *fakeGateway {
@@ -322,6 +331,10 @@ func newFakeGateway(t *testing.T) *fakeGateway {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		g.mu.Lock()
 		defer g.mu.Unlock()
+		if g.down {
+			writeJSON(w, http.StatusBadGateway, map[string]any{errorKey: "slack refused"})
+			return
+		}
 		for _, rv := range g.reviews {
 			if rv.ID == r.PathValue("id") {
 				rv.Results = append(rv.Results, body)

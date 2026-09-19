@@ -395,7 +395,7 @@ func TestVerifyInstallationWaitingForTheCustomer(t *testing.T) {
 	alice := st.mcpClient(t, aliceToken)
 	enableRowanLive(t, st, alice, minimalInputs(nil)) // the model key is the installation's own on every installation
 	st.inst.edit("ModelConfig", kagentNamespace, "default-model-config", func(obj map[string]any) {
-		obj[statusKey] = map[string]any{conditionsKey: []any{map[string]any{typeKey: "Accepted", statusKey: "False", message: "secret kagent-anthropic-key not found"}}}
+		obj[statusKey] = map[string]any{conditionsKey: []any{map[string]any{typeKey: accepted, statusKey: statusFalse, message: modelKeyMissing}}}
 	})
 
 	res := verifyLive(t, st.liveClient(t, st.dex.token(t, liveAdmin, []string{liveAudience}, time.Hour)), rowan)
@@ -443,7 +443,7 @@ func TestGetInfoReportsTheLiveSurface(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !info.Live.Configured || info.Live.ToolPrefix != tools.LiveToolPrefix || info.Live.Tool != tools.ToolVerifyInstallation || info.Live.Issuer != st.dex.issuer || info.Live.KubernetesFamily != kubernetesFamily ||
-		!reflect.DeepEqual(info.Live.Audiences, []string{liveAudience, liveRequiredAudience}) {
+		!reflect.DeepEqual(info.Live.Audiences, []string{liveAudience, liveRequiredAudience}) || !reflect.DeepEqual(info.Live.Tools, []string{tools.ToolVerifyInstallation, tools.ToolWatchAction}) {
 		t.Errorf("live: %+v", info.Live)
 	}
 }

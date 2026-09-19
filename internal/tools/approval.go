@@ -12,14 +12,11 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
-	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/approvals"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
-	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
-	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 )
 
 // The approval tools: the two buttons of the Team review, called by the
@@ -51,11 +48,8 @@ type MergeResult struct {
 	Merged []actions.PullRequest `json:"merged"`
 	// Waiting names the pull request the merge stopped at and why, when it did.
 	Waiting string `json:"waiting,omitempty"`
-	// Verified is the stage this call verified green, Stage the one whose
-	// pull requests it merged, Stopped the one whose red probe stopped the wave.
-	Verified string `json:"verified,omitempty"`
-	Stage    string `json:"stage,omitempty"`
-	Stopped  string `json:"stopped,omitempty"`
+	// Stage is the installation whose pull requests this call merged.
+	Stage string `json:"stage,omitempty"`
 }
 
 func (t *Tools) registerApprovalTools(s *mcpserver.MCPServer) {
@@ -218,7 +212,7 @@ func (t *Tools) mergeAction(ctx context.Context, req mcp.CallToolRequest) (*mcp.
 }
 
 func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
-	a, id, err := t.loadAction(ctx, ToolMergeAction, args, actions.StatePendingApproval, actions.StateRollingOut)
+	a, id, err := t.loadAction(ctx, ToolMergeAction, args, actions.StatePendingApproval, actions.StateRollingOut, actions.StateWaitingForCustomer)
 	if err != nil {
 		return nil, err
 	}
@@ -242,40 +236,11 @@ func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
 		if st.State == actions.StateEnabled {
 			continue
 		}
-		// The stage in flight: merged on an earlier call, verified now; a red
-		// probe stops the wave here, with the stages after it untouched.
-		if st.State == actions.StateRollingOut && allMerged(a, st.Name) {
-			def, ok := installations.FindCapability(a.Spec.Capability)
-			if !ok {
-				return nil, fmt.Errorf("%s: action %s names capability %q, which is not a definition of this version", ToolMergeAction, a.Name, a.Spec.Capability)
-			}
-			result, err := t.verifyInstallation(ctx, token, st.Name, def)
-			if err != nil {
-				return nil, fmt.Errorf("%s: the verify of %s, which gates the wave, failed: %w", ToolMergeAction, st.Name, err)
-			}
-			status.Probes = append(status.Probes, probesOf(st.Name, result)...)
-			if red := redProbes(result); len(red) > 0 {
-				st.State, st.Message = actions.StateFailed, "a probe is red: "+strings.Join(red, "; ")
-				for j := i + 1; j < len(stages); j++ {
-					stages[j].State, stages[j].Message = "", "not started: the wave stopped at "+st.Name
-				}
-				open := openPRs(status.PullRequests)
-				status.State, status.Rollout.FinishedAt = actions.StateFailed, now()
-				status.Result = &actions.Result{State: actions.StateFailed, Message: fmt.Sprintf("the wave stopped at %s (stage %d of %d): %s; %d pull request(s) stay open (%s)", st.Name, i+1, len(stages), st.Message, len(open), prList(open)), At: now()}
-				a, err = t.d.Actions.UpdateStatus(ctx, a.Name, status)
-				if err != nil {
-					return nil, fmt.Errorf("%s: %s and the action could not record it: %w", ToolMergeAction, status.Result.Message, err)
-				}
-				t.d.Log.Info("action_wave_stopped", identity.LogAttr(ctx), "action", a.Name, "installation", st.Name, "open", len(open))
-				res.Action, res.Stopped, res.Message = a, st.Name, status.Result.Message+"; the action is failed."
-				if note := t.postResult(ctx, a, fmt.Sprintf("The wave stopped at *%s*: %s. %d pull request(s) stay open: %s.", st.Name, st.Message, len(open), prLinks(open))); note != "" {
-					res.Message += " " + note
-				}
-				return res, nil
-			}
-			st.State, st.Message = actions.StateEnabled, fmt.Sprintf("verified: %s (%v)", result.State, result.Summary)
-			res.Verified = st.Name
-			continue
+		// The stage in flight: merged, and not enabled yet — the watch
+		// carries it there; the next stage's pull requests wait (a red probe
+		// stops the wave with them open).
+		if allMerged(a, st.Name) {
+			return nil, stageNotEnabled(a, *st)
 		}
 		// This stage's pull requests are merged now, in order, each once green.
 		for _, k := range a.StagePullRequests(st.Name) {
@@ -308,7 +273,7 @@ func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
 			break
 		}
 		if res.Waiting == "" {
-			st.State, st.Message = actions.StateRollingOut, "the pull requests are merged; Flux reconciles the installation — "+ToolMergeAction+" again once it has: the verify runs first"
+			st.State, st.Message = actions.StateRollingOut, "the pull requests are merged; Flux reconciles the installation — "+ToolWatchAction+" reads its rollout and runs the probes"
 			for j := i + 1; j < len(stages); j++ {
 				stages[j].State, stages[j].Message = actions.StateRollingOut, stageQueued
 			}
@@ -321,46 +286,50 @@ func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
 		break
 	}
 	if res.Waiting == "" && res.Stage == "" {
-		status.State, status.Rollout.FinishedAt = actions.StateEnabled, now()
-		status.Result = &actions.Result{State: actions.StateEnabled, Message: fmt.Sprintf("every installation of the wave is verified: %s", strings.Join(a.Spec.Installations, ", ")), At: now()}
+		return nil, fmt.Errorf("%s: every stage of action %s is enabled; nothing is left to merge", ToolMergeAction, a.Name)
 	}
 	a, err = t.d.Actions.UpdateStatus(ctx, a.Name, status)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %d pull request(s) merged (%s) and the action could not record it: %w", ToolMergeAction, len(res.Merged), prList(res.Merged), err)
 	}
 	res.Action = a
-	t.d.Log.Info("action_merge", identity.LogAttr(ctx), "action", a.Name, "state", a.Status.State, "merged", len(res.Merged), "waiting", res.Waiting, "verified", res.Verified, "stage", res.Stage)
-	var parts []string
-	if res.Verified != "" {
-		parts = append(parts, fmt.Sprintf("%s is verified", res.Verified))
+	t.d.Log.Info("action_merge", identity.LogAttr(ctx), "action", a.Name, "state", a.Status.State, "merged", len(res.Merged), "waiting", res.Waiting, "stage", res.Stage)
+	if res.Waiting != "" {
+		res.Message = fmt.Sprintf("%d pull request(s) merged as %s (%s); the merge stopped at %s — call %s again once it is green.", len(res.Merged), id.Login, prList(res.Merged), res.Waiting, ToolMergeAction)
+		return res, nil
 	}
-	switch {
-	case res.Waiting != "":
-		parts = append(parts, fmt.Sprintf("%d pull request(s) merged as %s (%s); the merge stopped at %s — call %s again once it is green.", len(res.Merged), id.Login, prList(res.Merged), res.Waiting, ToolMergeAction))
-	case res.Stage != "":
-		parts = append(parts, fmt.Sprintf("the pull requests of %s are merged as %s (%s); %s is rolling out — call %s again once Flux has reconciled it: its verify runs first%s.", res.Stage, id.Login, prList(res.Merged), res.Stage, ToolMergeAction, nextStage(a, res.Stage)))
-		if note := t.postResult(ctx, a, fmt.Sprintf("Merged as %s: %s. *%s* is rolling out — the verify and the next stage follow here.", id.Login, prLinks(res.Merged), res.Stage)); note != "" {
-			parts = append(parts, note)
-		}
-	default:
-		parts = append(parts, fmt.Sprintf("action %s is enabled: %s.", a.Name, a.Status.Result.Message))
-		if note := t.postResult(ctx, a, fmt.Sprintf("Done: %s.", a.Status.Result.Message)); note != "" {
-			parts = append(parts, note)
-		}
+	res.Message = fmt.Sprintf("the pull requests of %s are merged as %s (%s); %s is rolling out — %s on the live registration (%s) reads its rollout and runs the probes as you, and carries it to enabled%s.", res.Stage, id.Login, prList(res.Merged), res.Stage, ToolWatchAction, LiveToolPrefix, nextStage(a, res.Stage))
+	if note := t.postResult(ctx, a, fmt.Sprintf("Merged as %s: %s. *%s* is rolling out — the rollout and the probes follow here.", id.Login, prLinks(res.Merged), res.Stage)); note != "" {
+		res.Message += " " + note
 	}
-	res.Message = strings.Join(parts, "; ")
 	return res, nil
 }
 
+// stageNotEnabled is merge_action's refusal at a stage whose pull requests
+// are merged and whose watch has not said enabled: the next stage waits.
+func stageNotEnabled(a *actions.Action, st actions.InstallationRollout) error {
+	next := ""
+	if i := stageIndex(a.Status.Rollout, st.Name); i >= 0 && i+1 < len(a.Spec.Installations) {
+		next = fmt.Sprintf("; the pull requests of %s are merged once it is", a.Spec.Installations[i+1])
+	}
+	switch st.State {
+	case actions.StateWaitingForCustomer:
+		return fmt.Errorf("%s: %s waits for the customer (%s) — %s flips it to enabled once the customer's action is done%s", ToolMergeAction, st.Name, st.Message, ToolWatchAction, next)
+	default:
+		return fmt.Errorf("%s: %s is %s — its pull requests are merged, and %s on the live registration (%s) reads its rollout and runs the probes as you, carrying it to enabled%s", ToolMergeAction, st.Name, st.State, ToolWatchAction, LiveToolPrefix, next)
+	}
+}
+
 // stagesOf is the action's rollout with one entry per installation of the
-// wave, in order — the entries as recorded, the missing ones pending approval.
+// wave, in order — the entries as recorded, the missing ones in the action's
+// state (pending approval before the first merge).
 func stagesOf(a *actions.Action) *actions.Rollout {
 	r := &actions.Rollout{}
 	if a.Status.Rollout != nil {
 		r.StartedAt, r.FinishedAt = a.Status.Rollout.StartedAt, a.Status.Rollout.FinishedAt
 	}
 	for _, name := range a.Spec.Installations {
-		r.Installations = append(r.Installations, actions.InstallationRollout{Name: name, State: actions.StatePendingApproval})
+		r.Installations = append(r.Installations, actions.InstallationRollout{Name: name, State: a.Status.State})
 	}
 	if a.Status.Rollout != nil {
 		for _, rec := range a.Status.Rollout.Installations {
@@ -384,44 +353,6 @@ func allMerged(a *actions.Action, installation string) bool {
 	return true
 }
 
-// redProbes names the probe dimensions of result that are drifted: the live
-// signal of a rollout, the one that stops a wave. The file dimensions were
-// written by the wave itself and are recorded, not a stop.
-func redProbes(result *verify.Result) []string {
-	var red []string
-	for _, f := range result.Features {
-		for _, d := range f.Dimensions {
-			if string(d.Kind) != string(definitions.KindProbe) || d.Mark != verify.Drifted {
-				continue
-			}
-			msg := fmt.Sprintf("%s (%s)", d.ID, f.ID)
-			if d.Probe != nil {
-				for _, r := range d.Probe.Requests {
-					if !r.OK {
-						msg += fmt.Sprintf(" %s answered %d %s", r.URL, r.Status, r.Error)
-					}
-				}
-			}
-			red = append(red, strings.TrimSpace(msg))
-		}
-	}
-	return red
-}
-
-// probesOf records the probe dimensions of result on the action.
-func probesOf(installation string, result *verify.Result) []actions.Probe {
-	var out []actions.Probe
-	for _, f := range result.Features {
-		for _, d := range f.Dimensions {
-			if string(d.Kind) != string(definitions.KindProbe) {
-				continue
-			}
-			out = append(out, actions.Probe{ID: d.ID, Installation: installation, Result: string(d.Mark), Message: d.Reason, At: now()})
-		}
-	}
-	return out
-}
-
 func openPRs(prs []actions.PullRequest) []actions.PullRequest {
 	var open []actions.PullRequest
 	for _, pr := range prs {
@@ -436,7 +367,7 @@ func openPRs(prs []actions.PullRequest) []actions.PullRequest {
 func nextStage(a *actions.Action, installation string) string {
 	for i, n := range a.Spec.Installations {
 		if n == installation && i+1 < len(a.Spec.Installations) {
-			return " and, green, " + a.Spec.Installations[i+1] + " is merged"
+			return "; enabled, the pull requests of " + a.Spec.Installations[i+1] + " are merged next"
 		}
 	}
 	return ""
