@@ -19,6 +19,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/approvals"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/live"
 )
 
 // ToolPrefix is the MCPServer name muster registers this server under.
@@ -77,7 +78,11 @@ type Deps struct {
 	// Probes sends verify_capability's anonymous HTTP probes; nil is a
 	// client with a timeout that does not follow redirects.
 	Probes *http.Client
-	Log    *slog.Logger
+	// Live validates the forwarded tokens of the live path and opens the
+	// loop-back sessions verify_installation reads through; nil when the
+	// live path is not configured, and get_info says so.
+	Live *live.Client
+	Log  *slog.Logger
 }
 
 // Definition is a capability definition as get_info reports it: the name,
@@ -142,10 +147,10 @@ func (t *Tools) AddWrite(wt WriteTool) { t.writes = append(t.writes, wt) }
 func (t *Tools) MCPServer() *mcpserver.MCPServer {
 	s := mcpserver.NewMCPServer(ToolPrefix, t.d.Version,
 		mcpserver.WithToolCapabilities(false),
-		mcpserver.WithInstructions("Giant Swarm's installation manager: enables, reconciles and verifies platform capabilities on opted-in installations as the person calling. Call get_info first: it reports who you are to this server (the GitHub login of the token muster put on the call — your own authorization of the App giantswarm-platform-manager), the capability definitions and their input schemas, the write modes and the approval channel. list_installations reads the installations registry and every installation's opt-in declaration with your token, now, and answers the state of each capability per installation. enable_capability and reconcile_capability with dryRun: true render an installation (or a set) through the capability's definition and answer the plan: files, pull requests in dependency order, generated secrets by name, Dex clients, the secrets you supply, customer actions and probes. get_action and list_actions read the Action records on the hub. An action in mode commit asks the capability-owning team's approval through a Team review in Slack: approve_action and deny_action are its buttons (called as the clicking member; the actor cannot approve their own action), merge_action merges the approved pull requests as the actor once their checks are green and moves the action to rolling out. verify_capability compares one installation against the definition — the repositories' files against the render from the inputs on record, the anonymous probes — grouped into features with one mark each. Every write tool takes dryRun and mode; the only write mode is commit — a pull request to the installation's GitOps repository opened as you — and apply is refused: every target of this manager is GitOps-owned."),
+		mcpserver.WithInstructions("Giant Swarm's installation manager: enables, reconciles and verifies platform capabilities on opted-in installations as the person calling. Call get_info first: it reports who you are to this server (the GitHub login of the token muster put on the call — your own authorization of the App giantswarm-platform-manager), the capability definitions and their input schemas, the write modes and the approval channel. list_installations reads the installations registry and every installation's opt-in declaration with your token, now, and answers the state of each capability per installation. enable_capability and reconcile_capability with dryRun: true render an installation (or a set) through the capability's definition and answer the plan: files, pull requests in dependency order, generated secrets by name, Dex clients, the secrets you supply, customer actions and probes. get_action and list_actions read the Action records on the hub. An action in mode commit asks the capability-owning team's approval through a Team review in Slack: approve_action and deny_action are its buttons (called as the clicking member; the actor cannot approve their own action), merge_action merges the approved pull requests as the actor once their checks are green and moves the action to rolling out. verify_capability compares one installation against the definition — the repositories' files against the render from the inputs on record, the anonymous probes — grouped into features with one mark each; its live dimensions are verify_installation's, the tool of the second registration giantswarm-platform-manager-live, which muster forwards your own token to. Every write tool takes dryRun and mode; the only write mode is commit — a pull request to the installation's GitOps repository opened as you — and apply is refused: every target of this manager is GitOps-owned."),
 	)
 	s.AddTool(mcp.NewTool(ToolGetInfo,
-		mcp.WithDescription("Read-only. Report the service version and how this call is authenticated: the caller (the GitHub login and id GET /user answered for the bearer muster put on the call — the person's own user token through the App giantswarm-platform-manager) and the authorization server pinned for it; the capability definitions with their input schemas; the write modes (commit only, apply refused) and the write tools; the approval channel configuration; where the Action records live; the tools still to come. Call first."),
+		mcp.WithDescription("Read-only. Report the service version and how this call is authenticated: the caller (the GitHub login and id GET /user answered for the bearer muster put on the call — the person's own user token through the App giantswarm-platform-manager) and the authorization server pinned for it; the capability definitions with their input schemas; the write modes (commit only, apply refused) and the write tools; the approval channel configuration; where the Action records live; the live registration (the second surface, where verify_installation reads an installation as you); the tools still to come. Call first."),
 		mcp.WithReadOnlyHintAnnotation(true),
 	), t.getInfo)
 	s.AddTool(listInstallationsTool(), t.listInstallations)
@@ -171,6 +176,7 @@ type Info struct {
 	Approvals    ApprovalsInfo      `json:"approvals"`
 	Registry     RegistryConfig     `json:"registry"`
 	Actions      ActionsInfo        `json:"actions"`
+	Live         LiveInfo           `json:"live"`
 	PlannedTools []string           `json:"plannedTools"`
 }
 
@@ -246,6 +252,7 @@ func (t *Tools) getInfo(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallTo
 		Approvals:    ApprovalsInfo{Configured: t.d.Approvals.Configured(), GatewayURL: t.d.Approvals.GatewayURL, Team: t.d.Approvals.Team, Channel: t.d.Approvals.Channel, NoticeChannel: t.d.Approvals.NoticeChannel},
 		Registry:     RegistryConfig{Catalog: t.d.Registry.Catalog, Hub: t.d.Registry.Hub, Configured: t.d.Registry.Hub != ""},
 		Actions:      t.actionsInfo(),
+		Live:         t.liveInfo(),
 		PlannedTools: PlannedTools(),
 	}
 	if id, ok := identity.FromContext(ctx); ok {

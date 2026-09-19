@@ -1,10 +1,11 @@
 // Package verify compares one installation against a capability's definition
 // and answers the result grouped into the definition's features, each rolled
-// up to one mark and expandable to its dimensions. This part compares the
-// owning repositories' files against the render from the inputs on record and
-// runs the definition's anonymous HTTP probes. The live dimensions — reads on
-// the installation with the person's authority — are carried with the mark
-// not checked until the read-side shape plugs them in.
+// up to one mark and expandable to its dimensions. Compare is verify_capability:
+// the owning repositories' files against the render from the inputs on record
+// and the definition's anonymous HTTP probes, as the person's GitHub token
+// reads. CompareLive is verify_installation: the definition's probes of the
+// running installation, read as the person through muster (live.go). Merge
+// joins the two into the one result a person reads.
 package verify
 
 import (
@@ -42,18 +43,21 @@ const (
 
 // The reasons a dimension is not checked.
 const (
-	ReasonAuthority  = "needs the person's authority on the installation: the live comparison comes with the read-side shape"
+	ReasonAuthority  = "needs the person's authority on the installation: verify_installation, the live registration's tool, checks it"
 	ReasonNoInputs   = "no inputs on record: no action has rendered this capability for the installation yet"
 	ReasonUnreadable = "a file of the dimension could not be read as the caller"
 	ReasonNoFile     = "the definition renders no file of this kind for the inputs on record"
 )
 
-// Difference is one place a repository file is off the render: at path (a
-// YAML path inside file; empty when the whole file differs). Input names the
-// input of the definition that drives the path — the file expresses another
-// input than the one on record; empty, the path is drift.
+// Difference is one place a repository file, or a live object, is off the
+// render: at path (a YAML path inside file; empty when the whole file
+// differs). File names the repository file; Object the live object of a live
+// dimension (resource namespace/name). Input names the input of the
+// definition that drives the path — the file expresses another input than
+// the one on record; empty, the path is drift.
 type Difference struct {
-	File     string `json:"file"`
+	File     string `json:"file,omitempty"`
+	Object   string `json:"object,omitempty"`
 	Path     string `json:"path,omitempty"`
 	Input    string `json:"input,omitempty"`
 	Rendered string `json:"rendered,omitempty"`
@@ -71,6 +75,8 @@ type Dimension struct {
 	Files       []string     `json:"files,omitempty"`
 	Differences []Difference `json:"differences,omitempty"`
 	Probe       *ProbeResult `json:"probe,omitempty"`
+	// Live is what a live dimension's probes answered (CompareLive).
+	Live *LiveResult `json:"live,omitempty"`
 }
 
 // Feature is one feature of the definition, rolled up.
@@ -105,6 +111,8 @@ type Result struct {
 	Refused  string       `json:"refused,omitempty"`
 	Features []Feature    `json:"features"`
 	Summary  map[Mark]int `json:"summary"`
+	// LiveCaller is who the live reads ran as, in a merged result.
+	LiveCaller string `json:"liveCaller,omitempty"`
 }
 
 // Options shape one verify.
@@ -202,7 +210,10 @@ func compare(ctx context.Context, opts Options) (*comparison, error) {
 	if err != nil {
 		return nil, err
 	}
-	driven := drivenPaths(opts, base)
+	driven := drivenPaths(opts.Inputs.Values, base, func(values map[string]any) (map[string]map[string]string, error) {
+		other, _, _, err := renderFlat(Options{Definition: opts.Definition, Installation: opts.Installation, Hub: opts.Hub, Inputs: Inputs{Values: values}})
+		return other, err
+	})
 	c := &comparison{files: map[string]*fileDiff{}}
 	for _, files := range res.Files {
 		for path, f := range files {
@@ -254,22 +265,25 @@ func renderFlat(opts Options) (map[string]map[string]string, *render.Result, ren
 	return out, res, in, nil
 }
 
+// flatRender renders an inputs document to flat files, by file key.
+type flatRender func(values map[string]any) (map[string]map[string]string, error)
+
 // drivenPaths names, for every rendered leaf an input drives, the input that
 // drives it: each leaf of the inputs on record is perturbed (left out, and
 // its value changed) and the leaves whose render changes are its. A leaf
 // several inputs drive is attributed to the most specific one — the input
 // whose perturbation changes the fewest leaves.
-func drivenPaths(opts Options, base map[string]map[string]string) map[string]string {
+func drivenPaths(values map[string]any, base map[string]map[string]string, render flatRender) map[string]string {
 	type best struct {
 		input string
 		n     int
 	}
 	bests := map[string]best{}
-	for _, l := range leaves(opts.Inputs.Values, nil) {
+	for _, l := range leaves(values, nil) {
 		for _, alt := range perturbations(l.value) {
-			raw := deepCopy(opts.Inputs.Values)
+			raw := deepCopy(values)
 			set(raw, l.path, alt)
-			other, _, _, err := renderFlat(Options{Definition: opts.Definition, Installation: opts.Installation, Hub: opts.Hub, Inputs: Inputs{Values: raw}})
+			other, err := render(raw)
 			if err != nil {
 				continue
 			}

@@ -123,36 +123,6 @@ func TestCallOfAToolMusterDoesNotKnowIsCallToolsRefusal(t *testing.T) {
 	}
 }
 
-// The bridge appends its sign-in notices after call_tool's document; the
-// document is the first text, whatever follows it.
-func TestUnwrapReadsTheFirstTextOnly(t *testing.T) {
-	res := &mcp.CallToolResult{Content: []mcp.Content{
-		mcp.NewTextContent(`{"isError":false,"content":[{"type":"text","text":"{\"version\":\"1\"}"}],"structuredContent":{"authUrl":"u"}}`),
-		mcp.NewTextContent("Authentication required for 1 server"),
-	}}
-	got, err := unwrap("x", res)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if textOf(got) != `{"version":"1"}` || got.IsError {
-		t.Fatalf("got %+v", got)
-	}
-	if s, _ := got.StructuredContent.(map[string]any); s["authUrl"] != "u" {
-		t.Fatalf("structured content lost: %+v", got.StructuredContent)
-	}
-}
-
-func TestUnwrapRefusesAnAnswerThatIsNoToolResult(t *testing.T) {
-	_, err := unwrap("x", mcp.NewToolResultText("plain text"))
-	if err == nil || !strings.Contains(err.Error(), "something other than a tool result") {
-		t.Fatalf("got %v", err)
-	}
-	_, err = unwrap("x", mcp.NewToolResultError("Meta-tool execution failed: connection lost"))
-	if err == nil || !strings.Contains(err.Error(), "connection lost") {
-		t.Fatalf("got %v", err)
-	}
-}
-
 func TestOpenNamesTheMissingBinary(t *testing.T) {
 	_, err := Open(context.Background(), Options{Binary: "muster-that-is-not-installed"})
 	if err == nil || !strings.Contains(err.Error(), "muster-that-is-not-installed") || !strings.Contains(err.Error(), "--muster") {

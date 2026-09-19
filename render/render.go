@@ -166,6 +166,24 @@ type Expectation struct {
 	Absent           string   `yaml:"absent,omitempty"`           // LogAbsent: a pattern that must not appear in the workload's log
 	Keys             []string `yaml:"keys,omitempty"`             // ResourcePresent on a Secret: the keys it carries
 	Note             string   `yaml:"note,omitempty"`             // one sentence a person reads next to the mark (e.g. what a False means)
+	// Compare lists, for a Drift probe, the places of the live object that are
+	// compared to the render; empty compares the object's whole user values
+	// (a HelmRelease: the values its valuesFrom ConfigMaps carry) to the
+	// rendered values file.
+	Compare []Comparison `yaml:"compare,omitempty"`
+}
+
+// Comparison is one place of a live object held against one place of the
+// render. Live is a dotted path in the object; a path that crosses a YAML
+// document stored in a string field names the field, then ":" and the path
+// inside it (data.config.yaml:aggregator.oauth.server.trustedAudiences). A
+// list element is [n], an argument list [args] (the element that starts with
+// Prefix is compared, without the prefix). Rendered is the dotted path in the
+// rendered values file the same place has.
+type Comparison struct {
+	Live     string `yaml:"live"`
+	Rendered string `yaml:"rendered"`
+	Prefix   string `yaml:"prefix,omitempty"`
 }
 
 // Action is something outside the platform team's hands, rendered as a note
@@ -175,6 +193,10 @@ type Action struct {
 	Feature string      `yaml:"feature"`
 	State   ActionState `yaml:"state"`
 	Note    string      `yaml:"note"` // what to do, in one sentence
+	// Dimension is the live dimension of features.yaml the action holds up:
+	// while the action is the customer's, that dimension reads waiting for
+	// the customer instead of drifted.
+	Dimension string `yaml:"dimension,omitempty"`
 }
 
 // ActionState is where an action stands.

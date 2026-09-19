@@ -22,6 +22,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/approvals"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/live"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/server"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/version"
@@ -38,6 +39,9 @@ type options struct {
 
 	oauthEnabled                           bool
 	oauthBaseURL, oauthAuthorizationServer string
+
+	liveEnabled, liveAllowPrivateIPJWKS                                                                                     bool
+	livePath, liveIssuer, liveAudience, liveJWKSURL, liveCAFile, musterURL, liveKubernetesFamily, liveKubernetesInstanceArg string
 }
 
 func parseFlags(args []string) (*options, error) {
@@ -58,6 +62,16 @@ func parseFlags(args []string) (*options, error) {
 	f.BoolVar(&o.oauthEnabled, "enable-oauth", envBool("OAUTH_ENABLED"), "Require a GitHub user token as the bearer of every MCP request — behind muster the person's own, through the App giantswarm-platform-manager — verified with GET /user; the caller and the token travel with the request (OAUTH_ENABLED)")
 	f.StringVar(&o.oauthBaseURL, "oauth-base-url", envOr("OAUTH_BASE_URL", ""), "URL muster reaches this server at, without the MCP path: the resource of its OAuth protected-resource metadata (OAUTH_BASE_URL)")
 	f.StringVar(&o.oauthAuthorizationServer, "oauth-authorization-server", envOr("OAUTH_AUTHORIZATION_SERVER", server.DefaultAuthorizationServer), "Issuer identity of the authorization server muster pins for this server, named in the protected-resource metadata (OAUTH_AUTHORIZATION_SERVER)")
+	f.BoolVar(&o.liveEnabled, "enable-live", envBool("LIVE_ENABLED"), "Serve the live surface: a second MCP endpoint muster forwards the person's own ID token to (MCPServer auth.forwardToken), with verify_installation reading an installation through muster as the person (LIVE_ENABLED)")
+	f.StringVar(&o.livePath, "live-path", envOr("LIVE_PATH", "/mcp/live"), "Path of the live MCP endpoint (LIVE_PATH)")
+	f.StringVar(&o.liveIssuer, "live-issuer", envOr("LIVE_ISSUER", ""), "Issuer of the forwarded tokens: the platform identity provider (LIVE_ISSUER)")
+	f.StringVar(&o.liveAudience, "live-audience", envOr("LIVE_AUDIENCE", ""), "Audience every forwarded token carries: the platform's OAuth client (LIVE_AUDIENCE)")
+	f.StringVar(&o.liveJWKSURL, "live-jwks-url", envOr("LIVE_JWKS_URL", ""), "The issuer's key set; empty reads it from the issuer's discovery document (LIVE_JWKS_URL)")
+	f.BoolVar(&o.liveAllowPrivateIPJWKS, "live-allow-private-ip-jwks", envBool("LIVE_ALLOW_PRIVATE_IP_JWKS"), "Let the issuer or its key set resolve to a private address, an in-cluster identity provider (LIVE_ALLOW_PRIVATE_IP_JWKS)")
+	f.StringVar(&o.liveCAFile, "live-ca-file", envOr("LIVE_CA_FILE", ""), "PEM bundle the issuer's certificate chains to; empty is the system trust (LIVE_CA_FILE)")
+	f.StringVar(&o.musterURL, "muster-url", envOr("MUSTER_URL", ""), "muster's own MCP endpoint as reached from the pod: where a live read loops back to with the person's token (MUSTER_URL)")
+	f.StringVar(&o.liveKubernetesFamily, "live-kubernetes-family", envOr("LIVE_KUBERNETES_FAMILY", "kubernetes"), "The muster family, or singleton server, the installations' kubernetes tools are aggregated under: x_<family>_get, _list, _logs (LIVE_KUBERNETES_FAMILY)")
+	f.StringVar(&o.liveKubernetesInstanceArg, "live-kubernetes-instance-arg", envOr("LIVE_KUBERNETES_INSTANCE_ARG", "management_cluster"), "The family's argument that selects the installation; empty for a singleton server (LIVE_KUBERNETES_INSTANCE_ARG)")
 	if err := f.Parse(args); err != nil {
 		return nil, err
 	}
@@ -97,12 +111,25 @@ func run(ctx context.Context, o *options, log *slog.Logger) error {
 		cfg.OAuth = &server.OAuthConfig{BaseURL: o.oauthBaseURL, AuthorizationServer: o.oauthAuthorizationServer, GitHubAPIURL: o.githubAPIURL}
 		deps.AuthorizationServer = o.oauthAuthorizationServer
 	}
-	srv, err := server.New(cfg, tools.New(deps).MCPServer(), log)
+	if o.liveEnabled {
+		lc, err := live.New(live.Config{Path: o.livePath, Issuer: o.liveIssuer, Audience: o.liveAudience, JWKSURL: o.liveJWKSURL, AllowPrivateIPJWKS: o.liveAllowPrivateIPJWKS,
+			CAFile: o.liveCAFile, MusterURL: o.musterURL, KubernetesFamily: o.liveKubernetesFamily, KubernetesInstanceArg: o.liveKubernetesInstanceArg, Version: deps.Version}, log)
+		if err != nil {
+			return err
+		}
+		defer lc.Close()
+		deps.Live = lc
+	}
+	ts := tools.New(deps)
+	if deps.Live != nil {
+		cfg.Live = &server.LiveConfig{Path: deps.Live.Path(), Verify: deps.Live.Verify, Server: ts.LiveMCPServer()}
+	}
+	srv, err := server.New(cfg, ts.MCPServer(), log)
 	if err != nil {
 		return err
 	}
 	log.Info("giantswarm-platform-manager starting", "version", deps.Version, "listen", o.listen, "mcp", o.mcpPath,
-		"oauth", o.oauthEnabled, "authorizationServer", deps.AuthorizationServer, "approvals", o.approvalsURL != "", "approvalsChannel", o.approvalsChannel,
+		"oauth", o.oauthEnabled, "authorizationServer", deps.AuthorizationServer, "live", o.liveEnabled, "approvals", o.approvalsURL != "", "approvalsChannel", o.approvalsChannel,
 		"registry", deps.Registry.Catalog.String(), "hub", o.hub, "actionsNamespace", o.actionsNamespace)
 	return srv.Run(ctx)
 }

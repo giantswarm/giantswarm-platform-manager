@@ -113,7 +113,7 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 		inputs = typed
 	}
 	spec := actions.Spec{Actor: actions.Actor{Login: id.Login, ID: id.ID, Email: id.Email}, Capability: out.Capability, Installations: []string{one}, Inputs: inputs, Kind: kind,
-		Customer: env.byName[one].Customer != env.hub.Customer}
+		InputsByInstallation: map[string]map[string]any{one: inputs}, Customer: env.byName[one].Customer != env.hub.Customer}
 
 	// The opt-in gate: the one condition the manager checks itself, read now.
 	if refusal := gateRefusal(*out, env.reports[one]); refusal != "" {

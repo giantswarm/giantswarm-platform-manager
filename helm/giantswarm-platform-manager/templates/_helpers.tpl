@@ -76,3 +76,19 @@ oauth.baseURL, else the in-cluster Service URL.
 {{- define "giantswarm-platform-manager.oauthBaseURL" -}}
 {{- .Values.oauth.baseURL | default (include "giantswarm-platform-manager.serviceURL" .) }}
 {{- end }}
+
+{{/*
+Whether the live surface is served: the second registration is enabled along
+with the first and OAuth. Renders "true" or nothing.
+*/}}
+{{- define "giantswarm-platform-manager.liveEnabled" -}}
+{{- if and .Values.muster.mcpServer.enabled .Values.muster.liveServer.enabled .Values.oauth.enabled }}true{{- end }}
+{{- end }}
+
+{{/*
+muster's own MCP endpoint the live reads loop back to: live.muster.url, else
+muster's Service in the release namespace.
+*/}}
+{{- define "giantswarm-platform-manager.musterURL" -}}
+{{- .Values.live.muster.url | default (printf "http://muster.%s.svc.cluster.local:8090/mcp" .Release.Namespace) }}
+{{- end }}

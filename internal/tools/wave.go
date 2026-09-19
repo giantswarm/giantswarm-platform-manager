@@ -87,7 +87,11 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		return res, nil
 	}
 
-	spec := actions.Spec{Actor: actions.Actor{Login: id.Login, ID: id.ID, Email: id.Email}, Capability: out.Capability, Installations: res.Order, Inputs: typed, Kind: actions.KindReconcile, Skipped: res.Skipped}
+	spec := actions.Spec{Actor: actions.Actor{Login: id.Login, ID: id.ID, Email: id.Email}, Capability: out.Capability, Installations: res.Order, Inputs: typed, Kind: actions.KindReconcile, Skipped: res.Skipped,
+		InputsByInstallation: map[string]map[string]any{}}
+	for _, p := range targets {
+		spec.InputsByInstallation[p.Name] = p.Inputs
+	}
 	changes := make([]string, 0, len(targets))
 	rollout := &actions.Rollout{Installations: make([]actions.InstallationRollout, 0, len(targets))}
 	for i, p := range targets {

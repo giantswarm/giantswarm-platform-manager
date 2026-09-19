@@ -1,0 +1,193 @@
+name: "giantswarm-platform-manager-live-registration"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  The muster half of giantswarm-platform-manager's second registration, in
+  muster's own harness: the same Deployment registered a second time as
+  giantswarm-platform-manager-live with auth.forwardToken (no authorization
+  server). muster puts the person's own ID token — the session's, from
+  muster's identity provider — on every call and runs no consent, so the live
+  surface is there for every signed-in person while the App-pinned
+  registration still asks for the GitHub consent.
+
+    - a person signed in to muster has the live tool without any consent;
+      the backend receives the person's ID token as the bearer (echoed);
+    - the same person still has to authorize the App for the App-pinned
+      registration: its tool is not authenticated until the consent;
+    - a second person, never consented anywhere, has the live tool too.
+
+  The server half — the forwarded token validated against the identity
+  provider's key set, the loop-back to muster as the person, the live
+  dimensions with their marks, the forbidden and the not-connected results —
+  runs against a fake identity provider and a fake muster in internal/e2e
+  (go test), in the same CI job. The installation names are invented.
+tags: ["oauth", "forward-token", "sso", "giantswarm-platform-manager", "live"]
+timeout: "3m"
+
+pre_configuration:
+  mock_oauth_servers:
+    # muster's own identity provider: the sessions of alice and bob, and the
+    # issuer of the ID tokens muster forwards.
+    - name: "platform-idp"
+      scopes: ["openid", "profile", "email"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "platform-client"
+      client_secret: "platform-secret"
+      use_as_muster_oauth_server: true
+
+    # GitHub as the App giantswarm-platform-manager, for the App-pinned
+    # registration next to the live one.
+    - name: "github-app"
+      profile: "github"
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "giantswarm-platform-manager"
+      client_secret: "app-client-secret"
+
+  mcp_servers:
+    # The App-pinned registration, as the chart's mcpserver.yaml registers it.
+    - name: "giantswarm-platform-manager"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "github-app"
+          pin_authorization_server: true
+          grant_scope: "subject"
+        tools:
+          - name: "get_info"
+            description: "Echoes the bearer the manager received"
+            echo_token: true
+            responses:
+              - response:
+                  auth:
+                    mode: "bearer"
+
+    # The live registration, as the chart's mcpserver-live.yaml registers it:
+    # the person's ID token forwarded, no authorization server.
+    - name: "giantswarm-platform-manager-live"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "platform-idp"
+          forward_token: true
+        tools:
+          - name: "verify_installation"
+            description: "Echoes the forwarded ID token the live surface received"
+            echo_token: true
+            responses:
+              - response:
+                  installation: "gopher"
+                  state: "enabled"
+
+steps:
+  - id: registered
+    description: "Both registrations are there"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["giantswarm-platform-manager", "giantswarm-platform-manager-live"]
+
+  - id: login-alice
+    tool: "test_muster_auth_login"
+    args:
+      subject: "alice"
+    expected:
+      success: true
+  - id: create-alice
+    tool: "test_create_user"
+    args:
+      name: "alice"
+    expected:
+      success: true
+
+  - id: login-bob
+    tool: "test_muster_auth_login"
+    args:
+      subject: "bob"
+    expected:
+      success: true
+  - id: create-bob
+    tool: "test_create_user"
+    args:
+      name: "bob"
+    expected:
+      success: true
+
+  - id: alice-connects-the-live-registration
+    as_user: "alice"
+    description: "The live registration connects with alice's own ID token, no consent"
+    tool: "core_auth_login"
+    args:
+      server: "giantswarm-platform-manager-live"
+    expected:
+      success: true
+
+  - id: alice-live-call-carries-her-id-token
+    as_user: "alice"
+    description: "muster forwards alice's ID token; the live surface receives it as the bearer"
+    tool: "x_giantswarm-platform-manager-live_verify_installation"
+    args:
+      installation: "gopher"
+    expected:
+      success: true
+      contains: ["received_token", "gopher"]
+
+  - id: alice-app-pinned-still-needs-the-consent
+    as_user: "alice"
+    description: "The App-pinned registration is a different authority: not authenticated before the consent"
+    tool: "x_giantswarm-platform-manager_get_info"
+    args: {}
+    expected:
+      success: false
+
+  - id: alice-consents
+    as_user: "alice"
+    description: "alice authorizes the App once"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "giantswarm-platform-manager"
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: alice-app-pinned-after-the-consent
+    as_user: "alice"
+    description: "Now the App-pinned call carries her GitHub user token"
+    tool: "x_giantswarm-platform-manager_get_info"
+    args: {}
+    expected:
+      success: true
+      contains: ["received_token", "bearer"]
+
+  - id: bob-connects-the-live-registration
+    as_user: "bob"
+    description: "bob, who never consented anywhere, has the live registration all the same"
+    tool: "core_auth_login"
+    args:
+      server: "giantswarm-platform-manager-live"
+    expected:
+      success: true
+
+  - id: bob-live-call
+    as_user: "bob"
+    tool: "x_giantswarm-platform-manager-live_verify_installation"
+    args:
+      installation: "gopher"
+    expected:
+      success: true
+      contains: ["received_token"]
+
+  - id: bob-is-not-authenticated-at-the-app
+    as_user: "bob"
+    tool: "x_giantswarm-platform-manager_get_info"
+    args: {}
+    expected:
+      success: false
+      error_contains: ["not authenticated"]

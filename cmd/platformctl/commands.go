@@ -211,12 +211,19 @@ func cmdVerify(args []string, stdout, stderr io.Writer) int {
 		return usageError(stderr, "installation verify <installation> <capability>")
 	}
 	toolArgs := map[string]any{tools.ArgInstallation: pos[0], tools.ArgCapability: pos[1]}
-	return c.call(tools.ToolVerifyCapability, toolArgs, stdout, stderr, func(raw json.RawMessage) error {
+	return c.callBoth(tools.ToolVerifyCapability, tools.ToolVerifyInstallation, toolArgs, stdout, stderr, func(repo, live json.RawMessage, liveErr error) error {
 		var r verify.Result
-		if err := decode(raw, &r); err != nil {
+		if err := decode(repo, &r); err != nil {
 			return err
 		}
-		return format.Verify(stdout, r)
+		if liveErr != nil {
+			return format.Verify(stdout, r, liveErr)
+		}
+		var l verify.Result
+		if err := decode(live, &l); err != nil {
+			return err
+		}
+		return format.Verify(stdout, verify.Merge(r, l), nil)
 	})
 }
 

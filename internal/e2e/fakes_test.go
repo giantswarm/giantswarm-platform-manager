@@ -40,8 +40,12 @@ type fakeGitHub struct {
 	contentsCalls map[string]int
 }
 
-// message is the key of GitHub's error bodies.
-const message = "message"
+// message is the key of GitHub's error bodies; nameKey the name of a file
+// or an object in the fakes' documents.
+const (
+	message = "message"
+	nameKey = "name"
+)
 
 // defaultBranch is every fixture repository's default branch.
 const defaultBranch = "main"
@@ -98,7 +102,7 @@ func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 			writeJSON(w, http.StatusNotFound, map[string]any{message: "Not Found"})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"type": "file", "encoding": "base64", "name": path.Base(p), "path": p,
+		writeJSON(w, http.StatusOK, map[string]any{typeKey: "file", "encoding": "base64", nameKey: path.Base(p), "path": p,
 			"content": base64.StdEncoding.EncodeToString([]byte(content))})
 	})
 	g.Server = httptest.NewServer(mux)
@@ -197,29 +201,39 @@ func newFakeProbes(t *testing.T) *fakeProbes {
 		f.mu.Lock()
 		status, ok := f.answers[host+r.URL.Path]
 		f.mu.Unlock()
+		location, body := "", ""
 		if !ok {
-			status = expectedAnswer(host, r)
+			status, location, body = expectedAnswer(host, r)
 		}
-		if status == http.StatusFound {
-			w.Header().Set("Location", "https://"+host+"/login")
+		if status == http.StatusFound && location == "" {
+			location = "https://" + host + "/login"
+		}
+		if location != "" {
+			w.Header().Set("Location", location)
 		}
 		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body)) // #nosec G705 -- a test double answering fixture text
 	}))
 	t.Cleanup(f.Close)
 	return f
 }
 
-// expectedAnswer is what a healthy installation answers an anonymous probe.
-func expectedAnswer(host string, r *http.Request) int {
+// expectedAnswer is what a healthy installation answers an anonymous probe:
+// the status, the Location of a redirect, the body.
+func expectedAnswer(host string, r *http.Request) (int, string, string) {
 	switch {
 	case strings.HasPrefix(host, "dex.") && r.URL.Path == "/auth" && r.URL.Query().Get("client_id") != "":
-		return http.StatusFound
+		return http.StatusFound, "", ""
+	case strings.HasPrefix(host, "kagent.") && r.URL.Path == "/api/agents":
+		return http.StatusForbidden, "", ""
+	case strings.HasPrefix(host, "kagent.") && r.URL.Path == "/oauth2/start":
+		return http.StatusFound, "https://dex." + strings.TrimPrefix(host, "kagent.") + "/auth?client_id=kagent&response_type=code", ""
 	case strings.HasPrefix(host, "kagent."):
-		return http.StatusFound
+		return http.StatusFound, "", ""
 	case r.URL.Path == "/.well-known/oauth-protected-resource":
-		return http.StatusOK
+		return http.StatusOK, "", `{"resource":"https://` + host + `/mcp","authorization_servers":["https://` + host + `"]}`
 	}
-	return http.StatusNotFound
+	return http.StatusNotFound, "", ""
 }
 
 // answer makes host+path answer status.
