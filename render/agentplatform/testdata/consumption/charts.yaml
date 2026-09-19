@@ -25,7 +25,7 @@ charts:
   # clientSecretRef, the version the definition targets.
   - name: dex-app
     registry: gsoci.azurecr.io/charts/giantswarm/dex-app
-    version: 3.2.0
+    version: 3.2.1
   # The meta chart, the 3.x line: the fleet base caps it <4.0.0, and the 4.x line
   # needs inputs the definition does not carry (kagent.harness.snapshotLocation).
   # renovate-custom.json5 keeps this pin below 4.0.0.
