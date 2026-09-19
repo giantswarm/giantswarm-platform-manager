@@ -93,10 +93,15 @@ live:
   # `https://dex.<base domain>/dex` on an installation. Required with
   # `muster.liveServer.enabled`.
   issuer: ""
-  # -- Audience every forwarded token carries: the platform's OAuth client
-  # muster's sessions log in with (`agent-platform` on the platform). Required
-  # with `muster.liveServer.enabled`.
-  audience: ""
+  # -- OAuth clients whose ID tokens the live surface accepts: a person's
+  # forwarded token names the client they signed in with, so this lists the
+  # platform's own client (`agent-platform` on the platform) and every other
+  # client people reach muster through (a developer portal's). The server
+  # trusts the union of this list and `muster.liveServer.requiredAudiences`:
+  # every forwarded token carries the required audiences by construction. The
+  # union must name at least one audience with `muster.liveServer.enabled`;
+  # the chart refuses to render otherwise.
+  audiences: []  # @schema item: string
   # -- The issuer's key set; empty reads it from the issuer's OpenID discovery
   # document. A lab whose Dex is reached by another name than its issuer
   # names the Service here.
@@ -205,11 +210,19 @@ muster:
     # call and runs no consent. Its tool `verify_installation` reads an
     # installation through muster's kubernetes tools as the person. Rendered
     # with `muster.mcpServer.enabled` and `oauth.enabled`; needs `live.issuer`
-    # and `live.audience`. Off: the live dimensions of every verify read not
+    # and `live.audiences`. Off: the live dimensions of every verify read not
     # checked, and `get_info` reports `live.configured: false`.
     enabled: false
     # -- MCPServer CR name (drives the tool prefix).
     name: giantswarm-platform-manager-live
+    # -- Audiences the forwarded token must carry, rendered as the CR's
+    # `spec.auth.requiredAudiences` when set: muster requests them from the
+    # identity provider at login as cross-client audiences, so every token
+    # it forwards carries them whichever client the person signed in with
+    # (`dex-k8s-authenticator` on Giant Swarm installations, the audience the
+    # platform's other forwarded-token servers require). Trusted by the
+    # server next to `live.audiences`. People sign in again after a change.
+    requiredAudiences: []  # @schema item: string
     # -- Seconds muster waits for one call: a verify reads every object of
     # the definition's probes through muster and the installation's
     # mcp-kubernetes within the one call.

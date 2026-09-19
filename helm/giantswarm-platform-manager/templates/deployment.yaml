@@ -58,8 +58,8 @@ spec:
               value: {{ .Values.live.path | quote }}
             - name: LIVE_ISSUER
               value: {{ required "live.issuer is required with muster.liveServer.enabled" .Values.live.issuer | quote }}
-            - name: LIVE_AUDIENCE
-              value: {{ required "live.audience is required with muster.liveServer.enabled" .Values.live.audience | quote }}
+            - name: LIVE_AUDIENCES
+              value: {{ required "live.audiences must name at least one OAuth client (or muster.liveServer.requiredAudiences one audience) with muster.liveServer.enabled" (include "giantswarm-platform-manager.liveAudiences" .) | quote }}
             {{- with .Values.live.jwksURL }}
             - name: LIVE_JWKS_URL
               value: {{ . | quote }}

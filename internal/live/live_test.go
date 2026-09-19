@@ -2,6 +2,7 @@ package live
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
@@ -45,8 +46,11 @@ func TestKindArgsSplitKindAndGroup(t *testing.T) {
 	}
 }
 
+// platformClient is the audience of the platform's own OAuth client.
+const platformClient = "agent-platform"
+
 func TestConfigValidateNamesTheMissingField(t *testing.T) {
-	cfg := Config{Path: "/mcp/live", Issuer: "https://dex.example.test/dex", Audience: "agent-platform", MusterURL: "http://muster:8090/mcp", KubernetesFamily: "kubernetes"}
+	cfg := Config{Path: "/mcp/live", Issuer: "https://dex.example.test/dex", Audiences: []string{platformClient}, MusterURL: "http://muster:8090/mcp", KubernetesFamily: "kubernetes"}
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +59,8 @@ func TestConfigValidateNamesTheMissingField(t *testing.T) {
 		mut  func(*Config)
 	}{
 		{"issuer", func(c *Config) { c.Issuer = "" }},
-		{"audience", func(c *Config) { c.Audience = "" }},
+		{"audiences", func(c *Config) { c.Audiences = nil }},
+		{"audiences all blank", func(c *Config) { c.Audiences = []string{"", " "} }},
 		{"muster URL", func(c *Config) { c.MusterURL = "not a url" }},
 		{"kubernetes family", func(c *Config) { c.KubernetesFamily = "" }},
 		{"path", func(c *Config) { c.Path = "mcp" }},
@@ -64,6 +69,24 @@ func TestConfigValidateNamesTheMissingField(t *testing.T) {
 		c.mut(&bad)
 		if err := bad.Validate(); err == nil {
 			t.Errorf("%s: accepted %+v", c.name, bad)
+		}
+	}
+}
+
+// The audience list arrives comma-separated from the flag and the chart:
+// trimmed, without empties, without duplicates, in order.
+func TestParseAudiences(t *testing.T) {
+	for _, c := range []struct {
+		in   string
+		want []string
+	}{
+		{"", nil},
+		{" , ", nil},
+		{platformClient, []string{platformClient}},
+		{"agent-platform, dex-k8s-authenticator,,agent-platform ", []string{platformClient, "dex-k8s-authenticator"}},
+	} {
+		if got := ParseAudiences(c.in); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%q: %v, want %v", c.in, got, c.want)
 		}
 	}
 }

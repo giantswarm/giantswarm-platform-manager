@@ -42,11 +42,14 @@ const (
 	typeKey       = "type"
 )
 
-// The persons of the live path, as the identity provider names them.
+// The persons of the live path, as the identity provider names them, and
+// the two audiences the live surface trusts: the platform's own client and
+// the one the live registration requires of muster.
 const (
-	liveAudience = "agent-platform"
-	liveAdmin    = "admin@example.test"
-	liveViewer   = "viewer@example.test"
+	liveAudience         = "agent-platform"
+	liveRequiredAudience = "dex-k8s-authenticator"
+	liveAdmin            = "admin@example.test"
+	liveViewer           = "viewer@example.test"
 	// liveStranger has an account at the hub but none on the installation:
 	// muster answers auth_required for its kubernetes server.
 	liveStranger = "stranger@example.test"
