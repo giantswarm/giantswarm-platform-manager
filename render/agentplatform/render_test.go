@@ -181,7 +181,10 @@ func testOwnedPathsOnly(t *testing.T, shape string) {
 	portal := "management-clusters/" + in.portalHost() + "/extras/backstage/" + portalDir + "/"
 	for repo, files := range result.Files {
 		for path := range files {
-			if !strings.Contains(path, "/"+name+"/") && !strings.HasPrefix(path, portal) {
+			// teleport-fleet's tunnelport values are another owner's file: the plan edits the hub's
+			// entries into it and never writes it whole.
+			theirs := repo == teleportFleet && path == tunnelportValues
+			if !theirs && !strings.Contains(path, "/"+name+"/") && !strings.HasPrefix(path, portal) {
 				t.Errorf("%s: %s is outside the installation's own directories", repo, path)
 			}
 			for _, inc := range result.Includes {
@@ -302,15 +305,11 @@ func TestRefusals(t *testing.T) {
 		{"targets without a broker client", clone(func(m map[string]any) {
 			federation(m)["targets"] = []any{target(false)}
 		}), secrets, ErrInput, "federation.brokerClientId"},
-		{"private target without the tunnel", clone(func(m map[string]any) {
+		{"private target on a hub without a published issuer", clone(func(m map[string]any) {
+			m["installation"].(map[string]any)["provider"] = "capz"
 			f := federation(m)
 			f["brokerClientId"], f["targets"] = "b", []any{target(true)}
-		}), secrets, ErrInput, "federation.tunnel"},
-		{"tunnel without a private target", clone(func(m map[string]any) {
-			f := federation(m)
-			f["brokerClientId"], f["targets"] = "b", []any{target(false)}
-			f["tunnel"] = map[string]any{"jwks": "{}", "trustBundleProvisioned": true}
-		}), secrets, ErrInput, "federation.tunnel"},
+		}), secrets, ErrInput, "federation.targets"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

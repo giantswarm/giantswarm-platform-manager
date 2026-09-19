@@ -1,0 +1,54 @@
+# The hub gopher's entries of teleport-fleet's tunnelport values, rendered by giantswarm-platform-manager,
+# agent-platform definition: the commit step edits them into kubernetes/envs/prod/values.yaml — the hub as a
+# consumer, its trust-bundle token, one tunnel per tunnelled app of every private target — and keeps
+# every other entry. The template and the trust-bundle singleton are teleport-fleet's.
+tunnelport:
+  consumers:
+    gopher:
+      installNamespace: agent-platform
+      issuer: https://irsa.gopher.example.io
+  trustBundle:
+    tokens:
+      - name: tunnelport-trust-bundle-token-gopher
+        consumer: gopher
+  tunnels:
+    - name: dex-burrow
+      appLabels:
+        app: dex
+        cluster: burrow
+        customer: giantswarm
+      tokens:
+        - name: dex-burrow-bot-token
+          consumer: gopher
+    - name: mcp-kubernetes-burrow
+      appLabels:
+        app: mcp-kubernetes
+        cluster: burrow
+        customer: giantswarm
+      tokens:
+        - name: mcp-kubernetes-burrow-bot-token
+          consumer: gopher
+    - name: mcp-prometheus-burrow
+      appLabels:
+        app: mcp-prometheus
+        cluster: burrow
+        customer: giantswarm
+      tokens:
+        - name: mcp-prometheus-burrow-bot-token
+          consumer: gopher
+    - name: mcp-capi-burrow
+      appLabels:
+        app: mcp-capi
+        cluster: burrow
+        customer: giantswarm
+      tokens:
+        - name: mcp-capi-burrow-bot-token
+          consumer: gopher
+    - name: kubernetes-burrow
+      appLabels:
+        app: kubernetes
+        cluster: burrow
+        customer: giantswarm
+      tokens:
+        - name: kubernetes-burrow-bot-token
+          consumer: gopher

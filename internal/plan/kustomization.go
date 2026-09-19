@@ -12,6 +12,14 @@ import (
 // take an entry.
 var errNoMapping = errors.New("not a YAML mapping")
 
+// The YAML tags of the nodes the plan creates.
+const (
+	tagStr  = "!!str"
+	tagSeq  = "!!seq"
+	tagMap  = "!!map"
+	tagNull = "!!null"
+)
+
 // listEntry answers current with entry listed under the top-level sequence
 // list of a kustomization.yaml (resources or components), and whether that
 // changed anything: an entry already listed leaves the file as it is. The
@@ -31,10 +39,10 @@ func listEntry(current []byte, list, entry string) ([]byte, bool, error) {
 	}
 	switch {
 	case seq == nil:
-		seq = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
-		m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: list}, seq)
+		seq = &yaml.Node{Kind: yaml.SequenceNode, Tag: tagSeq}
+		m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: tagStr, Value: list}, seq)
 	case seq.Kind == yaml.ScalarNode && seq.Tag == "!!null":
-		*seq = yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		*seq = yaml.Node{Kind: yaml.SequenceNode, Tag: tagSeq}
 	case seq.Kind != yaml.SequenceNode:
 		return nil, false, fmt.Errorf("%s is not a list", list)
 	}
@@ -43,7 +51,7 @@ func listEntry(current []byte, list, entry string) ([]byte, bool, error) {
 			return current, false, nil
 		}
 	}
-	seq.Content = append(seq.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: entry})
+	seq.Content = append(seq.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: tagStr, Value: entry})
 	seq.Style = 0
 	out, err := encode(doc)
 	return out, true, err
