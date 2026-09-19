@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The `agent-platform` definition writes a hub's broker-client Secret as `muster-broker-clients.yaml`, the file the Secret is named after, and an oauth server's client credentials as the Secret its authorization server names (`clientCredentialsSecretRef`), once for servers that share one client — in place of a second Secret per server under a name nothing referenced.
+
 ### Added
 
 - The `customer-portal` definition takes a portal over several installations of one customer (`federation`: the installations with their facts on record, the installation whose Dex signs people in, the installation whose muster brokers cluster tokens for the others — each listed installation a cluster entry and an installation entry, a Dex provider per installation or the sign-in installation's alone with a broker, the clients' credentials supplied at commit), an installation's several providers (`installation.providers`) and the cluster pages' friendly labels and annotations (`portal.friendlyLabels`, `portal.friendlyAnnotations`). `auth.experimentalClientIdMetadataDocuments` at its off value is a removal.

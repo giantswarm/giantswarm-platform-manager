@@ -160,7 +160,7 @@ func (in *Input) targetServers() []MCPServer {
 // and, per target, the hub's client in the target's Dex.
 func (in *Input) hubSecrets(add func(file string, f render.File)) {
 	hub := in.Installation.Name
-	add("muster-broker-client-credentials.yaml", render.Secret(brokerClients, platformNamespace,
+	add(brokerClients+".yaml", render.Secret(brokerClients, platformNamespace,
 		map[string]string{"muster.giantswarm.io/type": "broker-client-credentials"},
 		render.ValueKey("client-id", in.Federation.BrokerClientID),
 		render.GeneratedKey("client-secret", "muster-broker-client-secret", render.Base64, 32)))

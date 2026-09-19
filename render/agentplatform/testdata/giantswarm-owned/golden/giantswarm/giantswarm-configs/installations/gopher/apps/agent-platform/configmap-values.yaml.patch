@@ -115,6 +115,40 @@ agent-platform-mcps:
       timeout: 30
       auth:
         mode: forward
+    - name: example-issues
+      cluster: gopher
+      group: issues
+      url: http://example-issues.agent-platform.svc:8080/mcp
+      timeout: 120
+      toolPrefix: issues
+      auth:
+        mode: oauth
+        authorizationServer:
+          issuer: https://issues.example.com/oauth
+          authorizationEndpoint: https://issues.example.com/oauth/authorize
+          tokenEndpoint: https://issues.example.com/oauth/token
+          scopes: read
+          grantScope: subject
+          clientCredentialsSecretRef:
+            name: example-oauth-client
+            namespace: agent-platform
+    - name: example-boards
+      cluster: gopher
+      group: boards
+      url: http://example-boards.agent-platform.svc:8080/mcp
+      timeout: 120
+      toolPrefix: boards
+      auth:
+        mode: oauth
+        authorizationServer:
+          issuer: https://issues.example.com/oauth
+          authorizationEndpoint: https://issues.example.com/oauth/authorize
+          tokenEndpoint: https://issues.example.com/oauth/token
+          scopes: read
+          grantScope: subject
+          clientCredentialsSecretRef:
+            name: example-oauth-client
+            namespace: agent-platform
   agentgateway:
     jwt:
       extraProviders:

@@ -386,13 +386,22 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 			add(dexClientSecretFile(c.ID), dexClientSecret(c.ID, c.ID+"-dex-client-secret"))
 		}
 	}
+	// An oauth server's client credentials live in the Secret its authorization server
+	// names; servers sharing one client (one OAuth App) share the Secret, written once.
+	oauthClients := map[string]bool{}
 	for _, s := range in.ToolAccess.AdditionalServers {
-		if s.Auth.Mode == "oauth" {
-			field := "toolAccess.additionalServers." + s.Name
-			add(s.Name+"-oauth-client.yaml", render.Secret(s.Name+"-oauth-client", platformNamespace, team,
-				render.ValueKey("client-id", secrets[field+".client-id"]),
-				render.ValueKey("client-secret", secrets[field+".client-secret"])))
+		if s.Auth.Mode != "oauth" || s.Auth.AuthorizationServer == nil {
+			continue // an oauth server without its authorization server is the schema's to refuse
 		}
+		ref := s.Auth.AuthorizationServer.ClientCredentialsSecretRef
+		if oauthClients[ref.Name] {
+			continue
+		}
+		oauthClients[ref.Name] = true
+		field := "toolAccess.additionalServers." + s.Name
+		add(ref.Name+".yaml", render.Secret(ref.Name, ref.Namespace, team,
+			render.ValueKey("client-id", secrets[field+".client-id"]),
+			render.ValueKey("client-secret", secrets[field+".client-secret"])))
 	}
 	if token := secrets[fieldSkillsToken]; token != "" {
 		add(skillsTokenFile, render.Secret(skillsTokenSecret, kagentNamespace, team, render.ValueKey("token", token)))
