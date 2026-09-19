@@ -55,7 +55,7 @@ charts:
     version: 1.15.1
   - name: cluster-manager
     registry: gsoci.azurecr.io/charts/giantswarm/cluster-manager
-    version: 0.14.0
+    version: 0.17.0
   # The developer portal, rendered over the fleet base with the customer-portal
   # definition's own files (its app-config, values and Secrets) and, in the
   # platform shapes, the agent-platform definition's Component: its values
