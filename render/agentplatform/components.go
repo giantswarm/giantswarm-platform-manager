@@ -131,7 +131,7 @@ func (in *Input) managerOAuth(path string) render.Map {
 // the template's global identity block and the base URL from the domain.
 func (in *Input) clusterManagerValues() render.Map {
 	m := render.Map{e("installation", render.Map{e("name", in.Installation.Name)})}
-	if in.Installation.ChartLine == "3" {
+	if in.Installation.ChartLine == lineThree {
 		m = append(m, e("oauth", in.managerOAuth(componentClusterManager)))
 	}
 	return m

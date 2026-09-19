@@ -157,7 +157,7 @@ func (in *Input) configmapPatch() render.Map {
 	if len(mcps) > 0 {
 		m = append(m, e("agent-platform-mcps", mcps))
 	}
-	if in.agentManager() && in.Installation.ChartLine == "3" {
+	if in.agentManager() && in.Installation.ChartLine == lineThree {
 		m = append(m, e("agent-manager", render.Map{e("oauth", in.managerOAuth("agent-manager"))}))
 	}
 	m = in.componentValues(m)
@@ -173,7 +173,7 @@ func (in *Input) configmapPatch() render.Map {
 // which on the 4 chart line validates it against a JWT provider of its own
 // (the 3 line's edge forwards the bearer untouched).
 func (in *Input) edgeJWTProvider() bool {
-	return in.Installation.ChartLine == "4" && in.hasPortal()
+	return in.Installation.ChartLine == lineFour && in.hasPortal()
 }
 
 // dexService is the in-cluster Dex Service the edge fetches the JWKS from.

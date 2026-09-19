@@ -26,36 +26,70 @@ charts:
   - name: dex-app
     registry: gsoci.azurecr.io/charts/giantswarm/dex-app
     version: 3.2.0
-  # The meta chart, the 3.x line: the fleet base caps it <4.0.0, and the 4.x line
-  # needs inputs the definition does not carry (kagent.harness.snapshotLocation).
-  # renovate-custom.json5 keeps this pin below 4.0.0.
+  # The meta chart on both of its lines — a shape renders at the line its record
+  # selects (installation.chartLine): the 3 line, which the fleet base caps <4.0.0,
+  # and the 4 line, which pins itself. renovate-custom.json5 keeps each pin on its
+  # line.
   - name: agent-platform
+    line: "3"
     registry: gsoci.azurecr.io/charts/giantswarm/agent-platform
     version: 3.23.1
+  - name: agent-platform
+    line: "4"
+    registry: gsoci.azurecr.io/charts/giantswarm/agent-platform
+    version: 4.48.2
   # The meta chart hands its connectivity child the whole platform values, Secret
   # names included, so the test renders it too; it follows the meta chart's line.
   - name: agent-platform-connectivity
+    line: "3"
     registry: gsoci.azurecr.io/charts/giantswarm/agent-platform-connectivity
     version: 3.23.1
+  - name: agent-platform-connectivity
+    line: "4"
+    registry: gsoci.azurecr.io/charts/giantswarm/agent-platform-connectivity
+    version: 4.48.2
   # The meta chart's children that read the platform Secrets, at the newest
-  # versions inside the ranges the meta chart declares for them.
+  # versions inside the ranges the meta chart declares for them — per line where
+  # the lines' ranges differ.
   - name: muster
     registry: gsoci.azurecr.io/charts/giantswarm/muster
     version: 5.27.8
   - name: kagent
+    line: "3"
     registry: gsoci.azurecr.io/charts/giantswarm/kagent
     version: 0.3.3
+  - name: kagent
+    line: "4"
+    registry: gsoci.azurecr.io/giantswarm/kagent/helm/kagent
+    version: 0.11.0-gs.22
   - name: agent-manager
+    line: "3"
     registry: gsoci.azurecr.io/charts/giantswarm/agent-manager
     version: 0.4.5
-  # The meta chart's children the policy offers Giant Swarm-owned installations;
-  # rendered when a shape on the pinned line enables them.
+  - name: agent-manager
+    line: "4"
+    registry: gsoci.azurecr.io/charts/giantswarm/agent-manager
+    version: 1.1.12
+  # The meta chart's children the policy offers Giant Swarm-owned installations,
+  # on the 4 line.
   - name: klaus-gateway
     registry: gsoci.azurecr.io/charts/giantswarm/klaus-gateway
     version: 1.15.1
   - name: cluster-manager
     registry: gsoci.azurecr.io/charts/giantswarm/cluster-manager
     version: 0.14.0
+  # The 4 line's other children the meta chart hands the platform's identity block
+  # (global.identity, the muster credentials Secret named in it): model-manager
+  # reads it for its OAuth resource server; the others are rendered to prove they
+  # read none of it.
+  - name: model-manager
+    line: "4"
+    registry: gsoci.azurecr.io/charts/giantswarm/model-manager
+    version: 1.0.4
+  - name: agentgateway
+    line: "4"
+    registry: gsoci.azurecr.io/charts/giantswarm/agentgateway
+    version: 2.2.2
   # The developer portal, rendered over the fleet base with the customer-portal
   # definition's own files (its app-config, values and Secrets) and, in the
   # platform shapes, the agent-platform definition's Component: its values

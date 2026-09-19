@@ -9,14 +9,6 @@ components:
     enabled: true
   cluster-manager:
     enabled: true
-  kserve-llmisvc-crd:
-    enabled: true
-  kserve-llmisvc-resources:
-    enabled: true
-  kserve-runtime-configs:
-    enabled: true
-  modelServing:
-    enabled: true
 postgres:
   enabled: true
 llmRouting:
@@ -32,11 +24,6 @@ kagent:
       existingSecret: kagent-oauth2-proxy-credentials
     extraArgs:
       oidc-extra-audience: dex-k8s-authenticator,kagent,backstage # gitleaks:allow
-modelServing:
-  serving:
-    runtimeClassName: nvidia
-  modelsGateway:
-    enabled: true
 muster:
   muster:
     oauth:
