@@ -15,7 +15,7 @@ as its own app on the hub installation, not as a component of the
 `agent-platform` meta chart.
 
 The live surface — the second registration muster forwards the person's own
-ID token to, whose `verify_installation` reads an installation as the person —
+ID token to, whose `verify_installation` and `watch_action` read an installation as the person —
 is two switches, turned on in two releases: `live.enabled` serves the path in
 the Deployment (`live.issuer`, `live.audiences`, the key set over HTTPS), and
 `muster.liveServer.enabled`, in the release after it, renders the `MCPServer`

@@ -40,7 +40,7 @@ type WaveResult struct {
 }
 
 // The message the wave's queued stages carry.
-const stageQueued = "queued: its pull requests are merged once the installation before it is verified"
+const stageQueued = "queued: its pull requests are merged once the installation before it is enabled"
 
 // capabilityWave is reconcile_capability in mode commit over a set: one dry
 // run, one Action in pending approval carrying every installation's state,

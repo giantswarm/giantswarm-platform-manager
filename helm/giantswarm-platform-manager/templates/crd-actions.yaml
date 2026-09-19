@@ -138,6 +138,22 @@ spec:
                           name: {type: string}
                           state: {type: string}
                           message: {type: string}
+                          objects:
+                            description: The Flux objects of the rollout as the last watch read them, each with its Ready condition and revision.
+                            type: array
+                            items:
+                              type: object
+                              required: [kind, name]
+                              properties:
+                                kind: {type: string}
+                                namespace: {type: string}
+                                name: {type: string}
+                                ready: {type: string}
+                                revision: {type: string}
+                                message: {type: string}
+                          watchedAt: {type: string, format: date-time}
+                          watchedBy: {type: string}
+                          reportedAt: {type: string, format: date-time}
                 probes:
                   type: array
                   items:

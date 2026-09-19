@@ -4,12 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
-	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
@@ -21,7 +19,7 @@ import (
 // under: the second registration of the same Deployment, forwardToken.
 const LiveToolPrefix = ToolPrefix + "-live"
 
-// ToolVerifyInstallation is the live surface's one tool: the definition's
+// ToolVerifyInstallation is the live surface's verify: the definition's
 // probes of the running installation, read as the person.
 const ToolVerifyInstallation = "verify_installation"
 
@@ -31,26 +29,29 @@ type LiveInfo struct {
 	// dimensions of every verify read not checked.
 	Configured bool   `json:"configured"`
 	ToolPrefix string `json:"toolPrefix"`
-	Tool       string `json:"tool"`
+	// Tool is the verify; Tools every tool of the surface.
+	Tool  string   `json:"tool"`
+	Tools []string `json:"tools"`
 	live.Info
 }
 
 func (t *Tools) liveInfo() LiveInfo {
-	info := LiveInfo{Configured: t.d.Live != nil, ToolPrefix: LiveToolPrefix, Tool: ToolVerifyInstallation}
+	info := LiveInfo{Configured: t.d.Live != nil, ToolPrefix: LiveToolPrefix, Tool: ToolVerifyInstallation, Tools: []string{ToolVerifyInstallation, ToolWatchAction}}
 	if t.d.Live != nil {
 		info.Info = t.d.Live.Info()
 	}
 	return info
 }
 
-// LiveMCPServer is the tool set of the live path: verify_installation, and
-// nothing that acts on GitHub — the bearer here is the person's ID token,
-// not a GitHub token.
+// LiveMCPServer is the tool set of the live path: verify_installation and
+// watch_action, and nothing that acts on GitHub — the bearer here is the
+// person's ID token, not a GitHub token.
 func (t *Tools) LiveMCPServer() *mcpserver.MCPServer {
 	s := mcpserver.NewMCPServer(LiveToolPrefix, t.d.Version,
 		mcpserver.WithToolCapabilities(false),
-		mcpserver.WithInstructions("Giant Swarm's installation manager, the live surface: muster forwards your own sign-in token here, and verify_installation reads an installation with it — through muster's kubernetes tools, as you, with your access on that installation — and compares what runs there with the capability's definition, grouped into features with one mark each. The repository comparison is verify_capability on the App-pinned registration ("+ToolPrefix+"); a portal or platformctl shows the two as one result."),
+		mcpserver.WithInstructions("Giant Swarm's installation manager, the live surface: muster forwards your own sign-in token here, and its tools read an installation with it — through muster's kubernetes tools, as you, with your access on that installation. verify_installation compares what runs there with the capability's definition, grouped into features with one mark each; watch_action follows an action's rollout — the Flux objects Ready, then the probes — and carries it to enabled, waiting for the customer or failed, the report into the review's thread. The repository comparison is verify_capability on the App-pinned registration ("+ToolPrefix+"); a portal or platformctl shows the two as one result."),
 	)
+	t.registerWatchTool(s)
 	s.AddTool(mcp.NewTool(ToolVerifyInstallation,
 		mcp.WithDescription("Verify the running installation against a capability's definition, as you: the definition's probes — HelmReleases Ready, workloads Available, the Secrets and MCPServer objects present, conditions, logs, the live values against the render from the inputs on record — read through muster's kubernetes tools with the token muster forwarded, so what you may read decides what is checked: an object you may not read is reported as not checked, forbidden for you, never as a failure of the installation; an installation you are not connected to in muster answers with muster's own sign-in. Grouped into the definition's features with one mark each — as defined, differs by input, drifted — and expanded to its dimensions; the repository dimensions read not checked here (verify_capability). The result is recorded on the newest action of the installation and feeds list_installations: drifted, or waiting for the customer when the only red dimension is the one the customer's action holds up."),
 		mcp.WithIdempotentHintAnnotation(true),
@@ -97,11 +98,12 @@ func (t *Tools) verifyLive(ctx context.Context, args map[string]any) (any, error
 		if in := acts[i].InputsOnRecord(name); in != nil {
 			record = &acts[i]
 			opts.Inputs = verify.Inputs{Source: "action " + record.Name, Values: in}
-			// The state the result starts from is the action's final word,
-			// not the state a previous verify recorded over it.
-			opts.State = installations.State(record.InstallationState(name))
+			// The state the result starts from is the action's final word —
+			// not the state a previous verify recorded over it, and not the
+			// customer's wait, which a clean read ends.
+			opts.State = settledState(record.InstallationState(name))
 			if record.Status.Result != nil {
-				opts.State = installations.State(record.Status.Result.State)
+				opts.State = settledState(record.Status.Result.State)
 			}
 			break
 		}
@@ -123,56 +125,24 @@ func (t *Tools) verifyLive(ctx context.Context, args map[string]any) (any, error
 }
 
 // recordLiveVerify writes the live result onto the action it rendered from:
-// one probe entry per live dimension of this installation, and — for an
-// action that has reached its final word — the installation's state:
-// drifted, waiting for the customer, or the action's result again when the
-// installation is back as defined. list_installations reads it from there.
+// one probe entry per live dimension of this installation, and — for a stage
+// that has reached a state — the installation's state: drifted, waiting for
+// the customer, or enabled again when the installation is back as defined
+// (the customer's action done flips a stage waiting for the customer to
+// enabled, and the action with it). list_installations reads it from there.
+// A stage rolling out is the watch's to carry; a failed one is over.
 func (t *Tools) recordLiveVerify(ctx context.Context, a actions.Action, installation string, res verify.Result) error {
-	now := time.Now()
 	status := a.Status
-	live := map[string]bool{}
-	var probes []actions.Probe
-	for _, f := range res.Features {
-		for _, d := range f.Dimensions {
-			if d.Kind != definitions.KindLive {
-				continue
-			}
-			live[d.ID] = true
-			p := actions.Probe{ID: d.ID, Installation: installation, Result: string(d.Mark), At: &now}
-			switch {
-			case d.Reason != "":
-				p.Message = d.Reason
-			case len(d.Differences) > 0:
-				p.Message = fmt.Sprintf("%d difference(s), the first at %s %s", len(d.Differences), d.Differences[0].Object, d.Differences[0].Path)
-			case d.Live != nil && len(d.Live.Checks) > 0:
-				p.Message = d.Live.Checks[0].Message
-			}
-			probes = append(probes, p)
+	status.Probes = mergeProbes(status.Probes, installation, probesOf(installation, res))
+	status.Rollout = stagesOf(&a)
+	if i := stageIndex(status.Rollout, installation); i >= 0 && status.Result != nil && verifyMoves(status.Rollout.Installations[i].State) {
+		st := &status.Rollout.Installations[i]
+		prev := st.State
+		st.State, st.Message, _ = decideStage(prev, res)
+		if st.State != prev {
+			st.ReportedAt = nil
 		}
-	}
-	kept := status.Probes[:0:0]
-	for _, p := range status.Probes {
-		if p.Installation != installation || !live[p.ID] {
-			kept = append(kept, p)
-		}
-	}
-	status.Probes = append(kept, probes...)
-	if status.Result != nil {
-		state := status.Result.State
-		if res.State == installations.StateDrifted || res.State == installations.StateWaitingForCustomer {
-			state = string(res.State)
-		}
-		staged := false
-		if status.Rollout != nil {
-			for i := range status.Rollout.Installations {
-				if status.Rollout.Installations[i].Name == installation {
-					status.Rollout.Installations[i].State, staged = state, true
-				}
-			}
-		}
-		if !staged {
-			status.State = state
-		}
+		applyStage(&status, i, prev)
 	}
 	_, err := t.d.Actions.UpdateStatus(ctx, a.Name, status)
 	return err

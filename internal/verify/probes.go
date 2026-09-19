@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 )
 
 // ProbeResult is what an anonymous probe answered, request by request.
@@ -39,7 +40,10 @@ type probeData struct {
 // probe runs one anonymous probe and answers it as a dimension of kind probe:
 // as defined when every request answered an expected status, drifted when
 // any did not or could not be reached, not checked when it had no request to make.
-func probe(ctx context.Context, opts Options, c *comparison, p definitions.Probe) Dimension {
+//
+// baseDomain is the installation's; clients are the Dex clients the render
+// declares, nil when nothing was rendered (no inputs on record).
+func probe(ctx context.Context, client *http.Client, baseDomain string, clients []plan.DexClient, rendered bool, p definitions.Probe) Dimension {
 	d := Dimension{ID: p.ID, Kind: definitions.KindProbe, Key: p.Key, Mark: NotChecked, Probe: &ProbeResult{Expect: p.Expect, Requests: []Request{}}}
 	tmpl, err := template.New(p.ID).Parse(p.URL)
 	if err != nil {
@@ -49,14 +53,14 @@ func probe(ctx context.Context, opts Options, c *comparison, p definitions.Probe
 	var data []probeData
 	switch {
 	case !p.PerDexClient:
-		data = []probeData{{BaseDomain: opts.Installation.BaseDomain}}
-	case c == nil:
+		data = []probeData{{BaseDomain: baseDomain}}
+	case !rendered:
 		d.Reason = ReasonNoInputs
 		return d
 	default:
-		for _, cl := range c.dexClients {
+		for _, cl := range clients {
 			if len(cl.RedirectURIs) > 0 {
-				data = append(data, probeData{BaseDomain: opts.Installation.BaseDomain, ClientID: url.QueryEscape(cl.ID), RedirectURI: url.QueryEscape(cl.RedirectURIs[0])})
+				data = append(data, probeData{BaseDomain: baseDomain, ClientID: url.QueryEscape(cl.ID), RedirectURI: url.QueryEscape(cl.RedirectURIs[0])})
 			}
 		}
 		if len(data) == 0 {
@@ -64,7 +68,6 @@ func probe(ctx context.Context, opts Options, c *comparison, p definitions.Probe
 			return d
 		}
 	}
-	client := opts.Probes
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	}

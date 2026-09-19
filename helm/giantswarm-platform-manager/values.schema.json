@@ -176,7 +176,7 @@
                 },
                 "enabled": {
                     "type": "boolean",
-                    "description": "Serve the live surface: a second MCP endpoint at `live.path` muster forwards the person's own ID token to, whose tool `verify_installation` reads an installation through muster as the person. The Deployment serves the path; `muster.liveServer.enabled` registers it with muster and needs this on. Turn the path on in a release of its own and register it in the next: muster probes a registration once, and a probe that reaches the previous pod — still behind the Service while the release that turns the path on rolls out — finds no path there and leaves the registration failed until it is restarted by hand (giantswarm/muster#1295). Off: the live dimensions of every verify read not checked, and `get_info` reports `live.configured: false`."
+                    "description": "Serve the live surface: a second MCP endpoint at `live.path` muster forwards the person's own ID token to, whose tools `verify_installation` and `watch_action` read an installation through muster as the person. The Deployment serves the path; `muster.liveServer.enabled` registers it with muster and needs this on. Turn the path on in a release of its own and register it in the next: muster probes a registration once, and a probe that reaches the previous pod — still behind the Service while the release that turns the path on rolls out — finds no path there and leaves the registration failed until it is restarted by hand (giantswarm/muster#1295). Off: the live dimensions of every verify read not checked, and `get_info` reports `live.configured: false`."
                 },
                 "issuer": {
                     "type": "string",
@@ -234,7 +234,7 @@
                         },
                         "enabled": {
                             "type": "boolean",
-                            "description": "Register the live surface with muster as a second MCPServer of the same Deployment: `auth.type: oauth` with `forwardToken: true` and no authorization server, so muster puts the person's own ID token on every call and runs no consent. Its tool `verify_installation` reads an installation through muster's kubernetes tools as the person. Rendered with `muster.mcpServer.enabled` and `oauth.enabled`; needs `live.enabled` — the chart refuses to render the registration of a path the Deployment does not serve — in a release before this one, so that muster's one probe of the registration finds the path answering (its state is then *Auth Required* until the first person's session connects, *Connected* after)."
+                            "description": "Register the live surface with muster as a second MCPServer of the same Deployment: `auth.type: oauth` with `forwardToken: true` and no authorization server, so muster puts the person's own ID token on every call and runs no consent. Its tools `verify_installation` and `watch_action` read an installation through muster's kubernetes tools as the person. Rendered with `muster.mcpServer.enabled` and `oauth.enabled`; needs `live.enabled` — the chart refuses to render the registration of a path the Deployment does not serve — in a release before this one, so that muster's one probe of the registration finds the path answering (its state is then *Auth Required* until the first person's session connects, *Connected* after)."
                         },
                         "name": {
                             "type": "string",

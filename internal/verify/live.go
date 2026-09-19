@@ -22,6 +22,7 @@ import (
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
@@ -83,6 +84,10 @@ type Check struct {
 	Message string `json:"message,omitempty"`
 	// Note is the definition's sentence next to the probe.
 	Note string `json:"note,omitempty"`
+	// Revision is the revision a Flux object reports as applied or attempted
+	// (a Kustomization's source revision, a HelmRelease's chart version),
+	// when the object carries one: the rollout watch reads it.
+	Revision string `json:"revision,omitempty"`
 }
 
 // LiveResult is what a live dimension's probes answered.
@@ -109,6 +114,10 @@ type LiveOptions struct {
 	Probes *http.Client
 	// Person names who the reads run as, in a forbidden result.
 	Person string
+	// AnonymousProbes runs the definition's anonymous HTTP probes here too,
+	// direct — the rollout watch's whole picture in one result. Off, they
+	// read not checked: verify_capability's, on the repository side.
+	AnonymousProbes bool
 }
 
 // CompareLive answers the live verify of opts' installation: every live
@@ -159,9 +168,21 @@ func CompareLive(ctx context.Context, opts LiveOptions) Result {
 			f.Dimensions = append(f.Dimensions, dim)
 		}
 		for _, p := range anonymous {
-			if p.Feature == fd.ID {
-				f.Dimensions = append(f.Dimensions, Dimension{ID: p.ID, Kind: definitions.KindProbe, Key: p.Key, Mark: NotChecked, Reason: ReasonRepositorySide})
+			if p.Feature != fd.ID {
+				continue
 			}
+			dim := Dimension{ID: p.ID, Kind: definitions.KindProbe, Key: p.Key, Mark: NotChecked, Reason: ReasonRepositorySide}
+			if opts.AnonymousProbes {
+				var clients []plan.DexClient
+				if lv != nil {
+					clients = lv.dexClients
+				}
+				dim = probe(ctx, opts.Probes, inputString(opts.Inputs.Values, "installation", "baseDomain"), clients, lv != nil, p)
+				if dim.Mark == Drifted {
+					drifted++
+				}
+			}
+			f.Dimensions = append(f.Dimensions, dim)
 		}
 		for _, d := range f.Dimensions {
 			f.Marks[d.Mark]++
@@ -229,6 +250,9 @@ type liveRender struct {
 	// renders none. driven names the input behind each of its leaves.
 	values map[string]string
 	driven map[string]string
+	// dexClients are the clients the rendered dex patch declares: what the
+	// anonymous per-client probes run for.
+	dexClients []plan.DexClient
 }
 
 // valuesKey stands for the values file in the flat maps attribution works on.
@@ -236,30 +260,41 @@ const valuesKey = "values"
 
 // renderLive renders the inputs on record for the live comparison.
 func renderLive(opts LiveOptions) (*liveRender, error) {
-	res, flat, err := renderValues(opts.Definition, opts.Inputs.Values)
+	res, in, flat, err := renderValues(opts.Definition, opts.Inputs.Values)
 	if err != nil {
 		return nil, err
 	}
 	lv := &liveRender{probes: res.Probes, actions: res.Actions, values: flat[valuesKey]}
+	for _, files := range res.Files {
+		for path, f := range files {
+			if strings.HasSuffix(path, dexPatchSuffix) {
+				lv.dexClients = plan.DexClients(f.Content, in)
+			}
+		}
+	}
 	if lv.values != nil {
 		lv.driven = drivenPaths(opts.Inputs.Values, flat, func(values map[string]any) (map[string]map[string]string, error) {
-			_, other, err := renderValues(opts.Definition, values)
+			_, _, other, err := renderValues(opts.Definition, values)
 			return other, err
 		})
 	}
 	return lv, nil
 }
 
+// dexPatchSuffix ends the path of the rendered dex-app values patch, the
+// file that declares the Dex clients.
+const dexPatchSuffix = "/apps/dex-app/configmap-values.yaml.patch"
+
 // renderValues renders values and flattens the definition's values file
 // under valuesKey; a definition without one flattens nothing.
-func renderValues(def installations.Capability, values map[string]any) (*render.Result, map[string]map[string]string, error) {
+func renderValues(def installations.Capability, values map[string]any) (*render.Result, render.Input, map[string]map[string]string, error) {
 	in, err := def.Parse(values)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	res, err := def.Render(values, in.SuppliedMarkers())
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	suffix := "/apps/" + def.Name + "/configmap-values.yaml.patch"
 	flat := map[string]map[string]string{}
@@ -270,7 +305,13 @@ func renderValues(def installations.Capability, values map[string]any) (*render.
 			}
 		}
 	}
-	return res, flat, nil
+	return res, in, flat, nil
+}
+
+// inputString reads a string leaf of the inputs on record by path.
+func inputString(values map[string]any, path ...string) string {
+	s, _ := dig(values, path...).(string)
+	return s
 }
 
 // executor runs the probes of one live verify.
@@ -398,6 +439,7 @@ func (x *executor) condition(ctx context.Context, c *Check, p render.Probe, cond
 		return err
 	}
 	got, message, found := conditionOf(obj, condition)
+	c.Revision = revisionOf(obj)
 	switch {
 	case !found:
 		c.Mark, c.Message = Drifted, "no "+condition+" condition"
@@ -757,6 +799,23 @@ func conditionOf(obj map[string]any, condition string) (string, string, bool) {
 		}
 	}
 	return "", "", false
+}
+
+// revisionOf is the revision a Flux object reports: a Kustomization's
+// lastAppliedRevision (its source, "main@sha1:…"), a HelmRelease's attempted
+// chart version, else its newest history entry's; "" for anything else.
+func revisionOf(obj map[string]any) string {
+	for _, key := range []string{"lastAppliedRevision", "lastAttemptedRevision"} {
+		if rev, _ := dig(obj, "status", key).(string); rev != "" {
+			return rev
+		}
+	}
+	if history, _ := dig(obj, "status", "history").([]any); len(history) > 0 {
+		if rev, _ := dig(history[0], "chartVersion").(string); rev != "" {
+			return rev
+		}
+	}
+	return ""
 }
 
 // selectorOf is a workload's spec.selector.matchLabels as a label selector.

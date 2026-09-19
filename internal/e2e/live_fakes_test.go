@@ -240,7 +240,7 @@ func matches(obj map[string]any, selector string) bool {
 }
 
 func conditionTrue(condition string) map[string]any {
-	return map[string]any{statusKey: map[string]any{conditionsKey: []any{map[string]any{typeKey: condition, statusKey: "True", message: "ok"}}}}
+	return map[string]any{statusKey: map[string]any{conditionsKey: []any{map[string]any{typeKey: condition, statusKey: statusTrue, message: "ok"}}}}
 }
 
 // populate fills the installation as the definition rendered it: an object
@@ -327,8 +327,8 @@ type musterCall struct {
 // to the installation.
 type fakeMuster struct {
 	*httptest.Server
-	inst         *fakeInstallation
-	installation string
+	// insts are the installations behind the family, by the instance argument.
+	insts map[string]*fakeInstallation
 
 	mu    sync.Mutex
 	calls []musterCall
@@ -342,7 +342,7 @@ const authRequiredText = "auth_required: server '%s' requires authentication bef
 
 func newFakeMuster(t *testing.T, inst *fakeInstallation, installation string) *fakeMuster {
 	t.Helper()
-	m := &fakeMuster{inst: inst, installation: installation}
+	m := &fakeMuster{insts: map[string]*fakeInstallation{installation: inst}}
 	tools := map[string]mustertest.Tool{}
 	for _, op := range []string{"get", "list", "logs"} {
 		tools["x_"+kubernetesFamily+"_"+op] = m.kubernetes(op)
@@ -354,6 +354,20 @@ func newFakeMuster(t *testing.T, inst *fakeInstallation, installation string) *f
 		})))
 	t.Cleanup(m.Close)
 	return m
+}
+
+// serve adds an installation behind the family.
+func (m *fakeMuster) serve(installation string, inst *fakeInstallation) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.insts[installation] = inst
+}
+
+func (m *fakeMuster) installation(name string) (*fakeInstallation, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	inst, ok := m.insts[name]
+	return inst, ok
 }
 
 // seen are the calls by person, oldest first.
@@ -372,10 +386,12 @@ func (m *fakeMuster) kubernetes(op string) mustertest.Tool {
 		if person == "" {
 			return mcp.NewToolResultError("no bearer: the loop-back carried no token")
 		}
-		if mc, _ := args[instanceArg].(string); mc != m.installation {
+		mc, _ := args[instanceArg].(string)
+		inst, ok := m.installation(mc)
+		if !ok {
 			return mcp.NewToolResultError(fmt.Sprintf("no member of family %s serves %s=%q", kubernetesFamily, instanceArg, mc))
 		}
-		server := m.installation + "-mcp-kubernetes"
+		server := mc + "-mcp-kubernetes"
 		if person == liveStranger {
 			return mcp.NewToolResultError(fmt.Sprintf(authRequiredText, server, server))
 		}
@@ -387,20 +403,20 @@ func (m *fakeMuster) kubernetes(op string) mustertest.Tool {
 		switch op {
 		case "get":
 			name, _ := args["name"].(string)
-			obj, ok := m.inst.get(kind, namespace, name)
+			obj, ok := inst.get(kind, namespace, name)
 			if !ok {
 				return mcp.NewToolResultError(fmt.Sprintf("Failed to get resource: %ss.%s %q not found", kind, args["apiGroup"], name))
 			}
-			return document(map[string]any{"resource": obj, "_meta": map[string]any{"cluster": m.installation}})
+			return document(map[string]any{"resource": obj, "_meta": map[string]any{"cluster": mc}})
 		case "list":
 			selector, _ := args["labelSelector"].(string)
-			items := m.inst.list(kind, namespace, selector)
+			items := inst.list(kind, namespace, selector)
 			return document(map[string]any{"kind": strings.ToUpper(kind[:1]) + kind[1:] + "List", "items": items, "totalItems": len(items)})
 		default:
 			pod, _ := args["podName"].(string)
-			m.inst.mu.Lock()
-			defer m.inst.mu.Unlock()
-			log, ok := m.inst.logs[namespace+"/"+pod]
+			inst.mu.Lock()
+			defer inst.mu.Unlock()
+			log, ok := inst.logs[namespace+"/"+pod]
 			if !ok {
 				return mcp.NewToolResultError(fmt.Sprintf("Failed to get logs: pods %q not found", pod))
 			}

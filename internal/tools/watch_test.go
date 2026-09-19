@@ -1,0 +1,149 @@
+package tools
+
+import (
+	"reflect"
+	"testing"
+
+	"github.com/giantswarm/giantswarm-platform-manager/definitions"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
+)
+
+// The fixtures of the watch tests.
+const (
+	helmRelease = "HelmRelease"
+	fluxNS      = "flux-giantswarm"
+	notReady    = "Ready=False: install retries exhausted"
+	isReady     = "Ready=True"
+	birch       = "birch"
+	rowan       = "rowan"
+)
+
+func liveResult(state installations.State, dims ...verify.Dimension) verify.Result {
+	return verify.Result{State: state, Features: []verify.Feature{{ID: "runtime", Dimensions: dims}}, Summary: map[verify.Mark]int{verify.AsDefined: 3}}
+}
+
+// The rollout picture is the readiness checks of the live result: a
+// HelmRelease Ready is True with its revision, one not Ready carries the
+// condition's status and message, one the person could not read claims
+// nothing — and only every one Ready is ready.
+func TestRolloutObjectsReadTheFluxChecks(t *testing.T) {
+	res := liveResult(installations.StateEnabled, verify.Dimension{ID: "live-helmreleases-ready", Kind: definitions.KindLive, Live: &verify.LiveResult{Checks: []verify.Check{
+		{Kind: string(render.HelmReleaseReady), Namespace: fluxNS, Resource: helmRelease, Name: installations.AgentPlatform, Mark: verify.AsDefined, Message: isReady, Revision: "4.44.1"},
+		{Kind: string(render.HelmReleaseReady), Namespace: fluxNS, Resource: helmRelease, Name: "muster", Mark: verify.Drifted, Message: notReady},
+		{Kind: string(render.Condition), Namespace: fluxNS, Resource: "Kustomization.kustomize.toolkit.fluxcd.io", Name: "extras", Mark: verify.NotChecked, Message: "forbidden for viewer: kustomizations is forbidden", Revision: "main@sha1:abc"},
+		{Kind: string(render.Condition), Namespace: "kagent", Resource: "Deployment", Name: "kagent-ui", Mark: verify.AsDefined, Message: "Available=True"},
+	}}})
+	objects, ready := rolloutObjects(res)
+	want := []actions.RolloutObject{
+		{Kind: helmRelease, Namespace: fluxNS, Name: installations.AgentPlatform, Ready: "True", Revision: "4.44.1", Message: isReady},
+		{Kind: helmRelease, Namespace: fluxNS, Name: "muster", Ready: "False", Message: notReady},
+		{Kind: "Kustomization", Namespace: fluxNS, Name: "extras", Revision: "main@sha1:abc", Message: "forbidden for viewer: kustomizations is forbidden"},
+	}
+	if ready || !reflect.DeepEqual(objects, want) {
+		t.Errorf("ready %v objects %+v", ready, objects)
+	}
+	if _, ready := rolloutObjects(liveResult(installations.StateEnabled, verify.Dimension{ID: "live-helmreleases-ready", Kind: definitions.KindLive, Live: &verify.LiveResult{Checks: []verify.Check{
+		{Kind: string(render.HelmReleaseReady), Resource: helmRelease, Name: installations.AgentPlatform, Mark: verify.AsDefined, Message: isReady}}}})); !ready {
+		t.Error("one HelmRelease Ready is ready")
+	}
+}
+
+// The decision from a live result: clean is enabled; drift held by the
+// customer's action is waiting for the customer; other drift fails a stage
+// rolling out and marks a stage that had reached a state drifted.
+func TestDecideStage(t *testing.T) {
+	red := verify.Dimension{ID: "live-model-configs", Kind: definitions.KindLive, Mark: verify.Drifted, Live: &verify.LiveResult{Checks: []verify.Check{{Mark: verify.Drifted, Message: "Accepted=False: secret not found", Note: "the customer's key"}}}}
+	probe := verify.Dimension{ID: "muster-protected-resource-metadata", Kind: definitions.KindProbe, Mark: verify.Drifted, Probe: &verify.ProbeResult{Requests: []verify.Request{{URL: "https://agentgateway.example/.well-known/oauth-protected-resource", Status: 404}}}}
+	for _, tc := range []struct {
+		prev  string
+		res   verify.Result
+		state string
+		red   int
+	}{
+		{actions.StateRollingOut, liveResult(installations.StateEnabled), actions.StateEnabled, 0},
+		{actions.StateRollingOut, liveResult(installations.StateWaitingForCustomer, red), actions.StateWaitingForCustomer, 1},
+		{actions.StateRollingOut, liveResult(installations.StateDrifted, probe), actions.StateFailed, 1},
+		{actions.StateEnabled, liveResult(installations.StateDrifted, probe, red), actions.StateDrifted, 2},
+		{actions.StateWaitingForCustomer, liveResult(installations.StateEnabled), actions.StateEnabled, 0},
+	} {
+		state, message, reds := decideStage(tc.prev, tc.res)
+		if state != tc.state || len(reds) != tc.red || message == "" {
+			t.Errorf("%s + %s: %s %q %v", tc.prev, tc.res.State, state, message, reds)
+		}
+	}
+	_, message, reds := decideStage(actions.StateRollingOut, liveResult(installations.StateDrifted, probe))
+	if reds[0] != "muster-protected-resource-metadata (runtime): https://agentgateway.example/.well-known/oauth-protected-resource answered 404" || message != "a probe is red: "+reds[0] {
+		t.Errorf("the red probe: %q %q", message, reds[0])
+	}
+	_, message, _ = decideStage(actions.StateRollingOut, liveResult(installations.StateWaitingForCustomer, red))
+	if message != "the rollout is done and the customer's move is open: live-model-configs (runtime): Accepted=False: secret not found — the customer's key" {
+		t.Errorf("the held drift: %q", message)
+	}
+}
+
+// The action follows its stages: a failed stage stops the wave with the
+// stages after it not started and the open pull requests named; every
+// stage enabled ends the action; a stage waiting for the customer holds the
+// action and, flipped, hands it back to the wave.
+func TestApplyStage(t *testing.T) {
+	prs := []actions.PullRequest{{Installation: birch, Repository: "o/r", Number: 1, State: actions.PullRequestMerged}, {Installation: rowan, Repository: "o/r", Number: 2, State: actions.PullRequestOpen}}
+	stages := func(states ...string) *actions.Rollout {
+		r := &actions.Rollout{}
+		for i, s := range states {
+			r.Installations = append(r.Installations, actions.InstallationRollout{Name: []string{birch, rowan}[i], State: s, Message: "m"})
+		}
+		return r
+	}
+	status := actions.Status{State: actions.StateRollingOut, PullRequests: prs, Rollout: stages(actions.StateFailed, actions.StateRollingOut)}
+	applyStage(&status, 0, actions.StateRollingOut)
+	if status.State != actions.StateFailed || status.Rollout.Installations[1].State != "" || status.Rollout.FinishedAt == nil || status.Result == nil ||
+		status.Result.Message != "the wave stopped at birch (stage 1 of 2): m; 1 pull request(s) stay open (o/r#2)" {
+		t.Errorf("the stop: %+v %+v", status.State, status.Result)
+	}
+
+	status = actions.Status{State: actions.StateRollingOut, PullRequests: prs, Rollout: stages(actions.StateEnabled, actions.StateRollingOut)}
+	applyStage(&status, 0, actions.StateRollingOut)
+	if status.State != actions.StateRollingOut || status.Result != nil || status.Rollout.FinishedAt != nil {
+		t.Errorf("stage 1 enabled: %+v %+v", status.State, status.Result)
+	}
+	status.Rollout.Installations[1].State = actions.StateEnabled
+	applyStage(&status, 1, actions.StateRollingOut)
+	if status.State != actions.StateEnabled || status.Result == nil || status.Result.Message != "every installation of the wave is verified: birch, rowan" || status.Rollout.FinishedAt == nil {
+		t.Errorf("both enabled: %+v %+v", status.State, status.Result)
+	}
+
+	status = actions.Status{State: actions.StateRollingOut, Rollout: stages(actions.StateWaitingForCustomer)}
+	applyStage(&status, 0, actions.StateRollingOut)
+	if status.State != actions.StateWaitingForCustomer || status.Result == nil || status.Result.State != actions.StateWaitingForCustomer || status.Rollout.FinishedAt == nil {
+		t.Errorf("waiting: %+v %+v", status.State, status.Result)
+	}
+	status.Rollout.Installations[0].State = actions.StateEnabled
+	applyStage(&status, 0, actions.StateWaitingForCustomer)
+	if status.State != actions.StateEnabled || status.Result.State != actions.StateEnabled || status.Result.Message != "birch is enabled: m" {
+		t.Errorf("flipped: %+v %+v", status.State, status.Result)
+	}
+
+	// An enabled action re-read drifted, then back: the result stands.
+	final := &actions.Result{State: actions.StateEnabled, Message: "was enabled"}
+	status = actions.Status{State: actions.StateEnabled, Result: final, Rollout: stages(actions.StateDrifted)}
+	applyStage(&status, 0, actions.StateEnabled)
+	if status.State != actions.StateDrifted || status.Result != final {
+		t.Errorf("drifted: %+v %+v", status.State, status.Result)
+	}
+	status.Rollout.Installations[0].State = actions.StateEnabled
+	applyStage(&status, 0, actions.StateDrifted)
+	if status.State != actions.StateEnabled || status.Result != final {
+		t.Errorf("back: %+v %+v", status.State, status.Result)
+	}
+}
+
+func TestConditionStatus(t *testing.T) {
+	for in, want := range map[string]string{notReady: "False", "Ready=Unknown: reconciling": "Unknown", "no Ready condition": "", "": ""} {
+		if got := conditionStatus(in); got != want {
+			t.Errorf("%q: %q", in, got)
+		}
+	}
+}

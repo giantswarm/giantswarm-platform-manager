@@ -136,11 +136,34 @@ type Rollout struct {
 	Installations []InstallationRollout `json:"installations,omitempty"`
 }
 
-// InstallationRollout is one installation's place in the wave.
+// InstallationRollout is one installation's place in the wave, with the
+// picture the last watch read of it.
 type InstallationRollout struct {
 	Name    string `json:"name"`
 	State   string `json:"state,omitempty"`
 	Message string `json:"message,omitempty"`
+	// Objects are the Flux objects the render names on the installation as
+	// the last watch read them, each with its Ready condition and revision.
+	Objects []RolloutObject `json:"objects,omitempty"`
+	// WatchedAt and WatchedBy say when the last watch read the installation
+	// and as whom; ReportedAt when the stage's report reached the review's
+	// thread (cleared when the state moves on).
+	WatchedAt  *time.Time `json:"watchedAt,omitempty"`
+	WatchedBy  string     `json:"watchedBy,omitempty"`
+	ReportedAt *time.Time `json:"reportedAt,omitempty"`
+}
+
+// RolloutObject is one Flux object of the rollout as the watch read it:
+// Ready is the condition's status (True, False, Unknown; "" when the object
+// could not be read, Message saying why), Revision what the object reports
+// as applied or attempted.
+type RolloutObject struct {
+	Kind      string `json:"kind"`
+	Namespace string `json:"namespace,omitempty"`
+	Name      string `json:"name"`
+	Ready     string `json:"ready,omitempty"`
+	Revision  string `json:"revision,omitempty"`
+	Message   string `json:"message,omitempty"`
 }
 
 // Probe is one probe's outcome on one installation.
@@ -290,12 +313,14 @@ func (a Action) InputsOnRecord(installation string) map[string]any {
 // the action's own: the opt-in gate refused it before any write, and the
 // installation's state read from its repositories stands.
 const (
-	StatePendingApproval = string(installations.StatePendingApproval)
-	StateFailed          = string(installations.StateFailed)
-	StateRefused         = "refused"
-	StateRollingOut      = string(installations.StateRollingOut)
-	StateEnabled         = string(installations.StateEnabled)
-	StateDenied          = "denied"
+	StatePendingApproval    = string(installations.StatePendingApproval)
+	StateFailed             = string(installations.StateFailed)
+	StateRefused            = "refused"
+	StateRollingOut         = string(installations.StateRollingOut)
+	StateWaitingForCustomer = string(installations.StateWaitingForCustomer)
+	StateEnabled            = string(installations.StateEnabled)
+	StateDrifted            = string(installations.StateDrifted)
+	StateDenied             = "denied"
 )
 
 // InstallationState is the state the action gives installation: its stage of

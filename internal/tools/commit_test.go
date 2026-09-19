@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 )
 
 // The GitOps repositories run amannn/action-semantic-pull-request with its
@@ -29,7 +30,7 @@ func TestPRTitleIsSemantic(t *testing.T) {
 		{actions.KindReconcile, "reconcile-rowan-k3x9ab", "", "fix(rowan): reconcile agent-platform (reconcile-rowan-k3x9ab)"},
 		{actions.KindReconcile, "reconcile-wave-k3x9ab", "stage 2 of 3", "fix(rowan): reconcile agent-platform (reconcile-wave-k3x9ab, stage 2 of 3)"},
 	} {
-		got := prTitle(tc.kind, "rowan", "agent-platform", tc.action, tc.detail)
+		got := prTitle(tc.kind, rowan, installations.AgentPlatform, tc.action, tc.detail)
 		if got != tc.want {
 			t.Errorf("%s %q: title %q, want %q", tc.kind, tc.detail, got, tc.want)
 		}
@@ -40,7 +41,7 @@ func TestPRTitleIsSemantic(t *testing.T) {
 		if !semanticTypes[m[1]] {
 			t.Errorf("%q: type %q is not one the check accepts", got, m[1])
 		}
-		if m[2] != "rowan" {
+		if m[2] != rowan {
 			t.Errorf("%q: scope %q, want the installation", got, m[2])
 		}
 		if m[3] == "" || !strings.Contains(m[3], tc.action) {
