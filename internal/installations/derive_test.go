@@ -7,9 +7,9 @@ import (
 
 // The fixture's names: the fleet's hub, an organisation's aggregator and its sibling.
 const (
-	fixtureHub        = fixtureHub
-	fixtureAggregator = fixtureAggregator
-	fixtureSibling    = fixtureSibling
+	fixtureHub        = "aspen"
+	fixtureAggregator = "linden"
+	fixtureSibling    = "rowanberry"
 )
 
 // The portals on record derive an installation's portals, hubs and targets:
