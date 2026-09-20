@@ -58,8 +58,8 @@ func TestRemovalsNameThePlannedChanges(t *testing.T) {
 	if len(rms) != 9 {
 		t.Fatalf("%d removals read, want 9 (a prefix of no file kind is left out)", len(rms))
 	}
-	patch := &fileDiff{path: "installations/x/apps/agent-platform/configmap-values.yaml.patch", kind: definitions.KindConfigMap}
-	dexCM := &fileDiff{path: "installations/x/apps/dex-app/configmap-values.yaml.patch", kind: definitions.KindDexSecret}
+	patch := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
+	dexCM := &fileDiff{path: testDexPatch, kind: definitions.KindDexSecret}
 	dexSecret := &fileDiff{path: "installations/x/apps/dex-app/secret-values.yaml.patch", kind: definitions.KindDexSecret}
 	agents := &fileDiff{path: "management-clusters/x/extras/agents/kustomization.yaml", kind: definitions.KindExtras}
 	kust := &fileDiff{path: "management-clusters/x/extras/agent-platform/kustomization.yaml", kind: definitions.KindExtras}
@@ -119,8 +119,8 @@ func TestMigrationsNameThePlannedAdditions(t *testing.T) {
 		t.Fatalf("%d migrations read, want 7 (a prefix of no file kind is left out)", len(migs))
 	}
 	rms := readRemovals([]definitions.Removal{{Key: "dex-configmap:oidc.extraStaticClients[*].redirectURIs", Kind: "template", Reason: "R1"}})
-	dexCM := &fileDiff{path: "installations/x/apps/dex-app/configmap-values.yaml.patch", kind: definitions.KindDexSecret}
-	patch := &fileDiff{path: "installations/x/apps/agent-platform/configmap-values.yaml.patch", kind: definitions.KindConfigMap}
+	dexCM := &fileDiff{path: testDexPatch, kind: definitions.KindDexSecret}
+	patch := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
 	secret := &fileDiff{path: "management-clusters/x/extras/agent-platform/secrets/dex-client-muster-secret.yaml", kind: definitions.KindExtras}
 	exchange := &fileDiff{path: "management-clusters/x/extras/agent-platform/secrets/dex-client-x-token-exchange-secret.yaml", kind: definitions.KindExtras}
 	kust := &fileDiff{path: "management-clusters/x/extras/agent-platform/secrets/kustomization.yaml", kind: definitions.KindExtras}
@@ -190,7 +190,7 @@ func TestMatcherReadsKeys(t *testing.T) {
 	if m := newMatcher(definitions.Dimension{Kind: definitions.KindExtras, Key: "secrets/kustomization.yaml resources"}); m.match("secrets/kustomization.yaml", "resources[0]") == 0 {
 		t.Error("a file key names the file under extras")
 	}
-	if m := newMatcher(definitions.Dimension{Kind: definitions.KindConfigMap, Key: "agent-platform secret-values.yaml.patch"}); m.match("installations/x/apps/agent-platform/secret-values.yaml.patch", "a") == 0 || m.match("installations/x/apps/agent-platform/configmap-values.yaml.patch", "a") != 0 {
+	if m := newMatcher(definitions.Dimension{Kind: definitions.KindConfigMap, Key: "agent-platform secret-values.yaml.patch"}); m.match("installations/x/apps/agent-platform/secret-values.yaml.patch", "a") == 0 || m.match(testPlatformPatch, "a") != 0 {
 		t.Errorf("a file word names the file: %v", m.prefixes)
 	}
 	if m := newMatcher(definitions.Dimension{Kind: definitions.KindConfigMap, Key: "the patch's top-level keys"}); len(m.prefixes) != 0 {

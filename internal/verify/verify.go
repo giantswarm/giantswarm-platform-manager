@@ -350,13 +350,18 @@ func compare(ctx context.Context, opts Options, rms, migs plannedKeys) (*compari
 
 // planned is the reason a difference is a planned change: the removal that
 // names its path, or, for a leaf the record lacks, the migration that adds
-// it. A leaf the record holds with another value is no migration's.
+// it. A leaf the record holds with another value is no migration's — but
+// for a scalar the plan merges as a comma-separated set, whose only change
+// is the entries the migrations add (joined).
 func planned(fd *fileDiff, d *Difference, rms, migs plannedKeys) string {
 	if reason := rms.reason(fd, d.Path); reason != "" {
 		return reason
 	}
-	if d.absent {
+	switch {
+	case d.absent:
 		return migs.reason(fd, d.Path)
+	case plan.JoinedList(fd.path, d.Path):
+		return joined(fd, d, migs)
 	}
 	return ""
 }

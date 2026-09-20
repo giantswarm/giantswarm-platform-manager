@@ -28,6 +28,18 @@ const (
 	keyAudiences     = "audiences"
 )
 
+// joinedLists are the lists of the platform patch the plan merges as a
+// comma-separated set (keepJoined), by key path: one scalar on the file,
+// whose entries the comparison addresses as <path>[<entry>].
+var joinedLists = []string{ListExtraAudience}
+
+// JoinedList says whether the leaf at yamlPath of the file at path is one
+// the plan merges as a comma-separated set: the scalar's entries are
+// compared as a set, each addressed as yamlPath[entry].
+func JoinedList(path, yamlPath string) bool {
+	return strings.HasSuffix(path, platformPatchFile) && slices.Contains(joinedLists, yamlPath)
+}
+
 // keepAudiences answers rendered with every entry of current's audience
 // lists that rendered does not carry — muster's trustedAudiences, the kagent
 // UI's comma-separated oidc-extra-audience (merged as a set, written back
@@ -51,8 +63,10 @@ func keepAudiences(rendered, current []byte) ([]byte, []Kept, error) {
 	var kept []Kept
 	trusted := []string{"muster", "muster", "oauth", "server", "trustedAudiences"}
 	keepList(at(ren, trusted...), at(cur, trusted...), ListTrustedAudiences, &kept)
-	extra := []string{"kagent", "oauth2-proxy", "extraArgs", "oidc-extra-audience"}
-	keepJoined(at(ren, extra...), at(cur, extra...), &kept)
+	for _, list := range joinedLists {
+		keys := strings.Split(list, ".")
+		keepJoined(at(ren, keys...), at(cur, keys...), list, &kept)
+	}
 	providers := []string{"agent-platform-mcps", "agentgateway", "jwt", "extraProviders"}
 	keepProviders(at(ren, providers...), at(cur, providers...), &kept)
 	if len(kept) == 0 {
@@ -82,16 +96,17 @@ func keepList(ren, cur *yaml.Node, list string, kept *[]Kept) {
 // keepJoined merges into the scalar ren — oidc-extra-audience, the
 // StringSlice flag the chart's extraArgs map takes as one comma-separated
 // value — every id of cur that ren lacks: the same scalar, or a list in a
-// hand-written patch. The set is written back comma-joined, ren's ids first.
-func keepJoined(ren, cur *yaml.Node, kept *[]Kept) {
+// hand-written patch. The set is written back comma-joined, ren's ids
+// first, each kept id recorded under list.
+func keepJoined(ren, cur *yaml.Node, list string, kept *[]Kept) {
 	if ren == nil || ren.Kind != yaml.ScalarNode || cur == nil {
 		return
 	}
-	ids := splitAudiences(ren.Value)
+	ids := SplitJoined(ren.Value)
 	for _, id := range audienceIDs(cur) {
 		if !slices.Contains(ids, id) {
 			ids = append(ids, id)
-			*kept = append(*kept, Kept{List: ListExtraAudience, Entry: id})
+			*kept = append(*kept, Kept{List: list, Entry: id})
 		}
 	}
 	ren.Value = strings.Join(ids, ",")
@@ -123,12 +138,12 @@ func keepProviders(ren, cur *yaml.Node, kept *[]Kept) {
 func audienceIDs(n *yaml.Node) []string {
 	switch n.Kind {
 	case yaml.ScalarNode:
-		return splitAudiences(n.Value)
+		return SplitJoined(n.Value)
 	case yaml.SequenceNode:
 		var ids []string
 		for _, item := range n.Content {
 			if item.Kind == yaml.ScalarNode {
-				ids = append(ids, splitAudiences(item.Value)...)
+				ids = append(ids, SplitJoined(item.Value)...)
 			}
 		}
 		return ids
@@ -136,8 +151,9 @@ func audienceIDs(n *yaml.Node) []string {
 	return nil
 }
 
-// splitAudiences splits a comma-separated list of ids, trimmed, none empty.
-func splitAudiences(s string) []string {
+// SplitJoined splits a comma-separated list of ids, trimmed, none empty: the
+// entries of a scalar the plan merges as a set.
+func SplitJoined(s string) []string {
 	var ids []string
 	for _, id := range strings.Split(s, ",") {
 		if id = strings.TrimSpace(id); id != "" {
