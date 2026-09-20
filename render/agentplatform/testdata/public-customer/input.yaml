@@ -15,9 +15,11 @@ input:
       - installation: kestrel
         customer: oakridge
         domain: portal.kestrel.oakridge.example
+        clientId: backstage
       - installation: gopher
         customer: giantswarm
         domain: portal.example.io
+        clientId: Yx7hub0portal0client0id0on0record0
     federation:
       hubs: [gopher]
       targets: []

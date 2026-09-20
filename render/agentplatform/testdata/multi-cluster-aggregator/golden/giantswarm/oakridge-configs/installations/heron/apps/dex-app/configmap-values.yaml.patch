@@ -20,6 +20,7 @@ oidc:
         key: secret
     dexK8SAuthenticator:
       trustedPeers:
+        - Yx7portal0client0id0in0the0patch0only
         - backstage
   extraStaticClients:
     - id: kagent

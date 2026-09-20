@@ -20,6 +20,6 @@ probes:
     expect: [302, 403]
   - id: muster-protected-resource-metadata
     feature: tool-access
-    key: the edge publishes muster's OAuth protected-resource metadata (200)
-    url: https://agentgateway.{{.BaseDomain}}/.well-known/oauth-protected-resource
+    key: muster publishes its OAuth protected-resource metadata (200)
+    url: https://muster.{{.BaseDomain}}/.well-known/oauth-protected-resource
     expect: [200]

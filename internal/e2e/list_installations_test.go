@@ -17,6 +17,7 @@ import (
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 const (
@@ -64,6 +65,14 @@ spec:
 // tunnel on the hub (its Kubernetes cluster entry names the tunnel's Service):
 // the record's private flag.
 const privateFixture = "birch"
+
+// hubPortalClientID is the opaque id of the hub portal's Dex client on record;
+// birchPortalClientID is a portal client id birch's own patch trusts, on
+// record nowhere else.
+const (
+	hubPortalClientID   = "Yx7hub0portal0client0id0on0record0"
+	birchPortalClientID = "Yx7portal0client0id0in0the0patch0only"
+)
 
 func portalConfig(names ...string) string {
 	var b strings.Builder
@@ -151,8 +160,11 @@ func fixtures(g *fakeGitHub) {
 		"management-clusters/" + hub + "/extras/backstage/kustomization.yaml": "# The portal's tree; the platform's fragment joins it as a Component.\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./backstage/\n",
 	})
 	g.addRepo(hubConfigs, map[string]string{
-		installations.ConfigPatchPath(hub):                 "codename: hazel\nbase: example.test\ncustomer: example\nmanagementCluster:\n  private: false\nagentPlatform:\n  kagentApiV2: true\nservices:\n  muster:\n    clientId: muster-hazel\n",
-		installations.Capabilities()[0].EnabledMarker(hub): "configmap: {}\n",
+		installations.ConfigPatchPath(hub): "codename: hazel\nbase: example.test\ncustomer: example\nmanagementCluster:\n  private: false\nagentPlatform:\n  kagentApiV2: true\nservices:\n  muster:\n    clientId: muster-hazel\n",
+		// The hub trusts its portal today: the id is also in its own patch (the union names it once).
+		installations.Capabilities()[0].EnabledMarker(hub): "muster:\n  muster:\n    oauth:\n      server:\n        trustedAudiences:\n          - dex-k8s-authenticator\n          - " + hubPortalClientID + "\n",
+		// The hub portal's Dex client on record: its id is the audience the platform trusts for the portal.
+		installations.DexPatchPath(hub): "oidc:\n  extraStaticClients:\n    - id: " + hubPortalClientID + "\n      name: Dev Portal\n      redirectURIs:\n        - " + render.PortalRedirectURI("portal."+hub+".example.test", hub) + "\n      secretRef: {name: dex-client-backstage, key: secret}\n",
 	})
 	g.addRepo(acmeMCs, map[string]string{
 		installations.OptInPath("birch"):              optedIn,
@@ -163,10 +175,11 @@ func fixtures(g *fakeGitHub) {
 		rowanBackstageKustomization:                   "# The portal's tree; the platform's fragment joins it as a Component.\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./backstage/\n",
 	})
 	g.addRepo(acmeConfigs, map[string]string{
-		installations.ConfigPatchPath("alder"):                 "codename: alder\nbase: acme.test\n",
-		installations.ConfigPatchPath("birch"):                 "codename: birch\nbase: acme.test\n",
-		installations.ConfigPatchPath("rowan"):                 "codename: rowan\nbase: acme.test\nservices:\n  muster:\n    clientId: muster-rowan\n",
-		installations.Capabilities()[0].EnabledMarker("birch"): "configmap: {}\n",
+		installations.ConfigPatchPath("alder"): "codename: alder\nbase: acme.test\n",
+		installations.ConfigPatchPath("birch"): "codename: birch\nbase: acme.test\n",
+		installations.ConfigPatchPath("rowan"): "codename: rowan\nbase: acme.test\nservices:\n  muster:\n    clientId: muster-rowan\n",
+		// birch trusts a portal client that is on record in its own patch only.
+		installations.Capabilities()[0].EnabledMarker("birch"): "muster:\n  muster:\n    oauth:\n      server:\n        trustedAudiences:\n          - dex-k8s-authenticator\n          - " + birchPortalClientID + "\n",
 	})
 	g.addRepo("example/umbrella-management-clusters", map[string]string{installations.OptInPath("willow"): "optIn: false\n"})
 	g.addRepo("example/umbrella-configs", map[string]string{installations.ConfigPatchPath("willow"): "codename: willow\n"})
