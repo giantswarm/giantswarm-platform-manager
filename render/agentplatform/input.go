@@ -95,6 +95,9 @@ type Installation struct {
 	Private        bool   `json:"private"`
 	ChartLine      string `json:"chartLine"`
 	MusterClientID string `json:"musterClientId"`
+	// Hub says this is the registry's hub: its broker releases the person's
+	// GitHub grant to the Dev Portal (hub.go).
+	Hub bool `json:"hub"`
 	// PodCertificateRequest says the cluster serves certificates.k8s.io/v1beta1
 	// PodCertificateRequest, which Agent Substrate needs on the 4 line: the
 	// cluster App on record enables the feature gates, or its chart does by
@@ -124,6 +127,9 @@ type Target struct {
 	Installation string `json:"installation"`
 	BaseDomain   string `json:"baseDomain"`
 	Private      bool   `json:"private"`
+	// AgentPlatform says the target runs the agent platform: a private one
+	// is then also tunnelled to its kagent and its agentgateway.
+	AgentPlatform bool `json:"agentPlatform"`
 }
 
 // groups are the federated MCP server groups of every target: the target's

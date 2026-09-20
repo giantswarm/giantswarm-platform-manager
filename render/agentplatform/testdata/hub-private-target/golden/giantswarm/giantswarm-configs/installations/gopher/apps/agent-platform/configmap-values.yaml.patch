@@ -61,9 +61,12 @@ muster:
                 name: muster-broker-clients
           clientAudiences:
             broker-client-id-placeholder:
+              - github
               - burrow
               - marmot
           targets:
+            github:
+              grantIssuer: https://github.com/login/oauth
             burrow:
               dexTokenEndpoint: https://dex-burrow.agent-platform.svc.cluster.local:8443/token
               expectedIssuer: https://dex.burrow.example.io

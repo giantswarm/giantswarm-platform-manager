@@ -84,3 +84,19 @@ func indent(s, prefix string) string {
 	}
 	return b.String()
 }
+
+// A target's platform fact is the inspected report's enabled marker of the
+// agent-platform capability; a report whose marker was not read knows nothing,
+// so the marker is read for it.
+func TestReportEnabled(t *testing.T) {
+	r := Report{Capabilities: []CapabilityState{{Name: AgentPlatform, State: StateEnabled, Enabled: true}, {Name: CustomerPortal, State: StateUnknown}}}
+	if on, known := r.enabled(AgentPlatform); !on || !known {
+		t.Fatalf("agent-platform: enabled %v known %v", on, known)
+	}
+	if on, known := r.enabled(CustomerPortal); on || known {
+		t.Fatalf("customer-portal, unread: enabled %v known %v", on, known)
+	}
+	if on, known := (&Report{}).enabled(AgentPlatform); on || known {
+		t.Fatalf("no capabilities: enabled %v known %v", on, known)
+	}
+}

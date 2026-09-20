@@ -44,6 +44,22 @@ tunnelport:
       tokens:
         - name: mcp-capi-burrow-bot-token
           consumer: gopher
+    - name: kagent-burrow
+      appLabels:
+        app: kagent
+        cluster: burrow
+        customer: giantswarm
+      tokens:
+        - name: kagent-burrow-bot-token
+          consumer: gopher
+    - name: agentgateway-burrow
+      appLabels:
+        app: agentgateway
+        cluster: burrow
+        customer: giantswarm
+      tokens:
+        - name: agentgateway-burrow-bot-token
+          consumer: gopher
     - name: kubernetes-burrow
       appLabels:
         app: kubernetes
