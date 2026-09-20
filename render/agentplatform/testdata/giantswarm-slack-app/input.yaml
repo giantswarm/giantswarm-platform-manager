@@ -12,6 +12,7 @@ input:
     private: true
     chartLine: "4"
     musterClientId: 00000000-0000-4000-8000-000000000004
+    podCertificateRequest: true
     portals:
       - installation: gopher
         customer: giantswarm

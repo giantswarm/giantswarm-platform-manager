@@ -28,11 +28,14 @@ import (
 
 // Cluster reads one installation's objects as the person: the loop-back
 // through muster's kubernetes tools in production, a fake in tests. resource
-// is a kind or kind.group as the render's probes name it.
+// is a kind or kind.group as the render's probes name it. Serves is API
+// discovery: whether the apiserver serves the resource (plural) of the group
+// at the version.
 type Cluster interface {
 	Get(ctx context.Context, namespace, resource, name string) (map[string]any, error)
 	List(ctx context.Context, namespace, resource, labelSelector string) ([]map[string]any, error)
 	Logs(ctx context.Context, namespace, pod string) (string, error)
+	Serves(ctx context.Context, group, version, resource string) (bool, error)
 }
 
 // Forbidden is the apiserver refusing a read as the person: a result, never
@@ -405,6 +408,8 @@ func (x *executor) run(ctx context.Context, p render.Probe) (Check, []Difference
 		err = x.logAbsent(ctx, &c, p)
 	case render.Drift:
 		diffs, err = x.drift(ctx, &c, p)
+	case render.APIServed:
+		err = x.apiServed(ctx, &c, p)
 	default:
 		c.Message = "probe kind " + string(p.Kind) + " is not one this verify runs"
 	}
@@ -471,6 +476,29 @@ func (x *executor) present(ctx context.Context, c *Check, p render.Probe) error 
 	if len(missing) > 0 {
 		c.Mark, c.Message = Drifted, "missing keys "+strings.Join(missing, ", ")
 	}
+	return nil
+}
+
+// Rolling opens the message of a check that is red because the installation
+// has not caught up with its record yet — an API the record enables and the
+// apiserver does not serve before the control plane has rolled — and not
+// because it is off its definition.
+const Rolling = "rolling: "
+
+// apiServed marks the API the probe names as served by the apiserver, found
+// by discovery; not served, the check reads rolling.
+func (x *executor) apiServed(ctx context.Context, c *Check, p render.Probe) error {
+	resource, group, _ := strings.Cut(p.Resource, ".")
+	served, err := x.opts.Cluster.Serves(ctx, group, p.Expect.Version, resource)
+	if err != nil {
+		return err
+	}
+	api := group + "/" + p.Expect.Version + " " + resource
+	if served {
+		c.Mark, c.Message = AsDefined, "served: "+api
+		return nil
+	}
+	c.Mark, c.Message = Drifted, Rolling+api+" is not served yet"
 	return nil
 }
 

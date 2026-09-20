@@ -11,6 +11,7 @@ input:
     private: false
     chartLine: "3"
     musterClientId: 00000000-0000-4000-8000-000000000003
+    podCertificateRequest: false
     portals:
       - installation: kestrel
         customer: oakridge

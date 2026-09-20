@@ -87,15 +87,20 @@ type Input struct {
 
 // Installation is the record; see the schema for each field.
 type Installation struct {
-	Name           string      `json:"name"`
-	BaseDomain     string      `json:"baseDomain"`
-	Customer       string      `json:"customer"`
-	Provider       string      `json:"provider"`
-	Private        bool        `json:"private"`
-	ChartLine      string      `json:"chartLine"`
-	MusterClientID string      `json:"musterClientId"`
-	Portals        []PortalRef `json:"portals"`
-	Federation     Federation  `json:"federation"`
+	Name           string `json:"name"`
+	BaseDomain     string `json:"baseDomain"`
+	Customer       string `json:"customer"`
+	Provider       string `json:"provider"`
+	Private        bool   `json:"private"`
+	ChartLine      string `json:"chartLine"`
+	MusterClientID string `json:"musterClientId"`
+	// PodCertificateRequest says the cluster serves certificates.k8s.io/v1beta1
+	// PodCertificateRequest, which Agent Substrate needs on the 4 line: the
+	// cluster App on record enables the feature gates, or its chart does by
+	// default (substrate.go).
+	PodCertificateRequest bool        `json:"podCertificateRequest"`
+	Portals               []PortalRef `json:"portals"`
+	Federation            Federation  `json:"federation"`
 }
 
 // PortalRef is a developer portal that signs people in on the installation:
@@ -256,7 +261,8 @@ type document struct {
 // ErrInput naming the location; a record the definition cannot render as it
 // stands (a hub without its broker client, a private target on a hub without a
 // published service-account issuer, the serving slice or a component of the 4
-// chart line on a record that selects the 3 line) is ErrInput too.
+// chart line on a record that selects the 3 line, kagent on the 4 line where
+// the cluster does not serve PodCertificateRequest) is ErrInput too.
 func Parse(raw any) (*Input, error) {
 	schemaBytes, err := definitions.FS.ReadFile("agent-platform/schema.json")
 	if err != nil {
@@ -327,8 +333,16 @@ func (in *Input) checkRecord() error {
 			return fmt.Errorf("%w: installation.chartLine: %s needs the platform's 4 chart line and the record selects the %s line; agentPlatform.kagentApiV2: true in installations/%s/config.yaml.patch selects 4", ErrInput, c, in.Installation.ChartLine, in.Installation.Name)
 		}
 	}
+	if in.kagent() && in.Installation.ChartLine == lineFour && !in.Installation.PodCertificateRequest {
+		return fmt.Errorf("%w: installation.podCertificateRequest: kagent's Agent Substrate on the 4 chart line needs a cluster that serves %s/%s %s, and the record does not say this one does; enable the feature gates %s under cluster.internal.advancedConfiguration.{%s}.featureGates in the cluster App's values (management-clusters/%s/cluster-app-manifests.yaml), or run a cluster App chart that enables them by default (%s and later)",
+			ErrInput, apiGroup(PodCertificateRequestResource), PodCertificateRequestVersion, apiResource(PodCertificateRequestResource), strings.Join(PodCertificateRequestGates, ", "), strings.Join(PodCertificateRequestComponents, ","), in.Installation.Name, podCertificateRequestDefaults())
+	}
 	return nil
 }
+
+// apiResource and apiGroup split a probe's resource.group.
+func apiResource(resource string) string { r, _, _ := strings.Cut(resource, "."); return r }
+func apiGroup(resource string) string    { _, g, _ := strings.Cut(resource, "."); return g }
 
 // hasPrivateTarget says whether any federated target is reached through the tunnel.
 func (in *Input) hasPrivateTarget() bool {

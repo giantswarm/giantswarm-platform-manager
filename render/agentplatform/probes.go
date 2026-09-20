@@ -1,6 +1,10 @@
 package agentplatform
 
-import "github.com/giantswarm/giantswarm-platform-manager/render"
+import (
+	"strings"
+
+	"github.com/giantswarm/giantswarm-platform-manager/render"
+)
 
 // The features of definitions/agent-platform/features.yaml a probe or an
 // action belongs to.
@@ -64,6 +68,9 @@ func (in *Input) probes() []render.Probe {
 		audience := resourceProbe("live-oauth2-proxy-audience", featureIdentity, render.LogAbsent, kagentNamespace, "Deployment", oauth2ProxyDeployment)
 		audience.Expect.Absent = "audience .* does not match"
 		p = append(p, audience)
+	}
+	if in.kagent() && in.Installation.ChartLine == lineFour {
+		p = append(p, in.podCertificateRequestProbe())
 	}
 	p = append(p, driftProbe("live-drift", featureRuntime, fluxNamespace, "HelmRelease", "agent-platform",
 		"the values the HelmRelease reads from its ConfigMaps are the rendered values"))
@@ -134,6 +141,23 @@ func (in *Input) helmReleases() []string {
 func (in *Input) modelConfigProbe() render.Probe {
 	p := conditionProbe(modelKeyDimension, featureRuntime, kagentNamespace, "ModelConfig.kagent.dev", "default-model-config", "Accepted", conditionTrue)
 	p.Expect.Note = "waiting for the customer's model key (Secret " + modelKeySecret + ", key " + modelKeySecretKey + ", or a ModelConfig in the portal)"
+	return p
+}
+
+// podCertificateRequestDimension is the live dimension of the API Agent
+// Substrate needs served.
+const podCertificateRequestDimension = "live-pod-certificate-request"
+
+// podCertificateRequestProbe discovers the API Agent Substrate needs through
+// the installation's apiserver. Rendered where kagent runs on the 4 line,
+// which the plan lets through only with the record saying the cluster has
+// the gates: not served, the check reads rolling — the control plane and the
+// nodes roll after the gates are set, and the meta chart's install waits for
+// the API — never a fault of the installation.
+func (in *Input) podCertificateRequestProbe() render.Probe {
+	p := render.Probe{ID: podCertificateRequestDimension, Feature: featureRuntime, Kind: render.APIServed, Resource: PodCertificateRequestResource}
+	p.Expect = render.Expectation{Version: PodCertificateRequestVersion,
+		Note: "the record enables the feature gates " + strings.Join(PodCertificateRequestGates, ", ") + " (the cluster App's values, or its chart's default); the API is served once the control plane has rolled with them, and Agent Substrate's install waits for it"}
 	return p
 }
 

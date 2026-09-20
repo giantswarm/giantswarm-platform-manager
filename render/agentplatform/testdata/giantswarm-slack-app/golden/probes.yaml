@@ -198,6 +198,13 @@
   name: kagent-oauth2-proxy
   expect:
     absent: audience .* does not match
+- id: live-pod-certificate-request
+  feature: runtime
+  kind: APIServed
+  resource: podcertificaterequests.certificates.k8s.io
+  expect:
+    version: v1beta1
+    note: the record enables the feature gates PodCertificateRequest, ClusterTrustBundle, ClusterTrustBundleProjection (the cluster App's values, or its chart's default); the API is served once the control plane has rolled with them, and Agent Substrate's install waits for it
 - id: live-drift
   feature: runtime
   kind: Drift

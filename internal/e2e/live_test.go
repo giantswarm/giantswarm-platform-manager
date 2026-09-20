@@ -24,6 +24,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // The objects of the live dimensions the tests change.
@@ -220,6 +221,14 @@ func TestVerifyInstallationAsDefined(t *testing.T) {
 		// to hold the live one against, and the verify says so.
 		if id == "live-muster-connector-and-client-id" {
 			if d.Mark != verify.NotChecked || !strings.Contains(d.Reason, "the render carries no value at muster.muster.oauth.server.dex.connectorId") {
+				t.Errorf("%s: %s (%s)", id, d.Mark, d.Reason)
+			}
+			continue
+		}
+		// rowan runs the 3 line: the API Agent Substrate needs on the 4 line
+		// is not probed, and the dimension says so.
+		if id == "live-pod-certificate-request" {
+			if d.Mark != verify.NotChecked || d.Reason != verify.ReasonNoProbe {
 				t.Errorf("%s: %s (%s)", id, d.Mark, d.Reason)
 			}
 			continue
@@ -445,5 +454,54 @@ func TestGetInfoReportsTheLiveSurface(t *testing.T) {
 	if !info.Live.Configured || info.Live.ToolPrefix != tools.LiveToolPrefix || info.Live.Tool != tools.ToolVerifyInstallation || info.Live.Issuer != st.dex.issuer || info.Live.KubernetesFamily != kubernetesFamily ||
 		!reflect.DeepEqual(info.Live.Audiences, []string{liveAudience, liveRequiredAudience}) || !reflect.DeepEqual(info.Live.Tools, []string{tools.ToolVerifyInstallation, tools.ToolWatchAction}) {
 		t.Errorf("live: %+v", info.Live)
+	}
+}
+
+// On the 4 line the runtime feature reads the API Agent Substrate needs
+// through discovery: served, the dimension is as defined; while the record
+// says the cluster has the gates and the apiserver does not serve
+// certificates.k8s.io/v1beta1 podcertificaterequests yet — the control plane
+// rolls after the gates are set — the check reads rolling and the feature is
+// marked, never as a fault of a different kind. rowan's record is typed onto
+// the 4 line with the fact, the way a person checks a plan before the merge.
+func TestVerifyInstallationReadsRollingUntilPodCertificateRequestIsServed(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	inputs := kagentEnabled()
+	inputs[argInstallation] = map[string]any{"chartLine": "4", "podCertificateRequest": true}
+	enableRowanLive(t, st, st.mcpClient(t, aliceToken), inputs)
+	admin := st.dex.token(t, liveAdmin, []string{liveAudience}, time.Hour)
+	const dimension = "live-pod-certificate-request"
+
+	res := verifyLive(t, st.liveClient(t, admin), rowan)
+	d := liveDimensions(res)[dimension]
+	if d.Mark != verify.AsDefined || d.Live == nil || len(d.Live.Checks) != 1 || d.Live.Checks[0].Kind != string(render.APIServed) || d.Live.Checks[0].Message != "served: certificates.k8s.io/v1beta1 podcertificaterequests" {
+		t.Fatalf("served: %+v", d)
+	}
+	var discovered bool
+	for _, c := range st.muster.seen() {
+		discovered = discovered || (c.Tool == opAPIResources && c.Args["apiGroup"] == "certificates.k8s.io" && c.Args[instanceArg] == rowan && c.Person == liveAdmin)
+	}
+	if !discovered {
+		t.Errorf("discovery ran through muster as the person: %+v", st.muster.seen())
+	}
+
+	st.inst.unserveAPI("certificates.k8s.io", "podcertificaterequests")
+	res = verifyLive(t, st.liveClient(t, admin), rowan)
+	d = liveDimensions(res)[dimension]
+	if d.Mark != verify.Drifted || d.Live == nil || len(d.Live.Checks) != 1 || !strings.HasPrefix(d.Live.Checks[0].Message, verify.Rolling) || !strings.Contains(d.Live.Checks[0].Message, "certificates.k8s.io/v1beta1 podcertificaterequests is not served yet") || !strings.Contains(d.Live.Checks[0].Note, "PodCertificateRequest, ClusterTrustBundle, ClusterTrustBundleProjection") {
+		t.Fatalf("not served: %+v", d)
+	}
+	var runtime verify.Feature
+	for _, f := range res.Features {
+		if f.ID == "runtime" {
+			runtime = f
+		}
+	}
+	if runtime.Mark != verify.Drifted || res.State != installations.StateDrifted {
+		t.Errorf("the runtime feature is marked: %s, state %s", runtime.Mark, res.State)
+	}
+	if p := recordedProbes(t, st)[dimension]; p.Result != string(verify.Drifted) {
+		t.Errorf("recorded: %+v", p)
 	}
 }

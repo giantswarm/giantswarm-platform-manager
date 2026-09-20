@@ -35,6 +35,12 @@ type Record struct {
 	// MusterClientID is services.muster.clientId in config.yaml.patch, when
 	// the installation sets one.
 	MusterClientID string `json:"musterClientId,omitempty"`
+	// PodCertificateRequest says the cluster serves certificates.k8s.io/v1beta1
+	// PodCertificateRequest — what kagent's Agent Substrate needs on the 4
+	// chart line: the cluster App on record (cluster-app-manifests.yaml in the
+	// management-clusters repository) enables the feature gates, or its chart
+	// does by default; read by readPodCertificateRequest.
+	PodCertificateRequest bool `json:"podCertificateRequest"`
 }
 
 // configPatch is the part of config.yaml.patch the record reads.
@@ -121,6 +127,9 @@ func Inspect(ctx context.Context, c *github.Client, inst Installation, caps []Ca
 		r.Errors = append(r.Errors, err.Error())
 	} else {
 		r.Record = record
+		if record.PodCertificateRequest, err = readPodCertificateRequest(ctx, c, inst); err != nil {
+			r.Errors = append(r.Errors, err.Error())
+		}
 	}
 
 	r.Readable = optIn.State != OptInUnreadable && err == nil
@@ -272,7 +281,7 @@ func inspectAll(ctx context.Context, c *github.Client, insts []Installation, cap
 // types only what is not there.
 func (r *Record) Input() map[string]any {
 	return map[string]any{"name": r.Name, "baseDomain": r.BaseDomain, "customer": r.Customer, "provider": r.Provider,
-		"private": r.Private, "chartLine": r.ChartLine, "musterClientId": r.MusterClientID}
+		"private": r.Private, "chartLine": r.ChartLine, "musterClientId": r.MusterClientID, "podCertificateRequest": r.PodCertificateRequest}
 }
 
 // Facts are every installation fact on record, as a definition's inputs name

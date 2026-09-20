@@ -154,6 +154,10 @@ const (
 	LogAbsent ProbeKind = "LogAbsent"
 	// Drift is a live object whose values equal what the rendered files imply.
 	Drift ProbeKind = "Drift"
+	// APIServed is an API the installation's apiserver serves, found by
+	// discovery: Resource is the resource and its group
+	// (podcertificaterequests.certificates.k8s.io), Expect.Version the version.
+	APIServed ProbeKind = "APIServed"
 )
 
 // Expectation is what a probe expects; the fields its kind does not read stay zero.
@@ -165,6 +169,7 @@ type Expectation struct {
 	ConditionStatus  string   `yaml:"conditionStatus,omitempty"`  // Condition: True or False
 	Absent           string   `yaml:"absent,omitempty"`           // LogAbsent: a pattern that must not appear in the workload's log
 	Keys             []string `yaml:"keys,omitempty"`             // ResourcePresent on a Secret: the keys it carries
+	Version          string   `yaml:"version,omitempty"`          // APIServed: the API version the resource is served at
 	Note             string   `yaml:"note,omitempty"`             // one sentence a person reads next to the mark (e.g. what a False means)
 	// Compare lists, for a Drift probe, the places of the live object that are
 	// compared to the render; empty compares the object's whole user values

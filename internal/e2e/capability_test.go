@@ -326,3 +326,58 @@ func TestGetActionOnASeededAction(t *testing.T) {
 		t.Fatalf("last actions: rowan %+v, birch %+v", rowan, birch)
 	}
 }
+
+// The 4 line's prerequisite: kagent's Agent Substrate needs a cluster that
+// serves PodCertificateRequest, and the record says whether it does — the
+// cluster App's values in the management-clusters repository enable the
+// three feature gates, or its chart does by default. rowan's manifest is on
+// record without them (cluster-aws 10.2.0, no gates), so its record reads
+// false and the 3 line renders regardless; typed onto the 4 line it is refused
+// at plan time naming the fact, the gates, the path and the charts, and the
+// dry run says a commit would be refused. The hub's manifest carries the
+// gates: its record reads true and the 4 line renders with the probe of the
+// API among the runtime feature's.
+func TestEnableCapabilityRefusesTheFourLineWithoutPodCertificateRequest(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	out, text, isErr := dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan})
+	if isErr {
+		t.Fatal(text)
+	}
+	p := findPlan(t, out, rowan)
+	if p.Refused != "" || p.Inputs["installation"].(map[string]any)["podCertificateRequest"] != false {
+		t.Fatalf("rowan on the 3 line renders with the record saying no: refused %q, inputs %v", p.Refused, p.Inputs["installation"])
+	}
+	out, text, isErr = dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan,
+		tools.ArgInputs: map[string]any{argInstallation: map[string]any{"chartLine": "4"}}})
+	if isErr {
+		t.Fatal(text)
+	}
+	p = findPlan(t, out, rowan)
+	for _, want := range []string{"installation.podCertificateRequest", "certificates.k8s.io/v1beta1 podcertificaterequests",
+		"PodCertificateRequest, ClusterTrustBundle, ClusterTrustBundleProjection", "controlPlane.apiServer,controlPlane.controllerManager,kubelet",
+		installations.ClusterAppManifestPath(rowan), "cluster-aws 10.3.0, cluster-azure 9.3.0, cluster-cloud-director 7.3.0"} {
+		if !strings.Contains(p.Refused, want) {
+			t.Errorf("refused %q does not name %q", p.Refused, want)
+		}
+	}
+	if p.CommitRefused == "" || !strings.Contains(p.CommitRefused, "refuses these inputs") || len(p.Files) != 0 || len(out.PullRequests) != 0 {
+		t.Fatalf("a refused render commits nothing: commitRefused %q, files %d, pull requests %d", p.CommitRefused, len(p.Files), len(out.PullRequests))
+	}
+	out, text, isErr = dryRun(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallations: []string{hub}})
+	if isErr {
+		t.Fatal(text)
+	}
+	p = findPlan(t, out, hub)
+	if p.Refused != "" || p.Inputs["installation"].(map[string]any)["podCertificateRequest"] != true || p.Inputs["installation"].(map[string]any)["chartLine"] != "4" {
+		t.Fatalf("the hub's record carries the gates: refused %q, inputs %v", p.Refused, p.Inputs["installation"])
+	}
+	var probed bool
+	for _, pr := range p.Probes {
+		probed = probed || (pr.ID == "live-pod-certificate-request" && pr.Feature == "runtime")
+	}
+	if !probed {
+		t.Errorf("the 4 line's plan names the API's live dimension: %+v", p.Probes)
+	}
+}

@@ -100,14 +100,53 @@ func extrasKustomizationPath(installation string) string {
 	return "management-clusters/" + installation + "/extras/kustomization.yaml"
 }
 
+// clusterAppManifest renders an installation's cluster App manifest as the
+// management-clusters repositories keep it: the ConfigMap with the chart's
+// values and the App of the provider's cluster chart. With gates, the values
+// carry the three feature gates Agent Substrate needs on every kubeadm
+// component — the shape the installations that run the platform's 4 line
+// carry; without, the record runs a chart before the gates' default and says
+// the cluster does not serve PodCertificateRequest.
+func clusterAppManifest(installation, chart, version string, gates bool) string {
+	values := "global:\n  metadata:\n    name: " + installation + "\n"
+	if gates {
+		values += "cluster:\n  internal:\n    advancedConfiguration:\n      controlPlane:\n        apiServer:\n" + substrateGates("          ") +
+			"        controllerManager:\n" + substrateGates("          ") + "      kubelet:\n" + substrateGates("        ")
+	}
+	return "---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: " + installation + "-userconfig\n  namespace: org-giantswarm\ndata:\n  values: |\n" + indentLines(values, "    ") +
+		"---\napiVersion: application.giantswarm.io/v1alpha1\nkind: App\nmetadata:\n  name: " + installation + "\n  namespace: org-giantswarm\nspec:\n  catalog: cluster\n  name: " + chart + "\n  version: " + version + "\n  userConfig:\n    configMap:\n      name: " + installation + "-userconfig\n      namespace: org-giantswarm\n"
+}
+
+// substrateGates is a component's featureGates list with the three gates
+// enabled, at indent.
+func substrateGates(indent string) string {
+	var b strings.Builder
+	b.WriteString(indent + "featureGates:\n")
+	for _, g := range []string{"PodCertificateRequest", "ClusterTrustBundle", "ClusterTrustBundleProjection"} {
+		b.WriteString(indent + "  - name: " + g + "\n" + indent + "    enabled: true\n")
+	}
+	return b.String()
+}
+
+func indentLines(s, prefix string) string {
+	var b strings.Builder
+	for _, line := range strings.SplitAfter(s, "\n") {
+		if line != "" {
+			b.WriteString(prefix + line)
+		}
+	}
+	return b.String()
+}
+
 func fixtures(g *fakeGitHub) {
 	g.addRepo(registryRepo, map[string]string{registryPath: "---\napiVersion: backstage.io/v1alpha1\nkind: Group\nmetadata:\n    name: acme\nspec:\n    type: customer\n" +
 		resource(hub, "example", "capa", "example.test") + resource("alder", "acme", "capa", "acme.test") + resource("birch", "acme", "capa", "acme.test") +
 		resource("rowan", "acme", "capa", "acme.test") + resource("willow", "umbrella", "capz", "umbrella.test") + resource("oak", "sealed", "capa", "sealed.test")})
 	g.addRepo(hubMCs, map[string]string{
-		installations.PortalConfigPath(hub): portalConfig(hub, "alder", "birch", "rowan", "willow", "oak", "larch"),
-		installations.OptInPath(hub):        optedIn,
-		extrasKustomizationPath(hub):        extrasListingEverything,
+		installations.PortalConfigPath(hub):       portalConfig(hub, "alder", "birch", "rowan", "willow", "oak", "larch"),
+		installations.OptInPath(hub):              optedIn,
+		installations.ClusterAppManifestPath(hub): clusterAppManifest(hub, "cluster-aws", "10.2.0", true),
+		extrasKustomizationPath(hub):              extrasListingEverything,
 		// The hub's portal lists the hub itself: the platform's fragment joins the hub's portal tree as a Component.
 		"management-clusters/" + hub + "/extras/backstage/kustomization.yaml": "# The portal's tree; the platform's fragment joins it as a Component.\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./backstage/\n",
 	})
@@ -116,11 +155,12 @@ func fixtures(g *fakeGitHub) {
 		installations.Capabilities()[0].EnabledMarker(hub): "configmap: {}\n",
 	})
 	g.addRepo(acmeMCs, map[string]string{
-		installations.OptInPath("birch"): optedIn,
-		extrasKustomizationPath("birch"): extrasListingEverything,
-		installations.OptInPath("rowan"): optedIn,
-		extrasKustomizationPath("rowan"): extrasKustomization,
-		rowanBackstageKustomization:      "# The portal's tree; the platform's fragment joins it as a Component.\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./backstage/\n",
+		installations.OptInPath("birch"):              optedIn,
+		extrasKustomizationPath("birch"):              extrasListingEverything,
+		installations.OptInPath("rowan"):              optedIn,
+		installations.ClusterAppManifestPath("rowan"): clusterAppManifest("rowan", "cluster-aws", "10.2.0", false),
+		extrasKustomizationPath("rowan"):              extrasKustomization,
+		rowanBackstageKustomization:                   "# The portal's tree; the platform's fragment joins it as a Component.\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./backstage/\n",
 	})
 	g.addRepo(acmeConfigs, map[string]string{
 		installations.ConfigPatchPath("alder"):                 "codename: alder\nbase: acme.test\n",
