@@ -17,11 +17,41 @@ policy decides once, and what the definition drops. The render library reads it.
 | Every hostname and URL, `global.domain`, the chart range, the managers' OAuth on the 3 line | the record: `config.yaml.patch` and the catalog (`installation.name`, `baseDomain`, `chartLine`, `musterClientId`, `provider`) |
 | The private-address flags of muster and the MCP servers, a hub's tunnel to the installation | `installation.private`: reached through Teleport — a portal on record reaches the installation's Kubernetes API through the tunnel on its host, not at its API |
 | Which components run (kagent, agent-manager, cluster-manager), the gateway's Slack/OBO/A2A/reviews shape, the cluster-manager's egress | `policy.yaml` by `installation.customer`; the egress by `installation.provider`. The cluster-manager is the 4 chart line's: a record on the 3 line whose organisation is granted it is refused at plan time, naming the component and `agentPlatform.kagentApiV2`, the key of `config.yaml.patch` that selects the line |
+| Whether the cluster serves `certificates.k8s.io/v1beta1 PodCertificateRequest`, which kagent's Agent Substrate needs on the 4 line (below) | `installation.podCertificateRequest`: the cluster App on record in `management-clusters/<name>/cluster-app-manifests.yaml` — its values enable the three feature gates on every kubeadm component, or its chart enables them by default. Renders nothing; a 4-line record with kagent and `false` is refused at plan time, `true` renders the live probe `live-pod-certificate-request` |
 | Whether the chat gateway runs (klaus-gateway with its generated OBO keys and its supplied Slack credentials) | `policy.yaml`'s `klausGateway.installations` by `installation.name`: the installations a Slack app exists for |
 | The portals' Dex client (`backstage`, one redirect URI per portal), the audiences muster and the kagent UI accept, the edge's JWT provider on the 4 line, the post-login allowlist where the gateway runs, the portal section in the organisation's own portal | `installation.portals`: every portal whose `gs.installations` lists the installation (the hub's Dev Portal, the organisation's `customer-portal` installations) |
 | The hubs' token-exchange clients in this Dex; a hub's broker, identity providers, the targets' MCP servers, credentials Secrets, the tunnel and the hub's entries of teleport-fleet's tunnelport values (the hub as a consumer, its trust-bundle token, one tunnel per tunnelled app, edited into `kubernetes/envs/prod/values.yaml` beside every other hub's) | `installation.federation`: the portals' `clusterTokenBroker` names the hub, its `gs.installations` the targets; the broker client id is read back from the hub's patch; a private target's tunnel joins by the hub's published service-account issuer (`https://irsa.<base domain>` on capa — another provider refuses a private target); the Teleport cluster is `policy.yaml`'s |
 | The serving slice (`components.kserve-llmisvc-*`, `components.modelServing`, `modelServing.serving`, `modelServing.modelsGateway`) | the one choice, `modelServing.enabled`, on the 4 chart line |
 | The platform's own MCP servers, the login connector, `allowPrivateIPOIDC`, `forbidInlineSecrets`, the default model, muster's trusted issuers, resources | the shared-configs template — a hand-written copy is a removal, not an input |
+
+## The 4 chart line's prerequisites
+
+The 4 line is selected by the record (`agentPlatform.kagentApiV2: true` in `installations/<name>/config.yaml.patch`)
+and needs, beyond the 3 line's, a cluster that serves `certificates.k8s.io/v1beta1 PodCertificateRequest`: kagent's
+Agent Substrate (meta chart 4.49.0 and later) issues each agent's pod certificates through it and distributes its
+CA through `ClusterTrustBundle` projected volumes, and the meta chart refuses its install at render time where the
+API is not served. That takes Kubernetes 1.35 with the feature gates `PodCertificateRequest`, `ClusterTrustBundle`
+and `ClusterTrustBundleProjection` enabled on the API server, the controller manager and every kubelet — a fact of
+the cluster App on record, `management-clusters/<name>/cluster-app-manifests.yaml` in the installation's
+management-clusters repository, which the plan derives `installation.podCertificateRequest` from:
+
+- the App's values (the ConfigMap its `userConfig` names) carry the three gates enabled in each of
+  `cluster.internal.advancedConfiguration.controlPlane.apiServer.featureGates`,
+  `.controlPlane.controllerManager.featureGates` and `.kubelet.featureGates` (entries of
+  `{name, enabled, minKubernetesVersion}`; a list on record replaces the chart's default list, so it carries every
+  gate the component needs), or
+- for a component whose list the record does not set, the App's chart enables them by default: the cluster chart
+  8.3.0 and later ([giantswarm/cluster#1005](https://github.com/giantswarm/cluster/pull/1005)), which the provider
+  charts ship from `cluster-aws` 10.3.0, `cluster-azure` 9.3.0 and `cluster-cloud-director` 7.3.0 (the table in
+  `substrate.go`; a chart not in it — `cluster-vsphere` until it releases the pin, `cluster-eks` — counts only where
+  the record sets the gates).
+
+With kagent rendered on the 4 line and the fact `false`, the plan refuses — `installation.podCertificateRequest: …`
+naming the gates, the path and the charts — and the dry run says a commit would be refused (`commitRefused`); the
+3 line renders whatever the fact says. With the fact `true`, the runtime feature's live dimension
+`live-pod-certificate-request` discovers the API through the installation's apiserver: served, as defined; while
+the control plane and the nodes still roll after the gates were set, the check reads `rolling: …` and the feature
+is marked, the meta chart's install waiting for the same API.
 
 Credentials are generated by the engine as SOPS-encrypted Secrets under `extras/agent-platform/secrets/`, every
 value named per installation so that no secret is ever shared between installations or organisations (the

@@ -133,6 +133,56 @@ func TestGoldensCoverBothLines(t *testing.T) {
 	}
 }
 
+// The probe of the API Agent Substrate needs renders where kagent runs on the
+// 4 line and nowhere else: a 4-line shape the plan lets through has the
+// record saying yes, and the probe reads the apiserver for it; a 3-line
+// shape renders no such probe whatever its record says. The chart table
+// answers by chart and version, a version below the first or a chart it
+// does not know being no.
+func TestPodCertificateRequestProbeAndChartTable(t *testing.T) {
+	for _, shape := range shapes {
+		input, secrets := loadInput(t, shape)
+		in, err := Parse(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := Render(input, secrets)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var probed int
+		for _, p := range result.Probes {
+			if p.ID == podCertificateRequestDimension {
+				probed++
+				if p.Kind != render.APIServed || p.Feature != featureRuntime || p.Resource != PodCertificateRequestResource || p.Expect.Version != PodCertificateRequestVersion || p.Expect.Note == "" {
+					t.Errorf("%s: the probe %+v", shape, p)
+				}
+			}
+		}
+		if want := in.kagent() && in.Installation.ChartLine == lineFour; (probed == 1) != want || probed > 1 {
+			t.Errorf("%s (line %s, kagent %v): %d probe(s) of the API", shape, in.Installation.ChartLine, in.kagent(), probed)
+		}
+	}
+	type at struct {
+		version string
+		want    bool
+	}
+	for chart, versions := range map[string][]at{
+		"cluster-aws":            {{"10.3.0", true}, {"v10.4.2", true}, {"10.2.9", false}, {"latest", false}},
+		"cluster-azure":          {{"9.3.0", true}, {"9.2.0", false}},
+		"cluster-cloud-director": {{"7.3.0", true}, {"7.2.0", false}},
+		"cluster-vsphere":        {{"9.2.0", false}},
+		"cluster-eks":            {{"3.0.0", false}},
+		"":                       {{"", false}},
+	} {
+		for _, c := range versions {
+			if got := ClusterChartHasPodCertificateRequest(chart, c.version); got != c.want {
+				t.Errorf("%s %s: %v, want %v", chart, c.version, got, c.want)
+			}
+		}
+	}
+}
+
 func TestSecretFilesCarryNoValues(t *testing.T) {
 	for _, shape := range shapes {
 		input, secrets := loadInput(t, shape)
@@ -267,7 +317,16 @@ func TestProbesAreLiveDimensions(t *testing.T) {
 	if len(live) == 0 {
 		t.Fatal("features.yaml has no live dimension")
 	}
+	// probed is, per dimension, the shape that probes it: the public-customer
+	// shape stands for every dimension but the 4 line's own, which a 4-line
+	// shape (giantswarm-owned) stands for.
 	probed := map[string]bool{}
+	standsFor := func(shape, id string) bool {
+		if id == podCertificateRequestDimension {
+			return shape == shapeGiantswarmOwned
+		}
+		return shape == shapePublicCustomer
+	}
 	for _, shape := range shapes {
 		input, secrets := loadInput(t, shape)
 		result, err := Render(input, secrets)
@@ -286,7 +345,7 @@ func TestProbesAreLiveDimensions(t *testing.T) {
 			if feature != p.Feature {
 				t.Errorf("%s: probe %s names feature %s, features.yaml has it under %s", shape, p.ID, p.Feature, feature)
 			}
-			if shape == shapePublicCustomer {
+			if standsFor(shape, p.ID) {
 				probed[p.ID] = true
 			}
 		}
@@ -303,7 +362,7 @@ func TestProbesAreLiveDimensions(t *testing.T) {
 	sort.Strings(ids)
 	for _, id := range ids {
 		if !probed[id] {
-			t.Errorf("live dimension %s of feature %s has no probe on the public-customer shape", id, live[id])
+			t.Errorf("live dimension %s of feature %s has no probe on the shape that stands for it", id, live[id])
 		}
 	}
 }
@@ -316,6 +375,10 @@ func TestRefusals(t *testing.T) {
 	lineThreeOwned, _ := loadInput(t, shapeGiantswarmOwned)
 	lineThreeOwned["installation"].(map[string]any)["chartLine"] = lineThree
 	delete(lineThreeOwned, "modelServing")
+	// A 4-line record whose cluster App does not say the cluster serves
+	// PodCertificateRequest: no gates on record, a chart before the default.
+	noPodCertificateRequest, _ := loadInput(t, shapePublicCustomer)
+	noPodCertificateRequest["installation"].(map[string]any)["chartLine"] = lineFour
 	target := func(private bool) map[string]any {
 		return map[string]any{"installation": "x", "baseDomain": "x.example", "private": private}
 	}
@@ -344,6 +407,7 @@ func TestRefusals(t *testing.T) {
 		{"the model key is never supplied", base, map[string]string{"kagent.modelKey": "x"}, ErrUnknownSecret, "kagent.modelKey"},
 		{"serving on the 3 line", clone(func(m map[string]any) { m["modelServing"] = map[string]any{"enabled": true} }), secrets, ErrInput, "modelServing.enabled"},
 		{"a component of the 4 line on a record that selects the 3 line", lineThreeOwned, nil, ErrInput, "cluster-manager needs the platform's 4 chart line and the record selects the 3 line; agentPlatform.kagentApiV2: true in installations/gopher/config.yaml.patch selects 4"},
+		{"kagent on the 4 line where the record does not say the cluster serves PodCertificateRequest", noPodCertificateRequest, secrets, ErrInput, "installation.podCertificateRequest: kagent's Agent Substrate on the 4 chart line needs a cluster that serves certificates.k8s.io/v1beta1 podcertificaterequests, and the record does not say this one does; enable the feature gates PodCertificateRequest, ClusterTrustBundle, ClusterTrustBundleProjection under cluster.internal.advancedConfiguration.{controlPlane.apiServer,controlPlane.controllerManager,kubelet}.featureGates in the cluster App's values (management-clusters/" + noPodCertificateRequest["installation"].(map[string]any)["name"].(string) + "/cluster-app-manifests.yaml), or run a cluster App chart that enables them by default (cluster-aws 10.3.0, cluster-azure 9.3.0, cluster-cloud-director 7.3.0 and later)"},
 		{"targets without a broker client", clone(func(m map[string]any) {
 			federation(m)["targets"] = []any{target(false)}
 		}), secrets, ErrInput, "federation.brokerClientId"},

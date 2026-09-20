@@ -1,10 +1,13 @@
 package verify
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // A live path walks maps, greedy over keys that contain dots, indexes lists,
@@ -111,5 +114,49 @@ func TestDeepMergeReplacesEverythingButMaps(t *testing.T) {
 	want := map[string]string{"a.x": "1", "a.y[0]": "2", "a.y[1]": "3", "a.z": "true", "b.n": "1"}
 	if d := diffPaths(want, flat); len(d) > 0 {
 		t.Errorf("merged %v, differs at %v", flat, d)
+	}
+}
+
+// discoveryCluster is a Cluster that serves what it is told and reads nothing else.
+type discoveryCluster struct {
+	served map[string]bool // group/version resource
+	err    error
+}
+
+func (c discoveryCluster) Get(context.Context, string, string, string) (map[string]any, error) {
+	return nil, errors.New("not read")
+}
+func (c discoveryCluster) List(context.Context, string, string, string) ([]map[string]any, error) {
+	return nil, errors.New("not read")
+}
+func (c discoveryCluster) Logs(context.Context, string, string) (string, error) {
+	return "", errors.New("not read")
+}
+func (c discoveryCluster) Serves(_ context.Context, group, version, resource string) (bool, error) {
+	return c.served[group+"/"+version+" "+resource], c.err
+}
+
+// An APIServed probe reads discovery: the API served is as defined; not
+// served, the check is red and reads rolling — the record enables what the
+// apiserver has not caught up with; a refusal of the read is not checked
+// with the reason, as any probe's.
+func TestAPIServedProbeReadsRolling(t *testing.T) {
+	probe := render.Probe{ID: "live-api", Feature: "runtime", Kind: render.APIServed, Resource: "podcertificaterequests.certificates.k8s.io", Expect: render.Expectation{Version: "v1beta1", Note: "the note"}}
+	for _, c := range []struct {
+		name    string
+		cluster discoveryCluster
+		mark    Mark
+		message string
+	}{
+		{"served", discoveryCluster{served: map[string]bool{"certificates.k8s.io/v1beta1 podcertificaterequests": true}}, AsDefined, "served: certificates.k8s.io/v1beta1 podcertificaterequests"},
+		{"another version", discoveryCluster{served: map[string]bool{"certificates.k8s.io/v1 podcertificaterequests": true}}, Drifted, Rolling + "certificates.k8s.io/v1beta1 podcertificaterequests is not served yet"},
+		{"not served", discoveryCluster{}, Drifted, Rolling + "certificates.k8s.io/v1beta1 podcertificaterequests is not served yet"},
+		{"forbidden", discoveryCluster{err: &Forbidden{Person: "p", Reason: "no"}}, NotChecked, "forbidden for p: no"},
+	} {
+		x := &executor{opts: LiveOptions{Cluster: c.cluster}}
+		check, diffs, auth := x.run(context.Background(), probe)
+		if check.Mark != c.mark || check.Message != c.message || check.Note != "the note" || check.Kind != string(render.APIServed) || check.Resource != probe.Resource || len(diffs) != 0 || auth != nil {
+			t.Errorf("%s: %+v (diffs %d, auth %v)", c.name, check, len(diffs), auth)
+		}
 	}
 }

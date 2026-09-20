@@ -18,6 +18,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -57,6 +58,12 @@ const (
 	// are under, and instanceArg the argument that selects it.
 	kubernetesFamily = "kubernetes"
 	instanceArg      = "management_cluster"
+)
+
+// The kubernetes tools' operations behind the family.
+const (
+	opGet          = "get"
+	opAPIResources = "api_resources"
 )
 
 // fakeDex is the platform identity provider: it signs ID tokens for the
@@ -128,15 +135,56 @@ func personOf(bearer string) string {
 	return claims.Email
 }
 
-// fakeInstallation is one installation's objects and pod logs.
+// fakeInstallation is one installation's objects, pod logs and the APIs its
+// apiserver serves.
 type fakeInstallation struct {
 	mu      sync.Mutex
 	objects map[string]map[string]any // kind|namespace|name, kind lowercased
 	logs    map[string]string         // namespace/pod
+	apis    []apiResource             // what discovery lists
+}
+
+// apiResource is one API resource discovery lists, as mcp-kubernetes's
+// api_resources answers it.
+type apiResource struct {
+	Name       string   `json:"name"`
+	Kind       string   `json:"kind"`
+	Group      string   `json:"group"`
+	Version    string   `json:"version"`
+	Namespaced bool     `json:"namespaced"`
+	Verbs      []string `json:"verbs"`
 }
 
 func newFakeInstallation() *fakeInstallation {
 	return &fakeInstallation{objects: map[string]map[string]any{}, logs: map[string]string{}}
+}
+
+// serveAPI makes discovery list the resource of the group at the version.
+func (f *fakeInstallation) serveAPI(group, version, resource, kind string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.apis = append(f.apis, apiResource{Name: resource, Kind: kind, Group: group, Version: version, Namespaced: true, Verbs: []string{opGet}})
+}
+
+// unserveAPI takes the resource out of discovery: the apiserver no longer
+// serves it (or does not yet).
+func (f *fakeInstallation) unserveAPI(group, resource string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.apis = slices.DeleteFunc(f.apis, func(r apiResource) bool { return r.Group == group && r.Name == resource })
+}
+
+// apiResources is what discovery lists, the group's only when one is asked.
+func (f *fakeInstallation) apiResources(group string) []apiResource {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := []apiResource{}
+	for _, r := range f.apis {
+		if group == "" || r.Group == group {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func objectKey(kind, namespace, name string) string {
@@ -279,6 +327,9 @@ func (f *fakeInstallation) populate(t *testing.T, installation string, res *rend
 			f.put(kind, p.Namespace, p.Name, obj)
 		case render.Condition:
 			f.put(kind, p.Namespace, p.Name, conditionTrue(p.Expect.Condition))
+		case render.APIServed:
+			resource, group, _ := strings.Cut(p.Resource, ".")
+			f.serveAPI(group, p.Expect.Version, resource, "PodCertificateRequest")
 		case render.ResourcePresent:
 			obj := map[string]any{}
 			if len(p.Expect.Keys) > 0 {
@@ -344,7 +395,7 @@ func newFakeMuster(t *testing.T, inst *fakeInstallation, installation string) *f
 	t.Helper()
 	m := &fakeMuster{insts: map[string]*fakeInstallation{installation: inst}}
 	tools := map[string]mustertest.Tool{}
-	for _, op := range []string{"get", "list", "logs"} {
+	for _, op := range []string{opGet, "list", "logs", opAPIResources} {
 		tools["x_"+kubernetesFamily+"_"+op] = m.kubernetes(op)
 	}
 	bridge := mustertest.Bridge(tools)
@@ -395,13 +446,18 @@ func (m *fakeMuster) kubernetes(op string) mustertest.Tool {
 		if person == liveStranger {
 			return mcp.NewToolResultError(fmt.Sprintf(authRequiredText, server, server))
 		}
+		if op == opAPIResources {
+			group, _ := args["apiGroup"].(string)
+			items := inst.apiResources(group)
+			return document(map[string]any{"items": items, "totalItems": len(items), "totalCount": len(items), "hasMore": false})
+		}
 		kind, _ := args["resourceType"].(string)
 		namespace, _ := args["namespace"].(string)
 		if person == liveViewer && kind == "secret" {
 			return mcp.NewToolResultError(fmt.Sprintf(`Failed to %s resource: secrets is forbidden: User "oidc:%s" cannot %s resource "secrets" in API group "" in the namespace "%s" (impersonating user=%s)`, op, person, op, namespace, person))
 		}
 		switch op {
-		case "get":
+		case opGet:
 			name, _ := args["name"].(string)
 			obj, ok := inst.get(kind, namespace, name)
 			if !ok {

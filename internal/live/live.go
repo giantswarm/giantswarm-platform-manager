@@ -65,7 +65,7 @@ type Config struct {
 	MusterURL string
 	// KubernetesFamily is the muster family (or singleton server name) the
 	// installations' kubernetes tools are aggregated under: the tools are
-	// x_<family>_get, _list and _logs. KubernetesInstanceArg is the family's
+	// x_<family>_get, _list, _logs and _api_resources. KubernetesInstanceArg is the family's
 	// argument that selects the installation; empty for a singleton.
 	KubernetesFamily      string
 	KubernetesInstanceArg string
@@ -310,9 +310,10 @@ type cluster struct {
 
 // The kubernetes tools' operations, x_<family>_<op>.
 const (
-	opGet  = "get"
-	opList = "list"
-	opLogs = "logs"
+	opGet          = "get"
+	opList         = "list"
+	opLogs         = "logs"
+	opAPIResources = "api_resources"
 )
 
 // fanOutWait bounds how long a first call waits for muster to connect the
@@ -464,6 +465,32 @@ func (k *cluster) List(ctx context.Context, namespace, resource, labelSelector s
 // Logs reads a pod's log, the last lines.
 func (k *cluster) Logs(ctx context.Context, namespace, pod string) (string, error) {
 	return k.call(ctx, opLogs, map[string]any{"namespace": namespace, "podName": pod, "tailLines": 1000})
+}
+
+// Serves discovers whether the apiserver serves the resource of the group at
+// the version: mcp-kubernetes lists the group's resources at their preferred
+// version, so a resource served at another version only is not found.
+func (k *cluster) Serves(ctx context.Context, group, version, resource string) (bool, error) {
+	text, err := k.call(ctx, opAPIResources, map[string]any{"apiGroup": group, "limit": 0})
+	if err != nil {
+		return false, err
+	}
+	var doc struct {
+		Items []struct {
+			Name    string `json:"name"`
+			Group   string `json:"group"`
+			Version string `json:"version"`
+		} `json:"items"`
+	}
+	if err := decode(text, &doc); err != nil {
+		return false, fmt.Errorf("%s answered something other than a resource list for group %q: %.200q", k.tool(opAPIResources), group, text)
+	}
+	for _, r := range doc.Items {
+		if r.Name == resource && r.Group == group && r.Version == version {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func decode(text string, v any) error {
