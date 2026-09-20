@@ -193,10 +193,10 @@ func dexClientByRedirectURI(data, uri string) (string, error) {
 }
 
 // portalAudiences reads the portals' Dex client ids the installation trusts
-// today from its own platform patch, the second place a portal's id is on
-// record: every muster.muster.oauth.server.trustedAudiences entry that is not
-// one the definition renders itself. Empty when the installation has no
-// configs repository or no patch, or the patch names no trusted audiences.
+// today from its own patches, the second place a portal's id is on record:
+// the union of the four lists the definition renders the portals' audiences
+// into, without the ids it renders itself. Empty when the installation has
+// no configs repository, or neither patch exists or names any.
 func portalAudiences(ctx context.Context, c *github.Client, rep Report) ([]string, error) {
 	if rep.Repositories.Configs == "" {
 		return nil, nil
@@ -205,24 +205,38 @@ func portalAudiences(ctx context.Context, c *github.Client, rep Report) ([]strin
 	if err != nil {
 		return nil, err
 	}
-	data, err := gh.ReadFile(ctx, c, owner, repo, AgentPlatformPatchPath(rep.Name))
-	if errors.Is(err, gh.ErrNotFound) {
-		return nil, nil
+	read := func(path string) (string, error) {
+		data, err := gh.ReadFile(ctx, c, owner, repo, path)
+		if errors.Is(err, gh.ErrNotFound) {
+			return "", nil
+		}
+		return data, err
 	}
+	patch, err := read(AgentPlatformPatchPath(rep.Name))
 	if err != nil {
 		return nil, err
 	}
-	ids, err := portalAudiencesOf(data, agentplatform.OwnAudiences(rep.Record.MusterClientID))
+	dexPatch, err := read(DexPatchPath(rep.Name))
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", AgentPlatformPatchPath(rep.Name), err)
+		return nil, err
+	}
+	ids, err := portalAudiencesOf(patch, dexPatch, agentplatform.OwnAudiences(rep.Record.MusterClientID, rep.Federation.Hubs))
+	if err != nil {
+		return nil, fmt.Errorf("installations/%s/apps: %w", rep.Name, err)
 	}
 	return ids, nil
 }
 
-// portalAudiencesOf is the platform patch's trustedAudiences without own,
-// the audiences the definition renders itself: each once, in the patch's order.
-func portalAudiencesOf(data string, own []string) ([]string, error) {
-	var patch struct {
+// portalAudiencesOf is the union of the four lists on record that carry the
+// portals' audiences — the platform patch's
+// muster.muster.oauth.server.trustedAudiences, its comma-separated
+// kagent.oauth2-proxy.extraArgs.oidc-extra-audience and the edge's
+// agent-platform-mcps.agentgateway.jwt.extraProviders[*].audiences, and the
+// dex-app patch's oidc.staticClients.dexK8SAuthenticator.trustedPeers —
+// without own, the ids the definition renders itself: each once, in the
+// order first seen. Either patch may be absent (empty).
+func portalAudiencesOf(patch, dexPatch string, own []string) ([]string, error) {
+	var p struct {
 		Muster struct {
 			Muster struct {
 				OAuth struct {
@@ -232,17 +246,70 @@ func portalAudiencesOf(data string, own []string) ([]string, error) {
 				} `yaml:"oauth"`
 			} `yaml:"muster"`
 		} `yaml:"muster"`
+		Kagent struct {
+			OAuth2Proxy struct {
+				ExtraArgs struct {
+					ExtraAudience any `yaml:"oidc-extra-audience"`
+				} `yaml:"extraArgs"`
+			} `yaml:"oauth2-proxy"`
+		} `yaml:"kagent"`
+		MCPs struct {
+			Agentgateway struct {
+				JWT struct {
+					ExtraProviders []struct {
+						Audiences []string `yaml:"audiences"`
+					} `yaml:"extraProviders"`
+				} `yaml:"jwt"`
+			} `yaml:"agentgateway"`
+		} `yaml:"agent-platform-mcps"`
 	}
-	if err := yaml.Unmarshal([]byte(data), &patch); err != nil {
-		return nil, err
+	var d struct {
+		OIDC struct {
+			StaticClients struct {
+				DexK8SAuthenticator struct {
+					TrustedPeers []string `yaml:"trustedPeers"`
+				} `yaml:"dexK8SAuthenticator"`
+			} `yaml:"staticClients"`
+		} `yaml:"oidc"`
 	}
+	if err := yaml.Unmarshal([]byte(patch), &p); err != nil {
+		return nil, fmt.Errorf("agent-platform/configmap-values.yaml.patch: %w", err)
+	}
+	if err := yaml.Unmarshal([]byte(dexPatch), &d); err != nil {
+		return nil, fmt.Errorf("dex-app/configmap-values.yaml.patch: %w", err)
+	}
+	lists := [][]string{p.Muster.Muster.OAuth.Server.TrustedAudiences, audienceList(p.Kagent.OAuth2Proxy.ExtraArgs.ExtraAudience)}
+	for _, provider := range p.MCPs.Agentgateway.JWT.ExtraProviders {
+		lists = append(lists, provider.Audiences)
+	}
+	lists = append(lists, d.OIDC.StaticClients.DexK8SAuthenticator.TrustedPeers)
 	var ids []string
-	for _, id := range patch.Muster.Muster.OAuth.Server.TrustedAudiences {
-		if id != "" && !slices.Contains(own, id) && !slices.Contains(ids, id) {
-			ids = append(ids, id)
+	for _, list := range lists {
+		for _, id := range list {
+			id = strings.TrimSpace(id)
+			if id != "" && !slices.Contains(own, id) && !slices.Contains(ids, id) {
+				ids = append(ids, id)
+			}
 		}
 	}
 	return ids, nil
+}
+
+// audienceList is oidc-extra-audience as a list: the flag is a StringSlice,
+// written as one comma-separated scalar (the chart's extraArgs is a map) or,
+// in a hand-written patch, as a list.
+func audienceList(v any) []string {
+	switch v := v.(type) {
+	case string:
+		return strings.Split(v, ",")
+	case []any:
+		ids := make([]string, 0, len(v))
+		for _, item := range v {
+			ids = append(ids, fmt.Sprint(item))
+		}
+		return ids
+	}
+	return nil
 }
 
 // hostOf is the hostname of a URL (no port), empty for none.

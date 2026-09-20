@@ -293,7 +293,7 @@ func TestReconcileCapabilityDryRunOverTheSet(t *testing.T) {
 	birchFacts := findPlan(t, out, privateFixture).Inputs["installation"].(map[string]any)
 	hazelFacts := hazel.Inputs["installation"].(map[string]any)
 	portal, _ := birchFacts["portals"].([]any)[0].(map[string]any)
-	if portal["clientId"] != hubPortalClientID || fmt.Sprint(birchFacts["portalAudiences"]) != "["+birchPortalClientID+"]" || fmt.Sprint(hazelFacts["portalAudiences"]) != "["+hubPortalClientID+"]" {
+	if portal["clientId"] != hubPortalClientID || fmt.Sprint(birchFacts["portalAudiences"]) != "["+birchPortalClientID+" "+birchPeerClientID+"]" || fmt.Sprint(hazelFacts["portalAudiences"]) != "["+hubPortalClientID+"]" {
 		t.Fatalf("birch portals %v, portal audiences %v; hazel portal audiences %v", birchFacts["portals"], birchFacts["portalAudiences"], hazelFacts["portalAudiences"])
 	}
 	seen := map[string]int{}
