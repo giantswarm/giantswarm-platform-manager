@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `merge_action` no longer verifies a stage itself: at a stage whose pull requests are merged and whose watch has not said *enabled* it refuses, naming the stage's state, `watch_action` and the stage that waits behind it — a stage *rolling out* is the watch's to carry, one *waiting for the customer* holds the wave until the customer's action is done. Before, the call after the merge ran `verify_capability` as the actor and either completed the stage or stopped the wave on a red anonymous probe. The stop is the watch's now, with the same shape: that stage *failed*, the stages after it not started, their pull requests open, the result naming where and why. `MergeResult` lost `verified` and `stopped`; the messages after a merge name `watch_action`.
+- The Team review in Slack is one line: who asks to enable or reconcile which capability on which installation (a customer installation, a wave and the installations a wave skips marked as before). The pull request count, the files by change, the generated secrets by name, the rotations and the explanation of the buttons are gone from the text: the pull requests are the review's links, and each pull request's body and the Action's `spec.change` carry the change in full.
 
 ### Fixed
 

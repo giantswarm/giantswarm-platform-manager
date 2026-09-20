@@ -453,8 +453,10 @@ func (t *Tools) postResult(ctx context.Context, a *actions.Action, text string) 
 	return ""
 }
 
-// reviewText is the review's mrkdwn: the actor, the target, the capability
-// and the change by count and name — never a value.
+// reviewText is the review's mrkdwn, one line a reviewer reads in Slack: who
+// asks to do what on which installation. The pull requests are the review's
+// links and the change in full (files, generated secrets, rotations) is in
+// each pull request's body and on the Action's spec.change — never a value.
 func reviewText(a *actions.Action) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "*%s* asks to %s *%s* on *%s*", a.Spec.Actor.Login, a.Spec.Kind, a.Spec.Capability, strings.Join(a.Spec.Installations, ", "))
@@ -464,17 +466,13 @@ func reviewText(a *actions.Action) string {
 	if len(a.Spec.Installations) > 1 {
 		b.WriteString(" (a wave, in this order)")
 	}
-	fmt.Fprintf(&b, ": %d pull request(s) in dependency order", len(a.Status.PullRequests))
 	b.WriteString(skippedClause(a.Spec.Skipped))
-	if a.Spec.Change != "" {
-		b.WriteString(", " + a.Spec.Change)
-	}
-	b.WriteString(". Approve submits your approving review on every pull request; Deny closes them with your reason.")
+	b.WriteString(".")
 	return b.String()
 }
 
 // changeSummary is the plan's change in one clause: files by change and the
-// generated secrets by name.
+// generated secrets by name — the Action's spec.change.
 func changeSummary(p plan.Installation) string {
 	parts := []string{}
 	for _, c := range []plan.Change{plan.ChangeCreate, plan.ChangeUpdate} {
