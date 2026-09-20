@@ -25,7 +25,6 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
-	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // Mark is what a dimension, and a feature rolled up from its dimensions, shows.
@@ -54,7 +53,8 @@ const (
 // differs). File names the repository file; Object the live object of a live
 // dimension (resource namespace/name). Input names the input of the
 // definition that drives the path — the file expresses another input than
-// the one on record; empty, the path is drift.
+// the one on record; empty, the path is drift. Rendered and Current are the
+// values on each side — Redacted for a file SOPS encrypted on record.
 type Difference struct {
 	File     string `json:"file,omitempty"`
 	Object   string `json:"object,omitempty"`
@@ -194,7 +194,8 @@ func rollUp(dims []Dimension) Mark {
 // fileKey is "repository:path" — how a file is named in the result.
 func fileKey(repo, path string) string { return repo + ":" + path }
 
-// comparison is the render from the inputs on record against the repositories.
+// comparison is the plan from the inputs on record against the repositories:
+// what the plan would write, as leaf differences.
 type comparison struct {
 	// files by key: the kind, the differences (Input filled), or why unreadable.
 	files      map[string]*fileDiff
@@ -207,66 +208,142 @@ type fileDiff struct {
 	diffs           []Difference
 }
 
-// compare renders the inputs on record, reads every rendered file as the
-// caller and names each difference an input or drift.
+// Redacted stands for a value of an encrypted file in a difference: the
+// path differs, the values are not shown.
+const Redacted = "<encrypted>"
+
+// compare builds the plan from the inputs on record — the render, read
+// against the repositories as the caller, every file once — and names each
+// difference the plan would write an input or drift. The plan's outcome per
+// file is the comparison: a file it leaves unchanged (an encrypted file
+// whose plaintext skeleton is the render's, a shared file that differs only
+// in the entries other owners keep or their order) has no difference; a
+// file it creates or updates differs at the leaves of the file as the plan
+// writes it that are off the record.
 func compare(ctx context.Context, opts Options) (*comparison, error) {
-	base, res, in, err := renderFlat(opts)
+	rs := &reads{read: opts.Read, got: map[string]read{}}
+	p, base, err := build(ctx, opts, opts.Inputs.Values, rs.reader)
 	if err != nil {
 		return nil, err
 	}
 	driven := drivenPaths(opts.Inputs.Values, base, func(values map[string]any) (map[string]map[string]string, error) {
-		other, _, _, err := renderFlat(Options{Definition: opts.Definition, Installation: opts.Installation, Hub: opts.Hub, Inputs: Inputs{Values: values}})
+		_, other, err := build(ctx, opts, values, rs.recorded)
 		return other, err
 	})
-	c := &comparison{files: map[string]*fileDiff{}}
-	for _, files := range res.Files {
-		for path, f := range files {
-			if strings.HasSuffix(path, "/apps/dex-app/configmap-values.yaml.patch") {
-				c.dexClients = plan.DexClients(f.Content, in)
-			}
-		}
-	}
-	for key, want := range base {
-		repo, path, _ := strings.Cut(key, ":")
-		fd := &fileDiff{key: key, path: path, kind: kindOf(path)}
-		current, err := opts.Read(ctx, repo, path)
-		got := map[string]string{}
-		switch {
-		case err == nil:
-			got = flattenYAML(current)
-		case errors.Is(err, gh.ErrNotFound):
-		default:
-			fd.unreadable = err.Error()
-		}
-		if fd.unreadable == "" {
-			for _, p := range diffPaths(want, got) {
-				fd.diffs = append(fd.diffs, Difference{File: key, Path: p, Rendered: want[p], Current: got[p], Input: driven[key+"#"+p]})
-			}
+	c := &comparison{files: map[string]*fileDiff{}, dexClients: p.DexClients}
+	for _, f := range rendered(p) {
+		key := fileKey(f.Repository, f.Path)
+		fd := &fileDiff{key: key, path: f.Path, kind: kindOf(f.Path)}
+		switch f.Change {
+		case plan.ChangeUnknown:
+			fd.unreadable = f.Error
+		case plan.ChangeCreate, plan.ChangeUpdate:
+			fd.diffs = differences(key, base[key], rs.got[key].content, driven)
 		}
 		c.files[key] = fd
 	}
 	return c, nil
 }
 
-// renderFlat renders values through the definition and flattens every file
-// to its YAML leaves, by file key in the registry's repositories.
-func renderFlat(opts Options) (map[string]map[string]string, *render.Result, render.Input, error) {
-	in, err := opts.Definition.Parse(opts.Inputs.Values)
-	if err != nil {
-		return nil, nil, nil, err
+// build is the plan of values for opts' installation, read through read,
+// with the files the definition renders flattened to their leaves by key.
+// The definition's refusal is the error.
+func build(ctx context.Context, opts Options, values map[string]any, read plan.Reader) (plan.Installation, map[string]map[string]string, error) {
+	p := plan.Build(ctx, plan.Options{Definition: opts.Definition, Installation: opts.Installation, Hub: opts.Hub, Inputs: values, Content: true, Read: read})
+	if p.Refused != "" {
+		return p, nil, errors.New(p.Refused)
 	}
-	res, err := opts.Definition.Render(opts.Inputs.Values, in.SuppliedMarkers())
-	if err != nil {
-		return nil, nil, nil, err
+	flat := map[string]map[string]string{}
+	for _, f := range rendered(p) {
+		flat[fileKey(f.Repository, f.Path)] = flattenYAML(f.Content)
 	}
-	out := map[string]map[string]string{}
-	for repo, files := range res.Files {
-		target := plan.ResolveRepository(string(repo), opts.Installation, opts.Hub)
-		for path, f := range files {
-			out[fileKey(target, path)] = flattenYAML(string(f.Content))
+	return p, flat, nil
+}
+
+// rendered are the plan's files the definition renders. The kustomizations
+// its includes land in are other owners' files the plan lists an entry in,
+// not the definition's: not compared.
+func rendered(p plan.Installation) []plan.File {
+	includes := map[string]bool{}
+	for _, inc := range p.Includes {
+		includes[fileKey(inc.Repository, inc.Path)] = true
+	}
+	out := make([]plan.File, 0, len(p.Files))
+	for _, f := range p.Files {
+		if !includes[fileKey(f.Repository, f.Path)] {
+			out = append(out, f)
 		}
 	}
-	return out, res, in, nil
+	return out
+}
+
+// differences are the leaves of the file as the plan writes it (want) that
+// are off the file on record (current), each attributed to the input that
+// drives it. A value the commit fills in or the record holds encrypted is
+// never one; of an encrypted file the paths are the difference and the
+// values are redacted, SOPS's own block taking no part.
+func differences(key string, want map[string]string, current string, driven map[string]string) []Difference {
+	got := flattenYAML(current)
+	encrypted := plan.Encrypted(current)
+	var out []Difference
+	for _, p := range diffPaths(want, got) {
+		w, okw := want[p]
+		g, okg := got[p]
+		if okw && okg && plan.Opaque(w, g) || encrypted && underSOPS(p) {
+			continue
+		}
+		d := Difference{File: key, Path: p, Rendered: w, Current: g, Input: driven[key+"#"+p]}
+		if encrypted {
+			d.Rendered, d.Current = redacted(okw), redacted(okg)
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
+// underSOPS says whether a leaf is of SOPS's block in an encrypted file.
+func underSOPS(path string) bool {
+	return path == plan.SOPSKey || strings.HasPrefix(path, plan.SOPSKey+".")
+}
+
+// redacted is a difference's value of an encrypted file: redacted when the
+// side has the path, empty when it lacks it.
+func redacted(present bool) string {
+	if present {
+		return Redacted
+	}
+	return ""
+}
+
+// reads is what the plan read as the caller, by file key: every file is read
+// once, and the perturbed plans of drivenPaths read the record from here.
+type reads struct {
+	read plan.Reader
+	got  map[string]read
+}
+
+type read struct {
+	content string
+	err     error
+}
+
+// reader reads a file as the caller, once.
+func (r *reads) reader(ctx context.Context, repository, path string) (string, error) {
+	key := fileKey(repository, path)
+	if got, ok := r.got[key]; ok {
+		return got.content, got.err
+	}
+	content, err := r.read(ctx, repository, path)
+	r.got[key] = read{content: content, err: err}
+	return content, err
+}
+
+// recorded answers what reader read; a file it did not read is absent.
+func (r *reads) recorded(_ context.Context, repository, path string) (string, error) {
+	if got, ok := r.got[fileKey(repository, path)]; ok {
+		return got.content, got.err
+	}
+	return "", gh.ErrNotFound
 }
 
 // flatRender renders an inputs document to flat files, by file key.
@@ -403,29 +480,43 @@ func diffPaths(want, got map[string]string) []string {
 }
 
 // flattenYAML flattens every document of a YAML file to its leaves by dotted
-// path; a file that is not YAML is one leaf at the empty path.
+// path. The entries of a sequence are keyed by identity, not position — a
+// scalar by its value, a mapping by its kind/namespace/name, id or name, the
+// way the plan keys the objects, clients and tunnels it merges — and by index
+// where an entry has none or two share one; a file of several documents keys
+// each by its kind/namespace/name. A reordered list or file is so the same
+// leaves, and an entry added is its own. A file that is not YAML is one leaf
+// at the empty path.
 func flattenYAML(content string) map[string]string {
 	out := map[string]string{}
+	docs, err := decodeAll(content)
+	if err != nil {
+		return map[string]string{"": content}
+	}
+	if len(docs) == 1 {
+		flatten(docs[0], "", out)
+		return out
+	}
+	for i, k := range keys(docs, "doc") {
+		flatten(docs[i], "["+k+"]", out)
+	}
+	return out
+}
+
+// decodeAll parses every YAML document of content.
+func decodeAll(content string) ([]any, error) {
 	dec := yaml.NewDecoder(strings.NewReader(content))
 	var docs []any
 	for {
 		var v any
 		if err := dec.Decode(&v); err != nil {
 			if errors.Is(err, io.EOF) {
-				break
+				return docs, nil
 			}
-			return map[string]string{"": content}
+			return nil, err
 		}
 		docs = append(docs, v)
 	}
-	for i, d := range docs {
-		prefix := ""
-		if len(docs) > 1 {
-			prefix = fmt.Sprintf("[doc%d]", i)
-		}
-		flatten(d, prefix, out)
-	}
-	return out
 }
 
 func flatten(v any, prefix string, out map[string]string) {
@@ -447,14 +538,63 @@ func flatten(v any, prefix string, out map[string]string) {
 		if len(t) == 0 {
 			out[prefix] = "[]"
 		}
-		for i, vv := range t {
-			flatten(vv, fmt.Sprintf("%s[%d]", prefix, i), out)
+		for i, k := range keys(t, "") {
+			flatten(t[i], prefix+"["+k+"]", out)
 		}
 	case nil:
 		out[prefix] = "null"
 	default:
 		out[prefix] = fmt.Sprint(t)
 	}
+}
+
+// keys are the identities of a sequence's entries, one per entry; the
+// indexes, opened by prefix, when an entry has none or two share one.
+func keys(items []any, prefix string) []string {
+	out := make([]string, len(items))
+	seen := map[string]bool{}
+	for i, item := range items {
+		id := identity(item)
+		if id == "" || seen[id] {
+			for i := range out {
+				out[i] = prefix + fmt.Sprint(i)
+			}
+			return out
+		}
+		seen[id] = true
+		out[i] = id
+	}
+	return out
+}
+
+// identityKeys name a mapping entry, in order: a client by id, a tunnel or
+// token by name.
+var identityKeys = []string{"id", "name"}
+
+// identity is what names an entry of a sequence: a scalar its value, a
+// mapping its kind/namespace/name (an object), else its id or name; empty
+// for one with none.
+func identity(v any) string {
+	switch t := v.(type) {
+	case map[string]any:
+		if meta, ok := t["metadata"].(map[string]any); ok {
+			if name, _ := meta["name"].(string); name != "" {
+				kind, _ := t["kind"].(string)
+				namespace, _ := meta["namespace"].(string)
+				return kind + "/" + namespace + "/" + name
+			}
+		}
+		for _, k := range identityKeys {
+			switch id := t[k].(type) {
+			case string, int, float64, bool:
+				return fmt.Sprint(id)
+			}
+		}
+		return ""
+	case []any, nil:
+		return ""
+	}
+	return fmt.Sprint(v)
 }
 
 // kindOf is the dimension kind a rendered file is observed under.

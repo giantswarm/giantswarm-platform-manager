@@ -111,7 +111,7 @@ func TestDeepMergeReplacesEverythingButMaps(t *testing.T) {
 	deepMerge(base, map[string]any{"a": map[string]any{"y": []any{2, 3}, "z": true}, "b": map[string]any{"n": 1}})
 	flat := map[string]string{}
 	flatten(base, "", flat)
-	want := map[string]string{"a.x": "1", "a.y[0]": "2", "a.y[1]": "3", "a.z": "true", "b.n": "1"}
+	want := map[string]string{"a.x": "1", "a.y[2]": "2", "a.y[3]": "3", "a.z": "true", "b.n": "1"}
 	if d := diffPaths(want, flat); len(d) > 0 {
 		t.Errorf("merged %v, differs at %v", flat, d)
 	}
