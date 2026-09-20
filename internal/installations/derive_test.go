@@ -33,7 +33,7 @@ func TestDeriveFromPortals(t *testing.T) {
 	}
 	portals := []Portal{
 		{Host: fixtureHub, Customer: "fleet", Domain: "portal.fleet.test", ClientID: fixtureHubClientID, Broker: "", Installations: []string{fixtureHub, fixtureAggregator, fixtureSibling}, Tunnelled: []string{fixtureSibling}},
-		{Host: fixtureAggregator, Customer: fixtureCustomer, Domain: "portal.linden.umbra.test", ClientID: render.PortalDexClientID, Broker: fixtureAggregator, Installations: []string{fixtureAggregator, fixtureSibling}},
+		{Host: fixtureAggregator, Customer: fixtureCustomer, Domain: "portal.linden.umbra.test", ClientID: render.PortalDexClientID, Broker: fixtureAggregator, Installations: []string{fixtureAggregator, fixtureSibling}, PlatformProxied: []string{fixtureAggregator, fixtureSibling}},
 	}
 	_ = reg
 	targets := reports[1].derivePortals(portals)
@@ -57,6 +57,9 @@ func TestDeriveFromPortals(t *testing.T) {
 	}
 	if !tunnelled(portals, fixtureSibling) || tunnelled(portals, fixtureAggregator) || tunnelled(portals, fixtureHub) {
 		t.Fatalf("private: the portal reaches %s through the tunnel and nobody else", fixtureSibling)
+	}
+	if !proxied(portals, fixtureAggregator, fixtureSibling) || proxied(portals, fixtureHub, fixtureSibling) || proxied(portals, fixtureAggregator, fixtureHub) {
+		t.Fatalf("proxied: the portal %s brokers for lists %s under its agent-platform section; the hub's portal lists nobody", fixtureAggregator, fixtureSibling)
 	}
 }
 
@@ -117,12 +120,16 @@ func TestPortalAudiencesOf(t *testing.T) {
 }
 
 // A portal's cluster entry at the tunnel's Service on its host marks the
-// installation as reached through the tunnel; one at its API does not.
+// installation as reached through the tunnel; one at its API does not. The
+// installations its agent-platform section lists are the ones whose platform
+// it proxies, whatever the entry carries.
 func TestPortalConfigTunnelled(t *testing.T) {
 	appConfig := "app:\n  baseUrl: https://portal.aspen.fleet.test\ngs:\n  installations:\n    linden: {}\n    rowanberry: {}\n" +
 		"kubernetes:\n  clusterLocatorMethods:\n    - type: config\n      clusters:\n" +
 		"        - name: linden\n          url: https://happaapi.linden.umbra.test\n" +
-		"        - name: rowanberry\n          url: https://kubernetes-rowanberry.agent-platform.svc.cluster.local:8443\n"
+		"        - name: rowanberry\n          url: https://kubernetes-rowanberry.agent-platform.svc.cluster.local:8443\n" +
+		"agentPlatform:\n  kagent:\n    installations:\n      aspen: {}\n" +
+		"      rowanberry:\n        apiBaseUrl: https://agentgateway-rowanberry.agent-platform.svc.cluster.local:8443\n"
 	values := "backstage:\n  appConfig: |\n" + indent(appConfig, "    ")
 	cm := "apiVersion: v1\nkind: ConfigMap\ndata:\n  values: |\n" + indent(values, "    ")
 	cfg, err := parsePortalConfig(cm)
@@ -131,6 +138,9 @@ func TestPortalConfigTunnelled(t *testing.T) {
 	}
 	if !cfg.Tunnelled[fixtureSibling] || cfg.Tunnelled[fixtureAggregator] || len(cfg.Tunnelled) != 1 {
 		t.Fatalf("tunnelled: %v", cfg.Tunnelled)
+	}
+	if !cfg.PlatformProxied[fixtureSibling] || !cfg.PlatformProxied[fixtureHub] || cfg.PlatformProxied[fixtureAggregator] || len(cfg.PlatformProxied) != 2 {
+		t.Fatalf("platform proxied: %v", cfg.PlatformProxied)
 	}
 }
 
@@ -142,20 +152,4 @@ func indent(s, prefix string) string {
 		}
 	}
 	return b.String()
-}
-
-// A target's platform fact is the inspected report's enabled marker of the
-// agent-platform capability; a report whose marker was not read knows nothing,
-// so the marker is read for it.
-func TestReportEnabled(t *testing.T) {
-	r := Report{Capabilities: []CapabilityState{{Name: AgentPlatform, State: StateEnabled, Enabled: true}, {Name: CustomerPortal, State: StateUnknown}}}
-	if on, known := r.enabled(AgentPlatform); !on || !known {
-		t.Fatalf("agent-platform: enabled %v known %v", on, known)
-	}
-	if on, known := r.enabled(CustomerPortal); on || known {
-		t.Fatalf("customer-portal, unread: enabled %v known %v", on, known)
-	}
-	if on, known := (&Report{}).enabled(AgentPlatform); on || known {
-		t.Fatalf("no capabilities: enabled %v known %v", on, known)
-	}
 }

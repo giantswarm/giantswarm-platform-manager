@@ -1,5 +1,5 @@
-# The registry's hub (the broker's GitHub grant target) with a private target that runs the agent platform, reached through the
-# tunnel, and a public one:
+# The registry's hub (the broker's GitHub grant target) with a private target whose agent platform its
+# portal proxies, reached through the tunnel, and a public one:
 # the broker and the identity provider per target, the targets' MCP servers with exchange auth,
 # the credentials Secret per target, the tunnelport release with a RemoteApp per tunnelled app,
 # and the hub's entries of teleport-fleet's tunnelport values (the hub as a consumer joining by its
@@ -25,7 +25,7 @@ input:
         - installation: burrow
           baseDomain: burrow.example.io
           private: true
-          agentPlatform: true
+          platformProxied: true
         - installation: marmot
           baseDomain: marmot.example.io
           private: false

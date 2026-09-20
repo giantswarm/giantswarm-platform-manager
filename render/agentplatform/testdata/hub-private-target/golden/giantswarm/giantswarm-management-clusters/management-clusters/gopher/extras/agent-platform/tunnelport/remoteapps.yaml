@@ -3,7 +3,7 @@
 # One RemoteApp per tunnelled app of every private target: a tbot + ghostunnel Deployment and a
 # Service named <app>-<target> on :8443, TLS terminated with the app's SVID. spec.port is the
 # tunnel's loopback port; the upstream port is the Teleport app's, advertised by the target. A target
-# that runs the agent platform is also tunnelled to its kagent and its agentgateway, for the Dev Portal.
+# whose agent platform the portal proxies is also tunnelled to its kagent and its agentgateway.
 apiVersion: access.giantswarm.io/v1alpha1
 kind: RemoteApp
 metadata:

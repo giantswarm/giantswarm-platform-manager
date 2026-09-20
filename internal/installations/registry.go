@@ -282,13 +282,16 @@ type portalEntry struct {
 // whose data.values is the chart's values as YAML text, whose
 // backstage.appConfig is the app-config as YAML text.
 // portalConfig is what the registry reads of a portal's app-config: the
-// installations it lists, its base URL, its cluster-token broker and the
-// installations whose Kubernetes API it reaches through the tunnel on its host.
+// installations it lists, its base URL, its cluster-token broker, the
+// installations whose Kubernetes API it reaches through the tunnel on its host
+// and the installations whose agent platform it proxies
+// (agentPlatform.kagent.installations).
 type portalConfig struct {
-	Installations  map[string]portalEntry
-	BaseURL        string
-	BrokerTokenURL string
-	Tunnelled      map[string]bool
+	Installations   map[string]portalEntry
+	BaseURL         string
+	BrokerTokenURL  string
+	Tunnelled       map[string]bool
+	PlatformProxied map[string]bool
 }
 
 func parsePortalConfig(data string) (*portalConfig, error) {
@@ -332,6 +335,11 @@ func parsePortalConfig(data string) (*portalConfig, error) {
 				} `yaml:"clusters"`
 			} `yaml:"clusterLocatorMethods"`
 		} `yaml:"kubernetes"`
+		AgentPlatform struct {
+			Kagent struct {
+				Installations map[string]struct{} `yaml:"installations"`
+			} `yaml:"kagent"`
+		} `yaml:"agentPlatform"`
 	}
 	if err := yaml.Unmarshal([]byte(values.Backstage.AppConfig), &appConfig); err != nil {
 		return nil, fmt.Errorf("decode backstage.appConfig: %w", err)
@@ -339,13 +347,16 @@ func parsePortalConfig(data string) (*portalConfig, error) {
 	if len(appConfig.GS.Installations) == 0 {
 		return nil, errors.New("backstage.appConfig has no gs.installations")
 	}
-	cfg := &portalConfig{Installations: appConfig.GS.Installations, BaseURL: appConfig.App.BaseURL, BrokerTokenURL: appConfig.GS.ClusterTokenBroker.TokenURL, Tunnelled: map[string]bool{}}
+	cfg := &portalConfig{Installations: appConfig.GS.Installations, BaseURL: appConfig.App.BaseURL, BrokerTokenURL: appConfig.GS.ClusterTokenBroker.TokenURL, Tunnelled: map[string]bool{}, PlatformProxied: map[string]bool{}}
 	for _, m := range appConfig.Kubernetes.ClusterLocatorMethods {
 		for _, cluster := range m.Clusters {
 			if hostOf(cluster.URL) == tunnelKubernetesHost(cluster.Name) {
 				cfg.Tunnelled[cluster.Name] = true
 			}
 		}
+	}
+	for name := range appConfig.AgentPlatform.Kagent.Installations {
+		cfg.PlatformProxied[name] = true
 	}
 	return cfg, nil
 }

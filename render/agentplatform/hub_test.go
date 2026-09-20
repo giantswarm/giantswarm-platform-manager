@@ -38,10 +38,10 @@ func TestHubBrokerGrantTarget(t *testing.T) {
 	}
 }
 
-// A private target that runs the agent platform is also tunnelled to its
-// kagent (probed at /ping) and its agentgateway: a RemoteApp each on the hub
-// and a tunnel each among the hub's tunnelport entries; a public target and a
-// private one without the platform get neither.
+// A private target whose agent platform the hub's portal proxies is also
+// tunnelled to its kagent (probed at /ping) and its agentgateway: a RemoteApp
+// each on the hub and a tunnel each among the hub's tunnelport entries; a
+// public target and a private one the portal does not proxy get neither.
 func TestPrivatePlatformTargetTunnels(t *testing.T) {
 	input, secrets := loadInput(t, shapeHubPrivateTarget)
 	result, err := Render(input, secrets)
@@ -71,6 +71,6 @@ func TestPrivatePlatformTargetTunnels(t *testing.T) {
 		t.Errorf("the public target marmot is tunnelled")
 	}
 	if got := (Target{Installation: "x", Private: true}).tunnelledApps(); len(got) != 5 || got[4].name != "kubernetes" {
-		t.Errorf("a private target without the platform: %+v", got)
+		t.Errorf("a private target the portal does not proxy: %+v", got)
 	}
 }
