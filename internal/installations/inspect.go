@@ -139,7 +139,7 @@ func Inspect(ctx context.Context, c *github.Client, inst Installation, caps []Ca
 	for _, cap := range caps {
 		cs := CapabilityState{Name: cap.Name, EnabledMarker: cap.EnabledMarker(inst.Name), MarkerRepository: cap.MarkerRepository, State: StateUnknown}
 		if r.Record != nil {
-			cs.Inputs = map[string]any{"installation": r.Record}
+			cs.Inputs = map[string]any{InputsInstallation: r.Record}
 		}
 		if r.Readable {
 			markerOwner, markerRepo, err := gh.SplitRepo(cap.Repository(inst.Repositories))

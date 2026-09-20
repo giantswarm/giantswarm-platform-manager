@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -57,6 +58,7 @@ func (t *Tools) LiveMCPServer() *mcpserver.MCPServer {
 		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithString(ArgInstallation, mcp.Required(), mcp.Description("The installation to verify, by name: the management cluster muster reads for you.")),
 		mcp.WithString(ArgCapability, mcp.Description(capabilityArgDescription), mcp.Enum(installations.CapabilityNames()...)),
+		mcp.WithObject(ArgInputs, mcp.Description("The inputs object of "+ToolVerifyCapability+"'s answer (source, values, readBack), so both halves render from the same inputs; left out, the newest action's inputs on record; without either the live dimensions read not checked.")),
 	), t.verifyInstallationLive)
 	return s
 }
@@ -65,9 +67,10 @@ func (t *Tools) verifyInstallationLive(ctx context.Context, req mcp.CallToolRequ
 	return result(t.verifyLive(ctx, req.GetArguments()))
 }
 
-// verifyLive is verify_installation: the newest action's inputs on record
-// (the manager's own read, no GitHub), the reads through muster as the
-// person, the result recorded on that action.
+// verifyLive is verify_installation: the inputs the caller hands over
+// (verify_capability's, so both halves render the same), else the newest
+// action's on record (the manager's own read, no GitHub); the reads through
+// muster as the person; the result recorded on that action.
 func (t *Tools) verifyLive(ctx context.Context, args map[string]any) (any, error) {
 	token, ok := identity.TokenFromContext(ctx)
 	id, _ := identity.FromContext(ctx)
@@ -92,12 +95,21 @@ func (t *Tools) verifyLive(ctx context.Context, args map[string]any) (any, error
 	if err != nil {
 		return nil, err
 	}
-	opts := verify.LiveOptions{Definition: def, Installation: name, Inputs: verify.Inputs{Source: InputsNone}, Probes: t.d.Probes, Person: id.String()}
+	opts := verify.LiveOptions{Definition: def, Installation: name, Inputs: verify.Inputs{Source: verify.SourceNone}, Probes: t.d.Probes, Person: id.String()}
+	given, err := givenInputs(args)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", ToolVerifyInstallation, err)
+	}
+	if given != nil {
+		opts.Inputs = *given
+	}
 	var record *actions.Action
 	for i := range acts {
 		if in := acts[i].InputsOnRecord(name); in != nil {
 			record = &acts[i]
-			opts.Inputs = verify.Inputs{Source: "action " + record.Name, Values: in}
+			if given == nil {
+				opts.Inputs = verify.Inputs{Source: "action " + record.Name, Values: in}
+			}
 			// The state the result starts from is the action's final word —
 			// not the state a previous verify recorded over it, and not the
 			// customer's wait, which a clean read ends.
@@ -108,7 +120,7 @@ func (t *Tools) verifyLive(ctx context.Context, args map[string]any) (any, error
 			break
 		}
 	}
-	if record != nil {
+	if opts.Inputs.Values != nil {
 		if opts.Cluster, err = t.d.Live.Cluster(ctx, token, id, name); err != nil {
 			return nil, err
 		}
@@ -122,6 +134,27 @@ func (t *Tools) verifyLive(ctx context.Context, args map[string]any) (any, error
 	}
 	t.d.Log.Info(ToolVerifyInstallation, identity.LogAttr(ctx), "installation", name, "inputs", opts.Inputs.Source, "state", out.State, "summary", out.Summary)
 	return &out, nil
+}
+
+// givenInputs are the inputs the caller handed over: verify_capability's
+// inputs object (source, values, readBack), decoded; nil when none.
+func givenInputs(args map[string]any) (*verify.Inputs, error) {
+	raw, ok := args[ArgInputs].(map[string]any)
+	if !ok {
+		return nil, nil
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return nil, err
+	}
+	var in verify.Inputs
+	if err := json.Unmarshal(b, &in); err != nil {
+		return nil, fmt.Errorf("%s is not the inputs object of a %s answer: %w", ArgInputs, ToolVerifyCapability, err)
+	}
+	if in.Values == nil {
+		return nil, fmt.Errorf("%s carries no values: pass the inputs object of a %s answer", ArgInputs, ToolVerifyCapability)
+	}
+	return &in, nil
 }
 
 // recordLiveVerify writes the live result onto the action it rendered from:

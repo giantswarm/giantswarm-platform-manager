@@ -2,10 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/giantswarm/giantswarm-platform-manager/main/definitions/agent-platform/schema.json",
   "title": "agent-platform definition inputs",
-  "description": "The input set of the agent-platform capability: the installation's record and one choice. Everything the fileset carries derives from the record (installation.*: the registry and the installation's config.yaml.patch, read, never typed), from the fleet policy (policy.yaml: which components an owning organisation's installations run, the installations with a Slack app — where the chat gateway runs — and the gateway's shape, the hub's connector and Teleport cluster) and from the shared template; a person decides one thing, whether the installation serves models. Annotations: x-source says where a value comes from (registry: read from the installations registry or the repositories, never typed; generated: created once and read back from the checkout; person: the one choice). x-feature names the consistency feature of features.yaml. x-renders lists the key paths the input produces, prefixed by the file: configmap (agent-platform configmap-values.yaml.patch), dex-configmap (the dex-app patch), extras (extras/agent-platform/ and the MCP servers' extras), backstage:* (the portal's agent-platform Component), teleport (teleport-fleet). List indices are written [*], per-installation map keys <name>.",
+  "description": "The input set of the agent-platform capability: the installation's record and one choice. Everything the fileset carries derives from the record (installation.*: the registry and the installation's config.yaml.patch, read, never typed), from the fleet policy (policy.yaml: which components an owning organisation's installations run, the installations with a Slack app — where the chat gateway runs — and the gateway's shape, the hub's connector and Teleport cluster) and from the shared template; a person decides one thing, whether the installation serves models. Annotations: x-source says where a value comes from (registry: read from the installations registry or the repositories, never typed; generated: created once and read back from the checkout; person: the one choice). x-feature names the consistency feature of features.yaml. x-files names the repository file each fileset key is rendered to (<name> the installation); x-readback on a person input names the file and key its value is read back from on record (kind value, present or host). x-renders lists the key paths the input produces, prefixed by the file: configmap (agent-platform configmap-values.yaml.patch), dex-configmap (the dex-app patch), extras (extras/agent-platform/ and the MCP servers' extras), backstage:* (the portal's agent-platform Component), teleport (teleport-fleet). List indices are written [*], per-installation map keys <name>.",
   "type": "object",
   "additionalProperties": false,
   "required": ["installation"],
+  "x-files": {
+    "configmap": {"repository": "configs", "path": "installations/<name>/apps/agent-platform/configmap-values.yaml.patch"},
+    "dex-configmap": {"repository": "configs", "path": "installations/<name>/apps/dex-app/configmap-values.yaml.patch"}
+  },
   "properties": {
     "installation": {
       "type": "object",
@@ -86,6 +90,7 @@
           "type": "boolean",
           "default": false,
           "x-source": "person",
+          "x-readback": {"file": "configmap", "key": "components.modelServing.enabled"},
           "x-feature": "runtime",
           "x-renders": ["configmap:components.kserve-llmisvc-crd.enabled", "configmap:components.kserve-llmisvc-resources.enabled", "configmap:components.kserve-runtime-configs.enabled", "configmap:components.modelServing.enabled", "configmap:modelServing.serving.runtimeClassName", "configmap:modelServing.modelsGateway.enabled"],
           "description": "Serve models on this installation: the llm-d control plane, the well-known LLMInferenceServiceConfigs, the model serving switch and the models Gateway (the meta chart's serving slice, 4.44.0 and later). The 4 chart line only; the GPU pool is the cluster-manager's."

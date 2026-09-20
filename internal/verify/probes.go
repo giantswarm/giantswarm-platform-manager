@@ -63,7 +63,7 @@ func probe(ctx context.Context, client *http.Client, baseDomain string, clients 
 	case !p.PerDexClient:
 		data = []probeData{{BaseDomain: baseDomain}}
 	case !rendered:
-		d.Reason = ReasonNoInputs
+		d.Reason = ReasonNoRender
 		return d
 	default:
 		for _, cl := range clients {

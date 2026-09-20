@@ -197,6 +197,23 @@ func capability(tool string, allowAll bool, args []string, stdout, stderr io.Wri
 	})
 }
 
+// carryInputs hands the repository answer's inputs to the live call, so the
+// two halves render from the same inputs.
+func carryInputs(args map[string]any, repo json.RawMessage) map[string]any {
+	var answer struct {
+		Inputs map[string]any `json:"inputs"`
+	}
+	if err := json.Unmarshal(repo, &answer); err != nil || answer.Inputs == nil {
+		return args
+	}
+	out := make(map[string]any, len(args)+1)
+	for k, v := range args {
+		out[k] = v
+	}
+	out[tools.ArgInputs] = answer.Inputs
+	return out
+}
+
 func cmdVerify(args []string, stdout, stderr io.Writer) int {
 	fs := newFlags("installation verify", stderr)
 	var c conn

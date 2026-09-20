@@ -37,10 +37,10 @@ type CapabilityResult struct {
 	DryRun     bool   `json:"dryRun"`
 	// Order is the wave's rollout order: Giant Swarm's test installations,
 	// the hub, then the customers' installations.
-	Order         []string            `json:"order"`
-	Installations []plan.Installation `json:"installations"`
-	PullRequests  []plan.PullRequest  `json:"pullRequests"`
-	Skipped       []Skipped           `json:"skipped"`
+	Order         []string           `json:"order"`
+	Installations []DryRun           `json:"installations"`
+	PullRequests  []plan.PullRequest `json:"pullRequests"`
+	Skipped       []Skipped          `json:"skipped"`
 	// Commit says what mode commit does with this plan.
 	Commit string `json:"commit"`
 }
@@ -78,6 +78,10 @@ const (
 // tools and the verify: every registered definition.
 const capabilityArgDescription = `The capability (default agent-platform): one of the definitions get_info lists, rendered from its own schema and compared against its own files.`
 
+// inputsArgDescription describes the inputs argument of the write tools and
+// the verify: the person's layer over the record and the read-back.
+const inputsArgDescription = `Your typed inputs of the definition (get_info lists the schema), laid over the schema's defaults, the facts on record (installation.*) and what the definition reads back from the files on record. An unknown key, and a required choice no layer holds, refuse with its name. Never a secret value.`
+
 // stringItems is the schema of an array-of-strings argument.
 func stringItems() map[string]any { return map[string]any{"type": "string"} }
 
@@ -87,7 +91,7 @@ func capabilityOptions() []mcp.ToolOption {
 		mcp.WithArray(ArgInstallations, mcp.Description("The set to render; empty with no installation is every installation of the registry. Installations not opted in are skipped, listed with the reason."), mcp.Items(stringItems())),
 		mcp.WithArray(ArgOrder, mcp.Description("The rollout order of the set when the default (Giant Swarm's test installations, the hub, the customers) is not the one wanted: every rendered installation of the set exactly once."), mcp.Items(stringItems())),
 		mcp.WithString(ArgCapability, mcp.Description(capabilityArgDescription), mcp.Enum(installations.CapabilityNames()...)),
-		mcp.WithObject(ArgInputs, mcp.Description("The typed inputs of the definition (get_info lists the schema), merged over the facts on record: a typed installation.* key overrides the record; an unknown key, and a required section or choice left out, refuse with its name — the schema is the contract, nothing is chosen for you. Never a secret value.")),
+		mcp.WithObject(ArgInputs, mcp.Description(inputsArgDescription)),
 		mcp.WithBoolean(ArgContent, mcp.Description("Include the rendered content of every file (default true); false answers paths and changes only.")),
 		mcp.WithObject(ArgSecrets, mcp.Description("mode commit only: the secret values the plan's suppliedSecrets name, by field. They land inside the encrypted files and nowhere else — not in the Action, not in a log, not in an answer.")),
 	}
@@ -95,7 +99,7 @@ func capabilityOptions() []mcp.ToolOption {
 
 func (t *Tools) enableCapabilityTool() WriteTool {
 	return WriteTool{Name: ToolEnableCapability,
-		Description: "Enable a platform capability on an installation: render its fileset from the facts on record and your typed inputs through the definition and answer the plan — the files per repository with the change each one is against the repository now, the pull requests in dependency order (configs before management-clusters, the hub's with them), the generated secrets by name, the Dex clients with their redirect URIs, the secret values you supply at commit (by field), the actions the customer has to take and the probes the verify runs. installation names the one installation; installations a set, whose members without the opt-in are skipped. No secret value ever appears in a dry run.",
+		Description: "Enable a platform capability on an installation, or a set: answers the plan a commit would write — the files with their change, the pull requests in order, the secrets by name, the Dex clients, the customer's actions, the probes — with the comparison's marks. The inputs are the record, what the definition reads back and your typed inputs. No secret value ever appears in a dry run.",
 		Options:     capabilityOptions(),
 		DryRun: func(ctx context.Context, args map[string]any) (any, error) {
 			return t.capabilityDryRun(ctx, ToolEnableCapability, args)
@@ -107,7 +111,7 @@ func (t *Tools) enableCapabilityTool() WriteTool {
 
 func (t *Tools) reconcileCapabilityTool() WriteTool {
 	return WriteTool{Name: ToolReconcileCapability,
-		Description: "Reconcile a platform capability over a set of installations (empty: every installation of the registry): the same render as enable_capability per installation, with every file compared against the repository as it is — a plan whose files are all unchanged is an empty diff, the definition matching the installation. Installations not opted in are skipped and listed as such; the order answers the wave's rollout order.",
+		Description: "Reconcile a platform capability over a set of installations (empty: every one of the registry): the same plan as enable_capability per installation, every file compared with the repository as it is. A plan whose files are all unchanged is the definition matching the installation. Installations not opted in are skipped and listed.",
 		Options:     capabilityOptions(),
 		DryRun: func(ctx context.Context, args map[string]any) (any, error) {
 			return t.capabilityDryRun(ctx, ToolReconcileCapability, args)
@@ -174,38 +178,25 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 	caps := installations.Capabilities()
 	reports := reg.InspectAll(ctx, c, selected, caps)
 	out := CapabilityResult{Caller: identity.Caller(ctx), Tool: tool, Capability: def.Name, Hub: reg.Hub, DryRun: true,
-		Order: []string{}, Installations: []plan.Installation{}, PullRequests: []plan.PullRequest{}, Skipped: []Skipped{}, Commit: commitNext}
+		Order: []string{}, Installations: []DryRun{}, PullRequests: []plan.PullRequest{}, Skipped: []Skipped{}, Commit: commitNext}
 	env := &planned{c: c, hub: hub, byName: byName, reports: map[string]installations.Report{}, inputs: map[string]map[string]any{}}
-	read := readAs(c)
 	for _, r := range waveOrder(reports, hub) {
 		env.reports[r.Name] = r
 		if skip, ok := skipped(r, r.Name == one); ok {
 			out.Skipped = append(out.Skipped, skip)
 			continue
 		}
-		merged, err := mergeInputs(def, r, inputs)
+		res, err := t.compare(ctx, env, r, def, inputs, content)
 		if err != nil {
 			return nil, nil, err
 		}
-		env.inputs[r.Name] = merged
-		p := plan.Build(ctx, plan.Options{Definition: def, Installation: r.Installation, Hub: hub, Inputs: merged, Content: content, Read: read})
-		p.State = capabilityState(r, def.Name)
-		p.OptIn = r.OptIn
-		switch refusal := p.FrozenRefusal(); {
-		case p.Refused != "":
-			p.CommitRefused = fmt.Sprintf("the definition refuses these inputs for %s (refused says why); nothing is committed", r.Name)
-		case r.OptIn != nil && r.OptIn.State != installations.OptedIn:
-			p.CommitRefused = fmt.Sprintf("%s is %s: %s", r.Name, r.OptIn.State, r.OptIn.HowToOptIn)
-		case refusal != "":
-			p.CommitRefused = refusal
-		}
 		out.Order = append(out.Order, r.Name)
-		out.Installations = append(out.Installations, p)
+		out.Installations = append(out.Installations, dryRun(res))
 	}
 	if err := applyOrder(&out, stringSlice(args[ArgOrder])); err != nil {
 		return nil, nil, fmt.Errorf("%s: %w", tool, err)
 	}
-	out.PullRequests = plan.PullRequests(out.Installations, byName, hub)
+	out.PullRequests = plan.PullRequests(plans(out.Installations), byName, hub)
 	return &out, env, nil
 }
 
@@ -260,31 +251,63 @@ func skipped(r installations.Report, named bool) (Skipped, bool) {
 	return Skipped{}, false
 }
 
-// mergeInputs lays the typed inputs over the facts on record: the facts
-// def's schema names under installation first, the person's keys over them.
-// What the schema requires and the person left out, the definition names in
-// its refusal.
-func mergeInputs(def installations.Capability, r installations.Report, typed map[string]any) (map[string]any, error) {
+// mergeInputs are the comparison's inputs, in layers: the schema's
+// defaults, the facts on record the schema names under installation, what
+// the definition reads back from the files on record (read as the caller),
+// and the person's typed inputs over it all. The second answer names what
+// was read back, by dotted input key. What the schema requires and no layer
+// holds, the definition names in its refusal.
+func mergeInputs(ctx context.Context, def installations.Capability, r installations.Report, read installations.Reader, typed map[string]any) (map[string]any, map[string]any, error) {
+	merged, err := def.Defaults()
+	if err != nil {
+		return nil, nil, err
+	}
 	facts, err := def.Facts(r.Facts())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	merged := map[string]any{"installation": facts}
-	for k, v := range typed {
-		if k == "installation" {
-			over, ok := v.(map[string]any)
-			if !ok {
-				return nil, fmt.Errorf("%s.installation must be an object of installation facts", ArgInputs)
-			}
-			base := merged["installation"].(map[string]any)
-			for kk, vv := range over {
-				base[kk] = vv
-			}
-			continue
+	merged[installations.InputsInstallation] = facts
+	back, err := def.ReadBack(ctx, read, r.Installation)
+	if err != nil {
+		return nil, nil, err
+	}
+	for k, v := range back {
+		setInput(merged, strings.Split(k, "."), v)
+	}
+	if v, ok := typed[installations.InputsInstallation]; ok {
+		if _, isMap := v.(map[string]any); !isMap {
+			return nil, nil, fmt.Errorf("%s.installation must be an object of installation facts", ArgInputs)
 		}
-		merged[k] = v
 	}
-	return merged, nil
+	overlay(merged, typed)
+	return merged, back, nil
+}
+
+// overlay lays over on base, key by key: a mapping over a mapping merges,
+// anything else replaces.
+func overlay(base, over map[string]any) {
+	for k, v := range over {
+		if ov, ok := v.(map[string]any); ok {
+			if bv, ok := base[k].(map[string]any); ok {
+				overlay(bv, ov)
+				continue
+			}
+		}
+		base[k] = v
+	}
+}
+
+// setInput puts v at path in doc, creating the mappings on the way.
+func setInput(doc map[string]any, path []string, v any) {
+	for _, k := range path[:len(path)-1] {
+		next, ok := doc[k].(map[string]any)
+		if !ok {
+			next = map[string]any{}
+			doc[k] = next
+		}
+		doc = next
+	}
+	doc[path[len(path)-1]] = v
 }
 
 // waveOrder sorts the reports into the wave's order (D8): Giant Swarm's own

@@ -125,14 +125,14 @@ func Manager(connected bool) map[string]Tool {
 		return document(verify.Result{
 			Caller: Caller, Hub: Hub,
 			Installation: str(args[tools.ArgInstallation]), Capability: str(args[tools.ArgCapability]),
-			State: "enabled", Inputs: verify.Inputs{Source: "none"},
+			State: "enabled", Inputs: verify.Inputs{Source: verify.SourceRecord},
 		})
 	}
 	m["x_"+tools.LiveToolPrefix+"_"+tools.ToolVerifyInstallation] = func(_ context.Context, args map[string]any) *mcp.CallToolResult {
 		return document(verify.Result{
 			Caller:       LiveCaller,
 			Installation: str(args[tools.ArgInstallation]), Capability: str(args[tools.ArgCapability]),
-			State: "enabled", Inputs: verify.Inputs{Source: "none"},
+			State: "enabled", Inputs: verify.Inputs{Source: verify.SourceNone},
 		})
 	}
 	return m

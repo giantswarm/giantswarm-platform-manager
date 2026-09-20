@@ -234,7 +234,7 @@ func (c *conn) callBoth(tool, liveTool string, args map[string]any, stdout, stde
 		}
 		return fail(stderr, err)
 	}
-	live, liveErr := s.CallServer(ctx, muster.LiveServer, liveTool, args)
+	live, liveErr := s.CallServer(ctx, muster.LiveServer, liveTool, carryInputs(args, repo))
 	if c.output == outputJSON {
 		doc := map[string]any{"repository": repo, "live": nil}
 		if liveErr != nil {
