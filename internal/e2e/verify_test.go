@@ -255,16 +255,16 @@ func TestVerifyCapabilityPlannedAddition(t *testing.T) {
 	fixtures(st.ghs)
 	c := st.mcpClient(t, aliceToken)
 	enableRowan(t, st, c, kagentEnabled(), kagentEnabled())
-	const secret = "dex-client-kagent-secret.yaml"
+	const kagentClientFile = "dex-client-kagent-secret.yaml"
 	st.ghs.mu.Lock()
 	kustomization := ""
 	for p, content := range st.ghs.files[acmeMCs] {
 		switch {
-		case strings.HasSuffix(p, "/extras/agent-platform/secrets/"+secret):
+		case strings.HasSuffix(p, "/extras/agent-platform/secrets/"+kagentClientFile):
 			delete(st.ghs.files[acmeMCs], p)
 		case strings.HasSuffix(p, "/extras/agent-platform/secrets/kustomization.yaml"):
 			kustomization = p
-			st.ghs.files[acmeMCs][p] = strings.ReplaceAll(content, "  - "+secret+"\n", "")
+			st.ghs.files[acmeMCs][p] = strings.ReplaceAll(content, "  - "+kagentClientFile+"\n", "")
 		}
 	}
 	st.ghs.mu.Unlock()

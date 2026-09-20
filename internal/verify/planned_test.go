@@ -4,7 +4,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
@@ -29,16 +28,16 @@ func TestEveryMigrationKeyIsRendered(t *testing.T) {
 		t.Fatalf("golden shapes: %v (%d)", err, len(shapes))
 	}
 	for _, golden := range shapes {
-		err := filepath.WalkDir(golden, func(p string, d fs.DirEntry, err error) error {
+		fsys := os.DirFS(golden)
+		err := fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() {
 				return err
 			}
-			content, err := os.ReadFile(p) // #nosec G304 -- a golden file of the render's testdata
+			content, err := fs.ReadFile(fsys, p)
 			if err != nil {
 				return err
 			}
-			rel := strings.TrimPrefix(p, golden+string(filepath.Separator))
-			fd := &fileDiff{path: filepath.ToSlash(rel), kind: kindOf(filepath.ToSlash(rel))}
+			fd := &fileDiff{path: p, kind: kindOf(p)}
 			for i, k := range migs {
 				if covered[i] {
 					continue
