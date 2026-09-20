@@ -8,10 +8,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/mark3labs/mcp-go/client"
+	"gopkg.in/yaml.v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
@@ -21,7 +24,10 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 )
 
-const privateInput = "installation.private"
+const (
+	argPrivate   = "private"
+	privateInput = "installation." + argPrivate
+)
 
 func verifyRowan(t *testing.T, c *client.Client, name string) verify.Result {
 	t.Helper()
@@ -169,7 +175,7 @@ func TestVerifyCapabilityDiffersByInput(t *testing.T) {
 	fixtures(st.ghs)
 	c := st.mcpClient(t, aliceToken)
 	inRepos := kagentEnabled()
-	inRepos["installation"] = map[string]any{"private": true}
+	inRepos["installation"] = map[string]any{argPrivate: true}
 	enableRowan(t, st, c, kagentEnabled(), inRepos)
 
 	res := verifyRowan(t, c, rowan)
@@ -245,5 +251,159 @@ func TestVerifyCapabilityWithoutInputsOnRecord(t *testing.T) {
 	}
 	if identity.Mark != verify.AsDefined {
 		t.Errorf("identity %q: %+v", identity.Mark, identity.Marks)
+	}
+}
+
+// onRecord is the one file on the record whose path ends with suffix.
+func onRecord(t *testing.T, st *stack, suffix string) (repo, path, content string) {
+	t.Helper()
+	st.ghs.mu.Lock()
+	defer st.ghs.mu.Unlock()
+	var found []string
+	for r, files := range st.ghs.files {
+		for p, c := range files {
+			if strings.HasSuffix(p, suffix) {
+				repo, path, content = r, p, c
+				found = append(found, r+":"+p)
+			}
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("%d files on record end with %s: %v", len(found), suffix, found)
+	}
+	return repo, path, content
+}
+
+// differencesOf are the differences the result names in the file.
+func differencesOf(res verify.Result, file string) []verify.Difference {
+	var out []verify.Difference
+	for _, f := range res.Features {
+		for _, d := range f.Dimensions {
+			for _, diff := range d.Differences {
+				if diff.File == file {
+					out = append(out, diff)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// The encrypted files an enablement put on record are the render's outside
+// the values SOPS encrypted: no dimension drifts, the secrets are as defined.
+func TestVerifyCapabilityKeepsTheEncryptedFilesOnRecord(t *testing.T) {
+	st := newStack(t)
+	c := enabledOnRecord(t, st)
+	repo, path, content := onRecord(t, st, "/secrets/kagent-oauth2-proxy-credentials.yaml")
+	if !strings.Contains(content, "ENC[") || !strings.Contains(content, "sops:") {
+		t.Fatalf("%s is not encrypted on record:\n%s", path, content)
+	}
+	res := verifyRowan(t, c, rowan)
+	if res.Summary[verify.Drifted] != 0 || res.Summary[verify.DiffersByInput] != 0 || res.State != installations.StateEnabled {
+		t.Errorf("state %q summary %v", res.State, res.Summary)
+	}
+	d := dimension(t, feature(t, res, "secrets"), "oauth2-proxy-credentials-secret")
+	if d.Mark != verify.AsDefined || !slices.Contains(d.Files, repo+":"+path) || len(d.Differences) != 0 {
+		t.Errorf("oauth2-proxy-credentials-secret: %+v", d)
+	}
+}
+
+// An encrypted file whose plaintext skeleton is off the render drifts at the
+// paths that differ, the values redacted: no value of it is shown.
+func TestVerifyCapabilityRedactsAnEncryptedFile(t *testing.T) {
+	st := newStack(t)
+	c := enabledOnRecord(t, st)
+	repo, path, content := onRecord(t, st, "/secrets/kagent-oauth2-proxy-credentials.yaml")
+	st.ghs.addFiles(repo, map[string]string{path: content + "handEdited: true\n"})
+
+	res := verifyRowan(t, c, rowan)
+	d := dimension(t, feature(t, res, "secrets"), "oauth2-proxy-credentials-secret")
+	if d.Mark != verify.Drifted || res.Summary[verify.Drifted] != 1 || len(d.Differences) != 1 {
+		t.Fatalf("oauth2-proxy-credentials-secret: %+v summary %v", d, res.Summary)
+	}
+	if diff := d.Differences[0]; diff.File != repo+":"+path || diff.Path != "handEdited" || diff.Rendered != "" || diff.Current != verify.Redacted || diff.Input != "" {
+		t.Errorf("the difference: %+v", diff)
+	}
+}
+
+// kustomizationResources are the resources of a kustomization on record, and
+// the kustomization written with other resources.
+func kustomizationResources(t *testing.T, content string) ([]string, func(resources []string) string) {
+	t.Helper()
+	var doc map[string]any
+	if err := yaml.Unmarshal([]byte(content), &doc); err != nil {
+		t.Fatal(err)
+	}
+	var resources []string
+	list, _ := doc["resources"].([]any)
+	for _, r := range list {
+		resources = append(resources, r.(string))
+	}
+	if len(resources) < 2 {
+		t.Fatalf("resources on record: %v", resources)
+	}
+	return resources, func(resources []string) string {
+		doc["resources"] = resources
+		out, err := yaml.Marshal(doc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(out)
+	}
+}
+
+// A kustomization whose resources another owner added to, in another order,
+// is as defined: the plan keeps their entries and the order is nobody's. An
+// entry of the render dropped is one difference, the entry.
+func TestVerifyCapabilityKeepsTheKustomizationEntries(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	enableRowan(t, st, c, kagentEnabled(), kagentEnabled())
+	repo, path, content := onRecord(t, st, "/secrets/kustomization.yaml")
+	rendered, write := kustomizationResources(t, content)
+	reversed := slices.Clone(rendered)
+	slices.Reverse(reversed)
+	st.ghs.addFiles(repo, map[string]string{path: write(append([]string{"theirs.yaml"}, reversed...))})
+
+	res := verifyRowan(t, c, rowan)
+	d := dimension(t, feature(t, res, "secrets"), "secrets-kustomization-list")
+	if d.Mark != verify.AsDefined || len(d.Differences) != 0 || res.Summary[verify.Drifted] != 0 {
+		t.Errorf("secrets-kustomization-list: %+v summary %v", d, res.Summary)
+	}
+	st.ghs.addFiles(repo, map[string]string{path: write(append([]string{"theirs.yaml"}, rendered[1:]...))})
+	res = verifyRowan(t, c, rowan)
+	if diffs := differencesOf(res, repo+":"+path); res.Summary[verify.AsDefined] == 0 || len(diffs) != 1 || diffs[0].Path != "resources["+rendered[0]+"]" || diffs[0].Rendered != rendered[0] || diffs[0].Current != "" {
+		t.Errorf("an entry of the render dropped: %+v", diffs)
+	}
+}
+
+// A file of several documents in another order is as defined: the documents
+// are compared by kind/namespace/name, not by position; one dropped is its
+// leaves.
+func TestVerifyCapabilityReadsDocumentsByObject(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	federated := minimalInputs(map[string]any{argInstallation: map[string]any{"federation": map[string]any{
+		"brokerClientId": "broker", "hubs": []any{},
+		"targets": []any{map[string]any{"installation": alder, "baseDomain": alder + ".example", argPrivate: true}}}}})
+	enableRowan(t, st, c, federated, federated)
+	repo, path, content := onRecord(t, st, "/remoteapps.yaml")
+	docs := strings.Split(content, "---\n")
+	if len(docs) < 3 {
+		t.Fatalf("%s holds %d documents:\n%s", path, len(docs)-1, content)
+	}
+	slices.Reverse(docs[1:])
+	st.ghs.addFiles(repo, map[string]string{path: strings.Join(docs, "---\n")})
+
+	res := verifyRowan(t, c, rowan)
+	if diffs := differencesOf(res, repo+":"+path); res.Summary[verify.Drifted] != 0 || len(diffs) != 0 {
+		t.Errorf("reordered documents: %v %+v", res.Summary, diffs)
+	}
+	st.ghs.addFiles(repo, map[string]string{path: strings.Join(docs[:len(docs)-1], "---\n")})
+	res = verifyRowan(t, c, rowan)
+	if diffs := differencesOf(res, repo+":"+path); len(diffs) != 7 || diffs[0].Current != "" || !strings.HasPrefix(diffs[0].Path, "[RemoteApp/"+platformNamespace+"/") {
+		t.Errorf("a document dropped: %v %+v", res.Summary, diffs)
 	}
 }

@@ -10,10 +10,10 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
-// sopsKey is the top-level key SOPS keeps its metadata under in a file it
+// SOPSKey is the top-level key SOPS keeps its metadata under in a file it
 // encrypted; encPrefix opens every value it encrypted.
 const (
-	sopsKey   = "sops"
+	SOPSKey   = "sops"
 	encPrefix = "ENC["
 )
 
@@ -69,11 +69,26 @@ func documents(text string) ([]*yaml.Node, error) {
 	}
 }
 
+// Encrypted reports whether the file on record is one SOPS encrypted: a
+// document of it carries SOPS's block.
+func Encrypted(current string) bool {
+	docs, err := documents(current)
+	return err == nil && encrypted(docs)
+}
+
+// Opaque reports whether a scalar of the render against one of the record
+// takes no part in a comparison: the commit fills the render's in, or the
+// record holds it encrypted — the manager decrypts nothing, and the value on
+// record stands.
+func Opaque(rendered, current string) bool {
+	return strings.HasPrefix(current, encPrefix) || filledIn(rendered)
+}
+
 // encrypted reports whether a document of the file on record carries SOPS's
 // block: the file is encrypted.
 func encrypted(docs []*yaml.Node) bool {
 	for _, doc := range docs {
-		if entry(root(doc), sopsKey) != nil {
+		if entry(root(doc), SOPSKey) != nil {
 			return true
 		}
 	}
@@ -105,7 +120,7 @@ func sameNode(r, c *yaml.Node, atRoot bool) bool {
 	}
 	switch r.Kind {
 	case yaml.ScalarNode:
-		if strings.HasPrefix(c.Value, encPrefix) || filledIn(r.Value) {
+		if Opaque(r.Value, c.Value) {
 			return true
 		}
 		return r.Value == c.Value && r.ShortTag() == c.ShortTag()
@@ -121,8 +136,8 @@ func sameNode(r, c *yaml.Node, atRoot bool) bool {
 		return true
 	case yaml.MappingNode:
 		rk, ck := entries(r), entries(c)
-		if atRoot && rk[sopsKey] == nil {
-			delete(ck, sopsKey)
+		if atRoot && rk[SOPSKey] == nil {
+			delete(ck, SOPSKey)
 		}
 		if len(rk) != len(ck) {
 			return false
