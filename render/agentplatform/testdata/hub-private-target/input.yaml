@@ -1,4 +1,4 @@
-# A Giant Swarm-owned hub with a private target that runs the agent platform, reached through the
+# The registry's hub (the broker's GitHub grant target) with a private target that runs the agent platform, reached through the
 # tunnel, and a public one:
 # the broker and the identity provider per target, the targets' MCP servers with exchange auth,
 # the credentials Secret per target, the tunnelport release with a RemoteApp per tunnelled app,
@@ -13,6 +13,7 @@ input:
     customer: giantswarm
     provider: capa
     private: false
+    hub: true
     chartLine: "4"
     musterClientId: 00000000-0000-4000-8000-000000000002
     podCertificateRequest: true

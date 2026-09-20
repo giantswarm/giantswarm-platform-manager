@@ -94,6 +94,9 @@ type Installation struct {
 	Private        bool   `json:"private"`
 	ChartLine      string `json:"chartLine"`
 	MusterClientID string `json:"musterClientId"`
+	// Hub says this is the registry's hub: its broker releases the person's
+	// GitHub grant to the Dev Portal (hub.go).
+	Hub bool `json:"hub"`
 	// PodCertificateRequest says the cluster serves certificates.k8s.io/v1beta1
 	// PodCertificateRequest, which Agent Substrate needs on the 4 line: the
 	// cluster App on record enables the feature gates, or its chart does by

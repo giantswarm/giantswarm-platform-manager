@@ -34,11 +34,13 @@ const (
 	// release whose chart version label survives a digest-pinned OCI consumer.
 	tunnelportChart  = "oci://gsoci.azurecr.io/charts/giantswarm/tunnelport"
 	tunnelportSemver = ">=1.0.4"
-	// githubGrantTarget is the broker's grant target: it releases the person's
-	// own GitHub grant — the one the GitHub MCP servers pin with grantScope
-	// subject — to the hub's broker client, an access token and its expiry,
-	// never the refresh token. The hub's Dev Portal backs its GitHub auth API
-	// with it, so the portal needs no GitHub App. A hub fact, not an input.
+	// githubGrantTarget is the broker's grant target on the registry's hub
+	// (installation.hub): it releases the person's own GitHub grant — the one
+	// the GitHub MCP servers pin with grantScope subject — to the hub's broker
+	// client, an access token and its expiry, never the refresh token. The
+	// hub's Dev Portal backs its GitHub auth API with it, so the portal needs
+	// no GitHub App. A customer aggregator brokers for its siblings but holds
+	// no GitHub grant, so it renders none.
 	githubGrantTarget = "github"
 	githubGrantIssuer = "https://github.com/login/oauth"
 )
@@ -110,8 +112,8 @@ func exchangeSecretName(hub, target string) string {
 }
 
 // brokerValues is muster.muster.oauth.server.tokenExchangeBroker: the hub's
-// broker client, the GitHub grant target and the targets it may mint for,
-// and each target's exchange.
+// broker client, on the registry's hub the GitHub grant target, the targets
+// it may mint for, and each target's exchange.
 func (in *Input) brokerValues() render.Map {
 	m := render.Map{}
 	if in.hasPrivateTarget() {
@@ -119,8 +121,12 @@ func (in *Input) brokerValues() render.Map {
 		// SSRF guard would refuse it.
 		m = append(m, e("allowPrivateIP", true))
 	}
-	names := []string{githubGrantTarget}
-	targets := render.Map{e(githubGrantTarget, render.Map{e("grantIssuer", githubGrantIssuer)})}
+	names := make([]string, 0, len(in.Installation.Federation.Targets)+1)
+	targets := render.Map{}
+	if in.Installation.Hub {
+		names = append(names, githubGrantTarget)
+		targets = append(targets, e(githubGrantTarget, render.Map{e("grantIssuer", githubGrantIssuer)}))
+	}
 	for _, t := range in.Installation.Federation.Targets {
 		names = append(names, t.Installation)
 		entry := render.Map{e("dexTokenEndpoint", t.dexTokenEndpoint())}
