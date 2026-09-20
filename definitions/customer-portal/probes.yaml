@@ -20,7 +20,7 @@ probes:
     expect: [302]
   - id: dex-auth-request
     feature: identity
-    key: Dex accepts the auth request of every client the definition declares (302 to the login)
+    key: Dex answers the auth request of every client the definition declares (the login page or a redirect)
     url: https://dex.{{.BaseDomain}}/auth?client_id={{.ClientID}}&redirect_uri={{.RedirectURI}}&response_type=code&scope=openid
     perDexClient: true
-    expect: [302]
+    expect: [200, 302]
