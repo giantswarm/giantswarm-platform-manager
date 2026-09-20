@@ -46,19 +46,29 @@ const (
 // tunnelledApp is one app reached through the tunnel on a private target. port is
 // the tunnel's loopback port on the hub (the ghostunnel target), distinct from
 // tunnelPort; the upstream port is the Teleport app's, advertised by the target.
+// probe is the upstream's health path where GET / would not answer 2xx without
+// a token; empty for no HTTP probe.
 type tunnelledApp struct {
-	name string
-	port int
+	name  string
+	port  int
+	probe string
 }
 
 // tunnelledApps are the target's Dex (the exchange endpoint), each federated
-// group's MCP server and the API server the broker's tokens are for.
+// group's MCP server, on a target that runs the agent platform its kagent (the
+// UI and API v1 behind oauth2-proxy, whose health route is /ping) and its
+// agentgateway (the kagent API v2 controller's gRPC listener, no HTTP probe) —
+// the hub's Dev Portal reaches both through the tunnel — and the API server the
+// broker's tokens are for.
 func (t Target) tunnelledApps() []tunnelledApp {
-	apps := []tunnelledApp{{"dex", 5556}}
+	apps := []tunnelledApp{{name: "dex", port: 5556}}
 	for _, g := range t.groups() {
-		apps = append(apps, tunnelledApp{"mcp-" + g, 8080})
+		apps = append(apps, tunnelledApp{name: "mcp-" + g, port: 8080})
 	}
-	return append(apps, tunnelledApp{"kubernetes", 6443})
+	if t.AgentPlatform {
+		apps = append(apps, tunnelledApp{name: "kagent", port: 4180, probe: "/ping"}, tunnelledApp{name: "agentgateway", port: 8080})
+	}
+	return append(apps, tunnelledApp{name: "kubernetes", port: 6443})
 }
 
 // appName is a tunnelled app's name on the hub and on Teleport: <app>-<target>.
@@ -223,15 +233,20 @@ func (in *Input) tunnelExtras(r *render.Result, repo render.Repository, dir stri
 			continue
 		}
 		for _, app := range t.tunnelledApps() {
+			spec := render.Map{e("appName", t.appName(app.name)), e("port", app.port), e("tokenName", t.appName(app.name)+"-bot-token")}
+			if app.probe != "" {
+				spec = append(spec, e("probe", render.Map{e("path", app.probe)}))
+			}
 			docs = append(docs, render.MustYAML(render.Map{
 				e("apiVersion", "access.giantswarm.io/v1alpha1"), e("kind", "RemoteApp"),
 				e("metadata", render.Map{e("name", t.appName(app.name)), e("namespace", platformNamespace)}),
-				e("spec", render.Map{e("appName", t.appName(app.name)), e("port", app.port), e("tokenName", t.appName(app.name)+"-bot-token")}),
+				e("spec", spec),
 			}))
 		}
 	}
 	header := fileHeader + "# One RemoteApp per tunnelled app of every private target: a tbot + ghostunnel Deployment and a\n" +
 		"# Service named <app>-<target> on :" + tunnelPort + ", TLS terminated with the app's SVID. spec.port is the\n" +
-		"# tunnel's loopback port; the upstream port is the Teleport app's, advertised by the target.\n"
+		"# tunnel's loopback port; the upstream port is the Teleport app's, advertised by the target. A target\n" +
+		"# that runs the agent platform is also tunnelled to its kagent and its agentgateway, for the Dev Portal.\n"
 	r.Add(repo, dir+"/remoteapps.yaml", render.File{Content: append([]byte(header), bytes.Join(docs, []byte("---\n"))...)})
 }

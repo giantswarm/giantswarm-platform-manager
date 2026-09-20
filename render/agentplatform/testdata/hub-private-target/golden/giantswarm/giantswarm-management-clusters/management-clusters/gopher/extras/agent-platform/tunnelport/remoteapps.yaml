@@ -2,7 +2,8 @@
 # the next reconcile writes it again from the installation's inputs.
 # One RemoteApp per tunnelled app of every private target: a tbot + ghostunnel Deployment and a
 # Service named <app>-<target> on :8443, TLS terminated with the app's SVID. spec.port is the
-# tunnel's loopback port; the upstream port is the Teleport app's, advertised by the target.
+# tunnel's loopback port; the upstream port is the Teleport app's, advertised by the target. A target
+# that runs the agent platform is also tunnelled to its kagent and its agentgateway, for the Dev Portal.
 apiVersion: access.giantswarm.io/v1alpha1
 kind: RemoteApp
 metadata:
@@ -42,6 +43,28 @@ spec:
   appName: mcp-capi-burrow
   port: 8080
   tokenName: mcp-capi-burrow-bot-token
+---
+apiVersion: access.giantswarm.io/v1alpha1
+kind: RemoteApp
+metadata:
+  name: kagent-burrow
+  namespace: agent-platform
+spec:
+  appName: kagent-burrow
+  port: 4180
+  tokenName: kagent-burrow-bot-token
+  probe:
+    path: /ping
+---
+apiVersion: access.giantswarm.io/v1alpha1
+kind: RemoteApp
+metadata:
+  name: agentgateway-burrow
+  namespace: agent-platform
+spec:
+  appName: agentgateway-burrow
+  port: 8080
+  tokenName: agentgateway-burrow-bot-token
 ---
 apiVersion: access.giantswarm.io/v1alpha1
 kind: RemoteApp

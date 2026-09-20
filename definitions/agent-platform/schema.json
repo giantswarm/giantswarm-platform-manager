@@ -57,7 +57,8 @@
                 "properties": {
                   "installation": {"type": "string", "minLength": 1},
                   "baseDomain": {"type": "string", "minLength": 1},
-                  "private": {"type": "boolean", "description": "The target's record: reached through Teleport, so this hub tunnels to it — a RemoteApp per tunnelled app on this hub and the app's tunnel entry among this hub's entries of teleport-fleet's tunnelport values; the tunnel's bots join by this hub's published service-account issuer (irsa.<base domain> on capa; another provider refuses a private target)."}
+                  "private": {"type": "boolean", "description": "The target's record: reached through Teleport, so this hub tunnels to it — a RemoteApp per tunnelled app on this hub and the app's tunnel entry among this hub's entries of teleport-fleet's tunnelport values; the tunnel's bots join by this hub's published service-account issuer (irsa.<base domain> on capa; another provider refuses a private target)."},
+                  "agentPlatform": {"type": "boolean", "default": false, "x-source": "registry", "x-feature": "federation", "x-renders": ["extras:agent-platform/tunnelport/remoteapps.yaml (kagent-<name>, agentgateway-<name>)", "teleport:values:tunnelport.tunnels[kagent-<name>]", "teleport:values:tunnelport.tunnels[agentgateway-<name>]"], "description": "The target's enabled marker of the agent-platform capability (its configs repository carries the platform's values patch): a private target that runs the platform is also tunnelled to its kagent (the UI and API v1 behind oauth2-proxy, probed at /ping) and its agentgateway (the kagent API v2 controller's gRPC listener), which this hub's Dev Portal reaches through the tunnel."}
                 }
               }
             },
