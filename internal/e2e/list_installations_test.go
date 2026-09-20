@@ -229,7 +229,7 @@ func TestListInstallationsStates(t *testing.T) {
 
 	alder := find(t, out, "alder")
 	if alder.Hub || alder.OptIn.State != installations.NotOptedIn || alder.OptIn.Present || alder.OptIn.Path != installations.OptInPath("alder") || alder.OptIn.Repository != acmeMCs ||
-		!strings.Contains(alder.OptIn.HowToOptIn, "optIn: true") || !strings.Contains(alder.OptIn.HowToOptIn, acmeMCs) || !strings.Contains(alder.OptIn.HowToOptIn, "never") ||
+		!strings.Contains(alder.OptIn.HowToOptIn, "optIn: true") || !strings.Contains(alder.OptIn.HowToOptIn, acmeMCs) || !strings.Contains(alder.OptIn.HowToOptIn, "their own pull request") ||
 		alder.Capabilities[0].State != installations.StateNotOptedIn || alder.Capabilities[0].Enabled || alder.Capabilities[1].State != installations.StateNotOptedIn || !alder.Readable ||
 		alder.Customer != "acme" || alder.AccountEngineer != "Ada Example" || alder.Record == nil || alder.Record.ChartLine != "3" {
 		t.Fatalf("alder: %+v %+v", alder, alder.OptIn)

@@ -99,7 +99,7 @@ func capabilityOptions() []mcp.ToolOption {
 
 func (t *Tools) enableCapabilityTool() WriteTool {
 	return WriteTool{Name: ToolEnableCapability,
-		Description: "Enable a platform capability on an installation: render its fileset from the facts on record and your typed inputs through the definition and answer the plan — the files per repository with the change each one is against the repository now, the pull requests in dependency order (configs before management-clusters, the hub's with them), the generated secrets by name, the Dex clients with their redirect URIs, the secret values you supply at commit (by field), the actions the customer has to take and the probes the verify runs. installation names the one installation; installations a set, whose members without the opt-in are skipped. No secret value ever appears in a dry run.",
+		Description: "Enable a platform capability on an installation, or a set: answers the plan a commit would write — the files with their change, the pull requests in order, the secrets by name, the Dex clients, the customer's actions, the probes — with the comparison's marks. The inputs are the record, what the definition reads back and your typed inputs. No secret value ever appears in a dry run.",
 		Options:     capabilityOptions(),
 		DryRun: func(ctx context.Context, args map[string]any) (any, error) {
 			return t.capabilityDryRun(ctx, ToolEnableCapability, args)
@@ -111,7 +111,7 @@ func (t *Tools) enableCapabilityTool() WriteTool {
 
 func (t *Tools) reconcileCapabilityTool() WriteTool {
 	return WriteTool{Name: ToolReconcileCapability,
-		Description: "Reconcile a platform capability over a set of installations (empty: every installation of the registry): the same render as enable_capability per installation, with every file compared against the repository as it is — a plan whose files are all unchanged is an empty diff, the definition matching the installation. Installations not opted in are skipped and listed as such; the order answers the wave's rollout order.",
+		Description: "Reconcile a platform capability over a set of installations (empty: every one of the registry): the same plan as enable_capability per installation, every file compared with the repository as it is. A plan whose files are all unchanged is the definition matching the installation. Installations not opted in are skipped and listed.",
 		Options:     capabilityOptions(),
 		DryRun: func(ctx context.Context, args map[string]any) (any, error) {
 			return t.capabilityDryRun(ctx, ToolReconcileCapability, args)

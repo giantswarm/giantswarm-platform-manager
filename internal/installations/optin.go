@@ -91,5 +91,5 @@ func ReadOptIn(ctx context.Context, c *github.Client, inst Installation) OptIn {
 }
 
 func howToOptIn(o OptIn) string {
-	return fmt.Sprintf("a pull request by the installation's owners adding %s with optIn: true to %s — the owners' decision, never a pull request of this manager", o.Path, o.Repository)
+	return fmt.Sprintf("the owners add %s with optIn: true to %s by their own pull request", o.Path, o.Repository)
 }

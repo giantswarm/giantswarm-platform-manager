@@ -132,7 +132,7 @@ const (
 func Capabilities() []Capability {
 	return []Capability{{
 		Name:             AgentPlatform,
-		Description:      "The agent platform on an installation: muster with its MCP servers, kagent and its agents, the Dex clients, the developer portal's section, the hub's federation, klaus-gateway and cluster-manager.",
+		Description:      "The agent platform: muster with its MCP servers, kagent, the Dex clients, the portal's section, the hub's federation, the chat gateway and cluster-manager.",
 		MarkerRepository: ConfigsRepository,
 		EnabledMarker: func(installation string) string {
 			return "installations/" + installation + "/apps/agent-platform/configmap-values.yaml.patch"
@@ -143,7 +143,7 @@ func Capabilities() []Capability {
 		Prunes: false,
 	}, {
 		Name:             CustomerPortal,
-		Description:      "The developer portal on an installation: its extras/backstage tree over the fleet's bases, its Dex client, the plugin keys and the session secret.",
+		Description:      "The developer portal: its Backstage tree, its Dex client, the plugin keys and the session secret.",
 		MarkerRepository: ManagementClustersRepository,
 		EnabledMarker:    PortalConfigPath,
 		Parse:            func(raw any) (render.Input, error) { return customerportal.Parse(raw) },

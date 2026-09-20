@@ -43,7 +43,7 @@ const (
 // The reasons a dimension is not checked. A probe's own — no Dex client to
 // run for, a target unreachable from the manager — are next to probe in probes.go.
 const (
-	ReasonAuthority  = "needs the person's authority on the installation: verify_installation, the live registration's tool, checks it"
+	ReasonAuthority  = "needs your session on the installation"
 	ReasonNoRender   = "nothing rendered to compare against: the inputs are missing or refused"
 	ReasonUnreadable = "a file of the dimension could not be read as the caller"
 	ReasonNoFile     = "the definition renders no file of this kind for the inputs on record"
