@@ -14,6 +14,8 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
+	"github.com/giantswarm/giantswarm-platform-manager/render/agentplatform"
 )
 
 // The facts a definition derives from the portals' app-configs — which portals
@@ -24,13 +26,16 @@ import (
 // person for them.
 
 // Portal is a developer portal on record: the installation hosting it and its
-// organisation, its hostname, the installations it lists, the installation
-// whose muster brokers its cluster tokens (empty when it brokers none) and the
+// organisation, its hostname, the id of the Dex client it signs in through
+// (empty when the host's dex-app configmap patch carries no client with the
+// portal's redirect URI), the installations it lists, the installation whose
+// muster brokers its cluster tokens (empty when it brokers none) and the
 // installations it reaches through the tunnel on its host.
 type Portal struct {
 	Host          string
 	Customer      string
 	Domain        string
+	ClientID      string
 	Broker        string
 	Installations []string
 	Tunnelled     []string
@@ -42,6 +47,7 @@ type PortalRef struct {
 	Installation string `json:"installation"`
 	Customer     string `json:"customer"`
 	Domain       string `json:"domain"`
+	ClientID     string `json:"clientId,omitempty"`
 }
 
 // Federation is an installation's place in the fleet's token exchange, as the
@@ -68,6 +74,13 @@ type FederatedTarget struct {
 // where a hub's broker client id is read back from.
 func AgentPlatformPatchPath(name string) string {
 	return "installations/" + name + "/apps/agent-platform/configmap-values.yaml.patch"
+}
+
+// DexPatchPath is where the installation's configs repository keeps the
+// dex-app configmap patch: the clients in plaintext, every secret a
+// reference — where a portal's client id is read from.
+func DexPatchPath(name string) string {
+	return "installations/" + name + "/apps/dex-app/configmap-values.yaml.patch"
 }
 
 // portalHosts are the installations whose portal may list one of insts: the
@@ -123,7 +136,113 @@ func (r *Registry) readPortal(ctx context.Context, c *github.Client, host Instal
 			return nil, fmt.Errorf("%s: the cluster-token broker %s is no installation's muster", PortalConfigPath(host.Name), broker)
 		}
 	}
+	if p.ClientID, err = portalClientID(ctx, c, host, p.Domain); err != nil {
+		return nil, err
+	}
 	return p, nil
+}
+
+// portalClientID reads the id of the Dex client the portal on domain signs in
+// through: the entry of host's dex-app configmap patch whose redirect URIs
+// carry the portal's. The app-config names the id only as a reference the
+// chart resolves from the portal's encrypted user-secrets, so the patch is the
+// id's one plaintext place on record. Empty when host has no configs
+// repository or no patch, or the patch carries no such client.
+func portalClientID(ctx context.Context, c *github.Client, host Installation, domain string) (string, error) {
+	if host.Repositories.Configs == "" {
+		return "", nil
+	}
+	owner, repo, err := gh.SplitRepo(host.Repositories.Configs)
+	if err != nil {
+		return "", err
+	}
+	data, err := gh.ReadFile(ctx, c, owner, repo, DexPatchPath(host.Name))
+	if errors.Is(err, gh.ErrNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	id, err := dexClientByRedirectURI(data, render.PortalRedirectURI(domain, host.Name))
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", DexPatchPath(host.Name), err)
+	}
+	return id, nil
+}
+
+// dexClientByRedirectURI is the id of the extra static client of a dex-app
+// configmap patch that redirects to uri, empty for none.
+func dexClientByRedirectURI(data, uri string) (string, error) {
+	var patch struct {
+		OIDC struct {
+			ExtraStaticClients []struct {
+				ID           string   `yaml:"id"`
+				RedirectURIs []string `yaml:"redirectURIs"`
+			} `yaml:"extraStaticClients"`
+		} `yaml:"oidc"`
+	}
+	if err := yaml.Unmarshal([]byte(data), &patch); err != nil {
+		return "", err
+	}
+	for _, client := range patch.OIDC.ExtraStaticClients {
+		if slices.Contains(client.RedirectURIs, uri) {
+			return client.ID, nil
+		}
+	}
+	return "", nil
+}
+
+// portalAudiences reads the portals' Dex client ids the installation trusts
+// today from its own platform patch, the second place a portal's id is on
+// record: every muster.muster.oauth.server.trustedAudiences entry that is not
+// one the definition renders itself. Empty when the installation has no
+// configs repository or no patch, or the patch names no trusted audiences.
+func portalAudiences(ctx context.Context, c *github.Client, rep Report) ([]string, error) {
+	if rep.Repositories.Configs == "" {
+		return nil, nil
+	}
+	owner, repo, err := gh.SplitRepo(rep.Repositories.Configs)
+	if err != nil {
+		return nil, err
+	}
+	data, err := gh.ReadFile(ctx, c, owner, repo, AgentPlatformPatchPath(rep.Name))
+	if errors.Is(err, gh.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	ids, err := portalAudiencesOf(data, agentplatform.OwnAudiences(rep.Record.MusterClientID))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", AgentPlatformPatchPath(rep.Name), err)
+	}
+	return ids, nil
+}
+
+// portalAudiencesOf is the platform patch's trustedAudiences without own,
+// the audiences the definition renders itself: each once, in the patch's order.
+func portalAudiencesOf(data string, own []string) ([]string, error) {
+	var patch struct {
+		Muster struct {
+			Muster struct {
+				OAuth struct {
+					Server struct {
+						TrustedAudiences []string `yaml:"trustedAudiences"`
+					} `yaml:"server"`
+				} `yaml:"oauth"`
+			} `yaml:"muster"`
+		} `yaml:"muster"`
+	}
+	if err := yaml.Unmarshal([]byte(data), &patch); err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, id := range patch.Muster.Muster.OAuth.Server.TrustedAudiences {
+		if id != "" && !slices.Contains(own, id) && !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
 }
 
 // hostOf is the hostname of a URL (no port), empty for none.
@@ -200,6 +319,11 @@ func (r *Registry) derive(ctx context.Context, c *github.Client, reports []Repor
 		}
 		targets := rep.derivePortals(portals)
 		rep.Record.Private = tunnelled(portals, rep.Name)
+		ids, err := portalAudiences(ctx, c, *rep)
+		if err != nil {
+			rep.fail(fmt.Sprintf("the portal audiences: %v", err))
+		}
+		rep.PortalAudiences = append(rep.PortalAudiences, ids...)
 		for _, name := range targets {
 			target, err := r.target(ctx, c, name, byName[name], tunnelled(portals, name))
 			if err != nil {
@@ -222,11 +346,11 @@ func (r *Registry) derive(ctx context.Context, c *github.Client, reports []Repor
 // and answers the names of the installations its own muster brokers for, in
 // the portals' order, each once.
 func (r *Report) derivePortals(portals []Portal) []string {
-	r.Portals, r.Federation = []PortalRef{}, &Federation{Hubs: []string{}, Targets: []FederatedTarget{}}
+	r.Portals, r.PortalAudiences, r.Federation = []PortalRef{}, []string{}, &Federation{Hubs: []string{}, Targets: []FederatedTarget{}}
 	var targets []string
 	for _, p := range portals {
 		if slices.Contains(p.Installations, r.Name) {
-			r.Portals = append(r.Portals, PortalRef{Installation: p.Host, Customer: p.Customer, Domain: p.Domain})
+			r.Portals = append(r.Portals, PortalRef{Installation: p.Host, Customer: p.Customer, Domain: p.Domain, ClientID: p.ClientID})
 			if p.Broker != "" && p.Broker != r.Name && !slices.Contains(r.Federation.Hubs, p.Broker) {
 				r.Federation.Hubs = append(r.Federation.Hubs, p.Broker)
 			}

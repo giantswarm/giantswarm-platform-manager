@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -472,5 +473,37 @@ klausGateway:
 	}
 	if pol.KlausGateway.A2A.DefaultAgent != fleet {
 		t.Errorf("the policy's default agent changed to %q", pol.KlausGateway.A2A.DefaultAgent)
+	}
+}
+
+// TestPortalAudiences holds the set the platform trusts for the portals to
+// the union, in order: each portal's client id where known, the ids the
+// installation's patch trusts today, then backstage — and none of them twice;
+// an installation nobody lists trusts none.
+func TestPortalAudiences(t *testing.T) {
+	const opaqueA, opaqueB = "opaque-a", "opaque-b"
+	portal := func(domain, clientID string) PortalRef {
+		return PortalRef{Installation: "gopher", Customer: "giantswarm", Domain: domain, ClientID: clientID}
+	}
+	cases := []struct {
+		name      string
+		portals   []PortalRef
+		onRecord  []string
+		audiences []string
+	}{
+		{"nobody lists the installation", nil, nil, nil},
+		{"ids on record without a portal listing it stay", nil, []string{"stale"}, []string{"stale"}},
+		{"a portal whose client the Dex patch carries", []PortalRef{portal("a.example", opaqueA)}, nil, []string{opaqueA, render.PortalDexClientID}},
+		{"a portal whose id is only in the patch", []PortalRef{portal("a.example", "")}, []string{opaqueA}, []string{opaqueA, render.PortalDexClientID}},
+		{"the same id from both sources, once", []PortalRef{portal("a.example", opaqueA)}, []string{opaqueA, opaqueB}, []string{opaqueA, opaqueB, render.PortalDexClientID}},
+		{"a portal that signs in through the definition's client", []PortalRef{portal("a.example", render.PortalDexClientID), portal("b.example", opaqueB)}, []string{render.PortalDexClientID}, []string{render.PortalDexClientID, opaqueB}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			in := &Input{Installation: Installation{Portals: c.portals, PortalAudiences: c.onRecord}}
+			if got := in.portalAudiences(); !slices.Equal(got, c.audiences) {
+				t.Fatalf("got %v, want %v", got, c.audiences)
+			}
+		})
 	}
 }

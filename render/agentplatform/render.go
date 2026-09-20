@@ -18,6 +18,7 @@ package agentplatform
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/giantswarm/giantswarm-platform-manager/render"
@@ -90,16 +91,53 @@ func (in *Input) hasPortal() bool { return len(in.Installation.Portals) > 0 }
 
 // audiences are the Dex client ids whose tokens the platform accepts as
 // bearer tokens: the authenticator, the kagent UI's client when it runs, and
-// the portals' client when a portal signs people in here.
+// the portals' (portalAudiences).
 func (in *Input) audiences() []string {
 	a := []string{authenticatorClient}
 	if in.kagent() {
 		a = append(a, "kagent")
 	}
-	if in.hasPortal() {
-		a = append(a, render.PortalDexClientID)
+	for _, id := range in.portalAudiences() {
+		if !slices.Contains(a, id) {
+			a = append(a, id)
+		}
 	}
 	return a
+}
+
+// OwnAudiences are the audiences the definition renders itself, none of them
+// a portal's: the authenticator, the kagent UI's client, the portals' client
+// and the platform's own client (musterClientID). The registry leaves them
+// out when it reads the portals' audiences back from an installation's patch.
+func OwnAudiences(musterClientID string) []string {
+	return []string{authenticatorClient, componentKagent, render.PortalDexClientID, musterClientID}
+}
+
+// portalAudiences are the Dex client ids the platform trusts for the
+// portals, each once — the same set wherever a portal's token is accepted:
+// the id of each portal's client where its host's Dex patch carries it, then
+// every id the installation's own patch trusts today, then the definition's
+// client (backstage) when a portal signs people in here. A portal forwards
+// tokens with the id of the client it signed in through, whatever it is
+// named, so nothing on record is dropped; an installation nobody lists
+// renders none.
+func (in *Input) portalAudiences() []string {
+	var ids []string
+	add := func(id string) {
+		if id != "" && !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	for _, p := range in.Installation.Portals {
+		add(p.ClientID)
+	}
+	for _, id := range in.Installation.PortalAudiences {
+		add(id)
+	}
+	if in.hasPortal() {
+		add(render.PortalDexClientID)
+	}
+	return ids
 }
 
 // The meta chart's serving slice (4.44.0 and later): the llm-d control plane's
@@ -193,12 +231,12 @@ func (in *Input) dexJWKSReferenceGrant() render.Map {
 }
 
 // portalJWTProvider is the edge's JWT provider for the portals' ID tokens:
-// the installation's Dex as issuer, the portals' client as audience, the
+// the installation's Dex as issuer, the portals' clients as audiences, the
 // JWKS fetched in-cluster from the Dex Service.
 func (in *Input) portalJWTProvider() render.Map {
 	return render.Map{
 		e("issuer", "https://"+in.host("dex")),
-		e("audiences", []string{render.PortalDexClientID}),
+		e("audiences", in.portalAudiences()),
 		e("jwks", render.Map{e("remote", render.Map{
 			e("backendRef", render.Map{e("name", dexService), e("namespace", dexNamespace), e("port", dexServicePort)}),
 			e("jwksPath", "/keys"), e("cacheDuration", "5m"),
@@ -303,10 +341,10 @@ func (in *Input) dexPatch() render.Map {
 			static = append(static, e(s.dexClient, render.Map{e("clientSecretRef", dexClientRef(s.name))}))
 		}
 	}
-	var peers []string
-	if in.hasPortal() {
-		peers = append(peers, render.PortalDexClientID)
-	}
+	// The portals' clients are trusted peers of the authenticator: a portal
+	// asks Dex for the cluster tokens (audience:server:client_id) through the
+	// client it signed in with, so the peer is that client's id.
+	peers := in.portalAudiences()
 	for _, hub := range in.Installation.Federation.Hubs {
 		peers = append(peers, hubClient(hub))
 	}

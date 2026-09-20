@@ -104,15 +104,22 @@ type Installation struct {
 	// default (substrate.go).
 	PodCertificateRequest bool        `json:"podCertificateRequest"`
 	Portals               []PortalRef `json:"portals"`
-	Federation            Federation  `json:"federation"`
+	// PortalAudiences are the portals' Dex client ids the installation trusts
+	// today, read from its own platform patch: the ids of portals whose client
+	// is not on record in their host's Dex patch.
+	PortalAudiences []string   `json:"portalAudiences"`
+	Federation      Federation `json:"federation"`
 }
 
 // PortalRef is a developer portal that signs people in on the installation:
-// its host, the host's organisation and its hostname.
+// its host, the host's organisation, its hostname and, where its host's Dex
+// patch carries it, the id of the Dex client it signs in through — the
+// audience of the ID tokens it forwards.
 type PortalRef struct {
 	Installation string `json:"installation"`
 	Customer     string `json:"customer"`
 	Domain       string `json:"domain"`
+	ClientID     string `json:"clientId,omitempty"`
 }
 
 // Federation is the installation's place in the fleet's token exchange.

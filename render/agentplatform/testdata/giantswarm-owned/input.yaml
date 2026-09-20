@@ -17,6 +17,7 @@ input:
       - installation: gopher
         customer: giantswarm
         domain: portal.gopher.example.io
+        clientId: backstage
     federation:
       hubs: []
       targets: []

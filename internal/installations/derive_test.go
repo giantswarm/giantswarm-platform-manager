@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // The fixture's names: the fleet's hub, an organisation and its aggregator and sibling.
@@ -30,8 +32,8 @@ func TestDeriveFromPortals(t *testing.T) {
 		{Installation: reg.Installations[2], Record: &Record{Name: fixtureSibling, BaseDomain: "rowanberry.umbra.test", Private: true}, Readable: true},
 	}
 	portals := []Portal{
-		{Host: fixtureHub, Customer: "fleet", Domain: "portal.fleet.test", Broker: "", Installations: []string{fixtureHub, fixtureAggregator, fixtureSibling}, Tunnelled: []string{fixtureSibling}},
-		{Host: fixtureAggregator, Customer: fixtureCustomer, Domain: "portal.linden.umbra.test", Broker: fixtureAggregator, Installations: []string{fixtureAggregator, fixtureSibling}},
+		{Host: fixtureHub, Customer: "fleet", Domain: "portal.fleet.test", ClientID: fixtureHubClientID, Broker: "", Installations: []string{fixtureHub, fixtureAggregator, fixtureSibling}, Tunnelled: []string{fixtureSibling}},
+		{Host: fixtureAggregator, Customer: fixtureCustomer, Domain: "portal.linden.umbra.test", ClientID: render.PortalDexClientID, Broker: fixtureAggregator, Installations: []string{fixtureAggregator, fixtureSibling}},
 	}
 	_ = reg
 	targets := reports[1].derivePortals(portals)
@@ -39,7 +41,8 @@ func TestDeriveFromPortals(t *testing.T) {
 		t.Fatalf("birch brokers for nobody")
 	}
 	linden, birch := reports[1], reports[2]
-	if len(linden.Portals) != 2 || linden.Portals[1].Customer != fixtureCustomer || len(linden.Federation.Hubs) != 0 || !slices.Equal(targets, []string{fixtureSibling}) {
+	if len(linden.Portals) != 2 || linden.Portals[1].Customer != fixtureCustomer || len(linden.Federation.Hubs) != 0 || !slices.Equal(targets, []string{fixtureSibling}) ||
+		linden.Portals[0].ClientID != fixtureHubClientID || linden.Portals[1].ClientID != render.PortalDexClientID {
 		t.Fatalf("linden: %+v %+v %v", linden.Portals, linden.Federation, targets)
 	}
 	if !slices.Equal(birch.Federation.Hubs, []string{fixtureAggregator}) || len(birch.Portals) != 2 {
@@ -54,6 +57,48 @@ func TestDeriveFromPortals(t *testing.T) {
 	}
 	if !tunnelled(portals, fixtureSibling) || tunnelled(portals, fixtureAggregator) || tunnelled(portals, fixtureHub) {
 		t.Fatalf("private: the portal reaches %s through the tunnel and nobody else", fixtureSibling)
+	}
+}
+
+// fixtureHubClientID is the opaque id of the hub portal's Dex client on record.
+const fixtureHubClientID = "Yx7hub0portal0client0id0on0record0"
+
+// A portal's client id is the extra static client of its host's dex-app
+// configmap patch that redirects to the portal; a patch without one, or
+// without extra static clients at all, names none.
+func TestDexClientByRedirectURI(t *testing.T) {
+	uri := render.PortalRedirectURI("portal.fleet.test", fixtureHub)
+	patch := "oidc:\n  staticClients:\n    muster:\n      clientSecretRef: {name: dex-client-muster, key: secret}\n  extraStaticClients:\n" +
+		"    - id: kagent\n      name: kagent-ui\n      redirectURIs:\n        - https://kagent.aspen.fleet.test/oauth2/callback\n" +
+		"    - id: " + fixtureHubClientID + "\n      name: Dev Portal\n      redirectURIs:\n        - " + uri + "\n      secretRef: {name: dex-client-backstage, key: secret}\n"
+	if id, err := dexClientByRedirectURI(patch, uri); err != nil || id != fixtureHubClientID {
+		t.Fatalf("matched by the redirect URI: %q, %v", id, err)
+	}
+	if id, err := dexClientByRedirectURI(patch, render.PortalRedirectURI("other.fleet.test", fixtureHub)); err != nil || id != "" {
+		t.Fatalf("another portal's redirect URI names no client: %q, %v", id, err)
+	}
+	if id, err := dexClientByRedirectURI("oidc:\n  staticClients:\n    dexK8SAuthenticator:\n      trustedPeers: ["+fixtureHubClientID+"]\n", uri); err != nil || id != "" {
+		t.Fatalf("a trusted peer is no client of the portal: %q, %v", id, err)
+	}
+	if _, err := dexClientByRedirectURI("oidc: [", uri); err == nil {
+		t.Fatal("a patch that is no YAML is an error")
+	}
+}
+
+// The portals' audiences an installation trusts today are its patch's
+// trustedAudiences without the ones the definition renders itself, each once;
+// a patch without the key names none.
+func TestPortalAudiencesOf(t *testing.T) {
+	own := []string{"dex-k8s-authenticator", "kagent", "backstage", "muster-linden"}
+	patch := "muster:\n  muster:\n    oauth:\n      server:\n        trustedAudiences:\n          - dex-k8s-authenticator\n          - " + fixtureHubClientID + "\n          - backstage\n          - muster-linden\n          - local-dev-client\n          - " + fixtureHubClientID + "\n"
+	if ids, err := portalAudiencesOf(patch, own); err != nil || !slices.Equal(ids, []string{fixtureHubClientID, "local-dev-client"}) {
+		t.Fatalf("the portals' audiences: %v, %v", ids, err)
+	}
+	if ids, err := portalAudiencesOf("muster:\n  muster:\n    resources: {}\n", own); err != nil || len(ids) != 0 {
+		t.Fatalf("no trusted audiences names none: %v, %v", ids, err)
+	}
+	if _, err := portalAudiencesOf("muster: [", own); err == nil {
+		t.Fatal("a patch that is no YAML is an error")
 	}
 }
 

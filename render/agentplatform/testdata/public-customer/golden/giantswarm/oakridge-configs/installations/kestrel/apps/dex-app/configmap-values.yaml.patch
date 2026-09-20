@@ -21,6 +21,7 @@ oidc:
     dexK8SAuthenticator:
       trustedPeers:
         - backstage
+        - Yx7hub0portal0client0id0on0record0
         - gopher-token-exchange
   extraStaticClients:
     - id: kagent
