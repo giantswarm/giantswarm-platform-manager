@@ -296,6 +296,41 @@ func TestVerifyCapabilityPlannedAddition(t *testing.T) {
 	}
 }
 
+// The hub's kagent UI accepts the portal's id alone on record; the render
+// adds the authenticator's, kagent's and backstage's to the one scalar,
+// each an entry the migrations name: the leaf is a planned change with the
+// migrations' reasons joined, not a difference by input, and the dimension
+// reads planned.
+func TestVerifyCapabilityPlannedJoinedAudience(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	marker := installations.Capabilities()[0].EnabledMarker(hub)
+	st.ghs.mu.Lock()
+	content := st.ghs.files[hubConfigs][marker]
+	st.ghs.mu.Unlock()
+	onRecord := "oidc-extra-audience: dex-k8s-authenticator,kagent," + hubPortalClientID + ",backstage," + hubExtraAudienceID + "\n"
+	if !strings.Contains(content, onRecord) {
+		t.Fatalf("the hub's patch on record:\n%s", content)
+	}
+	st.ghs.addFiles(hubConfigs, map[string]string{marker: strings.Replace(content, onRecord, "oidc-extra-audience: "+hubPortalClientID+"\n", 1)})
+
+	res := verifyWith(t, c, hub, nil)
+	d := dimension(t, feature(t, res, "identity"), "oauth2-proxy-extra-audience")
+	if d.Mark != verify.Planned || len(d.Differences) != 1 {
+		t.Fatalf("oauth2-proxy-extra-audience %q: %+v", d.Mark, d.Differences)
+	}
+	diff := d.Differences[0]
+	if diff.Path != plan.ListExtraAudience || diff.Current != hubPortalClientID || diff.Rendered != "dex-k8s-authenticator,kagent,"+hubPortalClientID+",backstage" {
+		t.Errorf("oauth2-proxy-extra-audience: %+v", diff)
+	}
+	for _, m := range []string{"M5 — kagent", "M5 — muster and the kagent UI trust the authenticator", "M30 — the portals'"} {
+		if !strings.Contains(diff.Planned, m) {
+			t.Errorf("planned %q lacks %q", diff.Planned, m)
+		}
+	}
+}
+
 // The repositories express another value of an input than the one on record:
 // every difference names the input, nothing is drift, the feature differs by input.
 func TestVerifyCapabilityDiffersByInput(t *testing.T) {

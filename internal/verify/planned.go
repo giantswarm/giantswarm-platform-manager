@@ -3,9 +3,11 @@ package verify
 import (
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 )
 
 // plannedKeys are the keys of a capability's removals or migrations as the
@@ -131,20 +133,73 @@ func segmentPattern(s string) *regexp.Regexp {
 // reason is the reason of the first key that names the difference at
 // yamlPath in the file fd; empty when none does.
 func (ks plannedKeys) reason(fd *fileDiff, yamlPath string) string {
+	return ks.find(fd, yamlPath, false)
+}
+
+// entryReason is the reason of the first key that names the entry at
+// yamlPath (path[entry] of a scalar the plan merges as a set) itself: a key
+// of the scalar names its absence from the record, not every entry of it.
+func (ks plannedKeys) entryReason(fd *fileDiff, yamlPath string) string {
+	return ks.find(fd, yamlPath, true)
+}
+
+func (ks plannedKeys) find(fd *fileDiff, yamlPath string, exact bool) string {
+	got := segments(yamlPath)
 	for _, k := range ks {
-		if k.covers(fd, yamlPath) {
+		if k.matches(fd, got, exact) {
 			return k.reason
 		}
 	}
 	return ""
 }
 
+// joined is the reason a scalar the plan merges as a comma-separated set
+// (plan.JoinedList) differs by planned additions alone: every entry the
+// render carries that the record does not is named, as an entry of the
+// scalar, by a migration key, and the record carries none the render
+// lacks; the reasons joined, each once. An added entry no key names, or a
+// removed one, leaves the difference as it is.
+func joined(fd *fileDiff, d *Difference, migs plannedKeys) string {
+	rendered, current := plan.SplitJoined(d.Rendered), plan.SplitJoined(d.Current)
+	for _, id := range current {
+		if !slices.Contains(rendered, id) {
+			return ""
+		}
+	}
+	var reasons []string
+	for _, id := range rendered {
+		if slices.Contains(current, id) {
+			continue
+		}
+		reason := migs.entryReason(fd, entryPath(d.Path, id))
+		if reason == "" {
+			return ""
+		}
+		if !slices.Contains(reasons, reason) {
+			reasons = append(reasons, reason)
+		}
+	}
+	return strings.Join(reasons, "; ")
+}
+
+// entryPath addresses an entry of a scalar the plan merges as a set the way
+// a list's entry is addressed: path[entry].
+func entryPath(yamlPath, entry string) string {
+	return yamlPath + "[" + entry + "]"
+}
+
 func (k plannedKey) covers(fd *fileDiff, yamlPath string) bool {
+	return k.matches(fd, segments(yamlPath), false)
+}
+
+// matches says whether the key names the path got in fd: the key's
+// segments each match the path's leading ones and, exact, the path has no
+// more.
+func (k plannedKey) matches(fd *fileDiff, got []string, exact bool) bool {
 	if k.kind != fd.kind || !k.coversFile(fd.path) {
 		return false
 	}
-	got := segments(yamlPath)
-	if len(got) < len(k.path) {
+	if len(got) < len(k.path) || exact && len(got) != len(k.path) {
 		return false
 	}
 	for i, want := range k.path {

@@ -4,6 +4,9 @@
 # with another value stays a difference. Key paths use the file prefixes and the normalisation of
 # removals.yaml ([*] for a list index, <name> for a map key or a part of a file or entry name). The
 # comparison takes the first key that names a path: a more specific key precedes one that covers it.
+# An entry of a scalar the plan merges as a comma-separated set (kagent's oidc-extra-audience) is
+# addressed like a list entry, <path>[<entry>]: a scalar on record whose only change is entries named
+# this way is planned with their reasons; an entry not named, or one removed, keeps it a difference.
 #
 # The M numbers are the wave-1 migration list's (M1–M11) and continue removals.yaml's (M30…).
 migrations:
@@ -34,8 +37,16 @@ migrations:
     reason: M5 — kagent's UI gets its own Dex client and audience
   - key: configmap:muster.muster.oauth.server.trustedAudiences[kagent]
     reason: M5 — kagent's UI gets its own Dex client and audience
+  - key: configmap:kagent.oauth2-proxy.extraArgs.oidc-extra-audience[kagent]
+    reason: M5 — kagent's UI gets its own Dex client and audience
   - key: configmap:kagent.oauth2-proxy.extraArgs.oidc-extra-audience
     reason: M5 — kagent's UI gets its own Dex client and audience
+
+  # --- M5 — muster and the kagent UI trust the authenticator's audience ---
+  - key: configmap:muster.muster.oauth.server.trustedAudiences[dex-k8s-authenticator]
+    reason: M5 — muster and the kagent UI trust the authenticator's audience
+  - key: configmap:kagent.oauth2-proxy.extraArgs.oidc-extra-audience[dex-k8s-authenticator]
+    reason: M5 — muster and the kagent UI trust the authenticator's audience
 
   # --- M30 — the portals' Dex client is named backstage ---
   - key: dex-configmap:oidc.extraStaticClients[backstage]
@@ -47,6 +58,8 @@ migrations:
   - key: extras:agent-platform/secrets/kustomization.yaml resources[dex-client-backstage-secret.yaml]
     reason: M30 — the portals' Dex client is named backstage
   - key: configmap:muster.muster.oauth.server.trustedAudiences[backstage]
+    reason: M30 — the portals' Dex client is named backstage
+  - key: configmap:kagent.oauth2-proxy.extraArgs.oidc-extra-audience[backstage]
     reason: M30 — the portals' Dex client is named backstage
 
   # --- M1 — a Dex client's secret becomes a referenced Secret (dex-app 3.2.2 or later) ---
@@ -62,6 +75,14 @@ migrations:
     reason: M1 — a Dex client's secret becomes a referenced Secret (dex-app 3.2.2 or later)
   - key: extras:mcp-<name>/kustomization.yaml resources[dex-client-mcp-<name>-secret.yaml]
     reason: M1 — a Dex client's secret becomes a referenced Secret (dex-app 3.2.2 or later)
+
+  # --- M9 — the mcp-* servers' Valkey password becomes a generated Secret ---
+  - key: extras:mcp-<name>/valkey-credentials.enc.yaml
+    reason: M9 — the mcp-* servers' Valkey password becomes a generated Secret
+  - key: extras:mcp-<name>/kustomization.yaml resources[valkey-credentials.enc.yaml]
+    reason: M9 — the mcp-* servers' Valkey password becomes a generated Secret
+  - key: extras:mcp-<name>/oauth-credentials.enc.yaml stringData.VALKEY_PASSWORD
+    reason: M9 — the mcp-* servers' Valkey password becomes a generated Secret
 
   # --- M11 — the edge validates the portals' tokens on the 4 line ---
   - key: configmap:agent-platform-mcps.agentgateway.jwt.extraProviders
