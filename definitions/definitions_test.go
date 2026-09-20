@@ -9,9 +9,10 @@ import (
 )
 
 // TestEveryDefinitionParses holds every capability's data files to their
-// shape: features.yaml, probes.yaml and removals.yaml of every definition
-// load, and no file is empty. A removals.yaml no code path reads at run time
-// is caught here, not on the first dry run that classifies with it.
+// shape: features.yaml, probes.yaml, removals.yaml and migrations.yaml of
+// every definition load, and no file but migrations.yaml is empty. A
+// removals.yaml no code path reads at run time is caught here, not on the
+// first dry run that classifies with it.
 func TestEveryDefinitionParses(t *testing.T) {
 	caps, err := definitions.Capabilities()
 	if err != nil {
@@ -49,6 +50,17 @@ func TestEveryDefinitionParses(t *testing.T) {
 					t.Errorf("removals.yaml: key %q listed twice", r.Key)
 				}
 				seen[r.Key] = true
+			}
+			migrations, err := definitions.Migrations(c)
+			if err != nil {
+				t.Fatalf("migrations.yaml: %v", err)
+			}
+			seen = map[string]bool{}
+			for _, m := range migrations {
+				if seen[m.Key] {
+					t.Errorf("migrations.yaml: key %q listed twice", m.Key)
+				}
+				seen[m.Key] = true
 			}
 		})
 	}

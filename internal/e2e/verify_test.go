@@ -244,6 +244,58 @@ func TestVerifyCapabilityPlannedChange(t *testing.T) {
 	}
 }
 
+// An installation enabled by hand before a migration lacks what the
+// migration adds — here the kagent client's referenced Secret and its
+// kustomization entry: the definition renders them, the record has no leaf
+// there, and each difference is a planned addition with the migration's
+// reason; the dimensions and the feature read planned, the summary counts
+// them, and the installation stays enabled.
+func TestVerifyCapabilityPlannedAddition(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	enableRowan(t, st, c, kagentEnabled(), kagentEnabled())
+	const kagentClientFile = "dex-client-kagent-secret.yaml"
+	st.ghs.mu.Lock()
+	kustomization := ""
+	for p, content := range st.ghs.files[acmeMCs] {
+		switch {
+		case strings.HasSuffix(p, "/extras/agent-platform/secrets/"+kagentClientFile):
+			delete(st.ghs.files[acmeMCs], p)
+		case strings.HasSuffix(p, "/extras/agent-platform/secrets/kustomization.yaml"):
+			kustomization = p
+			st.ghs.files[acmeMCs][p] = strings.ReplaceAll(content, "  - "+kagentClientFile+"\n", "")
+		}
+	}
+	st.ghs.mu.Unlock()
+	if kustomization == "" {
+		t.Fatal("the secrets kustomization is not in the repository")
+	}
+
+	res := verifyRowan(t, c, rowan)
+	if res.State != installations.StateEnabled || res.Summary[verify.Drifted] != 0 || res.Summary[verify.DiffersByInput] != 0 || res.Summary[verify.Planned] != 2 {
+		t.Errorf("state %q summary %v", res.State, res.Summary)
+	}
+	secrets := feature(t, res, "secrets")
+	if secrets.Mark != verify.Planned {
+		t.Errorf("secrets %q: %+v", secrets.Mark, secrets.Marks)
+	}
+	for _, id := range []string{"secrets-kustomization-list", "other-secret-shapes"} {
+		d := dimension(t, secrets, id)
+		if d.Mark != verify.Planned || len(d.Differences) == 0 {
+			t.Errorf("%s: %+v", id, d)
+		}
+		for _, diff := range d.Differences {
+			if !strings.HasPrefix(diff.Planned, "M5 ") || diff.Current != "" || diff.Rendered == "" {
+				t.Errorf("%s: %+v", id, diff)
+			}
+		}
+	}
+	if identity := feature(t, res, "identity"); identity.Mark != verify.AsDefined {
+		t.Errorf("identity %q", identity.Mark)
+	}
+}
+
 // The repositories express another value of an input than the one on record:
 // every difference names the input, nothing is drift, the feature differs by input.
 func TestVerifyCapabilityDiffersByInput(t *testing.T) {

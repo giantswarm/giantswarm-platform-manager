@@ -146,19 +146,28 @@
   kind: HTTP
   url: https://dex.heron.oakridge.example/auth?client_id=00000000-0000-4000-8000-000000000003&redirect_uri=https://muster.heron.oakridge.example/oauth/callback&response_type=code&scope=openid
   expect:
-    status: 302
+    statuses:
+      - 200
+      - 302
+    note: Dex answers a client it knows with its login page (several connectors) or a redirect to the one connector; an unknown client is an error page
 - id: live-dex-auth-per-client
   feature: identity
   kind: HTTP
   url: https://dex.heron.oakridge.example/auth?client_id=kagent&redirect_uri=https://kagent.heron.oakridge.example/oauth2/callback&response_type=code&scope=openid
   expect:
-    status: 302
+    statuses:
+      - 200
+      - 302
+    note: Dex answers a client it knows with its login page (several connectors) or a redirect to the one connector; an unknown client is an error page
 - id: live-dex-auth-per-client
   feature: identity
   kind: HTTP
   url: https://dex.heron.oakridge.example/auth?client_id=backstage&redirect_uri=https://portal.kestrel.oakridge.example/api/auth/oidc-heron/handler/frame&response_type=code&scope=openid
   expect:
-    status: 302
+    statuses:
+      - 200
+      - 302
+    note: Dex answers a client it knows with its login page (several connectors) or a redirect to the one connector; an unknown client is an error page
 - id: live-muster-protected-resource
   feature: tool-access
   kind: HTTP

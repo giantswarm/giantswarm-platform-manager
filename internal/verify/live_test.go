@@ -3,6 +3,8 @@ package verify
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
@@ -157,6 +159,35 @@ func TestAPIServedProbeReadsRolling(t *testing.T) {
 		check, diffs, auth := x.run(context.Background(), probe)
 		if check.Mark != c.mark || check.Message != c.message || check.Note != "the note" || check.Kind != string(render.APIServed) || check.Resource != probe.Resource || len(diffs) != 0 || auth != nil {
 			t.Errorf("%s: %+v (diffs %d, auth %v)", c.name, check, len(diffs), auth)
+		}
+	}
+}
+
+// An HTTP probe that expects any of several statuses (Dex's login page or
+// its redirect to the one connector) is as defined on each of them and
+// drifted on another.
+func TestHTTPProbeAcceptsAnyOfTheStatuses(t *testing.T) {
+	status := http.StatusOK
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", "https://dex.example/auth/local")
+		w.WriteHeader(status)
+	}))
+	defer srv.Close()
+	probe := render.Probe{ID: "live-dex-auth-per-client", Kind: render.HTTP, URL: srv.URL + "/auth", Expect: render.Expectation{Statuses: []int{200, 302}}}
+	x := &executor{opts: LiveOptions{Probes: &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}}
+	for _, c := range []struct {
+		status  int
+		mark    Mark
+		message string
+	}{
+		{http.StatusOK, AsDefined, "200"},
+		{http.StatusFound, AsDefined, "302"},
+		{http.StatusBadRequest, Drifted, "400, expected one of [200 302]"},
+	} {
+		status = c.status
+		check, _, _ := x.run(context.Background(), probe)
+		if check.Mark != c.mark || check.Message != c.message {
+			t.Errorf("%d: %q %q, want %q %q", c.status, check.Mark, check.Message, c.mark, c.message)
 		}
 	}
 }

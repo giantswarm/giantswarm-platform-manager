@@ -32,9 +32,9 @@ type Mark string
 
 // The marks. A feature is drifted when any dimension is, differs by input
 // when any does and none drifted, planned when its only differences are
-// planned changes (the keys the capability's removals name), as defined
-// when at least one dimension was checked and none differs, not checked
-// otherwise.
+// planned changes (the keys the capability's removals and migrations name),
+// as defined when at least one dimension was checked and none differs, not
+// checked otherwise.
 const (
 	AsDefined      Mark = "as defined"
 	Planned        Mark = "planned"
@@ -61,10 +61,11 @@ const (
 // dimension (resource namespace/name). Input names the input of the
 // definition that drives the path — the file expresses another input than
 // the one on record; empty, the path is drift. Planned is the reason of the
-// capability's removal that names the path — a key the fleet still carries
-// that the definition does not render: a planned change, not drift.
-// Rendered and Current are the values on each side — Redacted for a file
-// SOPS encrypted on record.
+// capability's removal or migration that names the path — a key the fleet
+// still carries that the definition does not render, or one the definition
+// renders that the record lacks: a planned change, not drift. Rendered and
+// Current are the values on each side — Redacted for a file SOPS encrypted
+// on record.
 type Difference struct {
 	File     string `json:"file,omitempty"`
 	Object   string `json:"object,omitempty"`
@@ -73,6 +74,9 @@ type Difference struct {
 	Planned  string `json:"planned,omitempty"`
 	Rendered string `json:"rendered,omitempty"`
 	Current  string `json:"current,omitempty"`
+	// absent says the record has no leaf at the path (the file is created,
+	// or the leaf is new): what a migration adds.
+	absent bool
 }
 
 // Dimension is one observed aspect of a feature with its mark.
@@ -225,12 +229,17 @@ func Compare(ctx context.Context, opts Options) Result {
 		r.Refused = err.Error()
 		return r
 	}
+	migs, err := definitions.Migrations(opts.Definition.Name)
+	if err != nil {
+		r.Refused = err.Error()
+		return r
+	}
 	// Without inputs nothing is rendered: the file dimensions read not
 	// checked, the anonymous probes still run.
 	var c *comparison
 	if opts.Inputs.Values != nil {
 		var p plan.Installation
-		if c, p, err = compare(ctx, opts, readRemovals(rms)); err != nil {
+		if c, p, err = compare(ctx, opts, readRemovals(rms), readMigrations(migs)); err != nil {
 			r.Refused = err.Error()
 			c = nil
 		}
@@ -309,9 +318,9 @@ const Redacted = "<encrypted>"
 // the entries other owners keep or their order) has no difference; a file
 // it creates or updates differs at the leaves of the file as the plan
 // writes it that are off the record, each under a key the removals name
-// marked planned. The plan is the second answer, the definition's refusal
-// the error.
-func compare(ctx context.Context, opts Options, rms removals) (*comparison, plan.Installation, error) {
+// marked planned, as is each the record lacks under a key the migrations
+// name. The plan is the second answer, the definition's refusal the error.
+func compare(ctx context.Context, opts Options, rms, migs plannedKeys) (*comparison, plan.Installation, error) {
 	rs := &reads{read: opts.Read, got: map[string]read{}}
 	p, base, err := build(ctx, opts, opts.Inputs.Values, rs.reader)
 	if err != nil {
@@ -331,12 +340,25 @@ func compare(ctx context.Context, opts Options, rms removals) (*comparison, plan
 		case plan.ChangeCreate, plan.ChangeUpdate:
 			fd.diffs = differences(key, base[key], rs.got[key].content, driven)
 			for i := range fd.diffs {
-				fd.diffs[i].Planned = rms.reason(fd, fd.diffs[i].Path)
+				fd.diffs[i].Planned = planned(fd, &fd.diffs[i], rms, migs)
 			}
 		}
 		c.files[key] = fd
 	}
 	return c, p, nil
+}
+
+// planned is the reason a difference is a planned change: the removal that
+// names its path, or, for a leaf the record lacks, the migration that adds
+// it. A leaf the record holds with another value is no migration's.
+func planned(fd *fileDiff, d *Difference, rms, migs plannedKeys) string {
+	if reason := rms.reason(fd, d.Path); reason != "" {
+		return reason
+	}
+	if d.absent {
+		return migs.reason(fd, d.Path)
+	}
+	return ""
 }
 
 // build is the plan of values for opts' installation, read through read,
@@ -386,7 +408,7 @@ func differences(key string, want map[string]string, current string, driven map[
 		if okw && okg && plan.Opaque(w, g) || encrypted && underSOPS(p) {
 			continue
 		}
-		d := Difference{File: key, Path: p, Rendered: w, Current: g, Input: driven[key+"#"+p]}
+		d := Difference{File: key, Path: p, Rendered: w, Current: g, Input: driven[key+"#"+p], absent: !okg}
 		if encrypted {
 			d.Rendered, d.Current = redacted(okw), redacted(okg)
 		}
