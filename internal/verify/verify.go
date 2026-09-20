@@ -31,14 +31,20 @@ import (
 type Mark string
 
 // The marks. A feature is drifted when any dimension is, differs by input
-// when any does and none drifted, as defined when at least one dimension was
-// checked and none differs, not checked otherwise.
+// when any does and none drifted, planned when its only differences are
+// planned changes (the keys the capability's removals name), as defined
+// when at least one dimension was checked and none differs, not checked
+// otherwise.
 const (
 	AsDefined      Mark = "as defined"
+	Planned        Mark = "planned"
 	DiffersByInput Mark = "differs by input"
 	Drifted        Mark = "drifted"
 	NotChecked     Mark = "not checked"
 )
+
+// severity orders the marks the way a feature rolls up from its dimensions.
+var severity = []Mark{Drifted, DiffersByInput, Planned, AsDefined}
 
 // The reasons a dimension is not checked. A probe's own — no Dex client to
 // run for, a target unreachable from the manager — are next to probe in probes.go.
@@ -54,13 +60,17 @@ const (
 // differs). File names the repository file; Object the live object of a live
 // dimension (resource namespace/name). Input names the input of the
 // definition that drives the path — the file expresses another input than
-// the one on record; empty, the path is drift. Rendered and Current are the
-// values on each side — Redacted for a file SOPS encrypted on record.
+// the one on record; empty, the path is drift. Planned is the reason of the
+// capability's removal that names the path — a key the fleet still carries
+// that the definition does not render: a planned change, not drift.
+// Rendered and Current are the values on each side — Redacted for a file
+// SOPS encrypted on record.
 type Difference struct {
 	File     string `json:"file,omitempty"`
 	Object   string `json:"object,omitempty"`
 	Path     string `json:"path,omitempty"`
 	Input    string `json:"input,omitempty"`
+	Planned  string `json:"planned,omitempty"`
 	Rendered string `json:"rendered,omitempty"`
 	Current  string `json:"current,omitempty"`
 }
@@ -210,12 +220,17 @@ func Compare(ctx context.Context, opts Options) Result {
 		r.Refused = err.Error()
 		return r
 	}
+	rms, err := definitions.Removals(opts.Definition.Name)
+	if err != nil {
+		r.Refused = err.Error()
+		return r
+	}
 	// Without inputs nothing is rendered: the file dimensions read not
 	// checked, the anonymous probes still run.
 	var c *comparison
 	if opts.Inputs.Values != nil {
 		var p plan.Installation
-		if c, p, err = compare(ctx, opts); err != nil {
+		if c, p, err = compare(ctx, opts, readRemovals(rms)); err != nil {
 			r.Refused = err.Error()
 			c = nil
 		}
@@ -257,7 +272,7 @@ func rollUp(dims []Dimension) Mark {
 	for _, d := range dims {
 		seen[d.Mark] = true
 	}
-	for _, m := range []Mark{Drifted, DiffersByInput, AsDefined} {
+	for _, m := range severity {
 		if seen[m] {
 			return m
 		}
@@ -293,9 +308,10 @@ const Redacted = "<encrypted>"
 // plaintext skeleton is the render's, a shared file that differs only in
 // the entries other owners keep or their order) has no difference; a file
 // it creates or updates differs at the leaves of the file as the plan
-// writes it that are off the record. The plan is the second answer, the
-// definition's refusal the error.
-func compare(ctx context.Context, opts Options) (*comparison, plan.Installation, error) {
+// writes it that are off the record, each under a key the removals name
+// marked planned. The plan is the second answer, the definition's refusal
+// the error.
+func compare(ctx context.Context, opts Options, rms removals) (*comparison, plan.Installation, error) {
 	rs := &reads{read: opts.Read, got: map[string]read{}}
 	p, base, err := build(ctx, opts, opts.Inputs.Values, rs.reader)
 	if err != nil {
@@ -314,6 +330,9 @@ func compare(ctx context.Context, opts Options) (*comparison, plan.Installation,
 			fd.unreadable = f.Error
 		case plan.ChangeCreate, plan.ChangeUpdate:
 			fd.diffs = differences(key, base[key], rs.got[key].content, driven)
+			for i := range fd.diffs {
+				fd.diffs[i].Planned = rms.reason(fd, fd.diffs[i].Path)
+			}
 		}
 		c.files[key] = fd
 	}
@@ -824,20 +843,33 @@ func catchAll(matchers []matcher, kind string) *Dimension {
 	return nil
 }
 
-// fileMark is a file dimension's mark from its differences.
+// fileMark is a file dimension's mark from its differences: drifted when
+// any is drift, differs by input when any names an input and none is
+// drift, planned when the rest are planned changes.
 func fileMark(diffs []Difference, hasFiles, unreadable bool) Mark {
-	byInput := false
+	mark := AsDefined
 	for _, d := range diffs {
-		if d.Input == "" {
+		switch {
+		case d.Planned != "":
+			mark = worse(mark, Planned)
+		case d.Input == "":
 			return Drifted
+		default:
+			mark = worse(mark, DiffersByInput)
 		}
-		byInput = true
 	}
-	switch {
-	case byInput:
-		return DiffersByInput
-	case unreadable || !hasFiles:
+	if mark == AsDefined && (unreadable || !hasFiles) {
 		return NotChecked
 	}
-	return AsDefined
+	return mark
+}
+
+// worse is the more severe of two marks.
+func worse(a, b Mark) Mark {
+	for _, m := range severity {
+		if m == a || m == b {
+			return m
+		}
+	}
+	return a
 }

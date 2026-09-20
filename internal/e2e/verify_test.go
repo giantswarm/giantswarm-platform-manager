@@ -199,6 +199,51 @@ func TestVerifyCapabilityDrifted(t *testing.T) {
 	}
 }
 
+// The installation's patch carries a key the template owns, one the
+// definition's removals name: the difference is a planned change with the
+// removal's reason, the dimension and its feature read planned, the summary
+// counts it, and the installation stays enabled.
+func TestVerifyCapabilityPlannedChange(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	enableRowan(t, st, c, kagentEnabled(), kagentEnabled())
+	marker := installations.Capabilities()[0].EnabledMarker(rowan)
+	st.ghs.mu.Lock()
+	content := st.ghs.files[acmeConfigs][marker]
+	st.ghs.mu.Unlock()
+	st.ghs.addFiles(acmeConfigs, map[string]string{marker: content + "\ngitops:\n  forbidInlineSecrets: true\n"})
+	removals, err := definitions.Removals(installations.AgentPlatform)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reason := ""
+	for _, r := range removals {
+		if r.Key == "configmap:gitops.forbidInlineSecrets" && r.Kind == "template" {
+			reason = r.Reason
+		}
+	}
+	if reason == "" {
+		t.Fatal("removals.yaml no longer names configmap:gitops.forbidInlineSecrets as the template's")
+	}
+
+	res := verifyRowan(t, c, rowan)
+	if res.State != installations.StateEnabled || res.Summary[verify.Drifted] != 0 || res.Summary[verify.DiffersByInput] != 0 || res.Summary[verify.Planned] != 1 {
+		t.Errorf("state %q summary %v", res.State, res.Summary)
+	}
+	secrets := feature(t, res, "secrets")
+	if secrets.Mark != verify.Planned {
+		t.Errorf("secrets %q: %+v", secrets.Mark, secrets.Marks)
+	}
+	d := dimension(t, secrets, "forbid-inline-secrets")
+	if d.Mark != verify.Planned || len(d.Differences) != 1 || d.Differences[0].Path != "gitops.forbidInlineSecrets" || d.Differences[0].Planned != reason || d.Differences[0].Input != "" {
+		t.Errorf("forbid-inline-secrets: %+v", d)
+	}
+	if runtime := feature(t, res, "runtime"); runtime.Mark != verify.AsDefined {
+		t.Errorf("runtime %q", runtime.Mark)
+	}
+}
+
 // The repositories express another value of an input than the one on record:
 // every difference names the input, nothing is drift, the feature differs by input.
 func TestVerifyCapabilityDiffersByInput(t *testing.T) {

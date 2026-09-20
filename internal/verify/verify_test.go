@@ -21,8 +21,9 @@ func TestRollUp(t *testing.T) {
 		{"empty", nil, NotChecked},
 		{"all not checked", []Mark{NotChecked, NotChecked}, NotChecked},
 		{"checked beside not checked", []Mark{NotChecked, AsDefined}, AsDefined},
-		{"input over defined", []Mark{AsDefined, DiffersByInput, NotChecked}, DiffersByInput},
-		{"drift over everything", []Mark{AsDefined, DiffersByInput, Drifted, NotChecked}, Drifted},
+		{"planned over defined", []Mark{AsDefined, Planned, NotChecked}, Planned},
+		{"input over planned", []Mark{AsDefined, Planned, DiffersByInput, NotChecked}, DiffersByInput},
+		{"drift over everything", []Mark{AsDefined, Planned, DiffersByInput, Drifted, NotChecked}, Drifted},
 	} {
 		dims := make([]Dimension, 0, len(tc.in))
 		for _, m := range tc.in {
@@ -30,6 +31,92 @@ func TestRollUp(t *testing.T) {
 		}
 		if got := rollUp(dims); got != tc.want {
 			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// A difference under a key the capability's removals name is a planned
+// change: the key covers everything beneath it, [*] any list index and
+// <name> any map key; a leaf beside it is drift. The key's prefix names
+// the file: configmap and dex-configmap the configmap patch of their app,
+// dex-secret the secret patch, extras a path under extras/ (a directory
+// covering everything beneath), backstage a fileset's file or a whole file.
+func TestRemovalsNameThePlannedChanges(t *testing.T) {
+	const migration, template, notPlatform, other, m25 = "migration", "template", "not-platform", "other-definition", "M25"
+	rms := readRemovals([]definitions.Removal{
+		{Key: "configmap:kagent.modelConfigs", Kind: migration, Reason: m25},
+		{Key: "configmap:muster.muster.oauth.server.tokenExchangeBroker.clientAudiences.<brokerClientId>[github]", Kind: migration, Reason: "M1"},
+		{Key: "configmap:agent-platform-mcps.mcpServers[*].timeout", Kind: template, Reason: "T1"},
+		{Key: "dex-configmap:ingress", Kind: notPlatform, Reason: "D1"},
+		{Key: "dex-secret:oidc.customer", Kind: notPlatform, Reason: "D2"},
+		{Key: "extras:agents", Kind: notPlatform, Reason: "E1"},
+		{Key: "extras:agent-platform/kustomization.yaml patches[*]", Kind: template, Reason: "E2"},
+		{Key: "backstage:app-config:auth", Kind: other, Reason: "B1"},
+		{Key: "backstage:file:user-secrets.enc.yaml", Kind: other, Reason: "B2"},
+		{Key: "teleport:tunnels", Kind: "other", Reason: "ignored"},
+	})
+	if len(rms) != 9 {
+		t.Fatalf("%d removals read, want 9 (a prefix of no file kind is left out)", len(rms))
+	}
+	patch := &fileDiff{path: "installations/x/apps/agent-platform/configmap-values.yaml.patch", kind: definitions.KindConfigMap}
+	dexCM := &fileDiff{path: "installations/x/apps/dex-app/configmap-values.yaml.patch", kind: definitions.KindDexSecret}
+	dexSecret := &fileDiff{path: "installations/x/apps/dex-app/secret-values.yaml.patch", kind: definitions.KindDexSecret}
+	agents := &fileDiff{path: "management-clusters/x/extras/agents/kustomization.yaml", kind: definitions.KindExtras}
+	kust := &fileDiff{path: "management-clusters/x/extras/agent-platform/kustomization.yaml", kind: definitions.KindExtras}
+	appConfig := &fileDiff{path: "management-clusters/x/extras/backstage/app-config.yaml", kind: definitions.KindBackstage}
+	secrets := &fileDiff{path: "management-clusters/x/extras/backstage/user-secrets.enc.yaml", kind: definitions.KindBackstage}
+	for _, tc := range []struct {
+		name string
+		fd   *fileDiff
+		path string
+		want string
+	}{
+		{"the key itself", patch, "kagent.modelConfigs", m25},
+		{"a leaf under the key", patch, "kagent.modelConfigs[claude].provider", m25},
+		{"a leaf beside the key", patch, "kagent.modelConfigsX", ""},
+		{"a sibling", patch, "kagent.providers.anthropic.model", ""},
+		{"<name> is any map key", patch, "muster.muster.oauth.server.tokenExchangeBroker.clientAudiences.abc[github]", "M1"},
+		{"<name> is not a list index", patch, "muster.muster.oauth.server.tokenExchangeBroker.clientAudiences[0][github]", ""},
+		{"[*] is any index, an identity with dots too", patch, "agent-platform-mcps.mcpServers[http://mcp.svc:8080/mcp].timeout", "T1"},
+		{"[*] is not a map key", patch, "agent-platform-mcps.mcpServers.timeout", ""},
+		{"the dex configmap patch", dexCM, "ingress.enabled", "D1"},
+		{"not the dex secret patch", dexSecret, "ingress.enabled", ""},
+		{"the dex secret patch", dexSecret, "oidc.customer.clientSecret", "D2"},
+		{"not the dex configmap patch", dexCM, "oidc.customer.clientID", ""},
+		{"a directory under extras covers its files", agents, "resources[a.yaml]", "E1"},
+		{"a whole file under extras", agents, "", "E1"},
+		{"a path in a file under extras", kust, "patches[0].path", "E2"},
+		{"a path beside it", kust, "resources[0]", ""},
+		{"a backstage fileset", appConfig, "auth.providers", "B1"},
+		{"a backstage file", secrets, "", "B2"},
+		{"another backstage file", appConfig, "", ""},
+	} {
+		if got := rms.reason(tc.fd, tc.path); got != tc.want {
+			t.Errorf("%s: %s#%s planned %q, want %q", tc.name, tc.fd.path, tc.path, got, tc.want)
+		}
+	}
+}
+
+// A file dimension's mark: a planned difference never drifts; beside drift
+// or an input's difference, the dimension keeps that mark and the planned
+// ones stay marked.
+func TestFileMarkWithPlannedChanges(t *testing.T) {
+	planned := Difference{Path: "a", Planned: "M1"}
+	drift := Difference{Path: "b"}
+	input := Difference{Path: "c", Input: "k.v"}
+	for _, tc := range []struct {
+		name  string
+		diffs []Difference
+		want  Mark
+	}{
+		{"only planned", []Difference{planned}, Planned},
+		{"planned beside drift", []Difference{planned, drift}, Drifted},
+		{"planned beside an input", []Difference{planned, input}, DiffersByInput},
+		{"an input beside planned", []Difference{input, planned}, DiffersByInput},
+		{"none", nil, AsDefined},
+	} {
+		if got := fileMark(tc.diffs, true, false); got != tc.want {
+			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
 		}
 	}
 }

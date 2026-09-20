@@ -28,6 +28,7 @@ const (
 	someone       = "someone"
 	rowanAction   = "enable-rowan-abc123"
 	kagent        = "kagent"
+	configMap     = "configmap"
 	// dexClientKagent names the Secret a Dex client's secretRef points at.
 	dexClientKagent = "dex-client-kagent"
 )
@@ -220,17 +221,19 @@ func TestVerifyPrintsFeaturesWithMarksAndDimensions(t *testing.T) {
 	r := verify.Result{
 		Caller: someone, Installation: rowan, Capability: agentPlatform, Hub: hazel, State: "drifted",
 		Inputs:  verify.Inputs{Source: verify.Source(true, false)},
-		Summary: map[verify.Mark]int{verify.AsDefined: 2, verify.Drifted: 1, verify.NotChecked: 1},
+		Summary: map[verify.Mark]int{verify.AsDefined: 2, verify.Drifted: 1, verify.Planned: 1, verify.NotChecked: 1},
 		Files:   []plan.File{{Repository: acmeConfigs, Path: "x.yaml", Change: plan.ChangeUpdate}}, Diff: map[plan.Change]int{plan.ChangeUpdate: 1},
 		PullRequests: []plan.PullRequest{{Order: 1, Repository: acmeConfigs, Installations: []string{rowan}, Changes: 1}},
 		Features: []verify.Feature{
-			{ID: kagent, Title: "kagent, the agent runtime", Mark: verify.Drifted, Marks: map[verify.Mark]int{verify.AsDefined: 1, verify.Drifted: 1, verify.NotChecked: 1},
+			{ID: kagent, Title: "kagent, the agent runtime", Mark: verify.Drifted, Marks: map[verify.Mark]int{verify.AsDefined: 1, verify.Drifted: 1, verify.Planned: 1, verify.NotChecked: 1},
 				Dimensions: []verify.Dimension{
-					{ID: "runtime/patch-top-level-keys", Kind: "configmap", Key: "patch top-level keys", Mark: verify.Drifted,
+					{ID: "runtime/patch-top-level-keys", Kind: configMap, Key: "patch top-level keys", Mark: verify.Drifted,
 						Files:       []string{acmeConfigs + ":management-clusters/rowan/kagent.yaml"},
 						Differences: []verify.Difference{{File: acmeConfigs + ":management-clusters/rowan/kagent.yaml", Path: "spec.values.replicas", Rendered: "1", Current: "3"}}},
-					{ID: "runtime/private", Kind: "configmap", Key: "installation.private", Mark: verify.DiffersByInput,
+					{ID: "runtime/private", Kind: configMap, Key: "installation.private", Mark: verify.DiffersByInput,
 						Differences: []verify.Difference{{File: acmeConfigs + ":x.yaml", Path: "spec.private", Input: "installation.private", Rendered: "false", Current: "true"}}},
+					{ID: "runtime/model-configs", Kind: configMap, Key: "kagent.modelConfigs", Mark: verify.Planned,
+						Differences: []verify.Difference{{File: acmeConfigs + ":x.yaml", Path: "kagent.modelConfigs[m].provider", Planned: "M25 — ModelConfigs are workloads", Rendered: "", Current: "anthropic"}}},
 					{ID: "kagent/live", Kind: "live", Key: "deployment", Mark: verify.NotChecked, Reason: verify.ReasonAuthority},
 					{ID: "oauth2-proxy-gate", Kind: "probe", Key: "gate", Mark: verify.AsDefined,
 						Probe: &verify.ProbeResult{Expect: []int{302, 403}, Requests: []verify.Request{{URL: "https://kagent.rowan.example/", Status: 302, OK: true}}}},
@@ -246,12 +249,14 @@ func TestVerifyPrintsFeaturesWithMarksAndDimensions(t *testing.T) {
 	contains(t, buf.String(),
 		"verify agent-platform on rowan (hub hazel), as someone",
 		"State: drifted   Inputs: "+verify.Source(true, false), "Files: 1 update", "Pull request 1: "+acmeConfigs+", 1 change(s)",
-		"Summary: 1 drifted, 2 as defined, 1 not checked",
-		"kagent, the agent runtime: drifted (1 drifted, 1 as defined, 1 not checked)",
+		"Summary: 1 drifted, 1 planned, 2 as defined, 1 not checked",
+		"kagent, the agent runtime: drifted (1 drifted, 1 planned, 1 as defined, 1 not checked)",
 		"[drifted] runtime/patch-top-level-keys (configmap: patch top-level keys)",
 		"in "+acmeConfigs+":management-clusters/rowan/kagent.yaml",
 		"kagent.yaml spec.values.replicas: rendered \"1\", current \"3\" (drift)",
 		"x.yaml spec.private: rendered \"false\", current \"true\" (input installation.private)",
+		"[planned] runtime/model-configs (configmap: kagent.modelConfigs)",
+		"x.yaml kagent.modelConfigs[m].provider: rendered \"\", current \"anthropic\" (planned: M25 — ModelConfigs are workloads)",
 		"[not checked] kagent/live (live: deployment) — "+verify.ReasonAuthority,
 		"expect 302|403",
 		"ok   https://kagent.rowan.example/ → 302",
