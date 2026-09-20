@@ -36,13 +36,16 @@ func (t *Tools) compare(ctx context.Context, env *planned, r installations.Repor
 	res.Caller = identity.Caller(ctx)
 	res.OptIn = r.OptIn
 	p := res.Plan()
-	switch refusal := p.FrozenRefusal(); {
+	dexApp, frozen := p.DexAppRefusal(r.Record), p.FrozenRefusal()
+	switch {
 	case res.Refused != "":
 		res.CommitRefused = fmt.Sprintf("the definition refuses these inputs for %s (refused says why); nothing is committed", r.Name)
 	case r.OptIn != nil && r.OptIn.State != installations.OptedIn:
 		res.CommitRefused = fmt.Sprintf("%s is %s: %s", r.Name, r.OptIn.State, r.OptIn.HowToOptIn)
-	case refusal != "":
-		res.CommitRefused = refusal
+	case dexApp != "":
+		res.CommitRefused = dexApp
+	case frozen != "":
+		res.CommitRefused = frozen
 	}
 	res.PullRequests = plan.PullRequests([]plan.Installation{p}, env.byName, env.hub)
 	return &res, nil

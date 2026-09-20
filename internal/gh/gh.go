@@ -47,7 +47,17 @@ func User(ctx context.Context, apiURL, accessToken string) (login string, id int
 // refused one ErrForbidden; both keep GitHub's *github.ErrorResponse in the
 // chain. A directory at path is an error: the manager reads files.
 func ReadFile(ctx context.Context, c *github.Client, owner, repo, path string) (string, error) {
-	file, dir, _, err := c.Repositories.GetContents(ctx, owner, repo, path, nil)
+	return ReadFileAt(ctx, c, owner, repo, path, "")
+}
+
+// ReadFileAt is ReadFile at ref — a branch, a tag or a commit; the default
+// branch when ref is empty.
+func ReadFileAt(ctx context.Context, c *github.Client, owner, repo, path, ref string) (string, error) {
+	var opts *github.RepositoryContentGetOptions
+	if ref != "" {
+		opts = &github.RepositoryContentGetOptions{Ref: ref}
+	}
+	file, dir, _, err := c.Repositories.GetContents(ctx, owner, repo, path, opts)
 	if err != nil {
 		return "", fmt.Errorf("github: %s/%s:%s: %w", owner, repo, path, classify(err))
 	}

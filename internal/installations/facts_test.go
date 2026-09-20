@@ -13,15 +13,15 @@ import (
 // the chart line. The names of the enabled states are the definitions' in
 // lowerCamelCase.
 func TestFactsPerDefinition(t *testing.T) {
-	r := Report{Installation: Installation{Name: "maple", Region: "example-region-1", Pipeline: "stable", Hub: true},
-		Record:       &Record{Name: "maple", BaseDomain: "maple.acme.example.test", Customer: "acme", Provider: "capz", ChartLine: "4", MusterClientID: "muster-maple"},
+	r := Report{Installation: Installation{Name: fixtureInstallation, Region: "example-region-1", Pipeline: "stable", Hub: true},
+		Record:       &Record{Name: fixtureInstallation, BaseDomain: "maple.acme.example.test", Customer: "acme", Provider: "capz", ChartLine: "4", MusterClientID: "muster-maple", DexAppVersion: pinnedDexApp},
 		Capabilities: []CapabilityState{{Name: AgentPlatform, Enabled: true}, {Name: CustomerPortal, Enabled: false}}}
 	all := r.Facts()
 	if all["agentPlatform"] != true || all["customerPortal"] != false || all["region"] != "example-region-1" || all["chartLine"] != "4" || all["hub"] != true {
 		t.Fatalf("all facts: %v", all)
 	}
 	want := map[string][]string{
-		AgentPlatform:  {"baseDomain", "chartLine", "customer", "hub", "musterClientId", "name", "podCertificateRequest", "private", "provider"},
+		AgentPlatform:  {"baseDomain", "chartLine", "customer", "dexAppVersion", "hub", "musterClientId", "name", "podCertificateRequest", "private", "provider"},
 		CustomerPortal: {"agentPlatform", "baseDomain", "customer", "name", "pipeline", "provider", "region"},
 	}
 	for _, c := range Capabilities() {
