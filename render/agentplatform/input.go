@@ -77,7 +77,8 @@ type Input struct {
 	// name: its organisation's list and, where the policy names a Slack app
 	// for the installation, the chat gateway.
 	Components map[string]bool
-	// Gateway is the chat gateway's shape, where the policy runs it.
+	// Gateway is the chat gateway's shape for this installation, where the
+	// policy runs it: the fleet's, with the installation's own default agent.
 	Gateway GatewayPolicy
 	// Connector is the connector every target's Dex registers for this hub.
 	Connector string
@@ -142,14 +143,16 @@ type Teleport struct {
 }
 
 // GatewayPolicy is policy.yaml's klausGateway block: the installations with a
-// Slack app, where the gateway runs, and its shape, one for all of them.
+// Slack app, where the gateway runs, each with what is its own, and the shape
+// one for all of them. Slack's mode is no policy: it follows the record
+// (slackMode).
 type GatewayPolicy struct {
-	// Installations are the installations a Slack app exists for — the one
-	// entry of the policy keyed by installation, a fact of each rather than a
-	// tuning. The gateway renders there and nowhere else.
-	Installations []string `yaml:"installations"`
+	// Installations are the installations a Slack app exists for, by name —
+	// the one entry of the policy keyed by installation, a fact of each rather
+	// than a tuning — with the installation's own values. The gateway renders
+	// there and nowhere else.
+	Installations map[string]InstallationGateway `yaml:"installations"`
 	Slack         struct {
-		Mode        string `yaml:"mode"`
 		ChannelMode string `yaml:"channelMode"`
 	} `yaml:"slack"`
 	OBO struct {
@@ -164,6 +167,13 @@ type GatewayPolicy struct {
 		Audience       string   `yaml:"audience"`
 		AllowedCallers []string `yaml:"allowedCallers"`
 	} `yaml:"reviews"`
+}
+
+// InstallationGateway is what the gateway's shape carries per installation:
+// the agent agent-to-agent calls by default, one of the installation's own
+// agents; empty, the policy's a2a.defaultAgent.
+type InstallationGateway struct {
+	DefaultAgent string `yaml:"defaultAgent"`
 }
 
 // MCPServer is one server registered with muster, in the mcps chart's shape.
@@ -227,10 +237,20 @@ func (p *policy) components(inst Installation) (map[string]bool, error) {
 		}
 		out[c] = true
 	}
-	if slices.Contains(p.KlausGateway.Installations, inst.Name) {
+	if _, slackApp := p.KlausGateway.Installations[inst.Name]; slackApp {
 		out[componentKlausGateway] = true
 	}
 	return out, nil
+}
+
+// gateway is the chat gateway's shape for an installation: the policy's, with
+// the installation's own default agent where its entry names one.
+func (p *policy) gateway(inst Installation) GatewayPolicy {
+	g := p.KlausGateway
+	if own := g.Installations[inst.Name]; own.DefaultAgent != "" {
+		g.A2A.DefaultAgent = own.DefaultAgent
+	}
+	return g
 }
 
 // connector renders the hub connector's name from the record.
@@ -303,7 +323,7 @@ func Parse(raw any) (*Input, error) {
 	if err != nil {
 		return nil, err
 	}
-	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, Gateway: pol.KlausGateway, Teleport: pol.Federation.Teleport}
+	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport}
 	if in.Components, err = pol.components(in.Installation); err != nil {
 		return nil, err
 	}

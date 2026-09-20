@@ -24,12 +24,13 @@ const (
 	shapePublicCustomer         = "public-customer"
 	shapeGiantswarmOwned        = "giantswarm-owned"
 	shapeGiantswarmSlackApp     = "giantswarm-slack-app"
+	shapeGiantswarmSlackAppPub  = "giantswarm-slack-app-public"
 	shapeHubPrivateTarget       = "hub-private-target"
 	shapeMultiClusterAggregator = "multi-cluster-aggregator"
 )
 
 // shapes are the installation shapes, in the order the goldens are rendered.
-var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned, shapeGiantswarmSlackApp, shapeHubPrivateTarget, shapeMultiClusterAggregator}
+var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned, shapeGiantswarmSlackApp, shapeGiantswarmSlackAppPub, shapeHubPrivateTarget, shapeMultiClusterAggregator}
 
 func loadInput(t *testing.T, shape string) (map[string]any, map[string]string) {
 	t.Helper()
@@ -369,7 +370,17 @@ func TestProbesAreLiveDimensions(t *testing.T) {
 
 func TestRefusals(t *testing.T) {
 	base, secrets := loadInput(t, shapePublicCustomer)
-	slackApp, _ := loadInput(t, shapeGiantswarmSlackApp)
+	slackApp, slackSecrets := loadInput(t, shapeGiantswarmSlackApp)
+	// The private installation's Slack credentials without the app-level token
+	// its socket mode needs.
+	withoutAppToken := map[string]string{}
+	for k, v := range slackSecrets {
+		if k != fieldSlack+"app-token" {
+			withoutAppToken[k] = v
+		}
+	}
+	slackAppPublic, slackPublicSecrets := loadInput(t, shapeGiantswarmSlackAppPub)
+	slackPublicSecrets[fieldSlack+"app-token"] = "x"
 	// A Giant Swarm-owned installation — the policy grants it the cluster-manager —
 	// whose record has no agentPlatform.kagentApiV2 and so selects the 3 line.
 	lineThreeOwned, _ := loadInput(t, shapeGiantswarmOwned)
@@ -402,7 +413,9 @@ func TestRefusals(t *testing.T) {
 		{"unknown top-level key", clone(func(m map[string]any) { m["colourScheme"] = "dark" }), secrets, ErrInput, "colourScheme"},
 		{"a former input is unknown", clone(func(m map[string]any) { m["kagent"] = map[string]any{"enabled": true} }), secrets, ErrInput, "kagent"},
 		{"unknown record key", clone(func(m map[string]any) { m["installation"].(map[string]any)["replicas"] = 3 }), secrets, ErrInput, "replicas"},
-		{"empty Slack credential where the gateway runs", slackApp, nil, ErrEmptySecret, fieldSlack + "bot-token"},
+		{"empty Slack credential where the gateway runs", slackAppPublic, nil, ErrEmptySecret, fieldSlack + "bot-token"},
+		{"no app-level token on a private installation", slackApp, withoutAppToken, ErrEmptySecret, fieldSlack + "app-token"},
+		{"an app-level token on a public installation", slackAppPublic, slackPublicSecrets, ErrUnknownSecret, fieldSlack + "app-token"},
 		{"a Slack credential where no gateway runs", base, map[string]string{fieldSlack + "bot-token": "x"}, ErrUnknownSecret, fieldSlack + "bot-token"},
 		{"the model key is never supplied", base, map[string]string{"kagent.modelKey": "x"}, ErrUnknownSecret, "kagent.modelKey"},
 		{"serving on the 3 line", clone(func(m map[string]any) { m["modelServing"] = map[string]any{"enabled": true} }), secrets, ErrInput, "modelServing.enabled"},
@@ -427,5 +440,37 @@ func TestRefusals(t *testing.T) {
 				t.Fatalf("%q does not name %q", err, c.names)
 			}
 		})
+	}
+}
+
+// TestGatewayPerInstallation resolves the gateway's shape per installation:
+// the entry's own default agent, the policy's where the entry names none, and
+// the shape untouched for an installation without a Slack app.
+func TestGatewayPerInstallation(t *testing.T) {
+	var pol policy
+	if err := yaml.Unmarshal([]byte(`
+klausGateway:
+  installations:
+    own: {defaultAgent: sre-agent}
+    bare: {}
+    empty:
+  a2a:
+    enabled: true
+    defaultAgent: swarmgeist
+`), &pol); err != nil {
+		t.Fatal(err)
+	}
+	const fleet = "swarmgeist"
+	for name, want := range map[string]string{"own": "sre-agent", "bare": fleet, "empty": fleet, "none": fleet} {
+		g := pol.gateway(Installation{Name: name})
+		if g.A2A.DefaultAgent != want {
+			t.Errorf("%s: default agent %q, want %q", name, g.A2A.DefaultAgent, want)
+		}
+		if _, slackApp := g.Installations[name]; slackApp == (name == "none") {
+			t.Errorf("%s: a Slack app is named: %v", name, slackApp)
+		}
+	}
+	if pol.KlausGateway.A2A.DefaultAgent != fleet {
+		t.Errorf("the policy's default agent changed to %q", pol.KlausGateway.A2A.DefaultAgent)
 	}
 }
