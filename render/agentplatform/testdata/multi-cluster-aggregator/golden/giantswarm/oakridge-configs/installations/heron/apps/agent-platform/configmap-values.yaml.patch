@@ -41,9 +41,12 @@ muster:
                 name: muster-broker-clients
           clientAudiences:
             broker-client-id-placeholder:
+              - github
               - kestrel
               - plover
           targets:
+            github:
+              grantIssuer: https://github.com/login/oauth
             kestrel:
               dexTokenEndpoint: https://dex.kestrel.oakridge.example/token
               connectorId: oakridge-simple-oidc

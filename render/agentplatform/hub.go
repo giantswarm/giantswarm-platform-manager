@@ -34,6 +34,13 @@ const (
 	// release whose chart version label survives a digest-pinned OCI consumer.
 	tunnelportChart  = "oci://gsoci.azurecr.io/charts/giantswarm/tunnelport"
 	tunnelportSemver = ">=1.0.4"
+	// githubGrantTarget is the broker's grant target: it releases the person's
+	// own GitHub grant — the one the GitHub MCP servers pin with grantScope
+	// subject — to the hub's broker client, an access token and its expiry,
+	// never the refresh token. The hub's Dev Portal backs its GitHub auth API
+	// with it, so the portal needs no GitHub App. A hub fact, not an input.
+	githubGrantTarget = "github"
+	githubGrantIssuer = "https://github.com/login/oauth"
 )
 
 // tunnelledApp is one app reached through the tunnel on a private target. port is
@@ -93,7 +100,8 @@ func exchangeSecretName(hub, target string) string {
 }
 
 // brokerValues is muster.muster.oauth.server.tokenExchangeBroker: the hub's
-// broker client, the targets it may mint for, and each target's exchange.
+// broker client, the GitHub grant target and the targets it may mint for,
+// and each target's exchange.
 func (in *Input) brokerValues() render.Map {
 	m := render.Map{}
 	if in.hasPrivateTarget() {
@@ -101,8 +109,8 @@ func (in *Input) brokerValues() render.Map {
 		// SSRF guard would refuse it.
 		m = append(m, e("allowPrivateIP", true))
 	}
-	names := make([]string, 0, len(in.Installation.Federation.Targets))
-	targets := render.Map{}
+	names := []string{githubGrantTarget}
+	targets := render.Map{e(githubGrantTarget, render.Map{e("grantIssuer", githubGrantIssuer)})}
 	for _, t := range in.Installation.Federation.Targets {
 		names = append(names, t.Installation)
 		entry := render.Map{e("dexTokenEndpoint", t.dexTokenEndpoint())}
