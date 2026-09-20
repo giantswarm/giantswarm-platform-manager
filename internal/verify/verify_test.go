@@ -97,6 +97,66 @@ func TestRemovalsNameThePlannedChanges(t *testing.T) {
 	}
 }
 
+// A leaf the definition renders and the record lacks, under a key the
+// capability's migrations name, is the migration's planned addition; the
+// same leaf on record with another value is a difference. <x> in a key
+// stands for a map key, or for a part of a file's or a list entry's name; a
+// file-level key covers the whole file, a backstage:file directory the
+// Component beneath it. A removal's reason comes first.
+func TestMigrationsNameThePlannedAdditions(t *testing.T) {
+	const m1, m3, m5, m32 = "M1", "M3", "M5", "M32"
+	migs := readMigrations([]definitions.Migration{
+		{Key: "extras:agent-platform/secrets/dex-client-<name>-token-exchange-secret.yaml", Reason: m32},
+		{Key: "dex-configmap:oidc.extraStaticClients[kagent]", Reason: m5},
+		{Key: "dex-configmap:oidc.staticClients.<name>.clientSecretRef", Reason: m1},
+		{Key: "extras:agent-platform/secrets/dex-client-<name>-secret.yaml", Reason: m1},
+		{Key: "extras:agent-platform/secrets/kustomization.yaml resources[dex-client-<name>-secret.yaml]", Reason: m1},
+		{Key: "extras:mcp-<name>/kustomization.yaml resources[dex-client-mcp-<name>-secret.yaml]", Reason: m1},
+		{Key: "backstage:file:agent-platform", Reason: m3},
+		{Key: "teleport:tunnels", Reason: "ignored"},
+	})
+	if len(migs) != 7 {
+		t.Fatalf("%d migrations read, want 7 (a prefix of no file kind is left out)", len(migs))
+	}
+	rms := readRemovals([]definitions.Removal{{Key: "dex-configmap:oidc.extraStaticClients[*].redirectURIs", Kind: "template", Reason: "R1"}})
+	dexCM := &fileDiff{path: "installations/x/apps/dex-app/configmap-values.yaml.patch", kind: definitions.KindDexSecret}
+	patch := &fileDiff{path: "installations/x/apps/agent-platform/configmap-values.yaml.patch", kind: definitions.KindConfigMap}
+	secret := &fileDiff{path: "management-clusters/x/extras/agent-platform/secrets/dex-client-muster-secret.yaml", kind: definitions.KindExtras}
+	exchange := &fileDiff{path: "management-clusters/x/extras/agent-platform/secrets/dex-client-x-token-exchange-secret.yaml", kind: definitions.KindExtras}
+	kust := &fileDiff{path: "management-clusters/x/extras/agent-platform/secrets/kustomization.yaml", kind: definitions.KindExtras}
+	mcpKust := &fileDiff{path: "management-clusters/x/extras/mcp-capi/kustomization.yaml", kind: definitions.KindExtras}
+	component := &fileDiff{path: "management-clusters/x/extras/backstage/agent-platform/app-config.yaml", kind: definitions.KindBackstage}
+	appConfig := &fileDiff{path: "management-clusters/x/extras/backstage/app-config.yaml", kind: definitions.KindBackstage}
+	absent := func(p string) *Difference { return &Difference{Path: p, Rendered: "x", absent: true} }
+	present := func(p string) *Difference { return &Difference{Path: p, Rendered: "x", Current: "y"} }
+	for _, tc := range []struct {
+		name string
+		fd   *fileDiff
+		d    *Difference
+		want string
+	}{
+		{"an added leaf under the key", dexCM, absent("oidc.extraStaticClients[kagent].id"), m5},
+		{"the same leaf with another value on record", dexCM, present("oidc.extraStaticClients[kagent].id"), ""},
+		{"an added leaf beside the key", dexCM, absent("oidc.extraStaticClients[other].id"), ""},
+		{"<name> is any map key", dexCM, absent("oidc.staticClients.mcpCapi.clientSecretRef.name"), m1},
+		{"<name> is not a list index", dexCM, absent("oidc.staticClients[0].clientSecretRef.name"), ""},
+		{"a leaf of another file", patch, absent("oidc.staticClients.muster.clientSecretRef.name"), ""},
+		{"a file-level key covers a created file", secret, absent(""), m1},
+		{"a file-level key covers every leaf of it", secret, absent("stringData.secret"), m1},
+		{"the more specific key comes first", exchange, absent(""), m32},
+		{"<name> in a list entry's identity", kust, absent("resources[dex-client-backstage-secret.yaml]"), m1},
+		{"an identity beside it", kust, absent("resources[muster-oauth-credentials.yaml]"), ""},
+		{"<name> in a directory and an identity", mcpKust, absent("resources[dex-client-mcp-capi-secret.yaml]"), m1},
+		{"a backstage directory covers the Component's files", component, absent("app.extensions[0]"), m3},
+		{"a backstage file beside the directory", appConfig, absent("app.extensions[0]"), ""},
+		{"a removal's reason first", dexCM, absent("oidc.extraStaticClients[kagent].redirectURIs[0]"), "R1"},
+	} {
+		if got := planned(tc.fd, tc.d, rms, migs); got != tc.want {
+			t.Errorf("%s: %s#%s planned %q, want %q", tc.name, tc.fd.path, tc.d.Path, got, tc.want)
+		}
+	}
+}
+
 // A file dimension's mark: a planned difference never drifts; beside drift
 // or an input's difference, the dimension keeps that mark and the planned
 // ones stay marked.

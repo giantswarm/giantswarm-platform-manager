@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -586,6 +587,8 @@ func (x *executor) httpProbe(c *Check, p render.Probe) {
 	switch {
 	case p.Expect.Status != 0 && resp.StatusCode != p.Expect.Status:
 		c.Mark, c.Message = Drifted, fmt.Sprintf("%d, expected %d", resp.StatusCode, p.Expect.Status)
+	case len(p.Expect.Statuses) > 0 && !slices.Contains(p.Expect.Statuses, resp.StatusCode):
+		c.Mark, c.Message = Drifted, fmt.Sprintf("%d, expected one of %v", resp.StatusCode, p.Expect.Statuses)
 	case p.Expect.LocationContains != "" && !strings.Contains(resp.Header.Get("Location"), p.Expect.LocationContains):
 		c.Mark, c.Message = Drifted, fmt.Sprintf("%d, Location %q does not contain %q", resp.StatusCode, resp.Header.Get("Location"), p.Expect.LocationContains)
 	case p.Expect.BodyContains != "" && !strings.Contains(string(body), p.Expect.BodyContains):

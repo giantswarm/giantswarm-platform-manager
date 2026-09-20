@@ -40,6 +40,37 @@ func Removals(capability string) ([]Removal, error) {
 	return doc.Removals, nil
 }
 
+// Migration is one key the definition renders that an installation enabled
+// before the migration lacks: its absence from the record is the migration's
+// planned addition, not drift. Key paths use the file prefixes and the
+// normalisation of removals.yaml; the reason names the migration.
+type Migration struct {
+	Key    string `yaml:"key"`
+	Reason string `yaml:"reason"`
+}
+
+// Migrations reads a capability's migrations in file order — the order the
+// comparison tries them, a more specific key before one that covers it. A
+// migration without a key or a reason is an error naming the entry.
+func Migrations(capability string) ([]Migration, error) {
+	raw, err := FS.ReadFile(capability + "/migrations.yaml")
+	if err != nil {
+		return nil, err
+	}
+	var doc struct {
+		Migrations []Migration `yaml:"migrations"`
+	}
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return nil, fmt.Errorf("%s/migrations.yaml: %w", capability, err)
+	}
+	for i, m := range doc.Migrations {
+		if m.Key == "" || m.Reason == "" {
+			return nil, fmt.Errorf("%s/migrations.yaml: migration %d (%q): key and reason are required", capability, i, m.Key)
+		}
+	}
+	return doc.Migrations, nil
+}
+
 // Capabilities lists the capabilities the definitions carry: one directory each.
 func Capabilities() ([]string, error) {
 	entries, err := fs.ReadDir(FS, ".")

@@ -163,6 +163,7 @@ const (
 // Expectation is what a probe expects; the fields its kind does not read stay zero.
 type Expectation struct {
 	Status           int      `yaml:"status,omitempty"`           // HTTP: the status code
+	Statuses         []int    `yaml:"statuses,omitempty"`         // HTTP: any of these status codes, where the answer has several right shapes
 	LocationContains string   `yaml:"locationContains,omitempty"` // HTTP: a substring of the Location header (302 probes)
 	BodyContains     string   `yaml:"bodyContains,omitempty"`     // HTTP: a substring of the body (200 probes)
 	Condition        string   `yaml:"condition,omitempty"`        // Condition: the type, e.g. Accepted, Ready

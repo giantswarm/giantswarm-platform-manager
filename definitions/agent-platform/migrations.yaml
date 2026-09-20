@@ -1,0 +1,106 @@
+# Keys the definition renders that an installation enabled before a migration lacks. Their absence from the
+# record is the migration's planned addition, not drift: the comparison marks a leaf the definition renders
+# and the record does not have, under one of these keys, planned with the reason. A leaf the record holds
+# with another value stays a difference. Key paths use the file prefixes and the normalisation of
+# removals.yaml ([*] for a list index, <name> for a map key or a part of a file or entry name). The
+# comparison takes the first key that names a path: a more specific key precedes one that covers it.
+#
+# The M numbers are the wave-1 migration list's (M1–M11) and continue removals.yaml's (M30…).
+migrations:
+  # --- M32 — a spoke's token-exchange client secret is referenced; the hub's federation files ---
+  - key: extras:agent-platform/secrets/dex-client-<name>-token-exchange-secret.yaml
+    reason: M32 — a spoke's token-exchange client secret is a referenced Secret; the hub's federation credentials are files
+  - key: extras:agent-platform/secrets/kustomization.yaml resources[dex-client-<name>-token-exchange-secret.yaml]
+    reason: M32 — a spoke's token-exchange client secret is a referenced Secret; the hub's federation credentials are files
+  - key: extras:agent-platform/secrets/<name>-token-exchange-credentials.yaml
+    reason: M32 — a spoke's token-exchange client secret is a referenced Secret; the hub's federation credentials are files
+  - key: extras:agent-platform/secrets/kustomization.yaml resources[<name>-token-exchange-credentials.yaml]
+    reason: M32 — a spoke's token-exchange client secret is a referenced Secret; the hub's federation credentials are files
+  - key: extras:agent-platform/secrets/muster-broker-clients.yaml
+    reason: M32 — a spoke's token-exchange client secret is a referenced Secret; the hub's federation credentials are files
+  - key: extras:agent-platform/secrets/kustomization.yaml resources[muster-broker-clients.yaml]
+    reason: M32 — a spoke's token-exchange client secret is a referenced Secret; the hub's federation credentials are files
+  - key: configmap:muster.muster.oauth.server.tokenExchangeBroker.brokerClients.<name>.clientCredentialsSecretRef
+    reason: M32 — a spoke's token-exchange client secret is a referenced Secret; the hub's federation credentials are files
+  - key: configmap:muster.muster.oauth.server.tokenExchangeBroker.targets.<name>.clientCredentialsSecretRef
+    reason: M32 — a spoke's token-exchange client secret is a referenced Secret; the hub's federation credentials are files
+
+  # --- M5 — kagent's UI gets its own Dex client and audience ---
+  - key: dex-configmap:oidc.extraStaticClients[kagent]
+    reason: M5 — kagent's UI gets its own Dex client and audience
+  - key: extras:agent-platform/secrets/dex-client-kagent-secret.yaml
+    reason: M5 — kagent's UI gets its own Dex client and audience
+  - key: extras:agent-platform/secrets/kustomization.yaml resources[dex-client-kagent-secret.yaml]
+    reason: M5 — kagent's UI gets its own Dex client and audience
+  - key: configmap:muster.muster.oauth.server.trustedAudiences[kagent]
+    reason: M5 — kagent's UI gets its own Dex client and audience
+  - key: configmap:kagent.oauth2-proxy.extraArgs.oidc-extra-audience
+    reason: M5 — kagent's UI gets its own Dex client and audience
+
+  # --- M30 — the portals' Dex client is named backstage ---
+  - key: dex-configmap:oidc.extraStaticClients[backstage]
+    reason: M30 — the portals' Dex client is named backstage
+  - key: dex-configmap:oidc.staticClients.dexK8SAuthenticator.trustedPeers[backstage]
+    reason: M30 — the portals' Dex client is named backstage
+  - key: extras:agent-platform/secrets/dex-client-backstage-secret.yaml
+    reason: M30 — the portals' Dex client is named backstage
+  - key: extras:agent-platform/secrets/kustomization.yaml resources[dex-client-backstage-secret.yaml]
+    reason: M30 — the portals' Dex client is named backstage
+  - key: configmap:muster.muster.oauth.server.trustedAudiences[backstage]
+    reason: M30 — the portals' Dex client is named backstage
+
+  # --- M1 — a Dex client's secret becomes a referenced Secret (dex-app 3.2.2 or later) ---
+  - key: dex-configmap:oidc.staticClients.<name>.clientSecretRef
+    reason: M1 — a Dex client's secret becomes a referenced Secret (dex-app 3.2.2 or later)
+  - key: dex-configmap:oidc.extraStaticClients[*].secretRef
+    reason: M1 — a Dex client's secret becomes a referenced Secret (dex-app 3.2.2 or later)
+  - key: extras:agent-platform/secrets/dex-client-<name>-secret.yaml
+    reason: M1 — a Dex client's secret becomes a referenced Secret (dex-app 3.2.2 or later)
+  - key: extras:agent-platform/secrets/kustomization.yaml resources[dex-client-<name>-secret.yaml]
+    reason: M1 — a Dex client's secret becomes a referenced Secret (dex-app 3.2.2 or later)
+  - key: extras:mcp-<name>/dex-client-mcp-<name>-secret.yaml
+    reason: M1 — a Dex client's secret becomes a referenced Secret (dex-app 3.2.2 or later)
+  - key: extras:mcp-<name>/kustomization.yaml resources[dex-client-mcp-<name>-secret.yaml]
+    reason: M1 — a Dex client's secret becomes a referenced Secret (dex-app 3.2.2 or later)
+
+  # --- M11 — the edge validates the portals' tokens on the 4 line ---
+  - key: configmap:agent-platform-mcps.agentgateway.jwt.extraProviders
+    reason: M11 — the edge validates the portals' tokens on the 4 line
+  - key: configmap:gateway.jwksEgress.enabled
+    reason: M11 — the edge validates the portals' tokens on the 4 line
+  - key: configmap:extraObjects[ReferenceGrant/<namespace>/agentgateway-jwks-dex]
+    reason: M11 — the edge validates the portals' tokens on the 4 line
+
+  # --- M3 — the portal's platform section moves to its own Component ---
+  - key: backstage:file:agent-platform
+    reason: M3 — the portal's platform section moves to its own Component
+
+  # --- M31 — the post-login allowlist names the portals and the connectors' completion ---
+  - key: configmap:muster.muster.oauth.mcpClient.postLoginRedirectAllowlist
+    reason: M31 — the post-login allowlist names the portals and the connectors' completion
+
+  # --- M6 — the global domain is written explicitly ---
+  - key: configmap:global.domain
+    reason: M6 — the global domain is written explicitly
+
+  # --- M7 — the template's defaults and the policy's components written explicitly ---
+  - key: configmap:components.kagent.enabled
+    reason: M7 — the template's defaults and the policy's components written explicitly
+  - key: configmap:components.agent-manager.enabled
+    reason: M7 — the template's defaults and the policy's components written explicitly
+  - key: configmap:components.cluster-manager.enabled
+    reason: M7 — the template's defaults and the policy's components written explicitly
+  - key: configmap:components.klaus-gateway.enabled
+    reason: M7 — the template's defaults and the policy's components written explicitly
+  - key: configmap:postgres.enabled
+    reason: M7 — the template's defaults and the policy's components written explicitly
+  - key: configmap:cluster-manager
+    reason: M7 — the template's defaults and the policy's components written explicitly
+  - key: configmap:clusterManager
+    reason: M7 — the template's defaults and the policy's components written explicitly
+  - key: configmap:klausGateway.reviews
+    reason: M7 — the template's defaults and the policy's components written explicitly
+  - key: configmap:klausGateway.obo.connectors.enabled
+    reason: M7 — the template's defaults and the policy's components written explicitly
+  - key: configmap:klausGateway.a2a.enabled
+    reason: M7 — the template's defaults and the policy's components written explicitly
