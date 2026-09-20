@@ -7,7 +7,7 @@ package e2e
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -287,14 +287,13 @@ func TestReconcileCapabilityDryRunOverTheSet(t *testing.T) {
 	if hazel.Diff[plan.ChangeUpdate] != 3 || hazel.Diff[plan.ChangeUnchanged] != 1 || hazel.Diff[plan.ChangeCreate] != len(hazel.Files)-4 || hazel.Files[0].Content != "" {
 		t.Fatalf("hazel diff %v, first file %+v", hazel.Diff, hazel.Files[0])
 	}
-	// The portals' audiences come from both places on record: the hub portal's
-	// client id from the hub's Dex patch (on every installation it lists), and
-	// the id birch's own patch trusts today, on record nowhere else.
+	// The portal's client id is a fact from the hub's Dex patch, on every
+	// installation the portal lists; what an installation's own patches trust
+	// besides is no fact (the plan keeps it, TestDryRunKeepsEachAudienceListsOwnEntries).
 	birchFacts := findPlan(t, out, privateFixture).Inputs["installation"].(map[string]any)
-	hazelFacts := hazel.Inputs["installation"].(map[string]any)
 	portal, _ := birchFacts["portals"].([]any)[0].(map[string]any)
-	if portal["clientId"] != hubPortalClientID || fmt.Sprint(birchFacts["portalAudiences"]) != "["+birchPortalClientID+" "+birchPeerClientID+"]" || fmt.Sprint(hazelFacts["portalAudiences"]) != "["+hubPortalClientID+"]" {
-		t.Fatalf("birch portals %v, portal audiences %v; hazel portal audiences %v", birchFacts["portals"], birchFacts["portalAudiences"], hazelFacts["portalAudiences"])
+	if _, has := birchFacts["portalAudiences"]; portal["clientId"] != hubPortalClientID || has {
+		t.Fatalf("birch portals %v, facts %v", birchFacts["portals"], birchFacts)
 	}
 	seen := map[string]int{}
 	for _, pr := range out.PullRequests {
@@ -302,6 +301,63 @@ func TestReconcileCapabilityDryRunOverTheSet(t *testing.T) {
 	}
 	if seen[acmeConfigs] >= seen[acmeMCs] || seen[hubConfigs] >= seen[hubMCs] || len(out.PullRequests) != 4 {
 		t.Fatalf("pull requests: %+v", out.PullRequests)
+	}
+}
+
+// Each audience list keeps its own entries on record, after the definition's
+// and in no other list: the id the hub's kagent UI accepts alone stays in
+// oidc-extra-audience, the peer its authenticator trusts alone in
+// trustedPeers, the client birch's muster trusts alone in trustedAudiences —
+// each named on the file — and the comparison, which follows the plan, finds
+// no difference for the hub's.
+func TestDryRunKeepsEachAudienceListsOwnEntries(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	out, text, isErr := dryRun(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInputs: minimalInputs(nil)})
+	if isErr {
+		t.Fatal(text)
+	}
+	file := func(p plan.Installation, suffix string) plan.File {
+		for _, f := range p.Files {
+			if strings.HasSuffix(f.Path, suffix) {
+				return f
+			}
+		}
+		t.Fatalf("%s: no file ends in %s", p.Name, suffix)
+		return plan.File{}
+	}
+	platformPatch, dexPatch := "/apps/"+installations.AgentPlatform+"/configmap-values.yaml.patch", "/apps/dex-app/configmap-values.yaml.patch"
+	hazel := findPlan(t, out, hub)
+	patch, dex := file(hazel, platformPatch), file(hazel, dexPatch)
+	// The hub's dex patch keeps the portal's client on record too: the definition declares backstage, not its id.
+	if !slices.Equal(patch.Kept, []plan.Kept{{List: plan.ListExtraAudience, Entry: hubExtraAudienceID}}) || !slices.Equal(dex.Kept, []plan.Kept{{List: plan.ListTrustedPeers, Entry: hubPeerClientID}, {List: "oidc.extraStaticClients", Entry: hubPortalClientID}}) {
+		t.Fatalf("hazel kept: patch %v, dex %v", patch.Kept, dex.Kept)
+	}
+	if !strings.Contains(patch.Content, "oidc-extra-audience: dex-k8s-authenticator,kagent,"+hubPortalClientID+",backstage,"+hubExtraAudienceID+" # gitleaks:allow\n") || strings.Count(patch.Content, hubExtraAudienceID) != 1 || strings.Contains(patch.Content, hubPeerClientID) {
+		t.Errorf("hazel platform patch:\n%s", patch.Content)
+	}
+	if !strings.Contains(dex.Content, "trustedPeers:\n        - "+hubPortalClientID+"\n        - backstage\n        - "+hubPeerClientID+"\n") || strings.Count(dex.Content, hubPeerClientID) != 1 || strings.Contains(dex.Content, hubExtraAudienceID) {
+		t.Errorf("hazel dex patch:\n%s", dex.Content)
+	}
+	// birch's authenticator trusts itself on record: that stays as well.
+	birch := findPlan(t, out, privateFixture)
+	patch, dex = file(birch, platformPatch), file(birch, dexPatch)
+	if !slices.Equal(patch.Kept, []plan.Kept{{List: plan.ListTrustedAudiences, Entry: birchPortalClientID}}) || !slices.Equal(dex.Kept, []plan.Kept{{List: plan.ListTrustedPeers, Entry: "dex-k8s-authenticator"}, {List: plan.ListTrustedPeers, Entry: birchPeerClientID}}) {
+		t.Fatalf("birch kept: patch %v, dex %v", patch.Kept, dex.Kept)
+	}
+	if strings.Count(patch.Content, birchPortalClientID) != 1 || strings.Contains(patch.Content, birchPeerClientID) || strings.Count(dex.Content, birchPeerClientID) != 1 || strings.Contains(dex.Content, birchPortalClientID) {
+		t.Errorf("birch platform patch:\n%s\nbirch dex patch:\n%s", patch.Content, dex.Content)
+	}
+	res := verifyWith(t, c, hub, nil)
+	for _, f := range res.Features {
+		for _, d := range f.Dimensions {
+			for _, diff := range d.Differences {
+				if strings.Contains(diff.Rendered+diff.Current, hubExtraAudienceID) || strings.Contains(diff.Rendered+diff.Current, hubPeerClientID) {
+					t.Errorf("%s/%s: a kept id is a difference: %+v", f.ID, d.ID, diff)
+				}
+			}
+		}
 	}
 }
 

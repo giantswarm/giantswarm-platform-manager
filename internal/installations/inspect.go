@@ -105,11 +105,8 @@ type Report struct {
 	Errors   []string `json:"errors,omitempty"`
 	// Portals and Federation are the facts derived from the portals on record
 	// (derive.go); nil until a registry inspection filled them.
-	Portals []PortalRef `json:"portals,omitempty"`
-	// PortalAudiences are the portals' Dex client ids the installation trusts
-	// today, read from its own platform patch (derive.go).
-	PortalAudiences []string    `json:"portalAudiences,omitempty"`
-	Federation      *Federation `json:"federation,omitempty"`
+	Portals    []PortalRef `json:"portals,omitempty"`
+	Federation *Federation `json:"federation,omitempty"`
 }
 
 // Detail is how much of an installation list_installations reads.
@@ -400,9 +397,6 @@ func (r Report) Facts() map[string]any {
 	facts["region"], facts["pipeline"], facts["hub"] = r.Region, r.Pipeline, r.Hub
 	if r.Portals != nil {
 		facts["portals"] = r.Portals
-	}
-	if r.PortalAudiences != nil {
-		facts["portalAudiences"] = r.PortalAudiences
 	}
 	if r.Federation != nil {
 		facts["federation"] = r.Federation

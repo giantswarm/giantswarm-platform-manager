@@ -6,6 +6,9 @@ import (
 	"testing"
 )
 
+// renderedHeader opens every file the definitions render.
+const renderedHeader = "# Rendered by giantswarm-platform-manager"
+
 const renderedKustomization = `# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
 # the next reconcile writes it again from the installation's inputs.
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -60,7 +63,7 @@ patches:
 	}
 	s := string(got)
 	for _, frag := range []string{
-		"# Rendered by giantswarm-platform-manager",
+		renderedHeader,
 		"resources:\n  - https://github.com/giantswarm/management-cluster-bases//extras/agent-platform?ref=main\n  - ./secrets\n  - ./tunnelport\n  - ./agents\n  - ./mcpservers\n",
 		"components:\n  - ./observability\n",
 		"value: \">=4.0.0 <5.0.0\"",

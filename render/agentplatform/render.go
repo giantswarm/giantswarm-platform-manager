@@ -105,28 +105,14 @@ func (in *Input) audiences() []string {
 	return a
 }
 
-// OwnAudiences are the ids the definition renders itself into the audience
-// and trusted-peer lists, none of them a portal's: the authenticator, the
-// kagent UI's client, the portals' client, the platform's own client
-// (musterClientID) and the hubs' token-exchange clients. The registry leaves
-// them out when it reads the portals' audiences back from an installation's
-// patches.
-func OwnAudiences(musterClientID string, hubs []string) []string {
-	own := []string{authenticatorClient, componentKagent, render.PortalDexClientID, musterClientID}
-	for _, hub := range hubs {
-		own = append(own, hubClient(hub))
-	}
-	return own
-}
-
 // portalAudiences are the Dex client ids the platform trusts for the
 // portals, each once — the same set wherever a portal's token is accepted:
 // the id of each portal's client where its host's Dex patch carries it, then
-// every id the installation's own patch trusts today, then the definition's
-// client (backstage) when a portal signs people in here. A portal forwards
-// tokens with the id of the client it signed in through, whatever it is
-// named, so nothing on record is dropped; an installation nobody lists
-// renders none.
+// the definition's client (backstage) when a portal signs people in here. A
+// portal forwards tokens with the id of the client it signed in through,
+// whatever it is named. An id the installation trusts besides is not the
+// definition's to render: the plan keeps it in the list it is on record in.
+// An installation nobody lists renders none.
 func (in *Input) portalAudiences() []string {
 	var ids []string
 	add := func(id string) {
@@ -136,9 +122,6 @@ func (in *Input) portalAudiences() []string {
 	}
 	for _, p := range in.Installation.Portals {
 		add(p.ClientID)
-	}
-	for _, id := range in.Installation.PortalAudiences {
-		add(id)
 	}
 	if in.hasPortal() {
 		add(render.PortalDexClientID)

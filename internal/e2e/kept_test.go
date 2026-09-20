@@ -210,15 +210,17 @@ func TestReconcileKeepsTheEncryptedFilesOnRecord(t *testing.T) {
 		t.Fatalf("a commit with nothing changed: %s", text)
 	}
 
+	// The plain file: the platform patch, whose audience lists carry nothing
+	// of the installation's own here, so the plan writes the render's bytes.
 	var drifted plan.File
 	for _, f := range p.Files {
-		if !isSecretFile(f.Path) && !plan.Shared(f.Path) && f.Content != "" {
+		if strings.HasSuffix(f.Path, "/apps/agent-platform/configmap-values.yaml.patch") {
 			drifted = f
 			break
 		}
 	}
-	if drifted.Path == "" {
-		t.Fatalf("no plain file the definition owns whole in %+v", p.Files)
+	if drifted.Path == "" || drifted.Content == "" {
+		t.Fatalf("no platform patch with content in %+v", p.Files)
 	}
 	st.ghs.addFile(drifted.Repository, drifted.Path, drifted.Content+"# edited by hand\n")
 	p = reconcileDryRun(t, c)

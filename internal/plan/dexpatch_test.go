@@ -91,7 +91,7 @@ func TestKeepDexPatchKeepsOtherOwnersPartsUnderEitherDefinition(t *testing.T) {
 			}
 			s := string(got)
 			for _, frag := range []string{
-				"# Rendered by giantswarm-platform-manager",
+				renderedHeader,
 				"large_client_header_buffers 4 32k;",
 				"# the organisation's directory",
 				"connectorName: Example Directory",

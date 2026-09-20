@@ -88,37 +88,6 @@ func TestDexClientByRedirectURI(t *testing.T) {
 	}
 }
 
-// The portals' audiences an installation trusts today are its patch's
-// trustedAudiences without the ones the definition renders itself, each once;
-// a patch without the key names none.
-func TestPortalAudiencesOf(t *testing.T) {
-	own := []string{"dex-k8s-authenticator", "kagent", "backstage", "muster-linden", fixtureHub + "-token-exchange"}
-	// The four lists on record, each with an id of its own beside the shared ones.
-	patch := "muster:\n  muster:\n    oauth:\n      server:\n        trustedAudiences:\n          - dex-k8s-authenticator\n          - " + fixtureHubClientID + "\n          - backstage\n          - muster-linden\n          - local-dev-client\n          - " + fixtureHubClientID + "\n" +
-		"kagent:\n  oauth2-proxy:\n    extraArgs:\n      oidc-extra-audience: dex-k8s-authenticator,kagent, " + fixtureHubClientID + ",extra-only-client # gitleaks:allow\n" +
-		"agent-platform-mcps:\n  agentgateway:\n    jwt:\n      extraProviders:\n        - issuer: https://dex.linden.umbra.test\n          audiences: [backstage, edge-only-client, local-dev-client]\n"
-	dexPatch := "oidc:\n  staticClients:\n    dexK8SAuthenticator:\n      trustedPeers:\n        - " + fixtureHubClientID + "\n        - peer-only-client\n        - " + fixtureHub + "-token-exchange\n        - backstage\n"
-	want := []string{fixtureHubClientID, "local-dev-client", "extra-only-client", "edge-only-client", "peer-only-client"}
-	if ids, err := portalAudiencesOf(patch, dexPatch, own); err != nil || !slices.Equal(ids, want) {
-		t.Fatalf("the union of the four lists: %v, %v", ids, err)
-	}
-	if ids, err := portalAudiencesOf("", dexPatch, own); err != nil || !slices.Equal(ids, []string{fixtureHubClientID, "peer-only-client"}) {
-		t.Fatalf("the trusted peers alone: %v, %v", ids, err)
-	}
-	if ids, err := portalAudiencesOf("kagent:\n  oauth2-proxy:\n    extraArgs:\n      oidc-extra-audience: [dex-k8s-authenticator, list-client]\n", "", own); err != nil || !slices.Equal(ids, []string{"list-client"}) {
-		t.Fatalf("a hand-written list of extra audiences: %v, %v", ids, err)
-	}
-	if ids, err := portalAudiencesOf("muster:\n  muster:\n    resources: {}\n", "", own); err != nil || len(ids) != 0 {
-		t.Fatalf("no list on record names none: %v, %v", ids, err)
-	}
-	if _, err := portalAudiencesOf("muster: [", "", own); err == nil || !strings.Contains(err.Error(), "agent-platform/") {
-		t.Fatalf("a platform patch that is no YAML is an error naming it: %v", err)
-	}
-	if _, err := portalAudiencesOf("", "oidc: [", own); err == nil || !strings.Contains(err.Error(), "dex-app/") {
-		t.Fatalf("a dex patch that is no YAML is an error naming it: %v", err)
-	}
-}
-
 // A portal's cluster entry at the tunnel's Service on its host marks the
 // installation as reached through the tunnel; one at its API does not. The
 // installations its agent-platform section lists are the ones whose platform
