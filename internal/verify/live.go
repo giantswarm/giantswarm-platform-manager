@@ -361,8 +361,8 @@ func (x *executor) dimension(ctx context.Context, d definitions.Dimension) Dimen
 
 // checkRollUp is a dimension's mark from its checks: drifted when any is,
 // differs by input when any does, else not checked when any object could not
-// be read — a dimension only partly read never claims as defined — with that
-// check's message as the reason, else as defined.
+// be read or probe target reached — a dimension only partly read never claims
+// as defined — with that check's message as the reason, else as defined.
 func checkRollUp(checks []Check) (Mark, string) {
 	seen := map[Mark]*Check{}
 	for i := range checks {
@@ -577,7 +577,7 @@ func (x *executor) httpProbe(c *Check, p render.Probe) {
 	req.Header.Set("User-Agent", "giantswarm-platform-manager")
 	resp, err := client.Do(req)
 	if err != nil {
-		c.Mark, c.Message = Drifted, "unreachable: "+strings.TrimSpace(err.Error())
+		c.Mark, c.Message = NotChecked, ReasonUnreachable+": "+strings.TrimSpace(err.Error())
 		return
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
