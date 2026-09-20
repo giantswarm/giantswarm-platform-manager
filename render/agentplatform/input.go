@@ -102,8 +102,12 @@ type Installation struct {
 	// PodCertificateRequest, which Agent Substrate needs on the 4 line: the
 	// cluster App on record enables the feature gates, or its chart does by
 	// default (substrate.go).
-	PodCertificateRequest bool        `json:"podCertificateRequest"`
-	Portals               []PortalRef `json:"portals"`
+	PodCertificateRequest bool `json:"podCertificateRequest"`
+	// DexAppVersion is the dex-app the installation runs, where the record
+	// says: its own pin or the fleet's base. Renders nothing; the plan holds
+	// the commit until it takes the referenced Dex client secrets.
+	DexAppVersion string      `json:"dexAppVersion,omitempty"`
+	Portals       []PortalRef `json:"portals"`
 	// PortalAudiences are the portals' Dex client ids the installation trusts
 	// today, read from its own platform patch: the ids of portals whose client
 	// is not on record in their host's Dex patch.

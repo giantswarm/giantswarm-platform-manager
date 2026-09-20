@@ -139,7 +139,7 @@ func podCertificateRequest(manifest string) (bool, error) {
 			return false, fmt.Errorf("decode: %w", err)
 		}
 		switch kind.Kind {
-		case "App":
+		case kindApp:
 			var a clusterApp
 			if err := node.Decode(&a); err != nil {
 				return false, fmt.Errorf("decode the App: %w", err)

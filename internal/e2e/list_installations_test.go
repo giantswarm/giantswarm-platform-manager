@@ -28,7 +28,34 @@ const (
 	hubConfigs   = "example/example-configs"
 	acmeMCs      = "example/acme-management-clusters"
 	acmeConfigs  = "example/acme-configs"
+	// basesRepo is the fleet's shared collection base: the dex-app every
+	// installation runs unless its collections kustomization pins its own.
+	basesRepo = "example/management-cluster-bases"
 )
+
+// The fleet's dex-app: the base's pin, before the referenced Dex client
+// secrets, and the version the installations that run the platform pin.
+const (
+	fleetDexApp    = "2.2.3"
+	platformDexApp = "3.2.2"
+)
+
+// collectionsKustomization renders an installation's collections
+// kustomization as the management-clusters repositories keep it: the fleet's
+// base as a remote resource at main and, with pin, the installation's own
+// patch on the App dex-app's version.
+func collectionsKustomization(pin string) string {
+	s := "resources:\n  - https://github.com/" + basesRepo + "//bases/collections/capa/stages/stable?ref=main\n"
+	if pin != "" {
+		s += "patches:\n  # the installation runs dex-app " + pin + " ahead of the fleet's shared pin\n  - target:\n      kind: App\n      name: dex-app\n      namespace: giantswarm\n    patch: |\n      - op: replace\n        path: /spec/version\n        value: " + pin + "\n"
+	}
+	return s
+}
+
+// dexAppApp renders the base's App dex-app at version.
+func dexAppApp(version string) string {
+	return "apiVersion: application.giantswarm.io/v1alpha1\nkind: App\nmetadata:\n  name: dex-app\n  namespace: giantswarm\nspec:\n  catalog: control-plane-catalog\n  kubeConfig:\n    inCluster: true\n  name: dex-app\n  namespace: giantswarm\n  version: " + version + "\n"
+}
 
 var registrySources = installations.Sources{Catalog: installations.Location{Repository: registryRepo, Path: registryPath}, Hub: hub}
 
@@ -100,7 +127,9 @@ func portalConfig(names ...string) string {
 // declaration), birch (opted in, enabled, private: the hub's portal reaches
 // it through the tunnel), rowan (opted in, not
 // enabled), willow (optIn: false), oak (repositories the person may not
-// read) and larch (portal only, no repositories on record).
+// read) and larch (portal only, no repositories on record). The fleet's base
+// pins dex-app before the referenced Dex client secrets; hazel, birch and
+// rowan pin the version that takes them, alder runs the fleet's.
 // The kustomizations other owners write, which the includes land in: an
 // installation's extras, and the portal's tree on rowan.
 const (
@@ -156,10 +185,11 @@ func fixtures(g *fakeGitHub) {
 		resource(hub, "example", "capa", "example.test") + resource("alder", "acme", "capa", "acme.test") + resource("birch", "acme", "capa", "acme.test") +
 		resource("rowan", "acme", "capa", "acme.test") + resource("willow", "umbrella", "capz", "umbrella.test") + resource("oak", "sealed", "capa", "sealed.test")})
 	g.addRepo(hubMCs, map[string]string{
-		installations.PortalConfigPath(hub):       portalConfig(hub, "alder", "birch", "rowan", "willow", "oak", "larch"),
-		installations.OptInPath(hub):              optedIn,
-		installations.ClusterAppManifestPath(hub): clusterAppManifest(hub, "cluster-aws", "10.2.0", true),
-		extrasKustomizationPath(hub):              extrasListingEverything,
+		installations.PortalConfigPath(hub):             portalConfig(hub, "alder", "birch", "rowan", "willow", "oak", "larch"),
+		installations.OptInPath(hub):                    optedIn,
+		installations.ClusterAppManifestPath(hub):       clusterAppManifest(hub, "cluster-aws", "10.2.0", true),
+		installations.CollectionsKustomizationPath(hub): collectionsKustomization(platformDexApp),
+		extrasKustomizationPath(hub):                    extrasListingEverything,
 		// The hub's portal lists the hub itself: the platform's fragment joins the hub's portal tree as a Component.
 		"management-clusters/" + hub + "/extras/backstage/kustomization.yaml":           "# The portal's tree; the platform's fragment joins it as a Component.\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./backstage/\n",
 		"management-clusters/" + hub + "/extras/backstage/backstage/kustomization.yaml": hubPortalKustomization,
@@ -172,12 +202,15 @@ func fixtures(g *fakeGitHub) {
 		installations.DexPatchPath(hub): "oidc:\n  extraStaticClients:\n    - id: " + hubPortalClientID + "\n      name: Dev Portal\n      redirectURIs:\n        - " + render.PortalRedirectURI("portal."+hub+".example.test", hub) + "\n      secretRef: {name: dex-client-backstage, key: secret}\n",
 	})
 	g.addRepo(acmeMCs, map[string]string{
-		installations.OptInPath("birch"):              optedIn,
-		extrasKustomizationPath("birch"):              extrasListingEverything,
-		installations.OptInPath("rowan"):              optedIn,
-		installations.ClusterAppManifestPath("rowan"): clusterAppManifest("rowan", "cluster-aws", "10.2.0", false),
-		extrasKustomizationPath("rowan"):              extrasKustomization,
-		rowanBackstageKustomization:                   "# The portal's tree; the platform's fragment joins it as a Component.\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./backstage/\n",
+		installations.CollectionsKustomizationPath("alder"): collectionsKustomization(""),
+		installations.OptInPath("birch"):                    optedIn,
+		installations.CollectionsKustomizationPath("birch"): collectionsKustomization(platformDexApp),
+		extrasKustomizationPath("birch"):                    extrasListingEverything,
+		installations.OptInPath("rowan"):                    optedIn,
+		installations.ClusterAppManifestPath("rowan"):       clusterAppManifest("rowan", "cluster-aws", "10.2.0", false),
+		installations.CollectionsKustomizationPath("rowan"): collectionsKustomization(platformDexApp),
+		extrasKustomizationPath("rowan"):                    extrasKustomization,
+		rowanBackstageKustomization:                         "# The portal's tree; the platform's fragment joins it as a Component.\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./backstage/\n",
 	})
 	g.addRepo(acmeConfigs, map[string]string{
 		installations.ConfigPatchPath("alder"): "codename: alder\nbase: acme.test\n",
@@ -190,6 +223,7 @@ func fixtures(g *fakeGitHub) {
 	g.addRepo("example/umbrella-management-clusters", map[string]string{installations.OptInPath("willow"): "optIn: false\n"})
 	g.addRepo("example/umbrella-configs", map[string]string{installations.ConfigPatchPath("willow"): "codename: willow\n"})
 	g.addRepo("example/shared-configs", map[string]string{"default/config.yaml": "services:\n  muster:\n    clientId: muster-shared\n"})
+	g.addRepo(basesRepo, map[string]string{installations.DexAppBasePath: dexAppApp(fleetDexApp)})
 	g.forbid("example/sealed-management-clusters")
 	g.forbid("example/sealed-configs")
 }

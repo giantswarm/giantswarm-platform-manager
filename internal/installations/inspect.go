@@ -41,6 +41,13 @@ type Record struct {
 	// management-clusters repository) enables the feature gates, or its chart
 	// does by default; read by readPodCertificateRequest.
 	PodCertificateRequest bool `json:"podCertificateRequest"`
+	// DexAppVersion is the dex-app the installation runs — spec.version of
+	// the App dex-app: the installation's own pin in its collections
+	// kustomization, else the fleet's shared base at the ref the
+	// kustomization names (readDexAppVersion); empty when neither says.
+	// DexAppSource is the file it was read from, repository:path.
+	DexAppVersion string `json:"dexAppVersion,omitempty"`
+	DexAppSource  string `json:"dexAppSource,omitempty"`
 }
 
 // configPatch is the part of config.yaml.patch the record reads.
@@ -132,6 +139,14 @@ func Inspect(ctx context.Context, c *github.Client, inst Installation, caps []Ca
 		r.Record = record
 		if record.PodCertificateRequest, err = readPodCertificateRequest(ctx, c, inst); err != nil {
 			r.Errors = append(r.Errors, err.Error())
+		}
+		// The dex-app on record is a fact, not a condition of reading the
+		// installation: unreadable, the fact stays empty and the comparison
+		// still runs, with the error on the report.
+		if v, err := readDexAppVersion(ctx, readAt(c), inst); err != nil {
+			r.Errors = append(r.Errors, err.Error())
+		} else if v.Version != "" {
+			record.DexAppVersion, record.DexAppSource = v.Version, v.Source()
 		}
 	}
 
@@ -283,8 +298,13 @@ func inspectAll(ctx context.Context, c *github.Client, insts []Installation, cap
 // every key present, so the schema sees the facts on record and the person
 // types only what is not there.
 func (r *Record) Input() map[string]any {
-	return map[string]any{"name": r.Name, "baseDomain": r.BaseDomain, "customer": r.Customer, "provider": r.Provider,
+	in := map[string]any{"name": r.Name, "baseDomain": r.BaseDomain, "customer": r.Customer, "provider": r.Provider,
 		"private": r.Private, "chartLine": r.ChartLine, "musterClientId": r.MusterClientID, "podCertificateRequest": r.PodCertificateRequest}
+	if r.DexAppVersion != "" {
+		// Optional in the schema: absent where the record says nothing.
+		in["dexAppVersion"] = r.DexAppVersion
+	}
+	return in
 }
 
 // Facts are every installation fact on record, as a definition's inputs name
