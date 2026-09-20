@@ -25,7 +25,7 @@ charts:
   # clientSecretRef, the version the definition targets.
   - name: dex-app
     registry: gsoci.azurecr.io/charts/giantswarm/dex-app
-    version: 3.2.0
+    version: 3.2.2
   # The meta chart on both of its lines — a shape renders at the line its record
   # selects (installation.chartLine): the 3 line, which the fleet base caps <4.0.0,
   # and the 4 line, which pins itself. renovate-custom.json5 keeps each pin on its
