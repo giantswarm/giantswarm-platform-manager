@@ -67,7 +67,7 @@ type Spec struct {
 	// Engineers' channel is told of the review.
 	Customer bool `json:"customer,omitempty"`
 	// Change is the plan's change in one clause — files by change, generated
-	// secrets by name — as the review states it; never a value.
+	// secrets by name — on the record and in the pull requests; never a value.
 	Change string `json:"change,omitempty"`
 	// Skipped are the installations of the set a wave left out, and why:
 	// never a target, no pull request.
