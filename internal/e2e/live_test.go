@@ -420,18 +420,19 @@ func TestVerifyInstallationWaitingForTheCustomer(t *testing.T) {
 	}
 }
 
-// An installation no action has rendered: every live dimension is not
-// checked and says there are no inputs on record; nothing is read.
+// An installation no action has rendered, verified without inputs: every
+// live dimension is not checked and says there is nothing to compare
+// against; nothing is read.
 func TestVerifyInstallationWithoutInputsOnRecord(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 
 	res := verifyLive(t, st.liveClient(t, st.dex.token(t, liveAdmin, []string{liveAudience}, time.Hour)), alder)
-	if res.Inputs.Source != tools.InputsNone {
+	if res.Inputs.Source != verify.SourceNone {
 		t.Errorf("inputs %q", res.Inputs.Source)
 	}
 	for id, d := range liveDimensions(res) {
-		if d.Mark != verify.NotChecked || d.Reason != verify.ReasonNoInputs {
+		if d.Mark != verify.NotChecked || d.Reason != verify.ReasonNoRender {
 			t.Errorf("%s: %+v", id, d)
 		}
 	}

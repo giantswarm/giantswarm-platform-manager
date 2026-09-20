@@ -7,15 +7,11 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 
-	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 )
-
-// InputsNone is the inputs source when no action holds inputs on record.
-const InputsNone = "none"
 
 func verifyCapabilityTool() mcp.Tool {
 	return mcp.NewTool(ToolVerifyCapability,
@@ -23,6 +19,7 @@ func verifyCapabilityTool() mcp.Tool {
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithString(ArgInstallation, mcp.Required(), mcp.Description("The installation to verify, by name.")),
 		mcp.WithString(ArgCapability, mcp.Description(capabilityArgDescription), mcp.Enum(installations.CapabilityNames()...)),
+		mcp.WithObject(ArgInputs, mcp.Description(inputsArgDescription)),
 	)
 }
 
@@ -44,13 +41,15 @@ func (t *Tools) verify(ctx context.Context, args map[string]any) (any, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%s needs %s", ToolVerifyCapability, ArgInstallation)
 	}
-	return t.verifyInstallation(ctx, token, name, def)
+	typed, _ := args[ArgInputs].(map[string]any)
+	return t.verifyInstallation(ctx, token, name, def, typed)
 }
 
 // verifyInstallation is the verify of one installation against def as the
-// person whose token this is: the tool's body, and the wave's gate between
+// person whose token this is: the inputs from the record, the files read
+// back and the typed inputs; the tool's body, and the wave's gate between
 // two stages.
-func (t *Tools) verifyInstallation(ctx context.Context, token, name string, def installations.Capability) (*verify.Result, error) {
+func (t *Tools) verifyInstallation(ctx context.Context, token, name string, def installations.Capability, typed map[string]any) (*verify.Result, error) {
 	c, err := gh.AsPerson(t.d.GitHubAPIURL, token)
 	if err != nil {
 		return nil, err
@@ -68,28 +67,13 @@ func (t *Tools) verifyInstallation(ctx context.Context, token, name string, def 
 	if !r.Repositories.Known() {
 		return nil, fmt.Errorf("%s has no repositories on record: nothing to compare the definition against", name)
 	}
-	in := verify.Inputs{Source: InputsNone}
-	if r.Record != nil && t.d.Actions != nil {
-		acts, err := t.d.Actions.List(ctx, actions.Filter{Installation: name, Capability: def.Name})
-		if err != nil {
-			return nil, err
-		}
-		// The newest Action rendered the capability: its inputs on record (a
-		// wave's entry for this installation, else its own document) — possibly
-		// none, the record and the defaults being the whole input — over the record.
-		if len(acts) > 0 {
-			recorded := acts[0].InputsOnRecord(name)
-			if recorded == nil {
-				recorded = acts[0].Spec.Inputs
-			}
-			values, err := mergeInputs(def, r, recorded)
-			if err != nil {
-				return nil, err
-			}
-			in = verify.Inputs{Source: "action " + acts[0].Name, Values: values}
-		}
+	read := readAs(c)
+	values, back, err := mergeInputs(ctx, def, r, installations.Reader(read), typed)
+	if err != nil {
+		return nil, err
 	}
-	out := verify.Compare(ctx, verify.Options{Definition: def, Installation: r.Installation, Hub: hub, State: capabilityState(r, def.Name), Inputs: in, Read: readAs(c), Probes: t.d.Probes})
+	in := verify.Inputs{Source: verify.Source(len(back) > 0, len(typed) > 0), Values: values, ReadBack: back}
+	out := verify.Compare(ctx, verify.Options{Definition: def, Installation: r.Installation, Hub: hub, State: capabilityState(r, def.Name), Inputs: in, Read: read, Probes: t.d.Probes})
 	out.Caller = identity.Caller(ctx)
 	t.d.Log.Info(ToolVerifyCapability, identity.LogAttr(ctx), "installation", name, "inputs", in.Source, "state", out.State, "summary", out.Summary)
 	return &out, nil

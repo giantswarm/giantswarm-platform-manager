@@ -332,7 +332,7 @@ func (x *executor) dimension(ctx context.Context, d definitions.Dimension) Dimen
 		dim.Reason = x.refused
 		return dim
 	case x.lv == nil:
-		dim.Reason = ReasonNoInputs
+		dim.Reason = ReasonNoRender
 		return dim
 	}
 	live := &LiveResult{Checks: []Check{}}
@@ -390,7 +390,7 @@ func (x *executor) run(ctx context.Context, p render.Probe) (Check, []Difference
 		return c, nil, nil
 	}
 	if x.opts.Cluster == nil {
-		c.Message = ReasonNoInputs
+		c.Message = ReasonNoRender
 		return c, nil, nil
 	}
 	var diffs []Difference

@@ -44,7 +44,7 @@ const (
 // run for, a target unreachable from the manager — are next to probe in probes.go.
 const (
 	ReasonAuthority  = "needs the person's authority on the installation: verify_installation, the live registration's tool, checks it"
-	ReasonNoInputs   = "no inputs on record: no action has rendered this capability for the installation yet"
+	ReasonNoRender   = "nothing rendered to compare against: the inputs are missing or refused"
 	ReasonUnreadable = "a file of the dimension could not be read as the caller"
 	ReasonNoFile     = "the definition renders no file of this kind for the inputs on record"
 )
@@ -89,12 +89,39 @@ type Feature struct {
 	Dimensions []Dimension  `json:"dimensions"`
 }
 
-// Inputs are the inputs on record the render is compared from: the
-// installation's record under the newest Action's inputs.
+// The sources of the inputs a comparison renders from. The record is the
+// schema's defaults under the installation's facts; the read-back is what
+// the definition read from the files on record; typed is the person's
+// inputs over both. A live verify renders from the inputs it is given, else
+// an action's on record, else none.
+const (
+	SourceRecord   = "record"
+	SourceReadBack = "read-back"
+	SourceTyped    = "typed"
+	SourceNone     = "none"
+)
+
+// Source names the layers the inputs came from: record, then read-back and
+// typed when they contributed.
+func Source(readBack, typed bool) string {
+	s := SourceRecord
+	if readBack {
+		s += " + " + SourceReadBack
+	}
+	if typed {
+		s += " + " + SourceTyped
+	}
+	return s
+}
+
+// Inputs are the inputs the render is compared from.
 type Inputs struct {
-	// Source is "action <name>", or "none" when no action holds inputs.
+	// Source names the layers (Source), an action, or none.
 	Source string         `json:"source"`
 	Values map[string]any `json:"values,omitempty"`
+	// ReadBack is what the definition read back from the files on record,
+	// by dotted input key; never a secret value.
+	ReadBack map[string]any `json:"readBack,omitempty"`
 }
 
 // Result is the verify of one installation × capability.
@@ -682,9 +709,9 @@ func assign(c *comparison, feats []definitions.Feature, refused string) map[stri
 				continue
 			}
 			if c == nil {
-				m.dim.Reason = ReasonNoInputs
-				if refused != "" {
-					m.dim.Reason = refused
+				m.dim.Reason = refused
+				if refused == "" {
+					m.dim.Reason = ReasonNoRender
 				}
 				continue
 			}

@@ -20,6 +20,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 )
@@ -31,7 +32,17 @@ const (
 
 func verifyRowan(t *testing.T, c *client.Client, name string) verify.Result {
 	t.Helper()
-	text, isErr := call(t, c, tools.ToolVerifyCapability, map[string]any{tools.ArgInstallation: name})
+	return verifyWith(t, c, name, nil)
+}
+
+// verifyWith is verify_capability of name with the person's typed inputs.
+func verifyWith(t *testing.T, c *client.Client, name string, inputs map[string]any) verify.Result {
+	t.Helper()
+	args := map[string]any{tools.ArgInstallation: name}
+	if inputs != nil {
+		args[tools.ArgInputs] = inputs
+	}
+	text, isErr := call(t, c, tools.ToolVerifyCapability, args)
 	if isErr {
 		t.Fatalf("verify_capability %s: %s", name, text)
 	}
@@ -65,15 +76,29 @@ func dimension(t *testing.T, f verify.Feature, id string) verify.Dimension {
 }
 
 // enableRowan puts the files rendered from inRepos into the registry's
-// repositories and seeds the Action that holds onRecord as the inputs on
-// record — the same inputs for an installation as defined.
+// repositories and seeds the Action that holds onRecord as its inputs — the
+// same inputs for an installation as defined.
 func enableRowan(t *testing.T, st *stack, c *client.Client, onRecord, inRepos map[string]any) {
 	t.Helper()
-	out, text, isErr := dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: inRepos})
+	putOnRecord(t, st, c, rowan, inRepos)
+	seeded := actions.Action{Name: "enable-rowan-1", Namespace: actionsNamespace, CreatedAt: time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC),
+		Spec:   actions.Spec{Actor: actions.Actor{Login: alice}, Capability: installations.AgentPlatform, Installations: []string{rowan}, Kind: "enable", Inputs: onRecord},
+		Status: actions.Status{State: string(installations.StateEnabled)}}
+	if _, err := st.dyn.Resource(actions.GVR).Namespace(actionsNamespace).Create(context.Background(), actions.Unstructured(seeded), metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// putOnRecord renders name from the typed inputs and puts every file into
+// the registry's repositories, as an enablement by hand leaves them: no
+// action records the inputs.
+func putOnRecord(t *testing.T, st *stack, c *client.Client, name string, typed map[string]any) {
+	t.Helper()
+	out, text, isErr := dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: name, tools.ArgInputs: typed})
 	if isErr {
 		t.Fatalf("dry run: %s", text)
 	}
-	p := findPlan(t, out, rowan)
+	p := findPlan(t, out, name)
 	if p.Refused != "" {
 		t.Fatalf("refused: %s", p.Refused)
 	}
@@ -86,12 +111,6 @@ func enableRowan(t *testing.T, st *stack, c *client.Client, onRecord, inRepos ma
 	}
 	for repo, fs := range files {
 		st.ghs.addFiles(repo, fs)
-	}
-	seeded := actions.Action{Name: "enable-rowan-1", Namespace: actionsNamespace, CreatedAt: time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC),
-		Spec:   actions.Spec{Actor: actions.Actor{Login: alice}, Capability: installations.AgentPlatform, Installations: []string{rowan}, Kind: "enable", Inputs: onRecord},
-		Status: actions.Status{State: string(installations.StateEnabled)}}
-	if _, err := st.dyn.Resource(actions.GVR).Namespace(actionsNamespace).Create(context.Background(), actions.Unstructured(seeded), metav1.CreateOptions{}); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -110,7 +129,7 @@ func TestVerifyCapabilityAsDefined(t *testing.T) {
 	enableRowan(t, st, c, kagentEnabled(), kagentEnabled())
 
 	res := verifyRowan(t, c, rowan)
-	if res.Caller != alice || res.Inputs.Source != "action enable-rowan-1" || res.State != installations.StateEnabled {
+	if res.Caller != alice || res.Inputs.Source != verify.SourceRecord || res.State != installations.StateEnabled {
 		t.Errorf("caller %q inputs %q state %q", res.Caller, res.Inputs.Source, res.State)
 	}
 	if res.Summary[verify.Drifted] != 0 || res.Summary[verify.DiffersByInput] != 0 || res.Summary[verify.AsDefined] == 0 {
@@ -227,30 +246,96 @@ func TestVerifyCapabilityProbeDriftRollsUp(t *testing.T) {
 	}
 }
 
-// An installation no action has rendered: the file dimensions and the
-// per-client probe are not checked and say there are no inputs on record;
-// the probes that need no render still run.
-func TestVerifyCapabilityWithoutInputsOnRecord(t *testing.T) {
+// An installation no action has rendered is compared from its record: the
+// inputs are the schema's defaults under the facts, the file dimensions are
+// checked (every file absent, so off the render), the per-client probe runs.
+func TestVerifyCapabilityFromTheRecord(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	c := st.mcpClient(t, aliceToken)
 
 	res := verifyRowan(t, c, alder)
-	if res.Inputs.Source != tools.InputsNone || res.State != installations.StateNotOptedIn {
-		t.Errorf("inputs %q state %q", res.Inputs.Source, res.State)
+	if res.Inputs.Source != verify.SourceRecord || res.State != installations.StateNotOptedIn || res.Refused != "" {
+		t.Errorf("inputs %q state %q refused %q", res.Inputs.Source, res.State, res.Refused)
+	}
+	if facts, _ := res.Inputs.Values["installation"].(map[string]any); facts["name"] != alder {
+		t.Errorf("inputs %v", res.Inputs.Values)
 	}
 	identity := feature(t, res, "identity")
-	if d := dimension(t, identity, "muster-dex-client-id"); d.Mark != verify.NotChecked || d.Reason != verify.ReasonNoInputs {
+	if d := dimension(t, identity, "muster-dex-client-id"); d.Mark == verify.NotChecked || len(d.Files) == 0 {
 		t.Errorf("file dimension: %+v", d)
 	}
-	if d := dimension(t, identity, "dex-auth-request"); d.Mark != verify.NotChecked || d.Reason != verify.ReasonNoInputs {
+	if d := dimension(t, identity, "dex-auth-request"); d.Reason == verify.ReasonNoRender {
 		t.Errorf("per-client probe: %+v", d)
 	}
 	if d := dimension(t, identity, "oauth2-proxy-gate"); d.Mark != verify.AsDefined {
 		t.Errorf("anonymous probe: %+v", d)
 	}
-	if identity.Mark != verify.AsDefined {
-		t.Errorf("identity %q: %+v", identity.Mark, identity.Marks)
+}
+
+// birchByHand puts birch on the 4 chart line and enables it by hand with
+// the serving choice: the render from the choice on record, no action.
+func birchByHand(t *testing.T, st *stack, c *client.Client, serving bool) {
+	t.Helper()
+	st.ghs.addFile(acmeConfigs, installations.ConfigPatchPath(birch), "codename: birch\nbase: acme.test\nagentPlatform:\n  kagentApiV2: true\n")
+	st.ghs.addFile(acmeMCs, installations.ClusterAppManifestPath(birch), clusterAppManifest(birch, "cluster-aws", "10.3.0", true))
+	putOnRecord(t, st, c, birch, map[string]any{"modelServing": map[string]any{enabledKey: serving}})
+}
+
+// inputDifferences are the differences of res that input drives.
+func inputDifferences(res verify.Result, input string) []verify.Difference {
+	var out []verify.Difference
+	for _, f := range res.Features {
+		for _, d := range f.Dimensions {
+			for _, diff := range d.Differences {
+				if diff.Input == input {
+					out = append(out, diff)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// An installation enabled by hand with the serving slice on, no action:
+// the choice is read back from the configmap patch, the render carries it
+// and nothing differs by input; a reconcile dry run without typed inputs
+// changes no file. With the key absent the default stands and the serving
+// keys are not rendered.
+func TestVerifyCapabilityReadsBackTheServingChoice(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	birchByHand(t, st, c, true)
+
+	res := verifyRowan(t, c, birch)
+	if res.Inputs.Source != verify.Source(true, false) || res.Refused != "" || res.Inputs.ReadBack["modelServing.enabled"] != true {
+		t.Fatalf("inputs %q refused %q read back %v", res.Inputs.Source, res.Refused, res.Inputs.ReadBack)
+	}
+	if serving, _ := res.Inputs.Values["modelServing"].(map[string]any); serving["enabled"] != true {
+		t.Errorf("values %v", res.Inputs.Values)
+	}
+	if diffs := inputDifferences(res, "modelServing.enabled"); len(diffs) != 0 || res.Summary[verify.DiffersByInput] != 0 || res.Summary[verify.Drifted] != 0 {
+		t.Errorf("the serving choice on record differs: %v %+v", res.Summary, diffs)
+	}
+	out, text, isErr := dryRun(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: birch})
+	if isErr {
+		t.Fatal(text)
+	}
+	if p := findPlan(t, out, birch); p.Refused != "" || p.Diff[plan.ChangeCreate] != 0 || p.Diff[plan.ChangeUpdate] != 0 {
+		t.Errorf("the first reconcile flips the choice: refused %q diff %v", p.Refused, p.Diff)
+	}
+
+	birchByHand(t, st, c, false)
+	res = verifyRowan(t, c, birch)
+	if res.Inputs.Source != verify.SourceRecord || res.Refused != "" || len(res.Inputs.ReadBack) != 0 || res.Summary[verify.DiffersByInput] != 0 {
+		t.Fatalf("inputs %q refused %q read back %v summary %v", res.Inputs.Source, res.Refused, res.Inputs.ReadBack, res.Summary)
+	}
+	if serving, _ := res.Inputs.Values["modelServing"].(map[string]any); serving["enabled"] != false {
+		t.Errorf("values %v", res.Inputs.Values)
+	}
+	if patch := st.ghs.repos()[acmeConfigs][installations.Capabilities()[0].EnabledMarker(birch)]; strings.Contains(patch, "kserve") || strings.Contains(patch, "modelServing") {
+		t.Errorf("the serving keys are rendered from the default:\n%s", patch)
 	}
 }
 
@@ -397,12 +482,12 @@ func TestVerifyCapabilityReadsDocumentsByObject(t *testing.T) {
 	slices.Reverse(docs[1:])
 	st.ghs.addFiles(repo, map[string]string{path: strings.Join(docs, "---\n")})
 
-	res := verifyRowan(t, c, rowan)
+	res := verifyWith(t, c, rowan, federated)
 	if diffs := differencesOf(res, repo+":"+path); res.Summary[verify.Drifted] != 0 || len(diffs) != 0 {
 		t.Errorf("reordered documents: %v %+v", res.Summary, diffs)
 	}
 	st.ghs.addFiles(repo, map[string]string{path: strings.Join(docs[:len(docs)-1], "---\n")})
-	res = verifyRowan(t, c, rowan)
+	res = verifyWith(t, c, rowan, federated)
 	if diffs := differencesOf(res, repo+":"+path); len(diffs) != 7 || diffs[0].Current != "" || !strings.HasPrefix(diffs[0].Path, "[RemoteApp/"+platformNamespace+"/") {
 		t.Errorf("a document dropped: %v %+v", res.Summary, diffs)
 	}

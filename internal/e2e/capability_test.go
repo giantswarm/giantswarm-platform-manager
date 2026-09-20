@@ -18,6 +18,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 )
 
 // The installations and values the scenarios name, as the fixtures do.
@@ -180,7 +181,7 @@ func TestCapabilityToolsTakeTheCustomerPortal(t *testing.T) {
 		}
 	}
 	text, isErr := call(t, c, tools.ToolVerifyCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.CustomerPortal})
-	if isErr || !strings.Contains(text, `"capability": "`+installations.CustomerPortal+`"`) || !strings.Contains(text, tools.InputsNone) {
+	if isErr || !strings.Contains(text, `"capability": "`+installations.CustomerPortal+`"`) || !strings.Contains(text, `"source": "`+verify.SourceRecord+`"`) || !strings.Contains(text, `"refused": "`) {
 		t.Fatalf("verify customer-portal: isErr %v, %s", isErr, text)
 	}
 }
