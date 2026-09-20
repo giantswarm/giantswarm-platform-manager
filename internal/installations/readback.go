@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -29,27 +30,37 @@ const (
 	ReadBackPresent = "present"
 	// ReadBackHost is the host of the URL the key holds.
 	ReadBackHost = "host"
+	// ReadBackFile is whether the file itself is on record; it names no key.
+	ReadBackFile = "file"
 )
 
 // schemaNode is the part of a schema node the read-back reads: the
-// properties below it, its default, and its x-readback — {file, key, kind}
-// naming the fileset key of the file the value is read from (an entry of
-// the schema's x-files), the YAML path in it and the kind.
+// properties below it, its default, and its x-readback — {file, key, kind,
+// prefix} naming the fileset key of the file the value is read from (an
+// entry of the schema's x-files), the path in it, the kind, and the prefix
+// the value carries in the file, stripped from the value read back (a value
+// without it yields nothing). A step of the path into a list is its index,
+// a step into YAML text (a ConfigMap's values, a kustomization's patch)
+// decodes it.
 type schemaNode struct {
 	Properties map[string]schemaNode `json:"properties"`
 	Default    json.RawMessage       `json:"default"`
 	ReadBack   *struct {
-		File string `json:"file"`
-		Key  string `json:"key"`
-		Kind string `json:"kind"`
+		File   string `json:"file"`
+		Key    string `json:"key"`
+		Kind   string `json:"kind"`
+		Prefix string `json:"prefix"`
 	} `json:"x-readback"`
 }
 
 // fileSpec is one entry of the schema's x-files: the repository file the
-// definition renders a fileset key to, <name> standing for the installation.
+// definition renders a fileset key to, <name> standing for the installation,
+// and the path in the file the keys are read under — the document a
+// ConfigMap carries as text; the file itself when empty.
 type fileSpec struct {
 	Repository MarkerRepository `json:"repository"`
 	Path       string           `json:"path"`
+	Document   string           `json:"document"`
 }
 
 // inputSchema is the schema as the read-back reads it: the input tree and
@@ -109,10 +120,11 @@ func (c Capability) Defaults() (map[string]any, error) {
 
 // ReadBack reads every input the schema marks x-readback from the files on
 // record of inst, as the person read reads as, and answers what it found by
-// dotted input key: the leaf's value, whether the key is present, or the
-// host of the URL it holds. A file that is not on record, or a key not in
-// it, yields nothing — the default stands. A file the person cannot read, or
-// a read-back naming a file the schema's x-files does not, is the error.
+// dotted input key: the leaf's value, whether the key is present, the host
+// of the URL it holds, or whether the file is on record. A file that is not
+// on record, or a key not in it, yields nothing — the default stands. A file
+// the person cannot read, or a read-back naming a file the schema's x-files
+// does not, is the error.
 func (c Capability) ReadBack(ctx context.Context, read Reader, inst Installation) (map[string]any, error) {
 	s, err := c.inputSchema()
 	if err != nil {
@@ -153,13 +165,22 @@ func readBack(ctx context.Context, read Reader, inst Installation, s *inputSchem
 			if err != nil {
 				return err
 			}
+			kind := rb.Kind
+			if kind == "" {
+				kind = ReadBackValue
+			}
+			if kind == ReadBackFile {
+				out[input] = doc != nil
+				continue
+			}
 			if doc == nil {
 				continue
 			}
 			v, found := lookup(doc, strings.Split(rb.Key, "."))
-			kind := rb.Kind
-			if kind == "" {
-				kind = ReadBackValue
+			if raw, isText := v.(string); found && rb.Prefix != "" {
+				if found = isText && strings.HasPrefix(raw, rb.Prefix); found {
+					v = strings.TrimPrefix(raw, rb.Prefix)
+				}
 			}
 			switch kind {
 			case ReadBackValue:
@@ -173,7 +194,7 @@ func readBack(ctx context.Context, read Reader, inst Installation, s *inputSchem
 					out[input] = hostOf(raw)
 				}
 			default:
-				return fmt.Errorf("schema: %s: x-readback kind %q is not %s, %s or %s", input, kind, ReadBackValue, ReadBackPresent, ReadBackHost)
+				return fmt.Errorf("schema: %s: x-readback kind %q is not %s, %s, %s or %s", input, kind, ReadBackValue, ReadBackPresent, ReadBackHost, ReadBackFile)
 			}
 		}
 		return nil
@@ -182,7 +203,8 @@ func readBack(ctx context.Context, read Reader, inst Installation, s *inputSchem
 }
 
 // readBackDoc is the decoded file of fileset key file for inst, read once
-// per read-back; nil when the file is not on record.
+// per read-back, at the document spec names in it; nil when the file is not
+// on record, empty when the document is not in it.
 func readBackDoc(ctx context.Context, read Reader, inst Installation, file string, spec fileSpec, docs map[string]map[string]any) (map[string]any, error) {
 	if doc, ok := docs[file]; ok {
 		return doc, nil
@@ -204,6 +226,10 @@ func readBackDoc(ctx context.Context, read Reader, inst Installation, file strin
 	if err := yaml.Unmarshal([]byte(content), &doc); err != nil {
 		return nil, fmt.Errorf("reading back %s in %s: %w", path, repo, err)
 	}
+	if spec.Document != "" {
+		v, _ := lookup(doc, strings.Split(spec.Document, "."))
+		doc, _ = decoded(v).(map[string]any)
+	}
 	if doc == nil {
 		doc = map[string]any{}
 	}
@@ -211,19 +237,53 @@ func readBackDoc(ctx context.Context, read Reader, inst Installation, file strin
 	return doc, nil
 }
 
-// lookup walks a decoded YAML document along path.
+// lookup walks a decoded YAML document along path: a mapping by key, a
+// list by index, YAML text by what it decodes to.
 func lookup(doc map[string]any, path []string) (any, bool) {
 	var cur any = doc
 	for _, k := range path {
-		m, ok := cur.(map[string]any)
-		if !ok {
-			return nil, false
-		}
-		if cur, ok = m[k]; !ok {
+		var ok bool
+		if cur, ok = step(cur, k); !ok {
 			return nil, false
 		}
 	}
 	return cur, true
+}
+
+// step is one step of a lookup into cur.
+func step(cur any, k string) (any, bool) {
+	switch c := cur.(type) {
+	case map[string]any:
+		v, ok := c[k]
+		return v, ok
+	case []any:
+		i, err := strconv.Atoi(k)
+		if err != nil || i < 0 || i >= len(c) {
+			return nil, false
+		}
+		return c[i], true
+	case string:
+		return step(decoded(c), k)
+	}
+	return nil, false
+}
+
+// decoded is v, YAML text decoded to what it holds; text that holds no
+// mapping or list is nil.
+func decoded(v any) any {
+	text, isText := v.(string)
+	if !isText {
+		return v
+	}
+	var out any
+	if err := yaml.Unmarshal([]byte(text), &out); err != nil {
+		return nil
+	}
+	switch out.(type) {
+	case map[string]any, []any:
+		return out
+	}
+	return nil
 }
 
 // set puts v at path in doc, creating the mappings on the way.

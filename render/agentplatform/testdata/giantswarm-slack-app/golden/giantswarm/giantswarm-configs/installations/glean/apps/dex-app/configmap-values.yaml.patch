@@ -22,6 +22,7 @@ oidc:
       trustedPeers:
         - Yx7hub0portal0client0id0on0record0
         - backstage
+        - Yx7portal0client0id0in0trusted0peers0only
         - gopher-token-exchange
   extraStaticClients:
     - id: kagent

@@ -1,6 +1,8 @@
 package definitions_test
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
@@ -48,6 +50,60 @@ func TestEveryDefinitionParses(t *testing.T) {
 				}
 				seen[r.Key] = true
 			}
+		})
+	}
+}
+
+// TestEveryReadBackNamesADeclaredFile holds every schema's x-readback to
+// its shape: the file it names is one the schema's x-files declares, the
+// kind is one the reader knows, and a key is named unless the kind is the
+// file's presence.
+func TestEveryReadBackNamesADeclaredFile(t *testing.T) {
+	caps, err := definitions.Capabilities()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range caps {
+		t.Run(c, func(t *testing.T) {
+			raw, err := definitions.FS.ReadFile(c + "/schema.json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var schema map[string]any
+			if err := json.Unmarshal(raw, &schema); err != nil {
+				t.Fatal(err)
+			}
+			files, _ := schema["x-files"].(map[string]any)
+			var walk func(node map[string]any, path string)
+			walk = func(node map[string]any, path string) {
+				if rb, ok := node["x-readback"].(map[string]any); ok {
+					file, _ := rb["file"].(string)
+					if _, declared := files[file]; !declared {
+						t.Errorf("%s: x-readback names the file %q, which x-files does not declare", path, file)
+					}
+					kind, _ := rb["kind"].(string)
+					key, _ := rb["key"].(string)
+					switch kind {
+					case "", "value", "present", "host":
+						if key == "" {
+							t.Errorf("%s: x-readback names no key", path)
+						}
+					case "file":
+						if key != "" {
+							t.Errorf("%s: x-readback of the file's presence names a key", path)
+						}
+					default:
+						t.Errorf("%s: x-readback kind %q", path, kind)
+					}
+				}
+				props, _ := node["properties"].(map[string]any)
+				for name, child := range props {
+					if m, ok := child.(map[string]any); ok {
+						walk(m, strings.TrimPrefix(path+"."+name, "."))
+					}
+				}
+			}
+			walk(schema, "")
 		})
 	}
 }

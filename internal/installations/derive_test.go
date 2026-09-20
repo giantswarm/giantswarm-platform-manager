@@ -33,7 +33,7 @@ func TestDeriveFromPortals(t *testing.T) {
 	}
 	portals := []Portal{
 		{Host: fixtureHub, Customer: "fleet", Domain: "portal.fleet.test", ClientID: fixtureHubClientID, Broker: "", Installations: []string{fixtureHub, fixtureAggregator, fixtureSibling}, Tunnelled: []string{fixtureSibling}},
-		{Host: fixtureAggregator, Customer: fixtureCustomer, Domain: "portal.linden.umbra.test", ClientID: render.PortalDexClientID, Broker: fixtureAggregator, Installations: []string{fixtureAggregator, fixtureSibling}},
+		{Host: fixtureAggregator, Customer: fixtureCustomer, Domain: "portal.linden.umbra.test", ClientID: render.PortalDexClientID, Broker: fixtureAggregator, Installations: []string{fixtureAggregator, fixtureSibling}, PlatformProxied: []string{fixtureAggregator, fixtureSibling}},
 	}
 	_ = reg
 	targets := reports[1].derivePortals(portals)
@@ -57,6 +57,9 @@ func TestDeriveFromPortals(t *testing.T) {
 	}
 	if !tunnelled(portals, fixtureSibling) || tunnelled(portals, fixtureAggregator) || tunnelled(portals, fixtureHub) {
 		t.Fatalf("private: the portal reaches %s through the tunnel and nobody else", fixtureSibling)
+	}
+	if !proxied(portals, fixtureAggregator, fixtureSibling) || proxied(portals, fixtureHub, fixtureSibling) || proxied(portals, fixtureAggregator, fixtureHub) {
+		t.Fatalf("proxied: the portal %s brokers for lists %s under its agent-platform section; the hub's portal lists nobody", fixtureAggregator, fixtureSibling)
 	}
 }
 
@@ -89,26 +92,44 @@ func TestDexClientByRedirectURI(t *testing.T) {
 // trustedAudiences without the ones the definition renders itself, each once;
 // a patch without the key names none.
 func TestPortalAudiencesOf(t *testing.T) {
-	own := []string{"dex-k8s-authenticator", "kagent", "backstage", "muster-linden"}
-	patch := "muster:\n  muster:\n    oauth:\n      server:\n        trustedAudiences:\n          - dex-k8s-authenticator\n          - " + fixtureHubClientID + "\n          - backstage\n          - muster-linden\n          - local-dev-client\n          - " + fixtureHubClientID + "\n"
-	if ids, err := portalAudiencesOf(patch, own); err != nil || !slices.Equal(ids, []string{fixtureHubClientID, "local-dev-client"}) {
-		t.Fatalf("the portals' audiences: %v, %v", ids, err)
+	own := []string{"dex-k8s-authenticator", "kagent", "backstage", "muster-linden", fixtureHub + "-token-exchange"}
+	// The four lists on record, each with an id of its own beside the shared ones.
+	patch := "muster:\n  muster:\n    oauth:\n      server:\n        trustedAudiences:\n          - dex-k8s-authenticator\n          - " + fixtureHubClientID + "\n          - backstage\n          - muster-linden\n          - local-dev-client\n          - " + fixtureHubClientID + "\n" +
+		"kagent:\n  oauth2-proxy:\n    extraArgs:\n      oidc-extra-audience: dex-k8s-authenticator,kagent, " + fixtureHubClientID + ",extra-only-client # gitleaks:allow\n" +
+		"agent-platform-mcps:\n  agentgateway:\n    jwt:\n      extraProviders:\n        - issuer: https://dex.linden.umbra.test\n          audiences: [backstage, edge-only-client, local-dev-client]\n"
+	dexPatch := "oidc:\n  staticClients:\n    dexK8SAuthenticator:\n      trustedPeers:\n        - " + fixtureHubClientID + "\n        - peer-only-client\n        - " + fixtureHub + "-token-exchange\n        - backstage\n"
+	want := []string{fixtureHubClientID, "local-dev-client", "extra-only-client", "edge-only-client", "peer-only-client"}
+	if ids, err := portalAudiencesOf(patch, dexPatch, own); err != nil || !slices.Equal(ids, want) {
+		t.Fatalf("the union of the four lists: %v, %v", ids, err)
 	}
-	if ids, err := portalAudiencesOf("muster:\n  muster:\n    resources: {}\n", own); err != nil || len(ids) != 0 {
-		t.Fatalf("no trusted audiences names none: %v, %v", ids, err)
+	if ids, err := portalAudiencesOf("", dexPatch, own); err != nil || !slices.Equal(ids, []string{fixtureHubClientID, "peer-only-client"}) {
+		t.Fatalf("the trusted peers alone: %v, %v", ids, err)
 	}
-	if _, err := portalAudiencesOf("muster: [", own); err == nil {
-		t.Fatal("a patch that is no YAML is an error")
+	if ids, err := portalAudiencesOf("kagent:\n  oauth2-proxy:\n    extraArgs:\n      oidc-extra-audience: [dex-k8s-authenticator, list-client]\n", "", own); err != nil || !slices.Equal(ids, []string{"list-client"}) {
+		t.Fatalf("a hand-written list of extra audiences: %v, %v", ids, err)
+	}
+	if ids, err := portalAudiencesOf("muster:\n  muster:\n    resources: {}\n", "", own); err != nil || len(ids) != 0 {
+		t.Fatalf("no list on record names none: %v, %v", ids, err)
+	}
+	if _, err := portalAudiencesOf("muster: [", "", own); err == nil || !strings.Contains(err.Error(), "agent-platform/") {
+		t.Fatalf("a platform patch that is no YAML is an error naming it: %v", err)
+	}
+	if _, err := portalAudiencesOf("", "oidc: [", own); err == nil || !strings.Contains(err.Error(), "dex-app/") {
+		t.Fatalf("a dex patch that is no YAML is an error naming it: %v", err)
 	}
 }
 
 // A portal's cluster entry at the tunnel's Service on its host marks the
-// installation as reached through the tunnel; one at its API does not.
+// installation as reached through the tunnel; one at its API does not. The
+// installations its agent-platform section lists are the ones whose platform
+// it proxies, whatever the entry carries.
 func TestPortalConfigTunnelled(t *testing.T) {
 	appConfig := "app:\n  baseUrl: https://portal.aspen.fleet.test\ngs:\n  installations:\n    linden: {}\n    rowanberry: {}\n" +
 		"kubernetes:\n  clusterLocatorMethods:\n    - type: config\n      clusters:\n" +
 		"        - name: linden\n          url: https://happaapi.linden.umbra.test\n" +
-		"        - name: rowanberry\n          url: https://kubernetes-rowanberry.agent-platform.svc.cluster.local:8443\n"
+		"        - name: rowanberry\n          url: https://kubernetes-rowanberry.agent-platform.svc.cluster.local:8443\n" +
+		"agentPlatform:\n  kagent:\n    installations:\n      aspen: {}\n" +
+		"      rowanberry:\n        apiBaseUrl: https://agentgateway-rowanberry.agent-platform.svc.cluster.local:8443\n"
 	values := "backstage:\n  appConfig: |\n" + indent(appConfig, "    ")
 	cm := "apiVersion: v1\nkind: ConfigMap\ndata:\n  values: |\n" + indent(values, "    ")
 	cfg, err := parsePortalConfig(cm)
@@ -117,6 +138,9 @@ func TestPortalConfigTunnelled(t *testing.T) {
 	}
 	if !cfg.Tunnelled[fixtureSibling] || cfg.Tunnelled[fixtureAggregator] || len(cfg.Tunnelled) != 1 {
 		t.Fatalf("tunnelled: %v", cfg.Tunnelled)
+	}
+	if !cfg.PlatformProxied[fixtureSibling] || !cfg.PlatformProxied[fixtureHub] || cfg.PlatformProxied[fixtureAggregator] || len(cfg.PlatformProxied) != 2 {
+		t.Fatalf("platform proxied: %v", cfg.PlatformProxied)
 	}
 }
 
@@ -128,20 +152,4 @@ func indent(s, prefix string) string {
 		}
 	}
 	return b.String()
-}
-
-// A target's platform fact is the inspected report's enabled marker of the
-// agent-platform capability; a report whose marker was not read knows nothing,
-// so the marker is read for it.
-func TestReportEnabled(t *testing.T) {
-	r := Report{Capabilities: []CapabilityState{{Name: AgentPlatform, State: StateEnabled, Enabled: true}, {Name: CustomerPortal, State: StateUnknown}}}
-	if on, known := r.enabled(AgentPlatform); !on || !known {
-		t.Fatalf("agent-platform: enabled %v known %v", on, known)
-	}
-	if on, known := r.enabled(CustomerPortal); on || known {
-		t.Fatalf("customer-portal, unread: enabled %v known %v", on, known)
-	}
-	if on, known := (&Report{}).enabled(AgentPlatform); on || known {
-		t.Fatalf("no capabilities: enabled %v known %v", on, known)
-	}
 }
