@@ -2,10 +2,15 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/giantswarm/giantswarm-platform-manager/main/definitions/customer-portal/schema.json",
   "title": "customer-portal definition inputs",
-  "description": "The closed input set of the customer-portal capability: an installation's own developer portal, released from the fleet's backstage bases into extras/backstage of its management-clusters repository, signing people in on the installation's Dex. The renderer turns these inputs into the portal's fileset — the two kustomizations (without apiVersion and kind, as the fleet writes them, over the fleet's backstage bases in their single-slash URL form), the app-config and values ConfigMaps, the Secrets the chart reads its credentials from, the plugin signing keys, the tunnel's SPIFFE bundle reference — and, on an installation without the agent platform, the portal's Dex client in the installation's dex-app configmap patch. A key an installation carries that no input renders and that removals.yaml does not list refuses the render, naming the key. Annotations: x-source says where a value comes from (registry: read from the installations registry, never typed; person: typed by the person enabling or reconciling; generated: created by the engine once and read back from the checkout afterwards). x-feature names the consistency feature of features.yaml the input's dimensions roll up to. x-renders lists the key paths the input produces, prefixed by the file: backstage:kustomization (extras/backstage/kustomization.yaml and extras/backstage/backstage/kustomization.yaml), backstage:app-config (the app-config ConfigMap's backstage.appConfig), backstage:user-values (the user-values ConfigMap), backstage:file (a file of the portal's directory), dex-configmap (the dex-app configmap patch). List indices are written [*], per-installation map keys <name>. A default is declared only where every portal agrees.",
+  "description": "The closed input set of the customer-portal capability: an installation's own developer portal, released from the fleet's backstage bases into extras/backstage of its management-clusters repository, signing people in on the installation's Dex. The renderer turns these inputs into the portal's fileset — the two kustomizations (without apiVersion and kind, as the fleet writes them, over the fleet's backstage bases in their single-slash URL form), the app-config and values ConfigMaps, the Secrets the chart reads its credentials from, the plugin signing keys, the tunnel's SPIFFE bundle reference — and, on an installation without the agent platform, the portal's Dex client in the installation's dex-app configmap patch. A key an installation carries that no input renders and that removals.yaml does not list refuses the render, naming the key. Annotations: x-source says where a value comes from (registry: read from the installations registry, never typed; person: typed by the person enabling or reconciling; generated: created by the engine once and read back from the checkout afterwards). x-feature names the consistency feature of features.yaml the input's dimensions roll up to. x-files names the repository file a fileset key is read back from (<name> the installation; document the path in the file the keys are read under: the app-config is YAML text in its ConfigMap); x-readback on a person input names the file and key its value is read back from on record (kind value, present, host or file — whether the file is on record; prefix what the value carries in the file, stripped; a step of the key into a list is its index, into YAML text what it decodes to). x-renders lists the key paths the input produces, prefixed by the file: backstage:kustomization (extras/backstage/kustomization.yaml and extras/backstage/backstage/kustomization.yaml), backstage:app-config (the app-config ConfigMap's backstage.appConfig), backstage:user-values (the user-values ConfigMap), backstage:file (a file of the portal's directory), dex-configmap (the dex-app configmap patch). List indices are written [*], per-installation map keys <name>. A default is declared only where every portal agrees.",
   "type": "object",
   "additionalProperties": false,
   "required": ["installation", "portal", "chart", "plugins", "tunnel"],
+  "x-files": {
+    "backstage:kustomization": {"repository": "management-clusters", "path": "management-clusters/<name>/extras/backstage/backstage/kustomization.yaml"},
+    "backstage:app-config": {"repository": "management-clusters", "path": "management-clusters/<name>/extras/backstage/backstage/app-config.yaml", "document": "data.values.backstage.appConfig"},
+    "backstage:file:tunnelport-spiffe-bundle.yaml": {"repository": "management-clusters", "path": "management-clusters/<name>/extras/backstage/backstage/tunnelport-spiffe-bundle.yaml"}
+  },
   "properties": {
     "installation": {
       "type": "object",
@@ -53,29 +58,28 @@
           "type": "string", "format": "hostname",
           "description": "The portal's hostname: its route, its base URLs, CORS origin and the Dex client's redirect URI.",
           "x-source": "person", "x-feature": "portal",
-          "x-renders": ["backstage:app-config:app.baseUrl", "backstage:app-config:backend.baseUrl", "backstage:app-config:backend.cors.origin", "backstage:user-values:route.hostnames[*]", "dex-configmap:oidc.extraStaticClients[*].redirectURIs[*]"]
+          "x-readback": {"file": "backstage:app-config", "key": "app.baseUrl", "kind": "host"}, "x-renders": ["backstage:app-config:app.baseUrl", "backstage:app-config:backend.baseUrl", "backstage:app-config:backend.cors.origin", "backstage:user-values:route.hostnames[*]", "dex-configmap:oidc.extraStaticClients[*].redirectURIs[*]"]
         },
-        "title": {"type": "string", "default": "Dev Portal", "description": "The portal's title.", "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:app-config:app.title"]},
-        "organization": {"type": "string", "description": "The organisation's name as the portal shows it.", "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:app-config:organization.name"]},
-        "supportUrl": {"type": "string", "format": "uri", "description": "Where the home page's support link goes: the customer's support channel. Without it, no home page resources block.", "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:app-config:gs.homepage.resources[*]"]},
-        "telemetrydeckAppId": {"type": "string", "description": "The TelemetryDeck app the portal reports usage to; the salt is generated. Without it, no telemetry block.", "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:app-config:app.telemetrydeck"]},
+        "title": {"type": "string", "default": "Dev Portal", "description": "The portal's title.", "x-source": "person", "x-feature": "portal", "x-readback": {"file": "backstage:app-config", "key": "app.title"}, "x-renders": ["backstage:app-config:app.title"]},
+        "organization": {"type": "string", "description": "The organisation's name as the portal shows it.", "x-source": "person", "x-feature": "portal", "x-readback": {"file": "backstage:app-config", "key": "organization.name"}, "x-renders": ["backstage:app-config:organization.name"]},
+        "supportUrl": {"type": "string", "format": "uri", "description": "Where the home page's support link goes: the customer's support channel. Without it, no home page resources block. Not read back: the resources list has no key, the support entry is one position among the included ones.", "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:app-config:gs.homepage.resources[*]"]},
+        "telemetrydeckAppId": {"type": "string", "description": "The TelemetryDeck app the portal reports usage to; the salt is generated. Without it, no telemetry block.", "x-source": "person", "x-feature": "portal", "x-readback": {"file": "backstage:app-config", "key": "app.telemetrydeck.appID"}, "x-renders": ["backstage:app-config:app.telemetrydeck"]},
         "friendlyLabels": {
           "type": "array", "minItems": 1, "items": {"$ref": "#/$defs/friendlyName"},
           "description": "Labels the portal's cluster pages show under a friendly name: a selector (a label key, or a glob over keys) with the name shown, a colour variant and a map of shown values. Without it, no friendly labels.",
-          "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:app-config:gs.friendlyLabels[*]"]
+          "x-source": "person", "x-feature": "portal", "x-readback": {"file": "backstage:app-config", "key": "gs.friendlyLabels"}, "x-renders": ["backstage:app-config:gs.friendlyLabels[*]"]
         },
         "friendlyAnnotations": {
           "type": "array", "minItems": 1, "items": {"$ref": "#/$defs/friendlyName"},
           "description": "Annotations the portal's cluster pages show under a friendly name, in the same form as friendlyLabels. Without it, no friendly annotations.",
-          "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:app-config:gs.friendlyAnnotations[*]"]
+          "x-source": "person", "x-feature": "portal", "x-readback": {"file": "backstage:app-config", "key": "gs.friendlyAnnotations"}, "x-renders": ["backstage:app-config:gs.friendlyAnnotations[*]"]
         }
       }
     },
     "federation": {
       "type": "object",
-      "description": "A portal over several installations of one customer. Every installation listed is shown next to the portal's own — a Kubernetes cluster entry and an installation entry — and has a provider oidc-<name> on its Dex whose client credentials are supplied at commit (federation.<name>.clientId and clientSecret, into user-secrets-backstage under dexAuthCredentials.<name>). signInInstallation names the installation whose Dex signs people in to the portal, the portal's own when absent. tokenBroker names the installation whose muster brokers cluster tokens for the others: then the portal has the sign-in installation's provider alone, the broker's client credentials are supplied at commit (federation.tokenBroker.clientId and clientSecret, dexAuthCredentials.musterBroker) and every installation other than the broker's carries clusterTokenAudience. Without a federation, the portal shows its own installation alone.",
+      "description": "A portal over several installations of one customer. Every installation listed is shown next to the portal's own — a Kubernetes cluster entry and an installation entry — and has a provider oidc-<name> on its Dex whose client credentials are supplied at commit (federation.<name>.clientId and clientSecret, into user-secrets-backstage under dexAuthCredentials.<name>). signInInstallation names the installation whose Dex signs people in to the portal, the portal's own when absent. tokenBroker names the installation whose muster brokers cluster tokens for the others: then the portal has the sign-in installation's provider alone, the broker's client credentials are supplied at commit (federation.tokenBroker.clientId and clientSecret, dexAuthCredentials.musterBroker) and every installation other than the broker's carries clusterTokenAudience. Without a federation, the portal shows its own installation alone; a federation naming the sign-in installation alone, as the record reads back, is the portal's own installation signing in.",
       "additionalProperties": false,
-      "required": ["installations"],
       "properties": {
         "installations": {
           "type": "array", "minItems": 1,
@@ -92,8 +96,8 @@
           },
           "x-source": "registry", "x-feature": "portal", "x-renders": ["backstage:app-config:kubernetes.clusterLocatorMethods[*].clusters[*]", "backstage:app-config:auth.providers.<name>", "backstage:app-config:gs.installations.<name>"]
         },
-        "signInInstallation": {"type": "string", "description": "The installation whose Dex signs people in to the portal: its own or one it federates.", "x-source": "person", "x-feature": "identity", "x-renders": ["backstage:app-config:gs.authProvider"]},
-        "tokenBroker": {"type": "string", "description": "The installation whose muster brokers cluster tokens for the others: its own or one it federates.", "x-source": "person", "x-feature": "identity", "x-renders": ["backstage:app-config:gs.clusterTokenBroker", "backstage:app-config:gs.installations.<name>.clusterTokenAudience", "backstage:file:user-secrets.enc.yaml:dexAuthCredentials.musterBroker"]}
+        "signInInstallation": {"type": "string", "description": "The installation whose Dex signs people in to the portal: its own or one it federates. Read back from gs.authProvider, its oidc- prefix stripped.", "x-source": "person", "x-feature": "identity", "x-readback": {"file": "backstage:app-config", "key": "gs.authProvider", "prefix": "oidc-"}, "x-renders": ["backstage:app-config:gs.authProvider"]},
+        "tokenBroker": {"type": "string", "description": "The installation whose muster brokers cluster tokens for the others: its own or one it federates. Not read back: the app-config carries the broker's muster token URL, not its name.", "x-source": "person", "x-feature": "identity", "x-renders": ["backstage:app-config:gs.clusterTokenBroker", "backstage:app-config:gs.installations.<name>.clusterTokenAudience", "backstage:file:user-secrets.enc.yaml:dexAuthCredentials.musterBroker"]}
       }
     },
     "chart": {
@@ -106,7 +110,7 @@
           "type": "string", "pattern": "^>=\\d+\\.\\d+\\.\\d+ <\\d+\\.\\d+\\.\\d+$",
           "description": "The semver range the portal's OCIRepository follows, patched over the fleet base's tag.",
           "x-source": "person", "x-feature": "portal",
-          "x-renders": ["backstage:kustomization:patches[*] OCIRepository /spec/ref/semver"]
+          "x-readback": {"file": "backstage:kustomization", "key": "patches.0.patch.1.value"}, "x-renders": ["backstage:kustomization:patches[*] OCIRepository /spec/ref/semver"]
         }
       }
     },
@@ -122,8 +126,8 @@
           "additionalProperties": false,
           "required": ["enabled"],
           "properties": {
-            "enabled": {"type": "boolean", "description": "Render the integration, its Secret and the Secret's values source.", "x-source": "person", "x-feature": "secrets", "x-renders": ["backstage:app-config:integrations.github[*]", "backstage:file:github-app-credentials.enc.yaml", "backstage:kustomization:resources[*]", "backstage:kustomization:patches[*] HelmRelease spec.valuesFrom[*]"]},
-            "appId": {"type": "integer", "minimum": 1, "description": "The GitHub App's id — an identifier, not a credential.", "x-source": "person", "x-feature": "secrets", "x-renders": ["backstage:file:github-app-credentials.enc.yaml:githubAppCredentials.appId"]}
+            "enabled": {"type": "boolean", "description": "Render the integration, its Secret and the Secret's values source.", "x-source": "person", "x-feature": "secrets", "x-readback": {"file": "backstage:app-config", "key": "integrations.github", "kind": "present"}, "x-renders": ["backstage:app-config:integrations.github[*]", "backstage:file:github-app-credentials.enc.yaml", "backstage:kustomization:resources[*]", "backstage:kustomization:patches[*] HelmRelease spec.valuesFrom[*]"]},
+            "appId": {"type": "integer", "minimum": 1, "description": "The GitHub App's id — an identifier, not a credential. Not read back: it sits in the Secret's encrypted values.", "x-source": "person", "x-feature": "secrets", "x-renders": ["backstage:file:github-app-credentials.enc.yaml:githubAppCredentials.appId"]}
           }
         },
         "grafana": {
@@ -132,8 +136,8 @@
           "additionalProperties": false,
           "required": ["enabled"],
           "properties": {
-            "enabled": {"type": "boolean", "description": "Render the plugin's section.", "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:app-config:grafana"]},
-            "domain": {"type": "string", "format": "uri", "description": "The Grafana instance the plugin links to.", "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:app-config:grafana.domain"]}
+            "enabled": {"type": "boolean", "description": "Render the plugin's section.", "x-source": "person", "x-feature": "portal", "x-readback": {"file": "backstage:app-config", "key": "grafana", "kind": "present"}, "x-renders": ["backstage:app-config:grafana"]},
+            "domain": {"type": "string", "format": "uri", "description": "The Grafana instance the plugin links to.", "x-source": "person", "x-feature": "portal", "x-readback": {"file": "backstage:app-config", "key": "grafana.domain"}, "x-renders": ["backstage:app-config:grafana.domain"]}
           }
         },
         "flux": {
@@ -142,7 +146,7 @@
           "additionalProperties": false,
           "required": ["enabled"],
           "properties": {
-            "enabled": {"type": "boolean", "description": "Render the plugin's section.", "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:app-config:flux"]},
+            "enabled": {"type": "boolean", "description": "Render the plugin's section.", "x-source": "person", "x-feature": "portal", "x-readback": {"file": "backstage:app-config", "key": "flux", "kind": "present"}, "x-renders": ["backstage:app-config:flux"]},
             "gitRepositoryPatterns": {
               "type": "array", "minItems": 1,
               "description": "How a GitRepository's URL maps to a browsable file URL, for hosts the plugin does not know.",
@@ -153,7 +157,7 @@
                   "gitRepositoryUrlPattern": {"type": "string", "description": "The regular expression with named groups the repository URL matches.", "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:app-config:flux.gitRepositoryPatterns[*].gitRepositoryUrlPattern"]}
                 }
               },
-              "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:app-config:flux.gitRepositoryPatterns"]
+              "x-source": "person", "x-feature": "portal", "x-readback": {"file": "backstage:app-config", "key": "flux.gitRepositoryPatterns"}, "x-renders": ["backstage:app-config:flux.gitRepositoryPatterns"]
             }
           }
         },
@@ -163,7 +167,7 @@
           "additionalProperties": false,
           "required": ["enabled"],
           "properties": {
-            "enabled": {"type": "boolean", "description": "Render the error reporters, the CSP report URI and the Secret's sentry values.", "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:app-config:app.errorReporter", "backstage:app-config:backend.errorReporter", "backstage:app-config:backend.csp.report-uri", "backstage:file:user-secrets.enc.yaml:sentry"]}
+            "enabled": {"type": "boolean", "description": "Render the error reporters, the CSP report URI and the Secret's sentry values.", "x-source": "person", "x-feature": "portal", "x-readback": {"file": "backstage:app-config", "key": "app.errorReporter", "kind": "present"}, "x-renders": ["backstage:app-config:app.errorReporter", "backstage:app-config:backend.errorReporter", "backstage:app-config:backend.csp.report-uri", "backstage:file:user-secrets.enc.yaml:sentry"]}
           }
         }
       }
@@ -174,7 +178,7 @@
       "additionalProperties": false,
       "required": ["enabled"],
       "properties": {
-        "enabled": {"type": "boolean", "description": "Render the tunnel's SPIFFE trust bundle reference: the ExternalSecret that copies the bundle from the platform namespace into the portal's, with its store and reader, and the volume and mount that put it under /app/tunnelport-spiffe-bundle in the portal's container.", "x-source": "person", "x-feature": "portal", "x-renders": ["backstage:file:tunnelport-spiffe-bundle.yaml", "backstage:kustomization:resources[*]", "backstage:user-values:backstage.extraVolumes[*]", "backstage:user-values:backstage.extraVolumeMounts[*]"]}
+        "enabled": {"type": "boolean", "description": "Render the tunnel's SPIFFE trust bundle reference: the ExternalSecret that copies the bundle from the platform namespace into the portal's, with its store and reader, and the volume and mount that put it under /app/tunnelport-spiffe-bundle in the portal's container.", "x-source": "person", "x-feature": "portal", "x-readback": {"file": "backstage:file:tunnelport-spiffe-bundle.yaml", "kind": "file"}, "x-renders": ["backstage:file:tunnelport-spiffe-bundle.yaml", "backstage:kustomization:resources[*]", "backstage:user-values:backstage.extraVolumes[*]", "backstage:user-values:backstage.extraVolumeMounts[*]"]}
       }
     },
     "pluginKeys": {

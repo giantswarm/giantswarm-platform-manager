@@ -5,7 +5,7 @@ drops, the consistency features and the anonymous probes. Data only; the render 
 
 | File | What it is |
 |---|---|
-| `schema.json` | JSON Schema (draft 2020-12, `additionalProperties: false`) of the inputs. Every leaf input carries `x-source` (registry, person or generated), `x-feature` and `x-renders`: the key paths of the fileset it produces. A default is declared only where every portal agrees. |
+| `schema.json` | JSON Schema (draft 2020-12, `additionalProperties: false`) of the inputs. Every leaf input carries `x-source` (registry, person or generated), `x-feature` and `x-renders`: the key paths of the fileset it produces. `x-files` names the repository file each fileset key is read back from; a person input carries `x-readback` (file, key, kind, prefix) where the record can answer it, and says why where it cannot. A default is declared only where every portal agrees. |
 | `removals.yaml` | Keys a portal installation carries today that no input renders, each with the reason it is dropped: the agent-platform definition renders it as its Component, or it is a section of the hub's Dev Portal that no shape renders yet. |
 | `features.yaml` | The consistency features and the dimensions each one rolls up, one mark per feature, every dimension exactly once. The `kind: live` dimensions are the definition's probes of the running portal: the render carries one or more probes per live dimension as data (`Result.Probes`), and the verify slice executes them. |
 | `probes.yaml` | The anonymous HTTP probes: the home page, the start of the sign-in, Dex's answer to the portal's client. Templates over the installation's base domain and codename and the portal's domain. |

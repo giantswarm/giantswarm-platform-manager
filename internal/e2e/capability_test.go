@@ -147,7 +147,9 @@ func TestEnableCapabilityDryRunRendersOneInstallation(t *testing.T) {
 // schema over the facts the schema names (the registry's region and pipeline,
 // the agent-platform capability's enabled state; not the chart line), its
 // files the portal's tree, its Dex client the portal's, its plugin signing
-// keys one ES256 pair; the verify answers for it.
+// keys one ES256 pair; the verify answers for it: without the portal on
+// record the tunnel alone reads back (off, its file absent) and the
+// definition refuses the missing inputs.
 func TestCapabilityToolsTakeTheCustomerPortal(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
@@ -193,7 +195,7 @@ func TestCapabilityToolsTakeTheCustomerPortal(t *testing.T) {
 		}
 	}
 	text, isErr := call(t, c, tools.ToolVerifyCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.CustomerPortal})
-	if isErr || !strings.Contains(text, `"capability": "`+installations.CustomerPortal+`"`) || !strings.Contains(text, `"source": "`+verify.SourceRecord+`"`) || !strings.Contains(text, `"refused": "`) {
+	if isErr || !strings.Contains(text, `"capability": "`+installations.CustomerPortal+`"`) || !strings.Contains(text, `"source": "`+verify.Source(true, false)+`"`) || !strings.Contains(text, `"refused": "`) {
 		t.Fatalf("verify customer-portal: isErr %v, %s", isErr, text)
 	}
 }
