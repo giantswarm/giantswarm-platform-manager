@@ -36,7 +36,8 @@ components:
 # over the public route where the installation is public, in socket mode where it is private, since
 # Slack cannot reach a private ingress; the mode follows the record, not this file — the
 # on-behalf-of connectors, agent-to-agent, and team reviews the platform's own workloads may call:
-# the platform manager posting its approvals, the repository manager, the marge sweep.
+# the repository manager, the marge sweep, the platform manager posting its approvals — in the
+# hub's order, since the list is compared by index.
 klausGateway:
   installations:
     gazelle: {defaultAgent: swarmgeist}
@@ -53,9 +54,9 @@ klausGateway:
     enabled: true
     audience: klaus-gateway
     allowedCallers:
-      - system:serviceaccount:agent-platform:giantswarm-platform-manager
       - system:serviceaccount:agent-platform:giantswarm-repo-manager
       - system:serviceaccount:marge:marge-bumblebee-sweep
+      - system:serviceaccount:agent-platform:giantswarm-platform-manager
 
 # The hub side of federation: the connector every target's Dex registers for its hub, as a Go
 # template over the hub's record ({{ .Customer }}), and the Teleport cluster a tunnel joins.

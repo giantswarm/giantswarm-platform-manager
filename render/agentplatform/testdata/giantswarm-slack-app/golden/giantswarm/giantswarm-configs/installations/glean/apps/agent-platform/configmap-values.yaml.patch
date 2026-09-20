@@ -105,9 +105,9 @@ klausGateway:
     enabled: true
     audience: klaus-gateway
     allowedCallers:
-      - system:serviceaccount:agent-platform:giantswarm-platform-manager
       - system:serviceaccount:agent-platform:giantswarm-repo-manager
       - system:serviceaccount:marge:marge-bumblebee-sweep
+      - system:serviceaccount:agent-platform:giantswarm-platform-manager
 cluster-manager:
   installation:
     name: glean
