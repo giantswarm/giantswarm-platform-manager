@@ -97,6 +97,9 @@ type Registry struct {
 	Catalog       Location
 	Portal        Location
 	Installations []Installation
+	// shared holds the owners' shared default configs for the call the
+	// registry was loaded for: read once, however many installations ask.
+	shared sharedDefaults
 }
 
 // Load reads both sources as the person and merges them by installation

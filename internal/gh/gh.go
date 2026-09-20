@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/go-github/v92/github"
@@ -25,6 +26,18 @@ var ErrForbidden = errors.New("forbidden")
 
 // AsPerson returns a client that calls GitHub with the person's user token.
 func AsPerson(apiURL, accessToken string) (*github.Client, error) {
+	c, _, err := AsPersonCounted(apiURL, accessToken)
+	return c, err
+}
+
+// Reads is what a client has cost so far: the number of requests it made.
+type Reads interface {
+	Requests() int64
+}
+
+// AsPersonCounted is AsPerson with the client's request count alongside, for
+// a tool that reports what a call cost.
+func AsPersonCounted(apiURL, accessToken string) (*github.Client, Reads, error) {
 	return newClient(apiURL, github.WithAuthToken(accessToken))
 }
 
@@ -86,16 +99,51 @@ func SplitRepo(full string) (owner, repo string, err error) {
 
 // newClient builds a go-github client with a 15 s timeout, against apiURL
 // when set (GitHub Enterprise shape; the fake in tests).
-func newClient(apiURL string, opts ...github.ClientOptionsFunc) (*github.Client, error) {
-	opts = append(opts, github.WithTimeout(15*time.Second))
+// maxInFlight bounds the requests one client has in flight at a time. A tool
+// call reads a fleet's worth of files, and everything above the client runs
+// concurrently; this is the one bound, well under GitHub's secondary limit
+// of 100 concurrent requests.
+const maxInFlight = 32
+
+// limiter is the client's transport: at most maxInFlight requests at a time,
+// and a count of every request the client made (Requests).
+type limiter struct {
+	base     http.RoundTripper
+	slots    chan struct{}
+	requests atomic.Int64
+}
+
+func newLimiter(base http.RoundTripper, n int) *limiter {
+	return &limiter{base: base, slots: make(chan struct{}, n)}
+}
+
+func (l *limiter) RoundTrip(req *http.Request) (*http.Response, error) {
+	select {
+	case l.slots <- struct{}{}:
+	case <-req.Context().Done():
+		return nil, req.Context().Err()
+	}
+	defer func() { <-l.slots }()
+	l.requests.Add(1)
+	return l.base.RoundTrip(req)
+}
+
+// Requests is the number of requests the client made.
+func (l *limiter) Requests() int64 { return l.requests.Load() }
+
+func newClient(apiURL string, opts ...github.ClientOptionsFunc) (*github.Client, *limiter, error) {
+	l := newLimiter(http.DefaultTransport, maxInFlight)
+	opts = append(opts,
+		github.WithHTTPClient(&http.Client{Transport: l}),
+		github.WithTimeout(15*time.Second))
 	if apiURL != "" {
 		opts = append(opts, github.WithEnterpriseURLs(apiURL, apiURL))
 	}
 	c, err := github.NewClient(opts...)
 	if err != nil {
-		return nil, fmt.Errorf("github: client for %q: %w", apiURL, err)
+		return nil, nil, fmt.Errorf("github: client for %q: %w", apiURL, err)
 	}
-	return c, nil
+	return c, l, nil
 }
 
 // DefaultBranch is the branch owner/repo's pull requests land on, read as the

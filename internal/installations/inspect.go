@@ -105,62 +105,113 @@ type Report struct {
 	Federation      *Federation `json:"federation,omitempty"`
 }
 
-// Inspect reads inst's opt-in, record and enabled markers as the person, now.
-func Inspect(ctx context.Context, c *github.Client, inst Installation, caps []Capability) Report {
-	r := Report{Installation: inst}
-	if !inst.Repositories.Known() {
-		r.Errors = append(r.Errors, "the catalog names no GitOps repositories (links of type CCR and CMC) for this installation; nothing of it can be read")
-		r.Capabilities = unknownCapabilities(caps, inst.Name)
-		return r
-	}
-	optIn := ReadOptIn(ctx, c, inst)
-	r.OptIn = &optIn
-	if optIn.State == OptInUnreadable {
-		r.Errors = append(r.Errors, optIn.Error)
-	}
+// Detail is how much of an installation list_installations reads.
+type Detail int
 
+const (
+	// Full reads everything a plan needs: the opt-in, the record with the
+	// cluster App, the markers, the portals and the federation facts.
+	Full Detail = iota
+	// Summary reads the opt-in and the markers alone: the state per
+	// capability for an overview, without the record, the portals or the
+	// federation facts.
+	Summary
+)
+
+// inspect reads inst's opt-in, record and enabled markers as the person,
+// now, every read at once; the client bounds what is in flight.
+func (r *Registry) inspect(ctx context.Context, c *github.Client, inst Installation, caps []Capability, detail Detail) Report {
+	rep := Report{Installation: inst}
+	if !inst.Repositories.Known() {
+		rep.Errors = append(rep.Errors, "the catalog names no GitOps repositories (links of type CCR and CMC) for this installation; nothing of it can be read")
+		rep.Capabilities = unknownCapabilities(caps, inst.Name)
+		return rep
+	}
 	owner, repo, err := gh.SplitRepo(inst.Repositories.Configs)
 	if err != nil {
-		r.Errors = append(r.Errors, err.Error())
-		r.Capabilities = unknownCapabilities(caps, inst.Name)
-		return r
-	}
-	record, err := readRecord(ctx, c, owner, repo, inst)
-	if err != nil {
-		r.Errors = append(r.Errors, err.Error())
-	} else {
-		r.Record = record
-		if record.PodCertificateRequest, err = readPodCertificateRequest(ctx, c, inst); err != nil {
-			r.Errors = append(r.Errors, err.Error())
+		optIn := ReadOptIn(ctx, c, inst)
+		rep.OptIn = &optIn
+		if optIn.State == OptInUnreadable {
+			rep.Errors = append(rep.Errors, optIn.Error)
 		}
+		rep.Errors = append(rep.Errors, err.Error())
+		rep.Capabilities = unknownCapabilities(caps, inst.Name)
+		return rep
 	}
 
-	r.Readable = optIn.State != OptInUnreadable && err == nil
-	for _, cap := range caps {
-		cs := CapabilityState{Name: cap.Name, EnabledMarker: cap.EnabledMarker(inst.Name), MarkerRepository: cap.MarkerRepository, State: StateUnknown}
-		if r.Record != nil {
-			cs.Inputs = map[string]any{InputsInstallation: r.Record}
-		}
-		if r.Readable {
-			markerOwner, markerRepo, err := gh.SplitRepo(cap.Repository(inst.Repositories))
-			if err != nil {
-				r.Errors = append(r.Errors, err.Error())
-				r.Readable = false
-				r.Capabilities = append(r.Capabilities, cs)
-				continue
-			}
-			enabled, err := exists(ctx, c, markerOwner, markerRepo, cs.EnabledMarker)
-			if err != nil {
-				r.Errors = append(r.Errors, err.Error())
-				r.Readable = false
-			} else {
-				cs.Enabled = enabled
-				cs.State = stateOf(optIn.State, enabled)
-			}
-		}
-		r.Capabilities = append(r.Capabilities, cs)
+	var (
+		wg      sync.WaitGroup
+		optIn   OptIn
+		record  *Record
+		recErr  error
+		pcr     bool
+		pcrErr  error
+		markers = make([]markerRead, len(caps))
+	)
+	wg.Go(func() { optIn = ReadOptIn(ctx, c, inst) })
+	if detail == Full {
+		wg.Go(func() { record, recErr = r.readRecord(ctx, c, owner, repo, inst) })
+		wg.Go(func() { pcr, pcrErr = readPodCertificateRequest(ctx, c, inst) })
 	}
-	return r
+	for i, cap := range caps {
+		wg.Go(func() { markers[i] = readMarker(ctx, c, inst, cap) })
+	}
+	wg.Wait()
+
+	rep.OptIn = &optIn
+	if optIn.State == OptInUnreadable {
+		rep.Errors = append(rep.Errors, optIn.Error)
+	}
+	rep.Readable = optIn.State != OptInUnreadable
+	if detail == Full {
+		switch {
+		case recErr != nil:
+			rep.Errors = append(rep.Errors, recErr.Error())
+			rep.Readable = false
+		case pcrErr != nil:
+			rep.Record = record
+			rep.Errors = append(rep.Errors, pcrErr.Error())
+			rep.Readable = false
+		default:
+			record.PodCertificateRequest = pcr
+			rep.Record = record
+		}
+	}
+	for i, cap := range caps {
+		cs := CapabilityState{Name: cap.Name, EnabledMarker: cap.EnabledMarker(inst.Name), MarkerRepository: cap.MarkerRepository, State: StateUnknown}
+		if rep.Record != nil {
+			cs.Inputs = map[string]any{InputsInstallation: rep.Record}
+		}
+		// A marker only counts where the opt-in and the record could be read:
+		// an installation unreadable as the person has no state.
+		if rep.Readable {
+			if m := markers[i]; m.err != nil {
+				rep.Errors = append(rep.Errors, m.err.Error())
+				rep.Readable = false
+			} else {
+				cs.Enabled = m.enabled
+				cs.State = stateOf(optIn.State, m.enabled)
+			}
+		}
+		rep.Capabilities = append(rep.Capabilities, cs)
+	}
+	return rep
+}
+
+// markerRead is whether a capability's marker is in the installation's
+// repository, or why that could not be read.
+type markerRead struct {
+	enabled bool
+	err     error
+}
+
+func readMarker(ctx context.Context, c *github.Client, inst Installation, cap Capability) markerRead {
+	owner, repo, err := gh.SplitRepo(cap.Repository(inst.Repositories))
+	if err != nil {
+		return markerRead{err: err}
+	}
+	enabled, err := exists(ctx, c, owner, repo, cap.EnabledMarker(inst.Name))
+	return markerRead{enabled: enabled, err: err}
 }
 
 // stateOf is the state readable from the repositories alone.
@@ -189,7 +240,7 @@ const sharedConfigsRepository, sharedDefaultConfig = "shared-configs", "default/
 
 // readRecord reads the installation's config.yaml.patch into the record, the
 // platform's client id from the shared default where the patch has none.
-func readRecord(ctx context.Context, c *github.Client, owner, repo string, inst Installation) (*Record, error) {
+func (r *Registry) readRecord(ctx context.Context, c *github.Client, owner, repo string, inst Installation) (*Record, error) {
 	data, err := gh.ReadFile(ctx, c, owner, repo, ConfigPatchPath(inst.Name))
 	if err != nil {
 		return nil, fmt.Errorf("the facts on record: %w", err)
@@ -203,15 +254,9 @@ func readRecord(ctx context.Context, c *github.Client, owner, repo string, inst 
 	if rec.MusterClientID == "" {
 		// konfigure overlays the patch on the shared default: an installation
 		// without its own client id runs on the fleet's.
-		shared, err := gh.ReadFile(ctx, c, owner, sharedConfigsRepository, sharedDefaultConfig)
-		if err != nil {
-			return nil, fmt.Errorf("the facts on record: %s in %s/%s: %w", sharedDefaultConfig, owner, sharedConfigsRepository, err)
+		if rec.MusterClientID, err = r.shared.clientID(ctx, c, owner); err != nil {
+			return nil, err
 		}
-		var d configPatch
-		if err := yaml.Unmarshal([]byte(shared), &d); err != nil {
-			return nil, fmt.Errorf("the facts on record: %s in %s/%s: %w", sharedDefaultConfig, owner, sharedConfigsRepository, err)
-		}
-		rec.MusterClientID = d.Services.Muster.ClientID
 	}
 	if p.AgentPlatform.KagentAPIV2 {
 		rec.ChartLine = "4"
@@ -228,6 +273,47 @@ func readRecord(ctx context.Context, c *github.Client, owner, repo string, inst 
 	return rec, nil
 }
 
+// sharedDefaults reads an owner's shared default config once per call: every
+// installation of the owner without its own client id asks for the same file.
+type sharedDefaults struct {
+	mu      sync.Mutex
+	byOwner map[string]*sharedDefault
+}
+
+type sharedDefault struct {
+	once     sync.Once
+	clientID string
+	err      error
+}
+
+// clientID is services.muster.clientId of owner's shared default config.
+func (s *sharedDefaults) clientID(ctx context.Context, c *github.Client, owner string) (string, error) {
+	s.mu.Lock()
+	if s.byOwner == nil {
+		s.byOwner = map[string]*sharedDefault{}
+	}
+	d := s.byOwner[owner]
+	if d == nil {
+		d = &sharedDefault{}
+		s.byOwner[owner] = d
+	}
+	s.mu.Unlock()
+	d.once.Do(func() {
+		shared, err := gh.ReadFile(ctx, c, owner, sharedConfigsRepository, sharedDefaultConfig)
+		if err != nil {
+			d.err = fmt.Errorf("the facts on record: %s in %s/%s: %w", sharedDefaultConfig, owner, sharedConfigsRepository, err)
+			return
+		}
+		var p configPatch
+		if err := yaml.Unmarshal([]byte(shared), &p); err != nil {
+			d.err = fmt.Errorf("the facts on record: %s in %s/%s: %w", sharedDefaultConfig, owner, sharedConfigsRepository, err)
+			return
+		}
+		d.clientID = p.Services.Muster.ClientID
+	})
+	return d.clientID, d.err
+}
+
 // exists says whether path is a file in owner/repo as the person.
 func exists(ctx context.Context, c *github.Client, owner, repo, path string) (bool, error) {
 	_, err := gh.ReadFile(ctx, c, owner, repo, path)
@@ -241,15 +327,21 @@ func exists(ctx context.Context, c *github.Client, owner, repo, path string) (bo
 	}
 }
 
-// maxParallel bounds the reads in flight across installations.
-const maxParallel = 8
-
-// InspectAll inspects every installation, at most maxParallel at a time, and
-// returns the reports in the registry's order, each with the facts the
-// portals on record derive for it. A portal that cannot be read as the person
-// is an error of every report: no record is complete without it.
-func (r *Registry) InspectAll(ctx context.Context, c *github.Client, insts []Installation, caps []Capability) []Report {
-	reports := inspectAll(ctx, c, insts, caps)
+// InspectAll inspects every installation at once — the client bounds the
+// reads in flight — and returns the reports in the registry's order. With
+// Full, each carries the facts the portals on record derive for it; a portal
+// that cannot be read as the person is an error of every report, since no
+// record is complete without it. With Summary the reports stop at the states.
+func (r *Registry) InspectAll(ctx context.Context, c *github.Client, insts []Installation, caps []Capability, detail Detail) []Report {
+	reports := make([]Report, len(insts))
+	var wg sync.WaitGroup
+	for i, inst := range insts {
+		wg.Go(func() { reports[i] = r.inspect(ctx, c, inst, caps, detail) })
+	}
+	wg.Wait()
+	if detail == Summary {
+		return reports
+	}
 	portals, failed := r.Portals(ctx, c, insts)
 	for i := range reports {
 		for _, key := range []string{"", reports[i].Customer} {
@@ -259,23 +351,6 @@ func (r *Registry) InspectAll(ctx context.Context, c *github.Client, insts []Ins
 		}
 	}
 	r.derive(ctx, c, reports, portals)
-	return reports
-}
-
-func inspectAll(ctx context.Context, c *github.Client, insts []Installation, caps []Capability) []Report {
-	reports := make([]Report, len(insts))
-	sem := make(chan struct{}, maxParallel)
-	var wg sync.WaitGroup
-	for i, inst := range insts {
-		wg.Add(1)
-		go func(i int, inst Installation) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			reports[i] = Inspect(ctx, c, inst, caps)
-		}(i, inst)
-	}
-	wg.Wait()
 	return reports
 }
 

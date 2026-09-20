@@ -64,7 +64,7 @@ spec:
 // privateFixture is the installation the hub's portal reaches through the
 // tunnel on the hub (its Kubernetes cluster entry names the tunnel's Service):
 // the record's private flag.
-const privateFixture = "birch"
+const privateFixture = birch
 
 // hubPortalClientID is the opaque id of the hub portal's Dex client on record;
 // birchPortalClientID is a portal client id birch's own patch trusts, on
@@ -153,10 +153,10 @@ func indentLines(s, prefix string) string {
 
 func fixtures(g *fakeGitHub) {
 	g.addRepo(registryRepo, map[string]string{registryPath: "---\napiVersion: backstage.io/v1alpha1\nkind: Group\nmetadata:\n    name: acme\nspec:\n    type: customer\n" +
-		resource(hub, "example", "capa", "example.test") + resource("alder", "acme", "capa", "acme.test") + resource("birch", "acme", "capa", "acme.test") +
+		resource(hub, "example", "capa", "example.test") + resource(alder, "acme", "capa", "acme.test") + resource(birch, "acme", "capa", "acme.test") +
 		resource("rowan", "acme", "capa", "acme.test") + resource("willow", "umbrella", "capz", "umbrella.test") + resource("oak", "sealed", "capa", "sealed.test")})
 	g.addRepo(hubMCs, map[string]string{
-		installations.PortalConfigPath(hub):       portalConfig(hub, "alder", "birch", "rowan", "willow", "oak", "larch"),
+		installations.PortalConfigPath(hub):       portalConfig(hub, alder, birch, "rowan", "willow", "oak", "larch"),
 		installations.OptInPath(hub):              optedIn,
 		installations.ClusterAppManifestPath(hub): clusterAppManifest(hub, "cluster-aws", "10.2.0", true),
 		extrasKustomizationPath(hub):              extrasListingEverything,
@@ -172,20 +172,20 @@ func fixtures(g *fakeGitHub) {
 		installations.DexPatchPath(hub): "oidc:\n  extraStaticClients:\n    - id: " + hubPortalClientID + "\n      name: Dev Portal\n      redirectURIs:\n        - " + render.PortalRedirectURI("portal."+hub+".example.test", hub) + "\n      secretRef: {name: dex-client-backstage, key: secret}\n",
 	})
 	g.addRepo(acmeMCs, map[string]string{
-		installations.OptInPath("birch"):              optedIn,
-		extrasKustomizationPath("birch"):              extrasListingEverything,
+		installations.OptInPath(birch):                optedIn,
+		extrasKustomizationPath(birch):                extrasListingEverything,
 		installations.OptInPath("rowan"):              optedIn,
 		installations.ClusterAppManifestPath("rowan"): clusterAppManifest("rowan", "cluster-aws", "10.2.0", false),
 		extrasKustomizationPath("rowan"):              extrasKustomization,
 		rowanBackstageKustomization:                   "# The portal's tree; the platform's fragment joins it as a Component.\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./backstage/\n",
 	})
 	g.addRepo(acmeConfigs, map[string]string{
-		installations.ConfigPatchPath("alder"): "codename: alder\nbase: acme.test\n",
-		installations.ConfigPatchPath("birch"): "codename: birch\nbase: acme.test\n",
+		installations.ConfigPatchPath(alder):   "codename: alder\nbase: acme.test\n",
+		installations.ConfigPatchPath(birch):   "codename: birch\nbase: acme.test\n",
 		installations.ConfigPatchPath("rowan"): "codename: rowan\nbase: acme.test\nservices:\n  muster:\n    clientId: muster-rowan\n",
 		// birch trusts a portal client that is on record in its own patch only.
-		installations.Capabilities()[0].EnabledMarker("birch"): "muster:\n  muster:\n    oauth:\n      server:\n        trustedAudiences:\n          - dex-k8s-authenticator\n          - " + birchPortalClientID + "\n",
-		installations.DexPatchPath("birch"):                    "oidc:\n  staticClients:\n    dexK8SAuthenticator:\n      trustedPeers:\n        - dex-k8s-authenticator\n        - " + birchPeerClientID + "\n",
+		installations.Capabilities()[0].EnabledMarker(birch): "muster:\n  muster:\n    oauth:\n      server:\n        trustedAudiences:\n          - dex-k8s-authenticator\n          - " + birchPortalClientID + "\n",
+		installations.DexPatchPath(birch):                    "oidc:\n  staticClients:\n    dexK8SAuthenticator:\n      trustedPeers:\n        - dex-k8s-authenticator\n        - " + birchPeerClientID + "\n",
 	})
 	g.addRepo("example/umbrella-management-clusters", map[string]string{installations.OptInPath("willow"): "optIn: false\n"})
 	g.addRepo("example/umbrella-configs", map[string]string{installations.ConfigPatchPath("willow"): "codename: willow\n"})
@@ -246,15 +246,15 @@ func TestListInstallationsStates(t *testing.T) {
 		t.Fatalf("hazel inputs on record: %+v", hazel.Capabilities[0].Inputs)
 	}
 
-	alder := find(t, out, "alder")
-	if alder.Hub || alder.OptIn.State != installations.NotOptedIn || alder.OptIn.Present || alder.OptIn.Path != installations.OptInPath("alder") || alder.OptIn.Repository != acmeMCs ||
+	alder := find(t, out, alder)
+	if alder.Hub || alder.OptIn.State != installations.NotOptedIn || alder.OptIn.Present || alder.OptIn.Path != installations.OptInPath(alder.Name) || alder.OptIn.Repository != acmeMCs ||
 		!strings.Contains(alder.OptIn.HowToOptIn, "optIn: true") || !strings.Contains(alder.OptIn.HowToOptIn, acmeMCs) || !strings.Contains(alder.OptIn.HowToOptIn, "their own pull request") ||
 		alder.Capabilities[0].State != installations.StateNotOptedIn || alder.Capabilities[0].Enabled || alder.Capabilities[1].State != installations.StateNotOptedIn || !alder.Readable ||
 		alder.Customer != "acme" || alder.AccountEngineer != "Ada Example" || alder.Record == nil || alder.Record.ChartLine != "3" {
 		t.Fatalf("alder: %+v %+v", alder, alder.OptIn)
 	}
 
-	birch := find(t, out, "birch")
+	birch := find(t, out, birch)
 	if birch.OptIn.State != installations.OptedIn || birch.Capabilities[0].State != installations.StateEnabled || !birch.Capabilities[0].Enabled || !birch.Record.Private ||
 		birch.Capabilities[0].EnabledMarker != "installations/birch/apps/agent-platform/configmap-values.yaml.patch" ||
 		birch.Capabilities[1].State != installations.StateNotEnabled || birch.Capabilities[1].Enabled || birch.Capabilities[1].MarkerRepository != installations.ManagementClustersRepository {
@@ -298,17 +298,80 @@ func TestListInstallationsReadsTheOptInEveryCall(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	c := st.mcpClient(t, aliceToken)
-	out, _, _ := listInstallations(t, c, map[string]any{tools.ArgInstallations: []string{"alder"}})
-	if find(t, out, "alder").Capabilities[0].State != installations.StateNotOptedIn {
+	out, _, _ := listInstallations(t, c, map[string]any{tools.ArgInstallations: []string{alder}})
+	if find(t, out, alder).Capabilities[0].State != installations.StateNotOptedIn {
 		t.Fatal("alder opted in before the declaration landed")
 	}
-	st.ghs.addRepo(acmeMCs, map[string]string{installations.OptInPath("alder"): optedIn})
-	out, _, _ = listInstallations(t, c, map[string]any{tools.ArgInstallations: []string{"alder"}})
-	if find(t, out, "alder").Capabilities[0].State != installations.StateNotEnabled {
+	st.ghs.addRepo(acmeMCs, map[string]string{installations.OptInPath(alder): optedIn})
+	out, _, _ = listInstallations(t, c, map[string]any{tools.ArgInstallations: []string{alder}})
+	if find(t, out, alder).Capabilities[0].State != installations.StateNotEnabled {
 		t.Fatal("the declaration that landed was not read")
 	}
-	if n := st.ghs.reads(acmeMCs, installations.OptInPath("alder")); n != 2 {
+	if n := st.ghs.reads(acmeMCs, installations.OptInPath(alder)); n != 2 {
 		t.Fatalf("the declaration was read %d times for two calls", n)
+	}
+}
+
+// summary answers the states and the last actions alone: the record, the
+// cluster App, the portals and the federation facts are neither read nor
+// answered, and the answer says so.
+func TestListInstallationsSummary(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	out, text, isErr := listInstallations(t, st.mcpClient(t, aliceToken), map[string]any{tools.ArgSummary: true})
+	if isErr || !out.Summary || len(out.Installations) != 7 || len(out.Capabilities) != 2 {
+		t.Fatalf("answer: %s", text)
+	}
+	hazelR, birchR, alderR, oakR := find(t, out, hub), find(t, out, birch), find(t, out, alder), find(t, out, "oak")
+	if !hazelR.Readable || hazelR.OptIn.State != installations.OptedIn || hazelR.Capabilities[0].State != installations.StateEnabled || hazelR.Capabilities[1].State != installations.StateEnabled ||
+		hazelR.Record != nil || hazelR.Portals != nil || hazelR.Federation != nil || hazelR.Capabilities[0].Inputs != nil {
+		t.Fatalf("hazel: %+v", hazelR)
+	}
+	if birchR.Capabilities[0].State != installations.StateEnabled || birchR.Capabilities[1].State != installations.StateNotEnabled || birchR.Record != nil ||
+		alderR.Capabilities[0].State != installations.StateNotOptedIn || alderR.Record != nil ||
+		oakR.Readable || oakR.Capabilities[0].State != installations.StateUnknown {
+		t.Fatalf("birch %+v alder %+v oak %+v", birchR, alderR, oakR)
+	}
+	for _, read := range []struct{ repo, path string }{
+		{hubConfigs, installations.ConfigPatchPath(hub)},
+		{acmeConfigs, installations.ConfigPatchPath(alder)},
+		{hubMCs, installations.ClusterAppManifestPath(hub)},
+		{"example/shared-configs", "default/config.yaml"},
+	} {
+		if n := st.ghs.reads(read.repo, read.path); n != 0 {
+			t.Errorf("summary read %s:%s %d times", read.repo, read.path, n)
+		}
+	}
+	if n := st.ghs.reads(acmeMCs, installations.OptInPath(birch)); n != 1 {
+		t.Errorf("the opt-in was read %d times", n)
+	}
+	if n := st.ghs.reads(acmeConfigs, installations.Capabilities()[0].EnabledMarker(birch)); n != 1 {
+		t.Errorf("the marker was read %d times", n)
+	}
+	// The default answer is the full one.
+	out, text, isErr = listInstallations(t, st.mcpClient(t, aliceToken), nil)
+	if isErr || out.Summary || find(t, out, hub).Record == nil {
+		t.Fatalf("default: %s", text)
+	}
+}
+
+// The owner's shared default config, which every installation without its
+// own client id falls back to, is read once per call.
+func TestListInstallationsReadsTheSharedDefaultOnce(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	out, text, isErr := listInstallations(t, st.mcpClient(t, aliceToken), nil)
+	if isErr {
+		t.Fatal(text)
+	}
+	// alder, birch and willow have no client id of their own.
+	for _, name := range []string{alder, birch, "willow"} {
+		if rec := find(t, out, name).Record; rec == nil || rec.MusterClientID != "muster-shared" {
+			t.Fatalf("%s: %+v", name, rec)
+		}
+	}
+	if n := st.ghs.reads("example/shared-configs", "default/config.yaml"); n != 1 {
+		t.Fatalf("the shared default was read %d times in one call", n)
 	}
 }
 
@@ -318,8 +381,8 @@ func TestListInstallationsFilters(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	c := st.mcpClient(t, aliceToken)
-	out, text, isErr := listInstallations(t, c, map[string]any{tools.ArgInstallations: []string{"birch", "rowan"}})
-	if isErr || len(out.Installations) != 2 || out.Installations[0].Name != "birch" || out.Installations[1].Name != "rowan" {
+	out, text, isErr := listInstallations(t, c, map[string]any{tools.ArgInstallations: []string{birch, "rowan"}})
+	if isErr || len(out.Installations) != 2 || out.Installations[0].Name != birch || out.Installations[1].Name != "rowan" {
 		t.Fatalf("by name: %s", text)
 	}
 	out, text, isErr = listInstallations(t, c, map[string]any{tools.ArgCustomer: "acme"})
