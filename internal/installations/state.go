@@ -59,6 +59,12 @@ type Capability struct {
 	// Render is the definition's render: the decoded input document and the
 	// person-supplied secret values by field in, the fileset out.
 	Render func(raw any, secrets map[string]string) (*render.Result, error)
+	// Prunes says whether the Flux Kustomization that applies the
+	// definition's tree deletes what leaves the record. The fleet's
+	// Kustomization over the extras tree does not (prune: false): a revert
+	// of the fileset leaves the objects the tree created on the
+	// installation, and a removed action names them for a person to delete.
+	Prunes bool
 }
 
 // Schema is the definition's input schema, as embedded.
@@ -133,6 +139,8 @@ func Capabilities() []Capability {
 		},
 		Parse:  func(raw any) (render.Input, error) { return agentplatform.Parse(raw) },
 		Render: agentplatform.Render,
+		// The extras tree, under the fleet's non-pruning Kustomization.
+		Prunes: false,
 	}, {
 		Name:             CustomerPortal,
 		Description:      "The developer portal on an installation: its extras/backstage tree over the fleet's bases, its Dex client, the plugin keys and the session secret.",
@@ -140,6 +148,8 @@ func Capabilities() []Capability {
 		EnabledMarker:    PortalConfigPath,
 		Parse:            func(raw any) (render.Input, error) { return customerportal.Parse(raw) },
 		Render:           customerportal.Render,
+		// The extras/backstage tree, under the same Kustomization.
+		Prunes: false,
 	}}
 }
 

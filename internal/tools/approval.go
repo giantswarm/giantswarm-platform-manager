@@ -71,8 +71,9 @@ func (t *Tools) registerApprovalTools(s *mcpserver.MCPServer) {
 	), t.mergeAction)
 }
 
-// approvalTool is the gateway's call name of one of the manager's tools through muster.
-func approvalTool(name string) string { return "x_" + ToolPrefix + "_" + name }
+// musterTool is the call name of one of the manager's tools through muster:
+// what the gateway's buttons call, and what the live path loops back to.
+func musterTool(name string) string { return "x_" + ToolPrefix + "_" + name }
 
 // pendingAction loads the action args name and refuses one that is not
 // pending approval, a call without a caller, and a manager without the records.
@@ -80,8 +81,10 @@ func (t *Tools) pendingAction(ctx context.Context, tool string, args map[string]
 	return t.loadAction(ctx, tool, args, actions.StatePendingApproval)
 }
 
-// loadAction loads the action args name and refuses one whose state is not
-// among states, a call without a caller, and a manager without the records.
+// loadAction loads the action args name — the record following GitHub first,
+// as the caller: a pull request merged or closed outside the manager decides
+// before the tools do — and refuses one whose state is not among states, a
+// call without a caller, and a manager without the records.
 func (t *Tools) loadAction(ctx context.Context, tool string, args map[string]any, states ...string) (*actions.Action, *identity.Identity, error) {
 	id, ok := identity.FromContext(ctx)
 	if !ok {
@@ -99,6 +102,7 @@ func (t *Tools) loadAction(ctx context.Context, tool string, args map[string]any
 	if err != nil {
 		return nil, nil, fmt.Errorf("%s: %w", tool, err)
 	}
+	a = t.resyncAs(ctx, a)
 	if !slices.Contains(states, a.Status.State) {
 		return nil, nil, fmt.Errorf("%s: action %s is %s, not %s%s", tool, a.Name, a.Status.State, strings.Join(states, " or "), decidedBy(a))
 	}
@@ -198,6 +202,15 @@ func (t *Tools) deny(ctx context.Context, args map[string]any) (any, error) {
 	} else {
 		status.State = actions.StateDenied
 		status.Result = &actions.Result{State: actions.StateDenied, Message: fmt.Sprintf("denied by %s: %s", id.Login, reason), At: now()}
+		// A wave's stages were pending approval too; denied, the files'
+		// state stands for each of them.
+		if status.Rollout != nil {
+			for i := range status.Rollout.Installations {
+				if status.Rollout.Installations[i].State == actions.StatePendingApproval {
+					status.Rollout.Installations[i].State = actions.StateDenied
+				}
+			}
+		}
 	}
 	a, err = t.d.Actions.UpdateStatus(ctx, a.Name, status)
 	if err != nil {
@@ -219,7 +232,7 @@ func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
 	if id.Login != a.Spec.Actor.Login {
 		return nil, fmt.Errorf("%s: the pull requests of action %s are merged as its actor (%s), and you are %s", ToolMergeAction, a.Name, a.Spec.Actor.Login, id.Login)
 	}
-	if a.Status.Approval == nil || a.Status.Approval.Decision != actions.DecisionApproved {
+	if !decided(a) {
 		return t.awaitApproval(ctx, a)
 	}
 	token, _ := identity.TokenFromContext(ctx)
@@ -255,7 +268,9 @@ func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
 			err = commit.Merge(ctx, remote, cpr, true)
 			switch {
 			case err == nil:
-				status.PullRequests[k].State = actions.PullRequestMerged
+				// The merge commit is not answered here; the next read of
+				// the record fills it in from GitHub.
+				status.PullRequests[k].State, status.PullRequests[k].MergedBy, status.PullRequests[k].MergedAt = actions.PullRequestMerged, id.Login, now()
 				res.Merged = append(res.Merged, status.PullRequests[k])
 				continue
 			case errors.Is(err, commit.ErrChecksPending):
@@ -273,14 +288,7 @@ func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
 			break
 		}
 		if res.Waiting == "" {
-			st.State, st.Message = actions.StateRollingOut, "the pull requests are merged; Flux reconciles the installation — "+ToolWatchAction+" reads its rollout and runs the probes"
-			for j := i + 1; j < len(stages); j++ {
-				stages[j].State, stages[j].Message = actions.StateRollingOut, stageQueued
-			}
-			status.State = actions.StateRollingOut
-			if status.Rollout.StartedAt == nil {
-				status.Rollout.StartedAt = now()
-			}
+			startStage(&status, i)
 			res.Stage = st.Name
 		}
 		break
@@ -303,6 +311,32 @@ func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
 		res.Message += " " + note
 	}
 	return res, nil
+}
+
+// decided says whether the action's merge may go ahead: the team approved
+// it, or every pull request of its stage in flight was merged outside the
+// manager already — the repositories' own merge path let it through, and the
+// manager does not second-guess it for the stages that follow.
+func decided(a *actions.Action) bool {
+	if a.Status.Approval == nil {
+		return false
+	}
+	return a.Status.Approval.Decision == actions.DecisionApproved || a.Status.Approval.Decision == actions.DecisionMergedWithoutApproval
+}
+
+// startStage moves stage i of status to rolling out — its pull requests are
+// merged, by merge_action or outside it — queues the stages after it and
+// starts the rollout's clock.
+func startStage(status *actions.Status, i int) {
+	stages := status.Rollout.Installations
+	stages[i].State, stages[i].Message = actions.StateRollingOut, "the pull requests are merged; Flux reconciles the installation — "+ToolWatchAction+" reads its rollout and runs the probes"
+	for j := i + 1; j < len(stages); j++ {
+		stages[j].State, stages[j].Message = actions.StateRollingOut, stageQueued
+	}
+	status.State = actions.StateRollingOut
+	if status.Rollout.StartedAt == nil {
+		status.Rollout.StartedAt = now()
+	}
 }
 
 // stageNotEnabled is merge_action's refusal at a stage whose pull requests
@@ -412,8 +446,8 @@ func (t *Tools) askApproval(ctx context.Context, a *actions.Action, tool string)
 		return nil, fmt.Errorf("%s: no approval channel is configured (chart approvals.gatewayURL); action %s cannot be approved and nothing is merged", tool, a.Name)
 	}
 	review := approvals.Review{Actor: a.Spec.Actor.Email, Text: reviewText(a),
-		Approve: approvals.Tool{Tool: approvalTool(ToolApproveAction), Arguments: map[string]any{ArgAction: a.Name}},
-		Deny:    &approvals.Tool{Tool: approvalTool(ToolDenyAction), Arguments: map[string]any{ArgAction: a.Name}}}
+		Approve: approvals.Tool{Tool: musterTool(ToolApproveAction), Arguments: map[string]any{ArgAction: a.Name}},
+		Deny:    &approvals.Tool{Tool: musterTool(ToolDenyAction), Arguments: map[string]any{ArgAction: a.Name}}}
 	for _, pr := range a.Status.PullRequests {
 		review.PullRequests = append(review.PullRequests, pr.URL)
 	}

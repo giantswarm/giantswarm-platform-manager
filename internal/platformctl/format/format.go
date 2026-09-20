@@ -264,7 +264,7 @@ func Action(w io.Writer, a actions.Action) error {
 	if len(a.Status.PullRequests) > 0 {
 		p.f("Pull requests:\n")
 		for _, pr := range a.Status.PullRequests {
-			p.f("  %s#%d %s %s\n", pr.Repository, pr.Number, dash(pr.State), pr.URL)
+			p.f("  %s#%d %s %s%s\n", pr.Repository, pr.Number, dash(pr.State), pr.URL, mergeOf(pr))
 		}
 	}
 	if ap := a.Status.Approval; ap != nil {
@@ -289,12 +289,47 @@ func Action(w io.Writer, a actions.Action) error {
 	if res := a.Status.Result; res != nil {
 		p.f("Result: %s%s%s\n", dash(res.State), reason(res.Message), at(res.At))
 	}
+	if a.Status.SyncedAt != nil {
+		p.f("Synced with GitHub%s as %s\n", at(a.Status.SyncedAt), dash(a.Status.SyncedBy))
+	}
+	if len(a.Status.Orphans) > 0 {
+		p.f("Orphans (the Kustomization over the tree does not prune; delete by hand):\n")
+		for _, o := range a.Status.Orphans {
+			name := o.Name
+			if o.Namespace != "" {
+				name = o.Namespace + "/" + name
+			}
+			p.f("  %s: %s %s\n", o.Installation, o.Kind, name)
+		}
+	}
 	if len(a.Spec.Inputs) > 0 {
 		if b, err := json.MarshalIndent(a.Spec.Inputs, "  ", "  "); err == nil {
 			p.f("Inputs:\n  %s\n", b)
 		}
 	}
 	return p.err
+}
+
+// mergeOf is a pull request's merge or close as recorded: who merged it and
+// when, with the merge commit, or when it was closed unmerged.
+func mergeOf(pr actions.PullRequest) string {
+	switch pr.State {
+	case actions.PullRequestMerged:
+		s := " merged"
+		if pr.MergedBy != "" {
+			s += " by " + pr.MergedBy
+		}
+		s += at(pr.MergedAt)
+		if pr.MergeCommit != "" {
+			s += " (" + pr.MergeCommit + ")"
+		}
+		return s
+	case actions.PullRequestClosed:
+		if pr.ClosedAt != nil {
+			return " closed" + at(pr.ClosedAt)
+		}
+	}
+	return ""
 }
 
 // Actions is list_actions as a table, newest first as the tool answers.

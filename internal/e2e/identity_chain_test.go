@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/giantswarm/gitops-commit/commit"
 	"github.com/mark3labs/mcp-go/client"
@@ -86,6 +87,9 @@ type stack struct {
 	// remoteCalls are the approvals, closes and merges by identity: "<login> <op> <owner/repo>#<n>".
 	mu          sync.Mutex
 	remoteCalls []string
+	// pulls are who merged or closed each pull request of the remote, and
+	// when — what the fake GitHub answers for it.
+	pulls map[string]pullFacts
 }
 
 // syncBuffer is a bytes.Buffer the server's log handler and the test share.
@@ -117,7 +121,8 @@ func newStack(t *testing.T) *stack {
 	}
 	st := &stack{ghs: newFakeGitHub(t, logins), probes: newFakeProbes(t), remote: commit.NewFake(), logs: logs, gateway: newFakeGateway(t),
 		dyn: dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{actions.GVR: actions.Kind + "List"}),
-		dex: newFakeDex(t), inst: newFakeInstallation()}
+		dex: newFakeDex(t), inst: newFakeInstallation(), pulls: map[string]pullFacts{}}
+	st.ghs.pull = st.pullState
 	st.muster = newFakeMuster(t, st.inst, rowan)
 	lc, err := live.New(live.Config{Path: livePath, Issuer: st.dex.issuer, Audiences: []string{liveAudience, liveRequiredAudience}, JWKSURL: st.dex.issuer + "/keys", AllowPrivateIPJWKS: true, CAFile: st.dex.caFile,
 		MusterURL: st.muster.URL + "/mcp", KubernetesFamily: kubernetesFamily, KubernetesInstanceArg: instanceArg, Version: testVersion}, log)
@@ -129,6 +134,9 @@ func newStack(t *testing.T) *stack {
 	ts := tools.New(tools.Deps{Version: testVersion, GitHubAPIURL: apiURL, AuthorizationServer: server.DefaultAuthorizationServer, Log: log, Live: lc,
 		Actions: actions.New(st.dyn, actionsNamespace),
 		Probes:  st.probes.client(),
+		// Every read follows GitHub: the tests move the remote by hand and
+		// read straight after.
+		ResyncInterval: time.Nanosecond,
 		Remote: func(token string) (commit.Remote, error) {
 			return asRemote{Remote: st.remote, login: logins[token], st: st}, nil
 		},
@@ -150,6 +158,9 @@ func newStack(t *testing.T) *stack {
 	}
 	st.srv = httptest.NewServer(s.Handler())
 	t.Cleanup(st.srv.Close)
+	// muster knows the persons of the live path by their GitHub grants too:
+	// the loop-back to the manager's own registration runs with them.
+	st.muster.connect(st.srv.URL+"/mcp", map[string]string{liveAdmin: aliceToken, liveViewer: carolToken})
 	return st
 }
 

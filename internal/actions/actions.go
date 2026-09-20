@@ -69,6 +69,12 @@ type Spec struct {
 	// Change is the plan's change in one clause — files by change, generated
 	// secrets by name — on the record and in the pull requests; never a value.
 	Change string `json:"change,omitempty"`
+	// Markers are, per installation, the file whose presence on the default
+	// branch of its repository means the capability's fileset is on record
+	// — the definition's enabled marker, resolved to the installation's
+	// repository as "owner/repo:path" — what the resync reads to see the
+	// fileset gone again (a revert). Recorded at commit.
+	Markers map[string]string `json:"markers,omitempty"`
 	// Skipped are the installations of the set a wave left out, and why:
 	// never a target, no pull request.
 	Skipped []Skipped `json:"skipped,omitempty"`
@@ -101,6 +107,27 @@ type Status struct {
 	Rollout  *Rollout  `json:"rollout,omitempty"`
 	Probes   []Probe   `json:"probes,omitempty"`
 	Result   *Result   `json:"result,omitempty"`
+	// SyncedAt and SyncedBy say when the record last followed GitHub — the
+	// pull requests read, the markers of the merged stages read — and as
+	// whom: the resync runs with the token of the person reading the
+	// record, never with one of the manager's.
+	SyncedAt *time.Time `json:"syncedAt,omitempty"`
+	SyncedBy string     `json:"syncedBy,omitempty"`
+	// Orphans are, on a removed action whose definition's Kustomization
+	// does not prune, the objects the definition rendered on the
+	// installations that stay until a person deletes them; read from the
+	// render of the inputs on record, never from the cluster.
+	Orphans []Orphan `json:"orphans,omitempty"`
+}
+
+// Orphan is one object a revert left behind on an installation: the fleet's
+// Kustomization over the tree does not prune, so the HelmRelease, the
+// Secrets and what else the fileset carried stay after the files are gone.
+type Orphan struct {
+	Installation string `json:"installation"`
+	Kind         string `json:"kind"`
+	Namespace    string `json:"namespace,omitempty"`
+	Name         string `json:"name"`
 }
 
 // PullRequest is one PR the action opened.
@@ -115,6 +142,15 @@ type PullRequest struct {
 	// opened with; the merge refuses a head that moved since.
 	Head    string `json:"head,omitempty"`
 	HeadSHA string `json:"headSha,omitempty"`
+	// MergeCommit, MergedAt and MergedBy are the merge as GitHub records
+	// it: the commit on the base branch, when, and the login that merged —
+	// the actor through merge_action, or whoever merged the pull request
+	// outside the manager, read by the resync. ClosedAt is when a pull
+	// request was closed unmerged.
+	MergeCommit string     `json:"mergeCommit,omitempty"`
+	MergedAt    *time.Time `json:"mergedAt,omitempty"`
+	MergedBy    string     `json:"mergedBy,omitempty"`
+	ClosedAt    *time.Time `json:"closedAt,omitempty"`
 }
 
 // Approval is the team review the action asked for and its decision.
@@ -309,9 +345,11 @@ func (a Action) InputsOnRecord(installation string) map[string]any {
 
 // The states an Action carries in status.state. pending approval, rolling
 // out, waiting for the customer, enabled, drifted and failed are the
-// installations' states an action produces (installations.State); refused is
-// the action's own: the opt-in gate refused it before any write, and the
-// installation's state read from its repositories stands.
+// installations' states an action produces (installations.State); refused,
+// denied and removed are the action's own — the opt-in gate refused it
+// before any write, a member withdrew it, or the fileset it wrote left the
+// repositories' default branch again — and the installation's state read
+// from its repositories stands.
 const (
 	StatePendingApproval    = string(installations.StatePendingApproval)
 	StateFailed             = string(installations.StateFailed)
@@ -321,7 +359,16 @@ const (
 	StateEnabled            = string(installations.StateEnabled)
 	StateDrifted            = string(installations.StateDrifted)
 	StateDenied             = "denied"
+	StateRemoved            = "removed"
 )
+
+// Terminal says whether state is one no read moves the action out of:
+// refused and denied never wrote to the repositories, removed is the
+// revert's last word. A failed action is not terminal for the resync — a
+// stage that failed after its merge can still be reverted.
+func Terminal(state string) bool {
+	return state == StateRefused || state == StateDenied || state == StateRemoved
+}
 
 // InstallationState is the state the action gives installation: its stage of
 // the rollout when the rollout has one, else the action's state. A stage the
@@ -367,10 +414,13 @@ const (
 	PullRequestClosed = "closed"
 )
 
-// The decisions of an approval.
+// The decisions of an approval. DecisionMergedWithoutApproval is the
+// resync's: every pull request of the action was merged outside merge_action
+// before the team decided, and the record names who merged them.
 const (
-	DecisionApproved = "approved"
-	DecisionDenied   = "denied"
+	DecisionApproved              = "approved"
+	DecisionDenied                = "denied"
+	DecisionMergedWithoutApproval = "merged without approval"
 )
 
 // Writer creates Actions and moves their status; commit writes with it, as

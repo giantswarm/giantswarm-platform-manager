@@ -30,6 +30,7 @@ import (
 // The HelmRelease the watch tests turn not Ready, and the anonymous probe
 // they break.
 const (
+	helmReleaseKind = "HelmRelease"
 	platformRelease = "agent-platform"
 	edgeProbe       = "muster-protected-resource-metadata"
 	modelConfig     = "default-model-config"
@@ -128,7 +129,7 @@ func thread(t *testing.T, st *stack) []string {
 
 // setReady turns the Ready condition of a HelmRelease of the fake installation.
 func setReady(inst *fakeInstallation, name, status, msg, revision string) {
-	inst.edit("HelmRelease", fluxNamespace, name, func(obj map[string]any) {
+	inst.edit(helmReleaseKind, fluxNamespace, name, func(obj map[string]any) {
 		st := obj[statusKey].(map[string]any)
 		c := st[conditionsKey].([]any)[0].(map[string]any)
 		c[statusKey], c[message] = status, msg
@@ -167,9 +168,11 @@ func TestWatchActionCarriesTheRolloutToEnabled(t *testing.T) {
 		t.Fatalf("merge after the merge: %v %s", isErr, text)
 	}
 
-	// A stranger to the installation: nothing read, nothing decided.
+	// A stranger to the installation: nothing read, nothing decided — and,
+	// not connected to the App-pinned registration either, the pull requests
+	// not re-read for them; the answer says so.
 	w, text, isErr := watchCall(t, st.liveClient(t, st.dex.token(t, liveStranger, []string{liveAudience}, time.Hour)), a.Name)
-	if isErr || w.Ready || w.State != actions.StateRollingOut || len(w.Objects) == 0 || w.Objects[0].Ready != "" || !strings.Contains(w.Objects[0].Message, "not connected to the installation in muster") {
+	if isErr || w.Ready || w.State != actions.StateRollingOut || len(w.Objects) == 0 || w.Objects[0].Ready != "" || !strings.Contains(w.Objects[0].Message, "not connected to the installation in muster") || !strings.Contains(w.Message, "not re-read") {
 		t.Fatalf("the stranger's watch: %v %s", isErr, text)
 	}
 
@@ -184,7 +187,7 @@ func TestWatchActionCarriesTheRolloutToEnabled(t *testing.T) {
 			platform = &w.Objects[i]
 		}
 	}
-	if platform == nil || platform.Kind != "HelmRelease" || platform.Namespace != fluxNamespace || platform.Ready != statusFalse || platform.Revision != "4.44.1" || !strings.Contains(platform.Message, "install retries exhausted") {
+	if platform == nil || platform.Kind != helmReleaseKind || platform.Namespace != fluxNamespace || platform.Ready != statusFalse || platform.Revision != "4.44.1" || !strings.Contains(platform.Message, "install retries exhausted") {
 		t.Fatalf("the object: %+v", w.Objects)
 	}
 	if st := stageOf(w.Action, rowan); st.State != actions.StateRollingOut || !strings.Contains(st.Message, fmt.Sprintf("rolling out: %d of %d Ready; not Ready: HelmRelease %s/%s (Ready=False: install retries exhausted)", len(w.Objects)-1, len(w.Objects), fluxNamespace, platformRelease)) ||
@@ -228,11 +231,11 @@ func TestWatchActionCarriesTheRolloutToEnabled(t *testing.T) {
 			t.Errorf("probe %s on record: %+v (%v)", id, p, ok)
 		}
 	}
-	// list_installations reads the files' state again — not enabled here, the
-	// fake GitHub store not being synced from the remote after a merge — with
-	// the action's result as the last action.
+	// list_installations reads the files' state again — enabled, the marker
+	// on the default branch since the merge — with the action's result as
+	// the last action.
 	li, _, _ := listInstallations(t, aliceC, map[string]any{tools.ArgInstallations: []any{rowan}})
-	if r := find(t, li, rowan); r.Capabilities[0].LastAction == nil || r.Capabilities[0].LastAction.Name != a.Name || r.Capabilities[0].LastAction.Result != actions.StateEnabled {
+	if r := find(t, li, rowan); r.Capabilities[0].State != installations.StateEnabled || r.Capabilities[0].LastAction == nil || r.Capabilities[0].LastAction.Name != a.Name || r.Capabilities[0].LastAction.Result != actions.StateEnabled {
 		t.Fatalf("list_installations: %+v", r.Capabilities[0])
 	}
 	if _, text, isErr := mergeCall(t, aliceC, a.Name); !isErr || !strings.Contains(text, actions.StateEnabled) {

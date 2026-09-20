@@ -43,10 +43,10 @@ Behind muster the tools appear as `x_giantswarm-platform-manager_<tool>`.
 | `list_installations` | read | Every installation of the registry with, per capability, its state, the inputs on record and the last action; the opt-in declaration read at call time. `installations` (names) and `customer` narrow the answer. |
 | `enable_capability` | write | Enable a capability on one installation (`installation`) or a set (`installations`): with `dryRun: true` the plan — files per repository with the change each one is against the repository now, pull requests in dependency order, generated secrets by name, Dex clients and redirect URIs, the secrets the person supplies at commit (by field), customer actions, probes. `inputs` are the definition's typed inputs over the facts on record. With `mode: "commit"` and one `installation`: the opt-in gate, the Action in *pending approval*, the pull requests as the person (see [The commit](#the-commit)); `secrets` carries the supplied values by field. |
 | `reconcile_capability` | write | The same render over a set (empty: every installation of the registry), every file compared with the repository: all *unchanged* is an empty diff. Installations not opted in are listed as *skipped*. |
-| `get_action`, `list_actions` | read | The Action records on the hub: one per enablement or reconcile a person commits — actor, installations, capability, inputs, pull requests, approval, rollout, probes, result. |
+| `get_action`, `list_actions` | read | The Action records on the hub: one per enablement or reconcile a person commits — actor, installations, capability, inputs, pull requests, approval, rollout, probes, result. The record follows GitHub on every read, as you (at most once a minute per action): a pull request merged outside `merge_action` is recorded *merged* with its commit, time and `mergedBy`, and the action rolls out as after the merge; one closed unmerged fails it; a fileset gone from the default branch again moves it to *removed*, naming the objects left on the installation. See [The Action record](#the-action-record). |
 | `verify_capability` | read | One installation against a capability's definition, grouped into the definition's features with one mark each — *as defined*, *differs by input*, *drifted* — and expanded to its dimensions: the owning repositories' files, read as the person, against the render from the inputs on record (every difference names the file, the path and the input that drives it or drift), and the definition's anonymous HTTP probes. The live dimensions read *not checked* here: they are `verify_installation`'s. |
 | `verify_installation` | read, **live registration** | The same installation's running objects against the definition's probes — HelmReleases Ready, workloads Available, Secrets and MCPServer objects present, conditions, logs, the live values against the render — read through muster's kubernetes tools **as the person**, with the ID token muster forwards to the second registration `giantswarm-platform-manager-live` (`muster.liveServer`). What the person may read decides what is checked: an object they may not read is *not checked, forbidden for them*, an installation they are not connected to answers with muster's own sign-in. The result is recorded on the installation's newest action and feeds `list_installations`: *drifted*, or *waiting for the customer* when the only red dimension is the one the customer's action holds up. A portal or `platformctl` shows the two verifies as one result. |
-| `watch_action` | **live registration** | The rollout watch of an action whose pull requests are merged, **as the person calling** — the manager holds no token beyond a call, so the watch is a call (the portal's page, `platformctl action watch`, an agent), never a loop. Reads the Flux objects the definition names on the installation rolling out (the HelmReleases with their Ready condition and revision) through muster's kubernetes tools and answers the picture; once every one is Ready it runs the definition's probes — the live dimensions as the person, the anonymous HTTP probes direct — and the stage moves to *enabled*, *waiting for the customer* (the customer's own action is the only thing open) or *failed* (a probe is red, named). The report — pull requests, rollout per object, each probe, the open customer actions — goes into the review's thread and onto the Action (`status.rollout.installations[]`, `status.probes`, `status.result`). Nothing is waited for or hurried: call again while it is rolling out. Anyone signed in may watch; the reads are theirs, and the state follows the picture whoever read it. An action *waiting for the customer* or *enabled* is re-read: the customer's action done flips it to *enabled*. |
+| `watch_action` | **live registration** | The rollout watch of an action whose pull requests are merged, **as the person calling** — the manager holds no token beyond a call, so the watch is a call (the portal's page, `platformctl action watch`, an agent), never a loop. Reads the Flux objects the definition names on the installation rolling out (the HelmReleases with their Ready condition and revision) through muster's kubernetes tools and answers the picture; once every one is Ready it runs the definition's probes — the live dimensions as the person, the anonymous HTTP probes direct — and the stage moves to *enabled*, *waiting for the customer* (the customer's own action is the only thing open) or *failed* (a probe is red, named). The report — pull requests, rollout per object, each probe, the open customer actions — goes into the review's thread and onto the Action (`status.rollout.installations[]`, `status.probes`, `status.result`). Nothing is waited for or hurried: call again while it is rolling out. Anyone signed in may watch; the reads are theirs, and the state follows the picture whoever read it. An action *waiting for the customer* or *enabled* is re-read: the customer's action done flips it to *enabled*. The live path carries no GitHub token, so the watch first has the App-pinned registration re-read the action as you through muster (`get_action`, muster putting your GitHub token on it): an action whose pull requests were merged outside the manager is watched all the same. |
 
 ## The commit
 
@@ -141,12 +141,38 @@ values; an installation whose secret files are not on record is enabled alone.
 Every enablement or reconcile a person commits is an `Action` — `platform-manager.giantswarm.io/v1alpha1`,
 namespaced, on the hub in the manager's namespace, read and written with the manager's own ServiceAccount:
 the record is the manager's, not the person's. `spec` is written once (`actor`, `capability`, `kind`
-enable|reconcile, `installations` in the wave's order, `inputs`); `status` is a subresource (`state` — one
-of *pending approval*, *rolling out*, *waiting for the customer*, *enabled*, *drifted*, *failed* —
-`pullRequests`, `approval`, `rollout`, `probes`, `result`; *refused* is the gate's own state). `get_action`
+enable|reconcile, `installations` in the wave's order, `inputs`, `markers` — per installation the
+definition's enabled marker in the installation's repository); `status` is a subresource (`state`,
+`pullRequests`, `approval`, `rollout`, `probes`, `result`, `syncedAt`/`syncedBy`, `orphans`). `get_action`
 and `list_actions` read it; `mode: "commit"` creates it and moves its state;
 `list_installations` carries the newest Action of an installation and capability as `lastAction`, and an
-unfinished or failed action's state stands over the state read from the files. The chart renders the CRD,
+unfinished or failed action's state stands over the state read from the files.
+
+The states: *pending approval*, *rolling out*, *waiting for the customer*, *enabled*, *drifted* and *failed*
+are the installation's states an action produces; *refused* (the opt-in gate refused it before any write),
+*denied* (a member withdrew it) and *removed* (below) are the action's own, and the installation's state
+read from its repositories stands. A pull request is *open*, *merged* (with `mergeCommit`, `mergedAt` and
+`mergedBy`) or *closed*.
+
+**The record follows GitHub, not only the manager's own steps.** Every read of a record — `get_action`,
+`list_actions`, `list_installations` (the portal's page), the approval tools before they decide, and
+`watch_action` through the App-pinned registration — reads the action's open pull requests and, for every
+stage whose pull requests are merged, its marker, as the person reading, with their token, at most once a
+minute per action (`syncedAt`, `syncedBy`). A pull request merged outside `merge_action` — by a person with
+the repository's own merge path — is recorded *merged* with the merge commit, the time and the login that
+merged it; once every pull request of the stage in flight is merged the action moves to *rolling out* as
+after `merge_action`, the approval recorded as *merged without approval by <login>* when the team had not
+decided, the review's thread told, and the rollout watch and the probes follow. A pull request closed
+unmerged moves the action to *failed*, naming it and any pull request left open (`deny_action` closes them).
+When the fileset an action wrote is gone from the repositories' default branch again — the marker absent
+after the merge: a revert — the action moves to the terminal state *removed*, and because the fleet's
+Kustomization over the extras tree does not prune, the record names the objects the definition rendered on
+the installation that stay until a person deletes them — the HelmReleases the definition's probes name and
+every manifest among its files, by kind, namespace and name (`status.orphans`), read from the render of the
+inputs on record; the manager deletes nothing on the cluster. The manager holds no token of its own, so
+nothing resyncs unattended: the record is at most a minute behind GitHub whenever anyone reads it.
+
+The chart renders the CRD,
 a Role over `actions` and `actions/status` in the release namespace and its binding (`actions.enabled`,
 `actions.installCRD`), and hands the namespace to the server as `ACTIONS_NAMESPACE`; without it
 `get_action`, `list_actions` and `mode: "commit"` refuse with the reason and `get_info` reports
@@ -202,7 +228,8 @@ Per installation the manager then reads, as the caller:
 The state per capability is *not opted in* (no declaration, or `optIn: false`), *not enabled* (opted
 in, marker absent) or *enabled* (opted in, marker present). *Pending approval*, *rolling out*,
 *waiting for the customer*, *drifted* and *failed* come from the Action record and the last verify
-once those exist; the answer's `states` block separates the two groups. An installation whose
+once those exist; the answer's `states` block separates the two groups. A *removed* action lets the
+files' state stand: *not enabled*, with `lastAction.result: removed`. An installation whose
 repositories the caller cannot read is *unknown* and listed under `unreadable`, with the reason.
 
 ### The opt-in declaration

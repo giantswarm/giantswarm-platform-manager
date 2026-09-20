@@ -107,13 +107,17 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	if tool == ToolReconcileCapability {
 		kind = actions.KindReconcile
 	}
+	def, ok := installations.FindCapability(out.Capability)
+	if !ok {
+		return nil, fmt.Errorf("%s: %q is not a capability definition", tool, out.Capability)
+	}
 	typed, _ := args[ArgInputs].(map[string]any)
 	inputs := env.inputs[one]
 	if inputs == nil {
 		inputs = typed
 	}
 	spec := actions.Spec{Actor: actions.Actor{Login: id.Login, ID: id.ID, Email: id.Email}, Capability: out.Capability, Installations: []string{one}, Inputs: inputs, Kind: kind,
-		InputsByInstallation: map[string]map[string]any{one: inputs}, Customer: env.byName[one].Customer != env.hub.Customer}
+		InputsByInstallation: map[string]map[string]any{one: inputs}, Customer: env.byName[one].Customer != env.hub.Customer, Markers: markersOf(def, env, one)}
 
 	// The opt-in gate: the one condition the manager checks itself, read now.
 	if refusal := gateRefusal(*out, env.reports[one]); refusal != "" {
@@ -141,10 +145,6 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	}
 	if err := checkSupplied(p.SuppliedSecrets, secrets); err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
-	}
-	def, ok := installations.FindCapability(out.Capability)
-	if !ok {
-		return nil, fmt.Errorf("%s: %q is not a capability definition", tool, out.Capability)
 	}
 	rendered, err := def.Render(inputs, secrets)
 	if err != nil {
@@ -238,6 +238,20 @@ func (t *Tools) openPullRequests(ctx context.Context, env *planned, a *actions.A
 		}
 	}
 	return prs, unchanged, nil
+}
+
+// markersOf are the definition's enabled markers of the installations,
+// resolved to their repositories as "owner/repo:path": what the resync reads
+// to see a fileset gone from the default branch again. An installation whose
+// repositories are not on record has none.
+func markersOf(def installations.Capability, env *planned, names ...string) map[string]string {
+	out := map[string]string{}
+	for _, n := range names {
+		if repo := def.Repository(env.byName[n].Repositories); repo != "" {
+			out[n] = repo + ":" + def.EnabledMarker(n)
+		}
+	}
+	return out
 }
 
 // record creates the Action with its initial status.

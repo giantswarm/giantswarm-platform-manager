@@ -237,7 +237,7 @@ func TestVerifyInstallationAsDefined(t *testing.T) {
 			t.Errorf("%s: %s (%s) %+v", id, d.Mark, d.Reason, d.Live)
 		}
 	}
-	if d := dims["live-drift"]; d.Live == nil || len(d.Live.Checks) != 1 || d.Live.Checks[0].Resource != "HelmRelease" || len(d.Differences) != 0 {
+	if d := dims["live-drift"]; d.Live == nil || len(d.Live.Checks) != 1 || d.Live.Checks[0].Resource != helmReleaseKind || len(d.Differences) != 0 {
 		t.Errorf("live-drift: %+v", d)
 	}
 	if d := dims["live-oauth2-proxy-audience"]; d.Live == nil || !strings.Contains(d.Live.Checks[0].Message, "pod log") {

@@ -44,12 +44,12 @@ func (t *Tools) actionsInfo() ActionsInfo {
 
 func (t *Tools) registerActionTools(s *mcpserver.MCPServer) {
 	s.AddTool(mcp.NewTool(ToolGetAction,
-		mcp.WithDescription("Read-only. One Action record by name — an enablement or reconcile a person committed: the actor, the installations, the capability, the inputs, the pull requests, the approval, the rollout, the probes and the result. The record is a custom resource on the hub ("+actions.Group+"/"+actions.Version+" "+actions.Kind+"), read with the manager's own ServiceAccount."),
+		mcp.WithDescription("Read-only. One Action record by name — an enablement or reconcile a person committed: the actor, the installations, the capability, the inputs, the pull requests, the approval, the rollout, the probes and the result. The record is a custom resource on the hub ("+actions.Group+"/"+actions.Version+" "+actions.Kind+"), read with the manager's own ServiceAccount. The record follows GitHub, read as you (at most once a minute per action): a pull request merged outside "+ToolMergeAction+" is recorded merged with its commit, time and mergedBy and the action rolls out as after the merge (the approval recorded as merged without approval by whom), one closed unmerged fails the action naming it, and a fileset gone from the default branch again moves the action to removed, naming the objects left on the installation (orphans) for a person to delete."),
 		mcp.WithReadOnlyHintAnnotation(true), mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithString(ArgName, mcp.Required(), mcp.Description("The Action's name.")),
 	), t.getAction)
 	s.AddTool(mcp.NewTool(ToolListActions,
-		mcp.WithDescription("Read-only. The Action records on the hub, newest first; narrow with installation and capability."),
+		mcp.WithDescription("Read-only. The Action records on the hub, newest first, each following GitHub as "+ToolGetAction+" does; narrow with installation and capability."),
 		mcp.WithReadOnlyHintAnnotation(true), mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithString(ArgInstallation, mcp.Description("Only actions that include this installation.")),
 		mcp.WithString(ArgCapability, mcp.Description("Only actions of this capability."), mcp.Enum(installations.CapabilityNames()...)),
@@ -73,7 +73,10 @@ func (t *Tools) getAction(ctx context.Context, req mcp.CallToolRequest) (*mcp.Ca
 		return result(nil, errors.New(ToolGetAction+" needs "+ArgName))
 	}
 	a, err := r.Get(ctx, name)
-	return result(a, err)
+	if err != nil {
+		return result(nil, err)
+	}
+	return result(t.resyncAs(ctx, a), nil)
 }
 
 func (t *Tools) listActions(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -86,13 +89,17 @@ func (t *Tools) listActions(ctx context.Context, req mcp.CallToolRequest) (*mcp.
 	if err != nil {
 		return result(nil, err)
 	}
+	t.resyncAll(ctx, list)
 	return result(ListActionsResult{Namespace: r.Namespace(), Filter: f, Actions: list}, nil)
 }
 
 // lastActions fills every report's lastAction from the newest Action naming
-// the installation and the capability, and lets an unfinished action's state
-// stand over the repositories' state: pending approval, rolling out and
-// waiting for the customer are read from the record, not the files.
+// the installation and the capability — the record following GitHub first,
+// as the caller: the portal's page reads list_installations, and that read
+// is what moves an action merged or reverted outside the manager — and lets
+// an unfinished action's state stand over the repositories' state: pending
+// approval, rolling out and waiting for the customer are read from the
+// record, not the files.
 func (t *Tools) lastActions(ctx context.Context, reports []installations.Report) error {
 	if t.d.Actions == nil {
 		return nil
@@ -101,12 +108,20 @@ func (t *Tools) lastActions(ctx context.Context, reports []installations.Report)
 	if err != nil {
 		return err
 	}
+	synced := map[string]*actions.Action{}
 	for i := range reports {
 		for j := range reports[i].Capabilities {
 			cs := &reports[i].Capabilities[j]
-			for _, a := range list {
+			for k := range list {
+				a := &list[k]
 				if a.Spec.Capability != cs.Name || !a.Includes(reports[i].Name) {
 					continue
+				}
+				if fresh, ok := synced[a.Name]; ok {
+					a = fresh
+				} else {
+					a = t.resyncAs(ctx, a)
+					synced[a.Name] = a
 				}
 				cs.LastAction = &installations.ActionRef{Name: a.Name, Result: a.Status.State}
 				if s := installations.State(a.InstallationState(reports[i].Name)); cs.State != installations.StateUnknown && s.FromAction() {
