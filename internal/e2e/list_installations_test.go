@@ -74,6 +74,8 @@ const (
 	birchPortalClientID = "Yx7portal0client0id0in0the0patch0only"
 	// hubPortalKustomization is the hub portal's directory kustomization on record: the chart line patched over the fleet base's tag.
 	hubPortalKustomization = "resources:\n  - https://github.com/giantswarm/management-cluster-bases/extras/backstage/main?ref=main\n  - app-config.yaml\npatches:\n  - patch: |\n      - op: remove\n        path: /spec/ref/tag\n      - op: add\n        path: /spec/ref/semver\n        value: '>=2.1.0 <3.0.0'\n    target: {kind: OCIRepository, name: backstage, namespace: flux-giantswarm}\n"
+	// birchPeerClientID is a portal client birch's Dex patch trusts as a peer of the authenticator, on record nowhere else.
+	birchPeerClientID = "Yx7portal0client0id0in0trusted0peers0only"
 )
 
 func portalConfig(names ...string) string {
@@ -183,6 +185,7 @@ func fixtures(g *fakeGitHub) {
 		installations.ConfigPatchPath("rowan"): "codename: rowan\nbase: acme.test\nservices:\n  muster:\n    clientId: muster-rowan\n",
 		// birch trusts a portal client that is on record in its own patch only.
 		installations.Capabilities()[0].EnabledMarker("birch"): "muster:\n  muster:\n    oauth:\n      server:\n        trustedAudiences:\n          - dex-k8s-authenticator\n          - " + birchPortalClientID + "\n",
+		installations.DexPatchPath("birch"):                    "oidc:\n  staticClients:\n    dexK8SAuthenticator:\n      trustedPeers:\n        - dex-k8s-authenticator\n        - " + birchPeerClientID + "\n",
 	})
 	g.addRepo("example/umbrella-management-clusters", map[string]string{installations.OptInPath("willow"): "optIn: false\n"})
 	g.addRepo("example/umbrella-configs", map[string]string{installations.ConfigPatchPath("willow"): "codename: willow\n"})

@@ -105,12 +105,18 @@ func (in *Input) audiences() []string {
 	return a
 }
 
-// OwnAudiences are the audiences the definition renders itself, none of them
-// a portal's: the authenticator, the kagent UI's client, the portals' client
-// and the platform's own client (musterClientID). The registry leaves them
-// out when it reads the portals' audiences back from an installation's patch.
-func OwnAudiences(musterClientID string) []string {
-	return []string{authenticatorClient, componentKagent, render.PortalDexClientID, musterClientID}
+// OwnAudiences are the ids the definition renders itself into the audience
+// and trusted-peer lists, none of them a portal's: the authenticator, the
+// kagent UI's client, the portals' client, the platform's own client
+// (musterClientID) and the hubs' token-exchange clients. The registry leaves
+// them out when it reads the portals' audiences back from an installation's
+// patches.
+func OwnAudiences(musterClientID string, hubs []string) []string {
+	own := []string{authenticatorClient, componentKagent, render.PortalDexClientID, musterClientID}
+	for _, hub := range hubs {
+		own = append(own, hubClient(hub))
+	}
+	return own
 }
 
 // portalAudiences are the Dex client ids the platform trusts for the
