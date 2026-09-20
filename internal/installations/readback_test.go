@@ -34,6 +34,9 @@ const readBackSchema = `{
   }
 }`
 
+// inputTunnelEnabled is the tunnel switch, by dotted input key.
+const inputTunnelEnabled = "tunnel.enabled"
+
 func readBackFixture(t *testing.T) *inputSchema {
 	t.Helper()
 	var s inputSchema
@@ -67,7 +70,7 @@ func TestReadBackKinds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]any{"serving.enabled": true, "tunnel.enabled": true, "portal.domain": "portal.rowan.acme.test"}
+	want := map[string]any{"serving.enabled": true, inputTunnelEnabled: true, "portal.domain": "portal.rowan.acme.test"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("read back %v, want %v", got, want)
 	}
@@ -88,7 +91,7 @@ func TestReadBackWithoutTheFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := map[string]any{"tunnel.enabled": false}; !reflect.DeepEqual(got, want) {
+	if want := map[string]any{inputTunnelEnabled: false}; !reflect.DeepEqual(got, want) {
 		t.Errorf("read back %v, want %v", got, want)
 	}
 }
@@ -123,5 +126,59 @@ func TestAgentPlatformReadsBackModelServing(t *testing.T) {
 	}
 	if want := map[string]any{"modelServing.enabled": true}; !reflect.DeepEqual(got, want) {
 		t.Errorf("read back %v, want %v", got, want)
+	}
+}
+
+// The customer-portal definition reads the portal's choices back from its
+// tree on record: the app-config is YAML text in its ConfigMap, the chart
+// line the value of the OCIRepository patch in the kustomization, the
+// sign-in installation the provider's name without its prefix, a plugin
+// present or absent by its section, the tunnel by its file.
+func TestCustomerPortalReadsBackThePortal(t *testing.T) {
+	def, _ := FindCapability(CustomerPortal)
+	dir := "management-clusters/rowan/extras/backstage/backstage/"
+	appConfig := "app:\n  title: ACME Portal\n  baseUrl: https://portal.rowan.acme.test\norganization:\n  name: ACME\ngrafana:\n  domain: https://grafana.acme.test\ngs:\n  authProvider: oidc-birch\n  friendlyLabels:\n    - selector: team\n      key: Team\n"
+	read := files(map[string]string{
+		"acme/mcs:" + dir + "app-config.yaml":                 "apiVersion: v1\nkind: ConfigMap\ndata:\n  values: |\n    backstage:\n      appConfig: |\n" + indent(appConfig, "        "),
+		"acme/mcs:" + dir + "kustomization.yaml":              "patches:\n  - patch: |\n      - op: remove\n        path: /spec/ref/tag\n      - op: add\n        path: /spec/ref/semver\n        value: '>=2.1.0 <3.0.0'\n    target: {kind: OCIRepository}\n",
+		"acme/mcs:" + dir + "tunnelport-spiffe-bundle.yaml":   "apiVersion: v1\nkind: ServiceAccount\n---\napiVersion: v1\nkind: Secret\n",
+		"acme/mcs:" + dir + "github-app-credentials.enc.yaml": "stringData:\n  values: ENC[AES256_GCM,data:abc,type:str]\n",
+	})
+	got, err := def.ReadBack(context.Background(), read, readBackInstallation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"portal.domain": "portal.rowan.acme.test", "portal.title": "ACME Portal", "portal.organization": "ACME",
+		"portal.friendlyLabels":         []any{map[string]any{"selector": "team", "key": "Team"}},
+		"federation.signInInstallation": "birch",
+		"chart.line":                    ">=2.1.0 <3.0.0",
+		"plugins.github.enabled":        false,
+		"plugins.grafana.enabled":       true, "plugins.grafana.domain": "https://grafana.acme.test",
+		"plugins.flux.enabled":   false,
+		"plugins.sentry.enabled": false,
+		inputTunnelEnabled:       true,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("read back %v, want %v", got, want)
+	}
+
+	// Without the tree: the tunnel is the one answer, its file not on record.
+	got, err = def.ReadBack(context.Background(), files(nil), readBackInstallation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]any{inputTunnelEnabled: false}; !reflect.DeepEqual(got, want) {
+		t.Errorf("read back %v from no tree, want %v", got, want)
+	}
+
+	// A provider not of the oidc-<installation> form reads back nothing.
+	read = files(map[string]string{"acme/mcs:" + dir + "app-config.yaml": "data:\n  values: |\n    backstage:\n      appConfig: |\n        gs:\n          authProvider: github\n"})
+	got, err = def.ReadBack(context.Background(), read, readBackInstallation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got["federation.signInInstallation"]; ok {
+		t.Errorf("read back %v from a provider without the prefix", got)
 	}
 }

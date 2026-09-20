@@ -504,3 +504,33 @@ func TestVerifyCapabilityReadsDocumentsByObject(t *testing.T) {
 		t.Errorf("a document dropped: %v %+v", res.Summary, diffs)
 	}
 }
+
+// The hub's portal on record, written by hand: its domain, organisation,
+// chart line and plugins are read back from its tree and the comparison
+// takes them as the record's inputs, refusing nothing and marking the tree
+// drifted from the render; the tunnel reads back off, its file not on
+// record; the title is the default.
+func TestVerifyCapabilityReadsBackThePortal(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	text, isErr := call(t, c, tools.ToolVerifyCapability, map[string]any{tools.ArgInstallation: hub, tools.ArgCapability: installations.CustomerPortal})
+	if isErr {
+		t.Fatal(text)
+	}
+	var res verify.Result
+	if err := json.Unmarshal([]byte(text), &res); err != nil {
+		t.Fatalf("decode: %v\n%s", err, text)
+	}
+	back := res.Inputs.ReadBack
+	if res.Inputs.Source != verify.Source(true, false) || res.Refused != "" || res.State != installations.StateDrifted {
+		t.Fatalf("inputs %q refused %q state %q read back %v", res.Inputs.Source, res.Refused, res.State, back)
+	}
+	if back["portal.domain"] != "portal."+hub+".example.test" || back["portal.organization"] != "Example" || back["chart.line"] != ">=2.1.0 <3.0.0" ||
+		back["plugins.github.enabled"] != false || back["plugins.grafana.enabled"] != false || back["plugins.flux.enabled"] != false || back["plugins.sentry.enabled"] != false || back["tunnel.enabled"] != false {
+		t.Fatalf("read back %v", back)
+	}
+	if portal, _ := res.Inputs.Values["portal"].(map[string]any); portal["domain"] != "portal."+hub+".example.test" || portal["title"] != "Dev Portal" {
+		t.Errorf("values %v", res.Inputs.Values)
+	}
+}
