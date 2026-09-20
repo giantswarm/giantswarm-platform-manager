@@ -66,7 +66,7 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 	// Every target is checked before anything is written: a wave that is
 	// refused for one installation is refused whole, with nothing recorded.
 	var targets []plan.Installation
-	for _, p := range out.Installations {
+	for _, p := range plans(out.Installations) {
 		switch {
 		case p.Refused != "":
 			return nil, fmt.Errorf("%s: the definition refuses the inputs on record for %s: %s — narrow the set (%s) or fix the record; nothing is committed", tool, p.Name, p.Refused, ArgInstallations)
@@ -193,13 +193,13 @@ func applyOrder(out *CapabilityResult, order []string) error {
 	if len(order) == 0 {
 		return nil
 	}
-	byName := map[string]plan.Installation{}
+	byName := map[string]DryRun{}
 	for _, p := range out.Installations {
 		byName[p.Name] = p
 	}
 	seen := map[string]bool{}
 	var names []string
-	var plans []plan.Installation
+	var plans []DryRun
 	for _, n := range order {
 		if seen[n] {
 			return fmt.Errorf("%s names %s twice", ArgOrder, n)

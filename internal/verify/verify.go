@@ -141,6 +141,42 @@ type Result struct {
 	Summary  map[Mark]int `json:"summary"`
 	// LiveCaller is who the live reads ran as, in a merged result.
 	LiveCaller string `json:"liveCaller,omitempty"`
+	// The plan's view, from the one build the comparison ran: what a commit
+	// would write for this installation (the dry run's entry, regrouped).
+	OptIn *installations.OptIn `json:"optIn,omitempty"`
+	// CommitRefused says why a commit of this plan would be refused.
+	CommitRefused    string                 `json:"commitRefused,omitempty"`
+	Files            []plan.File            `json:"files"`
+	Includes         []plan.Include         `json:"includes"`
+	Diff             map[plan.Change]int    `json:"diff"`
+	PullRequests     []plan.PullRequest     `json:"pullRequests"`
+	GeneratedSecrets []plan.GeneratedSecret `json:"generatedSecrets"`
+	SuppliedSecrets  []string               `json:"suppliedSecrets"`
+	DexClients       []plan.DexClient       `json:"dexClients"`
+	CustomerActions  []plan.CustomerAction  `json:"customerActions"`
+	Probes           []plan.Probe           `json:"probes"`
+}
+
+// view takes the plan's view into the result; the files' content only when
+// asked for.
+func (r *Result) view(p plan.Installation, content bool) {
+	r.Files, r.Includes, r.Diff = p.Files, p.Includes, p.Diff
+	r.GeneratedSecrets, r.SuppliedSecrets, r.DexClients, r.CustomerActions, r.Probes = p.GeneratedSecrets, p.SuppliedSecrets, p.DexClients, p.CustomerActions, p.Probes
+	if !content {
+		r.Files = make([]plan.File, len(p.Files))
+		for i, f := range p.Files {
+			f.Content = ""
+			r.Files[i] = f
+		}
+	}
+}
+
+// Plan is the result regrouped as the dry run's entry: what a commit would
+// write, without the marks.
+func (r Result) Plan() plan.Installation {
+	return plan.Installation{Name: r.Installation, State: r.State, OptIn: r.OptIn, Inputs: r.Inputs.Values, Refused: r.Refused, CommitRefused: r.CommitRefused,
+		Files: r.Files, Includes: r.Includes, Diff: r.Diff, GeneratedSecrets: r.GeneratedSecrets, SuppliedSecrets: r.SuppliedSecrets,
+		DexClients: r.DexClients, CustomerActions: r.CustomerActions, Probes: r.Probes}
 }
 
 // Options shape one verify.
@@ -152,6 +188,8 @@ type Options struct {
 	State        installations.State
 	Inputs       Inputs
 	Read         plan.Reader
+	// Content keeps the rendered content on the result's files.
+	Content bool
 	// Probes sends the anonymous probes; nil is a client that does not follow redirects.
 	Probes *http.Client
 }
@@ -159,7 +197,9 @@ type Options struct {
 // Compare answers the verify of opts' installation.
 func Compare(ctx context.Context, opts Options) Result {
 	r := Result{Installation: opts.Installation.Name, Capability: opts.Definition.Name, Hub: opts.Hub.Name,
-		State: opts.State, Inputs: opts.Inputs, Features: []Feature{}, Summary: map[Mark]int{}}
+		State: opts.State, Inputs: opts.Inputs, Features: []Feature{}, Summary: map[Mark]int{},
+		Files: []plan.File{}, Includes: []plan.Include{}, Diff: map[plan.Change]int{}, PullRequests: []plan.PullRequest{},
+		GeneratedSecrets: []plan.GeneratedSecret{}, SuppliedSecrets: []string{}, DexClients: []plan.DexClient{}, CustomerActions: []plan.CustomerAction{}, Probes: []plan.Probe{}}
 	feats, err := definitions.Features(opts.Definition.Name)
 	if err != nil {
 		r.Refused = err.Error()
@@ -170,12 +210,16 @@ func Compare(ctx context.Context, opts Options) Result {
 		r.Refused = err.Error()
 		return r
 	}
+	// Without inputs nothing is rendered: the file dimensions read not
+	// checked, the anonymous probes still run.
 	var c *comparison
 	if opts.Inputs.Values != nil {
-		if c, err = compare(ctx, opts); err != nil {
+		var p plan.Installation
+		if c, p, err = compare(ctx, opts); err != nil {
 			r.Refused = err.Error()
 			c = nil
 		}
+		r.view(p, opts.Content)
 	}
 	dims := assign(c, feats, r.Refused)
 	for _, fd := range feats {
@@ -199,7 +243,9 @@ func Compare(ctx context.Context, opts Options) Result {
 		f.Mark = rollUp(f.Dimensions)
 		r.Features = append(r.Features, f)
 	}
-	if r.Summary[Drifted] > 0 {
+	// Drifted is an enabled installation off its definition; one not enabled
+	// differs everywhere and keeps saying so.
+	if r.Summary[Drifted] > 0 && r.State == installations.StateEnabled {
 		r.State = installations.StateDrifted
 	}
 	return r
@@ -240,19 +286,20 @@ type fileDiff struct {
 // path differs, the values are not shown.
 const Redacted = "<encrypted>"
 
-// compare builds the plan from the inputs on record — the render, read
-// against the repositories as the caller, every file once — and names each
-// difference the plan would write an input or drift. The plan's outcome per
-// file is the comparison: a file it leaves unchanged (an encrypted file
-// whose plaintext skeleton is the render's, a shared file that differs only
-// in the entries other owners keep or their order) has no difference; a
-// file it creates or updates differs at the leaves of the file as the plan
-// writes it that are off the record.
-func compare(ctx context.Context, opts Options) (*comparison, error) {
+// compare builds the plan from the inputs — the render, read against the
+// repositories as the caller, every file once — and names each difference
+// the plan would write an input or drift. The plan's outcome per file is
+// the comparison: a file it leaves unchanged (an encrypted file whose
+// plaintext skeleton is the render's, a shared file that differs only in
+// the entries other owners keep or their order) has no difference; a file
+// it creates or updates differs at the leaves of the file as the plan
+// writes it that are off the record. The plan is the second answer, the
+// definition's refusal the error.
+func compare(ctx context.Context, opts Options) (*comparison, plan.Installation, error) {
 	rs := &reads{read: opts.Read, got: map[string]read{}}
 	p, base, err := build(ctx, opts, opts.Inputs.Values, rs.reader)
 	if err != nil {
-		return nil, err
+		return nil, p, err
 	}
 	driven := drivenPaths(opts.Inputs.Values, base, func(values map[string]any) (map[string]map[string]string, error) {
 		_, other, err := build(ctx, opts, values, rs.recorded)
@@ -270,7 +317,7 @@ func compare(ctx context.Context, opts Options) (*comparison, error) {
 		}
 		c.files[key] = fd
 	}
-	return c, nil
+	return c, p, nil
 }
 
 // build is the plan of values for opts' installation, read through read,

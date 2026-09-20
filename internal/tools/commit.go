@@ -595,7 +595,7 @@ func prBody(a *actions.Action, p plan.Installation, prs []plan.PullRequest) stri
 func findPlan(out CapabilityResult, name string) (plan.Installation, bool) {
 	for _, p := range out.Installations {
 		if p.Name == name {
-			return p, true
+			return p.Installation, true
 		}
 	}
 	return plan.Installation{}, false

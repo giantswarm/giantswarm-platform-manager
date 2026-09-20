@@ -37,10 +37,10 @@ type CapabilityResult struct {
 	DryRun     bool   `json:"dryRun"`
 	// Order is the wave's rollout order: Giant Swarm's test installations,
 	// the hub, then the customers' installations.
-	Order         []string            `json:"order"`
-	Installations []plan.Installation `json:"installations"`
-	PullRequests  []plan.PullRequest  `json:"pullRequests"`
-	Skipped       []Skipped           `json:"skipped"`
+	Order         []string           `json:"order"`
+	Installations []DryRun           `json:"installations"`
+	PullRequests  []plan.PullRequest `json:"pullRequests"`
+	Skipped       []Skipped          `json:"skipped"`
 	// Commit says what mode commit does with this plan.
 	Commit string `json:"commit"`
 }
@@ -178,38 +178,25 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 	caps := installations.Capabilities()
 	reports := reg.InspectAll(ctx, c, selected, caps)
 	out := CapabilityResult{Caller: identity.Caller(ctx), Tool: tool, Capability: def.Name, Hub: reg.Hub, DryRun: true,
-		Order: []string{}, Installations: []plan.Installation{}, PullRequests: []plan.PullRequest{}, Skipped: []Skipped{}, Commit: commitNext}
+		Order: []string{}, Installations: []DryRun{}, PullRequests: []plan.PullRequest{}, Skipped: []Skipped{}, Commit: commitNext}
 	env := &planned{c: c, hub: hub, byName: byName, reports: map[string]installations.Report{}, inputs: map[string]map[string]any{}}
-	read := readAs(c)
 	for _, r := range waveOrder(reports, hub) {
 		env.reports[r.Name] = r
 		if skip, ok := skipped(r, r.Name == one); ok {
 			out.Skipped = append(out.Skipped, skip)
 			continue
 		}
-		merged, _, err := mergeInputs(ctx, def, r, installations.Reader(read), inputs)
+		res, err := t.compare(ctx, env, r, def, inputs, content)
 		if err != nil {
 			return nil, nil, err
 		}
-		env.inputs[r.Name] = merged
-		p := plan.Build(ctx, plan.Options{Definition: def, Installation: r.Installation, Hub: hub, Inputs: merged, Content: content, Read: read})
-		p.State = capabilityState(r, def.Name)
-		p.OptIn = r.OptIn
-		switch refusal := p.FrozenRefusal(); {
-		case p.Refused != "":
-			p.CommitRefused = fmt.Sprintf("the definition refuses these inputs for %s (refused says why); nothing is committed", r.Name)
-		case r.OptIn != nil && r.OptIn.State != installations.OptedIn:
-			p.CommitRefused = fmt.Sprintf("%s is %s: %s", r.Name, r.OptIn.State, r.OptIn.HowToOptIn)
-		case refusal != "":
-			p.CommitRefused = refusal
-		}
 		out.Order = append(out.Order, r.Name)
-		out.Installations = append(out.Installations, p)
+		out.Installations = append(out.Installations, dryRun(res))
 	}
 	if err := applyOrder(&out, stringSlice(args[ArgOrder])); err != nil {
 		return nil, nil, fmt.Errorf("%s: %w", tool, err)
 	}
-	out.PullRequests = plan.PullRequests(out.Installations, byName, hub)
+	out.PullRequests = plan.PullRequests(plans(out.Installations), byName, hub)
 	return &out, env, nil
 }
 

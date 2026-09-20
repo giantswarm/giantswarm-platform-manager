@@ -110,7 +110,10 @@ func Plan(w io.Writer, r tools.CapabilityResult, content bool) error {
 		p.f("Order: %s\n", strings.Join(r.Order, ", "))
 	}
 	for _, inst := range r.Installations {
-		p.installation(inst, content)
+		p.installation(inst.Installation, content)
+		if len(inst.Summary) > 0 {
+			p.f("  Comparison: %s\n", marks(inst.Summary))
+		}
 	}
 	if len(r.PullRequests) > 0 {
 		p.f("\nPull requests, in order:\n")
@@ -434,10 +437,19 @@ func Verify(w io.Writer, r verify.Result, liveErr error) error {
 	} else if r.LiveCaller != "" {
 		p.f("Live: read as %s\n", r.LiveCaller)
 	}
-	p.f("State: %s   Inputs on record: %s\n", dash(string(r.State)), dash(r.Inputs.Source))
+	p.f("State: %s   Inputs: %s\n", dash(string(r.State)), dash(r.Inputs.Source))
 	p.f("Summary: %s\n", marks(r.Summary))
 	if r.Refused != "" {
 		p.f("Refused: %s\n", r.Refused)
+	}
+	if r.CommitRefused != "" {
+		p.f("A commit would be refused: %s\n", r.CommitRefused)
+	}
+	if len(r.Files) > 0 {
+		p.f("Files: %s\n", diff(r.Diff))
+	}
+	for _, pr := range r.PullRequests {
+		p.f("Pull request %d: %s, %d change(s)\n", pr.Order, pr.Repository, pr.Changes)
 	}
 	for _, f := range r.Features {
 		p.f("\n%s: %s (%s)\n", f.Title, f.Mark, marks(f.Marks))

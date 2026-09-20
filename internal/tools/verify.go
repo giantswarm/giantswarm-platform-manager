@@ -20,6 +20,7 @@ func verifyCapabilityTool() mcp.Tool {
 		mcp.WithString(ArgInstallation, mcp.Required(), mcp.Description("The installation to verify, by name.")),
 		mcp.WithString(ArgCapability, mcp.Description(capabilityArgDescription), mcp.Enum(installations.CapabilityNames()...)),
 		mcp.WithObject(ArgInputs, mcp.Description(inputsArgDescription)),
+		mcp.WithBoolean(ArgContent, mcp.Description("Include the rendered content of every file (default false); true answers the files as a commit would write them.")),
 	)
 }
 
@@ -42,14 +43,15 @@ func (t *Tools) verify(ctx context.Context, args map[string]any) (any, error) {
 		return nil, fmt.Errorf("%s needs %s", ToolVerifyCapability, ArgInstallation)
 	}
 	typed, _ := args[ArgInputs].(map[string]any)
-	return t.verifyInstallation(ctx, token, name, def, typed)
+	content, _ := args[ArgContent].(bool)
+	return t.verifyInstallation(ctx, token, name, def, typed, content)
 }
 
 // verifyInstallation is the verify of one installation against def as the
 // person whose token this is: the inputs from the record, the files read
 // back and the typed inputs; the tool's body, and the wave's gate between
 // two stages.
-func (t *Tools) verifyInstallation(ctx context.Context, token, name string, def installations.Capability, typed map[string]any) (*verify.Result, error) {
+func (t *Tools) verifyInstallation(ctx context.Context, token, name string, def installations.Capability, typed map[string]any, content bool) (*verify.Result, error) {
 	c, err := gh.AsPerson(t.d.GitHubAPIURL, token)
 	if err != nil {
 		return nil, err
@@ -67,14 +69,15 @@ func (t *Tools) verifyInstallation(ctx context.Context, token, name string, def 
 	if !r.Repositories.Known() {
 		return nil, fmt.Errorf("%s has no repositories on record: nothing to compare the definition against", name)
 	}
-	read := readAs(c)
-	values, back, err := mergeInputs(ctx, def, r, installations.Reader(read), typed)
+	byName := map[string]installations.Installation{}
+	for _, inst := range reg.Installations {
+		byName[inst.Name] = inst
+	}
+	env := &planned{c: c, hub: hub, byName: byName, reports: map[string]installations.Report{r.Name: r}, inputs: map[string]map[string]any{}}
+	out, err := t.compare(ctx, env, r, def, typed, content)
 	if err != nil {
 		return nil, err
 	}
-	in := verify.Inputs{Source: verify.Source(len(back) > 0, len(typed) > 0), Values: values, ReadBack: back}
-	out := verify.Compare(ctx, verify.Options{Definition: def, Installation: r.Installation, Hub: hub, State: capabilityState(r, def.Name), Inputs: in, Read: read, Probes: t.d.Probes})
-	out.Caller = identity.Caller(ctx)
-	t.d.Log.Info(ToolVerifyCapability, identity.LogAttr(ctx), "installation", name, "inputs", in.Source, "state", out.State, "summary", out.Summary)
-	return &out, nil
+	t.d.Log.Info(ToolVerifyCapability, identity.LogAttr(ctx), "installation", name, "inputs", out.Inputs.Source, "state", out.State, "summary", out.Summary)
+	return out, nil
 }

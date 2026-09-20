@@ -59,13 +59,19 @@ func minimalInputs(over map[string]any) map[string]any {
 
 func findPlan(t *testing.T, out tools.CapabilityResult, name string) plan.Installation {
 	t.Helper()
+	return findEntry(t, out, name).Installation
+}
+
+// findEntry is the dry run's entry for name: the plan with its marks.
+func findEntry(t *testing.T, out tools.CapabilityResult, name string) tools.DryRun {
+	t.Helper()
 	for _, p := range out.Installations {
 		if p.Name == name {
 			return p
 		}
 	}
 	t.Fatalf("%s is not in the plan: order %v, skipped %+v", name, out.Order, out.Skipped)
-	return plan.Installation{}
+	return tools.DryRun{}
 }
 
 // One opted-in installation without the capability: every file of the golden
@@ -95,6 +101,11 @@ func TestEnableCapabilityDryRunRendersOneInstallation(t *testing.T) {
 	}
 	if len(p.Files) < 15 || p.Diff[plan.ChangeUpdate] != 1 || p.Diff[plan.ChangeCreate] != len(p.Files)-1 {
 		t.Fatalf("files: %d, diff %v", len(p.Files), p.Diff)
+	}
+	// The entry carries the comparison's marks: the same computation as
+	// verify_capability, grouped as the plan.
+	if len(p.Features) == 0 || p.Summary[verify.AsDefined]+p.Summary[verify.DiffersByInput]+p.Summary[verify.Drifted] == 0 {
+		t.Fatalf("marks: %v, %d features", p.Summary, len(p.Features))
 	}
 	for _, f := range p.Files {
 		if f.Repository != acmeConfigs && f.Repository != acmeMCs {

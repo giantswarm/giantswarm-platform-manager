@@ -70,7 +70,7 @@ func TestPlan(t *testing.T) {
 	r := tools.CapabilityResult{
 		Caller: someone, Tool: tools.ToolEnableCapability, Capability: agentPlatform, Hub: hazel, DryRun: true,
 		Order: []string{rowan},
-		Installations: []plan.Installation{{
+		Installations: []tools.DryRun{{Summary: map[verify.Mark]int{verify.DiffersByInput: 1, verify.NotChecked: 2}, Installation: plan.Installation{
 			Name: rowan, State: installations.StateNotEnabled, OptIn: &installations.OptIn{State: installations.OptedIn},
 			CommitRefused: "the commit is not in this version",
 			Files: []plan.File{
@@ -87,7 +87,7 @@ func TestPlan(t *testing.T) {
 			CustomerActions: []plan.CustomerAction{{Installation: rowan, Action: "create the apiKeySecret", Why: "the model key is theirs"}},
 			Probes:          []plan.Probe{{ID: "muster-ready", Feature: "muster", Key: "ready"}},
 			Diff:            map[plan.Change]int{plan.ChangeCreate: 1, plan.ChangeUnchanged: 1},
-		}},
+		}}},
 		PullRequests: []plan.PullRequest{{Order: 1, Repository: acmeConfigs, Installations: []string{rowan}, Changes: 1, GeneratedSecrets: []string{"muster-valkey-password"}}},
 		Skipped:      []tools.Skipped{{Name: "alder", Reason: tools.SkippedNotOptedIn, OptIn: &installations.OptIn{HowToOptIn: "a PR by the owners"}}},
 		Commit:       "not implemented yet",
@@ -219,8 +219,10 @@ func TestCommitNamesTheActionAndItsPullRequests(t *testing.T) {
 func TestVerifyPrintsFeaturesWithMarksAndDimensions(t *testing.T) {
 	r := verify.Result{
 		Caller: someone, Installation: rowan, Capability: agentPlatform, Hub: hazel, State: "drifted",
-		Inputs:  verify.Inputs{Source: "action " + rowanAction},
+		Inputs:  verify.Inputs{Source: verify.Source(true, false)},
 		Summary: map[verify.Mark]int{verify.AsDefined: 2, verify.Drifted: 1, verify.NotChecked: 1},
+		Files:   []plan.File{{Repository: acmeConfigs, Path: "x.yaml", Change: plan.ChangeUpdate}}, Diff: map[plan.Change]int{plan.ChangeUpdate: 1},
+		PullRequests: []plan.PullRequest{{Order: 1, Repository: acmeConfigs, Installations: []string{rowan}, Changes: 1}},
 		Features: []verify.Feature{
 			{ID: kagent, Title: "kagent, the agent runtime", Mark: verify.Drifted, Marks: map[verify.Mark]int{verify.AsDefined: 1, verify.Drifted: 1, verify.NotChecked: 1},
 				Dimensions: []verify.Dimension{
@@ -243,7 +245,7 @@ func TestVerifyPrintsFeaturesWithMarksAndDimensions(t *testing.T) {
 	}
 	contains(t, buf.String(),
 		"verify agent-platform on rowan (hub hazel), as someone",
-		"State: drifted   Inputs on record: action "+rowanAction,
+		"State: drifted   Inputs: "+verify.Source(true, false), "Files: 1 update", "Pull request 1: "+acmeConfigs+", 1 change(s)",
 		"Summary: 1 drifted, 2 as defined, 1 not checked",
 		"kagent, the agent runtime: drifted (1 drifted, 1 as defined, 1 not checked)",
 		"[drifted] runtime/patch-top-level-keys (configmap: patch top-level keys)",

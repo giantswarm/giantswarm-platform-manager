@@ -142,6 +142,18 @@ func TestVerifyCapabilityAsDefined(t *testing.T) {
 	if d := dimension(t, runtime, "kagent-enabled"); d.Mark != verify.AsDefined || len(d.Files) == 0 {
 		t.Errorf("kagent-enabled: %+v", d)
 	}
+	// The plan's view rides along: every file unchanged, nothing to open,
+	// the content only when asked for.
+	if len(res.Files) == 0 || res.Diff[plan.ChangeUnchanged] != len(res.Files) || len(res.PullRequests) != 0 || res.CommitRefused != "" || res.OptIn == nil || res.OptIn.State != installations.OptedIn || len(res.Probes) == 0 {
+		t.Errorf("plan view: %d files, diff %v, %d pull requests, commit refused %q, opt-in %+v, %d probes", len(res.Files), res.Diff, len(res.PullRequests), res.CommitRefused, res.OptIn, len(res.Probes))
+	}
+	if res.Files[0].Content != "" {
+		t.Errorf("content without asking: %q", res.Files[0].Content)
+	}
+	text, isErr := call(t, c, tools.ToolVerifyCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgContent: true})
+	if isErr || !strings.Contains(text, `"content": "`) {
+		t.Errorf("content asked for: isErr %v, %.200s", isErr, text)
+	}
 	if d := dimension(t, runtime, "live-helmreleases-ready"); d.Mark != verify.NotChecked || d.Reason != verify.ReasonAuthority {
 		t.Errorf("a live dimension is not checked and says why: %+v", d)
 	}

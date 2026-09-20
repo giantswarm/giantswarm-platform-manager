@@ -75,7 +75,7 @@ func TestCommitRotatesAGeneratedValueFrozenOnRecord(t *testing.T) {
 	if isErr {
 		t.Fatal(text)
 	}
-	p := dry.Installations[0]
+	p := dry.Installations[0].Installation
 	g := generatedIn(t, p, shared.Name)
 	if !g.Rotates || g.Refusal != "" || !slices.Equal(g.FrozenIn, []string{frozenFile}) || !slices.Equal(g.Files, shared.Files) || p.CommitRefused != "" {
 		t.Fatalf("the frozen value in the dry run: %+v (commitRefused %q)", g, p.CommitRefused)
