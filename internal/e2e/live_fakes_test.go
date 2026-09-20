@@ -27,11 +27,14 @@ import (
 
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
+	"github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/platformctl/muster/mustertest"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
@@ -373,9 +376,11 @@ type musterCall struct {
 
 // fakeMuster is muster's aggregator as the manager's loop-back reaches it:
 // an MCP endpoint whose bearer names the person, the installation's
-// kubernetes tools under a family behind call_tool. The admin reads
-// everything, the viewer is forbidden Secrets, the stranger is not connected
-// to the installation.
+// kubernetes tools under a family behind call_tool, and the manager's own
+// App-pinned registration — called with the person's GitHub grant, as muster
+// puts their user token on it. The admin reads everything, the viewer is
+// forbidden Secrets, the stranger is not connected to the installation nor
+// to the manager's registration.
 type fakeMuster struct {
 	*httptest.Server
 	// insts are the installations behind the family, by the instance argument.
@@ -383,6 +388,10 @@ type fakeMuster struct {
 
 	mu    sync.Mutex
 	calls []musterCall
+	// manager is the manager's App-pinned MCP endpoint, and githubTokens
+	// the persons' GitHub grants muster puts on a call to it, by email.
+	manager      string
+	githubTokens map[string]string
 }
 
 type personKey struct{}
@@ -393,18 +402,60 @@ const authRequiredText = "auth_required: server '%s' requires authentication bef
 
 func newFakeMuster(t *testing.T, inst *fakeInstallation, installation string) *fakeMuster {
 	t.Helper()
-	m := &fakeMuster{insts: map[string]*fakeInstallation{installation: inst}}
-	tools := map[string]mustertest.Tool{}
+	m := &fakeMuster{insts: map[string]*fakeInstallation{installation: inst}, githubTokens: map[string]string{}}
+	aggregated := map[string]mustertest.Tool{}
 	for _, op := range []string{opGet, "list", "logs", opAPIResources} {
-		tools["x_"+kubernetesFamily+"_"+op] = m.kubernetes(op)
+		aggregated["x_"+kubernetesFamily+"_"+op] = m.kubernetes(op)
 	}
-	bridge := mustertest.Bridge(tools)
+	aggregated["x_"+tools.ToolPrefix+"_"+tools.ToolGetAction] = m.managerTool(tools.ToolGetAction)
+	bridge := mustertest.Bridge(aggregated)
 	m.Server = httptest.NewServer(mcpserver.NewStreamableHTTPServer(bridge, mcpserver.WithEndpointPath("/mcp"),
 		mcpserver.WithHTTPContextFunc(func(ctx context.Context, r *http.Request) context.Context {
 			return context.WithValue(ctx, personKey{}, personOf(bearer(r)))
 		})))
 	t.Cleanup(m.Close)
 	return m
+}
+
+// connect names the manager's App-pinned endpoint and the persons' GitHub
+// grants: from here on the loop-back reaches the manager's own tools as the
+// person, the way muster puts their user token on the call.
+func (m *fakeMuster) connect(manager string, githubTokens map[string]string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.manager, m.githubTokens = manager, githubTokens
+}
+
+// managerTool is one of the manager's App-pinned tools as muster serves it
+// to the person's session: called at the manager's own endpoint with the
+// person's GitHub grant; a person without one is not connected to the
+// registration and gets muster's auth_required.
+func (m *fakeMuster) managerTool(name string) mustertest.Tool {
+	return func(ctx context.Context, args map[string]any) *mcp.CallToolResult {
+		person, _ := ctx.Value(personKey{}).(string)
+		m.mu.Lock()
+		manager, token := m.manager, m.githubTokens[person]
+		m.mu.Unlock()
+		if token == "" || manager == "" {
+			return mcp.NewToolResultError(fmt.Sprintf(authRequiredText, tools.ToolPrefix, tools.ToolPrefix))
+		}
+		c, err := client.NewStreamableHttpClient(manager, transport.WithHTTPHeaders(map[string]string{"Authorization": "Bearer " + token}))
+		if err != nil {
+			return mcp.NewToolResultError(err.Error())
+		}
+		defer func() { _ = c.Close() }()
+		if err := c.Start(ctx); err != nil {
+			return mcp.NewToolResultError(err.Error())
+		}
+		if _, err := c.Initialize(ctx, mcp.InitializeRequest{}); err != nil {
+			return mcp.NewToolResultError(err.Error())
+		}
+		res, err := c.CallTool(ctx, mcp.CallToolRequest{Params: mcp.CallToolParams{Name: name, Arguments: args}})
+		if err != nil {
+			return mcp.NewToolResultError(err.Error())
+		}
+		return res
+	}
 }
 
 // serve adds an installation behind the family.

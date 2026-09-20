@@ -87,8 +87,12 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		return res, nil
 	}
 
+	def, ok := installations.FindCapability(out.Capability)
+	if !ok {
+		return nil, fmt.Errorf("%s: %q is not a capability definition", tool, out.Capability)
+	}
 	spec := actions.Spec{Actor: actions.Actor{Login: id.Login, ID: id.ID, Email: id.Email}, Capability: out.Capability, Installations: res.Order, Inputs: typed, Kind: actions.KindReconcile, Skipped: res.Skipped,
-		InputsByInstallation: map[string]map[string]any{}}
+		InputsByInstallation: map[string]map[string]any{}, Markers: markersOf(def, env, res.Order...)}
 	for _, p := range targets {
 		spec.InputsByInstallation[p.Name] = p.Inputs
 	}
@@ -102,10 +106,6 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		rollout.Installations = append(rollout.Installations, actions.InstallationRollout{Name: p.Name, State: actions.StatePendingApproval, Message: fmt.Sprintf("stage %d of %d", i+1, len(targets))})
 	}
 	spec.Change = strings.Join(changes, "; ")
-	def, ok := installations.FindCapability(out.Capability)
-	if !ok {
-		return nil, fmt.Errorf("%s: %q is not a capability definition", tool, out.Capability)
-	}
 	name, err := actions.NewName(actions.KindReconcile, "wave")
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)

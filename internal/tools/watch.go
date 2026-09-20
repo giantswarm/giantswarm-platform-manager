@@ -90,8 +90,14 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", ToolWatchAction, err)
 	}
+	note := t.resyncThroughMuster(ctx, token, id, a)
+	if note == "" {
+		if a, err = t.d.Actions.Get(ctx, name); err != nil {
+			return nil, fmt.Errorf("%s: %w", ToolWatchAction, err)
+		}
+	}
 	if !slices.Contains(watchable, a.Status.State) {
-		return nil, fmt.Errorf("%s: action %s is %s%s — the watch follows an action rolling out and re-reads one waiting for the customer or enabled", ToolWatchAction, a.Name, a.Status.State, decidedBy(a))
+		return nil, fmt.Errorf("%s: action %s is %s%s — the watch follows an action rolling out and re-reads one waiting for the customer or enabled%s", ToolWatchAction, a.Name, a.Status.State, decidedBy(a), noteClause(note))
 	}
 	def, ok := installations.FindCapability(a.Spec.Capability)
 	if !ok {
@@ -101,7 +107,7 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 	status.Rollout = stagesOf(a)
 	i, why := watchedStage(a, status.Rollout)
 	if i < 0 {
-		return nil, fmt.Errorf("%s: %s", ToolWatchAction, why)
+		return nil, fmt.Errorf("%s: %s%s", ToolWatchAction, why, noteClause(note))
 	}
 	st := &status.Rollout.Installations[i]
 	inputs := a.InputsOnRecord(st.Name)
@@ -120,7 +126,6 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 	st.Objects, st.WatchedAt, st.WatchedBy = objects, now(), id.String()
 	status.Probes = mergeProbes(status.Probes, st.Name, probesOf(st.Name, res))
 	out := WatchResult{Installation: st.Name, Objects: objects, Ready: ready, Verify: &res}
-	var note string
 	if prev == actions.StateRollingOut && !ready {
 		st.Message = rolloutMessage(objects)
 		out.Next = "call " + ToolWatchAction + " again once Flux has reconciled the installation; nothing is hurried"
@@ -134,8 +139,10 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 		applyStage(&status, i, prev)
 		if st.ReportedAt == nil {
 			out.Report = t.report(a, status, i, res, customerActions(def, inputs))
-			if note = t.postResult(ctx, a, out.Report); note == "" {
+			if told := t.postResult(ctx, a, out.Report); told == "" {
 				st.ReportedAt = now()
+			} else {
+				note = strings.TrimSpace(note + " " + told)
 			}
 		}
 		out.Next = nextAfter(a, status, i)
@@ -151,6 +158,34 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 		out.Message += " " + note
 	}
 	return out, nil
+}
+
+// resyncThroughMuster has the App-pinned registration re-read a as the
+// person before the watch decides: the live path carries the person's ID
+// token and no GitHub token, and muster puts their GitHub token on a call to
+// the manager's own get_action, which reads the pull requests and the
+// markers from GitHub and records what changed — so an action whose pull
+// requests were merged outside the manager is watched all the same. It
+// answers "" when the record was re-read, else the note for the answer: the
+// person is not connected to the App-pinned registration in muster, or the
+// call failed; the record stands as it was.
+func (t *Tools) resyncThroughMuster(ctx context.Context, token string, id *identity.Identity, a *actions.Action) string {
+	if !t.due(a) {
+		return ""
+	}
+	if _, err := t.d.Live.Call(ctx, token, id, musterTool(ToolGetAction), map[string]any{ArgName: a.Name}); err != nil {
+		t.d.Log.Info("action_resync_skipped", identity.LogAttr(ctx), "action", a.Name, "error", err.Error())
+		return fmt.Sprintf("(The pull requests were not re-read from GitHub as you: %v; %s on the %s registration reads them.)", err, ToolGetAction, ToolPrefix)
+	}
+	return ""
+}
+
+// noteClause appends a note to a refusal.
+func noteClause(note string) string {
+	if note == "" {
+		return ""
+	}
+	return " " + note
 }
 
 // watchedStage is the index of the stage the watch reads: the one rolling

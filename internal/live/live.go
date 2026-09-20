@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -288,6 +289,36 @@ func (c *Client) session(ctx context.Context, sub, token string) (*session, erro
 	c.sessions[sub] = s
 	c.log.Info("loop-back session opened", "sub", sub, "muster", c.cfg.MusterURL)
 	return s, nil
+}
+
+// Call runs one of the aggregator's tools through the person's loop-back
+// session and answers its text: the manager's own App-pinned registration
+// among them, which muster calls with the person's GitHub token — how the
+// live path, which holds no GitHub token, has an Action record follow GitHub
+// as the person. A tool muster does not list for the person (a registration
+// they are not connected to) is refused without waiting; the tool's own
+// refusal is an error carrying its text, muster's auth_required among them.
+func (c *Client) Call(ctx context.Context, token string, id *identity.Identity, tool string, args map[string]any) (string, error) {
+	s, err := c.session(ctx, id.Subject, token)
+	if err != nil {
+		return "", err
+	}
+	names, err := s.s.Tools(ctx)
+	if err != nil {
+		return "", err
+	}
+	if !slices.Contains(names, tool) {
+		return "", fmt.Errorf("muster lists no %s for %s: the person is not connected to that registration", tool, id.String())
+	}
+	res, err := s.s.Call(ctx, tool, args)
+	if err != nil {
+		return "", err
+	}
+	text := aggregator.TextOf(res)
+	if res.IsError {
+		return "", classify(text)
+	}
+	return text, nil
 }
 
 // Close ends every loop-back session.

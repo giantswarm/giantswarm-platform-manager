@@ -110,3 +110,56 @@ func DefaultBranch(ctx context.Context, c *github.Client, owner, repo string) (s
 	}
 	return r.GetDefaultBranch(), nil
 }
+
+// PullRequestState is a pull request as GitHub has it now: open, merged or
+// closed unmerged, with the merge's commit, time and login when merged.
+type PullRequestState struct {
+	// State is open or closed; Merged says a closed one was merged.
+	State       string
+	Merged      bool
+	MergeCommit string
+	MergedAt    *time.Time
+	MergedBy    string
+	ClosedAt    *time.Time
+	HeadSHA     string
+}
+
+// The states GitHub answers for a pull request.
+const (
+	PullRequestOpen   = "open"
+	PullRequestClosed = "closed"
+)
+
+// PullRequest reads owner/repo#number as the person: what the record of an
+// action follows, whoever merged or closed it. A pull request the person
+// cannot see is ErrNotFound, a refused one ErrForbidden.
+func PullRequest(ctx context.Context, c *github.Client, owner, repo string, number int) (PullRequestState, error) {
+	pr, _, err := c.PullRequests.Get(ctx, owner, repo, number)
+	if err != nil {
+		return PullRequestState{}, fmt.Errorf("github: %s/%s#%d: %w", owner, repo, number, classify(err))
+	}
+	st := PullRequestState{State: pr.GetState(), Merged: pr.GetMerged(), MergeCommit: pr.GetMergeCommitSHA(), MergedBy: pr.GetMergedBy().GetLogin(), HeadSHA: pr.GetHead().GetSHA()}
+	if t := pr.GetMergedAt(); !t.IsZero() {
+		at := t.UTC()
+		st.MergedAt = &at
+	}
+	if t := pr.GetClosedAt(); !t.IsZero() {
+		at := t.UTC()
+		st.ClosedAt = &at
+	}
+	return st, nil
+}
+
+// FileExists says whether path is on the default branch of owner/repo, read
+// as the person: false for an absent file, an error for anything the person
+// could not read.
+func FileExists(ctx context.Context, c *github.Client, owner, repo, path string) (bool, error) {
+	_, err := ReadFile(ctx, c, owner, repo, path)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, ErrNotFound):
+		return false, nil
+	}
+	return false, err
+}

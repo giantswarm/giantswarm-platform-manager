@@ -220,11 +220,10 @@ func TestWaveAdvancesOnceTheWatchSaysEnabled(t *testing.T) {
 	if th := thread(t, st); len(th) != 4 || !strings.Contains(th[3], "(stage 2 of 2)") || !strings.Contains(th[3], "Done: the action is "+actions.StateEnabled) {
 		t.Fatalf("the thread: %q", th)
 	}
-	// list_installations reads the files' state again (the fake GitHub store
-	// is not synced from the remote after a merge: birch carried the marker
-	// in the fixtures, rowan did not) with the wave's result as the last action.
+	// list_installations reads the files' state again — both markers on the
+	// default branch since the merges — with the wave's result as the last action.
 	li, text, isErr := listInstallations(t, aliceC, map[string]any{tools.ArgInstallations: []string{birch, rowan}})
-	if isErr || find(t, li, birch).Capabilities[0].State != installations.StateEnabled || find(t, li, rowan).Capabilities[0].LastAction.Result != actions.StateEnabled {
+	if isErr || find(t, li, birch).Capabilities[0].State != installations.StateEnabled || find(t, li, rowan).Capabilities[0].State != installations.StateEnabled || find(t, li, rowan).Capabilities[0].LastAction.Result != actions.StateEnabled {
 		t.Fatalf("list_installations after the wave: %v %s", isErr, text)
 	}
 	if _, text, isErr := mergeCall(t, aliceC, a.Name); !isErr || !strings.Contains(text, actions.StateEnabled) {

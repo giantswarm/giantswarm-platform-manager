@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -15,29 +16,47 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/giantswarm/gitops-commit/commit"
 )
 
 // fakeGitHub answers the calls of the identity chain and the registry reads:
 // GET /user as the person — the bearer verification — and GET
-// /repos/{owner}/{repo}/contents/{path} for the fixture repositories, and
-// GET /repos/{owner}/{repo} naming their default branch. A
-// repository that is not a fixture is 404 (as GitHub answers for one the
-// person may not see), one in forbidden is 403, a missing file 404. Every
-// other path is 404.
+// /repos/{owner}/{repo}/contents/{path} for the fixture repositories, GET
+// /repos/{owner}/{repo} naming their default branch, and GET
+// /repos/{owner}/{repo}/pulls/{number} for the pull requests the in-process
+// remote holds (the stack's pull hook answers them from the remote's state
+// and its record of who merged or closed each one). A repository that is
+// not a fixture is 404 (as GitHub answers for one the person may not see),
+// one in forbidden is 403, a missing file or pull request 404. Every other
+// path is 404. A merge on the remote is mirrored into the store (mirror), so
+// the default branch reads as GitHub would have it after the merge.
 type fakeGitHub struct {
 	*httptest.Server
 	logins map[string]string // person user token → login
 	// userCalls counts GET /user: the server under test caches a verified
 	// bearer, so the count proves the cache.
 	userCalls atomic.Int64
+	// pull answers a pull request of owner/repo by number, as the remote
+	// has it; nil answers none.
+	pull func(repo string, number int) (fakePull, bool)
 
 	mu        sync.Mutex
 	files     map[string]map[string]string // owner/repo → path → content
 	forbidden map[string]bool
 	// contentsCalls counts the content reads per owner/repo:path.
 	contentsCalls map[string]int
+}
+
+// fakePull is a pull request as the fake GitHub answers it.
+type fakePull struct {
+	Merged, Closed bool
+	HeadSHA        string
+	MergeCommit    string
+	MergedBy       string
+	At             time.Time
+	URL            string
 }
 
 // message is the key of GitHub's error bodies; nameKey the name of a file
@@ -50,8 +69,13 @@ const (
 // defaultBranch is every fixture repository's default branch.
 const defaultBranch = "main"
 
-// badCredentials is GitHub's message for a bearer it does not know.
-const badCredentials = "Bad credentials"
+// GitHub's messages: for a bearer it does not know, for a repository the
+// App is not installed on, for a file or pull request that is not there.
+const (
+	badCredentials = "Bad credentials"
+	notAccessible  = "Resource not accessible by integration"
+	notFound       = "Not Found"
+)
 
 func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 	t.Helper()
@@ -76,9 +100,9 @@ func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 		defer g.mu.Unlock()
 		switch {
 		case g.forbidden[repo]:
-			writeJSON(w, http.StatusForbidden, map[string]any{message: "Resource not accessible by integration"})
+			writeJSON(w, http.StatusForbidden, map[string]any{message: notAccessible})
 		case g.files[repo] == nil:
-			writeJSON(w, http.StatusNotFound, map[string]any{message: "Not Found"})
+			writeJSON(w, http.StatusNotFound, map[string]any{message: notFound})
 		default:
 			writeJSON(w, http.StatusOK, map[string]any{"full_name": repo, "default_branch": defaultBranch})
 		}
@@ -94,20 +118,77 @@ func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 		defer g.mu.Unlock()
 		g.contentsCalls[repo+":"+p]++
 		if g.forbidden[repo] {
-			writeJSON(w, http.StatusForbidden, map[string]any{message: "Resource not accessible by integration"})
+			writeJSON(w, http.StatusForbidden, map[string]any{message: notAccessible})
 			return
 		}
 		content, ok := g.files[repo][p]
 		if !ok {
-			writeJSON(w, http.StatusNotFound, map[string]any{message: "Not Found"})
+			writeJSON(w, http.StatusNotFound, map[string]any{message: notFound})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{typeKey: "file", "encoding": "base64", nameKey: path.Base(p), "path": p,
 			"content": base64.StdEncoding.EncodeToString([]byte(content))})
 	})
+	mux.HandleFunc("GET /api/v3/repos/{owner}/{repo}/pulls/{number}", func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := g.logins[bearer(r)]; !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{message: badCredentials})
+			return
+		}
+		repo := r.PathValue("owner") + "/" + r.PathValue("repo")
+		number, _ := strconv.Atoi(r.PathValue("number"))
+		g.mu.Lock()
+		forbidden, pull := g.forbidden[repo], g.pull
+		g.mu.Unlock()
+		if forbidden {
+			writeJSON(w, http.StatusForbidden, map[string]any{message: notAccessible})
+			return
+		}
+		var p fakePull
+		ok := false
+		if pull != nil {
+			p, ok = pull(repo, number)
+		}
+		if !ok {
+			writeJSON(w, http.StatusNotFound, map[string]any{message: notFound})
+			return
+		}
+		doc := map[string]any{"number": number, "state": "open", "merged": false, "html_url": p.URL, "head": map[string]any{"sha": p.HeadSHA}}
+		switch {
+		case p.Merged:
+			doc["state"], doc["merged"], doc["merge_commit_sha"] = "closed", true, p.MergeCommit
+			doc["merged_at"], doc["closed_at"] = p.At.UTC().Format(time.RFC3339), p.At.UTC().Format(time.RFC3339)
+			if p.MergedBy != "" {
+				doc["merged_by"] = map[string]any{"login": p.MergedBy, "id": userID(p.MergedBy)}
+			}
+		case p.Closed:
+			doc["state"], doc["closed_at"] = "closed", p.At.UTC().Format(time.RFC3339)
+		}
+		writeJSON(w, http.StatusOK, doc)
+	})
 	g.Server = httptest.NewServer(mux)
 	t.Cleanup(g.Close)
 	return g
+}
+
+// mirror brings the store of owner/repo from the tree before a merge to the
+// tree after it — the files the merge added or changed set, the ones it
+// removed deleted — leaving every other file of the store as it is.
+func (g *fakeGitHub) mirror(repo string, before, after map[string][]byte) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.files[repo] == nil {
+		g.files[repo] = map[string]string{}
+	}
+	for p, content := range after {
+		if was, ok := before[p]; !ok || string(was) != string(content) {
+			g.files[repo][p] = string(content)
+		}
+	}
+	for p := range before {
+		if _, kept := after[p]; !kept {
+			delete(g.files[repo], p)
+		}
+	}
 }
 
 // addRepo makes owner/repo a fixture with files.
@@ -140,6 +221,14 @@ func (g *fakeGitHub) forbid(repo string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.forbidden[repo] = true
+}
+
+// has says whether the store of owner/repo carries path.
+func (g *fakeGitHub) has(repo, p string) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	_, ok := g.files[repo][p]
+	return ok
 }
 
 // reads is how often owner/repo:path was read.
@@ -383,10 +472,95 @@ func (r asRemote) Approve(ctx context.Context, pr commit.PullRequest, body strin
 
 func (r asRemote) Close(ctx context.Context, pr commit.PullRequest, deleteBranch bool) error {
 	r.st.record(r.login, commit.OpClose, pr)
-	return r.Remote.Close(ctx, pr, deleteBranch)
+	return r.st.close(ctx, r.Remote, pr, deleteBranch)
 }
 
 func (r asRemote) Merge(ctx context.Context, pr commit.PullRequest) error {
 	r.st.record(r.login, commit.OpMerge, pr)
-	return r.Remote.Merge(ctx, pr)
+	return r.st.merge(ctx, r.Remote, pr, r.login)
+}
+
+// pullFacts is who merged or closed a pull request, and when — what GitHub
+// knows and gitops-commit's Fake does not record.
+type pullFacts struct {
+	login string
+	at    time.Time
+}
+
+func pullKey(repo commit.Repository, number int) string { return fmt.Sprintf("%s#%d", repo, number) }
+
+// merge merges pr on remote as login — through the manager or outside it —
+// and mirrors the merged tree into the fake GitHub's store, as GitHub would
+// show the default branch after the merge, recording who merged when.
+func (st *stack) merge(ctx context.Context, remote commit.Remote, pr commit.PullRequest, login string) error {
+	before := st.remote.Files(pr.Repository, defaultBranch)
+	if err := remote.Merge(ctx, pr); err != nil {
+		return err
+	}
+	st.ghs.mirror(pr.Repository.String(), before, st.remote.Files(pr.Repository, defaultBranch))
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.pulls[pullKey(pr.Repository, pr.Number)] = pullFacts{login: login, at: time.Now()}
+	return nil
+}
+
+// close closes pr unmerged on remote, recording when.
+func (st *stack) close(ctx context.Context, remote commit.Remote, pr commit.PullRequest, deleteBranch bool) error {
+	if err := remote.Close(ctx, pr, deleteBranch); err != nil {
+		return err
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.pulls[pullKey(pr.Repository, pr.Number)] = pullFacts{at: time.Now()}
+	return nil
+}
+
+// pullState answers the fake GitHub's pull request read from the remote's
+// state and the stack's facts: what a person merging or closing by hand
+// leaves for the manager to read.
+func (st *stack) pullState(repo string, number int) (fakePull, bool) {
+	for _, pr := range st.remote.PullRequests() {
+		if pr.Repository.String() != repo || pr.Number != number {
+			continue
+		}
+		st.mu.Lock()
+		facts := st.pulls[pullKey(pr.Repository, pr.Number)]
+		st.mu.Unlock()
+		p := fakePull{Merged: pr.Merged, Closed: pr.Closed, HeadSHA: pr.HeadSHA, MergedBy: facts.login, At: facts.at, URL: pr.URL}
+		if pr.Merged {
+			// The Fake fast-forwards the base: the merge commit is the head.
+			p.MergeCommit = pr.HeadSHA
+		}
+		return p, true
+	}
+	return fakePull{}, false
+}
+
+// mergeOutside merges pr as login with the repository's own merge path —
+// nothing tells the manager.
+func (st *stack) mergeOutside(t *testing.T, pr commit.PullRequest, login string) {
+	t.Helper()
+	if err := st.merge(context.Background(), st.remote, pr, login); err != nil {
+		t.Fatalf("merge %s#%d as %s: %v", pr.Repository, pr.Number, login, err)
+	}
+}
+
+// closeOutside closes pr unmerged, outside the manager.
+func (st *stack) closeOutside(t *testing.T, pr commit.PullRequest) {
+	t.Helper()
+	if err := st.close(context.Background(), st.remote, pr, true); err != nil {
+		t.Fatalf("close %s#%d: %v", pr.Repository, pr.Number, err)
+	}
+}
+
+// revertOutside reverts a merged pr by hand as login: the revert pull
+// request opened and merged with the repository's own merge path, so the
+// files the pull request added leave the default branch again.
+func (st *stack) revertOutside(t *testing.T, pr commit.PullRequest, login string) {
+	t.Helper()
+	revert, err := st.remote.Revert(context.Background(), pr, "Reverted by hand.", nil)
+	if err != nil {
+		t.Fatalf("revert %s#%d: %v", pr.Repository, pr.Number, err)
+	}
+	st.mergeOutside(t, revert, login)
 }

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -82,7 +83,11 @@ type Deps struct {
 	// loop-back sessions verify_installation reads through; nil when the
 	// live path is not configured, and get_info says so.
 	Live *live.Client
-	Log  *slog.Logger
+	// ResyncInterval is how old an Action's picture of GitHub may be before
+	// a read of the record reads its pull requests and markers again, as
+	// the reader; zero is DefaultResyncInterval.
+	ResyncInterval time.Duration
+	Log            *slog.Logger
 }
 
 // Definition is a capability definition as get_info reports it: the name,

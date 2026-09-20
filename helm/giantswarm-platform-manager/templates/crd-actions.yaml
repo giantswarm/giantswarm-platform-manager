@@ -89,13 +89,17 @@ spec:
                   description: The inputs each installation of the set was rendered from at commit, the typed inputs over the facts on record, by installation; never a secret value.
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
+                markers:
+                  description: Per installation, the definition's enabled marker resolved to the installation's repository (owner/repo:path), whose absence from the default branch after the merge means the fileset was reverted.
+                  type: object
+                  additionalProperties: {type: string}
             status:
               type: object
               properties:
                 state:
-                  description: The action's state, one of the installations' states an action produces, or refused (the opt-in gate refused it before any write).
+                  description: The action's state, one of the installations' states an action produces, or the action's own — refused (the opt-in gate refused it before any write), denied (a member withdrew it), removed (the fileset it wrote left the default branch again).
                   type: string
-                  enum: ["pending approval", "rolling out", "waiting for the customer", enabled, drifted, failed, refused, denied]
+                  enum: ["pending approval", "rolling out", "waiting for the customer", enabled, drifted, failed, refused, denied, removed]
                 pullRequests:
                   type: array
                   items:
@@ -109,6 +113,10 @@ spec:
                       state: {type: string}
                       head: {type: string}
                       headSha: {type: string}
+                      mergeCommit: {type: string}
+                      mergedAt: {type: string, format: date-time}
+                      mergedBy: {type: string}
+                      closedAt: {type: string, format: date-time}
                 rotated:
                   description: The generated values the commit drew anew over a value on record, by name — a new file needed a value frozen in an existing encrypted file, so every file of the name got the new one.
                   type: array
@@ -172,4 +180,20 @@ spec:
                     state: {type: string}
                     message: {type: string}
                     at: {type: string, format: date-time}
+                syncedAt:
+                  description: When the record last followed GitHub — the pull requests and the merged stages' markers read — and as whom (syncedBy), the person reading the record.
+                  type: string
+                  format: date-time
+                syncedBy: {type: string}
+                orphans:
+                  description: On a removed action whose definition's Kustomization does not prune, the objects the definition rendered on the installations that stay until a person deletes them.
+                  type: array
+                  items:
+                    type: object
+                    required: [installation, kind, name]
+                    properties:
+                      installation: {type: string}
+                      kind: {type: string}
+                      namespace: {type: string}
+                      name: {type: string}
 {{- end }}
