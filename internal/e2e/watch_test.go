@@ -330,7 +330,9 @@ func TestVerifyInstallationFlipsWaitingToEnabled(t *testing.T) {
 	}
 }
 
-// A red probe that is not the customer's fails the action, naming it; the
+// A red probe that is not the customer's fails the action, naming it (the
+// anonymous metadata probe and the live one read the same URL, so both are
+// red); the
 // report says so in the thread — and when the gateway no longer holds the
 // review, the answer says the thread could not be told and the record
 // stands. A failed action is over for the watch and the merge.
@@ -351,11 +353,11 @@ func TestWatchActionFailsNamingTheProbe(t *testing.T) {
 	st.gateway.forget(a.Status.Approval.ReviewID)
 
 	w, text, isErr := watchCall(t, admin, a.Name)
-	if isErr || !w.Ready || w.State != actions.StateFailed || len(w.Red) != 1 || !strings.Contains(w.Red[0], edgeProbe) || !strings.Contains(w.Red[0], "404") ||
+	if isErr || !w.Ready || w.State != actions.StateFailed || len(w.Red) != 2 || !strings.Contains(strings.Join(w.Red, "\n"), edgeProbe) || !strings.Contains(strings.Join(w.Red, "\n"), "404") ||
 		w.Action.Status.State != actions.StateFailed || w.Action.Status.Result == nil || w.Action.Status.Result.State != actions.StateFailed || w.Action.Status.Rollout.FinishedAt == nil {
 		t.Fatalf("failed: %v %s", isErr, text)
 	}
-	if msg := w.Action.Status.Result.Message; !strings.HasPrefix(msg, rowan+" failed: a probe is red: "+edgeProbe) || strings.Contains(msg, "stay open") {
+	if msg := w.Action.Status.Result.Message; !strings.HasPrefix(msg, rowan+" failed: a probe is red: ") || !strings.Contains(msg, edgeProbe) || strings.Contains(msg, "stay open") {
 		t.Fatalf("the result: %q", msg)
 	}
 	for _, want := range []string{"*" + rowan + "* is *" + actions.StateFailed + "*", "❌ " + edgeProbe + " (tool-access): ", "answered 404", "The action is failed."} {
