@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `list_installations {summary: true}`: the states and the last actions alone, without the record, the inputs on record, the portals and the federation facts — a third of the reads, for a fleet overview such as the Dev Portal's Installations page. The answer says `summary: true`; the default answer is unchanged.
+
+### Changed
+
+- Every GitHub read of a call runs at once, bounded at the client — 32 requests in flight at most, well under GitHub's 100 — instead of eight installations at a time with each installation's six reads one after another and a hub's federation targets read one by one. The owner's shared default config (`default/config.yaml`), which every installation without its own client id falls back to, is read once per call instead of once per installation. A full listing of a fleet of 43 installations that took 21 seconds through muster answers in a few; the `list_installations` log line carries `reads` and `duration_ms`.
+
 ### Fixed
 
 - An Action whose pull requests were merged outside `merge_action` — by a person with the repository's own merge path — no longer stays *pending approval* with its pull requests listed `open`, no rollout watched and `merge_action` refused for want of an approval. The record follows GitHub on every read: `get_action`, `list_actions`, `list_installations` (the portal's page), the approval tools before they decide and `watch_action` — which carries no GitHub token on the live path and so has the App-pinned registration re-read the action as the person through muster first — read the action's open pull requests as the person reading, at most once a minute per action (`status.syncedAt`, `syncedBy`). A pull request merged outside the manager is recorded `merged` with its `mergeCommit`, `mergedAt` and `mergedBy`; once every pull request of the stage in flight is merged the action moves to *rolling out* as after `merge_action`, the approval recorded as *merged without approval by <login>* when the team had not decided and the review's thread told, and the rollout watch and the probes follow. A pull request closed unmerged moves the action to *failed* naming it and any pull request left open. `merge_action`'s own merges record `mergedBy` and `mergedAt` too, and the next read fills the merge commit in (gitops-commit's merge answers none). A denied wave's stages read *denied*, not *pending approval*, so the files' state stands for each installation in `list_installations`. Scenario tests: both pull requests merged by hand, the watch as the first read after them, one closed by hand. The manager holds no token of its own, so nothing resyncs unattended: the record is at most a minute behind GitHub whenever anyone reads it.

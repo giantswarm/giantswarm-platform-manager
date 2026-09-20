@@ -349,16 +349,9 @@ func (r *Registry) Portals(ctx context.Context, c *github.Client, insts []Instal
 	hosts := r.portalHosts(insts)
 	found := make([]*Portal, len(hosts))
 	errs := make([]error, len(hosts))
-	sem := make(chan struct{}, maxParallel)
 	var wg sync.WaitGroup
 	for i, host := range hosts {
-		wg.Add(1)
-		go func(i int, host Installation) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			found[i], errs[i] = r.readPortal(ctx, c, host)
-		}(i, host)
+		wg.Go(func() { found[i], errs[i] = r.readPortal(ctx, c, host) })
 	}
 	wg.Wait()
 	failed = map[string]error{}
@@ -389,6 +382,19 @@ func (r *Registry) derive(ctx context.Context, c *github.Client, reports []Repor
 	for i := range reports {
 		byName[reports[i].Name] = &reports[i]
 	}
+	// Every read at once — a hub brokers for a fleet's worth of targets —
+	// and the reports written only once every read is in, in order.
+	type derived struct {
+		targets   []string
+		found     []FederatedTarget
+		errs      []error
+		broker    string
+		brkErr    error
+		audiences []string
+		audErr    error
+	}
+	results := make([]derived, len(reports))
+	var wg sync.WaitGroup
 	for i := range reports {
 		rep := &reports[i]
 		if rep.Record == nil {
@@ -396,25 +402,40 @@ func (r *Registry) derive(ctx context.Context, c *github.Client, reports []Repor
 		}
 		targets := rep.derivePortals(portals)
 		rep.Record.Private = tunnelled(portals, rep.Name)
-		ids, err := portalAudiences(ctx, c, *rep)
-		if err != nil {
-			rep.fail(fmt.Sprintf("the portal audiences: %v", err))
-		}
-		rep.PortalAudiences = append(rep.PortalAudiences, ids...)
-		for _, name := range targets {
-			target, err := r.target(ctx, c, name, byName[name], tunnelled(portals, name), proxied(portals, rep.Name, name))
-			if err != nil {
-				rep.fail(fmt.Sprintf("federation target %s: %v", name, err))
-				continue
-			}
-			rep.Federation.Targets = append(rep.Federation.Targets, target)
+		res := &results[i]
+		res.targets, res.found, res.errs = targets, make([]FederatedTarget, len(targets)), make([]error, len(targets))
+		wg.Go(func() { res.audiences, res.audErr = portalAudiences(ctx, c, *rep) })
+		for j, name := range targets {
+			wg.Go(func() {
+				res.found[j], res.errs[j] = r.target(ctx, c, name, byName[name], tunnelled(portals, name), proxied(portals, rep.Name, name))
+			})
 		}
 		if len(targets) > 0 {
-			id, err := brokerClientID(ctx, c, *rep)
-			if err != nil {
-				rep.fail(fmt.Sprintf("the broker client id: %v", err))
+			wg.Go(func() { res.broker, res.brkErr = brokerClientID(ctx, c, *rep) })
+		}
+	}
+	wg.Wait()
+	for i := range reports {
+		rep, res := &reports[i], results[i]
+		if rep.Record == nil {
+			continue
+		}
+		if res.audErr != nil {
+			rep.fail(fmt.Sprintf("the portal audiences: %v", res.audErr))
+		}
+		rep.PortalAudiences = append(rep.PortalAudiences, res.audiences...)
+		for j, name := range res.targets {
+			if res.errs[j] != nil {
+				rep.fail(fmt.Sprintf("federation target %s: %v", name, res.errs[j]))
+				continue
 			}
-			rep.Federation.BrokerClientID = id
+			rep.Federation.Targets = append(rep.Federation.Targets, res.found[j])
+		}
+		if len(res.targets) > 0 {
+			if res.brkErr != nil {
+				rep.fail(fmt.Sprintf("the broker client id: %v", res.brkErr))
+			}
+			rep.Federation.BrokerClientID = res.broker
 		}
 	}
 }
@@ -470,7 +491,7 @@ func (r *Registry) target(ctx context.Context, c *github.Client, name string, in
 		if err != nil {
 			return FederatedTarget{}, err
 		}
-		if rec, err = readRecord(ctx, c, owner, repo, inst); err != nil {
+		if rec, err = r.readRecord(ctx, c, owner, repo, inst); err != nil {
 			return FederatedTarget{}, err
 		}
 	}
