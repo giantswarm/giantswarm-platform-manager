@@ -41,7 +41,8 @@ const (
 	NotChecked     Mark = "not checked"
 )
 
-// The reasons a dimension is not checked.
+// The reasons a dimension is not checked. A probe's own — no Dex client to
+// run for, a target unreachable from the manager — are next to probe in probes.go.
 const (
 	ReasonAuthority  = "needs the person's authority on the installation: verify_installation, the live registration's tool, checks it"
 	ReasonNoInputs   = "no inputs on record: no action has rendered this capability for the installation yet"

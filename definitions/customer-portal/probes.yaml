@@ -5,7 +5,8 @@
 # url is a Go template over {{.BaseDomain}} (the installation's), {{.Installation}} (its codename),
 # {{.PortalDomain}} (the portal's hostname, portal.domain) and, for perDexClient probes, {{.ClientID}}
 # and {{.RedirectURI}} (query-escaped) of every client the rendered dex patch declares.
-# expect lists the HTTP status codes that mean "as defined"; any other answer is drift.
+# expect lists the HTTP status codes that mean "as defined"; any other answer is drift, no answer
+# (a target unreachable from the manager) is not checked.
 probes:
   - id: portal-root
     feature: portal
