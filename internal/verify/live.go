@@ -370,7 +370,7 @@ func checkRollUp(checks []Check) (Mark, string) {
 			seen[checks[i].Mark] = &checks[i]
 		}
 	}
-	for _, m := range []Mark{Drifted, DiffersByInput} {
+	for _, m := range []Mark{Drifted, DiffersByInput, Planned} {
 		if _, ok := seen[m]; ok {
 			return m, ""
 		}

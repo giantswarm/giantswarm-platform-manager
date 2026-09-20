@@ -138,9 +138,10 @@ type Target struct {
 	Installation string `json:"installation"`
 	BaseDomain   string `json:"baseDomain"`
 	Private      bool   `json:"private"`
-	// AgentPlatform says the target runs the agent platform: a private one
-	// is then also tunnelled to its kagent and its agentgateway.
-	AgentPlatform bool `json:"agentPlatform"`
+	// PlatformProxied says the hub's portal proxies the target's agent
+	// platform: a private one is then also tunnelled to its kagent and its
+	// agentgateway.
+	PlatformProxied bool `json:"platformProxied"`
 }
 
 // groups are the federated MCP server groups of every target: the target's

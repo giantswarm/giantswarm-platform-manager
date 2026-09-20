@@ -473,7 +473,7 @@ func detailOf(d verify.Dimension) string {
 // summaryLine is a result's marks in one clause, drifted first.
 func summaryLine(summary map[verify.Mark]int) string {
 	var parts []string
-	for _, m := range []verify.Mark{verify.Drifted, verify.DiffersByInput, verify.AsDefined, verify.NotChecked} {
+	for _, m := range []verify.Mark{verify.Drifted, verify.DiffersByInput, verify.Planned, verify.AsDefined, verify.NotChecked} {
 		if n := summary[m]; n > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", n, m))
 		}

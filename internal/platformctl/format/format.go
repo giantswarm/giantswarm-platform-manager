@@ -474,7 +474,10 @@ func (p *printer) dimension(d verify.Dimension) {
 			where += " " + diff.Path
 		}
 		cause := "drift"
-		if diff.Input != "" {
+		switch {
+		case diff.Planned != "":
+			cause = "planned: " + diff.Planned
+		case diff.Input != "":
 			cause = "input " + diff.Input
 		}
 		p.f("      %s: rendered %q, current %q (%s)\n", where, diff.Rendered, diff.Current, cause)
@@ -523,7 +526,7 @@ func note(n string) string {
 // marks counts the marks in their severity order, the way the result rolls up.
 func marks(m map[verify.Mark]int) string {
 	var parts []string
-	for _, mark := range []verify.Mark{verify.Drifted, verify.DiffersByInput, verify.AsDefined, verify.NotChecked} {
+	for _, mark := range []verify.Mark{verify.Drifted, verify.DiffersByInput, verify.Planned, verify.AsDefined, verify.NotChecked} {
 		if n := m[mark]; n > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", n, mark))
 		}

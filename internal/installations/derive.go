@@ -29,16 +29,19 @@ import (
 // organisation, its hostname, the id of the Dex client it signs in through
 // (empty when the host's dex-app configmap patch carries no client with the
 // portal's redirect URI), the installations it lists, the installation whose
-// muster brokers its cluster tokens (empty when it brokers none) and the
-// installations it reaches through the tunnel on its host.
+// muster brokers its cluster tokens (empty when it brokers none), the
+// installations it reaches through the tunnel on its host and the installations
+// whose agent platform (kagent, agentgateway) it proxies — its app-config's
+// agentPlatform.kagent.installations.
 type Portal struct {
-	Host          string
-	Customer      string
-	Domain        string
-	ClientID      string
-	Broker        string
-	Installations []string
-	Tunnelled     []string
+	Host            string
+	Customer        string
+	Domain          string
+	ClientID        string
+	Broker          string
+	Installations   []string
+	Tunnelled       []string
+	PlatformProxied []string
 }
 
 // PortalRef is a portal that signs people in on an installation, as the
@@ -63,10 +66,11 @@ type FederatedTarget struct {
 	Installation string `json:"installation"`
 	BaseDomain   string `json:"baseDomain"`
 	Private      bool   `json:"private"`
-	// AgentPlatform is the target's enabled marker of the agent-platform
-	// capability: a private target that runs the platform is also tunnelled
-	// to its kagent and its agentgateway.
-	AgentPlatform bool `json:"agentPlatform"`
+	// PlatformProxied says the hub's portal proxies the target's agent
+	// platform (its app-config's agentPlatform.kagent.installations lists
+	// the target): a private target with it is also tunnelled to its kagent
+	// and its agentgateway.
+	PlatformProxied bool `json:"platformProxied"`
 }
 
 // AgentPlatformPatchPath is where the installation's configs repository keeps
@@ -126,6 +130,10 @@ func (r *Registry) readPortal(ctx context.Context, c *github.Client, host Instal
 		p.Tunnelled = append(p.Tunnelled, name)
 	}
 	sort.Strings(p.Tunnelled)
+	for name := range cfg.PlatformProxied {
+		p.PlatformProxied = append(p.PlatformProxied, name)
+	}
+	sort.Strings(p.PlatformProxied)
 	if broker := hostOf(cfg.BrokerTokenURL); broker != "" {
 		for _, inst := range r.Installations {
 			if inst.BaseDomain != "" && broker == "muster."+inst.BaseDomain {
@@ -193,10 +201,10 @@ func dexClientByRedirectURI(data, uri string) (string, error) {
 }
 
 // portalAudiences reads the portals' Dex client ids the installation trusts
-// today from its own platform patch, the second place a portal's id is on
-// record: every muster.muster.oauth.server.trustedAudiences entry that is not
-// one the definition renders itself. Empty when the installation has no
-// configs repository or no patch, or the patch names no trusted audiences.
+// today from its own patches, the second place a portal's id is on record:
+// the union of the four lists the definition renders the portals' audiences
+// into, without the ids it renders itself. Empty when the installation has
+// no configs repository, or neither patch exists or names any.
 func portalAudiences(ctx context.Context, c *github.Client, rep Report) ([]string, error) {
 	if rep.Repositories.Configs == "" {
 		return nil, nil
@@ -205,24 +213,38 @@ func portalAudiences(ctx context.Context, c *github.Client, rep Report) ([]strin
 	if err != nil {
 		return nil, err
 	}
-	data, err := gh.ReadFile(ctx, c, owner, repo, AgentPlatformPatchPath(rep.Name))
-	if errors.Is(err, gh.ErrNotFound) {
-		return nil, nil
+	read := func(path string) (string, error) {
+		data, err := gh.ReadFile(ctx, c, owner, repo, path)
+		if errors.Is(err, gh.ErrNotFound) {
+			return "", nil
+		}
+		return data, err
 	}
+	patch, err := read(AgentPlatformPatchPath(rep.Name))
 	if err != nil {
 		return nil, err
 	}
-	ids, err := portalAudiencesOf(data, agentplatform.OwnAudiences(rep.Record.MusterClientID))
+	dexPatch, err := read(DexPatchPath(rep.Name))
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", AgentPlatformPatchPath(rep.Name), err)
+		return nil, err
+	}
+	ids, err := portalAudiencesOf(patch, dexPatch, agentplatform.OwnAudiences(rep.Record.MusterClientID, rep.Federation.Hubs))
+	if err != nil {
+		return nil, fmt.Errorf("installations/%s/apps: %w", rep.Name, err)
 	}
 	return ids, nil
 }
 
-// portalAudiencesOf is the platform patch's trustedAudiences without own,
-// the audiences the definition renders itself: each once, in the patch's order.
-func portalAudiencesOf(data string, own []string) ([]string, error) {
-	var patch struct {
+// portalAudiencesOf is the union of the four lists on record that carry the
+// portals' audiences — the platform patch's
+// muster.muster.oauth.server.trustedAudiences, its comma-separated
+// kagent.oauth2-proxy.extraArgs.oidc-extra-audience and the edge's
+// agent-platform-mcps.agentgateway.jwt.extraProviders[*].audiences, and the
+// dex-app patch's oidc.staticClients.dexK8SAuthenticator.trustedPeers —
+// without own, the ids the definition renders itself: each once, in the
+// order first seen. Either patch may be absent (empty).
+func portalAudiencesOf(patch, dexPatch string, own []string) ([]string, error) {
+	var p struct {
 		Muster struct {
 			Muster struct {
 				OAuth struct {
@@ -232,17 +254,70 @@ func portalAudiencesOf(data string, own []string) ([]string, error) {
 				} `yaml:"oauth"`
 			} `yaml:"muster"`
 		} `yaml:"muster"`
+		Kagent struct {
+			OAuth2Proxy struct {
+				ExtraArgs struct {
+					ExtraAudience any `yaml:"oidc-extra-audience"`
+				} `yaml:"extraArgs"`
+			} `yaml:"oauth2-proxy"`
+		} `yaml:"kagent"`
+		MCPs struct {
+			Agentgateway struct {
+				JWT struct {
+					ExtraProviders []struct {
+						Audiences []string `yaml:"audiences"`
+					} `yaml:"extraProviders"`
+				} `yaml:"jwt"`
+			} `yaml:"agentgateway"`
+		} `yaml:"agent-platform-mcps"`
 	}
-	if err := yaml.Unmarshal([]byte(data), &patch); err != nil {
-		return nil, err
+	var d struct {
+		OIDC struct {
+			StaticClients struct {
+				DexK8SAuthenticator struct {
+					TrustedPeers []string `yaml:"trustedPeers"`
+				} `yaml:"dexK8SAuthenticator"`
+			} `yaml:"staticClients"`
+		} `yaml:"oidc"`
 	}
+	if err := yaml.Unmarshal([]byte(patch), &p); err != nil {
+		return nil, fmt.Errorf("agent-platform/configmap-values.yaml.patch: %w", err)
+	}
+	if err := yaml.Unmarshal([]byte(dexPatch), &d); err != nil {
+		return nil, fmt.Errorf("dex-app/configmap-values.yaml.patch: %w", err)
+	}
+	lists := [][]string{p.Muster.Muster.OAuth.Server.TrustedAudiences, audienceList(p.Kagent.OAuth2Proxy.ExtraArgs.ExtraAudience)}
+	for _, provider := range p.MCPs.Agentgateway.JWT.ExtraProviders {
+		lists = append(lists, provider.Audiences)
+	}
+	lists = append(lists, d.OIDC.StaticClients.DexK8SAuthenticator.TrustedPeers)
 	var ids []string
-	for _, id := range patch.Muster.Muster.OAuth.Server.TrustedAudiences {
-		if id != "" && !slices.Contains(own, id) && !slices.Contains(ids, id) {
-			ids = append(ids, id)
+	for _, list := range lists {
+		for _, id := range list {
+			id = strings.TrimSpace(id)
+			if id != "" && !slices.Contains(own, id) && !slices.Contains(ids, id) {
+				ids = append(ids, id)
+			}
 		}
 	}
 	return ids, nil
+}
+
+// audienceList is oidc-extra-audience as a list: the flag is a StringSlice,
+// written as one comma-separated scalar (the chart's extraArgs is a map) or,
+// in a hand-written patch, as a list.
+func audienceList(v any) []string {
+	switch v := v.(type) {
+	case string:
+		return strings.Split(v, ",")
+	case []any:
+		ids := make([]string, 0, len(v))
+		for _, item := range v {
+			ids = append(ids, fmt.Sprint(item))
+		}
+		return ids
+	}
+	return nil
 }
 
 // hostOf is the hostname of a URL (no port), empty for none.
@@ -302,9 +377,11 @@ func (r *Registry) Portals(ctx context.Context, c *github.Client, insts []Instal
 
 // derive fills the report's portal and federation facts from the portals on
 // record, and the record's private flag: whether a portal reaches the
-// installation through the tunnel. A target's private flag is the same fact;
-// a target not among the reports has its record read for its base domain. A
-// hub's broker client id is read back from its patch. What cannot be read is
+// installation through the tunnel. A target's private flag is the same fact,
+// its platformProxied flag whether a portal this installation brokers for
+// proxies the target's agent platform; a target not among the reports has its
+// record read for its base domain. A hub's broker client id is read back from
+// its patch. What cannot be read is
 // an error of the report: the record is then incomplete and the installation
 // is not planned.
 func (r *Registry) derive(ctx context.Context, c *github.Client, reports []Report, portals []Portal) {
@@ -325,7 +402,7 @@ func (r *Registry) derive(ctx context.Context, c *github.Client, reports []Repor
 		}
 		rep.PortalAudiences = append(rep.PortalAudiences, ids...)
 		for _, name := range targets {
-			target, err := r.target(ctx, c, name, byName[name], tunnelled(portals, name))
+			target, err := r.target(ctx, c, name, byName[name], tunnelled(portals, name), proxied(portals, rep.Name, name))
 			if err != nil {
 				rep.fail(fmt.Sprintf("federation target %s: %v", name, err))
 				continue
@@ -373,11 +450,10 @@ func (r *Report) fail(msg string) {
 	r.Readable = false
 }
 
-// target is a federated target's facts: the registry's base domain and whether
-// it runs the agent platform (the inspected report's, read from the record and
-// the enabled marker where the target was not inspected) and whether it is
-// reached through the tunnel.
-func (r *Registry) target(ctx context.Context, c *github.Client, name string, inspected *Report, private bool) (FederatedTarget, error) {
+// target is a federated target's facts: the registry's base domain (the
+// record's, read where the target was not inspected), whether it is reached
+// through the tunnel and whether the hub's portal proxies its agent platform.
+func (r *Registry) target(ctx context.Context, c *github.Client, name string, inspected *Report, private, proxied bool) (FederatedTarget, error) {
 	inst, ok := r.Find(name)
 	if !ok {
 		return FederatedTarget{}, errors.New("not in the registry")
@@ -385,38 +461,29 @@ func (r *Registry) target(ctx context.Context, c *github.Client, name string, in
 	if inst.Repositories.Configs == "" {
 		return FederatedTarget{}, errors.New("no configs repository on record")
 	}
-	owner, repo, err := gh.SplitRepo(inst.Repositories.Configs)
-	if err != nil {
-		return FederatedTarget{}, err
-	}
-	var rec *Record
-	platform, known := false, false
+	rec := (*Record)(nil)
 	if inspected != nil {
 		rec = inspected.Record
-		platform, known = inspected.enabled(AgentPlatform)
 	}
 	if rec == nil {
+		owner, repo, err := gh.SplitRepo(inst.Repositories.Configs)
+		if err != nil {
+			return FederatedTarget{}, err
+		}
 		if rec, err = readRecord(ctx, c, owner, repo, inst); err != nil {
 			return FederatedTarget{}, err
 		}
 	}
-	if !known {
-		if platform, err = exists(ctx, c, owner, repo, AgentPlatformPatchPath(name)); err != nil {
-			return FederatedTarget{}, err
-		}
-	}
-	return FederatedTarget{Installation: name, BaseDomain: rec.BaseDomain, Private: private, AgentPlatform: platform}, nil
+	return FederatedTarget{Installation: name, BaseDomain: rec.BaseDomain, Private: private, PlatformProxied: proxied}, nil
 }
 
-// enabled answers whether the capability is enabled on the installation as the
-// report read its marker; known is false where the marker was not read.
-func (r *Report) enabled(capability string) (enabled, known bool) {
-	for _, cs := range r.Capabilities {
-		if cs.Name == capability {
-			return cs.Enabled, cs.State != StateUnknown
-		}
-	}
-	return false, false
+// proxied says whether a portal that hub brokers for proxies name's agent
+// platform: its app-config's agentPlatform.kagent.installations lists name,
+// so the portal reaches name's kagent and agentgateway through the tunnel on
+// hub. A private target with it is tunnelled to both; one the portal reaches
+// through the kubernetes tunnel alone is not.
+func proxied(portals []Portal, hub, name string) bool {
+	return slices.ContainsFunc(portals, func(p Portal) bool { return p.Broker == hub && slices.Contains(p.PlatformProxied, name) })
 }
 
 // brokerClientID reads a hub's broker client id back from its patch: the one
