@@ -108,11 +108,7 @@ type Installation struct {
 	// the commit until it takes the referenced Dex client secrets.
 	DexAppVersion string      `json:"dexAppVersion,omitempty"`
 	Portals       []PortalRef `json:"portals"`
-	// PortalAudiences are the portals' Dex client ids the installation trusts
-	// today, read from its own platform patch: the ids of portals whose client
-	// is not on record in their host's Dex patch.
-	PortalAudiences []string   `json:"portalAudiences"`
-	Federation      Federation `json:"federation"`
+	Federation    Federation  `json:"federation"`
 }
 
 // PortalRef is a developer portal that signs people in on the installation:

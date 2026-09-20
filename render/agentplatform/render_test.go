@@ -477,9 +477,10 @@ klausGateway:
 }
 
 // TestPortalAudiences holds the set the platform trusts for the portals to
-// the union, in order: each portal's client id where known, the ids the
-// installation's patch trusts today, then backstage — and none of them twice;
-// an installation nobody lists trusts none.
+// what the definition knows, in order: each portal's client id where its
+// host's Dex patch carries it, then backstage — and none of them twice; an
+// installation nobody lists trusts none. What the installation trusts besides
+// is the plan's to keep, not the render's.
 func TestPortalAudiences(t *testing.T) {
 	const opaqueA, opaqueB = "opaque-a", "opaque-b"
 	portal := func(domain, clientID string) PortalRef {
@@ -488,19 +489,17 @@ func TestPortalAudiences(t *testing.T) {
 	cases := []struct {
 		name      string
 		portals   []PortalRef
-		onRecord  []string
 		audiences []string
 	}{
-		{"nobody lists the installation", nil, nil, nil},
-		{"ids on record without a portal listing it stay", nil, []string{"stale"}, []string{"stale"}},
-		{"a portal whose client the Dex patch carries", []PortalRef{portal("a.example", opaqueA)}, nil, []string{opaqueA, render.PortalDexClientID}},
-		{"a portal whose id is only in the patch", []PortalRef{portal("a.example", "")}, []string{opaqueA}, []string{opaqueA, render.PortalDexClientID}},
-		{"the same id from both sources, once", []PortalRef{portal("a.example", opaqueA)}, []string{opaqueA, opaqueB}, []string{opaqueA, opaqueB, render.PortalDexClientID}},
-		{"a portal that signs in through the definition's client", []PortalRef{portal("a.example", render.PortalDexClientID), portal("b.example", opaqueB)}, []string{render.PortalDexClientID}, []string{render.PortalDexClientID, opaqueB}},
+		{"nobody lists the installation", nil, nil},
+		{"a portal whose client the Dex patch carries", []PortalRef{portal("a.example", opaqueA)}, []string{opaqueA, render.PortalDexClientID}},
+		{"a portal whose client the Dex patch does not carry", []PortalRef{portal("a.example", "")}, []string{render.PortalDexClientID}},
+		{"the same id from two portals, once", []PortalRef{portal("a.example", opaqueA), portal("b.example", opaqueA)}, []string{opaqueA, render.PortalDexClientID}},
+		{"a portal that signs in through the definition's client", []PortalRef{portal("a.example", render.PortalDexClientID), portal("b.example", opaqueB)}, []string{render.PortalDexClientID, opaqueB}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			in := &Input{Installation: Installation{Portals: c.portals, PortalAudiences: c.onRecord}}
+			in := &Input{Installation: Installation{Portals: c.portals}}
 			if got := in.portalAudiences(); !slices.Equal(got, c.audiences) {
 				t.Fatalf("got %v, want %v", got, c.audiences)
 			}

@@ -24,8 +24,6 @@ input:
         customer: giantswarm
         domain: portal.glean.example.io
         clientId: backstage
-    # On record in the Dex patch's dexK8SAuthenticator.trustedPeers only; the render carries it in all four lists.
-    portalAudiences: [Yx7portal0client0id0in0trusted0peers0only]
     federation:
       hubs: [gopher]
       targets: []

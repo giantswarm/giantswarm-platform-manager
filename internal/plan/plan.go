@@ -45,9 +45,10 @@ type File struct {
 	// Content is the rendered file, plaintext with GENERATED(<name>) and
 	// SUPPLIED(<field>) markers where the commit step puts values — or, for
 	// a file other owners write into (a kustomization the includes land in
-	// or the platform writes, the dex-app configmap patch, teleport-fleet's
-	// tunnelport values), the file as the commit step writes it, with their
-	// part kept; omitted when the caller asked for paths only.
+	// or the platform writes, the dex-app configmap patch, the platform
+	// patch's audience lists, teleport-fleet's tunnelport values), the file
+	// as the commit step writes it, with their part kept; omitted when the
+	// caller asked for paths only.
 	Content string `json:"content,omitempty"`
 	// Generated names the values the commit step generates into this file.
 	Generated []string `json:"generated,omitempty"`
@@ -62,7 +63,11 @@ type File struct {
 // the entry, kept after the platform's. In the dex-app configmap patch List is
 // the mapping the key is kept in (empty for the file's top level, oidc,
 // oidc.staticClients) and Entry the key — or List is oidc.extraStaticClients
-// and Entry the id of a client no definition declares. In teleport-fleet's
+// and Entry the id of a client no definition declares. In the audience lists
+// (the dex patch's ListTrustedPeers, the platform patch's
+// ListTrustedAudiences, ListExtraAudience and ListEdgeAudiences) List is the
+// list and Entry an id the installation trusts that the definition does not
+// render, kept after the definition's in that list alone. In teleport-fleet's
 // tunnelport values List is tunnelport.consumers, tunnelport.trustBundle.tokens
 // or tunnelport.tunnels and Entry the consumer or the entry's name, kept in
 // place: there the platform's entries are the ones edited in.
@@ -89,14 +94,17 @@ type shared struct {
 }
 
 // sharedFile is the shared file at path — a kustomization's lists, the dex
-// patch's keys and clients, the tunnelport values' entries — or nil for a file
-// the definition owns whole.
+// patch's keys, clients and trusted peers, the platform patch's audience
+// lists, the tunnelport values' entries — or nil for a file the definition
+// owns whole.
 func sharedFile(path string) *shared {
 	switch {
 	case filepath.Base(path) == kustomizationFile:
 		return &shared{edit: keep}
 	case strings.HasSuffix(path, dexPatchFile):
 		return &shared{edit: keepDexPatch}
+	case strings.HasSuffix(path, platformPatchFile):
+		return &shared{edit: keepAudiences}
 	case path == tunnelportValuesFile:
 		return &shared{edit: keepTunnelportValues, theirs: true}
 	}

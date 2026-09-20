@@ -21,7 +21,7 @@ kagent:
     config:
       existingSecret: kagent-oauth2-proxy-credentials
     extraArgs:
-      oidc-extra-audience: dex-k8s-authenticator,kagent,Yx7portal0client0id0in0the0patch0only,backstage # gitleaks:allow
+      oidc-extra-audience: dex-k8s-authenticator,kagent,backstage # gitleaks:allow
 muster:
   muster:
     oauth:
@@ -33,7 +33,6 @@ muster:
         trustedAudiences:
           - dex-k8s-authenticator
           - kagent
-          - Yx7portal0client0id0in0the0patch0only
           - backstage
         tokenExchangeBroker:
           brokerClients:

@@ -94,11 +94,16 @@ spec:
 const privateFixture = birch
 
 // hubPortalClientID is the opaque id of the hub portal's Dex client on record;
-// birchPortalClientID is a portal client id birch's own patch trusts, on
-// record nowhere else.
+// birchPortalClientID is a client id birch's own patch trusts as an audience
+// of muster, on record nowhere else. The ids in one list alone are the
+// installations' own: the plan keeps each in its list, nowhere else.
 const (
 	hubPortalClientID   = "Yx7hub0portal0client0id0on0record0"
 	birchPortalClientID = "Yx7portal0client0id0in0the0patch0only"
+	// hubExtraAudienceID is a client id the hub's kagent UI accepts (oidc-extra-audience), on record nowhere else.
+	hubExtraAudienceID = "Yx7client0id0in0oidc0extra0audience0only"
+	// hubPeerClientID is a client the hub's Dex trusts as a peer of the authenticator, on record nowhere else.
+	hubPeerClientID = "Yx7client0id0in0the0hubs0trusted0peers0only"
 	// hubPortalKustomization is the hub portal's directory kustomization on record: the chart line patched over the fleet base's tag.
 	hubPortalKustomization = "resources:\n  - https://github.com/giantswarm/management-cluster-bases/extras/backstage/main?ref=main\n  - app-config.yaml\npatches:\n  - patch: |\n      - op: remove\n        path: /spec/ref/tag\n      - op: add\n        path: /spec/ref/semver\n        value: '>=2.1.0 <3.0.0'\n    target: {kind: OCIRepository, name: backstage, namespace: flux-giantswarm}\n"
 	// birchPeerClientID is a portal client birch's Dex patch trusts as a peer of the authenticator, on record nowhere else.
@@ -196,10 +201,12 @@ func fixtures(g *fakeGitHub) {
 	})
 	g.addRepo(hubConfigs, map[string]string{
 		installations.ConfigPatchPath(hub): "codename: hazel\nbase: example.test\ncustomer: example\nmanagementCluster:\n  private: false\nagentPlatform:\n  kagentApiV2: true\nservices:\n  muster:\n    clientId: muster-hazel\n",
-		// The hub trusts its portal today: the id is also in its own patch (the union names it once).
-		installations.Capabilities()[0].EnabledMarker(hub): "muster:\n  muster:\n    oauth:\n      server:\n        trustedAudiences:\n          - dex-k8s-authenticator\n          - " + hubPortalClientID + "\n",
-		// The hub portal's Dex client on record: its id is the audience the platform trusts for the portal.
-		installations.DexPatchPath(hub): "oidc:\n  extraStaticClients:\n    - id: " + hubPortalClientID + "\n      name: Dev Portal\n      redirectURIs:\n        - " + render.PortalRedirectURI("portal."+hub+".example.test", hub) + "\n      secretRef: {name: dex-client-backstage, key: secret}\n",
+		// The hub trusts its portal today: the id is also in its own patch. Its kagent UI accepts one more id, in that list alone.
+		installations.Capabilities()[0].EnabledMarker(hub): "muster:\n  muster:\n    oauth:\n      server:\n        trustedAudiences:\n          - dex-k8s-authenticator\n          - " + hubPortalClientID + "\n" +
+			"kagent:\n  oauth2-proxy:\n    extraArgs:\n      oidc-extra-audience: dex-k8s-authenticator,kagent," + hubPortalClientID + ",backstage," + hubExtraAudienceID + "\n",
+		// The hub portal's Dex client on record: its id is the audience the platform trusts for the portal. The authenticator trusts one more peer, in that list alone.
+		installations.DexPatchPath(hub): "oidc:\n  staticClients:\n    dexK8SAuthenticator:\n      trustedPeers:\n        - " + hubPortalClientID + "\n        - backstage\n        - " + hubPeerClientID + "\n" +
+			"  extraStaticClients:\n    - id: " + hubPortalClientID + "\n      name: Dev Portal\n      redirectURIs:\n        - " + render.PortalRedirectURI("portal."+hub+".example.test", hub) + "\n      secretRef: {name: dex-client-backstage, key: secret}\n",
 	})
 	g.addRepo(acmeMCs, map[string]string{
 		installations.CollectionsKustomizationPath(alder):   collectionsKustomization(""),
@@ -216,7 +223,7 @@ func fixtures(g *fakeGitHub) {
 		installations.ConfigPatchPath(alder):   "codename: alder\nbase: acme.test\n",
 		installations.ConfigPatchPath(birch):   "codename: birch\nbase: acme.test\n",
 		installations.ConfigPatchPath("rowan"): "codename: rowan\nbase: acme.test\nservices:\n  muster:\n    clientId: muster-rowan\n",
-		// birch trusts a portal client that is on record in its own patch only.
+		// birch's muster trusts a client on record in that list only; its authenticator trusts a peer on record in that list only.
 		installations.Capabilities()[0].EnabledMarker(birch): "muster:\n  muster:\n    oauth:\n      server:\n        trustedAudiences:\n          - dex-k8s-authenticator\n          - " + birchPortalClientID + "\n",
 		installations.DexPatchPath(birch):                    "oidc:\n  staticClients:\n    dexK8SAuthenticator:\n      trustedPeers:\n        - dex-k8s-authenticator\n        - " + birchPeerClientID + "\n",
 	})

@@ -399,8 +399,8 @@ func encrypter(ctx context.Context, c *github.Client, repository string) (*sopse
 // several owners
 // is committed as the plan wrote it: a kustomization with the includes landed
 // in it or the entries of other owners kept, the dex patch with their keys
-// kept, the tunnelport values with the hub's entries edited in, read as the
-// caller now.
+// kept, the platform patch with the installation's own audiences kept, the
+// tunnelport values with the hub's entries edited in, read as the caller now.
 func targetsOf(ctx context.Context, c *github.Client, p plan.Installation, rendered render.Fileset, inst, hub installations.Installation) (map[string]*target, error) {
 	planned := map[string]plan.File{}
 	for _, f := range p.Files {

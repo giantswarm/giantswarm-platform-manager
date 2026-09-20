@@ -25,8 +25,10 @@ const (
 // an extra static client whose id it does not declare are another owner's
 // and stay, after the definition's, with their comments. A client the
 // definition renders is the definition's whole: its entry replaces the
-// current one, so nothing stale inside it (an inline secret) survives.
-// Nothing kept leaves rendered as it is.
+// current one, so nothing stale inside it (an inline secret) survives — but
+// for the authenticator's trusted peers: a peer on record the definition
+// does not render is the installation's own and stays, after the
+// definition's (keepList). Nothing kept leaves rendered as it is.
 func keepDexPatch(rendered, current []byte) ([]byte, []Kept, error) {
 	_, cur, err := mapping(current)
 	if err != nil {
@@ -44,7 +46,11 @@ func keepDexPatch(rendered, current []byte) ([]byte, []Kept, error) {
 		keepKeys(r, c, keyOIDC, &kept, func(key string, r, c *yaml.Node) {
 			switch {
 			case key == keyStaticClients && r.Kind == yaml.MappingNode && c.Kind == yaml.MappingNode:
-				keepKeys(r, c, listStaticClients, &kept, nil)
+				keepKeys(r, c, listStaticClients, &kept, func(key string, r, c *yaml.Node) {
+					if key == keyAuthenticator {
+						keepList(entry(r, keyTrustedPeers), entry(c, keyTrustedPeers), ListTrustedPeers, &kept)
+					}
+				})
 			case key == keyExtraStaticClients && r.Kind == yaml.SequenceNode && c.Kind == yaml.SequenceNode:
 				keepClients(r, c, &kept)
 			}
