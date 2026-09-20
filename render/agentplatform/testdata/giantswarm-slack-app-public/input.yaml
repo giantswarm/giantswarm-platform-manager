@@ -1,0 +1,28 @@
+# A Giant Swarm-owned test installation with a Slack app on a public ingress: one the policy's
+# klausGateway.installations names, so the chat gateway renders with its generated OBO keys, its
+# Slack credentials supplied at commit and the installation's own default agent. Public, so Slack
+# calls in: the gateway serves events over its public route and asks for no app-level token. On the
+# 4 chart line, signed into from the hub's portal ("gopher"), whose token-exchange client is in its
+# Dex. The codename is the policy's; the domain and every value are invented.
+input:
+  installation:
+    name: graveler
+    baseDomain: graveler.example.io
+    customer: giantswarm
+    provider: capa
+    private: false
+    chartLine: "4"
+    musterClientId: 00000000-0000-4000-8000-000000000005
+    podCertificateRequest: true
+    portals:
+      - installation: gopher
+        customer: giantswarm
+        domain: portal.example.io
+    federation:
+      hubs: [gopher]
+      targets: []
+  modelServing:
+    enabled: false
+secrets:
+  klausGateway.slack.bot-token: PLACEHOLDER-SLACK-BOT-TOKEN
+  klausGateway.slack.signing-secret: PLACEHOLDER-SLACK-SIGNING-SECRET

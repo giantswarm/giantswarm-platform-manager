@@ -4,7 +4,8 @@
 # (kind live) are the reads that need the person's authority on the installation.
 # url is a Go template over {{.BaseDomain}} (the installation's), and for perDexClient probes
 # {{.ClientID}} and {{.RedirectURI}} (query-escaped) of every client the rendered dex patch declares.
-# expect lists the HTTP status codes that mean "as defined"; any other answer is drift.
+# expect lists the HTTP status codes that mean "as defined"; any other answer is drift, no answer
+# (a target unreachable from the manager) is not checked.
 probes:
   - id: dex-auth-request
     feature: identity

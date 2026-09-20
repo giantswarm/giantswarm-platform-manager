@@ -81,12 +81,9 @@ agent-platform-mcps:
 klausGateway:
   routing:
     store: valkey
-  agentgatewayRoute:
-    enabled: true
-    hostname: agentgateway.glean.example.io
   slack:
     enabled: true
-    mode: events
+    mode: socketmode
     secretName: klaus-gateway-slack-credentials
     dmMode: serve
     channelMode: all
@@ -103,13 +100,14 @@ klausGateway:
       size: 64Mi
   a2a:
     enabled: true
-    defaultAgent: swarmgeist
+    defaultAgent: sre-agent
   reviews:
     enabled: true
     audience: klaus-gateway
     allowedCallers:
       - system:serviceaccount:agent-platform:giantswarm-repo-manager
       - system:serviceaccount:marge:marge-bumblebee-sweep
+      - system:serviceaccount:agent-platform:giantswarm-platform-manager
 cluster-manager:
   installation:
     name: glean

@@ -286,15 +286,15 @@ func (r *Record) Input() map[string]any {
 
 // Facts are every installation fact on record, as a definition's inputs name
 // them under installation: the record's (config.yaml.patch), the registry's
-// region and pipeline, and per capability whether it is enabled here
-// (agentPlatform, customerPortal). A definition takes the ones its schema
-// names (Capability.Facts).
+// region, pipeline and whether this is the hub, and per capability whether it
+// is enabled here (agentPlatform, customerPortal). A definition takes the ones
+// its schema names (Capability.Facts).
 func (r Report) Facts() map[string]any {
 	facts := map[string]any{}
 	if r.Record != nil {
 		facts = r.Record.Input()
 	}
-	facts["region"], facts["pipeline"] = r.Region, r.Pipeline
+	facts["region"], facts["pipeline"], facts["hub"] = r.Region, r.Pipeline, r.Hub
 	if r.Portals != nil {
 		facts["portals"] = r.Portals
 	}

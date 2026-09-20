@@ -1,0 +1,129 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+global:
+  domain: graveler.example.io
+components:
+  kagent:
+    enabled: true
+  agent-manager:
+    enabled: true
+  klaus-gateway:
+    enabled: true
+  cluster-manager:
+    enabled: true
+postgres:
+  enabled: true
+llmRouting:
+  enabled: true
+kagent:
+  providers:
+    anthropic:
+      apiKeySecretRef: kagent-anthropic-key
+      config:
+        baseUrl: http://agentgateway.agent-platform.svc:8081
+  oauth2-proxy:
+    config:
+      existingSecret: kagent-oauth2-proxy-credentials
+    extraArgs:
+      oidc-extra-audience: dex-k8s-authenticator,kagent,backstage # gitleaks:allow
+muster:
+  muster:
+    oauth:
+      mcpClient:
+        postLoginRedirectAllowlist:
+          - https://agentgateway.graveler.example.io/connectors/complete
+          - https://portal.example.io/
+      server:
+        existingSecret: muster-oauth-credentials
+        storage:
+          valkey:
+            existingSecret: muster-valkey-credentials
+        trustedAudiences:
+          - dex-k8s-authenticator
+          - kagent
+          - backstage
+gateway:
+  jwksEgress:
+    enabled: true
+extraObjects:
+  - apiVersion: gateway.networking.k8s.io/v1beta1
+    kind: ReferenceGrant
+    metadata:
+      name: agentgateway-jwks-dex
+      namespace: giantswarm
+    spec:
+      from:
+        - group: agentgateway.dev
+          kind: AgentgatewayPolicy
+          namespace: agent-platform
+      to:
+        - group: ""
+          kind: Service
+          name: dex
+agent-platform-mcps:
+  agentgateway:
+    jwt:
+      extraProviders:
+        - issuer: https://dex.graveler.example.io
+          audiences:
+            - backstage
+          jwks:
+            remote:
+              backendRef:
+                name: dex
+                namespace: giantswarm
+                port: 5556
+              jwksPath: /keys
+              cacheDuration: 5m
+klausGateway:
+  routing:
+    store: valkey
+  agentgatewayRoute:
+    enabled: true
+    hostname: agentgateway.graveler.example.io
+  slack:
+    enabled: true
+    mode: events
+    secretName: klaus-gateway-slack-credentials
+    dmMode: serve
+    channelMode: all
+  obo:
+    enabled: true
+    connectors:
+      enabled: true
+    existingSecret: klaus-gateway-obo-keys
+    musterUrl: https://muster.graveler.example.io
+    callbackBaseUrl: https://agentgateway.graveler.example.io
+    storePath: /var/lib/klaus-gateway/obo/links.bolt
+    persistence:
+      enabled: true
+      size: 64Mi
+  a2a:
+    enabled: true
+    defaultAgent: sre-agent
+  reviews:
+    enabled: true
+    audience: klaus-gateway
+    allowedCallers:
+      - system:serviceaccount:agent-platform:giantswarm-repo-manager
+      - system:serviceaccount:marge:marge-bumblebee-sweep
+      - system:serviceaccount:agent-platform:giantswarm-platform-manager
+cluster-manager:
+  installation:
+    name: graveler
+clusterManager:
+  networkPolicy:
+    workloadClusters:
+      fqdns:
+        - matchPattern: '*.*.elb.amazonaws.com'
+    egress:
+      fqdns:
+        - matchName: gsoci.azurecr.io
+        - matchPattern: '*.blob.core.windows.net'
+valkey:
+  valkey:
+    auth:
+      usersExistingSecret: muster-valkey-credentials
+      aclUsers:
+        default:
+          passwordKey: valkey-password

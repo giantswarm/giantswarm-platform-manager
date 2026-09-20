@@ -6,9 +6,10 @@ import "github.com/giantswarm/giantswarm-platform-manager/render"
 // (policy.yaml) runs the gateway on the installations with a Slack app and
 // the cluster-manager where an organisation's list names it; where one runs,
 // its values in the configmap patch and the Secrets its chart reads are data
-// here. The gateway's shape is the policy's, its routes and URLs derive from
-// the installation facts; its Slack credentials are supplied by the person,
-// its OBO keys generated. The cluster-manager's egress derives from the provider.
+// here. The gateway's shape is the policy's, its routes, URLs and Slack mode
+// derive from the installation facts; its Slack credentials are supplied by
+// the person, its OBO keys generated. The cluster-manager's egress derives
+// from the provider.
 
 const (
 	// klausGatewayOBOSecret carries the gateway's HMAC keys for the
@@ -24,10 +25,12 @@ const (
 	oboStorePath = "/var/lib/klaus-gateway/obo/links.bolt"
 	// slackDMMode is how the gateway treats direct messages: it serves them.
 	slackDMMode = "serve"
-	// slackSocketMode is the Slack mode that needs the app-level token.
+	// slackSocketMode is the Slack mode in which the gateway connects out to
+	// Slack with the app-level token and needs no route: a private
+	// installation's, whose ingress Slack cannot reach.
 	slackSocketMode = "socketmode"
 	// slackEventsMode is the Slack mode in which Slack calls the gateway over
-	// its public route; in socket mode the gateway connects out and needs no route.
+	// its public route: a public installation's.
 	slackEventsMode = "events"
 	// fieldSlack prefixes the supplied Slack credential fields.
 	fieldSlack = "klausGateway.slack."
@@ -36,11 +39,23 @@ const (
 // teamLabels mark the platform team's Secrets.
 var teamLabels = map[string]string{"application.giantswarm.io/team": "bumblebee"}
 
+// slackMode is how the gateway talks to Slack, a fact of the record rather
+// than a policy: socket mode where the installation is private (Slack cannot
+// reach a private ingress with events), events mode over the public route
+// elsewhere.
+func (in *Input) slackMode() string {
+	if in.Installation.Private {
+		return slackSocketMode
+	}
+	return slackEventsMode
+}
+
 // slackSecretKeys are the keys of the Slack Secret, supplied by the person as
-// klausGateway.slack.<key>.
+// klausGateway.slack.<key>: the app's bot token and signing secret, and in
+// socket mode its app-level token.
 func (in *Input) slackSecretKeys() []string {
 	keys := []string{"bot-token", "signing-secret"}
-	if in.Gateway.Slack.Mode == slackSocketMode {
+	if in.slackMode() == slackSocketMode {
 		keys = append(keys, "app-token")
 	}
 	return keys
@@ -85,15 +100,17 @@ func (in *Input) componentValues(m render.Map) render.Map {
 }
 
 // klausGatewayValues is the gateway's section: its routing store, its public
-// route where Slack calls in, the OBO links and Slack with their Secrets
-// referenced, A2A and team reviews as the policy shapes them.
+// route where Slack calls in (events mode), the OBO links and Slack with their
+// Secrets referenced, A2A with the installation's default agent and team
+// reviews as the policy shapes them.
 func (in *Input) klausGatewayValues() render.Map {
 	g := in.Gateway
+	mode := in.slackMode()
 	m := render.Map{e("routing", render.Map{e("store", "valkey")})}
-	if g.Slack.Mode == slackEventsMode {
+	if mode == slackEventsMode {
 		m = append(m, e("agentgatewayRoute", render.Map{e("enabled", true), e("hostname", in.host("agentgateway"))}))
 	}
-	m = append(m, e("slack", render.Map{e("enabled", true), e("mode", g.Slack.Mode), e("secretName", klausGatewaySlackSecret),
+	m = append(m, e("slack", render.Map{e("enabled", true), e("mode", mode), e("secretName", klausGatewaySlackSecret),
 		e("dmMode", slackDMMode), e("channelMode", g.Slack.ChannelMode)}))
 	m = append(m, e("obo", render.Map{e("enabled", true),
 		e("connectors", render.Map{e("enabled", g.OBO.Connectors)}),

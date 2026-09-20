@@ -57,6 +57,10 @@ type FederatedTarget struct {
 	Installation string `json:"installation"`
 	BaseDomain   string `json:"baseDomain"`
 	Private      bool   `json:"private"`
+	// AgentPlatform is the target's enabled marker of the agent-platform
+	// capability: a private target that runs the platform is also tunnelled
+	// to its kagent and its agentgateway.
+	AgentPlatform bool `json:"agentPlatform"`
 }
 
 // AgentPlatformPatchPath is where the installation's configs repository keeps
@@ -245,9 +249,10 @@ func (r *Report) fail(msg string) {
 	r.Readable = false
 }
 
-// target is a federated target's facts: the registry's base domain (the
-// record's, read where the target was not inspected) and whether it is reached
-// through the tunnel.
+// target is a federated target's facts: the registry's base domain and whether
+// it runs the agent platform (the inspected report's, read from the record and
+// the enabled marker where the target was not inspected) and whether it is
+// reached through the tunnel.
 func (r *Registry) target(ctx context.Context, c *github.Client, name string, inspected *Report, private bool) (FederatedTarget, error) {
 	inst, ok := r.Find(name)
 	if !ok {
@@ -256,20 +261,38 @@ func (r *Registry) target(ctx context.Context, c *github.Client, name string, in
 	if inst.Repositories.Configs == "" {
 		return FederatedTarget{}, errors.New("no configs repository on record")
 	}
-	rec := (*Record)(nil)
+	owner, repo, err := gh.SplitRepo(inst.Repositories.Configs)
+	if err != nil {
+		return FederatedTarget{}, err
+	}
+	var rec *Record
+	platform, known := false, false
 	if inspected != nil {
 		rec = inspected.Record
+		platform, known = inspected.enabled(AgentPlatform)
 	}
 	if rec == nil {
-		owner, repo, err := gh.SplitRepo(inst.Repositories.Configs)
-		if err != nil {
-			return FederatedTarget{}, err
-		}
 		if rec, err = readRecord(ctx, c, owner, repo, inst); err != nil {
 			return FederatedTarget{}, err
 		}
 	}
-	return FederatedTarget{Installation: name, BaseDomain: rec.BaseDomain, Private: private}, nil
+	if !known {
+		if platform, err = exists(ctx, c, owner, repo, AgentPlatformPatchPath(name)); err != nil {
+			return FederatedTarget{}, err
+		}
+	}
+	return FederatedTarget{Installation: name, BaseDomain: rec.BaseDomain, Private: private, AgentPlatform: platform}, nil
+}
+
+// enabled answers whether the capability is enabled on the installation as the
+// report read its marker; known is false where the marker was not read.
+func (r *Report) enabled(capability string) (enabled, known bool) {
+	for _, cs := range r.Capabilities {
+		if cs.Name == capability {
+			return cs.Enabled, cs.State != StateUnknown
+		}
+	}
+	return false, false
 }
 
 // brokerClientID reads a hub's broker client id back from its patch: the one
