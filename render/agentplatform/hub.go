@@ -57,17 +57,17 @@ type tunnelledApp struct {
 }
 
 // tunnelledApps are the target's Dex (the exchange endpoint), each federated
-// group's MCP server, on a target that runs the agent platform its kagent (the
-// UI and API v1 behind oauth2-proxy, whose health route is /ping) and its
-// agentgateway (the kagent API v2 controller's gRPC listener, no HTTP probe) —
-// the hub's Dev Portal reaches both through the tunnel — and the API server the
-// broker's tokens are for.
+// group's MCP server, on a target whose agent platform the hub's portal
+// proxies its kagent (the UI and API v1 behind oauth2-proxy, whose health route
+// is /ping) and its agentgateway (the kagent API v2 controller's gRPC listener,
+// no HTTP probe) — the portal reaches both through the tunnel — and the API
+// server the broker's tokens are for.
 func (t Target) tunnelledApps() []tunnelledApp {
 	apps := []tunnelledApp{{name: "dex", port: 5556}}
 	for _, g := range t.groups() {
 		apps = append(apps, tunnelledApp{name: "mcp-" + g, port: 8080})
 	}
-	if t.AgentPlatform {
+	if t.PlatformProxied {
 		apps = append(apps, tunnelledApp{name: "kagent", port: 4180, probe: "/ping"}, tunnelledApp{name: "agentgateway", port: 8080})
 	}
 	return append(apps, tunnelledApp{name: "kubernetes", port: 6443})
@@ -253,6 +253,6 @@ func (in *Input) tunnelExtras(r *render.Result, repo render.Repository, dir stri
 	header := fileHeader + "# One RemoteApp per tunnelled app of every private target: a tbot + ghostunnel Deployment and a\n" +
 		"# Service named <app>-<target> on :" + tunnelPort + ", TLS terminated with the app's SVID. spec.port is the\n" +
 		"# tunnel's loopback port; the upstream port is the Teleport app's, advertised by the target. A target\n" +
-		"# that runs the agent platform is also tunnelled to its kagent and its agentgateway, for the Dev Portal.\n"
+		"# whose agent platform the portal proxies is also tunnelled to its kagent and its agentgateway.\n"
 	r.Add(repo, dir+"/remoteapps.yaml", render.File{Content: append([]byte(header), bytes.Join(docs, []byte("---\n"))...)})
 }

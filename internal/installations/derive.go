@@ -29,16 +29,19 @@ import (
 // organisation, its hostname, the id of the Dex client it signs in through
 // (empty when the host's dex-app configmap patch carries no client with the
 // portal's redirect URI), the installations it lists, the installation whose
-// muster brokers its cluster tokens (empty when it brokers none) and the
-// installations it reaches through the tunnel on its host.
+// muster brokers its cluster tokens (empty when it brokers none), the
+// installations it reaches through the tunnel on its host and the installations
+// whose agent platform (kagent, agentgateway) it proxies — its app-config's
+// agentPlatform.kagent.installations.
 type Portal struct {
-	Host          string
-	Customer      string
-	Domain        string
-	ClientID      string
-	Broker        string
-	Installations []string
-	Tunnelled     []string
+	Host            string
+	Customer        string
+	Domain          string
+	ClientID        string
+	Broker          string
+	Installations   []string
+	Tunnelled       []string
+	PlatformProxied []string
 }
 
 // PortalRef is a portal that signs people in on an installation, as the
@@ -63,10 +66,11 @@ type FederatedTarget struct {
 	Installation string `json:"installation"`
 	BaseDomain   string `json:"baseDomain"`
 	Private      bool   `json:"private"`
-	// AgentPlatform is the target's enabled marker of the agent-platform
-	// capability: a private target that runs the platform is also tunnelled
-	// to its kagent and its agentgateway.
-	AgentPlatform bool `json:"agentPlatform"`
+	// PlatformProxied says the hub's portal proxies the target's agent
+	// platform (its app-config's agentPlatform.kagent.installations lists
+	// the target): a private target with it is also tunnelled to its kagent
+	// and its agentgateway.
+	PlatformProxied bool `json:"platformProxied"`
 }
 
 // AgentPlatformPatchPath is where the installation's configs repository keeps
@@ -126,6 +130,10 @@ func (r *Registry) readPortal(ctx context.Context, c *github.Client, host Instal
 		p.Tunnelled = append(p.Tunnelled, name)
 	}
 	sort.Strings(p.Tunnelled)
+	for name := range cfg.PlatformProxied {
+		p.PlatformProxied = append(p.PlatformProxied, name)
+	}
+	sort.Strings(p.PlatformProxied)
 	if broker := hostOf(cfg.BrokerTokenURL); broker != "" {
 		for _, inst := range r.Installations {
 			if inst.BaseDomain != "" && broker == "muster."+inst.BaseDomain {
@@ -369,9 +377,11 @@ func (r *Registry) Portals(ctx context.Context, c *github.Client, insts []Instal
 
 // derive fills the report's portal and federation facts from the portals on
 // record, and the record's private flag: whether a portal reaches the
-// installation through the tunnel. A target's private flag is the same fact;
-// a target not among the reports has its record read for its base domain. A
-// hub's broker client id is read back from its patch. What cannot be read is
+// installation through the tunnel. A target's private flag is the same fact,
+// its platformProxied flag whether a portal this installation brokers for
+// proxies the target's agent platform; a target not among the reports has its
+// record read for its base domain. A hub's broker client id is read back from
+// its patch. What cannot be read is
 // an error of the report: the record is then incomplete and the installation
 // is not planned.
 func (r *Registry) derive(ctx context.Context, c *github.Client, reports []Report, portals []Portal) {
@@ -392,7 +402,7 @@ func (r *Registry) derive(ctx context.Context, c *github.Client, reports []Repor
 		}
 		rep.PortalAudiences = append(rep.PortalAudiences, ids...)
 		for _, name := range targets {
-			target, err := r.target(ctx, c, name, byName[name], tunnelled(portals, name))
+			target, err := r.target(ctx, c, name, byName[name], tunnelled(portals, name), proxied(portals, rep.Name, name))
 			if err != nil {
 				rep.fail(fmt.Sprintf("federation target %s: %v", name, err))
 				continue
@@ -440,11 +450,10 @@ func (r *Report) fail(msg string) {
 	r.Readable = false
 }
 
-// target is a federated target's facts: the registry's base domain and whether
-// it runs the agent platform (the inspected report's, read from the record and
-// the enabled marker where the target was not inspected) and whether it is
-// reached through the tunnel.
-func (r *Registry) target(ctx context.Context, c *github.Client, name string, inspected *Report, private bool) (FederatedTarget, error) {
+// target is a federated target's facts: the registry's base domain (the
+// record's, read where the target was not inspected), whether it is reached
+// through the tunnel and whether the hub's portal proxies its agent platform.
+func (r *Registry) target(ctx context.Context, c *github.Client, name string, inspected *Report, private, proxied bool) (FederatedTarget, error) {
 	inst, ok := r.Find(name)
 	if !ok {
 		return FederatedTarget{}, errors.New("not in the registry")
@@ -452,38 +461,29 @@ func (r *Registry) target(ctx context.Context, c *github.Client, name string, in
 	if inst.Repositories.Configs == "" {
 		return FederatedTarget{}, errors.New("no configs repository on record")
 	}
-	owner, repo, err := gh.SplitRepo(inst.Repositories.Configs)
-	if err != nil {
-		return FederatedTarget{}, err
-	}
-	var rec *Record
-	platform, known := false, false
+	rec := (*Record)(nil)
 	if inspected != nil {
 		rec = inspected.Record
-		platform, known = inspected.enabled(AgentPlatform)
 	}
 	if rec == nil {
+		owner, repo, err := gh.SplitRepo(inst.Repositories.Configs)
+		if err != nil {
+			return FederatedTarget{}, err
+		}
 		if rec, err = readRecord(ctx, c, owner, repo, inst); err != nil {
 			return FederatedTarget{}, err
 		}
 	}
-	if !known {
-		if platform, err = exists(ctx, c, owner, repo, AgentPlatformPatchPath(name)); err != nil {
-			return FederatedTarget{}, err
-		}
-	}
-	return FederatedTarget{Installation: name, BaseDomain: rec.BaseDomain, Private: private, AgentPlatform: platform}, nil
+	return FederatedTarget{Installation: name, BaseDomain: rec.BaseDomain, Private: private, PlatformProxied: proxied}, nil
 }
 
-// enabled answers whether the capability is enabled on the installation as the
-// report read its marker; known is false where the marker was not read.
-func (r *Report) enabled(capability string) (enabled, known bool) {
-	for _, cs := range r.Capabilities {
-		if cs.Name == capability {
-			return cs.Enabled, cs.State != StateUnknown
-		}
-	}
-	return false, false
+// proxied says whether a portal that hub brokers for proxies name's agent
+// platform: its app-config's agentPlatform.kagent.installations lists name,
+// so the portal reaches name's kagent and agentgateway through the tunnel on
+// hub. A private target with it is tunnelled to both; one the portal reaches
+// through the kubernetes tunnel alone is not.
+func proxied(portals []Portal, hub, name string) bool {
+	return slices.ContainsFunc(portals, func(p Portal) bool { return p.Broker == hub && slices.Contains(p.PlatformProxied, name) })
 }
 
 // brokerClientID reads a hub's broker client id back from its patch: the one
