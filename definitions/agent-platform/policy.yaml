@@ -1,9 +1,10 @@
 # Fleet policy of the agent-platform definition: the decisions the platform team takes once for
 # every installation, keyed by the owning organisation as the configs repository names it. The
 # renderer reads the installation's customer from the record and applies these; nobody types them.
-# One entry is keyed by installation: the chat gateway's list of Slack apps, a fact of each
-# installation rather than a tuning. The model provider key is no decision here: every
-# installation's is its own, created by its people after the commit (README.md).
+# One entry is keyed by installation: the chat gateway's installations, each a fact of the
+# installation (its Slack app) and its own default agent, rather than a tuning. The model provider
+# key is no decision here: every installation's is its own, created by its people after the commit
+# (README.md).
 
 # The components an organisation's installations run beside muster and its three MCP servers
 # (kubernetes, prometheus, capi), which every installation runs. `default` is what an organisation
@@ -26,15 +27,22 @@ components:
 
 # The chat gateway: where it runs and its shape. A Slack app exists per installation named under
 # `installations` — the hub and the two test installations today — and the gateway runs there and
-# nowhere else, its app's credentials supplied at commit (klausGateway.slack.bot-token and
-# signing-secret); an installation not named runs no gateway and asks for nothing. The shape is one
-# for all: Slack in events mode over the public route, every channel, the on-behalf-of connectors,
-# agent-to-agent with the hub's agent as default, and team reviews the platform's own workloads
-# may call.
+# nowhere else, its app's credentials supplied at commit (klausGateway.slack.bot-token,
+# signing-secret and, on a private installation, app-token); an installation not named runs no
+# gateway and asks for nothing. Each entry carries what is the installation's own: the agent
+# agent-to-agent calls by default (defaultAgent), one of the installation's own agents
+# (extras/agent-platform/agents/, which the definition keeps and does not render); an entry naming
+# none gets a2a.defaultAgent. The shape is one for all: Slack over every channel — in events mode
+# over the public route where the installation is public, in socket mode where it is private, since
+# Slack cannot reach a private ingress; the mode follows the record, not this file — the
+# on-behalf-of connectors, agent-to-agent, and team reviews the platform's own workloads may call:
+# the platform manager posting its approvals, the repository manager, the marge sweep.
 klausGateway:
-  installations: [gazelle, glean, graveler]
+  installations:
+    gazelle: {defaultAgent: swarmgeist}
+    graveler: {defaultAgent: sre-agent}
+    glean: {defaultAgent: sre-agent}
   slack:
-    mode: events
     channelMode: all
   obo:
     connectors: true
@@ -45,6 +53,7 @@ klausGateway:
     enabled: true
     audience: klaus-gateway
     allowedCallers:
+      - system:serviceaccount:agent-platform:giantswarm-platform-manager
       - system:serviceaccount:agent-platform:giantswarm-repo-manager
       - system:serviceaccount:marge:marge-bumblebee-sweep
 

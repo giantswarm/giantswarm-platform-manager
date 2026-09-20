@@ -1,7 +1,7 @@
 # Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
 # the next reconcile writes it again from the installation's inputs.
 global:
-  domain: glean.example.io
+  domain: graveler.example.io
 components:
   kagent:
     enabled: true
@@ -31,16 +31,13 @@ muster:
     oauth:
       mcpClient:
         postLoginRedirectAllowlist:
-          - https://agentgateway.glean.example.io/connectors/complete
+          - https://agentgateway.graveler.example.io/connectors/complete
           - https://portal.example.io/
-          - https://portal.glean.example.io/
       server:
         existingSecret: muster-oauth-credentials
         storage:
           valkey:
             existingSecret: muster-valkey-credentials
-        allowPrivateIPClientMetadata: true
-        allowPrivateIPRedirectURIs: true
         trustedAudiences:
           - dex-k8s-authenticator
           - kagent
@@ -67,7 +64,7 @@ agent-platform-mcps:
   agentgateway:
     jwt:
       extraProviders:
-        - issuer: https://dex.glean.example.io
+        - issuer: https://dex.graveler.example.io
           audiences:
             - backstage
           jwks:
@@ -81,9 +78,12 @@ agent-platform-mcps:
 klausGateway:
   routing:
     store: valkey
+  agentgatewayRoute:
+    enabled: true
+    hostname: agentgateway.graveler.example.io
   slack:
     enabled: true
-    mode: socketmode
+    mode: events
     secretName: klaus-gateway-slack-credentials
     dmMode: serve
     channelMode: all
@@ -92,8 +92,8 @@ klausGateway:
     connectors:
       enabled: true
     existingSecret: klaus-gateway-obo-keys
-    musterUrl: https://muster.glean.example.io
-    callbackBaseUrl: https://agentgateway.glean.example.io
+    musterUrl: https://muster.graveler.example.io
+    callbackBaseUrl: https://agentgateway.graveler.example.io
     storePath: /var/lib/klaus-gateway/obo/links.bolt
     persistence:
       enabled: true
@@ -110,9 +110,12 @@ klausGateway:
       - system:serviceaccount:marge:marge-bumblebee-sweep
 cluster-manager:
   installation:
-    name: glean
+    name: graveler
 clusterManager:
   networkPolicy:
+    workloadClusters:
+      fqdns:
+        - matchPattern: '*.*.elb.amazonaws.com'
     egress:
       fqdns:
         - matchName: gsoci.azurecr.io

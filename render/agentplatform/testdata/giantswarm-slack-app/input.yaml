@@ -1,8 +1,10 @@
 # A Giant Swarm-owned test installation with a Slack app: one the policy's klausGateway.installations
-# names, so the chat gateway renders with its generated OBO keys and its Slack credentials supplied
-# at commit — the only supplied values of any shape. Reached through Teleport (private) on the 4
-# chart line, with its own portal beside the hub's ("gopher") and the hub's token-exchange client in
-# its Dex. The codename is the policy's; the domain and every value are invented.
+# names, so the chat gateway renders with its generated OBO keys, its Slack credentials supplied at
+# commit and the installation's own default agent. Reached through Teleport (private), so Slack
+# cannot call in: the gateway connects out in socket mode with the app-level token supplied too, and
+# no public route renders. On the 4 chart line, with its own portal beside the hub's ("gopher") and
+# the hub's token-exchange client in its Dex. The codename is the policy's; the domain and every
+# value are invented.
 input:
   installation:
     name: glean
@@ -28,3 +30,4 @@ input:
 secrets:
   klausGateway.slack.bot-token: PLACEHOLDER-SLACK-BOT-TOKEN
   klausGateway.slack.signing-secret: PLACEHOLDER-SLACK-SIGNING-SECRET
+  klausGateway.slack.app-token: PLACEHOLDER-SLACK-APP-TOKEN
