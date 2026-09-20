@@ -174,6 +174,15 @@ func TestFlattenKeysListsByIdentity(t *testing.T) {
 	if got := flattenYAML(tunnels); got["tunnels[t2].port"] != "2" {
 		t.Errorf("tunnels are keyed by name: %v", got)
 	}
+	servers := "agent-platform-mcps:\n  mcpServers:\n  - cluster: a\n    url: http://a.svc:8080/mcp\n    timeout: 30\n  - cluster: b\n    url: http://b.svc:8080/mcp\n    timeout: 30\n"
+	reordered := "agent-platform-mcps:\n  mcpServers:\n  - cluster: b\n    url: http://b.svc:8080/mcp\n    timeout: 30\n  - cluster: a\n    url: http://a.svc:8080/mcp\n    timeout: 30\n"
+	if got := diffPaths(flattenYAML(servers), flattenYAML(reordered)); len(got) != 0 {
+		t.Errorf("MCP servers are keyed by url, reordered they are the same leaves: %v", got)
+	}
+	changed := strings.Replace(reordered, "cluster: b\n    url: http://b.svc:8080/mcp\n    timeout: 30", "cluster: b\n    url: http://b.svc:8080/mcp\n    timeout: 60", 1)
+	if got := diffPaths(flattenYAML(servers), flattenYAML(changed)); len(got) != 1 || got[0] != "agent-platform-mcps.mcpServers[http://b.svc:8080/mcp].timeout" {
+		t.Errorf("a changed server differs at its leaves only: %v", got)
+	}
 	if got := flattenYAML("patches:\n- path: a\n- path: b\n"); got["patches[0].path"] != "a" || got["patches[1].path"] != "b" {
 		t.Errorf("no identity keeps the positions: %v", got)
 	}

@@ -662,8 +662,8 @@ func keys(items []any, prefix string) []string {
 }
 
 // identityKeys name a mapping entry, in order: a client by id, a tunnel or
-// token by name.
-var identityKeys = []string{"id", "name"}
+// token by name, an MCP server by url.
+var identityKeys = []string{"id", "name", "url"}
 
 // identity is what names an entry of a sequence: a scalar its value, a
 // mapping its kind/namespace/name (an object), else its id or name; empty
