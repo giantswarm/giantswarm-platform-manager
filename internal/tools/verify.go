@@ -65,7 +65,7 @@ func (t *Tools) verifyInstallation(ctx context.Context, token, name string, def 
 		return nil, err
 	}
 	hub, _ := reg.Find(reg.Hub)
-	r := reg.InspectAll(ctx, c, selected, installations.Capabilities())[0]
+	r := reg.InspectAll(ctx, c, selected, installations.Capabilities(), installations.Full)[0]
 	if !r.Repositories.Known() {
 		return nil, fmt.Errorf("%s has no repositories on record: nothing to compare the definition against", name)
 	}
