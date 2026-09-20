@@ -19,9 +19,11 @@ input:
       - installation: gopher
         customer: giantswarm
         domain: portal.example.io
+        clientId: Yx7hub0portal0client0id0on0record0
       - installation: glean
         customer: giantswarm
         domain: portal.glean.example.io
+        clientId: backstage
     federation:
       hubs: [gopher]
       targets: []

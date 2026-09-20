@@ -7,6 +7,7 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -268,9 +269,18 @@ func TestReconcileCapabilityDryRunOverTheSet(t *testing.T) {
 		t.Fatalf("skipped: %+v", out.Skipped)
 	}
 	hazel := findPlan(t, out, hub)
-	// The updates: the hub's patch and its portal tree's kustomization, which the platform's Component joins.
-	if hazel.Diff[plan.ChangeUpdate] != 2 || hazel.Diff[plan.ChangeUnchanged] != 1 || hazel.Diff[plan.ChangeCreate] != len(hazel.Files)-3 || hazel.Files[0].Content != "" {
+	// The updates: the hub's patch, its dex patch (the portal's client on record) and its portal tree's kustomization, which the platform's Component joins.
+	if hazel.Diff[plan.ChangeUpdate] != 3 || hazel.Diff[plan.ChangeUnchanged] != 1 || hazel.Diff[plan.ChangeCreate] != len(hazel.Files)-4 || hazel.Files[0].Content != "" {
 		t.Fatalf("hazel diff %v, first file %+v", hazel.Diff, hazel.Files[0])
+	}
+	// The portals' audiences come from both places on record: the hub portal's
+	// client id from the hub's Dex patch (on every installation it lists), and
+	// the id birch's own patch trusts today, on record nowhere else.
+	birchFacts := findPlan(t, out, privateFixture).Inputs["installation"].(map[string]any)
+	hazelFacts := hazel.Inputs["installation"].(map[string]any)
+	portal, _ := birchFacts["portals"].([]any)[0].(map[string]any)
+	if portal["clientId"] != hubPortalClientID || fmt.Sprint(birchFacts["portalAudiences"]) != "["+birchPortalClientID+"]" || fmt.Sprint(hazelFacts["portalAudiences"]) != "["+hubPortalClientID+"]" {
+		t.Fatalf("birch portals %v, portal audiences %v; hazel portal audiences %v", birchFacts["portals"], birchFacts["portalAudiences"], hazelFacts["portalAudiences"])
 	}
 	seen := map[string]int{}
 	for _, pr := range out.PullRequests {
