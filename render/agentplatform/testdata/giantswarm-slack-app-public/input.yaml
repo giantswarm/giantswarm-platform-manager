@@ -21,6 +21,7 @@ input:
         customer: giantswarm
         domain: portal.example.io
         handKept: true
+        chartLine: ">=2.1.0 <3.0.0"
     federation:
       hubs: [gopher]
       targets: []

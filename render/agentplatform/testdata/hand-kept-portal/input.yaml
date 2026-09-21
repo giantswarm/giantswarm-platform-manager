@@ -22,11 +22,13 @@ input:
         domain: portal.aspen.example.io
         clientId: Yx7hub0portal0client0id0on0record0
         handKept: true
+        chartLine: ">=2.1.0 <3.0.0"
       - installation: gopher
         customer: giantswarm
         domain: portal.gopher.example.io
         clientId: backstage
         handKept: true
+        chartLine: ">=2.1.0 <3.0.0"
     federation:
       hubs: [aspen]
       targets: []

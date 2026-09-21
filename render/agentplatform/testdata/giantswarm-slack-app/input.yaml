@@ -22,10 +22,12 @@ input:
         domain: portal.example.io
         handKept: true
         clientId: Yx7hub0portal0client0id0on0record0
+        chartLine: ">=2.1.0 <3.0.0"
       - installation: glean
         customer: giantswarm
         domain: portal.glean.example.io
         clientId: backstage
+        chartLine: ">=2.1.0 <3.0.0"
     federation:
       hubs: [gopher]
       targets: []

@@ -35,7 +35,12 @@ in the portal host's tree, a kustomize Component the portal's `extras/backstage/
 ConfigMap, the chart values that mount it and name the installation's avatars host, the Google credentials of a
 Vertex chat (supplied as `portal.aiChat.google.credentialsJson`), and a patch appending those sources to the
 portal HelmRelease's `valuesFrom` — last, so the platform's values win; Helm replaces lists, so a portal that
-sets `backstage.extraEnvVars` itself loses that list to the platform's. A private skills repository's token is
+sets `backstage.extraEnvVars` itself loses that list to the platform's. Where kagent runs and the organisation's
+portal follows a chart line before backstage 1.1.0 (`installation.portals[*].chartLine`, the ref its kustomization
+patches onto the fleet base's OCIRepository), the fragment names the agents' Flux identity
+(`agentPlatform.fluxServiceAccountName: kagent-flux`): that plugin composes the agent's HelmRelease itself, and
+the management clusters' Flux multi-tenancy policy refuses one without `spec.serviceAccountName`; from 1.1.0 agents
+are created through agent-manager and the key is not read, so it is not written. A private skills repository's token is
 the one optional supplied value (`portal.skillsToken`): given, it renders `kagent-skills-token` in namespace
 `kagent`. The definition targets dex-app 3.2.0 or later, where every MCP server's Dex client reads a
 `clientSecretRef`.

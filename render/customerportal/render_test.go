@@ -176,10 +176,10 @@ func TestDexClientOwnership(t *testing.T) {
 	if _, ok := result.Files["giantswarm/giantswarm-configs"]; ok {
 		t.Error("a dex patch rendered with the platform enabled; the agent-platform definition owns it")
 	}
-	// The agent-platform definition, given the portal's domain, carries the same entry.
+	// The agent-platform definition, given the portal's domain and the chart line this definition wrote, carries the same entry.
 	apInput, apSecrets := agentPlatformInput(t)
 	apInput["installation"].(map[string]any)["name"] = "hazel"
-	apInput["installation"].(map[string]any)["portals"] = []any{map[string]any{"installation": "hazel", "customer": "oakridge", "domain": "portal.hazel.example.test", "clientId": render.PortalDexClientID}}
+	apInput["installation"].(map[string]any)["portals"] = []any{map[string]any{"installation": "hazel", "customer": "oakridge", "domain": "portal.hazel.example.test", "clientId": render.PortalDexClientID, "chartLine": input["chart"].(map[string]any)["line"]}}
 	apResult, err := agentplatform.Render(apInput, apSecrets, render.ModeCommit)
 	if err != nil {
 		t.Fatal(err)

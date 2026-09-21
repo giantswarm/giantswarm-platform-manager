@@ -179,6 +179,34 @@ func TestPortalConfigHandKept(t *testing.T) {
 	}
 }
 
+// A portal's chart line is the ref its directory kustomization patches onto
+// the fleet base's backstage OCIRepository: the semver range of a JSON patch's
+// add operation (the form the customer-portal definition writes), a tag the
+// same way, or a strategic-merge patch's spec.ref; a kustomization that
+// patches no ref names none, and one that is no YAML is an error.
+func TestPortalChartLine(t *testing.T) {
+	const base = "resources:\n  - https://github.com/giantswarm/management-cluster-bases/extras/backstage/main?ref=main\n  - app-config.yaml\n"
+	ops := func(path, value string) string {
+		return "patches:\n  - patch: |-\n      - op: remove\n        path: /spec/ref/tag\n      - op: add\n        path: " + path + "\n        value: \"" + value + "\"\n    target:\n      kind: OCIRepository\n      name: backstage\n      namespace: flux-giantswarm\n"
+	}
+	release := "  - patch: |\n      apiVersion: helm.toolkit.fluxcd.io/v2\n      kind: HelmRelease\n      metadata:\n        name: backstage\n      spec:\n        valuesFrom:\n          - kind: ConfigMap\n            name: user-values-backstage\n    target:\n      kind: HelmRelease\n      name: backstage\n"
+	for _, tc := range []struct{ name, data, want string }{
+		{"a bounded range", base + ops("/spec/ref/semver", ">=0.244.7 <1.0.0") + release, ">=0.244.7 <1.0.0"},
+		{"a tag", base + ops("/spec/ref/tag", "0.120.0") + release, "0.120.0"},
+		{"a strategic-merge patch", base + "patches:\n  - patch: |\n      apiVersion: source.toolkit.fluxcd.io/v1\n      kind: OCIRepository\n      metadata:\n        name: backstage\n      spec:\n        ref:\n          semver: '>=2.1.0 <3.0.0'\n    target:\n      kind: OCIRepository\n      name: backstage\n", ">=2.1.0 <3.0.0"},
+		{"no ref patched", base + "patches:\n" + release, ""},
+		{"no patches", base, ""},
+	} {
+		got, err := portalChartLine(tc.data)
+		if err != nil || got != tc.want {
+			t.Errorf("%s: %q, %v; want %q", tc.name, got, err, tc.want)
+		}
+	}
+	if _, err := portalChartLine("patches: ["); err == nil {
+		t.Fatal("a kustomization that is no YAML is an error")
+	}
+}
+
 func indent(s, prefix string) string {
 	var b strings.Builder
 	for _, line := range strings.SplitAfter(s, "\n") {

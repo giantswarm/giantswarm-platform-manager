@@ -16,6 +16,7 @@ input:
       - installation: kestrel
         customer: oakridge
         domain: portal.kestrel.oakridge.example
+        chartLine: ">=0.244.7 <1.0.0"
     federation:
       hubs: []
       brokerClientId: broker-client-id-placeholder
