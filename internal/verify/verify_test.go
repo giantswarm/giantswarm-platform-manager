@@ -393,20 +393,20 @@ func TestReadsOnce(t *testing.T) {
 // none of. A dimension of the kind with a difference keeps its mark.
 func TestNotCheckedReasonsNameWhatIsMissing(t *testing.T) {
 	const patch = "installations/x/apps/dex-app/configmap-values.yaml.patch"
-	feats := []definitions.Feature{{ID: "identity", Dimensions: []definitions.Dimension{
-		{ID: "clients", Kind: definitions.KindDexSecret, Key: "oidc.extraStaticClients"},
+	feats := []definitions.Feature{{ID: "clients", Dimensions: []definitions.Dimension{
+		{ID: "extra-clients", Kind: definitions.KindDexSecret, Key: "oidc.extraStaticClients"},
 		{ID: "peers", Kind: definitions.KindDexSecret, Key: "oidc.staticClients"},
-		{ID: "portal", Kind: definitions.KindBackstage, Key: "app-config gs.clusterTokenBroker"},
+		{ID: "broker", Kind: definitions.KindBackstage, Key: "app-config gs.clusterTokenBroker"},
 	}}}
 	refused := &fileDiff{key: "r:" + patch, path: patch, kind: definitions.KindDexSecret, unreadable: "github: r:" + patch + ": 403 Forbidden"}
 	dims := assign(&comparison{files: map[string]*fileDiff{refused.key: refused}}, feats, "")
 	want := ReasonUnreadable + ": github: r:" + patch + ": 403 Forbidden"
-	for _, id := range []string{"clients", "peers"} {
+	for _, id := range []string{"extra-clients", "peers"} {
 		if d := dims[id]; d.Mark != NotChecked || d.Reason != want {
 			t.Errorf("%s: %+v, want %q", id, *d, want)
 		}
 	}
-	if d := dims["portal"]; d.Mark != NotChecked || d.Reason != ReasonNoFile+": "+definitions.KindBackstage {
+	if d := dims["broker"]; d.Mark != NotChecked || d.Reason != ReasonNoFile+": "+definitions.KindBackstage {
 		t.Errorf("no file of the kind: %+v", *d)
 	}
 
@@ -418,7 +418,7 @@ func TestNotCheckedReasonsNameWhatIsMissing(t *testing.T) {
 	if d := dims["peers"]; d.Reason != ReasonUnreadable+": r:"+patch+": is on record but takes no entry: not a YAML mapping" {
 		t.Errorf("prefixed answer: %+v", *d)
 	}
-	if d := dims["clients"]; d.Mark != Drifted || d.Reason != "" {
+	if d := dims["extra-clients"]; d.Mark != Drifted || d.Reason != "" {
 		t.Errorf("the dimension with a difference: %+v", *d)
 	}
 }
