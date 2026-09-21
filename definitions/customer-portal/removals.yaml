@@ -2,6 +2,11 @@
 # Each is dropped from the fileset by the renderer, for the reason given. Key paths use the file prefixes and
 # the normalisation of schema.json's x-renders ([*] for a list index, <name> for a per-installation map key).
 #
+# The reason is what the Dev Portal shows a platform engineer next to the planned change, so it is one
+# sentence in their words: what is on the installation today, what replaces it and why. It starts with
+# Removed:, Moved: or Changed:, names the value or the object, and never the file the key is in (the file
+# is the group the change is listed under).
+#
 # kinds:
 #   other-definition    the portal's agent-platform section, which the agent-platform definition renders as its
 #                       own Component next to the portal's files; this definition never writes it into them
@@ -10,35 +15,87 @@
 #   off-value           a flag at the value it has when the key is absent; dropping it changes nothing
 removals:
   # --- Backstage app-config.yaml: flags at their off value ---
-  - {key: "backstage:app-config:auth.experimentalClientIdMetadataDocuments", kind: off-value, reason: "an experimental flag of the auth backend at false, its value without the key"}
+  - key: "backstage:app-config:auth.experimentalClientIdMetadataDocuments"
+    kind: off-value
+    reason: "Removed: auth.experimentalClientIdMetadataDocuments is set to false here, which is what the auth backend does without the key; dropping it changes nothing."
 
   # --- Backstage app-config.yaml: the agent-platform section ---
-  - {key: "backstage:app-config:muster", kind: other-definition, reason: the platform's muster entries are the agent-platform Component's fragment}
-  - {key: "backstage:app-config:agentPlatform", kind: other-definition, reason: the platform's section is the agent-platform Component's fragment}
-  - {key: "backstage:app-config:aiChat", kind: other-definition, reason: the AI chat on the platform's model provider is the agent-platform Component's fragment}
-  - {key: "backstage:app-config:mcpActions", kind: other-definition, reason: the chat's tool naming is the agent-platform Component's fragment}
-  - {key: "backstage:app-config:app.extensions.$include", kind: other-definition, reason: "the shared extensions list this definition includes is shared-config.yaml#extensions; the agent-platform Component's fragment includes #extensionsAgentPlatform over it"}
+  - key: "backstage:app-config:muster"
+    kind: other-definition
+    reason: "Moved: the muster entries in the main app-config move into the Agent Platform Component's app-config fragment, which the platform owns."
+  - key: "backstage:app-config:agentPlatform"
+    kind: other-definition
+    reason: "Moved: the agentPlatform section of the main app-config moves into the Agent Platform Component's app-config fragment, which the platform owns."
+  - key: "backstage:app-config:aiChat"
+    kind: other-definition
+    reason: "Moved: the aiChat block (the chat on the platform's model provider) moves from the main app-config into the Agent Platform Component's app-config fragment."
+  - key: "backstage:app-config:mcpActions"
+    kind: other-definition
+    reason: "Moved: the mcpActions block (the chat's tool naming) moves from the main app-config into the Agent Platform Component's app-config fragment."
+  - key: "backstage:app-config:app.extensions.$include"
+    kind: other-definition
+    reason: >-
+      Changed: app.extensions includes one list by $include in the main app-config today; the main app-config includes the shared list
+      (shared-config.yaml#extensions) and the Agent Platform Component's fragment layers #extensionsAgentPlatform over it.
 
   # --- Backstage app-config.yaml: the hub's Dev Portal ---
-  - {key: "backstage:app-config:pagerDuty", kind: not-rendered, reason: the hub's incident links}
-  - {key: "backstage:app-config:proxy", kind: not-rendered, reason: the hub's API proxies}
-  - {key: "backstage:app-config:repositories", kind: not-rendered, reason: the hub's repositories page through muster}
-  - {key: "backstage:app-config:plans", kind: not-rendered, reason: the hub's plans page through muster}
-  - {key: "backstage:app-config:roadmap", kind: not-rendered, reason: the hub's roadmap page through muster}
-  - {key: "backstage:app-config:scaffolder", kind: not-rendered, reason: the hub's scaffolder}
-  - {key: "backstage:app-config:gs.github", kind: not-rendered, reason: the hub's GitHub pages through muster}
-  - {key: "backstage:app-config:gs.containerRegistry", kind: not-rendered, reason: the hub's registry access}
-  - {key: "backstage:app-config:gs.installations.<name>", kind: not-rendered, reason: an installation neither the portal's own nor listed under federation.installations is the hub's registry of every installation; this definition renders the entries of the installations the portal shows}
-  - {key: "backstage:app-config:backend.actions", kind: not-rendered, reason: the hub's action plugin sources and filters}
-  - {key: "backstage:app-config:backend.database", kind: not-rendered, reason: the hub runs on Postgres with its connection and plugin division; a customer portal runs on the in-memory database this definition renders}
+  - key: "backstage:app-config:pagerDuty"
+    kind: not-rendered
+    reason: "Removed: the pagerDuty block links the hub's incidents; a customer portal has no incident page, and the hub's own shape is not rendered yet."
+  - key: "backstage:app-config:proxy"
+    kind: not-rendered
+    reason: "Removed: the proxy block is the hub's API proxies; a customer portal proxies nothing, and the hub's own shape is not rendered yet."
+  - key: "backstage:app-config:repositories"
+    kind: not-rendered
+    reason: "Removed: the repositories block is the hub's repositories page over muster; a customer portal has no such page, and the hub's own shape is not rendered yet."
+  - key: "backstage:app-config:plans"
+    kind: not-rendered
+    reason: "Removed: the plans block is the hub's plans page over muster; a customer portal has no such page, and the hub's own shape is not rendered yet."
+  - key: "backstage:app-config:roadmap"
+    kind: not-rendered
+    reason: "Removed: the roadmap block is the hub's roadmap page over muster; a customer portal has no such page, and the hub's own shape is not rendered yet."
+  - key: "backstage:app-config:scaffolder"
+    kind: not-rendered
+    reason: "Removed: the scaffolder block is the hub's software templates; a customer portal has no scaffolder, and the hub's own shape is not rendered yet."
+  - key: "backstage:app-config:gs.github"
+    kind: not-rendered
+    reason: "Removed: gs.github is the hub's GitHub pages over muster; a customer portal has no such pages, and the hub's own shape is not rendered yet."
+  - key: "backstage:app-config:gs.containerRegistry"
+    kind: not-rendered
+    reason: "Removed: gs.containerRegistry is the hub's registry access; a customer portal has no registry page, and the hub's own shape is not rendered yet."
+  - key: "backstage:app-config:gs.installations.<name>"
+    kind: not-rendered
+    reason: "Removed: gs.installations lists every installation the hub knows; a customer portal lists only its own installation and those under federation.installations, so any other entry goes."
+  - key: "backstage:app-config:backend.actions"
+    kind: not-rendered
+    reason: "Removed: backend.actions is the hub's action plugin sources and filters; a customer portal runs none of them, and the hub's own shape is not rendered yet."
+  - key: "backstage:app-config:backend.database"
+    kind: not-rendered
+    reason: "Removed: backend.database connects the hub to Postgres with its per-plugin division; a customer portal runs on the in-memory database, so the block goes."
 
   # --- Backstage user-values.yaml ---
-  - {key: "backstage:user-values:database", kind: not-rendered, reason: the hub's Postgres engine and volume; a customer portal runs on the in-memory database}
-  - {key: "backstage:user-values:google", kind: other-definition, reason: a Vertex chat's Google project and location are the agent-platform Component's values}
-  - {key: "backstage:user-values:backstage.extraEnvVars", kind: other-definition, reason: the avatars image source is the agent-platform Component's values, appended last to the HelmRelease's sources so its list wins}
-  - {key: "backstage:user-values:backstage.extraAppConfig", kind: other-definition, reason: the platform's fragment mount is the agent-platform Component's values}
+  - key: "backstage:user-values:database"
+    kind: not-rendered
+    reason: "Removed: the database block sizes the hub's Postgres engine and volume; a customer portal runs on the in-memory database, so the block goes."
+  - key: "backstage:user-values:google"
+    kind: other-definition
+    reason: "Moved: the Google project and location of a Vertex chat leave the portal's user values for the Agent Platform Component's values."
+  - key: "backstage:user-values:backstage.extraEnvVars"
+    kind: other-definition
+    reason: "Moved: the avatars image source in extraEnvVars leaves the portal's user values for the Agent Platform Component's values, appended last to the HelmRelease's sources so its list wins."
+  - key: "backstage:user-values:backstage.extraAppConfig"
+    kind: other-definition
+    reason: "Moved: the mount of the platform's app-config fragment (extraAppConfig) leaves the portal's user values for the Agent Platform Component's values."
 
   # --- Backstage kustomization.yaml and files ---
-  - {key: "backstage:kustomization:patches[*] HelmRelease spec.valuesFrom[*] Secret/google-credentials-backstage/values", kind: other-definition, reason: a Vertex chat's Google credentials are the agent-platform Component's values source}
-  - {key: "backstage:kustomization:resources[*] google-credentials.enc.yaml", kind: other-definition, reason: a Vertex chat's Google credentials are the agent-platform Component's Secret}
-  - {key: "backstage:file:google-credentials.enc.yaml", kind: other-definition, reason: a Vertex chat's Google credentials are the agent-platform Component's Secret}
+  - key: "backstage:kustomization:patches[*] HelmRelease spec.valuesFrom[*] Secret/google-credentials-backstage/values"
+    kind: other-definition
+    reason: >-
+      Moved: the HelmRelease's valuesFrom entry for the Secret google-credentials-backstage leaves the portal's kustomization for the Agent Platform
+      Component, which carries a Vertex chat's Google credentials.
+  - key: "backstage:kustomization:resources[*] google-credentials.enc.yaml"
+    kind: other-definition
+    reason: "Moved: the google-credentials.enc.yaml resource entry leaves the portal's kustomization for the Agent Platform Component, which carries a Vertex chat's Google credentials."
+  - key: "backstage:file:google-credentials.enc.yaml"
+    kind: other-definition
+    reason: "Moved: google-credentials.enc.yaml (a Vertex chat's Google credentials) leaves the portal's directory for the Agent Platform Component."

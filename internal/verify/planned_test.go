@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
@@ -139,6 +140,45 @@ func TestJoinedScalarsAndTheValkeySecretArePlanned(t *testing.T) {
 	} {
 		if got := planned(tc.fd, tc.d, nil, migs); got != tc.want {
 			t.Errorf("%s: %s#%s planned %q, want %q", tc.name, tc.fd.path, tc.d.Path, got, tc.want)
+		}
+	}
+}
+
+// The installation's own three MCP servers on record (mcp-kubernetes,
+// mcp-prometheus, mcp-capi) repeat what the shared defaults register, in
+// their in-cluster form or on the installation's public host: their
+// removal names the server and is no migration. Any other entry of the
+// list — a foreign server, a private target's tunnel host — is M19, as is
+// the list itself.
+func TestOwnMCPServersAreNotM19(t *testing.T) {
+	rs, err := definitions.Removals(installations.AgentPlatform)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rms := readRemovals(rs)
+	patch := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
+	const list = "agent-platform-mcps.mcpServers"
+	for _, tc := range []struct {
+		name, path, server string
+		m19                bool
+	}{
+		{"own mcp-kubernetes on the public host", list + "[https://mcp-kubernetes.graveler.gaws2.gigantic.io/mcp].url", "mcp-kubernetes", false},
+		{"own mcp-prometheus in the cluster", list + "[http://mcp-prometheus.mcp-prometheus.svc:8080/mcp].timeout", "mcp-prometheus", false},
+		{"own mcp-capi's auth mode", list + "[https://mcp-capi.glean.example.io/mcp].auth.mode", "mcp-capi", false},
+		{"a foreign server", list + "[http://mcp-foo.mcp-foo.svc:8080/mcp].url", "", true},
+		{"a private target's tunnel host", list + "[https://mcp-kubernetes-burrow.agent-platform.svc.cluster.local:8443/mcp].url", "", true},
+		{"the list itself", list, "", true},
+	} {
+		got := rms.reason(patch, tc.path)
+		if got == "" {
+			t.Errorf("%s: %s names no removal", tc.name, tc.path)
+			continue
+		}
+		if isM19 := strings.HasSuffix(got, "· M19"); isM19 != tc.m19 {
+			t.Errorf("%s: %s planned %q, want M19 %v", tc.name, tc.path, got, tc.m19)
+		}
+		if tc.server != "" && !strings.Contains(got, "this "+tc.server+" entry") {
+			t.Errorf("%s: %s planned %q, want it to name %s", tc.name, tc.path, got, tc.server)
 		}
 	}
 }

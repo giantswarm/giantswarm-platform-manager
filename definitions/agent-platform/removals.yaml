@@ -1,199 +1,347 @@
 # Keys found in an enabled installation's agent-platform fileset that no input of schema.json renders.
 # Each is dropped from the fileset by the renderer, for the reason given. Key paths use the file prefixes and
-# the normalisation of schema.json's x-renders ([*] for a list index, <name> for a per-installation map key).
+# the normalisation of schema.json's x-renders ([*] for a list index, <name> for a per-installation map key,
+# and within a list entry's identity <x> for any part of it). The comparison takes the first key that names
+# a path: a more specific key precedes one that covers it.
+#
+# The reason is what the Dev Portal shows a platform engineer next to the planned change, so it is one
+# sentence in their words: what is on the installation today, what replaces it and why. It starts with
+# Removed:, Moved:, Changed: or Kept: (a key another owner carries, which stays as it is), names the chart
+# line, the value or the object, and never the file (the file is the group the change is listed under).
+# A removal that belongs to a migration carries the migration as a trailing tag (· M<n>).
 #
 # kinds:
-#   template            the shared-configs template renders the key (or its intended value) from the installation
+#   template            the shared defaults render the key (or its intended value) from the installation's
 #                       facts; the hand-written copy is redundant or contradicts it
 #   referenced-secret   a credential the dex-app prerequisite turns into a referenced Secret; never written into
 #                       a patch again
 #   not-platform        the installation carries it in one of the platform's files, but it configures something
 #                       the platform does not read: the installation's login connectors, Dex's ingress, agents
-#                       and MCP servers registered on the platform (out of the definition's scope)
+#                       and MCP servers registered on the platform; it stays where it is
 #   other-definition    a developer-portal key that belongs to the customer-portal definition, which owns the
 #                       portal; this definition writes only the portal's agent-platform section
 #   migration           a value the fleet carries today that is no input of the definition: it moves to where
-#                       it belongs (the template, the policy, a workload manifest) or goes; the reason names
-#                       the migration (M12…) the empty-diff driver classifies it under
+#                       it belongs (the shared defaults, the fleet policy, a workload manifest) or goes
 removals:
-  # --- former inputs: migrations (giantswarm#37837) ---
+  # --- former inputs: migrations ---
   - key: configmap:components.agent-sandbox
     kind: migration
-    reason: M13 — the agent sandbox is no component of the definition; the one installation running it stops
+    reason: "Removed: components.agent-sandbox switches the agent sandbox on here; the sandbox is retired from the fleet, nothing replaces it, and it stops on the one installation running it · M13"
   - key: configmap:kagent.providers.anthropic.model
     kind: migration
-    reason: M26 — the default model is the template's; an installation's override moves there or goes
+    reason: >-
+      Removed: kagent.providers.anthropic.model pins the default Anthropic model on this installation; the shared defaults carry the fleet-wide default, and
+      an installation-specific pick moves there or is dropped · M26
   - key: configmap:kagent.modelConfigs
     kind: migration
-    reason: M25 — ModelConfigs are workloads registered on the platform, a manifest beside the agents
+    reason: "Removed: kagent's ModelConfigs are inlined in these values; each becomes a ModelConfig object under extras, next to the agents that use it · M25"
   - key: configmap:kagent.controller.resources
     kind: migration
-    reason: M23 — resource tuning is the chart's or the template's
+    reason: "Removed: the kagent controller's CPU and memory requests are tuned here; the chart's defaults, or the shared defaults, size the controller the same way on every installation · M23"
   - key: configmap:muster.resources
     kind: migration
-    reason: M23 — resource tuning is the chart's or the template's
+    reason: "Removed: muster's CPU and memory requests are tuned here; the chart's defaults, or the shared defaults, size muster the same way on every installation · M23"
   - key: configmap:kagent.kagent-tools
     kind: migration
-    reason: M24 — the chart's bundled sample agents are workloads
+    reason: "Removed: the chart's bundled kagent-tools sample agent is switched on here; a sample agent an installation wants is an Agent object under extras · M24"
   - key: configmap:kagent.cilium-policy-agent
     kind: migration
-    reason: M24 — the chart's bundled sample agents are workloads
+    reason: "Removed: the chart's bundled cilium-policy-agent sample is switched on here; a sample agent an installation wants is an Agent object under extras · M24"
   - key: configmap:kagent.promql-agent
     kind: migration
-    reason: M24 — the chart's bundled sample agents are workloads
+    reason: "Removed: the chart's bundled promql-agent sample is switched on here; a sample agent an installation wants is an Agent object under extras · M24"
   - key: configmap:kagent.oauth2ProxyIngress
     kind: migration
-    reason: M22 — a private installation's peer rule belongs to the template
+    reason: "Removed: the kagent UI's oauth2-proxy ingress is written per installation here; the shared defaults carry the same ingress rule for every private installation · M22"
   - key: configmap:postgres.storage
     kind: migration
-    reason: M17 — the platform Postgres block is the template's, by provider
+    reason: "Removed: the platform Postgres storage class is written here; the shared defaults set it per cloud provider · M17"
   - key: configmap:postgres.backup
     kind: migration
-    reason: M17 — the platform Postgres block is the template's, from the record's subscription
+    reason: "Removed: the platform Postgres backup settings are written here; the shared defaults derive them from the installation's subscription · M17"
   - key: configmap:muster.muster.oauth.server.dex.connectorId
     kind: migration
-    reason: M27 — the login connector pin is the template's; one installation's own pin goes there or goes
+    reason: "Removed: muster's Dex login connector is pinned here; the shared defaults pick the connector for every installation, and an installation-specific pin moves there or is dropped · M27"
   - key: configmap:muster.muster.oauth.server.trustedIssuers
     kind: migration
-    reason: M15 — the template renders muster's trusted issuers (the installation's Dex, the cluster's service-account issuer) from the record
+    reason: >-
+      Removed: muster's trusted issuers are listed by hand here; the shared defaults derive them (this installation's Dex and the cluster's service-account
+      issuer) from the installation's base domain · M15
   - key: configmap:muster.muster.oauth.server.trustedPublicRegistrationRedirectURIs
     kind: migration
-    reason: M20 — a customer's consumers register with muster, not in the patch; where the registration lands is giantswarm/giantswarm#37876
+    reason: >-
+      Removed: the redirect URIs of a customer's own OAuth clients are allowlisted here; those clients register with muster instead, and where that
+      registration lands is giantswarm/giantswarm#37876 · M20
   - key: configmap:muster.muster.oauth.mcpClient.tokenExchange
     kind: migration
-    reason: M16 — an identity-provider-only federation is no shape of the definition; the hub's targets come from its portal
+    reason: >-
+      Removed: muster's token exchange is set up here as a bare identity-provider federation; a hub's exchange targets are derived from the installations
+      its portal shows, and an identity-provider-only form no longer exists · M16
+  # The installation's own three servers by identity (the entry's url, in-cluster or on the installation's
+  # public host) precede the key that covers the rest of the list.
+  - key: "configmap:agent-platform-mcps.mcpServers[<scheme>://mcp-kubernetes.<host>/mcp]"
+    kind: template
+    reason: >-
+      Removed: the shared defaults already register the installation's own three MCP servers (mcp-kubernetes, mcp-prometheus, mcp-capi); this mcp-kubernetes
+      entry repeats one of them, and a patch entry replaces the whole list.
+  - key: "configmap:agent-platform-mcps.mcpServers[<scheme>://mcp-prometheus.<host>/mcp]"
+    kind: template
+    reason: >-
+      Removed: the shared defaults already register the installation's own three MCP servers (mcp-kubernetes, mcp-prometheus, mcp-capi); this mcp-prometheus
+      entry repeats one of them, and a patch entry replaces the whole list.
+  - key: "configmap:agent-platform-mcps.mcpServers[<scheme>://mcp-capi.<host>/mcp]"
+    kind: template
+    reason: >-
+      Removed: the shared defaults already register the installation's own three MCP servers (mcp-kubernetes, mcp-prometheus, mcp-capi); this mcp-capi entry
+      repeats one of them, and a patch entry replaces the whole list.
   - key: configmap:agent-platform-mcps.mcpServers
     kind: migration
-    reason: M19 — servers registered with muster beyond the installation's own three are platform objects, not the patch; where they land is giantswarm/giantswarm#37876
+    reason: >-
+      Removed: the shared defaults already register the installation's own three MCP servers, and a patch entry replaces the whole list. Servers beyond
+      those three become MCPServer objects under extras · M19
   - key: configmap:klausGateway.slack.channelAllowlist
     kind: migration
-    reason: M28 — the gateway's Slack shape is the policy's; a channel allowlist is never a definition's value
+    reason: >-
+      Removed: the Klaus gateway's Slack channel allowlist is written here; the gateway listens on every channel (channelMode: all) on every installation,
+      and no per-installation allowlist exists · M28
   - key: configmap:klausGateway.a2a.saToken
     kind: migration
-    reason: M29 — the gateway's A2A shape is the policy's
+    reason: >-
+      Removed: the Klaus gateway's agent-to-agent calls are set up here with a service-account token; agent-to-agent is enabled with a default agent the
+      same way on every installation, without a token value · M29
   - key: backstage:app-config:aiChat
     kind: other-definition
-    reason: M18 — the portal's chat is the customer-portal definition's
+    reason: "Moved: the portal's aiChat block sits in the main app-config today; the Agent Platform Component carries it, and the main app-config is the customer-portal capability's to clean up · M18"
   - key: backstage:app-config:mcpActions
     kind: other-definition
-    reason: M18 — the portal's chat is the customer-portal definition's
+    reason: >-
+      Moved: the portal's mcpActions block (the chat's tool naming) sits in the main app-config today; the Agent Platform Component carries it, and the main
+      app-config is the customer-portal capability's to clean up · M18
   - key: backstage:app-config:agentPlatform.skills
     kind: other-definition
-    reason: the portal's skill repositories are the customer-portal definition's
+    reason: >-
+      Kept: agentPlatform.skills lists the portal's skill repositories in the main app-config; the customer-portal capability owns that list, and the Agent
+      Platform Component writes none of it.
 
 
   # --- agent-platform configmap-values.yaml.patch ---
   - key: configmap:gitops.forbidInlineSecrets
     kind: template
-    reason: the template sets it for every installation
+    reason: "Removed: gitops.forbidInlineSecrets is set here; the shared defaults set it to the same value for every installation."
   - key: configmap:muster.muster.oauth.server.dex.clientId
     kind: template
-    reason: rendered from services.muster.clientId in config.yaml.patch; an installation with its own client id declares it there
+    reason: "Removed: muster's Dex client id is written here; the shared defaults derive it from the installation's services.muster.clientId, which is where an installation-specific id belongs."
   - key: configmap:muster.muster.oauth.server.dex.allowPrivateIPOIDC
     kind: template
-    reason: rendered from managementCluster.private in config.yaml.patch; a private installation declares it there
+    reason: >-
+      Removed: muster's allowPrivateIPOIDC flag is written here; the shared defaults derive it from the installation's managementCluster.private, which is
+      where a private installation is declared.
   - key: configmap:components.agent-platform-mcps.enabled
     kind: template
-    reason: the template enables the component for every installation
+    reason: "Removed: components.agent-platform-mcps.enabled is set here; the shared defaults enable the component on every installation."
   - key: configmap:agent-platform-mcps.agentgateway.oauthMode
     kind: template
-    reason: equals the template's value; the edge cannot validate muster's opaque tokens, so no other value exists
+    reason: "Removed: the agentgateway's oauthMode is written here with the one value it can have; the shared defaults set it, since the edge cannot validate muster's opaque tokens any other way."
   - key: configmap:agent-platform-mcps.identityProviders
     kind: template
-    reason: an empty map repeats the template; a hub's federation targets render the real entries
+    reason: "Removed: agent-platform-mcps.identityProviders is an empty map here; the shared defaults already carry the empty map, and on a hub the federation targets fill in the real entries."
   - key: configmap:agent-manager.oauth
     kind: template
-    reason: on the 4 chart line the chart derives the manager's OAuth (issuer, client, Secret, base URL) from the template's global.identity and global.domain; the definition writes the block on the 3 line only, where the template has no identity block
+    reason: >-
+      Removed: this is the chart 3.x form of agent-manager's OAuth settings. Chart 4.x derives issuer, client, Secret and base URL from global.identity and
+      global.domain, which this installation already sets.
   - key: configmap:cluster-manager.oauth
     kind: template
-    reason: on the 4 chart line the chart derives the manager's OAuth from the template's global.identity and global.domain; the definition writes the block on the 3 line only
+    reason: >-
+      Removed: this is the chart 3.x form of cluster-manager's OAuth settings. Chart 4.x derives issuer, client, Secret and base URL from global.identity
+      and global.domain, which this installation already sets.
 
   # --- dex-app secret-values.yaml.patch ---
   - key: dex-secret:oidc.staticClients.muster.clientID
     kind: template
-    reason: rendered from services.muster.clientId in config.yaml.patch
+    reason: "Removed: muster's Dex client id is repeated in the encrypted Dex values; the shared defaults derive it from the installation's services.muster.clientId."
   - key: dex-secret:oidc.staticClients.muster.clientSecret
     kind: referenced-secret
-    reason: the platform client's secret becomes a referenced Secret
+    reason: "Removed: muster's Dex client secret is inline in the encrypted Dex values; the client reads it from the Secret dex-client-muster-secret in the cluster instead. Needs dex-app 3.2.2 · M1"
   - key: dex-secret:oidc.staticClients.dexK8SAuthenticator.clientSecret
     kind: referenced-secret
-    reason: the authenticator client's secret becomes a referenced Secret
+    reason: "Removed: the dex-k8s-authenticator client's secret is inline in the encrypted Dex values; the client reads it from a referenced Secret in the cluster instead. Needs dex-app 3.2.2 · M1"
   - key: dex-secret:oidc.staticClients.mcpKubernetes.clientSecret
     kind: referenced-secret
-    reason: the MCP server client's secret becomes a referenced Secret
+    reason: >-
+      Removed: mcp-kubernetes's Dex client secret is inline in the encrypted Dex values; the client reads it from the Secret
+      dex-client-mcp-kubernetes-secret under extras/mcp-kubernetes instead. Needs dex-app 3.2.2 · M1
   - key: dex-secret:oidc.staticClients.mcpPrometheus.clientSecret
     kind: referenced-secret
-    reason: the MCP server client's secret becomes a referenced Secret
+    reason: >-
+      Removed: mcp-prometheus's Dex client secret is inline in the encrypted Dex values; the client reads it from the Secret
+      dex-client-mcp-prometheus-secret under extras/mcp-prometheus instead. Needs dex-app 3.2.2 · M1
   - key: dex-secret:oidc.staticClients.mcpCapi.clientSecret
     kind: referenced-secret
-    reason: the MCP server client's secret becomes a referenced Secret
+    reason: >-
+      Removed: mcp-capi's Dex client secret is inline in the encrypted Dex values; the client reads it from the Secret dex-client-mcp-capi-secret under
+      extras/mcp-capi instead. Needs dex-app 3.2.2 · M1
   - key: dex-secret:oidc.muster.clientSecret
     kind: referenced-secret
-    reason: a misplaced copy of the platform client's secret (the chart reads oidc.staticClients.muster); becomes a referenced Secret
+    reason: >-
+      Removed: oidc.muster.clientSecret is a stray copy of muster's client secret that Dex never reads (the chart reads oidc.staticClients.muster); the
+      client reads its secret from the Secret dex-client-muster-secret instead. Needs dex-app 3.2.2 · M1
   - key: dex-secret:oidc.customer
     kind: not-platform
-    reason: the installation's login connectors; owned by the installation's Dex, not read by the platform
+    reason: "Kept: oidc.customer holds this installation's own login connectors and their credentials; the platform reads nothing of them and leaves them in the encrypted Dex values as they are."
 
   # --- dex-app configmap-values.yaml.patch ---
   - key: dex-configmap:oidc.customer
     kind: not-platform
-    reason: the installation's login connectors; owned by the installation's Dex, not read by the platform — the plan keeps them on the patch as another owner's key
+    reason: "Kept: oidc.customer holds this installation's own login connectors; the platform reads nothing of them and leaves them on the Dex values as they are."
   - key: dex-configmap:ingress
     kind: not-platform
-    reason: Dex's own ingress tuning — the plan keeps it on the patch as another owner's key
+    reason: "Kept: the ingress block tunes this installation's own Dex ingress; the platform reads nothing of it and leaves it on the Dex values as it is."
 
   # --- management-clusters extras/agent-platform/ ---
   - key: extras:agents
     kind: not-platform
-    reason: agents deployed on the platform are workloads, out of the definition's scope
+    reason: "Kept: extras/agent-platform/agents holds the agents deployed on this installation; they are the installation's own workloads, which the platform neither writes nor removes."
   - key: extras:mcpservers
     kind: not-platform
-    reason: MCP servers registered on the platform are workloads, out of the definition's scope
+    reason: >-
+      Kept: extras/agent-platform/mcpservers holds the MCP servers registered on this installation beyond the platform's own three; they are the
+      installation's own workloads, which the platform neither writes nor removes.
 
   # --- Backstage app-config.yaml (portal keys outside the agent-platform section) ---
-  - {key: "backstage:app-config:app.title", kind: other-definition, reason: portal identity}
-  - {key: "backstage:app-config:app.baseUrl", kind: other-definition, reason: portal identity}
-  - {key: "backstage:app-config:app.routes", kind: other-definition, reason: portal routing}
-  - {key: "backstage:app-config:app.extensions", kind: other-definition, reason: an inline extension list is the portal's; the platform contributes its extensions through the shared include}
-  - {key: "backstage:app-config:app.errorReporter", kind: other-definition, reason: portal telemetry}
-  - {key: "backstage:app-config:app.telemetrydeck", kind: other-definition, reason: portal telemetry}
-  - {key: "backstage:app-config:app.support", kind: other-definition, reason: portal support links}
-  - {key: "backstage:app-config:organization", kind: other-definition, reason: portal identity}
-  - {key: "backstage:app-config:backend", kind: other-definition, reason: portal backend, database, CSP and plugin key store}
-  - {key: "backstage:app-config:integrations", kind: other-definition, reason: portal source integrations}
-  - {key: "backstage:app-config:permission", kind: other-definition, reason: portal permissions}
-  - {key: "backstage:app-config:techdocs", kind: other-definition, reason: portal docs}
-  - {key: "backstage:app-config:kubernetes", kind: other-definition, reason: portal cluster access}
-  - {key: "backstage:app-config:auth", kind: other-definition, reason: portal sign-in providers and session}
-  - {key: "backstage:app-config:grafana", kind: other-definition, reason: portal observability links}
-  - {key: "backstage:app-config:flux", kind: other-definition, reason: portal GitOps links}
-  - {key: "backstage:app-config:gs.authProvider", kind: other-definition, reason: portal sign-in}
-  - {key: "backstage:app-config:gs.auth", kind: other-definition, reason: portal sign-in scopes}
-  - {key: "backstage:app-config:gs.signInProvider", kind: other-definition, reason: portal sign-in}
-  - {key: "backstage:app-config:gs.signInFallbackProvider", kind: other-definition, reason: portal sign-in}
-  - {key: "backstage:app-config:gs.homepage", kind: other-definition, reason: portal home page}
-  - {key: "backstage:app-config:gs.installations", kind: other-definition, reason: the portal's installation registry}
-  - {key: "backstage:app-config:gs.friendlyLabels", kind: other-definition, reason: portal presentation}
-  - {key: "backstage:app-config:gs.friendlyAnnotations", kind: other-definition, reason: portal presentation}
-  - {key: "backstage:app-config:gs.adminGroups", kind: other-definition, reason: portal authorization}
-  - {key: "backstage:app-config:gs.kubernetesVersions", kind: other-definition, reason: portal cluster data}
-  - {key: "backstage:app-config:gs.clusterDetails", kind: other-definition, reason: portal presentation}
-  - {key: "backstage:app-config:gs.containerRegistry", kind: other-definition, reason: portal registry access}
-  - {key: "backstage:app-config:gs.github", kind: other-definition, reason: portal GitHub pages through muster}
-  - {key: "backstage:app-config:catalog", kind: other-definition, reason: portal catalog}
-  - {key: "backstage:app-config:scaffolder", kind: other-definition, reason: portal scaffolder}
-  - {key: "backstage:app-config:pagerDuty", kind: other-definition, reason: portal incident links}
-  - {key: "backstage:app-config:proxy", kind: other-definition, reason: portal API proxies}
-  - {key: "backstage:app-config:repositories", kind: other-definition, reason: portal repositories page through muster}
-  - {key: "backstage:app-config:plans", kind: other-definition, reason: portal plans page through muster}
-  - {key: "backstage:app-config:roadmap", kind: other-definition, reason: portal roadmap page through muster}
+  - key: "backstage:app-config:app.title"
+    kind: other-definition
+    reason: "Kept: app.title is the portal's own title, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:app.baseUrl"
+    kind: other-definition
+    reason: "Kept: app.baseUrl is the portal's own address, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:app.routes"
+    kind: other-definition
+    reason: "Kept: app.routes is the portal's own routing, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:app.extensions"
+    kind: other-definition
+    reason: >-
+      Kept: app.extensions is the portal's own extension list, written by the customer-portal capability; the Agent Platform contributes its extensions
+      through the shared include in its Component.
+  - key: "backstage:app-config:app.errorReporter"
+    kind: other-definition
+    reason: "Kept: app.errorReporter is the portal's own error reporting, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:app.telemetrydeck"
+    kind: other-definition
+    reason: "Kept: app.telemetrydeck is the portal's own telemetry, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:app.support"
+    kind: other-definition
+    reason: "Kept: app.support is the portal's own support links, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:organization"
+    kind: other-definition
+    reason: "Kept: organization is the portal's own organisation name, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:backend"
+    kind: other-definition
+    reason: "Kept: backend is the portal's own backend, database, CSP and plugin key store, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:integrations"
+    kind: other-definition
+    reason: "Kept: integrations is the portal's own source integrations, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:permission"
+    kind: other-definition
+    reason: "Kept: permission is the portal's own permission framework, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:techdocs"
+    kind: other-definition
+    reason: "Kept: techdocs is the portal's own documentation setup, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:kubernetes"
+    kind: other-definition
+    reason: "Kept: kubernetes is the portal's own cluster access, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:auth"
+    kind: other-definition
+    reason: "Kept: auth is the portal's own sign-in providers and session, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:grafana"
+    kind: other-definition
+    reason: "Kept: grafana is the portal's own observability links, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:flux"
+    kind: other-definition
+    reason: "Kept: flux is the portal's own GitOps links, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:gs.authProvider"
+    kind: other-definition
+    reason: "Kept: gs.authProvider is the portal's own sign-in provider, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:gs.auth"
+    kind: other-definition
+    reason: "Kept: gs.auth is the portal's own sign-in scopes, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:gs.signInProvider"
+    kind: other-definition
+    reason: "Kept: gs.signInProvider is the portal's own sign-in provider, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:gs.signInFallbackProvider"
+    kind: other-definition
+    reason: "Kept: gs.signInFallbackProvider is the portal's own fallback sign-in provider, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:gs.homepage"
+    kind: other-definition
+    reason: "Kept: gs.homepage is the portal's own home page, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:gs.installations"
+    kind: other-definition
+    reason: "Kept: gs.installations is the portal's own registry of installations, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:gs.friendlyLabels"
+    kind: other-definition
+    reason: "Kept: gs.friendlyLabels is the portal's own label presentation, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:gs.friendlyAnnotations"
+    kind: other-definition
+    reason: "Kept: gs.friendlyAnnotations is the portal's own annotation presentation, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:gs.adminGroups"
+    kind: other-definition
+    reason: "Kept: gs.adminGroups is the portal's own admin authorization, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:gs.kubernetesVersions"
+    kind: other-definition
+    reason: "Kept: gs.kubernetesVersions is the portal's own Kubernetes version data, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:gs.clusterDetails"
+    kind: other-definition
+    reason: "Kept: gs.clusterDetails is the portal's own cluster detail presentation, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:gs.containerRegistry"
+    kind: other-definition
+    reason: "Kept: gs.containerRegistry is the portal's own registry access, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:gs.github"
+    kind: other-definition
+    reason: "Kept: gs.github is the portal's own GitHub pages through muster, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:catalog"
+    kind: other-definition
+    reason: "Kept: catalog is the portal's own software catalog, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:scaffolder"
+    kind: other-definition
+    reason: "Kept: scaffolder is the portal's own scaffolder, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:pagerDuty"
+    kind: other-definition
+    reason: "Kept: pagerDuty is the portal's own incident links, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:proxy"
+    kind: other-definition
+    reason: "Kept: proxy is the portal's own API proxies, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:repositories"
+    kind: other-definition
+    reason: "Kept: repositories is the portal's own repositories page through muster, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:plans"
+    kind: other-definition
+    reason: "Kept: plans is the portal's own plans page through muster, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:app-config:roadmap"
+    kind: other-definition
+    reason: "Kept: roadmap is the portal's own roadmap page through muster, written by the customer-portal capability; the Agent Platform writes only its Component."
 
   # --- Backstage user-values.yaml and kustomization.yaml ---
-  - {key: "backstage:user-values:route", kind: other-definition, reason: the portal's route}
-  - {key: "backstage:user-values:replicas", kind: other-definition, reason: portal sizing}
-  - {key: "backstage:user-values:database", kind: other-definition, reason: portal database}
-  - {key: "backstage:kustomization:resources", kind: other-definition, reason: the portal's file list; the platform adds its files to it}
-  - {key: "backstage:kustomization:patches[*]", kind: other-definition, reason: the portal's chart range and values sources}
-  - {key: "backstage:file:user-secrets.enc.yaml", kind: other-definition, reason: portal credentials}
-  - {key: "backstage:file:github-app-credentials.enc.yaml", kind: other-definition, reason: portal GitHub App}
-  - {key: "backstage:file:plugin-keys-secret.enc.yaml", kind: other-definition, reason: portal plugin key store}
+  - key: "backstage:user-values:route"
+    kind: other-definition
+    reason: "Kept: route is the portal's own HTTP route, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:user-values:replicas"
+    kind: other-definition
+    reason: "Kept: replicas is the portal's own sizing, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:user-values:database"
+    kind: other-definition
+    reason: "Kept: database is the portal's own database engine and volume, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:kustomization:resources"
+    kind: other-definition
+    reason: "Kept: resources is the portal's own file list, written by the customer-portal capability; the Agent Platform adds its Component to it and nothing else."
+  - key: "backstage:kustomization:patches[*]"
+    kind: other-definition
+    reason: "Kept: the kustomization's patches are the portal's own chart range and values sources, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:file:user-secrets.enc.yaml"
+    kind: other-definition
+    reason: "Kept: user-secrets.enc.yaml holds the portal's own credentials, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:file:github-app-credentials.enc.yaml"
+    kind: other-definition
+    reason: "Kept: github-app-credentials.enc.yaml holds the portal's own GitHub App, written by the customer-portal capability; the Agent Platform writes only its Component."
+  - key: "backstage:file:plugin-keys-secret.enc.yaml"
+    kind: other-definition
+    reason: "Kept: plugin-keys-secret.enc.yaml holds the portal's own plugin key store, written by the customer-portal capability; the Agent Platform writes only its Component."
