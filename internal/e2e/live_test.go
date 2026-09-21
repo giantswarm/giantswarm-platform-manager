@@ -257,9 +257,11 @@ func TestVerifyInstallationAsDefined(t *testing.T) {
 	if len(calls) == 0 {
 		t.Fatal("no read reached muster")
 	}
+	// Every read runs as the person and names the installation's member by
+	// muster's server name, the way muster routes a family's tool.
 	for _, c := range calls {
-		if c.Person != liveAdmin || c.Args[instanceArg] != rowan {
-			t.Errorf("a read not as the person on the installation: %+v", c)
+		if c.Person != liveAdmin || c.Args[instanceArg] != rowan+"-mcp-kubernetes" {
+			t.Errorf("a read not as the person on the installation's member: %+v", c)
 		}
 	}
 	probes := recordedProbes(t, st)
@@ -481,7 +483,7 @@ func TestVerifyInstallationReadsRollingUntilPodCertificateRequestIsServed(t *tes
 	}
 	var discovered bool
 	for _, c := range st.muster.seen() {
-		discovered = discovered || (c.Tool == opAPIResources && c.Args["apiGroup"] == "certificates.k8s.io" && c.Args[instanceArg] == rowan && c.Person == liveAdmin)
+		discovered = discovered || (c.Tool == opAPIResources && c.Args["apiGroup"] == "certificates.k8s.io" && c.Args[instanceArg] == rowan+"-mcp-kubernetes" && c.Person == liveAdmin)
 	}
 	if !discovered {
 		t.Errorf("discovery ran through muster as the person: %+v", st.muster.seen())

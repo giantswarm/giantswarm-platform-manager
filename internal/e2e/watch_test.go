@@ -199,7 +199,7 @@ func TestWatchActionCarriesTheRolloutToEnabled(t *testing.T) {
 		t.Fatalf("the thread got %d result(s) while rolling out, want the merge's alone", n)
 	}
 	for _, c := range st.muster.seen() {
-		if c.Person == liveAdmin && c.Args[instanceArg] != rowan {
+		if c.Person == liveAdmin && c.Args[instanceArg] != rowan+"-mcp-kubernetes" {
 			t.Fatalf("a read elsewhere: %+v", c)
 		}
 	}

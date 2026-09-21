@@ -61,6 +61,9 @@ const (
 	// are under, and instanceArg the argument that selects it.
 	kubernetesFamily = "kubernetes"
 	instanceArg      = "management_cluster"
+	// memberTemplate names the member that serves an installation, as the
+	// platform's agent-platform-mcps chart names the servers.
+	memberTemplate = "{{ .Installation }}-mcp-kubernetes"
 )
 
 // The kubernetes tools' operations behind the family.
@@ -472,6 +475,19 @@ func (m *fakeMuster) installation(name string) (*fakeInstallation, bool) {
 	return inst, ok
 }
 
+// members are the family's servers, sorted: what muster lists when the
+// instance argument names none of them.
+func (m *fakeMuster) members() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	names := make([]string, 0, len(m.insts))
+	for name := range m.insts {
+		names = append(names, name+"-mcp-kubernetes")
+	}
+	sort.Strings(names)
+	return names
+}
+
 // seen are the calls by person, oldest first.
 func (m *fakeMuster) seen() []musterCall {
 	m.mu.Lock()
@@ -488,12 +504,14 @@ func (m *fakeMuster) kubernetes(op string) mustertest.Tool {
 		if person == "" {
 			return mcp.NewToolResultError("no bearer: the loop-back carried no token")
 		}
-		mc, _ := args[instanceArg].(string)
+		// muster routes a family's tool by the member's server name in the
+		// instance argument, never by the installation's name.
+		server, _ := args[instanceArg].(string)
+		mc := strings.TrimSuffix(server, "-mcp-kubernetes")
 		inst, ok := m.installation(mc)
-		if !ok {
-			return mcp.NewToolResultError(fmt.Sprintf("no member of family %s serves %s=%q", kubernetesFamily, instanceArg, mc))
+		if !ok || mc == server {
+			return mcp.NewToolResultError(fmt.Sprintf("tool x_%s_%s is not available on server %q (available: %s)", kubernetesFamily, op, server, strings.Join(m.members(), ", ")))
 		}
-		server := mc + "-mcp-kubernetes"
 		if person == liveStranger {
 			return mcp.NewToolResultError(fmt.Sprintf(authRequiredText, server, server))
 		}
