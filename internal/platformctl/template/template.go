@@ -13,6 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // Document is the inputs file: the definition's input document under `input`
@@ -45,7 +46,7 @@ func Render(shape string, inputs []byte) (map[string][]byte, error) {
 	if doc.Input == nil {
 		return nil, fmt.Errorf("the inputs document has no `input` mapping; it carries `input` (the definition's inputs) and `secrets` (the values you supply)")
 	}
-	result, err := def.Render(doc.Input, doc.Secrets)
+	result, err := def.Render(doc.Input, doc.Secrets, render.ModeCommit)
 	if err != nil {
 		return nil, err
 	}

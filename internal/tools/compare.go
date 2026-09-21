@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
@@ -40,6 +41,8 @@ func (t *Tools) compare(ctx context.Context, env *planned, r installations.Repor
 	switch {
 	case res.Refused != "":
 		res.CommitRefused = fmt.Sprintf("the definition refuses these inputs for %s (refused says why); nothing is committed", r.Name)
+	case len(res.Inputs.Missing) > 0:
+		res.CommitRefused = fmt.Sprintf("%s: %s — type them (%s); nothing is committed", r.Name, missingInputs(res.Inputs.Missing), ArgInputs)
 	case r.OptIn != nil && r.OptIn.State != installations.OptedIn:
 		res.CommitRefused = fmt.Sprintf("%s is %s: %s", r.Name, r.OptIn.State, r.OptIn.HowToOptIn)
 	case dexApp != "":
@@ -49,6 +52,11 @@ func (t *Tools) compare(ctx context.Context, env *planned, r installations.Repor
 	}
 	res.PullRequests = plan.PullRequests([]plan.Installation{p}, env.byName, env.hub)
 	return &res, nil
+}
+
+// missingInputs names the choices not on record for a refusal.
+func missingInputs(fields []string) string {
+	return fmt.Sprintf("%d choice(s) not on record: %s", len(fields), strings.Join(fields, ", "))
 }
 
 // dryRun is the result regrouped as the dry run's entry.

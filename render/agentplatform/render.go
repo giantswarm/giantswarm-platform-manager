@@ -30,8 +30,10 @@ import (
 // field name — the Slack app's credentials where the gateway runs, nothing
 // else. Everything else the platform needs is a placeholder the commit step
 // generates, except the model key, which nobody supplies: kagent references
-// the Secret by name and the person creates it (CustomerActions).
-func Render(raw any, secrets map[string]string) (*render.Result, error) {
+// the Secret by name and the person creates it (CustomerActions). The mode
+// takes no part: this definition has no required person input a document
+// can lack.
+func Render(raw any, secrets map[string]string, _ render.Mode) (*render.Result, error) {
 	in, err := Parse(raw)
 	if err != nil {
 		return nil, err

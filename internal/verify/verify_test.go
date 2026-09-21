@@ -3,12 +3,61 @@ package verify
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
+
+// A leaf of the render that carries a choice not on record (a Missing
+// marker) is never a difference: differences leaves it out whatever the
+// record holds, missingLeaves names the fields it carries, and the
+// dimension it is observed under is not checked with the reason naming the
+// choice where nothing else in it is off; drift beside it still shows.
+func TestMissingChoiceIsNotCheckedNeverADifference(t *testing.T) {
+	const field = "plugins.grafana.domain"
+	want := flattenYAML("a: 1\ngrafana:\n  domain: " + render.Missing(field) + "\n")
+	if got := differences("r:p", want, "a: 1\n", nil); len(got) != 0 {
+		t.Errorf("the record without the leaf: %+v", got)
+	}
+	if got := differences("r:p", want, "a: 1\ngrafana:\n  domain: https://g\n", nil); len(got) != 0 {
+		t.Errorf("the record with another value: %+v", got)
+	}
+	if got := differences("r:p", want, "a: 2\n", nil); len(got) != 1 || got[0].Path != "a" {
+		t.Errorf("drift beside the leaf: %+v", got)
+	}
+	if got := missingLeaves(want); !reflect.DeepEqual(got, map[string][]string{"grafana.domain": {field}}) {
+		t.Errorf("missing leaves %v", got)
+	}
+	if got := missingFields("x " + render.Missing("b") + " " + render.Missing("a") + " " + render.Missing("a")); !reflect.DeepEqual(got, []string{"a", "b"}) {
+		t.Errorf("missing fields %v", got)
+	}
+	if got := missingLeaves(flattenYAML("a: " + render.Supplied("a") + "\n")); got != nil {
+		t.Errorf("a supplied marker is no missing choice: %v", got)
+	}
+
+	const appConfig = "management-clusters/x/extras/backstage/backstage/app-config.yaml"
+	feats := []definitions.Feature{{ID: "portal", Dimensions: []definitions.Dimension{
+		{ID: "plugins", Kind: definitions.KindBackstage, Key: "app-config grafana.domain / grafana.other"},
+		{ID: "rest", Kind: definitions.KindBackstage, Key: "everything else of the app-config"},
+	}}}
+	fd := &fileDiff{key: "r:" + appConfig, path: appConfig, kind: definitions.KindBackstage, missing: map[string][]string{"grafana.domain": {field}}}
+	dims := assign(&comparison{files: map[string]*fileDiff{fd.key: fd}}, feats, "")
+	if d := dims["plugins"]; d.Mark != NotChecked || d.Reason != ReasonMissingChoice+": "+field || len(d.Differences) != 0 {
+		t.Errorf("the choice's dimension: %+v", *d)
+	}
+	if d := dims["rest"]; d.Mark != AsDefined || d.Reason != "" {
+		t.Errorf("the dimension beside it: %+v", *d)
+	}
+	fd.diffs = []Difference{{File: fd.key, Path: "grafana.other", Rendered: "x", Current: "y"}}
+	dims = assign(&comparison{files: map[string]*fileDiff{fd.key: fd}}, feats, "")
+	if d := dims["plugins"]; d.Mark != Drifted || d.Reason != "" || len(d.Differences) != 1 {
+		t.Errorf("drift beside the choice: %+v", *d)
+	}
+}
 
 // The roll-up: drifted over differs by input over as defined; not checked
 // dimensions never taint a feature that has a checked one.

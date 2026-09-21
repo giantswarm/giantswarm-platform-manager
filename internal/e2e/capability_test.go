@@ -149,17 +149,13 @@ func TestEnableCapabilityDryRunRendersOneInstallation(t *testing.T) {
 // files the portal's tree, its Dex client the portal's, its plugin signing
 // keys one ES256 pair; the verify answers for it: without the portal on
 // record the tunnel alone reads back (off, its file absent) and the
-// definition refuses the missing inputs.
+// comparison names the choices not on record, refusing nothing.
 func TestCapabilityToolsTakeTheCustomerPortal(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	c := st.mcpClient(t, aliceToken)
-	inputs := map[string]any{
-		portalKey: map[string]any{"domain": "portal.rowan.acme.test", "organization": "ACME", "supportUrl": "https://support.acme.test/"},
-		"chart":   map[string]any{"line": ">=2.1.0 <3.0.0"},
-		"plugins": map[string]any{"github": map[string]any{enabledKey: false}, "grafana": map[string]any{enabledKey: false}, "flux": map[string]any{enabledKey: false}, "sentry": map[string]any{enabledKey: false}},
-		"tunnel":  map[string]any{enabledKey: false},
-	}
+	inputs := rowanPortalInputs(map[string]any{enabledKey: false})
+	inputs[portalKey].(map[string]any)["supportUrl"] = "https://support.acme.test/"
 	for _, tool := range []string{tools.ToolEnableCapability, tools.ToolReconcileCapability} {
 		out, text, isErr := dryRun(t, c, tool, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.CustomerPortal, tools.ArgInputs: inputs})
 		if isErr {
@@ -195,8 +191,16 @@ func TestCapabilityToolsTakeTheCustomerPortal(t *testing.T) {
 		}
 	}
 	text, isErr := call(t, c, tools.ToolVerifyCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.CustomerPortal})
-	if isErr || !strings.Contains(text, `"capability": "`+installations.CustomerPortal+`"`) || !strings.Contains(text, `"source": "`+verify.Source(true, false)+`"`) || !strings.Contains(text, `"refused": "`) {
+	if isErr || !strings.Contains(text, `"capability": "`+installations.CustomerPortal+`"`) || !strings.Contains(text, `"source": "`+verify.Source(true, false)+`"`) || strings.Contains(text, `"refused": "`) {
 		t.Fatalf("verify customer-portal: isErr %v, %s", isErr, text)
+	}
+	var res verify.Result
+	if err := json.Unmarshal([]byte(text), &res); err != nil {
+		t.Fatalf("decode: %v\n%s", err, text)
+	}
+	want := []string{"chart.line", "plugins.flux.enabled", "plugins.github.enabled", "plugins.grafana.enabled", "plugins.sentry.enabled", "portal.domain", "portal.organization"}
+	if !slices.Equal(res.Inputs.Missing, want) || !strings.Contains(res.CommitRefused, "portal.domain") {
+		t.Fatalf("missing %v, commit refused %q", res.Inputs.Missing, res.CommitRefused)
 	}
 }
 

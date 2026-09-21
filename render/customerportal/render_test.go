@@ -48,7 +48,7 @@ func TestGolden(t *testing.T) {
 	for _, shape := range shapes {
 		t.Run(shape, func(t *testing.T) {
 			input, secrets := loadInput(t, shape)
-			result, err := Render(input, secrets)
+			result, err := Render(input, secrets, render.ModeCommit)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -100,7 +100,7 @@ func TestGolden(t *testing.T) {
 func TestSecretFilesCarryNoValues(t *testing.T) {
 	for _, shape := range shapes {
 		input, secrets := loadInput(t, shape)
-		result, err := Render(input, secrets)
+		result, err := Render(input, secrets, render.ModeCommit)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -128,7 +128,7 @@ func TestSecretFilesCarryNoValues(t *testing.T) {
 func TestOwnedPathsOnly(t *testing.T) {
 	for _, shape := range shapes {
 		input, secrets := loadInput(t, shape)
-		result, err := Render(input, secrets)
+		result, err := Render(input, secrets, render.ModeCommit)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -156,7 +156,7 @@ func TestOwnedPathsOnly(t *testing.T) {
 // patch is the agent-platform definition's and carries the identical entry.
 func TestDexClientOwnership(t *testing.T) {
 	input, secrets := loadInput(t, "customer-portal")
-	result, err := Render(input, secrets)
+	result, err := Render(input, secrets, render.ModeCommit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestDexClientOwnership(t *testing.T) {
 	}
 
 	input, secrets = loadInput(t, "giantswarm-owned-with-platform")
-	result, err = Render(input, secrets)
+	result, err = Render(input, secrets, render.ModeCommit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestDexClientOwnership(t *testing.T) {
 	apInput, apSecrets := agentPlatformInput(t)
 	apInput["installation"].(map[string]any)["name"] = "hazel"
 	apInput["installation"].(map[string]any)["portals"] = []any{map[string]any{"installation": "hazel", "customer": "oakridge", "domain": "portal.hazel.example.test", "clientId": render.PortalDexClientID}}
-	apResult, err := agentplatform.Render(apInput, apSecrets)
+	apResult, err := agentplatform.Render(apInput, apSecrets, render.ModeCommit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +287,7 @@ func TestProbesAreLiveDimensions(t *testing.T) {
 	probed := map[string]bool{}
 	for _, shape := range shapes {
 		input, secrets := loadInput(t, shape)
-		result, err := Render(input, secrets)
+		result, err := Render(input, secrets, render.ModeCommit)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -319,6 +319,97 @@ func TestProbesAreLiveDimensions(t *testing.T) {
 			t.Errorf("live dimension %s of feature %s has no probe on any shape", id, live[id])
 		}
 	}
+}
+
+// A required person input no layer of the document holds is a choice not
+// on record: a comparison renders its Missing marker and names it, never
+// refusing; a commit refuses it by field. The rule is the input layer's,
+// not a field's: the grafana domain when the plugin is on, and the
+// portal's domain, organisation and chart line of a portal not on record
+// follow it alike. A registry fact the document lacks refuses either way,
+// and the caller's document is left as it is.
+func TestMissingChoicesCompareNeverRefuses(t *testing.T) {
+	base, secrets := loadInput(t, "customer-portal")
+	clone := func(mutate func(map[string]any)) map[string]any {
+		var c map[string]any
+		b, _ := yaml.Marshal(base)
+		_ = yaml.Unmarshal(b, &c)
+		mutate(c)
+		return c
+	}
+	const grafanaDomain = "plugins.grafana.domain"
+	grafanaOn := clone(func(m map[string]any) { m["plugins"].(map[string]any)["grafana"] = map[string]any{enabledKey: true} })
+	notOnRecord := clone(func(m map[string]any) {
+		delete(m, "chart")
+		delete(m["portal"].(map[string]any), "domain")
+		delete(m["portal"].(map[string]any), "organization")
+	})
+	for _, c := range []struct {
+		name    string
+		input   map[string]any
+		missing []string
+	}{
+		{"grafana on without its domain", grafanaOn, []string{grafanaDomain}},
+		{"a portal not on record", notOnRecord, []string{"chart.line", "portal.domain", "portal.organization"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			before, _ := yaml.Marshal(c.input)
+			in, err := Parse(c.input)
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if got := in.MissingInputs(); !reflect.DeepEqual(got, c.missing) {
+				t.Fatalf("missing %v, want %v", got, c.missing)
+			}
+			result, err := Render(c.input, secrets, render.ModeCompare)
+			if err != nil {
+				t.Fatalf("a comparison refused: %v", err)
+			}
+			tree := result.Tree()
+			var rendered strings.Builder
+			for _, content := range tree {
+				rendered.Write(content)
+			}
+			for _, field := range c.missing {
+				if !strings.Contains(rendered.String(), render.Missing(field)) {
+					t.Errorf("no file carries %s", render.Missing(field))
+				}
+			}
+			if appConfig := string(tree[appConfigOf(t, tree)]); c.missing[0] == grafanaDomain && !strings.Contains(appConfig, "domain: "+render.Missing(grafanaDomain)) {
+				t.Errorf("the app-config's grafana section carries no marker:\n%s", appConfig)
+			}
+			if after, _ := yaml.Marshal(c.input); !bytes.Equal(before, after) {
+				t.Errorf("the caller's document changed:\n%s", after)
+			}
+			_, err = Render(c.input, secrets, render.ModeCommit)
+			if !errors.Is(err, ErrInput) {
+				t.Fatalf("a commit: got %v, want %v", err, ErrInput)
+			}
+			for _, field := range c.missing {
+				if !strings.Contains(err.Error(), field) {
+					t.Errorf("the commit's refusal %q does not name %s", err, field)
+				}
+			}
+		})
+	}
+	noName := clone(func(m map[string]any) { delete(m["installation"].(map[string]any), "name") })
+	for _, mode := range []render.Mode{render.ModeCompare, render.ModeCommit} {
+		if _, err := Render(noName, secrets, mode); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "name") {
+			t.Errorf("mode %d: a missing registry fact: got %v", mode, err)
+		}
+	}
+}
+
+// appConfigOf is the app-config's path in a rendered tree.
+func appConfigOf(t *testing.T, tree map[string][]byte) string {
+	t.Helper()
+	for name := range tree {
+		if strings.HasSuffix(name, "/"+appConfigFile) {
+			return name
+		}
+	}
+	t.Fatal("no app-config in the tree")
+	return ""
 }
 
 func TestRefusals(t *testing.T) {
@@ -369,7 +460,7 @@ func TestRefusals(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			_, err := Render(c.input, c.secrets)
+			_, err := Render(c.input, c.secrets, render.ModeCommit)
 			if !errors.Is(err, c.err) {
 				t.Fatalf("got %v, want %v", err, c.err)
 			}
@@ -391,7 +482,7 @@ func TestSuppliedMarkers(t *testing.T) {
 	if len(fields) != 8 {
 		t.Fatalf("supplied fields: %v", fields)
 	}
-	result, err := Render(input, in.SuppliedMarkers())
+	result, err := Render(input, in.SuppliedMarkers(), render.ModeCompare)
 	if err != nil {
 		t.Fatal(err)
 	}

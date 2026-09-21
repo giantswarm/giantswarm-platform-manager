@@ -658,7 +658,7 @@ func TestVerifyCapabilityReadsBackThePortal(t *testing.T) {
 	if res.Inputs.Source != verify.Source(true, false) || res.Refused != "" || res.State != installations.StateDrifted {
 		t.Fatalf("inputs %q refused %q state %q read back %v", res.Inputs.Source, res.Refused, res.State, back)
 	}
-	if back["portal.domain"] != "portal."+hub+".example.test" || back["portal.organization"] != "Example" || back["chart.line"] != ">=2.1.0 <3.0.0" ||
+	if back["portal.domain"] != "portal."+hub+".example.test" || back["portal.organization"] != "Example" || back["chart.line"] != chartLine ||
 		back["plugins.github.enabled"] != false || back["plugins.grafana.enabled"] != false || back["plugins.flux.enabled"] != false || back["plugins.sentry.enabled"] != false || back["tunnel.enabled"] != false {
 		t.Fatalf("read back %v", back)
 	}
@@ -722,5 +722,123 @@ func TestVerifyCapabilityTakesThePortalsGitHubAppIDAsSupplied(t *testing.T) {
 	}
 	if got := listActionsOf(t, c, hub); len(got) != 0 {
 		t.Fatalf("a refused commit recorded %d action(s)", len(got))
+	}
+}
+
+// The portal's input keys and the chart line every portal fixture follows.
+const (
+	domainKey  = "domain"
+	grafanaKey = "grafana"
+	chartLine  = ">=2.1.0 <3.0.0"
+)
+
+// rowanPortalInputs are the typed inputs of rowan's portal, with the grafana
+// plugin as given.
+func rowanPortalInputs(grafana map[string]any) map[string]any {
+	return map[string]any{
+		portalKey: map[string]any{domainKey: "portal.rowan.acme.test", "organization": "ACME"},
+		"chart":   map[string]any{"line": chartLine},
+		"plugins": map[string]any{"github": map[string]any{enabledKey: false}, grafanaKey: grafana, "flux": map[string]any{enabledKey: false}, "sentry": map[string]any{enabledKey: false}},
+		"tunnel":  map[string]any{enabledKey: false},
+	}
+}
+
+// verifyPortal is verify_capability of the customer portal on name, with the
+// person's typed inputs.
+func verifyPortal(t *testing.T, c *client.Client, name string, inputs map[string]any) verify.Result {
+	t.Helper()
+	args := map[string]any{tools.ArgInstallation: name, tools.ArgCapability: installations.CustomerPortal}
+	if inputs != nil {
+		args[tools.ArgInputs] = inputs
+	}
+	text, isErr := call(t, c, tools.ToolVerifyCapability, args)
+	if isErr {
+		t.Fatalf("verify_capability %s: %s", name, text)
+	}
+	var out verify.Result
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		t.Fatalf("decode: %v\n%s", err, text)
+	}
+	return out
+}
+
+// A portal on record with the grafana plugin on and no domain in its
+// app-config: the plugin reads back on, the domain is a choice not on
+// record. The comparison refuses nothing — the app-config's leaf carries the
+// Missing marker, its dimension is not checked with the reason naming the
+// choice, inputs.missing names it, nothing drifts — and neither does the
+// dry run, which says a commit would be refused; a commit is refused by
+// field and records nothing. The choice typed, the portal compares whole.
+func TestVerifyCapabilityTakesAMissingChoiceAsNotChecked(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	const grafanaDomain, domain = "plugins.grafana.domain", "https://grafana.rowan.acme.test"
+	out, text, isErr := dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.CustomerPortal, tools.ArgInputs: rowanPortalInputs(map[string]any{enabledKey: true, domainKey: domain})})
+	if isErr {
+		t.Fatal(text)
+	}
+	p := findPlan(t, out, rowan)
+	if p.Refused != "" || len(p.MissingInputs) != 0 || p.CommitRefused != "" {
+		t.Fatalf("the portal as typed: refused %q missing %v commit refused %q", p.Refused, p.MissingInputs, p.CommitRefused)
+	}
+	var appConfig string
+	for _, f := range p.Files {
+		content := f.Content
+		if f.Path == installations.PortalConfigPath(rowan) {
+			appConfig = f.Repository + ":" + f.Path
+			content = strings.Replace(content, "        grafana:\n          domain: "+domain+"\n", "        grafana: {}\n", 1)
+			if content == f.Content {
+				t.Fatalf("no grafana section to drop from the app-config:\n%s", content)
+			}
+		}
+		st.ghs.addFile(f.Repository, f.Path, content)
+	}
+
+	res := verifyPortal(t, c, rowan, nil)
+	if res.Refused != "" || res.Inputs.ReadBack["plugins.grafana.enabled"] != true || !slices.Equal(res.Inputs.Missing, []string{grafanaDomain}) {
+		t.Fatalf("refused %q read back %v missing %v", res.Refused, res.Inputs.ReadBack, res.Inputs.Missing)
+	}
+	if res.Summary[verify.Drifted] != 0 || res.Summary[verify.DiffersByInput] != 0 || res.State != installations.StateEnabled || !strings.Contains(res.CommitRefused, grafanaDomain) {
+		t.Fatalf("summary %v state %q commit refused %q", res.Summary, res.State, res.CommitRefused)
+	}
+	want := verify.ReasonMissingChoice + ": " + grafanaDomain
+	var notChecked []string
+	for _, f := range res.Features {
+		for _, d := range f.Dimensions {
+			if d.Reason != want {
+				continue
+			}
+			notChecked = append(notChecked, d.ID)
+			if d.Mark != verify.NotChecked || !slices.Contains(d.Files, appConfig) || len(d.Differences) != 0 {
+				t.Errorf("%s: %+v", d.ID, d)
+			}
+		}
+	}
+	if len(notChecked) != 1 {
+		t.Fatalf("dimensions not checked for the choice: %v", notChecked)
+	}
+	t.Logf("the app-config's leaf is observed under %s", notChecked[0])
+
+	out, text, isErr = dryRun(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.CustomerPortal})
+	if isErr {
+		t.Fatal(text)
+	}
+	if p = findPlan(t, out, rowan); p.Refused != "" || !slices.Equal(p.MissingInputs, []string{grafanaDomain}) || !strings.Contains(p.CommitRefused, grafanaDomain) {
+		t.Fatalf("dry run: refused %q missing %v commit refused %q", p.Refused, p.MissingInputs, p.CommitRefused)
+	}
+	if _, text, isErr := commitCall(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.CustomerPortal}); !isErr || !strings.Contains(text, grafanaDomain) {
+		t.Fatalf("a commit without the choice: %v %s", isErr, text)
+	}
+	if got := listActionsOf(t, c, rowan); len(got) != 0 {
+		t.Fatalf("a refused commit recorded %d action(s)", len(got))
+	}
+
+	res = verifyPortal(t, c, rowan, map[string]any{"plugins": map[string]any{grafanaKey: map[string]any{domainKey: domain}}})
+	if res.Refused != "" || len(res.Inputs.Missing) != 0 || res.Summary[verify.Drifted] != 0 || res.CommitRefused != "" {
+		t.Fatalf("the choice typed: refused %q missing %v summary %v commit refused %q", res.Refused, res.Inputs.Missing, res.Summary, res.CommitRefused)
+	}
+	if d := dimension(t, feature(t, res, "portal"), notChecked[0]); d.Mark != verify.DiffersByInput || d.Reason != "" || len(d.Differences) != 1 || d.Differences[0].File != appConfig || d.Differences[0].Input == "" {
+		t.Errorf("the choice typed: %+v", d)
 	}
 }

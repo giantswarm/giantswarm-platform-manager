@@ -71,6 +71,8 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		switch {
 		case p.Refused != "":
 			return nil, fmt.Errorf("%s: the definition refuses the inputs on record for %s: %s — narrow the set (%s) or fix the record; nothing is committed", tool, p.Name, p.Refused, ArgInstallations)
+		case len(p.MissingInputs) > 0:
+			return nil, fmt.Errorf("%s: %s: %s — reconcile %s alone with %s and %s, or narrow the set; nothing is committed", tool, p.Name, missingInputs(p.MissingInputs), p.Name, ArgInstallation, ArgInputs)
 		case p.Diff[plan.ChangeUnknown] > 0:
 			return nil, fmt.Errorf("%s: %d file(s) of %s could not be compared against the repository as you (%s); nothing is committed blind", tool, p.Diff[plan.ChangeUnknown], p.Name, unknownFiles(p))
 		case dexApp != "":
@@ -131,7 +133,7 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		for _, field := range p.SuppliedSecrets {
 			markers[field] = render.Supplied(field)
 		}
-		rendered, err := def.Render(env.inputs[p.Name], markers)
+		rendered, err := def.Render(env.inputs[p.Name], markers, render.ModeCommit)
 		if err != nil {
 			return nil, t.fail(ctx, tool, a, remote, prs, fmt.Errorf("%s: render: %w", p.Name, err))
 		}

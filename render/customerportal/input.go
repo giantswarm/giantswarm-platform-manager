@@ -12,6 +12,7 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // Errors the render refuses with. Every message names the key or field
@@ -65,6 +66,10 @@ type Input struct {
 	Tunnel       Toggle       `json:"tunnel"`
 	PluginKeys   PluginKeys   `json:"pluginKeys"`
 	Federation   *Federation  `json:"federation"`
+	// missing are the required person inputs the document lacks, filled
+	// with their Missing markers: a comparison renders them, a commit
+	// refuses them.
+	missing []missingInput
 }
 
 // Installation is the facts on record; see the schema for each field.
@@ -167,8 +172,11 @@ type PluginKeys struct {
 
 // Parse validates raw against the schema and returns the typed input. raw is
 // the decoded document (from YAML or JSON): map[string]any at the top. A key
-// the schema does not know, a missing required key or a wrong shape is
-// ErrInput naming the location.
+// the schema does not know, a missing registry fact or a wrong shape is
+// ErrInput naming the location. A required person input the document lacks
+// is no refusal here: it is filled with its Missing marker and named by
+// MissingInputs, for the render's mode to decide (a comparison renders the
+// marker, a commit refuses the input). raw itself is left as it is.
 func Parse(raw any) (*Input, error) {
 	schemaBytes, err := definitions.FS.ReadFile("customer-portal/schema.json")
 	if err != nil {
@@ -187,9 +195,28 @@ func Parse(raw any) (*Input, error) {
 		return nil, fmt.Errorf("customer-portal: schema: %w", err)
 	}
 	// One JSON round trip normalises the numbers and maps a YAML decoder
-	// produces into what the validator and encoding/json expect.
+	// produces into what the validator and encoding/json expect, and
+	// copies the document: the markers are filled into the copy.
 	encoded, err := json.Marshal(raw)
 	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInput, err)
+	}
+	var copied map[string]any
+	if err := json.Unmarshal(encoded, &copied); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInput, err)
+	}
+	if copied == nil {
+		copied = map[string]any{}
+	}
+	missing, err := fillMissing(copied, schemaBytes)
+	if err != nil {
+		return nil, err
+	}
+	filled := make(map[string]bool, len(missing))
+	for _, m := range missing {
+		filled[m.field] = true
+	}
+	if encoded, err = json.Marshal(copied); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInput, err)
 	}
 	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(encoded))
@@ -197,7 +224,10 @@ func Parse(raw any) (*Input, error) {
 		return nil, fmt.Errorf("%w: %w", ErrInput, err)
 	}
 	if err := schema.Validate(doc); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrInput, err)
+		var ve *jsonschema.ValidationError
+		if !errors.As(err, &ve) || !explained(ve, filled) {
+			return nil, fmt.Errorf("%w: %w", ErrInput, err)
+		}
 	}
 	dec := json.NewDecoder(bytes.NewReader(encoded))
 	dec.DisallowUnknownFields()
@@ -214,17 +244,19 @@ func Parse(raw any) (*Input, error) {
 	if len(in.Installation.Providers) == 0 {
 		in.Installation.Providers = []string{in.Installation.Provider}
 	}
+	in.missing = missing
 	return &in, nil
 }
 
-// check applies the rules the schema cannot express: the plugin inputs that
-// come with a plugin, and the supplied values.
-func (in *Input) check(secrets map[string]string) error {
+// check applies the rules the schema cannot express — the required person
+// inputs the document lacks, which a commit refuses and a comparison
+// renders as markers — and the supplied values.
+func (in *Input) check(secrets map[string]string, mode render.Mode) error {
+	if mode == render.ModeCommit && len(in.missing) > 0 {
+		return fmt.Errorf("%w: %s", ErrInput, missingClause(in.missing))
+	}
 	if in.Plugins.GitHub.AppID != 0 {
 		return fmt.Errorf("%w: %s: supplied at commit like the GitHub App's credentials, not an input", ErrInput, fieldGitHubAppID)
-	}
-	if in.Plugins.Grafana.Enabled && in.Plugins.Grafana.Domain == "" {
-		return fmt.Errorf("%w: plugins.grafana.domain: the Grafana instance the plugin links to", ErrInput)
 	}
 	if !slices.Contains(in.Installation.Providers, in.Installation.Provider) {
 		return fmt.Errorf("%w: installation.providers: the installation's own provider %s is not among them", ErrInput, in.Installation.Provider)

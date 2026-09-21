@@ -81,13 +81,15 @@ const (
 // input document (map[string]any at the top, as a YAML or JSON decoder returns
 // it); secrets carries the values the person supplies, by field name — the
 // GitHub App's credentials, the Sentry DSNs. Everything else the portal needs
-// is a placeholder the commit step generates.
-func Render(raw any, secrets map[string]string) (*render.Result, error) {
+// is a placeholder the commit step generates. mode says what the render is
+// for: a commit refuses a required person input the document lacks, a
+// comparison renders its Missing marker.
+func Render(raw any, secrets map[string]string, mode render.Mode) (*render.Result, error) {
 	in, err := Parse(raw)
 	if err != nil {
 		return nil, err
 	}
-	if err := in.check(secrets); err != nil {
+	if err := in.check(secrets, mode); err != nil {
 		return nil, err
 	}
 

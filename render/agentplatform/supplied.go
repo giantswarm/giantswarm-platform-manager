@@ -22,6 +22,10 @@ func (in *Input) SuppliedMarkers() map[string]string {
 	return m
 }
 
+// MissingInputs is empty: every choice of this definition has a default, so
+// no required person input is ever absent from the document.
+func (in *Input) MissingInputs() []string { return nil }
+
 // CustomerActions names what the rollout needs from the person beyond the
 // pull requests: the model key Secret, wherever kagent runs — the step the
 // runtime feature's model-key action (actions) holds up live until the default
