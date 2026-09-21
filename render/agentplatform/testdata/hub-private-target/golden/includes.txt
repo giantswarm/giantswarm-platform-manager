@@ -1,3 +1,4 @@
+giantswarm/giantswarm-management-clusters:management-clusters/gopher/extras/backstage/kustomization.yaml components ./agent-platform/
 giantswarm/giantswarm-management-clusters:management-clusters/gopher/extras/kustomization.yaml resources ./agent-platform/
 giantswarm/giantswarm-management-clusters:management-clusters/gopher/extras/kustomization.yaml resources ./mcp-capi/
 giantswarm/giantswarm-management-clusters:management-clusters/gopher/extras/kustomization.yaml resources ./mcp-kubernetes/
