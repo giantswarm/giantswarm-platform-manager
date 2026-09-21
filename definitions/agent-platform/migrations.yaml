@@ -83,6 +83,8 @@ migrations:
     reason: M9 — the mcp-* servers' Valkey password becomes a generated Secret
   - key: extras:mcp-<name>/oauth-credentials.enc.yaml stringData.VALKEY_PASSWORD
     reason: M9 — the mcp-* servers' Valkey password becomes a generated Secret
+  - key: extras:mcp-<name>/oauth-credentials.enc.yaml type
+    reason: M9 — the mcp-* servers' Valkey password becomes a generated Secret
 
   # --- M11 — the edge validates the portals' tokens on the 4 line ---
   - key: configmap:agent-platform-mcps.agentgateway.jwt.extraProviders

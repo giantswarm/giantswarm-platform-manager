@@ -319,13 +319,23 @@ func TestFlattenKeysDocumentsByObject(t *testing.T) {
 
 // The differences of a file the plan writes: a value the commit fills in or
 // the record holds encrypted is never one; in an encrypted file SOPS's block
-// takes no part and the values are redacted.
+// takes no part, the leaves under its encrypted_regex are redacted and every
+// other leaf shows its values — every leaf when the block has no regex.
 func TestDifferencesFollowTheSkeleton(t *testing.T) {
 	want := flattenYAML("apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\nstringData:\n  token: GENERATED(token)\n  extra: plain\n")
 	current := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\nstringData:\n  token: ENC[AES256_GCM,data:x,type:str]\n  extra: ENC[AES256_GCM,data:y,type:str]\nhandEdited: true\nsops:\n  version: 3.9.0\n  age: []\n"
 	got := differences("r:p", want, current, map[string]string{"r:p#handEdited": "x.y"})
 	if len(got) != 1 || got[0].Path != "handEdited" || got[0].Rendered != "" || got[0].Current != Redacted || got[0].Input != "x.y" {
 		t.Errorf("encrypted: %+v", got)
+	}
+	regexWant := flattenYAML("apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\n  namespace: ns\ntype: Opaque\nstringData:\n  token: GENERATED(token)\n  VALKEY_PASSWORD: GENERATED(valkey)\n")
+	regexCurrent := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\ntype: kubernetes.io/tls\nstringData:\n  token: ENC[AES256_GCM,data:x,type:str]\nsops:\n  encrypted_regex: ^(data|stringData)$\n  version: 3.9.0\n  age: []\n"
+	got = differences("r:p", regexWant, regexCurrent, nil)
+	shown := func(i int, path, rendered, current string) bool {
+		return got[i].Path == path && got[i].Rendered == rendered && got[i].Current == current
+	}
+	if len(got) != 3 || !shown(0, "metadata.namespace", "ns", "") || !shown(1, "stringData.VALKEY_PASSWORD", Redacted, "") || !shown(2, "type", "Opaque", "kubernetes.io/tls") {
+		t.Errorf("under encrypted_regex redacted, every other leaf shown: %+v", got)
 	}
 	got = differences("r:p", flattenYAML("a: 1\n"), current, nil)
 	if len(got) != 7 {

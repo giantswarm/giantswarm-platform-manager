@@ -103,6 +103,7 @@ func TestJoinedScalarsAndTheValkeySecretArePlanned(t *testing.T) {
 		{Key: "extras:mcp-<name>/valkey-credentials.enc.yaml", Reason: m9},
 		{Key: "extras:mcp-<name>/kustomization.yaml resources[valkey-credentials.enc.yaml]", Reason: m9},
 		{Key: "extras:mcp-<name>/oauth-credentials.enc.yaml stringData.VALKEY_PASSWORD", Reason: m9},
+		{Key: "extras:mcp-<name>/oauth-credentials.enc.yaml type", Reason: m9},
 	})
 	patch := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
 	dexPatch := &fileDiff{path: testDexPatch, kind: definitions.KindDexSecret}
@@ -133,6 +134,7 @@ func TestJoinedScalarsAndTheValkeySecretArePlanned(t *testing.T) {
 		{"its password", valkey, absent("stringData.default"), m9},
 		{"its kustomization entry", kust, absent("resources[valkey-credentials.enc.yaml]"), m9},
 		{"the oauth Secret's password", oauth, absent("stringData.VALKEY_PASSWORD"), m9},
+		{"the oauth Secret's type, added with the password", oauth, &Difference{Path: "type", Rendered: "Opaque", absent: true}, m9},
 		{"the oauth Secret's other leaves", oauth, absent("stringData.DEX_CLIENT_SECRET"), ""},
 	} {
 		if got := planned(tc.fd, tc.d, nil, migs); got != tc.want {
