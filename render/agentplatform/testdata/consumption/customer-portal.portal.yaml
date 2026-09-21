@@ -20,7 +20,6 @@ input:
   plugins:
     github:
       enabled: true
-      appId: 123456
     grafana:
       enabled: false
     flux:

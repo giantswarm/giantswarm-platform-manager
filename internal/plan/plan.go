@@ -213,10 +213,13 @@ type Installation struct {
 	Files            []File            `json:"files"`
 	Includes         []Include         `json:"includes"`
 	GeneratedSecrets []GeneratedSecret `json:"generatedSecrets"`
-	SuppliedSecrets  []string          `json:"suppliedSecrets"`
-	DexClients       []DexClient       `json:"dexClients"`
-	CustomerActions  []CustomerAction  `json:"customerActions"`
-	Probes           []Probe           `json:"probes"`
+	// SuppliedSecrets names, by field, every value the person supplies at
+	// commit: the secrets, and an input that lives only in an encrypted file
+	// (the portal's GitHub App id), which no read-back recovers.
+	SuppliedSecrets []string         `json:"suppliedSecrets"`
+	DexClients      []DexClient      `json:"dexClients"`
+	CustomerActions []CustomerAction `json:"customerActions"`
+	Probes          []Probe          `json:"probes"`
 	// Diff counts the files by change; an empty diff is every file unchanged.
 	Diff map[Change]int `json:"diff"`
 }

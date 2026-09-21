@@ -122,12 +122,12 @@
       "properties": {
         "github": {
           "type": "object",
-          "description": "The GitHub integration through a GitHub App. Its client id, client secret, private key and webhook secret are supplied at commit (plugins.github.clientId, clientSecret, privateKey, webhookSecret) and land in the Secret github-app-credentials-backstage, which the chart writes into github-app-credentials.yaml.",
+          "description": "The GitHub integration through a GitHub App. Its app id, client id, client secret, private key and webhook secret are supplied at commit (plugins.github.appId, clientId, clientSecret, privateKey, webhookSecret) and land in the Secret github-app-credentials-backstage, which the chart writes into github-app-credentials.yaml.",
           "additionalProperties": false,
           "required": ["enabled"],
           "properties": {
             "enabled": {"type": "boolean", "description": "Render the integration, its Secret and the Secret's values source.", "x-source": "person", "x-feature": "secrets", "x-readback": {"file": "backstage:app-config", "key": "integrations.github", "kind": "present"}, "x-renders": ["backstage:app-config:integrations.github[*]", "backstage:file:github-app-credentials.enc.yaml", "backstage:kustomization:resources[*]", "backstage:kustomization:patches[*] HelmRelease spec.valuesFrom[*]"]},
-            "appId": {"type": "integer", "minimum": 1, "description": "The GitHub App's id — an identifier, not a credential. Not read back: it sits in the Secret's encrypted values.", "x-source": "person", "x-feature": "secrets", "x-renders": ["backstage:file:github-app-credentials.enc.yaml:githubAppCredentials.appId"]}
+            "appId": {"type": "integer", "minimum": 1, "description": "The GitHub App's id — an identifier, not a credential, but it lives only in the Secret's encrypted values: not read back, never set in the document, supplied at commit as plugins.github.appId like the credentials.", "x-source": "supplied", "x-feature": "secrets", "x-renders": ["backstage:file:github-app-credentials.enc.yaml:githubAppCredentials.appId"]}
           }
         },
         "grafana": {

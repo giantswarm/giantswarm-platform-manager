@@ -2,9 +2,10 @@ package customerportal
 
 import "github.com/giantswarm/giantswarm-platform-manager/render"
 
-// SuppliedSecretFields names the secret values the person supplies at commit
-// for this input, by field: the GitHub App's client id, client secret, private
-// key and webhook secret when the github plugin is on; the Sentry DSNs and
+// SuppliedSecretFields names the values the person supplies at commit for
+// this input, by field: the GitHub App's id, client id, client secret,
+// private key and webhook secret when the github plugin is on (the id is no
+// credential, but it lives only in the encrypted file); the Sentry DSNs and
 // report URI when sentry is on. A dry run passes Supplied markers for exactly
 // these fields and lists them by name; no value ever appears in a dry run.
 func (in *Input) SuppliedSecretFields() []string { return in.suppliedSecretFields() }

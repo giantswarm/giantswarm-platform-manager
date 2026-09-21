@@ -19,6 +19,7 @@
 package customerportal
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/giantswarm/giantswarm-platform-manager/render"
@@ -243,15 +244,25 @@ func (in *Input) userSecrets(secrets map[string]string) render.File {
 
 // githubAppCredentials is github-app-credentials-backstage: the GitHub App
 // as the chart writes it into github-app-credentials.yaml for the
-// integrations.github include.
+// integrations.github include. The id is supplied at commit like the
+// credentials: this file is the only place it lives.
 func (in *Input) githubAppCredentials(secrets map[string]string) render.File {
 	return valuesSecret(githubAppSecretName, render.Map{e("githubAppCredentials", render.Map{
-		e("appId", in.Plugins.GitHub.AppID),
+		e("appId", appID(secrets[fieldGitHubAppID])),
 		e("clientId", secrets[fieldGitHubClientID]),
 		e("clientSecret", secrets[fieldGitHubClientSecret]),
 		e("webhookSecret", secrets[fieldGitHubWebhookSecret]),
 		e("privateKey", secrets[fieldGitHubPrivateKey]),
 	})})
+}
+
+// appID is the GitHub App's id as the file carries it: the number the person
+// supplied, or a dry run's marker.
+func appID(value string) any {
+	if n, err := strconv.Atoi(value); err == nil {
+		return n
+	}
+	return value
 }
 
 // pluginKeys is plugin-keys-backstage: the plugin-to-plugin signing key pair

@@ -22,7 +22,6 @@ input:
   plugins:
     github:
       enabled: true
-      appId: 654321
     grafana:
       enabled: false
     flux:
