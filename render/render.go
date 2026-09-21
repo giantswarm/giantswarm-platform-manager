@@ -82,15 +82,36 @@ func KeyPair(name string, half Half) Generated {
 
 // Input is a definition's parsed input document, as the plan and the verify
 // read it beyond the render: the markers and fields of the secret values a
-// person supplies at commit, the id of a built-in Dex client the dex-app
-// chart's key names (empty where the definition has none), and the actions
-// the customer takes that no pull request delivers.
+// person supplies at commit, the required person inputs no layer of the
+// document holds (rendered as Missing markers, by field), the id of a
+// built-in Dex client the dex-app chart's key names (empty where the
+// definition has none), and the actions the customer takes that no pull
+// request delivers.
 type Input interface {
 	SuppliedMarkers() map[string]string
 	SuppliedSecretFields() []string
+	MissingInputs() []string
 	BuiltInDexClientID(key string) string
 	CustomerActions() []CustomerAction
 }
+
+// Mode is what a render is for. The zero value is a commit: what is
+// rendered is written, so a required person input the document lacks is
+// refused, named by field. A comparison (verify_capability, a dry run)
+// renders such an input as its Missing marker instead and the Input names
+// it: a comparison never refuses over a choice not on record, only a commit
+// does.
+type Mode int
+
+const (
+	// ModeCommit renders what is written: a missing required person input
+	// is refused.
+	ModeCommit Mode = iota
+	// ModeCompare renders for a comparison: a missing required person input
+	// is its Missing marker, and every leaf that carries one is compared as
+	// not checked.
+	ModeCompare
+)
 
 // CustomerAction is something the rollout needs from the customer that no
 // pull request of the manager delivers: what to do, and why it is theirs.
@@ -269,6 +290,11 @@ func Placeholder(name string) string {
 // Supplied is the marker a definition writes where the value a person
 // supplies at commit for field goes; the commit step replaces it.
 func Supplied(field string) string { return "SUPPLIED(" + field + ")" }
+
+// Missing is the marker a comparison renders where the value of a required
+// person input no layer of the document holds would go: a choice not on
+// record. A leaf that carries it is not checked; a commit never writes it.
+func Missing(field string) string { return "MISSING(" + field + ")" }
 
 // YAML marshals v with two-space indentation, the shape the fleet's
 // hand-written files use. Struct field order is the key order.

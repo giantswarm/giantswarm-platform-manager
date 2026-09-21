@@ -296,7 +296,7 @@ func renderValues(def installations.Capability, values map[string]any) (*render.
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	res, err := def.Render(values, in.SuppliedMarkers())
+	res, err := def.Render(values, in.SuppliedMarkers(), render.ModeCompare)
 	if err != nil {
 		return nil, nil, nil, err
 	}

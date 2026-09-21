@@ -201,6 +201,10 @@ type Installation struct {
 	OptIn *installations.OptIn `json:"optIn,omitempty"`
 	// Inputs are the effective inputs: the record, the typed inputs over it.
 	Inputs map[string]any `json:"inputs"`
+	// MissingInputs names, by field, the required person inputs no layer
+	// of the document holds: rendered as Missing markers, compared as not
+	// checked, refused by a commit.
+	MissingInputs []string `json:"missingInputs,omitempty"`
 	// Refused is the render's refusal, when the definition refuses these
 	// inputs (an unknown key, a policy, an input this version does not
 	// render); the rest is empty then.
@@ -260,7 +264,8 @@ func Build(ctx context.Context, opts Options) Installation {
 		p.Refused = err.Error()
 		return p
 	}
-	res, err := opts.Definition.Render(opts.Inputs, in.SuppliedMarkers())
+	p.MissingInputs = in.MissingInputs()
+	res, err := opts.Definition.Render(opts.Inputs, in.SuppliedMarkers(), render.ModeCompare)
 	if err != nil {
 		p.Refused = err.Error()
 		return p

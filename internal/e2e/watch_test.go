@@ -25,6 +25,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // The HelmRelease the watch tests turn not Ready, and the anonymous probe
@@ -83,7 +84,7 @@ func populateStage(t *testing.T, inst *fakeInstallation, a actions.Action, insta
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := def.Render(values, in.SuppliedMarkers())
+	res, err := def.Render(values, in.SuppliedMarkers(), render.ModeCompare)
 	if err != nil {
 		t.Fatal(err)
 	}

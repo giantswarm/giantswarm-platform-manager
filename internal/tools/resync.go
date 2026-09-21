@@ -14,6 +14,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // The resync: the Action record follows GitHub, not only the manager's own
@@ -315,7 +316,7 @@ func orphansOf(def installations.Capability, installation string, inputs map[str
 	if err != nil {
 		return nil
 	}
-	res, err := def.Render(inputs, in.SuppliedMarkers())
+	res, err := def.Render(inputs, in.SuppliedMarkers(), render.ModeCompare)
 	if err != nil {
 		return nil
 	}

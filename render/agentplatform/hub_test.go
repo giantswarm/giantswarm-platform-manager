@@ -3,6 +3,8 @@ package agentplatform
 import (
 	"strings"
 	"testing"
+
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // The registry's hub's broker carries the GitHub grant target with the GitHub
@@ -12,7 +14,7 @@ import (
 func TestHubBrokerGrantTarget(t *testing.T) {
 	patch := func(shape, repo, name string) string {
 		input, secrets := loadInput(t, shape)
-		result, err := Render(input, secrets)
+		result, err := Render(input, secrets, render.ModeCommit)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -44,7 +46,7 @@ func TestHubBrokerGrantTarget(t *testing.T) {
 // public target and a private one the portal does not proxy get neither.
 func TestPrivatePlatformTargetTunnels(t *testing.T) {
 	input, secrets := loadInput(t, shapeHubPrivateTarget)
-	result, err := Render(input, secrets)
+	result, err := Render(input, secrets, render.ModeCommit)
 	if err != nil {
 		t.Fatal(err)
 	}

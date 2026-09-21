@@ -326,7 +326,7 @@ func consume(t *testing.T, shape consumptionShape, charts *chartStore) {
 		if in.Installation.Name != c.installation || !ownPortal || !portal.Installation.AgentPlatform {
 			t.Fatalf("%s and %s/%s must describe one installation with the platform and its portal", shape.platform, consumptionDir, shape.portal)
 		}
-		result, err := Render(input, secrets)
+		result, err := Render(input, secrets, render.ModeCommit)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -372,7 +372,7 @@ func (c *consumption) renderPortal(file string) *customerportal.Input {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := customerportal.Render(doc.Input, in.SuppliedMarkers())
+	result, err := customerportal.Render(doc.Input, in.SuppliedMarkers(), render.ModeCompare)
 	if err != nil {
 		t.Fatal(err)
 	}

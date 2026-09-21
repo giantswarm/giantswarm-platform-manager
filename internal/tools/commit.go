@@ -136,6 +136,9 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	if p.Refused != "" {
 		return nil, fmt.Errorf("%s: the definition refuses these inputs for %s: %s", tool, one, p.Refused)
 	}
+	if len(p.MissingInputs) > 0 {
+		return nil, fmt.Errorf("%s: %s: %s — type them (%s); nothing is committed", tool, one, missingInputs(p.MissingInputs), ArgInputs)
+	}
 	spec.Change = changeSummary(p)
 	if n := p.Diff[plan.ChangeUnknown]; n > 0 {
 		return nil, fmt.Errorf("%s: %d file(s) of %s could not be compared against the repository as you (%s); nothing is committed blind", tool, n, one, unknownFiles(p))
@@ -149,7 +152,7 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	if err := checkSupplied(p.SuppliedSecrets, secrets); err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
 	}
-	rendered, err := def.Render(inputs, secrets)
+	rendered, err := def.Render(inputs, secrets, render.ModeCommit)
 	if err != nil {
 		return nil, fmt.Errorf("%s: render with the supplied values: %w", tool, err)
 	}

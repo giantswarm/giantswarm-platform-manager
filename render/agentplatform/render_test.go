@@ -53,7 +53,7 @@ func TestGolden(t *testing.T) {
 	for _, shape := range shapes {
 		t.Run(shape, func(t *testing.T) {
 			input, secrets := loadInput(t, shape)
-			result, err := Render(input, secrets)
+			result, err := Render(input, secrets, render.ModeCommit)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -115,7 +115,7 @@ func TestGoldensCoverBothLines(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		result, err := Render(input, secrets)
+		result, err := Render(input, secrets, render.ModeCommit)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -148,7 +148,7 @@ func TestPodCertificateRequestProbeAndChartTable(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		result, err := Render(input, secrets)
+		result, err := Render(input, secrets, render.ModeCommit)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -188,7 +188,7 @@ func TestPodCertificateRequestProbeAndChartTable(t *testing.T) {
 func TestSecretFilesCarryNoValues(t *testing.T) {
 	for _, shape := range shapes {
 		input, secrets := loadInput(t, shape)
-		result, err := Render(input, secrets)
+		result, err := Render(input, secrets, render.ModeCommit)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -224,7 +224,7 @@ func TestGeneratedValuesArePerInstallation(t *testing.T) {
 	generatedBy := map[string]string{}
 	for _, shape := range []string{shapePublicCustomer, shapeMultiClusterAggregator} {
 		input, secrets := loadInput(t, shape)
-		result, err := Render(input, secrets)
+		result, err := Render(input, secrets, render.ModeCommit)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -254,7 +254,7 @@ func TestOwnedPathsOnly(t *testing.T) {
 
 func testOwnedPathsOnly(t *testing.T, shape string) {
 	input, secrets := loadInput(t, shape)
-	result, err := Render(input, secrets)
+	result, err := Render(input, secrets, render.ModeCommit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +331,7 @@ func TestProbesAreLiveDimensions(t *testing.T) {
 	}
 	for _, shape := range shapes {
 		input, secrets := loadInput(t, shape)
-		result, err := Render(input, secrets)
+		result, err := Render(input, secrets, render.ModeCommit)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -433,7 +433,7 @@ func TestRefusals(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			_, err := Render(c.input, c.secrets)
+			_, err := Render(c.input, c.secrets, render.ModeCommit)
 			if !errors.Is(err, c.err) {
 				t.Fatalf("got %v, want %v", err, c.err)
 			}

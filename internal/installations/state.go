@@ -63,9 +63,11 @@ type Capability struct {
 	// Parse is the definition's read of the decoded input document: the
 	// typed input, or the definition's refusal naming the location.
 	Parse func(raw any) (render.Input, error)
-	// Render is the definition's render: the decoded input document and the
-	// person-supplied secret values by field in, the fileset out.
-	Render func(raw any, secrets map[string]string) (*render.Result, error)
+	// Render is the definition's render: the decoded input document, the
+	// person-supplied secret values by field and the mode in, the fileset
+	// out. A commit refuses a required person input the document lacks; a
+	// comparison renders its Missing marker.
+	Render func(raw any, secrets map[string]string, mode render.Mode) (*render.Result, error)
 	// Prunes says whether the Flux Kustomization that applies the
 	// definition's tree deletes what leaves the record. The fleet's
 	// Kustomization over the extras tree does not (prune: false): a revert

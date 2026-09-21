@@ -525,7 +525,7 @@ func customerActions(def installations.Capability, inputs map[string]any) []rend
 	if err != nil {
 		return nil
 	}
-	res, err := def.Render(inputs, in.SuppliedMarkers())
+	res, err := def.Render(inputs, in.SuppliedMarkers(), render.ModeCompare)
 	if err != nil {
 		return nil
 	}

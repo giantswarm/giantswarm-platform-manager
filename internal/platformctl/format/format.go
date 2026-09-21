@@ -151,6 +151,9 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 	if inst.Refused != "" {
 		p.f("  Refused: %s\n", inst.Refused)
 	}
+	if len(inst.MissingInputs) > 0 {
+		p.f("  Choices not on record: %s\n", strings.Join(inst.MissingInputs, ", "))
+	}
 	if inst.CommitRefused != "" {
 		p.f("  A commit would be refused: %s\n", inst.CommitRefused)
 	}
@@ -441,6 +444,9 @@ func Verify(w io.Writer, r verify.Result, liveErr error) error {
 	p.f("Summary: %s\n", marks(r.Summary))
 	if r.Refused != "" {
 		p.f("Refused: %s\n", r.Refused)
+	}
+	if len(r.Inputs.Missing) > 0 {
+		p.f("Choices not on record: %s\n", strings.Join(r.Inputs.Missing, ", "))
 	}
 	if r.CommitRefused != "" {
 		p.f("A commit would be refused: %s\n", r.CommitRefused)

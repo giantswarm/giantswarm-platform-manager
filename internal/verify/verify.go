@@ -14,7 +14,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
+	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -25,6 +28,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // Mark is what a dimension, and a feature rolled up from its dimensions, shows.
@@ -53,7 +57,18 @@ const (
 	ReasonNoRender   = "nothing rendered to compare against: the inputs are missing or refused"
 	ReasonUnreadable = "a file of the dimension could not be read as the caller"
 	ReasonNoFile     = "the definition renders no file of this kind for the inputs on record"
+	// ReasonMissingChoice opens the reason of a dimension whose leaves carry
+	// a Missing marker: a required person input no layer of the inputs
+	// holds, named by field after the colon. Never a difference: a choice
+	// not on record is nothing to compare against, only a commit refuses it.
+	ReasonMissingChoice = "choice not on record"
 )
+
+// missingChoice is the reason a dimension is not checked for the choices
+// not on record its leaves carry, by field.
+func missingChoice(fields []string) string {
+	return ReasonMissingChoice + ": " + strings.Join(fields, ", ")
+}
 
 // Difference is one place a repository file, or a live object, is off the
 // render: at path (a YAML path inside file; empty when the whole file
@@ -92,6 +107,8 @@ type Dimension struct {
 	Probe       *ProbeResult `json:"probe,omitempty"`
 	// Live is what a live dimension's probes answered (CompareLive).
 	Live *LiveResult `json:"live,omitempty"`
+	// missing are the choices not on record the dimension's leaves carry.
+	missing map[string]bool
 }
 
 // Feature is one feature of the definition, rolled up.
@@ -136,6 +153,10 @@ type Inputs struct {
 	// ReadBack is what the definition read back from the files on record,
 	// by dotted input key; never a secret value.
 	ReadBack map[string]any `json:"readBack,omitempty"`
+	// Missing names, by field, the required person inputs no layer holds:
+	// rendered as Missing markers, every leaf that carries one compared as
+	// not checked; a commit refuses them.
+	Missing []string `json:"missing,omitempty"`
 }
 
 // Result is the verify of one installation × capability.
@@ -188,7 +209,7 @@ func (r *Result) view(p plan.Installation, content bool) {
 // Plan is the result regrouped as the dry run's entry: what a commit would
 // write, without the marks.
 func (r Result) Plan() plan.Installation {
-	return plan.Installation{Name: r.Installation, State: r.State, OptIn: r.OptIn, Inputs: r.Inputs.Values, Refused: r.Refused, CommitRefused: r.CommitRefused,
+	return plan.Installation{Name: r.Installation, State: r.State, OptIn: r.OptIn, Inputs: r.Inputs.Values, MissingInputs: r.Inputs.Missing, Refused: r.Refused, CommitRefused: r.CommitRefused,
 		Files: r.Files, Includes: r.Includes, Diff: r.Diff, GeneratedSecrets: r.GeneratedSecrets, SuppliedSecrets: r.SuppliedSecrets,
 		DexClients: r.DexClients, CustomerActions: r.CustomerActions, Probes: r.Probes}
 }
@@ -243,6 +264,7 @@ func Compare(ctx context.Context, opts Options) Result {
 			r.Refused = err.Error()
 			c = nil
 		}
+		r.Inputs.Missing = p.MissingInputs
 		r.view(p, opts.Content)
 	}
 	dims := assign(c, feats, r.Refused)
@@ -305,6 +327,10 @@ type fileDiff struct {
 	key, path, kind string
 	unreadable      string
 	diffs           []Difference
+	// missing are the leaves of the render that carry a Missing marker, by
+	// path: the choices not on record each names. Not checked, never a
+	// difference.
+	missing map[string][]string
 }
 
 // Redacted stands for a value of an encrypted file in a difference: the
@@ -344,6 +370,7 @@ func compare(ctx context.Context, opts Options, rms, migs plannedKeys) (*compari
 				fd.diffs[i].Planned = planned(fd, &fd.diffs[i], rms, migs)
 			}
 		}
+		fd.missing = missingLeaves(base[key])
 		c.files[key] = fd
 	}
 	return c, p, nil
@@ -402,8 +429,9 @@ func rendered(p plan.Installation) []plan.File {
 // differences are the leaves of the file as the plan writes it (want) that
 // are off the file on record (current), each attributed to the input that
 // drives it. A value the commit fills in or the record holds encrypted is
-// never one; of an encrypted file the paths are the difference and the
-// values are redacted, SOPS's own block taking no part.
+// never one, nor is a leaf that carries a choice not on record (a Missing
+// marker: not checked); of an encrypted file the paths are the difference
+// and the values are redacted, SOPS's own block taking no part.
 func differences(key string, want map[string]string, current string, driven map[string]string) []Difference {
 	got := flattenYAML(current)
 	encrypted := plan.Encrypted(current)
@@ -411,7 +439,7 @@ func differences(key string, want map[string]string, current string, driven map[
 	for _, p := range diffPaths(want, got) {
 		w, okw := want[p]
 		g, okg := got[p]
-		if okw && okg && plan.Opaque(w, g) || encrypted && underSOPS(p) {
+		if okw && okg && plan.Opaque(w, g) || encrypted && underSOPS(p) || okw && len(missingFields(w)) > 0 {
 			continue
 		}
 		d := Difference{File: key, Path: p, Rendered: w, Current: g, Input: driven[key+"#"+p], absent: !okg}
@@ -419,6 +447,39 @@ func differences(key string, want map[string]string, current string, driven map[
 			d.Rendered, d.Current = redacted(okw), redacted(okg)
 		}
 		out = append(out, d)
+	}
+	return out
+}
+
+// missingMarker matches a Missing marker in a rendered value, capturing
+// the field.
+var missingMarker = regexp.MustCompile(regexp.QuoteMeta(render.Missing("")[:len(render.Missing(""))-1]) + `([^)]+)\)`)
+
+// missingFields names the choices not on record a rendered value carries:
+// the fields of its Missing markers, sorted, each once; none for a value
+// without one.
+func missingFields(value string) []string {
+	var fields []string
+	for _, m := range missingMarker.FindAllStringSubmatch(value, -1) {
+		if !slices.Contains(fields, m[1]) {
+			fields = append(fields, m[1])
+		}
+	}
+	sort.Strings(fields)
+	return fields
+}
+
+// missingLeaves are the leaves of a flat render that carry a Missing
+// marker, by path, each with the fields it names; nil when none does.
+func missingLeaves(want map[string]string) map[string][]string {
+	var out map[string][]string
+	for p, w := range want {
+		if fields := missingFields(w); len(fields) > 0 {
+			if out == nil {
+				out = map[string][]string{}
+			}
+			out[p] = fields
+		}
 	}
 	return out
 }
@@ -790,7 +851,10 @@ func (m matcher) match(rel, yamlPath string) int {
 
 // assign routes every difference of the comparison to the dimension whose key
 // names it most specifically — the kind's catch-all when none does — and
-// marks every file dimension; live dimensions are not checked.
+// marks every file dimension; live dimensions are not checked. A leaf that
+// carries a choice not on record is routed the same way and makes its
+// dimension not checked, with the reason naming the choice, where nothing
+// else in it is off.
 func assign(c *comparison, feats []definitions.Feature, refused string) map[string]*Dimension {
 	var matchers []matcher
 	dims := map[string]*Dimension{}
@@ -823,15 +887,20 @@ func assign(c *comparison, feats []definitions.Feature, refused string) map[stri
 			unreadable[fd.kind] = true
 		}
 		for _, d := range fd.diffs {
-			target := catchAll(matchers, fd.kind)
-			bestN := 0
-			for _, m := range matchers {
-				if n := m.match(relPath(fd.path), d.Path); m.kind == fd.kind && n > bestN {
-					target, bestN = m.dim, n
-				}
-			}
-			if target != nil {
+			if target := route(matchers, fd, d.Path); target != nil {
 				target.Differences = append(target.Differences, d)
+			}
+		}
+		for path, fields := range fd.missing {
+			target := route(matchers, fd, path)
+			if target == nil {
+				continue
+			}
+			if target.missing == nil {
+				target.missing = map[string]bool{}
+			}
+			for _, f := range fields {
+				target.missing[f] = true
 			}
 		}
 	}
@@ -840,17 +909,33 @@ func assign(c *comparison, feats []definitions.Feature, refused string) map[stri
 		sort.Strings(files)
 		m.dim.Files = files
 		m.dim.Mark = fileMark(m.dim.Differences, len(files) > 0, unreadable[m.kind])
-		if m.dim.Mark == NotChecked {
+		switch {
+		case m.dim.Mark == AsDefined && len(m.dim.missing) > 0:
+			m.dim.Mark, m.dim.Reason = NotChecked, missingChoice(slices.Sorted(maps.Keys(m.dim.missing)))
+		case m.dim.Mark == NotChecked && unreadable[m.kind]:
+			m.dim.Reason = ReasonUnreadable
+		case m.dim.Mark == NotChecked:
 			m.dim.Reason = ReasonNoFile
-			if unreadable[m.kind] {
-				m.dim.Reason = ReasonUnreadable
-			}
 		}
 		sort.Slice(m.dim.Differences, func(i, j int) bool {
 			return m.dim.Differences[i].File+m.dim.Differences[i].Path < m.dim.Differences[j].File+m.dim.Differences[j].Path
 		})
 	}
 	return dims
+}
+
+// route is the dimension a leaf at yamlPath of fd is observed under: the one
+// of the file's kind whose key names it most specifically, else the kind's
+// catch-all; nil when the kind has none.
+func route(matchers []matcher, fd *fileDiff, yamlPath string) *Dimension {
+	target := catchAll(matchers, fd.kind)
+	bestN := 0
+	for _, m := range matchers {
+		if n := m.match(relPath(fd.path), yamlPath); m.kind == fd.kind && n > bestN {
+			target, bestN = m.dim, n
+		}
+	}
+	return target
 }
 
 // catchAll is where a difference no key names goes: the first dimension of

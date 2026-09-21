@@ -71,7 +71,7 @@ func enableRowanLive(t *testing.T, st *stack, c *client.Client, inputs map[strin
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := def.Render(p.Inputs, in.SuppliedMarkers())
+	res, err := def.Render(p.Inputs, in.SuppliedMarkers(), render.ModeCompare)
 	if err != nil {
 		t.Fatal(err)
 	}
