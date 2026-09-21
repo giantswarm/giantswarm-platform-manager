@@ -28,6 +28,10 @@ const (
 	hubConfigs   = "example/example-configs"
 	acmeMCs      = "example/acme-management-clusters"
 	acmeConfigs  = "example/acme-configs"
+	umbrellaMCs  = "example/umbrella-management-clusters"
+	// maple is umbrella's installation enabled by its owners before the
+	// manager existed: both markers on record, no declaration.
+	maple = "maple"
 	// basesRepo is the fleet's shared collection base: the dex-app every
 	// installation runs unless its collections kustomization pins its own.
 	basesRepo = "example/management-cluster-bases"
@@ -131,8 +135,10 @@ func portalConfig(names ...string) string {
 // fake: hazel (the hub, opted in, enabled, chart line 4), alder (no
 // declaration), birch (opted in, enabled, private: the hub's portal reaches
 // it through the tunnel), rowan (opted in, not
-// enabled), willow (optIn: false), oak (repositories the person may not
-// read) and larch (portal only, no repositories on record). The fleet's base
+// enabled), willow (optIn: false), maple (no declaration, both markers on
+// record: enabled by its owners before the manager existed), oak
+// (repositories the person may not read) and larch (portal only, no
+// repositories on record). The fleet's base
 // pins dex-app before the referenced Dex client secrets; hazel, birch and
 // rowan pin the version that takes them, alder runs the fleet's.
 // The kustomizations other owners write, which the includes land in: an
@@ -188,9 +194,9 @@ func indentLines(s, prefix string) string {
 func fixtures(g *fakeGitHub) {
 	g.addRepo(registryRepo, map[string]string{registryPath: "---\napiVersion: backstage.io/v1alpha1\nkind: Group\nmetadata:\n    name: acme\nspec:\n    type: customer\n" +
 		resource(hub, "example", "capa", "example.test") + resource(alder, "acme", "capa", "acme.test") + resource(birch, "acme", "capa", "acme.test") +
-		resource("rowan", "acme", "capa", "acme.test") + resource("willow", "umbrella", "capz", "umbrella.test") + resource("oak", "sealed", "capa", "sealed.test")})
+		resource("rowan", "acme", "capa", "acme.test") + resource("willow", "umbrella", "capz", "umbrella.test") + resource(maple, "umbrella", "capz", "umbrella.test") + resource("oak", "sealed", "capa", "sealed.test")})
 	g.addRepo(hubMCs, map[string]string{
-		installations.PortalConfigPath(hub):             portalConfig(hub, alder, birch, "rowan", "willow", "oak", "larch"),
+		installations.PortalConfigPath(hub):             portalConfig(hub, alder, birch, "rowan", "willow", maple, "oak", "larch"),
 		installations.OptInPath(hub):                    optedIn,
 		installations.ClusterAppManifestPath(hub):       clusterAppManifest(hub, "cluster-aws", "10.2.0", true),
 		installations.CollectionsKustomizationPath(hub): collectionsKustomization(platformDexApp),
@@ -227,8 +233,17 @@ func fixtures(g *fakeGitHub) {
 		installations.Capabilities()[0].EnabledMarker(birch): "muster:\n  muster:\n    oauth:\n      server:\n        trustedAudiences:\n          - dex-k8s-authenticator\n          - " + birchPortalClientID + "\n",
 		installations.DexPatchPath(birch):                    "oidc:\n  staticClients:\n    dexK8SAuthenticator:\n      trustedPeers:\n        - dex-k8s-authenticator\n        - " + birchPeerClientID + "\n",
 	})
-	g.addRepo("example/umbrella-management-clusters", map[string]string{installations.OptInPath("willow"): "optIn: false\n"})
-	g.addRepo("example/umbrella-configs", map[string]string{installations.ConfigPatchPath("willow"): "codename: willow\n"})
+	g.addRepo(umbrellaMCs, map[string]string{
+		installations.OptInPath("willow"): "optIn: false\n",
+		// maple's portal on record, put there by its owners: the customer-portal marker without a declaration.
+		installations.PortalConfigPath(maple): portalConfig(maple),
+	})
+	g.addRepo("example/umbrella-configs", map[string]string{
+		installations.ConfigPatchPath("willow"): "codename: willow\n",
+		installations.ConfigPatchPath(maple):    "codename: maple\nbase: umbrella.test\n",
+		// maple's platform values on record, put there by its owners: the agent-platform marker without a declaration.
+		installations.Capabilities()[0].EnabledMarker(maple): "muster:\n  muster:\n    oauth:\n      server:\n        trustedAudiences:\n          - dex-k8s-authenticator\n",
+	})
 	g.addRepo("example/shared-configs", map[string]string{"default/config.yaml": "services:\n  muster:\n    clientId: muster-shared\n"})
 	g.addRepo(basesRepo, map[string]string{installations.DexAppBasePath: dexAppApp(fleetDexApp)})
 	g.forbid("example/sealed-management-clusters")
@@ -267,13 +282,13 @@ func TestListInstallationsStates(t *testing.T) {
 	if isErr {
 		t.Fatal(text)
 	}
-	if out.Caller != alice || out.Hub != hub || len(out.Installations) != 7 || len(out.Capabilities) != 2 || out.Capabilities[0] != installations.AgentPlatform || out.Capabilities[1] != installations.CustomerPortal ||
+	if out.Caller != alice || out.Hub != hub || len(out.Installations) != 8 || len(out.Capabilities) != 2 || out.Capabilities[0] != installations.AgentPlatform || out.Capabilities[1] != installations.CustomerPortal ||
 		out.Registry.Catalog.Repository != registryRepo || out.Registry.Portal.Repository != hubMCs || out.Registry.Portal.Path != installations.PortalConfigPath(hub) {
 		t.Fatalf("answer: %s", text)
 	}
 
 	hazel := find(t, out, hub)
-	if !hazel.Hub || !hazel.Readable || hazel.OptIn.State != installations.OptedIn || hazel.Capabilities[0].State != installations.StateEnabled ||
+	if !hazel.Hub || !hazel.Readable || hazel.OptIn.State != installations.OptedIn || hazel.Capabilities[0].State != installations.StateEnabled || !hazel.Capabilities[0].Enabled || !hazel.Capabilities[0].OptedIn ||
 		hazel.Record == nil || hazel.Record.ChartLine != "4" || hazel.Record.Private || hazel.Record.MusterClientID != "muster-hazel" || hazel.Record.BaseDomain != "hazel.example.test" ||
 		hazel.AuthProvider != "oidc" || len(hazel.Sources) != 2 || hazel.Capabilities[0].LastAction != nil {
 		t.Fatalf("hazel: %+v", hazel)
@@ -290,7 +305,7 @@ func TestListInstallationsStates(t *testing.T) {
 	alder := find(t, out, alder)
 	if alder.Hub || alder.OptIn.State != installations.NotOptedIn || alder.OptIn.Present || alder.OptIn.Path != installations.OptInPath(alder.Name) || alder.OptIn.Repository != acmeMCs ||
 		!strings.Contains(alder.OptIn.HowToOptIn, "optIn: true") || !strings.Contains(alder.OptIn.HowToOptIn, acmeMCs) || !strings.Contains(alder.OptIn.HowToOptIn, "their own pull request") ||
-		alder.Capabilities[0].State != installations.StateNotOptedIn || alder.Capabilities[0].Enabled || alder.Capabilities[1].State != installations.StateNotOptedIn || !alder.Readable ||
+		alder.Capabilities[0].State != installations.StateNotOptedIn || alder.Capabilities[0].Enabled || alder.Capabilities[0].OptedIn || alder.Capabilities[1].State != installations.StateNotOptedIn || !alder.Readable ||
 		alder.Customer != "acme" || alder.AccountEngineer != "Ada Example" || alder.Record == nil || alder.Record.ChartLine != "3" {
 		t.Fatalf("alder: %+v %+v", alder, alder.OptIn)
 	}
@@ -303,7 +318,7 @@ func TestListInstallationsStates(t *testing.T) {
 	}
 
 	rowan := find(t, out, "rowan")
-	if rowan.OptIn.State != installations.OptedIn || rowan.Capabilities[0].State != installations.StateNotEnabled || rowan.Capabilities[0].Enabled {
+	if rowan.OptIn.State != installations.OptedIn || rowan.Capabilities[0].State != installations.StateNotEnabled || rowan.Capabilities[0].Enabled || !rowan.Capabilities[0].OptedIn {
 		t.Fatalf("rowan: %+v", rowan)
 	}
 
@@ -311,6 +326,16 @@ func TestListInstallationsStates(t *testing.T) {
 	if willow.OptIn.State != installations.NotOptedIn || !willow.OptIn.Present || willow.OptIn.Value == nil || *willow.OptIn.Value || willow.OptIn.HowToOptIn == "" ||
 		willow.Capabilities[0].State != installations.StateNotOptedIn || willow.Provider != "capz" {
 		t.Fatalf("willow: %+v %+v", willow, willow.OptIn)
+	}
+
+	// maple's owners enabled both capabilities themselves and never opted in:
+	// the fileset on record is a fact the missing consent does not hide, and
+	// the two facts read apart.
+	mapleR := find(t, out, maple)
+	if mapleR.OptIn.State != installations.NotOptedIn || mapleR.OptIn.Present || mapleR.OptIn.HowToOptIn == "" || !mapleR.Readable || mapleR.Record == nil || mapleR.Record.MusterClientID != "muster-shared" ||
+		mapleR.Capabilities[0].State != installations.StateEnabledNotOptedIn || !mapleR.Capabilities[0].Enabled || mapleR.Capabilities[0].OptedIn ||
+		mapleR.Capabilities[1].State != installations.StateEnabledNotOptedIn || !mapleR.Capabilities[1].Enabled || mapleR.Capabilities[1].OptedIn || len(mapleR.Errors) != 0 {
+		t.Fatalf("maple: %+v %+v", mapleR, mapleR.OptIn)
 	}
 
 	oak := find(t, out, "oak")
@@ -328,7 +353,7 @@ func TestListInstallationsStates(t *testing.T) {
 	if len(out.Unreadable) != 2 || out.Unreadable[0] != "larch" || out.Unreadable[1] != "oak" {
 		t.Fatalf("unreadable: %v", out.Unreadable)
 	}
-	if len(out.States.FromRepositories) != 4 || len(out.States.FromActions) != 5 {
+	if len(out.States.FromRepositories) != 5 || len(out.States.FromActions) != 5 {
 		t.Fatalf("states: %+v", out.States)
 	}
 }
@@ -339,13 +364,16 @@ func TestListInstallationsReadsTheOptInEveryCall(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	c := st.mcpClient(t, aliceToken)
-	out, _, _ := listInstallations(t, c, map[string]any{tools.ArgInstallations: []string{alder}})
-	if find(t, out, alder).Capabilities[0].State != installations.StateNotOptedIn {
-		t.Fatal("alder opted in before the declaration landed")
+	out, _, _ := listInstallations(t, c, map[string]any{tools.ArgInstallations: []string{alder, maple}})
+	if find(t, out, alder).Capabilities[0].State != installations.StateNotOptedIn || find(t, out, maple).Capabilities[0].State != installations.StateEnabledNotOptedIn {
+		t.Fatal("alder or maple opted in before the declaration landed")
 	}
 	st.ghs.addRepo(acmeMCs, map[string]string{installations.OptInPath(alder): optedIn})
-	out, _, _ = listInstallations(t, c, map[string]any{tools.ArgInstallations: []string{alder}})
-	if find(t, out, alder).Capabilities[0].State != installations.StateNotEnabled {
+	st.ghs.addRepo(umbrellaMCs, map[string]string{installations.OptInPath(maple): optedIn})
+	out, _, _ = listInstallations(t, c, map[string]any{tools.ArgInstallations: []string{alder, maple}})
+	// The declaration flips the one fact it is about: alder, with nothing on
+	// record, is not enabled; maple, with its fileset on record, is enabled.
+	if find(t, out, alder).Capabilities[0].State != installations.StateNotEnabled || find(t, out, maple).Capabilities[0].State != installations.StateEnabled || !find(t, out, maple).Capabilities[0].OptedIn {
 		t.Fatal("the declaration that landed was not read")
 	}
 	if n := st.ghs.reads(acmeMCs, installations.OptInPath(alder)); n != 2 {
@@ -360,18 +388,19 @@ func TestListInstallationsSummary(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	out, text, isErr := listInstallations(t, st.mcpClient(t, aliceToken), map[string]any{tools.ArgSummary: true})
-	if isErr || !out.Summary || len(out.Installations) != 7 || len(out.Capabilities) != 2 {
+	if isErr || !out.Summary || len(out.Installations) != 8 || len(out.Capabilities) != 2 {
 		t.Fatalf("answer: %s", text)
 	}
-	hazelR, birchR, alderR, oakR := find(t, out, hub), find(t, out, birch), find(t, out, alder), find(t, out, "oak")
+	hazelR, birchR, alderR, mapleR, oakR := find(t, out, hub), find(t, out, birch), find(t, out, alder), find(t, out, maple), find(t, out, "oak")
 	if !hazelR.Readable || hazelR.OptIn.State != installations.OptedIn || hazelR.Capabilities[0].State != installations.StateEnabled || hazelR.Capabilities[1].State != installations.StateEnabled ||
 		hazelR.Record != nil || hazelR.Portals != nil || hazelR.Federation != nil || hazelR.Capabilities[0].Inputs != nil {
 		t.Fatalf("hazel: %+v", hazelR)
 	}
 	if birchR.Capabilities[0].State != installations.StateEnabled || birchR.Capabilities[1].State != installations.StateNotEnabled || birchR.Record != nil ||
 		alderR.Capabilities[0].State != installations.StateNotOptedIn || alderR.Record != nil ||
+		mapleR.Capabilities[0].State != installations.StateEnabledNotOptedIn || mapleR.Capabilities[1].State != installations.StateEnabledNotOptedIn || !mapleR.Capabilities[1].Enabled || mapleR.Record != nil ||
 		oakR.Readable || oakR.Capabilities[0].State != installations.StateUnknown {
-		t.Fatalf("birch %+v alder %+v oak %+v", birchR, alderR, oakR)
+		t.Fatalf("birch %+v alder %+v maple %+v oak %+v", birchR, alderR, mapleR, oakR)
 	}
 	for _, read := range []struct{ repo, path string }{
 		{hubConfigs, installations.ConfigPatchPath(hub)},
