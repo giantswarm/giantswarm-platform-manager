@@ -286,15 +286,18 @@ type portalEntry struct {
 // backstage.appConfig is the app-config as YAML text.
 // portalConfig is what the registry reads of a portal's app-config: the
 // installations it lists, its base URL, its cluster-token broker, the
-// installations whose Kubernetes API it reaches through the tunnel on its host
-// and the installations whose agent platform it proxies
-// (agentPlatform.kagent.installations).
+// installations whose Kubernetes API it reaches through the tunnel on its host,
+// the installations whose agent platform it proxies
+// (agentPlatform.kagent.installations) and whether the portal is hand-kept:
+// its app.extensions is a literal list of its own rather than the shared
+// include the customer-portal definition renders.
 type portalConfig struct {
 	Installations   map[string]portalEntry
 	BaseURL         string
 	BrokerTokenURL  string
 	Tunnelled       map[string]bool
 	PlatformProxied map[string]bool
+	HandKept        bool
 }
 
 func parsePortalConfig(data string) (*portalConfig, error) {
@@ -322,7 +325,8 @@ func parsePortalConfig(data string) (*portalConfig, error) {
 	}
 	var appConfig struct {
 		App struct {
-			BaseURL string `yaml:"baseUrl"`
+			BaseURL    string    `yaml:"baseUrl"`
+			Extensions yaml.Node `yaml:"extensions"`
 		} `yaml:"app"`
 		GS struct {
 			Installations      map[string]portalEntry `yaml:"installations"`
@@ -350,7 +354,8 @@ func parsePortalConfig(data string) (*portalConfig, error) {
 	if len(appConfig.GS.Installations) == 0 {
 		return nil, errors.New("backstage.appConfig has no gs.installations")
 	}
-	cfg := &portalConfig{Installations: appConfig.GS.Installations, BaseURL: appConfig.App.BaseURL, BrokerTokenURL: appConfig.GS.ClusterTokenBroker.TokenURL, Tunnelled: map[string]bool{}, PlatformProxied: map[string]bool{}}
+	cfg := &portalConfig{Installations: appConfig.GS.Installations, BaseURL: appConfig.App.BaseURL, BrokerTokenURL: appConfig.GS.ClusterTokenBroker.TokenURL,
+		Tunnelled: map[string]bool{}, PlatformProxied: map[string]bool{}, HandKept: appConfig.App.Extensions.Kind == yaml.SequenceNode}
 	for _, m := range appConfig.Kubernetes.ClusterLocatorMethods {
 		for _, cluster := range m.Clusters {
 			if hostOf(cluster.URL) == tunnelKubernetesHost(cluster.Name) {

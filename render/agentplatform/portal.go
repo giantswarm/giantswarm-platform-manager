@@ -15,12 +15,17 @@ import "github.com/giantswarm/giantswarm-platform-manager/render"
 // entries the same way: objects key by key, lists and scalars replaced by the
 // later source, never appended. Appended last, the Component's lists win. The
 // Component therefore sets a list only where it is the portal's sole source of
-// it. A customer portal's app-config carries no extensions and its user-values
-// no environment beyond what this definition writes, so there the Component
-// names the platform's extensions, the installation's muster and the avatars
-// host. The hub's Dev Portal is hand-kept and owns its extensions, its muster
-// registry and its environment; there the Component writes only object-shaped
-// keys (the kagent installation, the fragment's mount), which merge.
+// it. A portal the customer-portal definition renders includes the shared
+// extension list and carries no environment beyond what this definition
+// writes, so there the Component names the platform's extensions, the
+// installation's muster and the avatars host. A hand-kept portal — one whose
+// app-config on record carries a literal extension list of its own, the hub's
+// Dev Portal among them (installation.portals[*].handKept, read from the
+// record) — owns its extensions, its muster registry and its environment;
+// there the Component writes only object-shaped keys (the kagent installation,
+// the fragment's mount), which merge. The day the customer-portal definition
+// renders such a portal the fact reads false and the Component takes the
+// lists over.
 
 const (
 	// backstageNamespace is the portal's release namespace, where the chart
@@ -46,9 +51,12 @@ func (in *Input) portalAuthProvider() string { return render.PortalAuthProvider(
 
 // portalOwnsLists says whether the Component is the portal's sole source of its
 // list-shaped keys (app.extensions, muster.installations,
-// backstage.extraEnvVars) and so sets them. The hub's hand-kept Dev Portal
-// carries its own; a list the Component set there would replace it.
-func (in *Input) portalOwnsLists() bool { return !in.Installation.Hub }
+// backstage.extraEnvVars) and so sets them. A hand-kept portal carries its
+// own; a list the Component set there would replace it.
+func (in *Input) portalOwnsLists() bool {
+	p := in.hostedPortal()
+	return p != nil && !p.HandKept
+}
 
 // musterEntry is the installation's muster as the portal reaches it. Its
 // authProvider is the portal's sign-in provider on this installation's Dex,

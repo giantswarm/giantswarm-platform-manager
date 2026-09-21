@@ -33,7 +33,7 @@ func TestDeriveFromPortals(t *testing.T) {
 		{Installation: reg.Installations[2], Record: &Record{Name: fixtureSibling, BaseDomain: "rowanberry.umbra.test", Private: true}, Readable: true},
 	}
 	portals := []Portal{
-		{Host: fixtureHub, Customer: fixtureFleet, Domain: "portal.fleet.test", ClientID: fixtureHubClientID, Broker: "", Installations: []string{fixtureHub, fixtureAggregator, fixtureSibling}, Tunnelled: []string{fixtureSibling}},
+		{Host: fixtureHub, Customer: fixtureFleet, Domain: "portal.fleet.test", ClientID: fixtureHubClientID, Broker: "", Installations: []string{fixtureHub, fixtureAggregator, fixtureSibling}, Tunnelled: []string{fixtureSibling}, HandKept: true},
 		{Host: fixtureAggregator, Customer: fixtureCustomer, Domain: "portal.linden.umbra.test", ClientID: render.PortalDexClientID, Broker: fixtureAggregator, Installations: []string{fixtureAggregator, fixtureSibling}, PlatformProxied: []string{fixtureAggregator, fixtureSibling}},
 	}
 	_ = reg
@@ -43,7 +43,8 @@ func TestDeriveFromPortals(t *testing.T) {
 	}
 	linden, birch := reports[1], reports[2]
 	if len(linden.Portals) != 2 || linden.Portals[1].Customer != fixtureCustomer || len(linden.Federation.Hubs) != 0 || !slices.Equal(targets, []string{fixtureSibling}) ||
-		linden.Portals[0].ClientID != fixtureHubClientID || linden.Portals[1].ClientID != render.PortalDexClientID {
+		linden.Portals[0].ClientID != fixtureHubClientID || linden.Portals[1].ClientID != render.PortalDexClientID ||
+		!linden.Portals[0].HandKept || linden.Portals[1].HandKept {
 		t.Fatalf("linden: %+v %+v %v", linden.Portals, linden.Federation, targets)
 	}
 	if !slices.Equal(birch.Federation.Hubs, []string{fixtureAggregator}) || len(birch.Portals) != 2 {
@@ -131,9 +132,10 @@ func TestDexClientByRedirectURI(t *testing.T) {
 // A portal's cluster entry at the tunnel's Service on its host marks the
 // installation as reached through the tunnel; one at its API does not. The
 // installations its agent-platform section lists are the ones whose platform
-// it proxies, whatever the entry carries.
+// it proxies, whatever the entry carries. A literal extension list marks the
+// portal hand-kept.
 func TestPortalConfigTunnelled(t *testing.T) {
-	appConfig := "app:\n  baseUrl: https://portal.aspen.fleet.test\ngs:\n  installations:\n    linden: {}\n    rowanberry: {}\n" +
+	appConfig := "app:\n  baseUrl: https://portal.aspen.fleet.test\n  extensions:\n    - page:gs/clusters\n    - entity-card:catalog/labels: false\ngs:\n  installations:\n    linden: {}\n    rowanberry: {}\n" +
 		"kubernetes:\n  clusterLocatorMethods:\n    - type: config\n      clusters:\n" +
 		"        - name: linden\n          url: https://happaapi.linden.umbra.test\n" +
 		"        - name: rowanberry\n          url: https://kubernetes-rowanberry.agent-platform.svc.cluster.local:8443\n" +
@@ -150,6 +152,30 @@ func TestPortalConfigTunnelled(t *testing.T) {
 	}
 	if !cfg.PlatformProxied[fixtureSibling] || !cfg.PlatformProxied[fixtureHub] || cfg.PlatformProxied[fixtureAggregator] || len(cfg.PlatformProxied) != 2 {
 		t.Fatalf("platform proxied: %v", cfg.PlatformProxied)
+	}
+	if !cfg.HandKept {
+		t.Fatal("a literal app.extensions list marks the portal hand-kept")
+	}
+}
+
+// A portal whose app.extensions is the shared include — what the
+// customer-portal definition renders — is not hand-kept, nor is one without
+// the key: only a list of the portal's own is.
+func TestPortalConfigHandKept(t *testing.T) {
+	for name, extensions := range map[string]string{
+		"the shared include": "  extensions:\n    $include: shared-config.yaml#extensions\n",
+		"no extensions":      "",
+	} {
+		appConfig := "app:\n  baseUrl: https://portal.linden.umbra.test\n" + extensions + "gs:\n  installations:\n    linden: {}\n"
+		values := "backstage:\n  appConfig: |\n" + indent(appConfig, "    ")
+		cm := "apiVersion: v1\nkind: ConfigMap\ndata:\n  values: |\n" + indent(values, "    ")
+		cfg, err := parsePortalConfig(cm)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.HandKept {
+			t.Errorf("%s: read hand-kept", name)
+		}
 	}
 }
 

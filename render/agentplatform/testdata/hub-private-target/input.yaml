@@ -4,10 +4,11 @@
 # the credentials Secret per target, the tunnelport release with a RemoteApp per tunnelled app,
 # and the hub's entries of teleport-fleet's tunnelport values (the hub as a consumer joining by its
 # irsa issuer, its trust-bundle token, one tunnel per tunnelled app). The broker client id is read
-# back from the hub's patch. The hub's own Dev Portal signs in on gopher, so the portal Component
-# renders in the hub shape: the object-shaped keys only, none of the lists the hand-kept portal
-# owns (extensions, muster registry, environment). No Slack app is named for the hub, so no chat
-# gateway and nothing supplied at commit. Invented names, placeholder values.
+# back from the hub's patch. The hub's own Dev Portal signs in on gopher and is hand-kept (its
+# app-config carries a literal extension list of its own), so the portal Component renders in the
+# hand-kept shape: the object-shaped keys only, none of the lists the portal owns (extensions,
+# muster registry, environment). No Slack app is named for the hub, so no chat gateway and nothing
+# supplied at commit. Invented names, placeholder values.
 input:
   installation:
     name: gopher
@@ -24,6 +25,7 @@ input:
         customer: giantswarm
         domain: portal.gopher.example.io
         clientId: backstage
+        handKept: true
     federation:
       hubs: []
       brokerClientId: broker-client-id-placeholder

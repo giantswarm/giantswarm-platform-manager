@@ -1,0 +1,35 @@
+# A Giant Swarm-owned installation on the 4 chart line whose own portal is hand-kept: its app-config
+# on record carries a literal extension list (the AI chat among it), its own environment and no
+# muster registry, none of which the customer-portal definition renders yet. The portal Component
+# therefore renders in the hand-kept shape — the object-shaped keys only (its kagent installation,
+# the fragment's mount) — because a list it set would replace the portal's own. Beside its own
+# portal the hub's ("aspen") signs it in; that portal is hand-kept too and takes no other
+# installation's Component. Otherwise the giantswarm-owned shape: the components the policy gives
+# the organisation, no Slack app, no serving slice. Invented names, placeholder values.
+input:
+  installation:
+    name: gopher
+    baseDomain: gopher.example.io
+    customer: giantswarm
+    provider: capa
+    private: false
+    chartLine: "4"
+    musterClientId: 00000000-0000-4000-8000-000000000002
+    podCertificateRequest: true
+    portals:
+      - installation: aspen
+        customer: giantswarm
+        domain: portal.aspen.example.io
+        clientId: Yx7hub0portal0client0id0on0record0
+        handKept: true
+      - installation: gopher
+        customer: giantswarm
+        domain: portal.gopher.example.io
+        clientId: backstage
+        handKept: true
+    federation:
+      hubs: [aspen]
+      targets: []
+  modelServing:
+    enabled: false
+secrets: {}

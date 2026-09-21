@@ -1,0 +1,92 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+global:
+  domain: gopher.example.io
+components:
+  kagent:
+    enabled: true
+  agent-manager:
+    enabled: true
+  cluster-manager:
+    enabled: true
+postgres:
+  enabled: true
+llmRouting:
+  enabled: true
+kagent:
+  providers:
+    anthropic:
+      apiKeySecretRef: kagent-anthropic-key
+      config:
+        baseUrl: http://agentgateway.agent-platform.svc:8081
+  oauth2-proxy:
+    config:
+      existingSecret: kagent-oauth2-proxy-credentials
+    extraArgs:
+      oidc-extra-audience: dex-k8s-authenticator,kagent,Yx7hub0portal0client0id0on0record0,backstage # gitleaks:allow
+muster:
+  muster:
+    oauth:
+      server:
+        existingSecret: muster-oauth-credentials
+        storage:
+          valkey:
+            existingSecret: muster-valkey-credentials
+        trustedAudiences:
+          - dex-k8s-authenticator
+          - kagent
+          - Yx7hub0portal0client0id0on0record0
+          - backstage
+gateway:
+  jwksEgress:
+    enabled: true
+extraObjects:
+  - apiVersion: gateway.networking.k8s.io/v1beta1
+    kind: ReferenceGrant
+    metadata:
+      name: agentgateway-jwks-dex
+      namespace: giantswarm
+    spec:
+      from:
+        - group: agentgateway.dev
+          kind: AgentgatewayPolicy
+          namespace: agent-platform
+      to:
+        - group: ""
+          kind: Service
+          name: dex
+agent-platform-mcps:
+  agentgateway:
+    jwt:
+      extraProviders:
+        - issuer: https://dex.gopher.example.io
+          audiences:
+            - Yx7hub0portal0client0id0on0record0
+            - backstage
+          jwks:
+            remote:
+              backendRef:
+                name: dex
+                namespace: giantswarm
+                port: 5556
+              jwksPath: /keys
+              cacheDuration: 5m
+cluster-manager:
+  installation:
+    name: gopher
+clusterManager:
+  networkPolicy:
+    workloadClusters:
+      fqdns:
+        - matchPattern: '*.*.elb.amazonaws.com'
+    egress:
+      fqdns:
+        - matchName: gsoci.azurecr.io
+        - matchPattern: '*.blob.core.windows.net'
+valkey:
+  valkey:
+    auth:
+      usersExistingSecret: muster-valkey-credentials
+      aclUsers:
+        default:
+          passwordKey: valkey-password

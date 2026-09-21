@@ -128,14 +128,17 @@ type Installation struct {
 }
 
 // PortalRef is a developer portal that signs people in on the installation:
-// its host, the host's organisation, its hostname and, where its host's Dex
-// patch carries it, the id of the Dex client it signs in through — the
-// audience of the ID tokens it forwards.
+// its host, the host's organisation, its hostname, where its host's Dex
+// patch carries it the id of the Dex client it signs in through — the
+// audience of the ID tokens it forwards — and whether it is hand-kept: its
+// app-config on record carries a literal extension list of its own, so the
+// portal owns its lists and the Component sets none (portal.go).
 type PortalRef struct {
 	Installation string `json:"installation"`
 	Customer     string `json:"customer"`
 	Domain       string `json:"domain"`
 	ClientID     string `json:"clientId,omitempty"`
+	HandKept     bool   `json:"handKept,omitempty"`
 }
 
 // Federation is the installation's place in the fleet's token exchange.
@@ -446,16 +449,33 @@ func (in *Input) klausGateway() bool   { return in.Components[componentKlausGate
 func (in *Input) clusterManager() bool { return in.Components[componentClusterManager] }
 
 // portalHost is the installation whose management-clusters tree hosts the
-// organisation's own portal — the one the platform's portal section is written
-// into; empty when no portal of the organisation lists this installation (the
-// hub's Dev Portal carries its own section for other organisations' installations).
+// portal the platform's portal section is written into (hostedPortal); empty
+// when there is none.
 func (in *Input) portalHost() string {
-	for _, p := range in.Installation.Portals {
-		if p.Customer == in.Installation.Customer {
-			return p.Installation
-		}
+	if p := in.hostedPortal(); p != nil {
+		return p.Installation
 	}
 	return ""
+}
+
+// hostedPortal is the portal the platform's portal section is written into:
+// the portal hosted on this installation itself; else the organisation's
+// portal on a sibling that is not hand-kept (a customer aggregator's); else
+// none. A hand-kept sibling portal — the hub's Dev Portal — carries its own
+// section for the installations it proxies and takes no other installation's
+// Component; nor does another organisation's portal.
+func (in *Input) hostedPortal() *PortalRef {
+	for i := range in.Installation.Portals {
+		if p := &in.Installation.Portals[i]; p.Installation == in.Installation.Name {
+			return p
+		}
+	}
+	for i := range in.Installation.Portals {
+		if p := &in.Installation.Portals[i]; p.Customer == in.Installation.Customer && !p.HandKept {
+			return p
+		}
+	}
+	return nil
 }
 
 // chartSemver is the range patched onto the agent-platform OCIRepository: the 4

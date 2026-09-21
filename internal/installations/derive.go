@@ -29,9 +29,11 @@ import (
 // (empty when the host's dex-app configmap patch carries no client with the
 // portal's redirect URI), the installations it lists, the installation whose
 // muster brokers its cluster tokens (empty when it brokers none), the
-// installations it reaches through the tunnel on its host and the installations
+// installations it reaches through the tunnel on its host, the installations
 // whose agent platform (kagent, agentgateway) it proxies — its app-config's
-// agentPlatform.kagent.installations.
+// agentPlatform.kagent.installations — and whether it is hand-kept: its
+// app-config carries a literal app.extensions list of its own where a portal
+// the customer-portal definition renders includes the shared list.
 type Portal struct {
 	Host            string
 	Customer        string
@@ -41,15 +43,19 @@ type Portal struct {
 	Installations   []string
 	Tunnelled       []string
 	PlatformProxied []string
+	HandKept        bool
 }
 
 // PortalRef is a portal that signs people in on an installation, as the
-// definitions' installation.portals[*] names it.
+// definitions' installation.portals[*] names it. HandKept says the portal's
+// app-config on record carries its own extension list: the agent-platform
+// Component then sets none of the portal's lists.
 type PortalRef struct {
 	Installation string `json:"installation"`
 	Customer     string `json:"customer"`
 	Domain       string `json:"domain"`
 	ClientID     string `json:"clientId,omitempty"`
+	HandKept     bool   `json:"handKept,omitempty"`
 }
 
 // Federation is an installation's place in the fleet's token exchange, as the
@@ -128,7 +134,7 @@ func (r *Registry) readPortal(ctx context.Context, c *github.Client, host Instal
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", PortalConfigPath(host.Name), err)
 	}
-	p := &Portal{Host: host.Name, Customer: host.Customer, Domain: hostOf(cfg.BaseURL)}
+	p := &Portal{Host: host.Name, Customer: host.Customer, Domain: hostOf(cfg.BaseURL), HandKept: cfg.HandKept}
 	for name := range cfg.Installations {
 		p.Installations = append(p.Installations, name)
 	}
@@ -330,7 +336,7 @@ func (r *Report) derivePortals(portals []Portal) []string {
 	var targets []string
 	for _, p := range portals {
 		if slices.Contains(p.Installations, r.Name) {
-			r.Portals = append(r.Portals, PortalRef{Installation: p.Host, Customer: p.Customer, Domain: p.Domain, ClientID: p.ClientID})
+			r.Portals = append(r.Portals, PortalRef{Installation: p.Host, Customer: p.Customer, Domain: p.Domain, ClientID: p.ClientID, HandKept: p.HandKept})
 		}
 		if p.Broker != r.Name {
 			continue
