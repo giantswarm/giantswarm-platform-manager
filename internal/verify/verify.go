@@ -79,8 +79,9 @@ func missingChoice(fields []string) string {
 // capability's removal or migration that names the path — a key the fleet
 // still carries that the definition does not render, or one the definition
 // renders that the record lacks: a planned change, not drift. Rendered and
-// Current are the values on each side — Redacted for a file SOPS encrypted
-// on record.
+// Current are the values on each side — Redacted for a leaf the record
+// holds encrypted (one under SOPS's encrypted_regex of a file SOPS
+// encrypted); every other leaf of such a file shows its values.
 type Difference struct {
 	File     string `json:"file,omitempty"`
 	Object   string `json:"object,omitempty"`
@@ -334,8 +335,8 @@ type fileDiff struct {
 	missing map[string][]string
 }
 
-// Redacted stands for a value of an encrypted file in a difference: the
-// path differs, the values are not shown.
+// Redacted stands for a value the record holds encrypted in a difference:
+// the path differs, the value is not shown.
 const Redacted = "<encrypted>"
 
 // compare builds the plan from the inputs — the render, read against the
@@ -431,11 +432,17 @@ func rendered(p plan.Installation) []plan.File {
 // are off the file on record (current), each attributed to the input that
 // drives it. A value the commit fills in or the record holds encrypted is
 // never one, nor is a leaf that carries a choice not on record (a Missing
-// marker: not checked); of an encrypted file the paths are the difference
-// and the values are redacted, SOPS's own block taking no part.
+// marker: not checked). Of an encrypted file SOPS's own block takes no part,
+// and a leaf SOPS encrypts (one under its encrypted_regex) is the difference
+// with the values redacted; every other leaf of it — type, the metadata,
+// apiVersion, kind — shows its values like a plain file's.
 func differences(key string, want map[string]string, current string, driven map[string]string) []Difference {
 	got := flattenYAML(current)
 	encrypted := plan.Encrypted(current)
+	var secret func(string) bool
+	if encrypted {
+		secret = encryptedLeaves(got)
+	}
 	var out []Difference
 	for _, p := range diffPaths(want, got) {
 		w, okw := want[p]
@@ -444,7 +451,7 @@ func differences(key string, want map[string]string, current string, driven map[
 			continue
 		}
 		d := Difference{File: key, Path: p, Rendered: w, Current: g, Input: driven[key+"#"+p], absent: !okg}
-		if encrypted {
+		if encrypted && secret(p) {
 			d.Rendered, d.Current = redacted(okw), redacted(okg)
 		}
 		out = append(out, d)
@@ -488,6 +495,26 @@ func missingLeaves(want map[string]string) map[string][]string {
 // underSOPS says whether a leaf is of SOPS's block in an encrypted file.
 func underSOPS(path string) bool {
 	return path == plan.SOPSKey || strings.HasPrefix(path, plan.SOPSKey+".")
+}
+
+// encryptedRegexKey is the leaf of SOPS's block that holds the regex of
+// the keys it encrypts, as the repository's .sops.yaml set it.
+const encryptedRegexKey = plan.SOPSKey + ".encrypted_regex"
+
+// encryptedLeaves says, for the flattened record of an encrypted file, which
+// leaves SOPS holds encrypted: those with a key on their path the block's
+// encrypted_regex matches — ^(data|stringData)$ in the fleet, a Secret's
+// values, whether or not the record has the leaf yet. A block without the
+// regex encrypts every value: every leaf is redacted.
+func encryptedLeaves(got map[string]string) func(path string) bool {
+	pattern, ok := got[encryptedRegexKey]
+	re, err := regexp.Compile(pattern)
+	if !ok || err != nil {
+		return func(string) bool { return true }
+	}
+	return func(path string) bool {
+		return slices.ContainsFunc(segments(path), re.MatchString)
+	}
 }
 
 // redacted is a difference's value of an encrypted file: redacted when the
