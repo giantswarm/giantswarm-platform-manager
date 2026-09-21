@@ -156,3 +156,23 @@ func TestEveryReadBackNamesADeclaredFile(t *testing.T) {
 		})
 	}
 }
+
+// TestInputSummary reads what the schema says an input is, the way a
+// refusal quotes it: the first clause of the description, lowered, when
+// short; nothing for a long one or a field the schema does not know.
+func TestInputSummary(t *testing.T) {
+	const customerPortal = "customer-portal"
+	for _, tc := range []struct{ capability, field, want string }{
+		{customerPortal, "plugins.grafana.domain", "the Grafana instance the plugin links to"},
+		{customerPortal, "portal.domain", "the portal's hostname"},
+		{customerPortal, "chart.line", "the semver range the portal's OCIRepository follows"},
+		{customerPortal, "portal.supportUrl", "where the home page's support link goes"},
+		{customerPortal, "federation.tokenBroker", ""},
+		{customerPortal, "portal.nothing", ""},
+		{"nothing", "portal.domain", ""},
+	} {
+		if got := definitions.InputSummary(tc.capability, tc.field); got != tc.want {
+			t.Errorf("%s %s: %q, want %q", tc.capability, tc.field, got, tc.want)
+		}
+	}
+}

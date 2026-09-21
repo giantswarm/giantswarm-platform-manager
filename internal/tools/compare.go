@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/giantswarm/giantswarm-platform-manager/definitions"
+
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
@@ -42,7 +44,7 @@ func (t *Tools) compare(ctx context.Context, env *planned, r installations.Repor
 	case res.Refused != "":
 		res.CommitRefused = fmt.Sprintf("the definition refuses these inputs for %s (refused says why); nothing is committed", r.Name)
 	case len(res.Inputs.Missing) > 0:
-		res.CommitRefused = fmt.Sprintf("%s: %s — type them (%s); nothing is committed", r.Name, missingInputs(res.Inputs.Missing), ArgInputs)
+		res.CommitRefused = missingChoices(def.Name, res.Inputs.Missing)
 	case r.OptIn != nil && r.OptIn.State != installations.OptedIn:
 		res.CommitRefused = fmt.Sprintf("%s is %s: %s", r.Name, r.OptIn.State, r.OptIn.HowToOptIn)
 	case dexApp != "":
@@ -57,6 +59,20 @@ func (t *Tools) compare(ctx context.Context, env *planned, r installations.Repor
 // missingInputs names the choices not on record for a refusal.
 func missingInputs(fields []string) string {
 	return fmt.Sprintf("%d choice(s) not on record: %s", len(fields), strings.Join(fields, ", "))
+}
+
+// missingChoices is the comparison's word on the choices not on record, one
+// sentence a person reads under a button: every field, with what the
+// definition's schema says it is when that is short.
+func missingChoices(capability string, fields []string) string {
+	parts := make([]string, len(fields))
+	for i, f := range fields {
+		parts[i] = f
+		if what := definitions.InputSummary(capability, f); what != "" {
+			parts[i] += " (" + what + ")"
+		}
+	}
+	return "Choose " + strings.Join(parts, "; ") + " before a commit."
 }
 
 // dryRun is the result regrouped as the dry run's entry.

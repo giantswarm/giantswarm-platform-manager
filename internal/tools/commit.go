@@ -137,7 +137,7 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 		return nil, fmt.Errorf("%s: the definition refuses these inputs for %s: %s", tool, one, p.Refused)
 	}
 	if len(p.MissingInputs) > 0 {
-		return nil, fmt.Errorf("%s: %s: %s — type them (%s); nothing is committed", tool, one, missingInputs(p.MissingInputs), ArgInputs)
+		return nil, fmt.Errorf("%s: %s: %s; nothing is committed", tool, one, missingInputs(p.MissingInputs))
 	}
 	spec.Change = changeSummary(p)
 	if n := p.Diff[plan.ChangeUnknown]; n > 0 {

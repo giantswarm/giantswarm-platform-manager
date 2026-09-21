@@ -799,7 +799,8 @@ func TestVerifyCapabilityTakesAMissingChoiceAsNotChecked(t *testing.T) {
 	if res.Refused != "" || res.Inputs.ReadBack["plugins.grafana.enabled"] != true || !slices.Equal(res.Inputs.Missing, []string{grafanaDomain}) {
 		t.Fatalf("refused %q read back %v missing %v", res.Refused, res.Inputs.ReadBack, res.Inputs.Missing)
 	}
-	if res.Summary[verify.Drifted] != 0 || res.Summary[verify.DiffersByInput] != 0 || res.State != installations.StateEnabled || !strings.Contains(res.CommitRefused, grafanaDomain) {
+	wantRefused := "Choose " + grafanaDomain + " (the Grafana instance the plugin links to) before a commit."
+	if res.Summary[verify.Drifted] != 0 || res.Summary[verify.DiffersByInput] != 0 || res.State != installations.StateEnabled || res.CommitRefused != wantRefused {
 		t.Fatalf("summary %v state %q commit refused %q", res.Summary, res.State, res.CommitRefused)
 	}
 	want := verify.ReasonMissingChoice + ": " + grafanaDomain
@@ -824,10 +825,10 @@ func TestVerifyCapabilityTakesAMissingChoiceAsNotChecked(t *testing.T) {
 	if isErr {
 		t.Fatal(text)
 	}
-	if p = findPlan(t, out, rowan); p.Refused != "" || !slices.Equal(p.MissingInputs, []string{grafanaDomain}) || !strings.Contains(p.CommitRefused, grafanaDomain) {
+	if p = findPlan(t, out, rowan); p.Refused != "" || !slices.Equal(p.MissingInputs, []string{grafanaDomain}) || p.CommitRefused != wantRefused {
 		t.Fatalf("dry run: refused %q missing %v commit refused %q", p.Refused, p.MissingInputs, p.CommitRefused)
 	}
-	if _, text, isErr := commitCall(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.CustomerPortal}); !isErr || !strings.Contains(text, grafanaDomain) {
+	if _, text, isErr := commitCall(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.CustomerPortal}); !isErr || !strings.Contains(text, grafanaDomain) || strings.Contains(text, "type them") {
 		t.Fatalf("a commit without the choice: %v %s", isErr, text)
 	}
 	if got := listActionsOf(t, c, rowan); len(got) != 0 {
