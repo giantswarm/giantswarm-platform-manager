@@ -13,7 +13,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"net/http"
 	"regexp"
@@ -21,8 +20,6 @@ import (
 	"sort"
 	"strings"
 	"unicode"
-
-	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
@@ -81,15 +78,20 @@ func missingChoice(fields []string) string {
 // renders that the record lacks: a planned change, not drift. Rendered and
 // Current are the values on each side — Redacted for a leaf the record
 // holds encrypted (one under SOPS's encrypted_regex of a file SOPS
-// encrypted); every other leaf of such a file shows its values.
+// encrypted); every other leaf of such a file shows its values. Line and
+// CurrentLine are where the leaf sits in the file's Content and Current as
+// the result shows them (1-based; a mapping entry's key line, a sequence
+// entry's "- " line), 0 on a side that lacks it.
 type Difference struct {
-	File     string `json:"file,omitempty"`
-	Object   string `json:"object,omitempty"`
-	Path     string `json:"path,omitempty"`
-	Input    string `json:"input,omitempty"`
-	Planned  string `json:"planned,omitempty"`
-	Rendered string `json:"rendered,omitempty"`
-	Current  string `json:"current,omitempty"`
+	File        string `json:"file,omitempty"`
+	Object      string `json:"object,omitempty"`
+	Path        string `json:"path,omitempty"`
+	Input       string `json:"input,omitempty"`
+	Planned     string `json:"planned,omitempty"`
+	Rendered    string `json:"rendered,omitempty"`
+	Current     string `json:"current,omitempty"`
+	Line        int    `json:"line,omitempty"`
+	CurrentLine int    `json:"currentLine,omitempty"`
 	// absent says the record has no leaf at the path (the file is created,
 	// or the leaf is new): what a migration adds.
 	absent bool
@@ -193,15 +195,15 @@ type Result struct {
 	Probes           []plan.Probe           `json:"probes"`
 }
 
-// view takes the plan's view into the result; the files' content only when
-// asked for.
+// view takes the plan's view into the result; the files' content, rendered
+// and on record, only when asked for.
 func (r *Result) view(p plan.Installation, content bool) {
 	r.Files, r.Includes, r.Diff = p.Files, p.Includes, p.Diff
 	r.GeneratedSecrets, r.SuppliedSecrets, r.DexClients, r.CustomerActions, r.Probes = p.GeneratedSecrets, p.SuppliedSecrets, p.DexClients, p.CustomerActions, p.Probes
 	if !content {
 		r.Files = make([]plan.File, len(p.Files))
 		for i, f := range p.Files {
-			f.Content = ""
+			f.Content, f.Current = "", ""
 			r.Files[i] = f
 		}
 	}
@@ -367,7 +369,7 @@ func compare(ctx context.Context, opts Options, rms, migs plannedKeys) (*compari
 		case plan.ChangeUnknown:
 			fd.unreadable = f.Error
 		case plan.ChangeCreate, plan.ChangeUpdate:
-			fd.diffs = differences(key, base[key], rs.got[key].content, driven)
+			fd.diffs = differences(key, f.Content, rs.got[key].content, driven)
 			for i := range fd.diffs {
 				fd.diffs[i].Planned = planned(fd, &fd.diffs[i], rms, migs)
 			}
@@ -375,7 +377,27 @@ func compare(ctx context.Context, opts Options, rms, migs plannedKeys) (*compari
 		fd.missing = missingLeaves(base[key])
 		c.files[key] = fd
 	}
+	shown(p.Files)
 	return c, p, nil
+}
+
+// shown redacts the files of an encrypted record the way their differences
+// are: the record with SOPS's block dropped and the leaves under its
+// encrypted_regex redacted, and the file as the plan writes it the same way
+// where it kept ciphertext (a shared file's entries), so both sides compare
+// line by line. Every other file is shown as it is.
+func shown(files []plan.File) {
+	for i := range files {
+		f := &files[i]
+		if !plan.Encrypted(f.Current) {
+			continue
+		}
+		secret := encryptedLeaves(flattenYAML(f.Current))
+		f.Current = redactLeaves(f.Current, secret)
+		if plan.Ciphertext(f.Content) {
+			f.Content = redactLeaves(f.Content, secret)
+		}
+	}
 }
 
 // planned is the reason a difference is a planned change: the removal that
@@ -428,20 +450,27 @@ func rendered(p plan.Installation) []plan.File {
 	return out
 }
 
-// differences are the leaves of the file as the plan writes it (want) that
-// are off the file on record (current), each attributed to the input that
-// drives it. A value the commit fills in or the record holds encrypted is
-// never one, nor is a leaf that carries a choice not on record (a Missing
-// marker: not checked). Of an encrypted file SOPS's own block takes no part,
-// and a leaf SOPS encrypts (one under its encrypted_regex) is the difference
-// with the values redacted; every other leaf of it — type, the metadata,
-// apiVersion, kind — shows its values like a plain file's.
-func differences(key string, want map[string]string, current string, driven map[string]string) []Difference {
-	got := flattenYAML(current)
+// differences are the leaves of the file as the plan writes it (rendered)
+// that are off the file on record (current), each attributed to the input
+// that drives it and placed on its line of each side. A value the commit
+// fills in or the record holds encrypted is never one, nor is a leaf that
+// carries a choice not on record (a Missing marker: not checked). Of an
+// encrypted file SOPS's own block takes no part, and a leaf SOPS encrypts
+// (one under its encrypted_regex) is the difference with the values
+// redacted; every other leaf of it — type, the metadata, apiVersion, kind —
+// shows its values like a plain file's. The lines of such a file are those
+// of the file as the result shows it, redacted (shown).
+func differences(key string, rendered, current string, driven map[string]string) []Difference {
+	want, wantLines := flattenLines(rendered)
+	got, gotLines := flattenLines(current)
 	encrypted := plan.Encrypted(current)
 	var secret func(string) bool
 	if encrypted {
 		secret = encryptedLeaves(got)
+		_, gotLines = flattenLines(redactLeaves(current, secret))
+		if plan.Ciphertext(rendered) {
+			_, wantLines = flattenLines(redactLeaves(rendered, secret))
+		}
 	}
 	var out []Difference
 	for _, p := range diffPaths(want, got) {
@@ -450,7 +479,7 @@ func differences(key string, want map[string]string, current string, driven map[
 		if okw && okg && plan.Opaque(w, g) || encrypted && underSOPS(p) || okw && len(missingFields(w)) > 0 {
 			continue
 		}
-		d := Difference{File: key, Path: p, Rendered: w, Current: g, Input: driven[key+"#"+p], absent: !okg}
+		d := Difference{File: key, Path: p, Rendered: w, Current: g, Line: wantLines[p], CurrentLine: gotLines[p], Input: driven[key+"#"+p], absent: !okg}
 		if encrypted && secret(p) {
 			d.Rendered, d.Current = redacted(okw), redacted(okg)
 		}
@@ -697,53 +726,21 @@ func diffPaths(want, got map[string]string) []string {
 // where an entry has none or two share one; a file of several documents keys
 // each by its kind/namespace/name. A reordered list or file is so the same
 // leaves, and an entry added is its own. A file that is not YAML is one leaf
-// at the empty path.
+// at the empty path. flattenLines also names each leaf's line.
 func flattenYAML(content string) map[string]string {
-	out := map[string]string{}
-	docs, err := decodeAll(content)
-	if err != nil {
-		return map[string]string{"": content}
-	}
-	if len(docs) == 1 {
-		flatten(docs[0], "", out)
-		return out
-	}
-	for i, k := range keys(docs, "doc") {
-		flatten(docs[i], "["+k+"]", out)
-	}
-	return out
+	values, _ := flattenLines(content)
+	return values
 }
 
-// decodeAll parses every YAML document of content.
-func decodeAll(content string) ([]any, error) {
-	dec := yaml.NewDecoder(strings.NewReader(content))
-	var docs []any
-	for {
-		var v any
-		if err := dec.Decode(&v); err != nil {
-			if errors.Is(err, io.EOF) {
-				return docs, nil
-			}
-			return nil, err
-		}
-		docs = append(docs, v)
-	}
-}
-
+// flatten flattens a decoded value to its leaves under prefix.
 func flatten(v any, prefix string, out map[string]string) {
-	join := func(k string) string {
-		if prefix == "" {
-			return k
-		}
-		return prefix + "." + k
-	}
 	switch t := v.(type) {
 	case map[string]any:
 		if len(t) == 0 {
 			out[prefix] = "{}"
 		}
 		for k, vv := range t {
-			flatten(vv, join(k), out)
+			flatten(vv, joinPath(prefix, k), out)
 		}
 	case []any:
 		if len(t) == 0 {

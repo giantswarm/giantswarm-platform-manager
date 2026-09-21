@@ -50,6 +50,12 @@ type File struct {
 	// as the commit step writes it, with their part kept; omitted when the
 	// caller asked for paths only.
 	Content string `json:"content,omitempty"`
+	// Current is the file as it is on record, read as the caller: the side
+	// Content is against, for a diff of the two. Omitted when the caller
+	// asked for paths only or the record lacks the file. A comparison shows
+	// a file SOPS encrypted with its block dropped and the leaves it
+	// encrypts redacted.
+	Current string `json:"current,omitempty"`
 	// Generated names the values the commit step generates into this file.
 	Generated []string `json:"generated,omitempty"`
 	// Kept is the part of the installation's current file that is not the
@@ -320,6 +326,9 @@ func Build(ctx context.Context, opts Options) Installation {
 			}
 			if opts.Content {
 				pf.Content = content
+				if err == nil {
+					pf.Current = current
+				}
 			}
 			pf.Change, pf.Error = change(current, err, content)
 			p.Diff[pf.Change]++
@@ -437,7 +446,7 @@ func (p *Installation) kustomization(ctx context.Context, opts Options, reposito
 		return f
 	}
 	if opts.Content {
-		f.Content = string(content)
+		f.Content, f.Current = string(content), current
 	}
 	return f
 }
