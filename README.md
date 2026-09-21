@@ -223,14 +223,20 @@ Per installation the manager then reads, as the caller:
   into it, whether a portal reaches it through the tunnel: `private`), are the definitions'
   `installation.*` inputs: read, never typed;
 - the **enabled marker** of each capability: for `agent-platform`,
-  `installations/<name>/apps/agent-platform/configmap-values.yaml.patch`.
+  `installations/<name>/apps/agent-platform/configmap-values.yaml.patch` in its configs repository;
+  for `customer-portal`, the portal's `management-clusters/<name>/extras/backstage/backstage/app-config.yaml`
+  in its management-clusters repository.
 
-The state per capability is *not opted in* (no declaration, or `optIn: false`), *not enabled* (opted
-in, marker absent) or *enabled* (opted in, marker present). *Pending approval*, *rolling out*,
-*waiting for the customer*, *drifted* and *failed* come from the Action record and the last verify
-once those exist; the answer's `states` block separates the two groups. A *removed* action lets the
-files' state stand: *not enabled*, with `lastAction.result: removed`. An installation whose
-repositories the caller cannot read is *unknown* and listed under `unreadable`, with the reason.
+Per capability the answer carries two facts — `enabled`: the marker is on record, whoever put it
+there; `optedIn`: the owners have declared the opt-in, the manager may write — and their state as one
+word: *not opted in* (neither), *enabled, not opted in* (marker present, no declaration or `optIn:
+false`: the owners enabled the capability themselves, before the manager existed or beside it, and
+the manager may not write to it until they opt in), *not enabled* (opted in, marker absent) or
+*enabled* (opted in, marker present). *Pending approval*, *rolling out*, *waiting for the customer*,
+*drifted* and *failed* come from the Action record and the last verify once those exist; the answer's
+`states` block separates the two groups. A *removed* action lets the files' state stand: *not
+enabled*, with `lastAction.result: removed`. An installation whose repositories the caller cannot
+read is *unknown* and listed under `unreadable`, with the reason.
 
 ### The opt-in declaration
 
