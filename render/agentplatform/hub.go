@@ -133,7 +133,7 @@ func (in *Input) brokerValues() render.Map {
 		if t.Private {
 			entry = append(entry, e("expectedIssuer", t.issuer()))
 		}
-		entry = append(entry, e("connectorId", in.Connector), e("scopes", brokerScopes),
+		entry = append(entry, e("connectorId", in.connector(t)), e("scopes", brokerScopes),
 			e("clientCredentialsSecretRef", render.Map{e("name", t.credentialsSecret())}))
 		targets = append(targets, e(t.Installation, entry))
 	}
@@ -160,7 +160,7 @@ func (in *Input) identityProviders() render.Map {
 		if t.Private {
 			entry = append(entry, e("expectedIssuer", t.issuer()))
 		}
-		entry = append(entry, e("connectorId", in.Connector), e("scopes", providerScopes),
+		entry = append(entry, e("connectorId", in.connector(t)), e("scopes", providerScopes),
 			e("credentialsSecret", render.Map{e("name", t.credentialsSecret()),
 				e("clientIdKey", "client-id"), e("clientSecretKey", "client-secret")}))
 		providers = append(providers, e(t.Installation, entry))

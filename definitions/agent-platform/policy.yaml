@@ -58,10 +58,17 @@ klausGateway:
       - system:serviceaccount:marge:marge-bumblebee-sweep
       - system:serviceaccount:agent-platform:giantswarm-platform-manager
 
-# The hub side of federation: the connector every target's Dex registers for its hub, as a Go
-# template over the hub's record ({{ .Customer }}), and the Teleport cluster a tunnel joins.
+# The hub side of federation: the connector a target's Dex registers for a hub, as Go templates over
+# the hub's record ({{ .Customer }}, {{ .Name }}), and the Teleport cluster a tunnel joins. A target's
+# Dex registers one connector per hub that brokers into it, and only one of an organisation's hubs can
+# carry the organisation's plain name: the target's first hub of the organisation registers `first`
+# — the registry's hub where it is one, else the first by name; the target's only hub, mostly —,
+# every further hub of the same organisation `further`, named after the hub. Which hubs broker into
+# a target is the record's (installation.federation.targets[*].hubs, from the portals on record).
 federation:
-  connector: "{{ .Customer }}-simple-oidc"
+  connector:
+    first: "{{ .Customer }}-simple-oidc"
+    further: "{{ .Customer }}-{{ .Name }}-oidc"
   teleport:
     clusterName: teleport.giantswarm.io
     proxyAddr: teleport.giantswarm.io:443

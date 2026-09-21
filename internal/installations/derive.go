@@ -70,6 +70,14 @@ type FederatedTarget struct {
 	// the target): a private target with it is also tunnelled to its kagent
 	// and its agentgateway.
 	PlatformProxied bool `json:"platformProxied"`
+	// Hubs are the installations of the hub's organisation whose muster
+	// brokers into the target, the hub among them, in the order the
+	// connectors the target's Dex registers for them are named: the
+	// registry's hub first where it is one, then by name. The target's Dex
+	// registers one connector per hub, and only one of an organisation's can
+	// carry the organisation's plain name — the first's; every further hub's
+	// carries the hub's name (organisationHubs).
+	Hubs []string `json:"hubs"`
 }
 
 // AgentPlatformPatchPath is where the installation's configs repository keeps
@@ -251,7 +259,8 @@ func (r *Registry) Portals(ctx context.Context, c *github.Client, insts []Instal
 // record, and the record's private flag: whether a portal reaches the
 // installation through the tunnel. A target's private flag is the same fact,
 // its platformProxied flag whether a portal this installation brokers for
-// proxies the target's agent platform; a target not among the reports has its
+// proxies the target's agent platform, its hubs the installations of this
+// organisation that broker into it; a target not among the reports has its
 // record read for its base domain. A hub's broker client id is read back from
 // its patch. What cannot be read is
 // an error of the report: the record is then incomplete and the installation
@@ -282,8 +291,9 @@ func (r *Registry) derive(ctx context.Context, c *github.Client, reports []Repor
 		res := &results[i]
 		res.targets, res.found, res.errs = targets, make([]FederatedTarget, len(targets)), make([]error, len(targets))
 		for j, name := range targets {
+			hubs := r.organisationHubs(hubsOf(portals, name), rep.Customer)
 			wg.Go(func() {
-				res.found[j], res.errs[j] = r.target(ctx, c, name, byName[name], tunnelled(portals, name), proxied(portals, rep.Name, name))
+				res.found[j], res.errs[j] = r.target(ctx, c, name, byName[name], tunnelled(portals, name), proxied(portals, rep.Name, name), hubs)
 			})
 		}
 		if len(targets) > 0 {
@@ -316,14 +326,11 @@ func (r *Registry) derive(ctx context.Context, c *github.Client, reports []Repor
 // and answers the names of the installations its own muster brokers for, in
 // the portals' order, each once.
 func (r *Report) derivePortals(portals []Portal) []string {
-	r.Portals, r.Federation = []PortalRef{}, &Federation{Hubs: []string{}, Targets: []FederatedTarget{}}
+	r.Portals, r.Federation = []PortalRef{}, &Federation{Hubs: hubsOf(portals, r.Name), Targets: []FederatedTarget{}}
 	var targets []string
 	for _, p := range portals {
 		if slices.Contains(p.Installations, r.Name) {
 			r.Portals = append(r.Portals, PortalRef{Installation: p.Host, Customer: p.Customer, Domain: p.Domain, ClientID: p.ClientID})
-			if p.Broker != "" && p.Broker != r.Name && !slices.Contains(r.Federation.Hubs, p.Broker) {
-				r.Federation.Hubs = append(r.Federation.Hubs, p.Broker)
-			}
 		}
 		if p.Broker != r.Name {
 			continue
@@ -337,6 +344,48 @@ func (r *Report) derivePortals(portals []Portal) []string {
 	return targets
 }
 
+// hubsOf are the installations whose muster brokers into name: the
+// cluster-token broker of every portal that lists name, other than name
+// itself, in the portals' order, each once. Never nil: a definition reads it
+// as a list.
+func hubsOf(portals []Portal, name string) []string {
+	hubs := []string{}
+	for _, p := range portals {
+		if p.Broker != "" && p.Broker != name && slices.Contains(p.Installations, name) && !slices.Contains(hubs, p.Broker) {
+			hubs = append(hubs, p.Broker)
+		}
+	}
+	return hubs
+}
+
+// organisationHubs are the hubs of customer's among hubs, in the order the
+// connectors a target's Dex registers for them are named: the registry's hub
+// first where it is one, then by name. A target's Dex registers one
+// connector per hub, and of an organisation's hubs only the first carries the
+// organisation's plain name; the order is the registry's, not the portals',
+// so that it does not change with the catalog. A broker is always a registry
+// installation (readPortal resolves it to one).
+func (r *Registry) organisationHubs(hubs []string, customer string) []string {
+	own := []string{}
+	for _, name := range hubs {
+		if inst, ok := r.Find(name); ok && inst.Customer == customer {
+			own = append(own, name)
+		}
+	}
+	slices.SortFunc(own, func(a, b string) int {
+		ia, _ := r.Find(a)
+		ib, _ := r.Find(b)
+		if ia.Hub != ib.Hub {
+			if ia.Hub {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a, b)
+	})
+	return own
+}
+
 // fail records what could not be read; the report is no longer a complete record.
 func (r *Report) fail(msg string) {
 	r.Errors = append(r.Errors, msg)
@@ -345,8 +394,9 @@ func (r *Report) fail(msg string) {
 
 // target is a federated target's facts: the registry's base domain (the
 // record's, read where the target was not inspected), whether it is reached
-// through the tunnel and whether the hub's portal proxies its agent platform.
-func (r *Registry) target(ctx context.Context, c *github.Client, name string, inspected *Report, private, proxied bool) (FederatedTarget, error) {
+// through the tunnel, whether the hub's portal proxies its agent platform and
+// the hubs of the hub's organisation that broker into it (organisationHubs).
+func (r *Registry) target(ctx context.Context, c *github.Client, name string, inspected *Report, private, proxied bool, hubs []string) (FederatedTarget, error) {
 	inst, ok := r.Find(name)
 	if !ok {
 		return FederatedTarget{}, errors.New("not in the registry")
@@ -367,7 +417,7 @@ func (r *Registry) target(ctx context.Context, c *github.Client, name string, in
 			return FederatedTarget{}, err
 		}
 	}
-	return FederatedTarget{Installation: name, BaseDomain: rec.BaseDomain, Private: private, PlatformProxied: proxied}, nil
+	return FederatedTarget{Installation: name, BaseDomain: rec.BaseDomain, Private: private, PlatformProxied: proxied, Hubs: hubs}, nil
 }
 
 // proxied says whether a portal that hub brokers for proxies name's agent

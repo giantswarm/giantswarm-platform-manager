@@ -32,9 +32,11 @@ input:
           baseDomain: burrow.example.io
           private: true
           platformProxied: true
+          hubs: [gopher]
         - installation: marmot
           baseDomain: marmot.example.io
           private: false
+          hubs: [gopher]
   modelServing:
     enabled: true
 secrets: {}

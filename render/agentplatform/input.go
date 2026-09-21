@@ -80,10 +80,26 @@ type Input struct {
 	// Gateway is the chat gateway's shape for this installation, where the
 	// policy runs it: the fleet's, with the installation's own default agent.
 	Gateway GatewayPolicy
-	// Connector is the connector every target's Dex registers for this hub.
-	Connector string
+	// Connectors are the names of the connector a target's Dex registers
+	// for this hub, rendered from the policy's templates over the record;
+	// which one a target carries is connector's.
+	Connectors Connectors
 	// Teleport is the Teleport cluster a tunnel joins.
 	Teleport Teleport
+}
+
+// Connectors are policy.yaml's federation.connector: the names of the
+// connector a target's Dex registers for a hub, as Go templates over the
+// hub's record. A target's Dex registers one connector per hub that brokers
+// into it, and only one of an organisation's hubs can carry the
+// organisation's plain name.
+type Connectors struct {
+	// First is the connector of the target's first hub of the organisation
+	// — the target's only hub, mostly.
+	First string `yaml:"first"`
+	// Further is the connector of every further hub of the same
+	// organisation, named after the hub.
+	Further string `yaml:"further"`
 }
 
 // Installation is the record; see the schema for each field.
@@ -138,6 +154,11 @@ type Target struct {
 	// platform: a private one is then also tunnelled to its kagent and its
 	// agentgateway.
 	PlatformProxied bool `json:"platformProxied"`
+	// Hubs are the hubs of this hub's organisation that broker into the
+	// target, this hub among them, in the registry's order: the first
+	// carries the organisation's plain connector on the target's Dex, every
+	// further hub its own (connector). Empty: this hub alone brokers into it.
+	Hubs []string `json:"hubs"`
 }
 
 // groups are the federated MCP server groups of every target: the target's
@@ -215,8 +236,8 @@ type policy struct {
 	} `yaml:"components"`
 	KlausGateway GatewayPolicy `yaml:"klausGateway"`
 	Federation   struct {
-		Connector string   `yaml:"connector"`
-		Teleport  Teleport `yaml:"teleport"`
+		Connector Connectors `yaml:"connector"`
+		Teleport  Teleport   `yaml:"teleport"`
 	} `yaml:"federation"`
 }
 
@@ -267,15 +288,33 @@ func (p *policy) gateway(inst Installation) GatewayPolicy {
 	return g
 }
 
-// connector renders the hub connector's name from the record.
-func (p *policy) connector(inst Installation) (string, error) {
-	tpl, err := template.New("connector").Option("missingkey=error").Parse(p.Federation.Connector)
+// connectors renders the hub's connector names from the record.
+func (p *policy) connectors(inst Installation) (Connectors, error) {
+	first, err := renderPolicyTemplate("federation.connector.first", p.Federation.Connector.First, inst)
 	if err != nil {
-		return "", fmt.Errorf("%w: federation.connector: %w", ErrPolicy, err)
+		return Connectors{}, err
+	}
+	further, err := renderPolicyTemplate("federation.connector.further", p.Federation.Connector.Further, inst)
+	if err != nil {
+		return Connectors{}, err
+	}
+	return Connectors{First: first, Further: further}, nil
+}
+
+// renderPolicyTemplate renders one of the policy's Go templates over the
+// record; a template that does not parse, names a field the record lacks or
+// renders empty is ErrPolicy naming the key.
+func renderPolicyTemplate(key, text string, inst Installation) (string, error) {
+	tpl, err := template.New(key).Option("missingkey=error").Parse(text)
+	if err != nil {
+		return "", fmt.Errorf("%w: %s: %w", ErrPolicy, key, err)
 	}
 	var b strings.Builder
 	if err := tpl.Execute(&b, inst); err != nil {
-		return "", fmt.Errorf("%w: federation.connector: %w", ErrPolicy, err)
+		return "", fmt.Errorf("%w: %s: %w", ErrPolicy, key, err)
+	}
+	if b.Len() == 0 {
+		return "", fmt.Errorf("%w: %s: renders empty", ErrPolicy, key)
 	}
 	return b.String(), nil
 }
@@ -341,7 +380,7 @@ func Parse(raw any) (*Input, error) {
 	if in.Components, err = pol.components(in.Installation); err != nil {
 		return nil, err
 	}
-	if in.Connector, err = pol.connector(in.Installation); err != nil {
+	if in.Connectors, err = pol.connectors(in.Installation); err != nil {
 		return nil, err
 	}
 	if err := in.checkRecord(); err != nil {
@@ -358,6 +397,11 @@ func (in *Input) checkRecord() error {
 	}
 	if in.hasPrivateTarget() && in.serviceAccountIssuer() == "" {
 		return fmt.Errorf("%w: installation.federation.targets: a private target's tunnel joins Teleport by this hub's published service-account issuer, and a %s installation publishes none the definition knows", ErrInput, in.Installation.Provider)
+	}
+	for i, t := range fed.Targets {
+		if len(t.Hubs) > 0 && !slices.Contains(t.Hubs, in.Installation.Name) {
+			return fmt.Errorf("%w: installation.federation.targets[%d].hubs: the hubs of this organisation that broker into %s are %s, and %s is not among them", ErrInput, i, t.Installation, strings.Join(t.Hubs, ", "), in.Installation.Name)
+		}
 	}
 	if in.ModelServing && in.Installation.ChartLine != lineFour {
 		return fmt.Errorf("%w: modelServing.enabled: the serving slice is the 4 chart line's; this installation runs the %s line", ErrInput, in.Installation.ChartLine)
@@ -377,6 +421,19 @@ func (in *Input) checkRecord() error {
 // apiResource and apiGroup split a probe's resource.group.
 func apiResource(resource string) string { r, _, _ := strings.Cut(resource, "."); return r }
 func apiGroup(resource string) string    { _, g, _ := strings.Cut(resource, "."); return g }
+
+// connector is the connector t's Dex registers for this hub. A target's Dex
+// registers one connector per hub that brokers into it, and only one of an
+// organisation's hubs carries the organisation's plain name: the target's
+// first hub of the organisation (t.Hubs, in the registry's order), which a
+// target this hub alone brokers into names none of. Every further hub of the
+// same organisation carries its own name.
+func (in *Input) connector(t Target) string {
+	if len(t.Hubs) == 0 || t.Hubs[0] == in.Installation.Name {
+		return in.Connectors.First
+	}
+	return in.Connectors.Further
+}
 
 // hasPrivateTarget says whether any federated target is reached through the tunnel.
 func (in *Input) hasPrivateTarget() bool {
