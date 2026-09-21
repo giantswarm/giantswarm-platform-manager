@@ -1,0 +1,144 @@
+package verify
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
+)
+
+// Every leaf of a file sits on a line: a mapping entry's key line, a
+// sequence entry's "- " line, the first line of a multi-line scalar, the
+// line of the key that holds an empty mapping or sequence; the values are
+// flattenYAML's.
+func TestFlattenLinesPlacesEveryLeaf(t *testing.T) {
+	content := strings.Join([]string{
+		"apiVersion: v1",  // 1
+		"kind: ConfigMap", // 2
+		"metadata:",       // 3
+		"  name: c",       // 4
+		"  labels: {}",    // 5
+		"data:",           // 6
+		"  script: |",     // 7
+		"    line one",    // 8
+		"    line two",    // 9
+		"  list:",         // 10
+		"  - a",           // 11
+		"  - b",           // 12
+		"  objects:",      // 13
+		"  - name: x",     // 14
+		"    port: 1",     // 15
+		"  - name: y",     // 16
+		"    port: 2",     // 17
+		"  empty: []",     // 18
+		"  patches:",      // 19
+		"  - path: p",     // 20
+		"  - path: q",     // 21
+		"  multi: 'one",   // 22
+		"    two'",        // 23
+		"  after: 1",      // 24
+		"",
+	}, "\n")
+	values, lines := flattenLines(content)
+	want := map[string]int{
+		"apiVersion": 1, "kind": 2, "metadata.name": 4, "metadata.labels": 5,
+		"data.script": 7, "data.list[a]": 11, "data.list[b]": 12,
+		"data.objects[x].name": 14, "data.objects[x].port": 15, "data.objects[y].name": 16, "data.objects[y].port": 17,
+		"data.empty": 18, "data.patches[0].path": 20, "data.patches[1].path": 21, "data.multi": 22, "data.after": 24,
+	}
+	for path, line := range want {
+		if lines[path] != line {
+			t.Errorf("%s on line %d, want %d", path, lines[path], line)
+		}
+	}
+	if len(lines) != len(want) || len(values) != len(want) {
+		t.Errorf("%d lines, %d values, want %d: %v", len(lines), len(values), len(want), lines)
+	}
+	if values["data.script"] != "line one\nline two\n" || values["metadata.labels"] != "{}" || values["data.empty"] != "[]" || values["data.multi"] != "one two" || values["data.objects[y].port"] != "2" {
+		t.Errorf("values: %v", values)
+	}
+	_, lines = flattenLines("kind: A\nmetadata:\n  name: a\n---\nkind: B\nmetadata:\n  name: b\n")
+	if lines["[A//a].kind"] != 1 || lines["[B//b].metadata.name"] != 7 {
+		t.Errorf("several documents: %v", lines)
+	}
+	if values, lines := flattenLines("not: [yaml"); values[""] != "not: [yaml" || lines[""] != 1 {
+		t.Errorf("not YAML: %v %v", values, lines)
+	}
+}
+
+// encryptedRecord is a Secret as SOPS puts it on record: the leaves under
+// encrypted_regex ciphertext, everything else plaintext, SOPS's block last,
+// indented its way.
+const encryptedRecord = `apiVersion: v1
+kind: Secret
+metadata:
+    name: s
+    namespace: ns
+type: Opaque
+# kept comment
+stringData:
+    token: ENC[AES256_GCM,data:x,iv:y,tag:z,type:str]
+    extra: ENC[AES256_GCM,data:e,iv:y,tag:z,type:str]
+data:
+    blob: ENC[AES256_GCM,data:b,iv:y,tag:z,type:str]
+sops:
+    kms: []
+    age:
+        - recipient: age1abc
+          enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWJj
+            -----END AGE ENCRYPTED FILE-----
+    lastmodified: "2026-09-21T10:00:00Z"
+    mac: ENC[AES256_GCM,data:m,iv:y,tag:z,type:str]
+    encrypted_regex: ^(data|stringData)$
+    version: 3.9.0
+`
+
+// An encrypted record is shown with SOPS's block dropped and the leaves
+// under its encrypted_regex redacted; every other line — keys, metadata,
+// type, a comment, the indentation — stays as it is on record, and no
+// ciphertext is left. Without the regex every value is redacted.
+func TestRedactLeavesKeepsTheStructure(t *testing.T) {
+	got := redactLeaves(encryptedRecord, encryptedLeaves(flattenYAML(encryptedRecord)))
+	want := "apiVersion: v1\nkind: Secret\nmetadata:\n    name: s\n    namespace: ns\ntype: Opaque\n# kept comment\nstringData:\n    token: <encrypted>\n    extra: <encrypted>\ndata:\n    blob: <encrypted>\n"
+	if got != want {
+		t.Errorf("redacted:\n%s\nwant:\n%s", got, want)
+	}
+	if plan.Ciphertext(got) || strings.Contains(got, "sops") {
+		t.Errorf("ciphertext or SOPS's block left:\n%s", got)
+	}
+	values, lines := flattenLines(got)
+	if values["stringData.token"] != Redacted || values["type"] != "Opaque" || lines["data.blob"] != 12 || len(values) != 8 {
+		t.Errorf("the redacted file's leaves: %v %v", values, lines)
+	}
+	all := redactLeaves("a: 1\nb:\n  c: x # note\n  d: |\n    two\n    lines\ne:\n- 2\n", func(string) bool { return true })
+	if all != "a: <encrypted>\nb:\n  c: <encrypted>\n  d: <encrypted>\ne:\n- <encrypted>\n" {
+		t.Errorf("every value: %q", all)
+	}
+	if got := redactLeaves("not: [yaml", func(string) bool { return true }); got != "not: [yaml" {
+		t.Errorf("not YAML: %q", got)
+	}
+}
+
+// The files of an encrypted record are shown redacted, the file as the plan
+// writes it too where it kept ciphertext; a plain file and a file the record
+// lacks are shown as they are.
+func TestShownRedactsTheEncryptedFiles(t *testing.T) {
+	rendered := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\n  namespace: ns\ntype: Opaque\nstringData:\n  token: GENERATED(token)\n  extra: ENC[AES256_GCM,data:e,iv:y,tag:z,type:str]\n"
+	files := []plan.File{
+		{Path: "secret.yaml", Content: rendered, Current: encryptedRecord},
+		{Path: "plain.yaml", Content: "a: 2\n", Current: "a: 1\n"},
+		{Path: "new.yaml", Content: "a: ENC[x]\n"},
+	}
+	shown(files)
+	if strings.Contains(files[0].Current, "sops") || plan.Ciphertext(files[0].Current) || !strings.Contains(files[0].Current, "type: Opaque") {
+		t.Errorf("the record:\n%s", files[0].Current)
+	}
+	if files[0].Content != "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\n  namespace: ns\ntype: Opaque\nstringData:\n  token: <encrypted>\n  extra: <encrypted>\n" {
+		t.Errorf("the plan's file with kept ciphertext:\n%s", files[0].Content)
+	}
+	if files[1].Content != "a: 2\n" || files[1].Current != "a: 1\n" || files[2].Content != "a: ENC[x]\n" || files[2].Current != "" {
+		t.Errorf("a plain file and a new one stay: %+v", files[1:])
+	}
+}

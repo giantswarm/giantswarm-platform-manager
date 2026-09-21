@@ -76,6 +76,12 @@ func Encrypted(current string) bool {
 	return err == nil && encrypted(docs)
 }
 
+// Ciphertext reports whether text carries a value SOPS encrypted — a file
+// on record, or a shared file the plan edits that kept one.
+func Ciphertext(text string) bool {
+	return strings.Contains(text, encPrefix)
+}
+
 // Opaque reports whether a scalar of the render against one of the record
 // takes no part in a comparison: the commit fills the render's in, or the
 // record holds it encrypted — the manager decrypts nothing, and the value on

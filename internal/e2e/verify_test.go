@@ -38,10 +38,17 @@ func verifyRowan(t *testing.T, c *client.Client, name string) verify.Result {
 // verifyWith is verify_capability of name with the person's typed inputs.
 func verifyWith(t *testing.T, c *client.Client, name string, inputs map[string]any) verify.Result {
 	t.Helper()
-	args := map[string]any{tools.ArgInstallation: name}
+	args := map[string]any{}
 	if inputs != nil {
 		args[tools.ArgInputs] = inputs
 	}
+	return verifyArgs(t, c, name, args)
+}
+
+// verifyArgs is verify_capability of name with the tool's other arguments.
+func verifyArgs(t *testing.T, c *client.Client, name string, args map[string]any) verify.Result {
+	t.Helper()
+	args[tools.ArgInstallation] = name
 	text, isErr := call(t, c, tools.ToolVerifyCapability, args)
 	if isErr {
 		t.Fatalf("verify_capability %s: %s", name, text)
@@ -147,8 +154,8 @@ func TestVerifyCapabilityAsDefined(t *testing.T) {
 	if len(res.Files) == 0 || res.Diff[plan.ChangeUnchanged] != len(res.Files) || len(res.PullRequests) != 0 || res.CommitRefused != "" || res.OptIn == nil || res.OptIn.State != installations.OptedIn || len(res.Probes) == 0 {
 		t.Errorf("plan view: %d files, diff %v, %d pull requests, commit refused %q, opt-in %+v, %d probes", len(res.Files), res.Diff, len(res.PullRequests), res.CommitRefused, res.OptIn, len(res.Probes))
 	}
-	if res.Files[0].Content != "" {
-		t.Errorf("content without asking: %q", res.Files[0].Content)
+	if res.Files[0].Content != "" || res.Files[0].Current != "" {
+		t.Errorf("content without asking: %q on record %q", res.Files[0].Content, res.Files[0].Current)
 	}
 	text, isErr := call(t, c, tools.ToolVerifyCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgContent: true})
 	if isErr || !strings.Contains(text, `"content": "`) {
@@ -538,20 +545,34 @@ func TestVerifyCapabilityKeepsTheEncryptedFilesOnRecord(t *testing.T) {
 }
 
 // An encrypted file whose plaintext skeleton is off the render drifts at the
-// paths that differ, the values redacted: no value of it is shown.
+// paths that differ, the values redacted: no value of it is shown. The
+// difference sits on its line of the record, and the record, asked for with
+// the content, is shown redacted the same way: SOPS's block dropped, no
+// ciphertext left.
 func TestVerifyCapabilityRedactsAnEncryptedFile(t *testing.T) {
 	st := newStack(t)
 	c := enabledOnRecord(t, st)
 	repo, path, content := onRecord(t, st, "/secrets/kagent-oauth2-proxy-credentials.yaml")
 	st.ghs.addFiles(repo, map[string]string{path: content + "handEdited: true\n"})
 
-	res := verifyRowan(t, c, rowan)
+	res := verifyArgs(t, c, rowan, map[string]any{tools.ArgContent: true})
 	d := dimension(t, feature(t, res, "secrets"), "oauth2-proxy-credentials-secret")
 	if d.Mark != verify.Drifted || res.Summary[verify.Drifted] != 1 || len(d.Differences) != 1 {
 		t.Fatalf("oauth2-proxy-credentials-secret: %+v summary %v", d, res.Summary)
 	}
-	if diff := d.Differences[0]; diff.File != repo+":"+path || diff.Path != "handEdited" || diff.Rendered != "" || diff.Current != verify.Redacted || diff.Input != "" {
+	if diff := d.Differences[0]; diff.File != repo+":"+path || diff.Path != "handEdited" || diff.Rendered != "" || diff.Current != verify.Redacted || diff.Input != "" || diff.Line != 0 || diff.CurrentLine == 0 {
 		t.Errorf("the difference: %+v", diff)
+	}
+	i := slices.IndexFunc(res.Files, func(f plan.File) bool { return f.Repository == repo && f.Path == path })
+	if i < 0 {
+		t.Fatalf("%s:%s is not among the files", repo, path)
+	}
+	shown := res.Files[i]
+	if shown.Content == "" || shown.Current == "" || strings.Contains(shown.Current, "ENC[") || strings.Contains(shown.Current, "sops:") || !strings.Contains(shown.Current, "handEdited: ") {
+		t.Errorf("the record as shown:\n%s", shown.Current)
+	}
+	if lines := strings.Split(shown.Current, "\n"); !strings.HasPrefix(lines[d.Differences[0].CurrentLine-1], "handEdited: ") {
+		t.Errorf("the difference's line %d of the record as shown is %q", d.Differences[0].CurrentLine, lines[d.Differences[0].CurrentLine-1])
 	}
 }
 

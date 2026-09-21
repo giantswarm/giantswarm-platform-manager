@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `verify_capability {content: true}` and the dry runs answer, per file, the file on record next to the file as the plan writes it, and place every difference on its line of each side, so a reader draws one diff per file with each difference annotated where it sits. `files[].current` is the record as the caller reads it, omitted for a file the record lacks or when the content was not asked for; of a file SOPS encrypted it is shown with SOPS's block dropped and the leaves under its `encrypted_regex` reading `<encrypted>` in place of the ciphertext, every other line as it is on record — and `files[].content` the same way where the plan kept ciphertext of a shared file, so both sides compare. `differences[].line` and `differences[].currentLine` are the 1-based lines of the leaf in `content` and `current` as shown (a mapping entry's key line, a sequence entry's `- ` line), omitted on a side that lacks the leaf. Nothing else in the answer changes.
 - `list_installations {summary: true}`: the states and the last actions alone, without the record, the inputs on record, the portals and the federation facts — a third of the reads, for a fleet overview such as the Dev Portal's Installations page. The answer says `summary: true`; the default answer is unchanged.
 
 ### Changed

@@ -19,17 +19,17 @@ import (
 // choice where nothing else in it is off; drift beside it still shows.
 func TestMissingChoiceIsNotCheckedNeverADifference(t *testing.T) {
 	const field = "plugins.grafana.domain"
-	want := flattenYAML("a: 1\ngrafana:\n  domain: " + render.Missing(field) + "\n")
-	if got := differences("r:p", want, "a: 1\n", nil); len(got) != 0 {
+	rendered := "a: 1\ngrafana:\n  domain: " + render.Missing(field) + "\n"
+	if got := differences("r:p", rendered, "a: 1\n", nil); len(got) != 0 {
 		t.Errorf("the record without the leaf: %+v", got)
 	}
-	if got := differences("r:p", want, "a: 1\ngrafana:\n  domain: https://g\n", nil); len(got) != 0 {
+	if got := differences("r:p", rendered, "a: 1\ngrafana:\n  domain: https://g\n", nil); len(got) != 0 {
 		t.Errorf("the record with another value: %+v", got)
 	}
-	if got := differences("r:p", want, "a: 2\n", nil); len(got) != 1 || got[0].Path != "a" {
+	if got := differences("r:p", rendered, "a: 2\n", nil); len(got) != 1 || got[0].Path != "a" {
 		t.Errorf("drift beside the leaf: %+v", got)
 	}
-	if got := missingLeaves(want); !reflect.DeepEqual(got, map[string][]string{"grafana.domain": {field}}) {
+	if got := missingLeaves(flattenYAML(rendered)); !reflect.DeepEqual(got, map[string][]string{"grafana.domain": {field}}) {
 		t.Errorf("missing leaves %v", got)
 	}
 	if got := missingFields("x " + render.Missing("b") + " " + render.Missing("a") + " " + render.Missing("a")); !reflect.DeepEqual(got, []string{"a", "b"}) {
@@ -322,22 +322,22 @@ func TestFlattenKeysDocumentsByObject(t *testing.T) {
 // takes no part, the leaves under its encrypted_regex are redacted and every
 // other leaf shows its values — every leaf when the block has no regex.
 func TestDifferencesFollowTheSkeleton(t *testing.T) {
-	want := flattenYAML("apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\nstringData:\n  token: GENERATED(token)\n  extra: plain\n")
+	rendered := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\nstringData:\n  token: GENERATED(token)\n  extra: plain\n"
 	current := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\nstringData:\n  token: ENC[AES256_GCM,data:x,type:str]\n  extra: ENC[AES256_GCM,data:y,type:str]\nhandEdited: true\nsops:\n  version: 3.9.0\n  age: []\n"
-	got := differences("r:p", want, current, map[string]string{"r:p#handEdited": "x.y"})
-	if len(got) != 1 || got[0].Path != "handEdited" || got[0].Rendered != "" || got[0].Current != Redacted || got[0].Input != "x.y" {
+	got := differences("r:p", rendered, current, map[string]string{"r:p#handEdited": "x.y"})
+	if len(got) != 1 || got[0].Path != "handEdited" || got[0].Rendered != "" || got[0].Current != Redacted || got[0].Input != "x.y" || got[0].Line != 0 || got[0].CurrentLine != 8 {
 		t.Errorf("encrypted: %+v", got)
 	}
-	regexWant := flattenYAML("apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\n  namespace: ns\ntype: Opaque\nstringData:\n  token: GENERATED(token)\n  VALKEY_PASSWORD: GENERATED(valkey)\n")
+	regexRendered := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\n  namespace: ns\ntype: Opaque\nstringData:\n  token: GENERATED(token)\n  VALKEY_PASSWORD: GENERATED(valkey)\n"
 	regexCurrent := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\ntype: kubernetes.io/tls\nstringData:\n  token: ENC[AES256_GCM,data:x,type:str]\nsops:\n  encrypted_regex: ^(data|stringData)$\n  version: 3.9.0\n  age: []\n"
-	got = differences("r:p", regexWant, regexCurrent, nil)
-	shown := func(i int, path, rendered, current string) bool {
-		return got[i].Path == path && got[i].Rendered == rendered && got[i].Current == current
+	got = differences("r:p", regexRendered, regexCurrent, nil)
+	shown := func(i int, path, rendered, current string, line, currentLine int) bool {
+		return got[i].Path == path && got[i].Rendered == rendered && got[i].Current == current && got[i].Line == line && got[i].CurrentLine == currentLine
 	}
-	if len(got) != 3 || !shown(0, "metadata.namespace", "ns", "") || !shown(1, "stringData.VALKEY_PASSWORD", Redacted, "") || !shown(2, "type", "Opaque", "kubernetes.io/tls") {
-		t.Errorf("under encrypted_regex redacted, every other leaf shown: %+v", got)
+	if len(got) != 3 || !shown(0, "metadata.namespace", "ns", "", 5, 0) || !shown(1, "stringData.VALKEY_PASSWORD", Redacted, "", 9, 0) || !shown(2, "type", "Opaque", "kubernetes.io/tls", 6, 5) {
+		t.Errorf("under encrypted_regex redacted, every other leaf shown, each on its lines: %+v", got)
 	}
-	got = differences("r:p", flattenYAML("a: 1\n"), current, nil)
+	got = differences("r:p", "a: 1\n", current, nil)
 	if len(got) != 7 {
 		t.Errorf("an encrypted file whose skeleton differs: %+v", got)
 	}
@@ -347,11 +347,11 @@ func TestDifferencesFollowTheSkeleton(t *testing.T) {
 		}
 	}
 	plain := "a: 1\nb: SUPPLIED(b)\nc: 3\n"
-	got = differences("r:p", flattenYAML(plain), "a: 1\nb: secret\nc: 4\n", nil)
-	if len(got) != 1 || got[0].Path != "c" || got[0].Rendered != "3" || got[0].Current != "4" {
+	got = differences("r:p", plain, "a: 1\nb: secret\nc: 4\n", nil)
+	if len(got) != 1 || got[0].Path != "c" || got[0].Rendered != "3" || got[0].Current != "4" || got[0].Line != 3 || got[0].CurrentLine != 3 {
 		t.Errorf("plain: %+v", got)
 	}
-	if got := differences("r:p", flattenYAML(plain), "", nil); len(got) != 3 || got[1].Rendered != "SUPPLIED(b)" {
+	if got := differences("r:p", plain, "", nil); len(got) != 3 || got[1].Rendered != "SUPPLIED(b)" || got[1].Line != 2 || got[1].CurrentLine != 0 {
 		t.Errorf("created: %+v", got)
 	}
 }
