@@ -58,11 +58,18 @@ func listEntry(current []byte, list, entry string) ([]byte, bool, error) {
 }
 
 // mapping parses data as one YAML document whose root is a mapping and
-// answers the document and that mapping; anything else is errNoMapping.
+// answers the document and that mapping; anything else is errNoMapping. An
+// empty file — nothing, blank lines or comments alone, the shape an
+// installation's patch has before anyone writes into it — is an empty
+// mapping: a record that takes every entry.
 func mapping(data []byte) (*yaml.Node, *yaml.Node, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return nil, nil, err
+	}
+	if doc.Kind == 0 || doc.Kind == yaml.DocumentNode && len(doc.Content) == 1 && doc.Content[0].Tag == tagNull {
+		m := &yaml.Node{Kind: yaml.MappingNode, Tag: tagMap}
+		return &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{m}}, m, nil
 	}
 	if doc.Kind != yaml.DocumentNode || len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode {
 		return nil, nil, errNoMapping

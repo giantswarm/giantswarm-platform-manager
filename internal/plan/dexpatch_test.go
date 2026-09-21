@@ -145,3 +145,19 @@ func TestKeepDexPatchRefusesACurrentFileThatIsNoMapping(t *testing.T) {
 		t.Errorf("err = %v, want errNoMapping", err)
 	}
 }
+
+// An empty patch on record — the file an installation has before anyone
+// writes into it, or comments alone — takes the definition's part whole:
+// nothing is kept, and the file is no refusal.
+func TestKeepDexPatchWritesIntoAnEmptyFile(t *testing.T) {
+	const rendered = "oidc:\n  staticClients:\n    muster:\n      clientSecretRef:\n        name: dex-client-muster\n"
+	for _, current := range []string{"", "\n", "# overrides for dex-app\n"} {
+		got, kept, err := keepDexPatch([]byte(rendered), []byte(current))
+		if err != nil {
+			t.Fatalf("%q: %v", current, err)
+		}
+		if string(got) != rendered || kept != nil {
+			t.Errorf("%q: got %q kept %v, want the render and nothing kept", current, got, kept)
+		}
+	}
+}
