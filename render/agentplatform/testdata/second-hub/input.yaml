@@ -1,0 +1,39 @@
+# The organisation's second hub into a target: warren's portal brokers on warren's muster into
+# marmot, which the registry's hub gopher brokers into as well, and into vole, which warren alone
+# brokers into. marmot's Dex registers one connector per hub and only one carries the organisation's
+# plain name, gopher's as the first hub, so warren's exchange at marmot names the hub's own
+# connector; at vole, the only hub's, it names the plain one. warren is itself a target of gopher.
+# Public targets, no tunnel; not the registry's hub, so no GitHub grant target. Invented names,
+# placeholder values.
+input:
+  installation:
+    name: warren
+    baseDomain: warren.example.io
+    customer: giantswarm
+    provider: capa
+    private: false
+    chartLine: "4"
+    musterClientId: 00000000-0000-4000-8000-000000000004
+    podCertificateRequest: true
+    portals:
+      - installation: gopher
+        customer: giantswarm
+        domain: portal.gopher.example.io
+        clientId: backstage
+      - installation: warren
+        customer: giantswarm
+        domain: portal.warren.example.io
+        clientId: backstage
+    federation:
+      hubs: [gopher]
+      brokerClientId: broker-client-id-placeholder
+      targets:
+        - installation: marmot
+          baseDomain: marmot.example.io
+          private: false
+          hubs: [gopher, warren]
+        - installation: vole
+          baseDomain: vole.example.io
+          private: false
+          hubs: [warren]
+secrets: {}

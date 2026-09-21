@@ -28,10 +28,11 @@ const (
 	shapeGiantswarmSlackAppPub  = "giantswarm-slack-app-public"
 	shapeHubPrivateTarget       = "hub-private-target"
 	shapeMultiClusterAggregator = "multi-cluster-aggregator"
+	shapeSecondHub              = "second-hub"
 )
 
 // shapes are the installation shapes, in the order the goldens are rendered.
-var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned, shapeGiantswarmSlackApp, shapeGiantswarmSlackAppPub, shapeHubPrivateTarget, shapeMultiClusterAggregator}
+var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned, shapeGiantswarmSlackApp, shapeGiantswarmSlackAppPub, shapeHubPrivateTarget, shapeMultiClusterAggregator, shapeSecondHub}
 
 func loadInput(t *testing.T, shape string) (map[string]any, map[string]string) {
 	t.Helper()

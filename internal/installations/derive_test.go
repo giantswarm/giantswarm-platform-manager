@@ -11,6 +11,7 @@ import (
 // The fixture's names: the fleet's hub, an organisation and its aggregator and sibling.
 const (
 	fixtureHub        = "aspen"
+	fixtureFleet      = "fleet"
 	fixtureCustomer   = "umbra"
 	fixtureAggregator = "linden"
 	fixtureSibling    = "rowanberry"
@@ -22,7 +23,7 @@ const (
 // installation a portal reaches through the tunnel on its host is private.
 func TestDeriveFromPortals(t *testing.T) {
 	reg := &Registry{Installations: []Installation{
-		{Name: fixtureHub, Customer: "fleet", BaseDomain: "aspen.fleet.test", Hub: true},
+		{Name: fixtureHub, Customer: fixtureFleet, BaseDomain: "aspen.fleet.test", Hub: true},
 		{Name: fixtureAggregator, Customer: fixtureCustomer, BaseDomain: "linden.umbra.test", Repositories: Repositories{Configs: "fleet/umbra-configs", ManagementClusters: "fleet/umbra-management-clusters"}},
 		{Name: fixtureSibling, Customer: fixtureCustomer, BaseDomain: "rowanberry.umbra.test", Repositories: Repositories{Configs: "fleet/umbra-configs", ManagementClusters: "fleet/umbra-management-clusters"}},
 	}}
@@ -32,7 +33,7 @@ func TestDeriveFromPortals(t *testing.T) {
 		{Installation: reg.Installations[2], Record: &Record{Name: fixtureSibling, BaseDomain: "rowanberry.umbra.test", Private: true}, Readable: true},
 	}
 	portals := []Portal{
-		{Host: fixtureHub, Customer: "fleet", Domain: "portal.fleet.test", ClientID: fixtureHubClientID, Broker: "", Installations: []string{fixtureHub, fixtureAggregator, fixtureSibling}, Tunnelled: []string{fixtureSibling}},
+		{Host: fixtureHub, Customer: fixtureFleet, Domain: "portal.fleet.test", ClientID: fixtureHubClientID, Broker: "", Installations: []string{fixtureHub, fixtureAggregator, fixtureSibling}, Tunnelled: []string{fixtureSibling}},
 		{Host: fixtureAggregator, Customer: fixtureCustomer, Domain: "portal.linden.umbra.test", ClientID: render.PortalDexClientID, Broker: fixtureAggregator, Installations: []string{fixtureAggregator, fixtureSibling}, PlatformProxied: []string{fixtureAggregator, fixtureSibling}},
 	}
 	_ = reg
@@ -60,6 +61,45 @@ func TestDeriveFromPortals(t *testing.T) {
 	}
 	if !proxied(portals, fixtureAggregator, fixtureSibling) || proxied(portals, fixtureHub, fixtureSibling) || proxied(portals, fixtureAggregator, fixtureHub) {
 		t.Fatalf("proxied: the portal %s brokers for lists %s under its agent-platform section; the hub's portal lists nobody", fixtureAggregator, fixtureSibling)
+	}
+}
+
+// A target's hubs are the brokers of the portals that list it, each once and
+// never nil; of them, the hubs of one organisation are ordered as the
+// connectors the target's Dex registers for them are named: the registry's
+// hub first where it is one, then by name — whatever order the portals came
+// in. Another organisation's hub is not among them.
+func TestOrganisationHubs(t *testing.T) {
+	const secondHub, thirdHub, otherHub = "zelkova", "birch", "linden"
+	reg := &Registry{Installations: []Installation{
+		{Name: secondHub, Customer: fixtureFleet},
+		{Name: fixtureHub, Customer: fixtureFleet, Hub: true},
+		{Name: thirdHub, Customer: fixtureFleet},
+		{Name: otherHub, Customer: fixtureCustomer},
+		{Name: fixtureSibling, Customer: fixtureCustomer},
+	}}
+	portals := []Portal{
+		{Host: secondHub, Broker: secondHub, Installations: []string{secondHub, fixtureSibling}},
+		{Host: otherHub, Broker: otherHub, Installations: []string{otherHub, fixtureSibling}},
+		{Host: fixtureHub, Broker: fixtureHub, Installations: []string{fixtureHub, secondHub, fixtureSibling}},
+		{Host: thirdHub, Broker: thirdHub, Installations: []string{fixtureSibling}},
+		{Host: "mirror", Broker: fixtureHub, Installations: []string{fixtureSibling}},
+	}
+	hubs := hubsOf(portals, fixtureSibling)
+	if !slices.Equal(hubs, []string{secondHub, otherHub, fixtureHub, thirdHub}) {
+		t.Fatalf("the sibling's hubs, in the portals' order, each once: %v", hubs)
+	}
+	if got := hubsOf(portals, secondHub); !slices.Equal(got, []string{fixtureHub}) {
+		t.Fatalf("%s's hubs: %v (its own portal brokers for nobody but its targets)", secondHub, got)
+	}
+	if got := hubsOf(portals, otherHub); got == nil || len(got) != 0 {
+		t.Fatalf("an installation nobody brokers into has an empty list, never nil: %#v", got)
+	}
+	if got := reg.organisationHubs(hubs, fixtureFleet); !slices.Equal(got, []string{fixtureHub, thirdHub, secondHub}) {
+		t.Fatalf("the fleet's hubs, the registry's hub first, then by name: %v", got)
+	}
+	if got := reg.organisationHubs(hubs, fixtureCustomer); !slices.Equal(got, []string{otherHub}) {
+		t.Fatalf("%s's hubs: %v", fixtureCustomer, got)
 	}
 }
 

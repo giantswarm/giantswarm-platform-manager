@@ -1,0 +1,21 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-platform-app-config-backstage
+  namespace: backstage
+data:
+  app-config.agent-platform.yaml: |
+    app:
+      extensions:
+        $include: shared-config.yaml#extensionsAgentPlatform
+    agentPlatform:
+      kagent:
+        installations:
+          warren: {}
+    muster:
+      installations:
+        - name: warren
+          url: https://muster.warren.example.io/mcp
+          authProvider: oidc-warren

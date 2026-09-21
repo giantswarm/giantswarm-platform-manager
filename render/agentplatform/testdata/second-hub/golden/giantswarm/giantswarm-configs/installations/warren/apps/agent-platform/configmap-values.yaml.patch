@@ -1,0 +1,190 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+global:
+  domain: warren.example.io
+components:
+  kagent:
+    enabled: true
+  agent-manager:
+    enabled: true
+  cluster-manager:
+    enabled: true
+postgres:
+  enabled: true
+llmRouting:
+  enabled: true
+kagent:
+  providers:
+    anthropic:
+      apiKeySecretRef: kagent-anthropic-key
+      config:
+        baseUrl: http://agentgateway.agent-platform.svc:8081
+  oauth2-proxy:
+    config:
+      existingSecret: kagent-oauth2-proxy-credentials
+    extraArgs:
+      oidc-extra-audience: dex-k8s-authenticator,kagent,backstage # gitleaks:allow
+muster:
+  muster:
+    oauth:
+      server:
+        existingSecret: muster-oauth-credentials
+        storage:
+          valkey:
+            existingSecret: muster-valkey-credentials
+        trustedAudiences:
+          - dex-k8s-authenticator
+          - kagent
+          - backstage
+        tokenExchangeBroker:
+          brokerClients:
+            broker-client-id-placeholder:
+              clientCredentialsSecretRef:
+                name: muster-broker-clients
+          clientAudiences:
+            broker-client-id-placeholder:
+              - marmot
+              - vole
+          targets:
+            marmot:
+              dexTokenEndpoint: https://dex.marmot.example.io/token
+              connectorId: giantswarm-warren-oidc
+              scopes: openid profile email groups audience:server:client_id:dex-k8s-authenticator
+              clientCredentialsSecretRef:
+                name: marmot-token-exchange-credentials
+            vole:
+              dexTokenEndpoint: https://dex.vole.example.io/token
+              connectorId: giantswarm-simple-oidc
+              scopes: openid profile email groups audience:server:client_id:dex-k8s-authenticator
+              clientCredentialsSecretRef:
+                name: vole-token-exchange-credentials
+gateway:
+  jwksEgress:
+    enabled: true
+extraObjects:
+  - apiVersion: gateway.networking.k8s.io/v1beta1
+    kind: ReferenceGrant
+    metadata:
+      name: agentgateway-jwks-dex
+      namespace: giantswarm
+    spec:
+      from:
+        - group: agentgateway.dev
+          kind: AgentgatewayPolicy
+          namespace: agent-platform
+      to:
+        - group: ""
+          kind: Service
+          name: dex
+agent-platform-mcps:
+  identityProviders:
+    marmot:
+      tokenEndpoint: https://dex.marmot.example.io/token
+      connectorId: giantswarm-warren-oidc
+      scopes: openid profile email groups
+      credentialsSecret:
+        name: marmot-token-exchange-credentials
+        clientIdKey: client-id
+        clientSecretKey: client-secret
+    vole:
+      tokenEndpoint: https://dex.vole.example.io/token
+      connectorId: giantswarm-simple-oidc
+      scopes: openid profile email groups
+      credentialsSecret:
+        name: vole-token-exchange-credentials
+        clientIdKey: client-id
+        clientSecretKey: client-secret
+  mcpServers:
+    - cluster: warren
+      group: kubernetes
+      url: http://mcp-kubernetes.mcp-kubernetes.svc:8080/mcp
+      timeout: 30
+      auth:
+        mode: forward
+    - cluster: warren
+      group: prometheus
+      url: http://mcp-prometheus.mcp-prometheus.svc:8080/mcp
+      timeout: 30
+      auth:
+        mode: forward
+    - cluster: warren
+      group: capi
+      url: http://mcp-capi.mcp-capi.svc:8080/mcp
+      timeout: 30
+      auth:
+        mode: forward
+    - cluster: marmot
+      group: kubernetes
+      url: https://mcp-kubernetes.marmot.example.io/mcp
+      timeout: 30
+      auth:
+        mode: exchange
+        provider: marmot
+    - cluster: marmot
+      group: prometheus
+      url: https://mcp-prometheus.marmot.example.io/mcp
+      timeout: 30
+      auth:
+        mode: exchange
+        provider: marmot
+    - cluster: marmot
+      group: capi
+      url: https://mcp-capi.marmot.example.io/mcp
+      timeout: 30
+      auth:
+        mode: exchange
+        provider: marmot
+    - cluster: vole
+      group: kubernetes
+      url: https://mcp-kubernetes.vole.example.io/mcp
+      timeout: 30
+      auth:
+        mode: exchange
+        provider: vole
+    - cluster: vole
+      group: prometheus
+      url: https://mcp-prometheus.vole.example.io/mcp
+      timeout: 30
+      auth:
+        mode: exchange
+        provider: vole
+    - cluster: vole
+      group: capi
+      url: https://mcp-capi.vole.example.io/mcp
+      timeout: 30
+      auth:
+        mode: exchange
+        provider: vole
+  agentgateway:
+    jwt:
+      extraProviders:
+        - issuer: https://dex.warren.example.io
+          audiences:
+            - backstage
+          jwks:
+            remote:
+              backendRef:
+                name: dex
+                namespace: giantswarm
+                port: 5556
+              jwksPath: /keys
+              cacheDuration: 5m
+cluster-manager:
+  installation:
+    name: warren
+clusterManager:
+  networkPolicy:
+    workloadClusters:
+      fqdns:
+        - matchPattern: '*.*.elb.amazonaws.com'
+    egress:
+      fqdns:
+        - matchName: gsoci.azurecr.io
+        - matchPattern: '*.blob.core.windows.net'
+valkey:
+  valkey:
+    auth:
+      usersExistingSecret: muster-valkey-credentials
+      aclUsers:
+        default:
+          passwordKey: valkey-password

@@ -1,7 +1,7 @@
 # A customer with several installations and one aggregator: the organisation's portal brokers on
 # "heron", so heron exchanges tokens into its public siblings and lists their MCP servers, no
-# tunnel. The connector every sibling's Dex registers is the policy's, from the organisation's
-# name. Invented names, placeholder values.
+# tunnel. heron is the organisation's only hub into its siblings, so the connector every sibling's
+# Dex registers for it is the organisation's plain name. Invented names, placeholder values.
 input:
   installation:
     name: heron
@@ -23,7 +23,9 @@ input:
         - installation: kestrel
           baseDomain: kestrel.oakridge.example
           private: false
+          hubs: [heron]
         - installation: plover
           baseDomain: plover.oakridge.example
           private: false
+          hubs: [heron]
 secrets: {}

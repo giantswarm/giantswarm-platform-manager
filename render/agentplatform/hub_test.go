@@ -76,3 +76,60 @@ func TestPrivatePlatformTargetTunnels(t *testing.T) {
 		t.Errorf("a private target the portal does not proxy: %+v", got)
 	}
 }
+
+// A target's Dex registers one connector per hub that brokers into it, and
+// only one of an organisation's hubs carries the organisation's plain name:
+// the target's first hub (the registry's, where it is one) names
+// <customer>-simple-oidc in its broker and identity provider, every further
+// hub of the organisation its own <customer>-<hub>-oidc; a target this hub
+// alone brokers into — its hubs naming this hub only, or none — names the
+// plain one. A target whose hubs do not name this hub is refused.
+func TestConnectorPerHubAndTarget(t *testing.T) {
+	patch := func(shape, repo, name string) string {
+		input, secrets := loadInput(t, shape)
+		result, err := Render(input, secrets, render.ModeCommit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(result.Tree()["giantswarm/"+repo+"-configs/installations/"+name+"/apps/agent-platform/configmap-values.yaml.patch"])
+	}
+	second := patch(shapeSecondHub, "giantswarm", "warren")
+	for _, want := range []string{
+		"            marmot:\n              dexTokenEndpoint: https://dex.marmot.example.io/token\n              connectorId: giantswarm-warren-oidc\n",
+		"            vole:\n              dexTokenEndpoint: https://dex.vole.example.io/token\n              connectorId: giantswarm-simple-oidc\n",
+		"    marmot:\n      tokenEndpoint: https://dex.marmot.example.io/token\n      connectorId: giantswarm-warren-oidc\n",
+		"    vole:\n      tokenEndpoint: https://dex.vole.example.io/token\n      connectorId: giantswarm-simple-oidc\n",
+	} {
+		if !strings.Contains(second, want) {
+			t.Errorf("the second hub's patch lacks %q:\n%s", want, second)
+		}
+	}
+	if first := patch(shapeHubPrivateTarget, "giantswarm", "gopher"); strings.Count(first, "connectorId: giantswarm-simple-oidc\n") != 4 || strings.Contains(first, "gopher-oidc") {
+		t.Errorf("the first hub names the plain connector for both targets, twice each:\n%s", first)
+	}
+	// The aggregator's record with a target's hubs edited: none names this hub alone.
+	aggregator := func(hubs any) map[string]any {
+		input, _ := loadInput(t, shapeMultiClusterAggregator)
+		target := input["installation"].(map[string]any)["federation"].(map[string]any)["targets"].([]any)[0].(map[string]any)
+		if hubs == nil {
+			delete(target, "hubs")
+		} else {
+			target["hubs"] = hubs
+		}
+		return input
+	}
+	in, err := Parse(aggregator(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := in.connector(in.Installation.Federation.Targets[0]); got != "oakridge-simple-oidc" {
+		t.Errorf("a target naming no hubs: %s", got)
+	}
+	if in.Connectors.Further != "oakridge-heron-oidc" {
+		t.Errorf("the further hub's connector: %s", in.Connectors.Further)
+	}
+	_, err = Parse(aggregator([]any{"plover"}))
+	if err == nil || !strings.Contains(err.Error(), "targets[0].hubs") || !strings.Contains(err.Error(), "heron is not among them") {
+		t.Errorf("a target whose hubs do not name this hub: %v", err)
+	}
+}
