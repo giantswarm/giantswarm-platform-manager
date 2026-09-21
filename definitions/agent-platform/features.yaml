@@ -88,7 +88,6 @@ features:
       - {id: portal-extensions, kind: backstage, key: app.extensions}
       - {id: portal-base-url, kind: backstage, key: app.baseUrl}
       - {id: portal-muster-installations, kind: backstage, key: muster.installations}
-      - {id: portal-flux-service-account, kind: backstage, key: agentPlatform.fluxServiceAccountName}
       - {id: portal-skills-repositories, kind: backstage, key: agentPlatform.skills.repositories}
       - {id: portal-kagent-installations, kind: backstage, key: agentPlatform.kagent.installations}
       - {id: portal-edge-jwt-provider, kind: configmap, key: gateway.jwksEgress / the ReferenceGrant in extraObjects / agent-platform-mcps.agentgateway.jwt.extraProviders (the chat's ID token at the edge on the 4 line)}
