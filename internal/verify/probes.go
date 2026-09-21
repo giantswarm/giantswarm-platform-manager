@@ -12,6 +12,7 @@ import (
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // ProbeResult is what an anonymous probe answered, request by request.
@@ -37,9 +38,36 @@ const (
 	ReasonUnreachable  = "unreachable from the manager"
 )
 
-// probeData fills a probe's URL template.
-type probeData struct {
-	BaseDomain, ClientID, RedirectURI string
+// ProbeData is what a probe's URL template is executed over: the
+// installation's base domain and codename; the portal's domain, the
+// customer-portal inputs' portal.domain (its Missing marker while the choice
+// is not on record, so a probe that names it is not checked for the choice,
+// never a template error; unnamed by the agent-platform's probes); and, for
+// a perDexClient probe, the id and first redirect URI of the client the
+// request is for, query-escaped. A template over a field no verify fills is
+// the definitions' test's to catch.
+type ProbeData struct {
+	BaseDomain, Installation, PortalDomain, ClientID, RedirectURI string
+}
+
+// fieldPortalDomain is the field of the customer-portal inputs that fills
+// ProbeData's PortalDomain.
+const fieldPortalDomain = "portal.domain"
+
+// probeData is what every probe of one verify is executed over: the
+// installation's codename and base domain, and the portal's domain of the
+// inputs on record.
+func probeData(installation, baseDomain string, values map[string]any) ProbeData {
+	return ProbeData{BaseDomain: baseDomain, Installation: installation, PortalDomain: choice(values, fieldPortalDomain)}
+}
+
+// choice is the string at the dotted field of the inputs on record, or the
+// field's Missing marker when no layer holds one.
+func choice(values map[string]any, field string) string {
+	if s := inputString(values, strings.Split(field, ".")...); s != "" {
+		return s
+	}
+	return render.Missing(field)
 }
 
 // probe runs one anonymous probe and answers it as a dimension of kind probe:
@@ -47,28 +75,31 @@ type probeData struct {
 // any answered another, not checked with ReasonUnreachable when one got no
 // answer and none answered another status (an unexpected status is drift
 // whatever the other requests did; an unreachable target is no comparison),
-// not checked when it had no request to make.
+// not checked when it had no request to make, or when its template names a
+// choice not on record (the reason names the field).
 //
-// baseDomain is the installation's; clients are the Dex clients the render
+// base is the data of every probe; clients are the Dex clients the render
 // declares, nil when nothing was rendered (no inputs on record).
-func probe(ctx context.Context, client *http.Client, baseDomain string, clients []plan.DexClient, rendered bool, p definitions.Probe) Dimension {
+func probe(ctx context.Context, client *http.Client, base ProbeData, clients []plan.DexClient, rendered bool, p definitions.Probe) Dimension {
 	d := Dimension{ID: p.ID, Kind: definitions.KindProbe, Key: p.Key, Mark: NotChecked, Probe: &ProbeResult{Expect: p.Expect, Requests: []Request{}}}
 	tmpl, err := template.New(p.ID).Parse(p.URL)
 	if err != nil {
 		d.Reason = err.Error()
 		return d
 	}
-	var data []probeData
+	var data []ProbeData
 	switch {
 	case !p.PerDexClient:
-		data = []probeData{{BaseDomain: baseDomain}}
+		data = []ProbeData{base}
 	case !rendered:
 		d.Reason = ReasonNoRender
 		return d
 	default:
 		for _, cl := range clients {
 			if len(cl.RedirectURIs) > 0 {
-				data = append(data, probeData{BaseDomain: baseDomain, ClientID: url.QueryEscape(cl.ID), RedirectURI: url.QueryEscape(cl.RedirectURIs[0])})
+				pd := base
+				pd.ClientID, pd.RedirectURI = url.QueryEscape(cl.ID), url.QueryEscape(cl.RedirectURIs[0])
+				data = append(data, pd)
 			}
 		}
 		if len(data) == 0 {
@@ -84,6 +115,10 @@ func probe(ctx context.Context, client *http.Client, baseDomain string, clients 
 		var buf bytes.Buffer
 		if err := tmpl.Execute(&buf, pd); err != nil {
 			d.Reason, d.Mark = err.Error(), NotChecked
+			return d
+		}
+		if fields := missingFields(buf.String()); len(fields) > 0 {
+			d.Reason, d.Mark = missingChoice(fields), NotChecked
 			return d
 		}
 		r := send(ctx, client, buf.String(), p.Expect)

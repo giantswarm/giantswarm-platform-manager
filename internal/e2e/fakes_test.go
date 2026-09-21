@@ -319,6 +319,10 @@ func expectedAnswer(host string, r *http.Request) (int, string, string) {
 		return http.StatusFound, "https://dex." + strings.TrimPrefix(host, "kagent.") + "/auth?client_id=kagent&response_type=code", ""
 	case strings.HasPrefix(host, "kagent."):
 		return http.StatusFound, "", ""
+	case strings.HasPrefix(host, "portal.") && r.URL.Path == "/":
+		return http.StatusOK, "", ""
+	case strings.HasPrefix(host, "portal.") && strings.HasPrefix(r.URL.Path, "/api/auth/oidc-") && strings.HasSuffix(r.URL.Path, "/start"):
+		return http.StatusFound, "https://dex." + strings.TrimPrefix(host, "portal.") + "/auth?client_id=dev-portal&response_type=code", ""
 	case r.URL.Path == "/.well-known/oauth-protected-resource":
 		return http.StatusOK, "", `{"resource":"https://` + host + `/mcp","authorization_servers":["https://` + host + `"]}`
 	}

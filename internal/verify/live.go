@@ -181,7 +181,7 @@ func CompareLive(ctx context.Context, opts LiveOptions) Result {
 				if lv != nil {
 					clients = lv.dexClients
 				}
-				dim = probe(ctx, opts.Probes, inputString(opts.Inputs.Values, "installation", "baseDomain"), clients, lv != nil, p)
+				dim = probe(ctx, opts.Probes, probeData(opts.Installation, inputString(opts.Inputs.Values, "installation", "baseDomain"), opts.Inputs.Values), clients, lv != nil, p)
 				if dim.Mark == Drifted {
 					drifted++
 				}

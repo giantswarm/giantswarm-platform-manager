@@ -34,12 +34,82 @@ func answering(status map[string]int) *http.Client {
 var (
 	gate = definitions.Probe{ID: "oauth2-proxy-gate", Feature: "identity", Key: "the gate refuses an anonymous request", URL: "https://kagent.{{.BaseDomain}}/", Expect: []int{302, 403}}
 	dex  = definitions.Probe{ID: "dex-auth-request", Feature: "identity", Key: "Dex accepts every client's auth request", URL: "https://dex.{{.BaseDomain}}/auth?client_id={{.ClientID}}&redirect_uri={{.RedirectURI}}", PerDexClient: true, Expect: []int{302}}
+	base = ProbeData{BaseDomain: "example.test", Installation: "x", PortalDomain: "portal.example.test"}
 )
+
+// The customer portal's probes render their URLs from the portal's domain
+// and the installation's codename: each one, answered what it expects at
+// that host, reads as defined.
+func TestProbePortalURLsRenderFromThePortalDomain(t *testing.T) {
+	probes, err := definitions.Probes(installations.CustomerPortal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var overPortal int
+	for _, p := range probes {
+		if !strings.Contains(p.URL, ".PortalDomain") {
+			continue
+		}
+		overPortal++
+		d := probe(context.Background(), answering(map[string]int{base.PortalDomain: p.Expect[0]}), base, nil, false, p)
+		if d.Mark != AsDefined || len(d.Probe.Requests) != 1 || !strings.HasPrefix(d.Probe.Requests[0].URL, "https://"+base.PortalDomain+"/") {
+			t.Errorf("%s: mark %q, reason %q, requests %+v", p.ID, d.Mark, d.Reason, d.Probe.Requests)
+		}
+		if strings.Contains(p.URL, ".Installation") && !strings.Contains(d.Probe.Requests[0].URL, "oidc-"+base.Installation+"/") {
+			t.Errorf("%s: the codename is not in %q", p.ID, d.Probe.Requests[0].URL)
+		}
+	}
+	if overPortal < 2 {
+		t.Fatalf("%d probe(s) over the portal's domain", overPortal)
+	}
+}
+
+// Without a portal.domain on record, a probe over it is not checked for the
+// choice, as a file dimension whose leaf carries it is, and sends nothing:
+// never a template error. The probes over the installation's domain still run.
+func TestCompareWithoutThePortalDomainIsNotChecked(t *testing.T) {
+	keys := strings.Split(fieldPortalDomain, ".")
+	if got := choice(map[string]any{keys[0]: map[string]any{keys[1]: base.PortalDomain}}, fieldPortalDomain); got != base.PortalDomain {
+		t.Fatalf("choice on record: %q", got)
+	}
+	r := Compare(context.Background(), Options{
+		Definition:   installations.Capability{Name: installations.CustomerPortal},
+		Installation: installations.Installation{Name: "x", BaseDomain: "x.example.test"},
+		State:        installations.StateNotEnabled,
+		Probes:       answering(nil),
+	})
+	if r.Refused != "" {
+		t.Fatal(r.Refused)
+	}
+	want := missingChoice([]string{fieldPortalDomain})
+	var forTheChoice, others int
+	for _, f := range r.Features {
+		for _, d := range f.Dimensions {
+			if d.Kind != definitions.KindProbe {
+				continue
+			}
+			switch {
+			case d.Reason == want:
+				forTheChoice++
+				if d.Mark != NotChecked || len(d.Probe.Requests) != 0 {
+					t.Errorf("%s: mark %q, requests %+v", d.ID, d.Mark, d.Probe.Requests)
+				}
+			case strings.Contains(d.Reason, "can't evaluate field"):
+				t.Errorf("%s: a template error: %q", d.ID, d.Reason)
+			default:
+				others++
+			}
+		}
+	}
+	if forTheChoice < 2 || others == 0 {
+		t.Fatalf("%d probe(s) not checked for the choice, %d other(s)", forTheChoice, others)
+	}
+}
 
 // A target the manager gets no answer from is no comparison: the dimension
 // reads not checked, unreachable from the manager, with the transport's error.
 func TestProbeUnreachableIsNotChecked(t *testing.T) {
-	d := probe(context.Background(), answering(nil), "example.test", nil, false, gate)
+	d := probe(context.Background(), answering(nil), base, nil, false, gate)
 	if d.Mark != NotChecked || !strings.HasPrefix(d.Reason, ReasonUnreachable+": ") || !strings.Contains(d.Reason, "i/o timeout") {
 		t.Fatalf("mark %q, reason %q", d.Mark, d.Reason)
 	}
@@ -50,7 +120,7 @@ func TestProbeUnreachableIsNotChecked(t *testing.T) {
 
 // An answer outside the expectation is drift, with the status on the request and no reason.
 func TestProbeUnexpectedStatusIsDrifted(t *testing.T) {
-	d := probe(context.Background(), answering(map[string]int{"kagent.example.test": http.StatusInternalServerError}), "example.test", nil, false, gate)
+	d := probe(context.Background(), answering(map[string]int{"kagent.example.test": http.StatusInternalServerError}), base, nil, false, gate)
 	if d.Mark != Drifted || d.Reason != "" || len(d.Probe.Requests) != 1 || d.Probe.Requests[0].Status != http.StatusInternalServerError || d.Probe.Requests[0].OK {
 		t.Fatalf("mark %q, reason %q, requests %+v", d.Mark, d.Reason, d.Probe.Requests)
 	}
@@ -73,7 +143,7 @@ func TestProbePerClientPrecedence(t *testing.T) {
 		{"expected then unreachable", map[string]int{"a": 302}, NotChecked},
 		{"unreachable then expected", map[string]int{"b": 302}, NotChecked},
 	} {
-		d := probe(context.Background(), answering(tc.status), "example.test", clients, true, dex)
+		d := probe(context.Background(), answering(tc.status), base, clients, true, dex)
 		if d.Mark != tc.want || len(d.Probe.Requests) != 2 {
 			t.Errorf("%s: mark %q, requests %+v", tc.name, d.Mark, d.Probe.Requests)
 			continue

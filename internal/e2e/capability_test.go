@@ -199,8 +199,12 @@ func TestCapabilityToolsTakeTheCustomerPortal(t *testing.T) {
 		t.Fatalf("decode: %v\n%s", err, text)
 	}
 	want := []string{"chart.line", "plugins.flux.enabled", "plugins.github.enabled", "plugins.grafana.enabled", "plugins.sentry.enabled", "portal.domain", "portal.organization"}
-	if !slices.Equal(res.Inputs.Missing, want) || !strings.Contains(res.CommitRefused, "portal.domain") {
+	if !slices.Equal(res.Inputs.Missing, want) || !strings.HasPrefix(res.CommitRefused, "Choose chart.line (") || !strings.Contains(res.CommitRefused, "; portal.domain (the portal's hostname); ") || !strings.HasSuffix(res.CommitRefused, " before a commit.") {
 		t.Fatalf("missing %v, commit refused %q", res.Inputs.Missing, res.CommitRefused)
+	}
+	// A probe over the portal's domain is not checked for the choice, no request sent.
+	if d := dimension(t, feature(t, res, "portal"), "portal-root"); d.Mark != verify.NotChecked || d.Reason != verify.ReasonMissingChoice+": portal.domain" || len(d.Probe.Requests) != 0 {
+		t.Errorf("portal-root without the portal's domain: %+v", d)
 	}
 }
 

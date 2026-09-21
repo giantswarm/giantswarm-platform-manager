@@ -1,12 +1,49 @@
 package definitions_test
 
 import (
+	"bytes"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
+	"text/template"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 )
+
+// TestEveryProbeTemplateExecutes executes every probe's URL template of
+// every definition over a ProbeData with every field set: a template over a
+// field the verify does not fill fails here, not as a template error on the
+// first verify of an installation.
+func TestEveryProbeTemplateExecutes(t *testing.T) {
+	var full verify.ProbeData
+	v := reflect.ValueOf(&full).Elem()
+	for i := 0; i < v.NumField(); i++ {
+		v.Field(i).SetString(v.Type().Field(i).Name)
+	}
+	caps, err := definitions.Capabilities()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range caps {
+		probes, err := definitions.Probes(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range probes {
+			tmpl, err := template.New(p.ID).Parse(p.URL)
+			if err != nil {
+				t.Errorf("%s: probe %s: %v", c, p.ID, err)
+				continue
+			}
+			var buf bytes.Buffer
+			if err := tmpl.Execute(&buf, full); err != nil {
+				t.Errorf("%s: probe %s: %v", c, p.ID, err)
+			}
+		}
+	}
+}
 
 // TestEveryDefinitionParses holds every capability's data files to their
 // shape: features.yaml, probes.yaml, removals.yaml and migrations.yaml of
@@ -117,5 +154,25 @@ func TestEveryReadBackNamesADeclaredFile(t *testing.T) {
 			}
 			walk(schema, "")
 		})
+	}
+}
+
+// TestInputSummary reads what the schema says an input is, the way a
+// refusal quotes it: the first clause of the description, lowered, when
+// short; nothing for a long one or a field the schema does not know.
+func TestInputSummary(t *testing.T) {
+	const customerPortal = "customer-portal"
+	for _, tc := range []struct{ capability, field, want string }{
+		{customerPortal, "plugins.grafana.domain", "the Grafana instance the plugin links to"},
+		{customerPortal, "portal.domain", "the portal's hostname"},
+		{customerPortal, "chart.line", "the semver range the portal's OCIRepository follows"},
+		{customerPortal, "portal.supportUrl", "where the home page's support link goes"},
+		{customerPortal, "federation.tokenBroker", ""},
+		{customerPortal, "portal.nothing", ""},
+		{"nothing", "portal.domain", ""},
+	} {
+		if got := definitions.InputSummary(tc.capability, tc.field); got != tc.want {
+			t.Errorf("%s %s: %q, want %q", tc.capability, tc.field, got, tc.want)
+		}
 	}
 }
