@@ -1,6 +1,7 @@
 # Keys found in a portal installation's extras/backstage fileset that no input of schema.json renders.
 # Each is dropped from the fileset by the renderer, for the reason given. Key paths use the file prefixes and
-# the normalisation of schema.json's x-renders ([*] for a list index, <name> for a per-installation map key).
+# the normalisation of schema.json's x-renders ([*] for a list index, <name> for a per-installation map key; a
+# reason may reference <name> and is filled with the key that matched).
 #
 # The reason is what the Dev Portal shows a platform engineer next to the planned change, so it is one
 # sentence in their words: what is on the installation today, what replaces it and why. It starts with
@@ -65,7 +66,7 @@ removals:
     reason: "Removed: gs.containerRegistry is the hub's registry access; a customer portal has no registry page, and the hub's own shape is not rendered yet."
   - key: "backstage:app-config:gs.installations.<name>"
     kind: not-rendered
-    reason: "Removed: gs.installations lists every installation the hub knows; a customer portal lists only its own installation and those under federation.installations, so any other entry goes."
+    reason: "Removed: gs.installations lists every installation the hub knows; a customer portal lists only its own installation and those under federation.installations, so the entry for <name> goes."
   - key: "backstage:app-config:backend.actions"
     kind: not-rendered
     reason: "Removed: backend.actions is the hub's action plugin sources and filters; a customer portal runs none of them, and the hub's own shape is not rendered yet."

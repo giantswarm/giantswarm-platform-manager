@@ -874,3 +874,113 @@ func TestVerifyCapabilityTakesAMissingChoiceAsNotChecked(t *testing.T) {
 		}
 	}
 }
+
+// An installation enabled before the mcp-* servers' Valkey password became
+// a generated Secret lacks mcp-prometheus's valkey-credentials.enc.yaml and
+// its kustomization entry: each difference is M9's planned addition, and
+// its reason names the server the key's <name> matched — mcp-prometheus,
+// not the mcp-* server.
+func TestVerifyCapabilityPlannedAdditionNamesTheServer(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	enableRowan(t, st, c, kagentEnabled(), kagentEnabled())
+	const valkeyFile = "valkey-credentials.enc.yaml"
+	st.ghs.mu.Lock()
+	kustomization := ""
+	for p, content := range st.ghs.files[acmeMCs] {
+		switch {
+		case strings.HasSuffix(p, "/extras/mcp-prometheus/"+valkeyFile):
+			delete(st.ghs.files[acmeMCs], p)
+		case strings.HasSuffix(p, "/extras/mcp-prometheus/kustomization.yaml"):
+			kustomization = p
+			st.ghs.files[acmeMCs][p] = strings.ReplaceAll(content, "  - "+valkeyFile+"\n", "")
+			if st.ghs.files[acmeMCs][p] == content {
+				t.Fatalf("the kustomization does not list %s:\n%s", valkeyFile, content)
+			}
+		}
+	}
+	st.ghs.mu.Unlock()
+	if kustomization == "" {
+		t.Fatal("mcp-prometheus's kustomization is not in the repository")
+	}
+
+	res := verifyRowan(t, c, rowan)
+	if res.State != installations.StateEnabled || res.Summary[verify.Drifted] != 0 || res.Summary[verify.DiffersByInput] != 0 || res.Summary[verify.Planned] == 0 {
+		t.Errorf("state %q summary %v", res.State, res.Summary)
+	}
+	named := 0
+	for _, f := range res.Features {
+		for _, d := range f.Dimensions {
+			for _, diff := range d.Differences {
+				if !strings.Contains(diff.File, "/extras/mcp-prometheus/") {
+					t.Errorf("%s/%s: a difference outside mcp-prometheus: %+v", f.ID, d.ID, diff)
+					continue
+				}
+				if d.Mark != verify.Planned || !strings.HasSuffix(diff.Planned, "· M9") || !strings.Contains(diff.Planned, "the mcp-prometheus server") || strings.Contains(diff.Planned, "mcp-*") {
+					t.Errorf("%s/%s (%s): %+v", f.ID, d.ID, d.Mark, diff)
+				}
+				named++
+			}
+		}
+	}
+	if named == 0 {
+		t.Error("no difference under mcp-prometheus")
+	}
+}
+
+// The patch on record carries a hand-written agent-platform-mcps.mcpServers
+// list the definition does not render for an installation without targets.
+// The entries of its own three servers — at the in-cluster Service, or on
+// the installation's own base domain — are the template's, each reason
+// naming the server; an entry on another installation's host, what a hub
+// keeps of a target it once listed by hand, is M19 like any other server.
+func TestVerifyCapabilityOwnMCPServersByHost(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	enableRowan(t, st, c, kagentEnabled(), kagentEnabled())
+	marker := installations.Capabilities()[0].EnabledMarker(rowan)
+	st.ghs.mu.Lock()
+	content := st.ghs.files[acmeConfigs][marker]
+	st.ghs.mu.Unlock()
+	if strings.Contains(content, "agent-platform-mcps:") {
+		t.Fatalf("the patch on record already carries agent-platform-mcps:\n%s", content)
+	}
+	const inCluster = "http://mcp-kubernetes.mcp-kubernetes.svc:8080/mcp"
+	ownHost, targetHost := "mcp-prometheus."+rowan+".acme.test", "mcp-kubernetes."+birch+".acme.test"
+	list := "agent-platform-mcps:\n  mcpServers:\n"
+	for _, u := range []string{inCluster, "https://" + ownHost + "/mcp", "https://" + targetHost + "/mcp"} {
+		list += "    - url: " + u + "\n      timeout: 30\n"
+	}
+	st.ghs.addFiles(acmeConfigs, map[string]string{marker: content + "\n" + list})
+
+	res := verifyRowan(t, c, rowan)
+	if res.State != installations.StateEnabled || res.Summary[verify.Drifted] != 0 || res.Summary[verify.DiffersByInput] != 0 {
+		t.Errorf("state %q summary %v", res.State, res.Summary)
+	}
+	d := dimension(t, feature(t, res, "tool-access"), "own-mcp-servers")
+	if d.Mark != verify.Planned || len(d.Differences) != 6 {
+		t.Fatalf("own-mcp-servers %q: %+v", d.Mark, d.Differences)
+	}
+	for _, diff := range d.Differences {
+		entry, _, _ := strings.Cut(strings.TrimPrefix(diff.Path, "agent-platform-mcps.mcpServers["), "]")
+		m19 := strings.HasSuffix(diff.Planned, "· M19")
+		switch entry {
+		case inCluster:
+			if m19 || !strings.Contains(diff.Planned, "this mcp-kubernetes entry repeats the in-cluster one") {
+				t.Errorf("the in-cluster entry: %+v", diff)
+			}
+		case "https://" + ownHost + "/mcp":
+			if m19 || !strings.Contains(diff.Planned, "this mcp-prometheus entry at "+ownHost) {
+				t.Errorf("the entry on the installation's own host: %+v", diff)
+			}
+		case "https://" + targetHost + "/mcp":
+			if !m19 {
+				t.Errorf("the entry on another installation's host: %+v", diff)
+			}
+		default:
+			t.Errorf("a difference of no entry: %+v", diff)
+		}
+	}
+}

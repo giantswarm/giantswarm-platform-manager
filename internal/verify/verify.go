@@ -263,7 +263,8 @@ func Compare(ctx context.Context, opts Options) Result {
 	var c *comparison
 	if opts.Inputs.Values != nil {
 		var p plan.Installation
-		if c, p, err = compare(ctx, opts, readRemovals(rms), readMigrations(migs)); err != nil {
+		own := ownFacts(opts.Installation)
+		if c, p, err = compare(ctx, opts, readRemovals(rms, own), readMigrations(migs, own)); err != nil {
 			r.Refused = err.Error()
 			c = nil
 		}

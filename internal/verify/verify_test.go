@@ -103,7 +103,7 @@ func TestRemovalsNameThePlannedChanges(t *testing.T) {
 		{Key: "backstage:app-config:auth", Kind: other, Reason: "B1"},
 		{Key: "backstage:file:user-secrets.enc.yaml", Kind: other, Reason: "B2"},
 		{Key: "teleport:tunnels", Kind: "other", Reason: "ignored"},
-	})
+	}, nil)
 	if len(rms) != 9 {
 		t.Fatalf("%d removals read, want 9 (a prefix of no file kind is left out)", len(rms))
 	}
@@ -163,11 +163,11 @@ func TestMigrationsNameThePlannedAdditions(t *testing.T) {
 		{Key: "extras:mcp-<name>/kustomization.yaml resources[dex-client-mcp-<name>-secret.yaml]", Reason: m1},
 		{Key: "backstage:file:agent-platform", Reason: m3},
 		{Key: "teleport:tunnels", Reason: "ignored"},
-	})
+	}, nil)
 	if len(migs) != 7 {
 		t.Fatalf("%d migrations read, want 7 (a prefix of no file kind is left out)", len(migs))
 	}
-	rms := readRemovals([]definitions.Removal{{Key: "dex-configmap:oidc.extraStaticClients[*].redirectURIs", Kind: "template", Reason: "R1"}})
+	rms := readRemovals([]definitions.Removal{{Key: "dex-configmap:oidc.extraStaticClients[*].redirectURIs", Kind: "template", Reason: "R1"}}, nil)
 	dexCM := &fileDiff{path: testDexPatch, kind: definitions.KindDexSecret}
 	patch := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
 	secret := &fileDiff{path: "management-clusters/x/extras/agent-platform/secrets/dex-client-muster-secret.yaml", kind: definitions.KindExtras}

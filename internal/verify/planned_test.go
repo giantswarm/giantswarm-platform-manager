@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -17,6 +18,7 @@ import (
 const (
 	testPlatformPatch = "installations/x/apps/agent-platform/configmap-values.yaml.patch"
 	testDexPatch      = "installations/x/apps/dex-app/configmap-values.yaml.patch"
+	testDomain        = "x.example.test"
 )
 
 // Every key of the agent-platform migrations names a path some golden
@@ -28,7 +30,7 @@ func TestEveryMigrationKeyIsRendered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	migs := readMigrations(ms)
+	migs := readMigrations(ms, nil)
 	if len(migs) != len(ms) {
 		t.Fatalf("%d of %d migration keys name a file kind the comparison observes", len(migs), len(ms))
 	}
@@ -105,7 +107,7 @@ func TestJoinedScalarsAndTheValkeySecretArePlanned(t *testing.T) {
 		{Key: "extras:mcp-<name>/kustomization.yaml resources[valkey-credentials.enc.yaml]", Reason: m9},
 		{Key: "extras:mcp-<name>/oauth-credentials.enc.yaml stringData.VALKEY_PASSWORD", Reason: m9},
 		{Key: "extras:mcp-<name>/oauth-credentials.enc.yaml type", Reason: m9},
-	})
+	}, nil)
 	patch := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
 	dexPatch := &fileDiff{path: testDexPatch, kind: definitions.KindDexSecret}
 	valkey := &fileDiff{path: "management-clusters/x/extras/mcp-capi/valkey-credentials.enc.yaml", kind: definitions.KindExtras}
@@ -145,31 +147,37 @@ func TestJoinedScalarsAndTheValkeySecretArePlanned(t *testing.T) {
 }
 
 // The installation's own three MCP servers on record (mcp-kubernetes,
-// mcp-prometheus, mcp-capi) repeat what the shared defaults register, in
-// their in-cluster form or on the installation's public host: their
-// removal names the server and is no migration. Any other entry of the
-// list — a foreign server, a private target's tunnel host — is M19, as is
-// the list itself.
+// mcp-prometheus, mcp-capi) repeat what the shared defaults register — in
+// their in-cluster form, or on the installation's own base domain: their
+// removal names the server and is no migration. Any other entry of the list
+// is M19, as is the list itself: a foreign server, a private target's tunnel
+// host, and a target's public URL a hub still carries by hand — a server on
+// the target's domain, however own it looks. Without a base domain on record
+// no public entry is the installation's own.
 func TestOwnMCPServersAreNotM19(t *testing.T) {
 	rs, err := definitions.Removals(installations.AgentPlatform)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rms := readRemovals(rs)
+	rms, noDomain := readRemovals(rs, facts{factDomain: testDomain}), readRemovals(rs, nil)
 	patch := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
 	const list = "agent-platform-mcps.mcpServers"
 	for _, tc := range []struct {
-		name, path, server string
-		m19                bool
+		name, path, names string
+		keys              plannedKeys
+		m19               bool
 	}{
-		{"own mcp-kubernetes on the public host", list + "[https://mcp-kubernetes.graveler.gaws2.gigantic.io/mcp].url", "mcp-kubernetes", false},
-		{"own mcp-prometheus in the cluster", list + "[http://mcp-prometheus.mcp-prometheus.svc:8080/mcp].timeout", "mcp-prometheus", false},
-		{"own mcp-capi's auth mode", list + "[https://mcp-capi.glean.example.io/mcp].auth.mode", "mcp-capi", false},
-		{"a foreign server", list + "[http://mcp-foo.mcp-foo.svc:8080/mcp].url", "", true},
-		{"a private target's tunnel host", list + "[https://mcp-kubernetes-burrow.agent-platform.svc.cluster.local:8443/mcp].url", "", true},
-		{"the list itself", list, "", true},
+		{"own mcp-kubernetes on the installation's domain", list + "[https://mcp-kubernetes." + testDomain + "/mcp].url", "this mcp-kubernetes entry at mcp-kubernetes." + testDomain, rms, false},
+		{"own mcp-prometheus in the cluster", list + "[http://mcp-prometheus.mcp-prometheus.svc:8080/mcp].timeout", "this mcp-prometheus entry repeats the in-cluster one", rms, false},
+		{"own mcp-capi's auth mode", list + "[https://mcp-capi." + testDomain + "/mcp].auth.mode", "this mcp-capi entry at mcp-capi." + testDomain, rms, false},
+		{"a target's public URL on a hub", list + "[https://mcp-kubernetes.y.example.test/mcp].url", "", rms, true},
+		{"a foreign server", list + "[http://mcp-foo.mcp-foo.svc:8080/mcp].url", "", rms, true},
+		{"a private target's tunnel host", list + "[https://mcp-kubernetes-y.agent-platform.svc.cluster.local:8443/mcp].url", "", rms, true},
+		{"the list itself", list, "", rms, true},
+		{"no base domain on record: a public entry is not own", list + "[https://mcp-kubernetes." + testDomain + "/mcp].url", "", noDomain, true},
+		{"no base domain on record: the in-cluster entry still is", list + "[http://mcp-capi.mcp-capi.svc:8080/mcp].url", "this mcp-capi entry repeats the in-cluster one", noDomain, false},
 	} {
-		got := rms.reason(patch, tc.path)
+		got := tc.keys.reason(patch, tc.path)
 		if got == "" {
 			t.Errorf("%s: %s names no removal", tc.name, tc.path)
 			continue
@@ -177,8 +185,94 @@ func TestOwnMCPServersAreNotM19(t *testing.T) {
 		if isM19 := strings.HasSuffix(got, "· M19"); isM19 != tc.m19 {
 			t.Errorf("%s: %s planned %q, want M19 %v", tc.name, tc.path, got, tc.m19)
 		}
-		if tc.server != "" && !strings.Contains(got, "this "+tc.server+" entry") {
-			t.Errorf("%s: %s planned %q, want it to name %s", tc.name, tc.path, got, tc.server)
+		if tc.names != "" && !strings.Contains(got, tc.names) {
+			t.Errorf("%s: %s planned %q, want it to say %q", tc.name, tc.path, got, tc.names)
+		}
+	}
+}
+
+// A key's placeholders are filled into its reason from the path they
+// matched: the mcp-* server's name from its extras directory, a Dex
+// client's from the map key or the Secret's file name, a ReferenceGrant's
+// namespace from the object's identity, a fact's placeholder with the fact.
+// A placeholder the key declares twice stands for one value, so a Secret
+// of one server in another's directory is nobody's; a <x> the key does not
+// declare stays as it is.
+func TestPlaceholdersFillTheReason(t *testing.T) {
+	migs := readMigrations([]definitions.Migration{
+		{Key: "extras:mcp-<name>/valkey-credentials.enc.yaml", Reason: "the mcp-<name> server's Valkey"},
+		{Key: "extras:mcp-<name>/kustomization.yaml resources[dex-client-mcp-<name>-secret.yaml]", Reason: "the mcp-<name> server's Dex client Secret"},
+		{Key: "extras:agent-platform/secrets/dex-client-<name>-secret.yaml", Reason: "the <name> Dex client's secret"},
+		{Key: "dex-configmap:oidc.staticClients.<name>.clientSecretRef", Reason: "the Dex client <name>"},
+		{Key: "configmap:extraObjects[ReferenceGrant/<namespace>/agentgateway-jwks-dex]", Reason: "a ReferenceGrant in <namespace>"},
+		{Key: "configmap:muster.muster.oauth.server.tokenExchangeBroker.targets.<name>.clientCredentialsSecretRef", Reason: "the target <name> (<other> stays)"},
+	}, nil)
+	rms := readRemovals([]definitions.Removal{
+		{Key: "configmap:agent-platform-mcps.mcpServers[<scheme>://mcp-capi.<domain>/mcp]", Reason: "mcp-capi at mcp-capi.<domain> over <scheme>"},
+	}, facts{factDomain: testDomain})
+	patch := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
+	dexCM := &fileDiff{path: testDexPatch, kind: definitions.KindDexSecret}
+	valkey := &fileDiff{path: "management-clusters/x/extras/mcp-prometheus/valkey-credentials.enc.yaml", kind: definitions.KindExtras}
+	mcpKust := &fileDiff{path: "management-clusters/x/extras/mcp-prometheus/kustomization.yaml", kind: definitions.KindExtras}
+	secret := &fileDiff{path: "management-clusters/x/extras/agent-platform/secrets/dex-client-muster-secret.yaml", kind: definitions.KindExtras}
+	absent := func(p string) *Difference { return &Difference{Path: p, Rendered: "x", absent: true} }
+	for _, tc := range []struct {
+		name string
+		fd   *fileDiff
+		d    *Difference
+		want string
+	}{
+		{"the server from its directory", valkey, absent("stringData.default"), "the mcp-prometheus server's Valkey"},
+		{"the server from the directory and the entry", mcpKust, absent("resources[dex-client-mcp-prometheus-secret.yaml]"), "the mcp-prometheus server's Dex client Secret"},
+		{"another server's Secret in the directory is nobody's", mcpKust, absent("resources[dex-client-mcp-kubernetes-secret.yaml]"), ""},
+		{"the client from the file name", secret, absent(""), "the muster Dex client's secret"},
+		{"the client from the map key", dexCM, absent("oidc.staticClients.mcpCapi.clientSecretRef.name"), "the Dex client mcpCapi"},
+		{"the namespace from the identity", patch, absent("extraObjects[ReferenceGrant/dex/agentgateway-jwks-dex].kind"), "a ReferenceGrant in dex"},
+		{"an undeclared placeholder stays", patch, absent("muster.muster.oauth.server.tokenExchangeBroker.targets.y.clientCredentialsSecretRef"), "the target y (<other> stays)"},
+		{"a fact and a part of the identity", patch, &Difference{Path: "agent-platform-mcps.mcpServers[https://mcp-capi." + testDomain + "/mcp].url", Current: "x"}, "mcp-capi at mcp-capi." + testDomain + " over https"},
+	} {
+		if got := planned(tc.fd, tc.d, rms, migs); got != tc.want {
+			t.Errorf("%s: %s#%s planned %q, want %q", tc.name, tc.fd.path, tc.d.Path, got, tc.want)
+		}
+	}
+}
+
+// Every placeholder a reason references is one its key declares, so the
+// comparison fills it: a <x> left in a reason would reach the Dev Portal as
+// it is. The keys are read with a base domain, so one with <domain> is
+// parsed too.
+func TestEveryReasonPlaceholderIsDeclared(t *testing.T) {
+	ref := regexp.MustCompile(`<([^<>\s]+)>`)
+	caps, err := definitions.Capabilities()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, capability := range caps {
+		rs, err := definitions.Removals(capability)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ms, err := definitions.Migrations(capability)
+		if err != nil {
+			t.Fatal(err)
+		}
+		keys := map[string]string{}
+		for _, r := range rs {
+			keys[r.Key] = r.Reason
+		}
+		for _, m := range ms {
+			keys[m.Key] = m.Reason
+		}
+		for key, reason := range keys {
+			k, ok := parseKey(key, reason, facts{factDomain: testDomain})
+			if !ok {
+				continue
+			}
+			for _, m := range ref.FindAllStringSubmatch(reason, -1) {
+				if !slices.Contains(k.names, m[1]) {
+					t.Errorf("%s: %q references <%s>, which its key %q does not declare", capability, reason, m[1], key)
+				}
+			}
 		}
 	}
 }
