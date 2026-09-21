@@ -18,6 +18,7 @@ input:
         customer: giantswarm
         domain: portal.gopher.example.io
         clientId: backstage
+        chartLine: ">=2.1.0 <3.0.0"
     federation:
       hubs: []
       targets: []

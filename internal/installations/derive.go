@@ -27,7 +27,9 @@ import (
 // Portal is a developer portal on record: the installation hosting it and its
 // organisation, its hostname, the id of the Dex client it signs in through
 // (empty when the host's dex-app configmap patch carries no client with the
-// portal's redirect URI), the installations it lists, the installation whose
+// portal's redirect URI), the chart line it follows (the ref its directory
+// kustomization patches onto the fleet base's backstage OCIRepository; empty
+// when it patches none), the installations it lists, the installation whose
 // muster brokers its cluster tokens (empty when it brokers none), the
 // installations it reaches through the tunnel on its host, the installations
 // whose agent platform (kagent, agentgateway) it proxies — its app-config's
@@ -39,6 +41,7 @@ type Portal struct {
 	Customer        string
 	Domain          string
 	ClientID        string
+	ChartLine       string
 	Broker          string
 	Installations   []string
 	Tunnelled       []string
@@ -56,6 +59,7 @@ type PortalRef struct {
 	Domain       string `json:"domain"`
 	ClientID     string `json:"clientId,omitempty"`
 	HandKept     bool   `json:"handKept,omitempty"`
+	ChartLine    string `json:"chartLine,omitempty"`
 }
 
 // Federation is an installation's place in the fleet's token exchange, as the
@@ -116,8 +120,9 @@ func (r *Registry) portalHosts(insts []Installation) []Installation {
 	return hosts
 }
 
-// readPortal reads host's portal app-config as the person: the portal, or nil
-// when host has none.
+// readPortal reads host's portal app-config as the person, and the chart line
+// from the portal directory's kustomization: the portal, or nil when host has
+// none.
 func (r *Registry) readPortal(ctx context.Context, c *github.Client, host Installation) (*Portal, error) {
 	owner, repo, err := gh.SplitRepo(host.Repositories.ManagementClusters)
 	if err != nil {
@@ -160,7 +165,69 @@ func (r *Registry) readPortal(ctx context.Context, c *github.Client, host Instal
 	if p.ClientID, err = portalClientID(ctx, c, host, p.Domain); err != nil {
 		return nil, err
 	}
+	kustomization, err := gh.ReadFile(ctx, c, owner, repo, PortalKustomizationPath(host.Name))
+	if err != nil && !errors.Is(err, gh.ErrNotFound) {
+		return nil, err
+	}
+	if err == nil {
+		if p.ChartLine, err = portalChartLine(kustomization); err != nil {
+			return nil, fmt.Errorf("%s: %w", PortalKustomizationPath(host.Name), err)
+		}
+	}
 	return p, nil
+}
+
+// portalChartLine is the chart line a portal directory's kustomization sets:
+// the ref a patch targeting the OCIRepository puts under spec.ref — the semver
+// range the customer-portal definition writes, or a tag — as a JSON patch's
+// add operation on /spec/ref/semver or /spec/ref/tag, or a strategic-merge
+// patch's spec.ref.semver or spec.ref.tag. Empty when no patch sets one: the
+// portal then runs the base's placeholder tag and resolves nothing.
+func portalChartLine(data string) (string, error) {
+	var k struct {
+		Patches []struct {
+			Patch  string `yaml:"patch"`
+			Target struct {
+				Kind string `yaml:"kind"`
+			} `yaml:"target"`
+		} `yaml:"patches"`
+	}
+	if err := yaml.Unmarshal([]byte(data), &k); err != nil {
+		return "", fmt.Errorf("decode the kustomization: %w", err)
+	}
+	for _, p := range k.Patches {
+		if p.Target.Kind != "OCIRepository" {
+			continue
+		}
+		var ops []struct {
+			Op    string `yaml:"op"`
+			Path  string `yaml:"path"`
+			Value any    `yaml:"value"`
+		}
+		if yaml.Unmarshal([]byte(p.Patch), &ops) == nil {
+			for _, op := range ops {
+				if op.Op == "add" && (op.Path == "/spec/ref/semver" || op.Path == "/spec/ref/tag") && op.Value != nil {
+					return fmt.Sprint(op.Value), nil
+				}
+			}
+			continue
+		}
+		var merge struct {
+			Spec struct {
+				Ref struct {
+					Semver string `yaml:"semver"`
+					Tag    string `yaml:"tag"`
+				} `yaml:"ref"`
+			} `yaml:"spec"`
+		}
+		if err := yaml.Unmarshal([]byte(p.Patch), &merge); err != nil {
+			return "", fmt.Errorf("decode the OCIRepository patch: %w", err)
+		}
+		if ref := merge.Spec.Ref; ref.Semver != "" || ref.Tag != "" {
+			return ref.Semver + ref.Tag, nil
+		}
+	}
+	return "", nil
 }
 
 // portalClientID reads the id of the Dex client the portal on domain signs in
@@ -336,7 +403,7 @@ func (r *Report) derivePortals(portals []Portal) []string {
 	var targets []string
 	for _, p := range portals {
 		if slices.Contains(p.Installations, r.Name) {
-			r.Portals = append(r.Portals, PortalRef{Installation: p.Host, Customer: p.Customer, Domain: p.Domain, ClientID: p.ClientID, HandKept: p.HandKept})
+			r.Portals = append(r.Portals, PortalRef{Installation: p.Host, Customer: p.Customer, Domain: p.Domain, ClientID: p.ClientID, HandKept: p.HandKept, ChartLine: p.ChartLine})
 		}
 		if p.Broker != r.Name {
 			continue

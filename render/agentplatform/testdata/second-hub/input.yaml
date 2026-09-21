@@ -20,11 +20,12 @@ input:
         customer: giantswarm
         domain: portal.gopher.example.io
         clientId: backstage
-        handKept: true
+        chartLine: ">=2.1.0 <3.0.0"
       - installation: warren
         customer: giantswarm
         domain: portal.warren.example.io
         clientId: backstage
+        chartLine: ">=2.1.0 <3.0.0"
     federation:
       hubs: [gopher]
       brokerClientId: broker-client-id-placeholder

@@ -26,6 +26,7 @@ input:
         domain: portal.gopher.example.io
         clientId: backstage
         handKept: true
+        chartLine: ">=2.1.0 <3.0.0"
     federation:
       hubs: []
       brokerClientId: broker-client-id-placeholder

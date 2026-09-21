@@ -49,6 +49,14 @@ func PortalConfigPath(hub string) string {
 	return "management-clusters/" + hub + "/extras/backstage/backstage/app-config.yaml"
 }
 
+// PortalKustomizationPath is where a portal host's management-clusters
+// repository keeps the portal directory's kustomization: the fleet's backstage
+// base, the portal's files, and the patch that sets the chart's release range
+// on the base's OCIRepository — where the portal's chart line is read from.
+func PortalKustomizationPath(host string) string {
+	return "management-clusters/" + host + "/extras/backstage/backstage/kustomization.yaml"
+}
+
 // Installation is one registry entry: the facts the two sources hold about it.
 type Installation struct {
 	Name     string `json:"name"`

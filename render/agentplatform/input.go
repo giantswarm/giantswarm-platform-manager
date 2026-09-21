@@ -128,16 +128,19 @@ type Installation struct {
 }
 
 // PortalRef is a developer portal that signs people in on the installation:
-// its host, the host's organisation, its hostname, where its host's Dex
-// patch carries it the id of the Dex client it signs in through — the
-// audience of the ID tokens it forwards — and whether it is hand-kept: its
-// app-config on record carries a literal extension list of its own, so the
-// portal owns its lists and the Component sets none (portal.go).
+// its host, the host's organisation, its hostname, where its host's Dex patch
+// carries it the id of the Dex client it signs in through — the audience of
+// the ID tokens it forwards — whether it is hand-kept: its app-config on
+// record carries a literal extension list of its own, so the portal owns its
+// lists and the Component sets none (portal.go) — and the chart line it
+// follows: the ref its directory kustomization patches onto the fleet base's
+// backstage OCIRepository, empty when it patches none.
 type PortalRef struct {
 	Installation string `json:"installation"`
 	Customer     string `json:"customer"`
 	Domain       string `json:"domain"`
 	ClientID     string `json:"clientId,omitempty"`
+	ChartLine    string `json:"chartLine,omitempty"`
 	HandKept     bool   `json:"handKept,omitempty"`
 }
 
@@ -412,6 +415,14 @@ func (in *Input) checkRecord() error {
 	for _, c := range lineFourComponents {
 		if in.Components[c] && in.Installation.ChartLine != lineFour {
 			return fmt.Errorf("%w: installation.chartLine: %s needs the platform's 4 chart line and the record selects the %s line; agentPlatform.kagentApiV2: true in installations/%s/config.yaml.patch selects 4", ErrInput, c, in.Installation.ChartLine, in.Installation.Name)
+		}
+	}
+	if p := in.hostedPortal(); p != nil && in.kagent() {
+		if p.ChartLine == "" {
+			return fmt.Errorf("%w: installation.portals[%s].chartLine: the hosted portal's chart line is not on record — management-clusters/%s/extras/backstage/backstage/kustomization.yaml patches no ref onto the fleet base's backstage OCIRepository; the portal section names the agents' Flux identity for a portal before backstage %s only, and needs the line to tell", ErrInput, p.Installation, p.Installation, portalPluginRemoval)
+		}
+		if _, err := portalChartFloor(p.ChartLine); err != nil {
+			return fmt.Errorf("%w: installation.portals[%s].chartLine: %v", ErrInput, p.Installation, err)
 		}
 	}
 	if in.kagent() && in.Installation.ChartLine == lineFour && !in.Installation.PodCertificateRequest {

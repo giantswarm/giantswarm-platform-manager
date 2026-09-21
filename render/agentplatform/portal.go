@@ -1,6 +1,13 @@
 package agentplatform
 
-import "github.com/giantswarm/giantswarm-platform-manager/render"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/Masterminds/semver/v3"
+
+	"github.com/giantswarm/giantswarm-platform-manager/render"
+)
 
 // The developer portal's agent-platform section. The portal itself is the
 // customer-portal definition's: its app-config, values and the sources of its
@@ -26,6 +33,15 @@ import "github.com/giantswarm/giantswarm-platform-manager/render"
 // the fragment's mount), which merge. The day the customer-portal definition
 // renders such a portal the fact reads false and the Component takes the
 // lists over.
+//
+// The portal's chart line (installation.portals[*].chartLine) decides one
+// key. Before backstage 1.1.0 the portal's agent-platform plugin composes the
+// agent's HelmRelease in the browser and applies it, and the management
+// clusters' Flux multi-tenancy policy refuses a HelmRelease without
+// spec.serviceAccountName: that plugin reads the identity from
+// agentPlatform.fluxServiceAccountName, which the fragment names for it. From
+// 1.1.0 agents are created through agent-manager over muster as the signed-in
+// person and no chart or plugin reads the key, so it is not written.
 
 const (
 	// backstageNamespace is the portal's release namespace, where the chart
@@ -39,6 +55,13 @@ const (
 	portalAppConfigFile = "app-config.agent-platform.yaml"
 	// portalValuesMap carries the platform's chart values.
 	portalValuesMap = "agent-platform-values-backstage"
+	// fluxServiceAccount is the tenant identity of the agents' HelmReleases,
+	// created by the fleet's agent-platform base in the kagent namespace.
+	fluxServiceAccount = "kagent-flux"
+	// portalPluginRemoval is the first portal chart whose agent-platform
+	// plugin creates agents through agent-manager and reads no
+	// fluxServiceAccountName.
+	portalPluginRemoval = "1.1.0"
 	// extensionsInclude is the shared base's list of the platform's portal extensions.
 	extensionsInclude = "shared-config.yaml#extensionsAgentPlatform"
 	// avatarsEnv is the CSP image source slot of the shared base's config.
@@ -72,16 +95,23 @@ func (in *Input) musterEntry() render.Map {
 }
 
 // portalAppConfig is the platform's app-config fragment: the agent-platform
-// plugin's section where kagent runs and, where the Component owns the
-// portal's lists, the platform's extensions through the shared include and
-// the installation's muster.
+// plugin's section where kagent runs (the agents' Flux identity where the
+// portal's plugin reads it, and the installation among the kagent
+// installations) and, where the Component owns the portal's lists, the
+// platform's extensions through the shared include and the installation's
+// muster.
 func (in *Input) portalAppConfig() render.Map {
 	m := render.Map{}
 	if in.portalOwnsLists() {
 		m = append(m, e("app", render.Map{e("extensions", render.Map{e("$include", extensionsInclude)})}))
 	}
 	if in.kagent() {
-		m = append(m, e("agentPlatform", render.Map{e("kagent", render.Map{e("installations", render.Map{e(in.Installation.Name, render.Map{})})})}))
+		platform := render.Map{}
+		if in.portalReadsFluxServiceAccount() {
+			platform = append(platform, e("fluxServiceAccountName", fluxServiceAccount))
+		}
+		platform = append(platform, e("kagent", render.Map{e("installations", render.Map{e(in.Installation.Name, render.Map{})})}))
+		m = append(m, e("agentPlatform", platform))
 	}
 	if in.portalOwnsLists() {
 		m = append(m, e("muster", render.Map{e("installations", []render.Map{in.musterEntry()})}))
@@ -98,6 +128,43 @@ func (in *Input) portalValues() render.Map {
 		backstage = append(backstage, e("extraEnvVars", []render.Map{{e("name", avatarsEnv), e("value", "https://"+in.host("avatars"))}}))
 	}
 	return render.Map{e("backstage", backstage)}
+}
+
+// portalChartFloor is the lowest chart version a portal's chart line admits:
+// the lower bound of a bounded range (>=A <B, the form the customer-portal
+// definition writes) or the tag itself. Another form is an error naming it.
+func portalChartFloor(line string) (*semver.Version, error) {
+	fields := strings.Fields(line)
+	var floor string
+	switch {
+	case len(fields) == 2 && strings.HasPrefix(fields[0], ">=") && strings.HasPrefix(fields[1], "<"):
+		floor = strings.TrimPrefix(fields[0], ">=")
+	case len(fields) == 1 && !strings.ContainsAny(fields[0], "<>=~^*xX|"):
+		floor = fields[0]
+	default:
+		return nil, fmt.Errorf("the chart line %q is neither a bounded range >=A <B nor a tag", line)
+	}
+	v, err := semver.NewVersion(floor)
+	if err != nil {
+		return nil, fmt.Errorf("the chart line %q: %w", line, err)
+	}
+	return v, nil
+}
+
+// portalReadsFluxServiceAccount says whether the hosted portal may run a
+// chart before portalPluginRemoval and so reads the agents' Flux identity
+// from the fragment: its chart line's floor lies below the removal. The key
+// is inert on a later chart, so a line that straddles the removal names it.
+// checkRecord has refused a record whose line is missing or of another form
+// where kagent runs, so an error here is a portal the fragment carries no
+// agentPlatform section for anyway.
+func (in *Input) portalReadsFluxServiceAccount() bool {
+	p := in.hostedPortal()
+	if p == nil {
+		return false
+	}
+	floor, err := portalChartFloor(p.ChartLine)
+	return err == nil && floor.LessThan(semver.MustParse(portalPluginRemoval))
 }
 
 // configMap renders a ConfigMap with one key.
