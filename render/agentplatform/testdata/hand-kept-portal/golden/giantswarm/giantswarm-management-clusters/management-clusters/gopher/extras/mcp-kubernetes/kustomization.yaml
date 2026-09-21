@@ -1,0 +1,9 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - https://github.com/giantswarm/management-cluster-bases//extras/mcp-kubernetes?ref=main
+  - oauth-credentials.enc.yaml
+  - valkey-credentials.enc.yaml
+  - dex-client-mcp-kubernetes-secret.yaml

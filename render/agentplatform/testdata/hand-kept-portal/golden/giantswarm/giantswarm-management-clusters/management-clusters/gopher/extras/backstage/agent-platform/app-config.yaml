@@ -7,15 +7,7 @@ metadata:
   namespace: backstage
 data:
   app-config.agent-platform.yaml: |
-    app:
-      extensions:
-        $include: shared-config.yaml#extensionsAgentPlatform
     agentPlatform:
       kagent:
         installations:
-          graveler: {}
-    muster:
-      installations:
-        - name: graveler
-          url: https://muster.graveler.example.io/mcp
-          authProvider: oidc-graveler
+          gopher: {}

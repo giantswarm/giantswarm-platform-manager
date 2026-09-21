@@ -20,6 +20,7 @@ input:
         customer: giantswarm
         domain: portal.gopher.example.io
         clientId: backstage
+        handKept: true
       - installation: warren
         customer: giantswarm
         domain: portal.warren.example.io
