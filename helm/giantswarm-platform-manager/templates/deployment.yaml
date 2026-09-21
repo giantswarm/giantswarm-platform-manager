@@ -81,6 +81,8 @@ spec:
               value: {{ .Values.live.muster.kubernetesFamily | quote }}
             - name: LIVE_KUBERNETES_INSTANCE_ARG
               value: {{ .Values.live.muster.kubernetesInstanceArg | quote }}
+            - name: LIVE_KUBERNETES_MEMBER
+              value: {{ .Values.live.muster.kubernetesMember | quote }}
             {{- end }}
             {{- with .Values.github.apiURL }}
             - name: GITHUB_API_URL

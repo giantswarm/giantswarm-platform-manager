@@ -146,6 +146,13 @@ live:
     kubernetesFamily: kubernetes
     # -- The family's instance argument; empty for a singleton server.
     kubernetesInstanceArg: management_cluster
+    # -- The family member that serves an installation, by muster's server
+    # name: a template over `{{ .Installation }}`. muster routes a family's
+    # tool to the member whose server name the instance argument carries,
+    # never by the installation's name; the platform's agent-platform-mcps
+    # chart names every installation's mcp-kubernetes
+    # `<installation>-mcp-kubernetes`.
+    kubernetesMember: "{{ .Installation }}-mcp-kubernetes"
 
 oauth:
   # -- Require a GitHub user token as the bearer of every MCP request, verified

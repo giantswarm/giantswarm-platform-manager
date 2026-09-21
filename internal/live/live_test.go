@@ -64,6 +64,11 @@ func TestConfigValidateNamesTheMissingField(t *testing.T) {
 		{"audiences all blank", func(c *Config) { c.Audiences = []string{"", " "} }},
 		{"muster URL", func(c *Config) { c.MusterURL = "not a url" }},
 		{"kubernetes family", func(c *Config) { c.KubernetesFamily = "" }},
+		{"kubernetes member with an instance argument", func(c *Config) { c.KubernetesInstanceArg = "management_cluster"; c.KubernetesMember = "" }},
+		{"kubernetes member that is no template", func(c *Config) {
+			c.KubernetesInstanceArg = "management_cluster"
+			c.KubernetesMember = "{{ .Installation"
+		}},
 		{"path", func(c *Config) { c.Path = "mcp" }},
 		{"JWKS URL over plain http", func(c *Config) { c.JWKSURL = "http://dex.dex.svc.cluster.local:5556/dex/keys" }},
 		{"JWKS URL without a host", func(c *Config) { c.JWKSURL = "https:///keys" }},

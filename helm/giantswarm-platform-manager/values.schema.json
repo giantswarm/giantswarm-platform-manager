@@ -198,6 +198,10 @@
                             "type": "string",
                             "description": "The family's instance argument; empty for a singleton server."
                         },
+                        "kubernetesMember": {
+                            "type": "string",
+                            "description": "The family member that serves an installation, by muster's server name: a template over `{{ .Installation }}`. muster routes a family's tool to the member whose server name the instance argument carries, never by the installation's name; the platform's agent-platform-mcps chart names every installation's mcp-kubernetes `<installation>-mcp-kubernetes`."
+                        },
                         "url": {
                             "type": "string",
                             "description": "muster's own MCP endpoint as reached from the pod: where a live read loops back to with the person's token. Empty derives `http://muster.<namespace>.svc.cluster.local:8090/mcp` in the release namespace."

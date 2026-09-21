@@ -125,7 +125,7 @@ func newStack(t *testing.T) *stack {
 	st.ghs.pull = st.pullState
 	st.muster = newFakeMuster(t, st.inst, rowan)
 	lc, err := live.New(live.Config{Path: livePath, Issuer: st.dex.issuer, Audiences: []string{liveAudience, liveRequiredAudience}, JWKSURL: st.dex.issuer + "/keys", AllowPrivateIPJWKS: true, CAFile: st.dex.caFile,
-		MusterURL: st.muster.URL + "/mcp", KubernetesFamily: kubernetesFamily, KubernetesInstanceArg: instanceArg, Version: testVersion}, log)
+		MusterURL: st.muster.URL + "/mcp", KubernetesFamily: kubernetesFamily, KubernetesInstanceArg: instanceArg, KubernetesMember: memberTemplate, Version: testVersion}, log)
 	if err != nil {
 		t.Fatal(err)
 	}

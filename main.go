@@ -40,8 +40,8 @@ type options struct {
 	oauthEnabled                           bool
 	oauthBaseURL, oauthAuthorizationServer string
 
-	liveEnabled, liveAllowPrivateIPJWKS                                                                                      bool
-	livePath, liveIssuer, liveAudiences, liveJWKSURL, liveCAFile, musterURL, liveKubernetesFamily, liveKubernetesInstanceArg string
+	liveEnabled, liveAllowPrivateIPJWKS                                                                                                            bool
+	livePath, liveIssuer, liveAudiences, liveJWKSURL, liveCAFile, musterURL, liveKubernetesFamily, liveKubernetesInstanceArg, liveKubernetesMember string
 }
 
 func parseFlags(args []string) (*options, error) {
@@ -71,7 +71,8 @@ func parseFlags(args []string) (*options, error) {
 	f.StringVar(&o.liveCAFile, "live-ca-file", envOr("LIVE_CA_FILE", ""), "PEM bundle the issuer's certificate chains to; empty is the system trust (LIVE_CA_FILE)")
 	f.StringVar(&o.musterURL, "muster-url", envOr("MUSTER_URL", ""), "muster's own MCP endpoint as reached from the pod: where a live read loops back to with the person's token (MUSTER_URL)")
 	f.StringVar(&o.liveKubernetesFamily, "live-kubernetes-family", envOr("LIVE_KUBERNETES_FAMILY", "kubernetes"), "The muster family, or singleton server, the installations' kubernetes tools are aggregated under: x_<family>_get, _list, _logs (LIVE_KUBERNETES_FAMILY)")
-	f.StringVar(&o.liveKubernetesInstanceArg, "live-kubernetes-instance-arg", envSet("LIVE_KUBERNETES_INSTANCE_ARG", "management_cluster"), "The family's argument that selects the installation; empty for a singleton server, which takes no argument (LIVE_KUBERNETES_INSTANCE_ARG, an empty value counts)")
+	f.StringVar(&o.liveKubernetesInstanceArg, "live-kubernetes-instance-arg", envSet("LIVE_KUBERNETES_INSTANCE_ARG", "management_cluster"), "The family's argument that selects the member; empty for a singleton server, which takes no argument (LIVE_KUBERNETES_INSTANCE_ARG, an empty value counts)")
+	f.StringVar(&o.liveKubernetesMember, "live-kubernetes-member", envOr("LIVE_KUBERNETES_MEMBER", "{{ .Installation }}-mcp-kubernetes"), "The family member that serves an installation, by muster's server name: a template over {{ .Installation }} (LIVE_KUBERNETES_MEMBER)")
 	if err := f.Parse(args); err != nil {
 		return nil, err
 	}
@@ -113,7 +114,7 @@ func run(ctx context.Context, o *options, log *slog.Logger) error {
 	}
 	if o.liveEnabled {
 		lc, err := live.New(live.Config{Path: o.livePath, Issuer: o.liveIssuer, Audiences: live.ParseAudiences(o.liveAudiences), JWKSURL: o.liveJWKSURL, AllowPrivateIPJWKS: o.liveAllowPrivateIPJWKS,
-			CAFile: o.liveCAFile, MusterURL: o.musterURL, KubernetesFamily: o.liveKubernetesFamily, KubernetesInstanceArg: o.liveKubernetesInstanceArg, Version: deps.Version}, log)
+			CAFile: o.liveCAFile, MusterURL: o.musterURL, KubernetesFamily: o.liveKubernetesFamily, KubernetesInstanceArg: o.liveKubernetesInstanceArg, KubernetesMember: o.liveKubernetesMember, Version: deps.Version}, log)
 		if err != nil {
 			return err
 		}

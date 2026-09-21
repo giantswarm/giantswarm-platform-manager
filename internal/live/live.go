@@ -26,6 +26,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"text/template"
 	"time"
 
 	"github.com/giantswarm/mcp-oauth/providers/oidc"
@@ -67,9 +68,16 @@ type Config struct {
 	// KubernetesFamily is the muster family (or singleton server name) the
 	// installations' kubernetes tools are aggregated under: the tools are
 	// x_<family>_get, _list, _logs and _api_resources. KubernetesInstanceArg is the family's
-	// argument that selects the installation; empty for a singleton.
+	// argument that selects the member; empty for a singleton.
+	// KubernetesMember names the member that serves an installation, as
+	// muster names the server: a text/template over {{ .Installation }}
+	// (`{{ .Installation }}-mcp-kubernetes` on the platform, whose
+	// agent-platform-mcps chart registers every installation's mcp-kubernetes
+	// under that name). muster resolves the instance argument to a member by
+	// its server name, never by the installation's.
 	KubernetesFamily      string
 	KubernetesInstanceArg string
+	KubernetesMember      string
 	// IdleLifetime is how long a person's loop-back session is kept without
 	// a call before it is closed. Zero is DefaultIdleLifetime.
 	IdleLifetime time.Duration
@@ -88,6 +96,14 @@ func (c Config) Validate() error {
 	for _, f := range []struct{ what, v string }{{"path", c.Path}, {"issuer", c.Issuer}, {"muster URL", c.MusterURL}, {"kubernetes family", c.KubernetesFamily}} {
 		if strings.TrimSpace(f.v) == "" {
 			return fmt.Errorf("live: %s is required", f.what)
+		}
+	}
+	if c.KubernetesInstanceArg != "" {
+		if strings.TrimSpace(c.KubernetesMember) == "" {
+			return errors.New("live: kubernetes member is required with an instance argument: the template of the member's server name over {{ .Installation }}")
+		}
+		if _, err := memberTemplate(c.KubernetesMember); err != nil {
+			return err
 		}
 	}
 	if len(c.audiences()) == 0 {
@@ -137,6 +153,7 @@ type Info struct {
 	MusterURL             string   `json:"musterUrl"`
 	KubernetesFamily      string   `json:"kubernetesFamily"`
 	KubernetesInstanceArg string   `json:"kubernetesInstanceArg,omitempty"`
+	KubernetesMember      string   `json:"kubernetesMember,omitempty"`
 }
 
 // Client validates forwarded tokens and holds the loop-back sessions.
@@ -145,6 +162,9 @@ type Client struct {
 	log  *slog.Logger
 	jwks *oidc.JWKSClient
 	http *http.Client
+	// member names the family member that serves an installation
+	// (Config.KubernetesMember parsed); nil for a singleton server.
+	member *template.Template
 
 	mu       sync.Mutex
 	jwksURL  string
@@ -175,8 +195,23 @@ func New(cfg Config, log *slog.Logger) (*Client, error) {
 	}
 	c := &Client{cfg: cfg, log: log, http: hc, jwksURL: cfg.JWKSURL, sessions: map[string]*session{},
 		jwks: oidc.NewJWKSClientWithOptions(oidc.JWKSClientOptions{HTTPClient: hc, AllowPrivateIP: cfg.AllowPrivateIPJWKS, RootCAs: pool, Logger: log})}
-	log.Info("live path enabled", "path", cfg.Path, "issuer", cfg.Issuer, "audiences", cfg.Audiences, "jwks", cfg.JWKSURL, "muster", cfg.MusterURL, "kubernetesFamily", cfg.KubernetesFamily, "instanceArg", cfg.KubernetesInstanceArg)
+	if cfg.KubernetesInstanceArg != "" {
+		if c.member, err = memberTemplate(cfg.KubernetesMember); err != nil {
+			return nil, err
+		}
+	}
+	log.Info("live path enabled", "path", cfg.Path, "issuer", cfg.Issuer, "audiences", cfg.Audiences, "jwks", cfg.JWKSURL, "muster", cfg.MusterURL, "kubernetesFamily", cfg.KubernetesFamily, "instanceArg", cfg.KubernetesInstanceArg, "member", cfg.KubernetesMember)
 	return c, nil
+}
+
+// memberTemplate parses Config.KubernetesMember: a text/template over
+// {{ .Installation }} that names the family member serving an installation.
+func memberTemplate(s string) (*template.Template, error) {
+	t, err := template.New("member").Option("missingkey=error").Parse(s)
+	if err != nil {
+		return nil, fmt.Errorf("live: kubernetes member %q is not a template over {{ .Installation }}: %w", s, err)
+	}
+	return t, nil
 }
 
 // rootCAs is the system pool plus the PEM bundle at file; nil without a file.
@@ -200,7 +235,7 @@ func rootCAs(file string) (*x509.CertPool, error) {
 
 // Info is the configuration as reported.
 func (c *Client) Info() Info {
-	return Info{Path: c.cfg.Path, Issuer: c.cfg.Issuer, Audiences: c.cfg.Audiences, MusterURL: c.cfg.MusterURL, KubernetesFamily: c.cfg.KubernetesFamily, KubernetesInstanceArg: c.cfg.KubernetesInstanceArg}
+	return Info{Path: c.cfg.Path, Issuer: c.cfg.Issuer, Audiences: c.cfg.Audiences, MusterURL: c.cfg.MusterURL, KubernetesFamily: c.cfg.KubernetesFamily, KubernetesInstanceArg: c.cfg.KubernetesInstanceArg, KubernetesMember: c.cfg.KubernetesMember}
 }
 
 // Path is where the live endpoint listens.
@@ -355,11 +390,26 @@ const fanOutWait = 15 * time.Second
 
 func (k *cluster) tool(op string) string { return "x_" + k.c.cfg.KubernetesFamily + "_" + op }
 
+// member is the family member that serves the installation, by muster's
+// server name: KubernetesMember executed over the installation.
+func (k *cluster) member() (string, error) {
+	var buf strings.Builder
+	if err := k.c.member.Execute(&buf, struct{ Installation string }{k.installation}); err != nil {
+		return "", fmt.Errorf("live: kubernetes member for %s: %w", k.installation, err)
+	}
+	return buf.String(), nil
+}
+
 // call runs one kubernetes tool for the installation and answers its text,
-// the tool's refusal mapped to the verify's errors.
+// the tool's refusal mapped to the verify's errors. A family's tool takes
+// the member's server name in the instance argument: muster routes by it.
 func (k *cluster) call(ctx context.Context, op string, args map[string]any) (string, error) {
 	if k.c.cfg.KubernetesInstanceArg != "" {
-		args[k.c.cfg.KubernetesInstanceArg] = k.installation
+		member, err := k.member()
+		if err != nil {
+			return "", err
+		}
+		args[k.c.cfg.KubernetesInstanceArg] = member
 	}
 	name := k.tool(op)
 	res, err := k.s.s.Call(ctx, name, args)
