@@ -33,7 +33,7 @@ charts:
   - name: agent-platform
     line: "3"
     registry: gsoci.azurecr.io/charts/giantswarm/agent-platform
-    version: 3.23.1
+    version: 3.23.2
   - name: agent-platform
     line: "4"
     registry: gsoci.azurecr.io/charts/giantswarm/agent-platform
