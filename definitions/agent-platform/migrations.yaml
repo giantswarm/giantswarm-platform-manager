@@ -8,122 +8,128 @@
 # addressed like a list entry, <path>[<entry>]: a scalar on record whose only change is entries named
 # this way is planned with their reasons; an entry not named, or one removed, keeps it a difference.
 #
+# The reason is what the Dev Portal shows a platform engineer next to the planned change, so it is one
+# sentence in their words: what is on the installation today, what replaces it and why. It starts with
+# Added: or Moved:, names the chart line, the value or the object, never the file (the file is the group
+# the change is listed under), and carries the migration as a trailing tag (· M<n>). A key with <name>
+# cannot name the concrete instance: its reason says "the mcp-* server", "a Dex client".
+#
 # The M numbers are the wave-1 migration list's (M1–M11) and continue removals.yaml's (M30…).
 migrations:
   # --- M32 — a spoke's token-exchange client secret is referenced; the hub's federation files ---
   - key: extras:agent-platform/secrets/dex-client-<name>-token-exchange-secret.yaml
-    reason: M32 — a spoke's token-exchange client secret is a referenced Secret; the hub's federation credentials are files
+    reason: "Added: a hub's token-exchange client in this installation's Dex reads its secret from its own Secret under extras/agent-platform/secrets instead of an inline value · M32"
   - key: extras:agent-platform/secrets/kustomization.yaml resources[dex-client-<name>-token-exchange-secret.yaml]
-    reason: M32 — a spoke's token-exchange client secret is a referenced Secret; the hub's federation credentials are files
+    reason: "Added: the secrets kustomization lists the hub client's token-exchange Secret, so it is applied with the rest · M32"
   - key: extras:agent-platform/secrets/<name>-token-exchange-credentials.yaml
-    reason: M32 — a spoke's token-exchange client secret is a referenced Secret; the hub's federation credentials are files
+    reason: "Added: on a hub, the credentials for exchanging tokens into a target installation are a Secret per target under extras/agent-platform/secrets instead of inline values · M32"
   - key: extras:agent-platform/secrets/kustomization.yaml resources[<name>-token-exchange-credentials.yaml]
-    reason: M32 — a spoke's token-exchange client secret is a referenced Secret; the hub's federation credentials are files
+    reason: "Added: the secrets kustomization lists each target's token-exchange credentials Secret, so it is applied with the rest · M32"
   - key: extras:agent-platform/secrets/muster-broker-clients.yaml
-    reason: M32 — a spoke's token-exchange client secret is a referenced Secret; the hub's federation credentials are files
+    reason: "Added: on a hub, muster's broker client credentials are the Secret muster-broker-clients under extras/agent-platform/secrets instead of inline values · M32"
   - key: extras:agent-platform/secrets/kustomization.yaml resources[muster-broker-clients.yaml]
-    reason: M32 — a spoke's token-exchange client secret is a referenced Secret; the hub's federation credentials are files
+    reason: "Added: the secrets kustomization lists the muster-broker-clients Secret, so it is applied with the rest · M32"
   - key: configmap:muster.muster.oauth.server.tokenExchangeBroker.brokerClients.<name>.clientCredentialsSecretRef
-    reason: M32 — a spoke's token-exchange client secret is a referenced Secret; the hub's federation credentials are files
+    reason: "Added: each broker client in muster's token-exchange block points at its credentials Secret (clientCredentialsSecretRef) instead of carrying an inline secret · M32"
   - key: configmap:muster.muster.oauth.server.tokenExchangeBroker.targets.<name>.clientCredentialsSecretRef
-    reason: M32 — a spoke's token-exchange client secret is a referenced Secret; the hub's federation credentials are files
+    reason: "Added: each token-exchange target in muster points at its credentials Secret (clientCredentialsSecretRef) instead of carrying an inline secret · M32"
 
   # --- M5 — kagent's UI gets its own Dex client and audience ---
   - key: dex-configmap:oidc.extraStaticClients[kagent]
-    reason: M5 — kagent's UI gets its own Dex client and audience
+    reason: "Added: Dex gets a client named kagent for the kagent UI, which signed in through another client's id until now · M5"
   - key: extras:agent-platform/secrets/dex-client-kagent-secret.yaml
-    reason: M5 — kagent's UI gets its own Dex client and audience
+    reason: "Added: the kagent Dex client's secret is the Secret dex-client-kagent-secret under extras/agent-platform/secrets · M5"
   - key: extras:agent-platform/secrets/kustomization.yaml resources[dex-client-kagent-secret.yaml]
-    reason: M5 — kagent's UI gets its own Dex client and audience
+    reason: "Added: the secrets kustomization lists dex-client-kagent-secret.yaml, so the kagent client's Secret is applied with the rest · M5"
   - key: configmap:muster.muster.oauth.server.trustedAudiences[kagent]
-    reason: M5 — kagent's UI gets its own Dex client and audience
+    reason: "Added: muster trusts tokens issued for the kagent client (audience kagent), so the kagent UI's calls into muster are accepted · M5"
   - key: configmap:kagent.oauth2-proxy.extraArgs.oidc-extra-audience[kagent]
-    reason: M5 — kagent's UI gets its own Dex client and audience
+    reason: "Added: the kagent UI's oauth2-proxy accepts tokens with the audience kagent, its own client · M5"
   - key: configmap:kagent.oauth2-proxy.extraArgs.oidc-extra-audience
-    reason: M5 — kagent's UI gets its own Dex client and audience
+    reason: "Added: the kagent UI's oauth2-proxy gets an oidc-extra-audience list with the audiences it accepts besides its own client · M5"
 
   # --- M5 — muster and the kagent UI trust the authenticator's audience ---
   - key: configmap:muster.muster.oauth.server.trustedAudiences[dex-k8s-authenticator]
-    reason: M5 — muster and the kagent UI trust the authenticator's audience
+    reason: "Added: muster trusts tokens issued for the dex-k8s-authenticator client, so a kubectl login token is accepted for muster's tools · M5"
   - key: configmap:kagent.oauth2-proxy.extraArgs.oidc-extra-audience[dex-k8s-authenticator]
-    reason: M5 — muster and the kagent UI trust the authenticator's audience
+    reason: "Added: the kagent UI's oauth2-proxy accepts tokens issued for the dex-k8s-authenticator client · M5"
 
   # --- M30 — the portals' Dex client is named backstage ---
   - key: dex-configmap:oidc.extraStaticClients[backstage]
-    reason: M30 — the portals' Dex client is named backstage
+    reason: "Added: Dex gets a client named backstage for the Dev Portal and every customer portal, which signed in through an installation-specific client id until now · M30"
   - key: dex-configmap:oidc.staticClients.dexK8SAuthenticator.trustedPeers[backstage]
-    reason: M30 — the portals' Dex client is named backstage
+    reason: "Added: the dex-k8s-authenticator client trusts the backstage client as a peer, so a portal session can obtain a kubectl token · M30"
   - key: extras:agent-platform/secrets/dex-client-backstage-secret.yaml
-    reason: M30 — the portals' Dex client is named backstage
+    reason: "Added: the backstage Dex client's secret is the Secret dex-client-backstage-secret under extras/agent-platform/secrets · M30"
   - key: extras:agent-platform/secrets/kustomization.yaml resources[dex-client-backstage-secret.yaml]
-    reason: M30 — the portals' Dex client is named backstage
+    reason: "Added: the secrets kustomization lists dex-client-backstage-secret.yaml, so the backstage client's Secret is applied with the rest · M30"
   - key: configmap:muster.muster.oauth.server.trustedAudiences[backstage]
-    reason: M30 — the portals' Dex client is named backstage
+    reason: "Added: muster trusts tokens issued for the backstage client, so the portal's calls into muster are accepted · M30"
   - key: configmap:kagent.oauth2-proxy.extraArgs.oidc-extra-audience[backstage]
-    reason: M30 — the portals' Dex client is named backstage
+    reason: "Added: the kagent UI's oauth2-proxy accepts tokens issued for the backstage client, so a portal session opens the kagent UI · M30"
 
   # --- M1 — a Dex client's secret becomes a referenced Secret (dex-app 3.2.2 or later) ---
   - key: dex-configmap:oidc.staticClients.<name>.clientSecretRef
-    reason: M1 — a Dex client's secret becomes a referenced Secret (dex-app 3.2.2 or later)
+    reason: "Added: the Dex client reads its secret from a Secret in the cluster instead of the encrypted values patch. Needs dex-app 3.2.2 · M1"
   - key: dex-configmap:oidc.extraStaticClients[*].secretRef
-    reason: M1 — a Dex client's secret becomes a referenced Secret (dex-app 3.2.2 or later)
+    reason: "Added: the extra Dex client reads its secret from a Secret in the cluster (secretRef) instead of the encrypted values patch. Needs dex-app 3.2.2 · M1"
   - key: extras:agent-platform/secrets/dex-client-<name>-secret.yaml
-    reason: M1 — a Dex client's secret becomes a referenced Secret (dex-app 3.2.2 or later)
+    reason: "Added: a Dex client's secret is its own Secret under extras/agent-platform/secrets, shared with the client that presents it. Needs dex-app 3.2.2 · M1"
   - key: extras:agent-platform/secrets/kustomization.yaml resources[dex-client-<name>-secret.yaml]
-    reason: M1 — a Dex client's secret becomes a referenced Secret (dex-app 3.2.2 or later)
+    reason: "Added: the secrets kustomization lists the Dex client Secrets, so they are applied with the rest. Needs dex-app 3.2.2 · M1"
   - key: extras:mcp-<name>/dex-client-mcp-<name>-secret.yaml
-    reason: M1 — a Dex client's secret becomes a referenced Secret (dex-app 3.2.2 or later)
+    reason: "Added: the mcp-* server's Dex client secret is a Secret in the server's own extras directory, the Dex-side copy of what the server presents. Needs dex-app 3.2.2 · M1"
   - key: extras:mcp-<name>/kustomization.yaml resources[dex-client-mcp-<name>-secret.yaml]
-    reason: M1 — a Dex client's secret becomes a referenced Secret (dex-app 3.2.2 or later)
+    reason: "Added: the mcp-* server's kustomization lists its Dex client Secret, so it is applied with the server. Needs dex-app 3.2.2 · M1"
 
   # --- M9 — the mcp-* servers' Valkey password becomes a generated Secret ---
   - key: extras:mcp-<name>/valkey-credentials.enc.yaml
-    reason: M9 — the mcp-* servers' Valkey password becomes a generated Secret
+    reason: "Added: the mcp-* server's Valkey reads its password from a generated Secret (valkey-credentials) in the server's extras directory · M9"
   - key: extras:mcp-<name>/kustomization.yaml resources[valkey-credentials.enc.yaml]
-    reason: M9 — the mcp-* servers' Valkey password becomes a generated Secret
+    reason: "Added: the mcp-* server's kustomization lists valkey-credentials.enc.yaml, so the Valkey Secret is applied with the server · M9"
   - key: extras:mcp-<name>/oauth-credentials.enc.yaml stringData.VALKEY_PASSWORD
-    reason: M9 — the mcp-* servers' Valkey password becomes a generated Secret
+    reason: "Added: the mcp-* server gets the same generated Valkey password in its credentials (VALKEY_PASSWORD), so the server and its Valkey agree · M9"
   - key: extras:mcp-<name>/oauth-credentials.enc.yaml type
-    reason: M9 — the mcp-* servers' Valkey password becomes a generated Secret
+    reason: "Added: the mcp-* server's credentials Secret states its type (Opaque), written together with the Valkey password · M9"
 
   # --- M11 — the edge validates the portals' tokens on the 4 line ---
   - key: configmap:agent-platform-mcps.agentgateway.jwt.extraProviders
-    reason: M11 — the edge validates the portals' tokens on the 4 line
+    reason: "Added: on chart 4.x the agentgateway edge validates the portals' Dex ID tokens itself, so it gets this installation's Dex as an extra JWT provider · M11"
   - key: configmap:gateway.jwksEgress.enabled
-    reason: M11 — the edge validates the portals' tokens on the 4 line
+    reason: "Added: on chart 4.x the agentgateway edge fetches Dex's JWKS to validate tokens, which needs egress to Dex switched on · M11"
   - key: configmap:extraObjects[ReferenceGrant/<namespace>/agentgateway-jwks-dex]
-    reason: M11 — the edge validates the portals' tokens on the 4 line
+    reason: "Added: a ReferenceGrant agentgateway-jwks-dex lets the edge's JWKS fetch reach Dex across namespaces · M11"
 
   # --- M3 — the portal's platform section moves to its own Component ---
   - key: backstage:file:agent-platform
-    reason: M3 — the portal's platform section moves to its own Component
+    reason: "Moved: the portal's Agent Platform settings leave the main app-config for a kustomize Component the platform owns · M3"
 
   # --- M31 — the post-login allowlist names the portals and the connectors' completion ---
   - key: configmap:muster.muster.oauth.mcpClient.postLoginRedirectAllowlist
-    reason: M31 — the post-login allowlist names the portals and the connectors' completion
+    reason: "Added: muster's post-login redirect allowlist names the portals and the connectors' completion page, so a sign-in started there returns there · M31"
 
   # --- M6 — the global domain is written explicitly ---
   - key: configmap:global.domain
-    reason: M6 — the global domain is written explicitly
+    reason: "Added: global.domain is written explicitly with this installation's base domain, which the charts read instead of deriving it · M6"
 
-  # --- M7 — the template's defaults and the policy's components written explicitly ---
+  # --- M7 — the shared defaults and the fleet policy's components written explicitly ---
   - key: configmap:components.kagent.enabled
-    reason: M7 — the template's defaults and the policy's components written explicitly
+    reason: "Added: components.kagent.enabled is written explicitly with the value this installation's organisation gets, instead of being left to the shared defaults · M7"
   - key: configmap:components.agent-manager.enabled
-    reason: M7 — the template's defaults and the policy's components written explicitly
+    reason: "Added: components.agent-manager.enabled is written explicitly with the value this installation's organisation gets, instead of being left to the shared defaults · M7"
   - key: configmap:components.cluster-manager.enabled
-    reason: M7 — the template's defaults and the policy's components written explicitly
+    reason: "Added: components.cluster-manager.enabled is written explicitly with the value this installation's organisation gets, instead of being left to the shared defaults · M7"
   - key: configmap:components.klaus-gateway.enabled
-    reason: M7 — the template's defaults and the policy's components written explicitly
+    reason: "Added: components.klaus-gateway.enabled is written explicitly: on where this installation has a Slack app, off elsewhere · M7"
   - key: configmap:postgres.enabled
-    reason: M7 — the template's defaults and the policy's components written explicitly
+    reason: "Added: postgres.enabled is written explicitly (on where kagent runs) instead of being left to the shared defaults · M7"
   - key: configmap:cluster-manager
-    reason: M7 — the template's defaults and the policy's components written explicitly
+    reason: "Added: the cluster-manager block is written explicitly for an installation that runs the cluster-manager · M7"
   - key: configmap:clusterManager
-    reason: M7 — the template's defaults and the policy's components written explicitly
+    reason: "Added: the clusterManager block (the chart's camel-case key) is written explicitly for an installation that runs the cluster-manager · M7"
   - key: configmap:klausGateway.reviews
-    reason: M7 — the template's defaults and the policy's components written explicitly
+    reason: "Added: the Klaus gateway's team reviews are written explicitly: switched on, their audience, and the platform workloads allowed to call them · M7"
   - key: configmap:klausGateway.obo.connectors.enabled
-    reason: M7 — the template's defaults and the policy's components written explicitly
+    reason: "Added: the Klaus gateway's on-behalf-of connectors are written explicitly as switched on for every installation running the gateway · M7"
   - key: configmap:klausGateway.a2a.enabled
-    reason: M7 — the template's defaults and the policy's components written explicitly
+    reason: "Added: the Klaus gateway's agent-to-agent calls are written explicitly as switched on, with the installation's default agent · M7"

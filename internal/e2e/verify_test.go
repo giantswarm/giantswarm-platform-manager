@@ -286,7 +286,7 @@ func TestVerifyCapabilityPlannedAddition(t *testing.T) {
 			t.Errorf("%s: %+v", id, d)
 		}
 		for _, diff := range d.Differences {
-			if !strings.HasPrefix(diff.Planned, "M5 ") || diff.Current != "" || diff.Rendered == "" {
+			if !strings.HasSuffix(diff.Planned, "· M5") || diff.Current != "" || diff.Rendered == "" {
 				t.Errorf("%s: %+v", id, diff)
 			}
 		}
@@ -324,7 +324,7 @@ func TestVerifyCapabilityPlannedJoinedAudience(t *testing.T) {
 	if diff.Path != plan.ListExtraAudience || diff.Current != hubPortalClientID || diff.Rendered != "dex-k8s-authenticator,kagent,"+hubPortalClientID+",backstage" {
 		t.Errorf("oauth2-proxy-extra-audience: %+v", diff)
 	}
-	for _, m := range []string{"M5 — kagent", "M5 — muster and the kagent UI trust the authenticator", "M30 — the portals'"} {
+	for _, m := range []string{"the audience kagent, its own client · M5", "the dex-k8s-authenticator client · M5", "the backstage client, so a portal session opens the kagent UI · M30"} {
 		if !strings.Contains(diff.Planned, m) {
 			t.Errorf("planned %q lacks %q", diff.Planned, m)
 		}
