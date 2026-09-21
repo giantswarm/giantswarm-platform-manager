@@ -164,19 +164,26 @@ func TestRepoFromURL(t *testing.T) {
 }
 
 func TestStateOf(t *testing.T) {
+	// The two facts read apart, one word for each cell.
 	for _, tc := range []struct {
-		optIn   OptInState
-		enabled bool
-		want    State
+		optedIn, enabled bool
+		want             State
 	}{
-		{NotOptedIn, false, StateNotOptedIn},
-		{NotOptedIn, true, StateNotOptedIn},
-		{OptInUnreadable, true, StateNotOptedIn},
-		{OptedIn, false, StateNotEnabled},
-		{OptedIn, true, StateEnabled},
+		{false, false, StateNotOptedIn},
+		{false, true, StateEnabledNotOptedIn},
+		{true, false, StateNotEnabled},
+		{true, true, StateEnabled},
 	} {
-		if got := stateOf(tc.optIn, tc.enabled); got != tc.want {
-			t.Errorf("%s/%v: %s, want %s", tc.optIn, tc.enabled, got, tc.want)
+		if got := stateOf(tc.optedIn, tc.enabled); got != tc.want {
+			t.Errorf("opted in %v/enabled %v: %s, want %s", tc.optedIn, tc.enabled, got, tc.want)
 		}
+	}
+	for _, s := range []State{StateEnabled, StateEnabledNotOptedIn} {
+		if !s.OnRecord() || s.FromAction() {
+			t.Errorf("%s: on record, not from an action", s)
+		}
+	}
+	if StateNotOptedIn.OnRecord() || StateNotEnabled.OnRecord() || StateDrifted.OnRecord() {
+		t.Error("a state without the fileset on record reads on record")
 	}
 }

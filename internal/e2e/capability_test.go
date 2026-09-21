@@ -279,7 +279,8 @@ func TestReconcileCapabilityDryRunOverTheSet(t *testing.T) {
 	for _, s := range out.Skipped {
 		skipped[s.Name] = s.Reason
 	}
-	if len(skipped) != 4 || skipped[alder] != tools.SkippedNotOptedIn || skipped["willow"] != tools.SkippedNotOptedIn || skipped["oak"] != tools.SkippedUnreadable || skipped["larch"] != tools.SkippedNoRepositories {
+	// maple's fileset on record does not open the gate: without the declaration it is skipped like alder.
+	if len(skipped) != 5 || skipped[alder] != tools.SkippedNotOptedIn || skipped[maple] != tools.SkippedNotOptedIn || skipped["willow"] != tools.SkippedNotOptedIn || skipped["oak"] != tools.SkippedUnreadable || skipped["larch"] != tools.SkippedNoRepositories {
 		t.Fatalf("skipped: %+v", out.Skipped)
 	}
 	hazel := findPlan(t, out, hub)

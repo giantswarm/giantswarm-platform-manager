@@ -78,10 +78,15 @@ type CapabilityState struct {
 	Inputs map[string]any `json:"inputs,omitempty"`
 	// EnabledMarker is the file whose presence in MarkerRepository (the
 	// installation's configs or management-clusters repository) means
-	// enabled, and Enabled whether it is there.
+	// enabled, and Enabled whether it is there: the capability's fileset is
+	// on record, whoever put it there.
 	EnabledMarker    string           `json:"enabledMarker"`
 	MarkerRepository MarkerRepository `json:"markerRepository"`
 	Enabled          bool             `json:"enabled"`
+	// OptedIn says the manager may write here: the installation's owners
+	// have declared the opt-in (the report's optIn says how to, when not).
+	// Enabled and OptedIn are the two facts State reads as one word.
+	OptedIn bool `json:"optedIn"`
 	// LastAction is the last Action record for this capability on this
 	// installation; null until the Action record exists.
 	LastAction *ActionRef `json:"lastAction"`
@@ -206,8 +211,8 @@ func (r *Registry) inspect(ctx context.Context, c *github.Client, inst Installat
 				rep.Errors = append(rep.Errors, m.err.Error())
 				rep.Readable = false
 			} else {
-				cs.Enabled = m.enabled
-				cs.State = stateOf(optIn.State, m.enabled)
+				cs.Enabled, cs.OptedIn = m.enabled, optIn.State == OptedIn
+				cs.State = stateOf(cs.OptedIn, cs.Enabled)
 			}
 		}
 		rep.Capabilities = append(rep.Capabilities, cs)
@@ -231,15 +236,21 @@ func readMarker(ctx context.Context, c *github.Client, inst Installation, cap Ca
 	return markerRead{enabled: enabled, err: err}
 }
 
-// stateOf is the state readable from the repositories alone.
-func stateOf(optIn OptInState, enabled bool) State {
+// stateOf is the state readable from the repositories alone: whether the
+// capability's fileset is on record and whether the owners have opted in,
+// as one word. A fileset on record without the opt-in — the installations
+// enabled by hand before the manager existed — is installed all the same,
+// and the manager may not write to it.
+func stateOf(optedIn, enabled bool) State {
 	switch {
-	case optIn != OptedIn:
-		return StateNotOptedIn
-	case enabled:
+	case optedIn && enabled:
 		return StateEnabled
-	default:
+	case optedIn:
 		return StateNotEnabled
+	case enabled:
+		return StateEnabledNotOptedIn
+	default:
+		return StateNotOptedIn
 	}
 }
 

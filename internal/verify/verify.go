@@ -267,9 +267,10 @@ func Compare(ctx context.Context, opts Options) Result {
 		f.Mark = rollUp(f.Dimensions)
 		r.Features = append(r.Features, f)
 	}
-	// Drifted is an enabled installation off its definition; one not enabled
-	// differs everywhere and keeps saying so.
-	if r.Summary[Drifted] > 0 && r.State == installations.StateEnabled {
+	// Drifted is an installation with the fileset on record off its
+	// definition, opted in or not; one not enabled differs everywhere and
+	// keeps saying so.
+	if r.Summary[Drifted] > 0 && r.State.OnRecord() {
 		r.State = installations.StateDrifted
 	}
 	return r
