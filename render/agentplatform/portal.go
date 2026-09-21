@@ -50,7 +50,15 @@ func (in *Input) portalAuthProvider() string { return render.PortalAuthProvider(
 // carries its own; a list the Component set there would replace it.
 func (in *Input) portalOwnsLists() bool { return !in.Installation.Hub }
 
-// musterEntry is the installation's muster as the portal reaches it.
+// musterEntry is the installation's muster as the portal reaches it. Its
+// authProvider is the portal's sign-in provider on this installation's Dex,
+// oidc-<installation>: the muster plugin sends that provider's ID token on
+// the home installation and the token the cluster token broker mints from
+// that Dex elsewhere, and muster trusts the portal's Dex client as an
+// audience. The portal builds a dedicated OAuth provider only for an
+// auth.providers key with the mcp- prefix and the platform declares none, so
+// an mcp-* name here would promise a login that is not there and switch the
+// picker to a token muster rejects the day someone declares one.
 func (in *Input) musterEntry() render.Map {
 	return render.Map{e("name", in.Installation.Name), e("url", "https://"+in.host("muster")+"/mcp"), e("authProvider", in.portalAuthProvider())}
 }
