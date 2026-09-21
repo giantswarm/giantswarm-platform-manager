@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The `agent-platform` definition's portal Component renders no `BACKSTAGE_AVATARS_IMG_SRC` entry into `backstage.extraEnvVars` any more: the portal loads agent avatars through its own backend (backstage plugin-agent-platform's `/avatars` route) and its Content-Security-Policy needs no host of the installation. The `extensionsInclude` and `muster.installations` lists the Component owns are unchanged; an instance that still carries the variable has a dead setting.
 - Every GitHub read of a call runs at once, bounded at the client — 32 requests in flight at most, well under GitHub's 100 — instead of eight installations at a time with each installation's six reads one after another and a hub's federation targets read one by one. The owner's shared default config (`default/config.yaml`), which every installation without its own client id falls back to, is read once per call instead of once per installation. A full listing of a fleet of 43 installations that took 21 seconds through muster answers in a few; the `list_installations` log line carries `reads` and `duration_ms`.
 
 ### Fixed

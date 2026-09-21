@@ -36,8 +36,6 @@ const (
 	portalValuesMap = "agent-platform-values-backstage"
 	// extensionsInclude is the shared base's list of the platform's portal extensions.
 	extensionsInclude = "shared-config.yaml#extensionsAgentPlatform"
-	// avatarsEnv is the CSP image source slot of the shared base's config.
-	avatarsEnv = "BACKSTAGE_AVATARS_IMG_SRC"
 )
 
 // portalAuthProvider is the portal's sign-in provider on this installation's
@@ -45,9 +43,9 @@ const (
 func (in *Input) portalAuthProvider() string { return render.PortalAuthProvider(in.Installation.Name) }
 
 // portalOwnsLists says whether the Component is the portal's sole source of its
-// list-shaped keys (app.extensions, muster.installations,
-// backstage.extraEnvVars) and so sets them. The hub's hand-kept Dev Portal
-// carries its own; a list the Component set there would replace it.
+// list-shaped keys (app.extensions, muster.installations) and so sets them.
+// The hub's hand-kept Dev Portal carries its own; a list the Component set
+// there would replace it.
 func (in *Input) portalOwnsLists() bool { return !in.Installation.Hub }
 
 // musterEntry is the installation's muster as the portal reaches it.
@@ -74,13 +72,10 @@ func (in *Input) portalAppConfig() render.Map {
 }
 
 // portalValues are the platform's chart values: the fragment mounted as an
-// extra app-config file and, where the Component owns the portal's lists, the
-// installation's avatars host as the CSP image source.
+// extra app-config file. The portal loads agent avatars through its own
+// backend, so its Content-Security-Policy needs no host of the installation.
 func (in *Input) portalValues() render.Map {
 	backstage := render.Map{e("extraAppConfig", []render.Map{{e("filename", portalAppConfigFile), e("configMapRef", portalAppConfigMap)}})}
-	if in.portalOwnsLists() {
-		backstage = append(backstage, e("extraEnvVars", []render.Map{{e("name", avatarsEnv), e("value", "https://"+in.host("avatars"))}}))
-	}
 	return render.Map{e("backstage", backstage)}
 }
 
