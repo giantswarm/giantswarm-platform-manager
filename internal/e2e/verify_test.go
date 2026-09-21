@@ -666,3 +666,61 @@ func TestVerifyCapabilityReadsBackThePortal(t *testing.T) {
 		t.Errorf("values %v", res.Inputs.Values)
 	}
 }
+
+// githubAppIDField is the portal's GitHub App id as the plan names it among
+// the values supplied at commit; hubGitHubAppFile is the hub portal's GitHub
+// App Secret on record, SOPS encrypted: the skeleton the render has, the
+// values one ENC[...] scalar.
+const (
+	githubAppIDField     = "plugins.github.appId"
+	hubGitHubAppFile     = "management-clusters/" + hub + "/extras/backstage/backstage/github-app-credentials.enc.yaml"
+	hubGitHubAppOnRecord = "apiVersion: v1\nkind: Secret\nmetadata:\n  name: github-app-credentials-backstage\n  namespace: flux-giantswarm\ntype: Opaque\nstringData:\n  values: ENC[AES256_GCM,data:fixture,iv:fixture,tag:fixture,type:str]\nsops:\n  age:\n    - recipient: age1fixture\n  encrypted_regex: ^(data|stringData)$\n  version: 3.9.0\n"
+)
+
+// portalConfigWithGitHub is portalConfig with the github integration on: the
+// app-config lists it, so plugins.github.enabled reads back true.
+func portalConfigWithGitHub(names ...string) string {
+	return strings.Replace(portalConfig(names...), "        organization:\n", "        integrations:\n          github:\n            - host: github.com\n        organization:\n", 1)
+}
+
+// A portal on record with the github plugin on: its GitHub App id lives only
+// in the encrypted file, so no read-back recovers it — the definition refuses
+// nothing, the encrypted file on record reads as defined with its values
+// opaque, the plan names the id among the values supplied at commit, and a
+// commit without it is refused by field before anything is recorded.
+func TestVerifyCapabilityTakesThePortalsGitHubAppIDAsSupplied(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	st.ghs.addFile(hubMCs, installations.PortalConfigPath(hub), portalConfigWithGitHub(hub, alder, birch, "rowan", "willow", "oak", "larch"))
+	st.ghs.addFile(hubMCs, hubGitHubAppFile, hubGitHubAppOnRecord)
+	c := st.mcpClient(t, aliceToken)
+	text, isErr := call(t, c, tools.ToolVerifyCapability, map[string]any{tools.ArgInstallation: hub, tools.ArgCapability: installations.CustomerPortal})
+	if isErr {
+		t.Fatal(text)
+	}
+	var res verify.Result
+	if err := json.Unmarshal([]byte(text), &res); err != nil {
+		t.Fatalf("decode: %v\n%s", err, text)
+	}
+	if res.Inputs.Source != verify.Source(true, false) || res.Refused != "" || res.Inputs.ReadBack["plugins.github.enabled"] != true {
+		t.Fatalf("inputs %q refused %q read back %v", res.Inputs.Source, res.Refused, res.Inputs.ReadBack)
+	}
+	if !slices.Contains(res.SuppliedSecrets, githubAppIDField) || !slices.Contains(res.SuppliedSecrets, "plugins.github.privateKey") {
+		t.Fatalf("supplied %v", res.SuppliedSecrets)
+	}
+	if d := dimension(t, feature(t, res, "secrets"), "github-app-credentials"); d.Mark != verify.AsDefined || !slices.Contains(d.Files, hubMCs+":"+hubGitHubAppFile) || len(d.Differences) != 0 {
+		t.Errorf("github-app-credentials: %+v", d)
+	}
+	secrets := map[string]any{}
+	for _, f := range res.SuppliedSecrets {
+		if f != githubAppIDField {
+			secrets[f] = "fixture-" + f
+		}
+	}
+	if _, text, isErr := commitCall(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: hub, tools.ArgCapability: installations.CustomerPortal, tools.ArgSecrets: secrets}); !isErr || !strings.Contains(text, githubAppIDField) {
+		t.Fatalf("a commit without the app id: %v %s", isErr, text)
+	}
+	if got := listActionsOf(t, c, hub); len(got) != 0 {
+		t.Fatalf("a refused commit recorded %d action(s)", len(got))
+	}
+}

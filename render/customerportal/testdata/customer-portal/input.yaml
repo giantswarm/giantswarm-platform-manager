@@ -19,7 +19,6 @@ input:
   plugins:
     github:
       enabled: true
-      appId: 123456
     grafana:
       enabled: true
       domain: https://grafana.maple.acme.example.test
@@ -30,6 +29,7 @@ input:
   tunnel:
     enabled: false
 secrets:
+  plugins.github.appId: "123456"
   plugins.github.clientId: Iv1.placeholder-client-id
   plugins.github.clientSecret: placeholder-client-secret
   plugins.github.privateKey: placeholder-private-key

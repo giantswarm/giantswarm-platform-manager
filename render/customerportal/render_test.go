@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -351,9 +352,12 @@ func TestRefusals(t *testing.T) {
 		{"unknown nested key", clone(func(m map[string]any) { m["portal"].(map[string]any)["replicas"] = 3 }), secrets, ErrInput, "replicas"},
 		{"unknown plugin", clone(func(m map[string]any) { m["plugins"].(map[string]any)["jenkins"] = map[string]any{enabledKey: true} }), secrets, ErrInput, "jenkins"},
 		{"chart line not a range", clone(func(m map[string]any) { m["chart"].(map[string]any)["line"] = "2.1.0" }), secrets, ErrInput, "line"},
-		{"github without an app id", clone(func(m map[string]any) { delete(m["plugins"].(map[string]any)["github"].(map[string]any), "appId") }), secrets, ErrInput, "plugins.github.appId"},
+		{"github with the app id as an input", clone(func(m map[string]any) { m["plugins"].(map[string]any)["github"].(map[string]any)["appId"] = 123456 }), secrets, ErrInput, fieldGitHubAppID},
+		{"github without its app id", base, without(secrets, fieldGitHubAppID), ErrEmptySecret, fieldGitHubAppID},
+		{"app id not a number", base, with(secrets, fieldGitHubAppID, "one"), ErrInput, fieldGitHubAppID},
+		{"app id not positive", base, with(secrets, fieldGitHubAppID, "0"), ErrInput, fieldGitHubAppID},
 		{"grafana without a domain", clone(func(m map[string]any) { m["plugins"].(map[string]any)["grafana"] = map[string]any{enabledKey: true} }), secrets, ErrInput, "plugins.grafana.domain"},
-		{"missing supplied secret", base, map[string]string{fieldGitHubClientID: "x"}, ErrEmptySecret, fieldGitHubClientSecret},
+		{"missing supplied secret", base, map[string]string{fieldGitHubAppID: "1", fieldGitHubClientID: "x"}, ErrEmptySecret, fieldGitHubClientSecret},
 		{"unknown secret value", withoutGitHub, map[string]string{fieldGitHubClientID: "x"}, ErrUnknownSecret, fieldGitHubClientID},
 		{"sentry without its values", clone(func(m map[string]any) { m["plugins"].(map[string]any)["sentry"] = map[string]any{enabledKey: true} }), secrets, ErrEmptySecret, fieldSentryAppDSN},
 		{"providers without the installation's own", clone(func(m map[string]any) { m["installation"].(map[string]any)["providers"] = []any{"capv"} }), secrets, ErrInput, "installation.providers"},
@@ -384,7 +388,7 @@ func TestSuppliedMarkers(t *testing.T) {
 		t.Fatal(err)
 	}
 	fields := in.SuppliedSecretFields()
-	if len(fields) != 7 {
+	if len(fields) != 8 {
 		t.Fatalf("supplied fields: %v", fields)
 	}
 	result, err := Render(input, in.SuppliedMarkers())
@@ -402,4 +406,26 @@ func TestSuppliedMarkers(t *testing.T) {
 			t.Errorf("marker for %s not rendered", f)
 		}
 	}
+	// The app id lives only in the encrypted file: the marker lands there, as
+	// the value of appId.
+	for _, files := range result.Files {
+		for path, file := range files {
+			if strings.HasSuffix(path, githubAppFile) && !bytes.Contains(file.Content, []byte("appId: "+Supplied(fieldGitHubAppID)+"\n")) {
+				t.Errorf("%s does not carry the app id's marker:\n%s", path, file.Content)
+			}
+		}
+	}
+}
+
+// without is secrets without field; with is secrets with field set to value.
+func without(secrets map[string]string, field string) map[string]string {
+	out := maps.Clone(secrets)
+	delete(out, field)
+	return out
+}
+
+func with(secrets map[string]string, field, value string) map[string]string {
+	out := maps.Clone(secrets)
+	out[field] = value
+	return out
 }
