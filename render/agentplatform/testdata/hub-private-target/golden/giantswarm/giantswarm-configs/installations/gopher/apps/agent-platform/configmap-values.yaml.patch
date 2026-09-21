@@ -31,7 +31,7 @@ kagent:
     config:
       existingSecret: kagent-oauth2-proxy-credentials
     extraArgs:
-      oidc-extra-audience: dex-k8s-authenticator,kagent # gitleaks:allow
+      oidc-extra-audience: dex-k8s-authenticator,kagent,backstage # gitleaks:allow
 modelServing:
   serving:
     runtimeClassName: nvidia
@@ -53,6 +53,7 @@ muster:
         trustedAudiences:
           - dex-k8s-authenticator
           - kagent
+          - backstage
         tokenExchangeBroker:
           allowPrivateIP: true
           brokerClients:
@@ -80,6 +81,24 @@ muster:
               scopes: openid profile email groups audience:server:client_id:dex-k8s-authenticator
               clientCredentialsSecretRef:
                 name: marmot-token-exchange-credentials
+gateway:
+  jwksEgress:
+    enabled: true
+extraObjects:
+  - apiVersion: gateway.networking.k8s.io/v1beta1
+    kind: ReferenceGrant
+    metadata:
+      name: agentgateway-jwks-dex
+      namespace: giantswarm
+    spec:
+      from:
+        - group: agentgateway.dev
+          kind: AgentgatewayPolicy
+          namespace: agent-platform
+      to:
+        - group: ""
+          kind: Service
+          name: dex
 agent-platform-mcps:
   identityProviders:
     burrow:
@@ -160,6 +179,20 @@ agent-platform-mcps:
       auth:
         mode: exchange
         provider: marmot
+  agentgateway:
+    jwt:
+      extraProviders:
+        - issuer: https://dex.gopher.example.io
+          audiences:
+            - backstage
+          jwks:
+            remote:
+              backendRef:
+                name: dex
+                namespace: giantswarm
+                port: 5556
+              jwksPath: /keys
+              cacheDuration: 5m
 cluster-manager:
   installation:
     name: gopher

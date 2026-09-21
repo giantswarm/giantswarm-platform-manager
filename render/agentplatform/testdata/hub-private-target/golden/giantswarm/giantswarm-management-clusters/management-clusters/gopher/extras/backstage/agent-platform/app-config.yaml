@@ -7,15 +7,7 @@ metadata:
   namespace: backstage
 data:
   app-config.agent-platform.yaml: |
-    app:
-      extensions:
-        $include: shared-config.yaml#extensionsAgentPlatform
     agentPlatform:
       kagent:
         installations:
           gopher: {}
-    muster:
-      installations:
-        - name: gopher
-          url: https://muster.gopher.example.io/mcp
-          authProvider: oidc-gopher

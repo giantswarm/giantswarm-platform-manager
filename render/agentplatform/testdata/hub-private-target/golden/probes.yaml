@@ -159,6 +159,15 @@
       - 200
       - 302
     note: Dex answers a client it knows with its login page (several connectors) or a redirect to the one connector; an unknown client is an error page
+- id: live-dex-auth-per-client
+  feature: identity
+  kind: HTTP
+  url: https://dex.gopher.example.io/auth?client_id=backstage&redirect_uri=https://portal.gopher.example.io/api/auth/oidc-gopher/handler/frame&response_type=code&scope=openid
+  expect:
+    statuses:
+      - 200
+      - 302
+    note: Dex answers a client it knows with its login page (several connectors) or a redirect to the one connector; an unknown client is an error page
 - id: live-muster-protected-resource
   feature: tool-access
   kind: HTTP
