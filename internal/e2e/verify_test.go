@@ -841,4 +841,14 @@ func TestVerifyCapabilityTakesAMissingChoiceAsNotChecked(t *testing.T) {
 	if d := dimension(t, feature(t, res, "portal"), notChecked[0]); d.Mark != verify.DiffersByInput || d.Reason != "" || len(d.Differences) != 1 || d.Differences[0].File != appConfig || d.Differences[0].Input == "" {
 		t.Errorf("the choice typed: %+v", d)
 	}
+	// The portal's anonymous probes run against the portal's own domain.
+	portalDomain := rowanPortalInputs(nil)[portalKey].(map[string]any)[domainKey].(string)
+	for _, p := range []struct{ feature, id, url string }{
+		{"portal", "portal-root", "https://" + portalDomain + "/"},
+		{"identity", "portal-oidc-start", "https://" + portalDomain + "/api/auth/oidc-" + rowan + "/start?env=production"},
+	} {
+		if d := dimension(t, feature(t, res, p.feature), p.id); d.Mark != verify.AsDefined || len(d.Probe.Requests) != 1 || d.Probe.Requests[0].URL != p.url {
+			t.Errorf("%s: mark %q reason %q requests %+v", p.id, d.Mark, d.Reason, d.Probe.Requests)
+		}
+	}
 }

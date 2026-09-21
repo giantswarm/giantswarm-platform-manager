@@ -268,6 +268,7 @@ func Compare(ctx context.Context, opts Options) Result {
 		r.view(p, opts.Content)
 	}
 	dims := assign(c, feats, r.Refused)
+	data := probeData(opts.Installation.Name, opts.Installation.BaseDomain, opts.Inputs.Values)
 	for _, fd := range feats {
 		f := Feature{ID: fd.ID, Title: fd.Title, Marks: map[Mark]int{}, Dimensions: []Dimension{}}
 		for _, d := range fd.Dimensions {
@@ -279,7 +280,7 @@ func Compare(ctx context.Context, opts Options) Result {
 				if c != nil {
 					clients = c.dexClients
 				}
-				f.Dimensions = append(f.Dimensions, probe(ctx, opts.Probes, opts.Installation.BaseDomain, clients, c != nil, p))
+				f.Dimensions = append(f.Dimensions, probe(ctx, opts.Probes, data, clients, c != nil, p))
 			}
 		}
 		for _, d := range f.Dimensions {

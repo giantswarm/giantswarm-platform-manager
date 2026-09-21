@@ -1,12 +1,49 @@
 package definitions_test
 
 import (
+	"bytes"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
+	"text/template"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 )
+
+// TestEveryProbeTemplateExecutes executes every probe's URL template of
+// every definition over a ProbeData with every field set: a template over a
+// field the verify does not fill fails here, not as a template error on the
+// first verify of an installation.
+func TestEveryProbeTemplateExecutes(t *testing.T) {
+	var full verify.ProbeData
+	v := reflect.ValueOf(&full).Elem()
+	for i := 0; i < v.NumField(); i++ {
+		v.Field(i).SetString(v.Type().Field(i).Name)
+	}
+	caps, err := definitions.Capabilities()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range caps {
+		probes, err := definitions.Probes(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range probes {
+			tmpl, err := template.New(p.ID).Parse(p.URL)
+			if err != nil {
+				t.Errorf("%s: probe %s: %v", c, p.ID, err)
+				continue
+			}
+			var buf bytes.Buffer
+			if err := tmpl.Execute(&buf, full); err != nil {
+				t.Errorf("%s: probe %s: %v", c, p.ID, err)
+			}
+		}
+	}
+}
 
 // TestEveryDefinitionParses holds every capability's data files to their
 // shape: features.yaml, probes.yaml, removals.yaml and migrations.yaml of
