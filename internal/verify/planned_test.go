@@ -18,6 +18,7 @@ import (
 const (
 	testPlatformPatch = "installations/x/apps/agent-platform/configmap-values.yaml.patch"
 	testDexPatch      = "installations/x/apps/dex-app/configmap-values.yaml.patch"
+	testDomain        = "x.example.test"
 )
 
 // Every key of the agent-platform migrations names a path some golden
@@ -158,8 +159,7 @@ func TestOwnMCPServersAreNotM19(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const domain = "x.example.test"
-	rms, noDomain := readRemovals(rs, facts{"domain": domain}), readRemovals(rs, nil)
+	rms, noDomain := readRemovals(rs, facts{factDomain: testDomain}), readRemovals(rs, nil)
 	patch := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
 	const list = "agent-platform-mcps.mcpServers"
 	for _, tc := range []struct {
@@ -167,14 +167,14 @@ func TestOwnMCPServersAreNotM19(t *testing.T) {
 		keys              plannedKeys
 		m19               bool
 	}{
-		{"own mcp-kubernetes on the installation's domain", list + "[https://mcp-kubernetes." + domain + "/mcp].url", "this mcp-kubernetes entry at mcp-kubernetes." + domain, rms, false},
+		{"own mcp-kubernetes on the installation's domain", list + "[https://mcp-kubernetes." + testDomain + "/mcp].url", "this mcp-kubernetes entry at mcp-kubernetes." + testDomain, rms, false},
 		{"own mcp-prometheus in the cluster", list + "[http://mcp-prometheus.mcp-prometheus.svc:8080/mcp].timeout", "this mcp-prometheus entry repeats the in-cluster one", rms, false},
-		{"own mcp-capi's auth mode", list + "[https://mcp-capi." + domain + "/mcp].auth.mode", "this mcp-capi entry at mcp-capi." + domain, rms, false},
+		{"own mcp-capi's auth mode", list + "[https://mcp-capi." + testDomain + "/mcp].auth.mode", "this mcp-capi entry at mcp-capi." + testDomain, rms, false},
 		{"a target's public URL on a hub", list + "[https://mcp-kubernetes.y.example.test/mcp].url", "", rms, true},
 		{"a foreign server", list + "[http://mcp-foo.mcp-foo.svc:8080/mcp].url", "", rms, true},
 		{"a private target's tunnel host", list + "[https://mcp-kubernetes-y.agent-platform.svc.cluster.local:8443/mcp].url", "", rms, true},
 		{"the list itself", list, "", rms, true},
-		{"no base domain on record: a public entry is not own", list + "[https://mcp-kubernetes." + domain + "/mcp].url", "", noDomain, true},
+		{"no base domain on record: a public entry is not own", list + "[https://mcp-kubernetes." + testDomain + "/mcp].url", "", noDomain, true},
 		{"no base domain on record: the in-cluster entry still is", list + "[http://mcp-capi.mcp-capi.svc:8080/mcp].url", "this mcp-capi entry repeats the in-cluster one", noDomain, false},
 	} {
 		got := tc.keys.reason(patch, tc.path)
@@ -208,12 +208,12 @@ func TestPlaceholdersFillTheReason(t *testing.T) {
 		{Key: "configmap:muster.muster.oauth.server.tokenExchangeBroker.targets.<name>.clientCredentialsSecretRef", Reason: "the target <name> (<other> stays)"},
 	}, nil)
 	rms := readRemovals([]definitions.Removal{
-		{Key: "configmap:agent-platform-mcps.mcpServers[<scheme>://mcp-capi.<domain>/mcp]", Kind: "template", Reason: "mcp-capi at mcp-capi.<domain> over <scheme>"},
-	}, facts{"domain": "x.example.test"})
+		{Key: "configmap:agent-platform-mcps.mcpServers[<scheme>://mcp-capi.<domain>/mcp]", Reason: "mcp-capi at mcp-capi.<domain> over <scheme>"},
+	}, facts{factDomain: testDomain})
 	patch := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
 	dexCM := &fileDiff{path: testDexPatch, kind: definitions.KindDexSecret}
-	valkey := &fileDiff{path: "management-clusters/x/extras/mcp-capi/valkey-credentials.enc.yaml", kind: definitions.KindExtras}
-	mcpKust := &fileDiff{path: "management-clusters/x/extras/mcp-capi/kustomization.yaml", kind: definitions.KindExtras}
+	valkey := &fileDiff{path: "management-clusters/x/extras/mcp-prometheus/valkey-credentials.enc.yaml", kind: definitions.KindExtras}
+	mcpKust := &fileDiff{path: "management-clusters/x/extras/mcp-prometheus/kustomization.yaml", kind: definitions.KindExtras}
 	secret := &fileDiff{path: "management-clusters/x/extras/agent-platform/secrets/dex-client-muster-secret.yaml", kind: definitions.KindExtras}
 	absent := func(p string) *Difference { return &Difference{Path: p, Rendered: "x", absent: true} }
 	for _, tc := range []struct {
@@ -222,14 +222,14 @@ func TestPlaceholdersFillTheReason(t *testing.T) {
 		d    *Difference
 		want string
 	}{
-		{"the server from its directory", valkey, absent("stringData.default"), "the mcp-capi server's Valkey"},
-		{"the server from the directory and the entry", mcpKust, absent("resources[dex-client-mcp-capi-secret.yaml]"), "the mcp-capi server's Dex client Secret"},
+		{"the server from its directory", valkey, absent("stringData.default"), "the mcp-prometheus server's Valkey"},
+		{"the server from the directory and the entry", mcpKust, absent("resources[dex-client-mcp-prometheus-secret.yaml]"), "the mcp-prometheus server's Dex client Secret"},
 		{"another server's Secret in the directory is nobody's", mcpKust, absent("resources[dex-client-mcp-kubernetes-secret.yaml]"), ""},
 		{"the client from the file name", secret, absent(""), "the muster Dex client's secret"},
 		{"the client from the map key", dexCM, absent("oidc.staticClients.mcpCapi.clientSecretRef.name"), "the Dex client mcpCapi"},
 		{"the namespace from the identity", patch, absent("extraObjects[ReferenceGrant/dex/agentgateway-jwks-dex].kind"), "a ReferenceGrant in dex"},
 		{"an undeclared placeholder stays", patch, absent("muster.muster.oauth.server.tokenExchangeBroker.targets.y.clientCredentialsSecretRef"), "the target y (<other> stays)"},
-		{"a fact and a part of the identity", patch, &Difference{Path: "agent-platform-mcps.mcpServers[https://mcp-capi.x.example.test/mcp].url", Rendered: "", Current: "x"}, "mcp-capi at mcp-capi.x.example.test over https"},
+		{"a fact and a part of the identity", patch, &Difference{Path: "agent-platform-mcps.mcpServers[https://mcp-capi." + testDomain + "/mcp].url", Current: "x"}, "mcp-capi at mcp-capi." + testDomain + " over https"},
 	} {
 		if got := planned(tc.fd, tc.d, rms, migs); got != tc.want {
 			t.Errorf("%s: %s#%s planned %q, want %q", tc.name, tc.fd.path, tc.d.Path, got, tc.want)
@@ -264,7 +264,7 @@ func TestEveryReasonPlaceholderIsDeclared(t *testing.T) {
 			keys[m.Key] = m.Reason
 		}
 		for key, reason := range keys {
-			k, ok := parseKey(key, reason, facts{"domain": "x.example.test"})
+			k, ok := parseKey(key, reason, facts{factDomain: testDomain})
 			if !ok {
 				continue
 			}

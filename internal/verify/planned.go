@@ -42,14 +42,17 @@ type plannedKey struct {
 // own base domain. A key with one names the installation's own form of an
 // entry — its MCP server on its own host — and nothing else; without the
 // fact on record the key names nothing.
-var factPlaceholders = map[string]bool{"domain": true}
+var factPlaceholders = map[string]bool{factDomain: true}
+
+// factDomain is the placeholder of the installation's own base domain.
+const factDomain = "domain"
 
 // facts are the installation's values of the fact placeholders.
 type facts map[string]string
 
 // ownFacts are inst's facts for the keys.
 func ownFacts(inst installations.Installation) facts {
-	return facts{"domain": inst.BaseDomain}
+	return facts{factDomain: inst.BaseDomain}
 }
 
 // readRemovals parses a capability's removals under the installation's
