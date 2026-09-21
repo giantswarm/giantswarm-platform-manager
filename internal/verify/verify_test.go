@@ -386,3 +386,39 @@ func TestReadsOnce(t *testing.T) {
 		t.Errorf("a file not read: %v after %d reads", err, n)
 	}
 }
+
+// A dimension not checked says what it lacks: the files of its kind the plan
+// could not compare, each with the answer (GitHub's names the file, another
+// reader's is prefixed with it), or the kind of file the definition renders
+// none of. A dimension of the kind with a difference keeps its mark.
+func TestNotCheckedReasonsNameWhatIsMissing(t *testing.T) {
+	const patch = "installations/x/apps/dex-app/configmap-values.yaml.patch"
+	feats := []definitions.Feature{{ID: "clients", Dimensions: []definitions.Dimension{
+		{ID: "extra-clients", Kind: definitions.KindDexSecret, Key: "oidc.extraStaticClients"},
+		{ID: "peers", Kind: definitions.KindDexSecret, Key: "oidc.staticClients"},
+		{ID: "broker", Kind: definitions.KindBackstage, Key: "app-config gs.clusterTokenBroker"},
+	}}}
+	refused := &fileDiff{key: "r:" + patch, path: patch, kind: definitions.KindDexSecret, unreadable: "github: r:" + patch + ": 403 Forbidden"}
+	dims := assign(&comparison{files: map[string]*fileDiff{refused.key: refused}}, feats, "")
+	want := ReasonUnreadable + ": github: r:" + patch + ": 403 Forbidden"
+	for _, id := range []string{"extra-clients", "peers"} {
+		if d := dims[id]; d.Mark != NotChecked || d.Reason != want {
+			t.Errorf("%s: %+v, want %q", id, *d, want)
+		}
+	}
+	if d := dims["broker"]; d.Mark != NotChecked || d.Reason != ReasonNoFile+": "+definitions.KindBackstage {
+		t.Errorf("no file of the kind: %+v", *d)
+	}
+
+	// An answer that does not name the file is prefixed with it, and a
+	// dimension of the kind that still has a difference keeps its mark.
+	refused.unreadable = "is on record but takes no entry: not a YAML mapping"
+	refused.diffs = []Difference{{File: refused.key, Path: "oidc.extraStaticClients[kagent].id", Rendered: "kagent"}}
+	dims = assign(&comparison{files: map[string]*fileDiff{refused.key: refused}}, feats, "")
+	if d := dims["peers"]; d.Reason != ReasonUnreadable+": r:"+patch+": is on record but takes no entry: not a YAML mapping" {
+		t.Errorf("prefixed answer: %+v", *d)
+	}
+	if d := dims["extra-clients"]; d.Mark != Drifted || d.Reason != "" {
+		t.Errorf("the dimension with a difference: %+v", *d)
+	}
+}

@@ -48,12 +48,16 @@ const (
 var severity = []Mark{Drifted, DiffersByInput, Planned, AsDefined}
 
 // The reasons a dimension is not checked. A probe's own — no Dex client to
-// run for, a target unreachable from the manager — are next to probe in probes.go.
+// run for, a target unreachable from the manager — are next to probe in
+// probes.go. ReasonUnreadable and ReasonNoFile open a reason that names,
+// after the colon, the files the plan could not compare (GitHub's refusal
+// as the caller, or a file on record that takes no entry) with the answer
+// to each, or the kind of file the definition renders none of.
 const (
 	ReasonAuthority  = "needs your session on the installation"
 	ReasonNoRender   = "nothing rendered to compare against: the inputs are missing or refused"
-	ReasonUnreadable = "a file of the dimension could not be read as the caller"
-	ReasonNoFile     = "the definition renders no file of this kind for the inputs on record"
+	ReasonUnreadable = "a file of the dimension could not be compared"
+	ReasonNoFile     = "the definition renders no file of the dimension's kind for the inputs on record"
 	// ReasonMissingChoice opens the reason of a dimension whose leaves carry
 	// a Missing marker: a required person input no layer of the inputs
 	// holds, named by field after the colon. Never a difference: a choice
@@ -65,6 +69,18 @@ const (
 // not on record its leaves carry, by field.
 func missingChoice(fields []string) string {
 	return ReasonMissingChoice + ": " + strings.Join(fields, ", ")
+}
+
+// unreadable is the reason a dimension is not checked for the files of its
+// kind the plan could not compare: each file with the answer, sorted.
+func unreadable(files []string) string {
+	return ReasonUnreadable + ": " + strings.Join(slices.Sorted(slices.Values(files)), "; ")
+}
+
+// noFile is the reason a dimension is not checked when the definition
+// renders no file of its kind for the inputs on record.
+func noFile(kind string) string {
+	return ReasonNoFile + ": " + kind
 }
 
 // Difference is one place a repository file, or a live object, is off the
@@ -906,11 +922,18 @@ func assign(c *comparison, feats []definitions.Feature, refused string) map[stri
 		return dims
 	}
 	filesByKind := map[string][]string{}
-	unreadable := map[string]bool{}
+	// refusals are, by kind, the files the caller could not read, each with
+	// the reader's answer; GitHub's names the file, a reader's that does
+	// not is prefixed with it.
+	refusals := map[string][]string{}
 	for key, fd := range c.files {
 		filesByKind[fd.kind] = append(filesByKind[fd.kind], key)
 		if fd.unreadable != "" {
-			unreadable[fd.kind] = true
+			answer := fd.unreadable
+			if !strings.Contains(answer, fd.path) {
+				answer = key + ": " + answer
+			}
+			refusals[fd.kind] = append(refusals[fd.kind], answer)
 		}
 		for _, d := range fd.diffs {
 			if target := route(matchers, fd, d.Path); target != nil {
@@ -934,14 +957,14 @@ func assign(c *comparison, feats []definitions.Feature, refused string) map[stri
 		files := filesByKind[m.kind]
 		sort.Strings(files)
 		m.dim.Files = files
-		m.dim.Mark = fileMark(m.dim.Differences, len(files) > 0, unreadable[m.kind])
+		m.dim.Mark = fileMark(m.dim.Differences, len(files) > 0, len(refusals[m.kind]) > 0)
 		switch {
 		case m.dim.Mark == AsDefined && len(m.dim.missing) > 0:
 			m.dim.Mark, m.dim.Reason = NotChecked, missingChoice(slices.Sorted(maps.Keys(m.dim.missing)))
-		case m.dim.Mark == NotChecked && unreadable[m.kind]:
-			m.dim.Reason = ReasonUnreadable
+		case m.dim.Mark == NotChecked && len(refusals[m.kind]) > 0:
+			m.dim.Reason = unreadable(refusals[m.kind])
 		case m.dim.Mark == NotChecked:
-			m.dim.Reason = ReasonNoFile
+			m.dim.Reason = noFile(m.kind)
 		}
 		sort.Slice(m.dim.Differences, func(i, j int) bool {
 			return m.dim.Differences[i].File+m.dim.Differences[i].Path < m.dim.Differences[j].File+m.dim.Differences[j].Path

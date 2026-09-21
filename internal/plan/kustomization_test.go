@@ -24,7 +24,8 @@ func TestListEntry(t *testing.T) {
 		{name: "fills an empty list", current: "kind: Kustomization\nresources: []\n", list: ListResources, entry: entry, changed: true, want: "kind: Kustomization\nresources:\n  - ./a/\n"},
 		{name: "fills a null list", current: "kind: Kustomization\nresources:\n", list: ListResources, entry: entry, changed: true, want: "kind: Kustomization\nresources:\n  - ./a/\n"},
 		{name: "not a mapping", current: "- a\n", list: ListResources, entry: entry, err: true},
-		{name: "empty file", current: "", list: ListResources, entry: entry, err: true},
+		{name: "empty file", current: "", list: ListResources, entry: entry, changed: true, want: "resources:\n  - ./a/\n"},
+		{name: "comments alone", current: "# nothing here yet\n", list: ListResources, entry: entry, changed: true, want: "resources:\n  - ./a/\n"},
 		{name: "the list is a mapping", current: "resources:\n  a: b\n", list: ListResources, entry: entry, err: true},
 	}
 	for _, tc := range cases {
