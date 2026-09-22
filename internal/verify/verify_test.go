@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
@@ -647,5 +648,27 @@ func TestDrivenPathsPerturbsOnlyTheNamedInputs(t *testing.T) {
 	}
 	if got := drivenPaths(values, nil, base, render); len(got) != 0 {
 		t.Errorf("no input named: %v", got)
+	}
+}
+
+// The plan fetches its files from several goroutines at once; the cache
+// answers each of them once and stays consistent under the race detector.
+func TestReadsAreSafeAtOnce(t *testing.T) {
+	rs := &reads{got: map[string]read{}, read: func(_ context.Context, repository, path string) (string, error) {
+		return repository + "/" + path, nil
+	}}
+	ctx := context.Background()
+	var wg sync.WaitGroup
+	for i := range 32 {
+		wg.Go(func() {
+			path := "p" + strconv.Itoa(i)
+			if got, err := rs.reader(ctx, "r", path); got != "r/"+path || err != nil {
+				t.Errorf("read %q %v", got, err)
+			}
+		})
+	}
+	wg.Wait()
+	if got, err := rs.recorded(ctx, "r", "p7"); got != "r/p7" || err != nil {
+		t.Errorf("recorded %q %v", got, err)
 	}
 }

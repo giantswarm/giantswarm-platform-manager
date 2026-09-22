@@ -20,6 +20,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
@@ -670,8 +671,11 @@ func redacted(present bool) string {
 
 // reads is what the plan read as the caller, by file key: every file is read
 // once, and the perturbed plans of drivenPaths read the record from here.
+// The plan fetches its files from several goroutines at once; the cache is
+// safe for that.
 type reads struct {
 	read plan.Reader
+	mu   sync.Mutex
 	got  map[string]read
 }
 
@@ -683,17 +687,25 @@ type read struct {
 // reader reads a file as the caller, once.
 func (r *reads) reader(ctx context.Context, repository, path string) (string, error) {
 	key := fileKey(repository, path)
-	if got, ok := r.got[key]; ok {
+	r.mu.Lock()
+	got, ok := r.got[key]
+	r.mu.Unlock()
+	if ok {
 		return got.content, got.err
 	}
 	content, err := r.read(ctx, repository, path)
+	r.mu.Lock()
 	r.got[key] = read{content: content, err: err}
+	r.mu.Unlock()
 	return content, err
 }
 
 // recorded answers what reader read; a file it did not read is absent.
 func (r *reads) recorded(_ context.Context, repository, path string) (string, error) {
-	if got, ok := r.got[fileKey(repository, path)]; ok {
+	r.mu.Lock()
+	got, ok := r.got[fileKey(repository, path)]
+	r.mu.Unlock()
+	if ok {
 		return got.content, got.err
 	}
 	return "", gh.ErrNotFound

@@ -142,7 +142,14 @@ func (l *limiter) RoundTrip(req *http.Request) (*http.Response, error) {
 func (l *limiter) Requests() int64 { return l.requests.Load() }
 
 func newClient(apiURL string, opts ...github.ClientOptionsFunc) (*github.Client, *limiter, error) {
-	l := newLimiter(http.DefaultTransport, maxInFlight)
+	// A call reads in bursts — an installation's record and markers, then
+	// the plan's files — of up to maxInFlight requests to one host; the
+	// default transport keeps two idle connections, so each burst opened
+	// the rest anew. Keeping as many idle as may be in flight lets the next
+	// burst reuse them.
+	base := http.DefaultTransport.(*http.Transport).Clone()
+	base.MaxIdleConnsPerHost = maxInFlight
+	l := newLimiter(base, maxInFlight)
 	opts = append(opts,
 		github.WithHTTPClient(&http.Client{Transport: l}),
 		github.WithTimeout(15*time.Second))

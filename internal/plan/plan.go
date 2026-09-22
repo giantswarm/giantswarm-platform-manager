@@ -14,6 +14,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 
@@ -247,8 +248,80 @@ type PullRequest struct {
 	GeneratedSecrets []string `json:"generatedSecrets"`
 }
 
-// Reader reads a file of a repository as the caller.
+// Reader reads a file of a repository as the caller. Build calls it from
+// several goroutines at once: every file a plan compares against is fetched
+// in one phase.
 type Reader func(ctx context.Context, repository, path string) (string, error)
+
+// ReadConcurrency bounds the files of one plan in flight at once. A
+// comparison reads every rendered file's current content and the
+// kustomizations its includes land in — some thirty GitHub round trips —
+// so reading them one after another cost the phase thirty times one round
+// trip; fetched at once it costs about one. The GitHub client bounds the
+// whole call further.
+const ReadConcurrency = 16
+
+// fileRef names a file of a repository the plan reads.
+type fileRef struct{ repository, path string }
+
+func (f fileRef) key() string { return f.repository + ":" + f.path }
+
+// fetched is what the plan read as the caller, by fileRef key: every file
+// the plan compares against, read at once before the files are walked.
+type fetched struct {
+	mu  sync.Mutex
+	got map[string]readResult
+}
+
+type readResult struct {
+	content string
+	err     error
+}
+
+// fetch reads every file of files through read at once, ReadConcurrency in
+// flight at most, each once whatever the duplicates among files. A context
+// over before a file's turn is that file's error.
+func fetch(ctx context.Context, read Reader, files []fileRef) *fetched {
+	f := &fetched{got: make(map[string]readResult, len(files))}
+	var distinct []fileRef
+	for _, file := range files {
+		if _, seen := f.got[file.key()]; !seen {
+			f.got[file.key()] = readResult{}
+			distinct = append(distinct, file)
+		}
+	}
+	slots := make(chan struct{}, ReadConcurrency)
+	var wg sync.WaitGroup
+	for _, file := range distinct {
+		wg.Go(func() {
+			r := readResult{err: ctx.Err()}
+			if r.err == nil {
+				select {
+				case slots <- struct{}{}:
+					r.content, r.err = read(ctx, file.repository, file.path)
+					<-slots
+				case <-ctx.Done():
+					r.err = ctx.Err()
+				}
+			}
+			f.mu.Lock()
+			f.got[file.key()] = r
+			f.mu.Unlock()
+		})
+	}
+	wg.Wait()
+	return f
+}
+
+// read answers a fetched file as a Reader. A file the plan did not name
+// before fetching is a defect of Build, named.
+func (f *fetched) read(_ context.Context, repository, path string) (string, error) {
+	got, ok := f.got[fileRef{repository, path}.key()]
+	if !ok {
+		return "", fmt.Errorf("%s:%s was not among the plan's files when they were fetched", repository, path)
+	}
+	return got.content, got.err
+}
 
 // Options shape one installation's plan.
 type Options struct {
@@ -282,6 +355,20 @@ func Build(ctx context.Context, opts Options) Installation {
 	p.SuppliedSecrets = in.SuppliedSecretFields()
 	p.CustomerActions = customerActions(opts.Installation.Name, in)
 	p.Probes = Probes(opts.Definition.Name)
+	// Every file the plan compares against is read now, at once: the
+	// rendered files' current content and the kustomizations the includes
+	// land in. The walk below reads from what was fetched.
+	var files []fileRef
+	for repo, byPath := range res.Files {
+		target := ResolveRepository(string(repo), opts.Installation, opts.Hub)
+		for path := range byPath {
+			files = append(files, fileRef{target, path})
+		}
+	}
+	for _, inc := range res.Includes {
+		files = append(files, fileRef{ResolveRepository(string(inc.Repository), opts.Installation, opts.Hub), inc.Path})
+	}
+	opts.Read = fetch(ctx, opts.Read, files).read
 	generated := map[string]*GeneratedSecret{}
 	var holders []holder
 	held := map[string]int{} // a holder's file → its index in p.Files
