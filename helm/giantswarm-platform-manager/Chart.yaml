@@ -1,6 +1,6 @@
 apiVersion: v2
 name: giantswarm-platform-manager
-description: Giant Swarm's installation manager — an MCP server behind muster that enables, reconciles and verifies platform capabilities on opted-in installations as the person, every write a pull request to the installation's GitOps repository
+description: Giant Swarm's installation manager — an MCP server behind muster that enables, reconciles and verifies platform capabilities on the registry's installations as the person, every write a pull request to the installation's GitOps repository
 type: application
 version: 0.1.0
 appVersion: "0.1.0"

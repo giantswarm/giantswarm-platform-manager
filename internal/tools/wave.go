@@ -32,8 +32,8 @@ type WaveResult struct {
 	Order []string `json:"order"`
 	// Skipped are the installations of the set that are not targets.
 	Skipped []actions.Skipped `json:"skipped"`
-	// Unchanged are the opted-in installations whose files are on record as
-	// the definition renders them: nothing to merge, not a stage.
+	// Unchanged are the installations with the capability on record whose
+	// files are as the definition renders them: nothing to merge, not a stage.
 	Unchanged    []string              `json:"unchanged"`
 	PullRequests []actions.PullRequest `json:"pullRequests"`
 	Next         string                `json:"next"`
