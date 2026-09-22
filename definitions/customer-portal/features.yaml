@@ -27,7 +27,7 @@ features:
       - {id: app-identity, kind: backstage, key: app-config.yaml app.title / app.baseUrl / organization}
       - {id: app-shared-includes, kind: backstage, key: app-config.yaml app.extensions / app.routes / catalog / gs.adminGroups / gs.kubernetesVersions / gs.friendlyAnnotations / gs.friendlyLabels}
       - {id: app-telemetry, kind: backstage, key: app-config.yaml app.telemetrydeck / app.errorReporter / backend.errorReporter / backend.csp.report-uri}
-      - {id: backend, kind: backstage, key: app-config.yaml backend (baseUrl, listen, cors, csp, database, cache, reading)}
+      - {id: backend, kind: backstage, key: "app-config.yaml backend (baseUrl, listen, cors, csp, database, cache, reading)"}
       - {id: kubernetes-cluster, kind: backstage, key: "app-config.yaml kubernetes.clusterLocatorMethods[*].clusters[*] / kubernetes (the locator methods themselves)"}
       - {id: plugins, kind: backstage, key: app-config.yaml integrations.github / grafana / flux / permission / techdocs}
       - {id: gs-homepage-and-installation, kind: backstage, key: app-config.yaml gs.homepage / gs.installations.<name>}
@@ -46,7 +46,7 @@ features:
       - {id: cluster-token-broker, kind: backstage, key: app-config.yaml gs.clusterTokenBroker}
       - {id: session-secret, kind: backstage, key: app-config.yaml auth.session / user-secrets.enc.yaml authSessionSecret}
       - {id: dex-client-values, kind: backstage, key: user-secrets.enc.yaml dexAuthCredentials.<name>}
-      - {id: dex-client-entry, kind: dex-configmap, catchAll: true, key: "oidc.extraStaticClients[*] id backstage (this definition's patch without the platform, the agent-platform definition's with it)"}
+      - {id: dex-client-entry, kind: dex-configmap, catchAll: true, key: "the portal's client in the dex patch, and every other leaf of it (this definition's patch without the platform, the agent-platform definition's with it)"}
       - {id: live-oidc-start, kind: live, key: /api/auth/oidc-<name>/start 302 to Dex as client backstage}
       - {id: live-dex-auth-portal-client, kind: live, key: Dex /auth answers client backstage (its login page or a redirect)}
   secrets:

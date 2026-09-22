@@ -119,7 +119,7 @@ func TestMatcherReadsKeys(t *testing.T) {
 		{Kind: definitions.KindConfigMap, CatchAll: true, Key: "the patch's top-level keys"},
 		{Kind: definitions.KindLive, Key: "HelmRelease backstage Ready in flux-giantswarm"},
 	} {
-		if k := newMatcher(d, nil); len(k.words()) != 0 || k.match("kustomization.yaml", "the") != 0 {
+		if k := newMatcher(d, nil); len(k.alts) != 0 || len(k.words()) != 0 || k.match("kustomization.yaml", "the") != 0 {
 			t.Errorf("%q: prose names nothing, got %v", d.Key, k.words())
 		}
 	}
@@ -164,9 +164,11 @@ func matchersOf(feats []definitions.Feature, own facts) []matcher {
 }
 
 // Every file dimension of every definition names leaves — its key has a
-// file or path word — or is the declared catch-all of its kind, of which a
-// kind has at most one; ids are unique. A dimension whose key is prose by
-// accident would otherwise observe nothing and read as defined for ever.
+// file or path word, which under the grammar every word outside a remark
+// is, so only an empty or all-remark key fails here — or is the declared
+// catch-all of its kind, of which a kind has at most one; ids are unique.
+// Whether the words name leaves the definition renders is
+// TestEveryRenderedLeafHasADimension's.
 func TestEveryDimensionNamesLeavesOrIsTheCatchAll(t *testing.T) {
 	caps, err := definitions.Capabilities()
 	if err != nil {

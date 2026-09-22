@@ -36,7 +36,7 @@ features:
       - {id: dex-other-oidc-keys, kind: dex-configmap, catchAll: true, key: every other key of the patch (oidc.* but staticClients and extraStaticClients)}
       - {id: live-oauth2-proxy-extra-audience, kind: live, key: oauth2-proxy --oidc-extra-audience argument}
       - {id: live-muster-trusted-audiences, kind: live, key: muster ConfigMap trustedAudiences}
-      - {id: live-muster-connector-and-client-id, kind: live, key: muster ConfigMap dex connectorId, where the definition renders one}
+      - {id: live-muster-connector-and-client-id, kind: live, key: "muster ConfigMap dex connectorId, where the definition renders one"}
       - {id: live-kagent-api-protected, kind: live, key: /api/agents answered 403 by oauth2-proxy}
       - {id: live-kagent-login-redirect, kind: live, key: /oauth2/start 302 to Dex with client_id=kagent}
       - {id: live-dex-auth-per-client, kind: live, key: Dex /auth 302 for every rendered client}
@@ -69,9 +69,9 @@ features:
       - {id: extras-kustomization-resources, kind: extras, key: agent-platform/kustomization.yaml (resources and the chart line's patch)}
       - {id: live-model-configs, kind: live, key: ModelConfigs in the kagent namespace}
       - {id: live-kagent-provider-values, kind: live, key: kagent HelmRelease .spec.values.providers}
-      - {id: live-helmreleases-ready, kind: live, key: HelmReleases agent-platform, kagent, connectivity, muster, mcps Ready}
+      - {id: live-helmreleases-ready, kind: live, key: "HelmReleases agent-platform, kagent, connectivity, muster, mcps Ready"}
       - {id: live-kagent-workloads, kind: live, key: kagent pods Running and the CNPG cluster healthy}
-      - {id: live-pod-certificate-request, kind: live, key: certificates.k8s.io/v1beta1 podcertificaterequests served by the apiserver (Agent Substrate's feature gates, the 4 line)}
+      - {id: live-pod-certificate-request, kind: live, key: "certificates.k8s.io/v1beta1 podcertificaterequests served by the apiserver (Agent Substrate's feature gates, the 4 line)"}
       - {id: live-drift, kind: live, key: live values equal the rendered manifests}
   tool-access:
     title: Tool access

@@ -11,6 +11,7 @@ import (
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
+	"gopkg.in/yaml.v3"
 )
 
 // TestEveryProbeTemplateExecutes executes every probe's URL template of
@@ -68,6 +69,7 @@ func TestEveryDefinitionParses(t *testing.T) {
 			if len(feats) == 0 {
 				t.Error("features.yaml: no feature")
 			}
+			dimensionNodesCarryOnlyTheirFields(t, c)
 			probes, err := definitions.Probes(c)
 			if err != nil {
 				t.Fatalf("probes.yaml: %v", err)
@@ -192,4 +194,38 @@ func TestInputSummary(t *testing.T) {
 			t.Errorf("%s %s: %q, want %q", tc.capability, tc.field, got, tc.want)
 		}
 	}
+}
+
+// dimensionNodesCarryOnlyTheirFields holds every dimension mapping of a
+// capability's features.yaml to the fields Dimension has. In a YAML flow
+// mapping an unquoted scalar ends at the first comma, so a key with an
+// unquoted comma is read truncated and its tail becomes fields yaml.v3
+// ignores: the card would show half the key, and the verify would route by
+// half of it.
+func dimensionNodesCarryOnlyTheirFields(t *testing.T, capability string) {
+	t.Helper()
+	raw, err := definitions.FS.ReadFile(capability + "/features.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	fields := map[string]bool{"id": true, "kind": true, "key": true, "catchAll": true}
+	var walk func(n *yaml.Node)
+	walk = func(n *yaml.Node) {
+		if n.Kind == yaml.MappingNode && n.Style&yaml.FlowStyle != 0 {
+			for i := 0; i+1 < len(n.Content); i += 2 {
+				if !fields[n.Content[i].Value] {
+					t.Errorf("features.yaml line %d: %q is no field of a dimension: a key with an unquoted comma is read truncated", n.Content[i].Line, n.Content[i].Value)
+				}
+			}
+			return
+		}
+		for _, c := range n.Content {
+			walk(c)
+		}
+	}
+	walk(&doc)
 }
