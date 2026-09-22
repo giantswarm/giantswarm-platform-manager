@@ -793,6 +793,93 @@ const (
 	hubGitHubAppOnRecord = "apiVersion: v1\nkind: Secret\nmetadata:\n  name: github-app-credentials-backstage\n  namespace: flux-giantswarm\ntype: Opaque\nstringData:\n  values: ENC[AES256_GCM,data:fixture,iv:fixture,tag:fixture,type:str]\nsops:\n  age:\n    - recipient: age1fixture\n  encrypted_regex: ^(data|stringData)$\n  version: 3.9.0\n"
 )
 
+// The chat on record by hand in rowan's own portal's app-config: the
+// agent-platform verify reads aiChat.enabled and aiChat.model back from it,
+// the dry run names the key among the supplied secrets and renders the
+// fragment with the shared list with the chat, the aiChat block on the
+// portal's own actions server and the installation's muster, the actions
+// server's configuration and the key's Secret; the fragment's chat leaves
+// are the planned move (M18), nothing of the chat drifts or differs by
+// input. Once the fragment is on record it answers the read-back first and
+// the chat compares as defined; with the chat gone from both, off.
+func TestVerifyCapabilityReadsBackTheChat(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	const enabledInput, modelInput, keyField, model = "aiChat.enabled", "aiChat.model", "aiChat.anthropic.apiKey", "claude-opus-4-8"
+	out, text, isErr := dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.CustomerPortal, tools.ArgInputs: rowanPortalInputs(map[string]any{enabledKey: false})})
+	if isErr {
+		t.Fatal(text)
+	}
+	const organization = "        organization:\n"
+	chat := "        aiChat:\n          anthropic:\n            apiKey: " + dollar + dollar + "{ANTHROPIC_API_KEY}\n          model: " + model + "\n        mcpActions:\n          namespacedToolNames: false\n"
+	key, appConfig := putPortalOnRecord(t, st, findPlan(t, out, rowan), organization, chat+organization)
+
+	res := verifyRowan(t, c, rowan)
+	if res.Refused != "" || res.Inputs.ReadBack[enabledInput] != true || res.Inputs.ReadBack[modelInput] != model || !slices.Contains(res.SuppliedSecrets, keyField) {
+		t.Fatalf("refused %q read back %v supplied %v", res.Refused, res.Inputs.ReadBack, res.SuppliedSecrets)
+	}
+	// The Component is not on record yet: every chat leaf is a planned addition, none is drift.
+	for _, diff := range append(inputDifferences(res, enabledInput), inputDifferences(res, modelInput)...) {
+		if diff.Planned == "" || diff.Current != "" {
+			t.Errorf("a chat leaf the record lacks is not planned: %+v", diff)
+		}
+	}
+	fragment := strings.TrimSuffix(installations.PortalConfigPath(rowan), render.PortalDir+"/app-config.yaml") + render.PortalPlatformDir + "/"
+	var planned []string
+	for _, diff := range dimension(t, feature(t, res, "portal"), "portal-ai-chat").Differences {
+		if !strings.HasSuffix(diff.Planned, "· M18") {
+			t.Errorf("a chat leaf not planned as the chat's move: %+v", diff)
+		}
+		planned = append(planned, diff.Path)
+	}
+	if len(planned) == 0 {
+		t.Error("the fragment on record lacks the chat, and nothing is planned")
+	}
+	out, text, isErr = dryRun(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: rowan})
+	if isErr {
+		t.Fatal(text)
+	}
+	p := findPlan(t, out, rowan)
+	files := map[string]string{}
+	for _, f := range p.Files {
+		files[f.Path] = f.Content
+	}
+	rendered := files[fragment+"app-config.yaml"]
+	for _, want := range []string{"$include: " + render.PortalExtensionsInclude(true, true, false) + "\n", "    aiChat:\n", "      model: " + model + "\n", "          url: https://portal.rowan.acme.test/api/mcp-actions/v1\n", "          url: https://muster.rowan.acme.test/mcp\n", "    mcpActions:\n", "    backend:\n      actions:\n"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("the fragment does not carry %q:\n%s", want, rendered)
+		}
+	}
+	if secret, ok := files[fragment+"ai-chat-credentials.enc.yaml"]; !ok || !strings.Contains(secret, "SUPPLIED("+keyField+")") || !slices.Contains(p.SuppliedSecrets, keyField) {
+		t.Errorf("the key's Secret: %q, supplied %v", secret, p.SuppliedSecrets)
+	}
+	assertNoValue(t, "the dry run", text)
+
+	// The fragment on record answers the read-back before the portal's app-config.
+	putOnRecord(t, st, c, rowan, nil)
+	res = verifyRowan(t, c, rowan)
+	if res.Refused != "" || res.Inputs.ReadBack[enabledInput] != true || res.Inputs.ReadBack[modelInput] != model || res.Summary[verify.Drifted] != 0 || res.Summary[verify.DiffersByInput] != 0 {
+		t.Fatalf("the fragment on record: refused %q read back %v summary %v", res.Refused, res.Inputs.ReadBack, res.Summary)
+	}
+	if d := dimension(t, feature(t, res, "portal"), "portal-ai-chat"); d.Mark != verify.AsDefined {
+		t.Errorf("the chat's dimension: %+v", d)
+	}
+
+	// The chat gone from the portal's app-config and the fragment: off, nothing supplied.
+	repo, path, _ := strings.Cut(key, ":")
+	st.ghs.addFile(repo, path, strings.Replace(appConfig, chat, "", 1))
+	st.ghs.addFile(repo, fragment+"app-config.yaml", strings.Replace(files[fragment+"app-config.yaml"], "    aiChat:\n", "    aiChatX:\n", 1))
+	res = verifyRowan(t, c, rowan)
+	if res.Inputs.ReadBack[enabledInput] != false || res.Inputs.ReadBack[modelInput] != nil || slices.Contains(res.SuppliedSecrets, keyField) {
+		t.Fatalf("the chat gone: read back %v supplied %v", res.Inputs.ReadBack, res.SuppliedSecrets)
+	}
+}
+
+// dollar is the character the fleet's app-configs double in front of a
+// variable the chart's environment supplies.
+const dollar = "$"
+
 // portalConfigWithGitHub is portalConfig with the github integration on: the
 // app-config lists it, so plugins.github.enabled reads back true.
 func portalConfigWithGitHub(names ...string) string {
@@ -1078,7 +1165,7 @@ func TestVerifyCapabilityGrafanaIsTheInstallationsOwn(t *testing.T) {
 	}
 	var include bool
 	for _, diff := range dimension(t, feature(t, res, "portal"), "plugins").Differences {
-		include = include || strings.HasSuffix(diff.Path, ":app.extensions.$include") && diff.Rendered == render.PortalExtensionsInclude(false, true) && diff.Current == render.PortalExtensionsInclude(false, false)
+		include = include || strings.HasSuffix(diff.Path, ":app.extensions.$include") && diff.Rendered == render.PortalExtensionsInclude(false, false, true) && diff.Current == render.PortalExtensionsInclude(false, false, false)
 	}
 	if !include {
 		t.Errorf("wired, the render does not include the list with the dashboards card over the record's baseline: %+v", dimension(t, feature(t, res, "portal"), "plugins").Differences)
@@ -1113,7 +1200,7 @@ func TestVerifyCapabilityGrafanaIsTheInstallationsOwn(t *testing.T) {
 			rendered = f.Content
 		}
 	}
-	if want := "$include: " + render.PortalExtensionsInclude(true, true) + "\n"; !strings.Contains(rendered, want) {
+	if want := "$include: " + render.PortalExtensionsInclude(true, false, true) + "\n"; !strings.Contains(rendered, want) {
 		t.Errorf("the platform's fragment %s for the wired portal does not include %q:\n%s\nthe plan's files: %v", fragment, want, rendered, paths)
 	}
 }

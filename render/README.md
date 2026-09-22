@@ -32,24 +32,31 @@ naming the field. The fleet policy (`definitions/agent-platform/policy.yaml`) sa
 owning organisation's installations run and which installations a Slack app exists for; where one does,
 klaus-gateway renders (and cluster-manager where the organisation's list names it) as data
 (`components.go`): the gateway's route, OBO links and Slack with their Secrets referenced (the OBO keys
-generated, the Slack credentials supplied as `klausGateway.slack.<key>` — the only values a person supplies at
-commit), the manager's installation and, on
+generated, the Slack credentials supplied as `klausGateway.slack.<key>`), the manager's installation and, on
 the 3 chart line, the OAuth section a manager needs without the template's global identity block. The
 developer portal's section (`portal.go`) is a directory of the platform's own, `extras/backstage/agent-platform/`
 in the portal host's tree, a kustomize Component the portal's `extras/backstage/kustomization.yaml` lists
 (`Include.Component`): the platform's Backstage configuration as an extra app-config file the chart mounts from a
-ConfigMap, the chart values that mount it and name the installation's avatars host, the Google credentials of a
-Vertex chat (supplied as `portal.aiChat.google.credentialsJson`), and a patch appending those sources to the
-portal HelmRelease's `valuesFrom` — last, so the platform's values win; Helm replaces lists, so a portal that
-sets `backstage.extraEnvVars` itself loses that list to the platform's. Where kagent runs and the organisation's
+ConfigMap, the chart values that mount it, with the AI chat on (`aiChat.enabled`, `aiChat.model`, the person's
+other choice) the chat's credentials Secret (its Anthropic API key, supplied as `aiChat.anthropic.apiKey` — with
+the Slack credentials the only values a person supplies at commit — as the chart value the chart exposes as
+`ANTHROPIC_API_KEY`), and a patch appending those sources to the portal HelmRelease's `valuesFrom` — last, so the
+platform's values win. The fragment carries the platform's section, and on a portal the customer-portal
+definition renders the shared extension list with the platform's section and the installation's muster entry;
+Backstage and Helm replace lists wholesale, so on a hand-kept portal (a literal `app.extensions` on record) the
+Component writes its object-shaped keys alone and the portal's own lists stand, and the portal's environment
+(`backstage.extraEnvVars`) is the customer-portal definition's on every portal. With the chat on, the fragment
+carries the `aiChat` block on Anthropic's API with the model and the chat's two MCP servers (the portal's own
+actions server at `/api/mcp-actions/v1` with the signed-in person's Backstage token, the installation's muster
+with the sign-in provider), the actions server's tool naming (`mcpActions`) and the actions the service lists for
+it (`backend.actions`), and on a rendered portal the shared list with the chat (`#extensionsAgentPlatformAiChat`,
+or its `GrafanaDashboards` pair). Where kagent runs and the organisation's
 portal follows a chart line before backstage 1.1.0 (`installation.portals[*].chartLine`, the ref its kustomization
 patches onto the fleet base's OCIRepository), the fragment names the agents' Flux identity
 (`agentPlatform.fluxServiceAccountName: kagent-flux`): that plugin composes the agent's HelmRelease itself, and
 the management clusters' Flux multi-tenancy policy refuses one without `spec.serviceAccountName`; from 1.1.0 agents
-are created through agent-manager and the key is not read, so it is not written. A private skills repository's token is
-the one optional supplied value (`portal.skillsToken`): given, it renders `kagent-skills-token` in namespace
-`kagent`. The definition targets dex-app 3.2.0 or later, where every MCP server's Dex client reads a
-`clientSecretRef`.
+are created through agent-manager and the key is not read, so it is not written. The definition targets dex-app
+3.2.0 or later, where every MCP server's Dex client reads a `clientSecretRef`.
 
 A hub's `federation.targets` render the hub side (`hub.go`): the token-exchange broker's targets and the
 agentgateway's identity providers in the configmap patch, the targets' MCP servers with exchange auth,

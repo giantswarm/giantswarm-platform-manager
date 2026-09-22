@@ -40,6 +40,7 @@ const (
 	// the anchors of its supersets append one suffix per addition.
 	portalExtensions                  = "extensions"
 	portalExtensionsAgentPlatform     = "AgentPlatform"
+	portalExtensionsAiChat            = "AiChat"
 	portalExtensionsGrafanaDashboards = "GrafanaDashboards"
 )
 
@@ -51,16 +52,22 @@ func PortalSharedInclude(anchor string) string { return portalSharedConfig + anc
 // Backstage replaces app.extensions wholesale per app-config file and
 // $include cannot append to a list, so the fleet's shared config carries one
 // full list per combination, named by what it adds to the baseline: the
-// agent platform's section where the platform runs, the Grafana dashboards
-// card where the portal's Grafana plugin is wired (the card reads through
-// PortalGrafanaProxy and is disabled in the app until switched on). The
-// customer-portal definition includes the list without the platform in the
-// portal's app-config; the agent-platform definition's Component includes the
-// one with it in its fragment, which wins.
-func PortalExtensionsInclude(agentPlatform, grafanaWired bool) string {
+// agent platform's section where the platform runs, the AI chat's page and
+// drawer where the platform's section carries the chat (the chat is the
+// platform's, and the fleet carries no list with the chat without the
+// platform's section, so the suffix follows the platform's), the Grafana
+// dashboards card where the portal's Grafana plugin is wired (the card reads
+// through PortalGrafanaProxy and is disabled in the app until switched on).
+// The customer-portal definition includes the list without the platform in
+// the portal's app-config; the agent-platform definition's Component includes
+// the one with it in its fragment, which wins.
+func PortalExtensionsInclude(agentPlatform, aiChat, grafanaWired bool) string {
 	anchor := portalExtensions
 	if agentPlatform {
 		anchor += portalExtensionsAgentPlatform
+		if aiChat {
+			anchor += portalExtensionsAiChat
+		}
 	}
 	if grafanaWired {
 		anchor += portalExtensionsGrafanaDashboards

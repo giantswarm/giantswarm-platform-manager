@@ -241,8 +241,11 @@ func entryPath(yamlPath, entry string) string {
 	return yamlPath + "[" + entry + "]"
 }
 
+// covers says whether the key names the path yamlPath in fd — a path
+// inside the document a string field holds matched by its inner path, as
+// find matches it.
 func (k plannedKey) covers(fd *fileDiff, yamlPath string) bool {
-	_, ok := k.matches(fd, segments(yamlPath), false)
+	_, ok := k.matches(fd, segments(innerPath(fd.documents, yamlPath)), false)
 	return ok
 }
 

@@ -144,12 +144,17 @@ removals:
       same way on every installation, without a token value · M29
   - key: backstage:app-config:aiChat
     kind: other-definition
-    reason: "Moved: the portal's aiChat block sits in the main app-config today; the Agent Platform Component carries it, and the main app-config is the customer-portal capability's to clean up · M18"
+    reason: "Moved: the portal's aiChat block sits in the main app-config today; the Agent Platform Component carries it where the chat is on, and the main app-config is the customer-portal capability's to clean up · M18"
   - key: backstage:app-config:mcpActions
     kind: other-definition
     reason: >-
-      Moved: the portal's mcpActions block (the chat's tool naming) sits in the main app-config today; the Agent Platform Component carries it, and the main
-      app-config is the customer-portal capability's to clean up · M18
+      Moved: the portal's mcpActions block (the chat's tool naming) sits in the main app-config today; the Agent Platform Component carries it where the chat
+      is on, and the main app-config is the customer-portal capability's to clean up · M18
+  - key: backstage:app-config:backend.actions
+    kind: other-definition
+    reason: >-
+      Moved: backend.actions (the actions the portal lists for the chat's MCP actions server) sits in the main app-config today; the Agent Platform Component
+      carries it where the chat is on, and the main app-config is the customer-portal capability's to clean up · M18
   - key: backstage:app-config:agentPlatform.skills
     kind: other-definition
     reason: >-
@@ -288,7 +293,7 @@ removals:
     reason: "Kept: organization is the portal's own organisation name, written by the customer-portal capability; the Agent Platform writes only its Component."
   - key: "backstage:app-config:backend"
     kind: other-definition
-    reason: "Kept: backend is the portal's own backend, database, CSP and plugin key store, written by the customer-portal capability; the Agent Platform writes only its Component."
+    reason: "Kept: backend is the portal's own backend, database, CSP and plugin key store, written by the customer-portal capability; the Agent Platform writes only its Component, and in it backend.actions alone, the chat's."
   - key: "backstage:app-config:integrations"
     kind: other-definition
     reason: "Kept: integrations is the portal's own source integrations, written by the customer-portal capability; the Agent Platform writes only its Component."

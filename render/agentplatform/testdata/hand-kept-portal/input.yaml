@@ -2,7 +2,9 @@
 # on record carries a literal extension list (the AI chat among it), its own environment and no
 # muster registry, none of which the customer-portal definition renders yet. The portal Component
 # therefore renders in the hand-kept shape — the object-shaped keys only (its kagent installation,
-# the fragment's mount) — because a list it set would replace the portal's own. Beside its own
+# the fragment's mount, and the chat's blocks, read back from the portal's app-config: the aiChat
+# block, the actions server's tool naming and its actions, no extension list) — because a list it
+# set would replace the portal's own; the chat's key is supplied at commit. Beside its own
 # portal the hub's ("aspen") signs it in; that portal is hand-kept too and takes no other
 # installation's Component. Otherwise the giantswarm-owned shape: the components the policy gives
 # the organisation, no Slack app, no serving slice. Invented names, placeholder values.
@@ -34,4 +36,8 @@ input:
       targets: []
   modelServing:
     enabled: false
-secrets: {}
+  aiChat:
+    enabled: true
+    model: claude-opus-4-8
+secrets:
+  aiChat.anthropic.apiKey: PLACEHOLDER-ANTHROPIC-API-KEY

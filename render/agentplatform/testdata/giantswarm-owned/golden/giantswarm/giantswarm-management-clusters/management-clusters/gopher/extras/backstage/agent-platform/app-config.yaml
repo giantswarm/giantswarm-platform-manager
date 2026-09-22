@@ -9,7 +9,7 @@ data:
   app-config.agent-platform.yaml: |
     app:
       extensions:
-        $include: shared-config.yaml#extensionsAgentPlatform
+        $include: shared-config.yaml#extensionsAgentPlatformAiChat
     agentPlatform:
       kagent:
         installations:
@@ -19,3 +19,25 @@ data:
         - name: gopher
           url: https://muster.gopher.example.io/mcp
           authProvider: oidc-gopher
+    aiChat:
+      anthropic:
+        apiKey: $${ANTHROPIC_API_KEY}
+      model: claude-opus-5
+      mcp:
+        - name: backstage-actions
+          url: https://portal.gopher.example.io/api/mcp-actions/v1
+          useBackstageUserToken: true
+        - name: muster
+          url: https://muster.gopher.example.io/mcp
+          authProvider: oidc-gopher
+    mcpActions:
+      namespacedToolNames: false
+    backend:
+      actions:
+        pluginSources:
+          - auth
+          - catalog
+          - gs
+        filter:
+          exclude:
+            - id: gs:get-pagerduty-ids-for-entity

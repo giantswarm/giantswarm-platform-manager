@@ -24,11 +24,12 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
-// Render turns an installation's record and choice into its fileset. raw is
-// the decoded input document (map[string]any at the top, as a YAML or JSON
-// decoder returns it); secrets carries the values the person supplies, by
-// field name — the Slack app's credentials where the gateway runs, nothing
-// else. Everything else the platform needs is a placeholder the commit step
+// Render turns an installation's record and choices into its fileset. raw
+// is the decoded input document (map[string]any at the top, as a YAML or
+// JSON decoder returns it); secrets carries the values the person supplies,
+// by field name — the Slack app's credentials where the gateway runs, the
+// chat's Anthropic API key where the portal runs the chat, nothing else.
+// Everything else the platform needs is a placeholder the commit step
 // generates, except the model key, which nobody supplies: kagent references
 // the Secret by name and the person creates it (CustomerActions). The mode
 // takes no part: this definition has no required person input a document
@@ -66,7 +67,7 @@ func Render(raw any, secrets map[string]string, _ render.Mode) (*render.Result, 
 	}
 	if host := in.portalHost(); host != "" {
 		backstage := "management-clusters/" + host + "/extras/backstage/"
-		in.portalFiles(r, clusters, backstage+portalDir)
+		in.portalFiles(r, clusters, backstage+portalDir, secrets)
 		r.IncludeComponent(clusters, backstage+"kustomization.yaml", render.PortalPlatformComponent())
 	}
 	in.tunnelValues(r)
