@@ -32,11 +32,19 @@ const (
 	tunnelportValuesBare = "# teleport-fleet's production values; the tunnelport template reads .Values.tunnelport.\ntunnelport:\n  consumers: {}\n  trustBundle:\n    tokens: []\n  tunnels: []\n"
 )
 
+// The keys of the federation inputs under installation.
+const (
+	federationKey = "federation"
+	hubsKey       = "hubs"
+	targetsKey    = "targets"
+	baseDomainKey = "baseDomain"
+)
+
 // federation makes rowan the hub of alder, a private target or a public one.
 func federation(private bool) map[string]any {
-	return minimalInputs(map[string]any{argInstallation: map[string]any{"federation": map[string]any{
-		"brokerClientId": "broker", "hubs": []any{},
-		"targets": []any{map[string]any{"installation": alder, "baseDomain": alder + ".example", argPrivate: private}}}}})
+	return minimalInputs(map[string]any{argInstallation: map[string]any{federationKey: map[string]any{
+		"brokerClientId": "broker", hubsKey: []any{},
+		targetsKey: []any{map[string]any{argInstallation: alder, baseDomainKey: alder + ".example", argPrivate: private}}}}})
 }
 
 // position is the index of repository among prs, or -1.
@@ -106,11 +114,11 @@ func TestMergeOrderFollowsAReferencedDexClient(t *testing.T) {
 	aliceC, carolC := st.mcpClient(t, aliceToken), st.mcpClient(t, carolToken)
 	putOnRecord(t, st, aliceC, rowan, minimalInputs(nil))
 	seedRemote(t, st)
-	inputs := minimalInputs(map[string]any{argInstallation: map[string]any{"federation": map[string]any{"hubs": []any{hub}, "targets": []any{}}}})
-	secret := "Secret/dex-client-" + hub + "-token-exchange"
+	inputs := minimalInputs(map[string]any{argInstallation: map[string]any{federationKey: map[string]any{hubsKey: []any{hub}, targetsKey: []any{}}}})
+	exchangeClient := "Secret/dex-client-" + hub + "-token-exchange"
 
 	planned, merged := reconcileAndMerge(t, st, aliceC, carolC, inputs)
-	if len(planned) != 2 || planned[0].Repository != acmeMCs || planned[1].Repository != acmeConfigs || planned[1].AfterClause() != "after "+acmeMCs+" ("+secret+")" || len(planned[0].After) != 0 {
+	if len(planned) != 2 || planned[0].Repository != acmeMCs || planned[1].Repository != acmeConfigs || planned[1].AfterClause() != "after "+acmeMCs+" ("+exchangeClient+")" || len(planned[0].After) != 0 {
 		t.Fatalf("pull requests: %+v", planned)
 	}
 	if merged[0].Repository != acmeMCs || merged[1].Repository != acmeConfigs {

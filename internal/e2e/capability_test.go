@@ -123,7 +123,7 @@ func TestEnableCapabilityDryRunRendersOneInstallation(t *testing.T) {
 		t.Fatalf("pull requests: %+v", out.PullRequests)
 	}
 	inputs := p.Inputs["installation"].(map[string]any)
-	if inputs["name"] != rowan || inputs["customer"] != acme || inputs["baseDomain"] != "rowan.acme.test" || inputs["chartLine"] != "3" {
+	if inputs["name"] != rowan || inputs["customer"] != acme || inputs[baseDomainKey] != "rowan.acme.test" || inputs["chartLine"] != "3" {
 		t.Fatalf("effective inputs: %v", inputs)
 	}
 	var names []string
@@ -262,7 +262,7 @@ func TestEnableCapabilityDryRunTypedInputs(t *testing.T) {
 	if p := findPlan(t, out, rowan); !strings.Contains(p.Refused, "bogus") || len(p.Files) != 0 || len(out.PullRequests) != 0 {
 		t.Fatalf("unknown key: refused %q files %d prs %d", p.Refused, len(p.Files), len(out.PullRequests))
 	}
-	out, text, isErr = dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(map[string]any{argInstallation: map[string]any{"federation": map[string]any{"targets": []any{map[string]any{"installation": alder, "baseDomain": alder + ".example", argPrivate: false}}, "hubs": []any{}}}})})
+	out, text, isErr = dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(map[string]any{argInstallation: map[string]any{federationKey: map[string]any{targetsKey: []any{map[string]any{argInstallation: alder, baseDomainKey: alder + ".example", argPrivate: false}}, hubsKey: []any{}}}})})
 	if isErr {
 		t.Fatal(text)
 	}
