@@ -292,11 +292,12 @@ func TestUnnamedLeavesAreReportedUnderOther(t *testing.T) {
 }
 
 // Every leaf the definitions render is observed under a dimension: every
-// file of every golden of the render packages, with the YAML text a
-// ConfigMap's data or a Secret's stringData holds decoded to its own leaves
-// the way the comparison reads it, routes to a dimension of the definition
-// — none is left for OtherFeature. The kustomizations other owners keep,
-// which the plan lists an entry in, are not the definition's files.
+// leaf of every file of every golden of the render packages, flattened the
+// way the comparison reads it (the YAML text a ConfigMap's data or a
+// Secret's stringData holds as its own leaves), routes to a dimension of
+// the definition — none is left for OtherFeature. The kustomizations other
+// owners keep, which the plan lists an entry in, are not the definition's
+// files.
 func TestEveryRenderedLeafHasADimension(t *testing.T) {
 	caps, err := definitions.Capabilities()
 	if err != nil {
@@ -329,7 +330,7 @@ func TestEveryRenderedLeafHasADimension(t *testing.T) {
 					return err
 				}
 				fd := &fileDiff{path: parts[2], kind: kindOf(parts[2])}
-				for _, leaf := range decodedLeaves(flattenYAML(string(content)), true) {
+				for leaf := range flattenYAML(string(content)) {
 					if route(matchers, fd, leaf) == nil {
 						t.Errorf("%s %s: %s#%s (%s) is observed under no dimension", c, shape, parts[2], leaf, fd.kind)
 					}
@@ -358,25 +359,6 @@ func includesOf(t *testing.T, golden string) map[string]bool {
 		if fields := strings.Fields(s.Text()); len(fields) > 0 {
 			out[fields[0]] = true
 		}
-	}
-	return out
-}
-
-// decodedLeaves are a flat file's leaves with the YAML text a ConfigMap's
-// data or a Secret's stringData holds decoded to its own leaves, by their
-// path inside the text — and the text such a document holds in turn (the
-// portal's app-config). A value that is no YAML mapping over several lines
-// stays a leaf.
-func decodedLeaves(flat map[string]string, top bool) []string {
-	var out []string
-	for p, v := range flat {
-		if s := segments(p); strings.Contains(v, "\n") && (!top || len(s) > 0 && (s[0] == "data" || s[0] == "stringData")) {
-			if inner := flattenYAML(v); len(inner) > 0 && inner[""] == "" {
-				out = append(out, decodedLeaves(inner, false)...)
-				continue
-			}
-		}
-		out = append(out, p)
 	}
 	return out
 }
