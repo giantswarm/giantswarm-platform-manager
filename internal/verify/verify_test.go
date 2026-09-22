@@ -584,7 +584,13 @@ const (
 	repoLeaf        = "r:values#repo"
 	servingLeaf     = "r:values#serving"
 	titleLeaf       = "r:values#title"
+	enabledKey      = "enabled"
 )
+
+// doc is an inputs document of two facts and the serving choice.
+func doc(domain, customer string, serving bool) map[string]any {
+	return map[string]any{"installation": map[string]any{baseDomainKey: domain, "customer": customer}, "modelServing": map[string]any{enabledKey: serving}}
+}
 
 // The inputs the attribution perturbs are the person's: the schema's
 // x-source person leaves and every leaf typed for the call, a fact among
@@ -594,13 +600,13 @@ func TestDrivenInputsAreThePersonsAndTheTyped(t *testing.T) {
 	if !ok {
 		t.Fatal("no agent-platform definition")
 	}
-	got, err := drivenInputs(def, Inputs{Values: map[string]any{"installation": map[string]any{baseDomainKey: "a.test", "customer": "acme"}, "modelServing": map[string]any{"enabled": true}}})
+	got, err := drivenInputs(def, Inputs{Values: doc("a.test", "acme", true)})
 	if err != nil || !reflect.DeepEqual(got, []string{servingInput}) {
 		t.Errorf("from the record: %v %v", got, err)
 	}
-	got, err = drivenInputs(def, Inputs{Typed: map[string]any{"installation": map[string]any{baseDomainKey: "b.test"}, "modelServing": map[string]any{"enabled": false}}})
-	if err != nil || !reflect.DeepEqual(got, []string{baseDomainInput, servingInput}) {
-		t.Errorf("with a fact typed: %v %v", got, err)
+	got, err = drivenInputs(def, Inputs{Values: doc("a.test", "acme", true), Typed: doc("b.test", "acme", false)})
+	if err != nil || !reflect.DeepEqual(got, []string{baseDomainInput, customerInput, servingInput}) {
+		t.Errorf("with facts typed: %v %v", got, err)
 	}
 }
 
@@ -610,7 +616,7 @@ func TestDrivenInputsAreThePersonsAndTheTyped(t *testing.T) {
 // is the most specific one's (the customer moves three leaves, the base
 // domain two); an input the record holds no value for perturbs nothing.
 func TestDrivenPathsPerturbsOnlyTheNamedInputs(t *testing.T) {
-	values := map[string]any{"installation": map[string]any{baseDomainKey: "a.test", "customer": "acme"}, "modelServing": map[string]any{"enabled": true}}
+	values := doc("a.test", "acme", true)
 	render := func(v map[string]any) (map[string]map[string]string, error) {
 		inst, _ := v["installation"].(map[string]any)
 		serving, _ := v["modelServing"].(map[string]any)
@@ -618,7 +624,7 @@ func TestDrivenPathsPerturbsOnlyTheNamedInputs(t *testing.T) {
 		customer, _ := inst["customer"].(string)
 		return map[string]map[string]string{"r:values": {
 			"host": "muster." + domain, "repo": customer + "-management-clusters", "org": customer,
-			"serving": strconv.FormatBool(serving["enabled"] == true), "title": customer + " on " + domain,
+			"serving": strconv.FormatBool(serving[enabledKey] == true), "title": customer + " on " + domain,
 		}}, nil
 	}
 	base, _ := render(values)
