@@ -12,7 +12,6 @@ import (
 	"github.com/giantswarm/gitops-commit/commit"
 	"github.com/giantswarm/gitops-commit/provenance"
 	"github.com/giantswarm/gitops-commit/sopsenc"
-	"github.com/google/go-github/v92/github"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
@@ -375,7 +374,7 @@ type target struct {
 
 // targetAt is repository's target, made on first use with its encrypter,
 // read as the caller.
-func targetAt(ctx context.Context, c *github.Client, targets map[string]*target, repository string) (*target, error) {
+func targetAt(ctx context.Context, c *gh.Client, targets map[string]*target, repository string) (*target, error) {
 	if tg := targets[repository]; tg != nil {
 		return tg, nil
 	}
@@ -390,7 +389,7 @@ func targetAt(ctx context.Context, c *github.Client, targets map[string]*target,
 
 // encrypter reads repository's .sops.yaml as the caller and builds the
 // encrypter for its recipients and its rules.
-func encrypter(ctx context.Context, c *github.Client, repository string) (*sopsenc.Encryptor, error) {
+func encrypter(ctx context.Context, c *gh.Client, repository string) (*sopsenc.Encryptor, error) {
 	owner, repo, err := gh.SplitRepo(repository)
 	if err != nil {
 		return nil, err
@@ -419,7 +418,7 @@ func encrypter(ctx context.Context, c *github.Client, repository string) (*sopse
 // in it or the entries of other owners kept, the dex patch with their keys
 // kept, the platform patch with the installation's own audiences kept, the
 // tunnelport values with the hub's entries edited in, read as the caller now.
-func targetsOf(ctx context.Context, c *github.Client, p plan.Installation, rendered render.Fileset, inst, hub installations.Installation) (map[string]*target, error) {
+func targetsOf(ctx context.Context, c *gh.Client, p plan.Installation, rendered render.Fileset, inst, hub installations.Installation) (map[string]*target, error) {
 	planned := map[string]plan.File{}
 	for _, f := range p.Files {
 		planned[f.Repository+":"+f.Path] = f

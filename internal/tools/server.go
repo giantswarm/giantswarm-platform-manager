@@ -18,6 +18,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/approvals"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/live"
@@ -54,6 +55,11 @@ type Deps struct {
 	// GitHubAPIURL is the API base URL the caller's calls go to (empty:
 	// api.github.com; the fake in tests).
 	GitHubAPIURL string
+	// Files is the read cache every caller's client reads repository files
+	// through: one tree per repository, validated as the caller once per
+	// call, the blobs by SHA shared across calls and callers. nil is one
+	// with gh.DefaultFreshness.
+	Files *gh.Files
 	// AuthorizationServer is the issuer identity muster pins for this server
 	// (the App giantswarm-platform-manager's), reported by get_info; empty
 	// when the server runs without OAuth.
@@ -135,6 +141,9 @@ func New(d Deps) *Tools {
 	if d.Log == nil {
 		d.Log = slog.Default()
 	}
+	if d.Files == nil {
+		d.Files = gh.NewFiles(gh.DefaultFreshness)
+	}
 	t := &Tools{d: d}
 	if d.Approvals.Configured() {
 		t.approvals = approvals.New(d.Approvals, d.ApprovalsHTTP)
@@ -147,6 +156,12 @@ func New(d Deps) *Tools {
 // AddWrite registers a write tool through the framework: dryRun and mode are
 // the framework's, apply is refused before the tool runs.
 func (t *Tools) AddWrite(wt WriteTool) { t.writes = append(t.writes, wt) }
+
+// person is the caller's GitHub client for one call: their token, the
+// shared read cache.
+func (t *Tools) person(token string) (*gh.Client, error) {
+	return gh.AsPerson(t.d.Files, t.d.GitHubAPIURL, token)
+}
 
 // MCPServer registers every tool on a new MCP server.
 func (t *Tools) MCPServer() *mcpserver.MCPServer {

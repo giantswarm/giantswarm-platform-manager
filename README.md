@@ -227,6 +227,21 @@ Per installation the manager then reads, as the caller:
   for `customer-portal`, the portal's `management-clusters/<name>/extras/backstage/backstage/app-config.yaml`
   in its management-clusters repository.
 
+**How the repositories are read.** Every read runs with the caller's token, and the caller's GitHub
+quota — 5,000 requests per hour, shared with every other client of their account — pays for it. So a
+call reads each repository it touches as one recursive Git tree at `HEAD`, fetched with a conditional
+request: GitHub answers `304 Not Modified` to an unchanged listing, which costs the quota nothing and
+still is the permission check, since a repository the caller may not see is `404` whatever the cache
+holds. A file's existence — the markers — is answered from the tree; its content is read as a blob by
+SHA and kept in a cache shared across calls and callers, a blob's SHA being its content, so an
+unchanged file is fetched once and a repository that changed costs its listing and its changed blobs.
+A caller's validation of a tree stands for a few seconds (the burst a portal page fires: a list and
+the verifies of one installation), and a merge through `merge_action` ends it for the repository merged
+into. Against a warm cache a list or a verify costs the caller no request at all; a call GitHub refuses
+for a spent quota answers the reset time. The reads that stay one request each, as the caller: the
+bearer's verification (`GET /user`, cached a quarter of an hour), and the pull request, branch and
+merge calls of the commit, the approval and the record's resync.
+
 Per capability the answer carries `enabled` — the marker is on record, whoever put it there: the
 manager, or the installation's people by hand before the manager existed — and the state as one word:
 *not enabled* (marker absent) or *enabled* (marker present). *Pending approval*, *rolling out*, *waiting for the customer*,

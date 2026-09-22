@@ -21,6 +21,7 @@ import (
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/approvals"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/live"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/server"
@@ -94,7 +95,7 @@ func main() {
 
 // run wires the components and serves until ctx is done.
 func run(ctx context.Context, o *options, log *slog.Logger) error {
-	deps := tools.Deps{Version: version.String(), GitHubAPIURL: o.githubAPIURL, Log: log, Remote: tools.GitHubRemote(o.githubAPIURL),
+	deps := tools.Deps{Version: version.String(), GitHubAPIURL: o.githubAPIURL, Files: gh.NewFiles(gh.DefaultFreshness), Log: log, Remote: tools.GitHubRemote(o.githubAPIURL),
 		Approvals: approvals.Config{GatewayURL: o.approvalsURL, Team: o.approvalsTeam, Channel: o.approvalsChannel, NoticeChannel: o.approvalsNoticeChannel, TokenFile: o.approvalsTokenFile},
 		Registry:  installations.Sources{Catalog: installations.Location{Repository: o.registryRepository, Path: o.registryPath}, Hub: o.hub}}
 	if o.actionsNamespace != "" {

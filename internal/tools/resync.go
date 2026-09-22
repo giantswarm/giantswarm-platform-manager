@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/go-github/v92/github"
-
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
@@ -57,7 +55,7 @@ func (t *Tools) resyncAs(ctx context.Context, a *actions.Action) *actions.Action
 	if !ok || id == nil || t.d.Actions == nil || !t.due(a) {
 		return a
 	}
-	c, err := gh.AsPerson(t.d.GitHubAPIURL, token)
+	c, err := t.person(token)
 	if err != nil {
 		t.d.Log.Warn("action_resync_failed", identity.LogAttr(ctx), "action", a.Name, "error", err.Error())
 		return a
@@ -86,7 +84,7 @@ func (t *Tools) resyncAll(ctx context.Context, list []actions.Action) {
 // stage's marker gone from the default branch → removed, with the objects
 // the definition rendered on the installations when its Kustomization does
 // not prune. One write of the record; the review's thread is told of a move.
-func (t *Tools) resync(ctx context.Context, c *github.Client, id *identity.Identity, a *actions.Action) (*actions.Action, error) {
+func (t *Tools) resync(ctx context.Context, c *gh.Client, id *identity.Identity, a *actions.Action) (*actions.Action, error) {
 	status := a.Status
 	status.PullRequests = slices.Clone(status.PullRequests)
 	var merged, closed []actions.PullRequest
@@ -201,7 +199,7 @@ type revertedStage struct {
 // revertedStages reads the marker of every stage of a whose pull requests
 // are merged: the stages whose marker is gone, how many still carry it, and
 // the reads that failed.
-func (t *Tools) revertedStages(ctx context.Context, c *github.Client, a *actions.Action, def installations.Capability) (gone []revertedStage, kept int, errs []string) {
+func (t *Tools) revertedStages(ctx context.Context, c *gh.Client, a *actions.Action, def installations.Capability) (gone []revertedStage, kept int, errs []string) {
 	for _, st := range stagesOf(a).Installations {
 		if len(a.StagePullRequests(st.Name)) == 0 || !allMerged(a, st.Name) {
 			continue

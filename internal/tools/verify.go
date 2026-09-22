@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 
-	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
@@ -52,7 +52,8 @@ func (t *Tools) verify(ctx context.Context, args map[string]any) (any, error) {
 // back and the typed inputs; the tool's body, and the wave's gate between
 // two stages.
 func (t *Tools) verifyInstallation(ctx context.Context, token, name string, def installations.Capability, typed map[string]any, content bool) (*verify.Result, error) {
-	c, err := gh.AsPerson(t.d.GitHubAPIURL, token)
+	start := time.Now()
+	c, err := t.person(token)
 	if err != nil {
 		return nil, err
 	}
@@ -78,6 +79,6 @@ func (t *Tools) verifyInstallation(ctx context.Context, token, name string, def 
 	if err != nil {
 		return nil, err
 	}
-	t.d.Log.Info(ToolVerifyCapability, identity.LogAttr(ctx), "installation", name, "inputs", out.Inputs.Source, "state", out.State, "summary", out.Summary)
+	t.d.Log.Info(ToolVerifyCapability, identity.LogAttr(ctx), "installation", name, "inputs", out.Inputs.Source, "state", out.State, "summary", out.Summary, "reads", c.Requests(), "charged", c.Charged(), "duration_ms", time.Since(start).Milliseconds())
 	return out, nil
 }
