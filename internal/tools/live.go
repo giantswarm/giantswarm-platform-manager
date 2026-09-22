@@ -108,7 +108,7 @@ func (t *Tools) verifyLive(ctx context.Context, args map[string]any) (any, error
 		if in := acts[i].InputsOnRecord(name); in != nil {
 			record = &acts[i]
 			if given == nil {
-				opts.Inputs = verify.Inputs{Source: "action " + record.Name, Values: in}
+				opts.Inputs = verify.Inputs{Source: "action " + record.Name, Values: in, Typed: record.Spec.Inputs}
 			}
 			// The state the result starts from is the action's final word —
 			// not the state a previous verify recorded over it, and not the

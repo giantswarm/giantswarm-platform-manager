@@ -89,9 +89,13 @@ func noFile(kind string) string {
 // the field, then ":" and the path inside it: data.values:route.enabled,
 // data.values:backstage.appConfig:app.title in the portal's app-config).
 // File names the repository file; Object the live object of a live
-// dimension (resource namespace/name). Input names the input of the
-// definition that drives the path — the file expresses another input than
-// the one on record; empty, the path is drift. Planned is the reason of the
+// dimension (resource namespace/name). Input names the person's input that
+// drives the path — a choice of the person the definition's schema names,
+// or an input typed for the call — the file expresses another choice than
+// the one on record, which a dry run with that input typed shows as the
+// change asked for; empty, the path is drift: a leaf no input of the person
+// drives, the ones the installation's facts derive included, which only a
+// reconcile resolves. Planned is the reason of the
 // capability's removal or migration that names the path — a key the fleet
 // still carries that the definition does not render, or one the definition
 // renders that the record lacks: a planned change, not drift. Rendered and
@@ -183,6 +187,12 @@ type Inputs struct {
 	// rendered as Missing markers, every leaf that carries one compared as
 	// not checked; a commit refuses them.
 	Missing []string `json:"missing,omitempty"`
+	// Typed is what the person typed for the call, laid over the record and
+	// the read-back: the inputs of theirs beside the schema's choices, a
+	// fact typed over for a dry run included. Every leaf it carries is
+	// attributed to itself (Difference.Input). An action's are the inputs
+	// its wave was called with.
+	Typed map[string]any `json:"typed,omitempty"`
 }
 
 // Result is the verify of one installation × capability.
@@ -396,7 +406,11 @@ func compare(ctx context.Context, opts Options, rms, migs plannedKeys) (*compari
 	if err != nil {
 		return nil, p, err
 	}
-	driven := drivenPaths(opts.Inputs.Values, base, func(values map[string]any) (map[string]map[string]string, error) {
+	inputs, err := drivenInputs(opts.Definition, opts.Inputs)
+	if err != nil {
+		return nil, p, err
+	}
+	driven := drivenPaths(opts.Inputs.Values, inputs, base, func(values map[string]any) (map[string]map[string]string, error) {
 		_, other, err := build(ctx, opts, values, rs.recorded)
 		return other, err
 	})
@@ -679,18 +693,40 @@ func (r *reads) recorded(_ context.Context, repository, path string) (string, er
 // flatRender renders an inputs document to flat files, by file key.
 type flatRender func(values map[string]any) (map[string]map[string]string, error)
 
-// drivenPaths names, for every rendered leaf an input drives, the input that
-// drives it: each leaf of the inputs on record is perturbed (left out, and
-// its value changed) and the leaves whose render changes are its. A leaf
+// drivenInputs are the inputs whose leaves the attribution perturbs, by
+// dotted key, sorted: the person's choices the definition's schema names
+// (x-source person) and every leaf the call's typed inputs carry, so a fact
+// typed over for a dry run reads as that person's input. The record's
+// facts, the registry's and every other leaf nobody chose are left alone: a
+// leaf they derive that is off the record is drift, not a choice.
+func drivenInputs(def installations.Capability, in Inputs) ([]string, error) {
+	out, err := def.PersonInputs()
+	if err != nil {
+		return nil, err
+	}
+	if len(in.Typed) > 0 {
+		for _, l := range leaves(in.Typed, nil) {
+			out = append(out, strings.Join(l.path, "."))
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out), nil
+}
+
+// drivenPaths names, for every rendered leaf one of inputs drives, the input
+// that drives it: each leaf on record under an input (by dotted key; one the
+// record holds no value for perturbs nothing) is perturbed — left out, and
+// its value changed — and the leaves whose render changes are its. A leaf
 // several inputs drive is attributed to the most specific one — the input
-// whose perturbation changes the fewest leaves.
-func drivenPaths(values map[string]any, base map[string]map[string]string, render flatRender) map[string]string {
+// whose perturbation changes the fewest leaves. A rendered leaf none of them
+// moves is nobody's: drift when it is off the record.
+func drivenPaths(values map[string]any, inputs []string, base map[string]map[string]string, render flatRender) map[string]string {
 	type best struct {
 		input string
 		n     int
 	}
 	bests := map[string]best{}
-	for _, l := range leaves(values, nil) {
+	for _, l := range inputLeaves(values, inputs) {
 		for _, alt := range perturbations(l.value) {
 			raw := deepCopy(values)
 			set(raw, l.path, alt)
@@ -716,6 +752,37 @@ func drivenPaths(values map[string]any, base map[string]map[string]string, rende
 type leaf struct {
 	path  []string
 	value any
+}
+
+// inputLeaves are the leaves of values under the inputs named by dotted key,
+// sorted by path so that a tie between two inputs falls the same way on
+// every run: an input with one value is that leaf, one holding a mapping
+// every leaf below it; an input values holds nothing for has none.
+func inputLeaves(values map[string]any, inputs []string) []leaf {
+	var out []leaf
+	for _, in := range inputs {
+		path := strings.Split(in, ".")
+		if v, ok := lookup(values, path); ok {
+			out = append(out, leaves(v, path)...)
+		}
+	}
+	slices.SortFunc(out, func(a, b leaf) int { return slices.Compare(a.path, b.path) })
+	return out
+}
+
+// lookup is the value at path in a nested inputs map, and whether it is there.
+func lookup(m map[string]any, path []string) (any, bool) {
+	var v any = m
+	for _, k := range path {
+		next, ok := v.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		if v, ok = next[k]; !ok {
+			return nil, false
+		}
+	}
+	return v, true
 }
 
 // leaves are the scalar and list leaves of a nested inputs map, by path.

@@ -324,7 +324,11 @@ func renderLive(opts LiveOptions) (*liveRender, error) {
 		}
 	}
 	if lv.values != nil {
-		lv.driven = drivenPaths(opts.Inputs.Values, flat, func(values map[string]any) (map[string]map[string]string, error) {
+		inputs, err := drivenInputs(opts.Definition, opts.Inputs)
+		if err != nil {
+			return nil, err
+		}
+		lv.driven = drivenPaths(opts.Inputs.Values, inputs, flat, func(values map[string]any) (map[string]map[string]string, error) {
 			_, _, other, err := renderValues(opts.Definition, values)
 			return other, err
 		})
