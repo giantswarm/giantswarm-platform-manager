@@ -9,7 +9,7 @@ data:
   app-config.agent-platform.yaml: |
     app:
       extensions:
-        $include: shared-config.yaml#extensionsAgentPlatform
+        $include: shared-config.yaml#extensionsAgentPlatformGrafanaDashboards
     agentPlatform:
       fluxServiceAccountName: kagent-flux
       kagent:

@@ -1,6 +1,7 @@
 # A public customer installation on the 3 chart line: invented names, placeholder values. Two
-# portals sign people in on it — the organisation's own on this installation and the fleet hub's
-# ("gopher") — and the hub's muster brokers tokens into it. The policy's default components.
+# portals sign people in on it — the organisation's own on this installation, its Grafana plugin
+# wired, and the fleet hub's ("gopher") — and the hub's muster brokers tokens into it. The
+# policy's default components.
 input:
   installation:
     name: kestrel
@@ -16,6 +17,7 @@ input:
         customer: oakridge
         domain: portal.kestrel.oakridge.example
         clientId: backstage
+        grafanaWired: true
         chartLine: ">=0.244.7 <1.0.0"
       - installation: gopher
         customer: giantswarm

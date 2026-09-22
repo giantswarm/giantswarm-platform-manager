@@ -23,6 +23,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 const (
@@ -921,8 +922,12 @@ func TestVerifyCapabilityTakesAMissingChoiceAsNotChecked(t *testing.T) {
 // host is no choice (not among the choices not on record, never an input,
 // refused when typed), and the plugins dimension drifts, the render naming
 // the installation's Grafana. With a proxy entry on record the plugin reads
-// back wired, its token is among the values supplied at commit, and the
-// proxy's target is off the installation's Grafana too.
+// back wired, its token is among the values supplied at commit, the proxy's
+// target is off the installation's Grafana too, and the extension list the
+// render includes is the shared one with the dashboards card where the
+// record's is the baseline; the registry reads the wiring off the entry, and
+// the agent platform's fragment for the installation includes the platform's
+// list with the card.
 func TestVerifyCapabilityGrafanaIsTheInstallationsOwn(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
@@ -990,6 +995,46 @@ func TestVerifyCapabilityGrafanaIsTheInstallationsOwn(t *testing.T) {
 	}
 	if !target {
 		t.Errorf("the proxy's target is not off the installation's Grafana: %+v", dimension(t, feature(t, res, "portal"), "plugins").Differences)
+	}
+	var include bool
+	for _, diff := range dimension(t, feature(t, res, "portal"), "plugins").Differences {
+		include = include || strings.HasSuffix(diff.Path, ":app.extensions.$include") && diff.Rendered == render.PortalExtensionsInclude(false, true) && diff.Current == render.PortalExtensionsInclude(false, false)
+	}
+	if !include {
+		t.Errorf("wired, the render does not include the list with the dashboards card over the record's baseline: %+v", dimension(t, feature(t, res, "portal"), "plugins").Differences)
+	}
+
+	// The registry reads the wiring off the proxy entry: rowan's own portal
+	// is wired, the hub's — listing rowan without the entry — is not.
+	list, text, isErr := listInstallations(t, c, map[string]any{tools.ArgInstallations: []string{rowan}})
+	if isErr {
+		t.Fatal(text)
+	}
+	wired := map[string]bool{}
+	for _, p := range find(t, list, rowan).Portals {
+		wired[p.Installation] = p.GrafanaWired
+	}
+	if len(wired) != 2 || !wired[rowan] || wired[hub] {
+		t.Fatalf("the portals' Grafana wiring read off the record: %v", wired)
+	}
+
+	// The agent platform's fragment is the list Backstage keeps, so on rowan
+	// it includes the platform's list with the card.
+	out, text, isErr = dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.AgentPlatform, tools.ArgInputs: kagentEnabled()})
+	if isErr {
+		t.Fatal(text)
+	}
+	fragment := strings.TrimSuffix(installations.PortalConfigPath(rowan), render.PortalDir+"/app-config.yaml") + render.PortalPlatformDir + "/app-config.yaml"
+	var rendered string
+	var paths []string
+	for _, f := range findPlan(t, out, rowan).Files {
+		paths = append(paths, f.Path)
+		if f.Path == fragment {
+			rendered = f.Content
+		}
+	}
+	if want := "$include: " + render.PortalExtensionsInclude(true, true) + "\n"; !strings.Contains(rendered, want) {
+		t.Errorf("the platform's fragment %s for the wired portal does not include %q:\n%s\nthe plan's files: %v", fragment, want, rendered, paths)
 	}
 }
 

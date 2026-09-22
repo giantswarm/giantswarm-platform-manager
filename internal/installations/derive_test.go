@@ -34,7 +34,7 @@ func TestDeriveFromPortals(t *testing.T) {
 	}
 	portals := []Portal{
 		{Host: fixtureHub, Customer: fixtureFleet, Domain: "portal.fleet.test", ClientID: fixtureHubClientID, Broker: "", Installations: []string{fixtureHub, fixtureAggregator, fixtureSibling}, Tunnelled: []string{fixtureSibling}, HandKept: true},
-		{Host: fixtureAggregator, Customer: fixtureCustomer, Domain: "portal.linden.umbra.test", ClientID: render.PortalDexClientID, Broker: fixtureAggregator, Installations: []string{fixtureAggregator, fixtureSibling}, PlatformProxied: []string{fixtureAggregator, fixtureSibling}},
+		{Host: fixtureAggregator, Customer: fixtureCustomer, Domain: "portal.linden.umbra.test", ClientID: render.PortalDexClientID, Broker: fixtureAggregator, Installations: []string{fixtureAggregator, fixtureSibling}, PlatformProxied: []string{fixtureAggregator, fixtureSibling}, GrafanaWired: true},
 	}
 	_ = reg
 	targets := reports[1].derivePortals(portals)
@@ -44,7 +44,7 @@ func TestDeriveFromPortals(t *testing.T) {
 	linden, birch := reports[1], reports[2]
 	if len(linden.Portals) != 2 || linden.Portals[1].Customer != fixtureCustomer || len(linden.Federation.Hubs) != 0 || !slices.Equal(targets, []string{fixtureSibling}) ||
 		linden.Portals[0].ClientID != fixtureHubClientID || linden.Portals[1].ClientID != render.PortalDexClientID ||
-		!linden.Portals[0].HandKept || linden.Portals[1].HandKept {
+		!linden.Portals[0].HandKept || linden.Portals[1].HandKept || linden.Portals[0].GrafanaWired || !linden.Portals[1].GrafanaWired {
 		t.Fatalf("linden: %+v %+v %v", linden.Portals, linden.Federation, targets)
 	}
 	if !slices.Equal(birch.Federation.Hubs, []string{fixtureAggregator}) || len(birch.Portals) != 2 {
@@ -160,7 +160,9 @@ func TestPortalConfigTunnelled(t *testing.T) {
 
 // A portal whose app.extensions is the shared include — what the
 // customer-portal definition renders — is not hand-kept, nor is one without
-// the key: only a list of the portal's own is.
+// the key: only a list of the portal's own is. Its Grafana plugin is wired
+// where its proxy carries the plugin's endpoint, whatever else the proxy
+// carries; another endpoint alone, or no proxy, is not.
 func TestPortalConfigHandKept(t *testing.T) {
 	for name, extensions := range map[string]string{
 		"the shared include": "  extensions:\n    $include: shared-config.yaml#extensions\n",
@@ -173,8 +175,29 @@ func TestPortalConfigHandKept(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.HandKept {
-			t.Errorf("%s: read hand-kept", name)
+		if cfg.HandKept || cfg.GrafanaWired {
+			t.Errorf("%s: read hand-kept %v, Grafana wired %v", name, cfg.HandKept, cfg.GrafanaWired)
+		}
+	}
+	grafana := "proxy:\n  endpoints:\n    " + render.PortalGrafanaProxy + ":\n      target: https://grafana.linden.umbra.test/\n      headers:\n        Authorization: Bearer $${GRAFANA_TOKEN}\n"
+	circleci := "proxy:\n  endpoints:\n    /circleci/api:\n      target: https://circleci.com/api/v1.1\n"
+	for name, tc := range map[string]struct {
+		proxy string
+		wired bool
+	}{
+		"the plugin's endpoint":     {grafana, true},
+		"the endpoint among others": {grafana + "    /circleci/api:\n      target: https://circleci.com/api/v1.1\n", true},
+		"another endpoint alone":    {circleci, false},
+	} {
+		appConfig := "app:\n  baseUrl: https://portal.linden.umbra.test\ngs:\n  installations:\n    linden: {}\n" + tc.proxy
+		values := "backstage:\n  appConfig: |\n" + indent(appConfig, "    ")
+		cm := "apiVersion: v1\nkind: ConfigMap\ndata:\n  values: |\n" + indent(values, "    ")
+		cfg, err := parsePortalConfig(cm)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if cfg.GrafanaWired != tc.wired {
+			t.Errorf("%s: read Grafana wired %v, want %v", name, cfg.GrafanaWired, tc.wired)
 		}
 	}
 }

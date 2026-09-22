@@ -13,7 +13,7 @@ data:
           title: Dev Portal
           baseUrl: https://portal.maple.acme.example.test
           extensions:
-            $include: shared-config.yaml#extensions
+            $include: shared-config.yaml#extensionsGrafanaDashboards
           routes:
             $include: shared-config.yaml#routes
         organization:

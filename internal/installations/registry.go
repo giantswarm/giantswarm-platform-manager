@@ -18,6 +18,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // Location is a file in a repository, read on its default branch.
@@ -296,9 +297,11 @@ type portalEntry struct {
 // installations it lists, its base URL, its cluster-token broker, the
 // installations whose Kubernetes API it reaches through the tunnel on its host,
 // the installations whose agent platform it proxies
-// (agentPlatform.kagent.installations) and whether the portal is hand-kept:
+// (agentPlatform.kagent.installations), whether the portal is hand-kept:
 // its app.extensions is a literal list of its own rather than the shared
-// include the customer-portal definition renders.
+// include the customer-portal definition renders — and whether its Grafana
+// plugin is wired: its proxy carries the plugin's endpoint, the presence
+// plugins.grafana.enabled reads back from.
 type portalConfig struct {
 	Installations   map[string]portalEntry
 	BaseURL         string
@@ -306,6 +309,7 @@ type portalConfig struct {
 	Tunnelled       map[string]bool
 	PlatformProxied map[string]bool
 	HandKept        bool
+	GrafanaWired    bool
 }
 
 func parsePortalConfig(data string) (*portalConfig, error) {
@@ -355,6 +359,9 @@ func parsePortalConfig(data string) (*portalConfig, error) {
 				Installations map[string]struct{} `yaml:"installations"`
 			} `yaml:"kagent"`
 		} `yaml:"agentPlatform"`
+		Proxy struct {
+			Endpoints map[string]yaml.Node `yaml:"endpoints"`
+		} `yaml:"proxy"`
 	}
 	if err := yaml.Unmarshal([]byte(values.Backstage.AppConfig), &appConfig); err != nil {
 		return nil, fmt.Errorf("decode backstage.appConfig: %w", err)
@@ -362,8 +369,9 @@ func parsePortalConfig(data string) (*portalConfig, error) {
 	if len(appConfig.GS.Installations) == 0 {
 		return nil, errors.New("backstage.appConfig has no gs.installations")
 	}
+	_, grafanaWired := appConfig.Proxy.Endpoints[render.PortalGrafanaProxy]
 	cfg := &portalConfig{Installations: appConfig.GS.Installations, BaseURL: appConfig.App.BaseURL, BrokerTokenURL: appConfig.GS.ClusterTokenBroker.TokenURL,
-		Tunnelled: map[string]bool{}, PlatformProxied: map[string]bool{}, HandKept: appConfig.App.Extensions.Kind == yaml.SequenceNode}
+		Tunnelled: map[string]bool{}, PlatformProxied: map[string]bool{}, HandKept: appConfig.App.Extensions.Kind == yaml.SequenceNode, GrafanaWired: grafanaWired}
 	for _, m := range appConfig.Kubernetes.ClusterLocatorMethods {
 		for _, cluster := range m.Clusters {
 			if hostOf(cluster.URL) == tunnelKubernetesHost(cluster.Name) {

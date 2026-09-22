@@ -638,8 +638,10 @@ func appConfigDoc(t *testing.T, tree map[string][]byte) map[string]any {
 // it, and a portal without it does not start — and names one host: the
 // installation's own Grafana, under the installation's name. Wired, the proxy
 // entry the dashboards card reads through targets it with the token's
-// environment variable, and the user secrets carry the token as the chart
-// reads it; not wired, neither is rendered.
+// environment variable, the user secrets carry the token as the chart reads
+// it, and the extension list the app-config includes is the shared one with
+// the dashboards card switched on; not wired, none of the three: the list is
+// the baseline, and the card stays disabled in the app.
 func TestGrafanaIsTheInstallationsOwn(t *testing.T) {
 	for _, shape := range shapes {
 		t.Run(shape, func(t *testing.T) {
@@ -659,6 +661,14 @@ func TestGrafanaIsTheInstallationsOwn(t *testing.T) {
 			wired := input["plugins"].(map[string]any)["grafana"].(map[string]any)[enabledKey] == true
 			proxy, hasProxy := appConfig["proxy"]
 			userSecrets := string(tree[fileOf(t, tree, userSecretsFile)])
+			extensions, _ := appConfig["app"].(map[string]any)["extensions"].(map[string]any)
+			anchor := "shared-config.yaml#extensions"
+			if wired {
+				anchor += "GrafanaDashboards"
+			}
+			if extensions["$include"] != anchor {
+				t.Errorf("wired %v: app.extensions %v, want the include of %s", wired, extensions, anchor)
+			}
 			if !wired {
 				if hasProxy || strings.Contains(userSecrets, "grafana") {
 					t.Errorf("not wired, yet the app-config carries %v and the user secrets:\n%s", proxy, userSecrets)
