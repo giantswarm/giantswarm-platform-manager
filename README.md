@@ -66,7 +66,8 @@ this order, writing nothing before the gate:
 4. **The files**: the plan rendered again with the supplied values; a plain file must be byte-identical to the
    plan (a value never lands outside a secret file), the secret files get their generated values and are
    encrypted with gitops-commit's `sopsenc` for the recipients of the repository's `.sops.yaml` (read as the
-   person; a repository without one refuses the commit). A secret file on record is **kept** as long as the
+   person; a repository the plan writes a generated value into refuses the commit without one; a repository
+   that gets plain files only — teleport-fleet's tunnelport values — needs none). A secret file on record is **kept** as long as the
    render changes nothing outside its values: the manager decrypts nothing, so the two are compared as YAML
    with the values the record holds encrypted (the fields under the repository's `encrypted_regex`) and the
    values the commit fills in left out — same keys, same metadata, same plaintext fields → `unchanged`, the

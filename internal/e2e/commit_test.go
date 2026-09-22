@@ -273,16 +273,18 @@ func TestCommitOpensPullRequestsAndPendsApproval(t *testing.T) {
 	}
 }
 
-// A repository without .sops.yaml: nothing is written blind — its rules
-// decide which files are secret files, so the commit is refused naming the
-// file before anything is recorded: no Action, no pull request.
+// A repository without .sops.yaml: nothing is written blind — a generated
+// value has no recipients to be encrypted for, so the commit is refused
+// naming the first file that carries one and the .sops.yaml, before anything
+// is recorded: no Action, no pull request. The configs repository, whose
+// files in the plan are plain, needs none and is not what refuses.
 func TestCommitFailsWithoutSopsConfig(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	seedRemote(t, st)
 	c := st.mcpClient(t, aliceToken)
 	_, text, isErr := commitCall(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(nil)})
-	if !isErr || !strings.Contains(text, tools.SopsConfig) || !strings.Contains(text, acmeConfigs) {
+	if !isErr || !strings.Contains(text, tools.SopsConfig) || !strings.Contains(text, acmeMCs) || !strings.Contains(text, "carries a generated value") {
 		t.Fatalf("without .sops.yaml: %v %s", isErr, text)
 	}
 	if got := listActionsOf(t, c, rowan); len(got) != 0 {

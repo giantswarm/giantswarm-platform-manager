@@ -367,24 +367,41 @@ func gateRefusal(out CapabilityResult, r installations.Report) string {
 // encrypter built from the repository's .sops.yaml — whose rules decide,
 // by path, which files are secret files.
 type target struct {
+	// enc is nil for a repository without a .sops.yaml: every file of it is
+	// plain, and a generated value has nowhere to land (noSops says so).
 	enc    *sopsenc.Encryptor
+	noSops error
 	files  []sopsenc.File
 	exists map[string]bool
 }
 
 // targetAt is repository's target, made on first use with its encrypter,
-// read as the caller.
+// read as the caller. A repository without a .sops.yaml (teleport-fleet's
+// tunnelport values are plain) gets a target without one: its plain files
+// pass through, and a file carrying a generated value refuses the commit
+// when it is added (plain writes the plan makes there need no recipients).
 func targetAt(ctx context.Context, c *gh.Client, targets map[string]*target, repository string) (*target, error) {
 	if tg := targets[repository]; tg != nil {
 		return tg, nil
 	}
+	tg := &target{exists: map[string]bool{}}
 	enc, err := encrypter(ctx, c, repository)
-	if err != nil {
+	switch {
+	case err == nil:
+		tg.enc = enc
+	case errors.Is(err, gh.ErrNotFound):
+		tg.noSops = err
+	default:
 		return nil, err
 	}
-	tg := &target{enc: enc, exists: map[string]bool{}}
 	targets[repository] = tg
 	return tg, nil
+}
+
+// isSecretFile says whether path is a secret file by the repository's
+// rules; without a .sops.yaml nothing is.
+func (tg *target) isSecretFile(path string) bool {
+	return tg.enc != nil && tg.enc.IsSecretFile(path)
 }
 
 // encrypter reads repository's .sops.yaml as the caller and builds the
@@ -440,7 +457,10 @@ func targetsOf(ctx context.Context, c *gh.Client, p plan.Installation, rendered 
 				return nil, err
 			}
 			content := f.Content
-			if !tg.enc.IsSecretFile(path) {
+			if tg.enc == nil && len(f.Generated) > 0 {
+				return nil, fmt.Errorf("%s:%s carries a generated value: %w", resolved, path, tg.noSops)
+			}
+			if !tg.isSecretFile(path) {
 				if !plan.Shared(path) && string(f.Content) != pf.Content {
 					return nil, fmt.Errorf("%s:%s is a plain file and a supplied value would land in it; nothing is committed", resolved, path)
 				}
@@ -484,7 +504,21 @@ func targetsOf(ctx context.Context, c *gh.Client, p plan.Installation, rendered 
 // encrypt fills the generated values in and encrypts every secret file of
 // repository for the recipients its .sops.yaml names; plain files pass
 // through. A secret file on record is left out, unless the plan rotates it.
+// A repository without a .sops.yaml has plain files only (a generated value
+// refused the target already): they pass through as they are.
 func encrypt(repository string, tg *target) (map[string][]byte, error) {
+	if tg.enc == nil {
+		out := make(map[string][]byte, len(tg.files))
+		for _, f := range tg.files {
+			if len(f.Generated) > 0 {
+				return nil, fmt.Errorf("%s: %s carries a generated value: %w", repository, f.Path, tg.noSops)
+			}
+			if !tg.exists[f.Path] {
+				out[f.Path] = f.Content
+			}
+		}
+		return out, nil
+	}
 	files, err := tg.enc.Encrypt(tg.files, func(path string) bool { return tg.exists[path] })
 	if err != nil {
 		return nil, fmt.Errorf("%s: encrypt: %w", repository, err)
