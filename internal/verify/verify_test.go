@@ -3,7 +3,9 @@ package verify
 import (
 	"context"
 	"errors"
+	"maps"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -46,11 +48,11 @@ func TestMissingChoiceIsNotCheckedNeverADifference(t *testing.T) {
 
 	const appConfig = "management-clusters/x/extras/backstage/backstage/app-config.yaml"
 	feats := []definitions.Feature{{ID: "portal", Dimensions: []definitions.Dimension{
-		{ID: "plugins", Kind: definitions.KindBackstage, Key: "app-config grafana.domain / grafana.other"},
-		{ID: "rest", Kind: definitions.KindBackstage, Key: "everything else of the app-config"},
+		{ID: "plugins", Kind: definitions.KindBackstage, Key: "app-config.yaml grafana.domain / grafana.other"},
+		{ID: "rest", Kind: definitions.KindBackstage, CatchAll: true, Key: "everything else of the app-config"},
 	}}}
 	fd := &fileDiff{key: "r:" + appConfig, path: appConfig, kind: definitions.KindBackstage, missing: map[string][]string{grafanaDomainPath: {field}}}
-	dims := assign(&comparison{files: map[string]*fileDiff{fd.key: fd}}, feats, "")
+	dims, _ := assign(&comparison{files: map[string]*fileDiff{fd.key: fd}}, feats, "", nil)
 	if d := dims["plugins"]; d.Mark != NotChecked || d.Reason != ReasonMissingChoice+": "+field || len(d.Differences) != 0 {
 		t.Errorf("the choice's dimension: %+v", *d)
 	}
@@ -58,7 +60,7 @@ func TestMissingChoiceIsNotCheckedNeverADifference(t *testing.T) {
 		t.Errorf("the dimension beside it: %+v", *d)
 	}
 	fd.diffs = []Difference{{File: fd.key, Path: "grafana.other", Rendered: "x", Current: "y"}}
-	dims = assign(&comparison{files: map[string]*fileDiff{fd.key: fd}}, feats, "")
+	dims, _ = assign(&comparison{files: map[string]*fileDiff{fd.key: fd}}, feats, "", nil)
 	if d := dims["plugins"]; d.Mark != Drifted || d.Reason != "" || len(d.Differences) != 1 {
 		t.Errorf("drift beside the choice: %+v", *d)
 	}
@@ -113,13 +115,13 @@ func TestRemovalsNameThePlannedChanges(t *testing.T) {
 		t.Fatalf("%d removals read, want 9 (a prefix of no file kind is left out)", len(rms))
 	}
 	patch := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
-	dexCM := &fileDiff{path: testDexPatch, kind: definitions.KindDexSecret}
-	dexSecret := &fileDiff{path: "installations/x/apps/dex-app/secret-values.yaml.patch", kind: definitions.KindDexSecret}
+	dexCM := &fileDiff{path: testDexPatch, kind: definitions.KindDexConfigMap}
+	dexSecret := &fileDiff{path: testDexSecretPatch, kind: definitions.KindDexSecret}
 	agents := &fileDiff{path: "management-clusters/x/extras/agents/kustomization.yaml", kind: definitions.KindExtras}
 	kust := &fileDiff{path: "management-clusters/x/extras/agent-platform/kustomization.yaml", kind: definitions.KindExtras}
 	appConfig := &fileDiff{path: "management-clusters/x/extras/backstage/backstage/app-config.yaml", kind: definitions.KindBackstage}
 	secrets := &fileDiff{path: "management-clusters/x/extras/backstage/backstage/user-secrets.enc.yaml", kind: definitions.KindBackstage}
-	fragment := &fileDiff{path: "management-clusters/x/extras/backstage/agent-platform/app-config.yaml", kind: definitions.KindBackstage}
+	fragment := &fileDiff{path: testComponentAppConfig, kind: definitions.KindBackstage}
 	for _, tc := range []struct {
 		name string
 		fd   *fileDiff
@@ -176,13 +178,13 @@ func TestMigrationsNameThePlannedAdditions(t *testing.T) {
 		t.Fatalf("%d migrations read, want 7 (a prefix of no file kind is left out)", len(migs))
 	}
 	rms := readRemovals([]definitions.Removal{{Key: "dex-configmap:oidc.extraStaticClients[*].redirectURIs", Kind: "template", Reason: "R1"}}, nil)
-	dexCM := &fileDiff{path: testDexPatch, kind: definitions.KindDexSecret}
+	dexCM := &fileDiff{path: testDexPatch, kind: definitions.KindDexConfigMap}
 	patch := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
 	secret := &fileDiff{path: "management-clusters/x/extras/agent-platform/secrets/dex-client-muster-secret.yaml", kind: definitions.KindExtras}
 	exchange := &fileDiff{path: "management-clusters/x/extras/agent-platform/secrets/dex-client-x-token-exchange-secret.yaml", kind: definitions.KindExtras}
 	kust := &fileDiff{path: "management-clusters/x/extras/agent-platform/secrets/kustomization.yaml", kind: definitions.KindExtras}
 	mcpKust := &fileDiff{path: "management-clusters/x/extras/mcp-capi/kustomization.yaml", kind: definitions.KindExtras}
-	component := &fileDiff{path: "management-clusters/x/extras/backstage/agent-platform/app-config.yaml", kind: definitions.KindBackstage}
+	component := &fileDiff{path: testComponentAppConfig, kind: definitions.KindBackstage}
 	appConfig := &fileDiff{path: "management-clusters/x/extras/backstage/backstage/app-config.yaml", kind: definitions.KindBackstage}
 	absent := func(p string) *Difference { return &Difference{Path: p, Rendered: "x", absent: true} }
 	present := func(p string) *Difference { return &Difference{Path: p, Rendered: "x", Current: "y"} }
@@ -235,26 +237,6 @@ func TestFileMarkWithPlannedChanges(t *testing.T) {
 		if got := fileMark(tc.diffs, true, false); got != tc.want {
 			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
 		}
-	}
-}
-
-// A dimension's key names YAML paths or files (prefixes) or is prose (a catch-all).
-func TestMatcherReadsKeys(t *testing.T) {
-	m := newMatcher(definitions.Dimension{Kind: definitions.KindConfigMap, Key: "kagent.oauth2-proxy.config.clientID / clientSecret / cookieSecret"})
-	if len(m.prefixes) != 1 || m.match("", "kagent.oauth2-proxy.config.clientID") == 0 || m.match("", "kagent.oauth2-proxy.configX") != 0 {
-		t.Errorf("prefixes %v", m.prefixes)
-	}
-	if m := newMatcher(definitions.Dimension{Kind: definitions.KindExtras, Key: "secrets/kustomization.yaml resources"}); m.match("secrets/kustomization.yaml", "resources[0]") == 0 {
-		t.Error("a file key names the file under extras")
-	}
-	if m := newMatcher(definitions.Dimension{Kind: definitions.KindConfigMap, Key: "agent-platform secret-values.yaml.patch"}); m.match("installations/x/apps/agent-platform/secret-values.yaml.patch", "a") == 0 || m.match(testPlatformPatch, "a") != 0 {
-		t.Errorf("a file word names the file: %v", m.prefixes)
-	}
-	if m := newMatcher(definitions.Dimension{Kind: definitions.KindConfigMap, Key: "the patch's top-level keys"}); len(m.prefixes) != 0 {
-		t.Errorf("prose is a catch-all, got %v", m.prefixes)
-	}
-	if m := newMatcher(definitions.Dimension{Kind: definitions.KindDexSecret, Key: "oidc.* other than staticClients"}); len(m.prefixes) != 0 {
-		t.Errorf("a glob is a catch-all, got %v", m.prefixes)
 	}
 }
 
@@ -402,12 +384,12 @@ func TestReadsOnce(t *testing.T) {
 func TestNotCheckedReasonsNameWhatIsMissing(t *testing.T) {
 	const patch = "installations/x/apps/dex-app/configmap-values.yaml.patch"
 	feats := []definitions.Feature{{ID: "clients", Dimensions: []definitions.Dimension{
-		{ID: "extra-clients", Kind: definitions.KindDexSecret, Key: "oidc.extraStaticClients"},
-		{ID: "peers", Kind: definitions.KindDexSecret, Key: "oidc.staticClients"},
-		{ID: "broker", Kind: definitions.KindBackstage, Key: "app-config gs.clusterTokenBroker"},
+		{ID: "extra-clients", Kind: definitions.KindDexConfigMap, Key: "oidc.extraStaticClients"},
+		{ID: "peers", Kind: definitions.KindDexConfigMap, Key: "oidc.staticClients"},
+		{ID: "broker", Kind: definitions.KindBackstage, Key: "app-config.yaml gs.clusterTokenBroker"},
 	}}}
-	refused := &fileDiff{key: "r:" + patch, path: patch, kind: definitions.KindDexSecret, unreadable: "github: r:" + patch + ": 403 Forbidden"}
-	dims := assign(&comparison{files: map[string]*fileDiff{refused.key: refused}}, feats, "")
+	refused := &fileDiff{key: "r:" + patch, path: patch, kind: definitions.KindDexConfigMap, unreadable: "github: r:" + patch + ": 403 Forbidden"}
+	dims, _ := assign(&comparison{files: map[string]*fileDiff{refused.key: refused}}, feats, "", nil)
 	want := ReasonUnreadable + ": github: r:" + patch + ": 403 Forbidden"
 	for _, id := range []string{"extra-clients", "peers"} {
 		if d := dims[id]; d.Mark != NotChecked || d.Reason != want {
@@ -422,7 +404,7 @@ func TestNotCheckedReasonsNameWhatIsMissing(t *testing.T) {
 	// dimension of the kind that still has a difference keeps its mark.
 	refused.unreadable = "is on record but takes no entry: not a YAML mapping"
 	refused.diffs = []Difference{{File: refused.key, Path: "oidc.extraStaticClients[kagent].id", Rendered: "kagent"}}
-	dims = assign(&comparison{files: map[string]*fileDiff{refused.key: refused}}, feats, "")
+	dims, _ = assign(&comparison{files: map[string]*fileDiff{refused.key: refused}}, feats, "", nil)
 	if d := dims["peers"]; d.Reason != ReasonUnreadable+": r:"+patch+": is on record but takes no entry: not a YAML mapping" {
 		t.Errorf("prefixed answer: %+v", *d)
 	}
@@ -506,22 +488,22 @@ func TestDifferencesReportTheEntriesOfAnEmptiedKey(t *testing.T) {
 }
 
 // Every difference and every choice not on record of a comparison lands on
-// a dimension of the definition — a leaf no key names on the kind's
-// catch-all, a leaf of the file itself and one inside the text a ConfigMap
-// holds alike; a dimension declared on the dex-app's configmap observes the
-// dex-app's patch. Over both definitions' features with a file of every kind
-// each renders.
+// a dimension — a leaf no key names on the kind's declared catch-all, else
+// on the kind's dimension of OtherFeature, a leaf of the file itself and one
+// inside the text a ConfigMap holds alike; a dimension declared on the
+// dex-app's configmap observes the dex-app's patch. Over both definitions'
+// features with a file of every kind each renders.
 func TestAssignDropsNoLeaf(t *testing.T) {
 	const (
 		dexPatch     = "installations/x/apps/dex-app/configmap-values.yaml.patch"
 		appConfig    = "management-clusters/x/extras/backstage/backstage/app-config.yaml"
 		userValues   = "management-clusters/x/extras/backstage/backstage/user-values.yaml"
-		fragment     = "management-clusters/x/extras/backstage/agent-platform/app-config.yaml"
+		fragment     = testComponentAppConfig
 		platformKust = "management-clusters/x/extras/agent-platform/kustomization.yaml"
 	)
 	files := map[string][]string{
 		installations.CustomerPortal: {dexPatch, appConfig, userValues},
-		installations.AgentPlatform:  {testPlatformPatch, dexPatch, "installations/x/apps/dex-app/secret-values.yaml.patch", platformKust, fragment},
+		installations.AgentPlatform:  {testPlatformPatch, dexPatch, testDexSecretPatch, platformKust, fragment},
 	}
 	for capability, paths := range files {
 		feats, err := definitions.Features(capability)
@@ -541,9 +523,9 @@ func TestAssignDropsNoLeaf(t *testing.T) {
 			wantDiffs += len(fd.diffs)
 			c.files[fd.key] = fd
 		}
-		dims := assign(c, feats, "")
+		dims, others := assign(c, feats, "", nil)
 		gotDiffs, gotMissing := 0, map[string]bool{}
-		for _, d := range dims {
+		for _, d := range append(slices.Collect(maps.Values(dims)), others...) {
 			gotDiffs += len(d.Differences)
 			for f := range d.missing {
 				gotMissing[f] = true
@@ -558,7 +540,8 @@ func TestAssignDropsNoLeaf(t *testing.T) {
 			}
 		}
 	}
-	if d := assign(&comparison{files: map[string]*fileDiff{"r:" + dexPatch: {key: "r:" + dexPatch, path: dexPatch, kind: kindOf(dexPatch)}}}, must(definitions.Features(installations.CustomerPortal)), "")["dex-client-entry"]; d.Mark != AsDefined || len(d.Files) != 1 {
+	dims, _ := assign(&comparison{files: map[string]*fileDiff{"r:" + dexPatch: {key: "r:" + dexPatch, path: dexPatch, kind: kindOf(dexPatch)}}}, must(definitions.Features(installations.CustomerPortal)), "", nil)
+	if d := dims["dex-client-entry"]; d.Mark != AsDefined || len(d.Files) != 1 {
 		t.Errorf("the dex-configmap dimension observes the dex-app's patch: %+v", *d)
 	}
 }

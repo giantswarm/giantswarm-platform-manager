@@ -4,25 +4,37 @@
 # backstage and dex-configmap are files of the fileset (compared against the render); live is a probe
 # against the running installation, which the definition renders as data (Result.Probes) and the verify
 # slice executes.
+#
+# A file dimension's key names the leaves it observes, and the comparison routes every difference by it.
+# A word with a slash or a file suffix names a file or directory — by its path under extras/backstage/,
+# or by its name at any depth; `<x>` stands for a part of a name; a directory covers everything beneath
+# it. Every other word is a YAML path inside the file (inside the YAML text a ConfigMap or Secret holds)
+# and covers everything beneath it: `[*]` is any list entry, `[x]` the entry with identity x, `<x>` any
+# map key or part of one. ` / ` separates alternatives; an alternative without a file word is observed in
+# the files of the alternative before it. A remark in parentheses is not read. A leaf goes to the
+# dimension of its file's kind that names it most specifically (the longer words win, then file order),
+# else to the kind's dimension marked `catchAll: true` (whose key is prose), else it is reported under
+# the result's feature "other". A live dimension's key is prose.
 features:
   portal:
     title: Portal
     description: The portal released from the fleet's backstage bases on the chart's line, configured as rendered, serving its home page on its domain.
     dimensions:
-      - {id: extras-kustomization, kind: backstage, key: extras/backstage/kustomization.yaml resources}
-      - {id: chart-line, kind: backstage, key: kustomization patches OCIRepository /spec/ref/semver}
-      - {id: values-sources, kind: backstage, key: kustomization patches HelmRelease spec.valuesFrom}
-      - {id: app-identity, kind: backstage, key: app-config app.title / app.baseUrl / organization.name}
-      - {id: app-shared-includes, kind: backstage, key: app-config app.extensions / app.routes / catalog / gs.adminGroups / gs.kubernetesVersions}
-      - {id: app-telemetry, kind: backstage, key: app-config app.telemetrydeck / app.errorReporter / backend.errorReporter / backend.csp.report-uri}
-      - {id: backend, kind: backstage, key: app-config backend.baseUrl / listen / cors / csp / database / cache / reading}
-      - {id: kubernetes-cluster, kind: backstage, key: "app-config kubernetes.clusterLocatorMethods[*].clusters[*]"}
-      - {id: plugins, kind: backstage, key: app-config integrations.github / grafana / flux / permission / techdocs}
-      - {id: gs-homepage-and-installation, kind: backstage, key: app-config gs.homepage.resources / gs.installations.<name>}
-      - {id: route, kind: backstage, key: user-values route}
+      - {id: extras-kustomization, kind: backstage, key: kustomization.yaml resources (the two kustomizations list the fleet's bases and the fileset)}
+      - {id: chart-line, kind: backstage, key: "backstage/kustomization.yaml patches[0] (the OCIRepository patch: /spec/ref/semver)"}
+      - {id: values-sources, kind: backstage, key: "backstage/kustomization.yaml patches[1] (the HelmRelease patch: spec.valuesFrom)"}
+      - {id: values-configmaps, kind: backstage, key: app-config.yaml user-values.yaml apiVersion / kind / metadata (the ConfigMaps the HelmRelease reads values from)}
+      - {id: app-identity, kind: backstage, key: app-config.yaml app.title / app.baseUrl / organization}
+      - {id: app-shared-includes, kind: backstage, key: app-config.yaml app.extensions / app.routes / catalog / gs.adminGroups / gs.kubernetesVersions / gs.friendlyAnnotations / gs.friendlyLabels}
+      - {id: app-telemetry, kind: backstage, key: app-config.yaml app.telemetrydeck / app.errorReporter / backend.errorReporter / backend.csp.report-uri}
+      - {id: backend, kind: backstage, key: "app-config.yaml backend (baseUrl, listen, cors, csp, database, cache, reading)"}
+      - {id: kubernetes-cluster, kind: backstage, key: "app-config.yaml kubernetes.clusterLocatorMethods[*].clusters[*] / kubernetes (the locator methods themselves)"}
+      - {id: plugins, kind: backstage, key: app-config.yaml integrations.github / grafana / flux / permission / techdocs}
+      - {id: gs-homepage-and-installation, kind: backstage, key: app-config.yaml gs.homepage / gs.installations.<name>}
+      - {id: route, kind: backstage, key: user-values.yaml route}
       - {id: extra-env-vars, kind: backstage, key: user-values.yaml backstage.extraEnvVars}
-      - {id: tunnel-bundle, kind: backstage, key: file tunnelport-spiffe-bundle.yaml}
-      - {id: tunnel-mount, kind: backstage, key: user-values backstage.extraVolumeMounts}
+      - {id: tunnel-bundle, kind: backstage, key: tunnelport-spiffe-bundle.yaml}
+      - {id: tunnel-mount, kind: backstage, key: user-values.yaml backstage.extraVolumeMounts / backstage.extraVolumes}
       - {id: live-helmrelease-ready, kind: live, key: HelmRelease backstage Ready in flux-giantswarm}
       - {id: live-pods-running, kind: live, key: the portal's pods Running in namespace backstage}
       - {id: live-portal-root, kind: live, key: / answered 200}
@@ -30,25 +42,26 @@ features:
     title: Identity
     description: The portal signs people in on the installation's Dex as the client the installation declares.
     dimensions:
-      - {id: auth-provider, kind: backstage, key: app-config auth.providers.oidc-<name> / gs.authProvider / gs.auth.extraScopes}
-      - {id: session-secret, kind: backstage, key: app-config auth.session.secret / user-secrets authSessionSecret}
-      - {id: dex-client-values, kind: backstage, key: user-secrets dexAuthCredentials.<name>}
-      - {id: dex-client-entry, kind: dex-configmap, key: "oidc.extraStaticClients[*] id backstage (this definition's patch without the platform, the agent-platform definition's with it)"}
+      - {id: auth-provider, kind: backstage, key: app-config.yaml auth.providers.oidc-<name> / auth.environment / gs.authProvider / gs.auth}
+      - {id: cluster-token-broker, kind: backstage, key: app-config.yaml gs.clusterTokenBroker}
+      - {id: session-secret, kind: backstage, key: app-config.yaml auth.session / user-secrets.enc.yaml authSessionSecret}
+      - {id: dex-client-values, kind: backstage, key: user-secrets.enc.yaml dexAuthCredentials.<name>}
+      - {id: dex-client-entry, kind: dex-configmap, catchAll: true, key: "the portal's client in the dex patch, and every other leaf of it (this definition's patch without the platform, the agent-platform definition's with it)"}
       - {id: live-oidc-start, kind: live, key: /api/auth/oidc-<name>/start 302 to Dex as client backstage}
       - {id: live-dex-auth-portal-client, kind: live, key: Dex /auth answers client backstage (its login page or a redirect)}
   secrets:
     title: Secrets
     description: Every Secret the portal reads present and shaped as the chart reads it; nothing inline.
     dimensions:
-      - {id: user-secrets, kind: backstage, key: file user-secrets.enc.yaml}
-      - {id: github-app-credentials, kind: backstage, key: file github-app-credentials.enc.yaml}
-      - {id: plugin-keys, kind: backstage, key: file plugin-keys-secret.enc.yaml / app-config backend.auth.pluginKeyStore}
-      - {id: dex-client-secret, kind: backstage, key: file dex-client-backstage-secret.enc.yaml}
+      - {id: user-secrets, kind: backstage, key: user-secrets.enc.yaml}
+      - {id: github-app-credentials, kind: backstage, key: github-app-credentials.enc.yaml}
+      - {id: plugin-keys, kind: backstage, key: plugin-keys-secret.enc.yaml / app-config.yaml backend.auth.pluginKeyStore}
+      - {id: dex-client-secret, kind: backstage, key: dex-client-backstage-secret.enc.yaml}
       - {id: live-values-secrets, kind: live, key: "Secrets user-secrets-backstage, plugin-keys-backstage and github-app-credentials-backstage in flux-giantswarm with key values"}
       - {id: live-dex-client-secret, kind: live, key: Secret dex-client-backstage in giantswarm with key secret}
   agent-platform-section:
     title: Agent platform section
     description: On an installation with the platform enabled, the portal lists the agent-platform definition's Component and runs with its fragment.
     dimensions:
-      - {id: platform-component, kind: backstage, key: "extras/backstage/kustomization.yaml components[*] ./agent-platform/"}
+      - {id: platform-component, kind: backstage, key: kustomization.yaml components (./agent-platform/)}
       - {id: live-platform-fragment, kind: live, key: ConfigMap agent-platform-app-config-backstage in namespace backstage}

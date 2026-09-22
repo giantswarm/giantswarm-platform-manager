@@ -28,11 +28,16 @@ type Feature struct {
 	Dimensions  []Dimension `yaml:"dimensions" json:"dimensions"`
 }
 
-// Dimension is one observed aspect of a feature.
+// Dimension is one observed aspect of a feature. A file dimension's key
+// names the leaves it observes in words the comparison routes by (the
+// grammar is documented in each features.yaml); a live dimension's key is
+// prose. CatchAll marks the one dimension of its kind that observes every
+// leaf of the kind's files no other dimension names; its key is prose.
 type Dimension struct {
-	ID   string `yaml:"id" json:"id"`
-	Kind string `yaml:"kind" json:"kind"`
-	Key  string `yaml:"key" json:"key"`
+	ID       string `yaml:"id" json:"id"`
+	Kind     string `yaml:"kind" json:"kind"`
+	Key      string `yaml:"key" json:"key"`
+	CatchAll bool   `yaml:"catchAll" json:"catchAll,omitempty"`
 }
 
 // Probe is one anonymous HTTP probe of a definition (probes.yaml).

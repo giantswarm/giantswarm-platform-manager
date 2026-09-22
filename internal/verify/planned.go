@@ -94,7 +94,7 @@ func parseKey(key, reason string, f facts) (plannedKey, bool) {
 	case definitions.KindConfigMap:
 		k.kind, file, yamlPath = definitions.KindConfigMap, configMapPatch, rest
 	case definitions.KindDexConfigMap:
-		k.kind, file, yamlPath = definitions.KindDexSecret, configMapPatch, rest
+		k.kind, file, yamlPath = definitions.KindDexConfigMap, configMapPatch, rest
 	case definitions.KindDexSecret:
 		k.kind, file, yamlPath = definitions.KindDexSecret, secretPatch, rest
 	case definitions.KindExtras:

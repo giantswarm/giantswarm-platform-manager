@@ -18,7 +18,11 @@ import (
 const (
 	testPlatformPatch = "installations/x/apps/agent-platform/configmap-values.yaml.patch"
 	testDexPatch      = "installations/x/apps/dex-app/configmap-values.yaml.patch"
-	testDomain        = "x.example.test"
+	// testDexSecretPatch is the dex-app's secret patch, testComponentAppConfig
+	// the platform Component's app-config fragment in a portal's tree.
+	testDexSecretPatch     = "installations/x/apps/dex-app/secret-values.yaml.patch"
+	testComponentAppConfig = "management-clusters/x/extras/backstage/agent-platform/app-config.yaml"
+	testDomain             = "x.example.test"
 )
 
 // Every key of the agent-platform migrations names a path some golden
@@ -109,7 +113,7 @@ func TestJoinedScalarsAndTheValkeySecretArePlanned(t *testing.T) {
 		{Key: "extras:mcp-<name>/oauth-credentials.enc.yaml type", Reason: m9},
 	}, nil)
 	patch := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
-	dexPatch := &fileDiff{path: testDexPatch, kind: definitions.KindDexSecret}
+	dexPatch := &fileDiff{path: testDexPatch, kind: definitions.KindDexConfigMap}
 	valkey := &fileDiff{path: "management-clusters/x/extras/mcp-capi/valkey-credentials.enc.yaml", kind: definitions.KindExtras}
 	kust := &fileDiff{path: "management-clusters/x/extras/mcp-capi/kustomization.yaml", kind: definitions.KindExtras}
 	oauth := &fileDiff{path: "management-clusters/x/extras/mcp-capi/oauth-credentials.enc.yaml", kind: definitions.KindExtras}
@@ -211,7 +215,7 @@ func TestPlaceholdersFillTheReason(t *testing.T) {
 		{Key: "configmap:agent-platform-mcps.mcpServers[<scheme>://mcp-capi.<domain>/mcp]", Reason: "mcp-capi at mcp-capi.<domain> over <scheme>"},
 	}, facts{factDomain: testDomain})
 	patch := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
-	dexCM := &fileDiff{path: testDexPatch, kind: definitions.KindDexSecret}
+	dexCM := &fileDiff{path: testDexPatch, kind: definitions.KindDexConfigMap}
 	valkey := &fileDiff{path: "management-clusters/x/extras/mcp-prometheus/valkey-credentials.enc.yaml", kind: definitions.KindExtras}
 	mcpKust := &fileDiff{path: "management-clusters/x/extras/mcp-prometheus/kustomization.yaml", kind: definitions.KindExtras}
 	secret := &fileDiff{path: "management-clusters/x/extras/agent-platform/secrets/dex-client-muster-secret.yaml", kind: definitions.KindExtras}
