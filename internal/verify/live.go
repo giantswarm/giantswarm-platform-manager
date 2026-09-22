@@ -554,13 +554,29 @@ func (x *executor) condition(ctx context.Context, c *Check, p render.Probe, cond
 	return nil
 }
 
-// present marks the object as existing, and a Secret as carrying the keys.
+// present marks the object as existing, a Secret as carrying the keys, and
+// an object with a status.state as reporting none the probe rules out.
 func (x *executor) present(ctx context.Context, c *Check, p render.Probe) error {
 	obj, err := x.opts.Cluster.Get(ctx, p.Namespace, p.Resource, p.Name, Readiness)
 	if err != nil {
 		return err
 	}
 	c.Mark, c.Message = AsDefined, "present"
+	if p.Expect.NotState != "" {
+		status, _ := obj["status"].(map[string]any)
+		state, _ := status["state"].(string)
+		switch state {
+		case p.Expect.NotState:
+			c.Mark, c.Message = Drifted, "state "+state
+			if lastError, _ := status["lastError"].(string); lastError != "" {
+				c.Message += ": " + firstLine(lastError)
+			}
+		case "":
+			c.Message = "present, no state reported yet"
+		default:
+			c.Message = "present, state " + state
+		}
+	}
 	if len(p.Expect.Keys) == 0 {
 		return nil
 	}

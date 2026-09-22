@@ -1237,3 +1237,80 @@ func TestVerifyCapabilityOwnMCPServersByHost(t *testing.T) {
 		}
 	}
 }
+
+// The registrations an installation's record carries beyond the platform's
+// own — MCPServer objects under extras/agent-platform/mcpservers, a client
+// with a stable callback under extras/agent-platform/mcpclients, both listed
+// by their kustomizations and the tree's — as they land in rowan's tree.
+const (
+	rowanRegisteredServer = "pond-mcp-timescale"
+	rowanRegisteredClient = "hosted-agent-runtime"
+	rowanClientCallback   = "https://agents.runtime.test/identities/oauth2/callback/0000"
+)
+
+func registerOnRowan(st *stack) {
+	tree := "management-clusters/" + rowan + "/extras/agent-platform/"
+	kustomization := "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n"
+	st.ghs.addFiles(acmeMCs, map[string]string{
+		tree + "kustomization.yaml":            kustomization + "  - https://github.com/giantswarm/management-cluster-bases//extras/agent-platform?ref=main\n  - ./secrets\n  - ./mcpservers\n  - ./mcpclients\n",
+		tree + "mcpservers/kustomization.yaml": kustomization + "  - timescale.yaml\n",
+		tree + "mcpservers/timescale.yaml": "apiVersion: muster.giantswarm.io/v1alpha1\nkind: MCPServer\nmetadata:\n  name: " + rowanRegisteredServer + "\n  namespace: agent-platform\nspec:\n  type: streamable-http\n  url: https://mcp-timescale.pond.acme.test/mcp\n" +
+			"  auth:\n    type: oauth\n    forwardToken: false\n    tokenExchange:\n      enabled: true\n      dexTokenEndpoint: https://dex.pond.acme.test/token\n      connectorId: giantswarm-rowan\n",
+		tree + "mcpclients/kustomization.yaml": kustomization + "  - runtime.yaml\n",
+		tree + "mcpclients/runtime.yaml":       "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: " + rowanRegisteredClient + "\n  namespace: agent-platform\ndata:\n  redirectURIs: |\n    " + rowanClientCallback + "\n",
+	})
+}
+
+// What the record registers with muster is a fact of the record: the
+// MCPServer objects and the client ConfigMap on record read as
+// installation.mcpServers and installation.mcpClients, muster's exchange
+// client is allowed a private address because a registered server exchanges,
+// the client's callback is muster's public-registration allowlist, both land
+// in the patch the enable renders, and the comparison reads them as defined.
+func TestVerifyCapabilityRegistrationsOnRecord(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	registerOnRowan(st)
+	c := st.mcpClient(t, aliceToken)
+	enableRowan(t, st, c, kagentEnabled(), kagentEnabled())
+
+	res := verifyRowan(t, c, rowan)
+	if res.State != installations.StateEnabled || res.Summary[verify.Drifted] != 0 || res.Summary[verify.DiffersByInput] != 0 {
+		t.Errorf("state %q summary %v", res.State, res.Summary)
+	}
+	inst, _ := res.Inputs.Values["installation"].(map[string]any)
+	servers, _ := inst["mcpServers"].([]any)
+	clients, _ := inst["mcpClients"].([]any)
+	if len(servers) != 1 || len(clients) != 1 {
+		t.Fatalf("the registrations on the inputs: servers %v clients %v", servers, clients)
+	}
+	if s, _ := servers[0].(map[string]any); s["name"] != rowanRegisteredServer || s["auth"] != "exchange" || s["dexTokenEndpoint"] != "https://dex.pond.acme.test/token" {
+		t.Errorf("the registered server: %v", servers[0])
+	}
+	cl, _ := clients[0].(map[string]any)
+	if uris, _ := cl["redirectURIs"].([]any); cl["name"] != rowanRegisteredClient || len(uris) != 1 || uris[0] != rowanClientCallback {
+		t.Errorf("the registered client: %v", clients[0])
+	}
+	marker := installations.Capabilities()[0].EnabledMarker(rowan)
+	st.ghs.mu.Lock()
+	content := st.ghs.files[acmeConfigs][marker]
+	st.ghs.mu.Unlock()
+	for _, want := range []string{"allowPrivateIP: true", "trustedPublicRegistrationRedirectURIs:\n          - " + rowanClientCallback} {
+		if !strings.Contains(content, want) {
+			t.Errorf("the patch on record lacks %q:\n%s", want, content)
+		}
+	}
+	for _, id := range []string{"muster-private-exchange", "muster-public-registration-redirect-uris"} {
+		if d := anyDimension(t, res, id); d.Mark != verify.AsDefined {
+			t.Errorf("%s: %s %+v", id, d.Mark, d.Differences)
+		}
+	}
+	// The tree's kustomization keeps the registration directories: another owner's entries.
+	extras := "management-clusters/" + rowan + "/extras/agent-platform/kustomization.yaml"
+	st.ghs.mu.Lock()
+	tree := st.ghs.files[acmeMCs][extras]
+	st.ghs.mu.Unlock()
+	if !strings.Contains(tree, "./mcpservers") || !strings.Contains(tree, "./mcpclients") {
+		t.Errorf("the rendered tree kustomization dropped a registration directory:\n%s", tree)
+	}
+}

@@ -206,7 +206,8 @@ const (
 	HelmReleaseReady ProbeKind = "HelmReleaseReady"
 	// PodsRunning is every pod the selector in Name matches being Running.
 	PodsRunning ProbeKind = "PodsRunning"
-	// ResourcePresent is an object that exists; a Secret carries Expect.Keys.
+	// ResourcePresent is an object that exists; a Secret carries Expect.Keys,
+	// an object with a status.state reports none that Expect.NotState names.
 	ResourcePresent ProbeKind = "ResourcePresent"
 	// Condition is an object whose condition Expect.Condition has Expect.ConditionStatus.
 	Condition ProbeKind = "Condition"
@@ -232,6 +233,7 @@ type Expectation struct {
 	ConditionStatus  string   `yaml:"conditionStatus,omitempty"`  // Condition: True or False
 	Absent           string   `yaml:"absent,omitempty"`           // LogAbsent: a pattern that must not appear in the workload's log
 	Keys             []string `yaml:"keys,omitempty"`             // ResourcePresent on a Secret: the keys it carries
+	NotState         string   `yaml:"notState,omitempty"`         // ResourcePresent: a status.state the object must not report (an MCPServer's Failed)
 	Version          string   `yaml:"version,omitempty"`          // APIServed: the API version the resource is served at
 	Note             string   `yaml:"note,omitempty"`             // one sentence a person reads next to the mark (e.g. what a False means)
 	// Compare lists, for a Drift probe, the places of the live object that are

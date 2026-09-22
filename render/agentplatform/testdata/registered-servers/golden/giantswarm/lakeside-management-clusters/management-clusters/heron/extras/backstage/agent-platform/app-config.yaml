@@ -1,0 +1,21 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-platform-app-config-backstage
+  namespace: backstage
+data:
+  app-config.agent-platform.yaml: |
+    app:
+      extensions:
+        $include: shared-config.yaml#extensionsAgentPlatform
+    agentPlatform:
+      kagent:
+        installations:
+          heron: {}
+    muster:
+      installations:
+        - name: heron
+          url: https://muster.heron.lakeside.example/mcp
+          authProvider: oidc-heron

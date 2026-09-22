@@ -81,9 +81,11 @@ features:
       - {id: agent-manager, kind: configmap, key: components.agent-manager.enabled / agent-manager.oauth}
       - {id: own-mcp-servers, kind: configmap, key: "agent-platform-mcps.mcpServers[http://<name>.svc:8080/mcp] / agent-platform-mcps.mcpServers[<scheme>://mcp-<name>.<domain>/mcp] (the installation's own: at the in-cluster Service, or on its own base domain)"}
       - {id: own-mcp-kubernetes-url, kind: configmap, key: "agent-platform-mcps.mcpServers[http://mcp-kubernetes.mcp-kubernetes.svc:8080/mcp].url"}
+      - {id: muster-private-exchange, kind: configmap, key: muster.muster.oauth.mcpClient.tokenExchange.allowPrivateIP}
       - {id: own-mcp-private-urls, kind: extras, key: mcp-<name>/user-values.yaml / mcp-<name>/kustomization.yaml configMapGenerator / generatorOptions / patches (the ConfigMap the HelmRelease reads it from)}
       - {id: own-mcp-directories, kind: extras, key: "mcp-<name>/ (each server's kustomization, Dex client and credential Secrets)"}
       - {id: live-own-mcp-servers, kind: live, key: MCPServer objects of the installation itself}
+      - {id: live-registered-mcp-servers, kind: live, key: "MCPServer objects registered under extras/agent-platform/mcpservers, present and none Failed"}
       - {id: live-muster-protected-resource, kind: live, key: muster's OAuth protected-resource metadata}
   federation:
     title: Federation and tunnels

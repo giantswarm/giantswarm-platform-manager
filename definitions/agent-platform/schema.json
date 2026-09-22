@@ -76,6 +76,42 @@
             },
             "brokerClientId": {"type": "string", "x-source": "generated", "x-feature": "federation", "x-renders": ["configmap:muster.muster.oauth.server.tokenExchangeBroker.brokerClients.<id>", "configmap:muster.muster.oauth.server.tokenExchangeBroker.clientAudiences.<id>", "extras:agent-platform/secrets/muster-broker-client-credentials.yaml"], "description": "Dex client id of the hub's token-exchange broker client; registered once, read back from the hub's patch afterwards. Required on a hub."}
           }
+        },
+        "mcpServers": {
+          "type": "array",
+          "default": [],
+          "x-source": "registry",
+          "x-feature": "tool-access",
+          "x-renders": ["configmap:muster.muster.oauth.mcpClient.tokenExchange.allowPrivateIP"],
+          "description": "The MCP servers registered on this installation beyond the platform's own three: the MCPServer objects under management-clusters/<name>/extras/agent-platform/mcpservers/ that the directory's kustomization lists, where the tree's kustomization (extras/agent-platform/kustomization.yaml) lists the directory. A person registers a server by adding its MCPServer object there in muster's own shape — auth.forwardToken, auth.tokenExchange or auth.authorizationServer, the credentials Secret it references under ../secrets — and listing it; the platform renders nothing per server. It reads each one's state live, and where one exchanges tokens at a Dex of its own (auth.tokenExchange.dexTokenEndpoint) muster's token-exchange client is allowed to reach a private address: a workload cluster's Dex sits behind an internal load balancer, and the endpoint it is allowed for is on record. An entry of the values patch (agent-platform-mcps.mcpServers) is no registration: that list is the platform's own three and, on a hub, its targets'.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "url", "auth"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1, "description": "The object's name in muster's namespace (agent-platform)."},
+              "url": {"type": "string", "minLength": 1, "description": "spec.url: where muster reaches the server."},
+              "auth": {"type": "string", "enum": ["none", "forward", "exchange", "oauth"], "description": "How muster authenticates to the server, in the agent-platform-mcps chart's words: none; forward, the person's own ID token (auth.forwardToken); exchange, a token exchanged at another Dex (auth.tokenExchange); oauth, a grant at the server's own authorization server (auth.authorizationServer)."},
+              "dexTokenEndpoint": {"type": "string", "description": "For exchange: the token endpoint of the Dex the exchange runs at (auth.tokenExchange.dexTokenEndpoint)."}
+            }
+          }
+        },
+        "mcpClients": {
+          "type": "array",
+          "default": [],
+          "x-source": "registry",
+          "x-feature": "identity",
+          "x-renders": ["configmap:muster.muster.oauth.server.trustedPublicRegistrationRedirectURIs"],
+          "description": "The MCP clients registered on this installation with a stable HTTPS callback — a hosted agent runtime such as AWS Bedrock AgentCore, which registers itself with muster (dynamic client registration) and publishes no client metadata document: the ConfigMaps under management-clusters/<name>/extras/agent-platform/mcpclients/ that the directory's kustomization lists, where the tree's kustomization lists the directory, each one consumer with its redirect URIs (data.redirectURIs, one per line). muster registers such a client only for a redirect URI it trusts, and the definition renders that allowlist from these registrations, in the kustomization's order. A person registers a client by adding its ConfigMap there and listing it.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "redirectURIs"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1, "description": "The ConfigMap's name: the consumer."},
+              "redirectURIs": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^https://"}, "description": "The consumer's callback URIs, fully qualified HTTPS."}
+            }
+          }
         }
       }
     },

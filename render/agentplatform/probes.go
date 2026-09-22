@@ -65,7 +65,10 @@ func (in *Input) probes() []render.Probe {
 		Status: 200, BodyContains: `"resource":"https://` + in.host("muster") + `/mcp"`,
 	}))
 	for _, s := range servers {
-		p = append(p, resourceProbe("live-own-mcp-servers", featureToolAccess, render.ResourcePresent, platformNamespace, "MCPServer.muster.giantswarm.io", in.Installation.Name+"-"+s.name))
+		p = append(p, resourceProbe("live-own-mcp-servers", featureToolAccess, render.ResourcePresent, platformNamespace, mcpServerResource, in.Installation.Name+"-"+s.name))
+	}
+	for _, s := range in.Installation.MCPServers {
+		p = append(p, registeredServerProbe(s))
 	}
 	if in.kagent() {
 		audience := resourceProbe("live-oauth2-proxy-audience", featureIdentity, render.LogAbsent, kagentNamespace, "Deployment", oauth2ProxyDeployment)
@@ -193,6 +196,28 @@ func (in *Input) dexRedirectClients() []dexRedirectClient {
 // to the one connector otherwise, never an error page.
 func (in *Input) dexAuthURL(c dexRedirectClient) string {
 	return "https://" + in.host("dex") + "/auth?client_id=" + c.id + "&redirect_uri=" + c.redirectURI + "&response_type=code&scope=openid"
+}
+
+// registeredServersDimension is the live dimension of the servers registered
+// on the installation beyond its own (installation.mcpServers).
+const registeredServersDimension = "live-registered-mcp-servers"
+
+// mcpServerResource is muster's MCPServer, as a probe names the resource.
+const mcpServerResource = "MCPServer.muster.giantswarm.io"
+
+// mcpServerFailed is the state muster reports for a server it cannot reach.
+const mcpServerFailed = "Failed"
+
+// registeredServerProbe reads a registered server's MCPServer object: present
+// and in no Failed state. Connected is a session's word — a server that
+// forwards or exchanges the person's token reads Awaiting Session or Auth
+// Required until a person's session holds a connection — so only Failed is
+// muster unable to reach the server as registered.
+func registeredServerProbe(s RegisteredServer) render.Probe {
+	p := resourceProbe(registeredServersDimension, featureToolAccess, render.ResourcePresent, platformNamespace, mcpServerResource, s.Name)
+	p.Expect.NotState = mcpServerFailed
+	p.Expect.Note = "registered under extras/agent-platform/mcpservers, auth " + s.Auth + ", at " + s.URL + "; Awaiting Session and Auth Required are a server waiting for a person's session, Failed is muster unable to reach it"
+	return p
 }
 
 // resourceProbe is a probe of one object, by kind, namespace, resource and name.

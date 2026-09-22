@@ -1,0 +1,5 @@
+giantswarm/lakeside-management-clusters:management-clusters/heron/extras/backstage/kustomization.yaml components ./agent-platform/
+giantswarm/lakeside-management-clusters:management-clusters/heron/extras/kustomization.yaml resources ./agent-platform/
+giantswarm/lakeside-management-clusters:management-clusters/heron/extras/kustomization.yaml resources ./mcp-capi/
+giantswarm/lakeside-management-clusters:management-clusters/heron/extras/kustomization.yaml resources ./mcp-kubernetes/
+giantswarm/lakeside-management-clusters:management-clusters/heron/extras/kustomization.yaml resources ./mcp-prometheus/

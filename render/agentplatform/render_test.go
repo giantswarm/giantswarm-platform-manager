@@ -30,10 +30,11 @@ const (
 	shapeMultiClusterAggregator = "multi-cluster-aggregator"
 	shapeSecondHub              = "second-hub"
 	shapeHandKeptPortal         = "hand-kept-portal"
+	shapeRegisteredServers      = "registered-servers"
 )
 
 // shapes are the installation shapes, in the order the goldens are rendered.
-var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned, shapeGiantswarmSlackApp, shapeGiantswarmSlackAppPub, shapeHubPrivateTarget, shapeMultiClusterAggregator, shapeSecondHub, shapeHandKeptPortal}
+var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned, shapeGiantswarmSlackApp, shapeGiantswarmSlackAppPub, shapeHubPrivateTarget, shapeMultiClusterAggregator, shapeSecondHub, shapeHandKeptPortal, shapeRegisteredServers}
 
 func loadInput(t *testing.T, shape string) (map[string]any, map[string]string) {
 	t.Helper()
@@ -323,11 +324,15 @@ func TestProbesAreLiveDimensions(t *testing.T) {
 	}
 	// probed is, per dimension, the shape that probes it: the public-customer
 	// shape stands for every dimension but the 4 line's own, which a 4-line
-	// shape (giantswarm-owned) stands for.
+	// shape (giantswarm-owned) stands for, and the registered servers', which
+	// the shape that registers some stands for.
 	probed := map[string]bool{}
 	standsFor := func(shape, id string) bool {
-		if id == podCertificateRequestDimension {
+		switch id {
+		case podCertificateRequestDimension:
 			return shape == shapeGiantswarmOwned
+		case registeredServersDimension:
+			return shape == shapeRegisteredServers
 		}
 		return shape == shapePublicCustomer
 	}
