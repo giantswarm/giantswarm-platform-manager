@@ -53,7 +53,7 @@ func TestEveryMigrationKeyIsRendered(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			fd := &fileDiff{path: p, kind: kindOf(p)}
+			fd := &fileDiff{path: p, kind: kindOf(p), documents: flattenLines(string(content)).documents}
 			for i, k := range migs {
 				if covered[i] {
 					continue

@@ -46,8 +46,20 @@ func parse(content string) ([]document, error) {
 // textSep opens, in a leaf's path, the YAML document a string field holds:
 // the field, then ":" and the path inside it — data.values:route.enabled,
 // and data.values:backstage.appConfig:app.title for text inside text — the
-// way render.Comparison names a live path that crosses a document.
+// way render.Comparison names a live path that crosses a document. A key may
+// carry a colon of its own (a portal's extension entry-card:catalog/labels),
+// so the path is never read back for the boundary: flat records the
+// documents a file holds, and innerPath and holder split by them.
 const textSep = ":"
+
+// flat is a file flattened to its leaves: the value and the line of each by
+// path, and the documents its strings hold — the fields decoded into leaves
+// (payload) — by path.
+type flat struct {
+	values    map[string]string
+	lines     map[string]int
+	documents map[string]bool
+}
 
 // textMapping is the document a string holds when it is YAML text of a
 // mapping with entries spread over lines — chart values, an app-config; a
@@ -67,15 +79,12 @@ func textMapping(s string) ([]document, bool) {
 	return docs, true
 }
 
-// payload says whether a leaf sits in the data of a ConfigMap or the
-// stringData of a Secret — the fields that hold a document as text: a
-// chart's values, the portal's app-config — or inside such a document
-// already. A kustomization's patches and every other string are one leaf,
-// whatever they hold.
+// payload says whether a leaf of the file itself sits in the data of a
+// ConfigMap or the stringData of a Secret — the fields that hold a document
+// as text: a chart's values, the portal's app-config. Inside such a document
+// every string that holds a mapping is one too; a kustomization's patches
+// and every other string are one leaf, whatever they hold.
 func payload(path string) bool {
-	if strings.Contains(path, textSep) {
-		return true
-	}
 	segs := segments(path)
 	if len(segs) > 0 && strings.HasPrefix(segs[0], "[") {
 		segs = segs[1:] // the document's key in a file of several
@@ -83,34 +92,27 @@ func payload(path string) bool {
 	return len(segs) > 0 && (segs[0] == "data" || segs[0] == "stringData")
 }
 
-// innerPath is a leaf's path inside the innermost document it sits in: the
-// part after the last textSep outside brackets (an identity may carry a
-// colon), the whole path for a leaf of the file itself. The dimension keys,
-// the removals and the migrations name paths inside the document.
-func innerPath(p string) string {
-	depth := 0
-	for i := len(p) - 1; i >= 0; i-- {
-		switch p[i] {
-		case ']':
-			depth++
-		case '[':
-			depth--
-		case textSep[0]:
-			if depth == 0 {
-				return p[i+1:]
-			}
-		}
+// innerPath is a leaf's path inside the innermost of documents it sits in
+// (the longest that opens it), the whole path for a leaf of the file itself.
+// The dimension keys, the removals and the migrations name paths inside the
+// document.
+func innerPath(documents map[string]bool, p string) string {
+	if d := holder(documents, p); d != "" {
+		return p[len(d)+len(textSep):]
 	}
 	return p
 }
 
-// holder is the path of the field whose text a leaf sits in; empty for a
-// leaf of the file itself.
-func holder(p string) string {
-	if inner := innerPath(p); len(inner) < len(p) {
-		return p[:len(p)-len(inner)-len(textSep)]
+// holder is the field of documents whose text a leaf sits in, the innermost
+// where text holds text; empty for a leaf of the file itself.
+func holder(documents map[string]bool, p string) string {
+	best := ""
+	for d := range documents {
+		if len(d) > len(best) && strings.HasPrefix(p, d+textSep) {
+			best = d
+		}
 	}
-	return ""
+	return best
 }
 
 // flattenLines flattens every document of a YAML file to its leaves by
@@ -120,23 +122,25 @@ func holder(p string) string {
 // the text a string holds sits on its line of the file where the text is a
 // literal block scalar (its lines are the file's from the one after the
 // indicator), on the field's line where a quoted or folded scalar folds them.
-func flattenLines(content string) (values map[string]string, lines map[string]int) {
-	values, lines = map[string]string{}, map[string]int{}
+func flattenLines(content string) flat {
+	f := flat{values: map[string]string{}, lines: map[string]int{}, documents: map[string]bool{}}
 	docs, err := parse(content)
 	if err != nil {
-		return map[string]string{"": content}, map[string]int{"": 1}
+		f.values[""], f.lines[""] = content, 1
+		return f
 	}
-	collect(docs, "", func(l int) int { return l }, values, lines)
-	return values, lines
+	collect(docs, "", false, func(l int) int { return l }, &f)
+	return f
 }
 
-// collect flattens the leaves of docs under prefix into values and lines,
-// each line placed in the file by place (the file's line of a line of the
-// text docs were parsed from); a payload string that holds a YAML mapping is
-// the mapping's leaves under the field's path and textSep.
-func collect(docs []document, prefix string, place func(int) int, values map[string]string, lines map[string]int) {
+// collect flattens the leaves of docs under prefix into f, each line placed
+// in the file by place (the file's line of a line of the text docs were
+// parsed from); a string that holds a YAML mapping, in a payload field or
+// inside a document already, is the mapping's leaves under the field's path
+// and textSep, and the field is one of f's documents.
+func collect(docs []document, prefix string, inDocument bool, place func(int) int, f *flat) {
 	walkFile(docs, prefix, func(path string, line int, n *yaml.Node, value any) {
-		if s, isText := value.(string); isText && n != nil && n.Kind == yaml.ScalarNode && payload(path) {
+		if s, isText := value.(string); isText && n != nil && n.Kind == yaml.ScalarNode && (inDocument || payload(path)) {
 			if inner, ok := textMapping(s); ok {
 				at := place(line)
 				within := func(int) int { return at }
@@ -144,13 +148,14 @@ func collect(docs []document, prefix string, place func(int) int, values map[str
 					start := place(n.Line)
 					within = func(l int) int { return start + l }
 				}
-				collect(inner, path+textSep, within, values, lines)
+				f.documents[path] = true
+				collect(inner, path+textSep, true, within, f)
 				return
 			}
 		}
-		flatten(value, path, values)
+		flattenIn(value, path, inDocument, f.values, f.documents)
 		if n != nil {
-			lines[path] = place(line)
+			f.lines[path] = place(line)
 		}
 	})
 }

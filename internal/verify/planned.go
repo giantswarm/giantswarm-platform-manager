@@ -191,7 +191,7 @@ func (ks plannedKeys) entryReason(fd *fileDiff, yamlPath string) string {
 // A key names a path inside the document a string field holds (the
 // app-config's keys inside data.values): the leaf's innerPath is matched.
 func (ks plannedKeys) find(fd *fileDiff, yamlPath string, exact bool) string {
-	got := segments(innerPath(yamlPath))
+	got := segments(innerPath(fd.documents, yamlPath))
 	for _, k := range ks {
 		if values, ok := k.matches(fd, got, exact); ok {
 			return k.fill(values)
@@ -327,14 +327,15 @@ func extrasPath(p string) string {
 }
 
 // segments splits a flattened YAML path into its keys and indexes: a.b[k].c
-// is a, b, [k], c, and a step into the document a string holds (textSep) is
-// a step like any. A bracketed index is one segment whatever it holds (an
-// identity may carry dots).
+// is a, b, [k], c. A bracketed index is one segment whatever it holds (an
+// identity may carry dots); a key's colon is part of the key, so a path is
+// split into a document's field and the path inside it by innerPath, never
+// here.
 func segments(p string) []string {
 	var out []string
 	for p != "" {
 		switch p[0] {
-		case '.', textSep[0]:
+		case '.':
 			p = p[1:]
 		case '[':
 			end := strings.IndexByte(p, ']')
@@ -343,7 +344,7 @@ func segments(p string) []string {
 			}
 			out, p = append(out, p[:end+1]), p[end+1:]
 		default:
-			end := strings.IndexAny(p, ".["+textSep)
+			end := strings.IndexAny(p, ".[")
 			if end < 0 {
 				return append(out, p)
 			}

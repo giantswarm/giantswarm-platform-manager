@@ -1,17 +1,30 @@
 package verify
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 )
 
-// The leaves every manifest opens with.
+// valuesLines are a file's leaves and their lines.
+func valuesLines(content string) (map[string]string, map[string]int) {
+	f := flattenLines(content)
+	return f.values, f.lines
+}
+
+// The leaves every manifest opens with, and the field a ConfigMap's chart
+// values are the text of.
 const (
 	apiVersionPath = "apiVersion"
 	kindPath       = "kind"
+	valuesField    = "data.values"
 )
+
+// appConfigDocuments are the documents the portal's app-config ConfigMap
+// holds: the chart values, and the app-config inside them.
+var appConfigDocuments = map[string]bool{valuesField: true, valuesField + ":backstage.appConfig": true}
 
 // Every leaf of a file sits on a line: a mapping entry's key line, a
 // sequence entry's "- " line, the first line of a multi-line scalar, the
@@ -45,7 +58,7 @@ func TestFlattenLinesPlacesEveryLeaf(t *testing.T) {
 		"  after: 1",      // 24
 		"",
 	}, "\n")
-	values, lines := flattenLines(content)
+	values, lines := valuesLines(content)
 	want := map[string]int{
 		apiVersionPath: 1, kindPath: 2, "metadata.name": 4, "metadata.labels": 5,
 		"data.script": 7, "data.list[a]": 11, "data.list[b]": 12,
@@ -63,11 +76,11 @@ func TestFlattenLinesPlacesEveryLeaf(t *testing.T) {
 	if values["data.script"] != "line one\nline two\n" || values["metadata.labels"] != "{}" || values["data.empty"] != "[]" || values["data.multi"] != "one two" || values["data.objects[y].port"] != "2" {
 		t.Errorf("values: %v", values)
 	}
-	_, lines = flattenLines("kind: A\nmetadata:\n  name: a\n---\nkind: B\nmetadata:\n  name: b\n")
+	_, lines = valuesLines("kind: A\nmetadata:\n  name: a\n---\nkind: B\nmetadata:\n  name: b\n")
 	if lines["[A//a].kind"] != 1 || lines["[B//b].metadata.name"] != 7 {
 		t.Errorf("several documents: %v", lines)
 	}
-	if values, lines := flattenLines("not: [yaml"); values[""] != "not: [yaml" || lines[""] != 1 {
+	if values, lines := valuesLines("not: [yaml"); values[""] != "not: [yaml" || lines[""] != 1 {
 		t.Errorf("not YAML: %v %v", values, lines)
 	}
 }
@@ -114,7 +127,7 @@ func TestRedactLeavesKeepsTheStructure(t *testing.T) {
 	if plan.Ciphertext(got) || strings.Contains(got, "sops") {
 		t.Errorf("ciphertext or SOPS's block left:\n%s", got)
 	}
-	values, lines := flattenLines(got)
+	values, lines := valuesLines(got)
 	if values["stringData.token"] != Redacted || values["type"] != "Opaque" || lines["data.blob"] != 12 || len(values) != 8 {
 		t.Errorf("the redacted file's leaves: %v %v", values, lines)
 	}
@@ -125,8 +138,8 @@ func TestRedactLeavesKeepsTheStructure(t *testing.T) {
 	if got := redactLeaves("not: [yaml", func(string) bool { return true }); got != "not: [yaml" {
 		t.Errorf("not YAML: %q", got)
 	}
-	if !payload("data.values") || !payload("stringData.values") || !payload("[ConfigMap/ns/c].data.values") || !payload("spec.x:inside") || payload("spec.patch") || payload("patches[0].patch") || payload("") {
-		t.Error("payload is a ConfigMap's data, a Secret's stringData, and the inside of a document")
+	if !payload("data.values") || !payload("stringData.values") || !payload("[ConfigMap/ns/c].data.values") || payload("spec.patch") || payload("patches[0].patch") || payload("") {
+		t.Error("payload is a ConfigMap's data or a Secret's stringData")
 	}
 }
 
@@ -183,7 +196,7 @@ func TestFlattenLinesDescendsIntoText(t *testing.T) {
 		"    b: 2",                                  // 19
 		"",
 	}, "\n")
-	values, lines := flattenLines(content)
+	values, lines := valuesLines(content)
 	want := map[string]int{
 		apiVersionPath: 1, kindPath: 2,
 		"data.values:backstage.appConfig:app.title": 8, "data.values:backstage.appConfig:grafana.domain": 10,
@@ -208,17 +221,25 @@ func TestFlattenLinesDescendsIntoText(t *testing.T) {
 	if len(decoded) != 1 || decoded["data.values:backstage.appConfig:app.title"] != "x" {
 		t.Errorf("a decoded value flattens the same way: %v", decoded)
 	}
+	if docs := flattenLines(content).documents; !reflect.DeepEqual(docs, map[string]bool{valuesField: true, valuesField + ":backstage.appConfig": true, "data.quoted": true}) {
+		t.Errorf("the documents the file holds: %v", docs)
+	}
+	docs := appConfigDocuments
 	for p, inner := range map[string]string{
-		"data.values:backstage.appConfig:app.title":  "app.title",
-		"data.values:servers[http://x:8080/mcp].url": "servers[http://x:8080/mcp].url",
-		"a.b[http://x:8080/mcp].c":                   "a.b[http://x:8080/mcp].c",
-		"":                                           "",
+		"data.values:backstage.appConfig:app.title":                                       "app.title",
+		"data.values:backstage.appConfig:app.extensions[14].entity-card:catalog/labels":   "app.extensions[14].entity-card:catalog/labels",
+		"data.values:backstage.appConfig:app.extensions[29].page:scaffolder.config.title": "app.extensions[29].page:scaffolder.config.title",
+		"data.values:servers[http://x:8080/mcp].url":                                      "servers[http://x:8080/mcp].url",
+		"data.values:backstage.other:key":                                                 "backstage.other:key",
+		"a.b[http://x:8080/mcp].c":                                                        "a.b[http://x:8080/mcp].c",
+		"spec.entity-card:catalog/labels":                                                 "spec.entity-card:catalog/labels",
+		"":                                                                                "",
 	} {
-		if got := innerPath(p); got != inner {
+		if got := innerPath(docs, p); got != inner {
 			t.Errorf("innerPath(%q) = %q, want %q", p, got, inner)
 		}
 	}
-	if holder("data.values:backstage.appConfig:app.title") != "data.values:backstage.appConfig" || holder("data.values:route.enabled") != "data.values" || holder("a.b[http://x:8080/mcp].c") != "" {
-		t.Error("holder is the field whose text the leaf sits in")
+	if holder(docs, "data.values:backstage.appConfig:app.extensions[14].entity-card:catalog/labels") != "data.values:backstage.appConfig" || holder(docs, "data.values:route.enabled") != "data.values" || holder(docs, "a.b[http://x:8080/mcp].c") != "" {
+		t.Error("holder is the field whose text the leaf sits in, a key's colon no step")
 	}
 }

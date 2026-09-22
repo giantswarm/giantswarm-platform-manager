@@ -27,13 +27,13 @@ const grafanaDomainPath = "grafana.domain"
 func TestMissingChoiceIsNotCheckedNeverADifference(t *testing.T) {
 	const field = "plugins.grafana.domain"
 	rendered := "a: 1\ngrafana:\n  domain: " + render.Missing(field) + "\n"
-	if got := differences("r:p", rendered, "a: 1\n", nil); len(got) != 0 {
+	if got, _ := differences("r:p", rendered, "a: 1\n", nil); len(got) != 0 {
 		t.Errorf("the record without the leaf: %+v", got)
 	}
-	if got := differences("r:p", rendered, "a: 1\ngrafana:\n  domain: https://g\n", nil); len(got) != 0 {
+	if got, _ := differences("r:p", rendered, "a: 1\ngrafana:\n  domain: https://g\n", nil); len(got) != 0 {
 		t.Errorf("the record with another value: %+v", got)
 	}
-	if got := differences("r:p", rendered, "a: 2\n", nil); len(got) != 1 || got[0].Path != "a" {
+	if got, _ := differences("r:p", rendered, "a: 2\n", nil); len(got) != 1 || got[0].Path != "a" {
 		t.Errorf("drift beside the leaf: %+v", got)
 	}
 	if got := missingLeaves(flattenYAML(rendered)); !reflect.DeepEqual(got, map[string][]string{grafanaDomainPath: {field}}) {
@@ -119,9 +119,9 @@ func TestRemovalsNameThePlannedChanges(t *testing.T) {
 	dexSecret := &fileDiff{path: testDexSecretPatch, kind: definitions.KindDexSecret}
 	agents := &fileDiff{path: "management-clusters/x/extras/agents/kustomization.yaml", kind: definitions.KindExtras}
 	kust := &fileDiff{path: "management-clusters/x/extras/agent-platform/kustomization.yaml", kind: definitions.KindExtras}
-	appConfig := &fileDiff{path: "management-clusters/x/extras/backstage/backstage/app-config.yaml", kind: definitions.KindBackstage}
+	appConfig := &fileDiff{path: "management-clusters/x/extras/backstage/backstage/app-config.yaml", kind: definitions.KindBackstage, documents: appConfigDocuments}
 	secrets := &fileDiff{path: "management-clusters/x/extras/backstage/backstage/user-secrets.enc.yaml", kind: definitions.KindBackstage}
-	fragment := &fileDiff{path: testComponentAppConfig, kind: definitions.KindBackstage}
+	fragment := &fileDiff{path: testComponentAppConfig, kind: definitions.KindBackstage, documents: map[string]bool{"data.app-config.agent-platform.yaml": true}}
 	for _, tc := range []struct {
 		name string
 		fd   *fileDiff
@@ -314,20 +314,20 @@ func TestFlattenKeysDocumentsByObject(t *testing.T) {
 func TestDifferencesFollowTheSkeleton(t *testing.T) {
 	rendered := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\nstringData:\n  token: GENERATED(token)\n  extra: plain\n"
 	current := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\nstringData:\n  token: ENC[AES256_GCM,data:x,type:str]\n  extra: ENC[AES256_GCM,data:y,type:str]\nhandEdited: true\nsops:\n  version: 3.9.0\n  age: []\n"
-	got := differences("r:p", rendered, current, map[string]string{"r:p#handEdited": "x.y"})
+	got, _ := differences("r:p", rendered, current, map[string]string{"r:p#handEdited": "x.y"})
 	if len(got) != 1 || got[0].Path != "handEdited" || got[0].Rendered != "" || got[0].Current != Redacted || got[0].Input != "x.y" || got[0].Line != 0 || got[0].CurrentLine != 8 {
 		t.Errorf("encrypted: %+v", got)
 	}
 	regexRendered := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\n  namespace: ns\ntype: Opaque\nstringData:\n  token: GENERATED(token)\n  VALKEY_PASSWORD: GENERATED(valkey)\n"
 	regexCurrent := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\ntype: kubernetes.io/tls\nstringData:\n  token: ENC[AES256_GCM,data:x,type:str]\nsops:\n  encrypted_regex: ^(data|stringData)$\n  version: 3.9.0\n  age: []\n"
-	got = differences("r:p", regexRendered, regexCurrent, nil)
+	got, _ = differences("r:p", regexRendered, regexCurrent, nil)
 	shown := func(i int, path, rendered, current string, line, currentLine int) bool {
 		return got[i].Path == path && got[i].Rendered == rendered && got[i].Current == current && got[i].Line == line && got[i].CurrentLine == currentLine
 	}
 	if len(got) != 3 || !shown(0, "metadata.namespace", "ns", "", 5, 0) || !shown(1, "stringData.VALKEY_PASSWORD", Redacted, "", 9, 0) || !shown(2, "type", "Opaque", "kubernetes.io/tls", 6, 5) {
 		t.Errorf("under encrypted_regex redacted, every other leaf shown, each on its lines: %+v", got)
 	}
-	got = differences("r:p", "a: 1\n", current, nil)
+	got, _ = differences("r:p", "a: 1\n", current, nil)
 	if len(got) != 7 {
 		t.Errorf("an encrypted file whose skeleton differs: %+v", got)
 	}
@@ -337,11 +337,11 @@ func TestDifferencesFollowTheSkeleton(t *testing.T) {
 		}
 	}
 	plain := "a: 1\nb: SUPPLIED(b)\nc: 3\n"
-	got = differences("r:p", plain, "a: 1\nb: secret\nc: 4\n", nil)
+	got, _ = differences("r:p", plain, "a: 1\nb: secret\nc: 4\n", nil)
 	if len(got) != 1 || got[0].Path != "c" || got[0].Rendered != "3" || got[0].Current != "4" || got[0].Line != 3 || got[0].CurrentLine != 3 {
 		t.Errorf("plain: %+v", got)
 	}
-	if got := differences("r:p", plain, "", nil); len(got) != 3 || got[1].Rendered != "SUPPLIED(b)" || got[1].Line != 2 || got[1].CurrentLine != 0 {
+	if got, _ := differences("r:p", plain, "", nil); len(got) != 3 || got[1].Rendered != "SUPPLIED(b)" || got[1].Line != 2 || got[1].CurrentLine != 0 {
 		t.Errorf("created: %+v", got)
 	}
 }
@@ -428,7 +428,7 @@ func TestDifferencesInsideText(t *testing.T) {
 	rendered := head + "          title: Dev Portal\n          baseUrl: https://portal.new\n        grafana:\n          domain: " + render.Missing("plugins.grafana.domain") + "\n"
 	current := head + "          title: Old Portal\n          baseUrl: https://portal.old\n        muster:\n          installations: []\n        grafana:\n          domain: https://g\n"
 	const doc = "data.values:backstage.appConfig:"
-	got := differences("r:"+appConfig, rendered, current, map[string]string{"r:" + appConfig + "#" + doc + "app.baseUrl": "portal.domain"})
+	got, docs := differences("r:"+appConfig, rendered, current, map[string]string{"r:" + appConfig + "#" + doc + "app.baseUrl": "portal.domain"})
 	want := []Difference{
 		{File: "r:" + appConfig, Path: doc + "app.baseUrl", Rendered: "https://portal.new", Current: "https://portal.old", Line: 11, CurrentLine: 11, Input: "portal.domain"},
 		{File: "r:" + appConfig, Path: doc + "app.title", Rendered: "Dev Portal", Current: "Old Portal", Line: 10, CurrentLine: 10},
@@ -440,29 +440,49 @@ func TestDifferencesInsideText(t *testing.T) {
 	if missing := missingLeaves(flattenYAML(rendered)); !reflect.DeepEqual(missing, map[string][]string{doc + grafanaDomainPath: {"plugins.grafana.domain"}}) {
 		t.Errorf("the choice not on record by its path through the text: %v", missing)
 	}
-	fd := &fileDiff{key: "r:" + appConfig, path: appConfig, kind: definitions.KindBackstage}
-	rms := readRemovals([]definitions.Removal{{Key: "backstage:app-config:muster", Kind: "other-definition", Reason: "Moved: muster"}}, nil)
+	if !reflect.DeepEqual(docs, appConfigDocuments) {
+		t.Errorf("the documents of both sides: %v", docs)
+	}
+	fd := &fileDiff{key: "r:" + appConfig, path: appConfig, kind: definitions.KindBackstage, documents: docs}
+	rms := readRemovals([]definitions.Removal{{Key: "backstage:app-config:muster", Kind: "other-definition", Reason: "Moved: muster"}, {Key: "backstage:app-config:scaffolder", Kind: "not-rendered", Reason: "Removed: scaffolder"}}, nil)
 	if reason := rms.reason(fd, doc+"muster.installations"); reason != "Moved: muster" {
 		t.Errorf("a removal names the key inside the document: %q", reason)
 	}
 	if reason := rms.reason(fd, doc+"app.title"); reason != "" {
 		t.Errorf("a key beside it: %q", reason)
 	}
+	var paths []string
+	// A key's own colon is no step into a document: an extension entry
+	// page:scaffolder is not the scaffolder block, and its leaves keep their
+	// path inside the app-config.
+	extensions := head + "          extensions:\n            - entity-card:catalog/labels: false\n            - page:scaffolder:\n                config:\n                  title: Create\n        scaffolder: {}\n"
+	got, docs = differences("r:"+appConfig, rendered, extensions, nil)
+	paths = nil
+	for _, d := range got {
+		paths = append(paths, d.Path)
+	}
+	if !slices.Equal(paths, []string{doc + "app.baseUrl", doc + "app.extensions[0].entity-card:catalog/labels", doc + "app.extensions[1].page:scaffolder.config.title", doc + "app.title", doc + "scaffolder"}) {
+		t.Errorf("leaves with a colon in the key: %v", paths)
+	}
+	fd.documents = docs
+	if innerPath(fd.documents, got[1].Path) != "app.extensions[0].entity-card:catalog/labels" || rms.reason(fd, got[2].Path) != "" || rms.reason(fd, got[4].Path) != "Removed: scaffolder" {
+		t.Errorf("the scaffolder removal names the block, not the extension entry: %q / %q", rms.reason(fd, got[2].Path), rms.reason(fd, got[4].Path))
+	}
 
 	secret := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\nstringData:\n  values: |\n    authSessionSecret: " + render.Placeholder("session") + "\n    dexAuthCredentials:\n      maple:\n        clientId: backstage\n"
 	encrypted := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\nstringData:\n  values: ENC[AES256_GCM,data:x,iv:y,tag:z,type:str]\nsops:\n  encrypted_regex: ^(data|stringData)$\n  version: 3.9.0\n  age: []\n"
-	if got := differences("r:s", secret, encrypted, nil); len(got) != 0 {
+	if got, _ := differences("r:s", secret, encrypted, nil); len(got) != 0 {
 		t.Errorf("the record's encrypted text stands: %+v", got)
 	}
-	created := differences("r:s", secret, "", nil)
-	paths := make([]string, 0, len(created))
+	created, _ := differences("r:s", secret, "", nil)
+	paths = paths[:0]
 	for _, d := range created {
 		paths = append(paths, d.Path)
 	}
 	if !reflect.DeepEqual(paths, []string{apiVersionPath, kindPath, "metadata.name", "stringData.values:authSessionSecret", "stringData.values:dexAuthCredentials.maple.clientId"}) || created[3].Rendered != render.Placeholder("session") || created[4].Line != 10 || created[4].Rendered != "backstage" {
 		t.Errorf("a created Secret differs at every leaf inside its text, like a created file: %+v", created)
 	}
-	if got := differences("r:k", "patches:\n- patch: |\n    spec:\n      a: 1\n", "patches:\n- patch: |\n    spec:\n      a: 2\n", nil); len(got) != 1 || got[0].Path != "patches[0].patch" {
+	if got, _ := differences("r:k", "patches:\n- patch: |\n    spec:\n      a: 1\n", "patches:\n- patch: |\n    spec:\n      a: 2\n", nil); len(got) != 1 || got[0].Path != "patches[0].patch" {
 		t.Errorf("a kustomization's patch is one leaf whatever it holds: %+v", got)
 	}
 }
@@ -473,16 +493,16 @@ func TestDifferencesInsideText(t *testing.T) {
 // grafana.domain is one difference, at the domain; an empty mapping against
 // none is still one.
 func TestDifferencesReportTheEntriesOfAnEmptiedKey(t *testing.T) {
-	if got := differences("r:p", "grafana:\n  domain: x\n", "grafana: {}\n", nil); len(got) != 1 || got[0].Path != grafanaDomainPath || got[0].Current != "" {
+	if got, _ := differences("r:p", "grafana:\n  domain: x\n", "grafana: {}\n", nil); len(got) != 1 || got[0].Path != grafanaDomainPath || got[0].Current != "" {
 		t.Errorf("the record's empty mapping: %+v", got)
 	}
-	if got := differences("r:p", "list: []\n", "list:\n- a\n", nil); len(got) != 1 || got[0].Path != "list[a]" || got[0].Rendered != "" {
+	if got, _ := differences("r:p", "list: []\n", "list:\n- a\n", nil); len(got) != 1 || got[0].Path != "list[a]" || got[0].Rendered != "" {
 		t.Errorf("the render's empty list: %+v", got)
 	}
-	if got := differences("r:p", "data:\n  values: |\n    grafana:\n      domain: x\n", "data:\n  values: |\n    grafana: {}\n", nil); len(got) != 1 || got[0].Path != "data.values:grafana.domain" {
+	if got, _ := differences("r:p", "data:\n  values: |\n    grafana:\n      domain: x\n", "data:\n  values: |\n    grafana: {}\n", nil); len(got) != 1 || got[0].Path != "data.values:grafana.domain" {
 		t.Errorf("inside a document: %+v", got)
 	}
-	if got := differences("r:p", "labels: {}\n", "", nil); len(got) != 1 || got[0].Path != "labels" || got[0].Rendered != "{}" {
+	if got, _ := differences("r:p", "labels: {}\n", "", nil); len(got) != 1 || got[0].Path != "labels" || got[0].Rendered != "{}" {
 		t.Errorf("an empty mapping against none: %+v", got)
 	}
 }
