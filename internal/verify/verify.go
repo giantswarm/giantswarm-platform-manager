@@ -127,6 +127,10 @@ type Dimension struct {
 	Key    string `json:"key"`
 	Mark   Mark   `json:"mark"`
 	Reason string `json:"reason,omitempty"`
+	// Detail is what a reason rests on when that is more than the one
+	// sentence: the transport's error behind a target unreachable from the
+	// manager.
+	Detail string `json:"detail,omitempty"`
 	// Files are the repository files the dimension was compared in.
 	Files       []string     `json:"files,omitempty"`
 	Differences []Difference `json:"differences,omitempty"`
@@ -304,19 +308,19 @@ func Compare(ctx context.Context, opts Options) Result {
 		r.view(p, opts.Content)
 	}
 	dims, others := assign(c, feats, r.Refused, own)
-	data := probeData(opts.Installation.Name, opts.Installation.BaseDomain, opts.Inputs.Values)
+	var clients []plan.DexClient
+	if c != nil {
+		clients = c.dexClients
+	}
+	probed := newProber(opts.Probes).probeAll(ctx, probeData(opts.Installation.Name, opts.Installation.BaseDomain, opts.Inputs.Values), clients, c != nil, probes)
 	for _, fd := range feats {
 		f := Feature{ID: fd.ID, Title: fd.Title, Marks: map[Mark]int{}, Dimensions: []Dimension{}}
 		for _, d := range fd.Dimensions {
 			f.Dimensions = append(f.Dimensions, *dims[d.ID])
 		}
-		for _, p := range probes {
+		for i, p := range probes {
 			if p.Feature == fd.ID {
-				var clients []plan.DexClient
-				if c != nil {
-					clients = c.dexClients
-				}
-				f.Dimensions = append(f.Dimensions, probe(ctx, opts.Probes, data, clients, c != nil, p))
+				f.Dimensions = append(f.Dimensions, probed[i])
 			}
 		}
 		r.addFeature(f)
