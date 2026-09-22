@@ -1,9 +1,21 @@
 # The consistency features of the agent-platform definition and the dimensions each one rolls up.
 # A feature shows one mark (as defined, differs by input, drifted) and expands to its dimensions on demand.
 # Every dimension appears under exactly one feature. `kind` says where the dimension is observed:
-# configmap, dex-secret, extras and backstage are files of the fileset (compared against the render);
+# configmap, dex-configmap, extras and backstage are files of the fileset (compared against the render);
 # live is a probe against the running installation, which the definition renders as data (Result.Probes)
 # and the verify slice executes.
+#
+# A file dimension's key names the leaves it observes, and the comparison routes every difference by it.
+# A word with a slash or a file suffix names a file or directory — by its path under extras/ (under
+# extras/backstage/ for the backstage kind, under apps/ for a patch), or by its name at any depth; `<x>`
+# stands for a part of a name; a directory covers everything beneath it. Every other word is a YAML path
+# inside the file (inside the YAML text a ConfigMap or Secret holds) and covers everything beneath it:
+# `[*]` is any list entry, `[x]` the entry with identity x, `<x>` any map key or part of one. ` / `
+# separates alternatives; an alternative without a file word is observed in the files of the alternative
+# before it. A remark in parentheses is not read. A leaf goes to the dimension of its file's kind that
+# names it most specifically (the longer words win, then file order), else to the kind's dimension marked
+# `catchAll: true` (whose key is prose), else it is reported under the result's feature "other". A live
+# dimension's key is prose.
 features:
   identity:
     title: Identity
@@ -17,11 +29,11 @@ features:
       - {id: muster-trusted-issuers, kind: configmap, key: muster.muster.oauth.server.trustedIssuers}
       - {id: muster-public-registration-redirect-uris, kind: configmap, key: muster.muster.oauth.server.trustedPublicRegistrationRedirectURIs}
       - {id: muster-post-login-redirect-allowlist, kind: configmap, key: muster.muster.oauth.mcpClient.postLoginRedirectAllowlist}
-      - {id: edge-jwt-validation, kind: configmap, key: gateway.jwksEgress / extraObjects ReferenceGrant / agent-platform-mcps.agentgateway.jwt.extraProviders}
+      - {id: edge-jwt-validation, kind: configmap, key: "gateway.jwksEgress / extraObjects[ReferenceGrant/<namespace>/<name>] / agent-platform-mcps.agentgateway.jwt.extraProviders"}
       - {id: edge-oauth-mode, kind: configmap, key: agent-platform-mcps.agentgateway.oauthMode}
-      - {id: dex-extra-static-clients, kind: dex-secret, key: oidc.extraStaticClients}
-      - {id: dex-static-client-keys, kind: dex-secret, key: oidc.staticClients}
-      - {id: dex-other-oidc-keys, kind: dex-secret, key: oidc.* other than staticClients and extraStaticClients}
+      - {id: dex-extra-static-clients, kind: dex-configmap, key: oidc.extraStaticClients}
+      - {id: dex-static-client-keys, kind: dex-configmap, key: oidc.staticClients}
+      - {id: dex-other-oidc-keys, kind: dex-configmap, catchAll: true, key: every other key of the patch (oidc.* but staticClients and extraStaticClients)}
       - {id: live-oauth2-proxy-extra-audience, kind: live, key: oauth2-proxy --oidc-extra-audience argument}
       - {id: live-muster-trusted-audiences, kind: live, key: muster ConfigMap trustedAudiences}
       - {id: live-muster-connector-and-client-id, kind: live, key: muster ConfigMap dex connectorId, where the definition renders one}
@@ -34,27 +46,27 @@ features:
     description: Every referenced Secret present and shaped as the platform reads it; nothing inline.
     dimensions:
       - {id: oauth2-proxy-existing-secret, kind: configmap, key: kagent.oauth2-proxy.config.existingSecret}
-      - {id: oauth2-proxy-inline-credentials, kind: configmap, key: kagent.oauth2-proxy.config.clientID / clientSecret / cookieSecret}
-      - {id: muster-and-valkey-existing-secrets, kind: configmap, key: muster.muster.oauth.server.existingSecret / storage.valkey.existingSecret / valkey.*}
+      - {id: oauth2-proxy-inline-credentials, kind: configmap, key: kagent.oauth2-proxy.config.clientID / kagent.oauth2-proxy.config.clientSecret / kagent.oauth2-proxy.config.cookieSecret (never inline)}
+      - {id: muster-and-valkey-existing-secrets, kind: configmap, key: muster.muster.oauth.server.existingSecret / muster.muster.oauth.server.storage.valkey.existingSecret / valkey}
       - {id: forbid-inline-secrets, kind: configmap, key: gitops.forbidInlineSecrets}
-      - {id: secret-values-patch-keys, kind: configmap, key: agent-platform secret-values.yaml.patch}
-      - {id: secrets-kustomization-list, kind: extras, key: secrets/kustomization.yaml resources}
-      - {id: oauth2-proxy-credentials-secret, kind: extras, key: secrets/kagent-oauth2-proxy-credentials.yaml}
-      - {id: other-secret-shapes, kind: extras, key: every other Secret under secrets/ (name, namespace, labels, keys)}
+      - {id: secret-values-patch-keys, kind: configmap, key: agent-platform/secret-values.yaml.patch}
+      - {id: secrets-kustomization-list, kind: extras, key: agent-platform/secrets/kustomization.yaml}
+      - {id: oauth2-proxy-credentials-secret, kind: extras, key: agent-platform/secrets/kagent-oauth2-proxy-credentials.yaml}
+      - {id: other-secret-shapes, kind: extras, key: "agent-platform/secrets/ (every other Secret: name, namespace, labels, keys)"}
       - {id: live-oauth2-proxy-secret-and-flux-sa, kind: live, key: Secret kagent-oauth2-proxy-credentials and ServiceAccount kagent-flux}
   runtime:
     title: Runtime
     description: kagent, the platform Postgres, connectivity and the chart release.
     dimensions:
       - {id: kagent-enabled, kind: configmap, key: components.kagent.enabled}
-      - {id: klaus-gateway, kind: configmap, key: components.klaus-gateway.enabled / klausGateway.*}
+      - {id: klaus-gateway, kind: configmap, key: components.klaus-gateway.enabled / klausGateway}
       - {id: postgres-enabled, kind: configmap, key: postgres.enabled}
       - {id: postgres-backup, kind: configmap, key: postgres.backup}
       - {id: postgres-storage-class, kind: configmap, key: postgres.storage.storageClass}
       - {id: kagent-providers, kind: configmap, key: kagent.providers}
       - {id: kagent-model-configs, kind: configmap, key: kagent.modelConfigs}
-      - {id: patch-top-level-keys, kind: configmap, key: the patch's top-level keys}
-      - {id: extras-kustomization-resources, kind: extras, key: kustomization.yaml resources and patches}
+      - {id: patch-top-level-keys, kind: configmap, catchAll: true, key: the patch's top-level keys (every key no other dimension names)}
+      - {id: extras-kustomization-resources, kind: extras, key: agent-platform/kustomization.yaml (resources and the chart line's patch)}
       - {id: live-model-configs, kind: live, key: ModelConfigs in the kagent namespace}
       - {id: live-kagent-provider-values, kind: live, key: kagent HelmRelease .spec.values.providers}
       - {id: live-helmreleases-ready, kind: live, key: HelmReleases agent-platform, kagent, connectivity, muster, mcps Ready}
@@ -66,9 +78,10 @@ features:
     description: muster and the MCP servers of the installation itself, and the agent-manager.
     dimensions:
       - {id: agent-manager, kind: configmap, key: components.agent-manager.enabled / agent-manager.oauth}
-      - {id: own-mcp-servers, kind: configmap, key: agent-platform-mcps.mcpServers entries of the installation itself}
-      - {id: own-mcp-kubernetes-url, kind: configmap, key: the installation's own mcp-kubernetes URL (in-cluster)}
-      - {id: own-mcp-private-urls, kind: extras, key: mcp-*/user-values.yaml and the ConfigMap the HelmRelease reads it from}
+      - {id: own-mcp-servers, kind: configmap, key: "agent-platform-mcps.mcpServers[http://<name>.svc:8080/mcp] / agent-platform-mcps.mcpServers[<scheme>://mcp-<name>.<domain>/mcp] (the installation's own: at the in-cluster Service, or on its own base domain)"}
+      - {id: own-mcp-kubernetes-url, kind: configmap, key: "agent-platform-mcps.mcpServers[http://mcp-kubernetes.mcp-kubernetes.svc:8080/mcp].url"}
+      - {id: own-mcp-private-urls, kind: extras, key: mcp-<name>/user-values.yaml / mcp-<name>/kustomization.yaml configMapGenerator / generatorOptions / patches (the ConfigMap the HelmRelease reads it from)}
+      - {id: own-mcp-directories, kind: extras, key: "mcp-<name>/ (each server's kustomization, Dex client and credential Secrets)"}
       - {id: live-own-mcp-servers, kind: live, key: MCPServer objects of the installation itself}
       - {id: live-muster-protected-resource, kind: live, key: muster's OAuth protected-resource metadata}
   federation:
@@ -78,23 +91,24 @@ features:
       - {id: token-exchange-broker, kind: configmap, key: muster.muster.oauth.server.tokenExchangeBroker}
       - {id: extra-ca-file, kind: configmap, key: muster.muster.extraCaFile}
       - {id: identity-providers, kind: configmap, key: agent-platform-mcps.identityProviders}
-      - {id: federated-mcp-servers, kind: configmap, key: agent-platform-mcps.mcpServers entries of other installations}
-      - {id: portal-cluster-token-broker, kind: backstage, key: gs.clusterTokenBroker}
-      - {id: portal-extra-files, kind: backstage, key: extra files (tunnel SPIFFE bundle, plugin keys)}
+      - {id: federated-mcp-servers, kind: configmap, key: "agent-platform-mcps.mcpServers[https://<host>] (other installations', through the tunnel or on their domain)"}
+      - {id: tunnel-files, kind: extras, key: agent-platform/tunnelport/ / kubernetes/envs/prod/values.yaml tunnelport (the tunnel's objects and the fleet's tunnelport values)}
+      - {id: portal-cluster-token-broker, kind: backstage, key: agent-platform/app-config.yaml gs.clusterTokenBroker}
   portal:
     title: Portal section
     description: What the platform writes into the developer portal's configuration.
     dimensions:
-      - {id: portal-extensions, kind: backstage, key: app.extensions}
-      - {id: portal-base-url, kind: backstage, key: app.baseUrl}
-      - {id: portal-muster-installations, kind: backstage, key: muster.installations}
-      - {id: portal-flux-service-account, kind: backstage, key: agentPlatform.fluxServiceAccountName (a portal before backstage 1.1.0)}
-      - {id: portal-skills-repositories, kind: backstage, key: agentPlatform.skills.repositories}
-      - {id: portal-kagent-installations, kind: backstage, key: agentPlatform.kagent.installations}
-      - {id: portal-edge-jwt-provider, kind: configmap, key: gateway.jwksEgress / the ReferenceGrant in extraObjects / agent-platform-mcps.agentgateway.jwt.extraProviders (the chat's ID token at the edge on the 4 line)}
-      - {id: portal-catalog, kind: backstage, key: catalog}
-      - {id: portal-auth-extra-scopes, kind: backstage, key: gs.auth.extraScopes}
-      - {id: portal-auth-provider, kind: backstage, key: gs.authProvider / auth.providers}
-      - {id: portal-database-client, kind: backstage, key: backend.database.client}
-      - {id: portal-oci-repository-patch, kind: backstage, key: OCIRepository patch}
-      - {id: portal-helmrelease-values-from, kind: backstage, key: HelmRelease valuesFrom}
+      - {id: portal-component-files, kind: backstage, key: "agent-platform/ (the Component's kustomization, and its ConfigMaps' apiVersion, kind and metadata)"}
+      - {id: portal-extensions, kind: backstage, key: agent-platform/app-config.yaml app.extensions}
+      - {id: portal-base-url, kind: backstage, key: agent-platform/app-config.yaml app.baseUrl}
+      - {id: portal-muster-installations, kind: backstage, key: agent-platform/app-config.yaml muster.installations}
+      - {id: portal-flux-service-account, kind: backstage, key: agent-platform/app-config.yaml agentPlatform.fluxServiceAccountName (a portal before backstage 1.1.0)}
+      - {id: portal-skills-repositories, kind: backstage, key: agent-platform/app-config.yaml agentPlatform.skills.repositories}
+      - {id: portal-kagent-installations, kind: backstage, key: agent-platform/app-config.yaml agentPlatform.kagent.installations}
+      - {id: portal-edge-jwt-provider, kind: configmap, key: "gateway.jwksEgress / extraObjects[ReferenceGrant/<namespace>/<name>] / agent-platform-mcps.agentgateway.jwt.extraProviders (the chat's ID token at the edge on the 4 line; edge-jwt-validation names the same leaves first)"}
+      - {id: portal-catalog, kind: backstage, key: agent-platform/app-config.yaml catalog}
+      - {id: portal-auth-extra-scopes, kind: backstage, key: agent-platform/app-config.yaml gs.auth.extraScopes}
+      - {id: portal-auth-provider, kind: backstage, key: agent-platform/app-config.yaml gs.authProvider / auth.providers}
+      - {id: portal-database-client, kind: backstage, key: agent-platform/app-config.yaml backend.database.client}
+      - {id: portal-extra-app-config, kind: backstage, key: agent-platform/values.yaml backstage.extraAppConfig (the Component's app-config file)}
+      - {id: portal-helmrelease-values-from, kind: backstage, key: agent-platform/kustomization.yaml patches (the HelmRelease valuesFrom patch)}

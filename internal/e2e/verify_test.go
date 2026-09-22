@@ -71,6 +71,20 @@ func feature(t *testing.T, res verify.Result, id string) verify.Feature {
 	return verify.Feature{}
 }
 
+// anyDimension is the dimension id of whichever feature of res carries it.
+func anyDimension(t *testing.T, res verify.Result, id string) verify.Dimension {
+	t.Helper()
+	for _, f := range res.Features {
+		for _, d := range f.Dimensions {
+			if d.ID == id {
+				return d
+			}
+		}
+	}
+	t.Fatalf("dimension %s is not in the result", id)
+	return verify.Dimension{}
+}
+
 func dimension(t *testing.T, f verify.Feature, id string) verify.Dimension {
 	t.Helper()
 	for _, d := range f.Dimensions {
@@ -873,7 +887,7 @@ func TestVerifyCapabilityTakesAMissingChoiceAsNotChecked(t *testing.T) {
 	if res.Refused != "" || len(res.Inputs.Missing) != 0 || res.Summary[verify.Drifted] != 0 || res.CommitRefused != "" {
 		t.Fatalf("the choice typed: refused %q missing %v summary %v commit refused %q", res.Refused, res.Inputs.Missing, res.Summary, res.CommitRefused)
 	}
-	if d := dimension(t, feature(t, res, "portal"), notChecked[0]); d.Mark != verify.DiffersByInput || d.Reason != "" || len(d.Differences) != 1 || d.Differences[0].File != appConfig || d.Differences[0].Input == "" {
+	if d := anyDimension(t, res, notChecked[0]); d.Mark != verify.DiffersByInput || d.Reason != "" || len(d.Differences) != 1 || d.Differences[0].File != appConfig || d.Differences[0].Input == "" {
 		t.Errorf("the choice typed: %+v", d)
 	}
 	// The portal's anonymous probes run against the portal's own domain.
@@ -946,8 +960,9 @@ func TestVerifyCapabilityPlannedAdditionNamesTheServer(t *testing.T) {
 // list the definition does not render for an installation without targets.
 // The entries of its own three servers — at the in-cluster Service, or on
 // the installation's own base domain — are the template's, each reason
-// naming the server; an entry on another installation's host, what a hub
-// keeps of a target it once listed by hand, is M19 like any other server.
+// naming the server, observed under own-mcp-servers; an entry on another
+// installation's host, what a hub keeps of a target it once listed by hand,
+// is M19 like any other server, observed under federated-mcp-servers.
 func TestVerifyCapabilityOwnMCPServersByHost(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
@@ -972,11 +987,20 @@ func TestVerifyCapabilityOwnMCPServersByHost(t *testing.T) {
 	if res.State != installations.StateEnabled || res.Summary[verify.Drifted] != 0 || res.Summary[verify.DiffersByInput] != 0 {
 		t.Errorf("state %q summary %v", res.State, res.Summary)
 	}
-	d := dimension(t, feature(t, res, "tool-access"), "own-mcp-servers")
-	if d.Mark != verify.Planned || len(d.Differences) != 6 {
-		t.Fatalf("own-mcp-servers %q: %+v", d.Mark, d.Differences)
+	// The in-cluster entry's url is own-mcp-kubernetes-url's, the rest of
+	// the own entries own-mcp-servers', the target's entry federated-mcp-servers'.
+	var diffs []verify.Difference
+	for _, want := range []struct {
+		feature, id string
+		n           int
+	}{{"tool-access", "own-mcp-servers", 3}, {"tool-access", "own-mcp-kubernetes-url", 1}, {"federation", "federated-mcp-servers", 2}} {
+		d := dimension(t, feature(t, res, want.feature), want.id)
+		if d.Mark != verify.Planned || len(d.Differences) != want.n {
+			t.Fatalf("%s %q: %+v", want.id, d.Mark, d.Differences)
+		}
+		diffs = append(diffs, d.Differences...)
 	}
-	for _, diff := range d.Differences {
+	for _, diff := range diffs {
 		entry, _, _ := strings.Cut(strings.TrimPrefix(diff.Path, "agent-platform-mcps.mcpServers["), "]")
 		m19 := strings.HasSuffix(diff.Planned, "· M19")
 		switch entry {

@@ -15,11 +15,11 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"path"
 	"regexp"
 	"slices"
 	"sort"
 	"strings"
-	"unicode"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
@@ -284,9 +284,9 @@ func Compare(ctx context.Context, opts Options) Result {
 	// Without inputs nothing is rendered: the file dimensions read not
 	// checked, the anonymous probes still run.
 	var c *comparison
+	own := ownFacts(opts.Installation)
 	if opts.Inputs.Values != nil {
 		var p plan.Installation
-		own := ownFacts(opts.Installation)
 		if c, p, err = compare(ctx, opts, readRemovals(rms, own), readMigrations(migs, own)); err != nil {
 			r.Refused = err.Error()
 			c = nil
@@ -294,7 +294,7 @@ func Compare(ctx context.Context, opts Options) Result {
 		r.Inputs.Missing = p.MissingInputs
 		r.view(p, opts.Content)
 	}
-	dims := assign(c, feats, r.Refused)
+	dims, others := assign(c, feats, r.Refused, own)
 	data := probeData(opts.Installation.Name, opts.Installation.BaseDomain, opts.Inputs.Values)
 	for _, fd := range feats {
 		f := Feature{ID: fd.ID, Title: fd.Title, Marks: map[Mark]int{}, Dimensions: []Dimension{}}
@@ -310,12 +310,14 @@ func Compare(ctx context.Context, opts Options) Result {
 				f.Dimensions = append(f.Dimensions, probe(ctx, opts.Probes, data, clients, c != nil, p))
 			}
 		}
-		for _, d := range f.Dimensions {
-			f.Marks[d.Mark]++
-			r.Summary[d.Mark]++
+		r.addFeature(f)
+	}
+	if len(others) > 0 {
+		f := Feature{ID: OtherFeature, Title: "Other", Marks: map[Mark]int{}, Dimensions: []Dimension{}}
+		for _, d := range others {
+			f.Dimensions = append(f.Dimensions, *d)
 		}
-		f.Mark = rollUp(f.Dimensions)
-		r.Features = append(r.Features, f)
+		r.addFeature(f)
 	}
 	// Drifted is an installation with the fileset on record off its
 	// definition, opted in or not; one not enabled differs everywhere and
@@ -324,6 +326,17 @@ func Compare(ctx context.Context, opts Options) Result {
 		r.State = installations.StateDrifted
 	}
 	return r
+}
+
+// addFeature rolls f up from its dimensions and counts their marks into
+// the summary.
+func (r *Result) addFeature(f Feature) {
+	for _, d := range f.Dimensions {
+		f.Marks[d.Mark]++
+		r.Summary[d.Mark]++
+	}
+	f.Mark = rollUp(f.Dimensions)
+	r.Features = append(r.Features, f)
 }
 
 // rollUp is a feature's mark from its dimensions'.
@@ -890,98 +903,279 @@ func identity(v any) string {
 	return fmt.Sprint(v)
 }
 
-// kindOf is the dimension kind a rendered file is observed under.
-func kindOf(path string) string {
+// kindOf is the dimension kind a rendered file is observed under: the
+// dex-app's configmap patch dex-configmap and its secret patch dex-secret,
+// another app's patch configmap, a file under extras/backstage/ backstage,
+// every other file extras.
+func kindOf(p string) string {
 	switch {
-	case strings.Contains(path, "/apps/dex-app/"):
-		return definitions.KindDexSecret
-	case strings.Contains(path, "/apps/"):
+	case strings.Contains(p, "/apps/dex-app/"):
+		if path.Base(p) == secretPatch {
+			return definitions.KindDexSecret
+		}
+		return definitions.KindDexConfigMap
+	case strings.Contains(p, "/apps/"):
 		return definitions.KindConfigMap
-	case strings.Contains(path, "/extras/backstage/"):
+	case strings.Contains(p, "/extras/backstage/"):
 		return definitions.KindBackstage
 	}
 	return definitions.KindExtras
 }
 
-// fileKind is the kind the files a dimension observes are compared under:
-// the dex-app's two patches are one kind to kindOf and to the planned keys
-// (dex-configmap and dex-secret both name it), so a dimension declared on
-// the dex-app's configmap observes them too.
-func fileKind(kind string) string {
-	if kind == definitions.KindDexConfigMap {
-		return definitions.KindDexSecret
+// observedPath is a file's path as a dimension's file words name it: under
+// extras/ for the extras kind, under extras/backstage/ for the backstage
+// kind, under apps/ for a patch; whole for a file elsewhere.
+func observedPath(kind, p string) string {
+	switch kind {
+	case definitions.KindBackstage:
+		return strings.TrimPrefix(extrasPath(p), render.PortalDir+"/")
+	case definitions.KindExtras:
+		return extrasPath(p)
 	}
-	return kind
-}
-
-// relPath is a file's path under its extras directory, for matching the
-// keys of extras and backstage dimensions.
-func relPath(path string) string {
-	if i := strings.Index(path, "/extras/"); i >= 0 {
-		rest := path[i+len("/extras/"):]
-		if _, after, ok := strings.Cut(rest, "/"); ok {
-			return after
-		}
+	if i := strings.Index(p, "/apps/"); i >= 0 {
+		return p[i+len("/apps/"):]
 	}
-	return path
+	return p
 }
 
 // matcher is what a file dimension's key says about where it is observed:
-// the YAML paths (dotted words) and the files or directories under extras
-// (words with a slash or a file suffix) its key names. A key that names
-// neither is prose: the catch-all of its kind.
+// the key's alternatives (its parts around " / "), each the files and the
+// YAML paths it names, and whether the dimension is its kind's catch-all.
+//
+// The key's grammar: a word with a slash or a file suffix names a file or
+// directory (isFile), every other word a YAML path; a remark in parentheses
+// is not read; an alternative without a file word is observed in the files
+// of the alternative before it. A catch-all's key is prose and names
+// nothing: the dimension takes every leaf of its kind no other names.
 type matcher struct {
 	dim      *Dimension
 	kind     string
-	prefixes []string
+	catchAll bool
+	alts     []alternative
 }
 
-func newMatcher(d definitions.Dimension) matcher {
-	m := matcher{dim: &Dimension{ID: d.ID, Kind: d.Kind, Key: d.Key, Mark: NotChecked}, kind: fileKind(d.Kind)}
-	for _, word := range strings.Fields(d.Key) {
-		if !strings.ContainsAny(word, "*()") && strings.ContainsFunc(word, unicode.IsLetter) && strings.ContainsAny(word, "./") {
-			m.prefixes = append(m.prefixes, word)
+// alternative is one part of a key. It names a leaf when one of its files
+// matches the leaf's file (any file, when it names none) and one of its
+// paths the leaf's path (any path, when it names none).
+type alternative struct {
+	files []word
+	paths []word
+}
+
+// word is one file or path word of a key, compiled: a file word to one
+// pattern over the observed path, a path word to one pattern per segment.
+// n is the word's length: how specific it is. never marks a word with a
+// fact's placeholder the installation lacks: it names nothing.
+type word struct {
+	text     string
+	n        int
+	never    bool
+	file     *regexp.Regexp
+	segments []*regexp.Regexp
+}
+
+// remarks matches the parenthesised remarks of a key, placeholders its <x>
+// placeholders.
+var (
+	remarks      = regexp.MustCompile(`\([^)]*\)`)
+	placeholders = regexp.MustCompile(`<[^>]+>`)
+)
+
+// newMatcher reads d's key under the installation's facts (a fact's
+// placeholder, <domain>, stands for the fact itself, never for any name).
+func newMatcher(d definitions.Dimension, f facts) matcher {
+	m := matcher{dim: &Dimension{ID: d.ID, Kind: d.Kind, Key: d.Key, Mark: NotChecked}, kind: d.Kind, catchAll: d.CatchAll}
+	if d.CatchAll || d.Kind == definitions.KindLive {
+		return m
+	}
+	for _, part := range strings.Split(remarks.ReplaceAllString(d.Key, " "), " / ") {
+		var a alternative
+		for _, w := range strings.Fields(part) {
+			if isFile(w) {
+				a.files = append(a.files, fileWord(w, f))
+			} else {
+				a.paths = append(a.paths, pathWord(w, f))
+			}
+		}
+		if len(a.files) == 0 && len(m.alts) > 0 {
+			a.files = m.alts[len(m.alts)-1].files
+		}
+		if len(a.files)+len(a.paths) > 0 {
+			m.alts = append(m.alts, a)
 		}
 	}
 	return m
 }
 
-// isFile says whether a prefix names a file or directory rather than a YAML path.
-func isFile(p string) bool {
-	return strings.Contains(p, "/") || strings.HasSuffix(p, ".yaml") || strings.HasSuffix(p, ".patch") || strings.HasSuffix(p, ".json")
-}
-
-// match is the length of the longest prefix of m that names the difference
-// at yamlPath in the file at rel; 0 when none does.
-func (m matcher) match(rel, yamlPath string) int {
-	n := 0
-	for _, p := range m.prefixes {
-		hit := false
-		if isFile(p) {
-			dir := strings.TrimSuffix(p, "/")
-			hit = rel == dir || strings.HasSuffix(rel, "/"+dir) || strings.HasPrefix(rel, dir+"/")
-		} else {
-			hit = yamlPath == p || strings.HasPrefix(yamlPath, p+".") || strings.HasPrefix(yamlPath, p+"[")
-		}
-		if hit && len(p) > n {
-			n = len(p)
+// words are the key's file and path words, as written: what the dimension
+// names; none for prose.
+func (m matcher) words() []string {
+	var out []string
+	for _, a := range m.alts {
+		for _, w := range append(append([]word{}, a.files...), a.paths...) {
+			if !slices.Contains(out, w.text) {
+				out = append(out, w.text)
+			}
 		}
 	}
-	return n
+	return out
 }
 
-// assign routes every difference of the comparison to the dimension whose key
-// names it most specifically — the kind's catch-all when none does — and
-// marks every file dimension; live dimensions are not checked. A leaf that
-// carries a choice not on record is routed the same way and makes its
-// dimension not checked, with the reason naming the choice, where nothing
-// else in it is off.
-func assign(c *comparison, feats []definitions.Feature, refused string) map[string]*Dimension {
+// isFile says whether a word names a file or directory rather than a YAML
+// path: a slash outside an index, or a file suffix.
+func isFile(w string) bool {
+	if strings.Contains(w, "[") {
+		return false
+	}
+	return strings.Contains(w, "/") || strings.HasSuffix(w, ".yaml") || strings.HasSuffix(w, ".patch") || strings.HasSuffix(w, ".json")
+}
+
+// fileWord compiles a file word: it names the observed path when it is a
+// run of whole segments of it — the file itself, a directory above it, or a
+// name at any depth; <x> stands for a part of a segment.
+func fileWord(w string, f facts) word {
+	p := strings.TrimSuffix(w, "/")
+	src, ok := pattern(p, `[^/]+`, f)
+	return word{text: w, n: len(p), never: !ok, file: regexp.MustCompile(`(^|/)` + src + `(/|$)`)}
+}
+
+// pathWord compiles a path word to one pattern per segment (segmentRegexp).
+// A trailing [*] or .* is dropped: a path covers everything beneath it.
+func pathWord(w string, f facts) word {
+	p := strings.TrimSuffix(w, ".*")
+	for strings.HasSuffix(p, "[*]") {
+		p = strings.TrimSuffix(p, "[*]")
+	}
+	out := word{text: w, n: len(p)}
+	for _, s := range segments(p) {
+		re, ok := segmentRegexp(s, f)
+		out.never = out.never || !ok
+		out.segments = append(out.segments, re)
+	}
+	return out
+}
+
+var (
+	anyEntry = regexp.MustCompile(`^\[.*\]$`)
+	anyKey   = regexp.MustCompile(`^[^\[].*$`)
+)
+
+// segmentRegexp is what one segment of a path word matches: [*] any list
+// entry, <x> alone any map key, <x> within a name any part of it, a fact's
+// placeholder the fact, anything else itself; false when the installation
+// lacks the fact.
+func segmentRegexp(s string, f facts) (*regexp.Regexp, bool) {
+	switch {
+	case s == "[*]":
+		return anyEntry, true
+	case placeholders.FindString(s) == s && !factPlaceholders[s[1:len(s)-1]]:
+		return anyKey, true
+	}
+	src, ok := pattern(s, ".+", f)
+	return regexp.MustCompile("^" + src + "$"), ok
+}
+
+// pattern is the regexp source of a word's text with its placeholders
+// expanded: <x> to part, a fact's placeholder to the fact itself; false
+// when the installation lacks the fact.
+func pattern(text, part string, f facts) (string, bool) {
+	ok := true
+	src := placeholders.ReplaceAllStringFunc(regexp.QuoteMeta(text), func(ph string) string {
+		name := ph[1 : len(ph)-1]
+		if !factPlaceholders[name] {
+			return part
+		}
+		if f[name] == "" {
+			ok = false
+		}
+		return regexp.QuoteMeta(f[name])
+	})
+	return src, ok
+}
+
+// match is how specifically m names the leaf at yamlPath of the file at rel
+// (its observed path): the lengths of the file and path words of the
+// alternative that names it most specifically; 0 when none does.
+func (m matcher) match(rel, yamlPath string) int {
+	best := 0
+	segs := segments(yamlPath)
+	for _, a := range m.alts {
+		if n, ok := a.match(rel, segs); ok && n > best {
+			best = n
+		}
+	}
+	return best
+}
+
+func (a alternative) match(rel string, segs []string) (int, bool) {
+	n := 0
+	if len(a.files) > 0 {
+		f, ok := longest(a.files, func(w word) bool { return !w.never && w.file.MatchString(rel) })
+		if !ok {
+			return 0, false
+		}
+		n += f
+	}
+	if len(a.paths) > 0 {
+		p, ok := longest(a.paths, func(w word) bool { return !w.never && w.covers(segs) })
+		if !ok {
+			return 0, false
+		}
+		n += p
+	}
+	return n, true
+}
+
+// longest is the length of the longest word of ws that hits; false when none does.
+func longest(ws []word, hit func(word) bool) (int, bool) {
+	n, ok := 0, false
+	for _, w := range ws {
+		if hit(w) && (!ok || w.n > n) {
+			n, ok = w.n, true
+		}
+	}
+	return n, ok
+}
+
+// covers says whether a path word names the leaf whose segments are segs:
+// the word's segments match the leaf's leading ones.
+func (w word) covers(segs []string) bool {
+	if len(segs) < len(w.segments) {
+		return false
+	}
+	for i, re := range w.segments {
+		if !re.MatchString(segs[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// OtherFeature is the result's feature that carries what no dimension of
+// the definition names: one dimension per kind of file, present only when a
+// leaf of the kind was observed under no dimension, so nothing is dropped.
+const OtherFeature = "other"
+
+// other is the dimension of OtherFeature for a kind.
+func other(kind string) *Dimension {
+	return &Dimension{ID: OtherFeature + "-" + kind, Kind: kind, Key: "every leaf of the kind's files no dimension of the definition names", Mark: NotChecked}
+}
+
+// assign routes every difference and every choice not on record of the
+// comparison to the dimension whose key names it most specifically — the
+// kind's catch-all when none does, the kind's dimension of OtherFeature when
+// it has none — and marks every file dimension; live dimensions are not
+// checked. A leaf that carries a choice not on record makes its dimension
+// not checked, with the reason naming the choice, where nothing else in it
+// is off. The answer is the definition's dimensions by id and the
+// dimensions of OtherFeature, by kind. The keys are read under the
+// installation's facts (own).
+func assign(c *comparison, feats []definitions.Feature, refused string, own facts) (map[string]*Dimension, []*Dimension) {
 	var matchers []matcher
 	dims := map[string]*Dimension{}
 	for _, f := range feats {
 		for _, d := range f.Dimensions {
-			m := newMatcher(d)
+			m := newMatcher(d, own)
 			dims[d.ID] = m.dim
 			if d.Kind == definitions.KindLive {
 				m.dim.Reason = ReasonAuthority
@@ -998,7 +1192,20 @@ func assign(c *comparison, feats []definitions.Feature, refused string) map[stri
 		}
 	}
 	if c == nil {
-		return dims
+		return dims, nil
+	}
+	others := map[string]*Dimension{}
+	target := func(fd *fileDiff, yamlPath string) *Dimension {
+		if d := route(matchers, fd, yamlPath); d != nil {
+			return d
+		}
+		d, ok := others[fd.kind]
+		if !ok {
+			d = other(fd.kind)
+			others[fd.kind] = d
+			matchers = append(matchers, matcher{dim: d, kind: fd.kind})
+		}
+		return d
 	}
 	filesByKind := map[string][]string{}
 	// refusals are, by kind, the files the caller could not read, each with
@@ -1015,20 +1222,16 @@ func assign(c *comparison, feats []definitions.Feature, refused string) map[stri
 			refusals[fd.kind] = append(refusals[fd.kind], answer)
 		}
 		for _, d := range fd.diffs {
-			if target := route(matchers, fd, d.Path); target != nil {
-				target.Differences = append(target.Differences, d)
-			}
+			t := target(fd, d.Path)
+			t.Differences = append(t.Differences, d)
 		}
-		for path, fields := range fd.missing {
-			target := route(matchers, fd, path)
-			if target == nil {
-				continue
-			}
-			if target.missing == nil {
-				target.missing = map[string]bool{}
+		for yamlPath, fields := range fd.missing {
+			t := target(fd, yamlPath)
+			if t.missing == nil {
+				t.missing = map[string]bool{}
 			}
 			for _, f := range fields {
-				target.missing[f] = true
+				t.missing[f] = true
 			}
 		}
 	}
@@ -1049,36 +1252,41 @@ func assign(c *comparison, feats []definitions.Feature, refused string) map[stri
 			return m.dim.Differences[i].File+m.dim.Differences[i].Path < m.dim.Differences[j].File+m.dim.Differences[j].Path
 		})
 	}
-	return dims
+	var rest []*Dimension
+	for _, kind := range slices.Sorted(maps.Keys(others)) {
+		rest = append(rest, others[kind])
+	}
+	return dims, rest
 }
 
 // route is the dimension a leaf at yamlPath of fd is observed under: the one
-// of the file's kind whose key names it most specifically, else the kind's
-// catch-all; nil when the kind has none.
+// of the file's kind whose key names it most specifically (the first, on a
+// tie), else the kind's catch-all; nil when the kind has none. The keys name
+// paths inside the document a string field holds: the leaf's innerPath is
+// matched.
 func route(matchers []matcher, fd *fileDiff, yamlPath string) *Dimension {
-	target := catchAll(matchers, fd.kind)
-	bestN := 0
+	var target *Dimension
+	best := 0
+	rel, yamlPath := observedPath(fd.kind, fd.path), innerPath(yamlPath)
 	for _, m := range matchers {
-		if n := m.match(relPath(fd.path), yamlPath); m.kind == fd.kind && n > bestN {
-			target, bestN = m.dim, n
+		if m.kind != fd.kind {
+			continue
 		}
+		if n := m.match(rel, yamlPath); n > best {
+			target, best = m.dim, n
+		}
+	}
+	if target == nil {
+		target = catchAll(matchers, fd.kind)
 	}
 	return target
 }
 
-// catchAll is where a difference no key names goes: the first dimension of
-// kind whose key is prose, else the first whose key names a directory.
+// catchAll is the dimension of kind declared as its catch-all; nil when none is.
 func catchAll(matchers []matcher, kind string) *Dimension {
 	for _, m := range matchers {
-		if m.kind == kind && len(m.prefixes) == 0 {
+		if m.kind == kind && m.catchAll {
 			return m.dim
-		}
-	}
-	for _, m := range matchers {
-		for _, p := range m.prefixes {
-			if m.kind == kind && strings.HasSuffix(p, "/") {
-				return m.dim
-			}
 		}
 	}
 	return nil
