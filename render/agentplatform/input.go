@@ -165,9 +165,12 @@ type Installation struct {
 // record carries a literal extension list of its own, so the portal owns its
 // lists and the Component sets none (portal.go) — whether its Grafana plugin
 // is wired: its app-config carries the plugin's proxy endpoint, so the
-// extension list the Component includes carries the dashboards card — and
-// the chart line it follows: the ref its directory kustomization patches onto
-// the fleet base's backstage OCIRepository, empty when it patches none.
+// extension list the Component includes carries the dashboards card —
+// whether its AI chat is hand-kept: its app-config carries the aiChat block
+// by hand, so its environment supplies the chat's key and the Component
+// renders the chat's blocks without a credentials Secret — and the chart
+// line it follows: the ref its directory kustomization patches onto the
+// fleet base's backstage OCIRepository, empty when it patches none.
 type PortalRef struct {
 	Installation string `json:"installation"`
 	Customer     string `json:"customer"`
@@ -176,6 +179,7 @@ type PortalRef struct {
 	ChartLine    string `json:"chartLine,omitempty"`
 	HandKept     bool   `json:"handKept,omitempty"`
 	GrafanaWired bool   `json:"grafanaWired,omitempty"`
+	HandKeptChat bool   `json:"handKeptChat,omitempty"`
 }
 
 // Federation is the installation's place in the fleet's token exchange.

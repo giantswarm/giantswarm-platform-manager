@@ -5,7 +5,6 @@ kind: Component
 resources:
   - app-config.yaml
   - values.yaml
-  - ai-chat-credentials.enc.yaml
 patches:
   - patch: |
       - op: add
@@ -13,12 +12,6 @@ patches:
         value:
           kind: ConfigMap
           name: agent-platform-values-backstage
-          valuesKey: values
-      - op: add
-        path: /spec/valuesFrom/-
-        value:
-          kind: Secret
-          name: agent-platform-ai-chat-credentials-backstage
           valuesKey: values
     target:
       kind: HelmRelease

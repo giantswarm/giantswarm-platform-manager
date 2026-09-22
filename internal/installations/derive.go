@@ -49,6 +49,7 @@ type Portal struct {
 	PlatformProxied []string
 	HandKept        bool
 	GrafanaWired    bool
+	HandKeptChat    bool
 	// Entries are the record's gs.installations entries by name: the facts
 	// the portal lists for each installation it shows.
 	Entries map[string]portalEntry
@@ -87,7 +88,9 @@ type FederatedInstallation struct {
 // app-config on record carries its own extension list: the agent-platform
 // Component then sets none of the portal's lists. GrafanaWired says it
 // carries the Grafana plugin's proxy endpoint: the extension list the
-// Component includes is then the one with the dashboards card.
+// Component includes is then the one with the dashboards card. HandKeptChat
+// says it carries the AI chat's block by hand: the portal's environment
+// supplies the chat's key and the Component renders no credentials Secret.
 type PortalRef struct {
 	Installation string `json:"installation"`
 	Customer     string `json:"customer"`
@@ -95,6 +98,7 @@ type PortalRef struct {
 	ClientID     string `json:"clientId,omitempty"`
 	HandKept     bool   `json:"handKept,omitempty"`
 	GrafanaWired bool   `json:"grafanaWired,omitempty"`
+	HandKeptChat bool   `json:"handKeptChat,omitempty"`
 	ChartLine    string `json:"chartLine,omitempty"`
 }
 
@@ -175,7 +179,7 @@ func (r *Registry) readPortal(ctx context.Context, c *gh.Client, host Installati
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", PortalConfigPath(host.Name), err)
 	}
-	p := &Portal{Host: host.Name, Customer: host.Customer, Domain: hostOf(cfg.BaseURL), HandKept: cfg.HandKept, GrafanaWired: cfg.GrafanaWired, Entries: cfg.Installations}
+	p := &Portal{Host: host.Name, Customer: host.Customer, Domain: hostOf(cfg.BaseURL), HandKept: cfg.HandKept, GrafanaWired: cfg.GrafanaWired, HandKeptChat: cfg.HandKeptChat, Entries: cfg.Installations}
 	for name := range cfg.Installations {
 		p.Installations = append(p.Installations, name)
 	}
@@ -519,7 +523,7 @@ func (r *Report) derivePortals(portals []Portal) []string {
 	var targets []string
 	for _, p := range portals {
 		if slices.Contains(p.Installations, r.Name) {
-			r.Portals = append(r.Portals, PortalRef{Installation: p.Host, Customer: p.Customer, Domain: p.Domain, ClientID: p.ClientID, HandKept: p.HandKept, GrafanaWired: p.GrafanaWired, ChartLine: p.ChartLine})
+			r.Portals = append(r.Portals, PortalRef{Installation: p.Host, Customer: p.Customer, Domain: p.Domain, ClientID: p.ClientID, HandKept: p.HandKept, GrafanaWired: p.GrafanaWired, HandKeptChat: p.HandKeptChat, ChartLine: p.ChartLine})
 		}
 		if p.Broker != r.Name {
 			continue

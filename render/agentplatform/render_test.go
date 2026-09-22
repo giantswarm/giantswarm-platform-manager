@@ -111,9 +111,10 @@ func TestGolden(t *testing.T) {
 // TestGoldensCoverTheChat holds the golden shapes to the chat's three
 // shapes: a rendered portal with the chat, whose fragment includes the
 // shared list with the chat and carries the aiChat block and the key's
-// Secret listed by the Component; a hand-kept portal with the chat, whose
-// fragment carries the block and no list; and a portal without the chat,
-// whose fragment carries none of it and no Secret.
+// Secret listed by the Component; a hand-kept portal with a hand-kept chat,
+// whose fragment carries the block, no list and no Secret (the portal's
+// environment supplies the key); and a portal without the chat, whose
+// fragment carries none of it and no Secret.
 func TestGoldensCoverTheChat(t *testing.T) {
 	covered := map[string]bool{}
 	for _, shape := range shapes {
@@ -148,8 +149,8 @@ func TestGoldensCoverTheChat(t *testing.T) {
 			}
 			covered["rendered"] = true
 		default:
-			if !chat || include || !secret || !listed {
-				t.Errorf("%s: the chat on a hand-kept portal: block %v include %v secret %v listed %v", shape, chat, include, secret, listed)
+			if !chat || include || secret || listed || in.chatKeyIsComponents() {
+				t.Errorf("%s: the chat by hand on a hand-kept portal: block %v include %v secret %v listed %v", shape, chat, include, secret, listed)
 			}
 			covered["hand-kept"] = true
 		}

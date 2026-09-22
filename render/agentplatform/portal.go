@@ -49,10 +49,17 @@ import (
 // (what the actions service lists for the chat's actions server; without
 // the sources it lists nothing and the server has no tool), and the chat's
 // extensions through the shared include on a rendered portal. The key is
-// supplied at commit and lands in the Component's own Secret as the chart
-// value the chart exposes as ANTHROPIC_API_KEY, appended to the portal
-// HelmRelease's values sources by the Component's patch; a hand-kept portal
-// whose user secrets carry the key by hand keeps them until they rotate.
+// the Component's where the chat is: supplied at commit, it lands in the
+// Component's own Secret as the chart value the chart exposes as
+// ANTHROPIC_API_KEY, appended to the portal HelmRelease's values sources by
+// the Component's patch. Where the portal's own app-config carries the chat
+// by hand (installation.portals[*].handKeptChat, read from the record) its
+// environment supplies the key already, so the Component renders the blocks
+// and no Secret and asks for no value — as it sets no list on a hand-kept
+// portal — and a wave, which carries no supplied value, reconciles such a
+// portal. The key becomes the Component's when the hand-kept block goes (the
+// customer-portal definition's planned move), through an enable of that
+// installation alone with the key supplied.
 //
 // The portal's chart line (installation.portals[*].chartLine) decides one
 // key. Before backstage 1.1.0 the portal's agent-platform plugin composes the
@@ -118,10 +125,17 @@ func (in *Input) portalAuthProvider() string { return render.PortalAuthProvider(
 // choice; checkRecord has refused it without a hosted portal.
 func (in *Input) aiChat() bool { return in.AIChat.Enabled }
 
+// chatKeyIsComponents says whether the Component carries the chat's key: the
+// chat is on and the hosted portal's own app-config does not carry the chat
+// by hand — there the portal's environment supplies the key already.
+func (in *Input) chatKeyIsComponents() bool {
+	return in.aiChat() && !in.hostedPortal().HandKeptChat
+}
+
 // chatSecretFields are the supplied secret values the chat needs: its
-// Anthropic API key.
+// Anthropic API key, where the Component carries it.
 func (in *Input) chatSecretFields() []string {
-	if !in.aiChat() {
+	if !in.chatKeyIsComponents() {
 		return nil
 	}
 	return []string{fieldAnthropicKey}
@@ -275,14 +289,15 @@ func valuesSource(kind, name string) render.Map {
 
 // portalFiles renders the platform's directory under the portal's
 // extras/backstage/: the fragment's ConfigMap, the values that mount it,
-// with the chat its credentials Secret, and the Component listing them with
-// the patch that appends the values sources to the portal's HelmRelease.
+// the chat's credentials Secret where the Component carries the key, and
+// the Component listing them with the patch that appends the values sources
+// to the portal's HelmRelease.
 func (in *Input) portalFiles(r *render.Result, repo render.Repository, dir string, secrets map[string]string) {
 	r.Add(repo, dir+"/app-config.yaml", yamlFile(configMap(portalAppConfigMap, backstageNamespace, portalAppConfigFile, in.portalAppConfig())))
 	r.Add(repo, dir+"/values.yaml", yamlFile(configMap(portalValuesMap, fluxNamespace, "values", in.portalValues())))
 	resources := []string{"app-config.yaml", "values.yaml"}
 	ops := []render.Map{valuesSource("ConfigMap", portalValuesMap)}
-	if in.aiChat() {
+	if in.chatKeyIsComponents() {
 		r.Add(repo, dir+"/"+portalCredentialsFile, in.chatCredentials(secrets))
 		resources = append(resources, portalCredentialsFile)
 		ops = append(ops, valuesSource("Secret", portalCredentialsSecret))
