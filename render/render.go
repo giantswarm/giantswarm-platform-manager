@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"fmt"
 	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -36,7 +37,9 @@ type File struct {
 // Generated describes one placeholder in a File. Two files that carry the same
 // Name receive the same value: that is how a Dex client and the workload that
 // presents its secret agree on it. A key pair is one Name declared twice, each
-// declaration naming the Half its placeholder receives.
+// declaration naming the Half its placeholder receives. A declaration whose
+// consumer decodes the leaf names the Encoding its placeholder receives: one
+// value lands as it is where it is read and base64 where it is decoded.
 type Generated struct {
 	Name        string
 	Placeholder string
@@ -46,6 +49,9 @@ type Generated struct {
 	// Half is the half of a KeyPairES256 the placeholder receives; a Base64 or
 	// Alphanumeric value has none.
 	Half Half
+	// Encoding is how the placeholder receives the value; empty is the value
+	// as generated.
+	Encoding Encoding
 }
 
 // GeneratedKind is the shape of a generated value.
@@ -78,6 +84,26 @@ const (
 // placeholder.
 func KeyPair(name string, half Half) Generated {
 	return Generated{Name: name, Placeholder: Placeholder(name + "." + string(half)), Kind: KeyPairES256, Half: half}
+}
+
+// Encoding is how a placeholder receives its value: as it is (the zero
+// value), or encoded for a consumer that decodes the leaf.
+type Encoding string
+
+// EncodedBase64 is the value's standard base64: for a Secret key under data:,
+// or a chart that copies the value under data: as it is. A Base64 or
+// Alphanumeric value takes it; a key pair's halves are quoted YAML scalars
+// and take no encoding.
+const EncodedBase64 Encoding = "base64"
+
+// Encoded is the declaration of g's value at a placeholder that receives it
+// encoded: the name's, qualified by the encoding, so the raw and the encoded
+// declaration of one value never share a placeholder. Kind and Length stay
+// the value's, declared alike wherever the name appears.
+func (g Generated) Encoded(encoding Encoding) Generated {
+	g.Placeholder = Placeholder(g.Name + "." + string(encoding))
+	g.Encoding = encoding
+	return g
 }
 
 // Input is a definition's parsed input document, as the plan and the verify
@@ -295,6 +321,18 @@ func Supplied(field string) string { return "SUPPLIED(" + field + ")" }
 // person input no layer of the document holds would go: a choice not on
 // record. A leaf that carries it is not checked; a commit never writes it.
 func Missing(field string) string { return "MISSING(" + field + ")" }
+
+// IsMarker reports whether value is a marker that stands for a value — a
+// generated placeholder, a supplied or a missing one — rather than the value
+// itself: what a definition leaves as it is where it encodes a leaf.
+func IsMarker(value string) bool {
+	for _, marker := range []string{Placeholder(""), Supplied(""), Missing("")} {
+		if strings.HasPrefix(value, strings.TrimSuffix(marker, ")")) && strings.HasSuffix(value, ")") {
+			return true
+		}
+	}
+	return false
+}
 
 // YAML marshals v with two-space indentation, the shape the fleet's
 // hand-written files use. Struct field order is the key order.

@@ -57,6 +57,12 @@ is `<name>`. A path covers every key beneath it.
   field: the GitHub App's `plugins.github.appId`, `clientId`, `clientSecret`, `privateKey` and `webhookSecret` (the id
   is no credential, but it lives only in the encrypted file, so it is supplied like them and never set in the
   inputs), and Sentry's `plugins.sentry.appDsn`, `backendDsn` and `reportUri`.
+- The `dexAuthCredentials` leaves of `user-secrets-backstage` are base64: the chart copies each entry's
+  `clientID` and `clientSecret` under its Secret's `data:` as they are and the pod loads that Secret with
+  `envFrom`, so the values have to be the base64 of the id and of the secret. The portal's own entry carries
+  the base64 of `backstage` and of the generated client secret (the Dex client's Secret carries the same
+  secret raw); a federated installation's and the broker's credentials are supplied raw and encoded by the
+  render.
 - The portal's agent-platform section is the agent-platform definition's: its fragment, values and Google
   credentials are files of its own Component next to the portal's, listed by this definition's kustomization
   and never written into the portal's files. The portal includes the shared extensions list; the Component's

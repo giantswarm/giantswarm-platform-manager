@@ -439,7 +439,7 @@ func targetsOf(ctx context.Context, c *github.Client, p plan.Installation, rende
 			tg.exists[path] = pf.Change == plan.ChangeUpdate && len(f.Generated) > 0 && !rotated[resolved+":"+path]
 			sf := sopsenc.File{Path: path, Content: content}
 			for _, g := range f.Generated {
-				sf.Generated = append(sf.Generated, sopsenc.Generated{Name: g.Name, Placeholder: g.Placeholder, Kind: sopsenc.Kind(g.Kind), Length: g.Length, Half: sopsenc.Half(g.Half)})
+				sf.Generated = append(sf.Generated, sopsenc.Generated{Name: g.Name, Placeholder: g.Placeholder, Kind: sopsenc.Kind(g.Kind), Length: g.Length, Half: sopsenc.Half(g.Half), Encoding: sopsenc.Encoding(g.Encoding)})
 			}
 			tg.files = append(tg.files, sf)
 		}

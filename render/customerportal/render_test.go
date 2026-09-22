@@ -2,6 +2,7 @@ package customerportal
 
 import (
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"flag"
 	"io"
@@ -696,4 +697,109 @@ func with(secrets map[string]string, field, value string) map[string]string {
 	out := maps.Clone(secrets)
 	out[field] = value
 	return out
+}
+
+// TestDexAuthCredentialsAreBase64ForTheChart holds the dexAuthCredentials
+// leaves of user-secrets-backstage to what the backstage chart reads: it
+// copies clientID and clientSecret under its Secret's data: as they are, so
+// every leaf is base64 — the portal's own id decodes to the Dex client id,
+// a supplied credential to the value supplied — and the portal's own client
+// secret is the base64 declaration of the value the Dex client's Secret
+// carries raw, so the two sides agree on the secret.
+func TestDexAuthCredentialsAreBase64ForTheChart(t *testing.T) {
+	for _, shape := range shapes {
+		t.Run(shape, func(t *testing.T) {
+			input, secrets := loadInput(t, shape)
+			result, err := Render(input, secrets, render.ModeCommit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			name := input["installation"].(map[string]any)["name"].(string)
+			var userSecrets, dexClient render.File
+			for _, files := range result.Files {
+				for path, f := range files {
+					switch filepath.Base(path) {
+					case userSecretsFile:
+						userSecrets = f
+					case dexClientFile:
+						dexClient = f
+					}
+				}
+			}
+			var values struct {
+				Credentials map[string]struct {
+					ClientID     string `yaml:"clientID"`
+					ClientSecret string `yaml:"clientSecret"`
+				} `yaml:"dexAuthCredentials"`
+			}
+			if err := yaml.Unmarshal([]byte(stringData(t, userSecrets, "values")), &values); err != nil {
+				t.Fatal(err)
+			}
+			dexSide := stringData(t, dexClient, render.DexSecretKey)
+
+			own := values.Credentials[name]
+			if got := decodeBase64(t, own.ClientID); got != render.PortalDexClientID {
+				t.Errorf("dexAuthCredentials.%s.clientID decodes to %q, want %q", name, got, render.PortalDexClientID)
+			}
+			encoded := declarationOf(t, userSecrets, own.ClientSecret)
+			if encoded.Encoding != render.EncodedBase64 {
+				t.Errorf("dexAuthCredentials.%s.clientSecret is declared with encoding %q, want %q", name, encoded.Encoding, render.EncodedBase64)
+			}
+			rawDecl := declarationOf(t, dexClient, dexSide)
+			if rawDecl.Encoding != "" {
+				t.Errorf("%s's %s is declared with encoding %q, want the raw value", dexClientFile, render.DexSecretKey, rawDecl.Encoding)
+			}
+			if encoded.Name != rawDecl.Name || own.ClientSecret == dexSide {
+				t.Errorf("the portal's client secret %q and the Dex client's %q must be one value at two placeholders", own.ClientSecret, dexSide)
+			}
+			for key, c := range values.Credentials {
+				if key == name {
+					continue
+				}
+				field := "federation." + key
+				if key == brokerCredentials {
+					field = fieldTokenBroker
+				}
+				if got := decodeBase64(t, c.ClientID); got != secrets[field+suffixClientID] {
+					t.Errorf("dexAuthCredentials.%s.clientID decodes to %q, want the supplied %s", key, got, field+suffixClientID)
+				}
+				if got := decodeBase64(t, c.ClientSecret); got != secrets[field+suffixClientSecret] {
+					t.Errorf("dexAuthCredentials.%s.clientSecret decodes to %q, want the supplied %s", key, got, field+suffixClientSecret)
+				}
+			}
+		})
+	}
+}
+
+// stringData is the value of key under the stringData of the Secret f renders.
+func stringData(t *testing.T, f render.File, key string) string {
+	t.Helper()
+	var secret struct {
+		StringData map[string]string `yaml:"stringData"`
+	}
+	if err := yaml.Unmarshal(f.Content, &secret); err != nil {
+		t.Fatal(err)
+	}
+	return secret.StringData[key]
+}
+
+// declarationOf is the generated declaration of f whose placeholder is value.
+func declarationOf(t *testing.T, f render.File, value string) render.Generated {
+	t.Helper()
+	for _, g := range f.Generated {
+		if g.Placeholder == value {
+			return g
+		}
+	}
+	t.Fatalf("%q is no generated placeholder of the file", value)
+	return render.Generated{}
+}
+
+func decodeBase64(t *testing.T, value string) string {
+	t.Helper()
+	b, err := base64.StdEncoding.DecodeString(value)
+	if err != nil {
+		t.Fatalf("%q is not base64: %v", value, err)
+	}
+	return string(b)
 }
