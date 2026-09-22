@@ -28,3 +28,7 @@ data:
               requestTimeout: 0s
             tcp:
               connectTimeout: 10s
+    backstage:
+      extraEnvVars:
+        - name: BACKSTAGE_AVATARS_IMG_SRC
+          value: https://avatars.alder.acme.example.test

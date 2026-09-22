@@ -1,10 +1,11 @@
 # A customer's portal over three installations on the 0.x chart line: the
 # portal runs on one, people sign in through a second one's Dex, whose muster
 # also brokers cluster tokens for the other two (so the portal has that one
-# Dex provider); one installation runs
-# clusters on two providers; friendly labels on the cluster pages. No agent
-# platform, no plugins beyond the always-on ones. Invented names, placeholder
-# values.
+# Dex provider) and which alone runs the agent platform (so the portal's
+# environment names that installation's avatars host, its own running none);
+# one installation runs clusters on two providers; friendly labels on the
+# cluster pages. No plugins beyond the always-on ones. Invented names,
+# placeholder values.
 input:
   installation:
     name: birch
@@ -43,10 +44,12 @@ input:
         providers: [capa]
         region: example-region-2
         pipeline: stable
+        agentPlatform: true
       - name: cedarwood
         baseDomain: cedarwood.acme.example.test
         providers: [cloud-director]
         pipeline: testing
+        agentPlatform: false
     signInInstallation: alder
     tokenBroker: alder
 secrets:

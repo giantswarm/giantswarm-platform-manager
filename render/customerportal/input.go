@@ -114,11 +114,12 @@ type Federation struct {
 // FederatedInstallation is another installation the portal shows, with its
 // facts on record.
 type FederatedInstallation struct {
-	Name       string   `json:"name"`
-	BaseDomain string   `json:"baseDomain"`
-	Providers  []string `json:"providers"`
-	Region     string   `json:"region"`
-	Pipeline   string   `json:"pipeline"`
+	Name          string   `json:"name"`
+	BaseDomain    string   `json:"baseDomain"`
+	Providers     []string `json:"providers"`
+	Region        string   `json:"region"`
+	Pipeline      string   `json:"pipeline"`
+	AgentPlatform bool     `json:"agentPlatform"`
 }
 
 // Chart is the portal chart's release range.
@@ -355,7 +356,7 @@ func (in *Input) providerInstallations() []FederatedInstallation {
 // federation's, by name.
 func (in *Input) installations() []FederatedInstallation {
 	own := in.Installation
-	all := []FederatedInstallation{{Name: own.Name, BaseDomain: own.BaseDomain, Providers: own.Providers, Region: own.Region, Pipeline: own.Pipeline}}
+	all := []FederatedInstallation{{Name: own.Name, BaseDomain: own.BaseDomain, Providers: own.Providers, Region: own.Region, Pipeline: own.Pipeline, AgentPlatform: own.AgentPlatform}}
 	if in.Federation != nil {
 		all = append(all, in.Federation.Installations...)
 	}

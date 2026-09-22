@@ -11,7 +11,8 @@
 // agent-platform definition's: a kustomize Component this definition lists
 // when installation.agentPlatform says the platform is enabled, never files
 // of its own; the portal's environment (backstage.extraEnvVars) stays this
-// definition's whole, the platform's avatars host included.
+// definition's whole, the avatars hosts of the platforms the portal shows
+// included.
 //
 // The installation's dex-app configmap patch is one file with one owner. On
 // an installation without the platform this definition renders it with the
@@ -68,8 +69,9 @@ const (
 	// certificates through, so without it the mount is inert.
 	tunnelBundleFile = "svid_bundle.pem"
 	tunnelCAEnv      = "NODE_EXTRA_CA_CERTS"
-	// avatarsEnv is the CSP image source slot of the shared base's config,
-	// set to the installation's avatars host where the platform runs.
+	// avatarsEnv is the CSP image source slot of the shared base's config:
+	// the avatars host of every installation the portal shows that runs the
+	// platform, space-separated.
 	avatarsEnv = "BACKSTAGE_AVATARS_IMG_SRC"
 	// dexClientFile is the portal's Dex client Secret, this definition's file
 	// with and without the platform (the agent-platform definition references
@@ -366,21 +368,42 @@ func (in *Input) userValues() render.Map {
 	return values
 }
 
-// extraEnvVars is the portal's environment: with the platform enabled, the
-// installation's avatars host as the CSP image source the shared base's
+// extraEnvVars is the portal's environment: the avatars hosts of the
+// platforms the portal shows as the CSP image source the shared base's
 // csp.imgSrc reads (its default is 'self'); with the tunnel on, the mounted
 // SPIFFE bundle as Node's extra CA certificates, so the backend trusts the
 // SVIDs the tunnel Services present. Nil without either: the list is not set
 // and the shared base's default stands.
 func (in *Input) extraEnvVars() []render.Map {
 	var env []render.Map
-	if in.Installation.AgentPlatform {
-		env = append(env, render.Map{e("name", avatarsEnv), e("value", "https://"+in.host("avatars"))})
+	if hosts := in.avatarsHosts(); len(hosts) > 0 {
+		env = append(env, render.Map{e("name", avatarsEnv), e("value", strings.Join(hosts, " "))})
 	}
 	if in.Tunnel.Enabled {
 		env = append(env, render.Map{e("name", tunnelCAEnv), e("value", tunnelBundleMount+"/"+tunnelBundleFile)})
 	}
 	return env
+}
+
+// avatarsHosts are the avatars hosts (https://avatars.<baseDomain>) of the
+// installations the portal shows that run the platform, where the agents'
+// avatar images the browser loads are served: the portal's own first, then
+// the federated ones in the list's order. The shared base's csp.imgSrc takes
+// them space-separated in the one variable. Empty where none runs the
+// platform: such a portal shows no agents.
+func (in *Input) avatarsHosts() []string {
+	var hosts []string
+	if in.Installation.AgentPlatform {
+		hosts = append(hosts, "https://"+in.host("avatars"))
+	}
+	if in.Federation != nil {
+		for _, f := range in.Federation.Installations {
+			if f.AgentPlatform {
+				hosts = append(hosts, "https://"+hostOn("avatars", f.BaseDomain))
+			}
+		}
+	}
+	return hosts
 }
 
 // tunnelBundle is tunnelport-spiffe-bundle.yaml: the tunnel's SPIFFE trust
