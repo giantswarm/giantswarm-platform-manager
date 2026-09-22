@@ -102,12 +102,13 @@ func TestKeepAudiencesCarriesTheKeptKeysFromTheRecord(t *testing.T) {
 	if callers == nil || len(callers.Content) != 2 || callers.Content[1].Value != "system:serviceaccount:marge:marge-shield-sweep" {
 		t.Errorf("allowedCallers: the other team's sweep is kept after the policy's, got %v", callers)
 	}
+	const kagentKey, musterKey = "kagent", "muster"
 	want := []Kept{
 		{List: ListAllowedCallers, Entry: "system:serviceaccount:marge:marge-shield-sweep"},
 		{List: "kagent.providers.anthropic", Entry: "model"},
-		{List: "kagent", Entry: "modelConfigs"},
-		{List: "kagent", Entry: "oauth2ProxyIngress"},
-		{List: "muster", Entry: "resources"},
+		{List: kagentKey, Entry: "modelConfigs"},
+		{List: kagentKey, Entry: "oauth2ProxyIngress"},
+		{List: musterKey, Entry: "resources"},
 		{List: "muster.muster.oauth.server.dex", Entry: "connectorId"},
 		{List: "muster.muster.oauth.server", Entry: "trustedIssuers"},
 		{List: "agent-platform-mcps", Entry: "defaults"},
