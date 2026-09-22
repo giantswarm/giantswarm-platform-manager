@@ -229,7 +229,7 @@ func portalRecordInputs(r Report) (map[string]any, error) {
 		for _, p := range f.Providers {
 			providers = append(providers, p)
 		}
-		entry := map[string]any{"name": f.Name, "baseDomain": f.BaseDomain, "providers": providers, "pipeline": f.Pipeline, "agentPlatform": f.AgentPlatform}
+		entry := map[string]any{"name": f.Name, "baseDomain": f.BaseDomain, "providers": providers, "pipeline": f.Pipeline, "agentPlatform": f.AgentPlatform, "private": f.Private}
 		if f.Region != "" {
 			entry["region"] = f.Region
 		}

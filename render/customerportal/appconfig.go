@@ -164,13 +164,21 @@ func (in *Input) backendSection() render.Map {
 }
 
 // clusters are the Kubernetes cluster entries: one per installation the
-// portal shows, each read through the installation's own provider.
+// portal shows, each read through the installation's own provider — at its
+// public API, or for a private installation at the tunnel Service on the hub
+// with TLS verification off, the Service presenting a SPIFFE certificate.
 func (in *Input) clusters() []render.Map {
 	var out []render.Map
 	for _, inst := range in.installations() {
-		out = append(out, render.Map{
-			e("name", inst.Name), e("url", "https://"+hostOn("happaapi", inst.BaseDomain)),
-			e("authProvider", "oidc"), e("oidcTokenProvider", render.PortalAuthProvider(inst.Name))})
+		entry := render.Map{e("name", inst.Name), e("url", "https://"+hostOn("happaapi", inst.BaseDomain))}
+		if inst.Private {
+			entry = render.Map{e("name", inst.Name), e("url", "https://"+render.TunnelServiceHost("kubernetes", inst.Name))}
+		}
+		entry = append(entry, e("authProvider", "oidc"), e("oidcTokenProvider", render.PortalAuthProvider(inst.Name)))
+		if inst.Private {
+			entry = append(entry, e("skipTLSVerify", true))
+		}
+		out = append(out, entry)
 	}
 	return out
 }

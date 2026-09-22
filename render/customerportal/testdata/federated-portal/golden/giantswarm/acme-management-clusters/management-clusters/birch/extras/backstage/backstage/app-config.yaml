@@ -81,9 +81,10 @@ data:
                   authProvider: oidc
                   oidcTokenProvider: oidc-birch
                 - name: cedarwood
-                  url: https://happaapi.cedarwood.acme.example.test
+                  url: https://kubernetes-cedarwood.agent-platform.svc.cluster.local:8443
                   authProvider: oidc
                   oidcTokenProvider: oidc-cedarwood
+                  skipTLSVerify: true
         auth:
           environment: production
           session:

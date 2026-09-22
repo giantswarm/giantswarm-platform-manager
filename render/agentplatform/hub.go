@@ -77,9 +77,7 @@ func (t Target) tunnelledApps() []tunnelledApp {
 func (t Target) appName(app string) string { return app + "-" + t.Installation }
 
 // tunnelHost is the in-cluster DNS name of a tunnelled app's Service on the hub.
-func (t Target) tunnelHost(app string) string {
-	return t.appName(app) + "." + platformNamespace + ".svc.cluster.local:" + tunnelPort
-}
+func (t Target) tunnelHost(app string) string { return render.TunnelServiceHost(app, t.Installation) }
 
 // issuer is the target's Dex issuer, public whether or not the target is.
 func (t Target) issuer() string { return "https://dex." + t.BaseDomain }

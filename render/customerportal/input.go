@@ -136,6 +136,10 @@ type FederatedInstallation struct {
 	Region        string   `json:"region"`
 	Pipeline      string   `json:"pipeline"`
 	AgentPlatform bool     `json:"agentPlatform"`
+	// Private says the portal reaches the installation's API through the
+	// hub's tunnel: its cluster entry is the tunnel Service with TLS
+	// verification off (the Service presents a SPIFFE certificate).
+	Private bool `json:"private"`
 }
 
 // Chart is the portal chart's release range.
