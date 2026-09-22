@@ -17,6 +17,11 @@ const (
 	PortalDexClientName = "Dev Portal"
 	// DexSecretKey is the key every Dex client Secret carries.
 	DexSecretKey = "secret"
+	// PortalDir is the portal's own directory under its extras/backstage/:
+	// the kustomization, the app-config and values ConfigMaps and the Secrets
+	// the customer-portal definition renders, listed by the tree's
+	// kustomization.
+	PortalDir = "backstage"
 	// PortalPlatformDir is the platform's directory under the portal's
 	// extras/backstage/: the kustomize Component the agent-platform definition
 	// renders and the portal's kustomization lists.

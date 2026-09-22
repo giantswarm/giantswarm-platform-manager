@@ -9,6 +9,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // plannedKeys are the keys of a capability's removals or migrations as the
@@ -187,8 +188,10 @@ func (ks plannedKeys) entryReason(fd *fileDiff, yamlPath string) string {
 	return ks.find(fd, yamlPath, true)
 }
 
+// A key names a path inside the document a string field holds (the
+// app-config's keys inside data.values): the leaf's innerPath is matched.
 func (ks plannedKeys) find(fd *fileDiff, yamlPath string, exact bool) string {
-	got := segments(yamlPath)
+	got := segments(innerPath(yamlPath))
 	for _, k := range ks {
 		if values, ok := k.matches(fd, got, exact); ok {
 			return k.fill(values)
@@ -284,14 +287,17 @@ func (k plannedKey) fill(values map[string]string) string {
 
 // coversFile says whether the key names the rendered file at p — by base
 // name, or for extras and backstage by its path under extras/ (under
-// extras/backstage/), a directory covering everything beneath it — with
-// what the file's placeholders captured.
+// extras/backstage/, the portal's own directory beneath it being where its
+// files live), a directory covering everything beneath it — with what the
+// file's placeholders captured.
 func (k plannedKey) coversFile(p string) ([]string, bool) {
 	switch k.kind {
 	case definitions.KindExtras, definitions.KindBackstage:
 		rel := extrasPath(p)
 		if k.kind == definitions.KindBackstage {
-			rel = strings.TrimPrefix(rel, "backstage/")
+			// the portal's tree under extras/, then its own directory in it
+			rel = strings.TrimPrefix(rel, render.PortalDir+"/")
+			rel = strings.TrimPrefix(rel, render.PortalDir+"/")
 		}
 		for rel != "" {
 			if m := k.file.FindStringSubmatch(rel); m != nil {
@@ -321,13 +327,14 @@ func extrasPath(p string) string {
 }
 
 // segments splits a flattened YAML path into its keys and indexes: a.b[k].c
-// is a, b, [k], c. A bracketed index is one segment whatever it holds (an
+// is a, b, [k], c, and a step into the document a string holds (textSep) is
+// a step like any. A bracketed index is one segment whatever it holds (an
 // identity may carry dots).
 func segments(p string) []string {
 	var out []string
 	for p != "" {
 		switch p[0] {
-		case '.':
+		case '.', textSep[0]:
 			p = p[1:]
 		case '[':
 			end := strings.IndexByte(p, ']')
@@ -336,7 +343,7 @@ func segments(p string) []string {
 			}
 			out, p = append(out, p[:end+1]), p[end+1:]
 		default:
-			end := strings.IndexAny(p, ".[")
+			end := strings.IndexAny(p, ".["+textSep)
 			if end < 0 {
 				return append(out, p)
 			}

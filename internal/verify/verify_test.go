@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
@@ -112,8 +114,9 @@ func TestRemovalsNameThePlannedChanges(t *testing.T) {
 	dexSecret := &fileDiff{path: "installations/x/apps/dex-app/secret-values.yaml.patch", kind: definitions.KindDexSecret}
 	agents := &fileDiff{path: "management-clusters/x/extras/agents/kustomization.yaml", kind: definitions.KindExtras}
 	kust := &fileDiff{path: "management-clusters/x/extras/agent-platform/kustomization.yaml", kind: definitions.KindExtras}
-	appConfig := &fileDiff{path: "management-clusters/x/extras/backstage/app-config.yaml", kind: definitions.KindBackstage}
-	secrets := &fileDiff{path: "management-clusters/x/extras/backstage/user-secrets.enc.yaml", kind: definitions.KindBackstage}
+	appConfig := &fileDiff{path: "management-clusters/x/extras/backstage/backstage/app-config.yaml", kind: definitions.KindBackstage}
+	secrets := &fileDiff{path: "management-clusters/x/extras/backstage/backstage/user-secrets.enc.yaml", kind: definitions.KindBackstage}
+	fragment := &fileDiff{path: "management-clusters/x/extras/backstage/agent-platform/app-config.yaml", kind: definitions.KindBackstage}
 	for _, tc := range []struct {
 		name string
 		fd   *fileDiff
@@ -137,6 +140,8 @@ func TestRemovalsNameThePlannedChanges(t *testing.T) {
 		{"a path in a file under extras", kust, "patches[0].path", "E2"},
 		{"a path beside it", kust, "resources[0]", ""},
 		{"a backstage fileset", appConfig, "auth.providers", "B1"},
+		{"a backstage fileset's key inside the ConfigMap's text", appConfig, "data.values:backstage.appConfig:auth.providers", "B1"},
+		{"not the platform Component's file of the same name", fragment, "data.app-config.agent-platform.yaml:auth.providers", ""},
 		{"a backstage file", secrets, "", "B2"},
 		{"another backstage file", appConfig, "", ""},
 	} {
@@ -175,7 +180,7 @@ func TestMigrationsNameThePlannedAdditions(t *testing.T) {
 	kust := &fileDiff{path: "management-clusters/x/extras/agent-platform/secrets/kustomization.yaml", kind: definitions.KindExtras}
 	mcpKust := &fileDiff{path: "management-clusters/x/extras/mcp-capi/kustomization.yaml", kind: definitions.KindExtras}
 	component := &fileDiff{path: "management-clusters/x/extras/backstage/agent-platform/app-config.yaml", kind: definitions.KindBackstage}
-	appConfig := &fileDiff{path: "management-clusters/x/extras/backstage/app-config.yaml", kind: definitions.KindBackstage}
+	appConfig := &fileDiff{path: "management-clusters/x/extras/backstage/backstage/app-config.yaml", kind: definitions.KindBackstage}
 	absent := func(p string) *Difference { return &Difference{Path: p, Rendered: "x", absent: true} }
 	present := func(p string) *Difference { return &Difference{Path: p, Rendered: "x", Current: "y"} }
 	for _, tc := range []struct {
@@ -421,4 +426,143 @@ func TestNotCheckedReasonsNameWhatIsMissing(t *testing.T) {
 	if d := dims["extra-clients"]; d.Mark != Drifted || d.Reason != "" {
 		t.Errorf("the dimension with a difference: %+v", *d)
 	}
+}
+
+// The leaves inside the text a ConfigMap holds compare like the file's own:
+// each difference at its path through the text, on its line of each side,
+// attributed to the input that drives it, planned where a removal names the
+// key inside the document; a choice not on record inside the text is no
+// difference and is named by its path. A leaf inside text the record holds
+// encrypted takes no part, the field's value standing; of a Secret the record
+// lacks every leaf inside the text differs, like every leaf of a created
+// file. Only a ConfigMap's data and a Secret's stringData hold documents: a
+// kustomization's patch is one leaf.
+func TestDifferencesInsideText(t *testing.T) {
+	const appConfig = "management-clusters/x/extras/backstage/backstage/app-config.yaml"
+	head := "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: app-config-backstage\ndata:\n  values: |\n    backstage:\n      appConfig: |\n        app:\n"
+	rendered := head + "          title: Dev Portal\n          baseUrl: https://portal.new\n        grafana:\n          domain: " + render.Missing("plugins.grafana.domain") + "\n"
+	current := head + "          title: Old Portal\n          baseUrl: https://portal.old\n        muster:\n          installations: []\n        grafana:\n          domain: https://g\n"
+	const doc = "data.values:backstage.appConfig:"
+	got := differences("r:"+appConfig, rendered, current, map[string]string{"r:" + appConfig + "#" + doc + "app.baseUrl": "portal.domain"})
+	want := []Difference{
+		{File: "r:" + appConfig, Path: doc + "app.baseUrl", Rendered: "https://portal.new", Current: "https://portal.old", Line: 11, CurrentLine: 11, Input: "portal.domain"},
+		{File: "r:" + appConfig, Path: doc + "app.title", Rendered: "Dev Portal", Current: "Old Portal", Line: 10, CurrentLine: 10},
+		{File: "r:" + appConfig, Path: doc + "muster.installations", Rendered: "", Current: "[]", Line: 0, CurrentLine: 13},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("differences inside the text:\n%+v\nwant\n%+v", got, want)
+	}
+	if missing := missingLeaves(flattenYAML(rendered)); !reflect.DeepEqual(missing, map[string][]string{doc + "grafana.domain": {"plugins.grafana.domain"}}) {
+		t.Errorf("the choice not on record by its path through the text: %v", missing)
+	}
+	fd := &fileDiff{key: "r:" + appConfig, path: appConfig, kind: definitions.KindBackstage}
+	rms := readRemovals([]definitions.Removal{{Key: "backstage:app-config:muster", Kind: "other-definition", Reason: "Moved: muster"}}, nil)
+	if reason := rms.reason(fd, doc+"muster.installations"); reason != "Moved: muster" {
+		t.Errorf("a removal names the key inside the document: %q", reason)
+	}
+	if reason := rms.reason(fd, doc+"app.title"); reason != "" {
+		t.Errorf("a key beside it: %q", reason)
+	}
+
+	secret := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\ntype: Opaque\nstringData:\n  values: |\n    authSessionSecret: " + render.Placeholder("session") + "\n    dexAuthCredentials:\n      maple:\n        clientId: backstage\n"
+	encrypted := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\ntype: Opaque\nstringData:\n  values: ENC[AES256_GCM,data:x,iv:y,tag:z,type:str]\nsops:\n  encrypted_regex: ^(data|stringData)$\n  version: 3.9.0\n  age: []\n"
+	if got := differences("r:s", secret, encrypted, nil); len(got) != 0 {
+		t.Errorf("the record's encrypted text stands: %+v", got)
+	}
+	created := differences("r:s", secret, "", nil)
+	paths := make([]string, 0, len(created))
+	for _, d := range created {
+		paths = append(paths, d.Path)
+	}
+	if !reflect.DeepEqual(paths, []string{"apiVersion", "kind", "metadata.name", "stringData.values:authSessionSecret", "stringData.values:dexAuthCredentials.maple.clientId", "type"}) || created[3].Rendered != render.Placeholder("session") || created[4].Line != 11 || created[4].Rendered != "backstage" {
+		t.Errorf("a created Secret differs at every leaf inside its text, like a created file: %+v", created)
+	}
+	if got := differences("r:k", "patches:\n- patch: |\n    spec:\n      a: 1\n", "patches:\n- patch: |\n    spec:\n      a: 2\n", nil); len(got) != 1 || got[0].Path != "patches[0].patch" {
+		t.Errorf("a kustomization's patch is one leaf whatever it holds: %+v", got)
+	}
+}
+
+// An empty mapping or list on one side where the other side holds entries
+// under the key is the key without its entries: the entries differ, the
+// key itself does not — the record's grafana: {} against the render's
+// grafana.domain is one difference, at the domain; an empty mapping against
+// none is still one.
+func TestDifferencesReportTheEntriesOfAnEmptiedKey(t *testing.T) {
+	if got := differences("r:p", "grafana:\n  domain: x\n", "grafana: {}\n", nil); len(got) != 1 || got[0].Path != "grafana.domain" || got[0].Current != "" {
+		t.Errorf("the record's empty mapping: %+v", got)
+	}
+	if got := differences("r:p", "list: []\n", "list:\n- a\n", nil); len(got) != 1 || got[0].Path != "list[a]" || got[0].Rendered != "" {
+		t.Errorf("the render's empty list: %+v", got)
+	}
+	if got := differences("r:p", "data:\n  values: |\n    grafana:\n      domain: x\n", "data:\n  values: |\n    grafana: {}\n", nil); len(got) != 1 || got[0].Path != "data.values:grafana.domain" {
+		t.Errorf("inside a document: %+v", got)
+	}
+	if got := differences("r:p", "labels: {}\n", "", nil); len(got) != 1 || got[0].Path != "labels" || got[0].Rendered != "{}" {
+		t.Errorf("an empty mapping against none: %+v", got)
+	}
+}
+
+// Every difference and every choice not on record of a comparison lands on
+// a dimension of the definition — a leaf no key names on the kind's
+// catch-all, a leaf of the file itself and one inside the text a ConfigMap
+// holds alike; a dimension declared on the dex-app's configmap observes the
+// dex-app's patch. Over both definitions' features with a file of every kind
+// each renders.
+func TestAssignDropsNoLeaf(t *testing.T) {
+	const (
+		dexPatch     = "installations/x/apps/dex-app/configmap-values.yaml.patch"
+		appConfig    = "management-clusters/x/extras/backstage/backstage/app-config.yaml"
+		userValues   = "management-clusters/x/extras/backstage/backstage/user-values.yaml"
+		fragment     = "management-clusters/x/extras/backstage/agent-platform/app-config.yaml"
+		platformKust = "management-clusters/x/extras/agent-platform/kustomization.yaml"
+	)
+	files := map[string][]string{
+		installations.CustomerPortal: {dexPatch, appConfig, userValues},
+		installations.AgentPlatform:  {testPlatformPatch, dexPatch, "installations/x/apps/dex-app/secret-values.yaml.patch", platformKust, fragment},
+	}
+	for capability, paths := range files {
+		feats, err := definitions.Features(capability)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c := &comparison{files: map[string]*fileDiff{}}
+		wantDiffs, wantMissing := 0, map[string]bool{}
+		for _, p := range paths {
+			fd := &fileDiff{key: "r:" + p, path: p, kind: kindOf(p), missing: map[string][]string{}}
+			for i, yp := range []string{"", "nobody.names.this", "data.values:backstage.appConfig:nobody.names.this[x].y"} {
+				fd.diffs = append(fd.diffs, Difference{File: fd.key, Path: yp, Rendered: "a", Current: "b"})
+				field := p + "#" + strconv.Itoa(i)
+				fd.missing[yp] = []string{field}
+				wantMissing[field] = true
+			}
+			wantDiffs += len(fd.diffs)
+			c.files[fd.key] = fd
+		}
+		dims := assign(c, feats, "")
+		gotDiffs, gotMissing := 0, map[string]bool{}
+		for _, d := range dims {
+			gotDiffs += len(d.Differences)
+			for f := range d.missing {
+				gotMissing[f] = true
+			}
+		}
+		if gotDiffs != wantDiffs {
+			t.Errorf("%s: %d of %d differences reach a dimension", capability, gotDiffs, wantDiffs)
+		}
+		for f := range wantMissing {
+			if !gotMissing[f] {
+				t.Errorf("%s: the choice not on record %s reaches no dimension", capability, f)
+			}
+		}
+	}
+	if d := assign(&comparison{files: map[string]*fileDiff{"r:" + dexPatch: {key: "r:" + dexPatch, path: dexPatch, kind: kindOf(dexPatch)}}}, must(definitions.Features(installations.CustomerPortal)), "")["dex-client-entry"]; d.Mark != AsDefined || len(d.Files) != 1 {
+		t.Errorf("the dex-configmap dimension observes the dex-app's patch: %+v", *d)
+	}
+}
+
+func must[T any](v T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return v
 }

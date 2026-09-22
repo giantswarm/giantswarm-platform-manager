@@ -40,8 +40,9 @@ const (
 	basesRepository = "https://github.com/giantswarm/management-cluster-bases/extras/backstage/"
 	// releaseName is the portal's HelmRelease and OCIRepository.
 	releaseName = "backstage"
-	// portalDir is the portal's directory under extras/.
-	portalDir = "backstage"
+	// portalDir is the portal's directory under extras/, and its own
+	// directory beneath.
+	portalDir = render.PortalDir
 	// The ConfigMaps and Secrets the HelmRelease takes its values from, in
 	// the fleet's order; shared-config is the base's.
 	appConfigMap        = "app-config-backstage"
