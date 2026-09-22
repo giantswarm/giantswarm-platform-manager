@@ -9,9 +9,10 @@ import (
 	"testing"
 	"text/template"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
-	"gopkg.in/yaml.v3"
 )
 
 // TestEveryProbeTemplateExecutes executes every probe's URL template of
