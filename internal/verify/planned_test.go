@@ -444,3 +444,30 @@ func TestEveryRemovalKeyNamesAPath(t *testing.T) {
 		}
 	}
 }
+
+// muster's exchange client allowed a private address by hand is M19 — the
+// definition renders it by itself where a registered server exchanges — where
+// the rest of muster's bare token-exchange block stays M16; a customer's
+// hand-written redirect URI allowlist is M20 and names the registrations it
+// moves to. The chart's keep policy, the other handle of the move, is a kept
+// key (carried into the render, found as defined) and no planned change.
+func TestRegistrationHandlesArePlanned(t *testing.T) {
+	rs, err := definitions.Removals(installations.AgentPlatform)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := readRemovals(rs, facts{factDomain: testDomain})
+	patch := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
+	for _, tc := range []struct {
+		path, migration, names string
+	}{
+		{"muster.muster.oauth.mcpClient.tokenExchange.allowPrivateIP", "M19", "extras/agent-platform/mcpservers"},
+		{"muster.muster.oauth.mcpClient.tokenExchange.identityProviders.pond.tokenEndpoint", "M16", "identity-provider"},
+		{"muster.muster.oauth.server.trustedPublicRegistrationRedirectURIs[0]", "M20", "extras/agent-platform/mcpclients"},
+	} {
+		got := keys.reason(patch, tc.path)
+		if !strings.HasSuffix(got, "· "+tc.migration) || !strings.Contains(got, tc.names) {
+			t.Errorf("%s: planned %q, want %s naming %q", tc.path, got, tc.migration, tc.names)
+		}
+	}
+}

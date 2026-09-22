@@ -136,6 +136,14 @@ type Installation struct {
 	DexAppVersion string      `json:"dexAppVersion,omitempty"`
 	Portals       []PortalRef `json:"portals"`
 	Federation    Federation  `json:"federation"`
+	// MCPServers are the servers registered on the installation beyond the
+	// platform's own three: the MCPServer objects under
+	// extras/agent-platform/mcpservers/ on record (registered.go).
+	MCPServers []RegisteredServer `json:"mcpServers"`
+	// MCPClients are the clients registered on the installation with a
+	// stable callback: the ConfigMaps under extras/agent-platform/mcpclients/
+	// on record (registered.go).
+	MCPClients []RegisteredClient `json:"mcpClients"`
 }
 
 // PortalRef is a developer portal that signs people in on the installation:

@@ -276,12 +276,22 @@ func (in *Input) musterValues() render.Map {
 		server = append(server, e("allowPrivateIPClientMetadata", true), e("allowPrivateIPRedirectURIs", true))
 	}
 	server = append(server, e("trustedAudiences", in.audiences()))
+	if uris := in.clientRedirectURIs(); len(uris) > 0 {
+		server = append(server, e("trustedPublicRegistrationRedirectURIs", uris))
+	}
 	if len(in.Installation.Federation.Targets) > 0 {
 		server = append(server, e("tokenExchangeBroker", in.brokerValues()))
 	}
 	oauth := render.Map{}
+	mcpClient := render.Map{}
 	if in.klausGateway() && in.Gateway.OBO.Connectors {
-		oauth = append(oauth, e("mcpClient", render.Map{e("postLoginRedirectAllowlist", in.postLoginRedirectAllowlist())}))
+		mcpClient = append(mcpClient, e("postLoginRedirectAllowlist", in.postLoginRedirectAllowlist()))
+	}
+	if in.registeredExchange() {
+		mcpClient = append(mcpClient, e("tokenExchange", render.Map{e("allowPrivateIP", true)}))
+	}
+	if len(mcpClient) > 0 {
+		oauth = append(oauth, e("mcpClient", mcpClient))
 	}
 	oauth = append(oauth, e("server", server))
 	muster := render.Map{}

@@ -1,0 +1,45 @@
+# A public customer installation on the 4 chart line that registers with muster beyond the platform's
+# own: two MCP servers of its workload clusters reached through a token exchange at each cluster's own
+# Dex (behind an internal load balancer, so muster's exchange client is allowed a private address), one
+# server that takes the person's own token, and one MCP client with a stable callback — a hosted agent
+# runtime — whose redirect URIs muster's public registration trusts. The organisation's own portal signs
+# people in. The record's registrations are the MCPServer objects under extras/agent-platform/mcpservers
+# and the ConfigMap under extras/agent-platform/mcpclients; the definition renders nothing per
+# registration. Invented names, placeholder values.
+input:
+  installation:
+    name: heron
+    baseDomain: heron.lakeside.example
+    customer: lakeside
+    provider: capa
+    private: false
+    chartLine: "4"
+    musterClientId: 00000000-0000-4000-8000-000000000003
+    podCertificateRequest: true
+    portals:
+      - installation: heron
+        customer: lakeside
+        domain: portal.heron.lakeside.example
+        clientId: backstage
+        chartLine: ">=2.1.0 <3.0.0"
+    federation:
+      hubs: []
+      targets: []
+    mcpServers:
+      - name: pond-mcp-timescale
+        url: https://mcp-timescale.pond.lakeside.example/mcp
+        auth: exchange
+        dexTokenEndpoint: https://dex.pond.lakeside.example/token
+      - name: marsh-mcp-timescale
+        url: https://mcp-timescale.marsh.lakeside.example/mcp
+        auth: exchange
+        dexTokenEndpoint: https://dex.marsh.lakeside.example/token
+      - name: reeds-mcp-docs
+        url: https://mcp-docs.reeds.lakeside.example/mcp
+        auth: forward
+    mcpClients:
+      - name: hosted-agent-runtime
+        redirectURIs:
+          - https://agents.runtime.example/identities/oauth2/callback/00000000-0000-4000-8000-00000000000a
+          - https://agents.runtime.example/identities/oauth2/callback/00000000-0000-4000-8000-00000000000b
+secrets: {}

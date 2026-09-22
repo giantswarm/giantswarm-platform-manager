@@ -226,9 +226,10 @@ func TestVerifyInstallationAsDefined(t *testing.T) {
 			}
 			continue
 		}
-		// rowan runs the 3 line: the API Agent Substrate needs on the 4 line
-		// is not probed, and the dimension says so.
-		if id == "live-pod-certificate-request" {
+		// rowan runs the 3 line and registers no server of its own: the API
+		// Agent Substrate needs on the 4 line and the registered servers are
+		// not probed, and the dimensions say so.
+		if id == "live-pod-certificate-request" || id == "live-registered-mcp-servers" {
 			if d.Mark != verify.NotChecked || d.Reason != verify.ReasonNoProbe {
 				t.Errorf("%s: %s (%s)", id, d.Mark, d.Reason)
 			}
@@ -615,5 +616,40 @@ func TestVerifyInstallationReadsWithinTheResponseCap(t *testing.T) {
 	}
 	if p := recordedProbes(t, st)["live-drift"]; p.Result != string(verify.NotChecked) || !strings.Contains(p.Message, "larger than mcp-kubernetes answers") {
 		t.Errorf("recorded: %+v", p)
+	}
+}
+
+// A registered server's MCPServer object is read live: present and in no
+// Failed state is as defined — a server waiting for a person's session reports
+// Awaiting Session or Auth Required, which is no fault — and Failed is drift
+// naming muster's last error.
+func TestVerifyInstallationReadsRegisteredServers(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	registerOnRowan(st)
+	enableRowanLive(t, st, st.mcpClient(t, aliceToken), kagentEnabled())
+	admin := st.dex.token(t, liveAdmin, []string{liveAudience}, time.Hour)
+	const dim, stateKey = "live-registered-mcp-servers", "state"
+
+	res := verifyLive(t, st.liveClient(t, admin), rowan)
+	d := liveDimensions(res)[dim]
+	if d.Mark != verify.AsDefined || d.Live == nil || len(d.Live.Checks) != 1 || d.Live.Checks[0].Name != rowanRegisteredServer || d.Live.Checks[0].Message != "present, no state reported yet" {
+		t.Fatalf("%s: %s (%s) %+v", dim, d.Mark, d.Reason, d.Live)
+	}
+	inst, ok := st.muster.installation(rowan)
+	if !ok {
+		t.Fatal("no fake installation for rowan")
+	}
+	inst.edit("MCPServer", "agent-platform", rowanRegisteredServer, func(obj map[string]any) {
+		obj["status"] = map[string]any{stateKey: "Awaiting Session"}
+	})
+	if d = liveDimensions(verifyLive(t, st.liveClient(t, admin), rowan))[dim]; d.Mark != verify.AsDefined || d.Live.Checks[0].Message != "present, state Awaiting Session" {
+		t.Errorf("awaiting a session: %s %+v", d.Mark, d.Live)
+	}
+	inst.edit("MCPServer", "agent-platform", rowanRegisteredServer, func(obj map[string]any) {
+		obj["status"] = map[string]any{stateKey: "Failed", "lastError": "dial tcp: connection refused\nafter 3 attempts"}
+	})
+	if d = liveDimensions(verifyLive(t, st.liveClient(t, admin), rowan))[dim]; d.Mark != verify.Drifted || d.Live.Checks[0].Message != "state Failed: dial tcp: connection refused" {
+		t.Errorf("failed: %s %+v", d.Mark, d.Live)
 	}
 }

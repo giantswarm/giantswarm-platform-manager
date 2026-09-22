@@ -118,6 +118,9 @@ type Report struct {
 	// Hosted is the portal hosted on the installation with the installations
 	// it shows besides its own (derive.go); nil where it hosts none.
 	Hosted *HostedPortal `json:"hosted,omitempty"`
+	// Registered is what the record registers with muster beyond the
+	// platform's own (registered.go); nil until a full inspection read it.
+	Registered *Registered `json:"registered,omitempty"`
 }
 
 // Detail is how much of an installation list_installations reads.
@@ -159,6 +162,8 @@ func (r *Registry) inspect(ctx context.Context, c *gh.Client, inst Installation,
 		dexErr  error
 		lists   []DexSecretList
 		listErr error
+		reg     Registered
+		regErr  error
 		markers = make([]markerRead, len(caps))
 	)
 	if detail == Full {
@@ -166,6 +171,7 @@ func (r *Registry) inspect(ctx context.Context, c *gh.Client, inst Installation,
 		wg.Go(func() { pcr, pcrErr = readPodCertificateRequest(ctx, readAs(c), inst) })
 		wg.Go(func() { dex, dexErr = readDexAppVersion(ctx, readAt(c), inst) })
 		wg.Go(func() { lists, listErr = readDexSecretLists(ctx, readAs(c), inst) })
+		wg.Go(func() { reg, regErr = readRegistered(ctx, readAs(c), inst) })
 	}
 	for i, cap := range caps {
 		wg.Go(func() { markers[i] = readMarker(ctx, c, inst, cap) })
@@ -208,6 +214,13 @@ func (r *Registry) inspect(ctx context.Context, c *gh.Client, inst Installation,
 				rep.Errors = append(rep.Errors, listErr.Error())
 			} else if len(lists) > 0 {
 				record.DexSecretLists, record.DexSecretSource = lists, inst.Repositories.Configs+":"+DexSecretPatchPath(inst.Name)
+			}
+			// The registrations are facts too: unreadable, the record
+			// registers nothing for this comparison and the report says why.
+			if regErr != nil {
+				rep.Errors = append(rep.Errors, regErr.Error())
+			} else {
+				rep.Registered = &reg
 			}
 		}
 	}
@@ -393,9 +406,10 @@ func (r *Record) Input() map[string]any {
 
 // Facts are every installation fact on record, as a definition's inputs name
 // them under installation: the record's (config.yaml.patch), the registry's
-// region, pipeline and whether this is the hub, and per capability whether it
-// is enabled here (agentPlatform, customerPortal). A definition takes the ones
-// its schema names (Capability.Facts).
+// region, pipeline and whether this is the hub, what the record registers with
+// muster (mcpServers, mcpClients), and per capability whether it is enabled
+// here (agentPlatform, customerPortal). A definition takes the ones its schema
+// names (Capability.Facts).
 func (r Report) Facts() map[string]any {
 	facts := map[string]any{}
 	if r.Record != nil {
@@ -407,6 +421,9 @@ func (r Report) Facts() map[string]any {
 	}
 	if r.Federation != nil {
 		facts["federation"] = r.Federation
+	}
+	if r.Registered != nil {
+		facts["mcpServers"], facts["mcpClients"] = r.Registered.Servers, r.Registered.Clients
 	}
 	for _, cs := range r.Capabilities {
 		facts[factKey(cs.Name)] = cs.Enabled

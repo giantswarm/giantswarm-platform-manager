@@ -81,8 +81,13 @@ removals:
   - key: configmap:muster.muster.oauth.server.trustedPublicRegistrationRedirectURIs
     kind: migration
     reason: >-
-      Removed: the redirect URIs of a customer's own OAuth clients are allowlisted here; those clients register with muster instead, and where that
-      registration lands is giantswarm/giantswarm#37876 · M20
+      Removed: the redirect URIs of a customer's own MCP clients are allowlisted here by hand; a client with a stable callback registers as a
+      ConfigMap under extras/agent-platform/mcpclients, and the allowlist is rendered from those registrations · M20
+  - key: configmap:muster.muster.oauth.mcpClient.tokenExchange.allowPrivateIP
+    kind: migration
+    reason: >-
+      Removed: muster's token-exchange client is allowed to reach private addresses here by hand; it is allowed by itself where a server registered
+      under extras/agent-platform/mcpservers exchanges tokens at a Dex of its own, and nowhere else · M19
   - key: configmap:muster.muster.oauth.mcpClient.tokenExchange
     kind: migration
     reason: >-
@@ -246,7 +251,12 @@ removals:
     kind: not-platform
     reason: >-
       Kept: extras/agent-platform/mcpservers holds the MCP servers registered on this installation beyond the platform's own three; they are the
-      installation's own workloads, which the platform neither writes nor removes.
+      installation's own registrations, which the platform reads and neither writes nor removes.
+  - key: extras:mcpclients
+    kind: not-platform
+    reason: >-
+      Kept: extras/agent-platform/mcpclients holds the MCP clients registered on this installation with a stable callback; they are the installation's
+      own registrations, from which the platform renders muster's allowlist and which it neither writes nor removes.
 
   # --- Backstage app-config.yaml (portal keys outside the agent-platform section) ---
   - key: "backstage:app-config:app.title"
