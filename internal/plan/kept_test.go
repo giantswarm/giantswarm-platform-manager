@@ -8,6 +8,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// The keys of the two components the tests name.
+const kagentKey, musterKey = "kagent", "muster"
+
 // The definition's platform patch as it renders without the keys the fleet
 // still carries by hand: no trusted issuers, no connector pin, no resources,
 // no model pick, the policy's review callers only.
@@ -102,7 +105,6 @@ func TestKeepAudiencesCarriesTheKeptKeysFromTheRecord(t *testing.T) {
 	if callers == nil || len(callers.Content) != 2 || callers.Content[1].Value != "system:serviceaccount:marge:marge-shield-sweep" {
 		t.Errorf("allowedCallers: the other team's sweep is kept after the policy's, got %v", callers)
 	}
-	const kagentKey, musterKey = "kagent", "muster"
 	want := []Kept{
 		{List: ListAllowedCallers, Entry: "system:serviceaccount:marge:marge-shield-sweep"},
 		{List: "kagent.providers.anthropic", Entry: "model"},

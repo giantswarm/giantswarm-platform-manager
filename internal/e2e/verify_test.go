@@ -28,8 +28,13 @@ import (
 )
 
 const (
-	argPrivate   = "private"
-	privateInput = "installation." + argPrivate
+	argPrivate = "private"
+	// The federation's keys among the installation facts, as tests type them.
+	argFederation = "federation"
+	argHubs       = "hubs"
+	argTargets    = "targets"
+	argBaseDomain = "baseDomain"
+	privateInput  = "installation." + argPrivate
 )
 
 func verifyRowan(t *testing.T, c *client.Client, name string) verify.Result {
@@ -686,9 +691,9 @@ func TestVerifyCapabilityReadsDocumentsByObject(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	c := st.mcpClient(t, aliceToken)
-	federated := minimalInputs(map[string]any{argInstallation: map[string]any{"federation": map[string]any{
-		"brokerClientId": "broker", "hubs": []any{},
-		"targets": []any{map[string]any{"installation": alder, "baseDomain": alder + ".example", argPrivate: true}}}}})
+	federated := minimalInputs(map[string]any{argInstallation: map[string]any{argFederation: map[string]any{
+		"brokerClientId": "broker", argHubs: []any{},
+		argTargets: []any{map[string]any{argInstallation: alder, argBaseDomain: alder + ".example", argPrivate: true}}}}})
 	enableRowan(t, st, c, federated, federated)
 	repo, path, content := onRecord(t, st, "/remoteapps.yaml")
 	docs := strings.Split(content, "---\n")

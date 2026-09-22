@@ -73,7 +73,7 @@ func TestSameSkeletonKeepsAnEncryptedFile(t *testing.T) {
 // is not the record's shape.
 func TestUnseenNamesTheLiteralsUnderEncryptedFields(t *testing.T) {
 	got := unseen(renderedFile, fileOnRecord)
-	want := []Unseen{{Path: "stringData.client-id", Value: "muster"}, {Path: "stringData.ttl", Value: "3"}}
+	want := []Unseen{{Path: "stringData.client-id", Value: musterKey}, {Path: "stringData.ttl", Value: "3"}}
 	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("unseen: %+v, want %+v", got, want)
 	}

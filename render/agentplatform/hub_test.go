@@ -188,6 +188,9 @@ func TestTunnelTokensPerHub(t *testing.T) {
 	}
 }
 
+// secondHubName is the second-hub shape's installation: the organisation's further hub.
+const secondHubName = "warren"
+
 // A hub's token-exchange client in a target's Dex carries the fleet's id:
 // muster-token-exchange-<target> for the registry's hub — the client every
 // installation registered for it by hand, the id the hub's credentials on
@@ -205,8 +208,8 @@ func TestTokenExchangeClientIsTheFleets(t *testing.T) {
 		registryHub bool
 		want        string
 	}{
-		{"burrow", "gopher", true, "muster-token-exchange-burrow"},
-		{"marmot", "warren", false, "muster-token-exchange-marmot-warren"},
+		{"burrow", portalCaseOwn, true, "muster-token-exchange-burrow"},
+		{"marmot", secondHubName, false, "muster-token-exchange-marmot-warren"},
 	} {
 		if got := tokenExchangeClient(tc.target, tc.hub, tc.registryHub); got != tc.want {
 			t.Errorf("tokenExchangeClient(%s, %s, %v) = %s, want %s", tc.target, tc.hub, tc.registryHub, got, tc.want)
@@ -229,13 +232,13 @@ func TestTokenExchangeClientIsTheFleets(t *testing.T) {
 	// The registry's hub gopher into burrow and marmot: the plain id.
 	input, secrets := loadInput(t, shapeHubPrivateTarget)
 	gopher := tree(input, secrets)
-	credentials(gopher, "gopher", "burrow", "muster-token-exchange-burrow")
-	credentials(gopher, "gopher", "marmot", "muster-token-exchange-marmot")
+	credentials(gopher, portalCaseOwn, "burrow", "muster-token-exchange-burrow")
+	credentials(gopher, portalCaseOwn, "marmot", "muster-token-exchange-marmot")
 	// warren, a further hub, into marmot and vole: its name in the id.
 	input, secrets = loadInput(t, shapeSecondHub)
 	warren := tree(input, secrets)
-	credentials(warren, "warren", "marmot", "muster-token-exchange-marmot-warren")
-	credentials(warren, "warren", "vole", "muster-token-exchange-vole-warren")
+	credentials(warren, secondHubName, "marmot", "muster-token-exchange-marmot-warren")
+	credentials(warren, secondHubName, "vole", "muster-token-exchange-vole-warren")
 	// warren as gopher's target: the registry's hub's client in its Dex under the plain id, its Secret and the peer.
 	const warrenSecrets = "giantswarm/giantswarm-management-clusters/management-clusters/warren/extras/agent-platform/secrets/"
 	patch := string(warren["giantswarm/giantswarm-configs/installations/warren/apps/dex-app/configmap-values.yaml.patch"])
@@ -258,7 +261,7 @@ func TestTokenExchangeClientIsTheFleets(t *testing.T) {
 	// A target of two hubs, the registry's and another (aspen): one client each, aspen's suffixed, each with its
 	// Secret — the name the other hub's own render gives the pair's value.
 	input, secrets = loadInput(t, shapeSecondHub)
-	input["installation"].(map[string]any)["federation"].(map[string]any)["hubs"] = []any{"gopher", "aspen"}
+	input["installation"].(map[string]any)["federation"].(map[string]any)["hubs"] = []any{portalCaseOwn, portalCaseHub}
 	two := tree(input, secrets)
 	patch = string(two["giantswarm/giantswarm-configs/installations/warren/apps/dex-app/configmap-values.yaml.patch"])
 	for _, want := range []string{
@@ -274,7 +277,7 @@ func TestTokenExchangeClientIsTheFleets(t *testing.T) {
 		t.Fatal(err)
 	}
 	aspen := &Input{Installation: Installation{Name: "aspen", Hub: false}}
-	if shared := exchangeSecretName(aspen.hubClient(Target{Installation: "warren"})); shared != "muster-token-exchange-warren-aspen-client-secret" || exchangeSecretName(in.targetClient("aspen")) != shared {
+	if shared := exchangeSecretName(aspen.hubClient(Target{Installation: secondHubName})); shared != "muster-token-exchange-warren-aspen-client-secret" || exchangeSecretName(in.targetClient("aspen")) != shared {
 		t.Errorf("the pair's value is named %s on aspen and %s on warren", shared, exchangeSecretName(in.targetClient("aspen")))
 	}
 	if secret := string(two[warrenSecrets+"dex-client-muster-token-exchange-warren-aspen-secret.yaml"]); !strings.Contains(secret, "GENERATED(muster-token-exchange-warren-aspen-client-secret)") {

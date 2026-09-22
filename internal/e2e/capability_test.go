@@ -259,7 +259,7 @@ func TestEnableCapabilityDryRunTypedInputs(t *testing.T) {
 	if p := findPlan(t, out, rowan); !strings.Contains(p.Refused, "bogus") || len(p.Files) != 0 || len(out.PullRequests) != 0 {
 		t.Fatalf("unknown key: refused %q files %d prs %d", p.Refused, len(p.Files), len(out.PullRequests))
 	}
-	out, text, isErr = dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(map[string]any{argInstallation: map[string]any{"federation": map[string]any{"targets": []any{map[string]any{"installation": alder, "baseDomain": alder + ".example", argPrivate: false}}, "hubs": []any{}}}})})
+	out, text, isErr = dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(map[string]any{argInstallation: map[string]any{argFederation: map[string]any{argTargets: []any{map[string]any{argInstallation: alder, argBaseDomain: alder + ".example", argPrivate: false}}, argHubs: []any{}}}})})
 	if isErr {
 		t.Fatal(text)
 	}
@@ -306,9 +306,9 @@ func TestDryRunRendersTheTokenExchangeClientUnderTheFleetsID(t *testing.T) {
 	}
 	// The hub side: rowan brokers into alder. Not the registry's hub, its client carries its name; typed as the hub, the plain id.
 	hubInputs := func(registryHub bool) map[string]any {
-		return minimalInputs(map[string]any{argInstallation: map[string]any{"hub": registryHub, "federation": map[string]any{
-			"brokerClientId": "broker", "hubs": []any{},
-			"targets": []any{map[string]any{"installation": alder, "baseDomain": alder + ".example", argPrivate: false}}}}})
+		return minimalInputs(map[string]any{argInstallation: map[string]any{"hub": registryHub, argFederation: map[string]any{
+			"brokerClientId": "broker", argHubs: []any{},
+			argTargets: []any{map[string]any{argInstallation: alder, argBaseDomain: alder + ".example", argPrivate: false}}}}})
 	}
 	for _, tc := range []struct {
 		registryHub bool
@@ -323,7 +323,7 @@ func TestDryRunRendersTheTokenExchangeClientUnderTheFleetsID(t *testing.T) {
 	for _, tc := range []struct {
 		hub, client string
 	}{{hub, "muster-token-exchange-" + rowan}, {birch, "muster-token-exchange-" + rowan + "-" + birch}} {
-		p := planOf(minimalInputs(map[string]any{argInstallation: map[string]any{"federation": map[string]any{"hubs": []any{tc.hub}, "registryHub": hub, "targets": []any{}}}}))
+		p := planOf(minimalInputs(map[string]any{argInstallation: map[string]any{argFederation: map[string]any{argHubs: []any{tc.hub}, "registryHub": hub, argTargets: []any{}}}}))
 		var client *plan.DexClient
 		for i := range p.DexClients {
 			if p.DexClients[i].ID == tc.client {
