@@ -45,7 +45,7 @@ func (t *Tools) compare(ctx context.Context, env *planned, r installations.Repor
 	dexApp, frozen := p.DexAppRefusal(r.Record), p.FrozenRefusal()
 	switch {
 	case res.Refused != "":
-		res.CommitRefused = fmt.Sprintf("the definition refuses these inputs for %s (refused says why); nothing is committed", r.Name)
+		res.CommitRefused = res.Refused
 	case len(res.Inputs.Missing) > 0:
 		res.CommitRefused = missingChoices(def.Name, res.Inputs.Missing)
 	case dexApp != "":

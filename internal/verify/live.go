@@ -189,7 +189,7 @@ func CompareLive(ctx context.Context, opts LiveOptions) Result {
 	var lv *liveRender
 	if opts.Inputs.Values != nil {
 		if lv, err = renderLive(opts); err != nil {
-			r.Refused = err.Error()
+			r.Refused = render.Reason(err)
 			lv = nil
 		}
 	}

@@ -14,10 +14,12 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
-// Errors the render refuses with. Every message names the key, field or
-// component concerned.
+// Errors the render refuses with. Every refusal is a render.Refusal: one
+// sentence naming the input (what the schema says it is, its key), what is
+// wrong with it and what supplies it, unwrapping to one of these.
 var (
 	// ErrInput is an input the schema rejects (an unknown key, a missing
 	// required one, a value of the wrong shape) or a record the definition
@@ -395,39 +397,47 @@ func Parse(raw any) (*Input, error) {
 	return in, nil
 }
 
-// checkRecord refuses a record the definition cannot render as it stands.
+// refuse is the definition's refusal of an input, as a person reads it.
+func refuse(sentence string) error { return &render.Refusal{Kind: ErrInput, Sentence: sentence} }
+
+// describe names an input for a refusal: what the schema says it is and its
+// key.
+func describe(field string) string { return render.Describe("agent-platform", field) }
+
+// checkRecord refuses a record the definition cannot render as it stands:
+// one sentence naming the fact, what is wrong with it and what supplies it.
 func (in *Input) checkRecord() error {
 	fed := in.Installation.Federation
 	if len(fed.Targets) > 0 && fed.BrokerClientID == "" {
-		return fmt.Errorf("%w: installation.federation.brokerClientId: a hub's broker client is registered once and read back from its patch; none is on record", ErrInput)
+		return refuse(describe("installation.federation.brokerClientId") + " is not on record; a hub's broker client is registered once and read back from its patch")
 	}
 	if in.hasPrivateTarget() && in.serviceAccountIssuer() == "" {
-		return fmt.Errorf("%w: installation.federation.targets: a private target's tunnel joins Teleport by this hub's published service-account issuer, and a %s installation publishes none the definition knows", ErrInput, in.Installation.Provider)
+		return refuse(fmt.Sprintf("%s include a private one, whose tunnel joins Teleport by this hub's published service-account issuer, and a %s installation publishes none the definition knows", describe("installation.federation.targets"), in.Installation.Provider))
 	}
 	for i, t := range fed.Targets {
 		if len(t.Hubs) > 0 && !slices.Contains(t.Hubs, in.Installation.Name) {
-			return fmt.Errorf("%w: installation.federation.targets[%d].hubs: the hubs of this organisation that broker into %s are %s, and %s is not among them", ErrInput, i, t.Installation, strings.Join(t.Hubs, ", "), in.Installation.Name)
+			return refuse(fmt.Sprintf("installation.federation.targets[%d].hubs names the hubs of this organisation that broker into %s as %s, and %s is not among them; the record supplies them", i, t.Installation, strings.Join(t.Hubs, ", "), in.Installation.Name))
 		}
 	}
 	if in.ModelServing && in.Installation.ChartLine != lineFour {
-		return fmt.Errorf("%w: modelServing.enabled: the serving slice is the 4 chart line's; this installation runs the %s line", ErrInput, in.Installation.ChartLine)
+		return refuse(fmt.Sprintf("%s is the 4 chart line's serving slice, and this installation runs the %s line; the record's chart line decides", describe("modelServing.enabled"), in.Installation.ChartLine))
 	}
 	for _, c := range lineFourComponents {
 		if in.Components[c] && in.Installation.ChartLine != lineFour {
-			return fmt.Errorf("%w: installation.chartLine: %s needs the platform's 4 chart line and the record selects the %s line; agentPlatform.kagentApiV2: true in installations/%s/config.yaml.patch selects 4", ErrInput, c, in.Installation.ChartLine, in.Installation.Name)
+			return refuse(fmt.Sprintf("%s selects the %s line, and %s needs the platform's 4 chart line; agentPlatform.kagentApiV2: true in installations/%s/config.yaml.patch selects 4", describe("installation.chartLine"), in.Installation.ChartLine, c, in.Installation.Name))
 		}
 	}
 	if p := in.hostedPortal(); p != nil && in.kagent() {
 		if p.ChartLine == "" {
-			return fmt.Errorf("%w: installation.portals[%s].chartLine: the hosted portal's chart line is not on record — management-clusters/%s/extras/backstage/backstage/kustomization.yaml patches no ref onto the fleet base's backstage OCIRepository; the portal section names the agents' Flux identity for a portal before backstage %s only, and needs the line to tell", ErrInput, p.Installation, p.Installation, portalPluginRemoval)
+			return refuse(fmt.Sprintf("the hosted portal's chart line (installation.portals[%s].chartLine) is not on record: management-clusters/%s/extras/backstage/backstage/kustomization.yaml patches no ref onto the fleet base's backstage OCIRepository, and the portal section names the agents' Flux identity for a portal before backstage %s only", p.Installation, p.Installation, portalPluginRemoval))
 		}
 		if _, err := portalChartFloor(p.ChartLine); err != nil {
-			return fmt.Errorf("%w: installation.portals[%s].chartLine: %v", ErrInput, p.Installation, err)
+			return refuse(fmt.Sprintf("the hosted portal's chart line (installation.portals[%s].chartLine) is not one the definition reads: %v", p.Installation, err))
 		}
 	}
 	if in.kagent() && in.Installation.ChartLine == lineFour && !in.Installation.PodCertificateRequest {
-		return fmt.Errorf("%w: installation.podCertificateRequest: kagent's Agent Substrate on the 4 chart line needs a cluster that serves %s/%s %s, and the record does not say this one does; enable the feature gates %s under cluster.internal.advancedConfiguration.{%s}.featureGates in the cluster App's values (management-clusters/%s/cluster-app-manifests.yaml), or run a cluster App chart that enables them by default (%s and later)",
-			ErrInput, apiGroup(PodCertificateRequestResource), PodCertificateRequestVersion, apiResource(PodCertificateRequestResource), strings.Join(PodCertificateRequestGates, ", "), strings.Join(PodCertificateRequestComponents, ","), in.Installation.Name, podCertificateRequestDefaults())
+		return refuse(fmt.Sprintf("%s does not say this cluster serves %s/%s %s, which kagent's Agent Substrate on the 4 chart line needs; enable the feature gates %s under cluster.internal.advancedConfiguration.{%s}.featureGates in the cluster App's values (management-clusters/%s/cluster-app-manifests.yaml), or run a cluster App chart that enables them by default (%s and later)",
+			describe("installation.podCertificateRequest"), apiGroup(PodCertificateRequestResource), PodCertificateRequestVersion, apiResource(PodCertificateRequestResource), strings.Join(PodCertificateRequestGates, ", "), strings.Join(PodCertificateRequestComponents, ","), in.Installation.Name, podCertificateRequestDefaults()))
 	}
 	return nil
 }

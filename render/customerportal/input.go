@@ -15,8 +15,9 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
-// Errors the render refuses with. Every message names the key or field
-// concerned.
+// Errors the render refuses with. Every refusal is a render.Refusal: one
+// sentence naming the input (what the schema says it is, its key), what is
+// wrong with it and what supplies it, unwrapping to one of these.
 var (
 	// ErrInput is an input the schema rejects: an unknown key, a missing
 	// required one, a value of the wrong shape.
@@ -27,6 +28,15 @@ var (
 	// ErrUnknownSecret is a supplied secret value no input asks for.
 	ErrUnknownSecret = errors.New("customer-portal: unknown secret value")
 )
+
+// refuse is the definition's refusal of an input, as a person reads it.
+func refuse(kind error, sentence string) error {
+	return &render.Refusal{Kind: kind, Sentence: sentence}
+}
+
+// describe names an input for a refusal: what the schema says it is and its
+// key.
+func describe(field string) string { return render.Describe("customer-portal", field) }
 
 // The supplied fields: the GitHub App's id and credentials when the github
 // plugin is on (the id is no credential, but it lives only in the encrypted
@@ -75,7 +85,7 @@ type Input struct {
 	// missing are the required person inputs the document lacks, filled
 	// with their Missing markers: a comparison renders them, a commit
 	// refuses them.
-	missing []missingInput
+	missing []string
 }
 
 // Installation is the facts on record; see the schema for each field.
@@ -224,7 +234,7 @@ func Parse(raw any) (*Input, error) {
 	}
 	filled := make(map[string]bool, len(missing))
 	for _, m := range missing {
-		filled[m.field] = true
+		filled[m] = true
 	}
 	if encoded, err = json.Marshal(copied); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInput, err)
@@ -263,16 +273,16 @@ func Parse(raw any) (*Input, error) {
 // renders as markers — and the supplied values.
 func (in *Input) check(secrets map[string]string, mode render.Mode) error {
 	if mode == render.ModeCommit && len(in.missing) > 0 {
-		return fmt.Errorf("%w: %s", ErrInput, missingClause(in.missing))
+		return refuse(ErrInput, notOnRecord(in.missing))
 	}
 	if in.Plugins.GitHub.AppID != 0 {
-		return fmt.Errorf("%w: %s: supplied at commit like the GitHub App's credentials, not an input", ErrInput, fieldGitHubAppID)
+		return refuse(ErrInput, describe(fieldGitHubAppID)+" is no input; it is supplied at commit like the GitHub App's credentials")
 	}
 	if in.Plugins.Grafana.Domain != "" {
-		return fmt.Errorf("%w: %s: the installation's own Grafana, derived from installation.baseDomain, not an input", ErrInput, inputGrafanaDomain)
+		return refuse(ErrInput, describe(inputGrafanaDomain)+" is no input; it is derived from installation.baseDomain")
 	}
 	if !slices.Contains(in.Installation.Providers, in.Installation.Provider) {
-		return fmt.Errorf("%w: installation.providers: the installation's own provider %s is not among them", ErrInput, in.Installation.Provider)
+		return refuse(ErrInput, describe("installation.providers")+" do not include the installation's own provider "+in.Installation.Provider+"; the installations registry supplies them")
 	}
 	if err := in.checkFederation(); err != nil {
 		return err
@@ -280,19 +290,19 @@ func (in *Input) check(secrets map[string]string, mode render.Mode) error {
 	needed := in.suppliedSecretFields()
 	for _, field := range needed {
 		if secrets[field] == "" {
-			return fmt.Errorf("%w: %s", ErrEmptySecret, field)
+			return refuse(ErrEmptySecret, describe(field)+" was not supplied; supply it at commit")
 		}
 	}
 	for field, value := range secrets {
 		if !slices.Contains(needed, field) {
-			return fmt.Errorf("%w: %s", ErrUnknownSecret, field)
+			return refuse(ErrUnknownSecret, describe(field)+" is no value this input asks for; supply only "+render.List(needed))
 		}
 		if value == "" {
-			return fmt.Errorf("%w: %s", ErrEmptySecret, field)
+			return refuse(ErrEmptySecret, describe(field)+" was not supplied; supply it at commit")
 		}
 	}
 	if in.Plugins.GitHub.Enabled && !appIDSupplied(secrets[fieldGitHubAppID]) {
-		return fmt.Errorf("%w: %s: the GitHub App's id is a positive integer", ErrInput, fieldGitHubAppID)
+		return refuse(ErrInput, describe(fieldGitHubAppID)+" supplied at commit is no positive integer; supply the App's id as GitHub shows it")
 	}
 	return nil
 }
@@ -317,13 +327,13 @@ func (in *Input) checkFederation() error {
 	names := map[string]bool{in.Installation.Name: true}
 	for _, f := range in.Federation.Installations {
 		if names[f.Name] {
-			return fmt.Errorf("%w: federation.installations: %s is the portal's own installation or listed twice", ErrInput, f.Name)
+			return refuse(ErrInput, describe("federation.installations")+" name "+f.Name+", the portal's own installation or one listed twice; list each other installation once under Apply changes")
 		}
 		names[f.Name] = true
 	}
 	for field, name := range map[string]string{"signInInstallation": in.Federation.SignInInstallation, "tokenBroker": in.Federation.TokenBroker} {
 		if name != "" && !names[name] {
-			return fmt.Errorf("%w: federation.%s: %s is neither the portal's own installation nor one it federates", ErrInput, field, name)
+			return refuse(ErrInput, describe("federation."+field)+" names "+name+", which is neither the portal's own installation nor one it federates; choose one of them under Apply changes")
 		}
 	}
 	return nil

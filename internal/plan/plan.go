@@ -210,14 +210,14 @@ type Installation struct {
 	// of the document holds: rendered as Missing markers, compared as not
 	// checked, refused by a commit.
 	MissingInputs []string `json:"missingInputs,omitempty"`
-	// Refused is the render's refusal, when the definition refuses these
-	// inputs (an unknown key, a policy, an input this version does not
-	// render); the rest is empty then.
+	// Refused is the definition's refusal of these inputs (an unknown key, a
+	// policy, an input this version does not render), the sentence a person
+	// reads; the rest is empty then.
 	Refused string `json:"refused,omitempty"`
 	// CommitRefused says why a commit of this dry run would be refused (the
-	// definition refuses the inputs, the record's dex-app is too old for a
-	// referenced Dex client, a generated value is frozen where it cannot
-	// rotate); empty when a commit
+	// definition's refusal, the same sentence as Refused; a choice not on
+	// record; the record's dex-app too old for a referenced Dex client; a
+	// generated value frozen where it cannot rotate); empty when a commit
 	// could go ahead.
 	CommitRefused    string            `json:"commitRefused,omitempty"`
 	Files            []File            `json:"files"`
@@ -267,13 +267,13 @@ func Build(ctx context.Context, opts Options) Installation {
 		DexClients: []DexClient{}, CustomerActions: []CustomerAction{}, Probes: []Probe{}, Diff: map[Change]int{}}
 	in, err := opts.Definition.Parse(opts.Inputs)
 	if err != nil {
-		p.Refused = err.Error()
+		p.Refused = render.Reason(err)
 		return p
 	}
 	p.MissingInputs = in.MissingInputs()
 	res, err := opts.Definition.Render(opts.Inputs, in.SuppliedMarkers(), render.ModeCompare)
 	if err != nil {
-		p.Refused = err.Error()
+		p.Refused = render.Reason(err)
 		return p
 	}
 	p.SuppliedSecrets = in.SuppliedSecretFields()

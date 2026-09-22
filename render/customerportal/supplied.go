@@ -1,6 +1,10 @@
 package customerportal
 
-import "github.com/giantswarm/giantswarm-platform-manager/render"
+import (
+	"slices"
+
+	"github.com/giantswarm/giantswarm-platform-manager/render"
+)
 
 // SuppliedSecretFields names the values the person supplies at commit for
 // this input, by field: the GitHub App's id, client id, client secret,
@@ -28,13 +32,7 @@ func (in *Input) SuppliedMarkers() map[string]string {
 // MissingInputs names the required person inputs the document lacks, by
 // field, sorted: each is rendered as its Missing marker. A commit refuses
 // them; a comparison compares every leaf that carries one as not checked.
-func (in *Input) MissingInputs() []string {
-	fields := make([]string, 0, len(in.missing))
-	for _, m := range in.missing {
-		fields = append(fields, m.field)
-	}
-	return fields
-}
+func (in *Input) MissingInputs() []string { return slices.Clone(in.missing) }
 
 // BuiltInDexClientID is empty for every key: the portal's client is an extra
 // static client, declared whole in the dex patch; the definition adds no
