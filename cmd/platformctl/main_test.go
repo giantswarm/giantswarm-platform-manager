@@ -136,14 +136,14 @@ func TestReconcileTargetsThroughTheBridge(t *testing.T) {
 // explicitly by the flag either way.
 func TestSetDryRunContentThroughTheBridge(t *testing.T) {
 	path := "acme/lab-configs/installations/lab/apps/agent-platform/configmap-values.yaml.patch"
-	code, out, errs := bridge(t, "connected", "installation", "reconcile", "lab", "hazel", agentPlatform, "--dry-run")
+	code, out, errs := bridge(t, "connected", installationCmd, "reconcile", "lab", "hazel", agentPlatform, "--dry-run")
 	if code != exitOK {
 		t.Fatalf("exit %d, stderr %q", code, errs)
 	}
 	if !strings.Contains(out, "installations/lab/apps/agent-platform/configmap-values.yaml.patch") || strings.Contains(out, mustertest.FileContent) {
 		t.Fatalf("without --content: got\n%s", out)
 	}
-	code, out, errs = bridge(t, "connected", "installation", "reconcile", "lab", "hazel", agentPlatform, "--dry-run", "--content")
+	code, out, errs = bridge(t, "connected", installationCmd, "reconcile", "lab", "hazel", agentPlatform, "--dry-run", "--content")
 	if code != exitOK {
 		t.Fatalf("exit %d, stderr %q", code, errs)
 	}
@@ -157,8 +157,8 @@ func TestSetDryRunContentThroughTheBridge(t *testing.T) {
 // it never waits for an answer the path drops.
 func TestAnAnswerAboveTheLimitIsAnErrorNotAWait(t *testing.T) {
 	for _, args := range [][]string{
-		{"installation", "reconcile", "lab", mustertest.Oversized, agentPlatform, "--dry-run", "--content"},
-		{"installation", "enable", mustertest.Oversized, agentPlatform, "--dry-run", "--content"},
+		{installationCmd, "reconcile", "lab", mustertest.Oversized, agentPlatform, "--dry-run", "--content"},
+		{installationCmd, "enable", mustertest.Oversized, agentPlatform, "--dry-run", "--content"},
 	} {
 		code, out, errs := bridge(t, "connected", append(args, "--timeout", "20s")...)
 		if code != exitError {
