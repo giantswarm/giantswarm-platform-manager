@@ -291,14 +291,42 @@ func apiURL(u string) string {
 	return u
 }
 
+// AnswerLimit bounds one tool's answer: the bytes of its JSON text, 1 MiB.
+// An answer reaches a person through muster's call_tool, which wraps the
+// text in one more JSON document, and through the gateway in front of
+// muster, which buffers a response whole and drops one above 2 MiB with an
+// error naming neither the size nor the limit; the two encodings add about a
+// seventh to the text. An answer above the limit is refused here instead,
+// with its size, the limit and the way to ask for less.
+const AnswerLimit = 1 << 20
+
 // result renders v as the tool's JSON text, or err as a tool error.
 func result(v any, err error) (*mcp.CallToolResult, error) {
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	return Answer(v), nil
+}
+
+// Answer renders v as the tool's JSON text; an answer above AnswerLimit is
+// the tool's refusal, naming the size and the limit.
+func Answer(v any) *mcp.CallToolResult {
 	b, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
-		return mcp.NewToolResultError("encode result: " + err.Error()), nil
+		return mcp.NewToolResultError("encode result: " + err.Error())
 	}
-	return mcp.NewToolResultText(string(b)), nil
+	if len(b) > AnswerLimit {
+		return mcp.NewToolResultError(fmt.Sprintf("the answer is %d bytes (%s), above the %d bytes (%s) one answer may carry through muster and its gateway: ask for less — a smaller set (%s), one installation (%s), no file content (%s: false)",
+			len(b), size(len(b)), AnswerLimit, size(AnswerLimit), ArgInstallations, ArgInstallation, ArgContent))
+	}
+	return mcp.NewToolResultText(string(b))
+}
+
+// size is n bytes in KiB or MiB, one decimal.
+func size(n int) string {
+	const kib, mib = 1 << 10, 1 << 20
+	if n >= mib {
+		return fmt.Sprintf("%.1f MiB", float64(n)/mib)
+	}
+	return fmt.Sprintf("%.1f KiB", float64(n)/kib)
 }

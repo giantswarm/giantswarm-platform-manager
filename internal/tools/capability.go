@@ -86,11 +86,11 @@ func stringItems() map[string]any { return map[string]any{"type": "string"} }
 func capabilityOptions() []mcp.ToolOption {
 	return []mcp.ToolOption{
 		mcp.WithString(ArgInstallation, mcp.Description("The one installation to render, by name: a capability not on record renders as a fresh enable — which selects the 4 chart line and writes agentPlatform.kagentApiV2 into the record (installations/<name>/config.yaml.patch, one more file of the configs pull request) where the fleet policy grants the organisation a component the 4 line alone carries —, one on record as the changes to it; the answer says why a commit would be refused.")),
-		mcp.WithArray(ArgInstallations, mcp.Description("The set to render; empty with no installation is every installation of the registry. Installations without the capability on record are skipped, listed with the reason: a fresh enable is enable_capability with installation, alone."), mcp.Items(stringItems())),
+		mcp.WithArray(ArgInstallations, mcp.Description("The set to render; empty with no installation is every installation of the registry. A set answers each installation's plan with the comparison rolled up — every dimension with its mark and reason, none of the evidence — and no file content unless content is true; one installation's dry run (installation, alone) carries both. Installations without the capability on record are skipped, listed with the reason: a fresh enable is enable_capability with installation, alone."), mcp.Items(stringItems())),
 		mcp.WithArray(ArgOrder, mcp.Description("The rollout order of the set when the default (Giant Swarm's test installations, the hub, the customers) is not the one wanted: every rendered installation of the set exactly once."), mcp.Items(stringItems())),
 		mcp.WithString(ArgCapability, mcp.Description(capabilityArgDescription), mcp.Enum(installations.CapabilityNames()...)),
 		mcp.WithObject(ArgInputs, mcp.Description(inputsArgDescription)),
-		mcp.WithBoolean(ArgContent, mcp.Description("Include the rendered content of every file (default true); false answers paths and changes only.")),
+		mcp.WithBoolean(ArgContent, mcp.Description("Include the rendered content of every file and the file on record (default: true for one installation, false for a set); false answers paths and changes only. An answer above 1 MiB is refused with its size: ask for less.")),
 		mcp.WithObject(ArgSecrets, mcp.Description("mode commit only: the secret values the plan's suppliedSecrets name, by field. They land inside the encrypted files and nowhere else — not in the Action, not in a log, not in an answer.")),
 	}
 }
@@ -147,10 +147,10 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 		return nil, nil, fmt.Errorf("%s needs %s (one installation) or %s (a set)", tool, ArgInstallation, ArgInstallations)
 	}
 	inputs, _ := args[ArgInputs].(map[string]any)
-	content := true
-	if v, ok := args[ArgContent].(bool); ok {
-		content = v
-	}
+	// One installation named alone is the plan in full; a set — two or more,
+	// the whole registry, one named next to a set — is the wave's shape.
+	whole := one != "" && len(set) == 0
+	content := contentArg(args, whole)
 
 	c, err := t.person(token)
 	if err != nil {
@@ -189,13 +189,22 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 			return nil, nil, err
 		}
 		out.Order = append(out.Order, r.Name)
-		out.Installations = append(out.Installations, dryRun(res))
+		out.Installations = append(out.Installations, dryRun(res, whole))
 	}
 	if err := applyOrder(&out, stringSlice(args[ArgOrder])); err != nil {
 		return nil, nil, fmt.Errorf("%s: %w", tool, err)
 	}
 	out.PullRequests = plan.PullRequests(plans(out.Installations), byName, hub)
 	return &out, env, nil
+}
+
+// contentArg says whether the files' content is answered: as asked, else
+// for one installation's plan and not for a set's.
+func contentArg(args map[string]any, whole bool) bool {
+	if v, ok := args[ArgContent].(bool); ok {
+		return v
+	}
+	return whole
 }
 
 // capabilityArg is the definition named in args, agent-platform by default,

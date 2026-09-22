@@ -46,7 +46,7 @@ func waveStage1(t *testing.T, st *stack) (actions.Action, *client.Client, *fakeI
 	aliceC, carolC := st.mcpClient(t, aliceToken), st.mcpClient(t, carolToken)
 
 	// The dry run: two targets in the wave's order, one skipped.
-	text, isErr := call(t, aliceC, tools.ToolReconcileCapability, waveArgs(map[string]any{tools.ArgDryRun: true}))
+	text, isErr := call(t, aliceC, tools.ToolReconcileCapability, waveArgs(map[string]any{tools.ArgDryRun: true, tools.ArgContent: true}))
 	var dry tools.CapabilityResult
 	if isErr || json.Unmarshal([]byte(text), &dry) != nil || strings.Join(dry.Order, ",") != birch+","+rowan || len(dry.Skipped) != 1 || dry.Skipped[0].Name != alder || dry.Skipped[0].Reason != tools.SkippedNotEnabled {
 		t.Fatalf("dry run: %v %s", isErr, text)

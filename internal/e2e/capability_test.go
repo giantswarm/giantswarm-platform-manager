@@ -400,7 +400,7 @@ func TestDryRunKeepsEachAudienceListsOwnEntries(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	c := st.mcpClient(t, aliceToken)
-	out, text, isErr := dryRun(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInputs: minimalInputs(nil)})
+	out, text, isErr := dryRun(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInputs: minimalInputs(nil), tools.ArgContent: true})
 	if isErr {
 		t.Fatal(text)
 	}
