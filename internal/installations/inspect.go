@@ -7,7 +7,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/google/go-github/v92/github"
 	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
@@ -134,8 +133,9 @@ const (
 )
 
 // inspect reads inst's record and enabled markers as the person, now, every
-// read at once; the client bounds what is in flight.
-func (r *Registry) inspect(ctx context.Context, c *github.Client, inst Installation, caps []Capability, detail Detail) Report {
+// read at once; the client bounds what is in flight. The markers cost no
+// request of their own: they are answered from the repositories' trees.
+func (r *Registry) inspect(ctx context.Context, c *gh.Client, inst Installation, caps []Capability, detail Detail) Report {
 	rep := Report{Installation: inst}
 	if !inst.Repositories.Known() {
 		rep.Errors = append(rep.Errors, "the catalog names no GitOps repositories (links of type CCR and CMC) for this installation; nothing of it can be read")
@@ -239,7 +239,7 @@ type markerRead struct {
 	err     error
 }
 
-func readMarker(ctx context.Context, c *github.Client, inst Installation, cap Capability) markerRead {
+func readMarker(ctx context.Context, c *gh.Client, inst Installation, cap Capability) markerRead {
 	owner, repo, err := gh.SplitRepo(cap.Repository(inst.Repositories))
 	if err != nil {
 		return markerRead{err: err}
@@ -271,7 +271,7 @@ const sharedConfigsRepository, sharedDefaultConfig = "shared-configs", "default/
 
 // readRecord reads the installation's config.yaml.patch into the record, the
 // platform's client id from the shared default where the patch has none.
-func (r *Registry) readRecord(ctx context.Context, c *github.Client, owner, repo string, inst Installation) (*Record, error) {
+func (r *Registry) readRecord(ctx context.Context, c *gh.Client, owner, repo string, inst Installation) (*Record, error) {
 	data, err := gh.ReadFile(ctx, c, owner, repo, ConfigPatchPath(inst.Name))
 	if err != nil {
 		return nil, fmt.Errorf("the facts on record: %w", err)
@@ -318,7 +318,7 @@ type sharedDefault struct {
 }
 
 // clientID is services.muster.clientId of owner's shared default config.
-func (s *sharedDefaults) clientID(ctx context.Context, c *github.Client, owner string) (string, error) {
+func (s *sharedDefaults) clientID(ctx context.Context, c *gh.Client, owner string) (string, error) {
 	s.mu.Lock()
 	if s.byOwner == nil {
 		s.byOwner = map[string]*sharedDefault{}
@@ -345,17 +345,10 @@ func (s *sharedDefaults) clientID(ctx context.Context, c *github.Client, owner s
 	return d.clientID, d.err
 }
 
-// exists says whether path is a file in owner/repo as the person.
-func exists(ctx context.Context, c *github.Client, owner, repo, path string) (bool, error) {
-	_, err := gh.ReadFile(ctx, c, owner, repo, path)
-	switch {
-	case err == nil:
-		return true, nil
-	case errors.Is(err, gh.ErrNotFound):
-		return false, nil
-	default:
-		return false, err
-	}
+// exists says whether path is a file in owner/repo as the person: answered
+// from the repository's tree, no read of the file itself.
+func exists(ctx context.Context, c *gh.Client, owner, repo, path string) (bool, error) {
+	return gh.FileExists(ctx, c, owner, repo, path)
 }
 
 // InspectAll inspects every installation at once — the client bounds the
@@ -363,7 +356,7 @@ func exists(ctx context.Context, c *github.Client, owner, repo, path string) (bo
 // Full, each carries the facts the portals on record derive for it; a portal
 // that cannot be read as the person is an error of every report, since no
 // record is complete without it. With Summary the reports stop at the states.
-func (r *Registry) InspectAll(ctx context.Context, c *github.Client, insts []Installation, caps []Capability, detail Detail) []Report {
+func (r *Registry) InspectAll(ctx context.Context, c *gh.Client, insts []Installation, caps []Capability, detail Detail) []Report {
 	reports := make([]Report, len(insts))
 	var wg sync.WaitGroup
 	for i, inst := range insts {

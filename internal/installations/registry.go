@@ -1,8 +1,10 @@
 // Package installations is the installations registry and what the manager
 // reads about each installation at call time, as the person: the registry
 // entries, the facts on record in the installation's
-// config.yaml.patch and the enabled markers of the capabilities. Nothing here
-// is cached: every answer is what the repositories say now.
+// config.yaml.patch and the enabled markers of the capabilities. Every
+// answer is what the repositories say now: each repository's listing is
+// validated with GitHub as the person once per call, the files come by
+// content (gh.Files).
 package installations
 
 import (
@@ -14,7 +16,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/google/go-github/v92/github"
 	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
@@ -116,7 +117,7 @@ type Registry struct {
 // config is read from the hub's management-clusters repository; a hub the
 // catalog does not know is an error, as is a portal config that cannot be
 // read — the registry is complete or it is not.
-func Load(ctx context.Context, c *github.Client, s Sources) (*Registry, error) {
+func Load(ctx context.Context, c *gh.Client, s Sources) (*Registry, error) {
 	if s.Hub == "" {
 		return nil, errors.New("registry: the hub installation is not configured (--hub / HUB_INSTALLATION)")
 	}

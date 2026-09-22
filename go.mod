@@ -11,6 +11,7 @@ require (
 	github.com/google/go-github/v92 v92.0.0
 	github.com/mark3labs/mcp-go v1.1.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
+	golang.org/x/sync v0.23.0
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/apimachinery v0.37.0
 	k8s.io/client-go v0.37.0
@@ -152,7 +153,6 @@ require (
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
-	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/term v0.46.0 // indirect
 	golang.org/x/text v0.42.0 // indirect

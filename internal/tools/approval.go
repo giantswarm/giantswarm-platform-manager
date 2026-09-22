@@ -269,7 +269,9 @@ func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
 			switch {
 			case err == nil:
 				// The merge commit is not answered here; the next read of
-				// the record fills it in from GitHub.
+				// the record fills it in from GitHub — and reads the
+				// repository's tree again, whoever validated it last.
+				t.d.Files.Invalidate(pr.Repository)
 				status.PullRequests[k].State, status.PullRequests[k].MergedBy, status.PullRequests[k].MergedAt = actions.PullRequestMerged, id.Login, now()
 				res.Merged = append(res.Merged, status.PullRequests[k])
 				continue

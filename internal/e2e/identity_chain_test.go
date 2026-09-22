@@ -22,7 +22,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/giantswarm/gitops-commit/commit"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -31,8 +30,11 @@ import (
 	"k8s.io/client-go/dynamic"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
+	"github.com/giantswarm/gitops-commit/commit"
+
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/approvals"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/live"
@@ -135,8 +137,9 @@ func newStack(t *testing.T) *stack {
 		Actions: actions.New(st.dyn, actionsNamespace),
 		Probes:  st.probes.client(),
 		// Every read follows GitHub: the tests move the remote by hand and
-		// read straight after.
+		// read straight after — the record's picture and the trees alike.
 		ResyncInterval: time.Nanosecond,
+		Files:          gh.NewFiles(0),
 		Remote: func(token string) (commit.Remote, error) {
 			return asRemote{Remote: st.remote, login: logins[token], st: st}, nil
 		},

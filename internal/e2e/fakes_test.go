@@ -2,15 +2,16 @@ package e2e
 
 import (
 	"context"
-	"encoding/base64"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -45,8 +46,13 @@ type fakeGitHub struct {
 	mu        sync.Mutex
 	files     map[string]map[string]string // owner/repo → path → content
 	forbidden map[string]bool
-	// contentsCalls counts the content reads per owner/repo:path.
+	// contentsCalls counts the blob reads per owner/repo:path — the files
+	// the server under test fetched by content, not the ones it answered
+	// from a tree or its cache.
 	contentsCalls map[string]int
+	// treeCalls counts the tree requests per owner/repo GitHub answered with
+	// a listing (200); treeChecks every one, the conditional 304s included.
+	treeCalls, treeChecks map[string]int
 }
 
 // fakePull is a pull request as the fake GitHub answers it.
@@ -64,6 +70,7 @@ type fakePull struct {
 const (
 	message = "message"
 	nameKey = "name"
+	shaKey  = "sha"
 )
 
 // defaultBranch is every fixture repository's default branch.
@@ -79,7 +86,7 @@ const (
 
 func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 	t.Helper()
-	g := &fakeGitHub{logins: logins, files: map[string]map[string]string{}, forbidden: map[string]bool{}, contentsCalls: map[string]int{}}
+	g := &fakeGitHub{logins: logins, files: map[string]map[string]string{}, forbidden: map[string]bool{}, contentsCalls: map[string]int{}, treeCalls: map[string]int{}, treeChecks: map[string]int{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v3/user", func(w http.ResponseWriter, r *http.Request) {
 		g.userCalls.Add(1)
@@ -107,27 +114,70 @@ func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 			writeJSON(w, http.StatusOK, map[string]any{"full_name": repo, "default_branch": defaultBranch})
 		}
 	})
+	// The Contents API is what the manager read files with before it read
+	// trees; a call to it is a regression.
 	mux.HandleFunc("GET /api/v3/repos/{owner}/{repo}/contents/{path...}", func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("the Contents API was called for %s/%s:%s; the manager reads repositories as trees", r.PathValue("owner"), r.PathValue("repo"), r.PathValue("path"))
+		writeJSON(w, http.StatusInternalServerError, map[string]any{message: "the fake serves no Contents API"})
+	})
+	// The tree of owner/repo at a ref — HEAD for every fixture, whose files
+	// are its default branch — with a weak ETag over the listing, answered
+	// 304 to a matching If-None-Match as GitHub does; a repository that is
+	// not a fixture is 404, one in forbidden 403.
+	mux.HandleFunc("GET /api/v3/repos/{owner}/{repo}/git/trees/{ref}", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := g.logins[bearer(r)]; !ok {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{message: badCredentials})
 			return
 		}
 		repo := r.PathValue("owner") + "/" + r.PathValue("repo")
-		p := r.PathValue("path")
 		g.mu.Lock()
 		defer g.mu.Unlock()
-		g.contentsCalls[repo+":"+p]++
+		g.treeChecks[repo]++
 		if g.forbidden[repo] {
 			writeJSON(w, http.StatusForbidden, map[string]any{message: notAccessible})
 			return
 		}
-		content, ok := g.files[repo][p]
+		files, ok := g.files[repo]
 		if !ok {
 			writeJSON(w, http.StatusNotFound, map[string]any{message: notFound})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{typeKey: "file", "encoding": "base64", nameKey: path.Base(p), "path": p,
-			"content": base64.StdEncoding.EncodeToString([]byte(content))})
+		body, etag := treeJSON(files)
+		w.Header().Set("ETag", etag)
+		if r.Header.Get("If-None-Match") == etag {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		g.treeCalls[repo]++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	})
+	// A blob by SHA: the content of every file of owner/repo with that id,
+	// counted against each such path.
+	mux.HandleFunc("GET /api/v3/repos/{owner}/{repo}/git/blobs/{sha}", func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := g.logins[bearer(r)]; !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{message: badCredentials})
+			return
+		}
+		repo := r.PathValue("owner") + "/" + r.PathValue("repo")
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		if g.forbidden[repo] {
+			writeJSON(w, http.StatusForbidden, map[string]any{message: notAccessible})
+			return
+		}
+		var found *string
+		for p, content := range g.files[repo] {
+			if blobSHA(content) == r.PathValue("sha") {
+				g.contentsCalls[repo+":"+p]++
+				found = &content
+			}
+		}
+		if found == nil {
+			writeJSON(w, http.StatusNotFound, map[string]any{message: notFound})
+			return
+		}
+		_, _ = w.Write([]byte(*found))
 	})
 	mux.HandleFunc("GET /api/v3/repos/{owner}/{repo}/pulls/{number}", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := g.logins[bearer(r)]; !ok {
@@ -152,7 +202,7 @@ func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 			writeJSON(w, http.StatusNotFound, map[string]any{message: notFound})
 			return
 		}
-		doc := map[string]any{"number": number, "state": "open", "merged": false, "html_url": p.URL, "head": map[string]any{"sha": p.HeadSHA}}
+		doc := map[string]any{"number": number, "state": "open", "merged": false, "html_url": p.URL, "head": map[string]any{shaKey: p.HeadSHA}}
 		switch {
 		case p.Merged:
 			doc["state"], doc["merged"], doc["merge_commit_sha"] = "closed", true, p.MergeCommit
@@ -231,11 +281,47 @@ func (g *fakeGitHub) has(repo, p string) bool {
 	return ok
 }
 
-// reads is how often owner/repo:path was read.
+// reads is how often owner/repo:path was read by content.
 func (g *fakeGitHub) reads(repo, p string) int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.contentsCalls[repo+":"+p]
+}
+
+// trees is how often owner/repo's tree was answered with a listing, and how
+// often it was asked for at all (the conditional 304s included).
+func (g *fakeGitHub) trees(repo string) (listed, checked int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.treeCalls[repo], g.treeChecks[repo]
+}
+
+// treeJSON is GitHub's recursive tree of files — the blobs and the
+// directories above them — with a weak ETag over the listing.
+func treeJSON(files map[string]string) ([]byte, string) {
+	dirs := map[string]bool{}
+	entries := make([]map[string]any, 0, len(files))
+	for p, content := range files {
+		parts := strings.Split(p, "/")
+		for i := 1; i < len(parts); i++ {
+			dirs[strings.Join(parts[:i], "/")] = true
+		}
+		entries = append(entries, map[string]any{"path": p, "mode": "100644", typeKey: "blob", shaKey: blobSHA(content), "size": len(content)})
+	}
+	for d := range dirs {
+		entries = append(entries, map[string]any{"path": d, "mode": "040000", typeKey: "tree", shaKey: blobSHA(d)})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i]["path"].(string) < entries[j]["path"].(string) })
+	body, _ := json.Marshal(map[string]any{shaKey: blobSHA(fmt.Sprint(entries)), "truncated": false, "tree": entries})
+	sum := sha256.Sum256(body)
+	return body, `W/"` + hex.EncodeToString(sum[:]) + `"`
+}
+
+// blobSHA is the fake's blob id of content: a hash of it, as git's is. The
+// server under test takes the id from the tree and never inspects its form.
+func blobSHA(content string) string {
+	sum := sha256.Sum256([]byte("blob " + strconv.Itoa(len(content)) + "\x00" + content))
+	return hex.EncodeToString(sum[:])
 }
 
 // userID is a login's stable numeric id in the fake.

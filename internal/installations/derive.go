@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/google/go-github/v92/github"
 	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
@@ -160,7 +159,7 @@ func (r *Registry) portalHosts(insts []Installation) []Installation {
 // readPortal reads host's portal app-config as the person, and the chart line
 // from the portal directory's kustomization: the portal, or nil when host has
 // none.
-func (r *Registry) readPortal(ctx context.Context, c *github.Client, host Installation) (*Portal, error) {
+func (r *Registry) readPortal(ctx context.Context, c *gh.Client, host Installation) (*Portal, error) {
 	owner, repo, err := gh.SplitRepo(host.Repositories.ManagementClusters)
 	if err != nil {
 		return nil, err
@@ -273,7 +272,7 @@ func portalChartLine(data string) (string, error) {
 // chart resolves from the portal's encrypted user-secrets, so the patch is the
 // id's one plaintext place on record. Empty when host has no configs
 // repository or no patch, or the patch carries no such client.
-func portalClientID(ctx context.Context, c *github.Client, host Installation, domain string) (string, error) {
+func portalClientID(ctx context.Context, c *gh.Client, host Installation, domain string) (string, error) {
 	if host.Repositories.Configs == "" {
 		return "", nil
 	}
@@ -342,7 +341,7 @@ func tunnelled(portals []Portal, name string) bool {
 // in failed: a customer's portal lists that customer's installations only, so
 // their records are the incomplete ones; the hub's portal fails every record
 // (key "").
-func (r *Registry) Portals(ctx context.Context, c *github.Client, insts []Installation) (portals []Portal, failed map[string]error) {
+func (r *Registry) Portals(ctx context.Context, c *gh.Client, insts []Installation) (portals []Portal, failed map[string]error) {
 	hosts := r.portalHosts(insts)
 	found := make([]*Portal, len(hosts))
 	errs := make([]error, len(hosts))
@@ -375,7 +374,7 @@ func (r *Registry) Portals(ctx context.Context, c *github.Client, insts []Instal
 // its patch. What cannot be read is
 // an error of the report: the record is then incomplete and the installation
 // is not planned.
-func (r *Registry) derive(ctx context.Context, c *github.Client, reports []Report, portals []Portal) {
+func (r *Registry) derive(ctx context.Context, c *gh.Client, reports []Report, portals []Portal) {
 	byName := map[string]*Report{}
 	for i := range reports {
 		byName[reports[i].Name] = &reports[i]
@@ -586,7 +585,7 @@ func (r *Report) fail(msg string) {
 // record's, read where the target was not inspected), whether it is reached
 // through the tunnel, whether the hub's portal proxies its agent platform and
 // the hubs of the hub's organisation that broker into it (organisationHubs).
-func (r *Registry) target(ctx context.Context, c *github.Client, name string, inspected *Report, private, proxied bool, hubs []string) (FederatedTarget, error) {
+func (r *Registry) target(ctx context.Context, c *gh.Client, name string, inspected *Report, private, proxied bool, hubs []string) (FederatedTarget, error) {
 	inst, ok := r.Find(name)
 	if !ok {
 		return FederatedTarget{}, errors.New("not in the registry")
@@ -622,7 +621,7 @@ func proxied(portals []Portal, hub, name string) bool {
 // brokerClientID reads a hub's broker client id back from its patch: the one
 // client under muster.muster.oauth.server.tokenExchangeBroker.brokerClients.
 // Empty when the hub carries no patch or no broker yet.
-func brokerClientID(ctx context.Context, c *github.Client, hub Report) (string, error) {
+func brokerClientID(ctx context.Context, c *gh.Client, hub Report) (string, error) {
 	owner, repo, err := gh.SplitRepo(hub.Repositories.Configs)
 	if err != nil {
 		return "", err

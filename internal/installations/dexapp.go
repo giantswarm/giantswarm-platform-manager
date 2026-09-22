@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
-	"github.com/google/go-github/v92/github"
 	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
@@ -46,7 +45,7 @@ func (v DexAppVersion) Source() string { return v.Repository + ":" + v.Path }
 type refReader func(ctx context.Context, repository, path, ref string) (string, error)
 
 // readAt reads through the person's GitHub client.
-func readAt(c *github.Client) refReader {
+func readAt(c *gh.Client) refReader {
 	return func(ctx context.Context, repository, path, ref string) (string, error) {
 		owner, repo, err := gh.SplitRepo(repository)
 		if err != nil {

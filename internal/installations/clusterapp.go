@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/google/go-github/v92/github"
 	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
@@ -60,7 +59,7 @@ func ReleasePath(chart, version string) (string, bool) {
 
 // readAs reads a repository's file on its default branch as the person c
 // acts as.
-func readAs(c *github.Client) Reader {
+func readAs(c *gh.Client) Reader {
 	return func(ctx context.Context, repository, path string) (string, error) {
 		owner, repo, err := gh.SplitRepo(repository)
 		if err != nil {

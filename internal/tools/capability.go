@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/google/go-github/v92/github"
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
@@ -48,7 +47,7 @@ type CapabilityResult struct {
 // planned is what the render leaves behind for the commit: the caller's
 // client, the hub, the reports and the effective inputs per installation.
 type planned struct {
-	c       *github.Client
+	c       *gh.Client
 	hub     installations.Installation
 	byName  map[string]installations.Installation
 	reports map[string]installations.Report
@@ -153,7 +152,7 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 		content = v
 	}
 
-	c, err := gh.AsPerson(t.d.GitHubAPIURL, token)
+	c, err := t.person(token)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -215,7 +214,7 @@ func capabilityArg(args map[string]any) (installations.Capability, error) {
 }
 
 // readAs reads a repository file as the caller c stands for.
-func readAs(c *github.Client) plan.Reader {
+func readAs(c *gh.Client) plan.Reader {
 	return func(ctx context.Context, repository, path string) (string, error) {
 		owner, repo, err := gh.SplitRepo(repository)
 		if err != nil {
@@ -227,7 +226,7 @@ func readAs(c *github.Client) plan.Reader {
 
 // registry loads the registry as the caller, naming the App requirement on a
 // refusal.
-func (t *Tools) registry(ctx context.Context, c *github.Client) (*installations.Registry, error) {
+func (t *Tools) registry(ctx context.Context, c *gh.Client) (*installations.Registry, error) {
 	reg, err := installations.Load(ctx, c, t.d.Registry)
 	if err != nil && (errors.Is(err, gh.ErrNotFound) || errors.Is(err, gh.ErrForbidden)) {
 		err = fmt.Errorf("%w — the registry is read as you through the App %s: the App must be installed on the repository (contents: read) and you must be able to read it", err, ToolPrefix)

@@ -373,8 +373,10 @@ func TestListInstallationsStates(t *testing.T) {
 	}
 }
 
-// The markers are read at call time, never cached: a fileset that lands
-// between two calls changes the answer.
+// The markers follow the repositories at call time: a fileset that lands
+// between two calls changes the answer. Each call validates the repository's
+// tree with GitHub — a listing when it changed — and reads no marker by
+// content: its presence in the tree is the answer.
 func TestListInstallationsReadsTheMarkersEveryCall(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
@@ -389,8 +391,42 @@ func TestListInstallationsReadsTheMarkersEveryCall(t *testing.T) {
 	if a := find(t, out, alder).Capabilities[0]; a.State != installations.StateEnabled || !a.Enabled {
 		t.Fatal("the fileset that landed was not read")
 	}
-	if n := st.ghs.reads(acmeConfigs, marker); n != 2 {
-		t.Fatalf("the marker was read %d times for two calls", n)
+	if n := st.ghs.reads(acmeConfigs, marker); n != 0 {
+		t.Fatalf("the marker was read by content %d times; its presence in the tree is the answer", n)
+	}
+	if listed, checked := st.ghs.trees(acmeConfigs); listed != 2 || checked != 2 {
+		t.Fatalf("the repository's tree was listed %d times and checked %d times for two calls around a change", listed, checked)
+	}
+}
+
+// A call after one that changed nothing validates every repository's tree
+// with a conditional request GitHub answers 304 — no quota — and reads no
+// file by content again: the second full list costs the person nothing.
+func TestListInstallationsCostsNothingWhenNothingChanged(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	out, text, isErr := listInstallations(t, c, nil)
+	if isErr || len(out.Installations) != 8 {
+		t.Fatalf("first: %s", text)
+	}
+	record := installations.ConfigPatchPath(alder)
+	if n := st.ghs.reads(acmeConfigs, record); n != 1 {
+		t.Fatalf("alder's record was read by content %d times in the first call", n)
+	}
+	listed, checked := st.ghs.trees(acmeConfigs)
+	if listed != 1 || checked != 1 {
+		t.Fatalf("first call: acme's configs tree listed %d, checked %d", listed, checked)
+	}
+	out, text, isErr = listInstallations(t, c, nil)
+	if isErr || len(out.Installations) != 8 || find(t, out, alder).Record == nil {
+		t.Fatalf("second: %s", text)
+	}
+	if n := st.ghs.reads(acmeConfigs, record); n != 1 {
+		t.Fatalf("alder's record was read by content again: %d times", n)
+	}
+	if listed, checked = st.ghs.trees(acmeConfigs); listed != 1 || checked != 2 {
+		t.Fatalf("second call: acme's configs tree listed %d, checked %d; the check is a 304", listed, checked)
 	}
 }
 
@@ -425,8 +461,11 @@ func TestListInstallationsSummary(t *testing.T) {
 			t.Errorf("summary read %s:%s %d times", read.repo, read.path, n)
 		}
 	}
-	if n := st.ghs.reads(acmeConfigs, installations.Capabilities()[0].EnabledMarker(birch)); n != 1 {
-		t.Errorf("the marker was read %d times", n)
+	if n := st.ghs.reads(acmeConfigs, installations.Capabilities()[0].EnabledMarker(birch)); n != 0 {
+		t.Errorf("the marker was read by content %d times", n)
+	}
+	if listed, _ := st.ghs.trees(acmeConfigs); listed != 1 {
+		t.Errorf("acme's configs tree was listed %d times", listed)
 	}
 	// The default answer is the full one.
 	out, text, isErr = listInstallations(t, st.mcpClient(t, aliceToken), nil)
