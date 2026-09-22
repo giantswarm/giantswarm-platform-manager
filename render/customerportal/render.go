@@ -235,11 +235,12 @@ func generated(name string, kind render.GeneratedKind, length int) render.Genera
 // installations' names (the chart exposes them as AUTH_DEX_<NAME>_CLIENT_ID
 // and _CLIENT_SECRET: the portal's own generated; another installation's the
 // portal has a provider for, and the token broker's, supplied), the
-// telemetry salt, with sentry on the DSNs and, with the Grafana plugin
-// wired, the Grafana token (grafana.apiToken, the chart's GRAFANA_TOKEN).
-// The Dex clients' leaves and the Grafana token are base64 (the chart copies
-// them under its Secret's data as they are); the portal's own client secret
-// is the generated value the Dex client's Secret carries raw, at its encoded
+// telemetry salt, with sentry on the DSNs and the report URI and, with the
+// Grafana plugin wired, the Grafana token (grafana.apiToken, the chart's
+// GRAFANA_TOKEN). The Dex clients' leaves (dexCredentials), the sentry leaves
+// and the Grafana token are base64 (base64Leaf: the chart copies them under
+// its Secret's data: as they are); the portal's own client secret is the
+// generated value the Dex client's Secret carries raw, at its encoded
 // placeholder.
 func (in *Input) userSecrets(secrets map[string]string) render.File {
 	session := generated(generatedSessionSecret, render.Base64, 32)
@@ -263,9 +264,9 @@ func (in *Input) userSecrets(secrets map[string]string) render.File {
 	}
 	if in.Plugins.Sentry.Enabled {
 		values = append(values, e("sentry", render.Map{
-			e("app", render.Map{e("dsn", secrets[fieldSentryAppDSN])}),
-			e("backend", render.Map{e("dsn", secrets[fieldSentryBackendDSN])}),
-			e("reportURI", secrets[fieldSentryReportURI]),
+			e("app", render.Map{e("dsn", base64Leaf(secrets[fieldSentryAppDSN]))}),
+			e("backend", render.Map{e("dsn", base64Leaf(secrets[fieldSentryBackendDSN]))}),
+			e("reportURI", base64Leaf(secrets[fieldSentryReportURI])),
 		}))
 	}
 	if in.Plugins.Grafana.Enabled {
@@ -284,8 +285,9 @@ func dexCredentials(clientID, clientSecret string) render.Map {
 	return render.Map{e("clientID", base64Leaf(clientID)), e("clientSecret", base64Leaf(clientSecret))}
 }
 
-// base64Leaf is value as a leaf its consumer decodes: a marker stays a
-// marker, everything else is its standard base64.
+// base64Leaf is value as a leaf its consumer decodes — the backstage chart
+// copies it under its Secret's data: as it is: a marker stays a marker,
+// everything else is its standard base64.
 func base64Leaf(value string) string {
 	if render.IsMarker(value) {
 		return value

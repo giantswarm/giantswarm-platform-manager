@@ -68,12 +68,13 @@ is `<name>`. A path covers every key beneath it.
   reads back from the proxy entry's presence. The host is a registry input (`plugins.grafana.domain`), derived
   from the base domain and never typed; its read-back shows the Grafana a portal names on record next to the
   installation's, and a portal that names another one is off the definition at the host.
-- The `dexAuthCredentials` leaves of `user-secrets-backstage` are base64: the chart copies each entry's
-  `clientID` and `clientSecret` under its Secret's `data:` as they are and the pod loads that Secret with
-  `envFrom`, so the values have to be the base64 of the id and of the secret. The portal's own entry carries
-  the base64 of `backstage` and of the generated client secret (the Dex client's Secret carries the same
-  secret raw); a federated installation's and the broker's credentials are supplied raw and encoded by the
-  render.
+- The `dexAuthCredentials` leaves, the `sentry` leaves and the Grafana token of `user-secrets-backstage` are
+  base64: the chart copies each entry's `clientID` and `clientSecret`, the three sentry values (`app.dsn`,
+  `backend.dsn`, `reportURI`) and `grafana.apiToken` under its Secret's `data:` as they are and the pod loads
+  that Secret with `envFrom`, so the values have to be the base64 of the id, of the secret, of the DSN, of the
+  URI and of the token. The portal's own entry carries the base64 of `backstage` and of the generated client
+  secret (the Dex client's Secret carries the same secret raw); a federated installation's and the broker's
+  credentials, the Sentry values and the Grafana token are supplied raw and encoded by the render.
 - The portal's agent-platform section is the agent-platform definition's: its fragment, values and Google
   credentials are files of its own Component next to the portal's, listed by this definition's kustomization
   and never written into the portal's files. The portal includes the shared extensions list; the Component's

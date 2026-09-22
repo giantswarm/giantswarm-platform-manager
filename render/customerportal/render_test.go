@@ -860,6 +860,91 @@ func TestDexAuthCredentialsAreBase64ForTheChart(t *testing.T) {
 	}
 }
 
+// TestSentryLeavesAreBase64ForTheChart holds the sentry leaves of
+// user-secrets-backstage to what the backstage chart reads: it copies
+// sentry.app.dsn, sentry.backend.dsn and sentry.reportURI under its Secret's
+// data: as they are and the pod loads that Secret with envFrom, so with sentry
+// on each leaf is the base64 of the value the person supplied, a dry run's
+// marker stays a marker, and with sentry off the values carry no sentry key.
+func TestSentryLeavesAreBase64ForTheChart(t *testing.T) {
+	type sentryValues struct {
+		Sentry *struct {
+			App struct {
+				DSN string `yaml:"dsn"`
+			} `yaml:"app"`
+			Backend struct {
+				DSN string `yaml:"dsn"`
+			} `yaml:"backend"`
+			ReportURI string `yaml:"reportURI"`
+		} `yaml:"sentry"`
+	}
+	leaves := func(t *testing.T, input map[string]any, secrets map[string]string, mode render.Mode) *sentryValues {
+		t.Helper()
+		result, err := Render(input, secrets, mode)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var values sentryValues
+		if err := yaml.Unmarshal([]byte(stringData(t, fileNamed(t, result, userSecretsFile), "values")), &values); err != nil {
+			t.Fatal(err)
+		}
+		return &values
+	}
+	for _, shape := range shapes {
+		t.Run(shape, func(t *testing.T) {
+			input, secrets := loadInput(t, shape)
+			enabled, _ := input["plugins"].(map[string]any)["sentry"].(map[string]any)[enabledKey].(bool)
+			values := leaves(t, input, secrets, render.ModeCommit)
+			if !enabled {
+				if values.Sentry != nil {
+					t.Fatalf("sentry is off but user-secrets carry sentry values: %+v", *values.Sentry)
+				}
+				return
+			}
+			if values.Sentry == nil {
+				t.Fatal("sentry is on but user-secrets carry no sentry values")
+			}
+			for _, leaf := range []struct{ name, got, field string }{
+				{"sentry.app.dsn", values.Sentry.App.DSN, fieldSentryAppDSN},
+				{"sentry.backend.dsn", values.Sentry.Backend.DSN, fieldSentryBackendDSN},
+				{"sentry.reportURI", values.Sentry.ReportURI, fieldSentryReportURI},
+			} {
+				if got := decodeBase64(t, leaf.got); got != secrets[leaf.field] {
+					t.Errorf("%s decodes to %q, want the supplied %s %q", leaf.name, got, leaf.field, secrets[leaf.field])
+				}
+			}
+			in, err := Parse(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			markers := leaves(t, input, in.SuppliedMarkers(), render.ModeCompare)
+			for _, leaf := range []struct{ name, got, field string }{
+				{"sentry.app.dsn", markers.Sentry.App.DSN, fieldSentryAppDSN},
+				{"sentry.backend.dsn", markers.Sentry.Backend.DSN, fieldSentryBackendDSN},
+				{"sentry.reportURI", markers.Sentry.ReportURI, fieldSentryReportURI},
+			} {
+				if leaf.got != Supplied(leaf.field) {
+					t.Errorf("a dry run's %s is %q, want the marker %q", leaf.name, leaf.got, Supplied(leaf.field))
+				}
+			}
+		})
+	}
+}
+
+// fileNamed is the one rendered file whose base name is name.
+func fileNamed(t *testing.T, result *render.Result, name string) render.File {
+	t.Helper()
+	for _, files := range result.Files {
+		for path, f := range files {
+			if filepath.Base(path) == name {
+				return f
+			}
+		}
+	}
+	t.Fatalf("no rendered file is named %s", name)
+	return render.File{}
+}
+
 // stringData is the value of key under the stringData of the Secret f renders.
 func stringData(t *testing.T, f render.File, key string) string {
 	t.Helper()

@@ -164,7 +164,7 @@
         },
         "sentry": {
           "type": "object",
-          "description": "Error reporting to Sentry. The DSNs of the app and the backend and the CSP report URI are supplied at commit (plugins.sentry.appDsn, backendDsn, reportUri) and land in user-secrets-backstage.",
+          "description": "Error reporting to Sentry. The DSNs of the app and the backend and the CSP report URI are supplied at commit as they are (plugins.sentry.appDsn, backendDsn, reportUri: the DSN and the URI, never their base64) and land in user-secrets-backstage as their base64: the backstage chart copies sentry.app.dsn, sentry.backend.dsn and sentry.reportURI under its Secret's data: as they are and the pod loads that Secret with envFrom, so the render encodes them.",
           "additionalProperties": false,
           "required": ["enabled"],
           "properties": {
