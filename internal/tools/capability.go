@@ -61,15 +61,14 @@ const commitNext = `mode "commit" with installation (one installation) opens the
 
 // Skipped is an installation of the set the dry run did not render, and why.
 type Skipped struct {
-	Name   string               `json:"name"`
-	Reason string               `json:"reason"`
-	OptIn  *installations.OptIn `json:"optIn,omitempty"`
-	Errors []string             `json:"errors,omitempty"`
+	Name   string   `json:"name"`
+	Reason string   `json:"reason"`
+	Errors []string `json:"errors,omitempty"`
 }
 
 // The reasons an installation of a set is skipped.
 const (
-	SkippedNotOptedIn     = "not opted in"
+	SkippedNotEnabled     = "not enabled"
 	SkippedUnreadable     = "unreadable"
 	SkippedNoRepositories = "no repositories on record"
 )
@@ -87,8 +86,8 @@ func stringItems() map[string]any { return map[string]any{"type": "string"} }
 
 func capabilityOptions() []mcp.ToolOption {
 	return []mcp.ToolOption{
-		mcp.WithString(ArgInstallation, mcp.Description("The one installation to render, by name. Rendered whether or not it is opted in; the answer names the opt-in state and why a commit would be refused.")),
-		mcp.WithArray(ArgInstallations, mcp.Description("The set to render; empty with no installation is every installation of the registry. Installations not opted in are skipped, listed with the reason."), mcp.Items(stringItems())),
+		mcp.WithString(ArgInstallation, mcp.Description("The one installation to render, by name: a capability not on record renders as a fresh enable, one on record as the changes to it; the answer says why a commit would be refused.")),
+		mcp.WithArray(ArgInstallations, mcp.Description("The set to render; empty with no installation is every installation of the registry. Installations without the capability on record are skipped, listed with the reason: a fresh enable is enable_capability with installation, alone."), mcp.Items(stringItems())),
 		mcp.WithArray(ArgOrder, mcp.Description("The rollout order of the set when the default (Giant Swarm's test installations, the hub, the customers) is not the one wanted: every rendered installation of the set exactly once."), mcp.Items(stringItems())),
 		mcp.WithString(ArgCapability, mcp.Description(capabilityArgDescription), mcp.Enum(installations.CapabilityNames()...)),
 		mcp.WithObject(ArgInputs, mcp.Description(inputsArgDescription)),
@@ -111,7 +110,7 @@ func (t *Tools) enableCapabilityTool() WriteTool {
 
 func (t *Tools) reconcileCapabilityTool() WriteTool {
 	return WriteTool{Name: ToolReconcileCapability,
-		Description: "Reconcile a platform capability over a set of installations (empty: every one of the registry): the same plan as enable_capability per installation, every file compared with the repository as it is. A plan whose files are all unchanged is the definition matching the installation. Installations not opted in are skipped and listed.",
+		Description: "Reconcile a platform capability over a set of installations (empty: every one of the registry): the same plan as enable_capability per installation, every file compared with the repository as it is. A plan whose files are all unchanged is the definition matching the installation. Installations without the capability on record are skipped and listed: a wave reconciles what is on record, a fresh enable is enable_capability alone.",
 		Options:     capabilityOptions(),
 		DryRun: func(ctx context.Context, args map[string]any) (any, error) {
 			return t.capabilityDryRun(ctx, ToolReconcileCapability, args)
@@ -182,7 +181,7 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 	env := &planned{c: c, hub: hub, byName: byName, reports: map[string]installations.Report{}, inputs: map[string]map[string]any{}}
 	for _, r := range waveOrder(reports, hub) {
 		env.reports[r.Name] = r
-		if skip, ok := skipped(r, r.Name == one); ok {
+		if skip, ok := skipped(r, def.Name, r.Name == one); ok {
 			out.Skipped = append(out.Skipped, skip)
 			continue
 		}
@@ -237,16 +236,17 @@ func (t *Tools) registry(ctx context.Context, c *github.Client) (*installations.
 }
 
 // skipped says whether r is left out of the set: an installation named as
-// the one installation never is; otherwise one not opted in, unreadable or
-// without repositories is, with the reason.
-func skipped(r installations.Report, named bool) (Skipped, bool) {
+// the one installation never is; otherwise one unreadable, without
+// repositories or without the capability on record is, with the reason — a
+// wave reconciles what is on record and never enables.
+func skipped(r installations.Report, capability string, named bool) (Skipped, bool) {
 	switch {
 	case !r.Repositories.Known():
 		return Skipped{Name: r.Name, Reason: SkippedNoRepositories, Errors: r.Errors}, true
 	case !r.Readable || r.Record == nil:
-		return Skipped{Name: r.Name, Reason: SkippedUnreadable, OptIn: r.OptIn, Errors: r.Errors}, true
-	case !named && r.OptIn.State != installations.OptedIn:
-		return Skipped{Name: r.Name, Reason: SkippedNotOptedIn, OptIn: r.OptIn}, true
+		return Skipped{Name: r.Name, Reason: SkippedUnreadable, Errors: r.Errors}, true
+	case !named && !capabilityState(r, capability).OnRecord():
+		return Skipped{Name: r.Name, Reason: SkippedNotEnabled}, true
 	}
 	return Skipped{}, false
 }

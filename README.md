@@ -40,9 +40,9 @@ Behind muster the tools appear as `x_giantswarm-platform-manager_<tool>`.
 | Tool | Kind | What it does |
 |---|---|---|
 | `get_info` | read | The version, the caller (login and id), the pinned authorization server, the capability definitions with their input schemas, the write modes, the write tools, the approval channel configuration and the tools still to come. Call first. |
-| `list_installations` | read | Every installation of the registry with, per capability, its state, the inputs on record and the last action; the opt-in declaration read at call time. `installations` (names) and `customer` narrow the answer; `summary: true` answers the states and the last actions alone, without the record, the portals and the federation facts — the overview's call. Every read of a call runs at once, 32 in flight at most. |
-| `enable_capability` | write | Enable a capability on one installation (`installation`) or a set (`installations`): with `dryRun: true` the plan — files per repository with the change each one is against the repository now, pull requests in dependency order, generated secrets by name, Dex clients and redirect URIs, the secrets the person supplies at commit (by field), customer actions, probes. `inputs` are the definition's typed inputs over the facts on record. With `mode: "commit"` and one `installation`: the opt-in gate, the Action in *pending approval*, the pull requests as the person (see [The commit](#the-commit)); `secrets` carries the supplied values by field. |
-| `reconcile_capability` | write | The same render over a set (empty: every installation of the registry), every file compared with the repository: all *unchanged* is an empty diff. Installations not opted in are listed as *skipped*. |
+| `list_installations` | read | Every installation of the registry with, per capability, its state, the inputs on record and the last action, every read as you at call time. `installations` (names) and `customer` narrow the answer; `summary: true` answers the states and the last actions alone, without the record, the portals and the federation facts — the overview's call. Every read of a call runs at once, 32 in flight at most. |
+| `enable_capability` | write | Enable a capability on one installation (`installation`) or a set (`installations`): with `dryRun: true` the plan — files per repository with the change each one is against the repository now, pull requests in dependency order, generated secrets by name, Dex clients and redirect URIs, the secrets the person supplies at commit (by field), customer actions, probes. `inputs` are the definition's typed inputs over the facts on record. With `mode: "commit"` and one `installation`: the gate, the Action in *pending approval*, the pull requests as the person (see [The commit](#the-commit)); `secrets` carries the supplied values by field. |
+| `reconcile_capability` | write | The same render over a set (empty: every installation of the registry), every file compared with the repository: all *unchanged* is an empty diff. Installations without the capability on record are listed as *skipped*: a wave reconciles what is on record; a fresh enable is `enable_capability` with one installation. |
 | `get_action`, `list_actions` | read | The Action records on the hub: one per enablement or reconcile a person commits — actor, installations, capability, inputs, pull requests, approval, rollout, probes, result. The record follows GitHub on every read, as you (at most once a minute per action): a pull request merged outside `merge_action` is recorded *merged* with its commit, time and `mergedBy`, and the action rolls out as after the merge; one closed unmerged fails it; a fileset gone from the default branch again moves it to *removed*, naming the objects left on the installation. See [The Action record](#the-action-record). |
 | `verify_capability` | read | One installation against a capability's definition, grouped into the definition's features with one mark each — *as defined*, *planned*, *differs by input*, *drifted* — and expanded to its dimensions: the owning repositories' files, read as the person, against the render from the inputs on record (every difference names the file, the path and the input that drives it, the planned change it is — a key the capability's `removals.yaml` names — or drift), and the definition's anonymous HTTP probes. The live dimensions read *not checked* here: they are `verify_installation`'s. |
 | `verify_installation` | read, **live registration** | The same installation's running objects against the definition's probes — HelmReleases Ready, workloads Available, Secrets and MCPServer objects present, conditions, logs, the live values against the render — read through muster's kubernetes tools **as the person**, with the ID token muster forwards to the second registration `giantswarm-platform-manager-live` (`muster.liveServer`). What the person may read decides what is checked: an object they may not read is *not checked, forbidden for them*, an installation they are not connected to answers with muster's own sign-in. The result is recorded on the installation's newest action and feeds `list_installations`: *drifted*, or *waiting for the customer* when the only red dimension is the one the customer's action holds up. A portal or `platformctl` shows the two verifies as one result. |
@@ -53,11 +53,10 @@ Behind muster the tools appear as `x_giantswarm-platform-manager_<tool>`.
 `mode: "commit"` of the two write tools takes **one** `installation` (a set is the dry run's) and runs, in
 this order, writing nothing before the gate:
 
-1. **The opt-in gate** — the one condition the manager checks itself: `management-clusters/<name>/platform-manager.yaml`
-   in the installation's management-clusters repository, read as the person at call time, never cached. Absent,
-   `optIn: false` or unreadable refuses the commit naming the installation and the file, and records the refusal
-   as an Action in state *refused* (the installation's state read from its repositories stands). A withdrawn
-   opt-in stops the next action.
+1. **The gate** — the installation is on record readably as the person: its repositories known to the registry
+   and readable as you, read at call time. Otherwise the commit is refused naming the installation and the
+   reason, and the refusal is recorded as an Action in state *refused* (the installation's state read from its
+   repositories stands).
 2. **The plan**, as the dry run renders it; a definition's refusal, a file that could not be compared as the
    person, a generated value frozen where no rotation is possible (below), or a supplied secret left out of
    `secrets` (or one the plan does not ask for) refuses the commit before any write. Every file on record
@@ -108,7 +107,7 @@ name, a required choice left out (`kagent.enabled`, `portal.enabled`, `toolAcces
 `federation.targets`/`hubs`) refuses naming it — nothing is chosen for the person. A refusal is the
 installation's answer in the plan, not a tool error, so a set still answers for the others.
 
-The plan per installation: its state and opt-in, the effective inputs, the files with their repository
+The plan per installation: its state, the effective inputs, the files with their repository
 (the registry's, not the definition's `giantswarm/<customer>-…` names), path, rendered content and change
 (*create*, *update*, *unchanged*, *unknown* when the current file could not be read as the person), the
 shared-kustomization includes, the generated secrets by name, kind and length — with `frozenIn`, the files
@@ -121,9 +120,10 @@ definition references and never renders) and the probes (the definition's live d
 the pull requests, one per repository in dependency order — an installation's configs before its
 management-clusters, the hub's pair after, `teleport-fleet` last — with the files, changes and generated
 secrets each carries; the wave's `order` (Giant Swarm's own test installations, the hub, then the
-customers' installations); and `skipped` with the reason (*not opted in*, *unreadable*, *no repositories on
-record*). An installation named as `installation` is rendered whether or not it is opted in, with
-`commitRefused` saying why a commit would be refused and how its owners opt in. `order` names another
+customers' installations); and `skipped` with the reason (*not enabled*, *unreadable*, *no repositories on
+record*): a wave reconciles what is on record and never enables. An installation named as `installation` is
+rendered whether or not its fileset is on record — a fresh enable, or the changes to it — with `commitRefused`
+saying why a commit would be refused. `order` names another
 rollout order for the set (every rendered installation exactly once).
 
 `reconcile_capability` with `mode: "commit"` over a set is **one wave**: one Action, one review listing the
@@ -149,7 +149,7 @@ and `list_actions` read it; `mode: "commit"` creates it and moves its state;
 unfinished or failed action's state stands over the state read from the files.
 
 The states: *pending approval*, *rolling out*, *waiting for the customer*, *enabled*, *drifted* and *failed*
-are the installation's states an action produces; *refused* (the opt-in gate refused it before any write),
+are the installation's states an action produces; *refused* (the gate refused it before any write),
 *denied* (a member withdrew it) and *removed* (below) are the action's own, and the installation's state
 read from its repositories stands. A pull request is *open*, *merged* (with `mergeCommit`, `mergedAt` and
 `mergedBy`) or *closed*.
@@ -212,8 +212,6 @@ steps in with a token of its own.
 
 Per installation the manager then reads, as the caller:
 
-- the **opt-in declaration** `management-clusters/<name>/platform-manager.yaml` in its
-  management-clusters repository (below);
 - the **facts on record** in `installations/<name>/config.yaml.patch` of its configs repository —
   the meta chart line (`agentPlatform.kagentApiV2` selects `4`), `services.muster.clientId` — which,
   with the registry's name, base domain, customer and provider, the cluster App on record in
@@ -227,42 +225,13 @@ Per installation the manager then reads, as the caller:
   for `customer-portal`, the portal's `management-clusters/<name>/extras/backstage/backstage/app-config.yaml`
   in its management-clusters repository.
 
-Per capability the answer carries two facts — `enabled`: the marker is on record, whoever put it
-there; `optedIn`: the owners have declared the opt-in, the manager may write — and their state as one
-word: *not opted in* (neither), *enabled, not opted in* (marker present, no declaration or `optIn:
-false`: the owners enabled the capability themselves, before the manager existed or beside it, and
-the manager may not write to it until they opt in), *not enabled* (opted in, marker absent) or
-*enabled* (opted in, marker present). *Pending approval*, *rolling out*, *waiting for the customer*,
+Per capability the answer carries `enabled` — the marker is on record, whoever put it there: the
+manager, or the installation's people by hand before the manager existed — and the state as one word:
+*not enabled* (marker absent) or *enabled* (marker present). *Pending approval*, *rolling out*, *waiting for the customer*,
 *drifted* and *failed* come from the Action record and the last verify once those exist; the answer's
 `states` block separates the two groups. A *removed* action lets the files' state stand: *not
 enabled*, with `lastAction.result: removed`. An installation whose repositories the caller cannot
 read is *unknown* and listed under `unreadable`, with the reason.
-
-### The opt-in declaration
-
-The installation's owners' standing consent that the manager may open pull requests for the
-installation's platform capabilities. It is landed by the owners' own pull request in the
-installation's management-clusters repository — never by this manager, which would be consenting
-on their behalf — at `management-clusters/<name>/platform-manager.yaml`, read at call time and
-never cached. Absent or `optIn: false`, the installation is *not opted in* and every answer names
-the file's path and the pull request that would add it. The file is not in the directory's
-`kustomization.yaml`: Flux never applies it.
-
-```json
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "platform-manager.yaml — an installation's opt-in for giantswarm-platform-manager",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["optIn"],
-  "properties": {
-    "optIn": {
-      "type": "boolean",
-      "description": "true: the manager may open pull requests for this installation's platform capabilities, as the person calling it. false or absent: every tool is read-only for the installation."
-    }
-  }
-}
-```
 
 ## Configuration
 
@@ -324,7 +293,7 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
   identity chain (no bearer is a bare 401, a refused bearer is `invalid_token`, `get_info` names the
   person, the bearer is verified once per token, the framework refuses `mode: apply`) and
   `list_installations` over an invented registry — an installation in each state the repositories
-  can show, one whose repositories the caller may not read, one the portal alone knows, the opt-in
+  can show, one whose repositories the caller may not read, one the portal alone knows, the markers
   read on every call, the filters, a registry the caller cannot read, a call without a caller.
 - `make scenario-test` — the muster half in muster's own scenario harness (`tests/scenarios`, needs
   the `muster` binary on `PATH`): a mock authorization server standing in for GitHub as the App, the

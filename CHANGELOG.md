@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- The installation opt-in. The manager read `management-clusters/<name>/platform-manager.yaml` with `optIn: true` from the installation's management-clusters repository as the owners' standing consent and refused every commit without it — a fresh enable included — so no capability could be enabled or aligned from the Dev Portal on any installation until a person had landed the file for it, and the Enable and Apply changes buttons were disabled everywhere naming the file. The declaration recorded a consent nobody gives: Bumblebee owns the agent platform and the customer portal on every installation, every write is a pull request a person opened under the repository's review rules with one approval per action, and nothing runs unattended. Gone with it: the states *not opted in* and *enabled, not opted in* (a capability's fileset on record reads *enabled*, whoever put it there; nothing on record *not enabled*), the `optIn` and `optedIn` fields of `list_installations`, the dry runs and `verify_capability`, the skipped reason *not opted in*, the `OPT-IN` column of `platformctl installations`. The gate that stays refuses an installation unreadable as the person or without repositories on record. A wave (`reconcile_capability` over a set, `platformctl … --all`) reconciles what is on record: an installation without the capability's fileset is *skipped: not enabled*, never enabled by a wave; a fresh enable is `enable_capability` with one installation. The three declaration files the fleet carries (graveler, glean, grizzly) are inert and removed separately.
+
 ### Added
 
 - `verify_capability` and the dry runs name every choice not on record: `inputs.unset` lists, by field, each input of the person no layer holds a value for — no default, nothing read back, nothing typed — so the Dev Portal's Capabilities tab can list them instead of counting them; `inputs.missing` stays the required ones among them, which a commit refuses. `platformctl verify` prints them under *Choices not on record*.

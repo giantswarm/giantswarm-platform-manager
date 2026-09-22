@@ -1,7 +1,7 @@
 package e2e
 
 // The wave: reconcile_capability in mode commit over a set of three
-// lab-shaped installations, one without the opt-in. The dry run and the
+// lab-shaped installations, one without the capability on record. The dry run and the
 // review list two targets in the wave's order and one skipped; one Action
 // carries every installation's state; the pull requests are merged one
 // installation after the other, each carried to enabled by the watch before
@@ -41,12 +41,14 @@ func waveStage1(t *testing.T, st *stack) (actions.Action, *client.Client, *fakeI
 	t.Helper()
 	fixtures(st.ghs)
 	sopsFixtures(t, st.ghs)
+	// rowan's platform values on record, put there by hand: a wave reconciles what is on record.
+	st.ghs.addFile(acmeConfigs, installations.Capabilities()[0].EnabledMarker(rowan), "muster: {}\n")
 	aliceC, carolC := st.mcpClient(t, aliceToken), st.mcpClient(t, carolToken)
 
 	// The dry run: two targets in the wave's order, one skipped.
 	text, isErr := call(t, aliceC, tools.ToolReconcileCapability, waveArgs(map[string]any{tools.ArgDryRun: true}))
 	var dry tools.CapabilityResult
-	if isErr || json.Unmarshal([]byte(text), &dry) != nil || strings.Join(dry.Order, ",") != birch+","+rowan || len(dry.Skipped) != 1 || dry.Skipped[0].Name != alder || dry.Skipped[0].Reason != tools.SkippedNotOptedIn {
+	if isErr || json.Unmarshal([]byte(text), &dry) != nil || strings.Join(dry.Order, ",") != birch+","+rowan || len(dry.Skipped) != 1 || dry.Skipped[0].Name != alder || dry.Skipped[0].Reason != tools.SkippedNotEnabled {
 		t.Fatalf("dry run: %v %s", isErr, text)
 	}
 	text, isErr = call(t, aliceC, tools.ToolReconcileCapability, waveArgs(map[string]any{tools.ArgDryRun: true, tools.ArgOrder: []string{rowan, birch}}))
@@ -93,7 +95,7 @@ func waveStage1(t *testing.T, st *stack) (actions.Action, *client.Client, *fakeI
 			t.Fatalf("pull request branch: %+v", pr)
 		}
 	}
-	if review := fmt.Sprint(st.gateway.posted()); len(st.gateway.posted()) != 1 || !strings.Contains(review, birch+", "+rowan) || !strings.Contains(review, alder+" ("+tools.SkippedNotOptedIn+")") {
+	if review := fmt.Sprint(st.gateway.posted()); len(st.gateway.posted()) != 1 || !strings.Contains(review, birch+", "+rowan) || !strings.Contains(review, alder+" ("+tools.SkippedNotEnabled+")") {
 		t.Fatalf("the review: %s", review)
 	}
 
@@ -173,7 +175,7 @@ func TestWaveOverASetStopsAtARedProbe(t *testing.T) {
 		t.Fatalf("the thread: %q", th)
 	}
 	li, text, isErr := listInstallations(t, aliceC, map[string]any{tools.ArgInstallations: []string{birch, rowan}})
-	if isErr || find(t, li, birch).Capabilities[0].State != installations.StateFailed || find(t, li, rowan).Capabilities[0].State != installations.StateNotEnabled {
+	if isErr || find(t, li, birch).Capabilities[0].State != installations.StateFailed || find(t, li, rowan).Capabilities[0].State != installations.StateEnabled {
 		t.Fatalf("list_installations after the stop: %v %s", isErr, text)
 	}
 	if _, text, isErr := mergeCall(t, aliceC, a.Name); !isErr || !strings.Contains(text, actions.StateFailed) {

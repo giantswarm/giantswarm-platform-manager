@@ -43,14 +43,14 @@ func AuthRequired(w io.Writer, e *muster.AuthRequired) error {
 func Installations(w io.Writer, r tools.ListInstallationsResult) error {
 	p := &printer{w: w}
 	p.f("Caller: %s   Hub: %s   Registry: %s\n\n", dash(r.Caller), dash(r.Hub), r.Registry.Catalog.String())
-	header := []string{"NAME", "CUSTOMER", "PROVIDER", "HUB", "OPT-IN"}
+	header := []string{"NAME", "CUSTOMER", "PROVIDER", "HUB"}
 	for _, c := range r.Capabilities {
 		header = append(header, strings.ToUpper(c))
 	}
 	header = append(header, "LAST ACTION")
 	rows := [][]string{header}
 	for _, inst := range r.Installations {
-		row := []string{inst.Name, dash(inst.Customer), dash(inst.Provider), yesNo(inst.Hub), optInState(inst.OptIn)}
+		row := []string{inst.Name, dash(inst.Customer), dash(inst.Provider), yesNo(inst.Hub)}
 		for _, c := range r.Capabilities {
 			row = append(row, string(capabilityState(inst, c)))
 		}
@@ -93,13 +93,6 @@ func lastAction(inst installations.Report) string {
 	return "-"
 }
 
-func optInState(o *installations.OptIn) string {
-	if o == nil {
-		return string(installations.OptInUnreadable)
-	}
-	return string(o.State)
-}
-
 // Plan is a dry run of enable_capability or reconcile_capability: every
 // installation with its files and what a commit would carry, the pull requests
 // in order, the installations skipped, and what the commit step says.
@@ -128,9 +121,6 @@ func Plan(w io.Writer, r tools.CapabilityResult, content bool) error {
 		p.f("\nSkipped:\n")
 		for _, s := range r.Skipped {
 			p.f("  %s: %s\n", s.Name, s.Reason)
-			if s.OptIn != nil && s.OptIn.HowToOptIn != "" {
-				p.f("     how to opt in: %s\n", s.OptIn.HowToOptIn)
-			}
 			for _, e := range s.Errors {
 				p.f("     %s\n", e)
 			}
@@ -143,11 +133,7 @@ func Plan(w io.Writer, r tools.CapabilityResult, content bool) error {
 }
 
 func (p *printer) installation(inst plan.Installation, content bool) {
-	suffix := ""
-	if inst.OptIn != nil {
-		suffix = " (" + string(inst.OptIn.State) + ")"
-	}
-	p.f("\n%s: %s%s\n", inst.Name, inst.State, suffix)
+	p.f("\n%s: %s\n", inst.Name, inst.State)
 	if inst.Refused != "" {
 		p.f("  Refused: %s\n", inst.Refused)
 	}

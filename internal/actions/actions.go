@@ -346,8 +346,9 @@ func (a Action) InputsOnRecord(installation string) map[string]any {
 // The states an Action carries in status.state. pending approval, rolling
 // out, waiting for the customer, enabled, drifted and failed are the
 // installations' states an action produces (installations.State); refused,
-// denied and removed are the action's own — the opt-in gate refused it
-// before any write, a member withdrew it, or the fileset it wrote left the
+// denied and removed are the action's own — the gate refused it before
+// any write, the installation unreadable as the person or without
+// repositories on record, a member withdrew it, or the fileset it wrote left the
 // repositories' default branch again — and the installation's state read
 // from its repositories stands.
 const (

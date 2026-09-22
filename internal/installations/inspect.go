@@ -83,10 +83,6 @@ type CapabilityState struct {
 	EnabledMarker    string           `json:"enabledMarker"`
 	MarkerRepository MarkerRepository `json:"markerRepository"`
 	Enabled          bool             `json:"enabled"`
-	// OptedIn says the manager may write here: the installation's owners
-	// have declared the opt-in (the report's optIn says how to, when not).
-	// Enabled and OptedIn are the two facts State reads as one word.
-	OptedIn bool `json:"optedIn"`
 	// LastAction is the last Action record for this capability on this
 	// installation; null until the Action record exists.
 	LastAction *ActionRef `json:"lastAction"`
@@ -102,7 +98,6 @@ type ActionRef struct {
 type Report struct {
 	Installation
 	Record       *Record           `json:"record,omitempty"`
-	OptIn        *OptIn            `json:"optIn,omitempty"`
 	Capabilities []CapabilityState `json:"capabilities"`
 	// Readable says whether the installation's repositories could be read as
 	// the caller; Errors carries what could not.
@@ -118,17 +113,16 @@ type Report struct {
 type Detail int
 
 const (
-	// Full reads everything a plan needs: the opt-in, the record with the
-	// cluster App, the markers, the portals and the federation facts.
+	// Full reads everything a plan needs: the record with the cluster App,
+	// the markers, the portals and the federation facts.
 	Full Detail = iota
-	// Summary reads the opt-in and the markers alone: the state per
-	// capability for an overview, without the record, the portals or the
-	// federation facts.
+	// Summary reads the markers alone: the state per capability for an
+	// overview, without the record, the portals or the federation facts.
 	Summary
 )
 
-// inspect reads inst's opt-in, record and enabled markers as the person,
-// now, every read at once; the client bounds what is in flight.
+// inspect reads inst's record and enabled markers as the person, now, every
+// read at once; the client bounds what is in flight.
 func (r *Registry) inspect(ctx context.Context, c *github.Client, inst Installation, caps []Capability, detail Detail) Report {
 	rep := Report{Installation: inst}
 	if !inst.Repositories.Known() {
@@ -138,11 +132,6 @@ func (r *Registry) inspect(ctx context.Context, c *github.Client, inst Installat
 	}
 	owner, repo, err := gh.SplitRepo(inst.Repositories.Configs)
 	if err != nil {
-		optIn := ReadOptIn(ctx, c, inst)
-		rep.OptIn = &optIn
-		if optIn.State == OptInUnreadable {
-			rep.Errors = append(rep.Errors, optIn.Error)
-		}
 		rep.Errors = append(rep.Errors, err.Error())
 		rep.Capabilities = unknownCapabilities(caps, inst.Name)
 		return rep
@@ -150,7 +139,6 @@ func (r *Registry) inspect(ctx context.Context, c *github.Client, inst Installat
 
 	var (
 		wg      sync.WaitGroup
-		optIn   OptIn
 		record  *Record
 		recErr  error
 		pcr     bool
@@ -159,7 +147,6 @@ func (r *Registry) inspect(ctx context.Context, c *github.Client, inst Installat
 		dexErr  error
 		markers = make([]markerRead, len(caps))
 	)
-	wg.Go(func() { optIn = ReadOptIn(ctx, c, inst) })
 	if detail == Full {
 		wg.Go(func() { record, recErr = r.readRecord(ctx, c, owner, repo, inst) })
 		wg.Go(func() { pcr, pcrErr = readPodCertificateRequest(ctx, c, inst) })
@@ -170,11 +157,8 @@ func (r *Registry) inspect(ctx context.Context, c *github.Client, inst Installat
 	}
 	wg.Wait()
 
-	rep.OptIn = &optIn
-	if optIn.State == OptInUnreadable {
-		rep.Errors = append(rep.Errors, optIn.Error)
-	}
-	rep.Readable = optIn.State != OptInUnreadable
+	// Readable until a read as the person fails: the record, or a marker.
+	rep.Readable = true
 	if detail == Full {
 		switch {
 		case recErr != nil:
@@ -204,15 +188,15 @@ func (r *Registry) inspect(ctx context.Context, c *github.Client, inst Installat
 		if rep.Record != nil {
 			cs.Inputs = map[string]any{InputsInstallation: rep.Record}
 		}
-		// A marker only counts where the opt-in and the record could be read:
-		// an installation unreadable as the person has no state.
+		// A marker only counts where the record could be read: an installation
+		// unreadable as the person has no state.
 		if rep.Readable {
 			if m := markers[i]; m.err != nil {
 				rep.Errors = append(rep.Errors, m.err.Error())
 				rep.Readable = false
 			} else {
-				cs.Enabled, cs.OptedIn = m.enabled, optIn.State == OptedIn
-				cs.State = stateOf(cs.OptedIn, cs.Enabled)
+				cs.Enabled = m.enabled
+				cs.State = stateOf(cs.Enabled)
 			}
 		}
 		rep.Capabilities = append(rep.Capabilities, cs)
@@ -237,21 +221,12 @@ func readMarker(ctx context.Context, c *github.Client, inst Installation, cap Ca
 }
 
 // stateOf is the state readable from the repositories alone: whether the
-// capability's fileset is on record and whether the owners have opted in,
-// as one word. A fileset on record without the opt-in — the installations
-// enabled by hand before the manager existed — is installed all the same,
-// and the manager may not write to it.
-func stateOf(optedIn, enabled bool) State {
-	switch {
-	case optedIn && enabled:
+// capability's fileset is on record, whoever put it there.
+func stateOf(enabled bool) State {
+	if enabled {
 		return StateEnabled
-	case optedIn:
-		return StateNotEnabled
-	case enabled:
-		return StateEnabledNotOptedIn
-	default:
-		return StateNotOptedIn
 	}
+	return StateNotEnabled
 }
 
 func unknownCapabilities(caps []Capability, name string) []CapabilityState {

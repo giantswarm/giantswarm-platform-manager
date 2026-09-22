@@ -115,7 +115,7 @@ func capability(tool string, allowAll bool, args []string, stdout, stderr io.Wri
 	fs.Var(&secretFlags, "secret", "with --commit: a secret the plan's suppliedSecrets name, as <field>=@<file>, <field>=env:<NAME> or <field>=- (stdin); repeatable")
 	all := false
 	if allowAll {
-		fs.BoolVar(&all, "all", false, "every installation of the registry that opted in; with --commit the wave")
+		fs.BoolVar(&all, "all", false, "every installation of the registry with the capability on record; with --commit the wave")
 	}
 	pos, err := parse(fs, args)
 	if err != nil {
