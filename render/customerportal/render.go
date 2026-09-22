@@ -4,12 +4,14 @@
 // the probes of the running portal as data.
 //
 // It renders an installation's own developer portal: the extras/backstage tree
-// over the fleet's backstage bases — the portal's app-config, the chart values,
-// the Secrets the chart reads its credentials from, the plugin signing keys,
-// the tunnel's SPIFFE bundle reference — and the portal's Dex client. The
-// agent-platform section of the portal is the agent-platform definition's: a
-// kustomize Component this definition lists when installation.agentPlatform
-// says the platform is enabled, never files of its own.
+// over the fleet's backstage bases — the portal's app-config, the chart values
+// with the portal's environment, the Secrets the chart reads its credentials
+// from, the plugin signing keys, the tunnel's SPIFFE bundle reference — and
+// the portal's Dex client. The agent-platform section of the portal is the
+// agent-platform definition's: a kustomize Component this definition lists
+// when installation.agentPlatform says the platform is enabled, never files
+// of its own; the portal's environment (backstage.extraEnvVars) stays this
+// definition's whole, the platform's avatars host included.
 //
 // The installation's dex-app configmap patch is one file with one owner. On
 // an installation without the platform this definition renders it with the
@@ -58,6 +60,14 @@ const (
 	// portal's Node runtime reads it.
 	tunnelBundleName  = "tunnelport-spiffe-bundle"
 	tunnelBundleMount = "/app/tunnelport-spiffe-bundle"
+	// tunnelBundleFile is the bundle in the mount, the public half External
+	// Secrets copies; tunnelCAEnv is the one variable Node reads extra CA
+	// certificates through, so without it the mount is inert.
+	tunnelBundleFile = "svid_bundle.pem"
+	tunnelCAEnv      = "NODE_EXTRA_CA_CERTS"
+	// avatarsEnv is the CSP image source slot of the shared base's config,
+	// set to the installation's avatars host where the platform runs.
+	avatarsEnv = "BACKSTAGE_AVATARS_IMG_SRC"
 	// dexClientFile is the portal's Dex client Secret; the name matches the
 	// fleet's .sops.yaml rules (.*(secret|credential).*) and the directory's
 	// .enc.yaml convention.
@@ -286,10 +296,13 @@ func (in *Input) dexPatch() render.Map {
 }
 
 // userValues is user-values-backstage: the portal's route on the
-// installation's gateway and, with the tunnel on, the SPIFFE bundle's volume
-// and mount — the chart mounts nothing of its own, so the portal's Node
-// runtime finds the bundle only through them. backstage.extraEnvVars is the
-// agent-platform definition's list and is not set here.
+// installation's gateway, and under backstage the portal's environment and,
+// with the tunnel on, the SPIFFE bundle's volume and mount — the chart mounts
+// nothing of its own, so the portal's Node runtime finds the bundle only
+// through them. backstage.extraEnvVars is one list Helm replaces wholesale
+// across the HelmRelease's values sources (the shared base's default, this
+// file, the agent-platform Component's values), so this file is its one
+// owner and the Component sets none.
 func (in *Input) userValues() render.Map {
 	values := render.Map{e("route", render.Map{
 		e("enabled", true),
@@ -310,14 +323,37 @@ func (in *Input) userValues() render.Map {
 			}),
 		}),
 	})}
+	backstage := render.Map{}
+	if env := in.extraEnvVars(); len(env) > 0 {
+		backstage = append(backstage, e("extraEnvVars", env))
+	}
 	if in.Tunnel.Enabled {
 		// A directory mount, no subPath, so a refreshed bundle reaches the file.
-		values = append(values, e("backstage", render.Map{
+		backstage = append(backstage,
 			e("extraVolumes", []render.Map{{e("name", tunnelBundleName), e("secret", render.Map{e("secretName", tunnelBundleName)})}}),
-			e("extraVolumeMounts", []render.Map{{e("name", tunnelBundleName), e("mountPath", tunnelBundleMount), e("readOnly", true)}}),
-		}))
+			e("extraVolumeMounts", []render.Map{{e("name", tunnelBundleName), e("mountPath", tunnelBundleMount), e("readOnly", true)}}))
+	}
+	if len(backstage) > 0 {
+		values = append(values, e("backstage", backstage))
 	}
 	return values
+}
+
+// extraEnvVars is the portal's environment: with the platform enabled, the
+// installation's avatars host as the CSP image source the shared base's
+// csp.imgSrc reads (its default is 'self'); with the tunnel on, the mounted
+// SPIFFE bundle as Node's extra CA certificates, so the backend trusts the
+// SVIDs the tunnel Services present. Nil without either: the list is not set
+// and the shared base's default stands.
+func (in *Input) extraEnvVars() []render.Map {
+	var env []render.Map
+	if in.Installation.AgentPlatform {
+		env = append(env, render.Map{e("name", avatarsEnv), e("value", "https://"+in.host("avatars"))})
+	}
+	if in.Tunnel.Enabled {
+		env = append(env, render.Map{e("name", tunnelCAEnv), e("value", tunnelBundleMount+"/"+tunnelBundleFile)})
+	}
+	return env
 }
 
 // tunnelBundle is tunnelport-spiffe-bundle.yaml: the tunnel's SPIFFE trust

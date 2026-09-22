@@ -81,9 +81,6 @@ removals:
   - key: "backstage:user-values:google"
     kind: other-definition
     reason: "Moved: the Google project and location of a Vertex chat leave the portal's user values for the Agent Platform Component's values."
-  - key: "backstage:user-values:backstage.extraEnvVars"
-    kind: other-definition
-    reason: "Moved: the avatars image source in extraEnvVars leaves the portal's user values for the Agent Platform Component's values, appended last to the HelmRelease's sources so its list wins."
   - key: "backstage:user-values:backstage.extraAppConfig"
     kind: other-definition
     reason: "Moved: the mount of the platform's app-config fragment (extraAppConfig) leaves the portal's user values for the Agent Platform Component's values."

@@ -17,7 +17,8 @@ The definition renders the portal into the installation's management-clusters re
 `backstage:user-values:`, `backstage:file:`): the kustomization over the fleet's backstage base with the
 portal's directory and, with the platform enabled, the agent-platform definition's Component; the portal's
 directory over the fleet's main base with the chart's release range and the HelmRelease's values sources
-patched in, the app-config and values ConfigMaps, the Secrets `user-secrets-backstage`,
+patched in, the app-config and values ConfigMaps (the values carry the portal's route and its environment,
+`backstage.extraEnvVars`), the Secrets `user-secrets-backstage`,
 `plugin-keys-backstage`, `github-app-credentials-backstage` (github on) and `dex-client-backstage`, and the
 tunnel's SPIFFE bundle reference (tunnel on). On an installation without the platform it also renders the
 portal's Dex client into `installations/<name>/apps/dex-app/configmap-values.yaml.patch` of the configs
@@ -57,7 +58,13 @@ is `<name>`. A path covers every key beneath it.
 - The portal's agent-platform section is the agent-platform definition's: its fragment, values and Google
   credentials are files of its own Component next to the portal's, listed by this definition's kustomization
   and never written into the portal's files. The portal includes the shared extensions list; the Component's
-  fragment includes the platform's over it.
+  fragment includes the platform's over it. The portal's environment stays the portal's: `backstage.extraEnvVars`
+  is one list Helm replaces wholesale across the HelmRelease's values sources (the shared base's default, the
+  portal's user-values, the Component's values), so the user-values are its one owner — the installation's
+  avatars host as the CSP image source (`BACKSTAGE_AVATARS_IMG_SRC`) with the platform enabled,
+  `NODE_EXTRA_CA_CERTS` on the mounted SPIFFE bundle with the tunnel on (Node reads extra CA certificates
+  through that variable alone; without it the mount is inert), no list without either so the shared base's
+  `'self'` stands — and the Component sets none.
 - The hub's Dev Portal — the pages it serves over muster, its incident links, proxies and scaffolder, its
   registry of federated installations — is out of the definition until a hub shape exists; those keys are
   `not-rendered` removals.

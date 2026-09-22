@@ -23,16 +23,18 @@ import (
 // later source, never appended. Appended last, the Component's lists win. The
 // Component therefore sets a list only where it is the portal's sole source of
 // it. A portal the customer-portal definition renders includes the shared
-// extension list and carries no environment beyond what this definition
-// writes, so there the Component names the platform's extensions, the
-// installation's muster and the avatars host. A hand-kept portal — one whose
-// app-config on record carries a literal extension list of its own, the hub's
-// Dev Portal among them (installation.portals[*].handKept, read from the
-// record) — owns its extensions, its muster registry and its environment;
-// there the Component writes only object-shaped keys (the kagent installation,
-// the fragment's mount), which merge. The day the customer-portal definition
-// renders such a portal the fact reads false and the Component takes the
-// lists over.
+// extension list, so there the Component names the platform's extensions and
+// the installation's muster. A hand-kept portal — one whose app-config on
+// record carries a literal extension list of its own, the hub's Dev Portal
+// among them (installation.portals[*].handKept, read from the record) — owns
+// its extensions and its muster registry; there the Component writes only
+// object-shaped keys (the kagent installation, the fragment's mount), which
+// merge. The day the customer-portal definition renders such a portal the
+// fact reads false and the Component takes the lists over. The portal's
+// environment, backstage.extraEnvVars, is the portal's own whatever the
+// portal: the customer-portal definition's user-values carry the whole list
+// (the avatars image source, the tunnel's CA variable) and the Component sets
+// none, so no third source contends for it.
 //
 // The portal's chart line (installation.portals[*].chartLine) decides one
 // key. Before backstage 1.1.0 the portal's agent-platform plugin composes the
@@ -64,8 +66,6 @@ const (
 	portalPluginRemoval = "1.1.0"
 	// extensionsInclude is the shared base's list of the platform's portal extensions.
 	extensionsInclude = "shared-config.yaml#extensionsAgentPlatform"
-	// avatarsEnv is the CSP image source slot of the shared base's config.
-	avatarsEnv = "BACKSTAGE_AVATARS_IMG_SRC"
 )
 
 // portalAuthProvider is the portal's sign-in provider on this installation's
@@ -73,9 +73,9 @@ const (
 func (in *Input) portalAuthProvider() string { return render.PortalAuthProvider(in.Installation.Name) }
 
 // portalOwnsLists says whether the Component is the portal's sole source of its
-// list-shaped keys (app.extensions, muster.installations,
-// backstage.extraEnvVars) and so sets them. A hand-kept portal carries its
-// own; a list the Component set there would replace it.
+// list-shaped keys (app.extensions, muster.installations) and so sets them. A
+// hand-kept portal carries its own; a list the Component set there would
+// replace it.
 func (in *Input) portalOwnsLists() bool {
 	p := in.hostedPortal()
 	return p != nil && !p.HandKept
@@ -120,14 +120,10 @@ func (in *Input) portalAppConfig() render.Map {
 }
 
 // portalValues are the platform's chart values: the fragment mounted as an
-// extra app-config file and, where the Component owns the portal's lists, the
-// installation's avatars host as the CSP image source.
+// extra app-config file. No list: the portal's environment is the
+// customer-portal definition's.
 func (in *Input) portalValues() render.Map {
-	backstage := render.Map{e("extraAppConfig", []render.Map{{e("filename", portalAppConfigFile), e("configMapRef", portalAppConfigMap)}})}
-	if in.portalOwnsLists() {
-		backstage = append(backstage, e("extraEnvVars", []render.Map{{e("name", avatarsEnv), e("value", "https://"+in.host("avatars"))}}))
-	}
-	return render.Map{e("backstage", backstage)}
+	return render.Map{e("backstage", render.Map{e("extraAppConfig", []render.Map{{e("filename", portalAppConfigFile), e("configMapRef", portalAppConfigMap)}})})}
 }
 
 // portalChartFloor is the lowest chart version a portal's chart line admits:

@@ -96,6 +96,5 @@ features:
       - {id: portal-auth-extra-scopes, kind: backstage, key: gs.auth.extraScopes}
       - {id: portal-auth-provider, kind: backstage, key: gs.authProvider / auth.providers}
       - {id: portal-database-client, kind: backstage, key: backend.database.client}
-      - {id: portal-extra-env-vars, kind: backstage, key: backstage.extraEnvVars}
       - {id: portal-oci-repository-patch, kind: backstage, key: OCIRepository patch}
       - {id: portal-helmrelease-values-from, kind: backstage, key: HelmRelease valuesFrom}

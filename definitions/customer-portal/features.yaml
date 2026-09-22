@@ -20,6 +20,7 @@ features:
       - {id: plugins, kind: backstage, key: app-config integrations.github / grafana / flux / permission / techdocs}
       - {id: gs-homepage-and-installation, kind: backstage, key: app-config gs.homepage.resources / gs.installations.<name>}
       - {id: route, kind: backstage, key: user-values route}
+      - {id: extra-env-vars, kind: backstage, key: user-values.yaml backstage.extraEnvVars}
       - {id: tunnel-bundle, kind: backstage, key: file tunnelport-spiffe-bundle.yaml}
       - {id: tunnel-mount, kind: backstage, key: user-values backstage.extraVolumeMounts}
       - {id: live-helmrelease-ready, kind: live, key: HelmRelease backstage Ready in flux-giantswarm}

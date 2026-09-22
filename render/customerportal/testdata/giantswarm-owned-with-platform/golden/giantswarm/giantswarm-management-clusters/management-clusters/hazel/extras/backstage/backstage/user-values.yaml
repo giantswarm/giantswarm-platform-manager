@@ -29,6 +29,11 @@ data:
             tcp:
               connectTimeout: 10s
     backstage:
+      extraEnvVars:
+        - name: BACKSTAGE_AVATARS_IMG_SRC
+          value: https://avatars.hazel.example.test
+        - name: NODE_EXTRA_CA_CERTS
+          value: /app/tunnelport-spiffe-bundle/svid_bundle.pem
       extraVolumes:
         - name: tunnelport-spiffe-bundle
           secret:
