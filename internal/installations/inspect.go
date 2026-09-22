@@ -48,6 +48,15 @@ type Record struct {
 	// DexAppSource is the file it was read from, repository:path.
 	DexAppVersion string `json:"dexAppVersion,omitempty"`
 	DexAppSource  string `json:"dexAppSource,omitempty"`
+	// DexSecretLists are the lists the installation's encrypted dex-app
+	// secret patch carries that the values merge takes whole over the
+	// plaintext patch's — the hand-registered extra static clients, the
+	// authenticator's trusted peers (readDexSecretLists); none where the
+	// patch carries none or does not exist. DexSecretSource is the file,
+	// repository:path. A commit whose Dex patch renders one of those lists
+	// is held while the encrypted patch carries it.
+	DexSecretLists  []DexSecretList `json:"dexSecretLists,omitempty"`
+	DexSecretSource string          `json:"dexSecretSource,omitempty"`
 }
 
 // configPatch is the part of config.yaml.patch the record reads.
@@ -148,12 +157,15 @@ func (r *Registry) inspect(ctx context.Context, c *github.Client, inst Installat
 		pcrErr  error
 		dex     DexAppVersion
 		dexErr  error
+		lists   []DexSecretList
+		listErr error
 		markers = make([]markerRead, len(caps))
 	)
 	if detail == Full {
 		wg.Go(func() { record, recErr = r.readRecord(ctx, c, owner, repo, inst) })
 		wg.Go(func() { pcr, pcrErr = readPodCertificateRequest(ctx, readAs(c), inst) })
 		wg.Go(func() { dex, dexErr = readDexAppVersion(ctx, readAt(c), inst) })
+		wg.Go(func() { lists, listErr = readDexSecretLists(ctx, readAs(c), inst) })
 	}
 	for i, cap := range caps {
 		wg.Go(func() { markers[i] = readMarker(ctx, c, inst, cap) })
@@ -190,6 +202,12 @@ func (r *Registry) inspect(ctx context.Context, c *github.Client, inst Installat
 				rep.Errors = append(rep.Errors, dexErr.Error())
 			} else if dex.Version != "" {
 				record.DexAppVersion, record.DexAppSource = dex.Version, dex.Source()
+			}
+			// So are the lists the encrypted Dex values carry.
+			if listErr != nil {
+				rep.Errors = append(rep.Errors, listErr.Error())
+			} else if len(lists) > 0 {
+				record.DexSecretLists, record.DexSecretSource = lists, inst.Repositories.Configs+":"+DexSecretPatchPath(inst.Name)
 			}
 		}
 	}

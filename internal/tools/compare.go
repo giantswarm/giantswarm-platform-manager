@@ -42,7 +42,7 @@ func (t *Tools) compare(ctx context.Context, env *planned, r installations.Repor
 	res := verify.Compare(ctx, verify.Options{Definition: def, Installation: r.Installation, Hub: env.hub, State: capabilityState(r, def.Name), Inputs: in, Read: read, Content: content, Probes: t.d.Probes})
 	res.Caller = identity.Caller(ctx)
 	p := res.Plan()
-	dexApp, frozen := p.DexAppRefusal(r.Record), p.FrozenRefusal()
+	dexApp, dexSecret, frozen := p.DexAppRefusal(r.Record), p.DexSecretRefusal(r.Record), p.FrozenRefusal()
 	switch {
 	case res.Refused != "":
 		res.CommitRefused = res.Refused
@@ -50,6 +50,8 @@ func (t *Tools) compare(ctx context.Context, env *planned, r installations.Repor
 		res.CommitRefused = missingChoices(def.Name, res.Inputs.Missing)
 	case dexApp != "":
 		res.CommitRefused = dexApp
+	case dexSecret != "":
+		res.CommitRefused = dexSecret
 	case frozen != "":
 		res.CommitRefused = frozen
 	}

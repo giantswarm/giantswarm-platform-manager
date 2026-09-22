@@ -67,7 +67,7 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 	// refused for one installation is refused whole, with nothing recorded.
 	var targets []plan.Installation
 	for _, p := range plans(out.Installations) {
-		dexApp := p.DexAppRefusal(env.reports[p.Name].Record)
+		dexApp, dexSecret := p.DexAppRefusal(env.reports[p.Name].Record), p.DexSecretRefusal(env.reports[p.Name].Record)
 		switch {
 		case p.Refused != "":
 			return nil, fmt.Errorf("%s: the definition refuses the inputs on record for %s: %s — narrow the set (%s) or fix the record; nothing is committed", tool, p.Name, p.Refused, ArgInstallations)
@@ -77,6 +77,8 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 			return nil, fmt.Errorf("%s: %d file(s) of %s could not be compared against the repository as you (%s); nothing is committed blind", tool, p.Diff[plan.ChangeUnknown], p.Name, unknownFiles(p))
 		case dexApp != "":
 			return nil, fmt.Errorf("%s: %s: %s; nothing is committed", tool, p.Name, dexApp)
+		case dexSecret != "":
+			return nil, fmt.Errorf("%s: %s: %s; nothing is committed", tool, p.Name, dexSecret)
 		case len(p.Files)-p.Diff[plan.ChangeUnchanged] == 0:
 			res.Unchanged = append(res.Unchanged, p.Name)
 			continue

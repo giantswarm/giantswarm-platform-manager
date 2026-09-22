@@ -108,3 +108,104 @@ func TestCommitHeldByTheDexAppOnRecord(t *testing.T) {
 		t.Fatalf("pinned %s, the commit goes ahead: %v %s", platformDexApp, isErr, text)
 	}
 }
+
+// encryptedDexPatch is an installation's dex-app secret patch as SOPS leaves
+// it on record: every value ciphertext, the keys and the list shape plain —
+// the authenticator's inline secret and peers trusted peers, extras
+// hand-registered clients with inline secrets, muster's inline secret.
+func encryptedDexPatch(peers, extras int) string {
+	enc := func(s string) string { return "ENC[AES256_GCM,data:" + s + ",iv:fixture,tag:fixture,type:str]" }
+	s := "oidc:\n    staticClients:\n        dexK8SAuthenticator:\n            clientSecret: " + enc("authenticator") + "\n"
+	if peers > 0 {
+		s += "            trustedPeers:\n"
+		for i := range peers {
+			s += "                - " + enc("peer"+string(rune('a'+i))) + "\n"
+		}
+	}
+	s += "        muster:\n            clientSecret: " + enc("muster") + "\n"
+	if extras > 0 {
+		s += "    extraStaticClients:\n"
+		for i := range extras {
+			s += "        - id: " + enc("id"+string(rune('a'+i))) + "\n          secret: " + enc("secret") + "\n          name: " + enc("name") + "\n"
+		}
+	}
+	return s + "sops:\n    age:\n        - recipient: age1fixture\n    lastmodified: \"2026-09-22T05:16:28Z\"\n    mac: " + enc("mac") + "\n    unencrypted_suffix: _unencrypted\n    version: 3.11.0\n"
+}
+
+// An installation enabled by hand whose encrypted dex-app secret patch still
+// carries the hand-registered clients and the authenticator's peers: the
+// record reads which lists it carries without decrypting anything; the
+// comparison runs and shows what a commit would change, and says the commit
+// would be refused, naming the file, the lists with their entries and the
+// rendered clients and peers they would shadow — the values merge takes a
+// list whole from the encrypted side, so the plaintext render would never
+// reach Dex; the dry run says the same; commit mode and a wave refuse with it
+// before any write. With the lists carried over by hand and dropped from the
+// encrypted values, the same commit goes ahead.
+func TestCommitHeldByTheEncryptedDexLists(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	sopsFixtures(t, st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	birchByHand(t, st, c, false)
+	seedRemote(t, st)
+	secretPatch := installations.DexSecretPatchPath(birch)
+	st.ghs.addFile(acmeConfigs, secretPatch, encryptedDexPatch(2, 3))
+	serving := map[string]any{modelServingKey: map[string]any{enabledKey: true}}
+
+	out, text, isErr := listInstallations(t, c, map[string]any{tools.ArgInstallations: []string{birch}})
+	if isErr {
+		t.Fatal(text)
+	}
+	rep := find(t, out, birch)
+	want := []installations.DexSecretList{{Path: installations.DexTrustedPeers, Entries: 2}, {Path: installations.DexExtraStaticClients, Entries: 3}}
+	if rep.Record == nil || len(rep.Errors) != 0 || rep.Record.DexSecretSource != acmeConfigs+":"+secretPatch || len(rep.Record.DexSecretLists) != 2 || rep.Record.DexSecretLists[0] != want[0] || rep.Record.DexSecretLists[1] != want[1] {
+		t.Fatalf("the record reads the encrypted lists: %+v %v", rep.Record, rep.Errors)
+	}
+
+	res := verifyWith(t, c, birch, serving)
+	hold := res.Plan().DexSecretRefusal(rep.Record)
+	if hold == "" || res.Refused != "" || res.CommitRefused != hold {
+		t.Fatalf("refused %q, commitRefused %q, want %q", res.Refused, res.CommitRefused, hold)
+	}
+	for _, part := range []string{acmeConfigs + ":" + secretPatch, "oidc.extraStaticClients (3 entries)", "oidc.staticClients.dexK8SAuthenticator.trustedPeers (2 entries)", "rendered clients kagent, backstage", "trusted peers " + hubPortalClientID + ", backstage", "by hand first"} {
+		if !strings.Contains(hold, part) {
+			t.Errorf("the hold names %q:\n%s", part, hold)
+		}
+	}
+	if res.Diff[plan.ChangeUpdate] == 0 || len(res.DexClients) == 0 {
+		t.Fatalf("the comparison still runs: diff %v clients %d", res.Diff, len(res.DexClients))
+	}
+	dry, text, isErr := dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: birch, tools.ArgInputs: serving})
+	if isErr {
+		t.Fatal(text)
+	}
+	if p := findPlan(t, dry, birch); p.Refused != "" || p.CommitRefused != hold || p.Diff[plan.ChangeUpdate] == 0 {
+		t.Fatalf("the dry run: refused %q, commitRefused %q, diff %v", p.Refused, p.CommitRefused, p.Diff)
+	}
+	_, text, isErr = commitCall(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: birch, tools.ArgInputs: serving})
+	if !isErr || !strings.Contains(text, hold) || !strings.Contains(text, "nothing is committed") {
+		t.Fatalf("commit mode: %v %s", isErr, text)
+	}
+	_, text, isErr = commitCall(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallations: []string{birch}, tools.ArgInputs: serving})
+	if !isErr || !strings.Contains(text, hold) {
+		t.Fatalf("a wave: %v %s", isErr, text)
+	}
+	if prs := st.remote.PullRequests(); len(prs) != 0 {
+		t.Fatalf("the remote saw %d pull request(s)", len(prs))
+	}
+	if got := listActionsOf(t, c, birch); len(got) != 0 {
+		t.Fatalf("the refusal recorded %d action(s)", len(got))
+	}
+
+	// Carried over by hand: the encrypted values keep the inline secrets of
+	// the authenticator and muster (removals of the migration) and no list.
+	st.ghs.addFile(acmeConfigs, secretPatch, encryptedDexPatch(0, 0))
+	if res := verifyWith(t, c, birch, serving); res.CommitRefused != "" {
+		t.Fatalf("no list in the encrypted values: %q", res.CommitRefused)
+	}
+	committed, text, isErr := commitCall(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: birch, tools.ArgInputs: serving})
+	if isErr || committed.Action == nil || len(committed.PullRequests) == 0 || len(st.remote.PullRequests()) != len(committed.PullRequests) {
+		t.Fatalf("the lists gone, the commit goes ahead: %v %s", isErr, text)
+	}
+}

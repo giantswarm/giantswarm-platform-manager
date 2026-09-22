@@ -146,6 +146,9 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	if refusal := p.DexAppRefusal(env.reports[one].Record); refusal != "" {
 		return nil, fmt.Errorf("%s: %s: %s; nothing is committed", tool, one, refusal)
 	}
+	if refusal := p.DexSecretRefusal(env.reports[one].Record); refusal != "" {
+		return nil, fmt.Errorf("%s: %s: %s; nothing is committed", tool, one, refusal)
+	}
 	if refusal := p.FrozenRefusal(); refusal != "" {
 		return nil, fmt.Errorf("%s: %s: %s; nothing is committed", tool, one, refusal)
 	}
