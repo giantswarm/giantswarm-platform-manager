@@ -85,8 +85,11 @@ this order, writing nothing before the gate:
    comparison: a literal the render changes under an encrypted field — the record holds it encrypted. A
    value frozen in a file the definition does not own whole (one with several owners) cannot rotate and
    refuses the commit naming the file.
-5. **The pull requests** through gitops-commit, as the person, in dependency order (configs before
-   management-clusters), one commit per repository, on branch `platform/<action>/<installation>`, titled in
+5. **The pull requests** through gitops-commit, as the person, in dependency order — a pull request whose
+   files create an object another one's files reference merges before it: the management-clusters Secret
+   before the configs dex patch that names it through `secretRef`, teleport-fleet's tunnelport tokens before
+   the release and the RemoteApps that name them; among the rest, configs, management-clusters, the hub's
+   pair, teleport-fleet — one commit per repository, on branch `platform/<action>/<installation>`, titled in
    conventional-commit form — `feat(<installation>): enable <capability> (<action>)`, `fix(<installation>):
    reconcile <capability> (<action>)` — so the repositories' semantic-pull-request check passes as opened, the
    action id in the title and body. The Action records them and stays in *pending approval*: the approval, the merge
@@ -118,9 +121,12 @@ into every file of the name (see [The commit](#the-commit)) — the secret value
 supplies at commit by field (rendered as `SUPPLIED(<field>)` markers — no secret value ever appears in a dry
 run), the Dex clients with their redirect URIs from the rendered dex patch, the customer actions (Secrets the
 definition references and never renders) and the probes (the definition's live dimensions). Over the set:
-the pull requests, one per repository in dependency order — an installation's configs before its
-management-clusters, the hub's pair after, `teleport-fleet` last — with the files, changes and generated
-secrets each carries; the wave's `order` (Giant Swarm's own test installations, the hub, then the
+the pull requests, one per repository in dependency order — a pull request whose files create an object
+another one's files reference merges before it (a Secret a Dex client's `secretRef` names, a Teleport token
+a RemoteApp or the tunnelport release names), and says which ones it follows and why (`after`); the pull
+requests nothing references keep the repositories' order: an installation's configs, its
+management-clusters, the hub's pair, `teleport-fleet` — with the files, changes and generated secrets each
+carries, every file saying what it `creates` and `references`; the wave's `order` (Giant Swarm's own test installations, the hub, then the
 customers' installations); and `skipped` with the reason (*not enabled*, *unreadable*, *no repositories on
 record*): a wave reconciles what is on record and never enables. An installation named as `installation` is
 rendered whether or not its fileset is on record — a fresh enable, or the changes to it — with `commitRefused`

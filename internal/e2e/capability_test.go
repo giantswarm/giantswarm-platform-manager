@@ -116,7 +116,10 @@ func TestEnableCapabilityDryRunRendersOneInstallation(t *testing.T) {
 			t.Fatalf("file %s: content %q", f.Path, f.Content)
 		}
 	}
-	if len(out.PullRequests) != 2 || out.PullRequests[0].Repository != acmeConfigs || out.PullRequests[0].Order != 1 || out.PullRequests[1].Repository != acmeMCs || out.PullRequests[1].Order != 2 {
+	// The dex patch names the Secrets the management-clusters files create,
+	// so that pull request merges first and the configs one says why.
+	if len(out.PullRequests) != 2 || out.PullRequests[0].Repository != acmeMCs || out.PullRequests[0].Order != 1 || len(out.PullRequests[0].After) != 0 ||
+		out.PullRequests[1].Repository != acmeConfigs || out.PullRequests[1].Order != 2 || !strings.Contains(out.PullRequests[1].AfterClause(), "after "+acmeMCs+" (") || !strings.Contains(out.PullRequests[1].AfterClause(), "Secret/dex-client-muster") {
 		t.Fatalf("pull requests: %+v", out.PullRequests)
 	}
 	inputs := p.Inputs["installation"].(map[string]any)
@@ -310,7 +313,8 @@ func TestReconcileCapabilityDryRunOverTheSet(t *testing.T) {
 	for _, pr := range out.PullRequests {
 		seen[pr.Repository] = pr.Order
 	}
-	if seen[acmeConfigs] >= seen[acmeMCs] || seen[hubConfigs] >= seen[hubMCs] || len(out.PullRequests) != 4 {
+	// Each pair's dex patch names Secrets its management-clusters files create: those merge first.
+	if seen[acmeMCs] >= seen[acmeConfigs] || seen[hubMCs] >= seen[hubConfigs] || len(out.PullRequests) != 4 {
 		t.Fatalf("pull requests: %+v", out.PullRequests)
 	}
 }
@@ -535,7 +539,7 @@ func TestEnableCapabilitySelectsTheFourLineForAFreshEnable(t *testing.T) {
 	}
 	var configsPR bool
 	for _, pr := range out.PullRequests {
-		configsPR = configsPR || (pr.Repository == cedarConfigs && pr.Order == 1)
+		configsPR = configsPR || (pr.Repository == cedarConfigs && slices.Contains(pr.Files, installations.ConfigPatchPath(cedar)))
 	}
 	if !configsPR {
 		t.Fatalf("the record travels in the configs pull request: %+v", out.PullRequests)

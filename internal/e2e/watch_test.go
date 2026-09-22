@@ -216,7 +216,7 @@ func TestWatchActionCarriesTheRolloutToEnabled(t *testing.T) {
 	if stage.State != actions.StateEnabled || stage.ReportedAt == nil || !strings.HasPrefix(stage.Message, "verified: ") {
 		t.Fatalf("the stage: %+v", stage)
 	}
-	for _, want := range []string{"*" + rowan + "* is *" + actions.StateEnabled + "*", "watched as " + liveAdmin, "Pull requests: ", acmeConfigs + "#1", acmeMCs + "#2", "Rollout: HelmRelease " + fluxNamespace + "/" + platformRelease + " Ready=True (4.44.1)", "Probes: ✅ ", "Done: the action is enabled"} {
+	for _, want := range []string{"*" + rowan + "* is *" + actions.StateEnabled + "*", "watched as " + liveAdmin, "Pull requests: ", acmeMCs + "#1", acmeConfigs + "#2", "Rollout: HelmRelease " + fluxNamespace + "/" + platformRelease + " Ready=True (4.44.1)", "Probes: ✅ ", "Done: the action is enabled"} {
 		if !strings.Contains(w.Report, want) {
 			t.Errorf("the report lacks %q:\n%s", want, w.Report)
 		}
