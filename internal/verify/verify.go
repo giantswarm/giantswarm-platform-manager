@@ -754,9 +754,10 @@ type leaf struct {
 	value any
 }
 
-// inputLeaves are the leaves of values under the inputs named by dotted key:
-// an input with one value is that leaf, one holding a mapping every leaf
-// below it; an input values holds nothing for has none.
+// inputLeaves are the leaves of values under the inputs named by dotted key,
+// sorted by path so that a tie between two inputs falls the same way on
+// every run: an input with one value is that leaf, one holding a mapping
+// every leaf below it; an input values holds nothing for has none.
 func inputLeaves(values map[string]any, inputs []string) []leaf {
 	var out []leaf
 	for _, in := range inputs {
@@ -765,6 +766,7 @@ func inputLeaves(values map[string]any, inputs []string) []leaf {
 			out = append(out, leaves(v, path)...)
 		}
 	}
+	slices.SortFunc(out, func(a, b leaf) int { return slices.Compare(a.path, b.path) })
 	return out
 }
 

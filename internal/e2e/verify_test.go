@@ -386,7 +386,7 @@ func TestVerifyCapabilityDiffersByInput(t *testing.T) {
 	c := st.mcpClient(t, aliceToken)
 	enableRowan(t, st, c, kagentEnabled(), kagentEnabled())
 
-	typed := map[string]any{"installation": map[string]any{argPrivate: true}}
+	typed := map[string]any{argInstallation: map[string]any{argPrivate: true}}
 	res := verifyWith(t, c, rowan, typed)
 	if res.Summary[verify.Drifted] != 0 || res.Summary[verify.DiffersByInput] == 0 || res.State != installations.StateEnabled || !strings.HasSuffix(res.Inputs.Source, verify.SourceTyped) {
 		t.Fatalf("state %q summary %v inputs %q", res.State, res.Summary, res.Inputs.Source)

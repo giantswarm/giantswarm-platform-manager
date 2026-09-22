@@ -573,6 +573,19 @@ func must[T any](v T, err error) T {
 	return v
 }
 
+// The inputs the attribution perturbs and the leaves a synthetic render
+// derives from them.
+const (
+	baseDomainKey   = "baseDomain"
+	servingInput    = "modelServing.enabled"
+	baseDomainInput = "installation." + baseDomainKey
+	customerInput   = "installation.customer"
+	hostLeaf        = "r:values#host"
+	repoLeaf        = "r:values#repo"
+	servingLeaf     = "r:values#serving"
+	titleLeaf       = "r:values#title"
+)
+
 // The inputs the attribution perturbs are the person's: the schema's
 // x-source person leaves and every leaf typed for the call, a fact among
 // them. The record's facts are not among them.
@@ -581,12 +594,12 @@ func TestDrivenInputsAreThePersonsAndTheTyped(t *testing.T) {
 	if !ok {
 		t.Fatal("no agent-platform definition")
 	}
-	got, err := drivenInputs(def, Inputs{Values: map[string]any{"installation": map[string]any{"baseDomain": "a.test", "customer": "acme"}, "modelServing": map[string]any{"enabled": true}}})
-	if err != nil || !reflect.DeepEqual(got, []string{"modelServing.enabled"}) {
+	got, err := drivenInputs(def, Inputs{Values: map[string]any{"installation": map[string]any{baseDomainKey: "a.test", "customer": "acme"}, "modelServing": map[string]any{"enabled": true}}})
+	if err != nil || !reflect.DeepEqual(got, []string{servingInput}) {
 		t.Errorf("from the record: %v %v", got, err)
 	}
-	got, err = drivenInputs(def, Inputs{Typed: map[string]any{"installation": map[string]any{"baseDomain": "b.test"}, "modelServing": map[string]any{"enabled": false}}})
-	if err != nil || !reflect.DeepEqual(got, []string{"installation.baseDomain", "modelServing.enabled"}) {
+	got, err = drivenInputs(def, Inputs{Typed: map[string]any{"installation": map[string]any{baseDomainKey: "b.test"}, "modelServing": map[string]any{"enabled": false}}})
+	if err != nil || !reflect.DeepEqual(got, []string{baseDomainInput, servingInput}) {
 		t.Errorf("with a fact typed: %v %v", got, err)
 	}
 }
@@ -594,33 +607,32 @@ func TestDrivenInputsAreThePersonsAndTheTyped(t *testing.T) {
 // A rendered leaf is attributed to the input whose perturbation moves it,
 // among the inputs named: a leaf the base domain derives is nobody's unless
 // the base domain was typed for the call; a leaf several named inputs move
-// is the most specific one's; an input the record holds no value for
-// perturbs nothing.
+// is the most specific one's (the customer moves three leaves, the base
+// domain two); an input the record holds no value for perturbs nothing.
 func TestDrivenPathsPerturbsOnlyTheNamedInputs(t *testing.T) {
-	values := map[string]any{"installation": map[string]any{"baseDomain": "a.test", "customer": "acme"}, "modelServing": map[string]any{"enabled": true}}
+	values := map[string]any{"installation": map[string]any{baseDomainKey: "a.test", "customer": "acme"}, "modelServing": map[string]any{"enabled": true}}
 	render := func(v map[string]any) (map[string]map[string]string, error) {
 		inst, _ := v["installation"].(map[string]any)
 		serving, _ := v["modelServing"].(map[string]any)
-		domain, _ := inst["baseDomain"].(string)
+		domain, _ := inst[baseDomainKey].(string)
 		customer, _ := inst["customer"].(string)
-		f := map[string]string{"host": "muster." + domain, "repo": customer + "-management-clusters", "serving": strconv.FormatBool(serving["enabled"] == true)}
-		f["title"] = customer + " on " + domain + " serving " + f["serving"]
-		return map[string]map[string]string{"r:values": f}, nil
+		return map[string]map[string]string{"r:values": {
+			"host": "muster." + domain, "repo": customer + "-management-clusters", "org": customer,
+			"serving": strconv.FormatBool(serving["enabled"] == true), "title": customer + " on " + domain,
+		}}, nil
 	}
 	base, _ := render(values)
 
-	got := drivenPaths(values, []string{"modelServing.enabled", "plugins.absent"}, base, render)
-	if want := map[string]string{"r:values#serving": "modelServing.enabled", "r:values#title": "modelServing.enabled"}; !reflect.DeepEqual(got, want) {
+	got := drivenPaths(values, []string{servingInput, "plugins.absent"}, base, render)
+	if want := map[string]string{servingLeaf: servingInput}; !reflect.DeepEqual(got, want) {
 		t.Errorf("the person's choice: %v", got)
 	}
-
-	got = drivenPaths(values, []string{"installation.baseDomain", "modelServing.enabled"}, base, render)
-	if want := map[string]string{"r:values#host": "installation.baseDomain", "r:values#serving": "modelServing.enabled", "r:values#title": "installation.baseDomain"}; !reflect.DeepEqual(got, want) {
+	got = drivenPaths(values, []string{baseDomainInput, servingInput}, base, render)
+	if want := map[string]string{hostLeaf: baseDomainInput, titleLeaf: baseDomainInput, servingLeaf: servingInput}; !reflect.DeepEqual(got, want) {
 		t.Errorf("the base domain typed: %v", got)
 	}
-
 	got = drivenPaths(values, []string{"installation"}, base, render)
-	if want := map[string]string{"r:values#host": "installation.baseDomain", "r:values#repo": "installation.customer", "r:values#title": "installation.baseDomain"}; !reflect.DeepEqual(got, want) {
+	if want := map[string]string{hostLeaf: baseDomainInput, titleLeaf: baseDomainInput, repoLeaf: customerInput, "r:values#org": customerInput}; !reflect.DeepEqual(got, want) {
 		t.Errorf("a mapping's leaves: %v", got)
 	}
 	if got := drivenPaths(values, nil, base, render); len(got) != 0 {
