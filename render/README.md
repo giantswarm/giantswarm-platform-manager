@@ -66,9 +66,11 @@ are created through agent-manager and the key is not read, so it is not written.
 
 A hub's `federation.targets` render the hub side (`hub.go`): the token-exchange broker's targets and the
 agentgateway's identity providers in the configmap patch, the targets' MCP servers with exchange auth,
-and a credentials Secret per target whose generated client secret is named after the pair
-(`<hub>-token-exchange-<target>-client-secret`) — the same name the target's own render gives its
-Dex-side copy, so the two filesets agree on the value they share. A private target adds the tunnel:
+and a credentials Secret per target carrying the hub's client id in the target's Dex — the fleet's
+`muster-token-exchange-<target>` for the registry's hub, `muster-token-exchange-<target>-<hub>` for every
+other hub — and its generated client secret, named after the client (`<client>-client-secret`): the same
+id and name the target's own render gives its Dex-side client and Secret (`installation.federation.hubs`
+with `registryHub`), so the two filesets agree on the client and the value they share. A private target adds the tunnel:
 the tunnelport release and a RemoteApp per tunnelled app (the target's Dex, each federated group's MCP
 server, the API server) under the hub's `extras/agent-platform/tunnelport/`, muster's `extraCaFile`
 trust in the SPIFFE bundle, and in `giantswarm/teleport-fleet` the hub's entries of the tunnelport

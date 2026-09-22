@@ -19,6 +19,7 @@ input:
         chartLine: ">=0.244.7 <1.0.0"
     federation:
       hubs: []
+      registryHub: gopher
       brokerClientId: broker-client-id-placeholder
       targets:
         - installation: kestrel

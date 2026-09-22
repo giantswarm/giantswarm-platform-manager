@@ -105,9 +105,12 @@ type PortalRef struct {
 // Federation is an installation's place in the fleet's token exchange, as the
 // definitions' installation.federation names it.
 type Federation struct {
-	Hubs           []string          `json:"hubs"`
-	Targets        []FederatedTarget `json:"targets"`
-	BrokerClientID string            `json:"brokerClientId,omitempty"`
+	Hubs    []string          `json:"hubs"`
+	Targets []FederatedTarget `json:"targets"`
+	// RegistryHub is the registry's hub by name: the hub whose token-exchange
+	// client in the installation's Dex carries the fleet's plain id.
+	RegistryHub    string `json:"registryHub"`
+	BrokerClientID string `json:"brokerClientId,omitempty"`
 }
 
 // FederatedTarget is an installation a hub brokers for.
@@ -406,6 +409,7 @@ func (r *Registry) derive(ctx context.Context, c *gh.Client, reports []Report, p
 			continue
 		}
 		targets := rep.derivePortals(portals)
+		rep.Federation.RegistryHub = r.Hub
 		rep.Record.Private = tunnelled(portals, rep.Name)
 		res := &results[i]
 		res.targets, res.found, res.errs = targets, make([]FederatedTarget, len(targets)), make([]error, len(targets))

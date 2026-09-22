@@ -187,3 +187,100 @@ func TestTunnelTokensPerHub(t *testing.T) {
 		}
 	}
 }
+
+// A hub's token-exchange client in a target's Dex carries the fleet's id:
+// muster-token-exchange-<target> for the registry's hub — the client every
+// installation registered for it by hand, the id the hub's credentials on
+// record present — and muster-token-exchange-<target>-<hub> for every other
+// hub, since a target's Dex registers one client per hub and only one can
+// carry the plain id. The hub renders it into the target's credentials Secret
+// from its own installation.hub, the target into its Dex patch, its trusted
+// peers and the client's Secret from installation.federation.registryHub, and
+// the generated secret is named after the client on both sides, so the pair's
+// filesets agree on the client and the value they share. The former id,
+// <hub>-token-exchange, is gone from both sides.
+func TestTokenExchangeClientIsTheFleets(t *testing.T) {
+	for _, tc := range []struct {
+		target, hub string
+		registryHub bool
+		want        string
+	}{
+		{"burrow", "gopher", true, "muster-token-exchange-burrow"},
+		{"marmot", "warren", false, "muster-token-exchange-marmot-warren"},
+	} {
+		if got := tokenExchangeClient(tc.target, tc.hub, tc.registryHub); got != tc.want {
+			t.Errorf("tokenExchangeClient(%s, %s, %v) = %s, want %s", tc.target, tc.hub, tc.registryHub, got, tc.want)
+		}
+	}
+	tree := func(input map[string]any, secrets map[string]string) map[string][]byte {
+		result, err := Render(input, secrets, render.ModeCommit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result.Tree()
+	}
+	credentials := func(tree map[string][]byte, hub, target, client string) {
+		path := "giantswarm/giantswarm-management-clusters/management-clusters/" + hub + "/extras/agent-platform/secrets/" + target + "-token-exchange-credentials.yaml"
+		want := "  client-id: " + client + "\n  client-secret: GENERATED(" + client + "-client-secret)\n"
+		if got := string(tree[path]); !strings.Contains(got, want) {
+			t.Errorf("%s lacks %q:\n%s", path, want, got)
+		}
+	}
+	// The registry's hub gopher into burrow and marmot: the plain id.
+	input, secrets := loadInput(t, shapeHubPrivateTarget)
+	gopher := tree(input, secrets)
+	credentials(gopher, "gopher", "burrow", "muster-token-exchange-burrow")
+	credentials(gopher, "gopher", "marmot", "muster-token-exchange-marmot")
+	// warren, a further hub, into marmot and vole: its name in the id.
+	input, secrets = loadInput(t, shapeSecondHub)
+	warren := tree(input, secrets)
+	credentials(warren, "warren", "marmot", "muster-token-exchange-marmot-warren")
+	credentials(warren, "warren", "vole", "muster-token-exchange-vole-warren")
+	// warren as gopher's target: the registry's hub's client in its Dex under the plain id, its Secret and the peer.
+	const warrenSecrets = "giantswarm/giantswarm-management-clusters/management-clusters/warren/extras/agent-platform/secrets/"
+	patch := string(warren["giantswarm/giantswarm-configs/installations/warren/apps/dex-app/configmap-values.yaml.patch"])
+	for _, want := range []string{
+		"        - muster-token-exchange-warren\n",
+		"    - id: muster-token-exchange-warren\n      name: gopher token exchange\n      secretRef:\n        name: dex-client-muster-token-exchange-warren\n        key: secret\n",
+	} {
+		if !strings.Contains(patch, want) {
+			t.Errorf("warren's dex patch lacks %q:\n%s", want, patch)
+		}
+	}
+	if secret := string(warren[warrenSecrets+"dex-client-muster-token-exchange-warren-secret.yaml"]); !strings.Contains(secret, "  name: dex-client-muster-token-exchange-warren\n") || !strings.Contains(secret, "  secret: GENERATED(muster-token-exchange-warren-client-secret)\n") {
+		t.Errorf("the client's Secret on warren:\n%s", secret)
+	}
+	for path, content := range warren {
+		if strings.Contains(path, "gopher-token-exchange") || strings.Contains(string(content), "gopher-token-exchange") || strings.Contains(string(content), "warren-token-exchange") {
+			t.Errorf("%s carries the former id", path)
+		}
+	}
+	// A target of two hubs, the registry's and another (aspen): one client each, aspen's suffixed, each with its
+	// Secret — the name the other hub's own render gives the pair's value.
+	input, secrets = loadInput(t, shapeSecondHub)
+	input["installation"].(map[string]any)["federation"].(map[string]any)["hubs"] = []any{"gopher", "aspen"}
+	two := tree(input, secrets)
+	patch = string(two["giantswarm/giantswarm-configs/installations/warren/apps/dex-app/configmap-values.yaml.patch"])
+	for _, want := range []string{
+		"        - muster-token-exchange-warren\n        - muster-token-exchange-warren-aspen\n",
+		"    - id: muster-token-exchange-warren-aspen\n      name: aspen token exchange\n      secretRef:\n        name: dex-client-muster-token-exchange-warren-aspen\n",
+	} {
+		if !strings.Contains(patch, want) {
+			t.Errorf("a target of two hubs lacks %q:\n%s", want, patch)
+		}
+	}
+	in, err := Parse(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aspen := &Input{Installation: Installation{Name: "aspen", Hub: false}}
+	if shared := exchangeSecretName(aspen.hubClient(Target{Installation: "warren"})); shared != "muster-token-exchange-warren-aspen-client-secret" || exchangeSecretName(in.targetClient("aspen")) != shared {
+		t.Errorf("the pair's value is named %s on aspen and %s on warren", shared, exchangeSecretName(in.targetClient("aspen")))
+	}
+	if secret := string(two[warrenSecrets+"dex-client-muster-token-exchange-warren-aspen-secret.yaml"]); !strings.Contains(secret, "GENERATED(muster-token-exchange-warren-aspen-client-secret)") {
+		t.Errorf("aspen's client Secret on warren:\n%s", secret)
+	}
+	if kustomization := string(two[warrenSecrets+"kustomization.yaml"]); !strings.Contains(kustomization, "  - dex-client-muster-token-exchange-warren-secret.yaml\n  - dex-client-muster-token-exchange-warren-aspen-secret.yaml\n") {
+		t.Errorf("the secrets kustomization:\n%s", kustomization)
+	}
+}

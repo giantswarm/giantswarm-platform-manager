@@ -205,6 +205,21 @@ func TestReconcileKeepsTheEncryptedFilesOnRecord(t *testing.T) {
 			t.Fatalf("%s after the enablement: %+v", g.Name, g)
 		}
 	}
+	// A kept file names the literals the record holds encrypted, with the
+	// render's value — the kagent UI's client id beside its generated secret;
+	// a file of generated values alone names none.
+	var unseen []plan.Unseen
+	for _, f := range p.Files {
+		switch {
+		case strings.HasSuffix(f.Path, "/secrets/kagent-oauth2-proxy-credentials.yaml"):
+			unseen = f.Unseen
+		case strings.HasSuffix(f.Path, "/secrets/muster-valkey-credentials.yaml") && len(f.Unseen) != 0:
+			t.Errorf("%s holds generated values only: %+v", f.Path, f.Unseen)
+		}
+	}
+	if !slices.Equal(unseen, []plan.Unseen{{Path: "stringData.client-id", Value: "kagent"}}) {
+		t.Fatalf("the kagent credentials' unseen literals: %+v", unseen)
+	}
 	out, text, isErr := commitCall(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(nil)})
 	if isErr || out.Action != nil || len(out.PullRequests) != 0 || !strings.Contains(out.Next, "nothing to commit") {
 		t.Fatalf("a commit with nothing changed: %s", text)

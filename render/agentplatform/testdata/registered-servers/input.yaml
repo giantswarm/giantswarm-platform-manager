@@ -24,6 +24,7 @@ input:
         chartLine: ">=2.1.0 <3.0.0"
     federation:
       hubs: []
+      registryHub: gopher
       targets: []
     mcpServers:
       - name: pond-mcp-timescale

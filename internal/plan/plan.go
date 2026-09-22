@@ -61,8 +61,14 @@ type File struct {
 	Generated []string `json:"generated,omitempty"`
 	// Kept is the part of the installation's current file that is not the
 	// platform's, kept in the file as the plan writes it.
-	Kept  []Kept `json:"kept,omitempty"`
-	Error string `json:"error,omitempty"`
+	Kept []Kept `json:"kept,omitempty"`
+	// Unseen are the literals of the render that this file, kept unchanged
+	// on record, holds encrypted — a client id beside a generated secret: the
+	// comparison decrypts nothing, so the value on record stands whether or
+	// not it is the render's, and a person reads here what the render
+	// assumes it to be.
+	Unseen []Unseen `json:"unseen,omitempty"`
+	Error  string   `json:"error,omitempty"`
 }
 
 // Kept is one entry of a file with several owners that another owner carries;
@@ -422,7 +428,7 @@ func Build(ctx context.Context, opts Options) Installation {
 					pf.Current = current
 				}
 			}
-			pf.Change, pf.Error = change(current, err, content)
+			pf.Change, pf.Error, pf.Unseen = change(current, err, content)
 			p.Diff[pf.Change]++
 			if len(f.Generated) > 0 {
 				h.change = pf.Change
@@ -484,17 +490,20 @@ func withSelected(inputs, selected map[string]any) map[string]any {
 // change is what rendered is against the repository's file, read as the
 // caller: current with err. A file on record that differs from the render
 // only in the values the commit fills in — encrypted on record, or a plain
-// file's public half of a key pair — is unchanged: the values stand.
-func change(current string, err error, rendered string) (Change, string) {
+// file's public half of a key pair — is unchanged: the values stand, and the
+// literals the render puts under an encrypted field are named as unseen.
+func change(current string, err error, rendered string) (Change, string, []Unseen) {
 	switch {
-	case err == nil && (current == rendered || sameSkeleton(rendered, current)):
-		return ChangeUnchanged, ""
+	case err == nil && current == rendered:
+		return ChangeUnchanged, "", nil
+	case err == nil && sameSkeleton(rendered, current):
+		return ChangeUnchanged, "", unseen(rendered, current)
 	case err == nil:
-		return ChangeUpdate, ""
+		return ChangeUpdate, "", nil
 	case errors.Is(err, gh.ErrNotFound):
-		return ChangeCreate, ""
+		return ChangeCreate, "", nil
 	default:
-		return ChangeUnknown, err.Error()
+		return ChangeUnknown, err.Error(), nil
 	}
 }
 

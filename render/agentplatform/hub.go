@@ -96,6 +96,30 @@ func (t Target) tokenName(app, hub string) string {
 // tokens. A target naming no hubs is this hub's alone.
 func (t Target) first(hub string) bool { return len(t.Hubs) == 0 || t.Hubs[0] == hub }
 
+// tokenExchangeClient is the id of the token-exchange client hub uses in
+// target's Dex — the one the hub's credentials Secret for the target presents
+// and the target's Dex registers. The registry's hub carries the fleet's id,
+// muster-token-exchange-<target>: the client every installation registered
+// for it by hand before the definition rendered one, so the credentials on
+// record present it and the render adds no second client beside it. Every
+// other hub's carries the hub's name too, muster-token-exchange-<target>-<hub>,
+// since a target's Dex registers one client per hub and only one can carry
+// the plain id. Both sides render the id from the same two facts, the target
+// and whether the hub is the registry's, so the pair agrees whatever else
+// each side sees.
+func tokenExchangeClient(target, hub string, registryHub bool) string {
+	id := "muster-token-exchange-" + target
+	if registryHub {
+		return id
+	}
+	return id + "-" + hub
+}
+
+// hubClient is the id of this hub's token-exchange client in the target's Dex.
+func (in *Input) hubClient(t Target) string {
+	return tokenExchangeClient(t.Installation, in.Installation.Name, in.Installation.Hub)
+}
+
 // tunnelHost is the in-cluster DNS name of a tunnelled app's Service on the hub.
 func (t Target) tunnelHost(app string) string { return render.TunnelServiceHost(app, t.Installation) }
 
@@ -123,11 +147,10 @@ func (t Target) serverURL(group string) string {
 func (t Target) credentialsSecret() string { return t.Installation + "-token-exchange-credentials" }
 
 // exchangeSecretName is the generated value shared by the hub's credentials
-// Secret for a target and the target's Dex-side copy: the pair names it, so the
-// two installations' filesets agree on which value they share.
-func exchangeSecretName(hub, target string) string {
-	return hubClient(hub) + "-" + target + "-client-secret"
-}
+// Secret for a target and the target's Dex-side copy: named after the client,
+// which names the pair, so the two installations' filesets agree on which
+// value they share.
+func exchangeSecretName(client string) string { return client + "-client-secret" }
 
 // brokerValues is muster.muster.oauth.server.tokenExchangeBroker: the hub's
 // broker client, on the registry's hub the GitHub grant target, the targets
@@ -202,16 +225,16 @@ func (in *Input) targetServers() []MCPServer {
 // hubSecrets are the extras Secrets of a hub: the broker client's credentials
 // and, per target, the hub's client in the target's Dex.
 func (in *Input) hubSecrets(add func(file string, f render.File)) {
-	hub := in.Installation.Name
 	add(brokerClients+".yaml", render.Secret(brokerClients, platformNamespace,
 		map[string]string{"muster.giantswarm.io/type": "broker-client-credentials"},
 		render.ValueKey("client-id", in.Installation.Federation.BrokerClientID),
 		in.generated("client-secret", "muster-broker-client-secret", render.Base64, 32)))
 	for _, t := range in.Installation.Federation.Targets {
+		client := in.hubClient(t)
 		add(t.credentialsSecret()+".yaml", render.Secret(t.credentialsSecret(), platformNamespace,
 			map[string]string{"muster.giantswarm.io/management-cluster": t.Installation, "muster.giantswarm.io/type": "token-exchange-credentials"},
-			render.ValueKey("client-id", hubClient(hub)),
-			render.GeneratedKey("client-secret", exchangeSecretName(hub, t.Installation), render.Base64, 32)))
+			render.ValueKey("client-id", client),
+			render.GeneratedKey("client-secret", exchangeSecretName(client), render.Base64, 32)))
 	}
 }
 

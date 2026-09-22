@@ -21,7 +21,7 @@ oidc:
     dexK8SAuthenticator:
       trustedPeers:
         - backstage
-        - gopher-token-exchange
+        - muster-token-exchange-graveler
   extraStaticClients:
     - id: kagent
       name: kagent-ui
@@ -37,8 +37,8 @@ oidc:
       secretRef:
         name: dex-client-backstage
         key: secret
-    - id: gopher-token-exchange
+    - id: muster-token-exchange-graveler
       name: gopher token exchange
       secretRef:
-        name: dex-client-gopher-token-exchange
+        name: dex-client-muster-token-exchange-graveler
         key: secret

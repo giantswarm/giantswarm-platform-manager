@@ -28,6 +28,7 @@ input:
         chartLine: ">=2.1.0 <3.0.0"
     federation:
       hubs: [gopher]
+      registryHub: gopher
       targets: []
   aiChat:
     enabled: true

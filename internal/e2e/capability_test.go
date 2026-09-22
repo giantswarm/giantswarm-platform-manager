@@ -271,6 +271,77 @@ func TestEnableCapabilityDryRunTypedInputs(t *testing.T) {
 	}
 }
 
+// A hub's token-exchange client in a target's Dex is rendered under the
+// fleet's id on both sides: the hub's credentials Secret for the target
+// carries muster-token-exchange-<target> where the hub is the registry's
+// (installation.hub) and muster-token-exchange-<target>-<hub> otherwise; the
+// target's Dex patch, its trusted peers and the client's Secret carry the same
+// id for each hub, told apart by the registry's hub among the installation's
+// facts (installation.federation.registryHub, typed here with the federation:
+// a typed federation stands whole), and the pair shares the generated
+// secret's name.
+func TestDryRunRendersTheTokenExchangeClientUnderTheFleetsID(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	planOf := func(inputs map[string]any) plan.Installation {
+		out, text, isErr := dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: inputs})
+		if isErr {
+			t.Fatal(text)
+		}
+		p := findPlan(t, out, rowan)
+		if p.Refused != "" {
+			t.Fatalf("refused: %s", p.Refused)
+		}
+		return p
+	}
+	fileWithSuffix := func(p plan.Installation, suffix string) plan.File {
+		for _, f := range p.Files {
+			if strings.HasSuffix(f.Path, suffix) {
+				return f
+			}
+		}
+		t.Fatalf("no file %s in %+v", suffix, p.Files)
+		return plan.File{}
+	}
+	// The hub side: rowan brokers into alder. Not the registry's hub, its client carries its name; typed as the hub, the plain id.
+	hubInputs := func(registryHub bool) map[string]any {
+		return minimalInputs(map[string]any{argInstallation: map[string]any{"hub": registryHub, "federation": map[string]any{
+			"brokerClientId": "broker", "hubs": []any{},
+			"targets": []any{map[string]any{"installation": alder, "baseDomain": alder + ".example", argPrivate: false}}}}})
+	}
+	for _, tc := range []struct {
+		registryHub bool
+		client      string
+	}{{false, "muster-token-exchange-alder-rowan"}, {true, "muster-token-exchange-alder"}} {
+		credentials := fileWithSuffix(planOf(hubInputs(tc.registryHub)), "/secrets/"+alder+"-token-exchange-credentials.yaml")
+		if want := "  client-id: " + tc.client + "\n  client-secret: GENERATED(" + tc.client + "-client-secret)\n"; !strings.Contains(credentials.Content, want) || !slices.Equal(credentials.Generated, []string{tc.client + "-client-secret"}) {
+			t.Errorf("hub %v: the credentials for %s lack %q:\n%s", tc.registryHub, alder, want, credentials.Content)
+		}
+	}
+	// The target side: the registry's hub hazel brokers into rowan under the plain id, birch under its own name.
+	for _, tc := range []struct {
+		hub, client string
+	}{{hub, "muster-token-exchange-" + rowan}, {birch, "muster-token-exchange-" + rowan + "-" + birch}} {
+		p := planOf(minimalInputs(map[string]any{argInstallation: map[string]any{"federation": map[string]any{"hubs": []any{tc.hub}, "registryHub": hub, "targets": []any{}}}}))
+		var client *plan.DexClient
+		for i := range p.DexClients {
+			if p.DexClients[i].ID == tc.client {
+				client = &p.DexClients[i]
+			}
+		}
+		if client == nil || client.SecretRef != "dex-client-"+tc.client || len(client.RedirectURIs) != 0 {
+			t.Fatalf("hub %s: the Dex clients %+v lack %s with its Secret", tc.hub, p.DexClients, tc.client)
+		}
+		if patch := fileWithSuffix(p, "/apps/dex-app/configmap-values.yaml.patch"); !strings.Contains(patch.Content, "        - "+tc.client+"\n") || strings.Contains(patch.Content, tc.hub+"-token-exchange") {
+			t.Errorf("hub %s: the dex patch:\n%s", tc.hub, patch.Content)
+		}
+		if secret := fileWithSuffix(p, "/secrets/dex-client-"+tc.client+"-secret.yaml"); !slices.Equal(secret.Generated, []string{tc.client + "-client-secret"}) {
+			t.Errorf("hub %s: the client's Secret generates %v", tc.hub, secret.Generated)
+		}
+	}
+}
+
 // The set: every readable installation with the capability on record is
 // rendered in the wave's order (the hub first here: no test installation of
 // its customer), the rest is skipped with the reason — a wave reconciles what

@@ -59,7 +59,9 @@ func commitCall(t *testing.T, c *client.Client, tool string, args map[string]any
 }
 
 // sopsFixtures gives the acme repositories a .sops.yaml with a fresh age
-// recipient: what the commit encrypts the secret files for.
+// recipient: what the commit encrypts the secret files for. The rule is the
+// fleet's: a secret file by its path, the values under data and stringData
+// encrypted, the rest of the manifest in plaintext.
 func sopsFixtures(t *testing.T, g *fakeGitHub) {
 	t.Helper()
 	id, err := age.GenerateX25519Identity()
@@ -67,7 +69,7 @@ func sopsFixtures(t *testing.T, g *fakeGitHub) {
 		t.Fatal(err)
 	}
 	for _, repo := range []string{acmeConfigs, acmeMCs} {
-		g.addFile(repo, tools.SopsConfig, "creation_rules:\n  - path_regex: "+sopsPathRegex+"\n    age: "+id.Recipient().String()+"\n")
+		g.addFile(repo, tools.SopsConfig, "creation_rules:\n  - path_regex: "+sopsPathRegex+"\n    encrypted_regex: ^(data|stringData)$\n    age: "+id.Recipient().String()+"\n")
 	}
 }
 

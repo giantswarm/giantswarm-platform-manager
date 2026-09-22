@@ -333,8 +333,13 @@ func (in *Input) generated(key, base string, kind render.GeneratedKind, length i
 // generatedName names a generated value of this installation.
 func (in *Input) generatedName(base string) string { return in.Installation.Name + "-" + base }
 
-// hubClient is the id of the token-exchange client a hub uses in this installation's Dex.
-func hubClient(hub string) string { return hub + "-token-exchange" }
+// targetClient is the id of the token-exchange client hub uses in this
+// installation's Dex (tokenExchangeClient): the fleet's plain id for the
+// registry's hub, installation.federation.registryHub, the hub's name in it
+// for every other hub.
+func (in *Input) targetClient(hub string) string {
+	return tokenExchangeClient(in.Installation.Name, hub, hub == in.Installation.Federation.RegistryHub)
+}
 
 // portalDexClient is the one Dex client every portal signs in through: the
 // customer-portal definition's client, with a redirect URI per portal. Its
@@ -370,7 +375,7 @@ func (in *Input) dexPatch() render.Map {
 	// client it signed in with, so the peer is that client's id.
 	peers := in.portalAudiences()
 	for _, hub := range in.Installation.Federation.Hubs {
-		peers = append(peers, hubClient(hub))
+		peers = append(peers, in.targetClient(hub))
 	}
 	if len(peers) > 0 {
 		static = append(static, e("dexK8SAuthenticator", render.Map{e("trustedPeers", peers)}))
@@ -385,8 +390,8 @@ func (in *Input) dexPatch() render.Map {
 		extra = append(extra, in.portalDexClient())
 	}
 	for _, hub := range in.Installation.Federation.Hubs {
-		extra = append(extra, render.Map{e("id", hubClient(hub)), e("name", hub+" token exchange"),
-			e("secretRef", dexClientRef(hubClient(hub)))})
+		extra = append(extra, render.Map{e("id", in.targetClient(hub)), e("name", hub+" token exchange"),
+			e("secretRef", dexClientRef(in.targetClient(hub)))})
 	}
 	oidc := render.Map{e("staticClients", static)}
 	if len(extra) > 0 {
@@ -443,7 +448,8 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 		add(dexClientSecretFile("kagent"), dexClientSecret("kagent", in.generatedName("kagent-dex-client-secret")))
 	}
 	for _, hub := range in.Installation.Federation.Hubs {
-		add(dexClientSecretFile(hubClient(hub)), dexClientSecret(hubClient(hub), exchangeSecretName(hub, in.Installation.Name)))
+		client := in.targetClient(hub)
+		add(dexClientSecretFile(client), dexClientSecret(client, exchangeSecretName(client)))
 	}
 	if len(in.Installation.Federation.Targets) > 0 {
 		in.hubSecrets(add)

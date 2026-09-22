@@ -26,6 +26,7 @@ input:
         chartLine: ">=2.1.0 <3.0.0"
     federation:
       hubs: []
+      registryHub: gopher
       targets: []
   # The serving slice is chosen on the hub-private-target shape: the connectivity
   # chart of the 4 line renders it only with a certificate for the models Gateway,
