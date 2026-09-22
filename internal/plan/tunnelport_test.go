@@ -150,3 +150,66 @@ func TestKeepTunnelportValuesRefusesAnEntryWithoutAName(t *testing.T) {
 		t.Errorf("err = %v, want an entry without a name", err)
 	}
 }
+
+// sharedTunnel is the fleet's values with a tunnel two hubs reach: gopher's
+// token and the tunnel's labels on record with stale content, otter's token
+// beside them.
+const sharedTunnel = `tunnelport:
+  consumers:
+    gopher:
+      installNamespace: agent-platform
+      issuer: https://irsa.gopher.example.io
+  trustBundle:
+    tokens:
+      - name: tunnelport-trust-bundle-token-gopher
+        consumer: gopher
+  tunnels:
+    - name: dex-burrow
+      appLabels:
+        app: dex
+        cluster: burrow
+        customer: stale
+      tokens:
+        - name: dex-burrow-bot-token
+          consumer: stale
+        # otter is burrow's second hub
+        - name: dex-burrow-bot-token-otter
+          consumer: otter
+`
+
+func TestKeepTunnelportValuesKeepsTheOtherHubsTokensOfASharedTunnel(t *testing.T) {
+	got, kept, err := keepTunnelportValues([]byte(renderedTunnelport), []byte(sharedTunnel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []Kept{{listTunnelTokens("dex-burrow"), "dex-burrow-bot-token-otter"}}; len(kept) != 1 || kept[0] != want[0] {
+		t.Errorf("kept %v, want %v", kept, want)
+	}
+	s := string(got)
+	for _, frag := range []string{
+		"    - name: dex-burrow\n      appLabels:\n        app: dex\n        cluster: burrow\n        customer: giantswarm\n      tokens:\n",
+		"        - name: dex-burrow-bot-token\n          consumer: gopher\n",
+		"        # otter is burrow's second hub\n        - name: dex-burrow-bot-token-otter\n          consumer: otter\n",
+	} {
+		if !strings.Contains(s, frag) {
+			t.Errorf("edited file lacks %q:\n%s", frag, s)
+		}
+	}
+	if strings.Contains(s, "stale") {
+		t.Errorf("edited file carries the stale content:\n%s", s)
+	}
+	if strings.Index(s, "name: dex-burrow-bot-token\n") > strings.Index(s, "name: dex-burrow-bot-token-otter\n") {
+		t.Errorf("the hub's token left its place:\n%s", s)
+	}
+	// The edited file again: nothing to change, byte for byte, otter's token still kept.
+	again, kept, err := keepTunnelportValues([]byte(renderedTunnelport), got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(again) != s {
+		t.Errorf("an unchanged file was rewritten:\n--- current\n%s\n--- got\n%s", s, again)
+	}
+	if len(kept) != 1 || kept[0].Entry != "dex-burrow-bot-token-otter" {
+		t.Errorf("kept %v, want otter's token", kept)
+	}
+}

@@ -11,9 +11,13 @@ import (
 // teleport-fleet's own template, kubernetes/envs/prod/templates/tunnelport.yaml,
 // from .Values.tunnelport. The definition renders no Teleport object: it renders
 // the hub's entries of that values file — the hub as a consumer, its
-// trust-bundle token and one tunnel per tunnelled app of every private target —
-// and the commit step edits them into the file, every other entry kept
-// (internal/plan). The singleton and the template are teleport-fleet's. Nothing
+// trust-bundle token and one tunnel per tunnelled app of every private target
+// with this hub's token — and the commit step edits them into the file, every
+// other entry kept, the other hubs' tokens of a shared tunnel included
+// (internal/plan). A tunnel is shared by every hub that brokers into its
+// target, so a token is named for its hub (Target.tokenName): the target's
+// first hub's <app>-<target>-bot-token, every further hub's with its name. The
+// singleton and the template are teleport-fleet's. Nothing
 // here runs against Teleport: teleport-fleet's CI applies the chart. Shield
 // reviews this file (CODEOWNERS).
 
@@ -51,8 +55,8 @@ func (in *Input) serviceAccountIssuer() string {
 // the platform's namespace, its tokens join by its issuer), its trust-bundle
 // token — the one the hub's tunnelport release names — and one tunnel per
 // tunnelled app of every private target: the app pinned by its labels and one
-// token for this hub. The SVIDs' DNS SANs are the template's, templated off the
-// join attributes, so no entry carries them.
+// token for this hub, named for it. The SVIDs' DNS SANs are the template's,
+// templated off the join attributes, so no entry carries them.
 func (in *Input) tunnelValues(r *render.Result) {
 	if !in.hasPrivateTarget() {
 		return
@@ -68,7 +72,7 @@ func (in *Input) tunnelValues(r *render.Result) {
 			tunnels = append(tunnels, render.Map{
 				e("name", name),
 				e("appLabels", render.Map{e("app", app.name), e("cluster", t.Installation), e("customer", teleportCustomerLabel)}),
-				e("tokens", []render.Map{{e("name", name+"-bot-token"), e("consumer", hub)}}),
+				e("tokens", []render.Map{{e("name", t.tokenName(app.name, hub)), e("consumer", hub)}}),
 			})
 		}
 	}

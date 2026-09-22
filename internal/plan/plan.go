@@ -76,8 +76,10 @@ type File struct {
 // list and Entry an id the installation trusts that the definition does not
 // render, kept after the definition's in that list alone. In teleport-fleet's
 // tunnelport values List is tunnelport.consumers, tunnelport.trustBundle.tokens
-// or tunnelport.tunnels and Entry the consumer or the entry's name, kept in
-// place: there the platform's entries are the ones edited in.
+// or tunnelport.tunnels and Entry the consumer or the entry's name — or List is
+// tunnelport.tunnels[<tunnel>].tokens and Entry another hub's token of a tunnel
+// this hub shares — kept in place: there the platform's entries are the ones
+// edited in.
 type Kept struct {
 	List  string `json:"list"`
 	Entry string `json:"entry"`

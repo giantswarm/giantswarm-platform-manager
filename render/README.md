@@ -66,11 +66,16 @@ issuer, which capa publishes; a hub whose provider publishes none the definition
 private target), the hub's trust-bundle token (`tunnelport-trust-bundle-token-<hub>`, the one its
 tunnelport release names) and one tunnel per tunnelled app (`name: <app>-<target>`, `appLabels`
 pinning the app on `app`, `cluster` and the fleet's Teleport tenancy label `customer: giantswarm`,
-one token for this hub; the SVIDs' DNS SANs are the template's, templated off the join attributes).
+one token for this hub — `<app>-<target>-bot-token` for the target's first hub, `<app>-<target>-bot-token-<hub>`
+for every further one, the rule the connector names follow, since every hub that brokers into the
+target shares the tunnel and each needs a token of its own; the hub's RemoteApp names the same token;
+the SVIDs' DNS SANs are the template's, templated off the join attributes).
 The values file has several
 owners: the definition renders its entries as a values document of their own (the golden) and the
-plan edits them into the file on record — an entry replaces the one of its name or is appended,
-every other consumer, token and tunnel stays and is named `kept` — and never creates the file:
+plan edits them into the file on record — a consumer or a trust-bundle token replaces the one of its
+name or is appended; a tunnel of the same name is merged, the hub's labels and the hub's token in,
+every other hub's token kept in place (`tunnelport.tunnels[<tunnel>].tokens`); every other consumer,
+token and tunnel stays and is named `kept` — and never creates the file:
 without the template on record its values mean nothing, so a values file without `tunnelport` is
 `unknown`, which refuses the commit. The trust-bundle singleton (bot, role, workload identity) is
 the template's. The Teleport rendering (`teleport.go` and the teleport-fleet subtree of the goldens)

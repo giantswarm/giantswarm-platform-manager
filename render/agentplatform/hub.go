@@ -76,6 +76,26 @@ func (t Target) tunnelledApps() []tunnelledApp {
 // appName is a tunnelled app's name on the hub and on Teleport: <app>-<target>.
 func (t Target) appName(app string) string { return app + "-" + t.Installation }
 
+// tokenName is the provision token hub's tunnel to app joins Teleport with.
+// The tunnel is one entry of teleport-fleet's values shared by every hub that
+// brokers into the target, each hub with a token of its own, so the names
+// follow the connector's rule (first): the target's first hub's token is
+// <app>-<target>-bot-token, every further hub's carries its name,
+// <app>-<target>-bot-token-<hub>. The hub's RemoteApp names the same token.
+func (t Target) tokenName(app, hub string) string {
+	name := t.appName(app) + "-bot-token"
+	if t.first(hub) {
+		return name
+	}
+	return name + "-" + hub
+}
+
+// first says whether hub is the target's first hub of the organisation
+// (t.Hubs, in the registry's order): the one whose names are the plain ones —
+// the organisation's connector at the target's Dex, the unsuffixed tunnel
+// tokens. A target naming no hubs is this hub's alone.
+func (t Target) first(hub string) bool { return len(t.Hubs) == 0 || t.Hubs[0] == hub }
+
 // tunnelHost is the in-cluster DNS name of a tunnelled app's Service on the hub.
 func (t Target) tunnelHost(app string) string { return render.TunnelServiceHost(app, t.Installation) }
 
@@ -237,7 +257,7 @@ func (in *Input) tunnelExtras(r *render.Result, repo render.Repository, dir stri
 			continue
 		}
 		for _, app := range t.tunnelledApps() {
-			spec := render.Map{e("appName", t.appName(app.name)), e("port", app.port), e("tokenName", t.appName(app.name)+"-bot-token")}
+			spec := render.Map{e("appName", t.appName(app.name)), e("port", app.port), e("tokenName", t.tokenName(app.name, in.Installation.Name))}
 			if app.probe != "" {
 				spec = append(spec, e("probe", render.Map{e("path", app.probe)}))
 			}
