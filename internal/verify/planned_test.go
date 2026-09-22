@@ -224,12 +224,13 @@ func TestJoinedScalarsAndTheValkeySecretArePlanned(t *testing.T) {
 // The installation's own three MCP servers on record (mcp-kubernetes,
 // mcp-prometheus, mcp-capi) repeat what the shared defaults register — in
 // their in-cluster form, or on the installation's own base domain: their
-// removal names the server and is no migration. Any other entry of the list
-// is M19, as is the list itself: a foreign server, a private target's tunnel
-// host, and a target's public URL a hub still carries by hand — a server on
-// the target's domain, however own it looks. Without a base domain on record
-// no public entry is the installation's own.
-func TestOwnMCPServersAreNotM19(t *testing.T) {
+// removal names the server. Any other entry of the list, and the list
+// itself, is no removal's — a registered server's home is its MCPServer
+// object under extras, a hub's target entries are rendered — so a foreign
+// server, a private target's tunnel host and a target's public URL a hub
+// still carries by hand are drift. Without a base domain on record no public
+// entry is the installation's own.
+func TestOwnMCPServersAreTheOnlyPlannedEntries(t *testing.T) {
 	rs, err := definitions.Removals(installations.AgentPlatform)
 	if err != nil {
 		t.Fatal(err)
@@ -240,27 +241,23 @@ func TestOwnMCPServersAreNotM19(t *testing.T) {
 	for _, tc := range []struct {
 		name, path, names string
 		keys              plannedKeys
-		m19               bool
 	}{
-		{"own mcp-kubernetes on the installation's domain", list + "[https://mcp-kubernetes." + testDomain + "/mcp].url", "this mcp-kubernetes entry at mcp-kubernetes." + testDomain, rms, false},
-		{"own mcp-prometheus in the cluster", list + "[http://mcp-prometheus.mcp-prometheus.svc:8080/mcp].timeout", "this mcp-prometheus entry repeats the in-cluster one", rms, false},
-		{"own mcp-capi's auth mode", list + "[https://mcp-capi." + testDomain + "/mcp].auth.mode", "this mcp-capi entry at mcp-capi." + testDomain, rms, false},
-		{"a target's public URL on a hub", list + "[https://mcp-kubernetes.y.example.test/mcp].url", "", rms, true},
-		{"a foreign server", list + "[http://mcp-foo.mcp-foo.svc:8080/mcp].url", "", rms, true},
-		{"a private target's tunnel host", list + "[https://mcp-kubernetes-y.agent-platform.svc.cluster.local:8443/mcp].url", "", rms, true},
-		{"the list itself", list, "", rms, true},
-		{"no base domain on record: a public entry is not own", list + "[https://mcp-kubernetes." + testDomain + "/mcp].url", "", noDomain, true},
-		{"no base domain on record: the in-cluster entry still is", list + "[http://mcp-capi.mcp-capi.svc:8080/mcp].url", "this mcp-capi entry repeats the in-cluster one", noDomain, false},
+		{"own mcp-kubernetes on the installation's domain", list + "[https://mcp-kubernetes." + testDomain + "/mcp].url", "this mcp-kubernetes entry at mcp-kubernetes." + testDomain, rms},
+		{"own mcp-prometheus in the cluster", list + "[http://mcp-prometheus.mcp-prometheus.svc:8080/mcp].timeout", "this mcp-prometheus entry repeats the in-cluster one", rms},
+		{"own mcp-capi's auth mode", list + "[https://mcp-capi." + testDomain + "/mcp].auth.mode", "this mcp-capi entry at mcp-capi." + testDomain, rms},
+		{"a target's public URL on a hub", list + "[https://mcp-kubernetes.y.example.test/mcp].url", "", rms},
+		{"a foreign server", list + "[http://mcp-foo.mcp-foo.svc:8080/mcp].url", "", rms},
+		{"a private target's tunnel host", list + "[https://mcp-kubernetes-y.agent-platform.svc.cluster.local:8443/mcp].url", "", rms},
+		{"the list itself", list, "", rms},
+		{"the keep switch", "agent-platform-mcps.defaults.keep", "", rms},
+		{"no base domain on record: a public entry is not own", list + "[https://mcp-kubernetes." + testDomain + "/mcp].url", "", noDomain},
+		{"no base domain on record: the in-cluster entry still is", list + "[http://mcp-capi.mcp-capi.svc:8080/mcp].url", "this mcp-capi entry repeats the in-cluster one", noDomain},
 	} {
 		got := tc.keys.reason(patch, tc.path)
-		if got == "" {
-			t.Errorf("%s: %s names no removal", tc.name, tc.path)
-			continue
-		}
-		if isM19 := strings.HasSuffix(got, "· M19"); isM19 != tc.m19 {
-			t.Errorf("%s: %s planned %q, want M19 %v", tc.name, tc.path, got, tc.m19)
-		}
-		if tc.names != "" && !strings.Contains(got, tc.names) {
+		switch {
+		case tc.names == "" && got != "":
+			t.Errorf("%s: %s is planned %q, want drift", tc.name, tc.path, got)
+		case tc.names != "" && !strings.Contains(got, tc.names):
 			t.Errorf("%s: %s planned %q, want it to say %q", tc.name, tc.path, got, tc.names)
 		}
 	}
@@ -445,29 +442,25 @@ func TestEveryRemovalKeyNamesAPath(t *testing.T) {
 	}
 }
 
-// muster's exchange client allowed a private address by hand is M19 — the
-// definition renders it by itself where a registered server exchanges — where
-// the rest of muster's bare token-exchange block stays M16; a customer's
-// hand-written redirect URI allowlist is M20 and names the registrations it
-// moves to. The chart's keep policy, the other handle of the move, is a kept
-// key (carried into the render, found as defined) and no planned change.
-func TestRegistrationHandlesArePlanned(t *testing.T) {
+// What the registrations on record render — muster's exchange client allowed
+// a private address, the public-registration allowlist — and the keep switch
+// of the move are no removal's: rendered where a registration asks for it,
+// drift where it is written by hand without one. muster's mcpClient
+// token-exchange block holds nothing else, so no migration names it.
+func TestRegistrationLeavesAreNotPlanned(t *testing.T) {
 	rs, err := definitions.Removals(installations.AgentPlatform)
 	if err != nil {
 		t.Fatal(err)
 	}
 	keys := readRemovals(rs, facts{factDomain: testDomain})
 	patch := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
-	for _, tc := range []struct {
-		path, migration, names string
-	}{
-		{"muster.muster.oauth.mcpClient.tokenExchange.allowPrivateIP", "M19", "extras/agent-platform/mcpservers"},
-		{"muster.muster.oauth.mcpClient.tokenExchange.identityProviders.pond.tokenEndpoint", "M16", "identity-provider"},
-		{"muster.muster.oauth.server.trustedPublicRegistrationRedirectURIs[0]", "M20", "extras/agent-platform/mcpclients"},
+	for _, path := range []string{
+		"agent-platform-mcps.defaults.keep",
+		"muster.muster.oauth.mcpClient.tokenExchange.allowPrivateIP",
+		"muster.muster.oauth.server.trustedPublicRegistrationRedirectURIs[0]",
 	} {
-		got := keys.reason(patch, tc.path)
-		if !strings.HasSuffix(got, "· "+tc.migration) || !strings.Contains(got, tc.names) {
-			t.Errorf("%s: planned %q, want %s naming %q", tc.path, got, tc.migration, tc.names)
+		if got := keys.reason(patch, path); got != "" {
+			t.Errorf("%s: planned %q, want drift", path, got)
 		}
 	}
 }

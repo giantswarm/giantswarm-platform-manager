@@ -75,28 +75,10 @@ removals:
     reason: >-
       Kept: muster's trusted issuers are listed by hand here, the cluster's service-account issuer that kagent's agents present among them; they stay until
       the shared defaults derive them (this installation's Dex and the service-account issuer) from the installation's facts · M15
-  - key: configmap:agent-platform-mcps.defaults
-    kind: kept
-    reason: "Kept: agent-platform-mcps.defaults holds the keep policy of the MCPServer objects rendered from these values, the handle of the move of the extra servers to objects under extras · M19"
-  - key: configmap:muster.muster.oauth.server.trustedPublicRegistrationRedirectURIs
-    kind: migration
-    reason: >-
-      Removed: the redirect URIs of a customer's own MCP clients are allowlisted here by hand; a client with a stable callback registers as a
-      ConfigMap under extras/agent-platform/mcpclients, and the allowlist is rendered from those registrations · M20
-  - key: configmap:muster.muster.oauth.mcpClient.tokenExchange.allowPrivateIP
-    kind: migration
-    reason: >-
-      Removed: muster's token-exchange client is allowed to reach private addresses here by hand; it is allowed by itself where a server registered
-      under extras/agent-platform/mcpservers exchanges tokens at a Dex of its own, and nowhere else · M19
-  - key: configmap:muster.muster.oauth.mcpClient.tokenExchange
-    kind: migration
-    reason: >-
-      Removed: muster's token exchange is set up here as a bare identity-provider federation; a hub's exchange targets are derived from the installations
-      its portal shows, and an identity-provider-only form no longer exists · M16
   # The installation's own three servers by identity, the entry's url — the server's in-cluster Service as the
   # shared defaults register it, or the server on the installation's own base domain (<domain>: the fact, never a
-  # wildcard) — precede the key that covers the rest of the list. An entry on any other host, a target's public URL
-  # left on a hub among them, is the rest.
+  # wildcard). Any other entry is nobody's planned change: a registered server's home is its MCPServer object under
+  # extras/agent-platform/mcpservers, a hub's target entries are rendered, and an entry beyond both is drift.
   - key: "configmap:agent-platform-mcps.mcpServers[http://mcp-kubernetes.mcp-kubernetes.svc:8080/mcp]"
     kind: template
     reason: >-
@@ -127,11 +109,6 @@ removals:
     reason: >-
       Removed: the shared defaults already register the installation's own three MCP servers (mcp-kubernetes, mcp-prometheus, mcp-capi); this mcp-capi
       entry at mcp-capi.<domain> is the installation's own, and a patch entry replaces the whole list.
-  - key: configmap:agent-platform-mcps.mcpServers
-    kind: migration
-    reason: >-
-      Removed: the shared defaults already register the installation's own three MCP servers, and a patch entry replaces the whole list. Servers beyond
-      those three become MCPServer objects under extras · M19
   - key: configmap:klausGateway.slack.channelAllowlist
     kind: migration
     reason: >-

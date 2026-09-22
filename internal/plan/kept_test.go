@@ -31,8 +31,9 @@ klausGateway:
 `
 
 // The installation's patch on record: every kept key of the definition with a
-// value of its own, one of them commented, and a review caller of another
-// team's sweep.
+// value of its own, one of them commented, a review caller of another team's
+// sweep, and the keep switch of a move the fleet has completed, which no entry
+// keeps any more.
 const currentPlatformPatchKept = `kagent:
   providers:
     anthropic:
@@ -83,11 +84,13 @@ func TestKeepAudiencesCarriesTheKeptKeysFromTheRecord(t *testing.T) {
 		"kagent.providers.anthropic.model",
 		"kagent.modelConfigs",
 		"kagent.oauth2ProxyIngress.additionalPeers",
-		"agent-platform-mcps.defaults.keep",
 	} {
 		if at(ren, strings.Split(path, ".")...) == nil {
 			t.Errorf("%s: not carried into the render:\n%s", path, out)
 		}
+	}
+	if n := at(ren, "agent-platform-mcps"); n != nil {
+		t.Errorf("agent-platform-mcps.defaults.keep: a key no entry keeps stays out of the render (drift), got %v", n)
 	}
 	if n := at(ren, "muster", "muster", "oauth", "server", "dex", "connectorId"); n == nil || n.Value != "giantswarm-ad" {
 		t.Errorf("connectorId: the record's pin stands, got %v", n)
@@ -111,12 +114,14 @@ func TestKeepAudiencesCarriesTheKeptKeysFromTheRecord(t *testing.T) {
 		{List: musterKey, Entry: "resources"},
 		{List: "muster.muster.oauth.server.dex", Entry: "connectorId"},
 		{List: "muster.muster.oauth.server", Entry: "trustedIssuers"},
-		{List: "agent-platform-mcps", Entry: "defaults"},
 	}
 	for _, w := range want {
 		if !slices.Contains(kept, w) {
 			t.Errorf("kept lacks %+v; kept: %+v", w, kept)
 		}
+	}
+	if slices.Contains(kept, Kept{List: "agent-platform-mcps", Entry: "defaults"}) {
+		t.Errorf("agent-platform-mcps.defaults is nobody's kept key; kept: %+v", kept)
 	}
 }
 
@@ -150,10 +155,13 @@ func TestKeepSubtreesLeavesTheRendersOwnKeyAndAPathThroughAScalar(t *testing.T) 
 }
 
 func TestKeptPlatformKeysReadTheDefinition(t *testing.T) {
-	for _, want := range []string{"muster.muster.oauth.server.trustedIssuers", "kagent.oauth2ProxyIngress", "muster.muster.oauth.server.dex.connectorId", "agent-platform-mcps.defaults"} {
+	for _, want := range []string{"muster.muster.oauth.server.trustedIssuers", "kagent.oauth2ProxyIngress", "muster.muster.oauth.server.dex.connectorId"} {
 		if !slices.Contains(keptPlatformKeys, want) {
 			t.Errorf("the agent-platform definition keeps %s; kept keys: %v", want, keptPlatformKeys)
 		}
+	}
+	if slices.Contains(keptPlatformKeys, "agent-platform-mcps.defaults") {
+		t.Errorf("agent-platform-mcps.defaults left with the M19 entry; kept keys: %v", keptPlatformKeys)
 	}
 	for _, k := range keptPlatformKeys {
 		if strings.Contains(k, ":") || strings.Contains(k, "[") || strings.Contains(k, "<") {
