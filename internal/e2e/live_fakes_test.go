@@ -69,7 +69,15 @@ const (
 // The kubernetes tools' operations behind the family.
 const (
 	opGet          = "get"
+	opList         = "list"
+	opLogs         = "logs"
 	opAPIResources = "api_resources"
+)
+
+// The output formats of mcp-kubernetes's get and list a read asks for.
+const (
+	outputSlim   = "slim"
+	outputNormal = "normal"
 )
 
 // fakeDex is the platform identity provider: it signs ID tokens for the
@@ -249,6 +257,13 @@ func mergeMaps(base map[string]any, over any) map[string]any {
 	return base
 }
 
+// editLogs changes the pods' logs in place.
+func (f *fakeInstallation) editLogs(change func(logs map[string]string)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	change(f.logs)
+}
+
 // edit changes one object in place.
 func (f *fakeInstallation) edit(kind, namespace, name string, change func(obj map[string]any)) {
 	f.mu.Lock()
@@ -326,6 +341,7 @@ func (f *fakeInstallation) populate(t *testing.T, installation string, res *rend
 			case "agent-platform":
 				obj["spec"] = map[string]any{"valuesFrom": []any{map[string]any{"kind": "ConfigMap", "name": "agent-platform-konfiguration", "valuesKey": "configmap-values.yaml"}},
 					"values": map[string]any{"gitops": map[string]any{"namespace": p.Namespace}}}
+				bulky(obj)
 				f.put("ConfigMap", p.Namespace, "agent-platform-konfiguration", map[string]any{"data": map[string]any{"configmap-values.yaml": valuesFile}})
 			case "kagent":
 				obj["spec"] = map[string]any{"values": map[string]any{"providers": at("kagent.providers")}}
@@ -356,7 +372,7 @@ func (f *fakeInstallation) populate(t *testing.T, installation string, res *rend
 					"template": map[string]any{"spec": map[string]any{"containers": []any{map[string]any{"name": p.Name,
 						"args": []any{"--provider=oidc", "--oidc-extra-audience=" + fmt.Sprint(at("kagent.oauth2-proxy.extraArgs.oidc-extra-audience"))}}}}}}})
 				f.put("Pod", p.Namespace, pod, map[string]any{metadataKey: map[string]any{"labels": map[string]any{"app": p.Name}}, statusKey: map[string]any{"phase": "Running"}})
-				f.logs[p.Namespace+"/"+pod] = "level=info msg=\"OAuthProxy configured\"\nlevel=info msg=\"listening on :4180\"\n"
+				f.logs[p.Namespace+"/"+pod] = busyLog()
 				continue
 			}
 			server := at("muster.muster.oauth.server")
@@ -368,6 +384,116 @@ func (f *fakeInstallation) populate(t *testing.T, installation string, res *rend
 		}
 	}
 	_ = installation
+}
+
+// responseLimit is mcp-kubernetes's cap on a tool's answer (mcp-toolkit's
+// responsecap middleware, mounted with its default): a larger answer is
+// refused whole, muster relays the refusal.
+const responseLimit = 128 * 1024
+
+// lastAppliedAnnotation duplicates the manifest on every object kubectl applied.
+const lastAppliedAnnotation = "kubectl.kubernetes.io/last-applied-configuration"
+
+// capped is a tool's result as mcp-kubernetes's response cap relays it: a
+// text over the limit becomes the typed response_too_large refusal and the
+// result an error, as the middleware phrases it.
+func capped(res *mcp.CallToolResult) *mcp.CallToolResult {
+	for i, c := range res.Content {
+		t, ok := mcp.AsTextContent(c)
+		if !ok || len(t.Text) <= responseLimit {
+			continue
+		}
+		payload, err := json.Marshal(map[string]any{"error": "response_too_large", "bytes": len(t.Text), "limit": responseLimit,
+			"message": fmt.Sprintf("response is %d bytes, exceeds %d byte limit", len(t.Text), responseLimit),
+			"hint":    "narrow the query: tighten filters, reduce the time range, or request fewer items"})
+		if err != nil {
+			return mcp.NewToolResultError(err.Error())
+		}
+		res.Content[i] = mcp.NewTextContent(string(payload))
+		res.IsError = true
+	}
+	return res
+}
+
+// shaped is an object as mcp-kubernetes answers it for the output asked:
+// full and wide as the apiserver holds it; normal without the bookkeeping
+// (the managed fields, the last-applied configuration); slim — the tool's
+// default — without a HelmRelease's values and history either. A copy: the
+// installation's object stays whole.
+func shaped(obj map[string]any, output string) map[string]any {
+	out := deepCopy(obj)
+	if output == "full" || output == "wide" {
+		return out
+	}
+	if meta, ok := out[metadataKey].(map[string]any); ok {
+		delete(meta, "managedFields")
+		if annotations, ok := meta["annotations"].(map[string]any); ok {
+			delete(annotations, lastAppliedAnnotation)
+		}
+	}
+	if output == outputNormal {
+		return out
+	}
+	if kind, _ := out["kind"].(string); kind == helmReleaseKind {
+		if spec, ok := out["spec"].(map[string]any); ok {
+			delete(spec, "values")
+		}
+		if status, ok := out[statusKey].(map[string]any); ok {
+			delete(status, "history")
+		}
+	}
+	return out
+}
+
+func deepCopy(obj map[string]any) map[string]any {
+	b, err := json.Marshal(obj)
+	if err != nil {
+		return nil
+	}
+	var out map[string]any
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+// lastLines is a log's last n lines, as the apiserver answers tailLines.
+func lastLines(log string, n int) string {
+	lines := strings.Split(strings.TrimSuffix(log, "\n"), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+// busyLog is the log of an oauth2-proxy that serves traffic: a thousand
+// request lines, then the lines its start writes — whole, over the response
+// cap; the last two hundred lines, well within it.
+func busyLog() string {
+	var b strings.Builder
+	for i := range 1000 {
+		fmt.Fprintf(&b, "10.244.%d.%d - alice@example.test [22/Sep/2026:05:%02d:%02d +0000] kagent.example.test GET - \"/api/agents?namespace=kagent&page=%d\" HTTP/1.1 \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36\" 200 1532 0.012\n",
+			i/256, i%256, i/60%60, i%60, i)
+	}
+	b.WriteString("level=info msg=\"OAuthProxy configured\"\nlevel=info msg=\"listening on :4180\"\n")
+	return b.String()
+}
+
+// bulky makes a HelmRelease as large as the platform's meta chart release is
+// on the apiserver: the managed fields and the last-applied configuration of
+// the size the apiserver keeps for it, and Flux's history — over the response
+// cap whole, within it without the bookkeeping.
+func bulky(obj map[string]any) {
+	fields := strings.Repeat(`{"f:spec":{"f:values":{"f:kagent":{"f:providers":{}}}}},`, 1500)
+	obj[metadataKey] = map[string]any{
+		"annotations":   map[string]any{lastAppliedAnnotation: `{"apiVersion":"helm.toolkit.fluxcd.io/v2","kind":"HelmRelease","spec":` + fields + `}`},
+		"managedFields": []any{map[string]any{"manager": "helm-controller", "operation": "Apply", "fieldsType": "FieldsV1", "fieldsV1": fields}},
+	}
+	var history []any
+	for i := range 10 {
+		history = append(history, map[string]any{"chartName": platformRelease, "chartVersion": fmt.Sprintf("4.4%d.0", i), "digest": strings.Repeat("ab", 32), nameKey: platformRelease, "namespace": platformNamespace, statusKey: "superseded", "version": i + 1})
+	}
+	obj[statusKey].(map[string]any)["history"] = history
 }
 
 // musterCall is one kubernetes tool call the fake muster saw, by person.
@@ -407,7 +533,7 @@ func newFakeMuster(t *testing.T, inst *fakeInstallation, installation string) *f
 	t.Helper()
 	m := &fakeMuster{insts: map[string]*fakeInstallation{installation: inst}, githubTokens: map[string]string{}}
 	aggregated := map[string]mustertest.Tool{}
-	for _, op := range []string{opGet, "list", "logs", opAPIResources} {
+	for _, op := range []string{opGet, opList, opLogs, opAPIResources} {
 		aggregated["x_"+kubernetesFamily+"_"+op] = m.kubernetes(op)
 	}
 	aggregated["x_"+tools.ToolPrefix+"_"+tools.ToolGetAction] = m.managerTool(tools.ToolGetAction)
@@ -525,6 +651,7 @@ func (m *fakeMuster) kubernetes(op string) mustertest.Tool {
 		if person == liveViewer && kind == "secret" {
 			return mcp.NewToolResultError(fmt.Sprintf(`Failed to %s resource: secrets is forbidden: User "oidc:%s" cannot %s resource "secrets" in API group "" in the namespace "%s" (impersonating user=%s)`, op, person, op, namespace, person))
 		}
+		output, _ := args["output"].(string)
 		switch op {
 		case opGet:
 			name, _ := args["name"].(string)
@@ -532,20 +659,30 @@ func (m *fakeMuster) kubernetes(op string) mustertest.Tool {
 			if !ok {
 				return mcp.NewToolResultError(fmt.Sprintf("Failed to get resource: %ss.%s %q not found", kind, args["apiGroup"], name))
 			}
-			return document(map[string]any{"resource": obj, "_meta": map[string]any{"cluster": mc}})
-		case "list":
+			return capped(document(map[string]any{"resource": shaped(obj, output), "_meta": map[string]any{"cluster": mc}}))
+		case opList:
 			selector, _ := args["labelSelector"].(string)
-			items := inst.list(kind, namespace, selector)
-			return document(map[string]any{"kind": strings.ToUpper(kind[:1]) + kind[1:] + "List", "items": items, "totalItems": len(items)})
+			items := []map[string]any{}
+			for _, obj := range inst.list(kind, namespace, selector) {
+				items = append(items, shaped(obj, output))
+			}
+			return capped(document(map[string]any{"kind": strings.ToUpper(kind[:1]) + kind[1:] + "List", "items": items, "totalItems": len(items)}))
 		default:
 			pod, _ := args["podName"].(string)
+			tail := 100
+			if v, ok := args["tailLines"].(float64); ok {
+				if v < 1 || v > 1000 {
+					return mcp.NewToolResultError("tailLines must be between 1 and 1000")
+				}
+				tail = int(v)
+			}
 			inst.mu.Lock()
 			defer inst.mu.Unlock()
 			log, ok := inst.logs[namespace+"/"+pod]
 			if !ok {
 				return mcp.NewToolResultError(fmt.Sprintf("Failed to get logs: pods %q not found", pod))
 			}
-			return mcp.NewToolResultText(log)
+			return capped(mcp.NewToolResultText(lastLines(log, tail)))
 		}
 	}
 }

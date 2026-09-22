@@ -29,15 +29,46 @@ import (
 
 // Cluster reads one installation's objects as the person: the loop-back
 // through muster's kubernetes tools in production, a fake in tests. resource
-// is a kind or kind.group as the render's probes name it. Serves is API
-// discovery: whether the apiserver serves the resource (plural) of the group
-// at the version.
+// is a kind or kind.group as the render's probes name it; shape is how much
+// of the object the check reads, and tail how many of a pod's last log lines.
+// Serves is API discovery: whether the apiserver serves the resource (plural)
+// of the group at the version.
 type Cluster interface {
-	Get(ctx context.Context, namespace, resource, name string) (map[string]any, error)
-	List(ctx context.Context, namespace, resource, labelSelector string) ([]map[string]any, error)
-	Logs(ctx context.Context, namespace, pod string) (string, error)
+	Get(ctx context.Context, namespace, resource, name string, shape Shape) (map[string]any, error)
+	List(ctx context.Context, namespace, resource, labelSelector string, shape Shape) ([]map[string]any, error)
+	Logs(ctx context.Context, namespace, pod string, tail int) (string, error)
 	Serves(ctx context.Context, group, version, resource string) (bool, error)
 }
+
+// Shape is how much of an object a check reads, and so how much a read asks
+// the installation's kubernetes tool for. mcp-kubernetes answers a call up to
+// a limit (128 KiB) and refuses a larger answer whole, and an object as the
+// apiserver holds it — a HelmRelease with its history, its values and the
+// last-applied configuration — is past it; a check asks for what it reads.
+type Shape string
+
+const (
+	// Readiness is the object without its bulk: the conditions and the
+	// revision, a workload's selector, a pod's phase, the keys of a Secret's
+	// data — what every check but a drift probe reads. A HelmRelease's values
+	// and history, a workload's long environment and every object's managed
+	// fields and last-applied configuration are not part of it.
+	Readiness Shape = "readiness"
+	// Configuration is the object with every value it carries — a
+	// HelmRelease's spec.values and valuesFrom, a ConfigMap's data, a
+	// workload's arguments — and only the apiserver's bookkeeping (managed
+	// fields, the last-applied configuration, condition timestamps) left out:
+	// what a drift probe compares.
+	Configuration Shape = "configuration"
+)
+
+// LogTail is how many of a pod's last log lines an absence check reads: a
+// window that stays within what mcp-kubernetes answers on a busy workload,
+// where the tool's maximum of 1000 lines does not.
+const LogTail = 200
+
+// logTailNote is the sentence next to an absence check: how much of the log it reads.
+var logTailNote = fmt.Sprintf("the last %d lines of each pod's log are read", LogTail)
 
 // Forbidden is the apiserver refusing a read as the person: a result, never
 // a failure of the installation.
@@ -61,6 +92,22 @@ func (e *AuthRequired) Error() string { return e.Message }
 
 // ErrNotFound is an object the installation does not have.
 var ErrNotFound = errors.New("not found")
+
+// TooLarge is the installation's kubernetes tool refusing to answer a read
+// whole: mcp-kubernetes caps a tool's answer and answers response_too_large
+// in place of a truncated object or log. A result of how much the check
+// asked for, never of the installation.
+type TooLarge struct {
+	Bytes int
+	Limit int
+}
+
+func (e *TooLarge) Error() string {
+	return fmt.Sprintf("the object or log is larger than mcp-kubernetes answers (%s, the limit is %s): the check asks for too much", kib(e.Bytes), kib(e.Limit))
+}
+
+// kib is n bytes in KiB, rounded.
+func kib(n int) string { return strconv.Itoa((n+512)/1024) + " KiB" }
 
 // The reasons a dimension is not checked on the live path.
 const (
@@ -440,7 +487,7 @@ func firstLine(s string) string {
 
 // condition marks the object's condition against the expected status.
 func (x *executor) condition(ctx context.Context, c *Check, p render.Probe, condition, status string) error {
-	obj, err := x.opts.Cluster.Get(ctx, p.Namespace, p.Resource, p.Name)
+	obj, err := x.opts.Cluster.Get(ctx, p.Namespace, p.Resource, p.Name, Readiness)
 	if err != nil {
 		return err
 	}
@@ -459,7 +506,7 @@ func (x *executor) condition(ctx context.Context, c *Check, p render.Probe, cond
 
 // present marks the object as existing, and a Secret as carrying the keys.
 func (x *executor) present(ctx context.Context, c *Check, p render.Probe) error {
-	obj, err := x.opts.Cluster.Get(ctx, p.Namespace, p.Resource, p.Name)
+	obj, err := x.opts.Cluster.Get(ctx, p.Namespace, p.Resource, p.Name, Readiness)
 	if err != nil {
 		return err
 	}
@@ -505,7 +552,7 @@ func (x *executor) apiServed(ctx context.Context, c *Check, p render.Probe) erro
 
 // podsRunning marks every pod the selector matches as Running.
 func (x *executor) podsRunning(ctx context.Context, c *Check, p render.Probe) error {
-	pods, err := x.opts.Cluster.List(ctx, p.Namespace, "Pod", p.Name)
+	pods, err := x.opts.Cluster.List(ctx, p.Namespace, "Pod", p.Name, Readiness)
 	if err != nil {
 		return err
 	}
@@ -527,14 +574,19 @@ func (x *executor) podsRunning(ctx context.Context, c *Check, p render.Probe) er
 	return nil
 }
 
-// logAbsent reads the log of every pod of the workload and looks for the
-// pattern that must not appear.
+// logAbsent reads the last LogTail lines of the log of every pod of the
+// workload and looks for the pattern that must not appear; the check's note
+// says how much of the log was read.
 func (x *executor) logAbsent(ctx context.Context, c *Check, p render.Probe) error {
+	if c.Note != "" {
+		c.Note += "; "
+	}
+	c.Note += logTailNote
 	re, err := regexp.Compile(p.Expect.Absent)
 	if err != nil {
 		return fmt.Errorf("pattern %q: %w", p.Expect.Absent, err)
 	}
-	obj, err := x.opts.Cluster.Get(ctx, p.Namespace, p.Resource, p.Name)
+	obj, err := x.opts.Cluster.Get(ctx, p.Namespace, p.Resource, p.Name, Readiness)
 	if err != nil {
 		return err
 	}
@@ -542,7 +594,7 @@ func (x *executor) logAbsent(ctx context.Context, c *Check, p render.Probe) erro
 	if selector == "" {
 		return fmt.Errorf("%s %s/%s selects no pods (no spec.selector.matchLabels)", p.Resource, p.Namespace, p.Name)
 	}
-	pods, err := x.opts.Cluster.List(ctx, p.Namespace, "Pod", selector)
+	pods, err := x.opts.Cluster.List(ctx, p.Namespace, "Pod", selector, Readiness)
 	if err != nil {
 		return err
 	}
@@ -551,7 +603,7 @@ func (x *executor) logAbsent(ctx context.Context, c *Check, p render.Probe) erro
 		return nil
 	}
 	for _, pod := range pods {
-		log, err := x.opts.Cluster.Logs(ctx, p.Namespace, nameOf(pod))
+		log, err := x.opts.Cluster.Logs(ctx, p.Namespace, nameOf(pod), LogTail)
 		if err != nil {
 			return err
 		}
@@ -560,7 +612,7 @@ func (x *executor) logAbsent(ctx context.Context, c *Check, p render.Probe) erro
 			return nil
 		}
 	}
-	c.Mark, c.Message = AsDefined, fmt.Sprintf("%q in none of %d pod log(s)", p.Expect.Absent, len(pods))
+	c.Mark, c.Message = AsDefined, fmt.Sprintf("%q in none of %d pod log(s), the last %d lines of each", p.Expect.Absent, len(pods), LogTail)
 	return nil
 }
 
@@ -605,7 +657,7 @@ func (x *executor) drift(ctx context.Context, c *Check, p render.Probe) ([]Diffe
 		c.Mark, c.Message = NotChecked, ReasonNoValuesFile
 		return nil, nil
 	}
-	obj, err := x.opts.Cluster.Get(ctx, p.Namespace, p.Resource, p.Name)
+	obj, err := x.opts.Cluster.Get(ctx, p.Namespace, p.Resource, p.Name, Configuration)
 	if err != nil {
 		return nil, err
 	}
@@ -684,7 +736,7 @@ func (x *executor) helmReleaseValues(ctx context.Context, namespace string, hr m
 		if key == "" {
 			key = "values.yaml"
 		}
-		cm, err := x.opts.Cluster.Get(ctx, namespace, "ConfigMap", name)
+		cm, err := x.opts.Cluster.Get(ctx, namespace, "ConfigMap", name, Configuration)
 		if err != nil {
 			return nil, fmt.Errorf("valuesFrom ConfigMap %s: %w", name, err)
 		}

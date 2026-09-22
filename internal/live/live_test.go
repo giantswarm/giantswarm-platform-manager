@@ -119,3 +119,37 @@ func TestParseAudiences(t *testing.T) {
 		}
 	}
 }
+
+// mcp-kubernetes's refusal to answer a read whole — its response cap's
+// response_too_large document, relayed by muster as the result's error — is
+// the verify's TooLarge with the sizes, phrased for a reader; a log line
+// that merely mentions the code, or any other document, is not.
+func TestClassifyReadsResponseTooLarge(t *testing.T) {
+	err := classify(`{"error":"response_too_large","bytes":153191,"limit":131072,"message":"response is 153191 bytes, exceeds 131072 byte limit","hint":"narrow the query: tighten filters, reduce the time range, or request fewer items"}`)
+	var tl *verify.TooLarge
+	if !errors.As(err, &tl) || tl.Bytes != 153191 || tl.Limit != 131072 {
+		t.Fatalf("response_too_large: %#v", err)
+	}
+	for _, want := range []string{"150 KiB", "128 KiB", "mcp-kubernetes"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the reason does not say %q: %v", want, err)
+		}
+	}
+	for _, text := range []string{`level=error msg="response_too_large"`, `{"error":"other","bytes":1,"limit":2}`, `Failed to get resource: the server is currently unable to handle the request`} {
+		if errors.As(classify(text), &tl) {
+			t.Errorf("%q read as too large", text)
+		}
+	}
+}
+
+// A read asks mcp-kubernetes for what its check reads: the slim output for
+// a readiness check, the normal output for a drift probe, never a whole
+// object — which the response cap refuses for a HelmRelease with history.
+func TestOutputOfShape(t *testing.T) {
+	if got := outputOf(verify.Readiness); got != "slim" {
+		t.Errorf("readiness: %q", got)
+	}
+	if got := outputOf(verify.Configuration); got != "normal" {
+		t.Errorf("configuration: %q", got)
+	}
+}

@@ -8,6 +8,7 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"reflect"
@@ -505,6 +506,114 @@ func TestVerifyInstallationReadsRollingUntilPodCertificateRequestIsServed(t *tes
 		t.Errorf("the runtime feature is marked: %s, state %s", runtime.Mark, res.State)
 	}
 	if p := recordedProbes(t, st)[dimension]; p.Result != string(verify.Drifted) {
+		t.Errorf("recorded: %+v", p)
+	}
+}
+
+// mcp-kubernetes caps a tool's answer at 128 KiB and refuses a larger one
+// whole, and muster relays the refusal: the meta chart's HelmRelease as the
+// apiserver holds it and a busy pod's last thousand lines are past the cap.
+// A check asks for what it reads — the slim output for a readiness check,
+// the normal output for a drift probe's values, the last two hundred lines
+// of a log — and the fixture, as bulky as the platform's objects, is read
+// within the cap; a read the cap still refuses is not checked with the
+// refusal in plain words while the checks that asked for less stand.
+func TestVerifyInstallationReadsWithinTheResponseCap(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	enableRowanLive(t, st, st.mcpClient(t, aliceToken), kagentEnabled())
+	admin := st.liveClient(t, st.dex.token(t, liveAdmin, []string{liveAudience}, time.Hour))
+	hr, _ := st.inst.get(helmReleaseKind, fluxNamespace, platformRelease)
+	if whole, _ := json.Marshal(hr); len(whole) <= responseLimit {
+		t.Fatalf("the fixture's HelmRelease is %d bytes whole, within the cap", len(whole))
+	}
+	st.inst.editLogs(func(logs map[string]string) {
+		for key, log := range logs {
+			if strings.HasPrefix(key, kagentNamespace+"/") && len(log) <= responseLimit {
+				t.Fatalf("the fixture's log %s is %d bytes whole, within the cap", key, len(log))
+			}
+		}
+	})
+
+	res := verifyLive(t, admin, rowan)
+	dims := liveDimensions(res)
+	for _, id := range []string{"live-helmreleases-ready", "live-drift", "live-oauth2-proxy-audience"} {
+		if d := dims[id]; d.Mark != verify.AsDefined {
+			t.Errorf("%s: %s (%s)", id, d.Mark, d.Reason)
+		}
+	}
+	if d := dims["live-oauth2-proxy-audience"]; d.Live == nil || !strings.Contains(d.Live.Checks[0].Note, "the last 200 lines of each pod's log are read") || !strings.Contains(d.Live.Checks[0].Message, "the last 200 lines") {
+		t.Errorf("the absence check says how much it reads: %+v", d.Live)
+	}
+	// Every read asked for what its check reads: the meta chart's HelmRelease
+	// slim for its readiness and normal for its values, the ConfigMaps a
+	// drift probe compares normal, the Secrets and the pods slim, a log's
+	// last LogTail lines; nothing whole.
+	outputs := map[string]map[string]bool{}
+	for _, c := range st.muster.seen() {
+		switch c.Tool {
+		case opGet, opList:
+			output, _ := c.Args["output"].(string)
+			key := fmt.Sprint(c.Args["resourceType"])
+			if c.Tool == opGet {
+				key += "/" + fmt.Sprint(c.Args[nameKey])
+			}
+			if outputs[key] == nil {
+				outputs[key] = map[string]bool{}
+			}
+			outputs[key][output] = true
+		case opLogs:
+			if tail, _ := c.Args["tailLines"].(float64); int(tail) != verify.LogTail {
+				t.Errorf("a log read of %v lines: %+v", tail, c)
+			}
+		}
+	}
+	for key, seen := range outputs {
+		kind, _, _ := strings.Cut(key, "/")
+		var want map[string]bool
+		switch {
+		case key == "helmrelease/"+platformRelease || key == "helmrelease/kagent":
+			want = map[string]bool{outputSlim: true, outputNormal: true}
+		case kind == "configmap":
+			want = map[string]bool{outputNormal: true}
+		case kind == "deployment" && key == "deployment/kagent-oauth2-proxy":
+			want = map[string]bool{outputSlim: true, outputNormal: true}
+		default:
+			want = map[string]bool{outputSlim: true}
+		}
+		if !reflect.DeepEqual(seen, want) {
+			t.Errorf("%s was read with %v, want %v", key, seen, want)
+		}
+	}
+
+	// The values of the meta chart's HelmRelease past the cap even without
+	// the bookkeeping: the drift probe, which compares them, is not checked
+	// with the refusal in plain words; the readiness check, which asks for
+	// the object without them, stands. A log whose last two hundred lines
+	// are past the cap: the absence check says so the same way.
+	st.inst.edit(helmReleaseKind, fluxNamespace, platformRelease, func(obj map[string]any) {
+		values := obj["spec"].(map[string]any)["values"].(map[string]any)
+		values["padding"] = strings.Repeat("v", responseLimit)
+	})
+	st.inst.editLogs(func(logs map[string]string) {
+		for key := range logs {
+			if strings.HasPrefix(key, kagentNamespace+"/") {
+				logs[key] = strings.Repeat(strings.Repeat("x", 1024)+"\n", verify.LogTail)
+			}
+		}
+	})
+	res = verifyLive(t, admin, rowan)
+	dims = liveDimensions(res)
+	for _, id := range []string{"live-drift", "live-oauth2-proxy-audience"} {
+		d := dims[id]
+		if d.Mark != verify.NotChecked || !strings.Contains(d.Reason, "larger than mcp-kubernetes answers") || !strings.Contains(d.Reason, "the limit is 128 KiB") || strings.Contains(d.Reason, "response_too_large") {
+			t.Errorf("%s: %s (%s)", id, d.Mark, d.Reason)
+		}
+	}
+	if d := dims["live-helmreleases-ready"]; d.Mark != verify.AsDefined {
+		t.Errorf("live-helmreleases-ready without the values: %s (%s)", d.Mark, d.Reason)
+	}
+	if p := recordedProbes(t, st)["live-drift"]; p.Result != string(verify.NotChecked) || !strings.Contains(p.Message, "larger than mcp-kubernetes answers") {
 		t.Errorf("recorded: %+v", p)
 	}
 }

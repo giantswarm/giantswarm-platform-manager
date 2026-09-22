@@ -464,9 +464,13 @@ var (
 )
 
 // classify maps a tool's refusal to the verify's errors: muster's
-// auth_required for the installation, the apiserver's forbidden naming the
+// auth_required for the installation, mcp-kubernetes's response_too_large
+// for a read it will not answer whole, the apiserver's forbidden naming the
 // person, an object that does not exist, anything else as it was said.
 func classify(text string) error {
+	if tl := tooLarge(text); tl != nil {
+		return tl
+	}
 	switch {
 	case strings.HasPrefix(text, "auth_required") || strings.Contains(text, "requires authentication"):
 		a := &verify.AuthRequired{Message: text}
@@ -487,6 +491,41 @@ func classify(text string) error {
 	return errors.New(strings.TrimSpace(text))
 }
 
+// responseTooLarge is the error code of mcp-kubernetes's refusal to answer a
+// call whole: mcp-toolkit's responsecap middleware caps a tool's answer
+// (128 KiB) and answers `{"error":"response_too_large","bytes":…,"limit":…,
+// "message":…,"hint":…}` as the result's error in place of a truncated
+// object or log.
+const responseTooLarge = "response_too_large"
+
+// tooLarge reads a response_too_large refusal; nil for any other text.
+func tooLarge(text string) *verify.TooLarge {
+	var doc struct {
+		Error string `json:"error"`
+		Bytes int    `json:"bytes"`
+		Limit int    `json:"limit"`
+	}
+	if err := decode(text, &doc); err != nil || doc.Error != responseTooLarge {
+		return nil
+	}
+	return &verify.TooLarge{Bytes: doc.Bytes, Limit: doc.Limit}
+}
+
+// outputOf is mcp-kubernetes's output argument for how much a check reads:
+// slim for Readiness — the conditions and the revision, a workload's
+// selector, a pod's phase, the keys of a Secret, with a HelmRelease's values
+// and history, a workload's long environment and every object's managed
+// fields and last-applied configuration dropped — and normal for
+// Configuration, the values whole with only the bookkeeping dropped. mcp-
+// kubernetes offers no selection of paths, and a whole object (full) is what
+// its response cap refuses for a HelmRelease with history.
+func outputOf(shape verify.Shape) string {
+	if shape == verify.Configuration {
+		return "normal"
+	}
+	return "slim"
+}
+
 // kindArgs are mcp-kubernetes's resourceType and apiGroup for a probe's
 // resource (kind, or kind.group).
 func kindArgs(resource string) (string, string) {
@@ -494,10 +533,10 @@ func kindArgs(resource string) (string, string) {
 	return strings.ToLower(kind), group
 }
 
-// Get reads one object, whole.
-func (k *cluster) Get(ctx context.Context, namespace, resource, name string) (map[string]any, error) {
+// Get reads one object, as much of it as the shape says.
+func (k *cluster) Get(ctx context.Context, namespace, resource, name string, shape verify.Shape) (map[string]any, error) {
 	kind, group := kindArgs(resource)
-	args := map[string]any{"resourceType": kind, "name": name, "output": "full"}
+	args := map[string]any{"resourceType": kind, "name": name, "output": outputOf(shape)}
 	if namespace != "" {
 		args["namespace"] = namespace
 	}
@@ -517,10 +556,11 @@ func (k *cluster) Get(ctx context.Context, namespace, resource, name string) (ma
 	return doc.Resource, nil
 }
 
-// List reads the objects a label selector matches, whole.
-func (k *cluster) List(ctx context.Context, namespace, resource, labelSelector string) ([]map[string]any, error) {
+// List reads the objects a label selector matches, as much of each as the
+// shape says.
+func (k *cluster) List(ctx context.Context, namespace, resource, labelSelector string, shape verify.Shape) ([]map[string]any, error) {
 	kind, group := kindArgs(resource)
-	args := map[string]any{"resourceType": kind, "fullOutput": true, "output": "full", "limit": 200}
+	args := map[string]any{"resourceType": kind, "fullOutput": true, "output": outputOf(shape), "limit": 200}
 	if namespace != "" {
 		args["namespace"] = namespace
 	}
@@ -543,9 +583,9 @@ func (k *cluster) List(ctx context.Context, namespace, resource, labelSelector s
 	return doc.Items, nil
 }
 
-// Logs reads a pod's log, the last lines.
-func (k *cluster) Logs(ctx context.Context, namespace, pod string) (string, error) {
-	return k.call(ctx, opLogs, map[string]any{"namespace": namespace, "podName": pod, "tailLines": 1000})
+// Logs reads a pod's log, the last tail lines (mcp-kubernetes takes 1 to 1000).
+func (k *cluster) Logs(ctx context.Context, namespace, pod string, tail int) (string, error) {
+	return k.call(ctx, opLogs, map[string]any{"namespace": namespace, "podName": pod, "tailLines": tail})
 }
 
 // Serves discovers whether the apiserver serves the resource of the group at
