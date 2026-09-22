@@ -46,6 +46,16 @@ Key paths in `x-renders`, `removals.yaml` and `migrations.yaml` are normalised: 
   definition's in either case, the file `dex-client-backstage-secret.enc.yaml` in the portal's directory; the
   agent-platform definition references it by name in its patch entry and renders no file for it, so on an
   installation with both capabilities no repository path and no Kubernetes object is rendered by two definitions.
+  The plaintext patch is authoritative only where the installation's encrypted Dex values (`secret-values.yaml.patch`) carry no
+  `oidc.extraStaticClients` and no `dexK8SAuthenticator.trustedPeers` list: the values merge takes a list whole from the encrypted side,
+  so the portal's client rendered into the plaintext list would never reach Dex. The record reads which of those lists the encrypted
+  file carries (its keys are plaintext; nothing is decrypted) and the commit is held while one of them is — `commitRefused` names the
+  file, the lists and the shadowed clients; the entries are carried over by hand first, then the lists dropped from the encrypted values.
+  The plaintext patch is authoritative only where the installation's encrypted Dex values (`secret-values.yaml.patch`) carry no
+  `oidc.extraStaticClients` and no `dexK8SAuthenticator.trustedPeers` list: the values merge takes a list whole from the encrypted side,
+  so the portal's client rendered into the plaintext list would never reach Dex. The record reads which of those lists the encrypted
+  file carries (its keys are plaintext; nothing is decrypted) and the commit is held while one of them is — `commitRefused` names the
+  file, the lists and the shadowed clients; the entries are carried over by hand first, then the lists dropped from the encrypted values.
 - A portal over several installations of one customer lists them under `federation.installations` with their
   facts on record: each gets a cluster entry and an installation entry, and a provider on its Dex whose client
   credentials are supplied at commit (`federation.<name>.clientId`, `clientSecret`); one that runs the agent

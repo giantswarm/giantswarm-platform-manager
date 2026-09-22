@@ -206,6 +206,18 @@ removals:
     reason: >-
       Removed: oidc.muster.clientSecret is a stray copy of muster's client secret that Dex never reads (the chart reads oidc.staticClients.muster); the
       client reads its secret from the Secret dex-client-muster-secret instead. Needs dex-app 3.2.2 · M1
+  - key: dex-secret:oidc.extraStaticClients
+    kind: referenced-secret
+    reason: >-
+      Removed: the hand-registered Dex clients with their inline secrets in the encrypted Dex values; each moves to its own Secret and a plaintext
+      entry the plan keeps after the platform's, then the list leaves the encrypted values — while it is there, the values merge takes it whole
+      over the plaintext list, so the platform's clients would never reach Dex and the commit is held. Needs dex-app 3.2.2 · M1
+  - key: dex-secret:oidc.staticClients.dexK8SAuthenticator.trustedPeers
+    kind: referenced-secret
+    reason: >-
+      Removed: the authenticator's trusted peers in the encrypted Dex values; each moves to the plaintext list, where the plan keeps a peer of
+      another owner after the platform's, then the list leaves the encrypted values — while it is there, the values merge takes it whole over the
+      plaintext list, so the platform's peers would never reach the authenticator and the commit is held. Needs dex-app 3.2.2 · M1
   - key: dex-secret:oidc.customer
     kind: not-platform
     reason: "Kept: oidc.customer holds this installation's own login connectors and their credentials; the platform reads nothing of them and leaves them in the encrypted Dex values as they are."
