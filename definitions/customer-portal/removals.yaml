@@ -46,6 +46,12 @@ removals:
       Changed: app.extensions includes one list by $include in the main app-config today; the main app-config includes the shared list
       without the platform's section (shared-config.yaml#extensions, or #extensionsGrafanaDashboards with the Grafana plugin wired) and
       the Agent Platform Component's fragment layers the list with it (#extensionsAgentPlatform, or its GrafanaDashboards pair) over it.
+  - key: "backstage:app-config:app.extensions[*]"
+    kind: other-definition
+    reason: >-
+      Changed: the extensions are listed one by one in the main app-config today; the main app-config includes the shared list by
+      $include instead (shared-config.yaml#extensions, or #extensionsGrafanaDashboards with the Grafana plugin wired) and the Agent
+      Platform Component's fragment layers the platform's pair over it, so the entries listed by hand go.
 
   # --- Backstage app-config.yaml: the hub's Dev Portal ---
   - key: "backstage:app-config:pagerDuty"
