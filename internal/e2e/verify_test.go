@@ -808,7 +808,7 @@ func TestVerifyCapabilityTakesAMissingChoiceAsNotChecked(t *testing.T) {
 		content := f.Content
 		if f.Path == installations.PortalConfigPath(rowan) {
 			appConfig = f.Repository + ":" + f.Path
-			content = strings.Replace(content, "        grafana:\n          domain: "+domain+"\n", "        grafana: {}\n", 1)
+			content = strings.Replace(content, "        grafana:\n          hosts:\n            - id: grafana-net\n              domain: "+domain+"\n", "        grafana: {}\n", 1)
 			if content == f.Content {
 				t.Fatalf("no grafana section to drop from the app-config:\n%s", content)
 			}
@@ -819,6 +819,19 @@ func TestVerifyCapabilityTakesAMissingChoiceAsNotChecked(t *testing.T) {
 	res := verifyPortal(t, c, rowan, nil)
 	if res.Refused != "" || res.Inputs.ReadBack["plugins.grafana.enabled"] != true || !slices.Equal(res.Inputs.Missing, []string{grafanaDomain}) {
 		t.Fatalf("refused %q read back %v missing %v", res.Refused, res.Inputs.ReadBack, res.Inputs.Missing)
+	}
+	// Every choice not on record is named, the required one among them
+	// and the optional ones the portal does not carry; the ones on record
+	// (read back or by default) are not.
+	for _, field := range []string{grafanaDomain, "portal.supportUrl", "portal.telemetrydeckAppId", "federation.tokenBroker"} {
+		if !slices.Contains(res.Inputs.Unset, field) {
+			t.Errorf("unset %v does not name %s", res.Inputs.Unset, field)
+		}
+	}
+	for _, field := range []string{"portal.domain", "portal.title", "plugins.grafana.enabled", "chart.line"} {
+		if slices.Contains(res.Inputs.Unset, field) {
+			t.Errorf("unset %v names %s, which is on record", res.Inputs.Unset, field)
+		}
 	}
 	wantRefused := "Choose " + grafanaDomain + " (the Grafana instance the plugin links to) before a commit."
 	if res.Summary[verify.Drifted] != 0 || res.Summary[verify.DiffersByInput] != 0 || res.State != installations.StateEnabled || res.CommitRefused != wantRefused {

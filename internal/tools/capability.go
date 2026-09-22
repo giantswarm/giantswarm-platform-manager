@@ -253,11 +253,12 @@ func skipped(r installations.Report, named bool) (Skipped, bool) {
 
 // mergeInputs are the comparison's inputs, in layers: the schema's
 // defaults, the facts on record the schema names under installation, what
-// the definition reads back from the files on record (read as the caller),
-// and the person's typed inputs over it all. The second answer names what
-// was read back, by dotted input key. What the schema requires and no layer
+// the definition reads back from the files on record (read as the caller,
+// an installation a read-back names resolved among the registry's), and
+// the person's typed inputs over it all. The second answer names what was
+// read back, by dotted input key. What the schema requires and no layer
 // holds, the definition names in its refusal.
-func mergeInputs(ctx context.Context, def installations.Capability, r installations.Report, read installations.Reader, typed map[string]any) (map[string]any, map[string]any, error) {
+func mergeInputs(ctx context.Context, def installations.Capability, r installations.Report, read installations.Reader, typed map[string]any, registry map[string]installations.Installation) (map[string]any, map[string]any, error) {
 	merged, err := def.Defaults()
 	if err != nil {
 		return nil, nil, err
@@ -267,7 +268,11 @@ func mergeInputs(ctx context.Context, def installations.Capability, r installati
 		return nil, nil, err
 	}
 	merged[installations.InputsInstallation] = facts
-	back, err := def.ReadBack(ctx, read, r.Installation)
+	known := make([]installations.Installation, 0, len(registry))
+	for _, inst := range registry {
+		known = append(known, inst)
+	}
+	back, err := def.ReadBack(ctx, read, r.Installation, known)
 	if err != nil {
 		return nil, nil, err
 	}

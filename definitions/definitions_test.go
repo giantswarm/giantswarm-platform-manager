@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"text/template"
@@ -105,8 +106,9 @@ func TestEveryDefinitionParses(t *testing.T) {
 
 // TestEveryReadBackNamesADeclaredFile holds every schema's x-readback to
 // its shape: the file it names is one the schema's x-files declares, the
-// kind is one the reader knows, and a key is named unless the kind is the
-// file's presence.
+// kind is one the reader knows, a key (a path, or a list of paths) is named
+// unless the kind is the file's presence, and an installation kind names
+// the service label it strips as its prefix.
 func TestEveryReadBackNamesADeclaredFile(t *testing.T) {
 	caps, err := definitions.Capabilities()
 	if err != nil {
@@ -131,14 +133,29 @@ func TestEveryReadBackNamesADeclaredFile(t *testing.T) {
 						t.Errorf("%s: x-readback names the file %q, which x-files does not declare", path, file)
 					}
 					kind, _ := rb["kind"].(string)
-					key, _ := rb["key"].(string)
+					prefix, _ := rb["prefix"].(string)
+					var keys []string
+					switch key := rb["key"].(type) {
+					case string:
+						keys = []string{key}
+					case []any:
+						for _, k := range key {
+							s, _ := k.(string)
+							keys = append(keys, s)
+						}
+					}
+					named := len(keys) > 0 && !slices.Contains(keys, "")
 					switch kind {
 					case "", "value", "present", "host":
-						if key == "" {
+						if !named {
 							t.Errorf("%s: x-readback names no key", path)
 						}
+					case "installation":
+						if !named || prefix == "" {
+							t.Errorf("%s: x-readback of an installation names no key or no service label as its prefix", path)
+						}
 					case "file":
-						if key != "" {
+						if len(keys) != 0 {
 							t.Errorf("%s: x-readback of the file's presence names a key", path)
 						}
 					default:
