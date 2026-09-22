@@ -277,7 +277,7 @@ func TestPortalInlineExtensionsArePlanned(t *testing.T) {
 		t.Fatal(err)
 	}
 	rms := readRemovals(rs, facts{factDomain: testDomain})
-	appConfig := &fileDiff{path: "management-clusters/x/extras/backstage/backstage/app-config.yaml", kind: definitions.KindBackstage, documents: appConfigDocuments}
+	appConfig := &fileDiff{path: "management-clusters/y/extras/backstage/backstage/app-config.yaml", kind: definitions.KindBackstage, documents: appConfigDocuments}
 	const doc = "data.values:backstage.appConfig:"
 	include := rms.reason(appConfig, doc+"app.extensions.$include")
 	if !strings.HasPrefix(include, "Changed: app.extensions includes") {
@@ -288,7 +288,7 @@ func TestPortalInlineExtensionsArePlanned(t *testing.T) {
 			t.Errorf("%s reads %q, want the inline entries' planned change", path, got)
 		}
 	}
-	for _, path := range []string{"app.routes.$include", "app.extensionsX", "app.title"} {
+	for _, path := range []string{"app.routes.$include", "app.extensionsX", "gs.adminGroups.$include"} {
 		if got := rms.reason(appConfig, doc+path); got != "" {
 			t.Errorf("%s reads %q, want no planned change", path, got)
 		}
