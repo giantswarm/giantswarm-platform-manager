@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 	"text/template"
 	"time"
 
@@ -32,10 +33,23 @@ type Request struct {
 
 // The reasons a probe is not checked: ReasonNoDexClients, a per-client probe
 // with no client to run for; ReasonUnreachable, a request the manager could
-// not get an answer to (timeout, DNS, connection refused), the error appended.
+// not get an answer to (timeout, DNS, connection refused), the target's host
+// appended and the transport's error in the detail.
 const (
 	ReasonNoDexClients = "the render declares no Dex client with a redirect URI for the inputs on record"
 	ReasonUnreachable  = "unreachable from the manager"
+)
+
+// The bounds of one comparison's HTTP probes. A private installation's Dex,
+// kagent and muster are unreachable from the hub by design, so waiting for
+// each in turn bought nothing: every request of a comparison is in flight at
+// once, ProbeConcurrency at most, and the phase ends at its deadline whatever
+// is still hanging. A request is bounded on its own too, no longer than the
+// phase, so a client of the caller's without a timeout cannot outlive it.
+const (
+	ProbeConcurrency    = 8
+	ProbePhaseTimeout   = 12 * time.Second
+	ProbeRequestTimeout = 10 * time.Second
 )
 
 // ProbeData is what a probe's URL template is executed over: the
@@ -70,17 +84,54 @@ func choice(values map[string]any, field string) string {
 	return render.Missing(field)
 }
 
+// prober sends the HTTP probes of one comparison, ProbeConcurrency requests
+// in flight at most. Each phase of a comparison — the definition's anonymous
+// probes, the render's live HTTP probes — runs under one deadline on its
+// context, ProbePhaseTimeout long.
+type prober struct {
+	client *http.Client
+	slots  chan struct{}
+}
+
+// newProber probes with client; nil is a client that does not follow
+// redirects and gives up on a request after ProbeRequestTimeout.
+func newProber(client *http.Client) *prober {
+	if client == nil {
+		client = &http.Client{Timeout: ProbeRequestTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	}
+	return &prober{client: client, slots: make(chan struct{}, ProbeConcurrency)}
+}
+
+// probeAll runs every anonymous probe of ps at once, one phase under
+// ProbePhaseTimeout, and answers their dimensions in the order of ps.
+//
+// base is the data of every probe; clients are the Dex clients the render
+// declares, nil when nothing was rendered (no inputs on record).
+func (pr *prober) probeAll(ctx context.Context, base ProbeData, clients []plan.DexClient, rendered bool, ps []definitions.Probe) []Dimension {
+	ctx, cancel := context.WithTimeout(ctx, ProbePhaseTimeout)
+	defer cancel()
+	dims := make([]Dimension, len(ps))
+	var wg sync.WaitGroup
+	for i, p := range ps {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			dims[i] = pr.probe(ctx, base, clients, rendered, p)
+		}()
+	}
+	wg.Wait()
+	return dims
+}
+
 // probe runs one anonymous probe and answers it as a dimension of kind probe:
 // as defined when every request answered an expected status, drifted when
 // any answered another, not checked with ReasonUnreachable when one got no
 // answer and none answered another status (an unexpected status is drift
 // whatever the other requests did; an unreachable target is no comparison),
 // not checked when it had no request to make, or when its template names a
-// choice not on record (the reason names the field).
-//
-// base is the data of every probe; clients are the Dex clients the render
-// declares, nil when nothing was rendered (no inputs on record).
-func probe(ctx context.Context, client *http.Client, base ProbeData, clients []plan.DexClient, rendered bool, p definitions.Probe) Dimension {
+// choice not on record (the reason names the field). The probe's requests
+// are sent at once and answered in the order of the clients.
+func (pr *prober) probe(ctx context.Context, base ProbeData, clients []plan.DexClient, rendered bool, p definitions.Probe) Dimension {
 	d := Dimension{ID: p.ID, Kind: definitions.KindProbe, Key: p.Key, Mark: NotChecked, Probe: &ProbeResult{Expect: p.Expect, Requests: []Request{}}}
 	tmpl, err := template.New(p.ID).Parse(p.URL)
 	if err != nil {
@@ -107,46 +158,54 @@ func probe(ctx context.Context, client *http.Client, base ProbeData, clients []p
 			return d
 		}
 	}
-	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	}
-	d.Mark = AsDefined
-	for _, pd := range data {
+	// Every URL is rendered before anything is sent: a template error or a
+	// choice not on record is the whole dimension's, not one request's.
+	urls := make([]string, len(data))
+	for i, pd := range data {
 		var buf bytes.Buffer
 		if err := tmpl.Execute(&buf, pd); err != nil {
-			d.Reason, d.Mark = err.Error(), NotChecked
+			d.Reason = err.Error()
 			return d
 		}
 		if fields := missingFields(buf.String()); len(fields) > 0 {
-			d.Reason, d.Mark = missingChoice(fields), NotChecked
+			d.Reason = missingChoice(fields)
 			return d
 		}
-		r := send(ctx, client, buf.String(), p.Expect)
-		if pd.ClientID != "" {
-			r.Client, _ = url.QueryUnescape(pd.ClientID)
+		urls[i] = buf.String()
+	}
+	reqs := make([]Request, len(urls))
+	var wg sync.WaitGroup
+	for i, u := range urls {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			reqs[i] = pr.send(ctx, u, p.Expect)
+		}()
+	}
+	wg.Wait()
+	d.Mark = AsDefined
+	for i, r := range reqs {
+		if data[i].ClientID != "" {
+			r.Client, _ = url.QueryUnescape(data[i].ClientID)
 		}
 		switch {
 		case r.Error != "":
 			if d.Mark == AsDefined {
-				d.Mark, d.Reason = NotChecked, ReasonUnreachable+": "+r.Error
+				d.Mark, d.Reason, d.Detail = NotChecked, unreachable(r.URL), r.Error
 			}
 		case !r.OK:
-			d.Mark, d.Reason = Drifted, ""
+			d.Mark, d.Reason, d.Detail = Drifted, "", ""
 		}
 		d.Probe.Requests = append(d.Probe.Requests, r)
 	}
 	return d
 }
 
-func send(ctx context.Context, client *http.Client, u string, expect []int) Request {
+// send is one anonymous request and its answer: the status held against
+// expect, or the transport's error.
+func (pr *prober) send(ctx context.Context, u string, expect []int) Request {
 	r := Request{URL: u}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		r.Error = err.Error()
-		return r
-	}
-	req.Header.Set("User-Agent", "giantswarm-platform-manager")
-	resp, err := client.Do(req)
+	resp, err := pr.do(ctx, u)
 	if err != nil {
 		r.Error = strings.TrimSpace(err.Error())
 		return r
@@ -155,4 +214,34 @@ func send(ctx context.Context, client *http.Client, u string, expect []int) Requ
 	r.Status = resp.StatusCode
 	r.OK = slices.Contains(expect, resp.StatusCode)
 	return r
+}
+
+// do sends the anonymous GET of u as the manager, once a slot is free: the
+// slot is held while the answer's headers are awaited, where an unreachable
+// host hangs, and freed before the body is read. The caller closes the body.
+// A phase over before the slot is free is the request's error too.
+func (pr *prober) do(ctx context.Context, u string) (*http.Response, error) {
+	select {
+	case pr.slots <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	defer func() { <-pr.slots }()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "giantswarm-platform-manager")
+	return pr.client.Do(req)
+}
+
+// unreachable is the reason for a target the manager got no answer from: one
+// sentence naming the host, never the URL (a Dex client's redirect URI is in
+// its query). The transport's error is the detail.
+func unreachable(u string) string {
+	host := u
+	if p, err := url.Parse(u); err == nil && p.Host != "" {
+		host = p.Host
+	}
+	return ReasonUnreachable + ": " + host
 }

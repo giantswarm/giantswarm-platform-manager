@@ -176,7 +176,7 @@ func TestHTTPProbeAcceptsAnyOfTheStatuses(t *testing.T) {
 	}))
 	defer srv.Close()
 	probe := render.Probe{ID: "live-dex-auth-per-client", Kind: render.HTTP, URL: srv.URL + "/auth", Expect: render.Expectation{Statuses: []int{200, 302}}}
-	x := &executor{opts: LiveOptions{Probes: &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}}
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	for _, c := range []struct {
 		status  int
 		mark    Mark
@@ -187,7 +187,7 @@ func TestHTTPProbeAcceptsAnyOfTheStatuses(t *testing.T) {
 		{http.StatusBadRequest, Drifted, "400, expected one of [200 302]"},
 	} {
 		status = c.status
-		check, _, _ := x.run(context.Background(), probe)
+		check := liveHTTP(client, probe)
 		if check.Mark != c.mark || check.Message != c.message {
 			t.Errorf("%d: %q %q, want %q %q", c.status, check.Mark, check.Message, c.mark, c.message)
 		}

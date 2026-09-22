@@ -17,7 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 
@@ -133,6 +133,9 @@ type Check struct {
 	// Message is what was seen, in one line: the condition and its message,
 	// the status code, the apiserver's refusal, the number of differences.
 	Message string `json:"message,omitempty"`
+	// Detail is what the message rests on when that is more than the one
+	// line: the transport's error behind a target unreachable from the manager.
+	Detail string `json:"detail,omitempty"`
 	// Note is the definition's sentence next to the probe.
 	Note string `json:"note,omitempty"`
 	// Revision is the revision a Flux object reports as applied or attempted
@@ -193,14 +196,21 @@ func CompareLive(ctx context.Context, opts LiveOptions) Result {
 			lv = nil
 		}
 	}
-	x := &executor{opts: opts, lv: lv, refused: r.Refused}
+	x := &executor{opts: opts, lv: lv, refused: r.Refused, pr: newProber(opts.Probes)}
+	x.sendHTTP(ctx)
 	held := map[string]bool{}
+	var clients []plan.DexClient
 	if lv != nil {
+		clients = lv.dexClients
 		for _, a := range lv.actions {
 			if a.State == render.WaitingForCustomer && a.Dimension != "" {
 				held[a.Dimension] = true
 			}
 		}
+	}
+	var probed []Dimension
+	if opts.AnonymousProbes {
+		probed = x.pr.probeAll(ctx, probeData(opts.Installation, inputString(opts.Inputs.Values, "installation", "baseDomain"), opts.Inputs.Values), clients, lv != nil, anonymous)
 	}
 	drifted, heldDrift := 0, 0
 	for _, fd := range feats {
@@ -218,17 +228,13 @@ func CompareLive(ctx context.Context, opts LiveOptions) Result {
 			}
 			f.Dimensions = append(f.Dimensions, dim)
 		}
-		for _, p := range anonymous {
+		for i, p := range anonymous {
 			if p.Feature != fd.ID {
 				continue
 			}
 			dim := Dimension{ID: p.ID, Kind: definitions.KindProbe, Key: p.Key, Mark: NotChecked, Reason: ReasonRepositorySide}
-			if opts.AnonymousProbes {
-				var clients []plan.DexClient
-				if lv != nil {
-					clients = lv.dexClients
-				}
-				dim = probe(ctx, opts.Probes, probeData(opts.Installation, inputString(opts.Inputs.Values, "installation", "baseDomain"), opts.Inputs.Values), clients, lv != nil, p)
+			if probed != nil {
+				dim = probed[i]
 				if dim.Mark == Drifted {
 					drifted++
 				}
@@ -374,6 +380,41 @@ type executor struct {
 	opts    LiveOptions
 	lv      *liveRender
 	refused string
+	pr      *prober
+	// http holds the render's HTTP probes' checks by index into lv.probes,
+	// sent all at once by sendHTTP before any dimension is built: a host
+	// unreachable from the manager is waited for once, not in every
+	// dimension in turn. The zero Check at the index of every other probe.
+	http []Check
+}
+
+// sendHTTP runs the render's HTTP probes, all at once and under one deadline
+// for the phase, into x.http.
+func (x *executor) sendHTTP(ctx context.Context) {
+	if x.lv == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, ProbePhaseTimeout)
+	defer cancel()
+	x.http = make([]Check, len(x.lv.probes))
+	var wg sync.WaitGroup
+	for i, p := range x.lv.probes {
+		if p.Kind != render.HTTP {
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			x.http[i] = check(p)
+			x.pr.answer(ctx, &x.http[i], p)
+		}()
+	}
+	wg.Wait()
+}
+
+// check is the check of probe p before it ran.
+func check(p render.Probe) Check {
+	return Check{Kind: string(p.Kind), Namespace: p.Namespace, Resource: p.Resource, Name: p.Name, URL: p.URL, Mark: NotChecked, Note: p.Expect.Note}
 }
 
 // dimension runs every probe of the live dimension d and rolls them up.
@@ -388,11 +429,18 @@ func (x *executor) dimension(ctx context.Context, d definitions.Dimension) Dimen
 		return dim
 	}
 	live := &LiveResult{Checks: []Check{}}
-	for _, p := range x.lv.probes {
+	for i, p := range x.lv.probes {
 		if p.ID != d.ID {
 			continue
 		}
-		c, diffs, auth := x.run(ctx, p)
+		var c Check
+		var diffs []Difference
+		var auth *AuthRequired
+		if p.Kind == render.HTTP {
+			c = x.http[i]
+		} else {
+			c, diffs, auth = x.run(ctx, p)
+		}
 		live.Checks = append(live.Checks, c)
 		dim.Differences = append(dim.Differences, diffs...)
 		if auth != nil && live.AuthRequired == nil {
@@ -404,7 +452,7 @@ func (x *executor) dimension(ctx context.Context, d definitions.Dimension) Dimen
 		return dim
 	}
 	dim.Live = live
-	dim.Mark, dim.Reason = checkRollUp(live.Checks)
+	dim.Mark, dim.Reason, dim.Detail = checkRollUp(live.Checks)
 	sort.Slice(dim.Differences, func(i, j int) bool {
 		return dim.Differences[i].Object+dim.Differences[i].Path < dim.Differences[j].Object+dim.Differences[j].Path
 	})
@@ -414,8 +462,9 @@ func (x *executor) dimension(ctx context.Context, d definitions.Dimension) Dimen
 // checkRollUp is a dimension's mark from its checks: drifted when any is,
 // differs by input when any does, else not checked when any object could not
 // be read or probe target reached — a dimension only partly read never claims
-// as defined — with that check's message as the reason, else as defined.
-func checkRollUp(checks []Check) (Mark, string) {
+// as defined — with that check's message as the reason and its detail as the
+// detail, else as defined.
+func checkRollUp(checks []Check) (Mark, string, string) {
 	seen := map[Mark]*Check{}
 	for i := range checks {
 		if _, ok := seen[checks[i].Mark]; !ok {
@@ -424,23 +473,20 @@ func checkRollUp(checks []Check) (Mark, string) {
 	}
 	for _, m := range []Mark{Drifted, DiffersByInput, Planned} {
 		if _, ok := seen[m]; ok {
-			return m, ""
+			return m, "", ""
 		}
 	}
 	if c, ok := seen[NotChecked]; ok {
-		return NotChecked, c.Message
+		return NotChecked, c.Message, c.Detail
 	}
-	return AsDefined, ""
+	return AsDefined, "", ""
 }
 
-// run executes one probe: the check, the differences a drift probe found,
-// and muster's auth_required when the installation is not connected.
+// run executes one probe of the installation's objects: the check, the
+// differences a drift probe found, and muster's auth_required when the
+// installation is not connected. The HTTP probes are sendHTTP's.
 func (x *executor) run(ctx context.Context, p render.Probe) (Check, []Difference, *AuthRequired) {
-	c := Check{Kind: string(p.Kind), Namespace: p.Namespace, Resource: p.Resource, Name: p.Name, URL: p.URL, Mark: NotChecked, Note: p.Expect.Note}
-	if p.Kind == render.HTTP {
-		x.httpProbe(&c, p)
-		return c, nil, nil
-	}
+	c := check(p)
 	if x.opts.Cluster == nil {
 		c.Message = ReasonNoRender
 		return c, nil, nil
@@ -620,21 +666,13 @@ func (x *executor) logAbsent(ctx context.Context, c *Check, p render.Probe) erro
 	return nil
 }
 
-// httpProbe sends the anonymous request and holds the answer against the expectation.
-func (x *executor) httpProbe(c *Check, p render.Probe) {
-	client := x.opts.Probes
-	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	}
-	req, err := http.NewRequest(http.MethodGet, p.URL, nil)
+// answer sends the anonymous request of the HTTP probe p and holds the answer
+// against the expectation, into c: not checked with ReasonUnreachable naming
+// the host and the transport's error as the detail when there was none.
+func (pr *prober) answer(ctx context.Context, c *Check, p render.Probe) {
+	resp, err := pr.do(ctx, p.URL)
 	if err != nil {
-		c.Mark, c.Message = NotChecked, err.Error()
-		return
-	}
-	req.Header.Set("User-Agent", "giantswarm-platform-manager")
-	resp, err := client.Do(req)
-	if err != nil {
-		c.Mark, c.Message = NotChecked, ReasonUnreachable+": "+strings.TrimSpace(err.Error())
+		c.Mark, c.Message, c.Detail = NotChecked, unreachable(p.URL), strings.TrimSpace(err.Error())
 		return
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
