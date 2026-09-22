@@ -75,7 +75,7 @@ func findEntry(t *testing.T, out tools.CapabilityResult, name string) tools.DryR
 	return tools.DryRun{}
 }
 
-// One opted-in installation without the capability: every file of the golden
+// One installation without the capability: every file of the golden
 // fileset is a create in the registry's repositories, the pull requests run
 // configs before management-clusters, the secrets are names only.
 func TestEnableCapabilityDryRunRendersOneInstallation(t *testing.T) {

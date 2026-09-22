@@ -155,7 +155,7 @@ func TestCommitRefusedUnreadable(t *testing.T) {
 	}
 }
 
-// One opted-in installation: the supplied value is demanded by field, the
+// One installation: the supplied value is demanded by field, the
 // Action is created in pending approval, the pull requests open as alice in
 // dependency order on branch platform/<action>/<installation> with the
 // action id in the body, the secret files land encrypted and the plain files
