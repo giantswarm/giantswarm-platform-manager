@@ -4,9 +4,14 @@
     {
       // The render-consumption test (render/agentplatform/testdata/consumption/
       // charts.yaml) renders the agent-platform meta chart on both of its lines,
-      // one pin per line: the 3.x pin follows the 3 line (the fleet base the
-      // extras reference caps it <4.0.0), the 4.x pin the 4 line. The
-      // connectivity chart follows the meta chart's line.
+      // one pin per line: the 3 line's pin follows the 3 line (the fleet base caps
+      // it <4.0.0), the 4 line's pin the 4 line. The pins are docker tags to
+      // Renovate and docker versioning knows no ranges, so a range in
+      // matchCurrentVersion never matches and the rule is skipped: the lines are
+      // told apart by a regex over the current version. The connectivity chart is
+      // released with the meta chart at the same version and the meta chart pins
+      // it at its own, so the two are one group per line: one pull request bumps
+      // both, since a bump of one alone can never pass the test.
       matchDatasources: [
         'docker',
       ],
@@ -14,8 +19,9 @@
         'gsoci.azurecr.io/charts/giantswarm/agent-platform',
         'gsoci.azurecr.io/charts/giantswarm/agent-platform-connectivity',
       ],
-      matchCurrentVersion: '<4.0.0',
-      allowedVersions: '<4.0.0',
+      matchCurrentVersion: '/^3\\./',
+      allowedVersions: '/^3\\./',
+      groupName: 'agent-platform 3 line',
     },
     {
       matchDatasources: [
@@ -25,8 +31,9 @@
         'gsoci.azurecr.io/charts/giantswarm/agent-platform',
         'gsoci.azurecr.io/charts/giantswarm/agent-platform-connectivity',
       ],
-      matchCurrentVersion: '>=4.0.0',
-      allowedVersions: '<5.0.0',
+      matchCurrentVersion: '/^4\\./',
+      allowedVersions: '/^4\\./',
+      groupName: 'agent-platform 4 line',
     },
     {
       // agent-manager is pinned per line too: the 3 line's meta chart follows
@@ -37,8 +44,8 @@
       matchPackageNames: [
         'gsoci.azurecr.io/charts/giantswarm/agent-manager',
       ],
-      matchCurrentVersion: '<1.0.0',
-      allowedVersions: '<1.0.0',
+      matchCurrentVersion: '/^0\\./',
+      allowedVersions: '/^0\\./',
     },
   ],
 }

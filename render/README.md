@@ -166,12 +166,13 @@ Secret, the key or the client, so a Renovate bump that breaks a contract reads a
 
 The charts are pinned in `render/agentplatform/testdata/consumption/charts.yaml` (chart, OCI repository,
 version); the org's Renovate preset bumps each `version:` through its `registry:` line, and
-`renovate-custom.json5` keeps the meta chart and its connectivity chart below 4.0.0 — the 4.x line needs inputs
-the definition does not carry, and the fleet base has the same ceiling. The test asserts each pin lies in the
-range the OCIRepository follows. A shape whose input lifts `chart.semver` to a line the pin file does not carry
-(the Giant Swarm-owned shape asks for 4.x) renders that line's values and is skipped naming the reason: it is
-not proven here; klaus-gateway and cluster-manager, offered to Giant Swarm-owned installations only, are pinned
-for the day such a shape stays on the pinned line. An emitted Secret a consumer does not read because of a tracked defect in the
+`renovate-custom.json5` keeps each pin on its meta chart line — the 3 line's meta chart, connectivity chart and
+agent-manager pins on 3.x and 0.x, the 4 line's on 4.x — by a regex over the current version, since the pins are
+docker tags to Renovate and docker versioning knows no ranges; the meta chart and its connectivity chart are
+bumped as one group per line, because the meta chart pins the connectivity chart at its own version. The test
+asserts each pin lies in the range the HelmRelease follows on the shape's line and fails naming the line
+otherwise; klaus-gateway and cluster-manager, offered to Giant Swarm-owned installations only, are pinned for
+the 4 line. An emitted Secret a consumer does not read because of a tracked defect in the
 consumer is listed in `known-gaps.yaml` with its issue: the test reports it instead of failing, and fails once
 the Secret is read so the entry leaves with the fix.
 
