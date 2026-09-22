@@ -101,8 +101,8 @@ type shared struct {
 
 // sharedFile is the shared file at path — a kustomization's lists, the dex
 // patch's keys, clients and trusted peers, the platform patch's audience
-// lists, the tunnelport values' entries — or nil for a file the definition
-// owns whole.
+// lists, the tunnelport values' entries, the installation's record — or nil
+// for a file the definition owns whole.
 func sharedFile(path string) *shared {
 	switch {
 	case filepath.Base(path) == kustomizationFile:
@@ -113,6 +113,8 @@ func sharedFile(path string) *shared {
 		return &shared{edit: keepAudiences}
 	case path == tunnelportValuesFile:
 		return &shared{edit: keepTunnelportValues, theirs: true}
+	case strings.HasPrefix(path, "installations/") && filepath.Base(path) == render.RecordFile:
+		return &shared{edit: keepRecord, theirs: true}
 	}
 	return nil
 }
@@ -271,6 +273,7 @@ func Build(ctx context.Context, opts Options) Installation {
 		return p
 	}
 	p.MissingInputs = in.MissingInputs()
+	p.Inputs = withSelected(opts.Inputs, in.Selected())
 	res, err := opts.Definition.Render(opts.Inputs, in.SuppliedMarkers(), render.ModeCompare)
 	if err != nil {
 		p.Refused = render.Reason(err)
@@ -364,6 +367,29 @@ func Build(ctx context.Context, opts Options) Installation {
 	}
 	sort.Slice(p.GeneratedSecrets, func(i, j int) bool { return p.GeneratedSecrets[i].Name < p.GeneratedSecrets[j].Name })
 	return p
+}
+
+// withSelected is inputs with the definition's selections laid over — the
+// effective inputs the plan answers (a fresh enable's chart line) — as a copy
+// along the edited path, inputs untouched. Nothing selected answers inputs.
+func withSelected(inputs, selected map[string]any) map[string]any {
+	if len(selected) == 0 {
+		return inputs
+	}
+	out := make(map[string]any, len(inputs))
+	for k, v := range inputs {
+		out[k] = v
+	}
+	for k, v := range selected {
+		over, isMap := v.(map[string]any)
+		base, baseIsMap := out[k].(map[string]any)
+		if isMap && baseIsMap {
+			out[k] = withSelected(base, over)
+			continue
+		}
+		out[k] = v
+	}
+	return out
 }
 
 // change is what rendered is against the repository's file, read as the

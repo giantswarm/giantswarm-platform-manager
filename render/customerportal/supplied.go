@@ -42,3 +42,6 @@ func (in *Input) BuiltInDexClientID(string) string { return "" }
 // CustomerActions is empty: every file the portal needs is a pull request of
 // this manager, and the GitHub App's credentials are supplied at commit.
 func (in *Input) CustomerActions() []render.CustomerAction { return nil }
+
+// Selected is nil: the portal definition chooses nothing beyond the document.
+func (in *Input) Selected() map[string]any { return nil }

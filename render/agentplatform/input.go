@@ -88,6 +88,10 @@ type Input struct {
 	Connectors Connectors
 	// Teleport is the Teleport cluster a tunnel joins.
 	Teleport Teleport
+	// selectsLine says the enable selected the 4 chart line over the
+	// record's 3: the render writes the selection into the record
+	// (recordSelection) and Selected answers it.
+	selectsLine bool
 }
 
 // Connectors are policy.yaml's federation.connector: the names of the
@@ -116,6 +120,11 @@ type Installation struct {
 	// Hub says this is the registry's hub: its broker releases the person's
 	// GitHub grant to the Dev Portal (hub.go).
 	Hub bool `json:"hub"`
+	// AgentPlatform says the capability is on record for the installation:
+	// its marker file exists, whoever put it there. False is a fresh enable,
+	// which selects the chart line the policy needs where the record
+	// selects none it can run on (selectLine).
+	AgentPlatform bool `json:"agentPlatform"`
 	// PodCertificateRequest says the cluster serves certificates.k8s.io/v1beta1
 	// PodCertificateRequest, which Agent Substrate needs on the 4 line: the
 	// cluster App on record enables the feature gates, or its chart does by
@@ -394,10 +403,61 @@ func Parse(raw any) (*Input, error) {
 	if in.Connectors, err = pol.connectors(in.Installation); err != nil {
 		return nil, err
 	}
+	in.selectLine()
 	if err := in.checkRecord(); err != nil {
 		return nil, err
 	}
 	return in, nil
+}
+
+// selectLine picks the meta chart line of a fresh enable. The record selects
+// the line (installation.chartLine: agentPlatform.kagentApiV2 in
+// config.yaml.patch selects 4, its absence 3), and a fresh record never
+// carries the key; an organisation the policy grants a component the 4 line
+// alone carries (lineFourComponents) has no line to run on but 4. So where
+// the capability is not on record (installation.agentPlatform false) and the
+// record selects 3, the enable selects 4 and writes the selection into the
+// record as one more file of the configs pull request (recordSelection). An
+// installation with the capability on record keeps the line its record
+// selects, and checkRecord refuses as before: adoption is an Apply, never a
+// line change; an organisation without a line-4 component stays on the line
+// its record selects.
+func (in *Input) selectLine() {
+	if in.Installation.AgentPlatform || in.Installation.ChartLine == lineFour {
+		return
+	}
+	for _, c := range lineFourComponents {
+		if in.Components[c] {
+			in.Installation.ChartLine = lineFour
+			in.selectsLine = true
+			return
+		}
+	}
+}
+
+// Selected is the chart line a fresh enable selected over the record's, in
+// the document's shape; nil where the record's line stands.
+func (in *Input) Selected() map[string]any {
+	if !in.selectsLine {
+		return nil
+	}
+	return map[string]any{"installation": map[string]any{"chartLine": lineFour}}
+}
+
+// recordSelection is the fragment of the record a fresh enable writes: the
+// key that selects the 4 line, with why. The plan edits it into
+// installations/<name>/config.yaml.patch and keeps every other key.
+func (in *Input) recordSelection() string {
+	granted := make([]string, 0, len(lineFourComponents))
+	for _, c := range lineFourComponents {
+		if in.Components[c] {
+			granted = append(granted, c)
+		}
+	}
+	return "# The agent-platform meta chart line, selected by the enable through giantswarm-platform-manager:\n" +
+		"# the fleet policy grants " + in.Installation.Customer + "'s installations the " + strings.Join(granted, " and the ") +
+		", which the 4 line alone carries.\n" +
+		"agentPlatform:\n  kagentApiV2: true\n"
 }
 
 // refuse is the definition's refusal of an input, as a person reads it.

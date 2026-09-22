@@ -305,6 +305,11 @@ func Compare(ctx context.Context, opts Options) Result {
 			c = nil
 		}
 		r.Inputs.Missing = p.MissingInputs
+		if p.Inputs != nil {
+			// The plan's effective inputs: the values with the definition's
+			// selections laid over (a fresh enable's chart line).
+			r.Inputs.Values = p.Inputs
+		}
 		r.view(p, opts.Content)
 	}
 	dims, others := assign(c, feats, r.Refused, own)
@@ -986,10 +991,12 @@ func identity(v any) string {
 
 // kindOf is the dimension kind a rendered file is observed under: the
 // dex-app's configmap patch dex-configmap and its secret patch dex-secret,
-// another app's patch configmap, a file under extras/backstage/ backstage,
-// every other file extras.
+// another app's patch configmap, the installation's record record, a file
+// under extras/backstage/ backstage, every other file extras.
 func kindOf(p string) string {
 	switch {
+	case strings.HasPrefix(p, "installations/") && path.Base(p) == render.RecordFile:
+		return definitions.KindRecord
 	case strings.Contains(p, "/apps/dex-app/"):
 		if path.Base(p) == secretPatch {
 			return definitions.KindDexSecret

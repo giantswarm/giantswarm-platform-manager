@@ -385,9 +385,12 @@ func TestRefusals(t *testing.T) {
 	slackAppPublic, slackPublicSecrets := loadInput(t, shapeGiantswarmSlackAppPub)
 	slackPublicSecrets[fieldSlack+"app-token"] = "x"
 	// A Giant Swarm-owned installation — the policy grants it the cluster-manager —
-	// whose record has no agentPlatform.kagentApiV2 and so selects the 3 line.
+	// with the capability on record whose record has no agentPlatform.kagentApiV2
+	// and so selects the 3 line: adoption keeps the record's line, so the line-4
+	// component is refused (a fresh enable selects 4 instead: TestFreshEnableSelectsTheFourLine).
 	lineThreeOwned, _ := loadInput(t, shapeGiantswarmOwned)
 	lineThreeOwned["installation"].(map[string]any)["chartLine"] = lineThree
+	lineThreeOwned["installation"].(map[string]any)["agentPlatform"] = true
 	delete(lineThreeOwned, "modelServing")
 	// A 4-line record whose cluster App does not say the cluster serves
 	// PodCertificateRequest: no gates on record, a chart before the default.
@@ -506,5 +509,63 @@ func TestPortalAudiences(t *testing.T) {
 				t.Fatalf("got %v, want %v", got, c.audiences)
 			}
 		})
+	}
+}
+
+// A fresh enable — the capability not on record — of an organisation the
+// policy grants a component the 4 line alone carries selects the 4 line where
+// the record selects 3: the parsed input runs the 4 line, Selected answers the
+// line for the plan's effective inputs, and the render writes the selection
+// into the record as one more file of the configs repository. An organisation
+// without such a component keeps its record's line and writes no record; an
+// installation on record keeps its line (TestRefusals).
+func TestFreshEnableSelectsTheFourLine(t *testing.T) {
+	input, secrets := loadInput(t, shapeGiantswarmOwned)
+	in, err := Parse(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in.Installation.ChartLine != lineFour || !in.selectsLine {
+		t.Fatalf("a fresh enable of a cluster-manager organisation on a 3-line record runs the 4 line: %s, selected %v", in.Installation.ChartLine, in.selectsLine)
+	}
+	if sel := in.Selected(); sel["installation"].(map[string]any)["chartLine"] != lineFour {
+		t.Fatalf("selected: %v", sel)
+	}
+	result, err := Render(input, secrets, render.ModeCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := result.Files[render.Repository("giantswarm/giantswarm-configs")][render.RecordPath("gopher")]
+	if !strings.Contains(string(record.Content), "agentPlatform:\n  kagentApiV2: true\n") || !strings.Contains(string(record.Content), "cluster-manager") || len(record.Generated) != 0 {
+		t.Fatalf("the record fragment: %q", record.Content)
+	}
+	// On the 4 line already, nothing is selected and no record is written.
+	onFour, _ := loadInput(t, shapeGiantswarmSlackApp)
+	in, err = Parse(onFour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in.selectsLine || in.Selected() != nil {
+		t.Fatal("a record on the 4 line selects nothing")
+	}
+	// A customer without a line-4 component keeps the 3 line and writes no record.
+	customer, customerSecrets := loadInput(t, shapePublicCustomer)
+	in, err = Parse(customer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in.Installation.ChartLine != lineThree || in.selectsLine || in.Selected() != nil {
+		t.Fatalf("a customer's fresh enable stays on its record's line: %s, selected %v", in.Installation.ChartLine, in.selectsLine)
+	}
+	result, err = Render(customer, customerSecrets, render.ModeCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for repo, files := range result.Files {
+		for path := range files {
+			if strings.HasSuffix(path, "/"+render.RecordFile) {
+				t.Errorf("%s: %s written for an organisation without a line-4 component", repo, path)
+			}
+		}
 	}
 }
