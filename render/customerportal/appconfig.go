@@ -19,8 +19,15 @@ const (
 	sentryEnvironment = "production"
 	sentryReleaseVar  = "$${VERSION}"
 	sentrySampleRate  = 0.5
-	// supportLabel is the home page's support link, as the fleet's portals label it.
+	// The home page's support link, as the fleet's portals label it; the
+	// icon is what the schema's read-back of portal.supportUrl selects the
+	// entry by.
 	supportLabel = "Giant Swarm \n Support"
+	supportIcon  = "LiveHelp"
+	// grafanaHostID is the id of the one Grafana host the plugin lists, as
+	// the fleet's portals name it; with one host no entity needs the
+	// grafana/host-id annotation.
+	grafanaHostID = "grafana-net"
 )
 
 // include is a $include of an anchor of the base's shared-config.yaml.
@@ -77,7 +84,7 @@ func (in *Input) appConfig() render.Map {
 		}),
 	)
 	if in.Plugins.Grafana.Enabled {
-		m = append(m, e("grafana", render.Map{e("domain", in.Plugins.Grafana.Domain)}))
+		m = append(m, e("grafana", render.Map{e("hosts", []render.Map{{e("id", grafanaHostID), e("domain", in.Plugins.Grafana.Domain)}})}))
 	}
 	if in.Plugins.Flux.Enabled {
 		flux := render.Map{}
@@ -189,7 +196,7 @@ func (in *Input) gsSection() render.Map {
 		m = append(m, e("homepage", render.Map{e("resources", []render.Map{
 			include("homepageResources.gsDocs"), include("homepageResources.gsGitHub"),
 			include("homepageResources.portalChangelog"), include("homepageResources.portalRoadmap"),
-			{e("label", supportLabel), e("icon", "LiveHelp"), e("url", in.Portal.SupportURL)},
+			{e("label", supportLabel), e("icon", supportIcon), e("url", in.Portal.SupportURL)},
 		})}))
 	}
 	if len(in.Portal.FriendlyLabels) > 0 {

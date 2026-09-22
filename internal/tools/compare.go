@@ -29,12 +29,16 @@ type DryRun struct {
 // entry (dryRun). content keeps the rendered files' content.
 func (t *Tools) compare(ctx context.Context, env *planned, r installations.Report, def installations.Capability, typed map[string]any, content bool) (*verify.Result, error) {
 	read := readAs(env.c)
-	values, back, err := mergeInputs(ctx, def, r, installations.Reader(read), typed)
+	values, back, err := mergeInputs(ctx, def, r, installations.Reader(read), typed, env.byName)
+	if err != nil {
+		return nil, err
+	}
+	unset, err := def.Unset(values)
 	if err != nil {
 		return nil, err
 	}
 	env.inputs[r.Name] = values
-	in := verify.Inputs{Source: verify.Source(len(back) > 0, len(typed) > 0), Values: values, ReadBack: back}
+	in := verify.Inputs{Source: verify.Source(len(back) > 0, len(typed) > 0), Values: values, ReadBack: back, Unset: unset}
 	res := verify.Compare(ctx, verify.Options{Definition: def, Installation: r.Installation, Hub: env.hub, State: capabilityState(r, def.Name), Inputs: in, Read: read, Content: content, Probes: t.d.Probes})
 	res.Caller = identity.Caller(ctx)
 	res.OptIn = r.OptIn

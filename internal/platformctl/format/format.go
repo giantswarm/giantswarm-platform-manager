@@ -445,8 +445,8 @@ func Verify(w io.Writer, r verify.Result, liveErr error) error {
 	if r.Refused != "" {
 		p.f("Refused: %s\n", r.Refused)
 	}
-	if len(r.Inputs.Missing) > 0 {
-		p.f("Choices not on record: %s\n", strings.Join(r.Inputs.Missing, ", "))
+	if len(r.Inputs.Unset) > 0 {
+		p.f("Choices not on record: %s\n", strings.Join(r.Inputs.Unset, ", "))
 	}
 	if r.CommitRefused != "" {
 		p.f("A commit would be refused: %s\n", r.CommitRefused)

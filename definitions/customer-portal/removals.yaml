@@ -14,11 +14,18 @@
 #   not-rendered        a section of the hub's Dev Portal (pages the hub serves over muster, the hub's incident,
 #                       proxy and scaffolder configuration); out of the definition until a hub shape exists
 #   off-value           a flag at the value it has when the key is absent; dropping it changes nothing
+#   deprecated-form     a key in a form its plugin has deprecated; the definition renders the same value in the form
+#                       the plugin documents
 removals:
   # --- Backstage app-config.yaml: flags at their off value ---
   - key: "backstage:app-config:auth.experimentalClientIdMetadataDocuments"
     kind: off-value
     reason: "Removed: auth.experimentalClientIdMetadataDocuments is set to false here, which is what the auth backend does without the key; dropping it changes nothing."
+
+  # --- Backstage app-config.yaml: deprecated forms ---
+  - key: "backstage:app-config:grafana.domain"
+    kind: deprecated-form
+    reason: "Changed: grafana.domain is the Grafana plugin's deprecated single-host form; the same instance is listed as the one host of grafana.hosts, the form the plugin documents."
 
   # --- Backstage app-config.yaml: the agent-platform section ---
   - key: "backstage:app-config:muster"

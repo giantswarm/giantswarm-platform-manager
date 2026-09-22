@@ -172,6 +172,10 @@ type Inputs struct {
 	// ReadBack is what the definition read back from the files on record,
 	// by dotted input key; never a secret value.
 	ReadBack map[string]any `json:"readBack,omitempty"`
+	// Unset names, by field, every choice of the person no layer holds a
+	// value for — no default, nothing read back, nothing typed: the choices
+	// not on record. The required ones among them are Missing.
+	Unset []string `json:"unset,omitempty"`
 	// Missing names, by field, the required person inputs no layer holds:
 	// rendered as Missing markers, every leaf that carries one compared as
 	// not checked; a commit refuses them.

@@ -96,7 +96,9 @@ data:
                 clientId: $${AUTH_DEX_MAPLE_CLIENT_ID}
                 clientSecret: $${AUTH_DEX_MAPLE_CLIENT_SECRET}
         grafana:
-          domain: https://grafana.maple.acme.example.test
+          hosts:
+            - id: grafana-net
+              domain: https://grafana.maple.acme.example.test
         gs:
           authProvider: oidc-maple
           auth:
