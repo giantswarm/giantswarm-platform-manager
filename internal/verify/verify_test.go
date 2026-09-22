@@ -14,6 +14,9 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
+// grafanaDomainPath is the app-config's leaf that holds the Grafana choice.
+const grafanaDomainPath = "grafana.domain"
+
 // A leaf of the render that carries a choice not on record (a Missing
 // marker) is never a difference: differences leaves it out whatever the
 // record holds, missingLeaves names the fields it carries, and the
@@ -31,7 +34,7 @@ func TestMissingChoiceIsNotCheckedNeverADifference(t *testing.T) {
 	if got := differences("r:p", rendered, "a: 2\n", nil); len(got) != 1 || got[0].Path != "a" {
 		t.Errorf("drift beside the leaf: %+v", got)
 	}
-	if got := missingLeaves(flattenYAML(rendered)); !reflect.DeepEqual(got, map[string][]string{"grafana.domain": {field}}) {
+	if got := missingLeaves(flattenYAML(rendered)); !reflect.DeepEqual(got, map[string][]string{grafanaDomainPath: {field}}) {
 		t.Errorf("missing leaves %v", got)
 	}
 	if got := missingFields("x " + render.Missing("b") + " " + render.Missing("a") + " " + render.Missing("a")); !reflect.DeepEqual(got, []string{"a", "b"}) {
@@ -46,7 +49,7 @@ func TestMissingChoiceIsNotCheckedNeverADifference(t *testing.T) {
 		{ID: "plugins", Kind: definitions.KindBackstage, Key: "app-config grafana.domain / grafana.other"},
 		{ID: "rest", Kind: definitions.KindBackstage, Key: "everything else of the app-config"},
 	}}}
-	fd := &fileDiff{key: "r:" + appConfig, path: appConfig, kind: definitions.KindBackstage, missing: map[string][]string{"grafana.domain": {field}}}
+	fd := &fileDiff{key: "r:" + appConfig, path: appConfig, kind: definitions.KindBackstage, missing: map[string][]string{grafanaDomainPath: {field}}}
 	dims := assign(&comparison{files: map[string]*fileDiff{fd.key: fd}}, feats, "")
 	if d := dims["plugins"]; d.Mark != NotChecked || d.Reason != ReasonMissingChoice+": "+field || len(d.Differences) != 0 {
 		t.Errorf("the choice's dimension: %+v", *d)
@@ -452,7 +455,7 @@ func TestDifferencesInsideText(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("differences inside the text:\n%+v\nwant\n%+v", got, want)
 	}
-	if missing := missingLeaves(flattenYAML(rendered)); !reflect.DeepEqual(missing, map[string][]string{doc + "grafana.domain": {"plugins.grafana.domain"}}) {
+	if missing := missingLeaves(flattenYAML(rendered)); !reflect.DeepEqual(missing, map[string][]string{doc + grafanaDomainPath: {"plugins.grafana.domain"}}) {
 		t.Errorf("the choice not on record by its path through the text: %v", missing)
 	}
 	fd := &fileDiff{key: "r:" + appConfig, path: appConfig, kind: definitions.KindBackstage}
@@ -474,7 +477,7 @@ func TestDifferencesInsideText(t *testing.T) {
 	for _, d := range created {
 		paths = append(paths, d.Path)
 	}
-	if !reflect.DeepEqual(paths, []string{"apiVersion", "kind", "metadata.name", "stringData.values:authSessionSecret", "stringData.values:dexAuthCredentials.maple.clientId", "type"}) || created[3].Rendered != render.Placeholder("session") || created[4].Line != 11 || created[4].Rendered != "backstage" {
+	if !reflect.DeepEqual(paths, []string{apiVersionPath, "kind", "metadata.name", "stringData.values:authSessionSecret", "stringData.values:dexAuthCredentials.maple.clientId", "type"}) || created[3].Rendered != render.Placeholder("session") || created[4].Line != 11 || created[4].Rendered != "backstage" {
 		t.Errorf("a created Secret differs at every leaf inside its text, like a created file: %+v", created)
 	}
 	if got := differences("r:k", "patches:\n- patch: |\n    spec:\n      a: 1\n", "patches:\n- patch: |\n    spec:\n      a: 2\n", nil); len(got) != 1 || got[0].Path != "patches[0].patch" {
@@ -488,7 +491,7 @@ func TestDifferencesInsideText(t *testing.T) {
 // grafana.domain is one difference, at the domain; an empty mapping against
 // none is still one.
 func TestDifferencesReportTheEntriesOfAnEmptiedKey(t *testing.T) {
-	if got := differences("r:p", "grafana:\n  domain: x\n", "grafana: {}\n", nil); len(got) != 1 || got[0].Path != "grafana.domain" || got[0].Current != "" {
+	if got := differences("r:p", "grafana:\n  domain: x\n", "grafana: {}\n", nil); len(got) != 1 || got[0].Path != grafanaDomainPath || got[0].Current != "" {
 		t.Errorf("the record's empty mapping: %+v", got)
 	}
 	if got := differences("r:p", "list: []\n", "list:\n- a\n", nil); len(got) != 1 || got[0].Path != "list[a]" || got[0].Rendered != "" {

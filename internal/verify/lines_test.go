@@ -7,6 +7,9 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 )
 
+// apiVersionPath is the leaf every manifest opens with.
+const apiVersionPath = "apiVersion"
+
 // Every leaf of a file sits on a line: a mapping entry's key line, a
 // sequence entry's "- " line, the first line of a multi-line scalar, the
 // line of the key that holds an empty mapping or sequence; the values are
@@ -41,7 +44,7 @@ func TestFlattenLinesPlacesEveryLeaf(t *testing.T) {
 	}, "\n")
 	values, lines := flattenLines(content)
 	want := map[string]int{
-		"apiVersion": 1, "kind": 2, "metadata.name": 4, "metadata.labels": 5,
+		apiVersionPath: 1, "kind": 2, "metadata.name": 4, "metadata.labels": 5,
 		"data.script": 7, "data.list[a]": 11, "data.list[b]": 12,
 		"data.objects[x].name": 14, "data.objects[x].port": 15, "data.objects[y].name": 16, "data.objects[y].port": 17,
 		"data.empty": 18, "data.patches[0].path": 20, "data.patches[1].path": 21, "data.multi": 22, "data.after": 24,
@@ -174,12 +177,12 @@ func TestFlattenLinesDescendsIntoText(t *testing.T) {
 		"  note: 'Note: one line'",                  // 16
 		"spec:",                                     // 17
 		"  patch: |",                                // 18
-		"    a: 1",                                  // 19
+		"    b: 2",                                  // 19
 		"",
 	}, "\n")
 	values, lines := flattenLines(content)
 	want := map[string]int{
-		"apiVersion": 1, "kind": 2,
+		apiVersionPath: 1, "kind": 2,
 		"data.values:backstage.appConfig:app.title": 8, "data.values:backstage.appConfig:grafana.domain": 10,
 		"data.values:backstage.extraVolumeMounts": 11, "data.quoted:route.enabled": 12, "data.patch": 13, "data.note": 16, "spec.patch": 18,
 	}
@@ -191,7 +194,7 @@ func TestFlattenLinesDescendsIntoText(t *testing.T) {
 	if len(lines) != len(want) || len(values) != len(want) {
 		t.Errorf("%d lines, %d values, want %d: %v", len(lines), len(values), len(want), lines)
 	}
-	if values["data.values:backstage.appConfig:app.title"] != "Dev Portal" || values["data.values:backstage.extraVolumeMounts"] != "[]" || values["data.quoted:route.enabled"] != "true" || values["data.patch"] != "- op: replace\n  path: /a\n" || values["data.note"] != "Note: one line" || values["spec.patch"] != "a: 1\n" {
+	if values["data.values:backstage.appConfig:app.title"] != "Dev Portal" || values["data.values:backstage.extraVolumeMounts"] != "[]" || values["data.quoted:route.enabled"] != "true" || values["data.patch"] != "- op: replace\n  path: /a\n" || values["data.note"] != "Note: one line" || values["spec.patch"] != "b: 2\n" {
 		t.Errorf("values %v", values)
 	}
 	if flat := flattenYAML(content); len(flat) != len(want) || flat["data.values:backstage.appConfig:grafana.domain"] != "g.example.test" {
