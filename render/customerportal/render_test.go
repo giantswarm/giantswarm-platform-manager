@@ -213,25 +213,36 @@ func TestDexClientOwnership(t *testing.T) {
 // TestExtraEnvVarsOwnership holds the rule for the portal's environment:
 // backstage.extraEnvVars is one list Helm replaces wholesale across the
 // HelmRelease's values sources, so the portal's user-values own it whole —
-// the avatars source with the platform, NODE_EXTRA_CA_CERTS with the tunnel,
-// no list without either — and the agent-platform definition's Component
-// sets none, on a portal it owns the other lists of included.
+// the avatars source listing the host of every installation the portal shows
+// that runs the platform (its own first, then the federated ones in list
+// order, space-separated), NODE_EXTRA_CA_CERTS with the tunnel, no list
+// without either — and the agent-platform definition's Component sets none,
+// on a portal it owns the other lists of included.
 func TestExtraEnvVarsOwnership(t *testing.T) {
 	avatars := envEntry(avatarsEnv, "https://avatars.hazel.example.test")
+	sibling := envEntry(avatarsEnv, "https://avatars.alder.acme.example.test")
+	ownAndSibling := envEntry(avatarsEnv, "https://avatars.birch.acme.example.test https://avatars.alder.acme.example.test")
 	ca := envEntry(tunnelCAEnv, tunnelBundleMount+"/"+tunnelBundleFile)
-	tunnelOnly, secrets := loadInput(t, "customer-portal")
+	tunnelOnly, portalSecrets := loadInput(t, "customer-portal")
 	tunnelOnly["tunnel"] = map[string]any{enabledKey: true}
+	// The federated shape's own installation runs the platform as well as
+	// the sibling that signs people in.
+	bothPlatforms, federatedSecrets := loadInput(t, "federated-portal")
+	bothPlatforms["installation"].(map[string]any)["agentPlatform"] = true
 	for _, c := range []struct {
-		name  string
-		shape string
-		input map[string]any
-		want  []map[string]any
+		name    string
+		shape   string
+		input   map[string]any
+		secrets map[string]string
+		want    []map[string]any
 	}{
-		{"platform and tunnel", "giantswarm-owned-with-platform", nil, []map[string]any{avatars, ca}},
-		{"neither", "customer-portal", nil, nil},
-		{"tunnel alone", "", tunnelOnly, []map[string]any{ca}},
+		{"platform and tunnel", "giantswarm-owned-with-platform", nil, nil, []map[string]any{avatars, ca}},
+		{"neither", "customer-portal", nil, nil, nil},
+		{"a sibling's platform alone", "federated-portal", nil, nil, []map[string]any{sibling}},
+		{"tunnel alone", "", tunnelOnly, portalSecrets, []map[string]any{ca}},
+		{"own and a sibling's platform", "", bothPlatforms, federatedSecrets, []map[string]any{ownAndSibling}},
 	} {
-		input := c.input
+		input, secrets := c.input, c.secrets
 		if c.shape != "" {
 			input, secrets = loadInput(t, c.shape)
 		}
@@ -605,7 +616,7 @@ func TestRefusals(t *testing.T) {
 	federation := func(fields map[string]any, names ...string) map[string]any {
 		var insts []any
 		for _, name := range names {
-			insts = append(insts, map[string]any{"name": name, "baseDomain": name + ".acme.example.test", "providers": []any{"capa"}, "pipeline": "stable"})
+			insts = append(insts, map[string]any{"name": name, "baseDomain": name + ".acme.example.test", "providers": []any{"capa"}, "pipeline": "stable", "agentPlatform": false})
 		}
 		fields["installations"] = insts
 		return fields
@@ -635,6 +646,10 @@ func TestRefusals(t *testing.T) {
 			m["federation"] = federation(map[string]any{"signInInstallation": "elm"}, "alder")
 		}), secrets, ErrInput, "federation.signInInstallation"},
 		{"federation without its credentials", clone(func(m map[string]any) { m["federation"] = federation(map[string]any{}, "alder") }), secrets, ErrEmptySecret, "federation.alder.clientId"},
+		{"federated installation without its platform fact", clone(func(m map[string]any) {
+			m["federation"] = federation(map[string]any{}, "alder")
+			delete(m["federation"].(map[string]any)["installations"].([]any)[0].(map[string]any), "agentPlatform")
+		}), secrets, ErrInput, "agentPlatform"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

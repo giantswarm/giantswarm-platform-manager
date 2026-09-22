@@ -30,8 +30,10 @@ is `<name>`. A path covers every key beneath it.
 ## Rules the inputs encode
 
 - The installation facts (`installation.*`) are read, never typed: the codename, base domain, provider, region,
-  pipeline and whether the agent platform is enabled come from the installations registry. Every hostname of
-  the fileset other than the portal's own derives from them; the portal's is `portal.domain`.
+  pipeline and whether the agent platform is enabled come from the installations registry; a federated
+  installation's entry (`federation.installations[*]`) carries the same kind of facts, whether it runs the agent
+  platform among them. Every hostname of the fileset other than the portal's own derives from them; the
+  portal's is `portal.domain`.
 - The dex-app configmap patch of an installation is one file with several owners: a definition owns the
   clients it renders and nothing else. Without the platform this definition renders the patch with the portal's
   client. With the platform enabled (`installation.agentPlatform`) the agent-platform definition renders it and
@@ -45,7 +47,8 @@ is `<name>`. A path covers every key beneath it.
   installation with both capabilities no repository path and no Kubernetes object is rendered by two definitions.
 - A portal over several installations of one customer lists them under `federation.installations` with their
   facts on record: each gets a cluster entry and an installation entry, and a provider on its Dex whose client
-  credentials are supplied at commit (`federation.<name>.clientId`, `clientSecret`).
+  credentials are supplied at commit (`federation.<name>.clientId`, `clientSecret`); one that runs the agent
+  platform (`agentPlatform`) has its avatars host in the portal's environment (below).
   `federation.signInInstallation` names the installation whose Dex signs people in; `federation.tokenBroker` the
   one whose muster brokers cluster tokens for the others — then the portal has the sign-in installation's
   provider alone, the broker's client credentials are supplied as `federation.tokenBroker.clientId`,
@@ -68,8 +71,11 @@ is `<name>`. A path covers every key beneath it.
   and never written into the portal's files. The portal includes the shared extensions list; the Component's
   fragment includes the platform's over it. The portal's environment stays the portal's: `backstage.extraEnvVars`
   is one list Helm replaces wholesale across the HelmRelease's values sources (the shared base's default, the
-  portal's user-values, the Component's values), so the user-values are its one owner — the installation's
-  avatars host as the CSP image source (`BACKSTAGE_AVATARS_IMG_SRC`) with the platform enabled,
+  portal's user-values, the Component's values), so the user-values are its one owner — the avatars host of
+  every installation the portal shows that runs the platform as the CSP image source
+  (`BACKSTAGE_AVATARS_IMG_SRC`, space-separated: the portal's own first with `installation.agentPlatform`, then
+  the federated ones with `federation.installations[*].agentPlatform` in list order, so the browser loads the
+  avatar images a sibling's platform serves to a portal whose own installation runs none),
   `NODE_EXTRA_CA_CERTS` on the mounted SPIFFE bundle with the tunnel on (Node reads extra CA certificates
   through that variable alone; without it the mount is inert), no list without either so the shared base's
   `'self'` stands — and the Component sets none.
@@ -81,7 +87,8 @@ is `<name>`. A path covers every key beneath it.
   `enable_capability`, `reconcile_capability` (one installation or the wave) and `verify_capability` take
   `capability: customer-portal` as they take `agent-platform`: the plan is rendered from this schema over the
   facts on record — the schema names the facts it takes under `installation` (`agentPlatform` is the
-  agent-platform capability's enabled state on the installation) — and compared against the portal's own files.
+  agent-platform capability's enabled state on the installation, under `installation` and under each
+  `federation.installations` entry) — and compared against the portal's own files.
 - The plugin-to-plugin signing keys are one generated key pair (`backstage-plugin-keys`, ES256): the commit
   step draws an ECDSA P-256 pair once and writes the private half (PKCS #8 PEM) and the public half (SPKI PEM)
   into `plugin-keys-secret.enc.yaml`; a pair on record is frozen as a whole.
