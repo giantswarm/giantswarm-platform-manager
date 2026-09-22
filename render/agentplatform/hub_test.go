@@ -171,14 +171,16 @@ func TestTunnelTokensPerHub(t *testing.T) {
 		t.Errorf("the second hub names an unsuffixed token:\n%s\n%s", remoteapps, tunnels)
 	}
 	// The first hub's tokens are unsuffixed (TestPrivatePlatformTargetTunnels holds gopher's fileset).
+	const plain = "dex-burrow-bot-token"
+	gopher, warren := "gopher", "warren"
 	for _, tc := range []struct {
 		hubs      []string
 		hub, want string
 	}{
-		{nil, "gopher", "dex-burrow-bot-token"},
-		{[]string{"gopher"}, "gopher", "dex-burrow-bot-token"},
-		{[]string{"gopher", "warren"}, "gopher", "dex-burrow-bot-token"},
-		{[]string{"gopher", "warren"}, "warren", "dex-burrow-bot-token-warren"},
+		{nil, gopher, plain},
+		{[]string{gopher}, gopher, plain},
+		{[]string{gopher, warren}, gopher, plain},
+		{[]string{gopher, warren}, warren, plain + "-" + warren},
 	} {
 		if got := (Target{Installation: "burrow", Hubs: tc.hubs}).tokenName("dex", tc.hub); got != tc.want {
 			t.Errorf("hubs %v, hub %s: tokenName = %s, want %s", tc.hubs, tc.hub, got, tc.want)
