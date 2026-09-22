@@ -622,9 +622,13 @@ func prTitle(kind, installation, capability, action, detail string) string {
 func prBody(a *actions.Action, p plan.Installation, prs []plan.PullRequest) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Action `%s`: %s %s on %s, opened by %s as the person.\n\n", a.Name, a.Spec.Kind, a.Spec.Capability, p.Name, ToolPrefix)
-	fmt.Fprintf(&b, "Pull requests of this action, in dependency order (configs before management-clusters):\n")
+	fmt.Fprintf(&b, "Pull requests of this action, in dependency order (a pull request whose files create an object another one's files reference merges first):\n")
 	for _, pr := range prs {
-		fmt.Fprintf(&b, "%d. %s — %d file(s)\n", pr.Order, pr.Repository, pr.Changes)
+		fmt.Fprintf(&b, "%d. %s — %d file(s)", pr.Order, pr.Repository, pr.Changes)
+		if after := pr.AfterClause(); after != "" {
+			fmt.Fprintf(&b, ", %s", after)
+		}
+		b.WriteString("\n")
 	}
 	if len(p.GeneratedSecrets) > 0 {
 		b.WriteString("\nGenerated secrets, by name; the values exist only inside the encrypted files:\n")

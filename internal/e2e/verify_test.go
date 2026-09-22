@@ -681,9 +681,7 @@ func TestVerifyCapabilityReadsDocumentsByObject(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	c := st.mcpClient(t, aliceToken)
-	federated := minimalInputs(map[string]any{argInstallation: map[string]any{"federation": map[string]any{
-		"brokerClientId": "broker", "hubs": []any{},
-		"targets": []any{map[string]any{"installation": alder, "baseDomain": alder + ".example", argPrivate: true}}}}})
+	federated := federation(true)
 	enableRowan(t, st, c, federated, federated)
 	repo, path, content := onRecord(t, st, "/remoteapps.yaml")
 	docs := strings.Split(content, "---\n")
@@ -733,7 +731,7 @@ func TestVerifyCapabilityReadsBackThePortal(t *testing.T) {
 		t.Errorf("values %v", res.Inputs.Values)
 	}
 	// The federation follows the record: every installation the hub's portal lists but the hub, by name, with its facts.
-	federation, _ := res.Inputs.Values["federation"].(map[string]any)
+	federation, _ := res.Inputs.Values[federationKey].(map[string]any)
 	entries, _ := federation["installations"].([]any)
 	var names []string
 	for _, e := range entries {
@@ -744,7 +742,7 @@ func TestVerifyCapabilityReadsBackThePortal(t *testing.T) {
 		t.Fatalf("federation.installations %v", names)
 	}
 	// The registry's facts over the record's: birch's base domain is the catalog's, not the portal entry's.
-	if e := entries[1].(map[string]any); e["baseDomain"] != birch+".acme.test" || e["agentPlatform"] != true || e["pipeline"] != "stable" || e["private"] != true || !slices.Equal(e["providers"].([]any), []any{"capa"}) {
+	if e := entries[1].(map[string]any); e[baseDomainKey] != birch+".acme.test" || e["agentPlatform"] != true || e["pipeline"] != "stable" || e["private"] != true || !slices.Equal(e["providers"].([]any), []any{"capa"}) {
 		t.Errorf("%s: %v", birch, e)
 	}
 	if e := entries[0].(map[string]any); e["agentPlatform"] != false || e["private"] != false {
@@ -772,7 +770,7 @@ func TestVerifyCapabilityFederationFollowsTheRecord(t *testing.T) {
 	if err := json.Unmarshal([]byte(text), &res); err != nil {
 		t.Fatalf("decode: %v\n%s", err, text)
 	}
-	federation, _ := res.Inputs.Values["federation"].(map[string]any)
+	federation, _ := res.Inputs.Values[federationKey].(map[string]any)
 	if res.Refused != "" || res.Inputs.ReadBack["federation.signInInstallation"] != birch || federation["signInInstallation"] != birch || len(federation["installations"].([]any)) != 2 {
 		t.Fatalf("refused %q, read back %v, federation %v", res.Refused, res.Inputs.ReadBack, federation)
 	}

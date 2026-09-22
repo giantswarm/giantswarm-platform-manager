@@ -61,8 +61,17 @@ type File struct {
 	Generated []string `json:"generated,omitempty"`
 	// Kept is the part of the installation's current file that is not the
 	// platform's, kept in the file as the plan writes it.
-	Kept  []Kept `json:"kept,omitempty"`
-	Error string `json:"error,omitempty"`
+	Kept []Kept `json:"kept,omitempty"`
+	// Creates names the objects the file brings onto the installation, as
+	// "<kind>/<name>": a Secret its manifests declare, a Teleport provision
+	// token its tunnelport values list — none the file on record carries
+	// already. References names the objects the file refers to the same
+	// way: the Secret a secretRef, an existingSecret or a secretName names,
+	// the ProvisionToken a tokenName names. The pull requests merge in the
+	// order they imply: the one that creates before the one that references.
+	Creates    []string `json:"creates,omitempty"`
+	References []string `json:"references,omitempty"`
+	Error      string   `json:"error,omitempty"`
 }
 
 // Kept is one entry of a file with several owners that another owner carries;
@@ -248,6 +257,10 @@ type PullRequest struct {
 	Files            []string `json:"files"`
 	Changes          int      `json:"changes"`
 	GeneratedSecrets []string `json:"generatedSecrets"`
+	// After names the pull requests this one merges after — their files
+	// create an object this one's files reference — with the objects; empty
+	// where the repositories' kind alone places it.
+	After []Dependency `json:"after,omitempty"`
 }
 
 // Reader reads a file of a repository as the caller. Build calls it from
@@ -423,6 +436,7 @@ func Build(ctx context.Context, opts Options) Installation {
 				}
 			}
 			pf.Change, pf.Error = change(current, err, content)
+			pf.Creates, pf.References = introduced(content, current, err == nil), references(content)
 			p.Diff[pf.Change]++
 			if len(f.Generated) > 0 {
 				h.change = pf.Change
@@ -585,30 +599,8 @@ func ResolveRepository(rendered string, inst, hub installations.Installation) st
 	return rendered
 }
 
-// rank is the dependency order of repositories: an installation's configs
-// before its management-clusters, the hub's pair after the installation's,
-// teleport-fleet after the hub's.
-func rank(repo string, inst, hub installations.Installation) int {
-	switch repo {
-	case inst.Repositories.Configs:
-		return 0
-	case inst.Repositories.ManagementClusters:
-		return 1
-	case hub.Repositories.Configs:
-		return 2
-	case hub.Repositories.ManagementClusters:
-		return 3
-	case "giantswarm/teleport-fleet":
-		return 4
-	}
-	if strings.HasSuffix(repo, "-configs") {
-		return 5
-	}
-	return 6
-}
-
-// SortedRepositories are the repositories of fs in a stable order: an
-// installation's configs before its management-clusters.
+// SortedRepositories are the repositories of fs in a stable order, by name:
+// the order the files are walked in, not the pull requests' (PullRequests).
 func SortedRepositories(fs render.Fileset) []render.Repository {
 	repos := make([]render.Repository, 0, len(fs))
 	for r := range fs {
@@ -619,15 +611,18 @@ func SortedRepositories(fs render.Fileset) []render.Repository {
 }
 
 // PullRequests groups the files of every installation into one pull request
-// per repository, in dependency order. Files that are unchanged open no
-// pull request; a repository whose files are all unchanged is left out.
+// per repository, in dependency order: a pull request whose files create an
+// object another one's files reference merges before it, the rest by the
+// repositories' kind (order). Files that are unchanged open no pull request;
+// a repository whose files are all unchanged is left out.
 func PullRequests(plans []Installation, byName map[string]installations.Installation, hub installations.Installation) []PullRequest {
 	type acc struct {
-		insts     map[string]bool
-		files     []string
-		changes   int
-		generated map[string]bool
-		rank      int
+		insts               map[string]bool
+		files               []string
+		changes             int
+		generated           map[string]bool
+		creates, references map[string]bool
+		rank                int
 	}
 	prs := map[string]*acc{}
 	for _, p := range plans {
@@ -638,7 +633,7 @@ func PullRequests(plans []Installation, byName map[string]installations.Installa
 			}
 			a := prs[f.Repository]
 			if a == nil {
-				a = &acc{insts: map[string]bool{}, generated: map[string]bool{}, rank: rank(f.Repository, inst, hub)}
+				a = &acc{insts: map[string]bool{}, generated: map[string]bool{}, creates: map[string]bool{}, references: map[string]bool{}, rank: rank(f.Repository, inst, hub)}
 				prs[f.Repository] = a
 			}
 			if r := rank(f.Repository, inst, hub); r < a.rank {
@@ -650,24 +645,23 @@ func PullRequests(plans []Installation, byName map[string]installations.Installa
 			for _, g := range f.Generated {
 				a.generated[g] = true
 			}
+			for _, o := range f.Creates {
+				a.creates[o] = true
+			}
+			for _, o := range f.References {
+				a.references[o] = true
+			}
 		}
 	}
 	out := make([]PullRequest, 0, len(prs))
+	ranks, creates, references := map[string]int{}, map[string]map[string]bool{}, map[string]map[string]bool{}
 	for repo, a := range prs {
-		pr := PullRequest{Repository: repo, Installations: keys(a.insts), Files: a.files, Changes: a.changes, GeneratedSecrets: keys(a.generated), Order: a.rank}
+		pr := PullRequest{Repository: repo, Installations: keys(a.insts), Files: a.files, Changes: a.changes, GeneratedSecrets: keys(a.generated)}
 		sort.Strings(pr.Files)
 		out = append(out, pr)
+		ranks[repo], creates[repo], references[repo] = a.rank, a.creates, a.references
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Order != out[j].Order {
-			return out[i].Order < out[j].Order
-		}
-		return out[i].Repository < out[j].Repository
-	})
-	for i := range out {
-		out[i].Order = i + 1
-	}
-	return out
+	return order(out, ranks, creates, references)
 }
 
 func keys(m map[string]bool) []string {
