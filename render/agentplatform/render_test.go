@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -33,8 +34,13 @@ const (
 	shapeRegisteredServers      = "registered-servers"
 )
 
-// keyEnabled is the switch every choice of the document carries.
-const keyEnabled = "enabled"
+// The keys of the choices' documents the refusal cases build.
+const (
+	keyEnabled  = "enabled"
+	keyModel    = "model"
+	keyProvider = "provider"
+	keyGoogle   = "google"
+)
 
 // shapes are the installation shapes, in the order the goldens are rendered.
 var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned, shapeGiantswarmSlackApp, shapeGiantswarmSlackAppPub, shapeHubPrivateTarget, shapeMultiClusterAggregator, shapeSecondHub, shapeHandKeptPortal, shapeRegisteredServers}
@@ -108,13 +114,14 @@ func TestGolden(t *testing.T) {
 	}
 }
 
-// TestGoldensCoverTheChat holds the golden shapes to the chat's three
-// shapes: a rendered portal with the chat, whose fragment includes the
-// shared list with the chat and carries the aiChat block and the key's
-// Secret listed by the Component; a hand-kept portal with a hand-kept chat,
-// whose fragment carries the block, no list and no Secret (the portal's
-// environment supplies the key); and a portal without the chat, whose
-// fragment carries none of it and no Secret.
+// TestGoldensCoverTheChat holds the golden shapes to the chat's shapes: a
+// rendered portal with the chat, whose fragment includes the shared list
+// with the chat and carries the aiChat block and the credentials Secret
+// listed by the Component; a hand-kept portal with a hand-kept chat, whose
+// fragment carries the block, no list and no Secret (the portal's
+// environment supplies the credential); a portal without the chat, whose
+// fragment carries none of it and no Secret; and both providers among the
+// chats.
 func TestGoldensCoverTheChat(t *testing.T) {
 	covered := map[string]bool{}
 	for _, shape := range shapes {
@@ -137,6 +144,18 @@ func TestGoldensCoverTheChat(t *testing.T) {
 		_, secret := tree[dir+portalCredentialsFile]
 		chat, include := strings.Contains(fragment, "\n    aiChat:\n"), strings.Contains(fragment, "#extensionsAgentPlatformAiChat")
 		listed := strings.Contains(kustomization, "- "+portalCredentialsFile+"\n") && strings.Contains(kustomization, "name: "+portalCredentialsSecret+"\n")
+		if in.aiChatVertex() {
+			values := string(tree[dir+"values.yaml"])
+			if !strings.Contains(fragment, "        provider: "+providerVertex+"\n") || !strings.Contains(fragment, "        keyFilename: "+googleCredentialsPath+"\n") || strings.Contains(fragment, "apiKey") || !strings.Contains(values, "\n    google:\n") || !strings.Contains(string(tree[dir+portalCredentialsFile]), "credentialsJson: ") {
+				t.Errorf("%s: the chat on Vertex: the fragment, the values and the Secret do not carry the provider's keys\n%s\n%s", shape, fragment, values)
+			}
+			covered[providerVertex] = true
+		} else if chat {
+			if !strings.Contains(fragment, "        apiKey: "+anthropicKeyEnv+"\n") || strings.Contains(fragment, "google") {
+				t.Errorf("%s: the chat on Anthropic's API: the fragment does not carry the key's variable, or carries Google keys\n%s", shape, fragment)
+			}
+			covered[providerAnthropic] = true
+		}
 		switch {
 		case !in.aiChat():
 			if chat || include || secret || listed {
@@ -155,7 +174,7 @@ func TestGoldensCoverTheChat(t *testing.T) {
 			covered["hand-kept"] = true
 		}
 	}
-	for _, shape := range []string{"off", "rendered", "hand-kept"} {
+	for _, shape := range []string{"off", "rendered", "hand-kept", providerAnthropic, providerVertex} {
 		if !covered[shape] {
 			t.Errorf("no golden shape renders the chat %s", shape)
 		}
@@ -471,6 +490,14 @@ func TestRefusals(t *testing.T) {
 	federation := func(m map[string]any) map[string]any {
 		return m["installation"].(map[string]any)["federation"].(map[string]any)
 	}
+	// The shape's supplied values with one more, or one fewer: the public
+	// customer's chat runs on Vertex, so its credentials are among them.
+	with := func(field, value string) map[string]string {
+		out := maps.Clone(secrets)
+		out[field] = value
+		return out
+	}
+	chatOff := clone(func(m map[string]any) { delete(m, "aiChat") })
 	cases := []struct {
 		name    string
 		input   map[string]any
@@ -484,16 +511,28 @@ func TestRefusals(t *testing.T) {
 		{"empty Slack credential where the gateway runs", slackAppPublic, nil, ErrEmptySecret, fieldSlack + "bot-token"},
 		{"no app-level token on a private installation", slackApp, withoutAppToken, ErrEmptySecret, fieldSlack + "app-token"},
 		{"an app-level token on a public installation", slackAppPublic, slackPublicSecrets, ErrUnknownSecret, fieldSlack + "app-token"},
-		{"a Slack credential where no gateway runs", base, map[string]string{fieldSlack + "bot-token": "x"}, ErrUnknownSecret, fieldSlack + "bot-token"},
-		{"the model key is never supplied", base, map[string]string{"kagent.modelKey": "x"}, ErrUnknownSecret, "kagent.modelKey"},
+		{"a Slack credential where no gateway runs", base, with(fieldSlack+"bot-token", "x"), ErrUnknownSecret, fieldSlack + "bot-token"},
+		{"the model key is never supplied", base, with("kagent.modelKey", "x"), ErrUnknownSecret, "kagent.modelKey"},
 		{"serving on the 3 line", clone(func(m map[string]any) { m["modelServing"] = map[string]any{keyEnabled: true} }), secrets, ErrInput, "modelServing.enabled"},
 		{"the chat without a portal to carry it", clone(func(m map[string]any) {
 			m["installation"].(map[string]any)["portals"] = []any{}
-			m["aiChat"] = map[string]any{keyEnabled: true, "model": "x"}
+			m["aiChat"] = map[string]any{keyEnabled: true, keyModel: "x"}
 		}), secrets, ErrInput, "aiChat.enabled"},
 		{"the chat without a model", clone(func(m map[string]any) { m["aiChat"] = map[string]any{keyEnabled: true} }), secrets, ErrInput, "aiChat.model"},
-		{"the chat's key not supplied", clone(func(m map[string]any) { m["aiChat"] = map[string]any{keyEnabled: true, "model": "x"} }), secrets, ErrEmptySecret, fieldAnthropicKey},
-		{"the chat's key where no chat runs", base, map[string]string{fieldAnthropicKey: "x"}, ErrUnknownSecret, fieldAnthropicKey},
+		{"the chat's key not supplied", clone(func(m map[string]any) { m["aiChat"] = map[string]any{keyEnabled: true, keyModel: "x"} }), nil, ErrEmptySecret, fieldAnthropicKey},
+		{"the chat's key where no chat runs", chatOff, map[string]string{fieldAnthropicKey: "x"}, ErrUnknownSecret, fieldAnthropicKey},
+		{"a Vertex chat's credentials where no chat runs", chatOff, secrets, ErrUnknownSecret, fieldGoogleCredentials},
+		{"a Vertex chat without its project", clone(func(m map[string]any) {
+			m["aiChat"] = map[string]any{keyEnabled: true, keyModel: "x", keyProvider: providerVertex, keyGoogle: map[string]any{"location": "eu"}}
+		}), secrets, ErrInput, "aiChat.google.project"},
+		{"a Vertex chat without its location", clone(func(m map[string]any) {
+			m["aiChat"] = map[string]any{keyEnabled: true, keyModel: "x", keyProvider: providerVertex, keyGoogle: map[string]any{"project": "p"}}
+		}), secrets, ErrInput, "aiChat.google.location"},
+		{"a Vertex chat's credentials not supplied", base, nil, ErrEmptySecret, fieldGoogleCredentials},
+		{"an API key for a Vertex chat", base, with(fieldAnthropicKey, "k"), ErrUnknownSecret, fieldAnthropicKey},
+		{"a provider the chat does not run on", clone(func(m map[string]any) {
+			m["aiChat"] = map[string]any{keyEnabled: true, keyModel: "x", keyProvider: "openai"}
+		}), secrets, ErrInput, "provider"},
 		{"a component of the 4 line on a record that selects the 3 line", lineThreeOwned, nil, ErrInput, "installation.chartLine selects the 3 line, and cluster-manager needs the platform's 4 chart line; agentPlatform.kagentApiV2: true in installations/gopher/config.yaml.patch selects 4"},
 		{"kagent on the 4 line where the record does not say the cluster serves PodCertificateRequest", noPodCertificateRequest, secrets, ErrInput, "installation.podCertificateRequest does not say this cluster serves certificates.k8s.io/v1beta1 podcertificaterequests, which kagent's Agent Substrate on the 4 chart line needs; enable the feature gates PodCertificateRequest, ClusterTrustBundle, ClusterTrustBundleProjection under cluster.internal.advancedConfiguration.{controlPlane.apiServer,controlPlane.controllerManager,kubelet}.featureGates in the cluster App's values (management-clusters/" + noPodCertificateRequest["installation"].(map[string]any)["name"].(string) + "/cluster-app-manifests.yaml), or run a cluster App chart that enables them by default (cluster-aws 10.3.0, cluster-azure 9.3.0, cluster-cloud-director 7.3.0 and later)"},
 		{"targets without a broker client", clone(func(m map[string]any) {
