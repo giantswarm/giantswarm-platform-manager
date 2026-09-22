@@ -42,9 +42,9 @@
         "pipeline": {"type": "string", "description": "The installation's release pipeline (stable, testing), shown on the installation entry.", "x-source": "registry", "x-feature": "portal", "x-renders": ["backstage:app-config:gs.installations.<name>.pipeline"]},
         "agentPlatform": {
           "type": "boolean",
-          "description": "The agent-platform capability is enabled on this installation. Then the portal's extras/backstage/kustomization.yaml lists the agent-platform definition's Component (./agent-platform/), that definition owns the installation's dex-app configmap patch and carries the portal's Dex client in it, and this definition renders no dex patch.",
+          "description": "The agent-platform capability is enabled on this installation. Then the portal's extras/backstage/kustomization.yaml lists the agent-platform definition's Component (./agent-platform/), that definition owns the installation's dex-app configmap patch and carries the portal's Dex client in it, this definition renders no dex patch, and the user values carry the installation's avatars host (https://avatars.<baseDomain>) as BACKSTAGE_AVATARS_IMG_SRC in backstage.extraEnvVars, the CSP image source the shared base's csp.imgSrc reads (its default is 'self'). backstage.extraEnvVars is one list Helm replaces wholesale across the HelmRelease's values sources, so the user values own it whole and the Component sets none.",
           "x-source": "registry", "x-feature": "agent-platform-section",
-          "x-renders": ["backstage:kustomization:components[*]", "dex-configmap:oidc.extraStaticClients[*]"]
+          "x-renders": ["backstage:kustomization:components[*]", "backstage:user-values:backstage.extraEnvVars[*]", "dex-configmap:oidc.extraStaticClients[*]"]
         }
       }
     },
@@ -178,7 +178,7 @@
       "additionalProperties": false,
       "required": ["enabled"],
       "properties": {
-        "enabled": {"type": "boolean", "description": "Render the tunnel's SPIFFE trust bundle reference: the ExternalSecret that copies the bundle from the platform namespace into the portal's, with its store and reader, and the volume and mount that put it under /app/tunnelport-spiffe-bundle in the portal's container.", "x-source": "person", "x-feature": "portal", "x-readback": {"file": "backstage:file:tunnelport-spiffe-bundle.yaml", "kind": "file"}, "x-renders": ["backstage:file:tunnelport-spiffe-bundle.yaml", "backstage:kustomization:resources[*]", "backstage:user-values:backstage.extraVolumes[*]", "backstage:user-values:backstage.extraVolumeMounts[*]"]}
+        "enabled": {"type": "boolean", "description": "Render the tunnel's SPIFFE trust bundle reference: the ExternalSecret that copies the bundle from the platform namespace into the portal's, with its store and reader, the volume and mount that put it under /app/tunnelport-spiffe-bundle in the portal's container, and NODE_EXTRA_CA_CERTS on its svid_bundle.pem in backstage.extraEnvVars of the user values — the one variable Node reads extra CA certificates through, so the backend trusts the SVIDs the tunnel Services present; without it the mount is inert.", "x-source": "person", "x-feature": "portal", "x-readback": {"file": "backstage:file:tunnelport-spiffe-bundle.yaml", "kind": "file"}, "x-renders": ["backstage:file:tunnelport-spiffe-bundle.yaml", "backstage:kustomization:resources[*]", "backstage:user-values:backstage.extraEnvVars[*]", "backstage:user-values:backstage.extraVolumes[*]", "backstage:user-values:backstage.extraVolumeMounts[*]"]}
       }
     },
     "pluginKeys": {

@@ -11,6 +11,3 @@ data:
       extraAppConfig:
         - filename: app-config.agent-platform.yaml
           configMapRef: agent-platform-app-config-backstage
-      extraEnvVars:
-        - name: BACKSTAGE_AVATARS_IMG_SRC
-          value: https://avatars.heron.oakridge.example

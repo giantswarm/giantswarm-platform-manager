@@ -208,6 +208,95 @@ func TestDexClientOwnership(t *testing.T) {
 	}
 }
 
+// TestExtraEnvVarsOwnership holds the rule for the portal's environment:
+// backstage.extraEnvVars is one list Helm replaces wholesale across the
+// HelmRelease's values sources, so the portal's user-values own it whole —
+// the avatars source with the platform, NODE_EXTRA_CA_CERTS with the tunnel,
+// no list without either — and the agent-platform definition's Component
+// sets none, on a portal it owns the other lists of included.
+func TestExtraEnvVarsOwnership(t *testing.T) {
+	avatars := envEntry(avatarsEnv, "https://avatars.hazel.example.test")
+	ca := envEntry(tunnelCAEnv, tunnelBundleMount+"/"+tunnelBundleFile)
+	tunnelOnly, secrets := loadInput(t, "customer-portal")
+	tunnelOnly["tunnel"] = map[string]any{enabledKey: true}
+	for _, c := range []struct {
+		name  string
+		shape string
+		input map[string]any
+		want  []map[string]any
+	}{
+		{"platform and tunnel", "giantswarm-owned-with-platform", nil, []map[string]any{avatars, ca}},
+		{"neither", "customer-portal", nil, nil},
+		{"tunnel alone", "", tunnelOnly, []map[string]any{ca}},
+	} {
+		input := c.input
+		if c.shape != "" {
+			input, secrets = loadInput(t, c.shape)
+		}
+		result, err := Render(input, secrets, render.ModeCommit)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if got := extraEnvVars(t, result); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: extraEnvVars %v, want %v", c.name, got, c.want)
+		}
+	}
+	apInput, apSecrets := agentPlatformInput(t)
+	apResult, err := agentplatform.Render(apInput, apSecrets, render.ModeCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	component := false
+	for repo, files := range apResult.Files {
+		for path, f := range files {
+			if strings.Contains(path, "/extras/backstage/") {
+				component = true
+			}
+			if bytes.Contains(f.Content, []byte("extraEnvVars")) {
+				t.Errorf("%s: %s sets extraEnvVars; the portal's user-values own the list", repo, path)
+			}
+		}
+	}
+	if !component {
+		t.Fatal("the agent-platform shape renders no portal Component to hold the rule against")
+	}
+}
+
+// envEntry is one extraEnvVars entry as the decoder returns it.
+func envEntry(name, value string) map[string]any { return map[string]any{"name": name, "value": value} }
+
+// extraEnvVars is backstage.extraEnvVars of the rendered user-values, decoded;
+// nil where the key is absent.
+func extraEnvVars(t *testing.T, result *render.Result) []map[string]any {
+	t.Helper()
+	for _, files := range result.Files {
+		for path, f := range files {
+			if !strings.HasSuffix(path, "/"+userValuesFile) {
+				continue
+			}
+			var cm struct {
+				Data struct {
+					Values string `yaml:"values"`
+				} `yaml:"data"`
+			}
+			if err := yaml.Unmarshal(f.Content, &cm); err != nil {
+				t.Fatal(err)
+			}
+			var values struct {
+				Backstage struct {
+					ExtraEnvVars []map[string]any `yaml:"extraEnvVars"`
+				} `yaml:"backstage"`
+			}
+			if err := yaml.Unmarshal([]byte(cm.Data.Values), &values); err != nil {
+				t.Fatal(err)
+			}
+			return values.Backstage.ExtraEnvVars
+		}
+	}
+	t.Fatal("no user-values rendered")
+	return nil
+}
+
 // portalEntry is the portal's client in a rendered dex patch, decoded.
 func portalEntry(t *testing.T, patch []byte) any {
 	t.Helper()
