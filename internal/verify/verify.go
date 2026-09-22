@@ -370,6 +370,10 @@ type fileDiff struct {
 	// path: the choices not on record each names. Not checked, never a
 	// difference.
 	missing map[string][]string
+	// documents are the fields of the file, as rendered or on record, whose
+	// text holds a YAML document compared as its leaves (flat.documents):
+	// how a leaf's path splits into the field and the path inside it.
+	documents map[string]bool
 }
 
 // Redacted stands for a value the record holds encrypted in a difference:
@@ -399,12 +403,14 @@ func compare(ctx context.Context, opts Options, rms, migs plannedKeys) (*compari
 	c := &comparison{files: map[string]*fileDiff{}, dexClients: p.DexClients}
 	for _, f := range rendered(p) {
 		key := fileKey(f.Repository, f.Path)
-		fd := &fileDiff{key: key, path: f.Path, kind: kindOf(f.Path)}
+		fd := &fileDiff{key: key, path: f.Path, kind: kindOf(f.Path), documents: flattenLines(f.Content).documents}
 		switch f.Change {
 		case plan.ChangeUnknown:
 			fd.unreadable = f.Error
 		case plan.ChangeCreate, plan.ChangeUpdate:
-			fd.diffs = differences(key, f.Content, rs.got[key].content, driven)
+			var docs map[string]bool
+			fd.diffs, docs = differences(key, f.Content, rs.got[key].content, driven)
+			maps.Copy(fd.documents, docs)
 			for i := range fd.diffs {
 				fd.diffs[i].Planned = planned(fd, &fd.diffs[i], rms, migs)
 			}
@@ -498,24 +504,22 @@ func rendered(p plan.Installation) []plan.File {
 // redacted; every other leaf of it — type, the metadata, apiVersion, kind —
 // shows its values like a plain file's. The lines of such a file are those
 // of the file as the result shows it, redacted (shown).
-func differences(key string, rendered, current string, driven map[string]string) []Difference {
-	want, wantLines := flattenLines(rendered)
-	got, gotLines := flattenLines(current)
+func differences(key string, rendered, current string, driven map[string]string) ([]Difference, map[string]bool) {
+	rendered_, current_ := flattenLines(rendered), flattenLines(current)
+	want, wantLines := rendered_.values, rendered_.lines
+	got, gotLines := current_.values, current_.lines
 	encrypted := plan.Encrypted(current)
 	var secret func(string) bool
 	if encrypted {
 		secret = encryptedLeaves(got)
-		_, gotLines = flattenLines(redactLeaves(current, secret))
+		gotLines = flattenLines(redactLeaves(current, secret)).lines
 		if plan.Ciphertext(rendered) {
-			_, wantLines = flattenLines(redactLeaves(rendered, secret))
+			wantLines = flattenLines(redactLeaves(rendered, secret)).lines
 		}
 	}
-	documents := map[string]bool{} // the fields whose text the render's leaves sit in
-	for p := range want {
-		if h := holder(p); h != "" {
-			documents[h] = true
-		}
-	}
+	// documents are the fields whose text holds leaves, on either side.
+	documents := maps.Clone(rendered_.documents)
+	maps.Copy(documents, current_.documents)
 	var out []Difference
 	for _, p := range diffPaths(want, got) {
 		w, okw := want[p]
@@ -529,7 +533,7 @@ func differences(key string, rendered, current string, driven map[string]string)
 		}
 		out = append(out, d)
 	}
-	return out
+	return out, documents
 }
 
 // emptied says whether a leaf is an empty mapping or list on the one side
@@ -558,14 +562,13 @@ func under(flat map[string]string, p string) bool {
 	return false
 }
 
-// encryptedText says whether a leaf is of a document the render holds as
-// text in a field (documents) that the record holds encrypted: the field
-// itself, ciphertext on record where the render has the document's leaves,
-// or a leaf inside it. The manager decrypts nothing, so the record's text
-// stands and neither is a difference, like a value the record holds
-// encrypted (Opaque).
+// encryptedText says whether a leaf is of a document a field holds as text
+// (documents) that the record holds encrypted: the field itself, ciphertext
+// on record where the render has the document's leaves, or a leaf inside
+// it. The manager decrypts nothing, so the record's text stands and neither
+// is a difference, like a value the record holds encrypted (Opaque).
 func encryptedText(documents map[string]bool, got map[string]string, p string) bool {
-	field := holder(p)
+	field := holder(documents, p)
 	if field == "" {
 		if !documents[p] {
 			return false
@@ -818,16 +821,25 @@ func diffPaths(want, got map[string]string) []string {
 // path and textSep (payload, textMapping). A file that is not YAML is one
 // leaf at the empty path. flattenLines also names each leaf's line.
 func flattenYAML(content string) map[string]string {
-	values, _ := flattenLines(content)
-	return values
+	return flattenLines(content).values
 }
 
 // flatten flattens a decoded value to its leaves under prefix.
 func flatten(v any, prefix string, out map[string]string) {
+	flattenIn(v, prefix, false, out, nil)
+}
+
+// flattenIn flattens a decoded value to its leaves under prefix, inside a
+// document a string holds or not; a payload string that holds a mapping is
+// the mapping's leaves, its field recorded in documents when given.
+func flattenIn(v any, prefix string, inDocument bool, out map[string]string, documents map[string]bool) {
 	switch t := v.(type) {
 	case string:
-		if docs, ok := textMapping(t); ok && payload(prefix) {
-			flatten(docs[0].value, prefix+textSep, out)
+		if docs, ok := textMapping(t); ok && (inDocument || payload(prefix)) {
+			if documents != nil {
+				documents[prefix] = true
+			}
+			flattenIn(docs[0].value, prefix+textSep, true, out, documents)
 			return
 		}
 		out[prefix] = t
@@ -836,14 +848,14 @@ func flatten(v any, prefix string, out map[string]string) {
 			out[prefix] = "{}"
 		}
 		for k, vv := range t {
-			flatten(vv, joinPath(prefix, k), out)
+			flattenIn(vv, joinPath(prefix, k), inDocument, out, documents)
 		}
 	case []any:
 		if len(t) == 0 {
 			out[prefix] = "[]"
 		}
 		for i, k := range keys(t, "") {
-			flatten(t[i], prefix+"["+k+"]", out)
+			flattenIn(t[i], prefix+"["+k+"]", inDocument, out, documents)
 		}
 	case nil:
 		out[prefix] = "null"
@@ -1265,7 +1277,7 @@ func assign(c *comparison, feats []definitions.Feature, refused string, own fact
 func route(matchers []matcher, fd *fileDiff, yamlPath string) *Dimension {
 	var target *Dimension
 	best := 0
-	rel, yamlPath := observedPath(fd.kind, fd.path), innerPath(yamlPath)
+	rel, yamlPath := observedPath(fd.kind, fd.path), innerPath(fd.documents, yamlPath)
 	for _, m := range matchers {
 		if m.kind != fd.kind {
 			continue

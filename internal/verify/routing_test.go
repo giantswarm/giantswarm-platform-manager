@@ -331,8 +331,9 @@ func TestEveryRenderedLeafHasADimension(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				fd := &fileDiff{path: parts[2], kind: kindOf(parts[2])}
-				for leaf := range flattenYAML(string(content)) {
+				f := flattenLines(string(content))
+				fd := &fileDiff{path: parts[2], kind: kindOf(parts[2]), documents: f.documents}
+				for leaf := range f.values {
 					if route(matchers, fd, leaf) == nil {
 						t.Errorf("%s %s: %s#%s (%s) is observed under no dimension", c, shape, parts[2], leaf, fd.kind)
 					}
