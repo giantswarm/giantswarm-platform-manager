@@ -196,7 +196,7 @@ func TestUnsetNamesThePersonChoicesWithoutAValue(t *testing.T) {
 	}
 	want := []string{
 		"chart.line", inputSignIn, inputTokenBroker,
-		"plugins.flux.enabled", "plugins.flux.gitRepositoryPatterns", "plugins.github.enabled", inputGrafanaDomain, "plugins.sentry.enabled",
+		"plugins.flux.enabled", "plugins.flux.gitRepositoryPatterns", "plugins.github.enabled", "plugins.sentry.enabled",
 		"portal.friendlyAnnotations", "portal.friendlyLabels", "portal.organization", inputSupportURL, "portal.telemetrydeckAppId",
 		inputTunnelEnabled,
 	}
@@ -235,13 +235,15 @@ func TestAgentPlatformReadsBackModelServing(t *testing.T) {
 // line the value of the OCIRepository patch in the kustomization, the
 // sign-in installation the provider's name without its prefix, the token
 // broker the installation whose muster the token URL names, the support
-// URL the resources entry with the support link's icon, the Grafana
-// domain the plugin's one host, a plugin present or absent by its section,
-// the tunnel by its file.
+// URL the resources entry with the support link's icon, the Grafana host
+// the plugin's one host and the plugin wired or not by its proxy entry, the
+// other plugins present or absent by their sections, the tunnel by its
+// file.
 func TestCustomerPortalReadsBackThePortal(t *testing.T) {
 	def, _ := FindCapability(CustomerPortal)
 	dir := "management-clusters/rowan/extras/backstage/backstage/"
 	appConfig := "app:\n  title: ACME Portal\n  baseUrl: https://portal.rowan.acme.test\norganization:\n  name: ACME\ngrafana:\n  hosts:\n    - id: grafana-net\n      domain: https://grafana.acme.test\n" +
+		"proxy:\n  endpoints:\n    /grafana/api:\n      target: https://grafana.acme.test/\n      headers:\n        Authorization: Bearer $${GRAFANA_TOKEN}\n" +
 		"gs:\n  authProvider: oidc-birch\n  clusterTokenBroker:\n    clientId: $${AUTH_DEX_MUSTER_BROKER_CLIENT_ID}\n    tokenUrl: https://muster.birch.acme.test/oauth/token\n" +
 		"  homepage:\n    resources:\n      - $include: shared-config.yaml#homepageResources.gsDocs\n      - label: Support\n        icon: LiveHelp\n        url: https://support.acme.test/\n  friendlyLabels:\n    - selector: team\n      key: Team\n"
 	read := files(map[string]string{

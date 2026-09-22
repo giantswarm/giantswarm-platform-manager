@@ -12,7 +12,7 @@
 #   other-definition    the portal's agent-platform section, which the agent-platform definition renders as its
 #                       own Component next to the portal's files; this definition never writes it into them
 #   not-rendered        a section of the hub's Dev Portal (pages the hub serves over muster, the hub's incident,
-#                       proxy and scaffolder configuration); out of the definition until a hub shape exists
+#                       CircleCI proxy and scaffolder configuration); out of the definition until a hub shape exists
 #   off-value           a flag at the value it has when the key is absent; dropping it changes nothing
 #   deprecated-form     a key in a form its plugin has deprecated; the definition renders the same value in the form
 #                       the plugin documents
@@ -25,7 +25,7 @@ removals:
   # --- Backstage app-config.yaml: deprecated forms ---
   - key: "backstage:app-config:grafana.domain"
     kind: deprecated-form
-    reason: "Changed: grafana.domain is the Grafana plugin's deprecated single-host form; the same instance is listed as the one host of grafana.hosts, the form the plugin documents."
+    reason: "Changed: grafana.domain is the Grafana plugin's deprecated single-host form; the installation's own Grafana is listed as the one host of grafana.hosts, the form the plugin documents."
 
   # --- Backstage app-config.yaml: the agent-platform section ---
   - key: "backstage:app-config:muster"
@@ -50,9 +50,9 @@ removals:
   - key: "backstage:app-config:pagerDuty"
     kind: not-rendered
     reason: "Removed: the pagerDuty block links the hub's incidents; a customer portal has no incident page, and the hub's own shape is not rendered yet."
-  - key: "backstage:app-config:proxy"
+  - key: "backstage:app-config:proxy.endpoints./circleci/api"
     kind: not-rendered
-    reason: "Removed: the proxy block is the hub's API proxies; a customer portal proxies nothing, and the hub's own shape is not rendered yet."
+    reason: "Removed: the /circleci/api proxy is the hub's CircleCI API proxy; a customer portal proxies only its installation's Grafana, and the hub's own shape is not rendered yet."
   - key: "backstage:app-config:repositories"
     kind: not-rendered
     reason: "Removed: the repositories block is the hub's repositories page over muster; a customer portal has no such page, and the hub's own shape is not rendered yet."

@@ -23,10 +23,9 @@ import (
 // conditionalChoices, follows.
 
 // conditionalChoices are the person inputs required when another input is
-// true: field when the boolean at when is set.
-var conditionalChoices = []struct{ when, field string }{
-	{"plugins.grafana.enabled", "plugins.grafana.domain"},
-}
+// true: field when the boolean at when is set. None today: every plugin's
+// switch stands alone, its values derived or supplied at commit.
+var conditionalChoices []struct{ when, field string }
 
 // sourcePerson is the x-source of an input the person types.
 const sourcePerson = "person"

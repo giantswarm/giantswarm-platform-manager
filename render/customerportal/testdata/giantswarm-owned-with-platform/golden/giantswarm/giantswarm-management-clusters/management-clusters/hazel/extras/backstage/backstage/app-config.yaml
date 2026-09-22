@@ -112,6 +112,10 @@ data:
                 metadataUrl: https://dex.hazel.example.test/.well-known/openid-configuration
                 clientId: $${AUTH_DEX_HAZEL_CLIENT_ID}
                 clientSecret: $${AUTH_DEX_HAZEL_CLIENT_SECRET}
+        grafana:
+          hosts:
+            - id: hazel
+              domain: https://grafana.hazel.example.test
         flux:
           gitRepositoryPatterns:
             - targetUrl: https://$${{HOSTNAME}}/projects/$${{PROJECT_NAME}}/repos/$${{REPOSITORY_NAME}}/browse/$${{PATH}}?at=$${{REVISION}}

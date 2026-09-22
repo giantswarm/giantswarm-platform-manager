@@ -97,8 +97,14 @@ data:
                 clientSecret: $${AUTH_DEX_MAPLE_CLIENT_SECRET}
         grafana:
           hosts:
-            - id: grafana-net
+            - id: maple
               domain: https://grafana.maple.acme.example.test
+        proxy:
+          endpoints:
+            /grafana/api:
+              target: https://grafana.maple.acme.example.test/
+              headers:
+                Authorization: Bearer $${GRAFANA_TOKEN}
         gs:
           authProvider: oidc-maple
           auth:
