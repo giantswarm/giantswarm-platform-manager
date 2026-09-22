@@ -157,6 +157,11 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 			rows = append(rows, []string{string(f.Change), f.Repository, path})
 		}
 		p.table(4, rows)
+		for _, f := range inst.Files {
+			if len(f.Unseen) > 0 {
+				p.f("    %s holds encrypted, not compared: %s\n", f.Path, unseen(f.Unseen))
+			}
+		}
 	}
 	for _, inc := range inst.Includes {
 		p.f("  Includes: %s:%s %s %s (%s)\n", inc.Repository, inc.Path, inc.List, inc.Resource, inc.Change)
@@ -717,4 +722,13 @@ func age(t time.Time) string {
 	default:
 		return fmt.Sprintf("%dd", int(d.Hours()/24))
 	}
+}
+
+// unseen are a kept file's literals the record holds encrypted, "path: value" each.
+func unseen(list []plan.Unseen) string {
+	parts := make([]string, 0, len(list))
+	for _, u := range list {
+		parts = append(parts, u.Path+": "+u.Value)
+	}
+	return strings.Join(parts, ", ")
 }

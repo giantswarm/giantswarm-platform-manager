@@ -22,7 +22,7 @@ oidc:
       trustedPeers:
         - backstage
         - Yx7hub0portal0client0id0on0record0
-        - gopher-token-exchange
+        - muster-token-exchange-kestrel
   extraStaticClients:
     - id: kagent
       name: kagent-ui
@@ -39,8 +39,8 @@ oidc:
       secretRef:
         name: dex-client-backstage
         key: secret
-    - id: gopher-token-exchange
+    - id: muster-token-exchange-kestrel
       name: gopher token exchange
       secretRef:
-        name: dex-client-gopher-token-exchange
+        name: dex-client-muster-token-exchange-kestrel
         key: secret

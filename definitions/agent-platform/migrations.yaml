@@ -22,14 +22,16 @@ migrations:
   - key: configmap:kagent.providers.anthropic.config.maxTokens
     reason: "Added: kagent's default ModelConfig caps one call's output at 32000 tokens instead of kagent's 8192, which the model's thinking shares with its visible answer and cut long answers mid-sentence; the same bound on every installation running kagent · M34"
   # --- M32 — a spoke's Dex carries the hub's token-exchange client, its secret referenced; the hub's federation files ---
-  - key: dex-configmap:oidc.extraStaticClients[<name>-token-exchange]
-    reason: "Added: Dex gets a client named <name>-token-exchange, the hub <name>'s client in this installation's Dex, through which the hub's muster exchanges a person's token for one this installation accepts · M32"
-  - key: dex-configmap:oidc.staticClients.dexK8SAuthenticator.trustedPeers[<name>-token-exchange]
-    reason: "Added: the dex-k8s-authenticator client trusts the hub <name>'s token-exchange client as a peer, so a token the hub exchanges can carry this installation's cluster audience · M32"
-  - key: extras:agent-platform/secrets/dex-client-<name>-token-exchange-secret.yaml
-    reason: "Added: the hub <name>'s token-exchange client in this installation's Dex reads its secret from its own Secret under extras/agent-platform/secrets instead of an inline value · M32"
-  - key: extras:agent-platform/secrets/kustomization.yaml resources[dex-client-<name>-token-exchange-secret.yaml]
-    reason: "Added: the secrets kustomization lists the hub <name>'s token-exchange Secret, so it is applied with the rest · M32"
+  # The client's id is the fleet's, muster-token-exchange-<installation> for the registry's hub and
+  # muster-token-exchange-<installation>-<hub> for every other hub: the id the hub's credentials Secret presents.
+  - key: dex-configmap:oidc.extraStaticClients[muster-token-exchange-<name>]
+    reason: "Added: Dex gets the client muster-token-exchange-<name>, a hub's token-exchange client in this installation's Dex under the id the hub's credentials present, through which the hub's muster exchanges a person's token for one this installation accepts · M32"
+  - key: dex-configmap:oidc.staticClients.dexK8SAuthenticator.trustedPeers[muster-token-exchange-<name>]
+    reason: "Added: the dex-k8s-authenticator client trusts the hub's token-exchange client muster-token-exchange-<name> as a peer, so a token the hub exchanges can carry this installation's cluster audience · M32"
+  - key: extras:agent-platform/secrets/dex-client-muster-token-exchange-<name>-secret.yaml
+    reason: "Added: the hub's token-exchange client muster-token-exchange-<name> in this installation's Dex reads its secret from its own Secret under extras/agent-platform/secrets instead of an inline value · M32"
+  - key: extras:agent-platform/secrets/kustomization.yaml resources[dex-client-muster-token-exchange-<name>-secret.yaml]
+    reason: "Added: the secrets kustomization lists the Secret of the hub's token-exchange client muster-token-exchange-<name>, so it is applied with the rest · M32"
   - key: extras:agent-platform/secrets/<name>-token-exchange-credentials.yaml
     reason: "Added: on a hub, the credentials for exchanging tokens into <name> are a Secret under extras/agent-platform/secrets instead of inline values · M32"
   - key: extras:agent-platform/secrets/kustomization.yaml resources[<name>-token-exchange-credentials.yaml]

@@ -67,6 +67,24 @@ func TestSameSkeletonKeepsAnEncryptedFile(t *testing.T) {
 	}
 }
 
+// A literal under an encrypted field is what the comparison does not see:
+// the kept file names it with the render's value, by path — never a value
+// the commit fills in, never a plaintext field, and nothing for a file that
+// is not the record's shape.
+func TestUnseenNamesTheLiteralsUnderEncryptedFields(t *testing.T) {
+	got := unseen(renderedFile, fileOnRecord)
+	want := []Unseen{{Path: "stringData.client-id", Value: musterKey}, {Path: "stringData.ttl", Value: "3"}}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("unseen: %+v, want %+v", got, want)
+	}
+	if got := unseen(renderedFile, renderedFile); len(got) != 0 {
+		t.Errorf("a plaintext file holds nothing unseen: %+v", got)
+	}
+	if got := unseen("a: [1\n", fileOnRecord); got != nil {
+		t.Errorf("no YAML: %+v", got)
+	}
+}
+
 // A key the render adds or drops under the encrypted field, a plaintext
 // field the render changes, a type that changes: the file has to be written.
 func TestSameSkeletonSeesTheSkeletonChange(t *testing.T) {

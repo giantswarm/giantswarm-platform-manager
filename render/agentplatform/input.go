@@ -195,9 +195,14 @@ type PortalRef struct {
 
 // Federation is the installation's place in the fleet's token exchange.
 type Federation struct {
-	Hubs           []string `json:"hubs"`
-	Targets        []Target `json:"targets"`
-	BrokerClientID string   `json:"brokerClientId"`
+	Hubs    []string `json:"hubs"`
+	Targets []Target `json:"targets"`
+	// RegistryHub is the registry's hub by name (the installation with
+	// installation.hub), among Hubs or not: its token-exchange client in this
+	// installation's Dex carries the fleet's plain id, every other hub's the
+	// hub's name too (tokenExchangeClient).
+	RegistryHub    string `json:"registryHub"`
+	BrokerClientID string `json:"brokerClientId"`
 }
 
 // Target is an installation a hub brokers for.

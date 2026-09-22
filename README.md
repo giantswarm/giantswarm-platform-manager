@@ -113,8 +113,10 @@ installation's answer in the plan, not a tool error, so a set still answers for 
 
 The plan per installation: its state, the effective inputs, the files with their repository
 (the registry's, not the definition's `giantswarm/<customer>-…` names), path, rendered content and change
-(*create*, *update*, *unchanged*, *unknown* when the current file could not be read as the person), the
-shared-kustomization includes, the generated secrets by name, kind and length — with `frozenIn`, the files
+(*create*, *update*, *unchanged*, *unknown* when the current file could not be read as the person) — an
+encrypted file kept *unchanged* names as `unseen` the literals the render puts under a field the record
+holds encrypted (a credentials Secret's client id), with the render's value: the comparison decrypts
+nothing, so the value on record stands whether or not it is that one —, the shared-kustomization includes, the generated secrets by name, kind and length — with `frozenIn`, the files
 on record that hold the value already, `kept` when the value on record stands and no file of the name is
 written, and `rotates` with `forcedBy`, the file that has to be written, when the commit draws a new value
 into every file of the name (see [The commit](#the-commit)) — the secret values the person

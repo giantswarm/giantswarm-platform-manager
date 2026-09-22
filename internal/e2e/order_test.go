@@ -114,8 +114,9 @@ func TestMergeOrderFollowsAReferencedDexClient(t *testing.T) {
 	aliceC, carolC := st.mcpClient(t, aliceToken), st.mcpClient(t, carolToken)
 	putOnRecord(t, st, aliceC, rowan, minimalInputs(nil))
 	seedRemote(t, st)
-	inputs := minimalInputs(map[string]any{argInstallation: map[string]any{federationKey: map[string]any{hubsKey: []any{hub}, targetsKey: []any{}}}})
-	exchangeClient := "Secret/dex-client-" + hub + "-token-exchange"
+	inputs := minimalInputs(map[string]any{argInstallation: map[string]any{federationKey: map[string]any{hubsKey: []any{hub}, "registryHub": hub, targetsKey: []any{}}}})
+	// The registry's hub's client carries the fleet's plain id.
+	exchangeClient := "Secret/dex-client-muster-token-exchange-" + rowan
 
 	planned, merged := reconcileAndMerge(t, st, aliceC, carolC, inputs)
 	if len(planned) != 2 || planned[0].Repository != acmeMCs || planned[1].Repository != acmeConfigs || planned[1].AfterClause() != "after "+acmeMCs+" ("+exchangeClient+")" || len(planned[0].After) != 0 {

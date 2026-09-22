@@ -320,6 +320,10 @@ func TestListInstallationsStates(t *testing.T) {
 	if in, ok := hazel.Capabilities[0].Inputs["installation"].(map[string]any); !ok || in["chartLine"] != "4" {
 		t.Fatalf("hazel inputs on record: %+v", hazel.Capabilities[0].Inputs)
 	}
+	// The registry's hub is every readable installation's fact: the hub whose token-exchange client carries the fleet's plain id.
+	if hazel.Federation == nil || hazel.Federation.RegistryHub != hub {
+		t.Fatalf("hazel federation: %+v", hazel.Federation)
+	}
 
 	alder := find(t, out, alder)
 	if alder.Hub || alder.Capabilities[0].State != installations.StateNotEnabled || alder.Capabilities[0].Enabled || alder.Capabilities[1].State != installations.StateNotEnabled || !alder.Readable ||

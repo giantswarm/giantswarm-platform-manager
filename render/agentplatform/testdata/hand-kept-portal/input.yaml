@@ -36,6 +36,7 @@ input:
         chartLine: ">=2.1.0 <3.0.0"
     federation:
       hubs: [aspen]
+      registryHub: aspen
       targets: []
   modelServing:
     enabled: false

@@ -3,6 +3,7 @@ package plan
 import (
 	"errors"
 	"io"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -50,6 +51,78 @@ func sameSkeleton(rendered, current string) bool {
 		}
 	}
 	return true
+}
+
+// Unseen is a literal the render puts under a field the record holds
+// encrypted, in a file kept as unchanged: the comparison decrypts nothing,
+// so the value on record stands whether or not it is the render's — a client
+// id in a credentials Secret. Path is the leaf's YAML path, Value the render's.
+type Unseen struct {
+	Path  string `json:"path"`
+	Value string `json:"value"`
+}
+
+// unseen are the literals of the render that the file on record holds
+// encrypted, for a file sameSkeleton kept: every scalar the render states
+// outright — no marker the commit fills in — against a scalar the record
+// holds as ENC[...], by YAML path, in the render's order.
+func unseen(rendered, current string) []Unseen {
+	r, err := documents(rendered)
+	if err != nil {
+		return nil
+	}
+	c, err := documents(current)
+	if err != nil || len(r) != len(c) {
+		return nil
+	}
+	var out []Unseen
+	for i := range r {
+		out = unseenNodes(root(r[i]), root(c[i]), "", out)
+	}
+	return out
+}
+
+// unseenNodes walks the render's node beside the record's, appending each
+// literal the record holds encrypted under the path so far.
+func unseenNodes(r, c *yaml.Node, path string, out []Unseen) []Unseen {
+	if r.Kind == yaml.AliasNode {
+		r = r.Alias
+	}
+	if c.Kind == yaml.AliasNode {
+		c = c.Alias
+	}
+	if r.Kind != c.Kind {
+		return out
+	}
+	switch r.Kind {
+	case yaml.ScalarNode:
+		if strings.HasPrefix(c.Value, encPrefix) && !filledIn(r.Value) {
+			out = append(out, Unseen{Path: path, Value: r.Value})
+		}
+	case yaml.SequenceNode:
+		for i := range r.Content {
+			if i < len(c.Content) {
+				out = unseenNodes(r.Content[i], c.Content[i], path+"["+strconv.Itoa(i)+"]", out)
+			}
+		}
+	case yaml.MappingNode:
+		ck := entries(c)
+		for i := 0; i+1 < len(r.Content); i += 2 {
+			key := r.Content[i].Value
+			if cv := ck[key]; cv != nil {
+				out = unseenNodes(r.Content[i+1], cv, join(path, key), out)
+			}
+		}
+	}
+	return out
+}
+
+// join is the YAML path of key under path.
+func join(path, key string) string {
+	if path == "" {
+		return key
+	}
+	return path + "." + key
 }
 
 // documents parses every YAML document of text.

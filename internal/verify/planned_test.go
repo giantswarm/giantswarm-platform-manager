@@ -118,9 +118,11 @@ func TestFleetAdditionsArePlanned(t *testing.T) {
 		d         *Difference
 		says, tag string // the reason names says and carries the tag; a tag "" is no planned change
 	}{
-		{"the hub's client in a spoke's Dex", platformRms, platformMigs, dexCM, absent("oidc.extraStaticClients[gazelle-token-exchange].id"), "a client named gazelle-token-exchange, the hub gazelle's client", m32},
-		{"the client's secret reference is the client's", platformRms, platformMigs, dexCM, absent("oidc.extraStaticClients[gazelle-token-exchange].secretRef.name"), "the hub gazelle's client", m32},
-		{"the hub's client as a trusted peer", platformRms, platformMigs, dexCM, absent("oidc.staticClients.dexK8SAuthenticator.trustedPeers[gazelle-token-exchange]"), "trusts the hub gazelle's token-exchange client", m32},
+		{"the hub's client in a spoke's Dex", platformRms, platformMigs, dexCM, absent("oidc.extraStaticClients[muster-token-exchange-x].id"), "the client muster-token-exchange-x, a hub's token-exchange client", m32},
+		{"the client's secret reference is the client's", platformRms, platformMigs, dexCM, absent("oidc.extraStaticClients[muster-token-exchange-x].secretRef.name"), "the client muster-token-exchange-x", m32},
+		{"the hub's client as a trusted peer", platformRms, platformMigs, dexCM, absent("oidc.staticClients.dexK8SAuthenticator.trustedPeers[muster-token-exchange-x]"), "trusts the hub's token-exchange client muster-token-exchange-x", m32},
+		{"a further hub's client carries the hub's name", platformRms, platformMigs, dexCM, absent("oidc.extraStaticClients[muster-token-exchange-x-gazelle].id"), "the client muster-token-exchange-x-gazelle", m32},
+		{"the former id is nobody's migration", platformRms, platformMigs, dexCM, absent("oidc.extraStaticClients[gazelle-token-exchange].id"), "", ""},
 		{"another client is its own migration's", platformRms, platformMigs, dexCM, absent("oidc.extraStaticClients[kagent].id"), "a client named kagent", m5},
 		{"another peer is its own migration's", platformRms, platformMigs, dexCM, absent("oidc.staticClients.dexK8SAuthenticator.trustedPeers[backstage]"), "trusts the backstage client", m30},
 		{"a client beside them", platformRms, platformMigs, dexCM, absent("oidc.extraStaticClients[other].id"), "", ""},
