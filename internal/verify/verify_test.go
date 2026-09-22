@@ -477,7 +477,7 @@ func TestDifferencesInsideText(t *testing.T) {
 	for _, d := range created {
 		paths = append(paths, d.Path)
 	}
-	if !reflect.DeepEqual(paths, []string{apiVersionPath, "kind", "metadata.name", "stringData.values:authSessionSecret", "stringData.values:dexAuthCredentials.maple.clientId", "type"}) || created[3].Rendered != render.Placeholder("session") || created[4].Line != 11 || created[4].Rendered != "backstage" {
+	if !reflect.DeepEqual(paths, []string{apiVersionPath, kindPath, "metadata.name", "stringData.values:authSessionSecret", "stringData.values:dexAuthCredentials.maple.clientId", "type"}) || created[3].Rendered != render.Placeholder("session") || created[4].Line != 11 || created[4].Rendered != "backstage" {
 		t.Errorf("a created Secret differs at every leaf inside its text, like a created file: %+v", created)
 	}
 	if got := differences("r:k", "patches:\n- patch: |\n    spec:\n      a: 1\n", "patches:\n- patch: |\n    spec:\n      a: 2\n", nil); len(got) != 1 || got[0].Path != "patches[0].patch" {

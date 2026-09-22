@@ -7,8 +7,11 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 )
 
-// apiVersionPath is the leaf every manifest opens with.
-const apiVersionPath = "apiVersion"
+// The leaves every manifest opens with.
+const (
+	apiVersionPath = "apiVersion"
+	kindPath       = "kind"
+)
 
 // Every leaf of a file sits on a line: a mapping entry's key line, a
 // sequence entry's "- " line, the first line of a multi-line scalar, the
@@ -44,7 +47,7 @@ func TestFlattenLinesPlacesEveryLeaf(t *testing.T) {
 	}, "\n")
 	values, lines := flattenLines(content)
 	want := map[string]int{
-		apiVersionPath: 1, "kind": 2, "metadata.name": 4, "metadata.labels": 5,
+		apiVersionPath: 1, kindPath: 2, "metadata.name": 4, "metadata.labels": 5,
 		"data.script": 7, "data.list[a]": 11, "data.list[b]": 12,
 		"data.objects[x].name": 14, "data.objects[x].port": 15, "data.objects[y].name": 16, "data.objects[y].port": 17,
 		"data.empty": 18, "data.patches[0].path": 20, "data.patches[1].path": 21, "data.multi": 22, "data.after": 24,
@@ -182,7 +185,7 @@ func TestFlattenLinesDescendsIntoText(t *testing.T) {
 	}, "\n")
 	values, lines := flattenLines(content)
 	want := map[string]int{
-		apiVersionPath: 1, "kind": 2,
+		apiVersionPath: 1, kindPath: 2,
 		"data.values:backstage.appConfig:app.title": 8, "data.values:backstage.appConfig:grafana.domain": 10,
 		"data.values:backstage.extraVolumeMounts": 11, "data.quoted:route.enabled": 12, "data.patch": 13, "data.note": 16, "spec.patch": 18,
 	}
