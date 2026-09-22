@@ -27,7 +27,7 @@ const usage = `platformctl — the laptop and CI surface of giantswarm-platform-
       no token, no network. Without --out the files are printed.
   platformctl installation list [<installation>...] [--customer <name>]
   platformctl installation enable <installation> <capability> --dry-run|--commit [--input k=v]... [--secret f=src]... [--content]
-  platformctl installation reconcile <installation>|--all <capability> --dry-run|--commit [--input k=v]... [--secret f=src]... [--content]
+  platformctl installation reconcile <installation>...|--all <capability> --dry-run|--commit [--input k=v]... [--secret f=src]... [--content]
   platformctl installation verify <installation> <capability>
   platformctl action get <name>
   platformctl action list [--installation <name>] [--capability <name>]
@@ -49,10 +49,11 @@ bridge (muster agent --mcp-server), which signs you in to muster when needed. Th
 JSON is that value (true, 3, ["hazel"]), anything else is a string.
 
 --dry-run renders the change and writes nothing; --commit is the manager's mode commit: the pull
-requests opened as you, the Team review asked — for one installation the action, for reconcile
---all the wave over the set, one action rolled out a stage per merge. --secret <field>=@<file>,
-<field>=env:<NAME> or <field>=- (stdin, one field) supplies a secret the plan's suppliedSecrets
-name; the value is sent once, never printed, and never taken from the command line.
+requests opened as you, the Team review asked — for one installation the action, for a reconcile over
+a set (two or more installations named, or --all for every installation of the registry) the wave
+over the set, one action rolled out a stage per merge. --secret <field>=@<file>, <field>=env:<NAME>
+or <field>=- (stdin, one field) supplies a secret the plan's suppliedSecrets name; the value is sent
+once, never printed, and never taken from the command line.
 verify prints the features of the definition with their marks and dimensions. approve, deny and
 merge are the review's tools called as you; the manager's answer says what follows. watch reads
 the rollout of a merged action as you (the live registration): the Flux objects, then the probes,

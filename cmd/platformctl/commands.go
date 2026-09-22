@@ -96,12 +96,14 @@ func cmdReconcile(args []string, stdout, stderr io.Writer) int {
 	return capability(tools.ToolReconcileCapability, true, args, stdout, stderr)
 }
 
-// capability is enable and reconcile: the same tool arguments, reconcile with
-// --all for every installation of the registry. --dry-run is the tool's
-// dryRun, --commit its mode commit — for one installation the action with
-// the secret values the plan names read from --secret sources and sent once,
-// for --all the wave the manager answers as one.
-func capability(tool string, allowAll bool, args []string, stdout, stderr io.Writer) int {
+// capability is enable and reconcile: the same tool arguments, reconcile over
+// a set — two or more installations named, or --all for every installation
+// of the registry (the tool's installations; one name is its installation).
+// --dry-run is the tool's dryRun, --commit its mode commit — for one
+// installation the action with the secret values the plan names read from
+// --secret sources and sent once, for a set the wave the manager answers as
+// one.
+func capability(tool string, allowSet bool, args []string, stdout, stderr io.Writer) int {
 	name := strings.TrimSuffix(tool, "_capability")
 	fs := newFlags("installation "+name, stderr)
 	var c conn
@@ -114,7 +116,7 @@ func capability(tool string, allowAll bool, args []string, stdout, stderr io.Wri
 	var secretFlags secretFlag
 	fs.Var(&secretFlags, "secret", "with --commit: a secret the plan's suppliedSecrets name, as <field>=@<file>, <field>=env:<NAME> or <field>=- (stdin); repeatable")
 	all := false
-	if allowAll {
+	if allowSet {
 		fs.BoolVar(&all, "all", false, "every installation of the registry with the capability on record; with --commit the wave")
 	}
 	pos, err := parse(fs, args)
@@ -125,16 +127,21 @@ func capability(tool string, allowAll bool, args []string, stdout, stderr io.Wri
 		return usageError(stderr, err.Error())
 	}
 	syntax := "installation " + name + " <installation> <capability> --dry-run|--commit"
-	if allowAll {
-		syntax = "installation " + name + " <installation>|--all <capability> --dry-run|--commit"
+	if allowSet {
+		syntax = "installation " + name + " <installation>...|--all <capability> --dry-run|--commit"
 	}
-	want := 2
-	if all {
-		want = 1
+	// The capability is the last word; the installations are the words
+	// before it: none with --all, exactly one for enable, one or more for
+	// reconcile.
+	names := len(pos) - 1
+	ok := names == 0
+	if !all {
+		ok = names == 1 || allowSet && names > 1
 	}
-	if len(pos) != want {
+	if !ok {
 		return usageError(stderr, syntax)
 	}
+	set := all || names > 1
 	if *dryRun == *commit {
 		return usageError(stderr, "one of --dry-run and --commit: "+syntax)
 	}
@@ -147,9 +154,12 @@ func capability(tool string, allowAll bool, args []string, stdout, stderr io.Wri
 	} else {
 		toolArgs[tools.ArgDryRun] = true
 	}
-	if all {
+	switch {
+	case all:
 		toolArgs[tools.ArgInstallations] = []string{}
-	} else {
+	case set:
+		toolArgs[tools.ArgInstallations] = pos[:names]
+	default:
 		toolArgs[tools.ArgInstallation] = pos[0]
 	}
 	if len(inputs) > 0 {
@@ -170,7 +180,7 @@ func capability(tool string, allowAll bool, args []string, stdout, stderr io.Wri
 		}
 		toolArgs[tools.ArgSecrets] = values
 	}
-	if *commit && all {
+	if *commit && set {
 		return c.call(tool, toolArgs, stdout, stderr, func(raw json.RawMessage) error {
 			var r tools.WaveResult
 			if err := decode(raw, &r); err != nil {

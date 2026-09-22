@@ -39,6 +39,10 @@ const (
 	LiveCaller = "admin@example.test"
 )
 
+// Registry is every installation of the fake manager's registry, in wave
+// order: what the empty set (installations: []) selects.
+var Registry = []string{Hub, "lab", "hazel"}
+
 // Bridge is an in-process bridge over the aggregator tools given by their
 // aggregator names.
 func Bridge(aggregator map[string]Tool) *mcpserver.MCPServer {
@@ -121,6 +125,32 @@ func Manager(connected bool) map[string]Tool {
 			Order: []string{str(args[tools.ArgInstallation])},
 		})
 	}
+	m["x_"+server+"_"+tools.ToolReconcileCapability] = func(_ context.Context, args map[string]any) *mcp.CallToolResult {
+		// The targets as sent: installation is one, installations a set, the
+		// empty set every installation of the registry; a commit over a set
+		// is the wave, over one the action.
+		var order []string
+		_, set := args[tools.ArgInstallations]
+		switch {
+		case str(args[tools.ArgInstallation]) != "":
+			order = []string{str(args[tools.ArgInstallation])}
+		case set:
+			order = strs(args[tools.ArgInstallations])
+			if len(order) == 0 {
+				order = Registry
+			}
+		default:
+			return mcp.NewToolResultError(tools.ToolReconcileCapability + " needs installation (one installation) or installations (a set)")
+		}
+		capability := str(args[tools.ArgCapability])
+		if str(args[tools.ArgMode]) != string(tools.ModeCommit) {
+			return document(tools.CapabilityResult{Caller: Caller, Hub: Hub, Tool: tools.ToolReconcileCapability, Capability: capability, DryRun: true, Order: order})
+		}
+		if set {
+			return document(tools.WaveResult{Caller: Caller, Hub: Hub, Tool: tools.ToolReconcileCapability, Capability: capability, Order: order})
+		}
+		return document(tools.CommitResult{Caller: Caller, Hub: Hub, Tool: tools.ToolReconcileCapability, Capability: capability, Installation: order[0]})
+	}
 	m["x_"+server+"_"+tools.ToolVerifyCapability] = func(_ context.Context, args map[string]any) *mcp.CallToolResult {
 		return document(verify.Result{
 			Caller: Caller, Hub: Hub,
@@ -150,4 +180,13 @@ func document(v any) *mcp.CallToolResult {
 func str(v any) string {
 	s, _ := v.(string)
 	return s
+}
+
+func strs(v any) []string {
+	items, _ := v.([]any)
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		out = append(out, str(item))
+	}
+	return out
 }
