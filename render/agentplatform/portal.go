@@ -42,17 +42,23 @@ import (
 // image source, the tunnel's CA variable) and the Component sets none, so no
 // third source contends for it.
 //
-// The AI chat (aiChat.enabled, aiChat.model) is the platform's: its servers
-// are the installation's muster and the portal's own MCP actions server, so
-// the Component carries the whole of it — the aiChat block on Anthropic's
-// API with the model and the two servers, mcpActions and backend.actions
+// The AI chat (aiChat.enabled, aiChat.model, aiChat.provider) is the
+// platform's: its servers are the installation's muster and the portal's own
+// MCP actions server, so the Component carries the whole of it — the aiChat
+// block with the model and the two servers, mcpActions and backend.actions
 // (what the actions service lists for the chat's actions server; without
 // the sources it lists nothing and the server has no tool), and the chat's
-// extensions through the shared include on a rendered portal. The key is
-// supplied at commit and lands in the Component's own Secret as the chart
-// value the chart exposes as ANTHROPIC_API_KEY, appended to the portal
-// HelmRelease's values sources by the Component's patch; a hand-kept portal
-// whose user secrets carry the key by hand keeps them until they rotate.
+// extensions through the shared include on a rendered portal. The chat runs
+// Claude on Anthropic's API or on Vertex AI: on Anthropic's API the key is
+// supplied at commit and lands in the Component's own credentials Secret as
+// the chart value the chart exposes as ANTHROPIC_API_KEY; on Vertex the
+// block names the provider and the Google project, location and the mounted
+// credentials file, the Component's values carry the project and location
+// the chart exports, and the service account's JSON is supplied at commit
+// into the same Secret as the chart value the chart mounts at that file.
+// The Secret is appended to the portal HelmRelease's values sources by the
+// Component's patch; a hand-kept portal whose user secrets carry the key by
+// hand keeps them until they rotate.
 //
 // The portal's chart line (installation.portals[*].chartLine) decides one
 // key. Before backstage 1.1.0 the portal's agent-platform plugin composes the
@@ -77,12 +83,22 @@ const (
 	portalValuesMap = "agent-platform-values-backstage"
 	// portalCredentialsSecret carries the chat's provider credentials as
 	// chart values: the Anthropic API key the chart exposes as
-	// ANTHROPIC_API_KEY. Its file's name matches the fleet's sops rules.
+	// ANTHROPIC_API_KEY, or the Google service account's JSON the chart
+	// mounts at googleCredentialsPath. Its file's name matches the fleet's
+	// sops rules.
 	portalCredentialsSecret = "agent-platform-ai-chat-credentials-backstage" // #nosec G101 -- a Secret name, not a value
 	portalCredentialsFile   = "ai-chat-credentials.enc.yaml"                 // #nosec G101 -- a file name, not a value
 	// fieldAnthropicKey is the supplied field carrying the chat's Anthropic
-	// API key.
-	fieldAnthropicKey = "aiChat.anthropic.apiKey" // #nosec G101 -- a field name, not a value
+	// API key; fieldGoogleCredentials the one carrying a Vertex chat's
+	// service-account JSON.
+	fieldAnthropicKey      = "aiChat.anthropic.apiKey"       // #nosec G101 -- a field name, not a value
+	fieldGoogleCredentials = "aiChat.google.credentialsJson" // #nosec G101 -- a field name, not a value
+	// The chat's providers of Claude: Anthropic's API, or Vertex AI.
+	providerAnthropic = "anthropic"
+	providerVertex    = "vertex"
+	// googleCredentialsPath is where the chart mounts google.credentialsJson,
+	// the file the chat plugin reads the Vertex credentials from.
+	googleCredentialsPath = "/app/google/credentials.json" // #nosec G101 -- a mount path, not a value
 	// anthropicKeyEnv is the variable the chart exposes the key as; the
 	// doubled dollar survives the fleet's variable substitution, so Backstage
 	// reads the variable, as every portal app-config on record writes it.
@@ -118,11 +134,17 @@ func (in *Input) portalAuthProvider() string { return render.PortalAuthProvider(
 // choice; checkRecord has refused it without a hosted portal.
 func (in *Input) aiChat() bool { return in.AIChat.Enabled }
 
+// aiChatVertex says whether the chat runs Claude on Vertex AI.
+func (in *Input) aiChatVertex() bool { return in.aiChat() && in.AIChat.Provider == providerVertex }
+
 // chatSecretFields are the supplied secret values the chat needs: its
-// Anthropic API key.
+// Anthropic API key, or on Vertex the service account's JSON.
 func (in *Input) chatSecretFields() []string {
-	if !in.aiChat() {
+	switch {
+	case !in.aiChat():
 		return nil
+	case in.aiChatVertex():
+		return []string{fieldGoogleCredentials}
 	}
 	return []string{fieldAnthropicKey}
 }
@@ -151,17 +173,22 @@ func (in *Input) musterEntry(name string) render.Map {
 	return render.Map{e("name", name), e("url", "https://"+in.host("muster")+"/mcp"), e("authProvider", in.portalAuthProvider())}
 }
 
-// aiChatSection is the chat's aiChat block: Anthropic's API with the key
-// from the chart's environment, the model, and the chat's servers — the
-// portal's own MCP actions server with the signed-in person's Backstage
-// token, and the installation's muster.
+// aiChatSection is the chat's aiChat block: the provider — Anthropic's API
+// with the key from the chart's environment, or Vertex AI with the Google
+// project, location and the mounted credentials file —, the model, and the
+// chat's servers: the portal's own MCP actions server with the signed-in
+// person's Backstage token, and the installation's muster.
 func (in *Input) aiChatSection() render.Map {
-	actions := render.Map{e("name", chatActionsServer), e("url", "https://"+in.hostedPortal().Domain+chatActionsPath), e("useBackstageUserToken", true)}
-	return render.Map{
-		e("anthropic", render.Map{e("apiKey", anthropicKeyEnv)}),
-		e("model", in.AIChat.Model),
-		e("mcp", []render.Map{actions, in.musterEntry(chatMusterServer)}),
+	var m render.Map
+	if in.aiChatVertex() {
+		g := in.AIChat.Google
+		m = render.Map{e("anthropic", render.Map{e("provider", providerVertex)}),
+			e("google", render.Map{e("project", g.Project), e("location", g.Location), e("keyFilename", googleCredentialsPath)})}
+	} else {
+		m = render.Map{e("anthropic", render.Map{e("apiKey", anthropicKeyEnv)})}
 	}
+	actions := render.Map{e("name", chatActionsServer), e("url", "https://"+in.hostedPortal().Domain+chatActionsPath), e("useBackstageUserToken", true)}
+	return append(m, e("model", in.AIChat.Model), e("mcp", []render.Map{actions, in.musterEntry(chatMusterServer)}))
 }
 
 // chatActions is backend.actions: the plugins whose actions the actions
@@ -208,10 +235,15 @@ func (in *Input) portalAppConfig() render.Map {
 }
 
 // portalValues are the platform's chart values: the fragment mounted as an
-// extra app-config file. No list: the portal's environment is the
-// customer-portal definition's.
+// extra app-config file and, for a chat on Vertex, the Google project and
+// location the chart exports to the pod. No list: the portal's environment
+// is the customer-portal definition's.
 func (in *Input) portalValues() render.Map {
-	return render.Map{e("backstage", render.Map{e("extraAppConfig", []render.Map{{e("filename", portalAppConfigFile), e("configMapRef", portalAppConfigMap)}})})}
+	m := render.Map{e("backstage", render.Map{e("extraAppConfig", []render.Map{{e("filename", portalAppConfigFile), e("configMapRef", portalAppConfigMap)}})})}
+	if in.aiChatVertex() {
+		m = append(m, e("google", render.Map{e("project", in.AIChat.Google.Project), e("location", in.AIChat.Google.Location)}))
+	}
+	return m
 }
 
 // portalChartFloor is the lowest chart version a portal's chart line admits:
@@ -258,11 +290,16 @@ func configMap(name, namespace, key string, value any) render.Map {
 		e("data", render.Map{e(key, string(render.MustYAML(value)))})}
 }
 
-// chatCredentials is the chat's credentials Secret: the Anthropic API key
-// the person supplies at commit, as the chart value the chart exposes as
-// ANTHROPIC_API_KEY, in the values form the HelmRelease reads a Secret in.
+// chatCredentials is the chat's credentials Secret, in the values form the
+// HelmRelease reads a Secret in: the Anthropic API key the person supplies
+// at commit as the chart value the chart exposes as ANTHROPIC_API_KEY, or on
+// Vertex the service account's JSON as the chart value the chart mounts at
+// googleCredentialsPath.
 func (in *Input) chatCredentials(secrets map[string]string) render.File {
 	values := render.Map{e("anthropic", render.Map{e("apiKey", secrets[fieldAnthropicKey])})}
+	if in.aiChatVertex() {
+		values = render.Map{e("google", render.Map{e("credentialsJson", secrets[fieldGoogleCredentials])})}
+	}
 	return render.Secret(portalCredentialsSecret, fluxNamespace, teamLabels, render.ValueKey("values", string(render.MustYAML(values))))
 }
 

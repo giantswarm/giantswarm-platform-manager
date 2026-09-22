@@ -147,6 +147,41 @@ func TestPortalFragmentChat(t *testing.T) {
 	}
 }
 
+// A chat on Vertex AI names the provider and the Google project, location
+// and the mounted credentials file in its block, no API key; the Component's
+// values carry the project and location the chart exports; the credentials
+// Secret carries the service account's JSON the person supplies, not a key;
+// on Anthropic's API none of the Google keys render.
+func TestPortalFragmentVertexChat(t *testing.T) {
+	portal := PortalRef{Installation: testPortalHost, Customer: testOrganisation, Domain: "portal." + testPortalHost + ".example"}
+	const project, location = "example-project", "eu"
+	in := &Input{Installation: Installation{Name: testPortalHost, BaseDomain: testPortalHost + ".example", Customer: testOrganisation, Portals: []PortalRef{portal}},
+		AIChat: AIChat{Enabled: true, Model: testChatModel, Provider: providerVertex, Google: GoogleVertex{Project: project, Location: location}}}
+	chat, _ := fragmentValue(in.portalAppConfig(), "aiChat").(render.Map)
+	anthropic, _ := fragmentValue(chat, "anthropic").(render.Map)
+	google, _ := fragmentValue(chat, "google").(render.Map)
+	if fragmentValue(anthropic, "provider") != providerVertex || fragmentValue(anthropic, "apiKey") != nil || fragmentValue(google, "project") != project || fragmentValue(google, "location") != location || fragmentValue(google, "keyFilename") != googleCredentialsPath {
+		t.Errorf("the Vertex block: %v", chat)
+	}
+	values, _ := fragmentValue(in.portalValues(), "google").(render.Map)
+	if fragmentValue(values, "project") != project || fragmentValue(values, "location") != location {
+		t.Errorf("the Component's values: %v", in.portalValues())
+	}
+	if fields := in.suppliedSecretFields(); len(fields) != 1 || fields[0] != fieldGoogleCredentials {
+		t.Errorf("the supplied fields %v, want the credentials alone", fields)
+	}
+	secret := string(in.chatCredentials(map[string]string{fieldGoogleCredentials: "x"}).Content)
+	if !strings.Contains(secret, "credentialsJson: x") || strings.Contains(secret, "apiKey") {
+		t.Errorf("the credentials Secret:\n%s", secret)
+	}
+
+	in.AIChat.Provider = providerAnthropic
+	chat, _ = fragmentValue(in.portalAppConfig(), "aiChat").(render.Map)
+	if fragmentValue(chat, "google") != nil || fragmentValue(in.portalValues(), "google") != nil {
+		t.Errorf("on Anthropic's API the Google keys render: %v %v", chat, in.portalValues())
+	}
+}
+
 // A portal's chart line admits versions from its floor: the lower bound of
 // the bounded range the customer-portal definition writes, or the tag itself.
 // The fragment names the agents' Flux identity where that floor lies before

@@ -876,6 +876,63 @@ func TestVerifyCapabilityReadsBackTheChat(t *testing.T) {
 	}
 }
 
+// A chat on Vertex AI typed for a portal without one: the dry run names the
+// service account's JSON among the supplied secrets, not an API key, and
+// renders the fragment's block with the provider, the Google project,
+// region and the mounted credentials file, the Component's values with the
+// project and region, and the Secret with the credentials value. Without
+// the project the plan is refused naming it.
+func TestEnableCapabilityRendersAVertexChat(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	out, text, isErr := dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.CustomerPortal, tools.ArgInputs: rowanPortalInputs(map[string]any{enabledKey: false})})
+	if isErr {
+		t.Fatal(text)
+	}
+	for _, f := range findPlan(t, out, rowan).Files {
+		st.ghs.addFile(f.Repository, f.Path, f.Content)
+	}
+	const project, location, credentials = "example-project", "eu", "aiChat.google.credentialsJson" // #nosec G101 -- a field name, not a value
+	vertex := func(google map[string]any) map[string]any {
+		return map[string]any{"aiChat": map[string]any{enabledKey: true, "model": "claude-sonnet-5", "provider": "vertex", "google": google}}
+	}
+	out, text, isErr = dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: vertex(map[string]any{"project": project, "location": location})})
+	if isErr {
+		t.Fatal(text)
+	}
+	p := findPlan(t, out, rowan)
+	if p.Refused != "" || !slices.Equal(p.SuppliedSecrets, []string{credentials}) {
+		t.Fatalf("refused %q supplied %v", p.Refused, p.SuppliedSecrets)
+	}
+	fragment := strings.TrimSuffix(installations.PortalConfigPath(rowan), render.PortalDir+"/app-config.yaml") + render.PortalPlatformDir + "/"
+	files := map[string]string{}
+	for _, f := range p.Files {
+		files[f.Path] = f.Content
+	}
+	for path, wants := range map[string][]string{
+		fragment + "app-config.yaml":              {"        provider: vertex\n", "        project: " + project + "\n", "        location: " + location + "\n", "        keyFilename: /app/google/credentials.json\n"},
+		fragment + "values.yaml":                  {"    google:\n      project: " + project + "\n      location: " + location + "\n"},
+		fragment + "ai-chat-credentials.enc.yaml": {"credentialsJson: SUPPLIED(" + credentials + ")"},
+	} {
+		for _, want := range wants {
+			if !strings.Contains(files[path], want) {
+				t.Errorf("%s does not carry %q:\n%s", path, want, files[path])
+			}
+		}
+	}
+	if strings.Contains(files[fragment+"app-config.yaml"], "apiKey") {
+		t.Errorf("a Vertex chat names an API key:\n%s", files[fragment+"app-config.yaml"])
+	}
+	out, text, isErr = dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: vertex(map[string]any{"location": location})})
+	if isErr {
+		t.Fatal(text)
+	}
+	if p := findPlan(t, out, rowan); !strings.Contains(p.Refused, "aiChat.google.project") {
+		t.Errorf("a Vertex chat without its project: refused %q", p.Refused)
+	}
+}
+
 // dollar is the character the fleet's app-configs double in front of a
 // variable the chart's environment supplies.
 const dollar = "$"

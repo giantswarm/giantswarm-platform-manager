@@ -11,3 +11,6 @@ data:
       extraAppConfig:
         - filename: app-config.agent-platform.yaml
           configMapRef: agent-platform-app-config-backstage
+    google:
+      project: example-project
+      location: eu

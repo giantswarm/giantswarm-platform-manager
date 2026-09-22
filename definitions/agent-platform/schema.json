@@ -136,7 +136,7 @@
     "aiChat": {
       "type": "object",
       "additionalProperties": false,
-      "description": "The other choice: the developer portal's AI chat, in the platform's portal section. The chat runs on Anthropic's API; its key is supplied at commit as aiChat.anthropic.apiKey, never typed here or read back, and lands in the Component's own Secret agent-platform-ai-chat-credentials-backstage as the chart value the chart exposes as ANTHROPIC_API_KEY. Read back from the Component's fragment on record, else from the portal's own app-config — a hand-kept portal is read from its app-config, and its chat moves into the Component at the next reconcile.",
+      "description": "The other choice: the developer portal's AI chat, in the platform's portal section. The chat runs Claude on Anthropic's API (the key supplied at commit as aiChat.anthropic.apiKey) or on Vertex AI (aiChat.provider: vertex, with the Google project and location; the service account's JSON supplied at commit as aiChat.google.credentialsJson); a credential is never typed here or read back, and lands in the Component's own Secret agent-platform-ai-chat-credentials-backstage as the chart value the chart exposes as ANTHROPIC_API_KEY or mounts at /app/google/credentials.json. Read back from the Component's fragment on record, else from the portal's own app-config — a hand-kept portal is read from its app-config, and its chat moves into the Component at the next reconcile.",
       "properties": {
         "enabled": {
           "type": "boolean",
@@ -145,7 +145,7 @@
           "x-readback": {"file": ["backstage:agent-platform/app-config", "backstage:app-config"], "key": "aiChat", "kind": "present"},
           "x-feature": "portal",
           "x-renders": ["backstage:app-config:aiChat", "backstage:app-config:mcpActions", "backstage:app-config:backend.actions", "backstage:app-config:app.extensions.$include", "backstage:kustomization:resources[*]", "backstage:kustomization:patches[*]", "backstage:file:ai-chat-credentials.enc.yaml"],
-          "description": "The portal's AI chat: the aiChat block on Anthropic's API with its two MCP servers (the portal's own actions server at /api/mcp-actions/v1 with the signed-in person's token, the installation's muster with the sign-in provider), the actions server's tool naming (mcpActions) and the actions the service lists for it (backend.actions), the key's Secret appended to the portal HelmRelease's values sources, and on a rendered portal the shared extension list with the chat (shared-config.yaml#extensionsAgentPlatformAiChat, or its GrafanaDashboards pair where the portal's plugin is wired); a hand-kept portal keeps its own list, which carries the chat's entries already. Read back from the block's presence."
+          "description": "The portal's AI chat: the aiChat block on the provider with its two MCP servers (the portal's own actions server at /api/mcp-actions/v1 with the signed-in person's token, the installation's muster with the sign-in provider), the actions server's tool naming (mcpActions) and the actions the service lists for it (backend.actions), the credentials Secret appended to the portal HelmRelease's values sources, and on a rendered portal the shared extension list with the chat (shared-config.yaml#extensionsAgentPlatformAiChat, or its GrafanaDashboards pair where the portal's plugin is wired); a hand-kept portal keeps its own list, which carries the chat's entries already. Read back from the block's presence."
         },
         "model": {
           "type": "string",
@@ -154,7 +154,40 @@
           "x-readback": {"file": ["backstage:agent-platform/app-config", "backstage:app-config"], "key": "aiChat.model"},
           "x-feature": "portal",
           "x-renders": ["backstage:app-config:aiChat.model"],
-          "description": "The model the chat answers with (aiChat.model), a Claude model id on Anthropic's API. Read back from the block on record."
+          "description": "The model the chat answers with (aiChat.model), a Claude model id the provider serves. Read back from the block on record."
+        },
+        "provider": {
+          "type": "string",
+          "enum": ["anthropic", "vertex"],
+          "default": "anthropic",
+          "x-source": "person",
+          "x-readback": {"file": ["backstage:agent-platform/app-config", "backstage:app-config"], "key": "aiChat.anthropic.provider"},
+          "x-feature": "portal",
+          "x-renders": ["backstage:app-config:aiChat.anthropic", "backstage:app-config:aiChat.google", "backstage:agent-platform/values:google", "backstage:file:ai-chat-credentials.enc.yaml"],
+          "description": "Which platform serves the chat's Claude model: anthropic, Anthropic's own API with the key from the portal's environment (aiChat.anthropic.apiKey, supplied at commit); or vertex, Claude on Google Cloud Vertex AI in the project and region of aiChat.google, authenticated from the service account's JSON (aiChat.google.credentialsJson, supplied at commit) the chart mounts at /app/google/credentials.json — the block names the provider and the file, the Component's values carry the project and location the chart exports. Read back from aiChat.anthropic.provider on record; a block without it runs on Anthropic's API."
+        },
+        "google": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Where a chat on Vertex AI runs; both are named with aiChat.provider: vertex and refused empty there, unread otherwise.",
+          "properties": {
+            "project": {
+              "type": "string",
+              "x-source": "person",
+              "x-readback": {"file": ["backstage:agent-platform/app-config", "backstage:app-config"], "key": "aiChat.google.project"},
+              "x-feature": "portal",
+              "x-renders": ["backstage:app-config:aiChat.google.project", "backstage:agent-platform/values:google.project"],
+              "description": "The GCP project Vertex AI serves the model in (aiChat.google.project, the chart's GOOGLE_CLOUD_PROJECT). Read back from the block on record."
+            },
+            "location": {
+              "type": "string",
+              "x-source": "person",
+              "x-readback": {"file": ["backstage:agent-platform/app-config", "backstage:app-config"], "key": "aiChat.google.location"},
+              "x-feature": "portal",
+              "x-renders": ["backstage:app-config:aiChat.google.location", "backstage:agent-platform/values:google.location"],
+              "description": "The Vertex AI region, a multi-region such as eu for data residency or a single region (aiChat.google.location, the chart's GOOGLE_CLOUD_LOCATION). Read back from the block on record."
+            }
+          }
         }
       }
     }

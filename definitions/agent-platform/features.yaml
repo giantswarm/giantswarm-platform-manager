@@ -108,7 +108,7 @@ features:
       - {id: portal-flux-service-account, kind: backstage, key: agent-platform/app-config.yaml agentPlatform.fluxServiceAccountName (a portal before backstage 1.1.0)}
       - {id: portal-skills-repositories, kind: backstage, key: agent-platform/app-config.yaml agentPlatform.skills.repositories}
       - {id: portal-kagent-installations, kind: backstage, key: agent-platform/app-config.yaml agentPlatform.kagent.installations}
-      - {id: portal-ai-chat, kind: backstage, key: "agent-platform/app-config.yaml aiChat / mcpActions / backend.actions / agent-platform/ai-chat-credentials.enc.yaml (the chat, its actions server and the Secret with its key)"}
+      - {id: portal-ai-chat, kind: backstage, key: "agent-platform/app-config.yaml aiChat / mcpActions / backend.actions / agent-platform/values.yaml google / agent-platform/ai-chat-credentials.enc.yaml (the chat, its actions server, a Vertex chat's project and region, and the Secret with its credential)"}
       - {id: portal-edge-jwt-provider, kind: configmap, key: "gateway.jwksEgress / extraObjects[ReferenceGrant/<namespace>/<name>] / agent-platform-mcps.agentgateway.jwt.extraProviders (the chat's ID token at the edge on the 4 line; edge-jwt-validation names the same leaves first)"}
       - {id: portal-catalog, kind: backstage, key: agent-platform/app-config.yaml catalog}
       - {id: portal-auth-extra-scopes, kind: backstage, key: agent-platform/app-config.yaml gs.auth.extraScopes}

@@ -37,20 +37,23 @@ the 3 chart line, the OAuth section a manager needs without the template's globa
 developer portal's section (`portal.go`) is a directory of the platform's own, `extras/backstage/agent-platform/`
 in the portal host's tree, a kustomize Component the portal's `extras/backstage/kustomization.yaml` lists
 (`Include.Component`): the platform's Backstage configuration as an extra app-config file the chart mounts from a
-ConfigMap, the chart values that mount it, with the AI chat on (`aiChat.enabled`, `aiChat.model`, the person's
-other choice) the chat's credentials Secret (its Anthropic API key, supplied as `aiChat.anthropic.apiKey` — with
-the Slack credentials the only values a person supplies at commit — as the chart value the chart exposes as
-`ANTHROPIC_API_KEY`), and a patch appending those sources to the portal HelmRelease's `valuesFrom` — last, so the
-platform's values win. The fragment carries the platform's section, and on a portal the customer-portal
+ConfigMap, the chart values that mount it, with the AI chat on (`aiChat.enabled`, `aiChat.model`,
+`aiChat.provider`, the person's other choice) the chat's credentials Secret (on Anthropic's API the key, supplied
+as `aiChat.anthropic.apiKey`, as the chart value the chart exposes as `ANTHROPIC_API_KEY`; on Vertex AI the service
+account's JSON, supplied as `aiChat.google.credentialsJson`, as the chart value the chart mounts at
+`/app/google/credentials.json` — with the Slack credentials the only values a person supplies at commit), and a
+patch appending those sources to the portal HelmRelease's `valuesFrom` — last, so the platform's values win. The fragment carries the platform's section, and on a portal the customer-portal
 definition renders the shared extension list with the platform's section and the installation's muster entry;
 Backstage and Helm replace lists wholesale, so on a hand-kept portal (a literal `app.extensions` on record) the
 Component writes its object-shaped keys alone and the portal's own lists stand, and the portal's environment
 (`backstage.extraEnvVars`) is the customer-portal definition's on every portal. With the chat on, the fragment
-carries the `aiChat` block on Anthropic's API with the model and the chat's two MCP servers (the portal's own
-actions server at `/api/mcp-actions/v1` with the signed-in person's Backstage token, the installation's muster
-with the sign-in provider), the actions server's tool naming (`mcpActions`) and the actions the service lists for
-it (`backend.actions`), and on a rendered portal the shared list with the chat (`#extensionsAgentPlatformAiChat`,
-or its `GrafanaDashboards` pair). Where kagent runs and the organisation's
+carries the `aiChat` block — on Anthropic's API with the key from the chart's environment, or on Vertex AI
+(`aiChat.provider: vertex`) with the provider, the Google project, region and the mounted credentials file, the
+project and region in the Component's values too, which the chart exports — with the model and the chat's two MCP
+servers (the portal's own actions server at `/api/mcp-actions/v1` with the signed-in person's Backstage token, the
+installation's muster with the sign-in provider), the actions server's tool naming (`mcpActions`) and the actions
+the service lists for it (`backend.actions`), and on a rendered portal the shared list with the chat
+(`#extensionsAgentPlatformAiChat`, or its `GrafanaDashboards` pair). Where kagent runs and the organisation's
 portal follows a chart line before backstage 1.1.0 (`installation.portals[*].chartLine`, the ref its kustomization
 patches onto the fleet base's OCIRepository), the fragment names the agents' Flux identity
 (`agentPlatform.fluxServiceAccountName: kagent-flux`): that plugin composes the agent's HelmRelease itself, and

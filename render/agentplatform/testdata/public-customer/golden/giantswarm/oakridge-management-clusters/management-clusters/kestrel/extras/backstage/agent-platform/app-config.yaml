@@ -9,7 +9,7 @@ data:
   app-config.agent-platform.yaml: |
     app:
       extensions:
-        $include: shared-config.yaml#extensionsAgentPlatformGrafanaDashboards
+        $include: shared-config.yaml#extensionsAgentPlatformAiChatGrafanaDashboards
     agentPlatform:
       fluxServiceAccountName: kagent-flux
       kagent:
@@ -20,3 +20,29 @@ data:
         - name: kestrel
           url: https://muster.kestrel.oakridge.example/mcp
           authProvider: oidc-kestrel
+    aiChat:
+      anthropic:
+        provider: vertex
+      google:
+        project: example-project
+        location: eu
+        keyFilename: /app/google/credentials.json
+      model: claude-sonnet-5
+      mcp:
+        - name: backstage-actions
+          url: https://portal.kestrel.oakridge.example/api/mcp-actions/v1
+          useBackstageUserToken: true
+        - name: muster
+          url: https://muster.kestrel.oakridge.example/mcp
+          authProvider: oidc-kestrel
+    mcpActions:
+      namespacedToolNames: false
+    backend:
+      actions:
+        pluginSources:
+          - auth
+          - catalog
+          - gs
+        filter:
+          exclude:
+            - id: gs:get-pagerduty-ids-for-entity

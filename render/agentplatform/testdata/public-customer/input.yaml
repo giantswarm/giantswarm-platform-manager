@@ -1,6 +1,8 @@
 # A public customer installation on the 3 chart line: invented names, placeholder values. Two
 # portals sign people in on it — the organisation's own on this installation, its Grafana plugin
-# wired, and the fleet hub's ("gopher") — and the hub's muster brokers tokens into it. The
+# wired and its AI chat on Claude through Vertex AI (the Google project and region typed, the
+# service account's JSON supplied at commit, the shared list with the chat and the dashboards
+# card), and the fleet hub's ("gopher") — and the hub's muster brokers tokens into it. The
 # policy's default components.
 input:
   installation:
@@ -27,4 +29,12 @@ input:
     federation:
       hubs: [gopher]
       targets: []
-secrets: {}
+  aiChat:
+    enabled: true
+    model: claude-sonnet-5
+    provider: vertex
+    google:
+      project: example-project
+      location: eu
+secrets:
+  aiChat.google.credentialsJson: PLACEHOLDER-GOOGLE-CREDENTIALS-JSON

@@ -59,6 +59,7 @@ const readBackFilesSchema = `{
 // The inputs the tests read back or find unset, by dotted input key.
 const (
 	keyEnabled         = "enabled"
+	keyProvider        = "provider"
 	inputChatEnabled   = "chat.enabled"
 	inputChatModel     = "chat.model"
 	inputAIChatEnabled = "aiChat.enabled"
@@ -233,7 +234,7 @@ func TestDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := map[string]any{"modelServing": map[string]any{keyEnabled: false}, "aiChat": map[string]any{keyEnabled: false, "model": "claude-opus-5"}}; !reflect.DeepEqual(got, want) {
+	if want := map[string]any{"modelServing": map[string]any{keyEnabled: false}, "aiChat": map[string]any{keyEnabled: false, "model": "claude-opus-5", keyProvider: "anthropic"}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("defaults %v, want %v", got, want)
 	}
 }
@@ -287,6 +288,8 @@ func TestAgentPlatformReadsBackTheChat(t *testing.T) {
 	}{
 		{"the fragment first", map[string]string{dir + "agent-platform/app-config.yaml": fragment, dir + "backstage/app-config.yaml": appConfig}, map[string]any{inputAIChatEnabled: true, inputAIChatModel: "claude-opus-5"}},
 		{"a hand-kept portal's app-config", map[string]string{dir + "backstage/app-config.yaml": appConfig}, map[string]any{inputAIChatEnabled: true, inputAIChatModel: "claude-opus-4-8"}},
+		{"a chat on Vertex by hand", map[string]string{dir + "backstage/app-config.yaml": "data:\n  values: |\n    backstage:\n      appConfig: |\n        aiChat:\n          model: claude-sonnet-5\n          anthropic:\n            provider: vertex\n          google:\n            project: example-project\n            location: eu\n            keyFilename: /app/google/credentials.json\n"},
+			map[string]any{inputAIChatEnabled: true, inputAIChatModel: "claude-sonnet-5", "aiChat.provider": "vertex", "aiChat.google.project": "example-project", "aiChat.google.location": "eu"}},
 		{"a fragment without the chat, no app-config", map[string]string{dir + "agent-platform/app-config.yaml": "data:\n  app-config.agent-platform.yaml: |\n    agentPlatform: {}\n"}, map[string]any{inputAIChatEnabled: false}},
 		{"nothing on record", map[string]string{}, map[string]any{}},
 	} {
