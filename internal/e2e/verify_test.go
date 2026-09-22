@@ -739,7 +739,8 @@ func TestVerifyCapabilityReadsBackThePortal(t *testing.T) {
 	for _, e := range entries {
 		names = append(names, e.(map[string]any)["name"].(string))
 	}
-	if !slices.Equal(names, []string{alder, birch, "larch", maple, "oak", rowan, "willow"}) {
+	const oak = "oak"
+	if !slices.Equal(names, []string{alder, birch, "larch", maple, oak, rowan, "willow"}) {
 		t.Fatalf("federation.installations %v", names)
 	}
 	// The registry's facts over the record's: birch's base domain is the catalog's, not the portal entry's.
