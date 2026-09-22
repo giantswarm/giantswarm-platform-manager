@@ -1,9 +1,10 @@
 package verify
 
 // The node walk behind the comparison's leaves: every leaf of a YAML file by
-// its flattened path with the line it sits on, and the text of an encrypted
-// file redacted line by line — so a difference is placed in the file as the
-// result shows it.
+// its flattened path with the line it sits on — a string that holds a YAML
+// mapping (a ConfigMap's chart values, the portal's app-config inside them)
+// being the mapping's leaves — and the text of an encrypted file redacted
+// line by line, so a difference is placed in the file as the result shows it.
 
 import (
 	"errors"
@@ -42,23 +43,116 @@ func parse(content string) ([]document, error) {
 	}
 }
 
+// textSep opens, in a leaf's path, the YAML document a string field holds:
+// the field, then ":" and the path inside it — data.values:route.enabled,
+// and data.values:backstage.appConfig:app.title for text inside text — the
+// way render.Comparison names a live path that crosses a document.
+const textSep = ":"
+
+// textMapping is the document a string holds when it is YAML text of a
+// mapping with entries spread over lines — chart values, an app-config; a
+// one-line "key: value" is a value, a list (a patch) one text.
+func textMapping(s string) ([]document, bool) {
+	if !strings.Contains(s, "\n") {
+		return nil, false
+	}
+	docs, err := parse(s)
+	if err != nil || len(docs) != 1 {
+		return nil, false
+	}
+	m, ok := docs[0].value.(map[string]any)
+	if !ok || len(m) == 0 {
+		return nil, false
+	}
+	return docs, true
+}
+
+// payload says whether a leaf sits in the data of a ConfigMap or the
+// stringData of a Secret — the fields that hold a document as text: a
+// chart's values, the portal's app-config — or inside such a document
+// already. A kustomization's patches and every other string are one leaf,
+// whatever they hold.
+func payload(path string) bool {
+	if strings.Contains(path, textSep) {
+		return true
+	}
+	segs := segments(path)
+	if len(segs) > 0 && strings.HasPrefix(segs[0], "[") {
+		segs = segs[1:] // the document's key in a file of several
+	}
+	return len(segs) > 0 && (segs[0] == "data" || segs[0] == "stringData")
+}
+
+// innerPath is a leaf's path inside the innermost document it sits in: the
+// part after the last textSep outside brackets (an identity may carry a
+// colon), the whole path for a leaf of the file itself. The dimension keys,
+// the removals and the migrations name paths inside the document.
+func innerPath(p string) string {
+	depth := 0
+	for i := len(p) - 1; i >= 0; i-- {
+		switch p[i] {
+		case ']':
+			depth++
+		case '[':
+			depth--
+		case textSep[0]:
+			if depth == 0 {
+				return p[i+1:]
+			}
+		}
+	}
+	return p
+}
+
+// holder is the path of the field whose text a leaf sits in; empty for a
+// leaf of the file itself.
+func holder(p string) string {
+	if inner := innerPath(p); len(inner) < len(p) {
+		return p[:len(p)-len(inner)-len(textSep)]
+	}
+	return ""
+}
+
 // flattenLines flattens every document of a YAML file to its leaves by
 // dotted path the way flattenYAML does, and names the line each leaf sits
 // on: a mapping entry's key line (the first of a multi-line scalar), a
-// sequence entry's "- " line; 1 for a file that is not YAML.
+// sequence entry's "- " line; 1 for a file that is not YAML. A leaf inside
+// the text a string holds sits on its line of the file where the text is a
+// literal block scalar (its lines are the file's from the one after the
+// indicator), on the field's line where a quoted or folded scalar folds them.
 func flattenLines(content string) (values map[string]string, lines map[string]int) {
 	values, lines = map[string]string{}, map[string]int{}
 	docs, err := parse(content)
 	if err != nil {
 		return map[string]string{"": content}, map[string]int{"": 1}
 	}
-	walkFile(docs, func(path string, line int, n *yaml.Node, value any) {
+	collect(docs, "", func(l int) int { return l }, values, lines)
+	return values, lines
+}
+
+// collect flattens the leaves of docs under prefix into values and lines,
+// each line placed in the file by place (the file's line of a line of the
+// text docs were parsed from); a payload string that holds a YAML mapping is
+// the mapping's leaves under the field's path and textSep.
+func collect(docs []document, prefix string, place func(int) int, values map[string]string, lines map[string]int) {
+	walkFile(docs, prefix, func(path string, line int, n *yaml.Node, value any) {
+		if s, isText := value.(string); isText && n != nil && n.Kind == yaml.ScalarNode && payload(path) {
+			if inner, ok := textMapping(s); ok {
+				at := place(line)
+				within := func(int) int { return at }
+				if n.Style == yaml.LiteralStyle {
+					start := place(n.Line)
+					within = func(l int) int { return start + l }
+				}
+				collect(inner, path+textSep, within, values, lines)
+				return
+			}
+		}
 		flatten(value, path, values)
 		if n != nil {
-			lines[path] = line
+			lines[path] = place(line)
 		}
 	})
-	return values, lines
 }
 
 // visitor is called with every leaf of a file: its path, the line of the
@@ -67,11 +161,11 @@ func flattenLines(content string) (values map[string]string, lines map[string]in
 // then the whole subtree, without lines.
 type visitor func(path string, line int, n *yaml.Node, value any)
 
-// walkFile visits the leaves of every document of a file, a file of several
-// documents keying each by its kind/namespace/name.
-func walkFile(docs []document, visit visitor) {
+// walkFile visits the leaves of every document of a file under prefix, a
+// file of several documents keying each by its kind/namespace/name.
+func walkFile(docs []document, prefix string, visit visitor) {
 	if len(docs) == 1 {
-		walkNode(docs[0].node, docs[0].value, "", docs[0].node.Line, visit)
+		walkNode(docs[0].node, docs[0].value, prefix, docs[0].node.Line, visit)
 		return
 	}
 	plain := make([]any, len(docs))
@@ -79,7 +173,7 @@ func walkFile(docs []document, visit visitor) {
 		plain[i] = d.value
 	}
 	for i, k := range keys(plain, "doc") {
-		walkNode(docs[i].node, docs[i].value, "["+k+"]", docs[i].node.Line, visit)
+		walkNode(docs[i].node, docs[i].value, prefix+"["+k+"]", docs[i].node.Line, visit)
 	}
 }
 
@@ -127,10 +221,11 @@ func walkNode(n *yaml.Node, value any, prefix string, line int, visit visitor) {
 	}
 }
 
-// joinPath opens key under prefix in a flattened path.
+// joinPath opens key under prefix in a flattened path: the first key of a
+// document a string holds follows its textSep.
 func joinPath(prefix, key string) string {
-	if prefix == "" {
-		return key
+	if prefix == "" || strings.HasSuffix(prefix, textSep) {
+		return prefix + key
 	}
 	return prefix + "." + key
 }
@@ -160,7 +255,7 @@ func redactLeaves(content string, secret func(path string) bool) string {
 			}
 		}
 	}
-	walkFile(docs, func(path string, _ int, n *yaml.Node, _ any) {
+	walkFile(docs, "", func(path string, _ int, n *yaml.Node, _ any) {
 		if n == nil || n.Kind != yaml.ScalarNode || !secret(path) {
 			return
 		}

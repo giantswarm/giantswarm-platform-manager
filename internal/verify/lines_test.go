@@ -7,6 +7,12 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 )
 
+// The leaves every manifest opens with.
+const (
+	apiVersionPath = "apiVersion"
+	kindPath       = "kind"
+)
+
 // Every leaf of a file sits on a line: a mapping entry's key line, a
 // sequence entry's "- " line, the first line of a multi-line scalar, the
 // line of the key that holds an empty mapping or sequence; the values are
@@ -41,7 +47,7 @@ func TestFlattenLinesPlacesEveryLeaf(t *testing.T) {
 	}, "\n")
 	values, lines := flattenLines(content)
 	want := map[string]int{
-		"apiVersion": 1, "kind": 2, "metadata.name": 4, "metadata.labels": 5,
+		apiVersionPath: 1, kindPath: 2, "metadata.name": 4, "metadata.labels": 5,
 		"data.script": 7, "data.list[a]": 11, "data.list[b]": 12,
 		"data.objects[x].name": 14, "data.objects[x].port": 15, "data.objects[y].name": 16, "data.objects[y].port": 17,
 		"data.empty": 18, "data.patches[0].path": 20, "data.patches[1].path": 21, "data.multi": 22, "data.after": 24,
@@ -119,6 +125,9 @@ func TestRedactLeavesKeepsTheStructure(t *testing.T) {
 	if got := redactLeaves("not: [yaml", func(string) bool { return true }); got != "not: [yaml" {
 		t.Errorf("not YAML: %q", got)
 	}
+	if !payload("data.values") || !payload("stringData.values") || !payload("[ConfigMap/ns/c].data.values") || !payload("spec.x:inside") || payload("spec.patch") || payload("patches[0].patch") || payload("") {
+		t.Error("payload is a ConfigMap's data, a Secret's stringData, and the inside of a document")
+	}
 }
 
 // The files of an encrypted record are shown redacted, the file as the plan
@@ -140,5 +149,76 @@ func TestShownRedactsTheEncryptedFiles(t *testing.T) {
 	}
 	if files[1].Content != "a: 2\n" || files[1].Current != "a: 1\n" || files[2].Content != "a: ENC[x]\n" || files[2].Current != "" {
 		t.Errorf("a plain file and a new one stay: %+v", files[1:])
+	}
+}
+
+// A string that holds a YAML mapping over several lines is the mapping's
+// leaves, each under the field's path and ":" — text inside text too — on
+// its line of the file where the text is a literal block scalar, on the
+// field's line where a quoted scalar folds its lines; a list held as text
+// (a patch) and a one-line "key: value" stay one leaf, as does every string
+// outside a ConfigMap's data or a Secret's stringData. flattenYAML's leaves
+// are the same, and innerPath and holder split a path at its last step into
+// a document, outside brackets.
+func TestFlattenLinesDescendsIntoText(t *testing.T) {
+	content := strings.Join([]string{
+		"apiVersion: v1",                            // 1
+		"kind: ConfigMap",                           // 2
+		"data:",                                     // 3
+		"  values: |",                               // 4
+		"    backstage:",                            // 5
+		"      appConfig: |",                        // 6
+		"        app:",                              // 7
+		"          title: Dev Portal",               // 8
+		"        grafana:",                          // 9
+		"          domain: g.example.test",          // 10
+		"      extraVolumeMounts: []",               // 11
+		"  quoted: \"route:\\n  enabled: true\\n\"", // 12
+		"  patch: |",                                // 13
+		"    - op: replace",                         // 14
+		"      path: /a",                            // 15
+		"  note: 'Note: one line'",                  // 16
+		"spec:",                                     // 17
+		"  patch: |",                                // 18
+		"    b: 2",                                  // 19
+		"",
+	}, "\n")
+	values, lines := flattenLines(content)
+	want := map[string]int{
+		apiVersionPath: 1, kindPath: 2,
+		"data.values:backstage.appConfig:app.title": 8, "data.values:backstage.appConfig:grafana.domain": 10,
+		"data.values:backstage.extraVolumeMounts": 11, "data.quoted:route.enabled": 12, "data.patch": 13, "data.note": 16, "spec.patch": 18,
+	}
+	for path, line := range want {
+		if lines[path] != line {
+			t.Errorf("%s on line %d, want %d", path, lines[path], line)
+		}
+	}
+	if len(lines) != len(want) || len(values) != len(want) {
+		t.Errorf("%d lines, %d values, want %d: %v", len(lines), len(values), len(want), lines)
+	}
+	if values["data.values:backstage.appConfig:app.title"] != "Dev Portal" || values["data.values:backstage.extraVolumeMounts"] != "[]" || values["data.quoted:route.enabled"] != "true" || values["data.patch"] != "- op: replace\n  path: /a\n" || values["data.note"] != "Note: one line" || values["spec.patch"] != "b: 2\n" {
+		t.Errorf("values %v", values)
+	}
+	if flat := flattenYAML(content); len(flat) != len(want) || flat["data.values:backstage.appConfig:grafana.domain"] != "g.example.test" {
+		t.Errorf("flattenYAML: %v", flat)
+	}
+	decoded := map[string]string{}
+	flatten(map[string]any{"data": map[string]any{"values": "backstage:\n  appConfig: |\n    app:\n      title: x\n"}}, "", decoded)
+	if len(decoded) != 1 || decoded["data.values:backstage.appConfig:app.title"] != "x" {
+		t.Errorf("a decoded value flattens the same way: %v", decoded)
+	}
+	for p, inner := range map[string]string{
+		"data.values:backstage.appConfig:app.title":  "app.title",
+		"data.values:servers[http://x:8080/mcp].url": "servers[http://x:8080/mcp].url",
+		"a.b[http://x:8080/mcp].c":                   "a.b[http://x:8080/mcp].c",
+		"":                                           "",
+	} {
+		if got := innerPath(p); got != inner {
+			t.Errorf("innerPath(%q) = %q, want %q", p, got, inner)
+		}
+	}
+	if holder("data.values:backstage.appConfig:app.title") != "data.values:backstage.appConfig" || holder("data.values:route.enabled") != "data.values" || holder("a.b[http://x:8080/mcp].c") != "" {
+		t.Error("holder is the field whose text the leaf sits in")
 	}
 }

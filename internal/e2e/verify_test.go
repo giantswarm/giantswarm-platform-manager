@@ -808,9 +808,9 @@ func TestVerifyCapabilityTakesAMissingChoiceAsNotChecked(t *testing.T) {
 		content := f.Content
 		if f.Path == installations.PortalConfigPath(rowan) {
 			appConfig = f.Repository + ":" + f.Path
-			content = strings.Replace(content, "        grafana:\n          hosts:\n            - id: grafana-net\n              domain: "+domain+"\n", "        grafana: {}\n", 1)
+			content = strings.Replace(content, "              domain: "+domain+"\n", "", 1)
 			if content == f.Content {
-				t.Fatalf("no grafana section to drop from the app-config:\n%s", content)
+				t.Fatalf("no grafana domain to drop from the app-config:\n%s", content)
 			}
 		}
 		st.ghs.addFile(f.Repository, f.Path, content)

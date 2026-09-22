@@ -85,7 +85,10 @@ func noFile(kind string) string {
 
 // Difference is one place a repository file, or a live object, is off the
 // render: at path (a YAML path inside file; empty when the whole file
-// differs). File names the repository file; Object the live object of a live
+// differs; a path that crosses the YAML document a string field holds names
+// the field, then ":" and the path inside it: data.values:route.enabled,
+// data.values:backstage.appConfig:app.title in the portal's app-config).
+// File names the repository file; Object the live object of a live
 // dimension (resource namespace/name). Input names the input of the
 // definition that drives the path — the file expresses another input than
 // the one on record; empty, the path is drift. Planned is the reason of the
@@ -474,9 +477,12 @@ func rendered(p plan.Installation) []plan.File {
 // differences are the leaves of the file as the plan writes it (rendered)
 // that are off the file on record (current), each attributed to the input
 // that drives it and placed on its line of each side. A value the commit
-// fills in or the record holds encrypted is never one, nor is a leaf that
-// carries a choice not on record (a Missing marker: not checked). Of an
-// encrypted file SOPS's own block takes no part, and a leaf SOPS encrypts
+// fills in or the record holds encrypted is never one — nor a leaf inside
+// text the record holds encrypted (a Secret's values: the record's stand) —
+// nor is a leaf that carries a choice not on record (a Missing marker: not
+// checked); an empty mapping or list on one side where the other holds
+// entries under the key is the key without its entries, and the entries
+// are the differences. Of an encrypted file SOPS's own block takes no part, and a leaf SOPS encrypts
 // (one under its encrypted_regex) is the difference with the values
 // redacted; every other leaf of it — type, the metadata, apiVersion, kind —
 // shows its values like a plain file's. The lines of such a file are those
@@ -493,11 +499,17 @@ func differences(key string, rendered, current string, driven map[string]string)
 			_, wantLines = flattenLines(redactLeaves(rendered, secret))
 		}
 	}
+	documents := map[string]bool{} // the fields whose text the render's leaves sit in
+	for p := range want {
+		if h := holder(p); h != "" {
+			documents[h] = true
+		}
+	}
 	var out []Difference
 	for _, p := range diffPaths(want, got) {
 		w, okw := want[p]
 		g, okg := got[p]
-		if okw && okg && plan.Opaque(w, g) || encrypted && underSOPS(p) || okw && len(missingFields(w)) > 0 {
+		if okw && okg && plan.Opaque(w, g) || encrypted && underSOPS(p) || okw && len(missingFields(w)) > 0 || encryptedText(documents, got, p) || emptied(want, got, p) {
 			continue
 		}
 		d := Difference{File: key, Path: p, Rendered: w, Current: g, Line: wantLines[p], CurrentLine: gotLines[p], Input: driven[key+"#"+p], absent: !okg}
@@ -507,6 +519,49 @@ func differences(key string, rendered, current string, driven map[string]string)
 		out = append(out, d)
 	}
 	return out
+}
+
+// emptied says whether a leaf is an empty mapping or list on the one side
+// that has it while the other side holds entries under the key: the same
+// key without its entries, no difference of its own — the entries are.
+func emptied(want, got map[string]string, p string) bool {
+	w, okw := want[p]
+	g, okg := got[p]
+	switch {
+	case okw && !okg:
+		return (w == "{}" || w == "[]") && under(got, p)
+	case okg && !okw:
+		return (g == "{}" || g == "[]") && under(want, p)
+	}
+	return false
+}
+
+// under says whether flat holds a leaf beneath p: a key, an entry or a
+// document's leaf.
+func under(flat map[string]string, p string) bool {
+	for q := range flat {
+		if len(q) > len(p) && strings.HasPrefix(q, p) && strings.ContainsRune(".["+textSep, rune(q[len(p)])) {
+			return true
+		}
+	}
+	return false
+}
+
+// encryptedText says whether a leaf is of a document the render holds as
+// text in a field (documents) that the record holds encrypted: the field
+// itself, ciphertext on record where the render has the document's leaves,
+// or a leaf inside it. The manager decrypts nothing, so the record's text
+// stands and neither is a difference, like a value the record holds
+// encrypted (Opaque).
+func encryptedText(documents map[string]bool, got map[string]string, p string) bool {
+	field := holder(p)
+	if field == "" {
+		if !documents[p] {
+			return false
+		}
+		field = p
+	}
+	return plan.Ciphertext(got[field])
 }
 
 // missingMarker matches a Missing marker in a rendered value, capturing
@@ -746,8 +801,11 @@ func diffPaths(want, got map[string]string) []string {
 // way the plan keys the objects, clients and tunnels it merges — and by index
 // where an entry has none or two share one; a file of several documents keys
 // each by its kind/namespace/name. A reordered list or file is so the same
-// leaves, and an entry added is its own. A file that is not YAML is one leaf
-// at the empty path. flattenLines also names each leaf's line.
+// leaves, and an entry added is its own. A payload string that holds a YAML
+// mapping over several lines — a ConfigMap's chart values, the portal's
+// app-config inside them — is the mapping's leaves, each under the field's
+// path and textSep (payload, textMapping). A file that is not YAML is one
+// leaf at the empty path. flattenLines also names each leaf's line.
 func flattenYAML(content string) map[string]string {
 	values, _ := flattenLines(content)
 	return values
@@ -756,6 +814,12 @@ func flattenYAML(content string) map[string]string {
 // flatten flattens a decoded value to its leaves under prefix.
 func flatten(v any, prefix string, out map[string]string) {
 	switch t := v.(type) {
+	case string:
+		if docs, ok := textMapping(t); ok && payload(prefix) {
+			flatten(docs[0].value, prefix+textSep, out)
+			return
+		}
+		out[prefix] = t
 	case map[string]any:
 		if len(t) == 0 {
 			out[prefix] = "{}"
@@ -839,6 +903,17 @@ func kindOf(path string) string {
 	return definitions.KindExtras
 }
 
+// fileKind is the kind the files a dimension observes are compared under:
+// the dex-app's two patches are one kind to kindOf and to the planned keys
+// (dex-configmap and dex-secret both name it), so a dimension declared on
+// the dex-app's configmap observes them too.
+func fileKind(kind string) string {
+	if kind == definitions.KindDexConfigMap {
+		return definitions.KindDexSecret
+	}
+	return kind
+}
+
 // relPath is a file's path under its extras directory, for matching the
 // keys of extras and backstage dimensions.
 func relPath(path string) string {
@@ -862,7 +937,7 @@ type matcher struct {
 }
 
 func newMatcher(d definitions.Dimension) matcher {
-	m := matcher{dim: &Dimension{ID: d.ID, Kind: d.Kind, Key: d.Key, Mark: NotChecked}, kind: d.Kind}
+	m := matcher{dim: &Dimension{ID: d.ID, Kind: d.Kind, Key: d.Key, Mark: NotChecked}, kind: fileKind(d.Kind)}
 	for _, word := range strings.Fields(d.Key) {
 		if !strings.ContainsAny(word, "*()") && strings.ContainsFunc(word, unicode.IsLetter) && strings.ContainsAny(word, "./") {
 			m.prefixes = append(m.prefixes, word)
