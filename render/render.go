@@ -119,6 +119,21 @@ type Input interface {
 	MissingInputs() []string
 	BuiltInDexClientID(key string) string
 	CustomerActions() []CustomerAction
+	// Selected are the inputs the definition chose beyond the document, in
+	// the document's shape, for the plan to answer as the effective inputs:
+	// the chart line a fresh enable selects. Nil where the document stands.
+	Selected() map[string]any
+}
+
+// RecordFile is the installation's record in its configs repository,
+// installations/<name>/config.yaml.patch: the facts every definition reads
+// its installation.* inputs from, and the one file a definition edits a key
+// into rather than writes (the agent-platform enable's chart line).
+const RecordFile = "config.yaml.patch"
+
+// RecordPath is the installation's record.
+func RecordPath(installation string) string {
+	return "installations/" + installation + "/" + RecordFile
 }
 
 // Mode is what a render is for. The zero value is a commit: what is

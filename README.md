@@ -213,7 +213,8 @@ steps in with a token of its own.
 Per installation the manager then reads, as the caller:
 
 - the **facts on record** in `installations/<name>/config.yaml.patch` of its configs repository —
-  the meta chart line (`agentPlatform.kagentApiV2` selects `4`), `services.muster.clientId` — which,
+  the meta chart line (`agentPlatform.kagentApiV2` selects `4`; a fresh enable of an organisation the
+  policy grants a line-4 component writes it there), `services.muster.clientId` — which,
   with the registry's name, base domain, customer and provider, the cluster App on record in
   `management-clusters/<name>/cluster-app-manifests.yaml` (whether the cluster serves
   `PodCertificateRequest`, the 4 line's prerequisite: the feature gates in its values, or its chart's

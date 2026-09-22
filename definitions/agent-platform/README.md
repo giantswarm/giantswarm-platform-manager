@@ -17,7 +17,7 @@ policy decides once, and what the definition drops. The render library reads it.
 |---|---|
 | Every hostname and URL, `global.domain`, the chart range, the managers' OAuth on the 3 line | the record: `config.yaml.patch` and the catalog (`installation.name`, `baseDomain`, `chartLine`, `musterClientId`, `provider`) |
 | The private-address flags of muster and the MCP servers, a hub's tunnel to the installation | `installation.private`: reached through Teleport — a portal on record reaches the installation's Kubernetes API through the tunnel on its host, not at its API |
-| Which components run (kagent, agent-manager, cluster-manager), the gateway's Slack/OBO/A2A/reviews shape, the cluster-manager's egress | `policy.yaml` by `installation.customer`; the egress by `installation.provider`. The cluster-manager is the 4 chart line's: a record on the 3 line whose organisation is granted it is refused at plan time, naming the component and `agentPlatform.kagentApiV2`, the key of `config.yaml.patch` that selects the line |
+| Which components run (kagent, agent-manager, cluster-manager), the gateway's Slack/OBO/A2A/reviews shape, the cluster-manager's egress | `policy.yaml` by `installation.customer`; the egress by `installation.provider`. The cluster-manager is the 4 chart line's: a fresh enable of an organisation granted it selects the 4 line and writes `agentPlatform.kagentApiV2: true` into the record (below); a record on the 3 line with the capability on record is refused at plan time, naming the component and the key of `config.yaml.patch` that selects the line |
 | Whether the cluster serves `certificates.k8s.io/v1beta1 PodCertificateRequest`, which kagent's Agent Substrate needs on the 4 line (below) | `installation.podCertificateRequest`: the cluster App on record in `management-clusters/<name>/cluster-app-manifests.yaml` — its values enable the three feature gates on every kubeadm component, or its chart enables them by default: the chart at the version the App pins, else at the version the release the values name (`global.release.version`) lists for it in giantswarm/releases, read as the person. Renders nothing; a 4-line record with kagent and `false` is refused at plan time, `true` renders the live probe `live-pod-certificate-request` |
 | Which dex-app the installation runs, the prerequisite of the referenced Dex client secrets (below) | `installation.dexAppVersion`: `spec.version` of the App `dex-app` — the installation's own pin, a patch on the App in `management-clusters/<name>/collections/kustomization.yaml`, wins; without one, the fleet's shared base, `bases/collections/shared/base/dex-app.yaml` in the management-cluster-bases repository the kustomization's remote resource names, at the ref it names (`?ref=`). Absent where neither could be read, with the error on the report. Renders nothing; older than 3.2.2, the comparison runs and the commit is held (`commitRefused`) |
 | Whether the chat gateway runs (klaus-gateway with its generated OBO keys and its supplied Slack credentials), and the agent it calls by default | `policy.yaml`'s `klausGateway.installations` by `installation.name`: a map of the installations a Slack app exists for, each entry's `defaultAgent` one of the installation's own agents (`extras/agent-platform/agents/`, kept, not rendered), `a2a.defaultAgent` where the entry names none |
@@ -30,8 +30,14 @@ policy decides once, and what the definition drops. The render library reads it.
 
 ## The 4 chart line's prerequisites
 
-The 4 line is selected by the record (`agentPlatform.kagentApiV2: true` in `installations/<name>/config.yaml.patch`)
-and needs, beyond the 3 line's, a cluster that serves `certificates.k8s.io/v1beta1 PodCertificateRequest`: kagent's
+The 4 line is selected by the record (`agentPlatform.kagentApiV2: true` in `installations/<name>/config.yaml.patch`).
+A fresh enable — the capability not on record, `installation.agentPlatform` false — of an organisation the policy
+grants a component the 4 line alone carries (the cluster-manager) selects the 4 line itself and writes the key into
+the record as one more file of the configs pull request, keeping every other key and comment: the record is the
+installation's own file, edited and never written whole, so the first enable of a Giant Swarm installation needs no
+record pull request by hand. An installation with the capability on record keeps the line its record selects, and a
+record on the 3 line granted such a component is refused as before: adoption is an Apply, never a line change. The
+4 line needs, beyond the 3 line's, a cluster that serves `certificates.k8s.io/v1beta1 PodCertificateRequest`: kagent's
 Agent Substrate (meta chart 4.49.0 and later) issues each agent's pod certificates through it and distributes its
 CA through `ClusterTrustBundle` projected volumes, and the meta chart refuses its install at render time where the
 API is not served. That takes Kubernetes 1.35 with the feature gates `PodCertificateRequest`, `ClusterTrustBundle`

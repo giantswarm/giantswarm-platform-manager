@@ -15,8 +15,11 @@ const (
 	KindDexConfigMap = "dex-configmap"
 	KindExtras       = "extras"
 	KindBackstage    = "backstage"
-	KindLive         = "live"
-	KindProbe        = "probe"
+	// KindRecord is the installation's record, installations/<name>/config.yaml.patch:
+	// the one file a definition edits a key into rather than writes.
+	KindRecord = "record"
+	KindLive   = "live"
+	KindProbe  = "probe"
 )
 
 // Feature is one consistency feature of a definition: what the verify rolls
