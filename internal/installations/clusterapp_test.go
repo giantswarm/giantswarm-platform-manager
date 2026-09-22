@@ -93,18 +93,22 @@ func (f fakeRepos) reader(reads map[string]int) Reader {
 const (
 	testMCs      = "fleet/fleet-management-clusters"
 	testManifest = "management-clusters/maple/cluster-app-manifests.yaml"
+	// releaseAtDefault is the release that ships the chart at the gates' default.
+	releaseAtDefault = "capa/v35.1.0/release.yaml"
+	// otherGate is a feature gate Agent Substrate does not need.
+	otherGate = "MutableCSINodeAllocatableCount"
 )
 
 var mapleInst = Installation{Name: "maple", Repositories: Repositories{ManagementClusters: testMCs}}
 
 // readFact reads maple's fact from manifest with the releases repository
-// holding releases, and answers the fact, the error and the reads made.
-func readFact(t *testing.T, manifest string, releases map[string]string) (bool, error, map[string]int) {
+// holding releases, and answers the fact, the reads made and the error.
+func readFact(t *testing.T, manifest string, releases map[string]string) (bool, map[string]int, error) {
 	t.Helper()
 	repos := fakeRepos{testMCs: {testManifest: manifest}, ReleasesRepository: releases}
 	reads := map[string]int{}
 	got, err := readPodCertificateRequest(context.Background(), repos.reader(reads), mapleInst)
-	return got, err, reads
+	return got, reads, err
 }
 
 // The record says the cluster serves PodCertificateRequest when every one of
@@ -123,11 +127,11 @@ func TestPodCertificateRequestFromTheClusterApp(t *testing.T) {
 		{"the three gates on all three components, an older chart", clusterAppManifest("cluster-aws", "10.2.0", values(all, all, all)), true},
 		{"the gates on the control plane only", clusterAppManifest("cluster-aws", "10.2.0", values(all, all, "")), false},
 		{"one gate disabled on the kubelet", clusterAppManifest("cluster-aws", "10.2.0", values(all, all, gates(substrateGates, "ClusterTrustBundleProjection"))), false},
-		{"a list with other gates only", clusterAppManifest("cluster-aws", "10.2.0", values(all, all, gates([]string{"MutableCSINodeAllocatableCount"}, ""))), false},
+		{"a list with other gates only", clusterAppManifest("cluster-aws", "10.2.0", values(all, all, gates([]string{otherGate}, ""))), false},
 		{"no list anywhere, the chart carries them by default", clusterAppManifest("cluster-aws", "10.3.0", values("", "", "")), true},
 		{"no list anywhere, a later chart", clusterAppManifest("cluster-azure", "v9.4.1", values("", "", "")), true},
 		{"no list anywhere, the chart before the default", clusterAppManifest("cluster-azure", "9.2.0", values("", "", "")), false},
-		{"a list without the gates replaces the chart's default", clusterAppManifest("cluster-aws", "10.3.0", values(gates([]string{"MutableCSINodeAllocatableCount"}, ""), "", "")), false},
+		{"a list without the gates replaces the chart's default", clusterAppManifest("cluster-aws", "10.3.0", values(gates([]string{otherGate}, ""), "", "")), false},
 		{"a list on one component with the gates, the chart's default on the rest", clusterAppManifest("cluster-aws", "10.3.0", values(all, "", "")), true},
 		{"a chart the table does not know", clusterAppManifest("cluster-vsphere", "9.2.0", values("", "", "")), false},
 		{"a version that is no semantic version", clusterAppManifest("cluster-aws", "latest", values("", "", "")), false},
@@ -135,7 +139,7 @@ func TestPodCertificateRequestFromTheClusterApp(t *testing.T) {
 		{"an empty manifest", "", false},
 	}
 	for _, c := range cases {
-		got, err, reads := readFact(t, c.manifest, nil)
+		got, reads, err := readFact(t, c.manifest, nil)
 		if err != nil {
 			t.Errorf("%s: %v", c.name, err)
 			continue
@@ -149,7 +153,7 @@ func TestPodCertificateRequestFromTheClusterApp(t *testing.T) {
 			}
 		}
 	}
-	if _, err, _ := readFact(t, "---\nkind: App\nspec: [not a map]\n", nil); err == nil {
+	if _, _, err := readFact(t, "---\nkind: App\nspec: [not a map]\n", nil); err == nil {
 		t.Error("a manifest that does not decode is an error, not a no")
 	}
 	repos := fakeRepos{}
@@ -171,7 +175,7 @@ func TestPodCertificateRequestFromTheClusterApp(t *testing.T) {
 func TestPodCertificateRequestThroughTheRelease(t *testing.T) {
 	all := gates(substrateGates, "")
 	releases := map[string]string{
-		"capa/v35.1.0/release.yaml":  releaseManifest("cluster-aws", "10.3.0"),
+		releaseAtDefault:             releaseManifest("cluster-aws", "10.3.0"),
 		"capa/v35.0.1/release.yaml":  releaseManifest("cluster-aws", "10.0.1"),
 		"azure/v35.0.1/release.yaml": releaseManifest("cluster-azure", "9.3.0"),
 		"capa/v36.0.0/release.yaml":  releaseManifest("cluster-eks", "7.1.0"),
@@ -182,15 +186,15 @@ func TestPodCertificateRequestThroughTheRelease(t *testing.T) {
 		want     bool
 		read     string // the release read, empty for none
 	}{
-		{"the release ships the chart at the default", releaseClusterAppManifest("cluster-aws", "35.1.0", values("", "", "")), true, "capa/v35.1.0/release.yaml"},
-		{"a v-prefixed release", releaseClusterAppManifest("cluster-aws", "v35.1.0", values("", "", "")), true, "capa/v35.1.0/release.yaml"},
+		{"the release ships the chart at the default", releaseClusterAppManifest("cluster-aws", "35.1.0", values("", "", "")), true, releaseAtDefault},
+		{"a v-prefixed release", releaseClusterAppManifest("cluster-aws", "v35.1.0", values("", "", "")), true, releaseAtDefault},
 		{"the release ships the chart before the default", releaseClusterAppManifest("cluster-aws", "35.0.1", values("", "", "")), false, "capa/v35.0.1/release.yaml"},
 		{"another provider's directory", releaseClusterAppManifest("cluster-azure", "35.0.1", values("", "", "")), true, "azure/v35.0.1/release.yaml"},
 		{"the gates on every component: the release is not read", releaseClusterAppManifest("cluster-aws", "35.0.1", values(all, all, all)), true, ""},
-		{"a list without the gates on one component: no whatever the release", releaseClusterAppManifest("cluster-aws", "35.1.0", values(gates([]string{"MutableCSINodeAllocatableCount"}, ""), "", "")), false, ""},
+		{"a list without the gates on one component: no whatever the release", releaseClusterAppManifest("cluster-aws", "35.1.0", values(gates([]string{otherGate}, ""), "", "")), false, ""},
 	}
 	for _, c := range cases {
-		got, err, reads := readFact(t, c.manifest, releases)
+		got, reads, err := readFact(t, c.manifest, releases)
 		if err != nil {
 			t.Errorf("%s: %v", c.name, err)
 			continue
@@ -219,7 +223,7 @@ func TestPodCertificateRequestThroughTheRelease(t *testing.T) {
 		{"a release that lists no such chart", releaseClusterAppManifest("cluster-aws", "36.0.0", values("", "", "")), "lists no component cluster-aws"},
 		{"a chart without a releases directory", releaseClusterAppManifest("cluster-mars", "35.1.0", values("", "", "")), "no releases directory is known for the chart cluster-mars"},
 	} {
-		got, err, _ := readFact(t, c.manifest, releases)
+		got, _, err := readFact(t, c.manifest, releases)
 		if !errors.Is(err, ErrRelease) || got {
 			t.Errorf("%s: %v, %v; want ErrRelease and no", c.name, got, err)
 			continue
