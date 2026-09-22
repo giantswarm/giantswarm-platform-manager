@@ -18,7 +18,11 @@ import (
 const (
 	testPlatformPatch = "installations/x/apps/agent-platform/configmap-values.yaml.patch"
 	testDexPatch      = "installations/x/apps/dex-app/configmap-values.yaml.patch"
-	testDomain        = "x.example.test"
+	// testDexSecretPatch is the dex-app's secret patch, testComponentAppConfig
+	// the platform Component's app-config fragment in a portal's tree.
+	testDexSecretPatch     = "installations/x/apps/dex-app/secret-values.yaml.patch"
+	testComponentAppConfig = "management-clusters/x/extras/backstage/agent-platform/app-config.yaml"
+	testDomain             = "x.example.test"
 )
 
 // Every key of the agent-platform migrations names a path some golden

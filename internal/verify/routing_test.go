@@ -1,7 +1,6 @@
 package verify
 
 import (
-	"bufio"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -131,14 +130,14 @@ func TestMatcherReadsKeys(t *testing.T) {
 func TestKindOfAndObservedPath(t *testing.T) {
 	for _, tc := range []struct{ path, kind, rel string }{
 		{"installations/x/apps/dex-app/configmap-values.yaml.patch", definitions.KindDexConfigMap, "dex-app/configmap-values.yaml.patch"},
-		{"installations/x/apps/dex-app/secret-values.yaml.patch", definitions.KindDexSecret, "dex-app/secret-values.yaml.patch"},
+		{testDexSecretPatch, definitions.KindDexSecret, "dex-app/secret-values.yaml.patch"},
 		{"installations/x/apps/agent-platform/configmap-values.yaml.patch", definitions.KindConfigMap, "agent-platform/configmap-values.yaml.patch"},
 		{"management-clusters/x/extras/agent-platform/secrets/kustomization.yaml", definitions.KindExtras, "agent-platform/secrets/kustomization.yaml"},
 		{"management-clusters/x/extras/mcp-capi/user-values.yaml", definitions.KindExtras, "mcp-capi/user-values.yaml"},
 		{"kubernetes/envs/prod/values.yaml", definitions.KindExtras, "kubernetes/envs/prod/values.yaml"},
 		{"management-clusters/x/extras/backstage/kustomization.yaml", definitions.KindBackstage, "kustomization.yaml"},
 		{"management-clusters/x/extras/backstage/backstage/user-values.yaml", definitions.KindBackstage, "backstage/user-values.yaml"},
-		{"management-clusters/x/extras/backstage/agent-platform/app-config.yaml", definitions.KindBackstage, "agent-platform/app-config.yaml"},
+		{testComponentAppConfig, definitions.KindBackstage, "agent-platform/app-config.yaml"},
 	} {
 		if kind := kindOf(tc.path); kind != tc.kind {
 			t.Errorf("%s: kind %q, want %q", tc.path, kind, tc.kind)
@@ -148,6 +147,9 @@ func TestKindOfAndObservedPath(t *testing.T) {
 		}
 	}
 }
+
+// unnamedLeaf is a hand-written key no dimension of a definition names.
+const unnamedLeaf = "handEdited"
 
 // matchersOf are the matchers of a definition's file dimensions under the
 // installation's facts.
@@ -223,7 +225,7 @@ func TestRoutesThePortalsLeaves(t *testing.T) {
 		{portal + "kustomization.yaml", "components[./agent-platform/]", "platform-component"},
 		{portal + "backstage/user-values.yaml", "route.hostnames[portal.maple.example.test]", "route"},
 		{portal + "backstage/user-values.yaml", "backstage.extraVolumeMounts[tunnelport-spiffe-bundle].mountPath", "tunnel-mount"},
-		{portal + "backstage/user-values.yaml", "metadata.name", "values-configmaps"},
+		{portal + "backstage/user-values.yaml", apiVersionPath, "values-configmaps"},
 		{portal + "backstage/app-config.yaml", "kubernetes.clusterLocatorMethods[0].clusters[0].url", "kubernetes-cluster"},
 		{portal + "backstage/app-config.yaml", "kubernetes.serviceLocatorMethod.type", "kubernetes-cluster"},
 		{portal + "backstage/app-config.yaml", "grafana.domain", "plugins"},
@@ -236,7 +238,7 @@ func TestRoutesThePortalsLeaves(t *testing.T) {
 		{portal + "backstage/user-secrets.enc.yaml", "stringData.values", "user-secrets"},
 		{portal + "backstage/tunnelport-spiffe-bundle.yaml", "[Secret/backstage/tunnelport-spiffe-bundle].type", "tunnel-bundle"},
 		{"installations/maple/apps/dex-app/configmap-values.yaml.patch", "oidc.extraStaticClients[backstage].id", "dex-client-entry"},
-		{"installations/maple/apps/dex-app/configmap-values.yaml.patch", "ingress.enabled", "dex-client-entry"},
+		{"installations/maple/apps/dex-app/configmap-values.yaml.patch", "ingress.host", "dex-client-entry"},
 	} {
 		got := route(matchers, fd(tc.file), tc.path)
 		if got == nil || got.ID != tc.want {
@@ -247,7 +249,7 @@ func TestRoutesThePortalsLeaves(t *testing.T) {
 			t.Errorf("%s#%s is observed under %s, want %s", tc.file, tc.path, id, tc.want)
 		}
 	}
-	if d := route(matchers, fd(portal+"backstage/user-values.yaml"), "handEdited"); d != nil {
+	if d := route(matchers, fd(portal+"backstage/user-values.yaml"), unnamedLeaf); d != nil {
 		t.Errorf("a leaf no dimension names is observed under %s", d.ID)
 	}
 }
@@ -259,14 +261,14 @@ func TestRoutesThePortalsLeaves(t *testing.T) {
 // such dimension.
 func TestUnnamedLeavesAreReportedUnderOther(t *testing.T) {
 	const values, dex = "management-clusters/x/extras/backstage/backstage/user-values.yaml", "installations/x/apps/dex-app/configmap-values.yaml.patch"
-	feats := []definitions.Feature{{ID: "portal", Dimensions: []definitions.Dimension{
+	feats := []definitions.Feature{{ID: "routing", Dimensions: []definitions.Dimension{
 		{ID: "route", Kind: definitions.KindBackstage, Key: "user-values.yaml route"},
 		{ID: "clients", Kind: definitions.KindDexConfigMap, CatchAll: true, Key: "the portal's client"},
 	}}}
 	vd := &fileDiff{key: "r:" + values, path: values, kind: definitions.KindBackstage,
-		diffs:   []Difference{{File: "r:" + values, Path: "handEdited", Current: "x"}},
+		diffs:   []Difference{{File: "r:" + values, Path: unnamedLeaf, Current: "x"}},
 		missing: map[string][]string{"backstage.image": {"portal.image"}}}
-	dd := &fileDiff{key: "c:" + dex, path: dex, kind: definitions.KindDexConfigMap, diffs: []Difference{{File: "c:" + dex, Path: "ingress.enabled", Current: "true"}}}
+	dd := &fileDiff{key: "c:" + dex, path: dex, kind: definitions.KindDexConfigMap, diffs: []Difference{{File: "c:" + dex, Path: "logger.level", Current: "debug"}}}
 	files := map[string]*fileDiff{vd.key: vd, dd.key: dd}
 	dims, others := assign(&comparison{files: files}, feats, "", nil)
 	if d := dims["clients"]; d.Mark != Drifted || len(d.Differences) != 1 {
@@ -278,7 +280,7 @@ func TestUnnamedLeavesAreReportedUnderOther(t *testing.T) {
 	if len(others) != 1 || others[0].ID != OtherFeature+"-"+definitions.KindBackstage || others[0].Kind != definitions.KindBackstage {
 		t.Fatalf("other dimensions %+v", others)
 	}
-	if d := others[0]; d.Mark != Drifted || len(d.Differences) != 1 || d.Differences[0].Path != "handEdited" || !reflect.DeepEqual(d.Files, []string{vd.key}) {
+	if d := others[0]; d.Mark != Drifted || len(d.Differences) != 1 || d.Differences[0].Path != unnamedLeaf || !reflect.DeepEqual(d.Files, []string{vd.key}) {
 		t.Errorf("the unnamed difference: %+v", *d)
 	}
 	vd.diffs = nil
@@ -315,17 +317,17 @@ func TestEveryRenderedLeafHasADimension(t *testing.T) {
 		}
 		for _, golden := range goldens {
 			shape := filepath.Base(filepath.Dir(golden))
-			includes := includesOf(t, golden)
-			err := filepath.WalkDir(filepath.Join(golden, "giantswarm"), func(p string, d fs.DirEntry, err error) error {
+			fsys := os.DirFS(golden)
+			includes := includesOf(fsys)
+			err := fs.WalkDir(fsys, "giantswarm", func(p string, d fs.DirEntry, err error) error {
 				if err != nil || d.IsDir() {
 					return err
 				}
-				rel, _ := filepath.Rel(golden, p)
-				parts := strings.SplitN(filepath.ToSlash(rel), "/", 3)
+				parts := strings.SplitN(p, "/", 3)
 				if includes[parts[0]+"/"+parts[1]+":"+parts[2]] {
 					return nil
 				}
-				content, err := os.ReadFile(p)
+				content, err := fs.ReadFile(fsys, p)
 				if err != nil {
 					return err
 				}
@@ -346,17 +348,14 @@ func TestEveryRenderedLeafHasADimension(t *testing.T) {
 
 // includesOf reads a golden's includes.txt: the files of other owners the
 // plan lists an entry in, as repository:path.
-func includesOf(t *testing.T, golden string) map[string]bool {
-	t.Helper()
+func includesOf(golden fs.FS) map[string]bool {
 	out := map[string]bool{}
-	f, err := os.Open(filepath.Join(golden, "includes.txt"))
+	raw, err := fs.ReadFile(golden, "includes.txt")
 	if err != nil {
 		return out
 	}
-	defer f.Close()
-	s := bufio.NewScanner(f)
-	for s.Scan() {
-		if fields := strings.Fields(s.Text()); len(fields) > 0 {
+	for _, line := range strings.Split(string(raw), "\n") {
+		if fields := strings.Fields(line); len(fields) > 0 {
 			out[fields[0]] = true
 		}
 	}

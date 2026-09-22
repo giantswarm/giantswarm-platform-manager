@@ -991,10 +991,10 @@ func TestVerifyCapabilityOwnMCPServersByHost(t *testing.T) {
 	// the own entries own-mcp-servers', the target's entry federated-mcp-servers'.
 	var diffs []verify.Difference
 	for _, want := range []struct {
-		feature, id string
-		n           int
-	}{{"tool-access", "own-mcp-servers", 3}, {"tool-access", "own-mcp-kubernetes-url", 1}, {"federation", "federated-mcp-servers", 2}} {
-		d := dimension(t, feature(t, res, want.feature), want.id)
+		id string
+		n  int
+	}{{"own-mcp-servers", 3}, {"own-mcp-kubernetes-url", 1}, {"federated-mcp-servers", 2}} {
+		d := anyDimension(t, res, want.id)
 		if d.Mark != verify.Planned || len(d.Differences) != want.n {
 			t.Fatalf("%s %q: %+v", want.id, d.Mark, d.Differences)
 		}

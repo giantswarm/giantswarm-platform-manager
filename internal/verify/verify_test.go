@@ -116,12 +116,12 @@ func TestRemovalsNameThePlannedChanges(t *testing.T) {
 	}
 	patch := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
 	dexCM := &fileDiff{path: testDexPatch, kind: definitions.KindDexConfigMap}
-	dexSecret := &fileDiff{path: "installations/x/apps/dex-app/secret-values.yaml.patch", kind: definitions.KindDexSecret}
+	dexSecret := &fileDiff{path: testDexSecretPatch, kind: definitions.KindDexSecret}
 	agents := &fileDiff{path: "management-clusters/x/extras/agents/kustomization.yaml", kind: definitions.KindExtras}
 	kust := &fileDiff{path: "management-clusters/x/extras/agent-platform/kustomization.yaml", kind: definitions.KindExtras}
 	appConfig := &fileDiff{path: "management-clusters/x/extras/backstage/backstage/app-config.yaml", kind: definitions.KindBackstage}
 	secrets := &fileDiff{path: "management-clusters/x/extras/backstage/backstage/user-secrets.enc.yaml", kind: definitions.KindBackstage}
-	fragment := &fileDiff{path: "management-clusters/x/extras/backstage/agent-platform/app-config.yaml", kind: definitions.KindBackstage}
+	fragment := &fileDiff{path: testComponentAppConfig, kind: definitions.KindBackstage}
 	for _, tc := range []struct {
 		name string
 		fd   *fileDiff
@@ -184,7 +184,7 @@ func TestMigrationsNameThePlannedAdditions(t *testing.T) {
 	exchange := &fileDiff{path: "management-clusters/x/extras/agent-platform/secrets/dex-client-x-token-exchange-secret.yaml", kind: definitions.KindExtras}
 	kust := &fileDiff{path: "management-clusters/x/extras/agent-platform/secrets/kustomization.yaml", kind: definitions.KindExtras}
 	mcpKust := &fileDiff{path: "management-clusters/x/extras/mcp-capi/kustomization.yaml", kind: definitions.KindExtras}
-	component := &fileDiff{path: "management-clusters/x/extras/backstage/agent-platform/app-config.yaml", kind: definitions.KindBackstage}
+	component := &fileDiff{path: testComponentAppConfig, kind: definitions.KindBackstage}
 	appConfig := &fileDiff{path: "management-clusters/x/extras/backstage/backstage/app-config.yaml", kind: definitions.KindBackstage}
 	absent := func(p string) *Difference { return &Difference{Path: p, Rendered: "x", absent: true} }
 	present := func(p string) *Difference { return &Difference{Path: p, Rendered: "x", Current: "y"} }
@@ -498,12 +498,12 @@ func TestAssignDropsNoLeaf(t *testing.T) {
 		dexPatch     = "installations/x/apps/dex-app/configmap-values.yaml.patch"
 		appConfig    = "management-clusters/x/extras/backstage/backstage/app-config.yaml"
 		userValues   = "management-clusters/x/extras/backstage/backstage/user-values.yaml"
-		fragment     = "management-clusters/x/extras/backstage/agent-platform/app-config.yaml"
+		fragment     = testComponentAppConfig
 		platformKust = "management-clusters/x/extras/agent-platform/kustomization.yaml"
 	)
 	files := map[string][]string{
 		installations.CustomerPortal: {dexPatch, appConfig, userValues},
-		installations.AgentPlatform:  {testPlatformPatch, dexPatch, "installations/x/apps/dex-app/secret-values.yaml.patch", platformKust, fragment},
+		installations.AgentPlatform:  {testPlatformPatch, dexPatch, testDexSecretPatch, platformKust, fragment},
 	}
 	for capability, paths := range files {
 		feats, err := definitions.Features(capability)
