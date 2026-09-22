@@ -13,7 +13,7 @@ import (
 // the chart line. The names of the enabled states are the definitions' in
 // lowerCamelCase.
 // agentPlatformFact is the fact key of the agent-platform capability: on record for the installation.
-const agentPlatformFact = agentPlatformFact
+const agentPlatformFact = "agentPlatform"
 
 func TestFactsPerDefinition(t *testing.T) {
 	r := Report{Installation: Installation{Name: fixtureInstallation, Region: "example-region-1", Pipeline: "stable", Hub: true},
