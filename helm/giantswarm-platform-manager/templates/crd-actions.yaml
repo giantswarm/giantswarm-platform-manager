@@ -65,6 +65,10 @@ spec:
                 customer:
                   description: The target is a customer installation; the notice channel is told of the review.
                   type: boolean
+                accountEngineers:
+                  description: The account engineers the installations catalog records for the customer installations targeted, in the installations' order without repeats; the review and the notice name them.
+                  type: array
+                  items: {type: string}
                 change:
                   description: The plan's change in one clause, as the review states it; never a value.
                   type: string

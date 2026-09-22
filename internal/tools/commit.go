@@ -117,7 +117,7 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 		inputs = typed
 	}
 	spec := actions.Spec{Actor: actions.Actor{Login: id.Login, ID: id.ID, Email: id.Email}, Capability: out.Capability, Installations: []string{one}, Inputs: inputs, Kind: kind,
-		InputsByInstallation: map[string]map[string]any{one: inputs}, Customer: env.byName[one].Customer != env.hub.Customer, Markers: markersOf(def, env, one)}
+		InputsByInstallation: map[string]map[string]any{one: inputs}, Customer: env.byName[one].Customer != env.hub.Customer, AccountEngineers: accountEngineers(env, one), Markers: markersOf(def, env, one)}
 
 	// The gate: the installation is on record readably, read now.
 	if refusal := gateRefusal(*out, env.reports[one]); refusal != "" {
@@ -253,6 +253,31 @@ func (t *Tools) openPullRequests(ctx context.Context, env *planned, a *actions.A
 // resolved to their repositories as "owner/repo:path": what the resync reads
 // to see a fileset gone from the default branch again. An installation whose
 // repositories are not on record has none.
+// accountEngineers names the account engineer the catalog records for each
+// customer installation among names (an installation of another customer than
+// the hub's), in that order and without repeats; a customer installation the
+// catalog names none for reads "none on record for <installation>", so the
+// Account Engineers' channel sees the gap instead of nothing.
+func accountEngineers(env *planned, names ...string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, n := range names {
+		inst := env.byName[n]
+		if inst.Customer == env.hub.Customer {
+			continue
+		}
+		ae := inst.AccountEngineer
+		if ae == "" {
+			ae = "none on record for " + n
+		}
+		if !seen[ae] {
+			seen[ae] = true
+			out = append(out, ae)
+		}
+	}
+	return out
+}
+
 func markersOf(def installations.Capability, env *planned, names ...string) map[string]string {
 	out := map[string]string{}
 	for _, n := range names {

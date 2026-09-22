@@ -66,6 +66,12 @@ type Spec struct {
 	// Customer marks a customer installation as the target: the Account
 	// Engineers' channel is told of the review.
 	Customer bool `json:"customer,omitempty"`
+	// AccountEngineers names, for the customer installations among the
+	// targets, the account engineer the installations catalog records for
+	// each (giantswarm.io/account-engineer) — in the installations' order,
+	// without repeats, "none on record for <installation>" where the catalog
+	// names none — so the review and the notice say whose customer is touched.
+	AccountEngineers []string `json:"accountEngineers,omitempty"`
 	// Change is the plan's change in one clause — files by change, generated
 	// secrets by name — on the record and in the pull requests; never a value.
 	Change string `json:"change,omitempty"`

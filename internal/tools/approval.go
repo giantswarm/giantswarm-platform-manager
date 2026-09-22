@@ -495,7 +495,19 @@ func reviewText(a *actions.Action) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "*%s* asks to %s *%s* on *%s*", a.Spec.Actor.Login, a.Spec.Kind, a.Spec.Capability, strings.Join(a.Spec.Installations, ", "))
 	if a.Spec.Customer {
-		b.WriteString(" (a customer installation)")
+		if len(a.Spec.Installations) > 1 {
+			b.WriteString(" (customer installations among them")
+		} else {
+			b.WriteString(" (a customer installation")
+		}
+		if n := len(a.Spec.AccountEngineers); n > 0 {
+			b.WriteString("; account engineer")
+			if n > 1 {
+				b.WriteString("s")
+			}
+			b.WriteString(" " + strings.Join(a.Spec.AccountEngineers, ", "))
+		}
+		b.WriteString(")")
 	}
 	if len(a.Spec.Installations) > 1 {
 		b.WriteString(" (a wave, in this order)")

@@ -185,7 +185,7 @@ muster:
     # request within the one call.
     timeout: 120  # @schema minimum: 1; maximum: 300
     # -- Human-readable description shown by muster.
-    description: Giant Swarm's installation manager — platform capabilities on the registry's installations, every write as the person
+    description: Giant Swarm's platform manager — platform capabilities on the registry's installations, every write as the person
     # -- Extra labels on the MCPServer CR.
     labels: {}  # @schema additionalProperties: true
     # -- How muster authenticates to this server; rendered only with
@@ -257,7 +257,7 @@ muster:
     # mcp-kubernetes within the one call.
     timeout: 180  # @schema minimum: 1; maximum: 300
     # -- Human-readable description shown by muster.
-    description: Giant Swarm's installation manager, the live surface — verify_installation and watch_action read an installation as you
+    description: Giant Swarm's platform manager, the live surface — verify_installation and watch_action read an installation as you
 
 serviceAccount:
   # -- Create a ServiceAccount.
