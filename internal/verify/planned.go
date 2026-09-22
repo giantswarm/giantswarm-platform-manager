@@ -58,10 +58,16 @@ func ownFacts(inst installations.Installation) facts {
 
 // readRemovals parses a capability's removals under the installation's
 // facts; a key whose prefix names no file kind the comparison observes, or
-// whose fact the installation lacks, is left out.
+// whose fact the installation lacks, is left out. A removal of kind kept is
+// no planned removal: the plan carries the key from the record into the
+// render, so the comparison finds it as defined — or, where it could not, as
+// the drift it is.
 func readRemovals(rs []definitions.Removal, f facts) plannedKeys {
 	var out plannedKeys
 	for _, r := range rs {
+		if r.Kind == definitions.RemovalKept {
+			continue
+		}
 		if k, ok := parseKey(r.Key, r.Reason, f); ok {
 			out = append(out, k)
 		}
