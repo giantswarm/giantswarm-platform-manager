@@ -18,6 +18,7 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
@@ -54,6 +55,10 @@ type Options struct {
 	// Stderr receives the bridge's stderr: its login prompts and the URL of
 	// the aggregator's own sign-in. nil discards it.
 	Stderr io.Writer
+	// CallTimeout is how long the bridge waits for muster's answer to one
+	// call, sent as call_tool's timeout argument; zero leaves the bridge its
+	// own default of 5 minutes, whatever the caller's context allows.
+	CallTimeout time.Duration
 }
 
 // Session is one connection to muster with the manager's tools in reach.
@@ -85,7 +90,12 @@ func Open(ctx context.Context, o Options) (*Session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("start %s %s: %w", binary, strings.Join(args, " "), err)
 	}
-	return New(ctx, c)
+	s, err := New(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	s.s.CallTimeout = o.CallTimeout
+	return s, nil
 }
 
 // New initializes the MCP session over an already constructed client — the
@@ -114,6 +124,9 @@ func (s *Session) Call(ctx context.Context, tool string, args map[string]any) (j
 func (s *Session) CallServer(ctx context.Context, server, tool string, args map[string]any) (json.RawMessage, error) {
 	res, err := s.s.Call(ctx, "x_"+server+"_"+tool, args)
 	if err != nil {
+		if cut := cutOf(ctx, tool, s.s.CallTimeout, err); cut != nil {
+			return nil, cut
+		}
 		if auth := s.signIn(ctx, server); auth != nil {
 			return nil, auth
 		}
@@ -170,4 +183,83 @@ func IsAuthRequired(err error) (*AuthRequired, bool) {
 	var a *AuthRequired
 	ok := errors.As(err, &a)
 	return a, ok
+}
+
+// Cut says a call ended without an answer, and which layer gave up: every
+// layer reports a bare "context deadline exceeded", and only the layer tells
+// a slow manager from an answer lost on the way. The bridge waits CallTimeout
+// for muster's answer; platformctl waits a little longer for the bridge's,
+// so when muster does not answer it is the bridge that reports it, and
+// platformctl's own bound fires only when the bridge itself does not answer.
+type Cut struct {
+	// Layer is who gave up.
+	Layer Layer `json:"layer"`
+	// Tool is the manager's tool that was called.
+	Tool string `json:"tool"`
+	// Timeout is the bound that ran out, where the layer is this side's.
+	Timeout string `json:"timeout,omitempty"`
+}
+
+// Layer names the side that cut a call.
+type Layer string
+
+const (
+	// LayerPlatformctl is platformctl's own --timeout: the bridge did not
+	// answer, not even with its own deadline.
+	LayerPlatformctl Layer = "platformctl"
+	// LayerBridge is the muster CLI bridge: no answer from muster within the
+	// call's bound, though muster and the manager may have answered.
+	LayerBridge Layer = "bridge"
+	// LayerMuster is muster: the manager did not answer within the
+	// registration's spec.timeout.
+	LayerMuster Layer = "muster"
+)
+
+func (e *Cut) Error() string {
+	switch e.Layer {
+	case LayerBridge:
+		return fmt.Sprintf("%s: cut by the muster CLI bridge, which got no answer from muster within its call timeout of %s; muster and the manager may well have answered (the manager's log says whether it did)", e.Tool, e.Timeout)
+	case LayerMuster:
+		return fmt.Sprintf("%s: cut by muster, which got no answer from the manager within the registration's timeout (the MCPServer's spec.timeout)", e.Tool)
+	default:
+		return fmt.Sprintf("%s: cut by platformctl, whose --timeout of %s ran out waiting for the bridge to answer at all", e.Tool, e.Timeout)
+	}
+}
+
+// IsCut reports whether err is, or wraps, a Cut.
+func IsCut(err error) (*Cut, bool) {
+	var c *Cut
+	ok := errors.As(err, &c)
+	return c, ok
+}
+
+// How the layers word their deadline: mcp-go's transport error for the
+// context the bridge bounded its call with, wrapped by the bridge's client,
+// and muster's for the registration's spec.timeout.
+const (
+	bridgeDeadline = "tool call failed: transport error: context deadline exceeded"
+	musterDeadline = "no answer within the server's timeout"
+)
+
+// cutOf reads which layer cut the call to tool out of err, nil when err is
+// something else. ctx is the call's; timeout the bound the bridge was given.
+func cutOf(ctx context.Context, tool string, timeout time.Duration, err error) *Cut {
+	text := err.Error()
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		return &Cut{Layer: LayerPlatformctl, Tool: tool, Timeout: bound(timeout)}
+	case strings.Contains(text, bridgeDeadline):
+		return &Cut{Layer: LayerBridge, Tool: tool, Timeout: bound(timeout)}
+	case strings.Contains(text, musterDeadline):
+		return &Cut{Layer: LayerMuster, Tool: tool}
+	}
+	return nil
+}
+
+// bound prints the bridge's bound, or its own default where none was sent.
+func bound(timeout time.Duration) string {
+	if timeout <= 0 {
+		return "5m0s (its default)"
+	}
+	return timeout.String()
 }

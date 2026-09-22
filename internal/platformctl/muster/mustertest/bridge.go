@@ -21,8 +21,14 @@ import (
 )
 
 // Tool answers one aggregator tool; ctx is the request's, carrying whatever
-// the HTTP layer put there (the bearer, in a fake behind a listener).
+// the HTTP layer put there (the bearer, in a fake behind a listener). A Tool
+// that answers nil is a call the bridge gives up on: call_tool answers
+// BridgeDeadline, the bridge's own refusal, not an envelope.
 type Tool func(ctx context.Context, args map[string]any) *mcp.CallToolResult
+
+// BridgeDeadline is call_tool's answer when the bridge's own call timeout
+// ran out, worded as muster's bridge words it.
+const BridgeDeadline = "Meta-tool execution failed: tool call failed: transport error: context deadline exceeded"
 
 // Answers of the fake manager, for tests to compare against.
 const (
@@ -55,11 +61,18 @@ var Registry = []string{Hub, "lab", "hazel"}
 // Bridge is an in-process bridge over the aggregator tools given by their
 // aggregator names.
 func Bridge(aggregator map[string]Tool) *mcpserver.MCPServer {
+	return BridgeRecording(aggregator, nil)
+}
+
+// BridgeRecording is Bridge with every call_tool request's arguments
+// appended to calls as they arrived, the bridge's own included.
+func BridgeRecording(aggregator map[string]Tool, calls *[]map[string]any) *mcpserver.MCPServer {
 	s := mcpserver.NewMCPServer("muster", "test")
 	s.AddTool(mcp.NewTool("call_tool",
 		mcp.WithString("name", mcp.Required()),
 		mcp.WithObject("arguments"),
-	), callTool(aggregator))
+		mcp.WithNumber("timeout"),
+	), callTool(aggregator, calls))
 	s.AddTool(mcp.NewTool("list_tools"), func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		names := make([]map[string]string, 0, len(aggregator))
 		for name := range aggregator {
@@ -77,8 +90,11 @@ func Bridge(aggregator map[string]Tool) *mcpserver.MCPServer {
 // callTool is muster's call_tool: the named tool's result as one JSON
 // document, the outer isError following the tool's; a name the aggregator
 // does not have is call_tool's own refusal.
-func callTool(aggregator map[string]Tool) mcpserver.ToolHandlerFunc {
+func callTool(aggregator map[string]Tool, calls *[]map[string]any) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if calls != nil {
+			*calls = append(*calls, req.GetArguments())
+		}
 		name := req.GetString("name", "")
 		tool, ok := aggregator[name]
 		if !ok {
@@ -86,6 +102,9 @@ func callTool(aggregator map[string]Tool) mcpserver.ToolHandlerFunc {
 		}
 		args, _ := req.GetArguments()["arguments"].(map[string]any)
 		res := tool(ctx, args)
+		if res == nil {
+			return mcp.NewToolResultError(BridgeDeadline), nil
+		}
 		content := make([]map[string]string, 0, len(res.Content))
 		for _, c := range res.Content {
 			if t, ok := mcp.AsTextContent(c); ok {

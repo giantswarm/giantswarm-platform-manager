@@ -204,7 +204,7 @@ func TestCommitOpensPullRequestsAndPendsApproval(t *testing.T) {
 		out.Action.Spec.Kind != actions.KindEnable || len(out.Action.Status.PullRequests) != 2 || len(out.PullRequests) != 2 || len(out.UnchangedRepositories) != 0 {
 		t.Fatalf("answer: %s", text)
 	}
-	if out.PullRequests[0].Repository != acmeConfigs || out.PullRequests[0].Number != 1 || out.PullRequests[1].Repository != acmeMCs || out.PullRequests[1].Number != 2 ||
+	if out.PullRequests[0].Repository != acmeMCs || out.PullRequests[0].Number != 1 || out.PullRequests[1].Repository != acmeConfigs || out.PullRequests[1].Number != 2 ||
 		out.PullRequests[0].State != actions.PullRequestOpen || out.PullRequests[0].URL == "" {
 		t.Fatalf("pull requests: %+v", out.PullRequests)
 	}

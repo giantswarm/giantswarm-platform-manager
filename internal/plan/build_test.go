@@ -39,8 +39,8 @@ func filesDefinition(files map[string]string) installations.Capability {
 				fs[path] = render.File{Content: []byte(content)}
 			}
 			return &render.Result{
-				Files:    render.Fileset{"giantswarm/acme-configs": fs},
-				Includes: []render.Include{{Repository: "giantswarm/acme-configs", Path: rowanKustomization, Resource: "extras"}},
+				Files:    render.Fileset{renderedConfigs: fs},
+				Includes: []render.Include{{Repository: renderedConfigs, Path: rowanKustomization, Resource: "extras"}},
 			}, nil
 		},
 	}
