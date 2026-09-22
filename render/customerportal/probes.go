@@ -10,8 +10,10 @@ const (
 	featurePlatformSection = "agent-platform-section"
 )
 
-// podSelector is the label the chart puts on the portal's pods.
-const podSelector = "app.kubernetes.io/name=backstage"
+// podSelector is the label the backstage chart puts on the portal's pods:
+// app.kubernetes.io/instance carries the chart's name on every pod of the
+// portal's Deployment. TestRenderConsumption holds it to the rendered chart.
+const podSelector = "app.kubernetes.io/instance=backstage"
 
 // probes are the checks of the running portal, one or more per live dimension
 // of features.yaml, in the order the verify slice runs them: the release, the
@@ -31,7 +33,10 @@ func (in *Input) probes() []render.Probe {
 			Note: "the sign-in redirects as the portal's client"}),
 		httpProbe("live-dex-auth-portal-client", featureIdentity,
 			dexAuth+"?client_id="+render.PortalDexClientID+"&redirect_uri="+render.PortalRedirectURI(in.Portal.Domain, in.Installation.Name)+"&response_type=code&scope=openid",
-			render.Expectation{Status: 302}),
+			render.Expectation{
+				Statuses: []int{200, 302},
+				Note:     "Dex answers a client it knows with its login page (several connectors) or a redirect to the one connector; an unknown client is an error page",
+			}),
 	}
 	values := []string{userSecretsName, pluginKeysName}
 	if in.Plugins.GitHub.Enabled {

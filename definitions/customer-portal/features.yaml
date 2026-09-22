@@ -35,7 +35,7 @@ features:
       - {id: dex-client-values, kind: backstage, key: user-secrets dexAuthCredentials.<name>}
       - {id: dex-client-entry, kind: dex-configmap, key: "oidc.extraStaticClients[*] id backstage (this definition's patch without the platform, the agent-platform definition's with it)"}
       - {id: live-oidc-start, kind: live, key: /api/auth/oidc-<name>/start 302 to Dex as client backstage}
-      - {id: live-dex-auth-portal-client, kind: live, key: Dex /auth 302 for client backstage}
+      - {id: live-dex-auth-portal-client, kind: live, key: Dex /auth answers client backstage (its login page or a redirect)}
   secrets:
     title: Secrets
     description: Every Secret the portal reads present and shaped as the chart reads it; nothing inline.

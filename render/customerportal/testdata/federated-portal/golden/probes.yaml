@@ -9,7 +9,7 @@
   kind: PodsRunning
   namespace: backstage
   resource: Pod
-  name: app.kubernetes.io/name=backstage
+  name: app.kubernetes.io/instance=backstage
 - id: live-portal-root
   feature: portal
   kind: HTTP
@@ -37,7 +37,10 @@
   kind: HTTP
   url: https://dex.birch.acme.example.test/auth?client_id=backstage&redirect_uri=https://portal.birch.acme.example.test/api/auth/oidc-birch/handler/frame&response_type=code&scope=openid
   expect:
-    status: 302
+    statuses:
+      - 200
+      - 302
+    note: Dex answers a client it knows with its login page (several connectors) or a redirect to the one connector; an unknown client is an error page
 - id: live-values-secrets
   feature: secrets
   kind: ResourcePresent
