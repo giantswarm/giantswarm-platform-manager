@@ -96,4 +96,4 @@ charts:
   # ConfigMap and the Vertex credentials Secret.
   - name: backstage
     registry: gsoci.azurecr.io/charts/giantswarm/backstage
-    version: 2.55.0
+    version: 2.57.2
