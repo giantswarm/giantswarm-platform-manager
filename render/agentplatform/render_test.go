@@ -33,6 +33,9 @@ const (
 	shapeRegisteredServers      = "registered-servers"
 )
 
+// keyEnabled is the switch every choice of the document carries.
+const keyEnabled = "enabled"
+
 // shapes are the installation shapes, in the order the goldens are rendered.
 var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned, shapeGiantswarmSlackApp, shapeGiantswarmSlackAppPub, shapeHubPrivateTarget, shapeMultiClusterAggregator, shapeSecondHub, shapeHandKeptPortal, shapeRegisteredServers}
 
@@ -102,6 +105,59 @@ func TestGolden(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestGoldensCoverTheChat holds the golden shapes to the chat's three
+// shapes: a rendered portal with the chat, whose fragment includes the
+// shared list with the chat and carries the aiChat block and the key's
+// Secret listed by the Component; a hand-kept portal with the chat, whose
+// fragment carries the block and no list; and a portal without the chat,
+// whose fragment carries none of it and no Secret.
+func TestGoldensCoverTheChat(t *testing.T) {
+	covered := map[string]bool{}
+	for _, shape := range shapes {
+		input, secrets := loadInput(t, shape)
+		in, err := Parse(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		host := in.portalHost()
+		if host == "" {
+			continue
+		}
+		result, err := Render(input, secrets, render.ModeCommit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tree := result.Tree()
+		dir := "giantswarm/" + in.Installation.Customer + "-management-clusters/management-clusters/" + host + "/extras/backstage/" + portalDir + "/"
+		fragment, kustomization := string(tree[dir+"app-config.yaml"]), string(tree[dir+"kustomization.yaml"])
+		_, secret := tree[dir+portalCredentialsFile]
+		chat, include := strings.Contains(fragment, "\n    aiChat:\n"), strings.Contains(fragment, "#extensionsAgentPlatformAiChat")
+		listed := strings.Contains(kustomization, "- "+portalCredentialsFile+"\n") && strings.Contains(kustomization, "name: "+portalCredentialsSecret+"\n")
+		switch {
+		case !in.aiChat():
+			if chat || include || secret || listed {
+				t.Errorf("%s: the chat off, the fragment carries it: block %v include %v secret %v listed %v", shape, chat, include, secret, listed)
+			}
+			covered["off"] = true
+		case in.portalOwnsLists():
+			if !chat || !include || !secret || !listed {
+				t.Errorf("%s: the chat on a rendered portal: block %v include %v secret %v listed %v", shape, chat, include, secret, listed)
+			}
+			covered["rendered"] = true
+		default:
+			if !chat || include || !secret || !listed {
+				t.Errorf("%s: the chat on a hand-kept portal: block %v include %v secret %v listed %v", shape, chat, include, secret, listed)
+			}
+			covered["hand-kept"] = true
+		}
+	}
+	for _, shape := range []string{"off", "rendered", "hand-kept"} {
+		if !covered[shape] {
+			t.Errorf("no golden shape renders the chat %s", shape)
+		}
 	}
 }
 
@@ -422,14 +478,21 @@ func TestRefusals(t *testing.T) {
 		names   string
 	}{
 		{"unknown top-level key", clone(func(m map[string]any) { m["colourScheme"] = "dark" }), secrets, ErrInput, "colourScheme"},
-		{"a former input is unknown", clone(func(m map[string]any) { m["kagent"] = map[string]any{"enabled": true} }), secrets, ErrInput, "kagent"},
+		{"a former input is unknown", clone(func(m map[string]any) { m["kagent"] = map[string]any{keyEnabled: true} }), secrets, ErrInput, "kagent"},
 		{"unknown record key", clone(func(m map[string]any) { m["installation"].(map[string]any)["replicas"] = 3 }), secrets, ErrInput, "replicas"},
 		{"empty Slack credential where the gateway runs", slackAppPublic, nil, ErrEmptySecret, fieldSlack + "bot-token"},
 		{"no app-level token on a private installation", slackApp, withoutAppToken, ErrEmptySecret, fieldSlack + "app-token"},
 		{"an app-level token on a public installation", slackAppPublic, slackPublicSecrets, ErrUnknownSecret, fieldSlack + "app-token"},
 		{"a Slack credential where no gateway runs", base, map[string]string{fieldSlack + "bot-token": "x"}, ErrUnknownSecret, fieldSlack + "bot-token"},
 		{"the model key is never supplied", base, map[string]string{"kagent.modelKey": "x"}, ErrUnknownSecret, "kagent.modelKey"},
-		{"serving on the 3 line", clone(func(m map[string]any) { m["modelServing"] = map[string]any{"enabled": true} }), secrets, ErrInput, "modelServing.enabled"},
+		{"serving on the 3 line", clone(func(m map[string]any) { m["modelServing"] = map[string]any{keyEnabled: true} }), secrets, ErrInput, "modelServing.enabled"},
+		{"the chat without a portal to carry it", clone(func(m map[string]any) {
+			m["installation"].(map[string]any)["portals"] = []any{}
+			m["aiChat"] = map[string]any{keyEnabled: true, "model": "x"}
+		}), secrets, ErrInput, "aiChat.enabled"},
+		{"the chat without a model", clone(func(m map[string]any) { m["aiChat"] = map[string]any{keyEnabled: true} }), secrets, ErrInput, "aiChat.model"},
+		{"the chat's key not supplied", clone(func(m map[string]any) { m["aiChat"] = map[string]any{keyEnabled: true, "model": "x"} }), secrets, ErrEmptySecret, fieldAnthropicKey},
+		{"the chat's key where no chat runs", base, map[string]string{fieldAnthropicKey: "x"}, ErrUnknownSecret, fieldAnthropicKey},
 		{"a component of the 4 line on a record that selects the 3 line", lineThreeOwned, nil, ErrInput, "installation.chartLine selects the 3 line, and cluster-manager needs the platform's 4 chart line; agentPlatform.kagentApiV2: true in installations/gopher/config.yaml.patch selects 4"},
 		{"kagent on the 4 line where the record does not say the cluster serves PodCertificateRequest", noPodCertificateRequest, secrets, ErrInput, "installation.podCertificateRequest does not say this cluster serves certificates.k8s.io/v1beta1 podcertificaterequests, which kagent's Agent Substrate on the 4 chart line needs; enable the feature gates PodCertificateRequest, ClusterTrustBundle, ClusterTrustBundleProjection under cluster.internal.advancedConfiguration.{controlPlane.apiServer,controlPlane.controllerManager,kubelet}.featureGates in the cluster App's values (management-clusters/" + noPodCertificateRequest["installation"].(map[string]any)["name"].(string) + "/cluster-app-manifests.yaml), or run a cluster App chart that enables them by default (cluster-aws 10.3.0, cluster-azure 9.3.0, cluster-cloud-director 7.3.0 and later)"},
 		{"targets without a broker client", clone(func(m map[string]any) {

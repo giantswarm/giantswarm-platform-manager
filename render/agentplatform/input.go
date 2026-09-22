@@ -70,11 +70,14 @@ const (
 // Input is the resolved inputs of one installation: the record
 // (definitions/agent-platform/schema.json's installation.*, read from the
 // registry and the repositories), the fleet policy (policy.yaml) applied to
-// it, and the one choice a person makes. The renderer reads nothing else.
+// it, and the two choices a person makes. The renderer reads nothing else.
 type Input struct {
 	Installation Installation
 	// ModelServing is the person's choice: the meta chart's serving slice.
 	ModelServing bool
+	// AIChat is the person's other choice: the portal's AI chat, in the
+	// platform's portal section (portal.go).
+	AIChat AIChat
 	// Components are the components the policy gives the installation, by
 	// name: its organisation's list and, where the policy names a Slack app
 	// for the installation, the chat gateway.
@@ -92,6 +95,15 @@ type Input struct {
 	// record's 3: the render writes the selection into the record
 	// (recordSelection) and Selected answers it.
 	selectsLine bool
+}
+
+// AIChat is the portal's AI chat as the person chooses it: whether the
+// platform's portal section carries it, and the model it answers with. The
+// chat runs on Anthropic's API; its key is supplied at commit
+// (fieldAnthropicKey), never part of the document.
+type AIChat struct {
+	Enabled bool   `json:"enabled"`
+	Model   string `json:"model"`
 }
 
 // Connectors are policy.yaml's federation.connector: the names of the
@@ -353,17 +365,20 @@ type document struct {
 	ModelServing struct {
 		Enabled bool `json:"enabled"`
 	} `json:"modelServing"`
+	AIChat AIChat `json:"aiChat"`
 }
 
 // Parse validates raw against the schema and resolves the inputs: the record
-// as given, the policy applied to its organisation, the choice as made. raw is
-// the decoded document (from YAML or JSON): map[string]any at the top. A key
-// the schema does not know, a missing required key or a wrong shape is
+// as given, the policy applied to its organisation, the choices as made. raw
+// is the decoded document (from YAML or JSON): map[string]any at the top. A
+// key the schema does not know, a missing required key or a wrong shape is
 // ErrInput naming the location; a record the definition cannot render as it
 // stands (a hub without its broker client, a private target on a hub without a
 // published service-account issuer, the serving slice or a component of the 4
 // chart line on a record that selects the 3 line, kagent on the 4 line where
-// the cluster does not serve PodCertificateRequest) is ErrInput too.
+// the cluster does not serve PodCertificateRequest, the chat on an
+// installation whose organisation hosts no portal for it or without a
+// model) is ErrInput too.
 func Parse(raw any) (*Input, error) {
 	schemaBytes, err := definitions.FS.ReadFile("agent-platform/schema.json")
 	if err != nil {
@@ -404,7 +419,7 @@ func Parse(raw any) (*Input, error) {
 	if err != nil {
 		return nil, err
 	}
-	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport}
+	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, AIChat: d.AIChat, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport}
 	if in.Components, err = pol.components(in.Installation); err != nil {
 		return nil, err
 	}
@@ -506,6 +521,12 @@ func (in *Input) checkRecord() error {
 			return refuse(fmt.Sprintf("the hosted portal's chart line (installation.portals[%s].chartLine) is not one the definition reads: %v", p.Installation, err))
 		}
 	}
+	if in.AIChat.Enabled && in.hostedPortal() == nil {
+		return refuse(describe("aiChat.enabled") + " asks for the chat in the developer portal's agent-platform section, and no portal carries one for this installation: the record lists no portal hosted on it, nor its organisation's on a sibling that is not hand-kept")
+	}
+	if in.AIChat.Enabled && in.AIChat.Model == "" {
+		return refuse(describe("aiChat.model") + " is empty; the chat answers with one model, and the schema's default stands where none is typed")
+	}
 	if in.kagent() && in.Installation.ChartLine == lineFour && !in.Installation.PodCertificateRequest {
 		return refuse(fmt.Sprintf("%s does not say this cluster serves %s/%s %s, which kagent's Agent Substrate on the 4 chart line needs; enable the feature gates %s under cluster.internal.advancedConfiguration.{%s}.featureGates in the cluster App's values (management-clusters/%s/cluster-app-manifests.yaml), or run a cluster App chart that enables them by default (%s and later)",
 			describe("installation.podCertificateRequest"), apiGroup(PodCertificateRequestResource), PodCertificateRequestVersion, apiResource(PodCertificateRequestResource), strings.Join(PodCertificateRequestGates, ", "), strings.Join(PodCertificateRequestComponents, ","), in.Installation.Name, podCertificateRequestDefaults()))
@@ -602,12 +623,13 @@ func (in *Input) check(secrets map[string]string) error {
 
 // suppliedSecretFields lists the secret values the person supplies for this
 // installation, by field name: the Slack app's credentials where the gateway
-// runs, and nothing else — an installation without a Slack app commits with no
-// supplied secret. Everything else the platform needs is generated by the
+// runs, the chat's Anthropic API key where the portal runs the chat, and
+// nothing else — an installation without a Slack app or a chat commits with
+// no supplied secret. Everything else the platform needs is generated by the
 // commit step from the placeholders in the fileset; the model key is never
 // supplied, its Secret is the installation's own (CustomerActions).
 func (in *Input) suppliedSecretFields() []string {
-	fields := in.componentSecretFields()
+	fields := append(in.componentSecretFields(), in.chatSecretFields()...)
 	sort.Strings(fields)
 	return fields
 }

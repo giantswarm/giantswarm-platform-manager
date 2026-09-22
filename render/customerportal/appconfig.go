@@ -120,7 +120,7 @@ func (in *Input) grafanaSection() render.Map {
 func (in *Input) appSection() render.Map {
 	app := render.Map{
 		e("title", in.Portal.Title), e("baseUrl", in.portalURL()),
-		e("extensions", render.Map{e("$include", render.PortalExtensionsInclude(false, in.Plugins.Grafana.Enabled))}), e("routes", include("routes")),
+		e("extensions", render.Map{e("$include", render.PortalExtensionsInclude(false, false, in.Plugins.Grafana.Enabled))}), e("routes", include("routes")),
 	}
 	if in.Plugins.Sentry.Enabled {
 		app = append(app, e("errorReporter", sentryReporter("SENTRY_DSN_APP")))

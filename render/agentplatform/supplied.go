@@ -4,8 +4,9 @@ import "github.com/giantswarm/giantswarm-platform-manager/render"
 
 // SuppliedSecretFields names the secret values the person supplies at commit
 // for this installation, by field: the Slack app's credentials where the
-// gateway runs, nothing else. A dry run passes Supplied markers for exactly
-// these fields and lists them by name; no value ever appears in a dry run.
+// gateway runs, the chat's Anthropic API key where the portal runs the chat,
+// nothing else. A dry run passes Supplied markers for exactly these fields
+// and lists them by name; no value ever appears in a dry run.
 func (in *Input) SuppliedSecretFields() []string { return in.suppliedSecretFields() }
 
 // Supplied is the marker a dry run renders in place of a supplied secret

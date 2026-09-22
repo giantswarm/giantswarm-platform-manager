@@ -39,8 +39,30 @@ const readBackSchema = `{
   }
 }`
 
+// readBackFilesSchema reads one choice from two files: a fragment's
+// document, addressed by its dotted ConfigMap key in brackets, before the
+// values.
+const readBackFilesSchema = `{
+  "type": "object",
+  "x-files": {
+    "values": {"repository": "management-clusters", "path": "management-clusters/<name>/values.yaml"},
+    "fragment": {"repository": "management-clusters", "path": "management-clusters/<name>/fragment.yaml", "document": "data.[app-config.fragment.yaml]"}
+  },
+  "properties": {
+    "chat": {"type": "object", "properties": {
+      "enabled": {"type": "boolean", "default": false, "x-readback": {"file": ["fragment", "values"], "key": "aiChat", "kind": "present"}},
+      "model": {"type": "string", "x-readback": {"file": ["fragment", "values"], "key": "aiChat.model"}}
+    }}
+  }
+}`
+
 // The inputs the tests read back or find unset, by dotted input key.
 const (
+	keyEnabled         = "enabled"
+	inputChatEnabled   = "chat.enabled"
+	inputChatModel     = "chat.model"
+	inputAIChatEnabled = "aiChat.enabled"
+	inputAIChatModel   = "aiChat.model"
 	inputTunnelEnabled = "tunnel.enabled"
 	inputSupportURL    = "portal.supportUrl"
 	inputGrafanaDomain = "plugins.grafana.domain"
@@ -189,7 +211,7 @@ func TestUnsetNamesThePersonChoicesWithoutAValue(t *testing.T) {
 		t.Fatal(err)
 	}
 	values["portal"].(map[string]any)["domain"] = readBackPortal
-	values["plugins"] = map[string]any{"grafana": map[string]any{"enabled": true}}
+	values["plugins"] = map[string]any{"grafana": map[string]any{keyEnabled: true}}
 	got, err := def.Unset(values)
 	if err != nil {
 		t.Fatal(err)
@@ -211,10 +233,76 @@ func TestDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := map[string]any{"modelServing": map[string]any{"enabled": false}}; !reflect.DeepEqual(got, want) {
+	if want := map[string]any{"modelServing": map[string]any{keyEnabled: false}, "aiChat": map[string]any{keyEnabled: false, "model": "claude-opus-5"}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("defaults %v, want %v", got, want)
 	}
 }
+
+// A read-back naming several files answers from the first on record that
+// holds the key: the fragment's document, addressed by its dotted key in
+// brackets, before the values; the key present in the second alone is
+// present; in neither, absent; with neither file on record, nothing.
+func TestReadBackFromTheFirstFileHoldingTheKey(t *testing.T) {
+	var s inputSchema
+	if err := json.Unmarshal([]byte(readBackFilesSchema), &s); err != nil {
+		t.Fatal(err)
+	}
+	const fragment = "acme/mcs:management-clusters/rowan/fragment.yaml"
+	fragmentDoc := "apiVersion: v1\nkind: ConfigMap\ndata:\n  app-config.fragment.yaml: |\n    aiChat:\n      model: from-the-fragment\n"
+	for _, tc := range []struct {
+		name  string
+		files map[string]string
+		want  map[string]any
+	}{
+		{"both hold it: the fragment answers", map[string]string{fragment: fragmentDoc, readBackValues: "aiChat:\n  model: from-the-values\n"}, map[string]any{inputChatEnabled: true, inputChatModel: "from-the-fragment"}},
+		{"the values alone hold it", map[string]string{fragment: "data:\n  app-config.fragment.yaml: |\n    other: {}\n", readBackValues: "aiChat:\n  model: from-the-values\n"}, map[string]any{inputChatEnabled: true, inputChatModel: "from-the-values"}},
+		{"neither holds it", map[string]string{fragment: "data: {}\n", readBackValues: "other: {}\n"}, map[string]any{inputChatEnabled: false}},
+		{"only the second file on record", map[string]string{readBackValues: "aiChat: {model: m}\n"}, map[string]any{inputChatEnabled: true, inputChatModel: "m"}},
+		{"neither file on record", map[string]string{}, map[string]any{}},
+	} {
+		got, err := readBack(context.Background(), files(tc.files), readBackInstallation, nil, &s)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: read back %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// The agent-platform definition reads the chat back from the Component's
+// fragment on record — the YAML text under the ConfigMap key named after
+// the fragment's file — else from the portal's own app-config, where a
+// hand-kept portal carries it; the model with it. Without the chat in
+// either, off.
+func TestAgentPlatformReadsBackTheChat(t *testing.T) {
+	def, _ := FindCapability(AgentPlatform)
+	const dir = "acme/mcs:management-clusters/rowan/extras/backstage/"
+	fragment := "apiVersion: v1\nkind: ConfigMap\ndata:\n  app-config.agent-platform.yaml: |\n    agentPlatform:\n      kagent:\n        installations:\n          rowan: {}\n    aiChat:\n      model: claude-opus-5\n"
+	appConfig := "apiVersion: v1\nkind: ConfigMap\ndata:\n  values: |\n    backstage:\n      appConfig: |\n        app:\n          title: Portal\n        aiChat:\n          anthropic:\n            apiKey: " + dollar + dollar + "{ANTHROPIC_API_KEY}\n          model: claude-opus-4-8\n"
+	for _, tc := range []struct {
+		name  string
+		files map[string]string
+		want  map[string]any
+	}{
+		{"the fragment first", map[string]string{dir + "agent-platform/app-config.yaml": fragment, dir + "backstage/app-config.yaml": appConfig}, map[string]any{inputAIChatEnabled: true, inputAIChatModel: "claude-opus-5"}},
+		{"a hand-kept portal's app-config", map[string]string{dir + "backstage/app-config.yaml": appConfig}, map[string]any{inputAIChatEnabled: true, inputAIChatModel: "claude-opus-4-8"}},
+		{"a fragment without the chat, no app-config", map[string]string{dir + "agent-platform/app-config.yaml": "data:\n  app-config.agent-platform.yaml: |\n    agentPlatform: {}\n"}, map[string]any{inputAIChatEnabled: false}},
+		{"nothing on record", map[string]string{}, map[string]any{}},
+	} {
+		got, err := def.ReadBack(context.Background(), files(tc.files), readBackInstallation, nil)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: read back %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// dollar is the character the fleet's app-configs double in front of a
+// variable the chart's environment supplies.
+const dollar = "$"
 
 // The agent-platform definition reads the serving choice back from the
 // configmap patch on record.

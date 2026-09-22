@@ -102,6 +102,18 @@ migrations:
   - key: configmap:extraObjects[ReferenceGrant/<namespace>/agentgateway-jwks-dex]
     reason: "Added: a ReferenceGrant agentgateway-jwks-dex in <namespace> lets the edge's JWKS fetch reach Dex across namespaces · M11"
 
+  # --- M18 — the portal's AI chat moves into the platform's Component (before M3: the Component's directory covers these too) ---
+  - key: backstage:agent-platform/app-config:aiChat
+    reason: "Added: the AI chat — its Anthropic key from the portal's environment, its model and its two MCP servers (the portal's own actions server, this installation's muster) — moves from the main app-config into the Agent Platform Component's app-config fragment · M18"
+  - key: backstage:agent-platform/app-config:mcpActions
+    reason: "Added: the chat's tool naming (mcpActions.namespacedToolNames) moves from the main app-config into the Agent Platform Component's app-config fragment · M18"
+  - key: backstage:agent-platform/app-config:backend.actions
+    reason: "Added: the actions the portal lists for the chat's MCP actions server (backend.actions, the plugin sources and the filter) move from the main app-config into the Agent Platform Component's app-config fragment · M18"
+  - key: backstage:file:agent-platform/ai-chat-credentials.enc.yaml
+    reason: "Added: the chat's Anthropic API key is the SOPS-encrypted Secret agent-platform-ai-chat-credentials-backstage of the Agent Platform Component, supplied at commit and read by the portal's HelmRelease as the chart value the chart exposes as ANTHROPIC_API_KEY, instead of a value kept by hand in the portal's user secrets · M18"
+  - key: backstage:agent-platform/kustomization:resources[ai-chat-credentials.enc.yaml]
+    reason: "Added: the Agent Platform Component lists the Secret agent-platform-ai-chat-credentials-backstage, so it is applied with the portal · M18"
+
   # --- M3 — the portal's platform section moves to its own Component ---
   - key: backstage:file:agent-platform
     reason: "Moved: the portal's Agent Platform settings leave the main app-config for a kustomize Component the platform owns · M3"

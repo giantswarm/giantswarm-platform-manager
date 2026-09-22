@@ -2,13 +2,15 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/giantswarm/giantswarm-platform-manager/main/definitions/agent-platform/schema.json",
   "title": "agent-platform definition inputs",
-  "description": "The input set of the agent-platform capability: the installation's record and one choice. Everything the fileset carries derives from the record (installation.*: the registry and the installation's config.yaml.patch, read, never typed), from the fleet policy (policy.yaml: which components an owning organisation's installations run, the installations with a Slack app — where the chat gateway runs — and the gateway's shape, the connector names a target's Dex registers for a hub and the Teleport cluster) and from the shared template; a person decides one thing, whether the installation serves models. Annotations: x-source says where a value comes from (registry: read from the installations registry or the repositories, never typed; generated: created once and read back from the checkout; person: the one choice). x-feature names the consistency feature of features.yaml. x-files names the repository file each fileset key is rendered to (<name> the installation); x-readback on a person input names the file and key its value is read back from on record (kind value, present or host). x-renders lists the key paths the input produces, prefixed by the file: configmap (agent-platform configmap-values.yaml.patch), dex-configmap (the dex-app patch), extras (extras/agent-platform/ and the MCP servers' extras), backstage:* (the portal's agent-platform Component), teleport (teleport-fleet). List indices are written [*], per-installation map keys <name>.",
+  "description": "The input set of the agent-platform capability: the installation's record and one choice. Everything the fileset carries derives from the record (installation.*: the registry and the installation's config.yaml.patch, read, never typed), from the fleet policy (policy.yaml: which components an owning organisation's installations run, the installations with a Slack app — where the chat gateway runs — and the gateway's shape, the connector names a target's Dex registers for a hub and the Teleport cluster) and from the shared template; a person decides two things, whether the installation serves models and whether its developer portal runs the AI chat, and with what model. Annotations: x-source says where a value comes from (registry: read from the installations registry or the repositories, never typed; generated: created once and read back from the checkout; person: a choice). x-feature names the consistency feature of features.yaml. x-files names the repository file each fileset key is rendered to (<name> the installation; document the path in the file of the YAML text its keys sit in, a key with dots in it bracketed); x-readback on a person input names the file — one, or several, the first on record holding the key answering — and key its value is read back from on record (kind value, present or host). x-renders lists the key paths the input produces, prefixed by the file: configmap (agent-platform configmap-values.yaml.patch), dex-configmap (the dex-app patch), extras (extras/agent-platform/ and the MCP servers' extras), backstage:* (the portal's agent-platform Component), teleport (teleport-fleet). List indices are written [*], per-installation map keys <name>.",
   "type": "object",
   "additionalProperties": false,
   "required": ["installation"],
   "x-files": {
     "configmap": {"repository": "configs", "path": "installations/<name>/apps/agent-platform/configmap-values.yaml.patch"},
-    "dex-configmap": {"repository": "configs", "path": "installations/<name>/apps/dex-app/configmap-values.yaml.patch"}
+    "dex-configmap": {"repository": "configs", "path": "installations/<name>/apps/dex-app/configmap-values.yaml.patch"},
+    "backstage:agent-platform/app-config": {"repository": "management-clusters", "path": "management-clusters/<name>/extras/backstage/agent-platform/app-config.yaml", "document": "data.[app-config.agent-platform.yaml]"},
+    "backstage:app-config": {"repository": "management-clusters", "path": "management-clusters/<name>/extras/backstage/backstage/app-config.yaml", "document": "data.values.backstage.appConfig"}
   },
   "properties": {
     "installation": {
@@ -118,7 +120,7 @@
     "modelServing": {
       "type": "object",
       "additionalProperties": false,
-      "description": "The one choice: whether the installation serves models.",
+      "description": "One choice: whether the installation serves models.",
       "properties": {
         "enabled": {
           "type": "boolean",
@@ -128,6 +130,31 @@
           "x-feature": "runtime",
           "x-renders": ["configmap:components.kserve-llmisvc-crd.enabled", "configmap:components.kserve-llmisvc-resources.enabled", "configmap:components.kserve-runtime-configs.enabled", "configmap:components.modelServing.enabled", "configmap:modelServing.serving.runtimeClassName", "configmap:modelServing.modelsGateway.enabled"],
           "description": "Serve models on this installation: the llm-d control plane, the well-known LLMInferenceServiceConfigs, the model serving switch and the models Gateway (the meta chart's serving slice, 4.44.0 and later). The 4 chart line only; the GPU pool is the cluster-manager's."
+        }
+      }
+    },
+    "aiChat": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The other choice: the developer portal's AI chat, in the platform's portal section. The chat runs on Anthropic's API; its key is supplied at commit as aiChat.anthropic.apiKey, never typed here or read back, and lands in the Component's own Secret agent-platform-ai-chat-credentials-backstage as the chart value the chart exposes as ANTHROPIC_API_KEY. Read back from the Component's fragment on record, else from the portal's own app-config — a hand-kept portal is read from its app-config, and its chat moves into the Component at the next reconcile.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "x-source": "person",
+          "x-readback": {"file": ["backstage:agent-platform/app-config", "backstage:app-config"], "key": "aiChat", "kind": "present"},
+          "x-feature": "portal",
+          "x-renders": ["backstage:app-config:aiChat", "backstage:app-config:mcpActions", "backstage:app-config:backend.actions", "backstage:app-config:app.extensions.$include", "backstage:kustomization:resources[*]", "backstage:kustomization:patches[*]", "backstage:file:ai-chat-credentials.enc.yaml"],
+          "description": "The portal's AI chat: the aiChat block on Anthropic's API with its two MCP servers (the portal's own actions server at /api/mcp-actions/v1 with the signed-in person's token, the installation's muster with the sign-in provider), the actions server's tool naming (mcpActions) and the actions the service lists for it (backend.actions), the key's Secret appended to the portal HelmRelease's values sources, and on a rendered portal the shared extension list with the chat (shared-config.yaml#extensionsAgentPlatformAiChat, or its GrafanaDashboards pair where the portal's plugin is wired); a hand-kept portal keeps its own list, which carries the chat's entries already. Read back from the block's presence."
+        },
+        "model": {
+          "type": "string",
+          "default": "claude-opus-5",
+          "x-source": "person",
+          "x-readback": {"file": ["backstage:agent-platform/app-config", "backstage:app-config"], "key": "aiChat.model"},
+          "x-feature": "portal",
+          "x-renders": ["backstage:app-config:aiChat.model"],
+          "description": "The model the chat answers with (aiChat.model), a Claude model id on Anthropic's API. Read back from the block on record."
         }
       }
     }

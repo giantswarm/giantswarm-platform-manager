@@ -108,10 +108,10 @@ func TestEveryDefinitionParses(t *testing.T) {
 }
 
 // TestEveryReadBackNamesADeclaredFile holds every schema's x-readback to
-// its shape: the file it names is one the schema's x-files declares, the
-// kind is one the reader knows, a key (a path, or a list of paths) is named
-// unless the kind is the file's presence, and an installation kind names
-// the service label it strips as its prefix.
+// its shape: every file it names (one, or a list) is one the schema's
+// x-files declares, the kind is one the reader knows, a key (a path, or a
+// list of paths) is named unless the kind is the file's presence, and an
+// installation kind names the service label it strips as its prefix.
 func TestEveryReadBackNamesADeclaredFile(t *testing.T) {
 	caps, err := definitions.Capabilities()
 	if err != nil {
@@ -131,22 +131,31 @@ func TestEveryReadBackNamesADeclaredFile(t *testing.T) {
 			var walk func(node map[string]any, path string)
 			walk = func(node map[string]any, path string) {
 				if rb, ok := node["x-readback"].(map[string]any); ok {
-					file, _ := rb["file"].(string)
-					if _, declared := files[file]; !declared {
-						t.Errorf("%s: x-readback names the file %q, which x-files does not declare", path, file)
+					names := func(field string) []string {
+						switch v := rb[field].(type) {
+						case string:
+							return []string{v}
+						case []any:
+							var out []string
+							for _, n := range v {
+								s, _ := n.(string)
+								out = append(out, s)
+							}
+							return out
+						}
+						return nil
+					}
+					if len(names("file")) == 0 {
+						t.Errorf("%s: x-readback names no file", path)
+					}
+					for _, file := range names("file") {
+						if _, declared := files[file]; !declared {
+							t.Errorf("%s: x-readback names the file %q, which x-files does not declare", path, file)
+						}
 					}
 					kind, _ := rb["kind"].(string)
 					prefix, _ := rb["prefix"].(string)
-					var keys []string
-					switch key := rb["key"].(type) {
-					case string:
-						keys = []string{key}
-					case []any:
-						for _, k := range key {
-							s, _ := k.(string)
-							keys = append(keys, s)
-						}
-					}
+					keys := names("key")
 					named := len(keys) > 0 && !slices.Contains(keys, "")
 					switch kind {
 					case "", "value", "present", "host":

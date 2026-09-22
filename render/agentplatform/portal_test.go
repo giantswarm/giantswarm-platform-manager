@@ -60,20 +60,25 @@ const (
 )
 
 // The fragment's extension list is the shared one with the platform's section
-// and, where the hosted portal's Grafana plugin is wired on record, with the
-// dashboards card: Backstage keeps the fragment's list, so the card's switch
-// has to be in it. A hand-kept portal gets no list.
+// and, where the chat is on, with the chat, and, where the hosted portal's
+// Grafana plugin is wired on record, with the dashboards card: Backstage
+// keeps the fragment's list, so the chat's entries and the card's switch
+// have to be in it. A hand-kept portal gets no list.
 func TestPortalFragmentExtensions(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		portal PortalRef
+		chat   bool
 		want   string
 	}{
-		{"not wired", PortalRef{Installation: testPortalHost, Customer: testOrganisation}, "shared-config.yaml#extensionsAgentPlatform"},
-		{"wired", PortalRef{Installation: testPortalHost, Customer: testOrganisation, GrafanaWired: true}, "shared-config.yaml#extensionsAgentPlatformGrafanaDashboards"},
-		{"hand-kept, wired", PortalRef{Installation: testPortalHost, Customer: testOrganisation, GrafanaWired: true, HandKept: true}, ""},
+		{"not wired", PortalRef{Installation: testPortalHost, Customer: testOrganisation}, false, "shared-config.yaml#extensionsAgentPlatform"},
+		{"wired", PortalRef{Installation: testPortalHost, Customer: testOrganisation, GrafanaWired: true}, false, "shared-config.yaml#extensionsAgentPlatformGrafanaDashboards"},
+		{"the chat", PortalRef{Installation: testPortalHost, Customer: testOrganisation}, true, "shared-config.yaml#extensionsAgentPlatformAiChat"},
+		{"the chat, wired", PortalRef{Installation: testPortalHost, Customer: testOrganisation, GrafanaWired: true}, true, "shared-config.yaml#extensionsAgentPlatformAiChatGrafanaDashboards"},
+		{"hand-kept, wired", PortalRef{Installation: testPortalHost, Customer: testOrganisation, GrafanaWired: true, HandKept: true}, false, ""},
+		{"hand-kept, the chat", PortalRef{Installation: testPortalHost, Customer: testOrganisation, HandKept: true}, true, ""},
 	} {
-		in := &Input{Installation: Installation{Name: testPortalHost, Customer: testOrganisation, Portals: []PortalRef{tc.portal}}}
+		in := &Input{Installation: Installation{Name: testPortalHost, Customer: testOrganisation, Portals: []PortalRef{tc.portal}}, AIChat: AIChat{Enabled: tc.chat, Model: testChatModel}}
 		app, _ := fragmentValue(in.portalAppConfig(), "app").(render.Map)
 		extensions, _ := fragmentValue(app, "extensions").(render.Map)
 		if got, _ := fragmentValue(extensions, "$include").(string); got != tc.want {
@@ -90,6 +95,56 @@ func fragmentValue(m render.Map, key string) any {
 		}
 	}
 	return nil
+}
+
+// testChatModel is the model the chat tests choose.
+const testChatModel = "claude-opus-5"
+
+// With the chat on, the fragment carries the aiChat block — Anthropic's API
+// with the key from the chart's environment, the model, the portal's own
+// actions server with the person's Backstage token and the installation's
+// muster with the sign-in provider — the actions server's tool naming and
+// the actions the service lists for it; on a hand-kept portal the same
+// blocks and no list. Off, none of the three keys.
+func TestPortalFragmentChat(t *testing.T) {
+	portal := PortalRef{Installation: testPortalHost, Customer: testOrganisation, Domain: "portal." + testPortalHost + ".example"}
+	for _, handKept := range []bool{false, true} {
+		portal.HandKept = handKept
+		in := &Input{Installation: Installation{Name: testPortalHost, BaseDomain: testPortalHost + ".example", Customer: testOrganisation, Portals: []PortalRef{portal}}, AIChat: AIChat{Enabled: true, Model: testChatModel}}
+		m := in.portalAppConfig()
+		chat, _ := fragmentValue(m, "aiChat").(render.Map)
+		anthropic, _ := fragmentValue(chat, "anthropic").(render.Map)
+		if got := fragmentValue(anthropic, "apiKey"); got != anthropicKeyEnv || fragmentValue(chat, "model") != testChatModel {
+			t.Errorf("hand-kept %v: the chat's provider and model: %v", handKept, chat)
+		}
+		servers, _ := fragmentValue(chat, "mcp").([]render.Map)
+		if len(servers) != 2 || fragmentValue(servers[0], "name") != chatActionsServer || fragmentValue(servers[0], "url") != "https://"+portal.Domain+chatActionsPath || fragmentValue(servers[0], "useBackstageUserToken") != true ||
+			fragmentValue(servers[1], "name") != chatMusterServer || fragmentValue(servers[1], "url") != "https://muster."+testPortalHost+".example/mcp" || fragmentValue(servers[1], "authProvider") != "oidc-"+testPortalHost {
+			t.Errorf("hand-kept %v: the chat's servers: %v", handKept, servers)
+		}
+		tools, _ := fragmentValue(m, "mcpActions").(render.Map)
+		backend, _ := fragmentValue(m, "backend").(render.Map)
+		actions, _ := fragmentValue(backend, "actions").(render.Map)
+		if fragmentValue(tools, "namespacedToolNames") != false || fragmentValue(actions, "pluginSources") == nil || fragmentValue(actions, "filter") == nil {
+			t.Errorf("hand-kept %v: the actions server's configuration: %v %v", handKept, tools, backend)
+		}
+		if hasList := fragmentValue(m, "app") != nil; hasList == handKept {
+			t.Errorf("hand-kept %v: the fragment sets the extension list: %v", handKept, hasList)
+		}
+		if fields := in.suppliedSecretFields(); len(fields) != 1 || fields[0] != fieldAnthropicKey {
+			t.Errorf("hand-kept %v: the supplied fields %v, want the key alone", handKept, fields)
+		}
+	}
+	in := &Input{Installation: Installation{Name: testPortalHost, Customer: testOrganisation, Portals: []PortalRef{portal}}}
+	m := in.portalAppConfig()
+	for _, key := range []string{"aiChat", "mcpActions", "backend"} {
+		if fragmentValue(m, key) != nil {
+			t.Errorf("the chat off: the fragment carries %s", key)
+		}
+	}
+	if fields := in.suppliedSecretFields(); len(fields) != 0 {
+		t.Errorf("the chat off: the supplied fields %v, want none", fields)
+	}
 }
 
 // A portal's chart line admits versions from its floor: the lower bound of

@@ -4,8 +4,10 @@
 # organisation the cluster-manager, which the 4 line alone carries — and writes the selection into
 # the record (installations/gopher/config.yaml.patch). The components the policy gives the
 # organisation (kagent, the agent-manager, the cluster-manager; no chat gateway, since the policy
-# names no Slack app for it), its own portal, the chart range pinned. Nothing is supplied at
-# commit; the model key Secret is the installation's own. Invented names, placeholder values.
+# names no Slack app for it), its own portal with the AI chat on — the portal is rendered, so the
+# fragment includes the shared list with the chat and the chat's Anthropic key is the one value
+# supplied at commit —, the chart range pinned. The model key Secret is the installation's own.
+# Invented names, placeholder values.
 input:
   installation:
     name: gopher
@@ -31,4 +33,8 @@ input:
   # the render-consumption test renders on the 4 line.
   modelServing:
     enabled: false
-secrets: {}
+  aiChat:
+    enabled: true
+    model: claude-opus-5
+secrets:
+  aiChat.anthropic.apiKey: PLACEHOLDER-ANTHROPIC-API-KEY

@@ -53,35 +53,37 @@ type schemaNode struct {
 }
 
 // readBackSpec is an x-readback: the fileset key of the file the value is
-// read from (an entry of the schema's x-files), the path in it — one, or
-// several the record may carry the value under, the first on record
-// answering — the kind, and the prefix the value carries in the file,
-// stripped from the value read back (a value without it yields nothing; of
-// a host kind it is the host's leading label). A step of the path into a
-// list is its index or a [key=value] selector, the entry whose key has the
-// value; a step into YAML text (a ConfigMap's values, a kustomization's
-// patch) decodes it.
+// read from (an entry of the schema's x-files) — one, or several the record
+// may carry the value in, the first on record that holds the key answering —
+// the path in it — one, or several the record may carry the value under, the
+// first on record answering — the kind, and the prefix the value carries in
+// the file, stripped from the value read back (a value without it yields
+// nothing; of a host kind it is the host's leading label). A step of the
+// path into a list is its index or a [key=value] selector, the entry whose
+// key has the value; a step into a mapping whose key carries dots is the key
+// in brackets ([app-config.agent-platform.yaml]); a step into YAML text (a
+// ConfigMap's values, a kustomization's patch) decodes it.
 type readBackSpec struct {
-	File   string `json:"file"`
-	Keys   keys   `json:"key"`
+	Files  names  `json:"file"`
+	Keys   names  `json:"key"`
 	Kind   string `json:"kind"`
 	Prefix string `json:"prefix"`
 }
 
-// keys is x-readback's key: a path, or a list of paths.
-type keys []string
+// names is x-readback's file or key: one, or a list.
+type names []string
 
-func (k *keys) UnmarshalJSON(raw []byte) error {
+func (n *names) UnmarshalJSON(raw []byte) error {
 	var one string
 	if err := json.Unmarshal(raw, &one); err == nil {
-		*k = keys{one}
+		*n = names{one}
 		return nil
 	}
 	var many []string
 	if err := json.Unmarshal(raw, &many); err != nil {
-		return fmt.Errorf("x-readback key %s: a path or a list of paths", raw)
+		return fmt.Errorf("x-readback %s: a name or a list of names", raw)
 	}
-	*k = many
+	*n = many
 	return nil
 }
 
@@ -207,8 +209,10 @@ func (c Capability) Unset(values map[string]any) ([]string, error) {
 // file is on record. registry is every installation on record, the ones an
 // installation kind resolves a host to; inst is resolved whether or not it
 // is among them. A file that is not on record, or a key not in it, yields
-// nothing — the default stands. A file the person cannot read, or a
-// read-back naming a file the schema's x-files does not, is the error.
+// nothing — the default stands; a read-back naming several files reads the
+// first on record that holds the key, and the key is present when one of
+// them holds it. A file the person cannot read, or a read-back naming a
+// file the schema's x-files does not, is the error.
 func (c Capability) ReadBack(ctx context.Context, read Reader, inst Installation, registry []Installation) (map[string]any, error) {
 	s, err := c.inputSchema()
 	if err != nil {
@@ -225,26 +229,39 @@ func readBack(ctx context.Context, read Reader, inst Installation, registry []In
 		if rb == nil {
 			return nil
 		}
-		spec, ok := s.Files[rb.File]
-		if !ok {
-			return fmt.Errorf("schema: %s: x-readback names the file %q, which x-files does not declare", input, rb.File)
-		}
-		doc, err := readBackDoc(ctx, read, inst, rb.File, spec, docs)
-		if err != nil {
-			return err
-		}
 		kind := rb.Kind
 		if kind == "" {
 			kind = ReadBackValue
 		}
+		var v any
+		var onRecord, found bool
+		for _, file := range rb.Files {
+			spec, ok := s.Files[file]
+			if !ok {
+				return fmt.Errorf("schema: %s: x-readback names the file %q, which x-files does not declare", input, file)
+			}
+			doc, err := readBackDoc(ctx, read, inst, file, spec, docs)
+			if err != nil {
+				return err
+			}
+			if doc == nil {
+				continue
+			}
+			onRecord = true
+			if kind == ReadBackFile {
+				break
+			}
+			if v, found = lookupFirst(doc, rb.Keys); found {
+				break
+			}
+		}
 		if kind == ReadBackFile {
-			out[input] = doc != nil
+			out[input] = onRecord
 			return nil
 		}
-		if doc == nil {
+		if !onRecord {
 			return nil
 		}
-		v, found := lookupFirst(doc, rb.Keys)
 		if found && (kind == ReadBackHost || kind == ReadBackInstallation) {
 			raw, _ := v.(string)
 			v, found = hostOf(raw), hostOf(raw) != ""
@@ -358,9 +375,9 @@ func splitKey(key string) []string {
 	return append(steps, key[start:])
 }
 
-// lookup walks a decoded YAML document along path: a mapping by key, a
-// list by index or by a [key=value] selector, YAML text by what it decodes
-// to.
+// lookup walks a decoded YAML document along path: a mapping by key (a key
+// with dots in it bracketed), a list by index or by a [key=value] selector,
+// YAML text by what it decodes to.
 func lookup(doc map[string]any, path []string) (any, bool) {
 	var cur any = doc
 	for _, k := range path {
@@ -376,6 +393,9 @@ func lookup(doc map[string]any, path []string) (any, bool) {
 func step(cur any, k string) (any, bool) {
 	switch c := cur.(type) {
 	case map[string]any:
+		if literal, ok := bracketed(k); ok {
+			k = literal
+		}
 		v, ok := c[k]
 		return v, ok
 	case []any:
@@ -401,11 +421,21 @@ func step(cur any, k string) (any, bool) {
 // selector reads a [key=value] step: the key and the value an entry of a
 // list must carry.
 func selector(k string) (key, value string, ok bool) {
-	if !strings.HasPrefix(k, "[") || !strings.HasSuffix(k, "]") {
+	inner, isBracketed := bracketed(k)
+	if !isBracketed {
 		return "", "", false
 	}
-	key, value, ok = strings.Cut(k[1:len(k)-1], "=")
+	key, value, ok = strings.Cut(inner, "=")
 	return key, value, ok && key != ""
+}
+
+// bracketed reads a [literal] step: the mapping key it stands for, with
+// the dots splitKey would otherwise split it on.
+func bracketed(k string) (string, bool) {
+	if len(k) < 2 || !strings.HasPrefix(k, "[") || !strings.HasSuffix(k, "]") {
+		return "", false
+	}
+	return k[1 : len(k)-1], true
 }
 
 // decoded is v, YAML text decoded to what it holds; text that holds no
