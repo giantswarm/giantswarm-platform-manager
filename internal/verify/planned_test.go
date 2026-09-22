@@ -380,3 +380,67 @@ func TestEveryReasonPlaceholderIsDeclared(t *testing.T) {
 		}
 	}
 }
+
+// The Vertex chat's leftovers a portal on record still carries — the
+// google-credentials.enc.yaml entry of its kustomization's resources and
+// the file itself — are the customer-portal definition's removals, planned
+// as a move to the Agent Platform Component, never drift. A kustomization
+// entry is a scalar the comparison keys by its value (resources[<name>]),
+// and the key names it that way; an entry beside it is nobody's.
+func TestPortalVertexLeftoversArePlanned(t *testing.T) {
+	rs, err := definitions.Removals(installations.CustomerPortal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rms := readRemovals(rs, facts{factDomain: testDomain})
+	const dir = "management-clusters/x/extras/backstage/backstage/"
+	kust := &fileDiff{path: dir + "kustomization.yaml", kind: definitions.KindBackstage}
+	file := &fileDiff{path: dir + "google-credentials.enc.yaml", kind: definitions.KindBackstage}
+	for _, tc := range []struct {
+		name string
+		fd   *fileDiff
+		d    *Difference
+		says string // the reason opens with says; "" is no planned change
+	}{
+		{"the file's kustomization entry", kust, &Difference{Path: "resources[google-credentials.enc.yaml]", Current: "google-credentials.enc.yaml"}, "Moved: the google-credentials.enc.yaml resource entry"},
+		{"the file", file, &Difference{Path: "stringData.values", Current: Redacted}, "Moved: google-credentials.enc.yaml"},
+		{"an entry beside it", kust, &Difference{Path: "resources[other.enc.yaml]", Current: "other.enc.yaml"}, ""},
+	} {
+		got := planned(tc.fd, tc.d, rms, nil)
+		if !strings.HasPrefix(got, tc.says) || tc.says == "" && got != "" {
+			t.Errorf("%s: %s#%s planned %q, want %q", tc.name, tc.fd.path, tc.d.Path, got, tc.says)
+		}
+	}
+}
+
+// Every removal key of every capability parses — its prefix names a file
+// kind the comparison observes — and neither the file nor a segment it
+// names carries a space: the parser splits a key's path on dots and
+// brackets alone, so a key with a space in it is read as segments no path
+// has, names nothing, and the leaf it meant to plan reads as drift on the
+// fleet. A migration key is held to the goldens by
+// TestEveryMigrationKeyIsRendered.
+func TestEveryRemovalKeyNamesAPath(t *testing.T) {
+	caps, err := definitions.Capabilities()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, capability := range caps {
+		rs, err := definitions.Removals(capability)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range rs {
+			k, ok := parseKey(r.Key, r.Reason, facts{factDomain: testDomain})
+			if !ok {
+				t.Errorf("%s: removal %q names no file kind the comparison observes", capability, r.Key)
+				continue
+			}
+			for _, re := range append([]*regexp.Regexp{k.file}, k.path...) {
+				if strings.Contains(re.String(), " ") {
+					t.Errorf("%s: removal %q carries a space in %s: a segment no path has", capability, r.Key, re)
+				}
+			}
+		}
+	}
+}
