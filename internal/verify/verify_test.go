@@ -467,8 +467,8 @@ func TestDifferencesInsideText(t *testing.T) {
 		t.Errorf("a key beside it: %q", reason)
 	}
 
-	secret := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\ntype: Opaque\nstringData:\n  values: |\n    authSessionSecret: " + render.Placeholder("session") + "\n    dexAuthCredentials:\n      maple:\n        clientId: backstage\n"
-	encrypted := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\ntype: Opaque\nstringData:\n  values: ENC[AES256_GCM,data:x,iv:y,tag:z,type:str]\nsops:\n  encrypted_regex: ^(data|stringData)$\n  version: 3.9.0\n  age: []\n"
+	secret := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\nstringData:\n  values: |\n    authSessionSecret: " + render.Placeholder("session") + "\n    dexAuthCredentials:\n      maple:\n        clientId: backstage\n"
+	encrypted := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\nstringData:\n  values: ENC[AES256_GCM,data:x,iv:y,tag:z,type:str]\nsops:\n  encrypted_regex: ^(data|stringData)$\n  version: 3.9.0\n  age: []\n"
 	if got := differences("r:s", secret, encrypted, nil); len(got) != 0 {
 		t.Errorf("the record's encrypted text stands: %+v", got)
 	}
@@ -477,7 +477,7 @@ func TestDifferencesInsideText(t *testing.T) {
 	for _, d := range created {
 		paths = append(paths, d.Path)
 	}
-	if !reflect.DeepEqual(paths, []string{apiVersionPath, kindPath, "metadata.name", "stringData.values:authSessionSecret", "stringData.values:dexAuthCredentials.maple.clientId", "type"}) || created[3].Rendered != render.Placeholder("session") || created[4].Line != 11 || created[4].Rendered != "backstage" {
+	if !reflect.DeepEqual(paths, []string{apiVersionPath, kindPath, "metadata.name", "stringData.values:authSessionSecret", "stringData.values:dexAuthCredentials.maple.clientId"}) || created[3].Rendered != render.Placeholder("session") || created[4].Line != 10 || created[4].Rendered != "backstage" {
 		t.Errorf("a created Secret differs at every leaf inside its text, like a created file: %+v", created)
 	}
 	if got := differences("r:k", "patches:\n- patch: |\n    spec:\n      a: 1\n", "patches:\n- patch: |\n    spec:\n      a: 2\n", nil); len(got) != 1 || got[0].Path != "patches[0].patch" {
