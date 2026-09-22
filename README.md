@@ -217,7 +217,8 @@ Per installation the manager then reads, as the caller:
   with the registry's name, base domain, customer and provider, the cluster App on record in
   `management-clusters/<name>/cluster-app-manifests.yaml` (whether the cluster serves
   `PodCertificateRequest`, the 4 line's prerequisite: the feature gates in its values, or its chart's
-  default) and the portals' app-configs (which portals sign people in, whose broker exchanges tokens
+  default — the chart at the App's version, or at the version the release its values name lists for
+  it in `giantswarm/releases`) and the portals' app-configs (which portals sign people in, whose broker exchanges tokens
   into it, whether a portal reaches it through the tunnel: `private`), are the definitions'
   `installation.*` inputs: read, never typed;
 - the **enabled marker** of each capability: for `agent-platform`,
