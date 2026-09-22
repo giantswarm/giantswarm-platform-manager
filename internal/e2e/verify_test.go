@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -353,9 +354,10 @@ func TestVerifyCapabilityPlannedJoinedAudience(t *testing.T) {
 	}
 }
 
-// The repositories express another value of an input than the one on record:
-// every difference names the input, nothing is drift, the feature differs by input.
-func TestVerifyCapabilityDiffersByInput(t *testing.T) {
+// The repositories express another value of a fact than the one on record:
+// a fact is nobody's choice, so every difference is drift, none names an
+// input, and the state moves.
+func TestVerifyCapabilityFactOffTheRecordIsDrift(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	c := st.mcpClient(t, aliceToken)
@@ -364,25 +366,54 @@ func TestVerifyCapabilityDiffersByInput(t *testing.T) {
 	enableRowan(t, st, c, kagentEnabled(), inRepos)
 
 	res := verifyRowan(t, c, rowan)
-	if res.Summary[verify.Drifted] != 0 || res.Summary[verify.DiffersByInput] == 0 || res.State != installations.StateEnabled {
-		t.Fatalf("state %q summary %v", res.State, res.Summary)
+	if res.Summary[verify.Drifted] == 0 || res.Summary[verify.DiffersByInput] != 0 || res.State != installations.StateDrifted || len(res.Inputs.Typed) != 0 {
+		t.Fatalf("state %q summary %v typed %v", res.State, res.Summary, res.Inputs.Typed)
 	}
-	differs := 0
+	for _, diff := range allDifferences(res) {
+		if diff.Input != "" || diff.Planned != "" {
+			t.Errorf("%s#%s is %q / %q, want drift", diff.File, diff.Path, diff.Input, diff.Planned)
+		}
+	}
+}
+
+// A fact typed for the call is the person's input of that call: with the
+// repositories as on record and installation.private typed, every
+// difference names installation.private, nothing is drift, the state stands
+// and the inputs object carries what was typed.
+func TestVerifyCapabilityDiffersByInput(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	enableRowan(t, st, c, kagentEnabled(), kagentEnabled())
+
+	typed := map[string]any{"installation": map[string]any{argPrivate: true}}
+	res := verifyWith(t, c, rowan, typed)
+	if res.Summary[verify.Drifted] != 0 || res.Summary[verify.DiffersByInput] == 0 || res.State != installations.StateEnabled || !strings.HasSuffix(res.Inputs.Source, verify.SourceTyped) {
+		t.Fatalf("state %q summary %v inputs %q", res.State, res.Summary, res.Inputs.Source)
+	}
+	if !reflect.DeepEqual(res.Inputs.Typed, typed) {
+		t.Errorf("typed %v, want %v", res.Inputs.Typed, typed)
+	}
+	diffs := allDifferences(res)
+	if len(diffs) == 0 {
+		t.Fatal("no difference: the private fact moves nothing")
+	}
+	for _, diff := range diffs {
+		if diff.Input != privateInput {
+			t.Errorf("%s#%s is %q, want %s", diff.File, diff.Path, diff.Input, privateInput)
+		}
+	}
+}
+
+// allDifferences are every difference of res, over its features and dimensions.
+func allDifferences(res verify.Result) []verify.Difference {
+	var out []verify.Difference
 	for _, f := range res.Features {
-		if f.Mark == verify.DiffersByInput {
-			differs++
-		}
 		for _, d := range f.Dimensions {
-			for _, diff := range d.Differences {
-				if diff.Input != privateInput {
-					t.Errorf("%s/%s: %s#%s is %q, want %s", f.ID, d.ID, diff.File, diff.Path, diff.Input, privateInput)
-				}
-			}
+			out = append(out, d.Differences...)
 		}
 	}
-	if differs == 0 {
-		t.Errorf("no feature differs by input: %v", res.Summary)
-	}
+	return out
 }
 
 // A probe that answers wrong is drift of its feature, and only its: the

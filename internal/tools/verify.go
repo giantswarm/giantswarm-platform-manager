@@ -15,7 +15,7 @@ import (
 
 func verifyCapabilityTool() mcp.Tool {
 	return mcp.NewTool(ToolVerifyCapability,
-		mcp.WithDescription("Read-only. Answers how one installation compares with a capability's definition: its features with one mark each (as defined, planned, differs by input, drifted), every difference named by file, path and the input that drives it — or the planned change it is: a key the fleet still carries that the definition does not render, named by the capability's removals — and the plan a commit would write. The inputs are the installation's record, what the definition reads back from its files and your typed inputs; the live dimensions are verify_installation's."),
+		mcp.WithDescription("Read-only. Answers how one installation compares with a capability's definition: its features with one mark each (as defined, planned, differs by input, drifted), every difference named by file, path and the person's input that drives it (a choice the schema names, or one typed for this call) — or the planned change it is: a key the fleet still carries that the definition does not render, named by the capability's removals — or drift, a leaf the installation's facts derive included — and the plan a commit would write. The inputs are the installation's record, what the definition reads back from its files and your typed inputs; the live dimensions are verify_installation's."),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithString(ArgInstallation, mcp.Required(), mcp.Description("The installation to verify, by name.")),
 		mcp.WithString(ArgCapability, mcp.Description(capabilityArgDescription), mcp.Enum(installations.CapabilityNames()...)),

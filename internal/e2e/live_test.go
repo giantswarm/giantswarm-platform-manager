@@ -319,10 +319,10 @@ func TestVerifyInstallationDriftedNamesTheObject(t *testing.T) {
 	}
 }
 
-// The live values express another value of an input than the one on record
-// (a base domain other than the registry's): the difference names the input,
-// the dimension differs by input, nothing drifted.
-func TestVerifyInstallationDiffersByInput(t *testing.T) {
+// The live values carry a global.domain off the installation's base domain:
+// a leaf a fact derives, nobody's choice — drift, named without an input,
+// and the state moves.
+func TestVerifyInstallationFactOffTheRecordIsDrift(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	enableRowanLive(t, st, st.mcpClient(t, aliceToken), kagentEnabled())
@@ -337,10 +337,10 @@ func TestVerifyInstallationDiffersByInput(t *testing.T) {
 
 	res := verifyLive(t, st.liveClient(t, st.dex.token(t, liveAdmin, []string{liveAudience}, time.Hour)), rowan)
 	d := liveDimensions(res)["live-drift"]
-	if d.Mark != verify.DiffersByInput || len(d.Differences) != 1 || d.Differences[0].Input != "installation.baseDomain" || d.Differences[0].Path != "global.domain" {
+	if d.Mark != verify.Drifted || len(d.Differences) != 1 || d.Differences[0].Input != "" || d.Differences[0].Path != "global.domain" || d.Differences[0].Rendered != "rowan.acme.test" {
 		t.Fatalf("live-drift: %+v", d)
 	}
-	if res.Summary[verify.Drifted] != 0 || res.State != installations.StateEnabled {
+	if res.Summary[verify.Drifted] == 0 || res.Summary[verify.DiffersByInput] != 0 || res.State != installations.StateDrifted {
 		t.Errorf("state %q summary %v", res.State, res.Summary)
 	}
 }
