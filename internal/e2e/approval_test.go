@@ -67,7 +67,8 @@ func getAction(t *testing.T, c *client.Client, name string) actions.Action {
 
 // The commit posts one review with the actor's email, the pull requests, both
 // buttons carrying the action id, the team's channel and — rowan being a
-// customer installation — the notice channel; the receipt is on the Action.
+// customer installation — the notice channel, its text naming the account
+// engineer the catalog records; the receipt is on the Action.
 func TestCommitPostsTheTeamReview(t *testing.T) {
 	st := newStack(t)
 	out, _ := commitRowan(t, st)
@@ -95,10 +96,13 @@ func TestCommitPostsTheTeamReview(t *testing.T) {
 		t.Fatalf("review pull requests: %v", prs)
 	}
 	text, _ := body["text"].(string)
-	for _, want := range []string{alice, rowan, a.Spec.Capability, "customer"} {
+	for _, want := range []string{alice, rowan, a.Spec.Capability, "customer", "account engineer Ada Example"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("review text lacks %q: %s", want, text)
 		}
+	}
+	if len(a.Spec.AccountEngineers) != 1 || a.Spec.AccountEngineers[0] != "Ada Example" {
+		t.Fatalf("the action records the account engineer: %v", a.Spec.AccountEngineers)
 	}
 	assertNoLeak(t, "the review", fmt.Sprint(body))
 	assertNoLeak(t, "the server's log", st.logs.String())

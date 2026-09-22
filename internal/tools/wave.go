@@ -99,7 +99,7 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		return nil, fmt.Errorf("%s: %q is not a capability definition", tool, out.Capability)
 	}
 	spec := actions.Spec{Actor: actions.Actor{Login: id.Login, ID: id.ID, Email: id.Email}, Capability: out.Capability, Installations: res.Order, Inputs: typed, Kind: actions.KindReconcile, Skipped: res.Skipped,
-		InputsByInstallation: map[string]map[string]any{}, Markers: markersOf(def, env, res.Order...)}
+		InputsByInstallation: map[string]map[string]any{}, AccountEngineers: accountEngineers(env, res.Order...), Markers: markersOf(def, env, res.Order...)}
 	for _, p := range targets {
 		spec.InputsByInstallation[p.Name] = p.Inputs
 	}

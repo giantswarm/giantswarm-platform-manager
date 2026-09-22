@@ -1,6 +1,6 @@
 # giantswarm-platform-manager
 
-Giant Swarm's installation manager — an MCP server behind muster that enables, reconciles and verifies platform capabilities on the registry's installations as the person, every write a pull request to the installation's GitOps repository
+Giant Swarm's platform manager — an MCP server behind muster that enables, reconciles and verifies platform capabilities on the registry's installations as the person, every write a pull request to the installation's GitOps repository
 
 The chart deploys the server as one Deployment behind a ClusterIP Service. The
 server holds no state and no token of its own: behind muster every request
@@ -66,7 +66,7 @@ is restarted, and a probe that finds the path answering reads *Auth Required*
 | muster.mcpServer.name | string | `"giantswarm-platform-manager"` | MCPServer CR name (drives the tool prefix). |
 | muster.mcpServer.autoStart | bool | `true` | Start the server connection when muster initializes. |
 | muster.mcpServer.timeout | int | `120` | Seconds muster waits for one call before it cancels it (the CR's `spec.timeout`; muster's own default is 30, the CRD allows 1–300). 120 because a write in `mode: commit` renders the change and opens the pull request within the one call. |
-| muster.mcpServer.description | string | `"Giant Swarm's installation manager — platform capabilities on the registry's installations, every write as the person"` | Human-readable description shown by muster. |
+| muster.mcpServer.description | string | `"Giant Swarm's platform manager — platform capabilities on the registry's installations, every write as the person"` | Human-readable description shown by muster. |
 | muster.mcpServer.labels | object | `{}` | Extra labels on the MCPServer CR. |
 | muster.mcpServer.auth | object | `{"authorizationServer":{"authorizationEndpoint":"https://github.com/login/oauth/authorize","clientCredentialsSecretRef":{"name":"giantswarm-platform-manager-oauth-client","namespace":""},"expectedIssuer":"https://github.com/login/oauth","grantScope":"subject","issuer":"https://github.com/apps/giantswarm-platform-manager","scopes":"","tokenEndpoint":"https://github.com/login/oauth/access_token"}}` | How muster authenticates to this server; rendered only with `oauth.enabled`: `auth.type: oauth` with the GitHub App `giantswarm-platform-manager` pinned as the authorization server — the pattern of the `github` and `pro` servers on the platform. GitHub publishes no discovery document, so the endpoints are named; the App's client credentials come from a Secret; no `scopes` for GitHub (the App's permissions are the App's), a `scopes` value for an authorization server that needs one. muster runs the consent once per person and puts their user token on every call. |
 | muster.mcpServer.auth.authorizationServer.issuer | string | `"https://github.com/apps/giantswarm-platform-manager"` | The issuer identity the person's grant is filed under: the App's own, so the login App's GitHub grant stays separate. |
@@ -81,7 +81,7 @@ is restarted, and a probe that finds the path answering reads *Auth Required*
 | muster.liveServer.name | string | `"giantswarm-platform-manager-live"` | MCPServer CR name (drives the tool prefix). |
 | muster.liveServer.requiredAudiences | list | `[]` | Audiences the forwarded token must carry, rendered as the CR's `spec.auth.requiredAudiences` when set: muster requests them from the identity provider at login as cross-client audiences, so every token it forwards carries them whichever client the person signed in with (`dex-k8s-authenticator` on Giant Swarm installations, the audience the platform's other forwarded-token servers require). Trusted by the server next to `live.audiences`. People sign in again after a change. |
 | muster.liveServer.timeout | int | `180` | Seconds muster waits for one call: a verify reads every object of the definition's probes through muster and the installation's mcp-kubernetes within the one call. |
-| muster.liveServer.description | string | `"Giant Swarm's installation manager, the live surface — verify_installation and watch_action read an installation as you"` | Human-readable description shown by muster. |
+| muster.liveServer.description | string | `"Giant Swarm's platform manager, the live surface — verify_installation and watch_action read an installation as you"` | Human-readable description shown by muster. |
 | serviceAccount.create | bool | `true` | Create a ServiceAccount. |
 | serviceAccount.annotations | object | `{}` | Annotations on the ServiceAccount. |
 | serviceAccount.name | string | `""` | ServiceAccount name (generated when empty). |

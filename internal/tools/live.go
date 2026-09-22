@@ -50,7 +50,7 @@ func (t *Tools) liveInfo() LiveInfo {
 func (t *Tools) LiveMCPServer() *mcpserver.MCPServer {
 	s := mcpserver.NewMCPServer(LiveToolPrefix, t.d.Version,
 		mcpserver.WithToolCapabilities(false),
-		mcpserver.WithInstructions("Giant Swarm's installation manager, the live surface: muster forwards your own sign-in token here, and its tools read an installation with it — through muster's kubernetes tools, as you, with your access on that installation. verify_installation compares what runs there with the capability's definition, grouped into features with one mark each; watch_action follows an action's rollout — the Flux objects Ready, then the probes — and carries it to enabled, waiting for the customer or failed, the report into the review's thread. The repository comparison is verify_capability on the App-pinned registration ("+ToolPrefix+"); a portal or platformctl shows the two as one result."),
+		mcpserver.WithInstructions("Giant Swarm's platform manager, the live surface: muster forwards your own sign-in token here, and its tools read an installation with it — through muster's kubernetes tools, as you, with your access on that installation. verify_installation compares what runs there with the capability's definition, grouped into features with one mark each; watch_action follows an action's rollout — the Flux objects Ready, then the probes — and carries it to enabled, waiting for the customer or failed, the report into the review's thread. The repository comparison is verify_capability on the App-pinned registration ("+ToolPrefix+"); a portal or platformctl shows the two as one result."),
 	)
 	t.registerWatchTool(s)
 	s.AddTool(mcp.NewTool(ToolVerifyInstallation,

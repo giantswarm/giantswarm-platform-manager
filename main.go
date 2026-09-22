@@ -1,4 +1,4 @@
-// Command giantswarm-platform-manager is Giant Swarm's installation manager:
+// Command giantswarm-platform-manager is Giant Swarm's platform manager:
 // an MCP server behind muster that enables, reconciles and verifies platform
 // capabilities on the registry's installations as the person calling it.
 // Every write is a pull request to the installation's GitOps repository,

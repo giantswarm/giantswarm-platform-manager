@@ -1,14 +1,14 @@
 # giantswarm-platform-manager
 
-Giant Swarm's **installation manager**: enables, reconciles and verifies platform capabilities on the
+Giant Swarm's **platform manager**: enables, reconciles and verifies platform capabilities on the
 registry's installations as the person, through MCP tools behind muster. Every write is a pull request
 to the installation's GitOps repository, opened as the person; nothing is applied to a cluster
 directly.
 
-`giantswarm-platform-manager` is the working name. The `giantswarm-` prefix marks a manager specific
-to the giantswarm org — like `giantswarm-repo-manager`, unlike `agent-manager`, `model-manager` and
-`cluster-manager` — and *installation manager* is its alias in the platform's plans. The final name
-is the team's; a rename is one repository rename plus the GitHub App's.
+The `giantswarm-` prefix marks a manager specific to the giantswarm org — like
+`giantswarm-repo-manager`, unlike `agent-manager`, `model-manager` and `cluster-manager`. The name is
+final: *platform manager*, this repository, chart, GitHub App and muster registration
+`giantswarm-platform-manager`, the CLI `platformctl`.
 
 It ships as its own app on the hub installation, never as a component of the `agent-platform` meta
 chart.
