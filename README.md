@@ -258,7 +258,7 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
   kustomization entries — so `template` reproduces the goldens byte for byte. Shapes: `agent-platform`.
 - `platformctl installation list [<installation>…] [--customer <name>]`,
   `platformctl installation enable <installation> <capability> --dry-run|--commit [--input k=v]… [--secret f=src]… [--content]`,
-  `platformctl installation reconcile <installation>|--all <capability> --dry-run|--commit [--input k=v]… [--secret f=src]… [--content]`,
+  `platformctl installation reconcile <installation>…|--all <capability> --dry-run|--commit [--input k=v]… [--secret f=src]… [--content]`,
   `platformctl installation verify <installation> <capability>`,
   `platformctl action get <name>`, `platformctl action list [--installation <name>] [--capability <name>]`,
   `platformctl action approve <name>`, `platformctl action deny <name> --reason <text>`,
@@ -267,8 +267,9 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
   `--output json` prints the manager's answer as it is, for CI. `--input kagent.enabled=true` nests dotted
   keys into the tool's `inputs`; a value that parses as JSON is that value, anything else a string.
   `--dry-run` is the tool's `dryRun`; `--commit` its `mode: commit` — the pull requests opened as you, the
-  Team review asked: for one installation the action, for `reconcile --all` the wave over the set, one
-  action rolled out a stage per merge. `installation verify` calls `verify_capability` on the App-pinned
+  Team review asked: for one installation the action, for `reconcile` over a set — two or more installations
+  named (the tool's `installations`), or `--all` for every installation of the registry — the wave over the
+  set, one action rolled out a stage per merge. `installation verify` calls `verify_capability` on the App-pinned
   registration and `verify_installation` on the live one and prints the two as one result — per dimension
   the side that checked it; when the live registration does not answer (not registered, not connected),
   the repository result stands and the live line says why. `--secret <field>=@<file>`, `<field>=env:<NAME>` or

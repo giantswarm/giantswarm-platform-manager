@@ -99,3 +99,34 @@ func TestAManagerNotConnectedAsksForTheSignIn(t *testing.T) {
 		t.Fatalf("stderr %q lacks the sign-in URL or the muster command", errs)
 	}
 }
+
+// TestReconcileTargetsThroughTheBridge holds the targets reconcile sends: one
+// name is the tool's installation, two or more the set installations, --all
+// the empty set — every installation of the registry; a commit over one is
+// the action, over a set the wave.
+func TestReconcileTargetsThroughTheBridge(t *testing.T) {
+	reconcile := func(rest ...string) []string { return append([]string{"installation", "reconcile"}, rest...) }
+	all := strings.Join(mustertest.Registry, ", ")
+	for _, c := range []struct {
+		args []string
+		want []string
+	}{
+		{reconcile("lab", agentPlatform, "--dry-run"), []string{"reconcile_capability dry run: agent-platform on hub " + mustertest.Hub, "Order: lab\n"}},
+		{reconcile("lab", "hazel", agentPlatform, "--dry-run"), []string{"reconcile_capability dry run: agent-platform on hub " + mustertest.Hub, "Order: lab, hazel\n"}},
+		{reconcile("--all", agentPlatform, "--dry-run"), []string{"reconcile_capability dry run: agent-platform on hub " + mustertest.Hub, "Order: " + all + "\n"}},
+		{reconcile("lab", agentPlatform, "--commit"), []string{"reconcile_capability commit: agent-platform on lab (hub " + mustertest.Hub + ")"}},
+		{reconcile("lab", "hazel", agentPlatform, "--commit"), []string{"reconcile_capability commit: agent-platform wave on hub " + mustertest.Hub, "Order: lab, hazel\n"}},
+		{reconcile("--all", agentPlatform, "--commit"), []string{"reconcile_capability commit: agent-platform wave on hub " + mustertest.Hub, "Order: " + all + "\n"}},
+	} {
+		code, out, errs := bridge(t, "connected", c.args...)
+		if code != exitOK {
+			t.Errorf("%v: exit %d, stderr %q", c.args, code, errs)
+			continue
+		}
+		for _, want := range c.want {
+			if !strings.Contains(out, want) {
+				t.Errorf("%v: output lacks %q:\n%s", c.args, want, out)
+			}
+		}
+	}
+}

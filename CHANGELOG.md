@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `platformctl installation reconcile` takes a set of installations by name: `platformctl installation reconcile <installation>... <capability> --dry-run|--commit`. One name is the tool's `installation`, the action as before; two or more names are sent as `installations`, the set `reconcile_capability` already took — a dry run renders each and lists the skipped ones, `--commit` starts one wave over the named installations, formatted as the `--all` wave is — and `--all` stays the empty set, every installation of the registry. A wave over the team's own installations no longer opens a pull request on every customer's repositories or takes one action per installation. `enable` keeps exactly one installation.
 - `verify_capability` and the dry runs name every choice not on record: `inputs.unset` lists, by field, each input of the person no layer holds a value for — no default, nothing read back, nothing typed — so the Dev Portal's Capabilities tab can list them instead of counting them; `inputs.missing` stays the required ones among them, which a commit refuses. `platformctl verify` prints them under *Choices not on record*.
 
 ### Changed
