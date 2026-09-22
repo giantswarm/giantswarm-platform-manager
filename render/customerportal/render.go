@@ -17,7 +17,8 @@
 // an installation without the platform this definition renders it with the
 // portal's client; with the platform enabled the agent-platform definition
 // owns the file and carries the same entry (its portal.domain input), built by
-// render.PortalDexClient for both.
+// render.PortalDexClient for both. The client's Secret is this definition's
+// file in either case: no path and no object is rendered by two definitions.
 package customerportal
 
 import (
@@ -68,7 +69,9 @@ const (
 	// avatarsEnv is the CSP image source slot of the shared base's config,
 	// set to the installation's avatars host where the platform runs.
 	avatarsEnv = "BACKSTAGE_AVATARS_IMG_SRC"
-	// dexClientFile is the portal's Dex client Secret; the name matches the
+	// dexClientFile is the portal's Dex client Secret, this definition's file
+	// with and without the platform (the agent-platform definition references
+	// the Secret in its dex patch entry and renders none); the name matches the
 	// fleet's .sops.yaml rules (.*(secret|credential).*) and the directory's
 	// .enc.yaml convention.
 	dexClientFile = "dex-client-backstage-secret.enc.yaml" // #nosec G101 -- a file name, not a value

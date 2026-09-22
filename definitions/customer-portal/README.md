@@ -39,8 +39,10 @@ is `<name>`. A path covers every key beneath it.
   `render.PortalDexClient`, so the entry is the same byte for byte whichever definition writes it. The plan
   keeps every part of the installation's current patch that no definition owns — its login connectors under
   `oidc.customer`, Dex's `ingress` tuning, a built-in or extra static client of another owner — after the
-  definition's, and names it as kept. The client's Secret `dex-client-backstage` is this definition's in either
-  case.
+  definition's, and names it as kept. The client's Secret `dex-client-backstage` in Dex's namespace is this
+  definition's in either case, the file `dex-client-backstage-secret.enc.yaml` in the portal's directory; the
+  agent-platform definition references it by name in its patch entry and renders no file for it, so on an
+  installation with both capabilities no repository path and no Kubernetes object is rendered by two definitions.
 - A portal over several installations of one customer lists them under `federation.installations` with their
   facts on record: each gets a cluster entry and an installation entry, and a provider on its Dex whose client
   credentials are supplied at commit (`federation.<name>.clientId`, `clientSecret`).

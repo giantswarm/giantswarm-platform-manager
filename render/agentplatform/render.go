@@ -308,7 +308,11 @@ func (in *Input) generatedName(base string) string { return in.Installation.Name
 func hubClient(hub string) string { return hub + "-token-exchange" }
 
 // portalDexClient is the one Dex client every portal signs in through: the
-// customer-portal definition's client, with a redirect URI per portal.
+// customer-portal definition's client, with a redirect URI per portal. Its
+// Secret in Dex's namespace, dex-client-backstage, is the portal's: the
+// customer-portal definition renders it into the portal's directory, a
+// hand-kept portal keeps it by hand. This definition references it by name
+// and renders no file for it, so no Secret is declared by two definitions.
 func (in *Input) portalDexClient() render.Map {
 	uris := make([]string, 0, len(in.Installation.Portals))
 	for _, p := range in.Installation.Portals {
@@ -363,7 +367,8 @@ func (in *Input) dexPatch() render.Map {
 }
 
 // platformExtras is management-clusters/<name>/extras/agent-platform/: the
-// kustomization over the fleet base and the Secrets the platform reads.
+// kustomization over the fleet base and the Secrets the platform reads — the
+// platform's own Dex clients' among them, never the portal's (portalDexClient).
 func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir string, secrets map[string]string) {
 	type patch struct {
 		Patch  string     `yaml:"patch"`
@@ -407,9 +412,6 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 			in.generated("client-secret", "kagent-dex-client-secret", render.Base64, 32),
 			in.generated("cookie-secret", "kagent-cookie-secret", render.Alphanumeric, 32)))
 		add(dexClientSecretFile("kagent"), dexClientSecret("kagent", in.generatedName("kagent-dex-client-secret")))
-	}
-	if in.hasPortal() {
-		add(dexClientSecretFile(render.PortalDexClientID), dexClientSecret(render.PortalDexClientID, in.generatedName(render.PortalDexClientID+"-dex-client-secret")))
 	}
 	for _, hub := range in.Installation.Federation.Hubs {
 		add(dexClientSecretFile(hubClient(hub)), dexClientSecret(hubClient(hub), exchangeSecretName(hub, in.Installation.Name)))

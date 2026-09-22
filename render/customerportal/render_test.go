@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"flag"
+	"io"
 	"io/fs"
 	"maps"
 	"os"
@@ -177,7 +178,7 @@ func TestDexClientOwnership(t *testing.T) {
 		t.Error("a dex patch rendered with the platform enabled; the agent-platform definition owns it")
 	}
 	// The agent-platform definition, given the portal's domain and the chart line this definition wrote, carries the same entry.
-	apInput, apSecrets := agentPlatformInput(t)
+	apInput, apSecrets := agentPlatformInput(t, "public-customer")
 	apInput["installation"].(map[string]any)["name"] = "hazel"
 	apInput["installation"].(map[string]any)["portals"] = []any{map[string]any{"installation": "hazel", "customer": "oakridge", "domain": "portal.hazel.example.test", "clientId": render.PortalDexClientID, "chartLine": input["chart"].(map[string]any)["line"]}}
 	apResult, err := agentplatform.Render(apInput, apSecrets, render.ModeCommit)
@@ -241,7 +242,7 @@ func TestExtraEnvVarsOwnership(t *testing.T) {
 			t.Errorf("%s: extraEnvVars %v, want %v", c.name, got, c.want)
 		}
 	}
-	apInput, apSecrets := agentPlatformInput(t)
+	apInput, apSecrets := agentPlatformInput(t, "public-customer")
 	apResult, err := agentplatform.Render(apInput, apSecrets, render.ModeCommit)
 	if err != nil {
 		t.Fatal(err)
@@ -326,10 +327,97 @@ func roundTrip(t *testing.T, v any) any {
 	return out
 }
 
-// agentPlatformInput is the agent-platform definition's public-customer shape.
-func agentPlatformInput(t *testing.T) (map[string]any, map[string]string) {
+// TestNoFileOrObjectIsRenderedByTwoDefinitions holds the two definitions to
+// disjoint filesets on an installation that hosts a portal and runs the
+// platform: no repository path and no Kubernetes object (kind, namespace and
+// name) is rendered by both, so a reconcile of both capabilities writes every
+// file and declares every object once. The portal's fixture is the Giant
+// Swarm-owned portal with the platform; the platform's is the Giant
+// Swarm-owned shape over the same installation, hosting that portal — the
+// two filesets meet in the portal's tree, where the platform's Component
+// lands next to the portal's directory, and in Dex's namespace, where the
+// portal's client Secret had two owners.
+func TestNoFileOrObjectIsRenderedByTwoDefinitions(t *testing.T) {
+	input, secrets := loadInput(t, "giantswarm-owned-with-platform")
+	portal, err := Render(input, secrets, render.ModeCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installation := input["installation"].(map[string]any)
+	name, customer := installation["name"].(string), installation["customer"].(string)
+	apInput, apSecrets := agentPlatformInput(t, "giantswarm-owned")
+	apInstallation := apInput["installation"].(map[string]any)
+	if apInstallation["customer"] != customer {
+		t.Fatalf("the fixtures are of two organisations, %s and %s, and never meet in one repository", apInstallation["customer"], customer)
+	}
+	apInstallation["name"], apInstallation["baseDomain"] = name, installation["baseDomain"]
+	apInstallation["portals"] = []any{map[string]any{"installation": name, "customer": customer, "domain": input["portal"].(map[string]any)["domain"],
+		"clientId": render.PortalDexClientID, "chartLine": input["chart"].(map[string]any)["line"]}}
+	platform, err := agentplatform.Render(apInput, apSecrets, render.ModeCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var met bool
+	for repo, files := range portal.Files {
+		for path := range files {
+			if _, both := platform.Files[repo][path]; both {
+				t.Errorf("%s: %s is rendered by both definitions", repo, path)
+			}
+			met = met || strings.Contains(path, "/"+name+"/") && len(platform.Files[repo]) > 0
+		}
+	}
+	if !met {
+		t.Fatal("the fixtures render into different repositories; the test proves nothing")
+	}
+	portalObjects, platformObjects := renderedObjects(t, portal), renderedObjects(t, platform)
+	for id, file := range portalObjects {
+		if other, both := platformObjects[id]; both {
+			t.Errorf("%s is declared by both definitions: %s and %s", id, file, other)
+		}
+	}
+	if len(portalObjects) == 0 || len(platformObjects) == 0 {
+		t.Fatalf("objects rendered: portal %d, platform %d", len(portalObjects), len(platformObjects))
+	}
+}
+
+// renderedObjects lists the Kubernetes objects a result declares — every YAML
+// document of every file with a kind and a metadata.name — as "<kind>
+// <namespace>/<name>" to the file that declares it.
+func renderedObjects(t *testing.T, result *render.Result) map[string]string {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("..", "agentplatform", "testdata", "public-customer", "input.yaml"))
+	objects := map[string]string{}
+	for repo, files := range result.Files {
+		for path, f := range files {
+			dec := yaml.NewDecoder(bytes.NewReader(f.Content))
+			for {
+				var doc struct {
+					Kind     string `yaml:"kind"`
+					Metadata struct {
+						Name      string `yaml:"name"`
+						Namespace string `yaml:"namespace"`
+					} `yaml:"metadata"`
+				}
+				if err := dec.Decode(&doc); err != nil {
+					if errors.Is(err, io.EOF) {
+						break
+					}
+					t.Fatalf("%s: %s: %v", repo, path, err)
+				}
+				if doc.Kind == "" || doc.Metadata.Name == "" {
+					continue
+				}
+				objects[doc.Kind+" "+doc.Metadata.Namespace+"/"+doc.Metadata.Name] = string(repo) + ":" + path
+			}
+		}
+	}
+	return objects
+}
+
+// agentPlatformInput is one of the agent-platform definition's golden shapes.
+func agentPlatformInput(t *testing.T, shape string) (map[string]any, map[string]string) {
+	t.Helper()
+	raw, err := fs.ReadFile(os.DirFS(filepath.Join("..", "agentplatform", "testdata", shape)), "input.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}

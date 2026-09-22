@@ -4,8 +4,10 @@ package render
 // customer-portal definition renders the portal; the agent-platform definition
 // renders the platform's section of it as a kustomize Component and, when the
 // platform is enabled, owns the installation's dex-app configmap patch and so
-// carries the portal's Dex client in it. Both build the entry and the
-// Component's name here, so the two filesets agree byte for byte.
+// carries the portal's Dex client in it; the client's Secret stays the
+// customer-portal definition's file. Both build the entry and the Component's
+// name here, so the two filesets agree byte for byte and no path or object is
+// rendered by both.
 
 const (
 	// PortalDexClientID is the portal's Dex client id on every installation
