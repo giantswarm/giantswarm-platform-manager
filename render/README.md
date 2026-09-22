@@ -40,8 +40,10 @@ in the portal host's tree, a kustomize Component the portal's `extras/backstage/
 ConfigMap, the chart values that mount it, with the AI chat on (`aiChat.enabled`, `aiChat.model`, the person's
 other choice) the chat's credentials Secret (its Anthropic API key, supplied as `aiChat.anthropic.apiKey` — with
 the Slack credentials the only values a person supplies at commit — as the chart value the chart exposes as
-`ANTHROPIC_API_KEY`), and a patch appending those sources to the portal HelmRelease's `valuesFrom` — last, so the
-platform's values win. The fragment carries the platform's section, and on a portal the customer-portal
+`ANTHROPIC_API_KEY`; where the portal's own app-config carries the chat by hand, `installation.portals[*].handKeptChat`,
+its environment supplies the key already and the Component renders the chat's blocks without a Secret and asks for no
+value, so a wave reconciles the portal), and a patch appending those sources to the portal HelmRelease's `valuesFrom` —
+last, so the platform's values win. The fragment carries the platform's section, and on a portal the customer-portal
 definition renders the shared extension list with the platform's section and the installation's muster entry;
 Backstage and Helm replace lists wholesale, so on a hand-kept portal (a literal `app.extensions` on record) the
 Component writes its object-shaped keys alone and the portal's own lists stand, and the portal's environment

@@ -795,13 +795,17 @@ const (
 
 // The chat on record by hand in rowan's own portal's app-config: the
 // agent-platform verify reads aiChat.enabled and aiChat.model back from it,
-// the dry run names the key among the supplied secrets and renders the
-// fragment with the shared list with the chat, the aiChat block on the
-// portal's own actions server and the installation's muster, the actions
-// server's configuration and the key's Secret; the fragment's chat leaves
-// are the planned move (M18), nothing of the chat drifts or differs by
-// input. Once the fragment is on record it answers the read-back first and
-// the chat compares as defined; with the chat gone from both, off.
+// and since the portal carries the chat by hand its environment supplies the
+// key — the dry run names no supplied secret, renders no credentials Secret
+// and no file a wave could not fill, and renders the fragment with the
+// shared list with the chat, the aiChat block on the portal's own actions
+// server and the installation's muster and the actions server's
+// configuration; the fragment's chat leaves are the planned move (M18),
+// nothing of the chat drifts or differs by input. Once the fragment is on
+// record it answers the read-back first and the chat compares as defined.
+// With the hand-kept block gone from the app-config the key is the
+// Component's: supplied at commit, its Secret planned. With the chat gone
+// from both, off.
 func TestVerifyCapabilityReadsBackTheChat(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
@@ -816,7 +820,7 @@ func TestVerifyCapabilityReadsBackTheChat(t *testing.T) {
 	key, appConfig := putPortalOnRecord(t, st, findPlan(t, out, rowan), organization, chat+organization)
 
 	res := verifyRowan(t, c, rowan)
-	if res.Refused != "" || res.Inputs.ReadBack[enabledInput] != true || res.Inputs.ReadBack[modelInput] != model || !slices.Contains(res.SuppliedSecrets, keyField) {
+	if res.Refused != "" || res.Inputs.ReadBack[enabledInput] != true || res.Inputs.ReadBack[modelInput] != model || slices.Contains(res.SuppliedSecrets, keyField) {
 		t.Fatalf("refused %q read back %v supplied %v", res.Refused, res.Inputs.ReadBack, res.SuppliedSecrets)
 	}
 	// The Component is not on record yet: every chat leaf is a planned addition, none is drift.
@@ -851,8 +855,14 @@ func TestVerifyCapabilityReadsBackTheChat(t *testing.T) {
 			t.Errorf("the fragment does not carry %q:\n%s", want, rendered)
 		}
 	}
-	if secret, ok := files[fragment+"ai-chat-credentials.enc.yaml"]; !ok || !strings.Contains(secret, "SUPPLIED("+keyField+")") || !slices.Contains(p.SuppliedSecrets, keyField) {
-		t.Errorf("the key's Secret: %q, supplied %v", secret, p.SuppliedSecrets)
+	// The key is the portal's: no Secret, nothing supplied, and no file to create carries a supplied marker — the wave's check.
+	if _, ok := files[fragment+"ai-chat-credentials.enc.yaml"]; ok || len(p.SuppliedSecrets) != 0 || strings.Contains(files[fragment+"kustomization.yaml"], "ai-chat-credentials") {
+		t.Errorf("a hand-kept chat: Secret rendered %v, supplied %v", ok, p.SuppliedSecrets)
+	}
+	for _, f := range p.Files {
+		if f.Change == plan.ChangeCreate && strings.Contains(f.Content, "SUPPLIED(") {
+			t.Errorf("a file a wave cannot fill: %s", f.Path)
+		}
 	}
 	assertNoValue(t, "the dry run", text)
 
@@ -866,9 +876,22 @@ func TestVerifyCapabilityReadsBackTheChat(t *testing.T) {
 		t.Errorf("the chat's dimension: %+v", d)
 	}
 
-	// The chat gone from the portal's app-config and the fragment: off, nothing supplied.
+	// The hand-kept block gone from the app-config, the fragment's chat on record: the key is the Component's now — supplied at commit, its Secret the planned move.
 	repo, path, _ := strings.Cut(key, ":")
 	st.ghs.addFile(repo, path, strings.Replace(appConfig, chat, "", 1))
+	res = verifyRowan(t, c, rowan)
+	if res.Refused != "" || res.Inputs.ReadBack[enabledInput] != true || !slices.Contains(res.SuppliedSecrets, keyField) {
+		t.Fatalf("the block moved: refused %q read back %v supplied %v", res.Refused, res.Inputs.ReadBack, res.SuppliedSecrets)
+	}
+	var secretPlanned bool
+	for _, diff := range dimension(t, feature(t, res, "portal"), "portal-ai-chat").Differences {
+		secretPlanned = secretPlanned || strings.HasSuffix(diff.File, "ai-chat-credentials.enc.yaml") && strings.HasSuffix(diff.Planned, "· M18")
+	}
+	if !secretPlanned {
+		t.Errorf("the block moved: the key's Secret is not the planned move: %+v", dimension(t, feature(t, res, "portal"), "portal-ai-chat").Differences)
+	}
+
+	// The chat gone from the fragment too: off, nothing supplied.
 	st.ghs.addFile(repo, fragment+"app-config.yaml", strings.Replace(files[fragment+"app-config.yaml"], "    aiChat:\n", "    aiChatX:\n", 1))
 	res = verifyRowan(t, c, rowan)
 	if res.Inputs.ReadBack[enabledInput] != false || res.Inputs.ReadBack[modelInput] != nil || slices.Contains(res.SuppliedSecrets, keyField) {

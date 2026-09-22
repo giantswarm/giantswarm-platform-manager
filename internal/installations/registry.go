@@ -300,9 +300,12 @@ type portalEntry struct {
 // the installations whose agent platform it proxies
 // (agentPlatform.kagent.installations), whether the portal is hand-kept:
 // its app.extensions is a literal list of its own rather than the shared
-// include the customer-portal definition renders — and whether its Grafana
+// include the customer-portal definition renders — whether its Grafana
 // plugin is wired: its proxy carries the plugin's endpoint, the presence
-// plugins.grafana.enabled reads back from.
+// plugins.grafana.enabled reads back from — and whether its AI chat is
+// hand-kept: its own app-config carries the aiChat block, so its environment
+// supplies the chat's key and the agent-platform Component renders no
+// credentials Secret for it.
 type portalConfig struct {
 	Installations   map[string]portalEntry
 	BaseURL         string
@@ -311,6 +314,7 @@ type portalConfig struct {
 	PlatformProxied map[string]bool
 	HandKept        bool
 	GrafanaWired    bool
+	HandKeptChat    bool
 }
 
 func parsePortalConfig(data string) (*portalConfig, error) {
@@ -363,6 +367,7 @@ func parsePortalConfig(data string) (*portalConfig, error) {
 		Proxy struct {
 			Endpoints map[string]yaml.Node `yaml:"endpoints"`
 		} `yaml:"proxy"`
+		AIChat yaml.Node `yaml:"aiChat"`
 	}
 	if err := yaml.Unmarshal([]byte(values.Backstage.AppConfig), &appConfig); err != nil {
 		return nil, fmt.Errorf("decode backstage.appConfig: %w", err)
@@ -372,7 +377,7 @@ func parsePortalConfig(data string) (*portalConfig, error) {
 	}
 	_, grafanaWired := appConfig.Proxy.Endpoints[render.PortalGrafanaProxy]
 	cfg := &portalConfig{Installations: appConfig.GS.Installations, BaseURL: appConfig.App.BaseURL, BrokerTokenURL: appConfig.GS.ClusterTokenBroker.TokenURL,
-		Tunnelled: map[string]bool{}, PlatformProxied: map[string]bool{}, HandKept: appConfig.App.Extensions.Kind == yaml.SequenceNode, GrafanaWired: grafanaWired}
+		Tunnelled: map[string]bool{}, PlatformProxied: map[string]bool{}, HandKept: appConfig.App.Extensions.Kind == yaml.SequenceNode, GrafanaWired: grafanaWired, HandKeptChat: !appConfig.AIChat.IsZero()}
 	for _, m := range appConfig.Kubernetes.ClusterLocatorMethods {
 		for _, cluster := range m.Clusters {
 			if hostOf(cluster.URL) == tunnelKubernetesHost(cluster.Name) {

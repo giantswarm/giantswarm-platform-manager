@@ -2,6 +2,7 @@ package agentplatform
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -134,6 +135,24 @@ func TestPortalFragmentChat(t *testing.T) {
 		if fields := in.suppliedSecretFields(); len(fields) != 1 || fields[0] != fieldAnthropicKey {
 			t.Errorf("hand-kept %v: the supplied fields %v, want the key alone", handKept, fields)
 		}
+	}
+	// The chat by hand in the portal's app-config: the same blocks, the key the portal's — no Secret, nothing supplied.
+	portal.HandKeptChat = true
+	byHand := &Input{Installation: Installation{Name: testPortalHost, BaseDomain: testPortalHost + ".example", Customer: testOrganisation, Portals: []PortalRef{portal}}, AIChat: AIChat{Enabled: true, Model: testChatModel}}
+	if chat := fragmentValue(byHand.portalAppConfig(), "aiChat"); chat == nil || byHand.chatKeyIsComponents() || len(byHand.suppliedSecretFields()) != 0 {
+		t.Errorf("a hand-kept chat: block %v, the Component carries the key %v, supplied %v", chat != nil, byHand.chatKeyIsComponents(), byHand.suppliedSecretFields())
+	}
+	r := &render.Result{}
+	byHand.portalFiles(r, "giantswarm/acme-management-clusters", "management-clusters/"+testPortalHost+"/extras/backstage/"+portalDir, nil)
+	dir := "giantswarm/acme-management-clusters/management-clusters/" + testPortalHost + "/extras/backstage/" + portalDir + "/"
+	var files []string
+	for path := range r.Tree() {
+		if strings.HasPrefix(path, dir) {
+			files = append(files, strings.TrimPrefix(path, dir))
+		}
+	}
+	if len(files) != 3 || slices.Contains(files, portalCredentialsFile) {
+		t.Errorf("a hand-kept chat renders %v, want the fragment, the values and the Component alone", files)
 	}
 	in := &Input{Installation: Installation{Name: testPortalHost, Customer: testOrganisation, Portals: []PortalRef{portal}}}
 	m := in.portalAppConfig()

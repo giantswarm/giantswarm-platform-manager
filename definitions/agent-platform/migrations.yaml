@@ -110,7 +110,7 @@ migrations:
   - key: backstage:agent-platform/app-config:backend.actions
     reason: "Added: the actions the portal lists for the chat's MCP actions server (backend.actions, the plugin sources and the filter) move from the main app-config into the Agent Platform Component's app-config fragment · M18"
   - key: backstage:file:agent-platform/ai-chat-credentials.enc.yaml
-    reason: "Added: the chat's Anthropic API key is the SOPS-encrypted Secret agent-platform-ai-chat-credentials-backstage of the Agent Platform Component, supplied at commit and read by the portal's HelmRelease as the chart value the chart exposes as ANTHROPIC_API_KEY, instead of a value kept by hand in the portal's user secrets · M18"
+    reason: "Added: the chat's Anthropic API key is the SOPS-encrypted Secret agent-platform-ai-chat-credentials-backstage of the Agent Platform Component, supplied at commit and read by the portal's HelmRelease as the chart value the chart exposes as ANTHROPIC_API_KEY, once the portal's own configuration no longer carries the chat by hand · M18"
   - key: backstage:agent-platform/kustomization:resources[ai-chat-credentials.enc.yaml]
     reason: "Added: the Agent Platform Component lists the Secret agent-platform-ai-chat-credentials-backstage, so it is applied with the portal · M18"
 

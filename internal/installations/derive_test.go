@@ -257,6 +257,25 @@ func TestPortalConfigHandKept(t *testing.T) {
 		if cfg.GrafanaWired != tc.wired {
 			t.Errorf("%s: read Grafana wired %v, want %v", name, cfg.GrafanaWired, tc.wired)
 		}
+		if cfg.HandKeptChat {
+			t.Errorf("%s: read a hand-kept chat without an aiChat block", name)
+		}
+	}
+	// The chat is hand-kept where the app-config carries the aiChat block, whatever it holds.
+	for name, chat := range map[string]string{
+		"a full block": "aiChat:\n  anthropic:\n    apiKey: " + dollar + dollar + "{ANTHROPIC_API_KEY}\n  model: claude-opus-4-8\n",
+		"an empty one": "aiChat: {}\n",
+	} {
+		appConfig := "app:\n  baseUrl: https://portal.linden.umbra.test\ngs:\n  installations:\n    linden: {}\n" + chat
+		values := "backstage:\n  appConfig: |\n" + indent(appConfig, "    ")
+		cm := "apiVersion: v1\nkind: ConfigMap\ndata:\n  values: |\n" + indent(values, "    ")
+		cfg, err := parsePortalConfig(cm)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if !cfg.HandKeptChat {
+			t.Errorf("%s: an aiChat block marks the chat hand-kept", name)
+		}
 	}
 }
 
