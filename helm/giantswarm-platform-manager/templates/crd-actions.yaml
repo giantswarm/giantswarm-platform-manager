@@ -97,7 +97,7 @@ spec:
               type: object
               properties:
                 state:
-                  description: The action's state, one of the installations' states an action produces, or the action's own — refused (the opt-in gate refused it before any write), denied (a member withdrew it), removed (the fileset it wrote left the default branch again).
+                  description: The action's state, one of the installations' states an action produces, or the action's own — refused (the gate refused it before any write — the installation unreadable as the person, or without repositories on record), denied (a member withdrew it), removed (the fileset it wrote left the default branch again).
                   type: string
                   enum: ["pending approval", "rolling out", "waiting for the customer", enabled, drifted, failed, refused, denied, removed]
                 pullRequests:

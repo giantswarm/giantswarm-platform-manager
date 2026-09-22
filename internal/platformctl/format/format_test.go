@@ -43,14 +43,12 @@ func contains(t *testing.T, out string, wants ...string) {
 }
 
 func TestInstallationsTable(t *testing.T) {
-	yes := true
 	r := tools.ListInstallationsResult{
 		Caller: someone, Hub: hazel,
 		Registry:     tools.RegistryInfo{Catalog: installations.Location{Repository: "giantswarm/github", Path: "catalog/installations.yaml"}},
 		Capabilities: []string{agentPlatform},
 		Installations: []installations.Report{
 			{Installation: installations.Installation{Name: hazel, Customer: "acme", Provider: "capa", Hub: true},
-				OptIn:        &installations.OptIn{State: installations.OptedIn, Value: &yes},
 				Capabilities: []installations.CapabilityState{{Name: agentPlatform, State: installations.StateEnabled, LastAction: &installations.ActionRef{Name: "enable-1", Result: enabled}}}},
 			{Installation: installations.Installation{Name: oak}, Errors: []string{"403 as you"}},
 		},
@@ -62,8 +60,8 @@ func TestInstallationsTable(t *testing.T) {
 	}
 	contains(t, b.String(), "Caller: someone   Hub: hazel   Registry: giantswarm/github:catalog/installations.yaml",
 		"NAME", "AGENT-PLATFORM", "LAST ACTION",
-		hazel, "acme", "capa", "yes", "opted in", enabled, "enable-1 (enabled)",
-		oak, "unreadable", "unknown",
+		hazel, "acme", "capa", "yes", enabled, "enable-1 (enabled)",
+		oak, "unknown",
 		"Unreadable as you: oak", "  oak: 403 as you")
 }
 
@@ -72,7 +70,7 @@ func TestPlan(t *testing.T) {
 		Caller: someone, Tool: tools.ToolEnableCapability, Capability: agentPlatform, Hub: hazel, DryRun: true,
 		Order: []string{rowan},
 		Installations: []tools.DryRun{{Summary: map[verify.Mark]int{verify.DiffersByInput: 1, verify.NotChecked: 2}, Installation: plan.Installation{
-			Name: rowan, State: installations.StateNotEnabled, OptIn: &installations.OptIn{State: installations.OptedIn},
+			Name: rowan, State: installations.StateNotEnabled,
 			CommitRefused: "the commit is not in this version",
 			Files: []plan.File{
 				{Repository: acmeConfigs, Path: "installations/rowan/apps/agent-platform/configmap-values.yaml.patch", Change: plan.ChangeCreate, Content: "a: 1\n"},
@@ -90,7 +88,7 @@ func TestPlan(t *testing.T) {
 			Diff:            map[plan.Change]int{plan.ChangeCreate: 1, plan.ChangeUnchanged: 1},
 		}}},
 		PullRequests: []plan.PullRequest{{Order: 1, Repository: acmeConfigs, Installations: []string{rowan}, Changes: 1, GeneratedSecrets: []string{"muster-valkey-password"}}},
-		Skipped:      []tools.Skipped{{Name: "alder", Reason: tools.SkippedNotOptedIn, OptIn: &installations.OptIn{HowToOptIn: "a PR by the owners"}}},
+		Skipped:      []tools.Skipped{{Name: "alder", Reason: tools.SkippedNotEnabled}},
 		Commit:       "not implemented yet",
 	}
 	var b bytes.Buffer
@@ -99,7 +97,7 @@ func TestPlan(t *testing.T) {
 	}
 	out := b.String()
 	contains(t, out, "enable_capability dry run: agent-platform on hub hazel, as someone", "Order: rowan",
-		"rowan: not enabled (opted in)", "A commit would be refused: the commit is not in this version",
+		"rowan: not enabled", "A commit would be refused: the commit is not in this version",
 		"Files (1 create, 1 unchanged):", "    CHANGE", "create", "unchanged", "configmap-values.yaml.patch",
 		"Includes: giantswarm/acme-management-clusters:management-clusters/rowan/extras/kustomization.yaml resources ./agent-platform/ (update)",
 		"muster-valkey-password (alphanumeric, 32): x, y", "rotates: muster-valkey-password (forced by y) — a new value replaces the one on record in x;",
@@ -107,7 +105,7 @@ func TestPlan(t *testing.T) {
 		"kagent: client kagent; secretRef dex-client-kagent; redirect URIs https://kagent.rowan.example/callback",
 		"rowan: create the apiKeySecret (the model key is theirs)", "muster-ready: muster ready",
 		"1. giantswarm/acme-configs: 1 change for rowan", "generated secrets: muster-valkey-password",
-		"alder: not opted in", "how to opt in: a PR by the owners", "Commit: not implemented yet")
+		"alder: not enabled", "Commit: not implemented yet")
 	if strings.Contains(out, "a: 1") {
 		t.Error("content printed without --content")
 	}
@@ -310,7 +308,7 @@ func TestWaveNamesTheOrderTheSkippedAndTheStages(t *testing.T) {
 		Caller: someone, Tool: tools.ToolReconcileCapability, Capability: agentPlatform, Hub: hazel,
 		Action:    &actions.Action{Name: "reconcile-wave-abc123", Status: actions.Status{State: actions.StatePendingApproval}},
 		Order:     []string{rowan, hazel},
-		Skipped:   []actions.Skipped{{Name: oak, Reason: "not opted in"}},
+		Skipped:   []actions.Skipped{{Name: oak, Reason: "not enabled"}},
 		Unchanged: []string{"alder"},
 		PullRequests: []actions.PullRequest{
 			{Installation: rowan, Repository: acmeConfigs, Number: 7, URL: "https://github.com/" + acmeConfigs + "/pull/7"},
@@ -326,7 +324,7 @@ func TestWaveNamesTheOrderTheSkippedAndTheStages(t *testing.T) {
 		"reconcile_capability commit: agent-platform wave on hub hazel, as someone",
 		"Action: reconcile-wave-abc123 (pending approval)",
 		"Order: rowan, hazel",
-		"  oak: not opted in",
+		"  oak: not enabled",
 		"Unchanged: alder",
 		"1. rowan: "+acmeConfigs+"#7 https://github.com/"+acmeConfigs+"/pull/7",
 		"2. hazel: "+acmeMCs+"#8",

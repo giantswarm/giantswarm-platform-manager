@@ -41,7 +41,6 @@ func (t *Tools) compare(ctx context.Context, env *planned, r installations.Repor
 	in := verify.Inputs{Source: verify.Source(len(back) > 0, len(typed) > 0), Values: values, ReadBack: back, Unset: unset}
 	res := verify.Compare(ctx, verify.Options{Definition: def, Installation: r.Installation, Hub: env.hub, State: capabilityState(r, def.Name), Inputs: in, Read: read, Content: content, Probes: t.d.Probes})
 	res.Caller = identity.Caller(ctx)
-	res.OptIn = r.OptIn
 	p := res.Plan()
 	dexApp, frozen := p.DexAppRefusal(r.Record), p.FrozenRefusal()
 	switch {
@@ -49,8 +48,6 @@ func (t *Tools) compare(ctx context.Context, env *planned, r installations.Repor
 		res.CommitRefused = fmt.Sprintf("the definition refuses these inputs for %s (refused says why); nothing is committed", r.Name)
 	case len(res.Inputs.Missing) > 0:
 		res.CommitRefused = missingChoices(def.Name, res.Inputs.Missing)
-	case r.OptIn != nil && r.OptIn.State != installations.OptedIn:
-		res.CommitRefused = fmt.Sprintf("%s is %s: %s", r.Name, r.OptIn.State, r.OptIn.HowToOptIn)
 	case dexApp != "":
 		res.CommitRefused = dexApp
 	case frozen != "":

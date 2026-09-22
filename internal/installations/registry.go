@@ -1,6 +1,6 @@
 // Package installations is the installations registry and what the manager
 // reads about each installation at call time, as the person: the registry
-// entries, the opt-in declaration, the facts on record in the installation's
+// entries, the facts on record in the installation's
 // config.yaml.patch and the enabled markers of the capabilities. Nothing here
 // is cached: every answer is what the repositories say now.
 package installations
@@ -86,7 +86,7 @@ type Repositories struct {
 	// Configs is the <customer>-configs repository: installations/<name>/.
 	Configs string `json:"configs,omitempty"`
 	// ManagementClusters is the <customer>-management-clusters repository:
-	// management-clusters/<name>/, where the opt-in declaration lives.
+	// management-clusters/<name>/.
 	ManagementClusters string `json:"managementClusters,omitempty"`
 }
 

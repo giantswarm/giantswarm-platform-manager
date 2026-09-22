@@ -203,8 +203,7 @@ type Include struct {
 type Installation struct {
 	Name string `json:"name"`
 	// State is the capability's state read from the repositories now.
-	State installations.State  `json:"state"`
-	OptIn *installations.OptIn `json:"optIn,omitempty"`
+	State installations.State `json:"state"`
 	// Inputs are the effective inputs: the record, the typed inputs over it.
 	Inputs map[string]any `json:"inputs"`
 	// MissingInputs names, by field, the required person inputs no layer
@@ -216,8 +215,9 @@ type Installation struct {
 	// render); the rest is empty then.
 	Refused string `json:"refused,omitempty"`
 	// CommitRefused says why a commit of this dry run would be refused (the
-	// definition refuses the inputs, the installation is not opted in, a
-	// generated value is frozen where it cannot rotate); empty when a commit
+	// definition refuses the inputs, the record's dex-app is too old for a
+	// referenced Dex client, a generated value is frozen where it cannot
+	// rotate); empty when a commit
 	// could go ahead.
 	CommitRefused    string            `json:"commitRefused,omitempty"`
 	Files            []File            `json:"files"`

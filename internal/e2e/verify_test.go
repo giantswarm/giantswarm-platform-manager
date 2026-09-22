@@ -165,8 +165,8 @@ func TestVerifyCapabilityAsDefined(t *testing.T) {
 	}
 	// The plan's view rides along: every file unchanged, nothing to open,
 	// the content only when asked for.
-	if len(res.Files) == 0 || res.Diff[plan.ChangeUnchanged] != len(res.Files) || len(res.PullRequests) != 0 || res.CommitRefused != "" || res.OptIn == nil || res.OptIn.State != installations.OptedIn || len(res.Probes) == 0 {
-		t.Errorf("plan view: %d files, diff %v, %d pull requests, commit refused %q, opt-in %+v, %d probes", len(res.Files), res.Diff, len(res.PullRequests), res.CommitRefused, res.OptIn, len(res.Probes))
+	if len(res.Files) == 0 || res.Diff[plan.ChangeUnchanged] != len(res.Files) || len(res.PullRequests) != 0 || res.CommitRefused != "" || len(res.Probes) == 0 {
+		t.Errorf("plan view: %d files, diff %v, %d pull requests, commit refused %q, %d probes", len(res.Files), res.Diff, len(res.PullRequests), res.CommitRefused, len(res.Probes))
 	}
 	if res.Files[0].Content != "" || res.Files[0].Current != "" {
 		t.Errorf("content without asking: %q on record %q", res.Files[0].Content, res.Files[0].Current)
@@ -420,7 +420,7 @@ func TestVerifyCapabilityFromTheRecord(t *testing.T) {
 	c := st.mcpClient(t, aliceToken)
 
 	res := verifyRowan(t, c, alder)
-	if res.Inputs.Source != verify.SourceRecord || res.State != installations.StateNotOptedIn || res.Refused != "" {
+	if res.Inputs.Source != verify.SourceRecord || res.State != installations.StateNotEnabled || res.Refused != "" {
 		t.Errorf("inputs %q state %q refused %q", res.Inputs.Source, res.State, res.Refused)
 	}
 	if facts, _ := res.Inputs.Values["installation"].(map[string]any); facts["name"] != alder {

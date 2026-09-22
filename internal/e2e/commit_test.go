@@ -1,7 +1,7 @@
 package e2e
 
-// mode commit of enable_capability over the invented registry: the opt-in
-// gate, the Action record, the encrypted files and the pull requests on
+// mode commit of enable_capability over the invented registry: the gate,
+// the Action record, the encrypted files and the pull requests on
 // gitops-commit's in-process remote — every GitHub read and every commit as
 // alice, no secret value anywhere but inside the encrypted files.
 
@@ -129,37 +129,29 @@ func listActionsOf(t *testing.T, c *client.Client, installation string) []action
 	return list.Actions
 }
 
-// The gate: an installation without the declaration, and one that says
-// optIn: false, are refused naming the file; the refusal is an Action in
-// state refused; nothing reaches the remote; the installation's state stands.
-func TestCommitRefusedWithoutOptIn(t *testing.T) {
-	for name, want := range map[string]string{alder: "is absent", willow: "says optIn: false"} {
-		t.Run(name, func(t *testing.T) {
-			st := newStack(t)
-			fixtures(st.ghs)
-			seedRemote(t, st)
-			c := st.mcpClient(t, aliceToken)
-			_, text, isErr := commitCall(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: name, tools.ArgInputs: minimalInputs(nil)})
-			if !isErr || !strings.Contains(text, "commit refused") || !strings.Contains(text, installations.OptInPath(name)) || !strings.Contains(text, want) {
-				t.Fatalf("refusal: %v %s", isErr, text)
-			}
-			m := actionOf.FindStringSubmatch(text)
-			if m == nil {
-				t.Fatalf("no action in the refusal: %s", text)
-			}
-			got := listActionsOf(t, c, name)
-			if len(got) != 1 || got[0].Name != m[1] || got[0].Status.State != actions.StateRefused || got[0].Spec.Actor.Login != alice || got[0].Spec.Kind != actions.KindEnable ||
-				got[0].Status.Result == nil || !strings.Contains(got[0].Status.Result.Message, installations.OptInPath(name)) || len(got[0].Status.PullRequests) != 0 {
-				t.Fatalf("recorded action: %+v", got)
-			}
-			if prs := st.remote.PullRequests(); len(prs) != 0 {
-				t.Fatalf("the remote saw %d pull request(s)", len(prs))
-			}
-			out, _, _ := listInstallations(t, c, map[string]any{tools.ArgInstallations: []any{name}})
-			if r := find(t, out, name); r.Capabilities[0].State != installations.StateNotOptedIn || r.Capabilities[0].LastAction == nil || r.Capabilities[0].LastAction.Name != m[1] {
-				t.Fatalf("after the refusal: %+v", r.Capabilities[0])
-			}
-		})
+// The gate: an installation whose repositories the person cannot read is
+// refused before any write; the refusal is an Action in state refused;
+// nothing reaches the remote.
+func TestCommitRefusedUnreadable(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	seedRemote(t, st)
+	c := st.mcpClient(t, aliceToken)
+	_, text, isErr := commitCall(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: "oak", tools.ArgInputs: minimalInputs(nil)})
+	if !isErr || !strings.Contains(text, "commit refused") || !strings.Contains(text, tools.SkippedUnreadable) {
+		t.Fatalf("refusal: %v %s", isErr, text)
+	}
+	m := actionOf.FindStringSubmatch(text)
+	if m == nil {
+		t.Fatalf("no action in the refusal: %s", text)
+	}
+	got := listActionsOf(t, c, "oak")
+	if len(got) != 1 || got[0].Name != m[1] || got[0].Status.State != actions.StateRefused || got[0].Spec.Actor.Login != alice || got[0].Spec.Kind != actions.KindEnable ||
+		got[0].Status.Result == nil || !strings.Contains(got[0].Status.Result.Message, tools.SkippedUnreadable) || len(got[0].Status.PullRequests) != 0 {
+		t.Fatalf("recorded action: %+v", got)
+	}
+	if prs := st.remote.PullRequests(); len(prs) != 0 {
+		t.Fatalf("the remote saw %d pull request(s)", len(prs))
 	}
 }
 

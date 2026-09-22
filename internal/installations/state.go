@@ -10,24 +10,16 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/render/customerportal"
 )
 
-// State is a capability's state on an installation. The first four are read
-// from the repositories now (stateOf): the fileset on record and the owners'
-// opt-in, two facts in one word; the last five come from the Action record
-// and the last verify, once those exist — the model carries them so they plug in.
+// State is a capability's state on an installation. The first two are read
+// from the repositories now (stateOf): whether the capability's fileset is on
+// record; the last five come from the Action record and the last verify, once
+// those exist — the model carries them so they plug in.
 type State string
 
 // The states, in the order an enablement moves through them.
 const (
-	// StateNotOptedIn: the installation carries no opt-in declaration (or
-	// optIn: false) and the capability's fileset is not on record; the
-	// manager may not act on it.
-	StateNotOptedIn State = "not opted in"
-	// StateEnabledNotOptedIn: the capability's fileset is on record — the
-	// installation's owners enabled it themselves — and the installation
-	// carries no opt-in declaration (or optIn: false): installed, and the
-	// manager may not write to it until the owners opt in.
-	StateEnabledNotOptedIn State = "enabled, not opted in"
-	// StateNotEnabled: opted in, and the capability's fileset is absent.
+	// StateNotEnabled: the capability's fileset is not on record. An enable
+	// puts it there; a wave never does, it reconciles what is on record.
 	StateNotEnabled State = "not enabled"
 	// StatePendingApproval: an enablement asked for approval and waits.
 	StatePendingApproval State = "pending approval"
@@ -35,7 +27,9 @@ const (
 	StateRollingOut State = "rolling out"
 	// StateWaitingForCustomer: the rollout needs an action of the customer.
 	StateWaitingForCustomer State = "waiting for the customer"
-	// StateEnabled: the capability's fileset is on record.
+	// StateEnabled: the capability's fileset is on record — its marker in the
+	// installation's repository, whoever put it there: the manager, or the
+	// installation's people by hand before the manager existed.
 	StateEnabled State = "enabled"
 	// StateDrifted: the last verify found the installation off its definition.
 	StateDrifted State = "drifted"
@@ -190,9 +184,9 @@ func (c Capability) Repository(repos Repositories) string {
 	return repos.Configs
 }
 
-// OnRecord says whether s is a repository state with the capability's fileset
-// on record: enabled, with the owners' opt-in or without it.
-func (s State) OnRecord() bool { return s == StateEnabled || s == StateEnabledNotOptedIn }
+// OnRecord says whether s is the repository state with the capability's
+// fileset on record.
+func (s State) OnRecord() bool { return s == StateEnabled }
 
 // FromAction says whether s is a state the Action record produces — one an
 // unfinished or failed action lets stand over the state read from the files.

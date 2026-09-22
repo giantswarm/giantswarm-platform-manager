@@ -69,7 +69,7 @@ type CommitResult struct {
 const branchPrefix = "platform/"
 
 // capabilityCommit is mode commit of both tools for one installation: the
-// opt-in gate, the Action in pending approval, the files encrypted for the
+// gate, the Action in pending approval, the files encrypted for the
 // repository's recipients, the pull requests as the caller in dependency order.
 func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[string]any) (any, error) {
 	id, _ := identity.FromContext(ctx)
@@ -119,7 +119,7 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	spec := actions.Spec{Actor: actions.Actor{Login: id.Login, ID: id.ID, Email: id.Email}, Capability: out.Capability, Installations: []string{one}, Inputs: inputs, Kind: kind,
 		InputsByInstallation: map[string]map[string]any{one: inputs}, Customer: env.byName[one].Customer != env.hub.Customer, Markers: markersOf(def, env, one)}
 
-	// The opt-in gate: the one condition the manager checks itself, read now.
+	// The gate: the installation is on record readably, read now.
 	if refusal := gateRefusal(*out, env.reports[one]); refusal != "" {
 		a, err := t.record(ctx, spec, actions.Status{State: actions.StateRefused, Result: &actions.Result{State: actions.StateRefused, Message: refusal, At: now()}})
 		if err != nil {
@@ -324,28 +324,15 @@ func closeOpen(ctx context.Context, remote commit.Remote, prs []actions.PullRequ
 }
 
 // gateRefusal is why the commit for r is refused, or "": the installation is
-// not on record readably, or its opt-in declaration is absent, false or
-// unreadable. It names the installation and the file every time.
+// not on record readably as the person — its repositories unknown to the
+// registry, or unreadable as you. It names the installation and the reason.
 func gateRefusal(out CapabilityResult, r installations.Report) string {
 	for _, s := range out.Skipped {
 		if s.Name == r.Name {
-			return fmt.Sprintf("%s is %s (%s); %s is read before any write and nothing is written blind", r.Name, s.Reason, strings.Join(s.Errors, "; "), installations.OptInPath(r.Name))
+			return fmt.Sprintf("%s is %s (%s); the record is read before any write and nothing is written blind", r.Name, s.Reason, strings.Join(s.Errors, "; "))
 		}
 	}
-	o := r.OptIn
-	if o == nil || o.State == installations.OptedIn {
-		return ""
-	}
-	var why string
-	switch {
-	case o.State == installations.OptInUnreadable:
-		why = "could not be read as you: " + o.Error
-	case !o.Present:
-		why = "is absent"
-	default:
-		why = "says optIn: false"
-	}
-	return fmt.Sprintf("%s is %s: %s in %s %s — %s", r.Name, o.State, o.Path, o.Repository, why, o.HowToOptIn)
+	return ""
 }
 
 // target is one repository's share of the commit: the files that change,

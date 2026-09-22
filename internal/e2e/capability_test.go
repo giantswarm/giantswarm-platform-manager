@@ -97,8 +97,8 @@ func TestEnableCapabilityDryRunRendersOneInstallation(t *testing.T) {
 		t.Fatalf("answer: %s", text)
 	}
 	p := out.Installations[0]
-	if p.State != installations.StateNotEnabled || p.CommitRefused != "" || p.Refused != "" || p.OptIn == nil || p.OptIn.State != installations.OptedIn {
-		t.Fatalf("plan head: state %q commitRefused %q refused %q optIn %+v", p.State, p.CommitRefused, p.Refused, p.OptIn)
+	if p.State != installations.StateNotEnabled || p.CommitRefused != "" || p.Refused != "" {
+		t.Fatalf("plan head: state %q commitRefused %q refused %q", p.State, p.CommitRefused, p.Refused)
 	}
 	if len(p.Files) < 15 || p.Diff[plan.ChangeUpdate] != 1 || p.Diff[plan.ChangeCreate] != len(p.Files)-1 {
 		t.Fatalf("files: %d, diff %v", len(p.Files), p.Diff)
@@ -208,9 +208,10 @@ func TestCapabilityToolsTakeTheCustomerPortal(t *testing.T) {
 	}
 }
 
-// An installation without the opt-in still gets its dry run; the answer says
-// a commit would be refused and how the owners opt in.
-func TestEnableCapabilityDryRunWithoutOptIn(t *testing.T) {
+// An installation with nothing of the capability on record gets its dry run
+// as a fresh enable when named: the whole fileset, nothing skipped. Its own
+// refusal is its dex-app on record (dexapp_test), not its state.
+func TestEnableCapabilityDryRunNotOnRecord(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	out, text, isErr := dryRun(t, st.mcpClient(t, aliceToken), tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: alder, tools.ArgInputs: minimalInputs(nil)})
@@ -218,8 +219,8 @@ func TestEnableCapabilityDryRunWithoutOptIn(t *testing.T) {
 		t.Fatal(text)
 	}
 	p := findPlan(t, out, alder)
-	if p.State != installations.StateNotOptedIn || !strings.Contains(p.CommitRefused, "not opted in") || !strings.Contains(p.CommitRefused, installations.OptInPath(alder)) || len(p.Files) == 0 || len(out.Skipped) != 0 {
-		t.Fatalf("plan: state %q commitRefused %q files %d skipped %+v", p.State, p.CommitRefused, len(p.Files), out.Skipped)
+	if p.State != installations.StateNotEnabled || p.Refused != "" || len(p.Files) == 0 || p.Diff[plan.ChangeCreate] == 0 || len(out.Skipped) != 0 {
+		t.Fatalf("plan: state %q refused %q files %d diff %v skipped %+v", p.State, p.Refused, len(p.Files), p.Diff, out.Skipped)
 	}
 }
 
@@ -270,9 +271,10 @@ func TestEnableCapabilityDryRunTypedInputs(t *testing.T) {
 	}
 }
 
-// The set: every opted-in, readable installation is rendered in the wave's
-// order (the hub first here: no test installation of its customer), the rest
-// is skipped with the reason; the hub's existing marker is an update.
+// The set: every readable installation with the capability on record is
+// rendered in the wave's order (the hub first here: no test installation of
+// its customer), the rest is skipped with the reason — a wave reconciles what
+// is on record and never enables; the hub's existing marker is an update.
 func TestReconcileCapabilityDryRunOverTheSet(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
@@ -280,15 +282,15 @@ func TestReconcileCapabilityDryRunOverTheSet(t *testing.T) {
 	if isErr {
 		t.Fatal(text)
 	}
-	if strings.Join(out.Order, ",") != "hazel,birch,rowan" {
+	if strings.Join(out.Order, ",") != "hazel,birch,maple" {
 		t.Fatalf("order: %v", out.Order)
 	}
 	skipped := map[string]string{}
 	for _, s := range out.Skipped {
 		skipped[s.Name] = s.Reason
 	}
-	// maple's fileset on record does not open the gate: without the declaration it is skipped like alder.
-	if len(skipped) != 5 || skipped[alder] != tools.SkippedNotOptedIn || skipped[maple] != tools.SkippedNotOptedIn || skipped["willow"] != tools.SkippedNotOptedIn || skipped["oak"] != tools.SkippedUnreadable || skipped["larch"] != tools.SkippedNoRepositories {
+	// maple's fileset on record, put there by hand, makes it a target; the installations without one are skipped.
+	if len(skipped) != 5 || skipped[alder] != tools.SkippedNotEnabled || skipped[rowan] != tools.SkippedNotEnabled || skipped["willow"] != tools.SkippedNotEnabled || skipped["oak"] != tools.SkippedUnreadable || skipped["larch"] != tools.SkippedNoRepositories {
 		t.Fatalf("skipped: %+v", out.Skipped)
 	}
 	hazel := findPlan(t, out, hub)

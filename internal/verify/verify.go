@@ -204,7 +204,6 @@ type Result struct {
 	LiveCaller string `json:"liveCaller,omitempty"`
 	// The plan's view, from the one build the comparison ran: what a commit
 	// would write for this installation (the dry run's entry, regrouped).
-	OptIn *installations.OptIn `json:"optIn,omitempty"`
 	// CommitRefused says why a commit of this plan would be refused.
 	CommitRefused    string                 `json:"commitRefused,omitempty"`
 	Files            []plan.File            `json:"files"`
@@ -235,7 +234,7 @@ func (r *Result) view(p plan.Installation, content bool) {
 // Plan is the result regrouped as the dry run's entry: what a commit would
 // write, without the marks.
 func (r Result) Plan() plan.Installation {
-	return plan.Installation{Name: r.Installation, State: r.State, OptIn: r.OptIn, Inputs: r.Inputs.Values, MissingInputs: r.Inputs.Missing, Refused: r.Refused, CommitRefused: r.CommitRefused,
+	return plan.Installation{Name: r.Installation, State: r.State, Inputs: r.Inputs.Values, MissingInputs: r.Inputs.Missing, Refused: r.Refused, CommitRefused: r.CommitRefused,
 		Files: r.Files, Includes: r.Includes, Diff: r.Diff, GeneratedSecrets: r.GeneratedSecrets, SuppliedSecrets: r.SuppliedSecrets,
 		DexClients: r.DexClients, CustomerActions: r.CustomerActions, Probes: r.Probes}
 }
@@ -320,8 +319,7 @@ func Compare(ctx context.Context, opts Options) Result {
 		r.addFeature(f)
 	}
 	// Drifted is an installation with the fileset on record off its
-	// definition, opted in or not; one not enabled differs everywhere and
-	// keeps saying so.
+	// definition; one not enabled differs everywhere and keeps saying so.
 	if r.Summary[Drifted] > 0 && r.State.OnRecord() {
 		r.State = installations.StateDrifted
 	}
