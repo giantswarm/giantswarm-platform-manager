@@ -266,6 +266,35 @@ func TestOwnMCPServersAreNotM19(t *testing.T) {
 	}
 }
 
+// A portal that lists its extensions one by one — the hub's Dev Portal,
+// graveler's — has the list replaced by the shared include: the include is
+// the definition's planned change and every entry the record lists beside
+// it is the same change, never drift beside it. The other includes the
+// definition renders are not named by the row.
+func TestPortalInlineExtensionsArePlanned(t *testing.T) {
+	rs, err := definitions.Removals(installations.CustomerPortal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rms := readRemovals(rs, facts{factDomain: testDomain})
+	appConfig := &fileDiff{path: "management-clusters/y/extras/backstage/backstage/app-config.yaml", kind: definitions.KindBackstage, documents: appConfigDocuments}
+	const doc = "data.values:backstage.appConfig:"
+	include := rms.reason(appConfig, doc+"app.extensions.$include")
+	if !strings.HasPrefix(include, "Changed: app.extensions includes") {
+		t.Fatalf("the include reads %q", include)
+	}
+	for _, path := range []string{"app.extensions[0]", "app.extensions[3]", "app.extensions[14].entity-card:catalog/labels", "app.extensions[29].page:scaffolder.config.title"} {
+		if got := rms.reason(appConfig, doc+path); !strings.HasPrefix(got, "Changed: the extensions are listed one by one") {
+			t.Errorf("%s reads %q, want the inline entries' planned change", path, got)
+		}
+	}
+	for _, path := range []string{"app.routes.$include", "app.extensionsX", "gs.adminGroups.$include"} {
+		if got := rms.reason(appConfig, doc+path); got != "" {
+			t.Errorf("%s reads %q, want no planned change", path, got)
+		}
+	}
+}
+
 // A key's placeholders are filled into its reason from the path they
 // matched: the mcp-* server's name from its extras directory, a Dex
 // client's from the map key or the Secret's file name, a ReferenceGrant's

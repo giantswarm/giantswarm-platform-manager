@@ -81,7 +81,8 @@ Key paths in `x-renders`, `removals.yaml` and `migrations.yaml` are normalised: 
   and never written into the portal's files. The portal includes the shared extensions list without the
   platform's section, with the Grafana dashboards card where the plugin is wired (`#extensionsGrafanaDashboards`:
   the card is disabled in the app until a portal opts in through its list); the Component's fragment includes the
-  platform's pair over it, reading the wiring off the record. The portal's environment stays the portal's: `backstage.extraEnvVars`
+  platform's pair over it, reading the wiring off the record. A portal that lists its extensions one by one today has
+  them replaced by the include: the entries are an `other-definition` removal, planned next to the include. The portal's environment stays the portal's: `backstage.extraEnvVars`
   is one list Helm replaces wholesale across the HelmRelease's values sources (the shared base's default, the
   portal's user-values, the Component's values), so the user-values are its one owner — the avatars host of
   every installation the portal shows that runs the platform as the CSP image source

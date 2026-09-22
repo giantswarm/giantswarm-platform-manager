@@ -109,10 +109,11 @@ func TestRemovalsNameThePlannedChanges(t *testing.T) {
 		{Key: "extras:agent-platform/kustomization.yaml patches[*]", Kind: template, Reason: "E2"},
 		{Key: "backstage:app-config:auth", Kind: other, Reason: "B1"},
 		{Key: "backstage:file:user-secrets.enc.yaml", Kind: other, Reason: "B2"},
+		{Key: "backstage:app-config:app.extensions[*]", Kind: other, Reason: "B3"},
 		{Key: "teleport:tunnels", Kind: "other", Reason: "ignored"},
 	}, nil)
-	if len(rms) != 9 {
-		t.Fatalf("%d removals read, want 9 (a prefix of no file kind is left out)", len(rms))
+	if len(rms) != 10 {
+		t.Fatalf("%d removals read, want 10 (a prefix of no file kind is left out)", len(rms))
 	}
 	patch := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
 	dexCM := &fileDiff{path: testDexPatch, kind: definitions.KindDexConfigMap}
@@ -149,6 +150,9 @@ func TestRemovalsNameThePlannedChanges(t *testing.T) {
 		{"not the platform Component's file of the same name", fragment, "data.app-config.agent-platform.yaml:auth.providers", ""},
 		{"a backstage file", secrets, "", "B2"},
 		{"another backstage file", appConfig, "", ""},
+		{"[*] in a fileset's key is an inline list entry", appConfig, "data.values:backstage.appConfig:app.extensions[3]", "B3"},
+		{"and every leaf of an entry with a colon in its key", appConfig, "data.values:backstage.appConfig:app.extensions[14].entity-card:catalog/labels", "B3"},
+		{"not the list's $include", appConfig, "data.values:backstage.appConfig:app.extensions.$include", ""},
 	} {
 		if got := rms.reason(tc.fd, tc.path); got != tc.want {
 			t.Errorf("%s: %s#%s planned %q, want %q", tc.name, tc.fd.path, tc.path, got, tc.want)
