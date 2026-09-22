@@ -130,3 +130,45 @@ func TestReconcileTargetsThroughTheBridge(t *testing.T) {
 		}
 	}
 }
+
+// A set's dry run prints each planned file's path and change, and its content
+// only with --content — the manager's own default for a set, asked for
+// explicitly by the flag either way.
+func TestSetDryRunContentThroughTheBridge(t *testing.T) {
+	path := "acme/lab-configs/installations/lab/apps/agent-platform/configmap-values.yaml.patch"
+	code, out, errs := bridge(t, "connected", "installation", "reconcile", "lab", "hazel", agentPlatform, "--dry-run")
+	if code != exitOK {
+		t.Fatalf("exit %d, stderr %q", code, errs)
+	}
+	if !strings.Contains(out, "installations/lab/apps/agent-platform/configmap-values.yaml.patch") || strings.Contains(out, mustertest.FileContent) {
+		t.Fatalf("without --content: got\n%s", out)
+	}
+	code, out, errs = bridge(t, "connected", "installation", "reconcile", "lab", "hazel", agentPlatform, "--dry-run", "--content")
+	if code != exitOK {
+		t.Fatalf("exit %d, stderr %q", code, errs)
+	}
+	if !strings.Contains(out, "--- "+path+" (update)\n"+mustertest.FileContent) {
+		t.Fatalf("with --content: got\n%s", out)
+	}
+}
+
+// An answer above the manager's limit is the manager's refusal, printed as
+// the tool's error with the size and the limit — the command ends at once,
+// it never waits for an answer the path drops.
+func TestAnAnswerAboveTheLimitIsAnErrorNotAWait(t *testing.T) {
+	for _, args := range [][]string{
+		{"installation", "reconcile", "lab", mustertest.Oversized, agentPlatform, "--dry-run", "--content"},
+		{"installation", "enable", mustertest.Oversized, agentPlatform, "--dry-run", "--content"},
+	} {
+		code, out, errs := bridge(t, "connected", append(args, "--timeout", "20s")...)
+		if code != exitError {
+			t.Errorf("%v: exit %d, stdout %q, stderr %q", args, code, out, errs)
+			continue
+		}
+		for _, want := range []string{"platformctl: " + args[1] + "_capability: the answer is ", " bytes (1.0 MiB), above the 1048576 bytes (1.0 MiB)", "ask for less"} {
+			if !strings.Contains(errs, want) {
+				t.Errorf("%v: stderr %q lacks %q", args, errs, want)
+			}
+		}
+	}
+}

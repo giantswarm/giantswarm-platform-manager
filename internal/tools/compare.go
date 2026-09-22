@@ -78,9 +78,32 @@ func missingChoices(capability string, fields []string) string {
 	return "Choose " + strings.Join(parts, "; ") + " before a commit."
 }
 
-// dryRun is the result regrouped as the dry run's entry.
-func dryRun(res *verify.Result) DryRun {
-	return DryRun{Installation: res.Plan(), Features: res.Features, Summary: res.Summary}
+// dryRun is the result regrouped as the dry run's entry. One installation's
+// entry carries the comparison with its evidence, as verify_capability
+// answers it; a set's entry carries it rolled up — every dimension with its
+// mark and reason, none of the differences, files compared or probe details
+// — so a wave's answer stays in proportion to the set.
+func dryRun(res *verify.Result, evidence bool) DryRun {
+	features := res.Features
+	if !evidence {
+		features = rolledUp(features)
+	}
+	return DryRun{Installation: res.Plan(), Features: features, Summary: res.Summary}
+}
+
+// rolledUp is the features with each dimension's mark and reason and none of
+// the evidence behind them.
+func rolledUp(features []verify.Feature) []verify.Feature {
+	out := make([]verify.Feature, len(features))
+	for i, f := range features {
+		dims := make([]verify.Dimension, len(f.Dimensions))
+		for j, d := range f.Dimensions {
+			dims[j] = verify.Dimension{ID: d.ID, Kind: d.Kind, Key: d.Key, Mark: d.Mark, Reason: d.Reason}
+		}
+		f.Dimensions = dims
+		out[i] = f
+	}
+	return out
 }
 
 // plans are the entries' plans.

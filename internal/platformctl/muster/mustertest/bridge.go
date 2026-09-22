@@ -10,11 +10,12 @@ package mustertest
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
+	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 )
@@ -37,6 +38,14 @@ const (
 	Caller     = "admin"
 	Hub        = "hub"
 	LiveCaller = "admin@example.test"
+	// FileContent is the rendered content of the one file every dry run
+	// plans per installation, answered when content is asked for (the
+	// manager's default for one installation, not for a set).
+	FileContent = "kagent:\n  enabled: true\n"
+	// Oversized is an installation whose one file's content alone is above
+	// the manager's answer limit: a dry run with content over it is the
+	// manager's refusal, never an answer.
+	Oversized = "oversized"
 )
 
 // Registry is every installation of the fake manager's registry, in wave
@@ -119,10 +128,11 @@ func Manager(connected bool) map[string]Tool {
 	}
 	m["x_"+server+"_"+tools.ToolEnableCapability] = func(_ context.Context, args map[string]any) *mcp.CallToolResult {
 		dryRun, _ := args[tools.ArgDryRun].(bool)
+		order := []string{str(args[tools.ArgInstallation])}
 		return document(tools.CapabilityResult{
 			Caller: Caller, Hub: Hub, Tool: tools.ToolEnableCapability,
 			Capability: str(args[tools.ArgCapability]), DryRun: dryRun,
-			Order: []string{str(args[tools.ArgInstallation])},
+			Order: order, Installations: entries(order, content(args, true)),
 		})
 	}
 	m["x_"+server+"_"+tools.ToolReconcileCapability] = func(_ context.Context, args map[string]any) *mcp.CallToolResult {
@@ -144,7 +154,7 @@ func Manager(connected bool) map[string]Tool {
 		}
 		capability := str(args[tools.ArgCapability])
 		if str(args[tools.ArgMode]) != string(tools.ModeCommit) {
-			return document(tools.CapabilityResult{Caller: Caller, Hub: Hub, Tool: tools.ToolReconcileCapability, Capability: capability, DryRun: true, Order: order})
+			return document(tools.CapabilityResult{Caller: Caller, Hub: Hub, Tool: tools.ToolReconcileCapability, Capability: capability, DryRun: true, Order: order, Installations: entries(order, content(args, !set))})
 		}
 		if set {
 			return document(tools.WaveResult{Caller: Caller, Hub: Hub, Tool: tools.ToolReconcileCapability, Capability: capability, Order: order})
@@ -168,13 +178,36 @@ func Manager(connected bool) map[string]Tool {
 	return m
 }
 
-// document is a tool's JSON answer, indented the way the manager prints it.
-func document(v any) *mcp.CallToolResult {
-	b, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("marshal: %v", err))
+// content says whether a dry run answers the files' content: as asked, else
+// the manager's default — for one installation's plan, not for a set's.
+func content(args map[string]any, whole bool) bool {
+	if v, ok := args[tools.ArgContent].(bool); ok {
+		return v
 	}
-	return mcp.NewToolResultText(string(b))
+	return whole
+}
+
+// entries are the dry run's entries: one planned file per installation, its
+// content when asked for; Oversized's content is above the answer limit.
+func entries(order []string, content bool) []tools.DryRun {
+	out := make([]tools.DryRun, 0, len(order))
+	for _, name := range order {
+		f := plan.File{Repository: "acme/" + name + "-configs", Path: "installations/" + name + "/apps/agent-platform/configmap-values.yaml.patch", Change: plan.ChangeUpdate}
+		if content {
+			f.Content = FileContent
+			if name == Oversized {
+				f.Content = strings.Repeat("x", tools.AnswerLimit)
+			}
+		}
+		out = append(out, tools.DryRun{Installation: plan.Installation{Name: name, Files: []plan.File{f}, Diff: map[plan.Change]int{plan.ChangeUpdate: 1}}})
+	}
+	return out
+}
+
+// document is a tool's JSON answer as the manager renders it, its answer
+// limit included.
+func document(v any) *mcp.CallToolResult {
+	return tools.Answer(v)
 }
 
 func str(v any) string {
