@@ -183,7 +183,7 @@ func TestEveryReadBackNamesADeclaredFile(t *testing.T) {
 func TestInputSummary(t *testing.T) {
 	const customerPortal = "customer-portal"
 	for _, tc := range []struct{ capability, field, want string }{
-		{customerPortal, "plugins.grafana.domain", "the Grafana instance the plugin links to"},
+		{customerPortal, "plugins.grafana.domain", "the installation's own Grafana"},
 		{customerPortal, "portal.domain", "the portal's hostname"},
 		{customerPortal, "chart.line", "the semver range the portal's OCIRepository follows"},
 		{customerPortal, "portal.supportUrl", "where the home page's support link goes"},

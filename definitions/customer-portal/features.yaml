@@ -29,7 +29,7 @@ features:
       - {id: app-telemetry, kind: backstage, key: app-config.yaml app.telemetrydeck / app.errorReporter / backend.errorReporter / backend.csp.report-uri}
       - {id: backend, kind: backstage, key: "app-config.yaml backend (baseUrl, listen, cors, csp, database, cache, reading)"}
       - {id: kubernetes-cluster, kind: backstage, key: "app-config.yaml kubernetes.clusterLocatorMethods[*].clusters[*] / kubernetes (the locator methods themselves)"}
-      - {id: plugins, kind: backstage, key: app-config.yaml integrations.github / grafana / flux / permission / techdocs}
+      - {id: plugins, kind: backstage, key: app-config.yaml integrations.github / grafana / proxy / flux / permission / techdocs}
       - {id: gs-homepage-and-installation, kind: backstage, key: app-config.yaml gs.homepage / gs.installations.<name>}
       - {id: route, kind: backstage, key: user-values.yaml route}
       - {id: extra-env-vars, kind: backstage, key: user-values.yaml backstage.extraEnvVars}

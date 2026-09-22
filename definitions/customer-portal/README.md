@@ -59,7 +59,15 @@ is `<name>`. A path covers every key beneath it.
   telemetry salt and the plugin-to-plugin signing key pair. What a person supplies at commit is named by
   field: the GitHub App's `plugins.github.appId`, `clientId`, `clientSecret`, `privateKey` and `webhookSecret` (the id
   is no credential, but it lives only in the encrypted file, so it is supplied like them and never set in the
-  inputs), and Sentry's `plugins.sentry.appDsn`, `backendDsn` and `reportUri`.
+  inputs), Sentry's `plugins.sentry.appDsn`, `backendDsn` and `reportUri`, and the service-account token of the
+  installation's Grafana, `plugins.grafana.token`, where the Grafana plugin is wired.
+- The Grafana plugin links the installation's own Grafana, `https://grafana.<base domain>`. The `grafana:` section
+  is always rendered with that one host under the installation's name: the plugin's config schema requires the
+  section, and a portal without it does not start. `plugins.grafana.enabled` says whether the plugin is wired —
+  the proxy entry `/grafana/api` against the installation's Grafana with the supplied token's Secret value — and
+  reads back from the proxy entry's presence. The host is a registry input (`plugins.grafana.domain`), derived
+  from the base domain and never typed; its read-back shows the Grafana a portal names on record next to the
+  installation's, and a portal that names another one is off the definition at the host.
 - The `dexAuthCredentials` leaves of `user-secrets-backstage` are base64: the chart copies each entry's
   `clientID` and `clientSecret` under its Secret's `data:` as they are and the pod loads that Secret with
   `envFrom`, so the values have to be the base64 of the id and of the secret. The portal's own entry carries

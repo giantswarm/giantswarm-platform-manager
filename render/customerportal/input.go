@@ -31,8 +31,9 @@ var (
 // The supplied fields: the GitHub App's id and credentials when the github
 // plugin is on (the id is no credential, but it lives only in the encrypted
 // file, so no read-back recovers it and it is supplied like them), the
-// Sentry DSNs and report URI when sentry is on. Named after the chart values
-// they fill.
+// Sentry DSNs and report URI when sentry is on, the Grafana service-account
+// token when the Grafana plugin is wired. Named after the chart values they
+// fill.
 const (
 	fieldGitHubAppID         = "plugins.github.appId"
 	fieldGitHubClientID      = "plugins.github.clientId"
@@ -42,12 +43,17 @@ const (
 	fieldSentryAppDSN        = "plugins.sentry.appDsn"
 	fieldSentryBackendDSN    = "plugins.sentry.backendDsn"
 	fieldSentryReportURI     = "plugins.sentry.reportUri"
+	fieldGrafanaToken        = "plugins.grafana.token" // #nosec G101 -- a field name, not a value
 	// fieldTokenBroker prefixes the broker client's credentials; a federated
 	// installation's are federation.<name>.clientId and clientSecret.
 	fieldTokenBroker   = "federation.tokenBroker"
 	suffixClientID     = ".clientId"
 	suffixClientSecret = ".clientSecret" // #nosec G101 -- a field name, not a value
 )
+
+// inputGrafanaDomain is the schema's leaf for the Grafana host: a registry
+// input the render derives, refused when the document sets it.
+const inputGrafanaDomain = "plugins.grafana.domain"
 
 // federationField is the supplied field of a federated installation's or the
 // broker's client credential.
@@ -143,7 +149,10 @@ type GitHub struct {
 	AppID   int  `json:"appId"`
 }
 
-// Grafana is the Grafana plugin.
+// Grafana is the Grafana plugin: Enabled says whether it is wired. Domain is
+// never set in the document: the host is the installation's own Grafana,
+// derived from installation.baseDomain, and the schema lists the leaf for
+// its read-back and the keys it renders.
 type Grafana struct {
 	Enabled bool   `json:"enabled"`
 	Domain  string `json:"domain"`
@@ -259,6 +268,9 @@ func (in *Input) check(secrets map[string]string, mode render.Mode) error {
 	if in.Plugins.GitHub.AppID != 0 {
 		return fmt.Errorf("%w: %s: supplied at commit like the GitHub App's credentials, not an input", ErrInput, fieldGitHubAppID)
 	}
+	if in.Plugins.Grafana.Domain != "" {
+		return fmt.Errorf("%w: %s: the installation's own Grafana, derived from installation.baseDomain, not an input", ErrInput, inputGrafanaDomain)
+	}
 	if !slices.Contains(in.Installation.Providers, in.Installation.Provider) {
 		return fmt.Errorf("%w: installation.providers: the installation's own provider %s is not among them", ErrInput, in.Installation.Provider)
 	}
@@ -328,6 +340,9 @@ func (in *Input) suppliedSecretFields() []string {
 	}
 	if in.Plugins.Sentry.Enabled {
 		fields = append(fields, fieldSentryAppDSN, fieldSentryBackendDSN, fieldSentryReportURI)
+	}
+	if in.Plugins.Grafana.Enabled {
+		fields = append(fields, fieldGrafanaToken)
 	}
 	for _, inst := range in.providerInstallations() {
 		if inst.Name != in.Installation.Name {

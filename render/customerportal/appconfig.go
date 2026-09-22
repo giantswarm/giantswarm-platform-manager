@@ -24,10 +24,12 @@ const (
 	// entry by.
 	supportLabel = "Giant Swarm \n Support"
 	supportIcon  = "LiveHelp"
-	// grafanaHostID is the id of the one Grafana host the plugin lists, as
-	// the fleet's portals name it; with one host no entity needs the
-	// grafana/host-id annotation.
-	grafanaHostID = "grafana-net"
+	// grafanaProxy is the proxy endpoint the Grafana plugin's dashboards
+	// card reads Grafana's search API through, the plugin's default path;
+	// grafanaTokenVar is the chart's environment variable for the
+	// service-account token (grafana.apiToken of the user secrets).
+	grafanaProxy    = "/grafana/api"
+	grafanaTokenVar = "GRAFANA_TOKEN"
 )
 
 // include is a $include of an anchor of the base's shared-config.yaml.
@@ -83,8 +85,10 @@ func (in *Input) appConfig() render.Map {
 			e("providers", in.oidcProviders()),
 		}),
 	)
+	m = append(m, e("grafana", in.grafanaSection()))
 	if in.Plugins.Grafana.Enabled {
-		m = append(m, e("grafana", render.Map{e("hosts", []render.Map{{e("id", grafanaHostID), e("domain", in.Plugins.Grafana.Domain)}})}))
+		m = append(m, e("proxy", render.Map{e("endpoints", render.Map{e(grafanaProxy, render.Map{
+			e("target", in.grafanaURL()+"/"), e("headers", render.Map{e("Authorization", "Bearer "+envVar(grafanaTokenVar))})})})}))
 	}
 	if in.Plugins.Flux.Enabled {
 		flux := render.Map{}
@@ -94,6 +98,16 @@ func (in *Input) appConfig() render.Map {
 		m = append(m, e("flux", flux))
 	}
 	return append(m, e("gs", in.gsSection()), e("catalog", include("catalog")))
+}
+
+// grafanaSection is grafana: the one host the plugin links, the
+// installation's own Grafana under the installation's name. Never dropped:
+// the plugin's config schema requires the section, and a portal without it
+// fails to start; with one host no entity needs the grafana/host-id
+// annotation. Wired (plugins.grafana.enabled), the proxy entry the
+// dashboards card reads through follows it in appConfig.
+func (in *Input) grafanaSection() render.Map {
+	return render.Map{e("hosts", []render.Map{{e("id", in.Installation.Name), e("domain", in.grafanaURL())}})}
 }
 
 // appSection is app: the portal's identity, the shared extensions and routes,

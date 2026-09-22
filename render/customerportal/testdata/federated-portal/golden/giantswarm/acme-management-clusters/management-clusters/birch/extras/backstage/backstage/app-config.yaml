@@ -98,6 +98,10 @@ data:
                 metadataUrl: https://dex.alder.acme.example.test/.well-known/openid-configuration
                 clientId: $${AUTH_DEX_ALDER_CLIENT_ID}
                 clientSecret: $${AUTH_DEX_ALDER_CLIENT_SECRET}
+        grafana:
+          hosts:
+            - id: birch
+              domain: https://grafana.birch.acme.example.test
         gs:
           authProvider: oidc-alder
           auth:

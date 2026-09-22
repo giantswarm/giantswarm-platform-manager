@@ -27,8 +27,12 @@ var update = flag.Bool("update", false, "rewrite the golden filesets from the cu
 // shapes are the portal shapes with a golden fileset under testdata/<shape>/.
 var shapes = []string{"customer-portal", "giantswarm-owned-with-platform", "federated-portal"}
 
-// enabledKey is the on/off switch of every plugin section.
-const enabledKey = "enabled"
+// enabledKey is the on/off switch of every plugin section; domainKey the
+// portal's and the Grafana host's domain leaf.
+const (
+	enabledKey = "enabled"
+	domainKey  = "domain"
+)
 
 func loadInput(t *testing.T, shape string) (map[string]any, map[string]string) {
 	t.Helper()
@@ -181,7 +185,7 @@ func TestDexClientOwnership(t *testing.T) {
 	// The agent-platform definition, given the portal's domain and the chart line this definition wrote, carries the same entry.
 	apInput, apSecrets := agentPlatformInput(t, "public-customer")
 	apInput["installation"].(map[string]any)["name"] = "hazel"
-	apInput["installation"].(map[string]any)["portals"] = []any{map[string]any{"installation": "hazel", "customer": "oakridge", "domain": "portal.hazel.example.test", "clientId": render.PortalDexClientID, "chartLine": input["chart"].(map[string]any)["line"]}}
+	apInput["installation"].(map[string]any)["portals"] = []any{map[string]any{"installation": "hazel", "customer": "oakridge", domainKey: "portal.hazel.example.test", "clientId": render.PortalDexClientID, "chartLine": input["chart"].(map[string]any)["line"]}}
 	apResult, err := agentplatform.Render(apInput, apSecrets, render.ModeCommit)
 	if err != nil {
 		t.Fatal(err)
@@ -363,7 +367,7 @@ func TestNoFileOrObjectIsRenderedByTwoDefinitions(t *testing.T) {
 		t.Fatalf("the fixtures are of two organisations, %s and %s, and never meet in one repository", apInstallation["customer"], customer)
 	}
 	apInstallation["name"], apInstallation["baseDomain"] = name, installation["baseDomain"]
-	apInstallation["portals"] = []any{map[string]any{"installation": name, "customer": customer, "domain": input["portal"].(map[string]any)["domain"],
+	apInstallation["portals"] = []any{map[string]any{"installation": name, "customer": customer, domainKey: input["portal"].(map[string]any)[domainKey],
 		"clientId": render.PortalDexClientID, "chartLine": input["chart"].(map[string]any)["line"]}}
 	platform, err := agentplatform.Render(apInput, apSecrets, render.ModeCommit)
 	if err != nil {
@@ -513,10 +517,9 @@ func TestProbesAreLiveDimensions(t *testing.T) {
 // A required person input no layer of the document holds is a choice not
 // on record: a comparison renders its Missing marker and names it, never
 // refusing; a commit refuses it by field. The rule is the input layer's,
-// not a field's: the grafana domain when the plugin is on, and the
-// portal's domain, organisation and chart line of a portal not on record
-// follow it alike. A registry fact the document lacks refuses either way,
-// and the caller's document is left as it is.
+// not a field's: the portal's domain, organisation and chart line of a
+// portal not on record follow it alike. A registry fact the document lacks
+// refuses either way, and the caller's document is left as it is.
 func TestMissingChoicesCompareNeverRefuses(t *testing.T) {
 	base, secrets := loadInput(t, "customer-portal")
 	clone := func(mutate func(map[string]any)) map[string]any {
@@ -526,11 +529,9 @@ func TestMissingChoicesCompareNeverRefuses(t *testing.T) {
 		mutate(c)
 		return c
 	}
-	const grafanaDomain = "plugins.grafana.domain"
-	grafanaOn := clone(func(m map[string]any) { m["plugins"].(map[string]any)["grafana"] = map[string]any{enabledKey: true} })
 	notOnRecord := clone(func(m map[string]any) {
 		delete(m, "chart")
-		delete(m["portal"].(map[string]any), "domain")
+		delete(m["portal"].(map[string]any), domainKey)
 		delete(m["portal"].(map[string]any), "organization")
 	})
 	for _, c := range []struct {
@@ -538,7 +539,6 @@ func TestMissingChoicesCompareNeverRefuses(t *testing.T) {
 		input   map[string]any
 		missing []string
 	}{
-		{"grafana on without its domain", grafanaOn, []string{grafanaDomain}},
 		{"a portal not on record", notOnRecord, []string{"chart.line", "portal.domain", "portal.organization"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -564,9 +564,6 @@ func TestMissingChoicesCompareNeverRefuses(t *testing.T) {
 					t.Errorf("no file carries %s", render.Missing(field))
 				}
 			}
-			if appConfig := string(tree[appConfigOf(t, tree)]); c.missing[0] == grafanaDomain && !strings.Contains(appConfig, "domain: "+render.Missing(grafanaDomain)) {
-				t.Errorf("the app-config's grafana section carries no marker:\n%s", appConfig)
-			}
 			if after, _ := yaml.Marshal(c.input); !bytes.Equal(before, after) {
 				t.Errorf("the caller's document changed:\n%s", after)
 			}
@@ -589,16 +586,86 @@ func TestMissingChoicesCompareNeverRefuses(t *testing.T) {
 	}
 }
 
-// appConfigOf is the app-config's path in a rendered tree.
-func appConfigOf(t *testing.T, tree map[string][]byte) string {
+// fileOf is the path of the portal's file of that name in a rendered tree.
+func fileOf(t *testing.T, tree map[string][]byte, file string) string {
 	t.Helper()
 	for name := range tree {
-		if strings.HasSuffix(name, "/"+appConfigFile) {
+		if strings.HasSuffix(name, "/"+file) {
 			return name
 		}
 	}
-	t.Fatal("no app-config in the tree")
+	t.Fatalf("no %s in the tree", file)
 	return ""
+}
+
+// appConfigDoc is the portal's app-config of a rendered tree, decoded: the
+// YAML text of backstage.appConfig in the ConfigMap's values.
+func appConfigDoc(t *testing.T, tree map[string][]byte) map[string]any {
+	t.Helper()
+	var cm struct {
+		Data struct {
+			Values string `yaml:"values"`
+		} `yaml:"data"`
+	}
+	if err := yaml.Unmarshal(tree[fileOf(t, tree, appConfigFile)], &cm); err != nil {
+		t.Fatal(err)
+	}
+	var values struct {
+		Backstage struct {
+			AppConfig string `yaml:"appConfig"`
+		} `yaml:"backstage"`
+	}
+	if err := yaml.Unmarshal([]byte(cm.Data.Values), &values); err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := yaml.Unmarshal([]byte(values.Backstage.AppConfig), &doc); err != nil {
+		t.Fatal(err)
+	}
+	return doc
+}
+
+// The Grafana section is never dropped — the plugin's config schema requires
+// it, and a portal without it does not start — and names one host: the
+// installation's own Grafana, under the installation's name. Wired, the proxy
+// entry the dashboards card reads through targets it with the token's
+// environment variable, and the user secrets carry the token as the chart
+// reads it; not wired, neither is rendered.
+func TestGrafanaIsTheInstallationsOwn(t *testing.T) {
+	for _, shape := range shapes {
+		t.Run(shape, func(t *testing.T) {
+			input, secrets := loadInput(t, shape)
+			result, err := Render(input, secrets, render.ModeCommit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tree := result.Tree()
+			appConfig := appConfigDoc(t, tree)
+			inst := input["installation"].(map[string]any)
+			name, grafana := inst["name"].(string), "https://grafana."+inst["baseDomain"].(string)
+			section, _ := appConfig["grafana"].(map[string]any)
+			if want := []any{map[string]any{"id": name, domainKey: grafana}}; !reflect.DeepEqual(section["hosts"], want) {
+				t.Errorf("grafana section %v, want hosts %v", section, want)
+			}
+			wired := input["plugins"].(map[string]any)["grafana"].(map[string]any)[enabledKey] == true
+			proxy, hasProxy := appConfig["proxy"]
+			userSecrets := string(tree[fileOf(t, tree, userSecretsFile)])
+			if !wired {
+				if hasProxy || strings.Contains(userSecrets, "grafana") {
+					t.Errorf("not wired, yet the app-config carries %v and the user secrets:\n%s", proxy, userSecrets)
+				}
+				return
+			}
+			endpoint, _ := proxy.(map[string]any)["endpoints"].(map[string]any)[grafanaProxy].(map[string]any)
+			headers, _ := endpoint["headers"].(map[string]any)
+			if endpoint["target"] != grafana+"/" || headers["Authorization"] != "Bearer "+envVar(grafanaTokenVar) {
+				t.Errorf("proxy entry %v", proxy)
+			}
+			if token := base64.StdEncoding.EncodeToString([]byte(secrets[fieldGrafanaToken])); !strings.Contains(userSecrets, "grafana:\n      apiToken: "+token+"\n") {
+				t.Errorf("the user secrets do not carry the token as the chart reads it:\n%s", userSecrets)
+			}
+		})
+	}
 }
 
 func TestRefusals(t *testing.T) {
@@ -610,7 +677,11 @@ func TestRefusals(t *testing.T) {
 		mutate(c)
 		return c
 	}
-	withoutGitHub := clone(func(m map[string]any) { m["plugins"].(map[string]any)["github"] = map[string]any{enabledKey: false} })
+	// withoutSupplied switches off every plugin that takes a supplied value.
+	withoutSupplied := clone(func(m map[string]any) {
+		m["plugins"].(map[string]any)["github"] = map[string]any{enabledKey: false}
+		m["plugins"].(map[string]any)["grafana"] = map[string]any{enabledKey: false}
+	})
 	// federation is a federation input over the installations listed, each
 	// with its facts on record, and the fields given (signInInstallation).
 	federation := func(fields map[string]any, names ...string) map[string]any {
@@ -636,9 +707,12 @@ func TestRefusals(t *testing.T) {
 		{"github without its app id", base, without(secrets, fieldGitHubAppID), ErrEmptySecret, fieldGitHubAppID},
 		{"app id not a number", base, with(secrets, fieldGitHubAppID, "one"), ErrInput, fieldGitHubAppID},
 		{"app id not positive", base, with(secrets, fieldGitHubAppID, "0"), ErrInput, fieldGitHubAppID},
-		{"grafana without a domain", clone(func(m map[string]any) { m["plugins"].(map[string]any)["grafana"] = map[string]any{enabledKey: true} }), secrets, ErrInput, "plugins.grafana.domain"},
+		{"grafana with the host as an input", clone(func(m map[string]any) {
+			m["plugins"].(map[string]any)["grafana"] = map[string]any{enabledKey: true, domainKey: "https://grafana.example.test"}
+		}), secrets, ErrInput, inputGrafanaDomain},
+		{"grafana wired without its token", base, without(secrets, fieldGrafanaToken), ErrEmptySecret, fieldGrafanaToken},
 		{"missing supplied secret", base, map[string]string{fieldGitHubAppID: "1", fieldGitHubClientID: "x"}, ErrEmptySecret, fieldGitHubClientSecret},
-		{"unknown secret value", withoutGitHub, map[string]string{fieldGitHubClientID: "x"}, ErrUnknownSecret, fieldGitHubClientID},
+		{"unknown secret value", withoutSupplied, map[string]string{fieldGitHubClientID: "x"}, ErrUnknownSecret, fieldGitHubClientID},
 		{"sentry without its values", clone(func(m map[string]any) { m["plugins"].(map[string]any)["sentry"] = map[string]any{enabledKey: true} }), secrets, ErrEmptySecret, fieldSentryAppDSN},
 		{"providers without the installation's own", clone(func(m map[string]any) { m["installation"].(map[string]any)["providers"] = []any{"capv"} }), secrets, ErrInput, "installation.providers"},
 		{"federation lists the portal's own installation", clone(func(m map[string]any) { m["federation"] = federation(map[string]any{}, "maple") }), secrets, ErrInput, "federation.installations"},

@@ -98,7 +98,7 @@ const (
 // Render turns an installation's inputs into its fileset. raw is the decoded
 // input document (map[string]any at the top, as a YAML or JSON decoder returns
 // it); secrets carries the values the person supplies, by field name — the
-// GitHub App's credentials, the Sentry DSNs. Everything else the portal needs
+// GitHub App's credentials, the Sentry DSNs, the Grafana token. Everything else the portal needs
 // is a placeholder the commit step generates. mode says what the render is
 // for: a commit refuses a required person input the document lacks, a
 // comparison renders its Missing marker.
@@ -144,6 +144,10 @@ func hostOn(component, baseDomain string) string { return component + "." + base
 
 // portalURL is the portal's origin.
 func (in *Input) portalURL() string { return "https://" + in.Portal.Domain }
+
+// grafanaURL is the installation's own Grafana, the one the portal's
+// Grafana plugin links and, wired, reads through the proxy.
+func (in *Input) grafanaURL() string { return "https://" + in.host("grafana") }
 
 // authProvider is the portal's sign-in provider: on the Dex of the
 // installation that signs people in.
@@ -231,9 +235,12 @@ func generated(name string, kind render.GeneratedKind, length int) render.Genera
 // installations' names (the chart exposes them as AUTH_DEX_<NAME>_CLIENT_ID
 // and _CLIENT_SECRET: the portal's own generated; another installation's the
 // portal has a provider for, and the token broker's, supplied), the
-// telemetry salt and, with sentry on, the DSNs. The Dex clients' leaves are
-// base64 (dexCredentials); the portal's own client secret is the generated
-// value the Dex client's Secret carries raw, at its encoded placeholder.
+// telemetry salt, with sentry on the DSNs and, with the Grafana plugin
+// wired, the Grafana token (grafana.apiToken, the chart's GRAFANA_TOKEN).
+// The Dex clients' leaves and the Grafana token are base64 (the chart copies
+// them under its Secret's data as they are); the portal's own client secret
+// is the generated value the Dex client's Secret carries raw, at its encoded
+// placeholder.
 func (in *Input) userSecrets(secrets map[string]string) render.File {
 	session := generated(generatedSessionSecret, render.Base64, 32)
 	client := generated(in.Installation.Name+"-"+generatedDexClientSecret, render.Base64, 32).Encoded(render.EncodedBase64)
@@ -260,6 +267,9 @@ func (in *Input) userSecrets(secrets map[string]string) render.File {
 			e("backend", render.Map{e("dsn", secrets[fieldSentryBackendDSN])}),
 			e("reportURI", secrets[fieldSentryReportURI]),
 		}))
+	}
+	if in.Plugins.Grafana.Enabled {
+		values = append(values, e("grafana", render.Map{e("apiToken", base64Leaf(secrets[fieldGrafanaToken]))}))
 	}
 	return valuesSecret(userSecretsName, values, session, client, salt)
 }

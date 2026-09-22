@@ -205,6 +205,9 @@ func TestEveryDimensionNamesLeavesOrIsTheCatchAll(t *testing.T) {
 	}
 }
 
+// pluginsDimension is the customer-portal dimension that observes the plugins' sections.
+const pluginsDimension = "plugins"
+
 // The portal's kustomization and values leaves reach their dimensions, the
 // cluster locator's leaves the dimension whose key has [*], and every leaf
 // of the dex patch the one dimension of its kind, the catch-all. A leaf no
@@ -228,7 +231,9 @@ func TestRoutesThePortalsLeaves(t *testing.T) {
 		{portal + "backstage/user-values.yaml", apiVersionPath, "values-configmaps"},
 		{portal + "backstage/app-config.yaml", "kubernetes.clusterLocatorMethods[0].clusters[0].url", "kubernetes-cluster"},
 		{portal + "backstage/app-config.yaml", "kubernetes.serviceLocatorMethod.type", "kubernetes-cluster"},
-		{portal + "backstage/app-config.yaml", "grafana.domain", "plugins"},
+		{portal + "backstage/app-config.yaml", "grafana.domain", pluginsDimension},
+		{portal + "backstage/app-config.yaml", "grafana.hosts[maple].domain", pluginsDimension},
+		{portal + "backstage/app-config.yaml", "proxy.endpoints./grafana/api.target", pluginsDimension},
 		{portal + "backstage/app-config.yaml", "backend.auth.pluginKeyStore.type", "plugin-keys"},
 		{portal + "backstage/app-config.yaml", "backend.csp.report-uri", "app-telemetry"},
 		{portal + "backstage/app-config.yaml", "backend.csp.default-src", "backend"},

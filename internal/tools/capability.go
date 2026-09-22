@@ -255,9 +255,11 @@ func skipped(r installations.Report, capability string, named bool) (Skipped, bo
 // defaults, the facts on record the schema names under installation, what
 // the definition reads back from the files on record (read as the caller,
 // an installation a read-back names resolved among the registry's), and
-// the person's typed inputs over it all. The second answer names what was
-// read back, by dotted input key. What the schema requires and no layer
-// holds, the definition names in its refusal.
+// the person's typed inputs over it all. A read-back lays over the record
+// only for a person input; a registry input's read-back is answered next
+// to the fact and never laid over — the fact on record stands. The second
+// answer names everything read back, by dotted input key. What the schema
+// requires and no layer holds, the definition names in its refusal.
 func mergeInputs(ctx context.Context, def installations.Capability, r installations.Report, read installations.Reader, typed map[string]any, registry map[string]installations.Installation) (map[string]any, map[string]any, error) {
 	merged, err := def.Defaults()
 	if err != nil {
@@ -276,8 +278,14 @@ func mergeInputs(ctx context.Context, def installations.Capability, r installati
 	if err != nil {
 		return nil, nil, err
 	}
+	person, err := def.PersonInputs()
+	if err != nil {
+		return nil, nil, err
+	}
 	for k, v := range back {
-		setInput(merged, strings.Split(k, "."), v)
+		if slices.Contains(person, k) {
+			setInput(merged, strings.Split(k, "."), v)
+		}
 	}
 	if v, ok := typed[installations.InputsInstallation]; ok {
 		if _, isMap := v.(map[string]any); !isMap {

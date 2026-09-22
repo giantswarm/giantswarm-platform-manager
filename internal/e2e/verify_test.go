@@ -797,19 +797,42 @@ func verifyPortal(t *testing.T, c *client.Client, name string, inputs map[string
 	return out
 }
 
-// A portal on record with the grafana plugin on and no domain in its
-// app-config: the plugin reads back on, the domain is a choice not on
-// record. The comparison refuses nothing — the app-config's leaf carries the
-// Missing marker, its dimension is not checked with the reason naming the
-// choice, inputs.missing names it, nothing drifts — and neither does the
-// dry run, which says a commit would be refused; a commit is refused by
-// field and records nothing. The choice typed, the portal compares whole.
+// putPortalOnRecord puts the portal a dry run rendered on record, with old
+// replaced by new in its app-config (there must be something to replace),
+// and answers the app-config's file key and content as recorded.
+func putPortalOnRecord(t *testing.T, st *stack, p plan.Installation, old, new string) (key, appConfig string) {
+	t.Helper()
+	for _, f := range p.Files {
+		content := f.Content
+		if f.Path == installations.PortalConfigPath(rowan) {
+			key = f.Repository + ":" + f.Path
+			content = strings.Replace(content, old, new, 1)
+			if content == f.Content {
+				t.Fatalf("nothing to replace in the app-config:\n%s", content)
+			}
+			appConfig = content
+		}
+		st.ghs.addFile(f.Repository, f.Path, content)
+	}
+	if key == "" {
+		t.Fatal("the plan renders no app-config")
+	}
+	return key, appConfig
+}
+
+// A portal on record without a choice its app-config would carry — the
+// organisation's name — reads it back as a choice not on record. The
+// comparison refuses nothing — the app-config's leaf carries the Missing
+// marker, its dimension is not checked with the reason naming the choice,
+// inputs.missing names it, nothing drifts — and neither does the dry run,
+// which says a commit would be refused; a commit is refused by field and
+// records nothing. The choice typed, the portal compares whole.
 func TestVerifyCapabilityTakesAMissingChoiceAsNotChecked(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	c := st.mcpClient(t, aliceToken)
-	const grafanaDomain, domain = "plugins.grafana.domain", "https://grafana.rowan.acme.test"
-	out, text, isErr := dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.CustomerPortal, tools.ArgInputs: rowanPortalInputs(map[string]any{enabledKey: true, domainKey: domain})})
+	const organization, name = "portal.organization", "ACME"
+	out, text, isErr := dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.CustomerPortal, tools.ArgInputs: rowanPortalInputs(map[string]any{enabledKey: false})})
 	if isErr {
 		t.Fatal(text)
 	}
@@ -817,41 +840,31 @@ func TestVerifyCapabilityTakesAMissingChoiceAsNotChecked(t *testing.T) {
 	if p.Refused != "" || len(p.MissingInputs) != 0 || p.CommitRefused != "" {
 		t.Fatalf("the portal as typed: refused %q missing %v commit refused %q", p.Refused, p.MissingInputs, p.CommitRefused)
 	}
-	var appConfig string
-	for _, f := range p.Files {
-		content := f.Content
-		if f.Path == installations.PortalConfigPath(rowan) {
-			appConfig = f.Repository + ":" + f.Path
-			content = strings.Replace(content, "              domain: "+domain+"\n", "", 1)
-			if content == f.Content {
-				t.Fatalf("no grafana domain to drop from the app-config:\n%s", content)
-			}
-		}
-		st.ghs.addFile(f.Repository, f.Path, content)
-	}
+	appConfig, _ := putPortalOnRecord(t, st, p, "        organization:\n          name: "+name+"\n", "")
 
 	res := verifyPortal(t, c, rowan, nil)
-	if res.Refused != "" || res.Inputs.ReadBack["plugins.grafana.enabled"] != true || !slices.Equal(res.Inputs.Missing, []string{grafanaDomain}) {
+	if res.Refused != "" || res.Inputs.ReadBack["portal.domain"] != "portal.rowan.acme.test" || !slices.Equal(res.Inputs.Missing, []string{organization}) {
 		t.Fatalf("refused %q read back %v missing %v", res.Refused, res.Inputs.ReadBack, res.Inputs.Missing)
 	}
 	// Every choice not on record is named, the required one among them
 	// and the optional ones the portal does not carry; the ones on record
-	// (read back or by default) are not.
-	for _, field := range []string{grafanaDomain, "portal.supportUrl", "portal.telemetrydeckAppId", "federation.tokenBroker"} {
+	// (read back or by default) are not, nor is the Grafana host, which is
+	// no choice.
+	for _, field := range []string{organization, "portal.supportUrl", "portal.telemetrydeckAppId", "federation.tokenBroker"} {
 		if !slices.Contains(res.Inputs.Unset, field) {
 			t.Errorf("unset %v does not name %s", res.Inputs.Unset, field)
 		}
 	}
-	for _, field := range []string{"portal.domain", "portal.title", "plugins.grafana.enabled", "chart.line"} {
+	for _, field := range []string{"portal.domain", "portal.title", "plugins.grafana.enabled", "plugins.grafana.domain", "chart.line"} {
 		if slices.Contains(res.Inputs.Unset, field) {
-			t.Errorf("unset %v names %s, which is on record", res.Inputs.Unset, field)
+			t.Errorf("unset %v names %s, which is on record or no choice", res.Inputs.Unset, field)
 		}
 	}
-	wantRefused := "Choose " + grafanaDomain + " (the Grafana instance the plugin links to) before a commit."
+	wantRefused := "Choose " + organization + " (the organisation's name as the portal shows it) before a commit."
 	if res.Summary[verify.Drifted] != 0 || res.Summary[verify.DiffersByInput] != 0 || res.State != installations.StateEnabled || res.CommitRefused != wantRefused {
 		t.Fatalf("summary %v state %q commit refused %q", res.Summary, res.State, res.CommitRefused)
 	}
-	want := verify.ReasonMissingChoice + ": " + grafanaDomain
+	want := verify.ReasonMissingChoice + ": " + organization
 	var notChecked []string
 	for _, f := range res.Features {
 		for _, d := range f.Dimensions {
@@ -873,21 +886,21 @@ func TestVerifyCapabilityTakesAMissingChoiceAsNotChecked(t *testing.T) {
 	if isErr {
 		t.Fatal(text)
 	}
-	if p = findPlan(t, out, rowan); p.Refused != "" || !slices.Equal(p.MissingInputs, []string{grafanaDomain}) || p.CommitRefused != wantRefused {
+	if p = findPlan(t, out, rowan); p.Refused != "" || !slices.Equal(p.MissingInputs, []string{organization}) || p.CommitRefused != wantRefused {
 		t.Fatalf("dry run: refused %q missing %v commit refused %q", p.Refused, p.MissingInputs, p.CommitRefused)
 	}
-	if _, text, isErr := commitCall(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.CustomerPortal}); !isErr || !strings.Contains(text, grafanaDomain) || strings.Contains(text, "type them") {
+	if _, text, isErr := commitCall(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.CustomerPortal}); !isErr || !strings.Contains(text, organization) || strings.Contains(text, "type them") {
 		t.Fatalf("a commit without the choice: %v %s", isErr, text)
 	}
 	if got := listActionsOf(t, c, rowan); len(got) != 0 {
 		t.Fatalf("a refused commit recorded %d action(s)", len(got))
 	}
 
-	res = verifyPortal(t, c, rowan, map[string]any{"plugins": map[string]any{grafanaKey: map[string]any{domainKey: domain}}})
+	res = verifyPortal(t, c, rowan, map[string]any{portalKey: map[string]any{"organization": name}})
 	if res.Refused != "" || len(res.Inputs.Missing) != 0 || res.Summary[verify.Drifted] != 0 || res.CommitRefused != "" {
 		t.Fatalf("the choice typed: refused %q missing %v summary %v commit refused %q", res.Refused, res.Inputs.Missing, res.Summary, res.CommitRefused)
 	}
-	if d := anyDimension(t, res, notChecked[0]); d.Mark != verify.DiffersByInput || d.Reason != "" || len(d.Differences) != 1 || d.Differences[0].File != appConfig || d.Differences[0].Input == "" {
+	if d := anyDimension(t, res, notChecked[0]); d.Mark != verify.DiffersByInput || d.Reason != "" || len(d.Differences) != 1 || d.Differences[0].File != appConfig || d.Differences[0].Input != organization {
 		t.Errorf("the choice typed: %+v", d)
 	}
 	// The portal's anonymous probes run against the portal's own domain.
@@ -899,6 +912,83 @@ func TestVerifyCapabilityTakesAMissingChoiceAsNotChecked(t *testing.T) {
 		if d := dimension(t, feature(t, res, p.feature), p.id); d.Mark != verify.AsDefined || len(d.Probe.Requests) != 1 || d.Probe.Requests[0].URL != p.url {
 			t.Errorf("%s: mark %q reason %q requests %+v", p.id, d.Mark, d.Reason, d.Probe.Requests)
 		}
+	}
+}
+
+// A portal on record whose Grafana section names another instance than the
+// installation's own — the hub's entry copied onto it — and no proxy entry:
+// the host reads back as the record has it and the plugin as not wired; the
+// host is no choice (not among the choices not on record, never an input,
+// refused when typed), and the plugins dimension drifts, the render naming
+// the installation's Grafana. With a proxy entry on record the plugin reads
+// back wired, its token is among the values supplied at commit, and the
+// proxy's target is off the installation's Grafana too.
+func TestVerifyCapabilityGrafanaIsTheInstallationsOwn(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	const grafanaDomain, grafanaEnabled, grafanaToken = "plugins.grafana.domain", "plugins.grafana.enabled", "plugins.grafana.token" // #nosec G101 -- field names, not values
+	const own, central = "https://grafana." + rowan + ".acme.test", "https://giantswarm.grafana.net"
+	out, text, isErr := dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.CustomerPortal, tools.ArgInputs: rowanPortalInputs(map[string]any{enabledKey: false})})
+	if isErr {
+		t.Fatal(text)
+	}
+	p := findPlan(t, out, rowan)
+	if p.Refused != "" || slices.Contains(p.SuppliedSecrets, grafanaToken) {
+		t.Fatalf("the portal not wired: refused %q supplied %v", p.Refused, p.SuppliedSecrets)
+	}
+	section := func(id, domain string) string {
+		return "        grafana:\n          hosts:\n            - id: " + id + "\n              domain: " + domain + "\n"
+	}
+	appConfig, content := putPortalOnRecord(t, st, p, section(rowan, own), section("grafana-net", central))
+
+	res := verifyPortal(t, c, rowan, nil)
+	if res.Refused != "" || res.Inputs.ReadBack[grafanaDomain] != central || res.Inputs.ReadBack[grafanaEnabled] != false || len(res.Inputs.Missing) != 0 || slices.Contains(res.Inputs.Unset, grafanaDomain) {
+		t.Fatalf("refused %q read back %v missing %v unset %v", res.Refused, res.Inputs.ReadBack, res.Inputs.Missing, res.Inputs.Unset)
+	}
+	if grafana, _ := res.Inputs.Values["plugins"].(map[string]any)[grafanaKey].(map[string]any); grafana[domainKey] != nil || grafana[enabledKey] != false {
+		t.Errorf("values %v: the host read back is no input", res.Inputs.Values)
+	}
+	if res.State != installations.StateDrifted || res.Summary[verify.Drifted] != 1 || slices.Contains(res.SuppliedSecrets, grafanaToken) {
+		t.Fatalf("state %q summary %v supplied %v", res.State, res.Summary, res.SuppliedSecrets)
+	}
+	d := dimension(t, feature(t, res, "portal"), "plugins")
+	var names, drifts []string
+	for _, diff := range d.Differences {
+		if diff.File != appConfig || !strings.Contains(diff.Path, "grafana.hosts[") {
+			t.Errorf("a difference outside the Grafana section: %+v", diff)
+		}
+		if diff.Rendered == own {
+			names = append(names, diff.Path)
+		}
+		if diff.Current == central && diff.Input == "" && diff.Planned == "" {
+			drifts = append(drifts, diff.Path)
+		}
+	}
+	if d.Mark != verify.Drifted || len(names) != 1 || len(drifts) != 1 {
+		t.Errorf("the plugins dimension: mark %q, the installation's Grafana rendered at %v, the central instance drifted at %v: %+v", d.Mark, names, drifts, d.Differences)
+	}
+
+	// The host typed is refused, naming it.
+	res = verifyPortal(t, c, rowan, map[string]any{"plugins": map[string]any{grafanaKey: map[string]any{domainKey: own}}})
+	if !strings.Contains(res.Refused, grafanaDomain) {
+		t.Errorf("the host typed: refused %q", res.Refused)
+	}
+
+	// Wired on record, against the central instance.
+	proxy := "        proxy:\n          endpoints:\n            /grafana/api:\n              target: " + central + "/\n              headers:\n                Authorization: Bearer $${GRAFANA_TOKEN}\n"
+	repo, path, _ := strings.Cut(appConfig, ":")
+	st.ghs.addFile(repo, path, strings.Replace(content, section("grafana-net", central), section("grafana-net", central)+proxy, 1))
+	res = verifyPortal(t, c, rowan, nil)
+	if res.Refused != "" || res.Inputs.ReadBack[grafanaEnabled] != true || !slices.Contains(res.SuppliedSecrets, grafanaToken) {
+		t.Fatalf("wired on record: refused %q read back %v supplied %v", res.Refused, res.Inputs.ReadBack, res.SuppliedSecrets)
+	}
+	var target bool
+	for _, diff := range dimension(t, feature(t, res, "portal"), "plugins").Differences {
+		target = target || strings.HasSuffix(diff.Path, "/grafana/api.target") && diff.Rendered == own+"/" && diff.Current == central+"/"
+	}
+	if !target {
+		t.Errorf("the proxy's target is not off the installation's Grafana: %+v", dimension(t, feature(t, res, "portal"), "plugins").Differences)
 	}
 }
 

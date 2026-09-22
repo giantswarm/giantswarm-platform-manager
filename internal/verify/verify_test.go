@@ -48,12 +48,12 @@ func TestMissingChoiceIsNotCheckedNeverADifference(t *testing.T) {
 
 	const appConfig = "management-clusters/x/extras/backstage/backstage/app-config.yaml"
 	feats := []definitions.Feature{{ID: "portal", Dimensions: []definitions.Dimension{
-		{ID: "plugins", Kind: definitions.KindBackstage, Key: "app-config.yaml grafana.domain / grafana.other"},
+		{ID: pluginsDimension, Kind: definitions.KindBackstage, Key: "app-config.yaml grafana.domain / grafana.other"},
 		{ID: "rest", Kind: definitions.KindBackstage, CatchAll: true, Key: "everything else of the app-config"},
 	}}}
 	fd := &fileDiff{key: "r:" + appConfig, path: appConfig, kind: definitions.KindBackstage, missing: map[string][]string{grafanaDomainPath: {field}}}
 	dims, _ := assign(&comparison{files: map[string]*fileDiff{fd.key: fd}}, feats, "", nil)
-	if d := dims["plugins"]; d.Mark != NotChecked || d.Reason != ReasonMissingChoice+": "+field || len(d.Differences) != 0 {
+	if d := dims[pluginsDimension]; d.Mark != NotChecked || d.Reason != ReasonMissingChoice+": "+field || len(d.Differences) != 0 {
 		t.Errorf("the choice's dimension: %+v", *d)
 	}
 	if d := dims["rest"]; d.Mark != AsDefined || d.Reason != "" {
@@ -61,7 +61,7 @@ func TestMissingChoiceIsNotCheckedNeverADifference(t *testing.T) {
 	}
 	fd.diffs = []Difference{{File: fd.key, Path: "grafana.other", Rendered: "x", Current: "y"}}
 	dims, _ = assign(&comparison{files: map[string]*fileDiff{fd.key: fd}}, feats, "", nil)
-	if d := dims["plugins"]; d.Mark != Drifted || d.Reason != "" || len(d.Differences) != 1 {
+	if d := dims[pluginsDimension]; d.Mark != Drifted || d.Reason != "" || len(d.Differences) != 1 {
 		t.Errorf("drift beside the choice: %+v", *d)
 	}
 }

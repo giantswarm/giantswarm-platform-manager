@@ -21,7 +21,6 @@ input:
       enabled: true
     grafana:
       enabled: true
-      domain: https://grafana.maple.acme.example.test
     flux:
       enabled: false
     sentry:
@@ -34,3 +33,4 @@ secrets:
   plugins.github.clientSecret: placeholder-client-secret
   plugins.github.privateKey: placeholder-private-key
   plugins.github.webhookSecret: placeholder-webhook-secret
+  plugins.grafana.token: placeholder-grafana-token
