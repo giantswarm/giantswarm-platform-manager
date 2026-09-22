@@ -1,7 +1,7 @@
 # giantswarm-platform-manager
 
-Giant Swarm's **installation manager**: enables, reconciles and verifies platform capabilities on
-opted-in installations as the person, through MCP tools behind muster. Every write is a pull request
+Giant Swarm's **installation manager**: enables, reconciles and verifies platform capabilities on the
+registry's installations as the person, through MCP tools behind muster. Every write is a pull request
 to the installation's GitOps repository, opened as the person; nothing is applied to a cluster
 directly.
 

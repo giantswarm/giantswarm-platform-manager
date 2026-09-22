@@ -30,7 +30,7 @@ const (
 	acmeConfigs  = "example/acme-configs"
 	umbrellaMCs  = "example/umbrella-management-clusters"
 	// maple is umbrella's installation enabled by its owners before the
-	// manager existed: both markers on record, no declaration.
+	// manager existed: both markers on record.
 	maple = "maple"
 	// basesRepo is the fleet's shared collection base: the dex-app every
 	// installation runs unless its collections kustomization pins its own.
