@@ -213,11 +213,13 @@ steps in with a token of its own.
 Per installation the manager then reads, as the caller:
 
 - the **facts on record** in `installations/<name>/config.yaml.patch` of its configs repository —
-  the meta chart line (`agentPlatform.kagentApiV2` selects `4`), `services.muster.clientId` — which,
+  the meta chart line (`agentPlatform.kagentApiV2` selects `4`; a fresh enable of an organisation the
+  policy grants a line-4 component writes it there), `services.muster.clientId` — which,
   with the registry's name, base domain, customer and provider, the cluster App on record in
   `management-clusters/<name>/cluster-app-manifests.yaml` (whether the cluster serves
   `PodCertificateRequest`, the 4 line's prerequisite: the feature gates in its values, or its chart's
-  default) and the portals' app-configs (which portals sign people in, whose broker exchanges tokens
+  default — the chart at the App's version, or at the version the release its values name lists for
+  it in `giantswarm/releases`) and the portals' app-configs (which portals sign people in, whose broker exchanges tokens
   into it, whether a portal reaches it through the tunnel: `private`), are the definitions'
   `installation.*` inputs: read, never typed;
 - the **enabled marker** of each capability: for `agent-platform`,

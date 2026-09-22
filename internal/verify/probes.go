@@ -46,10 +46,14 @@ const (
 // once, ProbeConcurrency at most, and the phase ends at its deadline whatever
 // is still hanging. A request is bounded on its own too, no longer than the
 // phase, so a client of the caller's without a timeout cannot outlive it.
+// A host that answers does so well within a second (four probes of an
+// installation answer together in 0.2–0.3 s); one the manager cannot reach
+// never answers, and is not checked whenever the phase ends. The request
+// bound is what an unreachable host costs a comparison.
 const (
 	ProbeConcurrency    = 8
-	ProbePhaseTimeout   = 12 * time.Second
-	ProbeRequestTimeout = 10 * time.Second
+	ProbePhaseTimeout   = 6 * time.Second
+	ProbeRequestTimeout = 5 * time.Second
 )
 
 // ProbeData is what a probe's URL template is executed over: the

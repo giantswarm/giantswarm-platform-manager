@@ -54,6 +54,10 @@ func Render(raw any, secrets map[string]string, _ render.Mode) (*render.Result, 
 	configmap.Content = render.LineComment(configmap.Content, "oidc-extra-audience", "gitleaks:allow")
 	r.Add(configs, apps+"agent-platform/configmap-values.yaml.patch", configmap)
 	r.Add(configs, apps+"dex-app/configmap-values.yaml.patch", yamlFile(in.dexPatch()))
+	if in.selectsLine {
+		// The record is the installation's own file: the plan edits this key into it and keeps the rest.
+		r.Add(configs, render.RecordPath(name), render.File{Content: []byte(in.recordSelection())})
+	}
 	in.platformExtras(r, clusters, extras+"agent-platform", secrets)
 	r.Include(clusters, extras+"kustomization.yaml", "./agent-platform/")
 	for _, s := range servers {

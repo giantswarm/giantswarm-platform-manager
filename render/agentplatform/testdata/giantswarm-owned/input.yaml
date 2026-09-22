@@ -1,8 +1,11 @@
-# A Giant Swarm-owned installation without a Slack app on the 4 chart line: the components the
-# policy gives the organisation (kagent, the agent-manager, the cluster-manager; no chat gateway,
-# since the policy names no Slack app for it), its own portal, the chart range pinned, and the one
-# choice made: it serves models. Nothing is supplied at commit; the model key Secret is the
-# installation's own. Invented names, placeholder values.
+# A Giant Swarm-owned installation without a Slack app, enabled fresh: the capability is not on
+# record (agentPlatform false, the default) and its record selects the 3 line (no
+# agentPlatform.kagentApiV2 yet), so the enable selects the 4 line — the policy grants the
+# organisation the cluster-manager, which the 4 line alone carries — and writes the selection into
+# the record (installations/gopher/config.yaml.patch). The components the policy gives the
+# organisation (kagent, the agent-manager, the cluster-manager; no chat gateway, since the policy
+# names no Slack app for it), its own portal, the chart range pinned. Nothing is supplied at
+# commit; the model key Secret is the installation's own. Invented names, placeholder values.
 input:
   installation:
     name: gopher
@@ -10,7 +13,7 @@ input:
     customer: giantswarm
     provider: capa
     private: false
-    chartLine: "4"
+    chartLine: "3"
     musterClientId: 00000000-0000-4000-8000-000000000002
     podCertificateRequest: true
     portals:

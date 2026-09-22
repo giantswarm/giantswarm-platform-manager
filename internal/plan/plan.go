@@ -14,6 +14,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 
@@ -101,8 +102,8 @@ type shared struct {
 
 // sharedFile is the shared file at path — a kustomization's lists, the dex
 // patch's keys, clients and trusted peers, the platform patch's audience
-// lists, the tunnelport values' entries — or nil for a file the definition
-// owns whole.
+// lists, the tunnelport values' entries, the installation's record — or nil
+// for a file the definition owns whole.
 func sharedFile(path string) *shared {
 	switch {
 	case filepath.Base(path) == kustomizationFile:
@@ -113,6 +114,8 @@ func sharedFile(path string) *shared {
 		return &shared{edit: keepAudiences}
 	case path == tunnelportValuesFile:
 		return &shared{edit: keepTunnelportValues, theirs: true}
+	case strings.HasPrefix(path, "installations/") && filepath.Base(path) == render.RecordFile:
+		return &shared{edit: keepRecord, theirs: true}
 	}
 	return nil
 }
@@ -245,8 +248,80 @@ type PullRequest struct {
 	GeneratedSecrets []string `json:"generatedSecrets"`
 }
 
-// Reader reads a file of a repository as the caller.
+// Reader reads a file of a repository as the caller. Build calls it from
+// several goroutines at once: every file a plan compares against is fetched
+// in one phase.
 type Reader func(ctx context.Context, repository, path string) (string, error)
+
+// ReadConcurrency bounds the files of one plan in flight at once. A
+// comparison reads every rendered file's current content and the
+// kustomizations its includes land in — some thirty GitHub round trips —
+// so reading them one after another cost the phase thirty times one round
+// trip; fetched at once it costs about one. The GitHub client bounds the
+// whole call further.
+const ReadConcurrency = 16
+
+// fileRef names a file of a repository the plan reads.
+type fileRef struct{ repository, path string }
+
+func (f fileRef) key() string { return f.repository + ":" + f.path }
+
+// fetched is what the plan read as the caller, by fileRef key: every file
+// the plan compares against, read at once before the files are walked.
+type fetched struct {
+	mu  sync.Mutex
+	got map[string]readResult
+}
+
+type readResult struct {
+	content string
+	err     error
+}
+
+// fetch reads every file of files through read at once, ReadConcurrency in
+// flight at most, each once whatever the duplicates among files. A context
+// over before a file's turn is that file's error.
+func fetch(ctx context.Context, read Reader, files []fileRef) *fetched {
+	f := &fetched{got: make(map[string]readResult, len(files))}
+	var distinct []fileRef
+	for _, file := range files {
+		if _, seen := f.got[file.key()]; !seen {
+			f.got[file.key()] = readResult{}
+			distinct = append(distinct, file)
+		}
+	}
+	slots := make(chan struct{}, ReadConcurrency)
+	var wg sync.WaitGroup
+	for _, file := range distinct {
+		wg.Go(func() {
+			r := readResult{err: ctx.Err()}
+			if r.err == nil {
+				select {
+				case slots <- struct{}{}:
+					r.content, r.err = read(ctx, file.repository, file.path)
+					<-slots
+				case <-ctx.Done():
+					r.err = ctx.Err()
+				}
+			}
+			f.mu.Lock()
+			f.got[file.key()] = r
+			f.mu.Unlock()
+		})
+	}
+	wg.Wait()
+	return f
+}
+
+// read answers a fetched file as a Reader. A file the plan did not name
+// before fetching is a defect of Build, named.
+func (f *fetched) read(_ context.Context, repository, path string) (string, error) {
+	got, ok := f.got[fileRef{repository, path}.key()]
+	if !ok {
+		return "", fmt.Errorf("%s:%s was not among the plan's files when they were fetched", repository, path)
+	}
+	return got.content, got.err
+}
 
 // Options shape one installation's plan.
 type Options struct {
@@ -271,6 +346,7 @@ func Build(ctx context.Context, opts Options) Installation {
 		return p
 	}
 	p.MissingInputs = in.MissingInputs()
+	p.Inputs = withSelected(opts.Inputs, in.Selected())
 	res, err := opts.Definition.Render(opts.Inputs, in.SuppliedMarkers(), render.ModeCompare)
 	if err != nil {
 		p.Refused = render.Reason(err)
@@ -279,6 +355,20 @@ func Build(ctx context.Context, opts Options) Installation {
 	p.SuppliedSecrets = in.SuppliedSecretFields()
 	p.CustomerActions = customerActions(opts.Installation.Name, in)
 	p.Probes = Probes(opts.Definition.Name)
+	// Every file the plan compares against is read now, at once: the
+	// rendered files' current content and the kustomizations the includes
+	// land in. The walk below reads from what was fetched.
+	var files []fileRef
+	for repo, byPath := range res.Files {
+		target := ResolveRepository(string(repo), opts.Installation, opts.Hub)
+		for path := range byPath {
+			files = append(files, fileRef{target, path})
+		}
+	}
+	for _, inc := range res.Includes {
+		files = append(files, fileRef{ResolveRepository(string(inc.Repository), opts.Installation, opts.Hub), inc.Path})
+	}
+	opts.Read = fetch(ctx, opts.Read, files).read
 	generated := map[string]*GeneratedSecret{}
 	var holders []holder
 	held := map[string]int{} // a holder's file → its index in p.Files
@@ -364,6 +454,29 @@ func Build(ctx context.Context, opts Options) Installation {
 	}
 	sort.Slice(p.GeneratedSecrets, func(i, j int) bool { return p.GeneratedSecrets[i].Name < p.GeneratedSecrets[j].Name })
 	return p
+}
+
+// withSelected is inputs with the definition's selections laid over — the
+// effective inputs the plan answers (a fresh enable's chart line) — as a copy
+// along the edited path, inputs untouched. Nothing selected answers inputs.
+func withSelected(inputs, selected map[string]any) map[string]any {
+	if len(selected) == 0 {
+		return inputs
+	}
+	out := make(map[string]any, len(inputs))
+	for k, v := range inputs {
+		out[k] = v
+	}
+	for k, v := range selected {
+		over, isMap := v.(map[string]any)
+		base, baseIsMap := out[k].(map[string]any)
+		if isMap && baseIsMap {
+			out[k] = withSelected(base, over)
+			continue
+		}
+		out[k] = v
+	}
+	return out
 }
 
 // change is what rendered is against the repository's file, read as the

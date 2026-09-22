@@ -422,7 +422,8 @@ func TestGetActionOnASeededAction(t *testing.T) {
 // serves PodCertificateRequest, and the record says whether it does — the
 // cluster App's values in the management-clusters repository enable the
 // three feature gates, or its chart does by default. rowan's manifest is on
-// record without them (cluster-aws 10.2.0, no gates), so its record reads
+// record without them — a release-based App, its release shipping cluster-aws
+// 10.2.0, read from giantswarm/releases as the person — so its record reads
 // false and the 3 line renders regardless; typed onto the 4 line it is refused
 // at plan time naming the fact, the gates, the path and the charts, and the
 // dry run says a commit would be refused. The hub's manifest carries the
@@ -439,6 +440,9 @@ func TestEnableCapabilityRefusesTheFourLineWithoutPodCertificateRequest(t *testi
 	p := findPlan(t, out, rowan)
 	if p.Refused != "" || p.Inputs["installation"].(map[string]any)["podCertificateRequest"] != false {
 		t.Fatalf("rowan on the 3 line renders with the record saying no: refused %q, inputs %v", p.Refused, p.Inputs["installation"])
+	}
+	if n := st.ghs.reads(installations.ReleasesRepository, rowanReleaseManifest); n == 0 {
+		t.Fatal("rowan's chart version comes from the release its cluster App names, read from the releases repository as the person")
 	}
 	out, text, isErr = dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan,
 		tools.ArgInputs: map[string]any{argInstallation: map[string]any{"chartLine": "4"}}})
@@ -470,5 +474,91 @@ func TestEnableCapabilityRefusesTheFourLineWithoutPodCertificateRequest(t *testi
 	}
 	if !probed {
 		t.Errorf("the 4 line's plan names the API's live dimension: %+v", p.Probes)
+	}
+}
+
+// A fresh enable of an installation whose organisation the policy grants the
+// cluster-manager — a component the 4 line alone carries — on a record that
+// selects the 3 line (no agentPlatform.kagentApiV2): the enable selects the 4
+// line, answers it as the effective input, renders the 4 line and writes the
+// selection into the record as one more file of the configs pull request, an
+// update that keeps every other key and comment. The marker's absence is the
+// fact: the same record typed as on record is refused as before (adoption is
+// an Apply, never a line change), and a wave still skips it as not enabled.
+func TestEnableCapabilitySelectsTheFourLineForAFreshEnable(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	const cedar, cedarMCs, cedarConfigs = "cedar", "example/giantswarm-management-clusters", "example/giantswarm-configs"
+	record := "# cedar's record\ncodename: cedar\nbase: gs.test\ncustomer: giantswarm\nservices:\n  muster:\n    clientId: muster-cedar\n"
+	st.ghs.addFile(registryRepo, registryPath, st.ghs.files[registryRepo][registryPath]+resource(cedar, "giantswarm", "capa", "gs.test"))
+	st.ghs.addRepo(cedarMCs, map[string]string{
+		installations.ClusterAppManifestPath(cedar):       clusterAppManifest(cedar, "cluster-aws", "10.3.0", true),
+		installations.CollectionsKustomizationPath(cedar): collectionsKustomization(platformDexApp),
+		extrasKustomizationPath(cedar):                    extrasKustomization,
+	})
+	st.ghs.addRepo(cedarConfigs, map[string]string{installations.ConfigPatchPath(cedar): record})
+	c := st.mcpClient(t, aliceToken)
+	out, text, isErr := dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: cedar})
+	if isErr {
+		t.Fatal(text)
+	}
+	p := findPlan(t, out, cedar)
+	if p.Refused != "" || p.CommitRefused != "" || p.State != installations.StateNotEnabled {
+		t.Fatalf("a fresh enable selects the line the policy needs: refused %q, commitRefused %q, state %q", p.Refused, p.CommitRefused, p.State)
+	}
+	inputs := p.Inputs["installation"].(map[string]any)
+	if inputs["chartLine"] != "4" || inputs["agentPlatform"] != false {
+		t.Fatalf("effective inputs: %v", inputs)
+	}
+	var recordFile, patch *plan.File
+	for i := range p.Files {
+		switch f := &p.Files[i]; {
+		case f.Path == installations.ConfigPatchPath(cedar):
+			recordFile = f
+		case strings.HasSuffix(f.Path, "/apps/agent-platform/configmap-values.yaml.patch"):
+			patch = f
+		}
+	}
+	if recordFile == nil {
+		t.Fatal("the enable writes the selected line into the record")
+	}
+	if recordFile.Repository != cedarConfigs || recordFile.Change != plan.ChangeUpdate || recordFile.Current != record {
+		t.Fatalf("the record: %+v", *recordFile)
+	}
+	for _, want := range []string{"# cedar's record\n", "codename: cedar\n", "clientId: muster-cedar\n", "agentPlatform:\n  kagentApiV2: true\n", "selected by the enable"} {
+		if !strings.Contains(recordFile.Content, want) {
+			t.Errorf("the edited record lacks %q:\n%s", want, recordFile.Content)
+		}
+	}
+	if patch == nil || !strings.Contains(patch.Content, "cluster-manager:") {
+		t.Fatalf("the 4 line renders with the cluster-manager: %v", patch)
+	}
+	var configsPR bool
+	for _, pr := range out.PullRequests {
+		configsPR = configsPR || (pr.Repository == cedarConfigs && pr.Order == 1)
+	}
+	if !configsPR {
+		t.Fatalf("the record travels in the configs pull request: %+v", out.PullRequests)
+	}
+	out, text, isErr = dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: cedar,
+		tools.ArgInputs: map[string]any{argInstallation: map[string]any{"agentPlatform": true}}})
+	if isErr {
+		t.Fatal(text)
+	}
+	p = findPlan(t, out, cedar)
+	for _, want := range []string{"installation.chartLine", "cluster-manager needs the platform's 4 chart line", "agentPlatform.kagentApiV2: true in installations/cedar/config.yaml.patch selects 4"} {
+		if !strings.Contains(p.Refused, want) {
+			t.Errorf("on record, the line is the record's: refused %q does not name %q", p.Refused, want)
+		}
+	}
+	if p.CommitRefused == "" || len(p.Files) != 0 {
+		t.Fatalf("a refused render commits nothing: commitRefused %q, files %d", p.CommitRefused, len(p.Files))
+	}
+	out, text, isErr = dryRun(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallations: []string{cedar}})
+	if isErr {
+		t.Fatal(text)
+	}
+	if len(out.Skipped) != 1 || out.Skipped[0].Name != cedar || out.Skipped[0].Reason != tools.SkippedNotEnabled || len(out.Installations) != 0 {
+		t.Fatalf("a wave never enables: %+v / %d planned", out.Skipped, len(out.Installations))
 	}
 }

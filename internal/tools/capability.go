@@ -86,7 +86,7 @@ func stringItems() map[string]any { return map[string]any{"type": "string"} }
 
 func capabilityOptions() []mcp.ToolOption {
 	return []mcp.ToolOption{
-		mcp.WithString(ArgInstallation, mcp.Description("The one installation to render, by name: a capability not on record renders as a fresh enable, one on record as the changes to it; the answer says why a commit would be refused.")),
+		mcp.WithString(ArgInstallation, mcp.Description("The one installation to render, by name: a capability not on record renders as a fresh enable — which selects the 4 chart line and writes agentPlatform.kagentApiV2 into the record (installations/<name>/config.yaml.patch, one more file of the configs pull request) where the fleet policy grants the organisation a component the 4 line alone carries —, one on record as the changes to it; the answer says why a commit would be refused.")),
 		mcp.WithArray(ArgInstallations, mcp.Description("The set to render; empty with no installation is every installation of the registry. Installations without the capability on record are skipped, listed with the reason: a fresh enable is enable_capability with installation, alone."), mcp.Items(stringItems())),
 		mcp.WithArray(ArgOrder, mcp.Description("The rollout order of the set when the default (Giant Swarm's test installations, the hub, the customers) is not the one wanted: every rendered installation of the set exactly once."), mcp.Items(stringItems())),
 		mcp.WithString(ArgCapability, mcp.Description(capabilityArgDescription), mcp.Enum(installations.CapabilityNames()...)),

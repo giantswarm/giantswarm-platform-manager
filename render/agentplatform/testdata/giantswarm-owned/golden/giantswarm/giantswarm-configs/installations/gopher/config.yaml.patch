@@ -1,0 +1,4 @@
+# The agent-platform meta chart line, selected by the enable through giantswarm-platform-manager:
+# the fleet policy grants giantswarm's installations the cluster-manager, which the 4 line alone carries.
+agentPlatform:
+  kagentApiV2: true
