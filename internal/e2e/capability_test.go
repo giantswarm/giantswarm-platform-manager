@@ -422,7 +422,8 @@ func TestGetActionOnASeededAction(t *testing.T) {
 // serves PodCertificateRequest, and the record says whether it does — the
 // cluster App's values in the management-clusters repository enable the
 // three feature gates, or its chart does by default. rowan's manifest is on
-// record without them (cluster-aws 10.2.0, no gates), so its record reads
+// record without them — a release-based App, its release shipping cluster-aws
+// 10.2.0, read from giantswarm/releases as the person — so its record reads
 // false and the 3 line renders regardless; typed onto the 4 line it is refused
 // at plan time naming the fact, the gates, the path and the charts, and the
 // dry run says a commit would be refused. The hub's manifest carries the
@@ -439,6 +440,9 @@ func TestEnableCapabilityRefusesTheFourLineWithoutPodCertificateRequest(t *testi
 	p := findPlan(t, out, rowan)
 	if p.Refused != "" || p.Inputs["installation"].(map[string]any)["podCertificateRequest"] != false {
 		t.Fatalf("rowan on the 3 line renders with the record saying no: refused %q, inputs %v", p.Refused, p.Inputs["installation"])
+	}
+	if n := st.ghs.reads(installations.ReleasesRepository, rowanReleaseManifest); n == 0 {
+		t.Fatal("rowan's chart version comes from the release its cluster App names, read from the releases repository as the person")
 	}
 	out, text, isErr = dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan,
 		tools.ArgInputs: map[string]any{argInstallation: map[string]any{"chartLine": "4"}}})

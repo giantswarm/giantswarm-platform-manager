@@ -152,7 +152,7 @@ func (r *Registry) inspect(ctx context.Context, c *github.Client, inst Installat
 	)
 	if detail == Full {
 		wg.Go(func() { record, recErr = r.readRecord(ctx, c, owner, repo, inst) })
-		wg.Go(func() { pcr, pcrErr = readPodCertificateRequest(ctx, c, inst) })
+		wg.Go(func() { pcr, pcrErr = readPodCertificateRequest(ctx, readAs(c), inst) })
 		wg.Go(func() { dex, dexErr = readDexAppVersion(ctx, readAt(c), inst) })
 	}
 	for i, cap := range caps {
@@ -167,13 +167,20 @@ func (r *Registry) inspect(ctx context.Context, c *github.Client, inst Installat
 		case recErr != nil:
 			rep.Errors = append(rep.Errors, recErr.Error())
 			rep.Readable = false
-		case pcrErr != nil:
+		case pcrErr != nil && !errors.Is(pcrErr, ErrRelease):
 			rep.Record = record
 			rep.Errors = append(rep.Errors, pcrErr.Error())
 			rep.Readable = false
 		default:
 			record.PodCertificateRequest = pcr
 			rep.Record = record
+			if pcrErr != nil {
+				// The release the cluster App names is a fact of the record, not
+				// a condition of reading the installation: unreadable, the fact
+				// stays false and the comparison still runs, with the error on
+				// the report.
+				rep.Errors = append(rep.Errors, pcrErr.Error())
+			}
 		}
 		// The dex-app on record is a fact, not a condition of reading the
 		// installation: unreadable, the fact stays empty and the comparison

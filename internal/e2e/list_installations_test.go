@@ -168,6 +168,29 @@ func clusterAppManifest(installation, chart, version string, gates bool) string 
 		"---\napiVersion: application.giantswarm.io/v1alpha1\nkind: App\nmetadata:\n  name: " + installation + "\n  namespace: org-giantswarm\nspec:\n  catalog: cluster\n  name: " + chart + "\n  version: " + version + "\n  userConfig:\n    configMap:\n      name: " + installation + "-userconfig\n      namespace: org-giantswarm\n"
 }
 
+// releaseClusterAppManifest renders a release-based cluster App as every CAPA
+// and CAPZ management cluster keeps it: no chart version on the App, the
+// release in the values (global.release.version), no feature gates set — the
+// chart the release ships decides whether the cluster serves
+// PodCertificateRequest, and the manager reads it from giantswarm/releases.
+func releaseClusterAppManifest(installation, chart, release string) string {
+	values := "global:\n  metadata:\n    name: " + installation + "\n  release:\n    version: " + release + "\n"
+	return "---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: " + installation + "-userconfig\n  namespace: org-giantswarm\ndata:\n  values: |\n" + indentLines(values, "    ") +
+		"---\napiVersion: application.giantswarm.io/v1alpha1\nkind: App\nmetadata:\n  name: " + installation + "\n  namespace: org-giantswarm\nspec:\n  catalog: cluster\n  name: " + chart + "\n  userConfig:\n    configMap:\n      name: " + installation + "-userconfig\n      namespace: org-giantswarm\n"
+}
+
+// releaseManifest renders a release.yaml of giantswarm/releases that ships
+// chart at version.
+func releaseManifest(release, chart, version string) string {
+	return "apiVersion: release.giantswarm.io/v1alpha1\nkind: Release\nmetadata:\n  name: v" + release + "\nspec:\n  components:\n    - name: " + chart + "\n      version: " + version + "\n    - name: kubernetes\n      version: 1.35.8\n  state: active\n"
+}
+
+// The releases rowan's and the other release-based cluster Apps name.
+const (
+	rowanRelease         = "34.0.0"
+	rowanReleaseManifest = "capa/v" + rowanRelease + "/release.yaml"
+)
+
 // substrateGates is a component's featureGates list with the three gates
 // enabled, at indent.
 func substrateGates(indent string) string {
@@ -211,11 +234,13 @@ func fixtures(g *fakeGitHub) {
 		installations.DexPatchPath(hub): "oidc:\n  staticClients:\n    dexK8SAuthenticator:\n      trustedPeers:\n        - " + hubPortalClientID + "\n        - backstage\n        - " + hubPeerClientID + "\n" +
 			"  extraStaticClients:\n    - id: " + hubPortalClientID + "\n      name: Dev Portal\n      redirectURIs:\n        - " + render.PortalRedirectURI("portal."+hub+".example.test", hub) + "\n      secretRef: {name: dex-client-backstage, key: secret}\n",
 	})
+	// The fleet's releases: rowan's release ships the chart before the gates' default.
+	g.addRepo(installations.ReleasesRepository, map[string]string{rowanReleaseManifest: releaseManifest(rowanRelease, "cluster-aws", "10.2.0")})
 	g.addRepo(acmeMCs, map[string]string{
 		installations.CollectionsKustomizationPath(alder):   collectionsKustomization(""),
 		installations.CollectionsKustomizationPath(birch):   collectionsKustomization(platformDexApp),
 		extrasKustomizationPath(birch):                      extrasListingEverything,
-		installations.ClusterAppManifestPath("rowan"):       clusterAppManifest("rowan", "cluster-aws", "10.2.0", false),
+		installations.ClusterAppManifestPath("rowan"):       releaseClusterAppManifest("rowan", "cluster-aws", rowanRelease),
 		installations.CollectionsKustomizationPath("rowan"): collectionsKustomization(platformDexApp),
 		extrasKustomizationPath("rowan"):                    extrasKustomization,
 		rowanBackstageKustomization:                         "# The portal's tree; the platform's fragment joins it as a Component.\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./backstage/\n",
