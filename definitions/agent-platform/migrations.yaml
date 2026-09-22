@@ -109,8 +109,10 @@ migrations:
     reason: "Added: the chat's tool naming (mcpActions.namespacedToolNames) moves from the main app-config into the Agent Platform Component's app-config fragment · M18"
   - key: backstage:agent-platform/app-config:backend.actions
     reason: "Added: the actions the portal lists for the chat's MCP actions server (backend.actions, the plugin sources and the filter) move from the main app-config into the Agent Platform Component's app-config fragment · M18"
+  - key: backstage:agent-platform/values:google
+    reason: "Added: a chat on Vertex AI names its Google project and region in the Agent Platform Component's values, which the chart exports to the portal, instead of the portal's own user values · M18"
   - key: backstage:file:agent-platform/ai-chat-credentials.enc.yaml
-    reason: "Added: the chat's Anthropic API key is the SOPS-encrypted Secret agent-platform-ai-chat-credentials-backstage of the Agent Platform Component, supplied at commit and read by the portal's HelmRelease as the chart value the chart exposes as ANTHROPIC_API_KEY, once the portal's own configuration no longer carries the chat by hand · M18"
+    reason: "Added: the chat's credential — its Anthropic API key, or on Vertex AI its Google service account's JSON — is the SOPS-encrypted Secret agent-platform-ai-chat-credentials-backstage of the Agent Platform Component, supplied at commit and read by the portal's HelmRelease as the chart value the chart exposes as ANTHROPIC_API_KEY or mounts as the credentials file, once the portal's own configuration no longer carries the chat by hand · M18"
   - key: backstage:agent-platform/kustomization:resources[ai-chat-credentials.enc.yaml]
     reason: "Added: the Agent Platform Component lists the Secret agent-platform-ai-chat-credentials-backstage, so it is applied with the portal · M18"
 

@@ -605,13 +605,13 @@ func TestDrivenInputsAreThePersonsAndTheTyped(t *testing.T) {
 	if !ok {
 		t.Fatal("no agent-platform definition")
 	}
-	const chatEnabledInput, chatModelInput = "aiChat.enabled", "aiChat.model"
+	chatInputs := []string{"aiChat.enabled", "aiChat.google.location", "aiChat.google.project", "aiChat.model", "aiChat.provider"}
 	got, err := drivenInputs(def, Inputs{Values: doc("a.test", "acme", true)})
-	if err != nil || !reflect.DeepEqual(got, []string{chatEnabledInput, chatModelInput, servingInput}) {
+	if err != nil || !reflect.DeepEqual(got, append(slices.Clone(chatInputs), servingInput)) {
 		t.Errorf("from the record: %v %v", got, err)
 	}
 	got, err = drivenInputs(def, Inputs{Values: doc("a.test", "acme", true), Typed: doc("b.test", "acme", false)})
-	if err != nil || !reflect.DeepEqual(got, []string{chatEnabledInput, chatModelInput, baseDomainInput, customerInput, servingInput}) {
+	if err != nil || !reflect.DeepEqual(got, append(slices.Clone(chatInputs), baseDomainInput, customerInput, servingInput)) {
 		t.Errorf("with facts typed: %v %v", got, err)
 	}
 }

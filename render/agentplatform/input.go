@@ -98,12 +98,23 @@ type Input struct {
 }
 
 // AIChat is the portal's AI chat as the person chooses it: whether the
-// platform's portal section carries it, and the model it answers with. The
-// chat runs on Anthropic's API; its key is supplied at commit
-// (fieldAnthropicKey), never part of the document.
+// platform's portal section carries it, the model it answers with, and the
+// provider serving Claude — Anthropic's API, whose key is supplied at commit
+// (fieldAnthropicKey), or Vertex AI with the Google project and location,
+// whose service-account JSON is supplied at commit (fieldGoogleCredentials);
+// no credential is part of the document.
 type AIChat struct {
-	Enabled bool   `json:"enabled"`
-	Model   string `json:"model"`
+	Enabled  bool         `json:"enabled"`
+	Model    string       `json:"model"`
+	Provider string       `json:"provider"`
+	Google   GoogleVertex `json:"google"`
+}
+
+// GoogleVertex is where a Vertex chat runs: the GCP project and the Vertex
+// region.
+type GoogleVertex struct {
+	Project  string `json:"project"`
+	Location string `json:"location"`
 }
 
 // Connectors are policy.yaml's federation.connector: the names of the
@@ -381,8 +392,8 @@ type document struct {
 // published service-account issuer, the serving slice or a component of the 4
 // chart line on a record that selects the 3 line, kagent on the 4 line where
 // the cluster does not serve PodCertificateRequest, the chat on an
-// installation whose organisation hosts no portal for it or without a
-// model) is ErrInput too.
+// installation whose organisation hosts no portal for it, without a model,
+// or on Vertex without its Google project or location) is ErrInput too.
 func Parse(raw any) (*Input, error) {
 	schemaBytes, err := definitions.FS.ReadFile("agent-platform/schema.json")
 	if err != nil {
@@ -530,6 +541,13 @@ func (in *Input) checkRecord() error {
 	}
 	if in.AIChat.Enabled && in.AIChat.Model == "" {
 		return refuse(describe("aiChat.model") + " is empty; the chat answers with one model, and the schema's default stands where none is typed")
+	}
+	if in.aiChatVertex() {
+		for field, value := range map[string]string{"aiChat.google.project": in.AIChat.Google.Project, "aiChat.google.location": in.AIChat.Google.Location} {
+			if value == "" {
+				return refuse(describe(field) + " is empty, and a chat on Vertex AI (aiChat.provider: vertex) runs in one Google project and region; the person names them")
+			}
+		}
 	}
 	if in.kagent() && in.Installation.ChartLine == lineFour && !in.Installation.PodCertificateRequest {
 		return refuse(fmt.Sprintf("%s does not say this cluster serves %s/%s %s, which kagent's Agent Substrate on the 4 chart line needs; enable the feature gates %s under cluster.internal.advancedConfiguration.{%s}.featureGates in the cluster App's values (management-clusters/%s/cluster-app-manifests.yaml), or run a cluster App chart that enables them by default (%s and later)",
