@@ -514,9 +514,10 @@ func apiGroup(resource string) string    { _, g, _ := strings.Cut(resource, ".")
 // organisation's hubs carries the organisation's plain name: the target's
 // first hub of the organisation (t.Hubs, in the registry's order), which a
 // target this hub alone brokers into names none of. Every further hub of the
-// same organisation carries its own name.
+// same organisation carries its own name. The tunnel tokens follow the same
+// rule (Target.tokenName).
 func (in *Input) connector(t Target) string {
-	if len(t.Hubs) == 0 || t.Hubs[0] == in.Installation.Name {
+	if t.first(in.Installation.Name) {
 		return in.Connectors.First
 	}
 	return in.Connectors.Further

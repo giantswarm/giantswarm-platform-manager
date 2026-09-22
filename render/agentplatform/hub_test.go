@@ -133,3 +133,55 @@ func TestConnectorPerHubAndTarget(t *testing.T) {
 		t.Errorf("a target whose hubs do not name this hub: %v", err)
 	}
 }
+
+// A tunnel is shared by every hub that brokers into its target, each hub with
+// a token of its own in teleport-fleet's values, so a token is named for the
+// hub the way the connector is: the target's first hub's is
+// <app>-<target>-bot-token, every further hub's carries its name — in the
+// values entries and in the RemoteApp that names the token alike. warren is
+// marmot's second hub after gopher; gopher is burrow's first.
+func TestTunnelTokensPerHub(t *testing.T) {
+	input, secrets := loadInput(t, shapeSecondHub)
+	marmot := input["installation"].(map[string]any)["federation"].(map[string]any)["targets"].([]any)[0].(map[string]any)
+	marmot["private"] = true
+	result, err := Render(input, secrets, render.ModeCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree := result.Tree()
+	remoteapps := string(tree["giantswarm/giantswarm-management-clusters/management-clusters/warren/extras/agent-platform/tunnelport/remoteapps.yaml"])
+	tunnels := string(tree["giantswarm/teleport-fleet/kubernetes/envs/prod/values.yaml"])
+	for _, want := range []string{
+		"  appName: dex-marmot\n  port: 5556\n  tokenName: dex-marmot-bot-token-warren\n",
+		"  appName: kubernetes-marmot\n  port: 6443\n  tokenName: kubernetes-marmot-bot-token-warren\n",
+	} {
+		if !strings.Contains(remoteapps, want) {
+			t.Errorf("the second hub's remoteapps.yaml lacks %q:\n%s", want, remoteapps)
+		}
+	}
+	for _, want := range []string{
+		"    - name: dex-marmot\n      appLabels:\n        app: dex\n        cluster: marmot\n        customer: giantswarm\n      tokens:\n        - name: dex-marmot-bot-token-warren\n          consumer: warren\n",
+		"    - name: kubernetes-marmot\n      appLabels:\n        app: kubernetes\n        cluster: marmot\n        customer: giantswarm\n      tokens:\n        - name: kubernetes-marmot-bot-token-warren\n          consumer: warren\n",
+	} {
+		if !strings.Contains(tunnels, want) {
+			t.Errorf("the second hub's tunnelport values lack %q:\n%s", want, tunnels)
+		}
+	}
+	if strings.Contains(remoteapps, "-bot-token\n") || strings.Contains(tunnels, "-bot-token\n") {
+		t.Errorf("the second hub names an unsuffixed token:\n%s\n%s", remoteapps, tunnels)
+	}
+	// The first hub's tokens are unsuffixed (TestPrivatePlatformTargetTunnels holds gopher's fileset).
+	for _, tc := range []struct {
+		hubs      []string
+		hub, want string
+	}{
+		{nil, "gopher", "dex-burrow-bot-token"},
+		{[]string{"gopher"}, "gopher", "dex-burrow-bot-token"},
+		{[]string{"gopher", "warren"}, "gopher", "dex-burrow-bot-token"},
+		{[]string{"gopher", "warren"}, "warren", "dex-burrow-bot-token-warren"},
+	} {
+		if got := (Target{Installation: "burrow", Hubs: tc.hubs}).tokenName("dex", tc.hub); got != tc.want {
+			t.Errorf("hubs %v, hub %s: tokenName = %s, want %s", tc.hubs, tc.hub, got, tc.want)
+		}
+	}
+}

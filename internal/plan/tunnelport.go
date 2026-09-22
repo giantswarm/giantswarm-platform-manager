@@ -13,10 +13,12 @@ import (
 // template renders every tunnel's Teleport objects from .Values.tunnelport,
 // whose consumers, trust-bundle tokens and tunnels belong to several hubs. The
 // definition renders a hub's entries as a values document of their own; the
-// plan edits them into the file on record — an entry replaces the one of its
-// name or is appended — and everything else stays, comments included. The file
-// is never created here: without the template on record its values mean
-// nothing.
+// plan edits them into the file on record — a consumer or a trust-bundle token
+// replaces the one of its name or is appended; a tunnel is shared by every hub
+// that brokers into its target, each hub with a token of its own, so the tunnel
+// of its name takes the hub's labels and the hub's token and keeps the other
+// hubs' tokens — and everything else stays, comments included. The file is
+// never created here: without the template on record its values mean nothing.
 
 const (
 	// tunnelportValuesFile is the values file of teleport-fleet's production chart.
@@ -33,15 +35,21 @@ const (
 	listTunnels           = keyTunnelport + "." + keyTunnels
 )
 
+// listTunnelTokens names a shared tunnel's tokens list in Kept:
+// tunnelport.tunnels[<tunnel>].tokens, where the other hubs' tokens stay.
+func listTunnelTokens(tunnel string) string { return listTunnels + "[" + tunnel + "]." + keyTokens }
+
 // errNoTunnelport: a values file without tunnelport values has no template
 // reading them; the definition's entries have nowhere to land.
 var errNoTunnelport = errors.New("no tunnelport values: the tunnelport template is not on record")
 
 // keepTunnelportValues answers current with rendered's tunnelport entries
-// edited in — the consumers by key, the trust-bundle tokens and the tunnels by
-// name, each replacing the entry of its name (the definition's entry is the
-// definition's whole) or appended — and names every other entry of those three
-// lists as kept. Nothing to edit leaves current byte for byte.
+// edited in — the consumers by key and the trust-bundle tokens by name, each
+// replacing the entry of its name (the definition's entry is the definition's
+// whole) or appended; the tunnels by name, a tunnel on record merged (tunnel)
+// since the other hubs' tokens live in it — and names every other entry of
+// those three lists, and every other hub's token of a merged tunnel, as kept.
+// Nothing to edit leaves current byte for byte.
 func keepTunnelportValues(rendered, current []byte) ([]byte, []Kept, error) {
 	doc, cur, err := mapping(current)
 	if err != nil {
@@ -72,14 +80,14 @@ func keepTunnelportValues(rendered, current []byte) ([]byte, []Kept, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := m.sequence(tokens, entry(entry(renTP, keyTrustBundle), keyTokens), listTrustBundleTokens); err != nil {
+	if err := m.sequence(tokens, entry(entry(renTP, keyTrustBundle), keyTokens), listTrustBundleTokens, m.whole); err != nil {
 		return nil, nil, err
 	}
 	tunnels, err := nodeUnder(curTP, keyTunnels, yaml.SequenceNode)
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := m.sequence(tunnels, entry(renTP, keyTunnels), listTunnels); err != nil {
+	if err := m.sequence(tunnels, entry(renTP, keyTunnels), listTunnels, m.tunnel); err != nil {
 		return nil, nil, err
 	}
 	if !m.changed {
@@ -120,10 +128,10 @@ func (m *merge) mapping(cur, ren *yaml.Node, list string) {
 }
 
 // sequence edits ren's items into the sequence cur by name, named list in Kept:
-// an item cur carries under that name with other content is replaced, a new
-// name appended, a name of cur that ren lacks kept. An item without a name has
-// no place in the file.
-func (m *merge) sequence(cur, ren *yaml.Node, list string) error {
+// an item cur carries under that name is handed to same with its rendering
+// (whole or tunnel), a new name appended, a name of cur that ren lacks kept.
+// An item without a name has no place in the file.
+func (m *merge) sequence(cur, ren *yaml.Node, list string, same func(cur, ren *yaml.Node, name string) error) error {
 	byName := map[string]*yaml.Node{}
 	for _, item := range cur.Content {
 		n := entry(item, keyName)
@@ -141,7 +149,9 @@ func (m *merge) sequence(cur, ren *yaml.Node, list string) error {
 			}
 			rendered[n.Value] = true
 			if c, ok := byName[n.Value]; ok {
-				m.replace(c, item)
+				if err := same(c, item, n.Value); err != nil {
+					return err
+				}
 				continue
 			}
 			cur.Content = append(cur.Content, item)
@@ -157,6 +167,38 @@ func (m *merge) sequence(cur, ren *yaml.Node, list string) error {
 	return nil
 }
 
+// whole is sequence's same for an entry that is the definition's whole: the
+// rendering replaces it where the two differ.
+func (m *merge) whole(cur, ren *yaml.Node, _ string) error {
+	m.replace(cur, ren)
+	return nil
+}
+
+// tunnel is sequence's same for a tunnel, which every hub that brokers into
+// its target shares: the hub's rendering carries the tunnel's labels and the
+// hub's one token, the tunnel on record the other hubs' tokens too. The tokens
+// are edited by name — the hub's replaces the one of its name or is appended,
+// every other stays and is kept under tunnelport.tunnels[<name>].tokens — and
+// every other key is the definition's whole: the rendering's replace them
+// where they differ, the merged tokens in their place.
+func (m *merge) tunnel(cur, ren *yaml.Node, name string) error {
+	tokens, err := nodeUnder(cur, keyTokens, yaml.SequenceNode)
+	if err != nil {
+		return fmt.Errorf("%s[%s]: %w", listTunnels, name, err)
+	}
+	if err := m.sequence(tokens, entry(ren, keyTokens), listTunnelTokens(name), m.whole); err != nil {
+		return err
+	}
+	if equal(without(cur, keyTokens), without(ren, keyTokens)) {
+		return nil
+	}
+	merged := without(ren, keyTokens)
+	merged.Content = append(merged.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: tagStr, Value: keyTokens}, tokens)
+	*cur = *merged
+	m.changed = true
+	return nil
+}
+
 // replace puts rendered in cur's place when the two differ in content; the
 // current entry's comments go with it, the entry is the definition's whole.
 func (m *merge) replace(cur, rendered *yaml.Node) {
@@ -165,6 +207,18 @@ func (m *merge) replace(cur, rendered *yaml.Node) {
 	}
 	*cur = *rendered
 	m.changed = true
+}
+
+// without is a shallow copy of the mapping n without its key entry.
+func without(n *yaml.Node, key string) *yaml.Node {
+	out := *n
+	out.Content = nil
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		if n.Content[i].Value != key {
+			out.Content = append(out.Content, n.Content[i], n.Content[i+1])
+		}
+	}
+	return &out
 }
 
 // equal says whether two nodes decode to the same value: comments, styles and
