@@ -22,6 +22,7 @@
 package customerportal
 
 import (
+	"encoding/base64"
 	"strconv"
 	"strings"
 
@@ -76,7 +77,8 @@ const (
 	// .enc.yaml convention.
 	dexClientFile = "dex-client-backstage-secret.enc.yaml" // #nosec G101 -- a file name, not a value
 	// The generated values, named so the Dex client Secret and the portal's
-	// own Secret receive the same client secret.
+	// own Secret receive the same client secret: raw in the Dex client's
+	// Secret, base64 in the portal's values (dexCredentials).
 	generatedSessionSecret   = "backstage-session-secret"    // #nosec G101 -- a placeholder name, not a value
 	generatedDexClientSecret = "backstage-dex-client-secret" // #nosec G101 -- a placeholder name, not a value; prefixed with the installation: never shared between installations
 	generatedTelemetrySalt   = "backstage-telemetrydeck-salt"
@@ -226,21 +228,23 @@ func generated(name string, kind render.GeneratedKind, length int) render.Genera
 // installations' names (the chart exposes them as AUTH_DEX_<NAME>_CLIENT_ID
 // and _CLIENT_SECRET: the portal's own generated; another installation's the
 // portal has a provider for, and the token broker's, supplied), the
-// telemetry salt and, with sentry on, the DSNs.
+// telemetry salt and, with sentry on, the DSNs. The Dex clients' leaves are
+// base64 (dexCredentials); the portal's own client secret is the generated
+// value the Dex client's Secret carries raw, at its encoded placeholder.
 func (in *Input) userSecrets(secrets map[string]string) render.File {
 	session := generated(generatedSessionSecret, render.Base64, 32)
-	client := generated(in.Installation.Name+"-"+generatedDexClientSecret, render.Base64, 32)
+	client := generated(in.Installation.Name+"-"+generatedDexClientSecret, render.Base64, 32).Encoded(render.EncodedBase64)
 	salt := generated(generatedTelemetrySalt, render.Alphanumeric, 32)
-	credentials := render.Map{e(in.Installation.Name, render.Map{e("clientID", render.PortalDexClientID), e("clientSecret", client.Placeholder)})}
+	credentials := render.Map{e(in.Installation.Name, dexCredentials(render.PortalDexClientID, client.Placeholder))}
 	for _, inst := range in.providerInstallations() {
 		if inst.Name != in.Installation.Name {
-			credentials = append(credentials, e(inst.Name, render.Map{
-				e("clientID", secrets[federationField(inst.Name, suffixClientID)]), e("clientSecret", secrets[federationField(inst.Name, suffixClientSecret)])}))
+			credentials = append(credentials, e(inst.Name, dexCredentials(
+				secrets[federationField(inst.Name, suffixClientID)], secrets[federationField(inst.Name, suffixClientSecret)])))
 		}
 	}
 	if in.tokenBroker() != "" {
-		credentials = append(credentials, e(brokerCredentials, render.Map{
-			e("clientID", secrets[fieldTokenBroker+suffixClientID]), e("clientSecret", secrets[fieldTokenBroker+suffixClientSecret])}))
+		credentials = append(credentials, e(brokerCredentials, dexCredentials(
+			secrets[fieldTokenBroker+suffixClientID], secrets[fieldTokenBroker+suffixClientSecret])))
 	}
 	values := render.Map{
 		e("authSessionSecret", session.Placeholder),
@@ -255,6 +259,25 @@ func (in *Input) userSecrets(secrets map[string]string) render.File {
 		}))
 	}
 	return valuesSecret(userSecretsName, values, session, client, salt)
+}
+
+// dexCredentials is one entry of dexAuthCredentials as the chart reads it.
+// The backstage chart copies clientID and clientSecret under the data: of
+// its Secret as they are, and the pod loads that Secret with envFrom, so the
+// two leaves carry the base64 of the id and of the secret: a literal and a
+// supplied value encoded here, a generated value by its encoded placeholder.
+// A marker stays as it is: it names what the commit fills in.
+func dexCredentials(clientID, clientSecret string) render.Map {
+	return render.Map{e("clientID", base64Leaf(clientID)), e("clientSecret", base64Leaf(clientSecret))}
+}
+
+// base64Leaf is value as a leaf its consumer decodes: a marker stays a
+// marker, everything else is its standard base64.
+func base64Leaf(value string) string {
+	if render.IsMarker(value) {
+		return value
+	}
+	return base64.StdEncoding.EncodeToString([]byte(value))
 }
 
 // githubAppCredentials is github-app-credentials-backstage: the GitHub App

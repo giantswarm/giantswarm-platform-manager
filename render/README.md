@@ -10,9 +10,15 @@ The library has **no I/O**. It reads nothing from disk or the network, runs no `
 `kubectl`, and generates no secret. Its only inputs are the decoded input document and the values a
 person supplies; its only output is the `Result`. A Secret manifest is rendered in plaintext with a
 placeholder (`GENERATED(<name>)`) per value the platform needs and nobody types; `File.Generated`
-describes each placeholder (name, kind, length) for the commit step — gitops-commit's `sopsenc` —
-to fill in and encrypt for the repository's recipients. Two files carrying the same name receive the
-same value: that is how a Dex client and the workload presenting its secret agree.
+describes each placeholder (name, kind, length, and the encoding it receives) for the commit step —
+gitops-commit's `sopsenc` — to fill in and encrypt for the repository's recipients. Two files carrying
+the same name receive the same value: that is how a Dex client and the workload presenting its secret
+agree. Where the consumer decodes the leaf — a Secret key under `data:`, or a chart that copies a value
+under `data:` as it is — the declaration names the encoding and its placeholder is the name's, qualified
+by it (`GENERATED(<name>.base64)`, `Generated.Encoded`): the portal's client secret lands raw in the
+Dex client's Secret and base64 in the chart values the backstage chart copies under `data:`. A literal
+or a supplied value such a leaf carries is encoded by the definition itself; a marker of a dry run stays
+a marker.
 
 Secret files are named so the fleet's `.sops.yaml` rules and the commit step's secret-file test match
 them (`*secret*`, `*credential*`). Encrypted files are never read or edited: a Dex client is a plaintext
