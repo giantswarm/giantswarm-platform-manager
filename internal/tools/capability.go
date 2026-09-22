@@ -252,8 +252,9 @@ func skipped(r installations.Report, capability string, named bool) (Skipped, bo
 }
 
 // mergeInputs are the comparison's inputs, in layers: the schema's
-// defaults, the facts on record the schema names under installation, what
-// the definition reads back from the files on record (read as the caller,
+// defaults, the facts on record the schema names under installation and the
+// inputs the definition derives from the record beyond them (RecordInputs),
+// what the definition reads back from the files on record (read as the caller,
 // an installation a read-back names resolved among the registry's), and
 // the person's typed inputs over it all. A read-back lays over the record
 // only for a person input; a registry input's read-back is answered next
@@ -270,6 +271,13 @@ func mergeInputs(ctx context.Context, def installations.Capability, r installati
 		return nil, nil, err
 	}
 	merged[installations.InputsInstallation] = facts
+	if def.RecordInputs != nil {
+		record, err := def.RecordInputs(r)
+		if err != nil {
+			return nil, nil, err
+		}
+		overlay(merged, record)
+	}
 	known := make([]installations.Installation, 0, len(registry))
 	for _, inst := range registry {
 		known = append(known, inst)

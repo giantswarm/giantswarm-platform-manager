@@ -3,6 +3,7 @@ package installations
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/render"
@@ -62,6 +63,13 @@ type Capability struct {
 	// out. A commit refuses a required person input the document lacks; a
 	// comparison renders its Missing marker.
 	Render func(raw any, secrets map[string]string, mode render.Mode) (*render.Result, error)
+	// RecordInputs are the inputs the definition derives from the record
+	// beyond installation.*, as the schema's other registry inputs name them
+	// (the customer portal's federation from the portal on record): laid
+	// over the defaults with the facts, under the read-back and the typed
+	// inputs; nil where the definition has none. An error refuses the
+	// comparison, naming what the record lacks.
+	RecordInputs func(r Report) (map[string]any, error)
 	// Prunes says whether the Flux Kustomization that applies the
 	// definition's tree deletes what leaves the record. The fleet's
 	// Kustomization over the extras tree does not (prune: false): a revert
@@ -151,6 +159,7 @@ func Capabilities() []Capability {
 		EnabledMarker:    PortalConfigPath,
 		Parse:            func(raw any) (render.Input, error) { return customerportal.Parse(raw) },
 		Render:           customerportal.Render,
+		RecordInputs:     portalRecordInputs,
 		// The extras/backstage tree, under the same Kustomization.
 		Prunes: false,
 	}}
@@ -196,4 +205,35 @@ func (s State) FromAction() bool {
 		return true
 	}
 	return false
+}
+
+// portalRecordInputs is the customer portal's federation from the portal on
+// record: federation.installations, every installation the hosted portal
+// shows besides its own with its facts, so the sign-in installation and the
+// token broker the same file names are among them; nothing where the
+// installation hosts no portal or the portal shows its own installation
+// alone. A name the registry does not know refuses the comparison.
+func portalRecordInputs(r Report) (map[string]any, error) {
+	if r.Hosted == nil {
+		return nil, nil
+	}
+	if len(r.Hosted.Unknown) > 0 {
+		return nil, fmt.Errorf("federation.installations: the portal's gs.installations names %s, not in the installations registry", strings.Join(r.Hosted.Unknown, ", "))
+	}
+	if len(r.Hosted.Installations) == 0 {
+		return nil, nil
+	}
+	entries := make([]any, 0, len(r.Hosted.Installations))
+	for _, f := range r.Hosted.Installations {
+		providers := make([]any, 0, len(f.Providers))
+		for _, p := range f.Providers {
+			providers = append(providers, p)
+		}
+		entry := map[string]any{"name": f.Name, "baseDomain": f.BaseDomain, "providers": providers, "pipeline": f.Pipeline, "agentPlatform": f.AgentPlatform}
+		if f.Region != "" {
+			entry["region"] = f.Region
+		}
+		entries = append(entries, entry)
+	}
+	return map[string]any{"federation": map[string]any{"installations": entries}}, nil
 }

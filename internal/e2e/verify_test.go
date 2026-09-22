@@ -732,6 +732,53 @@ func TestVerifyCapabilityReadsBackThePortal(t *testing.T) {
 	if portal, _ := res.Inputs.Values["portal"].(map[string]any); portal["domain"] != "portal."+hub+".example.test" || portal["title"] != "Dev Portal" {
 		t.Errorf("values %v", res.Inputs.Values)
 	}
+	// The federation follows the record: every installation the hub's portal lists but the hub, by name, with its facts.
+	federation, _ := res.Inputs.Values["federation"].(map[string]any)
+	entries, _ := federation["installations"].([]any)
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.(map[string]any)["name"].(string))
+	}
+	if !slices.Equal(names, []string{alder, birch, "larch", maple, "oak", rowan, "willow"}) {
+		t.Fatalf("federation.installations %v", names)
+	}
+	// The registry's facts over the record's: birch's base domain is the catalog's, not the portal entry's.
+	if e := entries[1].(map[string]any); e["baseDomain"] != birch+".acme.test" || e["agentPlatform"] != true || e["pipeline"] != "stable" || !slices.Equal(e["providers"].([]any), []any{"capa"}) {
+		t.Errorf("%s: %v", birch, e)
+	}
+	if e := entries[0].(map[string]any); e["agentPlatform"] != false {
+		t.Errorf("%s runs no platform: %v", alder, e)
+	}
+}
+
+// A federated portal signing people in at one of the installations it
+// federates compares: the sign-in installation read back from gs.authProvider
+// is among the set the record derives, so nothing is refused. A portal
+// whose record lists an installation the registry does not know is refused
+// naming that installation.
+func TestVerifyCapabilityFederationFollowsTheRecord(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	signIn := strings.Replace(portalConfig(hub, alder, birch), "        gs:\n", "        gs:\n          authProvider: oidc-"+birch+"\n", 1)
+	st.ghs.addFile(hubMCs, installations.PortalConfigPath(hub), signIn)
+	text, isErr := call(t, c, tools.ToolVerifyCapability, map[string]any{tools.ArgInstallation: hub, tools.ArgCapability: installations.CustomerPortal})
+	if isErr {
+		t.Fatal(text)
+	}
+	var res verify.Result
+	if err := json.Unmarshal([]byte(text), &res); err != nil {
+		t.Fatalf("decode: %v\n%s", err, text)
+	}
+	federation, _ := res.Inputs.Values["federation"].(map[string]any)
+	if res.Refused != "" || res.Inputs.ReadBack["federation.signInInstallation"] != birch || federation["signInInstallation"] != birch || len(federation["installations"].([]any)) != 2 {
+		t.Fatalf("refused %q, read back %v, federation %v", res.Refused, res.Inputs.ReadBack, federation)
+	}
+	// The hub's portal is a registry source, so every name it lists is known; a customer's portal listing a name the registry lacks is refused by that name.
+	st.ghs.addFile(umbrellaMCs, installations.PortalConfigPath(maple), portalConfig(maple, "spruce"))
+	if text, isErr := call(t, c, tools.ToolVerifyCapability, map[string]any{tools.ArgInstallation: maple, tools.ArgCapability: installations.CustomerPortal}); !isErr || !strings.Contains(text, "spruce") || !strings.Contains(text, "federation.installations") {
+		t.Fatalf("an unknown installation on record: isErr %v, %s", isErr, text)
+	}
 }
 
 // githubAppIDField is the portal's GitHub App id as the plan names it among
