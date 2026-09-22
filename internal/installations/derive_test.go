@@ -82,7 +82,7 @@ func TestHostedPortalFollowsTheRecord(t *testing.T) {
 		{Name: fixtureSibling, Customer: fixtureCustomer, Provider: capa, Region: euCentral, Pipeline: stable},
 	}}
 	portals := []Portal{
-		{Host: fixtureHub, Installations: []string{fixtureHub, fixtureAggregator, spruce, fixtureSibling}, Entries: map[string]portalEntry{
+		{Host: fixtureHub, Installations: []string{fixtureHub, fixtureAggregator, spruce, fixtureSibling}, Tunnelled: []string{fixtureSibling}, Entries: map[string]portalEntry{
 			fixtureAggregator: {BaseDomain: lindenDomain, Providers: []string{capz, "capv"}, Region: "westeurope"},
 			fixtureSibling:    {BaseDomain: rowanberryDomain, Pipeline: "stable-testing"},
 			spruce:            {BaseDomain: "spruce.example.test"},
@@ -97,8 +97,8 @@ func TestHostedPortalFollowsTheRecord(t *testing.T) {
 	if linden.Name != fixtureAggregator || linden.BaseDomain != lindenDomain || !slices.Equal(linden.Providers, []string{capz, "capv"}) || linden.Region != "westeurope" || linden.Pipeline != "testing" {
 		t.Errorf("the record's providers and region, the registry's pipeline: %+v", linden)
 	}
-	if rowanberry.Name != fixtureSibling || rowanberry.BaseDomain != rowanberryDomain || !slices.Equal(rowanberry.Providers, []string{capa}) || rowanberry.Region != euCentral || rowanberry.Pipeline != stable {
-		t.Errorf("the record's base domain, the registry's provider, region and pipeline: %+v", rowanberry)
+	if rowanberry.Name != fixtureSibling || rowanberry.BaseDomain != rowanberryDomain || !slices.Equal(rowanberry.Providers, []string{capa}) || rowanberry.Region != euCentral || rowanberry.Pipeline != stable || !rowanberry.Private || linden.Private {
+		t.Errorf("the record's base domain, the registry's provider, region and pipeline, the tunnel: %+v %+v", rowanberry, linden)
 	}
 	if own := reg.hostedPortal(portals, fixtureAggregator); own == nil || len(own.Installations) != 0 || len(own.Unknown) != 0 {
 		t.Errorf("a portal showing its own installation alone: %+v", own)
@@ -112,7 +112,7 @@ func TestHostedPortalFollowsTheRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	entries, _ := in["federation"].(map[string]any)["installations"].([]any)
-	if len(entries) != 2 || entries[0].(map[string]any)["name"] != fixtureAggregator || entries[1].(map[string]any)["pipeline"] != stable || entries[0].(map[string]any)["agentPlatform"] != false {
+	if len(entries) != 2 || entries[0].(map[string]any)["name"] != fixtureAggregator || entries[1].(map[string]any)["pipeline"] != stable || entries[0].(map[string]any)["agentPlatform"] != false || entries[1].(map[string]any)["private"] != true || entries[0].(map[string]any)["private"] != false {
 		t.Errorf("record inputs: %v", in)
 	}
 	if _, err := portalRecordInputs(Report{Hosted: hosted}); err == nil || !strings.Contains(err.Error(), spruce) {

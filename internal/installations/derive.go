@@ -78,6 +78,9 @@ type FederatedInstallation struct {
 	Region        string   `json:"region,omitempty"`
 	Pipeline      string   `json:"pipeline,omitempty"`
 	AgentPlatform bool     `json:"agentPlatform"`
+	// Private says the portal reaches the installation through the hub's
+	// tunnel: its cluster entry on record is at the tunnel Service.
+	Private bool `json:"private"`
 }
 
 // PortalRef is a portal that signs people in on an installation, as the
@@ -459,8 +462,8 @@ func (r *Registry) derive(ctx context.Context, c *github.Client, reports []Repor
 // hostedPortal is the portal hosted on host as the customer-portal
 // definition's federation input names it: every installation its record
 // lists but the host, by name, each with the registry's facts, the record's
-// where the registry has none, and the providers the record lists; nil where
-// host has no portal. The names the registry does not know are set apart:
+// where the registry has none, the providers the record lists and whether the
+// portal reaches it through the hub's tunnel; nil where host has no portal. The names the registry does not know are set apart:
 // a definition that takes the set refuses the comparison naming them. The
 // agent-platform fact of each entry is filled by derive from the markers.
 func (r *Registry) hostedPortal(portals []Portal, host string) *HostedPortal {
@@ -479,7 +482,7 @@ func (r *Registry) hostedPortal(portals []Portal, host string) *HostedPortal {
 				continue
 			}
 			entry := p.Entries[name]
-			f := FederatedInstallation{Name: name, BaseDomain: inst.BaseDomain, Providers: entry.Providers, Region: inst.Region, Pipeline: inst.Pipeline}
+			f := FederatedInstallation{Name: name, BaseDomain: inst.BaseDomain, Providers: entry.Providers, Region: inst.Region, Pipeline: inst.Pipeline, Private: slices.Contains(p.Tunnelled, name)}
 			if f.BaseDomain == "" {
 				f.BaseDomain = entry.BaseDomain
 			}

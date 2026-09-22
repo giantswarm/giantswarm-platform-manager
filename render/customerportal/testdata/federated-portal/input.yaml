@@ -50,6 +50,7 @@ input:
         providers: [cloud-director]
         pipeline: testing
         agentPlatform: false
+        private: true
     signInInstallation: alder
     tokenBroker: alder
 secrets:

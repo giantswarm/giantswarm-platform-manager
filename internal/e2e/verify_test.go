@@ -744,12 +744,13 @@ func TestVerifyCapabilityReadsBackThePortal(t *testing.T) {
 		t.Fatalf("federation.installations %v", names)
 	}
 	// The registry's facts over the record's: birch's base domain is the catalog's, not the portal entry's.
-	if e := entries[1].(map[string]any); e["baseDomain"] != birch+".acme.test" || e["agentPlatform"] != true || e["pipeline"] != "stable" || !slices.Equal(e["providers"].([]any), []any{"capa"}) {
+	if e := entries[1].(map[string]any); e["baseDomain"] != birch+".acme.test" || e["agentPlatform"] != true || e["pipeline"] != "stable" || e["private"] != true || !slices.Equal(e["providers"].([]any), []any{"capa"}) {
 		t.Errorf("%s: %v", birch, e)
 	}
-	if e := entries[0].(map[string]any); e["agentPlatform"] != false {
-		t.Errorf("%s runs no platform: %v", alder, e)
+	if e := entries[0].(map[string]any); e["agentPlatform"] != false || e["private"] != false {
+		t.Errorf("%s runs no platform and is public: %v", alder, e)
 	}
+
 }
 
 // A federated portal signing people in at one of the installations it

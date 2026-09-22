@@ -98,3 +98,11 @@ func PortalDexClient(domain, installation string) Map {
 // PortalPlatformComponent is the entry the portal's extras/backstage/kustomization.yaml
 // lists under components for the platform's directory.
 func PortalPlatformComponent() string { return "./" + PortalPlatformDir + "/" }
+
+// TunnelServiceHost is the in-cluster host of a tunnelled app's Service on a
+// hub, the way the agent-platform definition names it and a portal's
+// kubernetes plugin reaches a private installation's API through it:
+// <app>-<installation>.agent-platform.svc.cluster.local:8443.
+func TunnelServiceHost(app, installation string) string {
+	return app + "-" + installation + ".agent-platform.svc.cluster.local:8443"
+}
