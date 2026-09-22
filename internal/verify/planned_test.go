@@ -25,55 +25,126 @@ const (
 	testDomain             = "x.example.test"
 )
 
-// Every key of the agent-platform migrations names a path some golden
-// render emits — a leaf, or an entry of a scalar the plan merges as a set —
-// a key nothing renders any more is stale and fails here, not on the fleet
-// by marking nothing.
+// Every key of a capability's migrations names a path some golden render of
+// its definition emits — a leaf, or an entry of a scalar the plan merges as
+// a set — a key nothing renders any more is stale and fails here, not on the
+// fleet by marking nothing.
 func TestEveryMigrationKeyIsRendered(t *testing.T) {
-	ms, err := definitions.Migrations(installations.AgentPlatform)
-	if err != nil {
-		t.Fatal(err)
-	}
-	migs := readMigrations(ms, nil)
-	if len(migs) != len(ms) {
-		t.Fatalf("%d of %d migration keys name a file kind the comparison observes", len(migs), len(ms))
-	}
-	covered := make([]bool, len(migs))
-	shapes, err := filepath.Glob(filepath.Join("..", "..", "render", "agentplatform", "testdata", "*", "golden"))
-	if err != nil || len(shapes) == 0 {
-		t.Fatalf("golden shapes: %v (%d)", err, len(shapes))
-	}
-	for _, golden := range shapes {
-		fsys := os.DirFS(golden)
-		err := fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() {
-				return err
-			}
-			content, err := fs.ReadFile(fsys, p)
+	for capability, pkg := range map[string]string{installations.AgentPlatform: "agentplatform", installations.CustomerPortal: "customerportal"} {
+		t.Run(capability, func(t *testing.T) {
+			ms, err := definitions.Migrations(capability)
 			if err != nil {
-				return err
+				t.Fatal(err)
 			}
-			fd := &fileDiff{path: p, kind: kindOf(p), documents: flattenLines(string(content)).documents}
-			for i, k := range migs {
-				if covered[i] {
-					continue
-				}
-				for leaf, value := range flattenYAML(string(content)) {
-					if slices.ContainsFunc(leafPaths(p, leaf, value), func(lp string) bool { return k.covers(fd, lp) }) {
-						covered[i] = true
-						break
+			migs := readMigrations(ms, nil)
+			if len(migs) != len(ms) {
+				t.Fatalf("%d of %d migration keys name a file kind the comparison observes", len(migs), len(ms))
+			}
+			covered := make([]bool, len(migs))
+			shapes, err := filepath.Glob(filepath.Join("..", "..", "render", pkg, "testdata", "*", "golden"))
+			if err != nil || len(shapes) == 0 {
+				t.Fatalf("golden shapes: %v (%d)", err, len(shapes))
+			}
+			for _, golden := range shapes {
+				fsys := os.DirFS(golden)
+				err := fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
+					if err != nil || d.IsDir() {
+						return err
 					}
+					content, err := fs.ReadFile(fsys, p)
+					if err != nil {
+						return err
+					}
+					fd := &fileDiff{path: p, kind: kindOf(p), documents: flattenLines(string(content)).documents}
+					for i, k := range migs {
+						if covered[i] {
+							continue
+						}
+						for leaf, value := range flattenYAML(string(content)) {
+							if slices.ContainsFunc(leafPaths(p, leaf, value), func(lp string) bool { return k.covers(fd, lp) }) {
+								covered[i] = true
+								break
+							}
+						}
+					}
+					return nil
+				})
+				if err != nil {
+					t.Fatal(err)
 				}
 			}
-			return nil
+			for i, ok := range covered {
+				if !ok {
+					t.Errorf("migrations.yaml: %q (%s) names nothing the goldens render", ms[i].Key, ms[i].Reason)
+				}
+			}
 		})
+	}
+}
+
+// The additions the fleet lacks are planned under the definitions' own
+// migrations: an installation enabled by hand before the definition rendered
+// them reads the hub's token-exchange client and trusted peer in its Dex
+// (M32, the hub named), the portal's Dex client Secret, user secrets and
+// plugin keys with their kustomization entries and the type every rendered
+// Secret states (M33) and the platform's
+// Component in the portal's kustomization (M3) as planned with their reasons;
+// what stands beside them — another client, the portal's own files, another
+// Component — is no migration's, and the removals come first as everywhere.
+func TestFleetAdditionsArePlanned(t *testing.T) {
+	const m3, m5, m30, m32, m33 = "M3", "M5", "M30", "M32", "M33"
+	keys := func(capability string) (plannedKeys, plannedKeys) {
+		rs, err := definitions.Removals(capability)
 		if err != nil {
 			t.Fatal(err)
 		}
+		ms, err := definitions.Migrations(capability)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return readRemovals(rs, facts{factDomain: testDomain}), readMigrations(ms, facts{factDomain: testDomain})
 	}
-	for i, ok := range covered {
-		if !ok {
-			t.Errorf("migrations.yaml: %q (%s) names nothing the goldens render", ms[i].Key, ms[i].Reason)
+	platformRms, platformMigs := keys(installations.AgentPlatform)
+	portalRms, portalMigs := keys(installations.CustomerPortal)
+	dexCM := &fileDiff{path: testDexPatch, kind: definitions.KindDexConfigMap}
+	portalFile := func(p string) *fileDiff {
+		return &fileDiff{path: "management-clusters/x/extras/backstage/" + p, kind: definitions.KindBackstage}
+	}
+	absent := func(p string) *Difference { return &Difference{Path: p, Rendered: "x", absent: true} }
+	for _, tc := range []struct {
+		name      string
+		rms, migs plannedKeys
+		fd        *fileDiff
+		d         *Difference
+		says, tag string // the reason names says and carries the tag; a tag "" is no planned change
+	}{
+		{"the hub's client in a spoke's Dex", platformRms, platformMigs, dexCM, absent("oidc.extraStaticClients[gazelle-token-exchange].id"), "a client named gazelle-token-exchange, the hub gazelle's client", m32},
+		{"the client's secret reference is the client's", platformRms, platformMigs, dexCM, absent("oidc.extraStaticClients[gazelle-token-exchange].secretRef.name"), "the hub gazelle's client", m32},
+		{"the hub's client as a trusted peer", platformRms, platformMigs, dexCM, absent("oidc.staticClients.dexK8SAuthenticator.trustedPeers[gazelle-token-exchange]"), "trusts the hub gazelle's token-exchange client", m32},
+		{"another client is its own migration's", platformRms, platformMigs, dexCM, absent("oidc.extraStaticClients[kagent].id"), "a client named kagent", m5},
+		{"another peer is its own migration's", platformRms, platformMigs, dexCM, absent("oidc.staticClients.dexK8SAuthenticator.trustedPeers[backstage]"), "trusts the backstage client", m30},
+		{"a client beside them", platformRms, platformMigs, dexCM, absent("oidc.extraStaticClients[other].id"), "", ""},
+		{"the portal's Dex client Secret", portalRms, portalMigs, portalFile("backstage/dex-client-backstage-secret.enc.yaml"), absent(""), "the Secret dex-client-backstage", m33},
+		{"a leaf of the user secrets", portalRms, portalMigs, portalFile("backstage/user-secrets.enc.yaml"), absent("stringData.values"), "Secret user-secrets-backstage", m33},
+		{"a leaf of the plugin keys", portalRms, portalMigs, portalFile("backstage/plugin-keys-secret.enc.yaml"), absent("apiVersion"), "Secret plugin-keys-backstage", m33},
+		{"the Dex client Secret's kustomization entry", portalRms, portalMigs, portalFile("backstage/kustomization.yaml"), absent("resources[dex-client-backstage-secret.enc.yaml]"), "lists the Secret dex-client-backstage", m33},
+		{"the user secrets' kustomization entry", portalRms, portalMigs, portalFile("backstage/kustomization.yaml"), absent("resources[user-secrets.enc.yaml]"), "lists the Secret user-secrets-backstage", m33},
+		{"the plugin keys' kustomization entry", portalRms, portalMigs, portalFile("backstage/kustomization.yaml"), absent("resources[plugin-keys-secret.enc.yaml]"), "lists the Secret plugin-keys-backstage", m33},
+		{"the portal's own entry beside them", portalRms, portalMigs, portalFile("backstage/kustomization.yaml"), absent("resources[app-config.yaml]"), "", ""},
+		{"a Secret on record without its type", portalRms, portalMigs, portalFile("backstage/user-secrets.enc.yaml"), absent("type"), "states its type (Opaque)", m33},
+		{"the GitHub App's Secret states its type too", portalRms, portalMigs, portalFile("backstage/github-app-credentials.enc.yaml"), absent("type"), "states its type (Opaque)", m33},
+		{"the GitHub App's Secret itself is no migration", portalRms, portalMigs, portalFile("backstage/github-app-credentials.enc.yaml"), absent(""), "", ""},
+		{"the portal's own file", portalRms, portalMigs, portalFile("backstage/app-config.yaml"), absent(""), "", ""},
+		{"the platform's Component in the portal's kustomization", portalRms, portalMigs, portalFile("kustomization.yaml"), absent("components[./agent-platform/]"), "the agent-platform definition's Component ./agent-platform/", m3},
+		{"another Component", portalRms, portalMigs, portalFile("kustomization.yaml"), absent("components[./other/]"), "", ""},
+		{"a leaf on record with another value", portalRms, portalMigs, portalFile("backstage/user-secrets.enc.yaml"), &Difference{Path: "metadata.namespace", Rendered: "x", Current: "y"}, "", ""},
+	} {
+		got := planned(tc.fd, tc.d, tc.rms, tc.migs)
+		switch {
+		case tc.tag == "" && got != "":
+			t.Errorf("%s: %s#%s planned %q, want none", tc.name, tc.fd.path, tc.d.Path, got)
+		case tc.tag != "" && (!strings.Contains(got, tc.says) || !strings.HasSuffix(got, "· "+tc.tag)):
+			t.Errorf("%s: %s#%s planned %q, want it to say %q and carry %s", tc.name, tc.fd.path, tc.d.Path, got, tc.says, tc.tag)
 		}
 	}
 }

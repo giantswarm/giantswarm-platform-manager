@@ -18,7 +18,11 @@
 #
 # The M numbers are the wave-1 migration list's (M1–M11) and continue removals.yaml's (M30…).
 migrations:
-  # --- M32 — a spoke's token-exchange client secret is referenced; the hub's federation files ---
+  # --- M32 — a spoke's Dex carries the hub's token-exchange client, its secret referenced; the hub's federation files ---
+  - key: dex-configmap:oidc.extraStaticClients[<name>-token-exchange]
+    reason: "Added: Dex gets a client named <name>-token-exchange, the hub <name>'s client in this installation's Dex, through which the hub's muster exchanges a person's token for one this installation accepts · M32"
+  - key: dex-configmap:oidc.staticClients.dexK8SAuthenticator.trustedPeers[<name>-token-exchange]
+    reason: "Added: the dex-k8s-authenticator client trusts the hub <name>'s token-exchange client as a peer, so a token the hub exchanges can carry this installation's cluster audience · M32"
   - key: extras:agent-platform/secrets/dex-client-<name>-token-exchange-secret.yaml
     reason: "Added: the hub <name>'s token-exchange client in this installation's Dex reads its secret from its own Secret under extras/agent-platform/secrets instead of an inline value · M32"
   - key: extras:agent-platform/secrets/kustomization.yaml resources[dex-client-<name>-token-exchange-secret.yaml]

@@ -1,3 +1,33 @@
-# Keys the definition renders that an installation enabled before a migration lacks (see agent-platform/migrations.yaml).
-# The customer-portal definition has none.
-migrations: []
+# Keys the definition renders that a portal enabled before a migration lacks. Their absence from the record is
+# the migration's planned addition, not drift: the comparison marks a leaf the definition renders and the record
+# does not have, under one of these keys, planned with the reason. A leaf the record holds with another value
+# stays a difference. Key paths use the file prefixes of schema.json's x-renders (backstage:file:<name> covers
+# the file in the portal's directory, backstage:kustomization:<path> a path in a kustomization) and the
+# normalisation of removals.yaml ([x] for the list entry with identity x). The comparison takes the first key
+# that names a path: a more specific key precedes one that covers it.
+#
+# The reason is what the Dev Portal shows a platform engineer next to the planned change, so it is one
+# sentence in their words: what is on the installation today, what replaces it and why. It starts with
+# Added: or Moved:, names the value or the object, never the file (the file is the group the change is
+# listed under), and carries the migration as a trailing tag (· M<n>). The M numbers are the fleet's
+# migration list, shared with agent-platform/migrations.yaml.
+migrations:
+  # --- M33 — the portal's Secrets are SOPS-encrypted files of its own directory, each stating its type ---
+  - key: backstage:<name>.enc:type
+    reason: "Added: the SOPS-encrypted Secret states its type (Opaque), as every Secret the definition renders does; a Secret without the field is Opaque already, so nothing changes for the chart · M33"
+  - key: backstage:file:dex-client-backstage-secret.enc.yaml
+    reason: "Added: the Dex client backstage reads its secret from the Secret dex-client-backstage in Dex's namespace, SOPS-encrypted next to the portal's files and one value with the portal's credentials, instead of an inline value in the dex-app's encrypted patch or a copy under the platform's secrets · M33"
+  - key: backstage:kustomization:resources[dex-client-backstage-secret.enc.yaml]
+    reason: "Added: the portal's kustomization lists the Secret dex-client-backstage, so it is applied with the portal · M33"
+  - key: backstage:file:user-secrets.enc.yaml
+    reason: "Added: the portal's session secret, its Dex client credentials, the telemetry salt and its Sentry and Grafana values are the SOPS-encrypted Secret user-secrets-backstage the HelmRelease reads values from, generated or supplied at commit, instead of values kept by hand · M33"
+  - key: backstage:kustomization:resources[user-secrets.enc.yaml]
+    reason: "Added: the portal's kustomization lists the Secret user-secrets-backstage, so it is applied with the portal · M33"
+  - key: backstage:file:plugin-keys-secret.enc.yaml
+    reason: "Added: the plugin-to-plugin signing keys are one ES256 key pair drawn at commit, the SOPS-encrypted Secret plugin-keys-backstage the HelmRelease reads values from and backend.auth.pluginKeyStore names, instead of keys the backend keeps in its database · M33"
+  - key: backstage:kustomization:resources[plugin-keys-secret.enc.yaml]
+    reason: "Added: the portal's kustomization lists the Secret plugin-keys-backstage, so it is applied with the portal · M33"
+
+  # --- M3 — the portal lists the platform's Component (the agent-platform definition renders its files) ---
+  - key: backstage:kustomization:components[./agent-platform/]
+    reason: "Added: the portal's kustomization lists the agent-platform definition's Component ./agent-platform/ beside the portal's directory, so the portal runs with the platform's section where the platform is enabled · M3"
