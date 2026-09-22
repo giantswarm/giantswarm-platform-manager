@@ -134,9 +134,11 @@ type Installation struct {
 // carries it the id of the Dex client it signs in through — the audience of
 // the ID tokens it forwards — whether it is hand-kept: its app-config on
 // record carries a literal extension list of its own, so the portal owns its
-// lists and the Component sets none (portal.go) — and the chart line it
-// follows: the ref its directory kustomization patches onto the fleet base's
-// backstage OCIRepository, empty when it patches none.
+// lists and the Component sets none (portal.go) — whether its Grafana plugin
+// is wired: its app-config carries the plugin's proxy endpoint, so the
+// extension list the Component includes carries the dashboards card — and
+// the chart line it follows: the ref its directory kustomization patches onto
+// the fleet base's backstage OCIRepository, empty when it patches none.
 type PortalRef struct {
 	Installation string `json:"installation"`
 	Customer     string `json:"customer"`
@@ -144,6 +146,7 @@ type PortalRef struct {
 	ClientID     string `json:"clientId,omitempty"`
 	ChartLine    string `json:"chartLine,omitempty"`
 	HandKept     bool   `json:"handKept,omitempty"`
+	GrafanaWired bool   `json:"grafanaWired,omitempty"`
 }
 
 // Federation is the installation's place in the fleet's token exchange.

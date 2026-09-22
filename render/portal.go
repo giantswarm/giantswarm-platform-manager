@@ -26,7 +26,47 @@ const (
 	// extras/backstage/: the kustomize Component the agent-platform definition
 	// renders and the portal's kustomization lists.
 	PortalPlatformDir = "agent-platform"
+	// PortalGrafanaProxy is the portal's proxy endpoint for its Grafana
+	// plugin, the path the plugin's dashboards card reads Grafana's search
+	// API through. The customer-portal definition renders the entry where
+	// the plugin is wired; its presence on record is the fact the plugin
+	// reads back as wired and the agent-platform definition reads for the
+	// portal's extension list.
+	PortalGrafanaProxy = "/grafana/api"
+	// portalSharedConfig is the fleet base's shared config the portal's
+	// app-config includes by anchor.
+	portalSharedConfig = "shared-config.yaml#"
+	// portalExtensions is the anchor of the fleet's baseline extension list;
+	// the anchors of its supersets append one suffix per addition.
+	portalExtensions                  = "extensions"
+	portalExtensionsAgentPlatform     = "AgentPlatform"
+	portalExtensionsGrafanaDashboards = "GrafanaDashboards"
 )
+
+// PortalSharedInclude is the $include of one anchor of the fleet base's
+// shared-config.yaml.
+func PortalSharedInclude(anchor string) string { return portalSharedConfig + anchor }
+
+// PortalExtensionsInclude is the $include of the portal's extension list.
+// Backstage replaces app.extensions wholesale per app-config file and
+// $include cannot append to a list, so the fleet's shared config carries one
+// full list per combination, named by what it adds to the baseline: the
+// agent platform's section where the platform runs, the Grafana dashboards
+// card where the portal's Grafana plugin is wired (the card reads through
+// PortalGrafanaProxy and is disabled in the app until switched on). The
+// customer-portal definition includes the list without the platform in the
+// portal's app-config; the agent-platform definition's Component includes the
+// one with it in its fragment, which wins.
+func PortalExtensionsInclude(agentPlatform, grafanaWired bool) string {
+	anchor := portalExtensions
+	if agentPlatform {
+		anchor += portalExtensionsAgentPlatform
+	}
+	if grafanaWired {
+		anchor += portalExtensionsGrafanaDashboards
+	}
+	return PortalSharedInclude(anchor)
+}
 
 // DexClientSecretName is the Secret in Dex's namespace that carries a
 // component's client secret.

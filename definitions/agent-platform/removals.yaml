@@ -242,7 +242,8 @@ removals:
     kind: other-definition
     reason: >-
       Kept: app.extensions is the portal's own extension list, written by the customer-portal capability; the Agent Platform contributes its extensions
-      through the shared include in its Component.
+      through the shared include in its Component (the list with the platform's section, and with the Grafana dashboards card where the portal's
+      plugin is wired on record).
   - key: "backstage:app-config:app.errorReporter"
     kind: other-definition
     reason: "Kept: app.errorReporter is the portal's own error reporting, written by the customer-portal capability; the Agent Platform writes only its Component."

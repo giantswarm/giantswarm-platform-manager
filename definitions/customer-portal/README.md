@@ -77,8 +77,10 @@ is `<name>`. A path covers every key beneath it.
   credentials, the Sentry values and the Grafana token are supplied raw and encoded by the render.
 - The portal's agent-platform section is the agent-platform definition's: its fragment, values and Google
   credentials are files of its own Component next to the portal's, listed by this definition's kustomization
-  and never written into the portal's files. The portal includes the shared extensions list; the Component's
-  fragment includes the platform's over it. The portal's environment stays the portal's: `backstage.extraEnvVars`
+  and never written into the portal's files. The portal includes the shared extensions list without the
+  platform's section, with the Grafana dashboards card where the plugin is wired (`#extensionsGrafanaDashboards`:
+  the card is disabled in the app until a portal opts in through its list); the Component's fragment includes the
+  platform's pair over it, reading the wiring off the record. The portal's environment stays the portal's: `backstage.extraEnvVars`
   is one list Helm replaces wholesale across the HelmRelease's values sources (the shared base's default, the
   portal's user-values, the Component's values), so the user-values are its one owner — the avatars host of
   every installation the portal shows that runs the platform as the CSP image source

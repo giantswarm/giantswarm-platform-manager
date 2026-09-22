@@ -1,8 +1,9 @@
 # The customer-portal definition's input for the public-customer shape: the
 # same installation as ../public-customer/input.yaml with the platform enabled,
 # so the portal's tree lists the platform's Component and the agent-platform
-# definition carries the portal's Dex client. The chart line holds the pin in
-# charts.yaml. Invented names; the supplied values are dry-run markers.
+# definition carries the portal's Dex client; the Grafana plugin wired, as the
+# shape's portal fact says. The chart line holds the pin in charts.yaml.
+# Invented names; the supplied values are dry-run markers.
 input:
   installation:
     name: kestrel
@@ -22,7 +23,7 @@ input:
     github:
       enabled: true
     grafana:
-      enabled: false
+      enabled: true
     flux:
       enabled: false
     sentry:

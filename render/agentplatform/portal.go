@@ -24,12 +24,16 @@ import (
 // Component therefore sets a list only where it is the portal's sole source of
 // it. A portal the customer-portal definition renders includes the shared
 // extension list, so there the Component names the platform's extensions and
-// the installation's muster. A hand-kept portal — one whose app-config on
-// record carries a literal extension list of its own, the hub's Dev Portal
-// among them (installation.portals[*].handKept, read from the record) — owns
-// its extensions and its muster registry; there the Component writes only
-// object-shaped keys (the kagent installation, the fragment's mount), which
-// merge. The day the customer-portal definition renders such a portal the
+// the installation's muster: the shared list with the platform's section,
+// and with the Grafana dashboards card where the portal's Grafana plugin is
+// wired (installation.portals[*].grafanaWired, read from the record: the
+// proxy endpoint the customer-portal definition renders for it), since the
+// fragment's list is the one Backstage keeps. A hand-kept portal — one whose
+// app-config on record carries a literal extension list of its own, the
+// hub's Dev Portal among them (installation.portals[*].handKept, read from
+// the record) — owns its extensions and its muster registry; there the
+// Component writes only object-shaped keys (the kagent installation, the
+// fragment's mount), which merge. The day the customer-portal definition renders such a portal the
 // fact reads false and the Component takes the lists over. The portal's
 // environment, backstage.extraEnvVars, is the portal's own whatever the
 // portal: the customer-portal definition's user-values carry the whole list
@@ -64,8 +68,6 @@ const (
 	// plugin creates agents through agent-manager and reads no
 	// fluxServiceAccountName.
 	portalPluginRemoval = "1.1.0"
-	// extensionsInclude is the shared base's list of the platform's portal extensions.
-	extensionsInclude = "shared-config.yaml#extensionsAgentPlatform"
 )
 
 // portalAuthProvider is the portal's sign-in provider on this installation's
@@ -98,12 +100,13 @@ func (in *Input) musterEntry() render.Map {
 // plugin's section where kagent runs (the agents' Flux identity where the
 // portal's plugin reads it, and the installation among the kagent
 // installations) and, where the Component owns the portal's lists, the
-// platform's extensions through the shared include and the installation's
+// platform's extensions through the shared include (with the Grafana
+// dashboards card where the portal's plugin is wired) and the installation's
 // muster.
 func (in *Input) portalAppConfig() render.Map {
 	m := render.Map{}
 	if in.portalOwnsLists() {
-		m = append(m, e("app", render.Map{e("extensions", render.Map{e("$include", extensionsInclude)})}))
+		m = append(m, e("app", render.Map{e("extensions", render.Map{e("$include", render.PortalExtensionsInclude(true, in.hostedPortal().GrafanaWired))})}))
 	}
 	if in.kagent() {
 		platform := render.Map{}

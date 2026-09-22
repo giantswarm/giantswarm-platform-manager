@@ -12,7 +12,6 @@ import (
 // the fleet's variable substitution so Backstage sees ${VAR}), and every
 // hostname derives from the installation's base domain.
 const (
-	sharedConfig = "shared-config.yaml#"
 	// pluginKeysMount is where the chart mounts pluginKeys[*] by keyId.
 	pluginKeysMount = "/app/plugin-keys/"
 	// The Sentry error reporter's settings the fleet's portals share.
@@ -28,13 +27,13 @@ const (
 	// card reads Grafana's search API through, the plugin's default path;
 	// grafanaTokenVar is the chart's environment variable for the
 	// service-account token (grafana.apiToken of the user secrets).
-	grafanaProxy    = "/grafana/api"
+	grafanaProxy    = render.PortalGrafanaProxy
 	grafanaTokenVar = "GRAFANA_TOKEN"
 )
 
 // include is a $include of an anchor of the base's shared-config.yaml.
 func include(anchor string) render.Map {
-	return render.Map{e("$include", sharedConfig+anchor)}
+	return render.Map{e("$include", render.PortalSharedInclude(anchor))}
 }
 
 // envVar is the reference Backstage resolves from its environment after the
@@ -105,17 +104,23 @@ func (in *Input) appConfig() render.Map {
 // the plugin's config schema requires the section, and a portal without it
 // fails to start; with one host no entity needs the grafana/host-id
 // annotation. Wired (plugins.grafana.enabled), the proxy entry the
-// dashboards card reads through follows it in appConfig.
+// dashboards card reads through follows it in appConfig, and the extension
+// list appSection includes is the one with the card switched on.
 func (in *Input) grafanaSection() render.Map {
 	return render.Map{e("hosts", []render.Map{{e("id", in.Installation.Name), e("domain", in.grafanaURL())}})}
 }
 
 // appSection is app: the portal's identity, the shared extensions and routes,
-// the error reporter and the telemetry.
+// the error reporter and the telemetry. The extension list is the fleet's
+// shared one without the platform's section — the agent-platform Component's
+// fragment includes the list with it where the platform runs, and Backstage
+// takes the later file's list whole — with the Grafana dashboards card
+// switched on where the plugin is wired: the card is disabled in the app
+// until a portal that carries the proxy entry opts in.
 func (in *Input) appSection() render.Map {
 	app := render.Map{
 		e("title", in.Portal.Title), e("baseUrl", in.portalURL()),
-		e("extensions", include("extensions")), e("routes", include("routes")),
+		e("extensions", render.Map{e("$include", render.PortalExtensionsInclude(false, in.Plugins.Grafana.Enabled))}), e("routes", include("routes")),
 	}
 	if in.Plugins.Sentry.Enabled {
 		app = append(app, e("errorReporter", sentryReporter("SENTRY_DSN_APP")))

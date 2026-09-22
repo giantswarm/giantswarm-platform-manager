@@ -59,6 +59,39 @@ const (
 	testPortalHost   = "maple"
 )
 
+// The fragment's extension list is the shared one with the platform's section
+// and, where the hosted portal's Grafana plugin is wired on record, with the
+// dashboards card: Backstage keeps the fragment's list, so the card's switch
+// has to be in it. A hand-kept portal gets no list.
+func TestPortalFragmentExtensions(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		portal PortalRef
+		want   string
+	}{
+		{"not wired", PortalRef{Installation: testPortalHost, Customer: testOrganisation}, "shared-config.yaml#extensionsAgentPlatform"},
+		{"wired", PortalRef{Installation: testPortalHost, Customer: testOrganisation, GrafanaWired: true}, "shared-config.yaml#extensionsAgentPlatformGrafanaDashboards"},
+		{"hand-kept, wired", PortalRef{Installation: testPortalHost, Customer: testOrganisation, GrafanaWired: true, HandKept: true}, ""},
+	} {
+		in := &Input{Installation: Installation{Name: testPortalHost, Customer: testOrganisation, Portals: []PortalRef{tc.portal}}}
+		app, _ := fragmentValue(in.portalAppConfig(), "app").(render.Map)
+		extensions, _ := fragmentValue(app, "extensions").(render.Map)
+		if got, _ := fragmentValue(extensions, "$include").(string); got != tc.want {
+			t.Errorf("%s: the fragment includes %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// fragmentValue is the value of key in m, nil where m has no such entry.
+func fragmentValue(m render.Map, key string) any {
+	for _, entry := range m {
+		if entry.Key == key {
+			return entry.Value
+		}
+	}
+	return nil
+}
+
 // A portal's chart line admits versions from its floor: the lower bound of
 // the bounded range the customer-portal definition writes, or the tag itself.
 // The fragment names the agents' Flux identity where that floor lies before
