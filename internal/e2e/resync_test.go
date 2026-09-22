@@ -69,7 +69,7 @@ func TestPullRequestsMergedOutsideMoveTheActionToRollingOut(t *testing.T) {
 	if want := acmeConfigs + ":" + installations.Capabilities()[0].EnabledMarker(rowan); got.Spec.Markers[rowan] != want {
 		t.Fatalf("the marker on record: %q, want %q", got.Spec.Markers[rowan], want)
 	}
-	if th := thread(t, st); len(th) != 1 || !strings.Contains(th[0], "Merged outside the manager by "+dave) || !strings.Contains(th[0], "*"+rowan+"* is rolling out") || !strings.Contains(th[0], acmeMCs+"#2") {
+	if th := thread(t, st); len(th) != 1 || !strings.Contains(th[0], "Merged outside the manager by "+dave) || !strings.Contains(th[0], "*"+rowan+"* is rolling out") || !strings.Contains(th[0], acmeMCs+"#1") || !strings.Contains(th[0], acmeConfigs+"#2") {
 		t.Fatalf("the thread: %q", th)
 	}
 
@@ -147,13 +147,13 @@ func TestPullRequestClosedUnmergedFailsTheAction(t *testing.T) {
 		msg = got.Status.Result.Message
 	}
 	if got.Status.State != actions.StateFailed || got.Status.Result == nil || got.Status.Result.State != actions.StateFailed ||
-		!strings.Contains(msg, "closed unmerged outside the manager ("+acmeMCs+"#2)") || !strings.Contains(msg, "1 pull request(s) stay open ("+acmeConfigs+"#1)") || !strings.Contains(msg, tools.ToolDenyAction) {
+		!strings.Contains(msg, "closed unmerged outside the manager ("+acmeConfigs+"#2)") || !strings.Contains(msg, "1 pull request(s) stay open ("+acmeMCs+"#1)") || !strings.Contains(msg, tools.ToolDenyAction) {
 		t.Fatalf("after the close by hand: %+v", got.Status)
 	}
 	if got.Status.PullRequests[1].State != actions.PullRequestClosed || got.Status.PullRequests[1].ClosedAt == nil || got.Status.PullRequests[0].State != actions.PullRequestOpen {
 		t.Fatalf("pull requests on record: %+v", got.Status.PullRequests)
 	}
-	if th := thread(t, st); len(th) != 1 || !strings.Contains(th[0], "Closed unmerged outside the manager") || !strings.Contains(th[0], acmeMCs+"#2") || !strings.Contains(th[0], "failed") {
+	if th := thread(t, st); len(th) != 1 || !strings.Contains(th[0], "Closed unmerged outside the manager") || !strings.Contains(th[0], acmeConfigs+"#2") || !strings.Contains(th[0], "failed") {
 		t.Fatalf("the thread: %q", th)
 	}
 	li, _, _ := listInstallations(t, aliceC, map[string]any{tools.ArgInstallations: []any{rowan}})
@@ -168,7 +168,7 @@ func TestPullRequestClosedUnmergedFailsTheAction(t *testing.T) {
 	if isErr || d.Action.Status.State != actions.StateFailed || d.Action.Status.PullRequests[0].State != actions.PullRequestClosed || !strings.Contains(d.Action.Status.Result.Message, "denied by "+alice) {
 		t.Fatalf("deny: %v %s", isErr, text)
 	}
-	if calls := st.calls(); len(calls) != 1 || calls[0] != alice+" "+commit.OpClose+" "+acmeConfigs+"#1" {
+	if calls := st.calls(); len(calls) != 1 || calls[0] != alice+" "+commit.OpClose+" "+acmeMCs+"#1" {
 		t.Fatalf("remote calls: %v", calls)
 	}
 	if _, text, isErr := watchCall(t, adminLive(t, st), name); !isErr || !strings.Contains(text, actions.StateFailed) {

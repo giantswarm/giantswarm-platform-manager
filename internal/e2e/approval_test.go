@@ -144,7 +144,7 @@ func TestApproveAsMemberThenMergeAsActor(t *testing.T) {
 	if isErr || !strings.Contains(d.Message, carol) || !strings.Contains(d.Message, tools.ToolMergeAction) || d.Action == nil {
 		t.Fatalf("carol's approve: %v %s", isErr, text)
 	}
-	want := []string{carol + " " + commit.OpApprove + " " + acmeConfigs + "#1", carol + " " + commit.OpApprove + " " + acmeMCs + "#2"}
+	want := []string{carol + " " + commit.OpApprove + " " + acmeMCs + "#1", carol + " " + commit.OpApprove + " " + acmeConfigs + "#2"}
 	if calls := st.calls(); !slices.Equal(calls, want) {
 		t.Fatalf("remote calls %v, want %v", calls, want)
 	}
@@ -166,15 +166,15 @@ func TestApproveAsMemberThenMergeAsActor(t *testing.T) {
 	st.remote.SetChecks(remotePRs[0].PullRequest, commit.ChecksSuccess)
 	st.remote.SetChecks(remotePRs[1].PullRequest, commit.ChecksPending)
 	m, text, isErr := mergeCall(t, aliceC, name)
-	if isErr || len(m.Merged) != 1 || m.Merged[0].Repository != acmeConfigs || !strings.Contains(m.Waiting, acmeMCs+"#2") || m.Action.Status.State != actions.StatePendingApproval {
+	if isErr || len(m.Merged) != 1 || m.Merged[0].Repository != acmeMCs || !strings.Contains(m.Waiting, acmeConfigs+"#2") || m.Action.Status.State != actions.StatePendingApproval {
 		t.Fatalf("merge with a pending check: %v %s", isErr, text)
 	}
 	st.remote.SetChecks(remotePRs[1].PullRequest, commit.ChecksSuccess)
 	m, text, isErr = mergeCall(t, aliceC, name)
-	if isErr || len(m.Merged) != 1 || m.Merged[0].Repository != acmeMCs || m.Waiting != "" || m.Action.Status.State != actions.StateRollingOut || m.Action.Status.Rollout == nil || m.Action.Status.Rollout.StartedAt == nil {
+	if isErr || len(m.Merged) != 1 || m.Merged[0].Repository != acmeConfigs || m.Waiting != "" || m.Action.Status.State != actions.StateRollingOut || m.Action.Status.Rollout == nil || m.Action.Status.Rollout.StartedAt == nil {
 		t.Fatalf("merge once green: %v %s", isErr, text)
 	}
-	if calls := st.calls(); len(calls) != 4 || !strings.HasPrefix(calls[2], alice+" "+commit.OpMerge+" "+acmeConfigs) || !strings.HasPrefix(calls[3], alice+" "+commit.OpMerge+" "+acmeMCs) {
+	if calls := st.calls(); len(calls) != 4 || !strings.HasPrefix(calls[2], alice+" "+commit.OpMerge+" "+acmeMCs) || !strings.HasPrefix(calls[3], alice+" "+commit.OpMerge+" "+acmeConfigs) {
 		t.Fatalf("remote calls %v", calls)
 	}
 	for _, pr := range st.remote.PullRequests() {
@@ -217,7 +217,7 @@ func TestDenyClosesThePullRequestsWithTheReason(t *testing.T) {
 	if isErr || !strings.Contains(d.Message, "wrong base domain") || d.Action.Status.State != actions.StateDenied {
 		t.Fatalf("deny: %v %s", isErr, text)
 	}
-	want := []string{alice + " " + commit.OpClose + " " + acmeConfigs + "#1", alice + " " + commit.OpClose + " " + acmeMCs + "#2"}
+	want := []string{alice + " " + commit.OpClose + " " + acmeMCs + "#1", alice + " " + commit.OpClose + " " + acmeConfigs + "#2"}
 	if calls := st.calls(); !slices.Equal(calls, want) {
 		t.Fatalf("remote calls %v, want %v", calls, want)
 	}

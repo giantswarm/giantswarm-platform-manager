@@ -145,13 +145,13 @@ func TestCommitFailureClosesItsPullRequests(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	sopsFixtures(t, st.ghs)
-	seedRemoteExcept(t, st, acmeMCs)
+	seedRemoteExcept(t, st, acmeConfigs)
 	c := st.mcpClient(t, aliceToken)
 	_, text, isErr := commitCall(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(nil)})
-	if !isErr || !strings.Contains(text, acmeMCs) || !strings.Contains(text, "has no branch") || !strings.Contains(text, "its 1 pull request(s) closed ("+acmeConfigs+"#1)") {
+	if !isErr || !strings.Contains(text, acmeConfigs) || !strings.Contains(text, "has no branch") || !strings.Contains(text, "its 1 pull request(s) closed ("+acmeMCs+"#1)") {
 		t.Fatalf("the failure: %v %s", isErr, text)
 	}
-	if calls := st.calls(); !slices.Equal(calls, []string{alice + " " + commit.OpClose + " " + acmeConfigs + "#1"}) {
+	if calls := st.calls(); !slices.Equal(calls, []string{alice + " " + commit.OpClose + " " + acmeMCs + "#1"}) {
 		t.Fatalf("remote calls %v", calls)
 	}
 	prs := st.remote.PullRequests()
@@ -177,7 +177,7 @@ func TestDenyClosesAFailedActionsOpenPullRequests(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	sopsFixtures(t, st.ghs)
-	seedRemoteExcept(t, st, acmeMCs)
+	seedRemoteExcept(t, st, acmeConfigs)
 	st.remote.Fail[commit.OpClose] = errors.New("the close was refused")
 	c := st.mcpClient(t, aliceToken)
 	_, text, isErr := commitCall(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(nil)})

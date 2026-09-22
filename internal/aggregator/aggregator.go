@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
@@ -25,9 +26,20 @@ const (
 	MetaListTools = "list_tools"
 )
 
+// ArgCallTimeout is call_tool's timeout argument on muster's CLI bridge:
+// seconds to wait for this one call. See Session.CallTimeout.
+const ArgCallTimeout = "timeout"
+
 // Session is one MCP session with the aggregator.
 type Session struct {
 	c *client.Client
+	// CallTimeout, when set, goes with every call as call_tool's timeout
+	// argument: the bound muster's CLI bridge puts on that one call in place
+	// of its own --timeout (5 minutes), so a caller that waits longer is not
+	// cut short by the bridge. The argument is the bridge's and never reaches
+	// the aggregator's tool; a session opened directly at muster leaves it
+	// zero, where muster's call_tool would hand it to the tool.
+	CallTimeout time.Duration
 }
 
 // Open connects to url over streamable HTTP, the bearer put on every request
@@ -77,7 +89,11 @@ func (s *Session) Close() error { return s.c.Close() }
 func (s *Session) Call(ctx context.Context, name string, args map[string]any) (*mcp.CallToolResult, error) {
 	req := mcp.CallToolRequest{}
 	req.Params.Name = MetaCallTool
-	req.Params.Arguments = map[string]any{"name": name, "arguments": args}
+	meta := map[string]any{"name": name, "arguments": args}
+	if s.CallTimeout > 0 {
+		meta[ArgCallTimeout] = s.CallTimeout.Seconds()
+	}
+	req.Params.Arguments = meta
 	res, err := s.c.CallTool(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)

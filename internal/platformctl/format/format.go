@@ -112,6 +112,9 @@ func Plan(w io.Writer, r tools.CapabilityResult, content bool) error {
 		p.f("\nPull requests, in order:\n")
 		for _, pr := range r.PullRequests {
 			p.f("  %d. %s: %s for %s\n", pr.Order, pr.Repository, plural(pr.Changes, "change"), strings.Join(pr.Installations, ", "))
+			if after := pr.AfterClause(); after != "" {
+				p.f("     %s\n", after)
+			}
 			if len(pr.GeneratedSecrets) > 0 {
 				p.f("     generated secrets: %s\n", strings.Join(pr.GeneratedSecrets, ", "))
 			}
@@ -446,7 +449,11 @@ func Verify(w io.Writer, r verify.Result, liveErr error) error {
 		p.f("Files: %s\n", diff(r.Diff))
 	}
 	for _, pr := range r.PullRequests {
-		p.f("Pull request %d: %s, %d change(s)\n", pr.Order, pr.Repository, pr.Changes)
+		p.f("Pull request %d: %s, %d change(s)", pr.Order, pr.Repository, pr.Changes)
+		if after := pr.AfterClause(); after != "" {
+			p.f(", %s", after)
+		}
+		p.f("\n")
 	}
 	for _, f := range r.Features {
 		p.f("\n%s: %s (%s)\n", f.Title, f.Mark, marks(f.Marks))

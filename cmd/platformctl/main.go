@@ -43,7 +43,7 @@ bridge (muster agent --mcp-server), which signs you in to muster when needed. Th
   --muster <path>       the muster CLI (default: muster on PATH)
   --endpoint <url>      the muster aggregator (default: muster's configuration)
   --config-path <dir>   muster's configuration directory (default: muster's)
-  --timeout <duration>  per call (default 5m)
+  --timeout <duration>  per call, in the muster CLI bridge and platformctl alike (default 5m)
 
 --input kagent.enabled=true nests dotted keys into the tool's inputs; a value that parses as
 JSON is that value (true, 3, ["hazel"]), anything else is a string.
@@ -157,7 +157,27 @@ func (c *conn) flags(fs *flag.FlagSet) {
 	fs.StringVar(&c.binary, "muster", "", "the muster CLI (default: muster on PATH)")
 	fs.StringVar(&c.endpoint, "endpoint", "", "the muster aggregator's MCP endpoint (default: muster's configuration)")
 	fs.StringVar(&c.configPath, "config-path", "", "muster's configuration directory (default: muster's)")
-	fs.DurationVar(&c.timeout, "timeout", 5*time.Minute, "timeout per call")
+	fs.DurationVar(&c.timeout, "timeout", 5*time.Minute, "timeout per call, in the muster CLI bridge and platformctl alike")
+}
+
+// bridgeGrace is how much longer than --timeout platformctl waits for one
+// call: the bridge waits --timeout for muster's answer and reports its own
+// deadline, so a call cut short names the bridge, not platformctl; only a
+// bridge that answers nothing at all runs into platformctl's bound.
+const bridgeGrace = 15 * time.Second
+
+// open starts the bridge, bounded by --timeout: the connection and the
+// person's sign-in.
+func (c *conn) open(stderr io.Writer) (*muster.Session, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
+	defer cancel()
+	return muster.Open(ctx, muster.Options{Binary: c.binary, Endpoint: c.endpoint, ConfigPath: c.configPath, Stderr: stderr, CallTimeout: c.timeout})
+}
+
+// callCtx bounds one call: --timeout plus the grace the bridge's own deadline
+// needs to arrive first.
+func (c *conn) callCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), c.timeout+bridgeGrace)
 }
 
 func (c *conn) valid() error {
@@ -176,13 +196,13 @@ func (c *conn) call(tool string, args map[string]any, stdout, stderr io.Writer, 
 
 // callOn is call against the named registration of the manager.
 func (c *conn) callOn(server, tool string, args map[string]any, stdout, stderr io.Writer, show func(json.RawMessage) error) int {
-	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
-	defer cancel()
-	s, err := muster.Open(ctx, muster.Options{Binary: c.binary, Endpoint: c.endpoint, ConfigPath: c.configPath, Stderr: stderr})
+	s, err := c.open(stderr)
 	if err != nil {
 		return fail(stderr, err)
 	}
 	defer func() { _ = s.Close() }()
+	ctx, cancel := c.callCtx()
+	defer cancel()
 	raw, err := s.CallServer(ctx, server, tool, args)
 	if err != nil {
 		if auth, ok := muster.IsAuthRequired(err); ok {
@@ -213,16 +233,18 @@ func (c *conn) callOn(server, tool string, args map[string]any, stdout, stderr i
 // A live registration the person cannot reach — not registered, not
 // connected — is not a failure of the command: the repository result stands
 // and the live side says why. --output json prints the two documents as one
-// object, {"repository": …, "live": …|null, "liveError": …}.
+// object, {"repository": …, "live": …|null, "liveError": …}, with "liveCut"
+// {layer, tool, timeout} when the live call ended without an answer. Each
+// call has its own --timeout.
 func (c *conn) callBoth(tool, liveTool string, args map[string]any, stdout, stderr io.Writer, show func(repo, live json.RawMessage, liveErr error) error) int {
-	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
-	defer cancel()
-	s, err := muster.Open(ctx, muster.Options{Binary: c.binary, Endpoint: c.endpoint, ConfigPath: c.configPath, Stderr: stderr})
+	s, err := c.open(stderr)
 	if err != nil {
 		return fail(stderr, err)
 	}
 	defer func() { _ = s.Close() }()
+	ctx, cancel := c.callCtx()
 	repo, err := s.Call(ctx, tool, args)
+	cancel()
 	if err != nil {
 		if auth, ok := muster.IsAuthRequired(err); ok {
 			if c.output == outputJSON {
@@ -235,11 +257,16 @@ func (c *conn) callBoth(tool, liveTool string, args map[string]any, stdout, stde
 		}
 		return fail(stderr, err)
 	}
-	live, liveErr := s.CallServer(ctx, muster.LiveServer, liveTool, carryInputs(args, repo))
+	liveCtx, cancelLive := c.callCtx()
+	defer cancelLive()
+	live, liveErr := s.CallServer(liveCtx, muster.LiveServer, liveTool, carryInputs(args, repo))
 	if c.output == outputJSON {
 		doc := map[string]any{"repository": repo, "live": nil}
 		if liveErr != nil {
 			doc["liveError"] = liveErr.Error()
+			if cut, ok := muster.IsCut(liveErr); ok {
+				doc["liveCut"] = cut
+			}
 		} else {
 			doc["live"] = live
 		}
