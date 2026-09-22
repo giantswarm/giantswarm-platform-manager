@@ -18,6 +18,9 @@
 #
 # The M numbers are the wave-1 migration list's (M1–M11) and continue removals.yaml's (M30…).
 migrations:
+  # --- M34 — kagent's default ModelConfig gets an output cap per call ---
+  - key: configmap:kagent.providers.anthropic.config.maxTokens
+    reason: "Added: kagent's default ModelConfig caps one call's output at 32000 tokens instead of kagent's 8192, which the model's thinking shares with its visible answer and cut long answers mid-sentence; the same bound on every installation running kagent · M34"
   # --- M32 — a spoke's Dex carries the hub's token-exchange client, its secret referenced; the hub's federation files ---
   - key: dex-configmap:oidc.extraStaticClients[<name>-token-exchange]
     reason: "Added: Dex gets a client named <name>-token-exchange, the hub <name>'s client in this installation's Dex, through which the hub's muster exchanges a person's token for one this installation accepts · M32"

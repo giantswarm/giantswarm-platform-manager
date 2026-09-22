@@ -240,15 +240,29 @@ func (in *Input) portalJWTProvider() render.Map {
 	}
 }
 
+// kagentModelMaxTokens caps the output of one call of kagent's default
+// ModelConfig. kagent's own default, 8192, is shared by the model's adaptive
+// thinking and its visible answer, so a long investigation's answer is cut
+// mid-sentence once the thinking has used most of it; 32000 is about six
+// times the largest complete call observed on the fleet and bounds a runaway
+// call to roughly 6.5 minutes and $0.32. The bound follows from how the
+// platform calls the model — the same agents through the same edge on every
+// installation — so it is the definition's, not an installation's choice and
+// not the shared defaults', which carry the default model.
+const kagentModelMaxTokens = 32000
+
 // kagentValues is the kagent section: the model provider wired through the
 // edge to the key Secret the installation creates (modelKeySecret; no file is
-// rendered for it), and the UI's oauth2-proxy with its credentials Secret and
-// the audiences it accepts.
+// rendered for it) with the output cap of a call, and the UI's oauth2-proxy
+// with its credentials Secret and the audiences it accepts.
 func (in *Input) kagentValues() render.Map {
 	return render.Map{
 		e("providers", render.Map{e("anthropic", render.Map{
 			e("apiKeySecretRef", modelKeySecret),
-			e("config", render.Map{e("baseUrl", "http://agentgateway.agent-platform.svc:8081")}),
+			e("config", render.Map{
+				e("baseUrl", "http://agentgateway.agent-platform.svc:8081"),
+				e("maxTokens", kagentModelMaxTokens),
+			}),
 		})}),
 		e("oauth2-proxy", render.Map{
 			e("config", render.Map{e("existingSecret", "kagent-oauth2-proxy-credentials")}),
