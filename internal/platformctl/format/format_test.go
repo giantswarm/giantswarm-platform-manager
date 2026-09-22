@@ -330,3 +330,25 @@ func TestWaveNamesTheOrderTheSkippedAndTheStages(t *testing.T) {
 		"2. hazel: "+acmeMCs+"#8",
 		"Next: the Team review decides; merge rolls out one stage per call")
 }
+
+// TestRefusalPrintedOnce: the definition's refusal is one sentence, printed
+// once when a commit would be refused for the same reason.
+func TestRefusalPrintedOnce(t *testing.T) {
+	const refused = "the portal's hostname (portal.domain) is not on record; supply it under Apply changes"
+	var b bytes.Buffer
+	if err := Verify(&b, verify.Result{Caller: someone, Installation: rowan, Capability: "customer-portal", Hub: hazel, Refused: refused, CommitRefused: refused}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if out := b.String(); !strings.Contains(out, "Refused: "+refused) || strings.Contains(out, "A commit would be refused") {
+		t.Errorf("verify:\n%s", out)
+	}
+	b.Reset()
+	r := tools.CapabilityResult{Caller: someone, Tool: tools.ToolEnableCapability, Capability: "customer-portal", Hub: hazel, DryRun: true, Order: []string{rowan},
+		Installations: []tools.DryRun{{Installation: plan.Installation{Name: rowan, State: installations.StateEnabled, Refused: refused, CommitRefused: refused}}}}
+	if err := Plan(&b, r, false); err != nil {
+		t.Fatal(err)
+	}
+	if out := b.String(); !strings.Contains(out, "  Refused: "+refused) || strings.Contains(out, "A commit would be refused") {
+		t.Errorf("plan:\n%s", out)
+	}
+}

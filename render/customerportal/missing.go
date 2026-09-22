@@ -31,31 +31,24 @@ var conditionalChoices []struct{ when, field string }
 const sourcePerson = "person"
 
 // schemaNode is the schema as the input layer reads it: the properties, the
-// required ones, and each leaf's source, type and description.
+// required ones, and each leaf's source and type.
 type schemaNode struct {
-	Properties  map[string]schemaNode `json:"properties"`
-	Required    []string              `json:"required"`
-	Source      string                `json:"x-source"`
-	Type        string                `json:"type"`
-	Description string                `json:"description"`
-}
-
-// missingInput is a required person input the document lacks: the field
-// and what the schema says it is.
-type missingInput struct {
-	field, description string
+	Properties map[string]schemaNode `json:"properties"`
+	Required   []string              `json:"required"`
+	Source     string                `json:"x-source"`
+	Type       string                `json:"type"`
 }
 
 // fillMissing fills every required person input that doc lacks — a string
 // with its Missing marker, a boolean with false, a required object with an
 // empty one, to walk on — and answers the fields filled, sorted. A required
 // input of another source or type is left to the validator's refusal.
-func fillMissing(doc map[string]any, schema []byte) ([]missingInput, error) {
+func fillMissing(doc map[string]any, schema []byte) ([]string, error) {
 	var s schemaNode
 	if err := json.Unmarshal(schema, &s); err != nil {
 		return nil, fmt.Errorf("customer-portal: schema: %w", err)
 	}
-	var out []missingInput
+	var out []string
 	var walk func(n schemaNode, doc map[string]any, path []string)
 	walk = func(n schemaNode, doc map[string]any, path []string) {
 		for _, k := range n.Required {
@@ -69,10 +62,10 @@ func fillMissing(doc map[string]any, schema []byte) ([]missingInput, error) {
 				doc[k] = map[string]any{}
 			case child.Source == sourcePerson && child.Type == "string":
 				doc[k] = render.Missing(field)
-				out = append(out, missingInput{field: field, description: child.Description})
+				out = append(out, field)
 			case child.Source == sourcePerson && child.Type == "boolean":
 				doc[k] = false
-				out = append(out, missingInput{field: field, description: child.Description})
+				out = append(out, field)
 			}
 		}
 		for k, child := range n.Properties {
@@ -89,14 +82,13 @@ func fillMissing(doc map[string]any, schema []byte) ([]missingInput, error) {
 		if _, held := lookupIn(doc, c.field); held {
 			continue
 		}
-		node, _ := nodeAt(s, c.field)
 		parent, _ := lookupIn(doc, c.field[:strings.LastIndex(c.field, ".")])
 		if m, ok := parent.(map[string]any); ok {
 			m[c.field[strings.LastIndex(c.field, ".")+1:]] = render.Missing(c.field)
-			out = append(out, missingInput{field: c.field, description: node.Description})
+			out = append(out, c.field)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].field < out[j].field })
+	sort.Strings(out)
 	return out, nil
 }
 
@@ -121,19 +113,6 @@ func lookupIn(doc map[string]any, path string) (any, bool) {
 	return v, true
 }
 
-// nodeAt is the schema's node at the dotted path.
-func nodeAt(s schemaNode, path string) (schemaNode, bool) {
-	n := s
-	for _, k := range strings.Split(path, ".") {
-		child, ok := n.Properties[k]
-		if !ok {
-			return schemaNode{}, false
-		}
-		n = child
-	}
-	return n, true
-}
-
 // explained reports whether every leaf of a validation error is at a field
 // filled with a Missing marker: a marker fails the constraints of the value
 // it stands for (a pattern, a format) by design, and that is no refusal.
@@ -149,12 +128,18 @@ func explained(err *jsonschema.ValidationError, filled map[string]bool) bool {
 	return true
 }
 
-// missingClause names the missing inputs for a refusal: each field with what
-// the schema says it is.
-func missingClause(missing []missingInput) string {
-	parts := make([]string, 0, len(missing))
-	for _, m := range missing {
-		parts = append(parts, m.field+": "+m.description)
+// notOnRecord is a commit's refusal of the required person inputs the
+// document lacks, one sentence: what each is and its key, and that the
+// person supplies them under Apply changes — "the portal's hostname
+// (portal.domain) and the organisation's name as the portal shows it
+// (portal.organization) are not on record; supply them under Apply changes".
+func notOnRecord(missing []string) string {
+	names := make([]string, 0, len(missing))
+	for _, field := range missing {
+		names = append(names, describe(field))
 	}
-	return strings.Join(parts, "; ")
+	if len(missing) == 1 {
+		return names[0] + " is not on record; supply it under Apply changes"
+	}
+	return render.List(names) + " are not on record; supply them under Apply changes"
 }

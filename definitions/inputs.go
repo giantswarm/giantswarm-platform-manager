@@ -20,7 +20,8 @@ type schemaNode struct {
 
 // InputSummary is what a definition's schema says the input at the dotted
 // field is, for a person reading a refusal: the field's title, or the first
-// clause of its description (up to a colon, comma, semicolon or full stop)
+// clause of its description (up to a colon, comma, semicolon, full stop or
+// dash)
 // when it is short enough to read in parentheses, its leading capital
 // lowered. Empty when the schema does not know the field or says nothing
 // short about it.
@@ -47,9 +48,11 @@ func InputSummary(capability, field string) string {
 }
 
 // clause is the first clause of a description when it is short, its leading
-// capital lowered; empty otherwise.
+// capital lowered; empty otherwise. A clause ends at a dash, or at a colon,
+// comma, semicolon or full stop followed by a space or the end: the dots of
+// a key or a host (agentPlatform.kagentApiV2, certificates.k8s.io) are none.
 func clause(description string) string {
-	if i := strings.IndexAny(description, ":,;."); i >= 0 {
+	if i := clauseEnd(description); i >= 0 {
 		description = description[:i]
 	}
 	r := []rune(strings.TrimSpace(description))
@@ -60,4 +63,20 @@ func clause(description string) string {
 		r[0] = unicode.ToLower(r[0])
 	}
 	return string(r)
+}
+
+// clauseEnd is the index where the first clause of description ends, -1
+// when it runs to the end.
+func clauseEnd(description string) int {
+	for i, c := range description {
+		switch c {
+		case '—':
+			return i
+		case ':', ',', ';', '.':
+			if rest := description[i+1:]; rest == "" || rest[0] == ' ' {
+				return i
+			}
+		}
+	}
+	return -1
 }

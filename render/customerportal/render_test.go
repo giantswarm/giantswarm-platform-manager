@@ -534,12 +534,17 @@ func TestMissingChoicesCompareNeverRefuses(t *testing.T) {
 		delete(m["portal"].(map[string]any), domainKey)
 		delete(m["portal"].(map[string]any), "organization")
 	})
+	oneChoice := clone(func(m map[string]any) { delete(m["portal"].(map[string]any), "organization") })
 	for _, c := range []struct {
 		name    string
 		input   map[string]any
 		missing []string
+		refused string
 	}{
-		{"a portal not on record", notOnRecord, []string{"chart.line", "portal.domain", "portal.organization"}},
+		{"a portal not on record", notOnRecord, []string{"chart.line", "portal.domain", "portal.organization"},
+			"the semver range the portal's OCIRepository follows (chart.line), the portal's hostname (portal.domain) and the organisation's name as the portal shows it (portal.organization) are not on record; supply them under Apply changes"},
+		{"one choice not on record", oneChoice, []string{"portal.organization"},
+			"the organisation's name as the portal shows it (portal.organization) is not on record; supply it under Apply changes"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			before, _ := yaml.Marshal(c.input)
@@ -567,14 +572,18 @@ func TestMissingChoicesCompareNeverRefuses(t *testing.T) {
 			if after, _ := yaml.Marshal(c.input); !bytes.Equal(before, after) {
 				t.Errorf("the caller's document changed:\n%s", after)
 			}
+			// A commit's refusal is one sentence for a person: what each
+			// choice is, its key, and that Apply changes supplies it; the
+			// error carries the definition's prefix for the logs.
 			_, err = Render(c.input, secrets, render.ModeCommit)
 			if !errors.Is(err, ErrInput) {
 				t.Fatalf("a commit: got %v, want %v", err, ErrInput)
 			}
-			for _, field := range c.missing {
-				if !strings.Contains(err.Error(), field) {
-					t.Errorf("the commit's refusal %q does not name %s", err, field)
-				}
+			if got := render.Reason(err); got != c.refused {
+				t.Errorf("the commit's refusal reads %q, want %q", got, c.refused)
+			}
+			if want := ErrInput.Error() + ": " + c.refused; err.Error() != want {
+				t.Errorf("the commit's error reads %q, want %q", err, want)
 			}
 		})
 	}
@@ -725,6 +734,13 @@ func TestRefusals(t *testing.T) {
 			delete(m["federation"].(map[string]any)["installations"].([]any)[0].(map[string]any), "agentPlatform")
 		}), secrets, ErrInput, "agentPlatform"},
 	}
+	// Every refusal reads as one sentence: what the input is, its key, what
+	// is wrong and what supplies it.
+	reasons := map[string]string{
+		inputGrafanaDomain:         "the installation's own Grafana (plugins.grafana.domain) is no input; it is derived from installation.baseDomain",
+		"installation.providers":   "the providers the installation's entry lists (installation.providers) do not include the installation's own provider capz; the installations registry supplies them",
+		"federation.installations": "the other installations the portal shows (federation.installations) name maple, the portal's own installation or one listed twice; list each other installation once under Apply changes",
+	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			_, err := Render(c.input, c.secrets, render.ModeCommit)
@@ -733,6 +749,9 @@ func TestRefusals(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), c.names) {
 				t.Fatalf("%q does not name %q", err, c.names)
+			}
+			if want := reasons[c.names]; want != "" && render.Reason(err) != want {
+				t.Errorf("reads %q, want %q", render.Reason(err), want)
 			}
 		})
 	}

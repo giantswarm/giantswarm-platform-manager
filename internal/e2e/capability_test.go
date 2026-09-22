@@ -453,7 +453,7 @@ func TestEnableCapabilityRefusesTheFourLineWithoutPodCertificateRequest(t *testi
 			t.Errorf("refused %q does not name %q", p.Refused, want)
 		}
 	}
-	if p.CommitRefused == "" || !strings.Contains(p.CommitRefused, "refuses these inputs") || len(p.Files) != 0 || len(out.PullRequests) != 0 {
+	if p.CommitRefused == "" || p.CommitRefused != p.Refused || len(p.Files) != 0 || len(out.PullRequests) != 0 {
 		t.Fatalf("a refused render commits nothing: commitRefused %q, files %d, pull requests %d", p.CommitRefused, len(p.Files), len(out.PullRequests))
 	}
 	out, text, isErr = dryRun(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallations: []string{hub}})

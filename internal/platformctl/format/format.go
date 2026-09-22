@@ -140,7 +140,7 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 	if len(inst.MissingInputs) > 0 {
 		p.f("  Choices not on record: %s\n", strings.Join(inst.MissingInputs, ", "))
 	}
-	if inst.CommitRefused != "" {
+	if inst.CommitRefused != "" && inst.CommitRefused != inst.Refused {
 		p.f("  A commit would be refused: %s\n", inst.CommitRefused)
 	}
 	if len(inst.Files) > 0 {
@@ -434,7 +434,7 @@ func Verify(w io.Writer, r verify.Result, liveErr error) error {
 	if len(r.Inputs.Unset) > 0 {
 		p.f("Choices not on record: %s\n", strings.Join(r.Inputs.Unset, ", "))
 	}
-	if r.CommitRefused != "" {
+	if r.CommitRefused != "" && r.CommitRefused != r.Refused {
 		p.f("A commit would be refused: %s\n", r.CommitRefused)
 	}
 	if len(r.Files) > 0 {

@@ -969,10 +969,11 @@ func TestVerifyCapabilityGrafanaIsTheInstallationsOwn(t *testing.T) {
 		t.Errorf("the plugins dimension: mark %q, the installation's Grafana rendered at %v, the central instance drifted at %v: %+v", d.Mark, names, drifts, d.Differences)
 	}
 
-	// The host typed is refused, naming it.
+	// The host typed is refused in one sentence naming the input, its key
+	// and what supplies it; a commit would be refused for the same reason.
 	res = verifyPortal(t, c, rowan, map[string]any{"plugins": map[string]any{grafanaKey: map[string]any{domainKey: own}}})
-	if !strings.Contains(res.Refused, grafanaDomain) {
-		t.Errorf("the host typed: refused %q", res.Refused)
+	if want := "the installation's own Grafana (" + grafanaDomain + ") is no input; it is derived from installation.baseDomain"; res.Refused != want || res.CommitRefused != want {
+		t.Errorf("the host typed: refused %q, commit refused %q, want %q", res.Refused, res.CommitRefused, want)
 	}
 
 	// Wired on record, against the central instance.
