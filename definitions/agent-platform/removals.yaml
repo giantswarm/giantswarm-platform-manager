@@ -25,25 +25,30 @@
 #                       portal; this definition writes only the portal's agent-platform section
 #   migration           a value the fleet carries today that is no input of the definition: it moves to where
 #                       it belongs (the shared defaults, the fleet policy, a workload manifest) or goes
+#   kept                a key of a file the definition writes whole whose replacement is not on the fleet yet
+#                       (a shared default not landed, an object under extras not created): the plan carries
+#                       it from the record into the render, comments included, so a reconcile never removes
+#                       it and the comparison finds it as defined; the reason says what has to land before
+#                       the key goes, and the entry becomes a migration then
 removals:
   # --- former inputs: migrations ---
   - key: configmap:components.agent-sandbox
     kind: migration
     reason: "Removed: components.agent-sandbox switches the agent sandbox on here; the sandbox is retired from the fleet, nothing replaces it, and it stops on the one installation running it · M13"
   - key: configmap:kagent.providers.anthropic.model
-    kind: migration
+    kind: kept
     reason: >-
-      Removed: kagent.providers.anthropic.model pins the default Anthropic model on this installation; the shared defaults carry the fleet-wide default, and
-      an installation-specific pick moves there or is dropped · M26
+      Kept: kagent.providers.anthropic.model pins this installation's default Anthropic model; the pin stays until the shared defaults' fleet-wide pick is
+      the right one for it and the installation's own is moved there or dropped by hand · M26
   - key: configmap:kagent.modelConfigs
-    kind: migration
-    reason: "Removed: kagent's ModelConfigs are inlined in these values; each becomes a ModelConfig object under extras, next to the agents that use it · M25"
+    kind: kept
+    reason: "Kept: kagent's ModelConfigs are inlined in these values; they stay until each is a ModelConfig object under extras, next to the agents that use it · M25"
   - key: configmap:kagent.controller.resources
-    kind: migration
-    reason: "Removed: the kagent controller's CPU and memory requests are tuned here; the chart's defaults, or the shared defaults, size the controller the same way on every installation · M23"
+    kind: kept
+    reason: "Kept: the kagent controller's CPU and memory requests are tuned here; they stay until the chart's defaults, or the shared defaults, size the controller for every installation · M23"
   - key: configmap:muster.resources
-    kind: migration
-    reason: "Removed: muster's CPU and memory requests are tuned here; the chart's defaults, or the shared defaults, size muster the same way on every installation · M23"
+    kind: kept
+    reason: "Kept: muster's CPU and memory requests are tuned here; they stay until the chart's defaults, or the shared defaults, size muster for every installation · M23"
   - key: configmap:kagent.kagent-tools
     kind: migration
     reason: "Removed: the chart's bundled kagent-tools sample agent is switched on here; a sample agent an installation wants is an Agent object under extras · M24"
@@ -54,8 +59,8 @@ removals:
     kind: migration
     reason: "Removed: the chart's bundled promql-agent sample is switched on here; a sample agent an installation wants is an Agent object under extras · M24"
   - key: configmap:kagent.oauth2ProxyIngress
-    kind: migration
-    reason: "Removed: the kagent UI's oauth2-proxy ingress is written per installation here; the shared defaults carry the same ingress rule for every private installation · M22"
+    kind: kept
+    reason: "Kept: the kagent UI's oauth2-proxy ingress is written per installation here, the peer the Dev Portal's tunnel reaches the UI through; it stays until the shared defaults carry the rule for every private installation · M22"
   - key: configmap:postgres.storage
     kind: migration
     reason: "Removed: the platform Postgres storage class is written here; the shared defaults set it per cloud provider · M17"
@@ -63,13 +68,16 @@ removals:
     kind: migration
     reason: "Removed: the platform Postgres backup settings are written here; the shared defaults derive them from the installation's subscription · M17"
   - key: configmap:muster.muster.oauth.server.dex.connectorId
-    kind: migration
-    reason: "Removed: muster's Dex login connector is pinned here; the shared defaults pick the connector for every installation, and an installation-specific pin moves there or is dropped · M27"
+    kind: kept
+    reason: "Kept: muster's Dex login connector is pinned here; the shared defaults pick one connector for every Giant Swarm installation, which this installation's Dex may lack, so the pin stays until they choose per installation · M27"
   - key: configmap:muster.muster.oauth.server.trustedIssuers
-    kind: migration
+    kind: kept
     reason: >-
-      Removed: muster's trusted issuers are listed by hand here; the shared defaults derive them (this installation's Dex and the cluster's service-account
-      issuer) from the installation's base domain · M15
+      Kept: muster's trusted issuers are listed by hand here, the cluster's service-account issuer that kagent's agents present among them; they stay until
+      the shared defaults derive them (this installation's Dex and the service-account issuer) from the installation's facts · M15
+  - key: configmap:agent-platform-mcps.defaults
+    kind: kept
+    reason: "Kept: agent-platform-mcps.defaults holds the keep policy of the MCPServer objects rendered from these values, the handle of the move of the extra servers to objects under extras · M19"
   - key: configmap:muster.muster.oauth.server.trustedPublicRegistrationRedirectURIs
     kind: migration
     reason: >-

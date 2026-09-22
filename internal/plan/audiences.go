@@ -21,6 +21,10 @@ const (
 	ListExtraAudience    = "kagent.oauth2-proxy.extraArgs.oidc-extra-audience"
 	ListEdgeAudiences    = "agent-platform-mcps.agentgateway.jwt.extraProviders[*].audiences"
 	ListTrustedPeers     = listStaticClients + "." + keyAuthenticator + "." + keyTrustedPeers
+	// ListAllowedCallers is the chat gateway's list of the platform workloads
+	// allowed to call its team reviews: the policy names the platform's own,
+	// an installation the other teams' that run there (the hub's sweeps).
+	ListAllowedCallers = "klausGateway.reviews.allowedCallers"
 
 	keyAuthenticator = "dexK8SAuthenticator"
 	keyTrustedPeers  = "trustedPeers"
@@ -43,14 +47,16 @@ func JoinedList(path, yamlPath string) bool {
 // keepAudiences answers rendered with every entry of current's audience
 // lists that rendered does not carry — muster's trustedAudiences, the kagent
 // UI's comma-separated oidc-extra-audience (merged as a set, written back
-// comma-joined), the audiences of the edge's JWT provider of the same issuer
-// — after the render's, in current's order, and names what it kept. The
-// render carries the ids the definition knows: its own clients and the
-// portals'. An id the installation trusts besides is its own and stays in the
-// list it is in, nowhere else: a peer of the authenticator is no audience of
-// the kagent UI. A list the render lacks (the UI's without kagent, the edge's
-// off the 4 line) keeps nothing: the component does not run. Nothing kept
-// leaves rendered as it is.
+// comma-joined), the audiences of the edge's JWT provider of the same issuer,
+// the chat gateway's review callers — after the render's, in current's
+// order, and with every key the definition keeps (the removals of kind kept:
+// keptPlatformKeys) as it is on record, and names what it kept. The render
+// carries the ids the definition knows: its own clients and the portals'. An
+// id the installation trusts besides is its own and stays in the list it is
+// in, nowhere else: a peer of the authenticator is no audience of the kagent
+// UI. A list the render lacks (the UI's without kagent, the edge's off the 4
+// line, the reviews' without a gateway) keeps nothing: the component does not
+// run. Nothing kept leaves rendered as it is.
 func keepAudiences(rendered, current []byte) ([]byte, []Kept, error) {
 	_, cur, err := mapping(current)
 	if err != nil {
@@ -69,6 +75,9 @@ func keepAudiences(rendered, current []byte) ([]byte, []Kept, error) {
 	}
 	providers := []string{"agent-platform-mcps", "agentgateway", "jwt", "extraProviders"}
 	keepProviders(at(ren, providers...), at(cur, providers...), &kept)
+	callers := strings.Split(ListAllowedCallers, ".")
+	keepList(at(ren, callers...), at(cur, callers...), ListAllowedCallers, &kept)
+	keepSubtrees(ren, cur, keptPlatformKeys, &kept)
 	if len(kept) == 0 {
 		return rendered, nil, nil
 	}

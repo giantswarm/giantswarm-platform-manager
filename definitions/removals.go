@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -17,6 +18,30 @@ type Removal struct {
 	Key    string `yaml:"key"`
 	Kind   string `yaml:"kind"`
 	Reason string `yaml:"reason"`
+}
+
+// RemovalKept is the kind of a removal the plan does not remove: a key of a
+// file the definition writes whole whose replacement is not on the fleet yet
+// — a shared default not landed, an object under extras not created. The plan
+// carries the key from the record into the render, the pull request never
+// removes it, the comparison finds it as defined, and the reason says what
+// has to land before the key goes.
+const RemovalKept = "kept"
+
+// KeptKeys are the key paths of a capability's removals of kind kept under
+// the file prefix (KindConfigMap, …), the prefix cut off, in file order.
+func KeptKeys(capability, prefix string) ([]string, error) {
+	rs, err := Removals(capability)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, r := range rs {
+		if path, ok := strings.CutPrefix(r.Key, prefix+":"); ok && r.Kind == RemovalKept {
+			out = append(out, path)
+		}
+	}
+	return out, nil
 }
 
 // Removals reads a capability's removals in file order. A removal without a
