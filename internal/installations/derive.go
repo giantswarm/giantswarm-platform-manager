@@ -50,6 +50,34 @@ type Portal struct {
 	PlatformProxied []string
 	HandKept        bool
 	GrafanaWired    bool
+	// Entries are the record's gs.installations entries by name: the facts
+	// the portal lists for each installation it shows.
+	Entries map[string]portalEntry
+}
+
+// HostedPortal is the portal hosted on an installation, as the
+// customer-portal definition's federation input names it: every installation
+// its record lists but the host, by name, each with its facts. Unknown names
+// the entries the installations registry does not know; a definition that
+// takes the set refuses the comparison naming them.
+type HostedPortal struct {
+	Installations []FederatedInstallation `json:"installations"`
+	Unknown       []string                `json:"unknown,omitempty"`
+}
+
+// FederatedInstallation is one installation a hosted portal shows besides its
+// own, with the facts the definition's schema names for it: the registry's
+// base domain, region and pipeline (the record's where the registry has
+// none), the providers the record lists (the registry knows one; its own
+// alone when the record lists none), and whether the agent platform is on
+// record there.
+type FederatedInstallation struct {
+	Name          string   `json:"name"`
+	BaseDomain    string   `json:"baseDomain"`
+	Providers     []string `json:"providers"`
+	Region        string   `json:"region,omitempty"`
+	Pipeline      string   `json:"pipeline,omitempty"`
+	AgentPlatform bool     `json:"agentPlatform"`
 }
 
 // PortalRef is a portal that signs people in on an installation, as the
@@ -145,7 +173,7 @@ func (r *Registry) readPortal(ctx context.Context, c *github.Client, host Instal
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", PortalConfigPath(host.Name), err)
 	}
-	p := &Portal{Host: host.Name, Customer: host.Customer, Domain: hostOf(cfg.BaseURL), HandKept: cfg.HandKept, GrafanaWired: cfg.GrafanaWired}
+	p := &Portal{Host: host.Name, Customer: host.Customer, Domain: hostOf(cfg.BaseURL), HandKept: cfg.HandKept, GrafanaWired: cfg.GrafanaWired, Entries: cfg.Installations}
 	for name := range cfg.Installations {
 		p.Installations = append(p.Installations, name)
 	}
@@ -357,7 +385,13 @@ func (r *Registry) derive(ctx context.Context, c *github.Client, reports []Repor
 		errs    []error
 		broker  string
 		brkErr  error
+		// hosted is the portal hosted on the installation; platform the
+		// agent-platform marker of each of its entries, read where the
+		// entry is not among the reports.
+		hosted   *HostedPortal
+		platform []markerRead
 	}
+	platform, _ := FindCapability(AgentPlatform)
 	results := make([]derived, len(reports))
 	var wg sync.WaitGroup
 	for i := range reports {
@@ -378,12 +412,33 @@ func (r *Registry) derive(ctx context.Context, c *github.Client, reports []Repor
 		if len(targets) > 0 {
 			wg.Go(func() { res.broker, res.brkErr = brokerClientID(ctx, c, *rep) })
 		}
+		res.hosted = r.hostedPortal(portals, rep.Name)
+		if res.hosted != nil {
+			res.platform = make([]markerRead, len(res.hosted.Installations))
+			for j, entry := range res.hosted.Installations {
+				if sibling := byName[entry.Name]; sibling != nil && len(sibling.Capabilities) > 0 {
+					res.platform[j] = markerRead{enabled: sibling.enabled(AgentPlatform)}
+					continue
+				}
+				inst, _ := r.Find(entry.Name)
+				if !inst.Repositories.Known() {
+					continue
+				}
+				wg.Go(func() { res.platform[j] = readMarker(ctx, c, inst, platform) })
+			}
+		}
 	}
 	wg.Wait()
 	for i := range reports {
 		rep, res := &reports[i], results[i]
 		if rep.Record == nil {
 			continue
+		}
+		if res.hosted != nil {
+			for j := range res.hosted.Installations {
+				res.hosted.Installations[j].AgentPlatform = res.platform[j].enabled && res.platform[j].err == nil
+			}
+			rep.Hosted = res.hosted
 		}
 		for j, name := range res.targets {
 			if res.errs[j] != nil {
@@ -399,6 +454,59 @@ func (r *Registry) derive(ctx context.Context, c *github.Client, reports []Repor
 			rep.Federation.BrokerClientID = res.broker
 		}
 	}
+}
+
+// hostedPortal is the portal hosted on host as the customer-portal
+// definition's federation input names it: every installation its record
+// lists but the host, by name, each with the registry's facts, the record's
+// where the registry has none, and the providers the record lists; nil where
+// host has no portal. The names the registry does not know are set apart:
+// a definition that takes the set refuses the comparison naming them. The
+// agent-platform fact of each entry is filled by derive from the markers.
+func (r *Registry) hostedPortal(portals []Portal, host string) *HostedPortal {
+	for _, p := range portals {
+		if p.Host != host {
+			continue
+		}
+		hosted := &HostedPortal{Installations: []FederatedInstallation{}}
+		for _, name := range p.Installations {
+			if name == host {
+				continue
+			}
+			inst, ok := r.Find(name)
+			if !ok {
+				hosted.Unknown = append(hosted.Unknown, name)
+				continue
+			}
+			entry := p.Entries[name]
+			f := FederatedInstallation{Name: name, BaseDomain: inst.BaseDomain, Providers: entry.Providers, Region: inst.Region, Pipeline: inst.Pipeline}
+			if f.BaseDomain == "" {
+				f.BaseDomain = entry.BaseDomain
+			}
+			if f.Region == "" {
+				f.Region = entry.Region
+			}
+			if f.Pipeline == "" {
+				f.Pipeline = entry.Pipeline
+			}
+			if len(f.Providers) == 0 && inst.Provider != "" {
+				f.Providers = []string{inst.Provider}
+			}
+			hosted.Installations = append(hosted.Installations, f)
+		}
+		return hosted
+	}
+	return nil
+}
+
+// enabled says whether the capability is on record in this report.
+func (r *Report) enabled(capability string) bool {
+	for _, cs := range r.Capabilities {
+		if cs.Name == capability {
+			return cs.Enabled
+		}
+	}
+	return false
 }
 
 // derivePortals fills the report's portals and hubs from the portals on record

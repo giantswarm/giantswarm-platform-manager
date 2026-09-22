@@ -107,6 +107,9 @@ type Report struct {
 	// (derive.go); nil until a registry inspection filled them.
 	Portals    []PortalRef `json:"portals,omitempty"`
 	Federation *Federation `json:"federation,omitempty"`
+	// Hosted is the portal hosted on the installation with the installations
+	// it shows besides its own (derive.go); nil where it hosts none.
+	Hosted *HostedPortal `json:"hosted,omitempty"`
 }
 
 // Detail is how much of an installation list_installations reads.

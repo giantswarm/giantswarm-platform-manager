@@ -65,6 +65,64 @@ func TestDeriveFromPortals(t *testing.T) {
 	}
 }
 
+// The portal hosted on an installation shows the installations its record
+// lists besides its own, by name: each with the registry's base domain,
+// region and pipeline (the record's where the registry has none) and the
+// providers the record lists (the registry's one where it lists none); a
+// name the registry does not know is set apart; an installation without a
+// portal hosts none.
+func TestHostedPortalFollowsTheRecord(t *testing.T) {
+	const (
+		capa, capz, stable, euCentral, spruce       = "capa", "capz", "stable", "eu-central-1", "spruce"
+		aspenDomain, lindenDomain, rowanberryDomain = "aspen.fleet.test", "linden.umbra.test", "rowanberry.umbra.test"
+	)
+	reg := &Registry{Installations: []Installation{
+		{Name: fixtureHub, Customer: fixtureFleet, BaseDomain: aspenDomain, Provider: capa, Region: "eu-west-1", Pipeline: stable, Hub: true},
+		{Name: fixtureAggregator, Customer: fixtureCustomer, BaseDomain: lindenDomain, Provider: capz, Pipeline: "testing"},
+		{Name: fixtureSibling, Customer: fixtureCustomer, Provider: capa, Region: euCentral, Pipeline: stable},
+	}}
+	portals := []Portal{
+		{Host: fixtureHub, Installations: []string{fixtureHub, fixtureAggregator, spruce, fixtureSibling}, Entries: map[string]portalEntry{
+			fixtureAggregator: {BaseDomain: lindenDomain, Providers: []string{capz, "capv"}, Region: "westeurope"},
+			fixtureSibling:    {BaseDomain: rowanberryDomain, Pipeline: "stable-testing"},
+			spruce:            {BaseDomain: "spruce.example.test"},
+		}},
+		{Host: fixtureAggregator, Installations: []string{fixtureAggregator}},
+	}
+	hosted := reg.hostedPortal(portals, fixtureHub)
+	if hosted == nil || !slices.Equal(hosted.Unknown, []string{spruce}) || len(hosted.Installations) != 2 {
+		t.Fatalf("hosted: %+v", hosted)
+	}
+	linden, rowanberry := hosted.Installations[0], hosted.Installations[1]
+	if linden.Name != fixtureAggregator || linden.BaseDomain != lindenDomain || !slices.Equal(linden.Providers, []string{capz, "capv"}) || linden.Region != "westeurope" || linden.Pipeline != "testing" {
+		t.Errorf("the record's providers and region, the registry's pipeline: %+v", linden)
+	}
+	if rowanberry.Name != fixtureSibling || rowanberry.BaseDomain != rowanberryDomain || !slices.Equal(rowanberry.Providers, []string{capa}) || rowanberry.Region != euCentral || rowanberry.Pipeline != stable {
+		t.Errorf("the record's base domain, the registry's provider, region and pipeline: %+v", rowanberry)
+	}
+	if own := reg.hostedPortal(portals, fixtureAggregator); own == nil || len(own.Installations) != 0 || len(own.Unknown) != 0 {
+		t.Errorf("a portal showing its own installation alone: %+v", own)
+	}
+	if reg.hostedPortal(portals, fixtureSibling) != nil {
+		t.Error("an installation without a portal hosts none")
+	}
+	// The definition's inputs: the set as federation.installations, region only where known; an unknown name refuses.
+	in, err := portalRecordInputs(Report{Hosted: &HostedPortal{Installations: hosted.Installations}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := in["federation"].(map[string]any)["installations"].([]any)
+	if len(entries) != 2 || entries[0].(map[string]any)["name"] != fixtureAggregator || entries[1].(map[string]any)["pipeline"] != stable || entries[0].(map[string]any)["agentPlatform"] != false {
+		t.Errorf("record inputs: %v", in)
+	}
+	if _, err := portalRecordInputs(Report{Hosted: hosted}); err == nil || !strings.Contains(err.Error(), spruce) {
+		t.Errorf("an unknown name refuses by name: %v", err)
+	}
+	if in, err := portalRecordInputs(Report{}); err != nil || in != nil {
+		t.Errorf("no portal, no inputs: %v %v", in, err)
+	}
+}
+
 // A target's hubs are the brokers of the portals that list it, each once and
 // never nil; of them, the hubs of one organisation are ordered as the
 // connectors the target's Dex registers for them are named: the registry's

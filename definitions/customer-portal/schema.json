@@ -83,7 +83,7 @@
       "properties": {
         "installations": {
           "type": "array", "minItems": 1,
-          "description": "The other installations the portal shows, with their facts on record, whether each runs the agent platform among them.",
+          "description": "The other installations the portal shows, with their facts on record, whether each runs the agent platform among them. Derived from the portal's gs.installations on record — every entry but the host, by name — and never typed outside a dry run; an entry the installations registry does not know refuses the comparison naming it.",
           "items": {
             "type": "object", "additionalProperties": false, "required": ["name", "baseDomain", "providers", "pipeline", "agentPlatform"],
             "properties": {
