@@ -11,3 +11,4 @@ data:
       extraAppConfig:
         - filename: app-config.agent-platform.yaml
           configMapRef: agent-platform-app-config-backstage
+          checksum: 7fb859850ab19bd04f3f9c07a33e22dcf17d19d26d0d6abaad60aab9e75efb0d
