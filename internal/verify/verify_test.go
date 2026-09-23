@@ -499,13 +499,12 @@ func TestDifferencesInsideText(t *testing.T) {
 	if got, _ := differences("r:k", "patches:\n- patch: |\n    spec:\n      a: 1\n", "patches:\n- patch: |\n    spec:\n      a: 2\n", nil); len(got) != 1 || got[0].Path != "patches[0].patch:spec.a" || got[0].Line != 4 || got[0].CurrentLine != 4 {
 		t.Errorf("a kustomization's strategic merge patch differs at its leaves, placed on their lines: %+v", got)
 	}
-	// A JSON 6902 patch differs at its operations' leaves, by index: the
-	// same range quoted another way — or the patch spelled as a JSON list —
-	// is no difference, another range one at the value's leaf, attributed
-	// to the input that drives it.
+	// A JSON 6902 patch is one leaf compared by its value: the same range
+	// quoted another way — or the patch spelled as a JSON list — is no
+	// difference, another range one at the patch, attributed to the input
+	// that drives it, both sides in the one spelling.
 	const semverPatch = "patches:\n- patch: |\n    - op: remove\n      path: /spec/ref/tag\n    - op: add\n      path: /spec/ref/semver\n      value: %s\n"
-	rangeLeaf := chartPatch + ":[1].value"
-	driven := map[string]string{"r:k#" + rangeLeaf: "chart.line"}
+	driven := map[string]string{"r:k#" + chartPatch: "chart.line"}
 	for _, spelling := range []string{
 		fmt.Sprintf(semverPatch, `">=0.244.7 <1.0.0"`),
 		"patches:\n- patch: '[{\"op\": \"remove\", \"path\": \"/spec/ref/tag\"}, {\"op\": \"add\", \"path\": \"/spec/ref/semver\", \"value\": \">=0.244.7 <1.0.0\"}]'\n",
@@ -514,12 +513,13 @@ func TestDifferencesInsideText(t *testing.T) {
 			t.Errorf("a JSON 6902 patch spelled another way:\n%s\n%+v", spelling, got)
 		}
 	}
+	const canonical = "- op: remove\n  path: /spec/ref/tag\n- op: add\n  path: /spec/ref/semver\n  value: '%s'\n"
 	got, docs = differences("r:k", fmt.Sprintf(semverPatch, "'>=0.244.7 <1.0.0'"), fmt.Sprintf(semverPatch, `">=0.240.0 <1.0.0"`), driven)
-	if want := []Difference{{File: "r:k", Path: rangeLeaf, Input: "chart.line", Rendered: ">=0.244.7 <1.0.0", Current: ">=0.240.0 <1.0.0", Line: 7, CurrentLine: 7}}; !reflect.DeepEqual(got, want) {
+	if want := []Difference{{File: "r:k", Path: chartPatch, Input: "chart.line", Rendered: fmt.Sprintf(canonical, ">=0.244.7 <1.0.0"), Current: fmt.Sprintf(canonical, ">=0.240.0 <1.0.0"), Line: 2, CurrentLine: 2}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("a JSON 6902 patch with another range:\n%+v\nwant\n%+v", got, want)
 	}
-	if !reflect.DeepEqual(docs, map[string]bool{chartPatch: true}) {
-		t.Errorf("the documents of a JSON 6902 patch: %v", docs)
+	if len(docs) != 0 {
+		t.Errorf("a JSON 6902 patch holds no document: %v", docs)
 	}
 }
 

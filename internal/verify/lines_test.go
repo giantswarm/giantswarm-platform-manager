@@ -175,13 +175,13 @@ func TestShownRedactsTheEncryptedFiles(t *testing.T) {
 	}
 }
 
-// A kustomization's patch text is its document's leaves under
-// patches[n].patch, each on its line of the file: a strategic merge patch —
-// the portal's HelmRelease patch with its values sources — a list entry
-// keyed by its name, and a JSON 6902 patch — the chart line's — an
-// operation by its index; the patch's target is leaves of the file. levels
-// names a leaf at every document it sits in, innermost first, then in the
-// file.
+// A kustomization's patch text that holds a mapping — a strategic merge
+// patch, the portal's HelmRelease patch with its values sources — is the
+// mapping's leaves under patches[n].patch, each on its line of the file and
+// a list entry keyed by its name; a patch that holds a list (a JSON 6902
+// patch) stays one leaf holding its value's one spelling, as does the
+// patch's target. levels names a leaf at every document it sits in,
+// innermost first, then in the file.
 func TestFlattenLinesReadsAKustomizationPatch(t *testing.T) {
 	content := strings.Join([]string{
 		"resources:",                  // 1
@@ -207,9 +207,8 @@ func TestFlattenLinesReadsAKustomizationPatch(t *testing.T) {
 	}, "\n")
 	const hr, secretSource = "patches[1].patch:", "spec.valuesFrom[user-secrets-backstage]"
 	values, lines := valuesLines(content)
-	const op = chartPatch + ":[0]."
 	want := map[string]int{
-		"resources[app-config.yaml]": 2, op + "op": 5, op + "path": 6, "patches[0].target.kind": 8,
+		"resources[app-config.yaml]": 2, chartPatch: 4, "patches[0].target.kind": 8,
 		hr + apiVersionPath: 10, hr + kindPath: 11, hr + "spec.valuesFrom[app-config-backstage].kind": 14, hr + "spec.valuesFrom[app-config-backstage].name": 15,
 		hr + secretSource + ".kind": 16, hr + secretSource + ".name": 17, "patches[1].target.kind": 19,
 	}
@@ -221,18 +220,15 @@ func TestFlattenLinesReadsAKustomizationPatch(t *testing.T) {
 	if len(lines) != len(want) || len(values) != len(want) {
 		t.Errorf("%d lines, %d values, want %d: %v", len(lines), len(values), len(want), values)
 	}
-	if values[op+"op"] != "remove" || values[op+"path"] != "/spec/ref/tag" || values[hr+secretSource+".kind"] != "Secret" || values[hr+kindPath] != "HelmRelease" {
+	if values[chartPatch] != "- op: remove\n  path: /spec/ref/tag\n" || values[hr+secretSource+".kind"] != "Secret" || values[hr+kindPath] != "HelmRelease" {
 		t.Errorf("values %v", values)
 	}
 	docs := flattenLines(content).documents
-	if !reflect.DeepEqual(docs, map[string]bool{chartPatch: true, releasePatch: true}) {
+	if !reflect.DeepEqual(docs, map[string]bool{releasePatch: true}) {
 		t.Errorf("the documents the file holds: %v", docs)
 	}
 	if got := levels(docs, hr+secretSource+".kind"); !reflect.DeepEqual(got, []string{secretSource + ".kind", hr + secretSource + ".kind"}) {
 		t.Errorf("the levels of a leaf inside the patch: %v", got)
-	}
-	if got := levels(docs, op+"path"); !reflect.DeepEqual(got, []string{"[0].path", op + "path"}) {
-		t.Errorf("the levels of an operation's leaf: %v", got)
 	}
 	inText := "backstage.appConfig:" + titlePath
 	if got := levels(appConfigDocuments, valuesField+":"+inText); !reflect.DeepEqual(got, []string{titlePath, inText, valuesField + ":" + inText}) {

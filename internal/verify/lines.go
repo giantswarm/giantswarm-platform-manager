@@ -61,39 +61,54 @@ type flat struct {
 	documents map[string]bool
 }
 
-// textDocument is the document a string holds when it is YAML text the
-// comparison reads as leaves: a mapping with entries spread over lines —
-// chart values, an app-config — a one-line "key: value" being a value; and,
-// for a kustomization's patch text (patch), whatever it holds and however it
-// is spelled — a strategic merge patch's mapping, a JSON 6902 patch's list
-// of operations, each under its index (patches[0].patch:[1].value) — so two
-// spellings of one patch, a semver range in single or double quotes, are the
-// same leaves. Any other list held as text is one leaf.
-func textDocument(s string, patch bool) ([]document, bool) {
-	if !patch && !strings.Contains(s, "\n") {
+// textMapping is the document a string holds when it is YAML text of a
+// mapping with entries spread over lines — chart values, an app-config; a
+// one-line "key: value" is a value, a list (a patch) one text.
+func textMapping(s string) ([]document, bool) {
+	if !strings.Contains(s, "\n") {
 		return nil, false
 	}
 	docs, err := parse(s)
 	if err != nil || len(docs) != 1 {
 		return nil, false
 	}
-	switch v := docs[0].value.(type) {
-	case map[string]any:
-		return docs, len(v) > 0
-	case []any:
-		return docs, patch && len(v) > 0
+	m, ok := docs[0].value.(map[string]any)
+	if !ok || len(m) == 0 {
+		return nil, false
 	}
-	return nil, false
+	return docs, true
+}
+
+// patchValue is the value a kustomization's patch text that holds a list —
+// a JSON 6902 patch, the chart line's — is compared by: the list in the one
+// spelling its value encodes to (plan.CanonicalYAML), so two spellings of one
+// patch, a semver range in single or double quotes, are the same leaf. The
+// list stays one leaf: its operations have no identity but their order, and
+// a render whose patches differ from the record's in number (another fact)
+// would pair operations of different patches. false for any other text.
+func patchValue(path, s string, inDocument bool) (string, bool) {
+	if inDocument || !patchField(path) {
+		return "", false
+	}
+	docs, err := parse(s)
+	if err != nil || len(docs) != 1 {
+		return "", false
+	}
+	if l, ok := docs[0].value.([]any); !ok || len(l) == 0 {
+		return "", false
+	}
+	return plan.CanonicalYAML(s)
 }
 
 // payload says whether a leaf of the file itself sits in a field that holds
 // a document as text: the data of a ConfigMap or the stringData of a Secret
 // (a chart's values, the portal's app-config), or a kustomization's patch
-// (patches[n].patch) — a strategic merge patch's mapping or a JSON 6902
-// patch's list, the comparison naming their entries: the values sources of
-// the portal's HelmRelease patch, the chart line's semver range
-// (textDocument). Inside such a document every string that holds a mapping
-// is one too; every other string is one leaf, whatever it holds.
+// (patches[n].patch) — a strategic merge patch is a mapping, and the
+// comparison names its entries, the values sources of the portal's
+// HelmRelease patch among them; a JSON 6902 patch is a list and stays one
+// leaf, compared by its value (textMapping, patchValue). Inside such a
+// document every string that holds a mapping is one too; every other string
+// is one leaf, whatever it holds.
 func payload(path string) bool {
 	segs := fileSegments(path)
 	if len(segs) == 0 {
@@ -181,13 +196,13 @@ func flattenLines(content string) flat {
 
 // collect flattens the leaves of docs under prefix into f, each line placed
 // in the file by place (the file's line of a line of the text docs were
-// parsed from); a string that holds a YAML document (textDocument), in a
-// payload field or inside a document already, is the document's leaves
-// under the field's path and textSep, and the field is one of f's documents.
+// parsed from); a string that holds a YAML mapping, in a payload field or
+// inside a document already, is the mapping's leaves under the field's path
+// and textSep, and the field is one of f's documents.
 func collect(docs []document, prefix string, inDocument bool, place func(int) int, f *flat) {
 	walkFile(docs, prefix, func(path string, line int, n *yaml.Node, value any) {
 		if s, isText := value.(string); isText && n != nil && n.Kind == yaml.ScalarNode && (inDocument || payload(path)) {
-			if inner, ok := textDocument(s, !inDocument && patchField(path)); ok {
+			if inner, ok := textMapping(s); ok {
 				at := place(line)
 				within := func(int) int { return at }
 				if n.Style == yaml.LiteralStyle {
