@@ -23,7 +23,6 @@
 package customerportal
 
 import (
-	"encoding/base64"
 	"strconv"
 	"strings"
 
@@ -264,13 +263,13 @@ func (in *Input) userSecrets(secrets map[string]string) render.File {
 	}
 	if in.Plugins.Sentry.Enabled {
 		values = append(values, e("sentry", render.Map{
-			e("app", render.Map{e("dsn", base64Leaf(secrets[fieldSentryAppDSN]))}),
-			e("backend", render.Map{e("dsn", base64Leaf(secrets[fieldSentryBackendDSN]))}),
-			e("reportURI", base64Leaf(secrets[fieldSentryReportURI])),
+			e("app", render.Map{e("dsn", render.Base64Leaf(secrets[fieldSentryAppDSN]))}),
+			e("backend", render.Map{e("dsn", render.Base64Leaf(secrets[fieldSentryBackendDSN]))}),
+			e("reportURI", render.Base64Leaf(secrets[fieldSentryReportURI])),
 		}))
 	}
 	if in.Plugins.Grafana.Enabled {
-		values = append(values, e("grafana", render.Map{e("apiToken", base64Leaf(secrets[fieldGrafanaToken]))}))
+		values = append(values, e("grafana", render.Map{e("apiToken", render.Base64Leaf(secrets[fieldGrafanaToken]))}))
 	}
 	return valuesSecret(userSecretsName, values, session, client, salt)
 }
@@ -282,17 +281,7 @@ func (in *Input) userSecrets(secrets map[string]string) render.File {
 // supplied value encoded here, a generated value by its encoded placeholder.
 // A marker stays as it is: it names what the commit fills in.
 func dexCredentials(clientID, clientSecret string) render.Map {
-	return render.Map{e("clientID", base64Leaf(clientID)), e("clientSecret", base64Leaf(clientSecret))}
-}
-
-// base64Leaf is value as a leaf its consumer decodes — the backstage chart
-// copies it under its Secret's data: as it is: a marker stays a marker,
-// everything else is its standard base64.
-func base64Leaf(value string) string {
-	if render.IsMarker(value) {
-		return value
-	}
-	return base64.StdEncoding.EncodeToString([]byte(value))
+	return render.Map{e("clientID", render.Base64Leaf(clientID)), e("clientSecret", render.Base64Leaf(clientSecret))}
 }
 
 // githubAppCredentials is github-app-credentials-backstage: the GitHub App

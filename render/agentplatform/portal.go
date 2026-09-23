@@ -306,11 +306,13 @@ func configMap(name, namespace, key string, value any) render.Map {
 
 // chatCredentials is the chat's credentials Secret, in the values form the
 // HelmRelease reads a Secret in: the Anthropic API key the person supplies
-// at commit as the chart value the chart exposes as ANTHROPIC_API_KEY, or on
-// Vertex the service account's JSON as the chart value the chart mounts at
+// at commit as the chart value the chart exposes as ANTHROPIC_API_KEY —
+// base64-encoded, since the chart copies the value under its secrets
+// Secret's data, which Kubernetes takes base64-encoded — or on Vertex the
+// service account's JSON as the chart value the chart mounts at
 // googleCredentialsPath.
 func (in *Input) chatCredentials(secrets map[string]string) render.File {
-	values := render.Map{e("anthropic", render.Map{e("apiKey", secrets[fieldAnthropicKey])})}
+	values := render.Map{e("anthropic", render.Map{e("apiKey", render.Base64Leaf(secrets[fieldAnthropicKey]))})}
 	if in.aiChatVertex() {
 		values = render.Map{e("google", render.Map{e("credentialsJson", secrets[fieldGoogleCredentials])})}
 	}
