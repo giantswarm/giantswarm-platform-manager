@@ -393,7 +393,7 @@ func (f *fakeInstallation) populate(t *testing.T, installation string, res *rend
 // When the fake installation's Secrets that a container reads at start were
 // written, and when those containers started: after the write.
 const (
-	dataWritten    = "2026-09-23T16:21:23Z"
+	dataWritten      = "2026-09-23T16:21:23Z"
 	containerStarted = "2026-09-23T16:44:13Z"
 	managedFieldsKey = "managedFields"
 	dataKey          = "data"
