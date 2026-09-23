@@ -11,6 +11,9 @@ type kvFlag []string
 
 func (k *kvFlag) String() string { return strings.Join(*k, ",") }
 
+// Type names the flag's value in the help: --input key=value.
+func (k *kvFlag) Type() string { return "key=value" }
+
 func (k *kvFlag) Set(v string) error {
 	if key, _, ok := strings.Cut(v, "="); !ok || key == "" {
 		return fmt.Errorf("--input takes key=value, got %q", v)

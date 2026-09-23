@@ -3,21 +3,27 @@
 // capability's fileset locally by importing the render library — no token, no
 // network. `installation` and `action` are thin clients of the manager's tools
 // through muster: they call a tool and format its answer for a terminal, or
-// print it as JSON.
+// print it as JSON. `self-update` installs the latest release once its
+// signature verifies, `completion` prints a shell's completion script.
 package main
 
 import (
 	"context"
 	"encoding/json"
-	"flag"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/platformctl/format"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/platformctl/muster"
-	"github.com/giantswarm/giantswarm-platform-manager/internal/version"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/platformctl/update"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
 )
 
 const usage = `platformctl — the laptop and CI surface of giantswarm-platform-manager
@@ -36,6 +42,8 @@ const usage = `platformctl — the laptop and CI surface of giantswarm-platform-
   platformctl action merge <name>
   platformctl action watch <name>
   platformctl version
+  platformctl self-update [--check]
+  platformctl completion bash|zsh|fish|powershell
 
 The installation and action commands call the manager's tools through muster's own
 bridge (muster agent --mcp-server), which signs you in to muster when needed. Their flags:
@@ -60,7 +68,14 @@ the rollout of a merged action as you: the Flux objects, then the probes,
 and carries the action to enabled, waiting for the customer or failed — call it again while it
 is rolling out.
 
-Exit codes: 0 done; 1 the tool refused or the call failed; 2 usage; 3 sign in required.
+self-update installs the latest release over this binary once its cosign bundle verifies as a
+CircleCI build of giantswarm/giantswarm-platform-manager; --check only reports both versions. The
+other commands print a one-line hint on stderr while a newer release is out;
+` + update.OptOutEnv + `=1 silences it. completion prints the shell's completion script:
+subcommands, flags and capability names (` + "`platformctl completion zsh > \"${fpath[1]}/_platformctl\"`" + `).
+
+Exit codes: 0 done; 1 the tool refused or the call failed; 2 usage; 3 sign in required;
+125 self-update --check found a newer release.
 `
 
 const (
@@ -70,13 +85,14 @@ const (
 	exitSignIn
 )
 
+// exitOutdated is `self-update --check`'s answer when a newer release exists,
+// devctl's convention for `version check`.
+const exitOutdated = 125
+
 const (
 	outputText = "text"
 	outputJSON = "json"
 )
-
-// leaf is one subcommand.
-type leaf func(args []string, stdout, stderr io.Writer) int
 
 // say writes to one of the CLI's streams; a failed write to stdout or stderr
 // has nowhere left to be reported.
@@ -86,54 +102,225 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
+// run is one command line against GitHub's releases for self-update and the
+// newer-release hint.
 func run(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 {
-		say(stderr, "%s", usage)
+	return execute(update.New(), args, stdout, stderr)
+}
+
+// execute runs one command line on the command tree and answers its exit
+// code. A command prints its own errors and answers its code (exitCode); a
+// flag cobra cannot parse is a usage error printed here.
+func execute(u *update.Updater, args []string, stdout, stderr io.Writer) int {
+	root := newRoot(u)
+	root.SetOut(stdout)
+	root.SetErr(stderr)
+	// Never nil: cobra reads os.Args for a nil slice.
+	root.SetArgs(append([]string{}, goFlags(root, args)...))
+	err := root.Execute()
+	var code exitCode
+	var flagErr *flagError
+	switch {
+	case err == nil:
+		return exitOK
+	case errors.As(err, &code):
+		return int(code)
+	case errors.As(err, &flagErr):
+		say(stderr, "platformctl: %s\n\n%s", flagErr.msg, usageOf(flagErr.cmd))
 		return exitUsage
 	}
-	switch args[0] {
-	case "template":
-		return cmdTemplate(args[1:], stdout, stderr)
-	case "installation":
-		return group("installation", args[1:], stdout, stderr, map[string]leaf{"list": cmdInstallationList, "enable": cmdEnable, "reconcile": cmdReconcile, "verify": cmdVerify})
-	case "action":
-		return group("action", args[1:], stdout, stderr, map[string]leaf{"get": cmdActionGet, "list": cmdActionList, "approve": cmdActionApprove, "deny": cmdActionDeny, "merge": cmdActionMerge, "watch": cmdActionWatch})
-	case "version":
-		say(stdout, "%s\n", version.String())
-		return exitOK
-	case "help", "-h", "--help":
-		say(stdout, "%s", usage)
-		return exitOK
-	}
-	say(stderr, "platformctl: %q is not a command\n\n%s", args[0], usage)
-	return exitUsage
+	return fail(stderr, err)
 }
 
-func group(name string, args []string, stdout, stderr io.Writer, leaves map[string]leaf) int {
-	if len(args) > 0 {
-		if l, ok := leaves[args[0]]; ok {
-			return l(args[1:], stdout, stderr)
-		}
+// newRoot is the command tree, with u behind self-update and the hint.
+func newRoot(u *update.Updater) *cobra.Command {
+	root := &cobra.Command{
+		Use:           "platformctl",
+		Short:         "The laptop and CI surface of giantswarm-platform-manager",
+		Args:          cobra.ArbitraryArgs,
+		SilenceErrors: true,
+		SilenceUsage:  true,
+		// No command, or a first word that is none: the usage, exit 2.
+		RunE: func(c *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				say(c.ErrOrStderr(), "%s", usage)
+			} else {
+				say(c.ErrOrStderr(), "platformctl: %q is not a command\n\n%s", args[0], usage)
+			}
+			return exitCode(exitUsage)
+		},
+		// The one-line hint that a newer release exists, on stderr ahead of
+		// the command's own output (update.OptOutEnv silences it).
+		PersistentPreRun: func(c *cobra.Command, _ []string) {
+			if remindsOfNewerRelease(c) {
+				u.Remind(c.Context(), c.ErrOrStderr())
+			}
+		},
 	}
-	say(stderr, "platformctl %s: needs one of its subcommands\n\n%s", name, usage)
-	return exitUsage
+	root.AddCommand(
+		newTemplateCmd(),
+		group("installation", "The capabilities of the installations: list, enable, reconcile, verify",
+			newInstallationListCmd(),
+			newCapabilityCmd(tools.ToolEnableCapability, false),
+			newCapabilityCmd(tools.ToolReconcileCapability, true),
+			newVerifyCmd(),
+		),
+		group("action", "The actions: get, list, approve, deny, merge, watch",
+			newActionGetCmd(),
+			newActionListCmd(),
+			newActionApproveCmd(),
+			newActionDenyCmd(),
+			newActionMergeCmd(),
+			newActionWatchCmd(),
+		),
+		newVersionCmd(),
+		newSelfUpdateCmd(u),
+	)
+	// platformctl's help is the usage above; a subcommand's is cobra's, with
+	// its flags.
+	commandHelp := root.HelpFunc()
+	root.SetHelpFunc(func(c *cobra.Command, args []string) {
+		if !c.HasParent() {
+			say(c.OutOrStdout(), "%s", usage)
+			return
+		}
+		commandHelp(c, args)
+	})
+	root.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
+		return &flagError{cmd: c, msg: goFlagMessage(err)}
+	})
+	return root
 }
 
-// parse lets flags follow the positional arguments (platformctl installation
-// enable hazel agent-platform --dry-run), which the flag package alone stops at.
-func parse(fs *flag.FlagSet, args []string) ([]string, error) {
-	var pos []string
-	for {
-		if err := fs.Parse(args); err != nil {
-			return nil, err
-		}
-		rest := fs.Args()
-		if len(rest) == 0 {
-			return pos, nil
-		}
-		pos = append(pos, rest[0])
-		args = rest[1:]
+// quietCommands never print the newer-release hint: the commands about
+// versions and cobra's plumbing (help, completion; __complete is hidden).
+var quietCommands = map[string]bool{
+	"version":     true,
+	"self-update": true,
+	"help":        true,
+	"completion":  true,
+}
+
+// remindsOfNewerRelease says whether c is a command that does work, the ones
+// the hint is for: not platformctl itself (the usage), and neither c nor a
+// command above it hidden or in quietCommands (`completion zsh` is under
+// `completion`).
+func remindsOfNewerRelease(c *cobra.Command) bool {
+	if !c.HasParent() {
+		return false
 	}
+	for ; c != nil; c = c.Parent() {
+		if c.Hidden || quietCommands[c.Name()] {
+			return false
+		}
+	}
+	return true
+}
+
+// group is installation and action: a word that needs one of its
+// subcommands.
+func group(name, short string, leaves ...*cobra.Command) *cobra.Command {
+	g := &cobra.Command{
+		Use:   name,
+		Short: short,
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(c *cobra.Command, _ []string) error {
+			say(c.ErrOrStderr(), "platformctl %s: needs one of its subcommands\n\n%s", name, usage)
+			return exitCode(exitUsage)
+		},
+	}
+	g.AddCommand(leaves...)
+	return g
+}
+
+// leaf is one subcommand. run checks the positional arguments itself,
+// prints its own errors and answers the exit code; its flags are the
+// command's, registered by the caller. Positional arguments complete to
+// nothing unless the caller says otherwise.
+func leaf(use, short string, run func(pos []string, stdout, stderr io.Writer) int) *cobra.Command {
+	return &cobra.Command{
+		Use:               use,
+		Short:             short,
+		Args:              cobra.ArbitraryArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
+		RunE: func(c *cobra.Command, pos []string) error {
+			if n := run(pos, c.OutOrStdout(), c.ErrOrStderr()); n != exitOK {
+				return exitCode(n)
+			}
+			return nil
+		},
+	}
+}
+
+// exitCode ends a command that has printed why with its exit code.
+type exitCode int
+
+func (e exitCode) Error() string { return fmt.Sprintf("exit code %d", int(e)) }
+
+// flagError is a flag cobra could not parse, worded as the flag package
+// worded it before platformctl was built on cobra.
+type flagError struct {
+	cmd *cobra.Command
+	msg string
+}
+
+func (e *flagError) Error() string { return e.msg }
+
+// goFlagMessage words a flag error the way the flag package did ("flag
+// provided but not defined: -all"); scripts and people have seen these.
+func goFlagMessage(err error) string {
+	var notDefined *pflag.NotExistError
+	var noValue *pflag.ValueRequiredError
+	var invalid *pflag.InvalidValueError
+	switch {
+	case errors.As(err, &notDefined):
+		return "flag provided but not defined: -" + notDefined.GetSpecifiedName()
+	case errors.As(err, &noValue):
+		return "flag needs an argument: -" + noValue.GetSpecifiedName()
+	case errors.As(err, &invalid):
+		return fmt.Sprintf("invalid value %q for flag -%s: %v", invalid.GetValue(), invalid.GetFlag().Name, invalid.Unwrap())
+	}
+	return err.Error()
+}
+
+// usageOf is what a usage error prints after the reason: platformctl's
+// usage, or a subcommand's with its flags.
+func usageOf(c *cobra.Command) string {
+	if !c.HasParent() {
+		return usage
+	}
+	return c.UsageString()
+}
+
+// goFlags rewrites the single-dash long flags the flag package accepted
+// (-dry-run, -output=json) to the double dash cobra reads, so a command line
+// written before platformctl was built on cobra keeps working. The value of a
+// flag that takes one (--reason -x) and every word after "--" stay as they
+// are; so does a command line cobra itself answers (help, completion).
+func goFlags(root *cobra.Command, args []string) []string {
+	cmd, _, err := root.Find(args)
+	if err != nil || cmd == root {
+		return args
+	}
+	out := make([]string, 0, len(args))
+	value := false
+	for i, a := range args {
+		switch {
+		case value:
+			value = false
+		case a == "--":
+			return append(out, args[i:]...)
+		case len(a) > 2 && a[0] == '-':
+			if a[1] != '-' {
+				a = "-" + a
+			}
+			name, _, inline := strings.Cut(a[2:], "=")
+			f := cmd.Flags().Lookup(name)
+			value = f != nil && f.NoOptDefVal == "" && !inline
+		}
+		out = append(out, a)
+	}
+	return out
 }
 
 func usageError(stderr io.Writer, msg string) int {
@@ -152,12 +339,18 @@ type conn struct {
 	timeout                              time.Duration
 }
 
-func (c *conn) flags(fs *flag.FlagSet) {
+// flags registers the muster commands' flags on cmd, with their completions.
+func (c *conn) flags(cmd *cobra.Command) {
+	fs := cmd.Flags()
 	fs.StringVar(&c.output, "output", outputText, "text or json")
 	fs.StringVar(&c.binary, "muster", "", "the muster CLI (default: muster on PATH)")
 	fs.StringVar(&c.endpoint, "endpoint", "", "the muster aggregator's MCP endpoint (default: muster's configuration)")
 	fs.StringVar(&c.configPath, "config-path", "", "muster's configuration directory (default: muster's)")
 	fs.DurationVar(&c.timeout, "timeout", 5*time.Minute, "timeout per call, in the muster CLI bridge and platformctl alike")
+	completeFlag(cmd, "output", cobra.FixedCompletions([]cobra.Completion{outputText, outputJSON}, cobra.ShellCompDirectiveNoFileComp))
+	completeFlag(cmd, "config-path", dirs)
+	completeFlag(cmd, "endpoint", cobra.NoFileCompletions)
+	completeFlag(cmd, "timeout", cobra.NoFileCompletions)
 }
 
 // bridgeGrace is how much longer than --timeout platformctl waits for one
