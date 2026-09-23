@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -86,6 +87,7 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 	if name = strings.TrimSpace(name); name == "" {
 		return nil, fmt.Errorf("%s needs %s", ToolWatchAction, ArgAction)
 	}
+	start := time.Now()
 	a, err := t.d.Actions.Get(ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", ToolWatchAction, err)
@@ -119,7 +121,7 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 		return nil, fmt.Errorf("%s: %w", ToolWatchAction, err)
 	}
 	res := verify.CompareLive(ctx, verify.LiveOptions{Definition: def, Installation: st.Name, State: settledState(st.State),
-		Inputs: verify.Inputs{Source: "action " + a.Name, Values: inputs, Typed: a.Spec.Inputs}, Cluster: cluster, Probes: t.d.Probes, Person: id.String(), AnonymousProbes: true})
+		Inputs: verify.Inputs{Source: "action " + a.Name, Values: inputs, Typed: a.Spec.Inputs}, Cluster: cluster, Probes: t.d.Probes, Person: id.String(), AnonymousProbes: true, Log: t.d.Log})
 	res.Caller = id.String()
 	objects, ready := rolloutObjects(res)
 	prev := st.State
@@ -152,7 +154,7 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 		return nil, fmt.Errorf("%s: %s is %s and the action could not record it: %w", ToolWatchAction, st.Name, st.State, err)
 	}
 	out.Action, out.State = a, st.State
-	t.d.Log.Info("action_watch", identity.LogAttr(ctx), "action", a.Name, "installation", st.Name, "ready", ready, "state", st.State, "actionState", a.Status.State, "red", len(out.Red), "reported", st.ReportedAt != nil)
+	t.d.Log.Info("action_watch", identity.LogAttr(ctx), "action", a.Name, "installation", st.Name, "ready", ready, "state", st.State, "actionState", a.Status.State, "red", len(out.Red), "reported", st.ReportedAt != nil, "duration_ms", time.Since(start).Milliseconds())
 	out.Message = fmt.Sprintf("%s is %s (action %s, %s): %s.", st.Name, st.State, a.Name, a.Status.State, st.Message)
 	if note != "" {
 		out.Message += " " + note
@@ -173,12 +175,19 @@ func (t *Tools) resyncThroughMuster(ctx context.Context, token string, id *ident
 	if !t.due(a) {
 		return ""
 	}
+	ctx, cancel := context.WithTimeout(ctx, ResyncCallTimeout)
+	defer cancel()
 	if _, err := t.d.Live.Call(ctx, token, id, musterTool(ToolGetAction), map[string]any{ArgName: a.Name}); err != nil {
 		t.d.Log.Info("action_resync_skipped", identity.LogAttr(ctx), "action", a.Name, "error", err.Error())
 		return fmt.Sprintf("(The pull requests were not re-read from GitHub as you: %v; %s on the %s registration reads them.)", err, ToolGetAction, ToolPrefix)
 	}
 	return ""
 }
+
+// ResyncCallTimeout bounds the re-read of an action's pull requests through
+// muster before a watch: a call that does not answer leaves the record as it
+// was, said in the note, instead of holding the watch.
+const ResyncCallTimeout = 90 * time.Second
 
 // noteClause appends a note to a refusal.
 func noteClause(note string) string {
