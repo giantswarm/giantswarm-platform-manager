@@ -173,7 +173,7 @@ func newStack(t *testing.T) *stack {
 // forwarded identity.
 func (st *stack) mcpClient(t *testing.T, token string) *client.Client {
 	t.Helper()
-	return st.client(t, map[string]string{"Authorization": "Bearer " + token})
+	return st.client(t, token, "")
 }
 
 // githubTokenOf is the App user token muster holds for a person the fake Dex
@@ -189,13 +189,17 @@ func (st *stack) liveClient(t *testing.T, idToken string) *client.Client {
 	if !ok {
 		t.Fatalf("no App user token for %q", personOf(idToken))
 	}
-	return st.client(t, map[string]string{"Authorization": "Bearer " + gh, identity.ForwardedIdentityHeader: idToken})
+	return st.client(t, gh, idToken)
 }
 
-// client is a connected MCP client at /mcp carrying headers on every request.
-func (st *stack) client(t *testing.T, headers map[string]string) *client.Client {
+// client is a connected MCP client at /mcp carrying token as the bearer and,
+// when set, idToken in X-Muster-Id-Token on every request.
+func (st *stack) client(t *testing.T, token, idToken string) *client.Client {
 	t.Helper()
-	token := headers["Authorization"]
+	headers := map[string]string{"Authorization": "Bearer " + token}
+	if idToken != "" {
+		headers[identity.ForwardedIdentityHeader] = idToken
+	}
 	c, err := client.NewStreamableHttpClient(st.srv.URL+"/mcp", transport.WithHTTPHeaders(headers))
 	if err != nil {
 		t.Fatal(err)

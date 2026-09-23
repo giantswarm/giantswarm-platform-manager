@@ -163,7 +163,7 @@ func TestLiveToolsRefuseAnIdentityTheyCannotVerify(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	withIdentity := func(idToken string) *client.Client {
-		return st.client(t, map[string]string{"Authorization": "Bearer " + aliceToken, identity.ForwardedIdentityHeader: idToken})
+		return st.client(t, aliceToken, idToken)
 	}
 	for name, c := range map[string]struct {
 		session *client.Client
