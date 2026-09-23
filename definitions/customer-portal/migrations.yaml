@@ -2,8 +2,9 @@
 # the migration's planned addition, not drift: the comparison marks a leaf the definition renders and the record
 # does not have, under one of these keys, planned with the reason. A leaf the record holds with another value
 # stays a difference. Key paths use the file prefixes of schema.json's x-renders (backstage:file:<name> covers
-# the file in the portal's directory, backstage:kustomization:<path> a path in a kustomization) and the
-# normalisation of removals.yaml ([x] for the list entry with identity x). The comparison takes the first key
+# the file in the portal's directory, backstage:kustomization:<path> a path in a kustomization, inside the text of
+# a patch included — the HelmRelease patch's values sources are spec.valuesFrom[<name>]) and the normalisation of
+# removals.yaml ([x] for the list entry with identity x). The comparison takes the first key
 # that names a path: a more specific key precedes one that covers it.
 #
 # The reason is what the Dev Portal shows a platform engineer next to the planned change, so it is one
@@ -23,10 +24,14 @@ migrations:
     reason: "Added: the portal's session secret, its Dex client credentials, the telemetry salt and its Sentry and Grafana values are the SOPS-encrypted Secret user-secrets-backstage the HelmRelease reads values from, generated or supplied at commit, instead of values kept by hand · M33"
   - key: backstage:kustomization:resources[user-secrets.enc.yaml]
     reason: "Added: the portal's kustomization lists the Secret user-secrets-backstage, so it is applied with the portal · M33"
+  - key: backstage:kustomization:spec.valuesFrom[user-secrets-backstage]
+    reason: "Added: the HelmRelease reads values from the Secret user-secrets-backstage, a values source of the portal's kustomization patch after its ConfigMaps · M33"
   - key: backstage:file:plugin-keys-secret.enc.yaml
     reason: "Added: the plugin-to-plugin signing keys are one ES256 key pair drawn at commit, the SOPS-encrypted Secret plugin-keys-backstage the HelmRelease reads values from and backend.auth.pluginKeyStore names, instead of keys the backend keeps in its database · M33"
   - key: backstage:kustomization:resources[plugin-keys-secret.enc.yaml]
     reason: "Added: the portal's kustomization lists the Secret plugin-keys-backstage, so it is applied with the portal · M33"
+  - key: backstage:kustomization:spec.valuesFrom[plugin-keys-backstage]
+    reason: "Added: the HelmRelease reads values from the Secret plugin-keys-backstage, a values source of the portal's kustomization patch after its ConfigMaps · M33"
 
   # --- M3 — the portal lists the platform's Component (the agent-platform definition renders its files) ---
   - key: backstage:kustomization:components[./agent-platform/]

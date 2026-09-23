@@ -303,7 +303,9 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
   registration and `verify_installation` on the live one and prints the two as one result — per dimension
   the side that checked it; when the live registration does not answer (not registered, not connected),
   the repository result stands and the live line says why. `--secret <field>=@<file>`, `<field>=env:<NAME>` or
-  `<field>=-` (stdin, one field) supplies a secret the plan's `suppliedSecrets` name; the value is sent
+  `<field>=-` (stdin, one field) supplies a secret the plan's `suppliedSecrets` name — the fields whose file
+  the commit creates or rewrites; a field whose encrypted files stand on record is listed as on record and
+  needs no value, the value there stands; the value is sent
   once in the call's `secrets`, never printed, and never taken from the command line — a value typed there
   is refused naming only the field. `verify` prints the definition's features with their marks and
   dimensions; `approve`, `deny` and `merge` are the review's tools called as you, the manager's answer

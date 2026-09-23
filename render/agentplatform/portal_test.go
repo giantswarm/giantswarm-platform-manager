@@ -1,6 +1,7 @@
 package agentplatform
 
 import (
+	"encoding/base64"
 	"errors"
 	"slices"
 	"strings"
@@ -302,5 +303,23 @@ func TestGoldensCoverPortalLines(t *testing.T) {
 		if !rendered[named] {
 			t.Errorf("no golden shape renders a portal whose fragment names the Flux identity: %v", named)
 		}
+	}
+}
+
+// The chat's Anthropic key is written into the credentials Secret
+// base64-encoded: the chart copies the chart value anthropic.apiKey under its
+// secrets Secret's data, which Kubernetes takes base64-encoded, and a
+// hand-kept portal carries it so in its user secrets. A marker stays a marker.
+func TestPortalChatCredentialsEncodeTheKey(t *testing.T) {
+	portal := PortalRef{Installation: testPortalHost, Customer: testOrganisation, Domain: "portal." + testPortalHost + ".example"}
+	in := &Input{Installation: Installation{Name: testPortalHost, BaseDomain: testPortalHost + ".example", Customer: testOrganisation, Portals: []PortalRef{portal}},
+		AIChat: AIChat{Enabled: true, Model: testChatModel}}
+	const key = "sk-ant-fixture"
+	if secret := string(in.chatCredentials(map[string]string{fieldAnthropicKey: key}).Content); !strings.Contains(secret, "apiKey: "+base64.StdEncoding.EncodeToString([]byte(key))+"\n") || strings.Contains(secret, key) {
+		t.Errorf("the credentials Secret:\n%s", secret)
+	}
+	marker := render.Supplied(fieldAnthropicKey)
+	if secret := string(in.chatCredentials(map[string]string{fieldAnthropicKey: marker}).Content); !strings.Contains(secret, "apiKey: "+marker+"\n") {
+		t.Errorf("the marker encoded:\n%s", secret)
 	}
 }

@@ -14,6 +14,7 @@ package render
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"sort"
 	"strings"
@@ -338,6 +339,16 @@ func Supplied(field string) string { return "SUPPLIED(" + field + ")" }
 // person input no layer of the document holds would go: a choice not on
 // record. A leaf that carries it is not checked; a commit never writes it.
 func Missing(field string) string { return "MISSING(" + field + ")" }
+
+// Base64Leaf is value as a chart copies it under a Secret's data: the base64
+// of the value, which Kubernetes takes there. A marker stays a marker, so a
+// dry run and a golden read it.
+func Base64Leaf(value string) string {
+	if IsMarker(value) {
+		return value
+	}
+	return base64.StdEncoding.EncodeToString([]byte(value))
+}
 
 // IsMarker reports whether value is a marker that stands for a value — a
 // generated placeholder, a supplied or a missing one — rather than the value

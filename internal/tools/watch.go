@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -48,6 +49,11 @@ type WatchResult struct {
 	Verify *verify.Result `json:"verify,omitempty"`
 	// Red names the dimensions that decided failed or waiting for the customer.
 	Red []string `json:"red,omitempty"`
+	// Planned names the live dimensions whose only differences are planned
+	// changes, with the reasons: leaves a definition released after the
+	// action's commit renders and the migration list names — the next
+	// reconcile's business, never red.
+	Planned []string `json:"planned,omitempty"`
 	// Report is the text this call posted into the review's thread, when the
 	// stage reached a state; Message says when it could not be posted.
 	Report string `json:"report,omitempty"`
@@ -56,7 +62,7 @@ type WatchResult struct {
 
 func (t *Tools) registerWatchTool(s *mcpserver.MCPServer) {
 	s.AddTool(mcp.NewTool(ToolWatchAction,
-		mcp.WithDescription("The rollout watch of an action whose pull requests are merged, as you: reads the Flux objects the definition names on the installation rolling out — the HelmReleases with their Ready condition and revision — through muster's kubernetes tools with the token muster forwarded, and answers the picture. Once every one is Ready it runs the definition's probes (the live dimensions as you, the anonymous HTTP probes direct) and the stage moves to enabled (all green), waiting for the customer (the customer's own action is the only thing open) or failed (a probe is red, named); the report — pull requests, rollout per object, each probe, the open customer actions — goes into the review's thread and onto the Action. Nothing is waited for or hurried: call again while it is rolling out. On a wave the stage in flight is watched; the next stage's pull requests are merged by the actor's "+ToolMergeAction+" once it is enabled. An action waiting for the customer or enabled is re-read: the customer's action done flips it to enabled. Anyone signed in may watch; the reads are yours."),
+		mcp.WithDescription("The rollout watch of an action whose pull requests are merged, as you: reads the Flux objects the definition names on the installation rolling out — the HelmReleases with their Ready condition and revision — through muster's kubernetes tools with the token muster forwarded, and answers the picture. Once every one is Ready it runs the definition's probes (the live dimensions as you, the anonymous HTTP probes direct) and the stage moves to enabled (all green), waiting for the customer (the customer's own action is the only thing open) or failed (a probe is red, named); a value a definition released since the commit renders and the installation lacks is a planned change of that newer definition, listed, never red. The report — pull requests, rollout per object, each probe, the customer actions still open and the ones the installation reads done — goes into the review's thread and onto the Action. Nothing is waited for or hurried: call again while it is rolling out. On a wave the stage in flight is watched; the next stage's pull requests are merged by the actor's "+ToolMergeAction+" once it is enabled. An action waiting for the customer or enabled is re-read: the customer's action done flips it to enabled. Anyone signed in may watch; the reads are yours."),
 		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithString(ArgAction, mcp.Required(), mcp.Description("The Action's name.")),
 	), t.watchActionLive)
@@ -86,6 +92,7 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 	if name = strings.TrimSpace(name); name == "" {
 		return nil, fmt.Errorf("%s needs %s", ToolWatchAction, ArgAction)
 	}
+	start := time.Now()
 	a, err := t.d.Actions.Get(ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", ToolWatchAction, err)
@@ -119,13 +126,13 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 		return nil, fmt.Errorf("%s: %w", ToolWatchAction, err)
 	}
 	res := verify.CompareLive(ctx, verify.LiveOptions{Definition: def, Installation: st.Name, State: settledState(st.State),
-		Inputs: verify.Inputs{Source: "action " + a.Name, Values: inputs, Typed: a.Spec.Inputs}, Cluster: cluster, Probes: t.d.Probes, Person: id.String(), AnonymousProbes: true})
+		Inputs: verify.Inputs{Source: "action " + a.Name, Values: inputs, Typed: a.Spec.Inputs}, Cluster: cluster, Probes: t.d.Probes, Person: id.String(), AnonymousProbes: true, Log: t.d.Log})
 	res.Caller = id.String()
 	objects, ready := rolloutObjects(res)
 	prev := st.State
 	st.Objects, st.WatchedAt, st.WatchedBy = objects, now(), id.String()
 	status.Probes = mergeProbes(status.Probes, st.Name, probesOf(st.Name, res))
-	out := WatchResult{Installation: st.Name, Objects: objects, Ready: ready, Verify: &res}
+	out := WatchResult{Installation: st.Name, Objects: objects, Ready: ready, Verify: &res, Planned: plannedDimensions(res)}
 	if prev == actions.StateRollingOut && !ready {
 		st.Message = rolloutMessage(objects)
 		out.Next = "call " + ToolWatchAction + " again once Flux has reconciled the installation; nothing is hurried"
@@ -138,7 +145,8 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 		st.State, st.Message = state, message
 		applyStage(&status, i, prev)
 		if st.ReportedAt == nil {
-			out.Report = t.report(a, status, i, res, customerActions(def, inputs))
+			open, done := customerActions(def, inputs, res)
+			out.Report = t.report(a, status, i, res, open, done)
 			if told := t.postResult(ctx, a, out.Report); told == "" {
 				st.ReportedAt = now()
 			} else {
@@ -152,7 +160,7 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 		return nil, fmt.Errorf("%s: %s is %s and the action could not record it: %w", ToolWatchAction, st.Name, st.State, err)
 	}
 	out.Action, out.State = a, st.State
-	t.d.Log.Info("action_watch", identity.LogAttr(ctx), "action", a.Name, "installation", st.Name, "ready", ready, "state", st.State, "actionState", a.Status.State, "red", len(out.Red), "reported", st.ReportedAt != nil)
+	t.d.Log.Info("action_watch", identity.LogAttr(ctx), "action", a.Name, "installation", st.Name, "ready", ready, "state", st.State, "actionState", a.Status.State, "red", len(out.Red), "reported", st.ReportedAt != nil, "duration_ms", time.Since(start).Milliseconds())
 	out.Message = fmt.Sprintf("%s is %s (action %s, %s): %s.", st.Name, st.State, a.Name, a.Status.State, st.Message)
 	if note != "" {
 		out.Message += " " + note
@@ -173,12 +181,19 @@ func (t *Tools) resyncThroughMuster(ctx context.Context, token string, id *ident
 	if !t.due(a) {
 		return ""
 	}
+	ctx, cancel := context.WithTimeout(ctx, ResyncCallTimeout)
+	defer cancel()
 	if _, err := t.d.Live.Call(ctx, token, id, musterTool(ToolGetAction), map[string]any{ArgName: a.Name}); err != nil {
 		t.d.Log.Info("action_resync_skipped", identity.LogAttr(ctx), "action", a.Name, "error", err.Error())
 		return fmt.Sprintf("(The pull requests were not re-read from GitHub as you: %v; %s on the %s registration reads them.)", err, ToolGetAction, ToolPrefix)
 	}
 	return ""
 }
+
+// ResyncCallTimeout bounds the re-read of an action's pull requests through
+// muster before a watch: a call that does not answer leaves the record as it
+// was, said in the note, instead of holding the watch.
+const ResyncCallTimeout = 90 * time.Second
 
 // noteClause appends a note to a refusal.
 func noteClause(note string) string {
@@ -437,13 +452,47 @@ func redDimensions(res verify.Result) []string {
 	return red
 }
 
-// detailOf is one line of what a dimension saw: its reason, its first
-// difference, its first red check with the definition's note, or a probe's
-// failed request.
+// newerDefinition opens what the watch says of a planned change on the live
+// half: the definition renders a leaf the action's commit never wrote and
+// the installation never had, which the migration list names.
+const newerDefinition = "newer definition, not this action's: "
+
+// plannedDimensions names the dimensions of res whose only differences are
+// planned changes — a leaf a definition released after the action's commit
+// renders, named by the migration list — each with the reasons.
+func plannedDimensions(res verify.Result) []string {
+	var out []string
+	for _, f := range res.Features {
+		for _, d := range f.Dimensions {
+			if d.Mark == verify.Planned {
+				out = append(out, fmt.Sprintf("%s (%s): %s%s", d.ID, f.ID, newerDefinition, plannedReasons(d)))
+			}
+		}
+	}
+	return out
+}
+
+// plannedReasons are the reasons of a dimension's planned changes, each
+// once, in the order of its differences.
+func plannedReasons(d verify.Dimension) string {
+	var reasons []string
+	for _, diff := range d.Differences {
+		if diff.Planned != "" && !slices.Contains(reasons, diff.Planned) {
+			reasons = append(reasons, diff.Planned)
+		}
+	}
+	return strings.Join(reasons, "; ")
+}
+
+// detailOf is one line of what a dimension saw: its reason, its planned
+// changes with their reasons, its first difference, its first red check
+// with the definition's note, or a probe's failed request.
 func detailOf(d verify.Dimension) string {
 	switch {
 	case d.Reason != "":
 		return d.Reason
+	case d.Mark == verify.Planned && len(d.Differences) > 0:
+		return fmt.Sprintf("%d planned change(s): %s", len(d.Differences), plannedReasons(d))
 	case len(d.Differences) > 0:
 		return fmt.Sprintf("%d difference(s), the first at %s %s", len(d.Differences), d.Differences[0].Object, d.Differences[0].Path)
 	case d.Live != nil:
@@ -519,32 +568,54 @@ func mergeProbes(existing []actions.Probe, installation string, fresh []actions.
 	return append(kept, fresh...)
 }
 
-// customerActions renders the open customer actions of the inputs on record.
-func customerActions(def installations.Capability, inputs map[string]any) []render.Action {
+// customerActions renders the customer actions of the inputs on record and
+// sorts them by what the live half read (sortActions).
+func customerActions(def installations.Capability, inputs map[string]any, res verify.Result) (open, done []render.Action) {
 	in, err := def.Parse(inputs)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
-	res, err := def.Render(inputs, in.SuppliedMarkers(), render.ModeCompare)
+	rendered, err := def.Render(inputs, in.SuppliedMarkers(), render.ModeCompare)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
-	var open []render.Action
-	for _, a := range res.Actions {
-		if a.State == render.WaitingForCustomer {
-			open = append(open, a)
+	return sortActions(rendered.Actions, res)
+}
+
+// sortActions sorts the customer's actions by what the live half read: an
+// action is done once the live dimension it holds up read as defined — the
+// model key's Secret in place and the ModelConfig Accepted — and open while
+// that dimension is red or could not be read; an action that holds up no
+// dimension stays open, nothing reads it done. The definition lists the
+// actions; the installation says which are done.
+func sortActions(rendered []render.Action, res verify.Result) (open, done []render.Action) {
+	marks := map[string]verify.Mark{}
+	for _, f := range res.Features {
+		for _, d := range f.Dimensions {
+			marks[d.ID] = d.Mark
 		}
 	}
-	return open
+	for _, a := range rendered {
+		if a.State != render.WaitingForCustomer {
+			continue
+		}
+		if m, ok := marks[a.Dimension]; ok && a.Dimension != "" && m != verify.Drifted && m != verify.NotChecked {
+			done = append(done, a)
+			continue
+		}
+		open = append(open, a)
+	}
+	return open, done
 }
 
 // reportLimit is what the gateway takes in one result (mrkdwn ≤ 3000).
 const reportLimit = 2900
 
 // report is the stage's report for the review's thread: the state, the pull
-// requests, the rollout per object, each probe by mark, the open customer
-// actions and what follows. Never a value.
-func (t *Tools) report(a *actions.Action, status actions.Status, i int, res verify.Result, open []render.Action) string {
+// requests, the rollout per object, each probe by mark, the customer actions
+// still open and the ones the installation reads done, and what follows.
+// Never a value.
+func (t *Tools) report(a *actions.Action, status actions.Status, i int, res verify.Result, open, done []render.Action) string {
 	stages := status.Rollout.Installations
 	st := stages[i]
 	var b strings.Builder
@@ -576,7 +647,7 @@ func (t *Tools) report(a *actions.Action, status actions.Status, i int, res veri
 		b.WriteString(strings.Join(lines, " · "))
 	}
 	green, notChecked := 0, []string{}
-	var red []string
+	var red, planned []string
 	for _, f := range res.Features {
 		for _, d := range f.Dimensions {
 			if d.Kind != definitions.KindLive && d.Kind != definitions.KindProbe {
@@ -589,6 +660,8 @@ func (t *Tools) report(a *actions.Action, status actions.Status, i int, res veri
 				if d.Reason != verify.ReasonRepositorySide {
 					notChecked = append(notChecked, d.ID)
 				}
+			case verify.Planned:
+				planned = append(planned, fmt.Sprintf("🔵 %s (%s): %s%s", d.ID, f.ID, newerDefinition, plannedReasons(d)))
 			default:
 				red = append(red, fmt.Sprintf("❌ %s (%s): %s", d.ID, f.ID, detailOf(d)))
 			}
@@ -597,6 +670,9 @@ func (t *Tools) report(a *actions.Action, status actions.Status, i int, res veri
 	fmt.Fprintf(&b, "\nProbes: ✅ %d as defined", green)
 	for _, r := range red {
 		b.WriteString("\n" + r)
+	}
+	for _, p := range planned {
+		b.WriteString("\n" + p)
 	}
 	if len(notChecked) > 0 {
 		sort.Strings(notChecked)
@@ -607,6 +683,13 @@ func (t *Tools) report(a *actions.Action, status actions.Status, i int, res veri
 		for _, ca := range open {
 			fmt.Fprintf(&b, "\n• %s (%s)", ca.Note, ca.ID)
 		}
+	}
+	if len(done) > 0 {
+		ids := make([]string, 0, len(done))
+		for _, ca := range done {
+			ids = append(ids, ca.ID)
+		}
+		fmt.Fprintf(&b, "\nCustomer actions done: %s.", strings.Join(ids, ", "))
 	}
 	switch st.State {
 	case actions.StateFailed:

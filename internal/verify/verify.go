@@ -227,6 +227,7 @@ type Result struct {
 	PullRequests     []plan.PullRequest     `json:"pullRequests"`
 	GeneratedSecrets []plan.GeneratedSecret `json:"generatedSecrets"`
 	SuppliedSecrets  []string               `json:"suppliedSecrets"`
+	SuppliedOnRecord []string               `json:"suppliedOnRecord,omitempty"`
 	DexClients       []plan.DexClient       `json:"dexClients"`
 	CustomerActions  []plan.CustomerAction  `json:"customerActions"`
 	Probes           []plan.Probe           `json:"probes"`
@@ -236,7 +237,7 @@ type Result struct {
 // and on record, only when asked for.
 func (r *Result) view(p plan.Installation, content bool) {
 	r.Files, r.Includes, r.Diff = p.Files, p.Includes, p.Diff
-	r.GeneratedSecrets, r.SuppliedSecrets, r.DexClients, r.CustomerActions, r.Probes = p.GeneratedSecrets, p.SuppliedSecrets, p.DexClients, p.CustomerActions, p.Probes
+	r.GeneratedSecrets, r.SuppliedSecrets, r.SuppliedOnRecord, r.DexClients, r.CustomerActions, r.Probes = p.GeneratedSecrets, p.SuppliedSecrets, p.SuppliedOnRecord, p.DexClients, p.CustomerActions, p.Probes
 	if !content {
 		r.Files = make([]plan.File, len(p.Files))
 		for i, f := range p.Files {
@@ -250,7 +251,7 @@ func (r *Result) view(p plan.Installation, content bool) {
 // write, without the marks.
 func (r Result) Plan() plan.Installation {
 	return plan.Installation{Name: r.Installation, State: r.State, Inputs: r.Inputs.Values, MissingInputs: r.Inputs.Missing, Refused: r.Refused, CommitRefused: r.CommitRefused,
-		Files: r.Files, Includes: r.Includes, Diff: r.Diff, GeneratedSecrets: r.GeneratedSecrets, SuppliedSecrets: r.SuppliedSecrets,
+		Files: r.Files, Includes: r.Includes, Diff: r.Diff, GeneratedSecrets: r.GeneratedSecrets, SuppliedSecrets: r.SuppliedSecrets, SuppliedOnRecord: r.SuppliedOnRecord,
 		DexClients: r.DexClients, CustomerActions: r.CustomerActions, Probes: r.Probes}
 }
 
@@ -1362,18 +1363,20 @@ func assign(c *comparison, feats []definitions.Feature, refused string, own fact
 // route is the dimension a leaf at yamlPath of fd is observed under: the one
 // of the file's kind whose key names it most specifically (the first, on a
 // tie), else the kind's catch-all; nil when the kind has none. The keys name
-// paths inside the document a string field holds: the leaf's innerPath is
-// matched.
+// paths inside the document a string field holds, or the field that holds
+// the text: the leaf is matched at every level of its path (levels).
 func route(matchers []matcher, fd *fileDiff, yamlPath string) *Dimension {
 	var target *Dimension
 	best := 0
-	rel, yamlPath := observedPath(fd.kind, fd.path), innerPath(fd.documents, yamlPath)
+	rel, paths := observedPath(fd.kind, fd.path), levels(fd.documents, yamlPath)
 	for _, m := range matchers {
 		if m.kind != fd.kind {
 			continue
 		}
-		if n := m.match(rel, yamlPath); n > best {
-			target, best = m.dim, n
+		for _, p := range paths {
+			if n := m.match(rel, p); n > best {
+				target, best = m.dim, n
+			}
 		}
 	}
 	if target == nil {

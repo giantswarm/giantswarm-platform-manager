@@ -3,11 +3,13 @@ package verify
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
@@ -205,6 +207,7 @@ const (
 	conditionTrue   = "True"
 	proxyWorkload   = "proxy"
 	metaRelease     = "agent-platform"
+	testRelease     = "rel"
 	renderedLeaf    = "kagent.replicas"
 	definitionNote  = "what a match means"
 )
@@ -260,7 +263,7 @@ func TestChecksAskForWhatTheyRead(t *testing.T) {
 	key := func(resource, name string) string { return resource + "/" + testNamespace + "/" + name }
 	cluster := &recordingCluster{
 		objects: map[string]map[string]any{
-			key(kindHelmRelease, "rel"): {keySpec: map[string]any{"valuesFrom": []any{map[string]any{"kind": "ConfigMap", "name": valuesKey}}, valuesKey: map[string]any{"kagent": map[string]any{"replicas": "2"}}},
+			key(kindHelmRelease, testRelease): {keySpec: map[string]any{"valuesFrom": []any{map[string]any{"kind": "ConfigMap", "name": valuesKey}}, valuesKey: map[string]any{"kagent": map[string]any{"replicas": "2"}}},
 				keyStatus: map[string]any{"conditions": conditions("Ready")["conditions"], "lastAppliedRevision": "1.2.3"}},
 			key("ConfigMap", valuesKey):        {keyData: map[string]any{"values.yaml": "kagent:\n  replicas: \"2\"\n", "x": "2"}},
 			key(kindDeployment, proxyWorkload): {keySpec: map[string]any{"selector": map[string]any{"matchLabels": map[string]any{"app": proxyWorkload}}}, keyStatus: conditions("Available")},
@@ -277,13 +280,13 @@ func TestChecksAskForWhatTheyRead(t *testing.T) {
 		tails  []int
 		note   string
 	}{
-		{"HelmReleaseReady", render.Probe{Kind: render.HelmReleaseReady, Namespace: testNamespace, Resource: kindHelmRelease, Name: "rel"}, []Shape{Readiness}, nil, ""},
+		{"HelmReleaseReady", render.Probe{Kind: render.HelmReleaseReady, Namespace: testNamespace, Resource: kindHelmRelease, Name: testRelease}, []Shape{Readiness}, nil, ""},
 		{"Condition", render.Probe{Kind: render.Condition, Namespace: testNamespace, Resource: kindDeployment, Name: proxyWorkload, Expect: render.Expectation{Condition: "Available", ConditionStatus: conditionTrue}}, []Shape{Readiness}, nil, ""},
 		{"ResourcePresent", render.Probe{Kind: render.ResourcePresent, Namespace: testNamespace, Resource: "Secret", Name: "credential", Expect: render.Expectation{Keys: []string{"k"}}}, []Shape{Readiness}, nil, ""},
 		{"PodsRunning", render.Probe{Kind: render.PodsRunning, Namespace: testNamespace, Name: "app=" + proxyWorkload}, []Shape{Readiness}, nil, ""},
 		{"LogAbsent", render.Probe{Kind: render.LogAbsent, Namespace: testNamespace, Resource: kindDeployment, Name: proxyWorkload, Expect: render.Expectation{Absent: "does not match"}}, []Shape{Readiness, Readiness}, []int{LogTail}, logTailNote},
 		{"LogAbsent with the definition's note", render.Probe{Kind: render.LogAbsent, Namespace: testNamespace, Resource: kindDeployment, Name: proxyWorkload, Expect: render.Expectation{Absent: "does not match", Note: definitionNote}}, []Shape{Readiness, Readiness}, []int{LogTail}, definitionNote + "; " + logTailNote},
-		{"Drift of a HelmRelease's values", render.Probe{Kind: render.Drift, Namespace: testNamespace, Resource: kindHelmRelease, Name: "rel"}, []Shape{Configuration, Configuration}, nil, ""},
+		{"Drift of a HelmRelease's values", render.Probe{Kind: render.Drift, Namespace: testNamespace, Resource: kindHelmRelease, Name: testRelease}, []Shape{Configuration, Configuration}, nil, ""},
 		{"Drift of a place", render.Probe{Kind: render.Drift, Namespace: testNamespace, Resource: "ConfigMap", Name: valuesKey, Expect: render.Expectation{Compare: []render.Comparison{{Live: "data.x", Rendered: renderedLeaf}}}}, []Shape{Configuration}, nil, ""},
 	} {
 		cluster.shapes, cluster.tails = nil, nil
@@ -316,5 +319,150 @@ func TestTooLargeReadsNotCheckedInPlainWords(t *testing.T) {
 	const want = "the object or log is larger than mcp-kubernetes answers (136 KiB, the limit is 128 KiB): the check asks for too much"
 	if check.Mark != NotChecked || check.Message != want || check.Name != metaRelease || len(diffs) != 0 || auth != nil {
 		t.Errorf("%+v (diffs %d, auth %v)", check, len(diffs), auth)
+	}
+}
+
+// A rendered leaf the live object lacks under a key the capability's
+// migrations name is the planned addition it is on the record — a
+// definition released after the installation's values were written — not
+// drift: the check and its differences read planned with the migration's
+// reason, on the whole values and on a compared place alike. A leaf the
+// live object holds with another value, or lacks under no key, is drift.
+func TestLiveDriftUnderAMigrationKeyIsPlanned(t *testing.T) {
+	const kagentKey, anthropicKey, configKey, maxTokens = "kagent", "anthropic", "config", "maxTokens"
+	const leaf, reason = kagentKey + ".providers." + anthropicKey + "." + configKey + "." + maxTokens, "Added: the cap · M34"
+	lv := &liveRender{values: map[string]string{renderedLeaf: "2", leaf: "32000"},
+		file: &fileDiff{path: "management-clusters/x/apps/agent-platform/" + configMapPatch, kind: definitions.KindConfigMap},
+		migs: readMigrations([]definitions.Migration{{Key: "configmap:" + leaf, Reason: reason}}, nil)}
+	withProviders := func(providers map[string]any) *recordingCluster {
+		// The meta chart's values hold kagent's providers under kagent, and
+		// kagent's own HelmRelease forwards them flat at spec.values.providers.
+		values := map[string]any{kagentKey: map[string]any{"replicas": "2"}}
+		if providers != nil {
+			values[kagentKey].(map[string]any)["providers"] = providers
+			values["providers"] = providers
+		}
+		return &recordingCluster{objects: map[string]map[string]any{kindHelmRelease + "/" + testNamespace + "/" + testRelease: {keySpec: map[string]any{valuesKey: values}}}}
+	}
+	whole := render.Probe{Kind: render.Drift, Namespace: testNamespace, Resource: kindHelmRelease, Name: testRelease}
+	place := render.Probe{Kind: render.Drift, Namespace: testNamespace, Resource: kindHelmRelease, Name: testRelease,
+		Expect: render.Expectation{Compare: []render.Comparison{{Live: "spec.values.providers", Rendered: "kagent.providers"}}}}
+	capped := map[string]any{anthropicKey: map[string]any{configKey: map[string]any{maxTokens: "32000"}}}
+	uncapped := map[string]any{anthropicKey: map[string]any{configKey: map[string]any{}}}
+	other := map[string]any{anthropicKey: map[string]any{configKey: map[string]any{maxTokens: "8192"}}}
+	for _, c := range []struct {
+		name    string
+		probe   render.Probe
+		cluster *recordingCluster
+		mark    Mark
+		message string
+		planned string
+	}{
+		{"the leaf absent from the values", whole, withProviders(nil), Planned, "1 planned change(s)", reason},
+		{"the leaf absent from the place", place, withProviders(uncapped), Planned, "1 planned change(s)", reason},
+		{"the place itself absent", place, withProviders(nil), Drifted, "1 difference(s)", ""},
+		{"the leaf with another value", whole, withProviders(other), Drifted, "1 difference(s)", ""},
+		{"the leaf present", place, withProviders(capped), AsDefined, "equal to the render", ""},
+	} {
+		x := &executor{opts: LiveOptions{Cluster: c.cluster}, lv: lv}
+		check, diffs, _ := x.run(context.Background(), c.probe)
+		if check.Mark != c.mark || check.Message != c.message {
+			t.Errorf("%s: %q %q, want %q %q", c.name, check.Mark, check.Message, c.mark, c.message)
+		}
+		if c.mark == AsDefined {
+			continue
+		}
+		if len(diffs) != 1 || diffs[0].Planned != c.planned {
+			t.Errorf("%s: %+v", c.name, diffs)
+		}
+		if c.mark == Planned && (diffs[0].Path != leaf || diffs[0].Rendered != "32000" || diffs[0].Current != "") {
+			t.Errorf("%s: the difference: %+v", c.name, diffs[0])
+		}
+	}
+	// A leaf absent under no key stays drift.
+	lv.values[kagentKey+".newLeaf"] = "x"
+	x := &executor{opts: LiveOptions{Cluster: withProviders(capped)}, lv: lv}
+	if check, diffs, _ := x.run(context.Background(), whole); check.Mark != Drifted || len(diffs) != 1 || diffs[0].Planned != "" || diffs[0].Path != kagentKey+".newLeaf" {
+		t.Errorf("an unnamed leaf: %+v %+v", check, diffs)
+	}
+	// Without a values file on the render nothing is planned.
+	x = &executor{opts: LiveOptions{Cluster: withProviders(nil)}, lv: &liveRender{values: lv.values, migs: lv.migs}}
+	if check, _, _ := x.run(context.Background(), whole); check.Mark != Drifted {
+		t.Errorf("without the file: %+v", check)
+	}
+}
+
+// hangingCluster answers every read of one object never (until the context
+// ends) and every other read at once.
+type hangingCluster struct {
+	recordingCluster
+	hang string // resource/namespace/name
+}
+
+func (c *hangingCluster) Get(ctx context.Context, namespace, resource, name string, shape Shape) (map[string]any, error) {
+	if resource+"/"+namespace+"/"+name == c.hang {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	return c.recordingCluster.Get(ctx, namespace, resource, name, shape)
+}
+
+// A read that does not answer within its bound is not checked, naming what
+// did not answer and the bound; the checks that follow are read while the
+// budget lasts and left unread, naming the read that hung, once it is
+// spent — the call answers what it has, never the caller's deadline. Every
+// check is logged with its duration.
+func TestLiveReadsAreBounded(t *testing.T) {
+	const hung, after, okRelease = "hung", "after", "answers"
+	const conditionsKey, typeKey, nameKey = "conditions", "type", "name"
+	ready := func(name string) map[string]any {
+		return map[string]any{keyStatus: map[string]any{conditionsKey: []any{map[string]any{typeKey: "Ready", keyStatus: conditionTrue, "message": "ok"}}}, "metadata": map[string]any{nameKey: name}}
+	}
+	key := func(name string) string { return kindHelmRelease + "/" + testNamespace + "/" + name }
+	cluster := &hangingCluster{hang: key(hung), recordingCluster: recordingCluster{objects: map[string]map[string]any{
+		key(okRelease): ready(okRelease), key(hung): ready(hung), key(after): ready(after),
+	}}}
+	var logs strings.Builder
+	bounded := func() LiveOptions {
+		return LiveOptions{Cluster: cluster, Installation: "x", ReadTimeout: 30 * time.Millisecond, ReadBudget: 50 * time.Millisecond, Log: slog.New(slog.NewTextHandler(&logs, nil))}
+	}
+	probe := func(name string) render.Probe {
+		return render.Probe{ID: "live-" + name, Kind: render.HelmReleaseReady, Namespace: testNamespace, Resource: kindHelmRelease, Name: name}
+	}
+	x := &executor{opts: bounded()}
+	if c, _, _ := x.run(context.Background(), probe(okRelease)); c.Mark != AsDefined {
+		t.Fatalf("a read that answers: %+v", c)
+	}
+	c, _, _ := x.run(context.Background(), probe(hung))
+	if c.Mark != NotChecked || c.Message != "no answer within 30ms from "+kindHelmRelease+" "+testNamespace+"/"+hung {
+		t.Errorf("the read that hung: %+v", c)
+	}
+	// The budget has about 20 ms left: the next read is bounded by them and
+	// hangs them away; the one after is not started.
+	c, _, _ = x.run(context.Background(), probe(hung))
+	if c.Mark != NotChecked || !strings.HasPrefix(c.Message, "no answer within ") || strings.Contains(c.Message, "30ms") {
+		t.Errorf("the read bounded by the rest of the budget: %+v", c)
+	}
+	c, _, _ = x.run(context.Background(), probe(after))
+	if c.Mark != NotChecked || c.Message != "not read: the live verify's read budget of 50ms is spent; the last read that did not answer: "+kindHelmRelease+" "+testNamespace+"/"+hung {
+		t.Errorf("a read after the budget: %+v", c)
+	}
+	// A caller's own context ending is not a read that hung.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if c, _, _ := (&executor{opts: LiveOptions{Cluster: cluster, ReadTimeout: time.Second}}).run(ctx, probe(hung)); c.Mark != NotChecked || !strings.Contains(c.Message, "context canceled") {
+		t.Errorf("the caller's context: %+v", c)
+	}
+	// The whole dimension answers, and every check is logged with its duration.
+	x = &executor{opts: bounded(), lv: &liveRender{probes: []render.Probe{probe(okRelease), probe(hung), probe(after)}}}
+	logs.Reset()
+	dim := x.dimension(context.Background(), definitions.Dimension{ID: "live-" + hung, Kind: definitions.KindLive})
+	if dim.Mark != NotChecked || !strings.HasPrefix(dim.Reason, "no answer within 30ms from ") {
+		t.Errorf("the dimension: %+v", dim)
+	}
+	for _, want := range []string{"msg=live_check", "probe=live-" + hung, "duration_ms=", "mark=\"not checked\""} {
+		if !strings.Contains(logs.String(), want) {
+			t.Errorf("the log lacks %q:\n%s", want, logs.String())
+		}
 	}
 }
