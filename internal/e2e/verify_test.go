@@ -1348,7 +1348,8 @@ func TestVerifyCapabilityPlannedAdditionNamesTheServer(t *testing.T) {
 // the installation's own base domain — are the template's, each reason
 // naming the server, observed under own-mcp-servers; an entry on another
 // installation's host, what a hub keeps of a target it once listed by hand,
-// is M19 like any other server, observed under federated-mcp-servers.
+// is nobody's planned change — a registered server's home is its MCPServer
+// object under extras — and reads as drift under federated-mcp-servers.
 func TestVerifyCapabilityOwnMCPServersByHost(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
@@ -1370,37 +1371,38 @@ func TestVerifyCapabilityOwnMCPServersByHost(t *testing.T) {
 	st.ghs.addFiles(acmeConfigs, map[string]string{marker: content + "\n" + list})
 
 	res := verifyRowan(t, c, rowan)
-	if res.State != installations.StateEnabled || res.Summary[verify.Drifted] != 0 || res.Summary[verify.DiffersByInput] != 0 {
+	if res.State != installations.StateDrifted || res.Summary[verify.Drifted] != 1 || res.Summary[verify.DiffersByInput] != 0 {
 		t.Errorf("state %q summary %v", res.State, res.Summary)
 	}
 	// The in-cluster entry's url is own-mcp-kubernetes-url's, the rest of
-	// the own entries own-mcp-servers', the target's entry federated-mcp-servers'.
+	// the own entries own-mcp-servers', both planned; the target's entry is
+	// federated-mcp-servers' drift.
 	var diffs []verify.Difference
 	for _, want := range []struct {
-		id string
-		n  int
-	}{{"own-mcp-servers", 3}, {"own-mcp-kubernetes-url", 1}, {"federated-mcp-servers", 2}} {
+		id   string
+		n    int
+		mark verify.Mark
+	}{{"own-mcp-servers", 3, verify.Planned}, {"own-mcp-kubernetes-url", 1, verify.Planned}, {"federated-mcp-servers", 2, verify.Drifted}} {
 		d := anyDimension(t, res, want.id)
-		if d.Mark != verify.Planned || len(d.Differences) != want.n {
+		if d.Mark != want.mark || len(d.Differences) != want.n {
 			t.Fatalf("%s %q: %+v", want.id, d.Mark, d.Differences)
 		}
 		diffs = append(diffs, d.Differences...)
 	}
 	for _, diff := range diffs {
 		entry, _, _ := strings.Cut(strings.TrimPrefix(diff.Path, "agent-platform-mcps.mcpServers["), "]")
-		m19 := strings.HasSuffix(diff.Planned, "· M19")
 		switch entry {
 		case inCluster:
-			if m19 || !strings.Contains(diff.Planned, "this mcp-kubernetes entry repeats the in-cluster one") {
+			if !strings.Contains(diff.Planned, "this mcp-kubernetes entry repeats the in-cluster one") {
 				t.Errorf("the in-cluster entry: %+v", diff)
 			}
 		case "https://" + ownHost + "/mcp":
-			if m19 || !strings.Contains(diff.Planned, "this mcp-prometheus entry at "+ownHost) {
+			if !strings.Contains(diff.Planned, "this mcp-prometheus entry at "+ownHost) {
 				t.Errorf("the entry on the installation's own host: %+v", diff)
 			}
 		case "https://" + targetHost + "/mcp":
-			if !m19 {
-				t.Errorf("the entry on another installation's host: %+v", diff)
+			if diff.Planned != "" {
+				t.Errorf("the entry on another installation's host is planned: %+v", diff)
 			}
 		default:
 			t.Errorf("a difference of no entry: %+v", diff)
