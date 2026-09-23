@@ -104,11 +104,9 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", ToolWatchAction, err)
 	}
-	note := t.resyncThroughMuster(ctx, token, id, a)
-	if note == "" {
-		if a, err = t.d.Actions.Get(ctx, name); err != nil {
-			return nil, fmt.Errorf("%s: %w", ToolWatchAction, err)
-		}
+	var note string
+	if a, note = t.resyncBeforeWatch(ctx, a); note != "" {
+		t.d.Log.Info("action_resync_skipped", identity.LogAttr(ctx), "action", a.Name, "note", note)
 	}
 	if !slices.Contains(watchable, a.Status.State) {
 		return nil, fmt.Errorf("%s: action %s is %s%s — the watch follows an action rolling out and re-reads one waiting for the customer, enabled or failed on a probe%s", ToolWatchAction, a.Name, a.Status.State, decidedBy(a), noteClause(note))
@@ -179,32 +177,19 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 	return out, nil
 }
 
-// resyncThroughMuster has the manager's own get_action re-read a as the
-// person before the watch decides: the watch reads with the person's
-// forwarded ID token, and muster puts their GitHub token on the loop-back's
-// call to get_action, which reads the pull requests and the
-// markers from GitHub and records what changed — so an action whose pull
-// requests were merged outside the manager is watched all the same. It
-// answers "" when the record was re-read, else the note for the answer: the
-// person is not connected to the App-pinned registration in muster, or the
-// call failed; the record stands as it was.
-func (t *Tools) resyncThroughMuster(ctx context.Context, token string, id *identity.Identity, a *actions.Action) string {
-	if !t.due(a) {
-		return ""
+// resyncBeforeWatch has a's record follow GitHub as the person before the
+// watch decides — get_action's own read, with the GitHub token muster puts on
+// the call as the bearer next to the forwarded identity — so an action whose
+// pull requests were merged outside the manager is watched all the same. It
+// answers the record as it is after, and the note for the answer when the
+// pull requests could not be re-read: the record then stands as it was.
+func (t *Tools) resyncBeforeWatch(ctx context.Context, a *actions.Action) (*actions.Action, string) {
+	fresh, err := t.resyncCaller(ctx, a)
+	if err != nil {
+		return a, fmt.Sprintf("(The pull requests were not re-read from GitHub as you: %v; the watch read the record as it was.)", err)
 	}
-	ctx, cancel := context.WithTimeout(ctx, ResyncCallTimeout)
-	defer cancel()
-	if _, err := t.d.Live.Call(ctx, token, id, musterTool(ToolGetAction), map[string]any{ArgName: a.Name}); err != nil {
-		t.d.Log.Info("action_resync_skipped", identity.LogAttr(ctx), "action", a.Name, "error", err.Error())
-		return fmt.Sprintf("(The pull requests were not re-read from GitHub as you: %v; %s on the %s registration reads them.)", err, ToolGetAction, ToolPrefix)
-	}
-	return ""
+	return fresh, ""
 }
-
-// ResyncCallTimeout bounds the re-read of an action's pull requests through
-// muster before a watch: a call that does not answer leaves the record as it
-// was, said in the note, instead of holding the watch.
-const ResyncCallTimeout = 90 * time.Second
 
 // noteClause appends a note to a refusal.
 func noteClause(note string) string {

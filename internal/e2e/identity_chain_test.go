@@ -162,10 +162,6 @@ func newStack(t *testing.T) *stack {
 	}
 	st.srv = httptest.NewServer(s.Handler())
 	t.Cleanup(st.srv.Close)
-	// muster knows the persons by their GitHub grants: the loop-back to the
-	// manager's own get_action runs with them. The stranger's is not
-	// connected on the loop-back's side.
-	st.muster.connect(st.srv.URL+"/mcp", map[string]string{liveAdmin: aliceToken, liveViewer: carolToken})
 	return st
 }
 

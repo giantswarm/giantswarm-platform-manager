@@ -173,11 +173,11 @@ func TestWatchActionCarriesTheRolloutToEnabled(t *testing.T) {
 		t.Fatalf("merge after the merge: %v %s", isErr, text)
 	}
 
-	// A stranger to the installation: nothing read, nothing decided — and,
-	// not connected to the App-pinned registration either, the pull requests
-	// not re-read for them; the answer says so.
+	// A stranger to the installation: nothing read, nothing decided — the
+	// pull requests re-read with their own GitHub token all the same, no
+	// note in the answer.
 	w, text, isErr := watchCall(t, st.liveClient(t, st.dex.token(t, liveStranger, []string{liveAudience}, time.Hour)), a.Name)
-	if isErr || w.Ready || w.State != actions.StateRollingOut || len(w.Objects) == 0 || w.Objects[0].Ready != "" || !strings.Contains(w.Objects[0].Message, "not connected to the installation in muster") || !strings.Contains(w.Message, "not re-read") {
+	if isErr || w.Ready || w.State != actions.StateRollingOut || len(w.Objects) == 0 || w.Objects[0].Ready != "" || !strings.Contains(w.Objects[0].Message, "not connected to the installation in muster") || strings.Contains(w.Message, "not re-read") {
 		t.Fatalf("the stranger's watch: %v %s", isErr, text)
 	}
 
@@ -508,5 +508,36 @@ func TestWatchActionRecoversAFailedStage(t *testing.T) {
 	li, _, _ := listInstallations(t, aliceC, map[string]any{tools.ArgInstallations: []any{rowan}})
 	if r := find(t, li, rowan); r.Capabilities[0].State != installations.StateEnabled {
 		t.Fatalf("list_installations: %+v", r.Capabilities[0])
+	}
+}
+
+// The first call after the merges by hand is the watch: it re-reads the pull
+// requests as the person with the GitHub token muster puts on the call as the
+// bearer — get_action's own read, nothing looped back through muster — and
+// watches the action that is rolling out now, no note in the answer.
+func TestWatchActionReadsThePullRequestsAsThePerson(t *testing.T) {
+	st := newStack(t)
+	out, _ := commitRowan(t, st)
+	mergeAllOutside(t, st)
+	populateStage(t, st.inst, *out.Action, rowan)
+
+	w, text, isErr := watchCall(t, adminLive(t, st), out.Action.Name)
+	if isErr || !w.Ready || w.State != actions.StateEnabled || strings.Contains(w.Message, "not re-read") {
+		t.Fatalf("the watch as the first read: %v %s", isErr, text)
+	}
+	if ap := w.Action.Status.Approval; ap == nil || ap.Decision != actions.DecisionMergedWithoutApproval || ap.DecidedBy != dave {
+		t.Fatalf("the approval: %+v", w.Action.Status.Approval)
+	}
+	for _, pr := range w.Action.Status.PullRequests {
+		if pr.State != actions.PullRequestMerged || pr.MergedBy != dave {
+			t.Fatalf("pull request on record: %+v", pr)
+		}
+	}
+	// The re-read ran as the admin's GitHub token: alice's.
+	if w.Action.Status.SyncedBy != alice || !strings.Contains(st.logs.String(), "action_resynced") || strings.Contains(st.logs.String(), "action_resync_skipped") {
+		t.Fatalf("synced by %q; log:\n%s", w.Action.Status.SyncedBy, st.logs.String())
+	}
+	if th := thread(t, st); len(th) != 2 || !strings.Contains(th[0], "Merged outside the manager by "+dave) || !strings.Contains(th[1], "*"+rowan+"* is *"+actions.StateEnabled+"*") {
+		t.Fatalf("the thread: %q", th)
 	}
 }
