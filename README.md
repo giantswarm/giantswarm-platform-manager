@@ -320,6 +320,25 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
   its sign-in URL and exit code 3; `muster auth login --server giantswarm-platform-manager` is the same
   sign-in.
 
+Installing it and keeping it current:
+
+- Download `platformctl-<os>-<arch>` from a [release](https://github.com/giantswarm/giantswarm-platform-manager/releases),
+  or `go install github.com/giantswarm/giantswarm-platform-manager/cmd/platformctl@latest`.
+- `platformctl self-update` installs the latest release over the running binary once its cosign bundle
+  verifies as a CircleCI build of this repository (the Sigstore public-good trust root, the CircleCI
+  issuer, this repository as the source). A release without a bundle, or a download that does not match
+  its signature, is refused and the binary stays as it is. `--check` only reports both versions and exits
+  with 125 when a newer release is out. A build without a release version (`platformctl version` says
+  `dev`) is refused: install a release or use `go install`.
+- Every command but `version`, `self-update`, `help` and `completion` prints one line on stderr while a
+  newer release is out. GitHub's answer is cached for an hour under the user's cache directory; the
+  look-up gives up after 2 s and never fails the command. `PLATFORMCTL_NO_UPDATE_CHECK=1` silences it.
+- `platformctl completion zsh|bash|fish|powershell` prints the shell's completion script: the
+  subcommands, the flags and the capability names (from the registry built into the binary, no network).
+  For zsh: `platformctl completion zsh > "${fpath[1]}/_platformctl"`, then open a new shell.
+- Exit codes: 0 done, 1 the tool refused or the call failed, 2 usage, 3 sign-in required, 125 a newer
+  release (`self-update --check`).
+
 ## Render library
 
 `render/` turns an installation's capability inputs into the files of its GitOps repositories, with no I/O of its own; see [render/README.md](render/README.md).

@@ -23,6 +23,9 @@ type secretFlag []string
 
 func (s *secretFlag) String() string { return strings.Join(*s, ",") }
 
+// Type names the flag's value in the help: --secret field=source.
+func (s *secretFlag) Type() string { return "field=source" }
+
 func (s *secretFlag) Set(v string) error {
 	*s = append(*s, v)
 	return nil
