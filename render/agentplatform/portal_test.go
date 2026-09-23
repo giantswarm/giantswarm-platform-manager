@@ -1,11 +1,15 @@
 package agentplatform
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
@@ -238,6 +242,64 @@ func TestPortalChartFloor(t *testing.T) {
 	if (&Input{Installation: Installation{Customer: testOrganisation}}).portalReadsFluxServiceAccount() {
 		t.Error("an installation without a hosted portal reads nothing")
 	}
+}
+
+// The Component's values carry the fragment's checksum, the sha256 of the
+// file its ConfigMap holds, where the hosted portal's chart line resolves to
+// a chart that rolls the pod on it; a changed fragment changes the checksum.
+// A line whose charts all precede portalFragmentChecksum, and a portal whose
+// line is not on record, get none: their chart's schema refuses the key.
+func TestPortalFragmentChecksum(t *testing.T) {
+	for _, tc := range []struct {
+		line     string
+		checksum bool
+	}{
+		{">=2.1.0 <3.0.0", true},
+		{">=0.244.7 <1.0.0", false},
+		{">=2.1.0 <" + portalFragmentChecksum, false},
+		{portalFragmentChecksum, true},
+		{"2.53.2", false},
+		{"", false},
+	} {
+		portal := PortalRef{Installation: testPortalHost, Customer: testOrganisation, ChartLine: tc.line}
+		in := &Input{Installation: Installation{Name: testPortalHost, Customer: testOrganisation, Portals: []PortalRef{portal}}}
+		checksum := fragmentChecksum(t, in)
+		if tc.checksum != (checksum != "") {
+			t.Errorf("%q: checksum %q, want one %v", tc.line, checksum, tc.checksum)
+			continue
+		}
+		if checksum == "" {
+			continue
+		}
+		r := &render.Result{}
+		in.portalFiles(r, "giantswarm/acme-management-clusters", "extras/backstage/"+portalDir, nil)
+		var cm struct {
+			Data map[string]string `yaml:"data"`
+		}
+		if err := yaml.Unmarshal(r.Tree()["giantswarm/acme-management-clusters/extras/backstage/"+portalDir+"/app-config.yaml"], &cm); err != nil {
+			t.Fatal(err)
+		}
+		if want := fmt.Sprintf("%x", sha256.Sum256([]byte(cm.Data[portalAppConfigFile]))); checksum != want {
+			t.Errorf("%q: checksum %s, the fragment's ConfigMap hashes to %s", tc.line, checksum, want)
+		}
+		in.AIChat = AIChat{Enabled: true, Model: testChatModel}
+		if fragmentChecksum(t, in) == checksum {
+			t.Errorf("%q: the chat on leaves the checksum %s", tc.line, checksum)
+		}
+	}
+}
+
+// fragmentChecksum is the checksum of the Component's one extraAppConfig
+// entry, empty where it has none.
+func fragmentChecksum(t *testing.T, in *Input) string {
+	t.Helper()
+	backstage, _ := fragmentValue(in.portalValues(), "backstage").(render.Map)
+	entries, _ := fragmentValue(backstage, "extraAppConfig").([]render.Map)
+	if len(entries) != 1 {
+		t.Fatalf("the Component mounts %d fragments, want one", len(entries))
+	}
+	checksum, _ := fragmentValue(entries[0], "checksum").(string)
+	return checksum
 }
 
 // Where kagent runs on an installation whose hosted portal is on record

@@ -18,6 +18,9 @@
 #
 # The M numbers are the wave-1 migration list's (M1–M11) and continue removals.yaml's (M30…).
 migrations:
+  # --- M36 — a changed portal fragment rolls the portal ---
+  - key: backstage:agent-platform/values:backstage.extraAppConfig[*].checksum
+    reason: "Added: the Agent Platform Component's fragment mount carries the sha256 of the fragment, which the portal's chart (backstage 2.60.2 or later) renders as a pod annotation, so a changed fragment restarts the portal instead of waiting for a hand-run restart · M36"
   # --- M35 — a rotated server credential rolls the server and its Valkey ---
   # The revision is one generated value per server, held by its credentials Secret, its Valkey's and the
   # revision Secret beside the HelmReleases; a rewrite of either credentials file draws it anew.
