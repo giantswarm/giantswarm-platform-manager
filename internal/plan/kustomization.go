@@ -61,12 +61,15 @@ func listEntry(current []byte, list, entry string) ([]byte, bool, error) {
 // answers the document and that mapping; anything else is errNoMapping. An
 // empty file — nothing, blank lines or comments alone, the shape an
 // installation's patch has before anyone writes into it — is an empty
-// mapping: a record that takes every entry.
+// mapping: a record that takes every entry. Every foot comment sits on the
+// key it was written at (rehomeFootComments), so encode writes the file's
+// comments back where they stood.
 func mapping(data []byte) (*yaml.Node, *yaml.Node, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return nil, nil, err
 	}
+	rehomeFootComments(&doc, data)
 	if doc.Kind == 0 || doc.Kind == yaml.DocumentNode && len(doc.Content) == 1 && doc.Content[0].Tag == tagNull {
 		m := &yaml.Node{Kind: yaml.MappingNode, Tag: tagMap}
 		return &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{m}}, m, nil
