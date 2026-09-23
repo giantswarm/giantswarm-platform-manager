@@ -243,13 +243,20 @@ type Installation struct {
 	Files            []File            `json:"files"`
 	Includes         []Include         `json:"includes"`
 	GeneratedSecrets []GeneratedSecret `json:"generatedSecrets"`
-	// SuppliedSecrets names, by field, every value the person supplies at
+	// SuppliedSecrets names, by field, the values the person supplies at
 	// commit: the secrets, and an input that lives only in an encrypted file
-	// (the portal's GitHub App id), which no read-back recovers.
-	SuppliedSecrets []string         `json:"suppliedSecrets"`
-	DexClients      []DexClient      `json:"dexClients"`
-	CustomerActions []CustomerAction `json:"customerActions"`
-	Probes          []Probe          `json:"probes"`
+	// (the portal's GitHub App id), which no read-back recovers — each in a
+	// file the commit writes (created, or rewritten), or in no file the plan
+	// knows.
+	SuppliedSecrets []string `json:"suppliedSecrets"`
+	// SuppliedOnRecord names, by field, the supplied values whose files all
+	// stand on record unchanged: a secret file on record is never generated
+	// again, so the value on record stands, the commit renders the field's
+	// marker, writes none of its files and asks for no value.
+	SuppliedOnRecord []string         `json:"suppliedOnRecord,omitempty"`
+	DexClients       []DexClient      `json:"dexClients"`
+	CustomerActions  []CustomerAction `json:"customerActions"`
+	Probes           []Probe          `json:"probes"`
 	// Diff counts the files by change; an empty diff is every file unchanged.
 	Diff map[Change]int `json:"diff"`
 }
@@ -373,7 +380,8 @@ func Build(ctx context.Context, opts Options) Installation {
 		p.Refused = render.Reason(err)
 		return p
 	}
-	p.SuppliedSecrets = in.SuppliedSecretFields()
+	supplied := in.SuppliedSecretFields()
+	suppliedIn := map[string][]int{} // a supplied field → the indexes into p.Files whose render holds its marker
 	p.CustomerActions = customerActions(opts.Installation.Name, in)
 	p.Probes = Probes(opts.Definition.Name)
 	// Every file the plan compares against is read now, at once: the
@@ -449,6 +457,11 @@ func Build(ctx context.Context, opts Options) Installation {
 				holders = append(holders, h)
 				held[h.file] = len(p.Files)
 			}
+			for _, field := range supplied {
+				if strings.Contains(string(f.Content), render.Supplied(field)) {
+					suppliedIn[field] = append(suppliedIn[field], len(p.Files))
+				}
+			}
 			p.Files = append(p.Files, pf)
 			if strings.HasSuffix(path, dexPatchFile) {
 				p.DexClients = DexClients(f.Content, in)
@@ -464,6 +477,7 @@ func Build(ctx context.Context, opts Options) Installation {
 			p.Diff[ChangeUpdate]++
 		}
 	}
+	p.SuppliedSecrets, p.SuppliedOnRecord = splitSupplied(supplied, suppliedIn, p.Files)
 	p.includes(ctx, opts, res.Includes)
 	sort.SliceStable(p.Files, func(i, j int) bool {
 		if p.Files[i].Repository != p.Files[j].Repository {
@@ -476,6 +490,33 @@ func Build(ctx context.Context, opts Options) Installation {
 	}
 	sort.Slice(p.GeneratedSecrets, func(i, j int) bool { return p.GeneratedSecrets[i].Name < p.GeneratedSecrets[j].Name })
 	return p
+}
+
+// splitSupplied divides the supplied fields into the ones the commit needs a
+// value for — the field's marker sits in a file the plan writes (created, or
+// rewritten: its skeleton changed or a rotation rewrites it), or in no file
+// the plan knows — and the ones on record: every file that holds the marker
+// stands unchanged, a secret file on record is never generated again, so the
+// value on record stands and the commit renders the marker and writes none
+// of its files. Both keep the definition's order.
+func splitSupplied(fields []string, in map[string][]int, files []File) (needed, onRecord []string) {
+	needed = []string{}
+	for _, field := range fields {
+		indexes, known := in[field]
+		write := !known
+		for _, i := range indexes {
+			if files[i].Change != ChangeUnchanged {
+				write = true
+				break
+			}
+		}
+		if write {
+			needed = append(needed, field)
+		} else {
+			onRecord = append(onRecord, field)
+		}
+	}
+	return needed, onRecord
 }
 
 // withSelected is inputs with the definition's selections laid over — the

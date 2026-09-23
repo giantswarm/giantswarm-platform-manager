@@ -154,7 +154,7 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	if err := checkSupplied(p.SuppliedSecrets, secrets); err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
 	}
-	rendered, err := def.Render(inputs, secrets, render.ModeCommit)
+	rendered, err := def.Render(inputs, withMarkers(secrets, p.SuppliedOnRecord), render.ModeCommit)
 	if err != nil {
 		return nil, fmt.Errorf("%s: render with the supplied values: %w", tool, err)
 	}
@@ -562,8 +562,25 @@ func secretValues(v any) (map[string]string, error) {
 	return out, nil
 }
 
+// withMarkers is the commit's secrets: the values the person supplied, and
+// the dry run's marker for every supplied field whose files stand on record
+// — a secret file on record is never generated again, targetsOf writes no
+// file the plan leaves unchanged, so no marker leaves; placeholderLeak
+// guards the rest.
+func withMarkers(secrets map[string]string, onRecord []string) map[string]string {
+	out := make(map[string]string, len(secrets)+len(onRecord))
+	for field, value := range secrets {
+		out[field] = value
+	}
+	for _, field := range onRecord {
+		out[field] = render.Supplied(field)
+	}
+	return out
+}
+
 // checkSupplied refuses a commit whose supplied values do not match the
-// fields the plan names: one missing, or one the plan does not ask for.
+// fields the plan names: one missing, or one the plan does not ask for — a
+// field whose files stand on record is not asked for.
 func checkSupplied(needed []string, secrets map[string]string) error {
 	var missing, unknown []string
 	for _, f := range needed {
@@ -645,6 +662,9 @@ func prBody(a *actions.Action, p plan.Installation, prs []plan.PullRequest) stri
 	}
 	if len(p.SuppliedSecrets) > 0 {
 		fmt.Fprintf(&b, "\nSupplied secrets, by field: %s.\n", strings.Join(p.SuppliedSecrets, ", "))
+	}
+	if len(p.SuppliedOnRecord) > 0 {
+		fmt.Fprintf(&b, "\nSupplied values on record, kept: %s — their files stand, nothing of them is written.\n", strings.Join(p.SuppliedOnRecord, ", "))
 	}
 	b.WriteString("\nThe action waits for the team's approval; merge follows it in this order.\n")
 	return b.String()

@@ -227,6 +227,7 @@ type Result struct {
 	PullRequests     []plan.PullRequest     `json:"pullRequests"`
 	GeneratedSecrets []plan.GeneratedSecret `json:"generatedSecrets"`
 	SuppliedSecrets  []string               `json:"suppliedSecrets"`
+	SuppliedOnRecord []string               `json:"suppliedOnRecord,omitempty"`
 	DexClients       []plan.DexClient       `json:"dexClients"`
 	CustomerActions  []plan.CustomerAction  `json:"customerActions"`
 	Probes           []plan.Probe           `json:"probes"`
@@ -236,7 +237,7 @@ type Result struct {
 // and on record, only when asked for.
 func (r *Result) view(p plan.Installation, content bool) {
 	r.Files, r.Includes, r.Diff = p.Files, p.Includes, p.Diff
-	r.GeneratedSecrets, r.SuppliedSecrets, r.DexClients, r.CustomerActions, r.Probes = p.GeneratedSecrets, p.SuppliedSecrets, p.DexClients, p.CustomerActions, p.Probes
+	r.GeneratedSecrets, r.SuppliedSecrets, r.SuppliedOnRecord, r.DexClients, r.CustomerActions, r.Probes = p.GeneratedSecrets, p.SuppliedSecrets, p.SuppliedOnRecord, p.DexClients, p.CustomerActions, p.Probes
 	if !content {
 		r.Files = make([]plan.File, len(p.Files))
 		for i, f := range p.Files {
@@ -250,7 +251,7 @@ func (r *Result) view(p plan.Installation, content bool) {
 // write, without the marks.
 func (r Result) Plan() plan.Installation {
 	return plan.Installation{Name: r.Installation, State: r.State, Inputs: r.Inputs.Values, MissingInputs: r.Inputs.Missing, Refused: r.Refused, CommitRefused: r.CommitRefused,
-		Files: r.Files, Includes: r.Includes, Diff: r.Diff, GeneratedSecrets: r.GeneratedSecrets, SuppliedSecrets: r.SuppliedSecrets,
+		Files: r.Files, Includes: r.Includes, Diff: r.Diff, GeneratedSecrets: r.GeneratedSecrets, SuppliedSecrets: r.SuppliedSecrets, SuppliedOnRecord: r.SuppliedOnRecord,
 		DexClients: r.DexClients, CustomerActions: r.CustomerActions, Probes: r.Probes}
 }
 
