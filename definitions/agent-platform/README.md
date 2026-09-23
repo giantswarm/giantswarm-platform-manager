@@ -83,7 +83,7 @@ path and no Kubernetes object is rendered by two definitions. That is a prerequi
 named by field and follows the policy, the record and the choices: the Slack app's `klausGateway.slack.bot-token` and
 `signing-secret` where the gateway runs, plus its `app-token` where the installation is private (socket mode), and
 the chat's credential where the portal runs the chat and the Component carries it — its Anthropic API key
-`aiChat.anthropic.apiKey`, or on Vertex AI the service account's JSON `aiChat.google.credentialsJson`; not where the
+`aiChat.anthropic.apiKey` (supplied raw, written base64-encoded into the Secret: the chart copies the value under its secrets Secret's `data`, which Kubernetes takes base64-encoded), or on Vertex AI the service account's JSON `aiChat.google.credentialsJson`; not where the
 portal's own app-config carries the chat by hand —, nothing else — an installation without a Slack app or with its chat
 by hand commits with no supplied secret.
 The model provider key is never supplied: on every installation kagent references the Secret
