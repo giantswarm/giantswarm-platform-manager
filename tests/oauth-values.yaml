@@ -5,12 +5,12 @@
 #     -f tests/test-values.yaml -f tests/oauth-values.yaml -s templates/mcpserver.yaml
 #
 # renders the MCPServer with the pin; the Deployment carries OAUTH_ENABLED,
-# OAUTH_BASE_URL and OAUTH_AUTHORIZATION_SERVER. The live registration
-# (`muster.liveServer`, templates/mcpserver-live.yaml) takes the
-# installation's own Dex issuer and the clients people sign in with under
-# `live`, and requires the cross-client audience the platform's other
-# forwarded-token servers require; the Deployment's LIVE_AUDIENCES is the
-# union. An installation's values name them.
+# OAUTH_BASE_URL and OAUTH_AUTHORIZATION_SERVER. With `live` the same
+# MCPServer forwards the person's identity (auth.forwardIdentity) and requires
+# the cross-client audience the platform's other forwarded-token servers
+# require; the live tools take the installation's own Dex issuer and the
+# clients people sign in with under `live`, and the Deployment's
+# LIVE_AUDIENCES is the union. An installation's values name them.
 oauth:
   enabled: true
 live:
@@ -19,9 +19,7 @@ live:
   audiences:
     - agent-platform
 muster:
-  liveServer:
+  mcpServer:
     enabled: true
     requiredAudiences:
       - dex-k8s-authenticator
-  mcpServer:
-    enabled: true

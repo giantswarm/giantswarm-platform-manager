@@ -72,7 +72,7 @@ func (t *Tools) registerApprovalTools(s *mcpserver.MCPServer) {
 }
 
 // musterTool is the call name of one of the manager's tools through muster:
-// what the gateway's buttons call, and what the live path loops back to.
+// what the gateway's buttons call, and what the watch loops back to.
 func musterTool(name string) string { return "x_" + ToolPrefix + "_" + name }
 
 // pendingAction loads the action args name and refuses one that is not
@@ -334,7 +334,7 @@ func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
 		res.Message = fmt.Sprintf("%d pull request(s) merged as %s (%s); the merge stopped at %s — call %s again once it is green.", len(res.Merged), id.Login, prList(res.Merged), res.Waiting, ToolMergeAction)
 		return res, nil
 	}
-	res.Message = fmt.Sprintf("the pull requests of %s are merged as %s (%s); %s is rolling out — %s on the live registration (%s) reads its rollout and runs the probes as you, and carries it to enabled%s.", res.Stage, id.Login, prList(res.Merged), res.Stage, ToolWatchAction, LiveToolPrefix, nextStage(a, res.Stage))
+	res.Message = fmt.Sprintf("the pull requests of %s are merged as %s (%s); %s is rolling out — %s reads its rollout and runs the probes as you, and carries it to enabled%s.", res.Stage, id.Login, prList(res.Merged), res.Stage, ToolWatchAction, nextStage(a, res.Stage))
 	if note := t.postResult(ctx, a, fmt.Sprintf("Merged as %s: %s. *%s* is rolling out — the rollout and the probes follow here.", id.Login, prLinks(res.Merged), res.Stage)); note != "" {
 		res.Message += " " + note
 	}
@@ -378,7 +378,7 @@ func stageNotEnabled(a *actions.Action, st actions.InstallationRollout) error {
 	case actions.StateWaitingForCustomer:
 		return fmt.Errorf("%s: %s waits for the customer (%s) — %s flips it to enabled once the customer's action is done%s", ToolMergeAction, st.Name, st.Message, ToolWatchAction, next)
 	default:
-		return fmt.Errorf("%s: %s is %s — its pull requests are merged, and %s on the live registration (%s) reads its rollout and runs the probes as you, carrying it to enabled%s", ToolMergeAction, st.Name, st.State, ToolWatchAction, LiveToolPrefix, next)
+		return fmt.Errorf("%s: %s is %s — its pull requests are merged, and %s reads its rollout and runs the probes as you, carrying it to enabled%s", ToolMergeAction, st.Name, st.State, ToolWatchAction, next)
 	}
 }
 

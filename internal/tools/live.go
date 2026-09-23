@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -17,51 +16,91 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 )
 
-// LiveToolPrefix is the MCPServer name muster registers the live surface
-// under: the second registration of the same Deployment, forwardToken.
-const LiveToolPrefix = ToolPrefix + "-live"
-
-// ToolVerifyInstallation is the live surface's verify: the definition's
-// probes of the running installation, read as the person.
+// ToolVerifyInstallation is the live verify: the definition's probes of the
+// running installation, read as the person.
 const ToolVerifyInstallation = "verify_installation"
 
-// LiveInfo is the live surface as get_info reports it.
+// LiveInfo is the live tools as get_info reports them.
 type LiveInfo struct {
-	// Configured says whether the live path serves; without it the live
-	// dimensions of every verify read not checked.
-	Configured bool   `json:"configured"`
-	ToolPrefix string `json:"toolPrefix"`
-	// Tool is the verify; Tools every tool of the surface.
+	// Configured says whether the live tools are served; without them the
+	// live dimensions of every verify read not checked.
+	Configured bool `json:"configured"`
+	// Tool is the verify; Tools every live tool.
 	Tool  string   `json:"tool"`
 	Tools []string `json:"tools"`
+	// Identity is how the person's identity reaches the live tools, and
+	// whether this call carried it.
+	Identity IdentityInfo `json:"identity"`
 	live.Info
 }
 
-func (t *Tools) liveInfo() LiveInfo {
-	info := LiveInfo{Configured: t.d.Live != nil, ToolPrefix: LiveToolPrefix, Tool: ToolVerifyInstallation, Tools: []string{ToolVerifyInstallation, ToolWatchAction}}
-	if t.d.Live != nil {
-		info.Info = t.d.Live.Info()
+// IdentityInfo is the identity forwarding: the header muster sets on every
+// call of a registration with auth.forwardIdentity, and what this call's
+// header said.
+type IdentityInfo struct {
+	Header string `json:"header"`
+	Muster string `json:"muster"`
+	// Forwarded says whether this call carried the header; Person is who it
+	// names once verified, Refused why it was not accepted.
+	Forwarded bool               `json:"forwarded"`
+	Person    *identity.Identity `json:"person,omitempty"`
+	Refused   string             `json:"refused,omitempty"`
+}
+
+func (t *Tools) liveInfo(ctx context.Context) LiveInfo {
+	info := LiveInfo{Configured: t.d.Live != nil, Tool: ToolVerifyInstallation, Tools: []string{ToolVerifyInstallation, ToolWatchAction},
+		Identity: IdentityInfo{Header: identity.ForwardedIdentityHeader, Muster: identity.ForwardIdentity}}
+	if t.d.Live == nil {
+		return info
+	}
+	info.Info = t.d.Live.Info()
+	if token, ok := identity.ForwardedTokenFromContext(ctx); ok {
+		info.Identity.Forwarded = true
+		if who, err := t.d.Live.Verify(ctx, token); err != nil {
+			info.Identity.Refused = err.Error()
+		} else {
+			info.Identity.Person = who
+		}
 	}
 	return info
 }
 
-// LiveMCPServer is the tool set of the live path: verify_installation and
-// watch_action, and nothing that acts on GitHub — the bearer here is the
-// person's ID token, not a GitHub token.
-func (t *Tools) LiveMCPServer() *mcpserver.MCPServer {
-	s := mcpserver.NewMCPServer(LiveToolPrefix, t.d.Version,
-		mcpserver.WithToolCapabilities(false),
-		mcpserver.WithInstructions("Giant Swarm's platform manager, the live surface: muster forwards your own sign-in token here, and its tools read an installation with it — through muster's kubernetes tools, as you, with your access on that installation. verify_installation compares what runs there with the capability's definition, grouped into features with one mark each; watch_action follows an action's rollout — the Flux objects Ready, then the probes — and carries it to enabled, waiting for the customer or failed, the report into the review's thread. The repository comparison is verify_capability on the App-pinned registration ("+ToolPrefix+"); a portal or platformctl shows the two as one result."),
-	)
+// forwarded is the person a live tool reads as: the ID token muster
+// forwarded next to the bearer, verified — issuer, audiences, key set — and
+// who it names. The GitHub bearer is not it: the reads through muster and
+// the installations run with the platform identity. A call without the
+// header, or with one the check refuses, is refused by name.
+func (t *Tools) forwarded(ctx context.Context, tool string) (string, *identity.Identity, error) {
+	if t.d.Live == nil {
+		return "", nil, fmt.Errorf("%s: the live tools are not configured (live.enabled); get_info reports live.configured", tool)
+	}
+	how := fmt.Sprintf("muster sets it on every call of a registration with %s (the MCPServer's spec.%s: true)", identity.ForwardIdentity, identity.ForwardIdentity)
+	token, ok := identity.ForwardedTokenFromContext(ctx)
+	if !ok {
+		return "", nil, fmt.Errorf("%s reads as you and needs your platform identity: the call carried no %s header — %s", tool, identity.ForwardedIdentityHeader, how)
+	}
+	who, err := t.d.Live.Verify(ctx, token)
+	if err != nil {
+		t.d.Log.Warn("forwarded identity refused", identity.LogAttr(ctx), "tool", tool, "error", err)
+		return "", nil, fmt.Errorf("%s reads as you and needs your platform identity: the %s header was not accepted: %v — %s", tool, identity.ForwardedIdentityHeader, err, how)
+	}
+	return token, who, nil
+}
+
+// registerLiveTools adds verify_installation and watch_action, the tools
+// that read an installation as the person, with live.enabled.
+func (t *Tools) registerLiveTools(s *mcpserver.MCPServer) {
+	if t.d.Live == nil {
+		return
+	}
 	t.registerWatchTool(s)
 	s.AddTool(mcp.NewTool(ToolVerifyInstallation,
-		mcp.WithDescription("Verify the running installation against a capability's definition, as you: the definition's probes — HelmReleases Ready, workloads Available, the Secrets and MCPServer objects present, conditions, logs, the live values against the render from the inputs on record — read through muster's kubernetes tools with the token muster forwarded, so what you may read decides what is checked: an object you may not read is reported as not checked, forbidden for you, never as a failure of the installation; an installation you are not connected to in muster answers with muster's own sign-in. Every read is bounded (20 s each, 2 minutes in all): a read that does not answer is reported as not checked naming what did not answer, and the rest is marked, so the call answers what it has. Grouped into the definition's features with one mark each — as defined, differs by input, drifted — and expanded to its dimensions; the repository dimensions read not checked here (verify_capability). The result is recorded on the newest action of the installation and feeds list_installations: drifted, or waiting for the customer when the only red dimension is the one the customer's action holds up."),
+		mcp.WithDescription("Verify the running installation against a capability's definition, as you: the definition's probes — HelmReleases Ready, workloads Available, the Secrets and MCPServer objects present, conditions, logs, the live values against the render from the inputs on record — read through muster's kubernetes tools with the platform ID token muster forwards for you (auth.forwardIdentity), so what you may read decides what is checked: an object you may not read is reported as not checked, forbidden for you, never as a failure of the installation; an installation you are not connected to in muster answers with muster's own sign-in. Every read is bounded (20 s each, 2 minutes in all): a read that does not answer is reported as not checked naming what did not answer, and the rest is marked, so the call answers what it has. Grouped into the definition's features with one mark each — as defined, differs by input, drifted — and expanded to its dimensions; the repository dimensions read not checked here (verify_capability). The result is recorded on the newest action of the installation and feeds list_installations: drifted, or waiting for the customer when the only red dimension is the one the customer's action holds up."),
 		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithString(ArgInstallation, mcp.Required(), mcp.Description("The installation to verify, by name: the management cluster muster reads for you.")),
 		mcp.WithString(ArgCapability, mcp.Description(capabilityArgDescription), mcp.Enum(installations.CapabilityNames()...)),
 		mcp.WithObject(ArgInputs, mcp.Description("The inputs object of "+ToolVerifyCapability+"'s answer (source, values, readBack), so both halves render from the same inputs; left out, the newest action's inputs on record; without either the live dimensions read not checked.")),
 	), t.verifyInstallationLive)
-	return s
 }
 
 func (t *Tools) verifyInstallationLive(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -73,13 +112,9 @@ func (t *Tools) verifyInstallationLive(ctx context.Context, req mcp.CallToolRequ
 // action's on record (the manager's own read, no GitHub); the reads through
 // muster as the person; the result recorded on that action.
 func (t *Tools) verifyLive(ctx context.Context, args map[string]any) (any, error) {
-	token, ok := identity.TokenFromContext(ctx)
-	id, _ := identity.FromContext(ctx)
-	if !ok || id == nil {
-		return nil, errors.New(ToolVerifyInstallation + " needs the person's token: the request carried no forwarded ID token — this tool is reached through muster's " + LiveToolPrefix + " registration, which forwards your own")
-	}
-	if t.d.Live == nil {
-		return nil, errors.New(ToolVerifyInstallation + ": the live path is not configured (muster.liveServer); get_info reports live.configured")
+	token, id, err := t.forwarded(ctx, ToolVerifyInstallation)
+	if err != nil {
+		return nil, err
 	}
 	def, err := capabilityArg(args)
 	if err != nil {

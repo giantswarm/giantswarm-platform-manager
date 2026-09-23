@@ -46,11 +46,15 @@ const (
 	alice = "alice"
 	// The user tokens muster puts on the calls: alice's is GitHub's, bob's is
 	// one GitHub refuses (never authorized, or revoked).
-	aliceToken  = "alice-token"
-	bobToken    = "bob-token"
-	carol       = "carol"
-	carolToken  = "carol-token"
-	testVersion = "test"
+	aliceToken = "alice-token"
+	bobToken   = "bob-token"
+	carol      = "carol"
+	carolToken = "carol-token"
+	// stranger has authorized the App and has no account on the
+	// installation.
+	stranger      = "stranger"
+	strangerToken = "stranger-token"
+	testVersion   = "test"
 	// baseURL is where muster reaches the server: the resource of the
 	// protected-resource metadata (the listener is httptest's).
 	baseURL = "http://giantswarm-platform-manager.test:8080"
@@ -62,8 +66,6 @@ const (
 	installation    = "example"
 	// actionsNamespace is where the Action records live on the fake hub.
 	actionsNamespace = "platform-manager"
-	// livePath is where the live surface listens.
-	livePath = "/mcp/live"
 )
 
 type stack struct {
@@ -81,7 +83,7 @@ type stack struct {
 	committedAs string
 	// gateway is the fake klaus-gateway the reviews go to.
 	gateway *fakeGateway
-	// dex is the platform identity provider of the live path, muster the
+	// dex is the platform identity provider of the live tools, muster the
 	// aggregator its loop-back reaches, inst the installation behind it.
 	dex    *fakeDex
 	muster *fakeMuster
@@ -116,7 +118,7 @@ func newStack(t *testing.T) *stack {
 	t.Helper()
 	logs := &syncBuffer{}
 	log := slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	logins := map[string]string{aliceToken: alice, carolToken: carol}
+	logins := map[string]string{aliceToken: alice, carolToken: carol, strangerToken: stranger}
 	tokenFile := filepath.Join(t.TempDir(), "token")
 	if err := os.WriteFile(tokenFile, []byte(fixtureSA+"\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -126,7 +128,7 @@ func newStack(t *testing.T) *stack {
 		dex: newFakeDex(t), inst: newFakeInstallation(), pulls: map[string]pullFacts{}}
 	st.ghs.pull = st.pullState
 	st.muster = newFakeMuster(t, st.inst, rowan)
-	lc, err := live.New(live.Config{Path: livePath, Issuer: st.dex.issuer, Audiences: []string{liveAudience, liveRequiredAudience}, JWKSURL: st.dex.issuer + "/keys", AllowPrivateIPJWKS: true, CAFile: st.dex.caFile,
+	lc, err := live.New(live.Config{Issuer: st.dex.issuer, Audiences: []string{liveAudience, liveRequiredAudience}, JWKSURL: st.dex.issuer + "/keys", AllowPrivateIPJWKS: true, CAFile: st.dex.caFile,
 		MusterURL: st.muster.URL + "/mcp", KubernetesFamily: kubernetesFamily, KubernetesInstanceArg: instanceArg, KubernetesMember: memberTemplate, Version: testVersion}, log)
 	if err != nil {
 		t.Fatal(err)
@@ -154,35 +156,51 @@ func newStack(t *testing.T) *stack {
 			return map[string]any{"committed": true, "as": st.committedAs}, nil
 		}})
 	s, err := server.New(server.Config{Addr: "127.0.0.1:0", MCPPath: "/mcp",
-		OAuth: &server.OAuthConfig{BaseURL: baseURL, AuthorizationServer: server.DefaultAuthorizationServer, GitHubAPIURL: apiURL},
-		Live:  &server.LiveConfig{Path: livePath, Verify: lc.Verify, Server: ts.LiveMCPServer()}}, ts.MCPServer(), log)
+		OAuth: &server.OAuthConfig{BaseURL: baseURL, AuthorizationServer: server.DefaultAuthorizationServer, GitHubAPIURL: apiURL}}, ts.MCPServer(), log)
 	if err != nil {
 		t.Fatal(err)
 	}
 	st.srv = httptest.NewServer(s.Handler())
 	t.Cleanup(st.srv.Close)
-	// muster knows the persons of the live path by their GitHub grants too:
-	// the loop-back to the manager's own registration runs with them.
+	// muster knows the persons by their GitHub grants: the loop-back to the
+	// manager's own get_action runs with them. The stranger's is not
+	// connected on the loop-back's side.
 	st.muster.connect(st.srv.URL+"/mcp", map[string]string{liveAdmin: aliceToken, liveViewer: carolToken})
 	return st
 }
 
-// mcpClient is a connected MCP client carrying token as the bearer.
+// mcpClient is a connected MCP client carrying token as the bearer, and no
+// forwarded identity.
 func (st *stack) mcpClient(t *testing.T, token string) *client.Client {
 	t.Helper()
-	return st.clientAt(t, "/mcp", token)
+	return st.client(t, token, "")
 }
 
-// liveClient is a session on the live path with the bearer muster would
-// forward: the person's ID token.
-func (st *stack) liveClient(t *testing.T, token string) *client.Client {
+// githubTokenOf is the App user token muster holds for a person the fake Dex
+// names.
+var githubTokenOf = map[string]string{liveAdmin: aliceToken, liveViewer: carolToken, liveStranger: strangerToken}
+
+// liveClient is a session the way muster calls the one registration with
+// auth.forwardIdentity: the person's App user token as the bearer and
+// idToken, their platform ID token, in X-Muster-Id-Token.
+func (st *stack) liveClient(t *testing.T, idToken string) *client.Client {
 	t.Helper()
-	return st.clientAt(t, livePath, token)
+	gh, ok := githubTokenOf[personOf(idToken)]
+	if !ok {
+		t.Fatalf("no App user token for %q", personOf(idToken))
+	}
+	return st.client(t, gh, idToken)
 }
 
-func (st *stack) clientAt(t *testing.T, path, token string) *client.Client {
+// client is a connected MCP client at /mcp carrying token as the bearer and,
+// when set, idToken in X-Muster-Id-Token on every request.
+func (st *stack) client(t *testing.T, token, idToken string) *client.Client {
 	t.Helper()
-	c, err := client.NewStreamableHttpClient(st.srv.URL+path, transport.WithHTTPHeaders(map[string]string{"Authorization": "Bearer " + token}))
+	headers := map[string]string{"Authorization": "Bearer " + token}
+	if idToken != "" {
+		headers[identity.ForwardedIdentityHeader] = idToken
+	}
+	c, err := client.NewStreamableHttpClient(st.srv.URL+"/mcp", transport.WithHTTPHeaders(headers))
 	if err != nil {
 		t.Fatal(err)
 	}

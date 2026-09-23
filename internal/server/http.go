@@ -1,7 +1,9 @@
 // Package server assembles the single HTTP listener: the health endpoints the
 // chart probes and the MCP streamable-HTTP endpoint behind the bearer guard —
 // nothing else: the server has no inbound path but muster's and no shared
-// secret. Without OAuth there is no authentication and no caller: only a
+// secret. The ID token muster forwards next to the bearer
+// (identity.ForwardedIdentityHeader) rides on the request unverified; the
+// live tools verify it when they run, every other tool ignores it. Without OAuth there is no authentication and no caller: only a
 // server nothing but a trusted proxy can reach runs that way, and every tool
 // then reports an anonymous caller who nothing acts as.
 package server
@@ -12,6 +14,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -26,19 +29,6 @@ type Config struct {
 	// OAuth, when set, makes the MCP endpoint require a GitHub user token as
 	// the bearer — behind muster the person's — verified with GET /user.
 	OAuth *OAuthConfig
-	// Live, when set, serves the second MCP surface at its path: the
-	// registration muster forwards the person's own ID token to.
-	Live *LiveConfig
-}
-
-// LiveConfig is the live surface: where it listens, how a forwarded token is
-// verified, and the tool set it serves.
-type LiveConfig struct {
-	Path string
-	// Verify validates the bearer — the ID token muster forwarded — and
-	// names the person; an error is a refusal.
-	Verify func(ctx context.Context, token string) (*identity.Identity, error)
-	Server *mcpserver.MCPServer
 }
 
 // Server is the assembled HTTP server.
@@ -71,15 +61,7 @@ func New(cfg Config, mcpSrv *mcpserver.MCPServer, log *slog.Logger) (*Server, er
 		g.register(mux)
 		s.guard = g
 	}
-	mux.Handle(cfg.MCPPath, s.protect(mcpserver.NewStreamableHTTPServer(mcpSrv, mcpserver.WithEndpointPath(cfg.MCPPath))))
-	if cfg.Live != nil {
-		if cfg.Live.Path == "" || cfg.Live.Path == cfg.MCPPath || cfg.Live.Verify == nil || cfg.Live.Server == nil {
-			return nil, errors.New("live: a path other than the MCP path, a token check and a tool set are required")
-		}
-		g := &liveGuard{verify: cfg.Live.Verify, log: log}
-		mux.Handle(cfg.Live.Path, g.protect(mcpserver.NewStreamableHTTPServer(cfg.Live.Server, mcpserver.WithEndpointPath(cfg.Live.Path))))
-		log.Info("live surface enabled", "path", cfg.Live.Path)
-	}
+	mux.Handle(cfg.MCPPath, s.protect(carryForwardedIdentity(mcpserver.NewStreamableHTTPServer(mcpSrv, mcpserver.WithEndpointPath(cfg.MCPPath)))))
 
 	s.http = &http.Server{
 		Addr:              cfg.Addr,
@@ -95,6 +77,17 @@ func ok(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok\n"))
+}
+
+// carryForwardedIdentity puts the ID token muster forwards next to the bearer
+// on the request, as received.
+func carryForwardedIdentity(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if token := strings.TrimSpace(r.Header.Get(identity.ForwardedIdentityHeader)); token != "" {
+			r = r.WithContext(identity.ContextWithForwardedToken(r.Context(), token))
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // protect requires a verified caller when OAuth is on.

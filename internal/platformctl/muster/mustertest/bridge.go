@@ -40,7 +40,7 @@ const (
 	// connected yet.
 	LoginURL = "https://example.test/login"
 	// Caller and Hub are the fake manager's answers to who asks and where;
-	// LiveCaller is who the live registration says the reads ran as.
+	// LiveCaller is who verify_installation says the reads ran as.
 	Caller     = "admin"
 	Hub        = "hub"
 	LiveCaller = "admin@example.test"
@@ -187,7 +187,7 @@ func Manager(connected bool) map[string]Tool {
 			State: "enabled", Inputs: verify.Inputs{Source: verify.SourceRecord},
 		})
 	}
-	m["x_"+tools.LiveToolPrefix+"_"+tools.ToolVerifyInstallation] = func(_ context.Context, args map[string]any) *mcp.CallToolResult {
+	m["x_"+tools.ToolPrefix+"_"+tools.ToolVerifyInstallation] = func(_ context.Context, args map[string]any) *mcp.CallToolResult {
 		return document(verify.Result{
 			Caller:       LiveCaller,
 			Installation: str(args[tools.ArgInstallation]), Capability: str(args[tools.ArgCapability]),

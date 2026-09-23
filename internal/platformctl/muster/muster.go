@@ -4,9 +4,8 @@
 // configuration and runs the person's OAuth login when the aggregator asks for
 // one — and this package speaks MCP to it through the aggregator package,
 // nothing more. Behind muster the manager's tools are named
-// x_<server>_<tool>: the App-pinned registration's under Server, the live
-// registration's under LiveServer; a server the person has not connected yet
-// exposes no tools, and muster's core_auth_login answers the sign-in URL,
+// x_<server>_<tool> under Server, the one registration; a server the person
+// has not connected yet exposes no tools, and muster's core_auth_login answers the sign-in URL,
 // which this package hands back as an AuthRequired error.
 package muster
 
@@ -29,13 +28,10 @@ import (
 )
 
 // Server is the manager's name in muster: the App-pinned MCPServer the chart
-// registers, and the server core_auth_login connects. LiveServer is the
-// second registration of the same Deployment, the one muster forwards the
-// person's own token to: nothing to sign in to.
-const (
-	Server     = tools.ToolPrefix
-	LiveServer = tools.LiveToolPrefix
-)
+// registers, and the server core_auth_login connects. muster forwards the
+// person's platform identity on it too (auth.forwardIdentity): the live
+// tools are among its tools.
+const Server = tools.ToolPrefix
 
 // DefaultBinary is the muster CLI as found on PATH.
 const DefaultBinary = "muster"
@@ -116,24 +112,18 @@ func (s *Session) Close() error { return s.s.Close() }
 // it answered. A tool refusal is a *ToolError; a server the person has not
 // connected yet is an *AuthRequired carrying the sign-in URL muster answered.
 func (s *Session) Call(ctx context.Context, tool string, args map[string]any) (json.RawMessage, error) {
-	return s.CallServer(ctx, Server, tool, args)
-}
-
-// CallServer is Call against the named registration of the manager: Server
-// or LiveServer.
-func (s *Session) CallServer(ctx context.Context, server, tool string, args map[string]any) (json.RawMessage, error) {
-	res, err := s.s.Call(ctx, "x_"+server+"_"+tool, args)
+	res, err := s.s.Call(ctx, "x_"+Server+"_"+tool, args)
 	if err != nil {
 		if cut := cutOf(ctx, tool, s.s.CallTimeout, err); cut != nil {
 			return nil, cut
 		}
-		if auth := s.signIn(ctx, server); auth != nil {
+		if auth := s.signIn(ctx, Server); auth != nil {
 			return nil, auth
 		}
 		return nil, err
 	}
 	if res.IsError {
-		if auth := s.signIn(ctx, server); auth != nil {
+		if auth := s.signIn(ctx, Server); auth != nil {
 			return nil, auth
 		}
 		return nil, &ToolError{Tool: tool, Message: aggregator.TextOf(res)}

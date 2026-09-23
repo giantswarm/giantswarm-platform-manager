@@ -1,6 +1,6 @@
 package e2e
 
-// The fakes of the live path: the platform's identity provider (a Dex that
+// The fakes of the live tools: the platform's identity provider (a Dex that
 // signs ID tokens and publishes its key set), muster's aggregator with the
 // installations' kubernetes tools behind call_tool, and the installation
 // itself — its objects built from the definition's own probes, so a render
@@ -46,9 +46,9 @@ const (
 	typeKey       = "type"
 )
 
-// The persons of the live path, as the identity provider names them, and
-// the two audiences the live surface trusts: the platform's own client and
-// the one the live registration requires of muster.
+// The persons of the live tools, as the identity provider names them, and
+// the two audiences the live tools trust: the platform's own client and the
+// one the registration requires of muster.
 const (
 	liveAudience         = "agent-platform"
 	liveRequiredAudience = "dex-k8s-authenticator"

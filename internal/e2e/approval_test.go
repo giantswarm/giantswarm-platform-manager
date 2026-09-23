@@ -197,7 +197,7 @@ func TestApproveAsMemberThenMergeAsActor(t *testing.T) {
 		t.Fatalf("after the merge: %+v", r.Capabilities[0])
 	}
 	// The merge is done; what carries the installation to enabled is the
-	// watch on the live registration, not another merge (watch_test.go).
+	// watch, not another merge (watch_test.go).
 	if _, text, isErr := mergeCall(t, aliceC, name); !isErr || !strings.Contains(text, actions.StateRollingOut) || !strings.Contains(text, tools.ToolWatchAction) {
 		t.Fatalf("merge again: %v %s", isErr, text)
 	}
