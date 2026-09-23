@@ -65,6 +65,11 @@ const (
 const (
 	musterOAuthSecret  = "muster-oauth-credentials"  // #nosec G101 -- a Secret name, not a value
 	musterValkeySecret = "muster-valkey-credentials" // #nosec G101 -- a Secret name, not a value
+	// musterRevisionSecret carries muster's credentials revision in the Flux
+	// namespace for the muster and valkey HelmReleases (valuesFrom); the
+	// revision is also a key of the two credentials Secrets, so a rewrite of
+	// either draws it anew (see servers.go: the same shape as a server's).
+	musterRevisionSecret = "muster-credentials-revision" // #nosec G101 -- a Secret name, not a value
 )
 
 // Input is the resolved inputs of one installation: the record

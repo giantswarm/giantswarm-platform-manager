@@ -158,6 +158,11 @@ func (in *Input) configmapPatch() render.Map {
 			components = append(components, e(c, render.Map{e("enabled", true)}))
 		}
 	}
+	if in.musterRevision() {
+		components = append(components,
+			e("muster", render.Map{e("valuesFromRefs", revisionRefs(musterRevisionSecret, musterChecksumValues...))}),
+			e("valkey", render.Map{e("valuesFromRefs", revisionRefs(musterRevisionSecret, valkeyChecksumValue))}))
+	}
 	m = append(m, e("components", components))
 
 	if in.kagent() {
@@ -400,9 +405,38 @@ func (in *Input) dexPatch() render.Map {
 	return render.Map{e("oidc", oidc)}
 }
 
+// musterRevision says whether the installation's meta chart hands muster and
+// its Valkey the credentials revision: the 4 line renders a child's
+// valuesFromRefs, the 3 line has no such knob, so there the Secrets stay as
+// they are (no revision key, no revision Secret) and a rotation still needs
+// a hand-run restart of muster and its Valkey.
+func (in *Input) musterRevision() bool { return in.Installation.ChartLine != lineThree }
+
+// musterChecksumValues are the muster chart's values the muster HelmRelease
+// takes the credentials revision into: the OAuth credentials Secret's mark and
+// the Valkey Secret's, each a pod-template checksum annotation (muster 5.32.0
+// and later render them; the chart's schema is closed, so an older muster
+// refuses the keys — the meta chart's range floats every installation to the
+// newest release).
+var musterChecksumValues = []string{"muster.oauth.server.existingSecretChecksum", "muster.oauth.server.storage.valkey.existingSecretChecksum"}
+
+// revisionRefs are the Flux valuesFrom entries the meta chart renders into a
+// child HelmRelease (components.<name>.valuesFromRefs): the revision Secret's
+// key into each of the chart's checksum values.
+func revisionRefs(secret string, targetPaths ...string) []render.Map {
+	refs := make([]render.Map, 0, len(targetPaths))
+	for _, path := range targetPaths {
+		refs = append(refs, render.Map{e("kind", "Secret"), e("name", secret), e("valuesKey", revisionKey), e("targetPath", path)})
+	}
+	return refs
+}
+
 // platformExtras is management-clusters/<name>/extras/agent-platform/: the
 // kustomization over the fleet base and the Secrets the platform reads — the
-// platform's own Dex clients' among them, never the portal's (portalDexClient).
+// platform's own Dex clients' among them, never the portal's (portalDexClient);
+// muster's credentials revision is held by its two credentials Secrets and by
+// the revision Secret in the Flux namespace the muster and valkey HelmReleases
+// read, so a rotation of muster's credentials rolls muster and its Valkey.
 func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir string, secrets map[string]string) {
 	type patch struct {
 		Patch  string     `yaml:"patch"`
@@ -433,12 +467,23 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 		files = append(files, e(file, nil))
 		r.Add(repo, dir+"/secrets/"+file, f)
 	}
-	add(musterOAuthSecret+".yaml", render.Secret(musterOAuthSecret, platformNamespace, team,
+	oauthKeys := []render.SecretKey{
 		in.generated("dex-client-secret", "muster-dex-client-secret", render.Base64, 32),
 		in.generated("registration-token", "muster-registration-token", render.Base64, 32),
-		in.generated("oauth-encryption-key", "muster-oauth-encryption-key", render.Base64, 32)))
-	add(musterValkeySecret+".yaml", render.Secret(musterValkeySecret, platformNamespace, team,
-		in.generated("valkey-password", "muster-valkey-password", render.Alphanumeric, 32)))
+		in.generated("oauth-encryption-key", "muster-oauth-encryption-key", render.Base64, 32),
+	}
+	valkeyKeys := []render.SecretKey{in.generated("valkey-password", "muster-valkey-password", render.Alphanumeric, 32)}
+	revision := in.generatedName("muster-credentials-revision")
+	if in.musterRevision() {
+		oauthKeys = append(oauthKeys, render.GeneratedKey("credentials-revision", revision, render.Alphanumeric, revisionLength))
+		valkeyKeys = append(valkeyKeys, render.GeneratedKey(revisionKey, revision, render.Alphanumeric, revisionLength))
+	}
+	add(musterOAuthSecret+".yaml", render.Secret(musterOAuthSecret, platformNamespace, team, oauthKeys...))
+	add(musterValkeySecret+".yaml", render.Secret(musterValkeySecret, platformNamespace, team, valkeyKeys...))
+	if in.musterRevision() {
+		add(musterRevisionSecret+".yaml", render.Secret(musterRevisionSecret, fluxNamespace, team,
+			render.GeneratedKey(revisionKey, revision, render.Alphanumeric, revisionLength)))
+	}
 	add(dexClientSecretFile("muster"), dexClientSecret("muster", in.generatedName("muster-dex-client-secret")))
 	if in.kagent() {
 		add("kagent-oauth2-proxy-credentials.yaml", render.Secret("kagent-oauth2-proxy-credentials", kagentNamespace, team,

@@ -48,6 +48,8 @@ features:
       - {id: oauth2-proxy-existing-secret, kind: configmap, key: kagent.oauth2-proxy.config.existingSecret}
       - {id: oauth2-proxy-inline-credentials, kind: configmap, key: kagent.oauth2-proxy.config.clientID / kagent.oauth2-proxy.config.clientSecret / kagent.oauth2-proxy.config.cookieSecret (never inline)}
       - {id: muster-and-valkey-existing-secrets, kind: configmap, key: muster.muster.oauth.server.existingSecret / muster.muster.oauth.server.storage.valkey.existingSecret / valkey}
+      - {id: muster-credentials-revision-refs, kind: configmap, key: components.muster.valuesFromRefs / components.valkey.valuesFromRefs (the credentials revision the muster and valkey HelmReleases read into their charts' checksum values)}
+      - {id: muster-credentials-revision, kind: extras, key: "agent-platform/secrets/muster-credentials-revision.yaml / agent-platform/secrets/muster-oauth-credentials.yaml stringData.credentials-revision / agent-platform/secrets/muster-valkey-credentials.yaml stringData.revision (the revision held by muster's credentials Secrets and by the Secret the HelmReleases read, so a rotation restarts muster and its Valkey)"}
       - {id: forbid-inline-secrets, kind: configmap, key: gitops.forbidInlineSecrets}
       - {id: secret-values-patch-keys, kind: configmap, key: agent-platform/secret-values.yaml.patch}
       - {id: secrets-kustomization-list, kind: extras, key: agent-platform/secrets/kustomization.yaml}

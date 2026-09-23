@@ -14,3 +14,8 @@ global:
 kagent:
   harness:
     snapshotLocation: s3://example-substrate/kagent
+# gitops.namespace is the fleet's: the meta chart renders its children into it,
+# where the definition's muster-credentials-revision Secret is (read through
+# the children's valuesFrom).
+gitops:
+  namespace: flux-giantswarm
