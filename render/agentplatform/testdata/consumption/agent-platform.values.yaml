@@ -5,6 +5,12 @@
 # render without them), and the UI login the definition renders a Dex client and
 # the oauth2-proxy Secret for, switched on there rather than in the patch.
 # Invented names; nothing here is asserted, only what the children read with it.
+# gitops.namespace is the fleet's: the meta chart renders its children into it
+# (the muster and valkey HelmReleases live in flux-giantswarm on every
+# installation), and the definition's muster-credentials-revision Secret, which
+# those children read through valuesFrom, is rendered there.
+gitops:
+  namespace: flux-giantswarm
 global:
   gatewayApi:
     parentRefs:
