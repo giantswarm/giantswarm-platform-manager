@@ -318,3 +318,72 @@ func TestTooLargeReadsNotCheckedInPlainWords(t *testing.T) {
 		t.Errorf("%+v (diffs %d, auth %v)", check, len(diffs), auth)
 	}
 }
+
+// A rendered leaf the live object lacks under a key the capability's
+// migrations name is the planned addition it is on the record — a
+// definition released after the installation's values were written — not
+// drift: the check and its differences read planned with the migration's
+// reason, on the whole values and on a compared place alike. A leaf the
+// live object holds with another value, or lacks under no key, is drift.
+func TestLiveDriftUnderAMigrationKeyIsPlanned(t *testing.T) {
+	const leaf, reason = "kagent.providers.anthropic.config.maxTokens", "Added: the cap · M34"
+	lv := &liveRender{values: map[string]string{renderedLeaf: "2", leaf: "32000"},
+		file: &fileDiff{path: "management-clusters/x/apps/agent-platform/" + configMapPatch, kind: definitions.KindConfigMap},
+		migs: readMigrations([]definitions.Migration{{Key: "configmap:" + leaf, Reason: reason}}, nil)}
+	release := func(providers map[string]any) *recordingCluster {
+		// The meta chart's values hold kagent's providers under kagent, and
+		// kagent's own HelmRelease forwards them flat at spec.values.providers.
+		values := map[string]any{"kagent": map[string]any{"replicas": "2"}}
+		if providers != nil {
+			values["kagent"].(map[string]any)["providers"] = providers
+			values["providers"] = providers
+		}
+		return &recordingCluster{objects: map[string]map[string]any{kindHelmRelease + "/" + testNamespace + "/rel": {keySpec: map[string]any{"values": values}}}}
+	}
+	whole := render.Probe{Kind: render.Drift, Namespace: testNamespace, Resource: kindHelmRelease, Name: "rel"}
+	place := render.Probe{Kind: render.Drift, Namespace: testNamespace, Resource: kindHelmRelease, Name: "rel",
+		Expect: render.Expectation{Compare: []render.Comparison{{Live: "spec.values.providers", Rendered: "kagent.providers"}}}}
+	capped := map[string]any{"anthropic": map[string]any{"config": map[string]any{"maxTokens": "32000"}}}
+	uncapped := map[string]any{"anthropic": map[string]any{"config": map[string]any{}}}
+	other := map[string]any{"anthropic": map[string]any{"config": map[string]any{"maxTokens": "8192"}}}
+	for _, c := range []struct {
+		name    string
+		probe   render.Probe
+		cluster *recordingCluster
+		mark    Mark
+		message string
+		planned string
+	}{
+		{"the leaf absent from the values", whole, release(nil), Planned, "1 planned change(s)", reason},
+		{"the leaf absent from the place", place, release(uncapped), Planned, "1 planned change(s)", reason},
+		{"the place itself absent", place, release(nil), Drifted, "1 difference(s)", ""},
+		{"the leaf with another value", whole, release(other), Drifted, "1 difference(s)", ""},
+		{"the leaf present", place, release(capped), AsDefined, "equal to the render", ""},
+	} {
+		x := &executor{opts: LiveOptions{Cluster: c.cluster}, lv: lv}
+		check, diffs, _ := x.run(context.Background(), c.probe)
+		if check.Mark != c.mark || check.Message != c.message {
+			t.Errorf("%s: %q %q, want %q %q", c.name, check.Mark, check.Message, c.mark, c.message)
+		}
+		if c.mark == AsDefined {
+			continue
+		}
+		if len(diffs) != 1 || diffs[0].Planned != c.planned {
+			t.Errorf("%s: %+v", c.name, diffs)
+		}
+		if c.mark == Planned && (diffs[0].Path != leaf || diffs[0].Rendered != "32000" || diffs[0].Current != "") {
+			t.Errorf("%s: the difference: %+v", c.name, diffs[0])
+		}
+	}
+	// A leaf absent under no key stays drift.
+	lv.values["kagent.newLeaf"] = "x"
+	x := &executor{opts: LiveOptions{Cluster: release(capped)}, lv: lv}
+	if check, diffs, _ := x.run(context.Background(), whole); check.Mark != Drifted || len(diffs) != 1 || diffs[0].Planned != "" || diffs[0].Path != "kagent.newLeaf" {
+		t.Errorf("an unnamed leaf: %+v %+v", check, diffs)
+	}
+	// Without a values file on the render nothing is planned.
+	x = &executor{opts: LiveOptions{Cluster: release(nil)}, lv: &liveRender{values: lv.values, migs: lv.migs}}
+	if check, _, _ := x.run(context.Background(), whole); check.Mark != Drifted {
+		t.Errorf("without the file: %+v", check)
+	}
+}
