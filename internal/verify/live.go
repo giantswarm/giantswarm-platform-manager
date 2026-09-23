@@ -62,6 +62,12 @@ const (
 	// fields, the last-applied configuration, condition timestamps) left out:
 	// what a drift probe compares.
 	Configuration Shape = "configuration"
+	// Manifest is the object whole, its managed fields included: when each
+	// field manager last changed what it owns — what a check of when a
+	// Secret's data changed reads. The kubernetes tool masks a Secret's
+	// values in every shape; a HelmRelease with its history is past the
+	// tool's answer in this one, so only small objects are read so.
+	Manifest Shape = "manifest"
 )
 
 // LogTail is how many of a pod's last log lines an absence check reads: a
@@ -730,6 +736,8 @@ func (x *executor) run(ctx context.Context, p render.Probe) (Check, []Difference
 		diffs, err = x.drift(ctx, &c, p)
 	case render.APIServed:
 		err = x.apiServed(ctx, &c, p)
+	case render.SecretLoaded:
+		err = x.secretLoaded(ctx, &c, p)
 	default:
 		c.Message = "probe kind " + string(p.Kind) + " is not one this verify runs"
 	}
@@ -860,6 +868,95 @@ func (x *executor) podsRunning(ctx context.Context, c *Check, p render.Probe) er
 	}
 	c.Mark, c.Message = AsDefined, fmt.Sprintf("%d pod(s) Running", len(pods))
 	return nil
+}
+
+// secretLoaded marks every running container of the pods that read the
+// Secret at start as started at or after the Secret's data last changed: the
+// time of the managed-fields entry that owns the data, which a write of the
+// same data leaves as it was and a change of the Secret's labels by the same
+// manager moves too — so a check errs toward the container holding an older
+// value, never the other way. The Secret's values are masked by the read and
+// never looked at here. A container that is not running reads the Secret
+// when it starts and is not counted.
+func (x *executor) secretLoaded(ctx context.Context, c *Check, p render.Probe) error {
+	secret, err := x.cluster().Get(ctx, p.Namespace, p.Resource, p.Name, Manifest)
+	if err != nil {
+		return err
+	}
+	changed, ok := dataChanged(secret)
+	if !ok {
+		c.Message = "no managed-fields entry of " + p.Resource + " " + p.Namespace + "/" + p.Name + " owns its data: when it changed is not known"
+		return nil
+	}
+	pods, err := x.cluster().List(ctx, p.Namespace, "Pod", p.Expect.Pods, Readiness)
+	if err != nil {
+		return err
+	}
+	if len(pods) == 0 {
+		c.Mark, c.Message = Drifted, "no pod matches "+p.Expect.Pods
+		return nil
+	}
+	secretName := p.Resource + " " + p.Namespace + "/" + p.Name
+	at := changed.UTC().Format(time.RFC3339)
+	var running int
+	var before []string
+	for _, pod := range pods {
+		started, ok := containerStarted(pod, p.Expect.Container)
+		if !ok {
+			continue
+		}
+		running++
+		if started.Before(changed) {
+			before = append(before, nameOf(pod)+" (at "+started.UTC().Format(time.RFC3339)+")")
+		}
+	}
+	switch {
+	case len(before) > 0:
+		c.Mark, c.Message = Drifted, fmt.Sprintf("container %s of %s started before %s changed its data at %s: it holds the value from before", p.Expect.Container, strings.Join(before, ", "), secretName, at)
+	case running == 0:
+		c.Message = fmt.Sprintf("container %s runs in none of the %d pod(s) %s selects: it reads the Secret when it starts", p.Expect.Container, len(pods), p.Expect.Pods)
+	default:
+		c.Mark, c.Message = AsDefined, fmt.Sprintf("container %s of %d pod(s) started after %s changed its data at %s", p.Expect.Container, running, secretName, at)
+	}
+	return nil
+}
+
+// dataChanged is when an object's data last changed: the latest time of the
+// managed-fields entries that own its data (or the stringData a Secret was
+// written with).
+func dataChanged(obj map[string]any) (time.Time, bool) {
+	entries, _ := dig(obj, "metadata", "managedFields").([]any)
+	var latest time.Time
+	for _, e := range entries {
+		entry, _ := e.(map[string]any)
+		fields, _ := entry["fieldsV1"].(map[string]any)
+		_, data := fields["f:data"]
+		_, stringData := fields["f:stringData"]
+		if !data && !stringData {
+			continue
+		}
+		s, _ := entry["time"].(string)
+		if t, err := time.Parse(time.RFC3339, s); err == nil && t.After(latest) {
+			latest = t
+		}
+	}
+	return latest, !latest.IsZero()
+}
+
+// containerStarted is when the pod's container of the name started, while
+// it runs.
+func containerStarted(pod map[string]any, container string) (time.Time, bool) {
+	statuses, _ := dig(pod, "status", "containerStatuses").([]any)
+	for _, s := range statuses {
+		status, _ := s.(map[string]any)
+		if status["name"] != container {
+			continue
+		}
+		startedAt, _ := dig(status, "state", "running", "startedAt").(string)
+		t, err := time.Parse(time.RFC3339, startedAt)
+		return t, err == nil
+	}
+	return time.Time{}, false
 }
 
 // logAbsent reads the last LogTail lines of the log of every pod of the

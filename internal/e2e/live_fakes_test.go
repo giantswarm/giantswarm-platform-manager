@@ -75,6 +75,7 @@ const (
 const (
 	outputSlim   = "slim"
 	outputNormal = "normal"
+	outputFull   = "full"
 )
 
 // fakeDex is the platform identity provider: it signs ID tokens for the
@@ -349,6 +350,12 @@ func (f *fakeInstallation) populate(t *testing.T, installation string, res *rend
 		case render.APIServed:
 			resource, group, _ := strings.Cut(p.Resource, ".")
 			f.serveAPI(group, p.Expect.Version, resource, "PodCertificateRequest")
+		case render.SecretLoaded:
+			// The Secret written before the container that reads it started:
+			// the container holds its value.
+			f.put(kind, p.Namespace, p.Name, map[string]any{metadataKey: map[string]any{managedFieldsKey: []any{dataWrite(dataWritten)}}, dataKey: map[string]any{render.DexSecretKey: "***"}})
+			f.put("Pod", p.Namespace, podOf(p), map[string]any{metadataKey: map[string]any{"labels": labelsOf(p.Expect.Pods)}, statusKey: map[string]any{"phase": "Running",
+				"containerStatuses": []any{map[string]any{nameKey: p.Expect.Container, "state": map[string]any{"running": map[string]any{startedAtKey: containerStarted}}}}}})
 		case render.ResourcePresent:
 			obj := map[string]any{}
 			if len(p.Expect.Keys) > 0 {
@@ -381,6 +388,36 @@ func (f *fakeInstallation) populate(t *testing.T, installation string, res *rend
 		}
 	}
 	_ = installation
+}
+
+// When the fake installation's Secrets that a container reads at start were
+// written, and when those containers started: after the write.
+const (
+	dataWritten      = "2026-09-23T16:21:23Z"
+	containerStarted = "2026-09-23T16:44:13Z"
+	managedFieldsKey = "managedFields"
+	dataKey          = "data"
+	startedAtKey     = "startedAt"
+)
+
+// dataWrite is a managed-fields entry of the manager that wrote a Secret's
+// data at the time.
+func dataWrite(at string) map[string]any {
+	return map[string]any{"manager": "kustomize-controller", "operation": "Apply", "time": at,
+		"fieldsV1": map[string]any{"f:data": map[string]any{".": map[string]any{}, "f:secret": map[string]any{}}}}
+}
+
+// podOf is the one pod a SecretLoaded probe's selector matches.
+func podOf(p render.Probe) string { return p.Expect.Container + "-0" }
+
+// labelsOf are the labels a label selector of k=v terms asks for.
+func labelsOf(selector string) map[string]any {
+	labels := map[string]any{}
+	for _, kv := range strings.Split(selector, ",") {
+		k, v, _ := strings.Cut(kv, "=")
+		labels[k] = v
+	}
+	return labels
 }
 
 // responseLimit is mcp-kubernetes's cap on a tool's answer (mcp-toolkit's
@@ -419,7 +456,7 @@ func capped(res *mcp.CallToolResult) *mcp.CallToolResult {
 // installation's object stays whole.
 func shaped(obj map[string]any, output string) map[string]any {
 	out := deepCopy(obj)
-	if output == "full" || output == "wide" {
+	if output == outputFull || output == "wide" {
 		return out
 	}
 	if meta, ok := out[metadataKey].(map[string]any); ok {

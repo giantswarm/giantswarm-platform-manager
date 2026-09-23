@@ -222,6 +222,12 @@ const (
 	// discovery: Resource is the resource and its group
 	// (podcertificaterequests.certificates.k8s.io), Expect.Version the version.
 	APIServed ProbeKind = "APIServed"
+	// SecretLoaded is a Secret (Namespace, Name) a workload reads only when
+	// its containers start: every running container Expect.Container of the
+	// pods Expect.Pods selects in the namespace started at or after the
+	// Secret's data last changed, so each holds the Secret's current value.
+	// The Secret's values are never read.
+	SecretLoaded ProbeKind = "SecretLoaded"
 )
 
 // Expectation is what a probe expects; the fields its kind does not read stay zero.
@@ -236,6 +242,8 @@ type Expectation struct {
 	Keys             []string `yaml:"keys,omitempty"`             // ResourcePresent on a Secret: the keys it carries
 	NotState         string   `yaml:"notState,omitempty"`         // ResourcePresent: a status.state the object must not report (an MCPServer's Failed)
 	Version          string   `yaml:"version,omitempty"`          // APIServed: the API version the resource is served at
+	Pods             string   `yaml:"pods,omitempty"`             // SecretLoaded: the label selector of the pods that read the Secret at start
+	Container        string   `yaml:"container,omitempty"`        // SecretLoaded: the container of those pods that reads it
 	Note             string   `yaml:"note,omitempty"`             // one sentence a person reads next to the mark (e.g. what a False means)
 	// Compare lists, for a Drift probe, the places of the live object that are
 	// compared to the render; empty compares the object's whole user values

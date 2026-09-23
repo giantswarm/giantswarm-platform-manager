@@ -17,9 +17,9 @@ const podSelector = "app.kubernetes.io/instance=backstage"
 
 // probes are the checks of the running portal, one or more per live dimension
 // of features.yaml, in the order the verify slice runs them: the release, the
-// pods, the home page, the sign-in chain over HTTP, the Secrets and, with the
-// platform enabled, the platform's fragment. Nothing here runs anything: a
-// probe is data.
+// pods, the home page, the sign-in chain over HTTP, Dex holding the client's
+// secret, the Secrets and, with the platform enabled, the platform's
+// fragment. Nothing here runs anything: a probe is data.
 func (in *Input) probes() []render.Probe {
 	start := in.portalURL() + "/api/auth/" + in.authProvider() + "/start?env=production"
 	dexAuth := "https://" + in.host("dex") + "/auth"
@@ -37,6 +37,7 @@ func (in *Input) probes() []render.Probe {
 				Statuses: []int{200, 302},
 				Note:     "Dex answers a client it knows with its login page (several connectors) or a redirect to the one connector; an unknown client is an error page",
 			}),
+		render.DexSecretLoadedProbe("live-dex-portal-secret-loaded", featureIdentity, dexNamespace, render.DexClientSecretName(render.PortalDexClientID), render.PortalDexClientID),
 	}
 	values := []string{userSecretsName, pluginKeysName}
 	if in.Plugins.GitHub.Enabled {

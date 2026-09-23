@@ -304,6 +304,45 @@ func TestWaveRecoversFromARedProbe(t *testing.T) {
 	}
 }
 
+// A rotated Dex client secret Dex has not read: mcp-capi's Secret in Dex's
+// namespace changes after Dex's container started, so Dex holds the old
+// secret and the server's sign-ins fail. The watch that gates stage 2 reads
+// birch failed, the stage naming the client and its Secret, and the wave
+// stops before rowan; Dex restarted, the stage is enabled again and the wave
+// goes on.
+func TestWaveStopsAtADexHoldingAnOldClientSecret(t *testing.T) {
+	st := newStack(t)
+	a, _, birchInst := waveStage1(t, st)
+	admin := adminLive(t, st)
+	const rotated, restarted = "2026-09-23T17:00:00Z", "2026-09-23T17:01:30Z"
+	birchInst.edit("Secret", "giantswarm", "dex-client-mcp-capi", func(obj map[string]any) {
+		obj[metadataKey].(map[string]any)[managedFieldsKey] = []any{dataWrite(rotated)}
+	})
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || w.Installation != birch || w.State != actions.StateFailed || w.Action.Status.State != actions.StateFailed || w.Action.Status.Rollout.Installations[1].State != "" {
+		t.Fatalf("the stop: %v %s", isErr, text)
+	}
+	stage := w.Action.Status.Rollout.Installations[0].Message
+	for _, want := range []string{"a probe is red: live-dex-client-secrets-loaded (identity)", "Secret giantswarm/dex-client-mcp-capi changed its data at " + rotated, "it holds the value from before", "client mcpCapi"} {
+		if !strings.Contains(stage, want) {
+			t.Errorf("the stage's message lacks %q: %s", want, stage)
+		}
+	}
+	if len(w.Red) != 1 || strings.Contains(stage, "dex-client-mcp-kubernetes") {
+		t.Errorf("only mcp-capi's client is red: %q", w.Red)
+	}
+
+	birchInst.edit("Pod", "giantswarm", "dex-0", func(obj map[string]any) {
+		status := obj[statusKey].(map[string]any)["containerStatuses"].([]any)[0].(map[string]any)
+		status["state"] = map[string]any{"running": map[string]any{startedAtKey: restarted}}
+	})
+	w, text, isErr = watchCall(t, admin, a.Name)
+	if isErr || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateRollingOut || w.Action.Status.Rollout.Installations[1].State != actions.StateRollingOut ||
+		!strings.Contains(w.Report, "Recovered: the stage had failed (a probe is red: live-dex-client-secrets-loaded") {
+		t.Fatalf("after Dex restarted: %v %s", isErr, text)
+	}
+}
+
 // The actor withdraws a wave that stopped on a red probe: deny_action closes
 // the next stage's open pull requests and records who withdrew them and why;
 // the action stays failed, the approval as decided, and the withdrawn stage
