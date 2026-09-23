@@ -546,13 +546,17 @@ func withSelected(inputs, selected map[string]any) map[string]any {
 // caller: current with err. A file on record that differs from the render
 // only in the values the commit fills in — encrypted on record, or a plain
 // file's public half of a key pair — is unchanged: the values stand, and the
-// literals the render puts under an encrypted field are named as unseen.
+// literals the render puts under an encrypted field are named as unseen. So
+// is a kustomization that differs only in how its patch texts spell their
+// YAML (samePatches): writing it would change nothing.
 func change(current string, err error, rendered string) (Change, string, []Unseen) {
 	switch {
 	case err == nil && current == rendered:
 		return ChangeUnchanged, "", nil
 	case err == nil && sameSkeleton(rendered, current):
 		return ChangeUnchanged, "", unseen(rendered, current)
+	case err == nil && samePatches(rendered, current):
+		return ChangeUnchanged, "", nil
 	case err == nil:
 		return ChangeUpdate, "", nil
 	case errors.Is(err, gh.ErrNotFound):

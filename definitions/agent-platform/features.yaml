@@ -82,7 +82,8 @@ features:
       - {id: own-mcp-servers, kind: configmap, key: "agent-platform-mcps.mcpServers[http://<name>.svc:8080/mcp] / agent-platform-mcps.mcpServers[<scheme>://mcp-<name>.<domain>/mcp] (the installation's own: at the in-cluster Service, or on its own base domain)"}
       - {id: own-mcp-kubernetes-url, kind: configmap, key: "agent-platform-mcps.mcpServers[http://mcp-kubernetes.mcp-kubernetes.svc:8080/mcp].url"}
       - {id: muster-private-exchange, kind: configmap, key: muster.muster.oauth.mcpClient.tokenExchange.allowPrivateIP}
-      - {id: own-mcp-private-urls, kind: extras, key: mcp-<name>/user-values.yaml / mcp-<name>/kustomization.yaml configMapGenerator / generatorOptions / patches (the ConfigMap the HelmRelease reads it from)}
+      - {id: own-mcp-private-urls, kind: extras, key: mcp-<name>/user-values.yaml / mcp-<name>/kustomization.yaml configMapGenerator / generatorOptions (the private-address values and the ConfigMap the HelmRelease reads them from)}
+      - {id: own-mcp-credentials-revision, kind: extras, key: "mcp-<name>/credentials-revision.enc.yaml / mcp-<name>/kustomization.yaml patches / mcp-<name>/oauth-credentials.enc.yaml stringData.CREDENTIALS_REVISION / stringData.credentials-revision / mcp-<name>/valkey-credentials.enc.yaml stringData.revision (the credentials revision the server's and its Valkey's HelmReleases read into their charts' checksum values, so a rotation restarts both; the private-address values patch sits in the same list)"}
       - {id: own-mcp-directories, kind: extras, key: "mcp-<name>/ (each server's kustomization, Dex client and credential Secrets)"}
       - {id: live-own-mcp-servers, kind: live, key: MCPServer objects of the installation itself}
       - {id: live-registered-mcp-servers, kind: live, key: "MCPServer objects registered under extras/agent-platform/mcpservers, present and none Failed"}
@@ -114,5 +115,5 @@ features:
       - {id: portal-auth-extra-scopes, kind: backstage, key: agent-platform/app-config.yaml gs.auth.extraScopes}
       - {id: portal-auth-provider, kind: backstage, key: agent-platform/app-config.yaml gs.authProvider / auth.providers}
       - {id: portal-database-client, kind: backstage, key: agent-platform/app-config.yaml backend.database.client}
-      - {id: portal-extra-app-config, kind: backstage, key: agent-platform/values.yaml backstage.extraAppConfig (the Component's app-config file)}
+      - {id: portal-extra-app-config, kind: backstage, key: agent-platform/values.yaml backstage.extraAppConfig (the Component's app-config file and its checksum)}
       - {id: portal-helmrelease-values-from, kind: backstage, key: agent-platform/kustomization.yaml patches (the HelmRelease valuesFrom patch)}

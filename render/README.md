@@ -64,6 +64,18 @@ the management clusters' Flux multi-tenancy policy refuses one without `spec.ser
 are created through agent-manager and the key is not read, so it is not written. The definition targets dex-app
 3.2.0 or later, where every MCP server's Dex client reads a `clientSecretRef`.
 
+The installation's own MCP servers (`servers.go`: mcp-kubernetes, mcp-prometheus, mcp-capi) each get an
+`extras/mcp-<name>/` directory: a kustomization over the fleet base, the OAuth credentials Secret under the
+chart's key contract (the Dex client secret shared with the Dex-side client Secret, the encryption key, the
+Valkey password where the chart takes it from this Secret), the valkey-auth Secret the fleet base's Valkey
+reads, and the server's *credentials revision*: one generated value held by both credentials Secrets and by
+the Secret `mcp-<name>-credentials-revision` in the Flux namespace, which the kustomization patches the
+server's HelmRelease and its Valkey's to read (`valuesFrom` with `targetPath`) into the charts' checksum
+values (`existingSecretChecksum`, the keyed charts' `storage.valkey.existingSecretChecksum`, the Valkey
+chart's `auth.usersExistingSecretChecksum`). A rotation rewrites the credentials files, draws the revision
+anew and so rolls the server and its Valkey; a reconcile without one keeps it. A private installation adds
+the server's user values (the private-address flags) as a ConfigMap the HelmRelease reads.
+
 A hub's `federation.targets` render the hub side (`hub.go`): the token-exchange broker's targets and the
 agentgateway's identity providers in the configmap patch, the targets' MCP servers with exchange auth,
 and a credentials Secret per target carrying the hub's client id in the target's Dex — the fleet's

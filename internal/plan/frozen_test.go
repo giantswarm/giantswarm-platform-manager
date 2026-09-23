@@ -136,6 +136,46 @@ func TestFrozenPublicHalfNeedsThePair(t *testing.T) {
 	}
 }
 
+// The server's credentials revision is held by its credentials file, its
+// Valkey Secret and the revision Secret beside the HelmReleases. A rewrite of
+// the Valkey Secret alone (its skeleton changed; a chart reading the
+// password from that Secret shares nothing else with the credentials file)
+// rotates the password and the revision, and the revision carries the
+// rotation on: the credentials file and the revision Secret are rewritten,
+// the credentials file's other names rotate with it, down to the Dex client
+// Secret — so the HelmReleases read a new revision and both pods roll.
+func TestFrozenRevisionCouplesTheFilesOfAServer(t *testing.T) {
+	const revisionFile, revision = "acme/mcs:extras/server/credentials-revision.enc.yaml", "revision"
+	g := generatedOf(client, key, password, revision)
+	rewrite := frozen(g, []holder{
+		{file: credentials, change: ChangeUnchanged, secret: []string{client, key, revision}},
+		{file: valkey, change: ChangeUpdate, secret: []string{password, revision}},
+		{file: revisionFile, change: ChangeUnchanged, secret: []string{revision}},
+		{file: dexClient, change: ChangeUnchanged, secret: []string{client}},
+	})
+	rotating(t, g, password, valkey, valkey)
+	rotating(t, g, revision, valkey, revisionFile, credentials, valkey)
+	rotating(t, g, client, credentials, dexClient, credentials)
+	rotating(t, g, key, credentials, credentials)
+	if len(rewrite) != 4 || !rewrite[valkey] || !rewrite[credentials] || !rewrite[revisionFile] || !rewrite[dexClient] {
+		t.Fatalf("rewritten files %v", rewrite)
+	}
+	// Nothing written: every name kept, the revision with them, so the
+	// HelmReleases read the same value and no pod template changes.
+	g = generatedOf(client, key, password, revision)
+	rewrite = frozen(g, []holder{
+		{file: credentials, change: ChangeUnchanged, secret: []string{client, key, revision}},
+		{file: valkey, change: ChangeUnchanged, secret: []string{password, revision}},
+		{file: revisionFile, change: ChangeUnchanged, secret: []string{revision}},
+		{file: dexClient, change: ChangeUnchanged, secret: []string{client}},
+	})
+	kept(t, g, revision, revisionFile, credentials, valkey)
+	kept(t, g, password, valkey)
+	if len(rewrite) != 0 {
+		t.Fatalf("rewritten files %v", rewrite)
+	}
+}
+
 // A name frozen in a file with several owners cannot rotate: rewriting it
 // would write over their values. The refusal names the name and the file.
 func TestFrozenInASharedFileIsRefused(t *testing.T) {

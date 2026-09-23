@@ -79,23 +79,58 @@ func textMapping(s string) ([]document, bool) {
 	return docs, true
 }
 
+// patchValue is the value a kustomization's patch text that holds a list —
+// a JSON 6902 patch, the chart line's — is compared by: the list in the one
+// spelling its value encodes to (plan.CanonicalYAML), so two spellings of one
+// patch, a semver range in single or double quotes, are the same leaf. The
+// list stays one leaf: its operations have no identity but their order, and
+// a render whose patches differ from the record's in number (another fact)
+// would pair operations of different patches. false for any other text.
+func patchValue(path, s string, inDocument bool) (string, bool) {
+	if inDocument || !patchField(path) {
+		return "", false
+	}
+	docs, err := parse(s)
+	if err != nil || len(docs) != 1 {
+		return "", false
+	}
+	if l, ok := docs[0].value.([]any); !ok || len(l) == 0 {
+		return "", false
+	}
+	return plan.CanonicalYAML(s)
+}
+
 // payload says whether a leaf of the file itself sits in a field that holds
 // a document as text: the data of a ConfigMap or the stringData of a Secret
 // (a chart's values, the portal's app-config), or a kustomization's patch
 // (patches[n].patch) — a strategic merge patch is a mapping, and the
 // comparison names its entries, the values sources of the portal's
 // HelmRelease patch among them; a JSON 6902 patch is a list and stays one
-// leaf (textMapping). Inside such a document every string that holds a
-// mapping is one too; every other string is one leaf, whatever it holds.
+// leaf, compared by its value (textMapping, patchValue). Inside such a
+// document every string that holds a mapping is one too; every other string
+// is one leaf, whatever it holds.
 func payload(path string) bool {
-	segs := segments(path)
-	if len(segs) > 0 && strings.HasPrefix(segs[0], "[") {
-		segs = segs[1:] // the document's key in a file of several
-	}
+	segs := fileSegments(path)
 	if len(segs) == 0 {
 		return false
 	}
 	return segs[0] == "data" || segs[0] == "stringData" || patchText(segs)
+}
+
+// patchField says whether a leaf of the file itself is a kustomization's
+// patch text.
+func patchField(path string) bool {
+	return patchText(fileSegments(path))
+}
+
+// fileSegments are a leaf's segments within its document of the file, the
+// document's key in a file of several dropped.
+func fileSegments(path string) []string {
+	segs := segments(path)
+	if len(segs) > 0 && strings.HasPrefix(segs[0], "[") {
+		segs = segs[1:]
+	}
+	return segs
 }
 
 // patchText says whether a path's segments name a kustomization's patch

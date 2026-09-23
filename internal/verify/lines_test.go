@@ -179,8 +179,9 @@ func TestShownRedactsTheEncryptedFiles(t *testing.T) {
 // patch, the portal's HelmRelease patch with its values sources — is the
 // mapping's leaves under patches[n].patch, each on its line of the file and
 // a list entry keyed by its name; a patch that holds a list (a JSON 6902
-// patch) stays one leaf, as does the patch's target. levels names a leaf
-// at every document it sits in, innermost first, then in the file.
+// patch) stays one leaf holding its value's one spelling, as does the
+// patch's target. levels names a leaf at every document it sits in,
+// innermost first, then in the file.
 func TestFlattenLinesReadsAKustomizationPatch(t *testing.T) {
 	content := strings.Join([]string{
 		"resources:",                  // 1

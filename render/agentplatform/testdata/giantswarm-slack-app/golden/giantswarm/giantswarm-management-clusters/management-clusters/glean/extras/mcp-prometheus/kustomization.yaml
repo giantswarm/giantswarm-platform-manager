@@ -6,6 +6,7 @@ resources:
   - https://github.com/giantswarm/management-cluster-bases//extras/mcp-prometheus?ref=main
   - oauth-credentials.enc.yaml
   - valkey-credentials.enc.yaml
+  - credentials-revision.enc.yaml
   - dex-client-mcp-prometheus-secret.yaml
 generatorOptions:
   disableNameSuffixHash: true
@@ -25,3 +26,25 @@ patches:
     target:
       kind: HelmRelease
       name: mcp-prometheus
+  - patch: |-
+      - op: add
+        path: /spec/valuesFrom/-
+        value:
+          kind: Secret
+          name: mcp-prometheus-credentials-revision
+          valuesKey: revision
+          targetPath: app.oauth.existingSecretChecksum
+    target:
+      kind: HelmRelease
+      name: mcp-prometheus
+  - patch: |-
+      - op: add
+        path: /spec/valuesFrom
+        value:
+          - kind: Secret
+            name: mcp-prometheus-credentials-revision
+            valuesKey: revision
+            targetPath: valkey.auth.usersExistingSecretChecksum
+    target:
+      kind: HelmRelease
+      name: mcp-prometheus-valkey

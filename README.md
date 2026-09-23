@@ -81,7 +81,13 @@ this order, writing nothing before the gate:
    its Valkey Secret). The dry run says so (`generatedSecrets[].frozenIn`, `kept`, `rotates` with `forcedBy`,
    the file that forced it), the Action records the rotated names (`status.rotated`), the pull request names
    them. For the running installation a rotation means both sides roll: the server and the Dex client take
-   the new value with their Secrets, and the client is unusable between the two rollouts. Unseen by the
+   the new value with their Secrets, and the client is unusable between the two rollouts. The roll follows
+   the commit: each MCP server's credentials carry a *credentials revision* (`<installation>-mcp-<name>-credentials-revision`,
+   a generated value held by the server's credentials Secret, its Valkey's and a third Secret
+   `mcp-<name>-credentials-revision` beside the HelmReleases), so a rewrite of either credentials file draws
+   it anew, and the server's and its Valkey's HelmReleases read it (`valuesFrom` with `targetPath`) into
+   their charts' checksum values, whose pod-template annotations restart the pods; a reconcile without a
+   rotation keeps the revision and changes no pod template. Unseen by the
    comparison: a literal the render changes under an encrypted field — the record holds it encrypted. A
    value frozen in a file the definition does not own whole (one with several owners) cannot rotate and
    refuses the commit naming the file.
