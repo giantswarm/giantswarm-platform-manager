@@ -53,7 +53,7 @@ charts:
   # the lines' ranges differ.
   - name: muster
     registry: gsoci.azurecr.io/charts/giantswarm/muster
-    version: 5.29.2
+    version: 5.31.1
   - name: kagent
     line: "3"
     registry: gsoci.azurecr.io/charts/giantswarm/kagent

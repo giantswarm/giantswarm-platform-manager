@@ -18,6 +18,21 @@
 #
 # The M numbers are the wave-1 migration list's (M1–M11) and continue removals.yaml's (M30…).
 migrations:
+  # --- M37 — a rotated muster credential rolls muster and its Valkey ---
+  # muster's revision is one generated value held by its two credentials Secrets and the revision Secret in the
+  # Flux namespace; the meta chart hands it to the muster and valkey HelmReleases as valuesFrom entries.
+  - key: extras:agent-platform/secrets/muster-credentials-revision.yaml
+    reason: "Added: muster gets a credentials revision, a generated mark drawn anew with every rotation of its credentials, in the Secret muster-credentials-revision beside the HelmReleases, which the muster and valkey releases read into their charts' checksum values so muster and its Valkey restart on rotated credentials instead of keeping the old ones until a hand-run restart · M37"
+  - key: extras:agent-platform/secrets/kustomization.yaml resources[muster-credentials-revision.yaml]
+    reason: "Added: the secrets kustomization lists muster-credentials-revision.yaml, so the revision Secret is applied with the rest · M37"
+  - key: extras:agent-platform/secrets/muster-oauth-credentials.yaml stringData.credentials-revision
+    reason: "Added: muster's credentials Secret carries the credentials revision (credentials-revision), so a rewrite of the Secret draws the revision anew and muster and its Valkey restart with it · M37"
+  - key: extras:agent-platform/secrets/muster-valkey-credentials.yaml stringData.revision
+    reason: "Added: muster's Valkey Secret carries the credentials revision (revision), so a rewrite of the Secret draws the revision anew and muster and its Valkey restart with it · M37"
+  - key: configmap:components.muster.valuesFromRefs
+    reason: "Added: the muster HelmRelease reads the credentials revision from the Secret muster-credentials-revision into the muster chart's checksum values (valuesFrom with targetPath), which the chart renders as pod annotations, so a rotation restarts muster · M37"
+  - key: configmap:components.valkey.valuesFromRefs
+    reason: "Added: the valkey HelmRelease reads the credentials revision from the Secret muster-credentials-revision into the Valkey chart's users Secret mark (valuesFrom with targetPath), so a rotation of the Valkey password restarts muster's Valkey · M37"
   # --- M35 — a rotated server credential rolls the server and its Valkey ---
   # The revision is one generated value per server, held by its credentials Secret, its Valkey's and the
   # revision Secret beside the HelmReleases; a rewrite of either credentials file draws it anew.
