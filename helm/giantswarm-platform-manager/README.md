@@ -15,9 +15,9 @@ as its own app on the hub installation, not as a component of the
 
 With `live.enabled` the same registration serves `verify_installation` and
 `watch_action`, which read an installation as the person: the `MCPServer`
-sets `auth.forwardIdentity: true` (muster with `auth.forwardIdentity`,
-giantswarm/muster#1317), so muster puts the person's platform ID token in
-`X-Muster-Id-Token` on every call next to the user token, and the server
+sets `auth.forwardIdentity: true` (muster ≥ 5.31.0), so muster puts the
+person's platform ID token in `X-Muster-Id-Token` on every call next to the
+user token, and the server
 verifies it against `live.issuer`, `live.audiences` and
 `muster.mcpServer.requiredAudiences` over the issuer's HTTPS key set. A call
 without a valid identity token is refused by the live tools, naming the
@@ -48,7 +48,7 @@ header; every other tool answers with the user token alone.
 | approvals.channel | string | `""` | The capability-owning team's channel the reviews land in (a Slack channel ID). |
 | approvals.noticeChannel | string | `""` | The channel told of a review that targets a customer installation, without buttons (the Account Engineers' channel ID). Must differ from `channel`; empty sends no notice. |
 | approvals.audience | string | `"klaus-gateway"` | Audience of the projected ServiceAccount token the requests carry: the gateway's TokenReview audience. |
-| live.enabled | bool | `false` | Serve the live tools `verify_installation` and `watch_action` on `mcp.path`, beside every other tool: they read an installation through muster as the person the platform ID token muster forwards next to the bearer names (`X-Muster-Id-Token`). The chart's `MCPServer` then sets `auth.forwardIdentity: true`, which needs muster with `auth.forwardIdentity` (giantswarm/muster#1317) and `oauth.enabled`. A call without a valid identity token is refused by the live tools, naming the header; the GitHub tools answer as before. Off: the live tools are not served, the live dimensions of every verify read not checked, and `get_info` reports `live.configured: false`. |
+| live.enabled | bool | `false` | Serve the live tools `verify_installation` and `watch_action` on `mcp.path`, beside every other tool: they read an installation through muster as the person the platform ID token muster forwards next to the bearer names (`X-Muster-Id-Token`). The chart's `MCPServer` then sets `auth.forwardIdentity: true`, which needs muster ≥ 5.31.0 and `oauth.enabled`. A call without a valid identity token is refused by the live tools, naming the header; the GitHub tools answer as before. Off: the live tools are not served, the live dimensions of every verify read not checked, and `get_info` reports `live.configured: false`. |
 | live.issuer | string | `""` | Issuer of the forwarded tokens: the platform identity provider's, `https://dex.<base domain>/dex` on an installation. Required with `live.enabled`. |
 | live.audiences | list | `[]` | OAuth clients whose ID tokens the live tools accept: a person's forwarded token names the client they signed in with, so this lists the platform's own client (`agent-platform` on the platform) and every other client people reach muster through (a developer portal's). The server trusts the union of this list and `muster.mcpServer.requiredAudiences`: every forwarded token carries the required audiences by construction. The union must name at least one audience with `live.enabled`; the chart refuses to render otherwise. |
 | live.jwksURL | string | `""` | The issuer's key set, an `https://` URL; empty reads it from the issuer's OpenID discovery document (an `https://` issuer on a public address). The key set is read over TLS only: a plain-`http://` URL is refused by the chart and at start-up, never fallen back from. An in-cluster identity provider is named by the Service name its certificate carries — `https://dex.dex.svc.cluster.local:5556/dex/keys` in a lab — with `allowPrivateIPJWKS` for the private address and `caSecret` for the CA the certificate chains to. |

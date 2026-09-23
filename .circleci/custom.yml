@@ -25,7 +25,7 @@ jobs:
       - image: cimg/go:1.27
     resource_class: medium
     environment:
-      MUSTER_VERSION: v5.27.1
+      MUSTER_VERSION: v5.31.0
     steps:
       - checkout
       - restore_cache:

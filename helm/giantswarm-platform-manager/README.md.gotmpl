@@ -16,9 +16,9 @@ as its own app on the hub installation, not as a component of the
 
 With `live.enabled` the same registration serves `verify_installation` and
 `watch_action`, which read an installation as the person: the `MCPServer`
-sets `auth.forwardIdentity: true` (muster with `auth.forwardIdentity`,
-giantswarm/muster#1317), so muster puts the person's platform ID token in
-`X-Muster-Id-Token` on every call next to the user token, and the server
+sets `auth.forwardIdentity: true` (muster ≥ 5.31.0), so muster puts the
+person's platform ID token in `X-Muster-Id-Token` on every call next to the
+user token, and the server
 verifies it against `live.issuer`, `live.audiences` and
 `muster.mcpServer.requiredAudiences` over the issuer's HTTPS key set. A call
 without a valid identity token is refused by the live tools, naming the

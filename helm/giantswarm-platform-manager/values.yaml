@@ -89,8 +89,8 @@ live:
   # `mcp.path`, beside every other tool: they read an installation through
   # muster as the person the platform ID token muster forwards next to the
   # bearer names (`X-Muster-Id-Token`). The chart's `MCPServer` then sets
-  # `auth.forwardIdentity: true`, which needs muster with
-  # `auth.forwardIdentity` (giantswarm/muster#1317) and `oauth.enabled`. A
+  # `auth.forwardIdentity: true`, which needs muster ≥ 5.31.0 and
+  # `oauth.enabled`. A
   # call without a valid identity token is refused by the live tools, naming
   # the header; the GitHub tools answer as before. Off: the live tools are
   # not served, the live dimensions of every verify read not checked, and
