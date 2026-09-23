@@ -183,6 +183,9 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 	if len(inst.SuppliedSecrets) > 0 {
 		p.f("  You supply at commit: %s\n", strings.Join(inst.SuppliedSecrets, ", "))
 	}
+	if len(inst.SuppliedOnRecord) > 0 {
+		p.f("  Supplied values on record: %s — their files stand, nothing to supply\n", strings.Join(inst.SuppliedOnRecord, ", "))
+	}
 	if len(inst.DexClients) > 0 {
 		p.f("  Dex clients:\n")
 		for _, c := range inst.DexClients {

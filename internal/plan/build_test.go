@@ -3,6 +3,7 @@ package plan
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -24,8 +25,13 @@ func (fakeInput) CustomerActions() []render.CustomerAction { return nil }
 func (fakeInput) Selected() map[string]any                 { return nil }
 
 // rowanKustomization is the kustomization the fake definition's include
-// lands in.
-const rowanKustomization = "installations/rowan/kustomization.yaml"
+// lands in; acme is rowan's customer.
+const (
+	rowanKustomization = "installations/rowan/kustomization.yaml"
+	acme               = "acme"
+	acmeConfigs        = "acme/configs"
+	acmeMCs            = "acme/management-clusters"
+)
 
 // filesDefinition is a definition that renders files under the customer's
 // configs repository and lists one include in a kustomization there.
@@ -94,7 +100,7 @@ func TestBuildReadsThePlansFilesAtOnce(t *testing.T) {
 		}
 		close(release)
 	}()
-	inst := installations.Installation{Name: "rowan", Customer: "acme", Repositories: installations.Repositories{Configs: "acme/configs", ManagementClusters: "acme/management-clusters"}}
+	inst := installations.Installation{Name: "rowan", Customer: acme, Repositories: installations.Repositories{Configs: acmeConfigs, ManagementClusters: acmeMCs}}
 	p := Build(context.Background(), Options{Definition: filesDefinition(files), Installation: inst, Inputs: map[string]any{}, Content: true, Read: read})
 	if p.Refused != "" {
 		t.Fatalf("refused: %s", p.Refused)
@@ -109,7 +115,7 @@ func TestBuildReadsThePlansFilesAtOnce(t *testing.T) {
 	}
 	want := map[string]Change{"installations/rowan/a.yaml": ChangeUnchanged, "installations/rowan/b.yaml": ChangeCreate, "installations/rowan/c.yaml": ChangeUpdate, rowanKustomization: ChangeUpdate}
 	for _, f := range p.Files {
-		if f.Repository != "acme/configs" {
+		if f.Repository != acmeConfigs {
 			t.Errorf("%s in %s, want the configs repository on record", f.Path, f.Repository)
 		}
 		if c, ok := want[f.Path]; ok && f.Change != c {
@@ -138,5 +144,88 @@ func TestBuildFetchStopsWithTheContext(t *testing.T) {
 	}
 	if _, err := f.read(ctx, "r", "never"); err == nil {
 		t.Error("a file the plan did not name read without an error")
+	}
+}
+
+// suppliedInput is a definition's parsed input that supplies the given
+// fields at commit and misses and selects nothing.
+type suppliedInput struct{ fields []string }
+
+func (in suppliedInput) SuppliedMarkers() map[string]string {
+	m := make(map[string]string, len(in.fields))
+	for _, f := range in.fields {
+		m[f] = render.Supplied(f)
+	}
+	return m
+}
+func (in suppliedInput) SuppliedSecretFields() []string        { return in.fields }
+func (suppliedInput) MissingInputs() []string                  { return nil }
+func (suppliedInput) BuiltInDexClientID(string) string         { return "" }
+func (suppliedInput) CustomerActions() []render.CustomerAction { return nil }
+func (suppliedInput) Selected() map[string]any                 { return nil }
+
+// secretSkeleton is a Secret file as the render writes it before encryption,
+// its values under stringData.values.
+func secretSkeleton(name, values string) string {
+	return "apiVersion: v1\nkind: Secret\nmetadata:\n  name: " + name + "\n  namespace: flux-giantswarm\ntype: Opaque\nstringData:\n  values: |\n    " + values + "\n"
+}
+
+// secretOnRecord is the same Secret as SOPS keeps it on record: the values
+// encrypted, the sops block beneath.
+func secretOnRecord(name string, extraKeys ...string) string {
+	s := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: " + name + "\n  namespace: flux-giantswarm\ntype: Opaque\nstringData:\n  values: ENC[AES256_GCM,data:fixture,iv:fixture,tag:fixture,type:str]\n"
+	for _, k := range extraKeys {
+		s += "  " + k + ": ENC[AES256_GCM,data:fixture,iv:fixture,tag:fixture,type:str]\n"
+	}
+	return s + "sops:\n  age:\n    - recipient: age1fixture\n  encrypted_regex: ^(data|stringData)$\n  version: 3.9.0\n"
+}
+
+// A supplied value is asked for only where the commit writes the file that
+// holds it: a field whose encrypted file stands on record unchanged is on
+// record — the value there stands, nothing of it is written — while a field
+// in a file to create, in a file rewritten (its skeleton changed) or in no
+// file of the plan is supplied at commit. The split needs no file content in
+// the answer.
+func TestBuildAsksOnlyForSuppliedValuesWhoseFilesItWrites(t *testing.T) {
+	const (
+		kept      = "installations/rowan/kept.enc.yaml"
+		created   = "installations/rowan/created.enc.yaml"
+		rewritten = "installations/rowan/rewritten.enc.yaml"
+	)
+	fields := []string{"kept.key", "created.key", "rewritten.key", "nowhere.key"}
+	files := map[string]string{
+		kept:      secretSkeleton("kept", "key: "+render.Supplied("kept.key")),
+		created:   secretSkeleton("created", "key: "+render.Supplied("created.key")),
+		rewritten: secretSkeleton("rewritten", "key: "+render.Supplied("rewritten.key")),
+	}
+	def := filesDefinition(files)
+	def.Parse = func(any) (render.Input, error) { return suppliedInput{fields}, nil }
+	read := func(_ context.Context, _, path string) (string, error) {
+		switch path {
+		case rowanKustomization:
+			return "resources:\n- other\n", nil
+		case kept:
+			return secretOnRecord("kept"), nil
+		case rewritten:
+			return secretOnRecord("rewritten", "other"), nil
+		}
+		return "", gh.ErrNotFound
+	}
+	inst := installations.Installation{Name: "rowan", Customer: acme, Repositories: installations.Repositories{Configs: acmeConfigs, ManagementClusters: acmeMCs}}
+	p := Build(context.Background(), Options{Definition: def, Installation: inst, Inputs: map[string]any{}, Read: read})
+	if p.Refused != "" {
+		t.Fatalf("refused: %s", p.Refused)
+	}
+	want := map[string]Change{kept: ChangeUnchanged, created: ChangeCreate, rewritten: ChangeUpdate}
+	for _, f := range p.Files {
+		if c, ok := want[f.Path]; ok && f.Change != c {
+			t.Errorf("%s: %s, want %s (%s)", f.Path, f.Change, c, f.Error)
+		}
+	}
+	if !slices.Equal(p.SuppliedSecrets, []string{"created.key", "rewritten.key", "nowhere.key"}) {
+		t.Errorf("supplied at commit %v, want the fields of the file created, the file rewritten and the field no file holds", p.SuppliedSecrets)
+	}
+	if !slices.Equal(p.SuppliedOnRecord, []string{"kept.key"}) {
+		t.Errorf("on record %v, want the field of the file kept", p.SuppliedOnRecord)
 	}
 }

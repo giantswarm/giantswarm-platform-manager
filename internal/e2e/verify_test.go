@@ -972,8 +972,10 @@ func portalConfigWithGitHub(names ...string) string {
 // A portal on record with the github plugin on: its GitHub App id lives only
 // in the encrypted file, so no read-back recovers it — the definition refuses
 // nothing, the encrypted file on record reads as defined with its values
-// opaque, the plan names the id among the values supplied at commit, and a
-// commit without it is refused by field before anything is recorded.
+// opaque, the verify names the id among the values supplied at commit, and
+// since the file stands on record unchanged the plan lists the App's five
+// fields as on record: the values there stand, a commit asks for none of
+// them and refuses one supplied anyway by field before anything is recorded.
 func TestVerifyCapabilityTakesThePortalsGitHubAppIDAsSupplied(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
@@ -991,20 +993,29 @@ func TestVerifyCapabilityTakesThePortalsGitHubAppIDAsSupplied(t *testing.T) {
 	if res.Inputs.Source != verify.Source(true, false) || res.Refused != "" || res.Inputs.ReadBack["plugins.github.enabled"] != true {
 		t.Fatalf("inputs %q refused %q read back %v", res.Inputs.Source, res.Refused, res.Inputs.ReadBack)
 	}
-	if !slices.Contains(res.SuppliedSecrets, githubAppIDField) || !slices.Contains(res.SuppliedSecrets, "plugins.github.privateKey") {
-		t.Fatalf("supplied %v", res.SuppliedSecrets)
+	// The App's file stands on record: its five values are on record, none is asked for at commit.
+	if !slices.Contains(res.SuppliedOnRecord, githubAppIDField) || !slices.Contains(res.SuppliedOnRecord, "plugins.github.privateKey") || slices.Contains(res.SuppliedSecrets, githubAppIDField) {
+		t.Fatalf("supplied %v, on record %v", res.SuppliedSecrets, res.SuppliedOnRecord)
 	}
 	if d := dimension(t, feature(t, res, "secrets"), "github-app-credentials"); d.Mark != verify.AsDefined || !slices.Contains(d.Files, hubMCs+":"+hubGitHubAppFile) || len(d.Differences) != 0 {
 		t.Errorf("github-app-credentials: %+v", d)
 	}
-	secrets := map[string]any{}
-	for _, f := range res.SuppliedSecrets {
-		if f != githubAppIDField {
-			secrets[f] = "fixture-" + f
+	dry, dryText, isErr := dryRun(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: hub, tools.ArgCapability: installations.CustomerPortal})
+	if isErr || len(dry.Installations) != 1 {
+		t.Fatalf("dry run: %s", dryText)
+	}
+	p := dry.Installations[0]
+	for _, f := range []string{githubAppIDField, "plugins.github.clientId", "plugins.github.clientSecret", "plugins.github.privateKey", "plugins.github.webhookSecret"} {
+		if !slices.Contains(p.SuppliedOnRecord, f) || slices.Contains(p.SuppliedSecrets, f) {
+			t.Errorf("%s: on record %v, supplied at commit %v — the file stands, so the field is on record and not asked for", f, p.SuppliedOnRecord, p.SuppliedSecrets)
 		}
 	}
-	if _, text, isErr := commitCall(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: hub, tools.ArgCapability: installations.CustomerPortal, tools.ArgSecrets: secrets}); !isErr || !strings.Contains(text, githubAppIDField) {
-		t.Fatalf("a commit without the app id: %v %s", isErr, text)
+	secrets := map[string]any{githubAppIDField: "123"}
+	for _, f := range p.SuppliedSecrets {
+		secrets[f] = "fixture-" + f
+	}
+	if _, text, isErr := commitCall(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: hub, tools.ArgCapability: installations.CustomerPortal, tools.ArgSecrets: secrets}); !isErr || !strings.Contains(text, githubAppIDField) || !strings.Contains(text, "does not ask for") {
+		t.Fatalf("a commit supplying the app id on record: %v %s", isErr, text)
 	}
 	if got := listActionsOf(t, c, hub); len(got) != 0 {
 		t.Fatalf("a refused commit recorded %d action(s)", len(got))
@@ -1236,8 +1247,9 @@ func TestVerifyCapabilityGrafanaIsTheInstallationsOwn(t *testing.T) {
 	repo, path, _ := strings.Cut(appConfig, ":")
 	st.ghs.addFile(repo, path, strings.Replace(content, section("grafana-net", central), section("grafana-net", central)+proxy, 1))
 	res = verifyPortal(t, c, rowan, nil)
-	if res.Refused != "" || res.Inputs.ReadBack[grafanaEnabled] != true || !slices.Contains(res.SuppliedSecrets, grafanaToken) {
-		t.Fatalf("wired on record: refused %q read back %v supplied %v", res.Refused, res.Inputs.ReadBack, res.SuppliedSecrets)
+	// The token is a supplied value; its file (the user secrets) stands on record, so it is on record, not asked for.
+	if res.Refused != "" || res.Inputs.ReadBack[grafanaEnabled] != true || !slices.Contains(res.SuppliedOnRecord, grafanaToken) || slices.Contains(res.SuppliedSecrets, grafanaToken) {
+		t.Fatalf("wired on record: refused %q read back %v supplied %v on record %v", res.Refused, res.Inputs.ReadBack, res.SuppliedSecrets, res.SuppliedOnRecord)
 	}
 	var target bool
 	for _, diff := range dimension(t, feature(t, res, "portal"), "plugins").Differences {
