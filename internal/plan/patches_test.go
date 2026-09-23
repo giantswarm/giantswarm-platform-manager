@@ -41,7 +41,7 @@ func TestChangeReadsAPatchTextByItsValue(t *testing.T) {
 		"double quotes": strings.Replace(renderedPatches, `'>=0.244.7 <1.0.0'`, `">=0.244.7 <1.0.0"`, 1),
 		"a JSON list": strings.Replace(renderedPatches, "  - patch: |\n      - op: remove\n        path: /spec/ref/tag\n      - op: add\n        path: /spec/ref/semver\n        value: '>=0.244.7 <1.0.0'\n",
 			`  - patch: '[{"op": "remove", "path": "/spec/ref/tag"}, {"op": "add", "path": "/spec/ref/semver", "value": ">=0.244.7 <1.0.0"}]'`+"\n", 1),
-		"flow style": strings.Replace(renderedPatches, "      spec:\n        valuesFrom:\n          - kind: ConfigMap\n            name: app-config-backstage\n", "      spec: {valuesFrom: [{kind: ConfigMap, name: app-config-backstage}]}\n", 1),
+		"flow style":                 strings.Replace(renderedPatches, "      spec:\n        valuesFrom:\n          - kind: ConfigMap\n            name: app-config-backstage\n", "      spec: {valuesFrom: [{kind: ConfigMap, name: app-config-backstage}]}\n", 1),
 		"the file's own indentation": strings.Replace(renderedPatches, "  - app-config.yaml", "- app-config.yaml", 1),
 	} {
 		if current == renderedPatches {
