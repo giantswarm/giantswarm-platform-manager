@@ -376,6 +376,14 @@ type fakeProbes struct {
 	answers map[string]int
 }
 
+// restore takes the answer set for host+path away: the probe answers as
+// expected again (the cause of a red probe fixed).
+func (f *fakeProbes) restore(hostPath string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.answers, hostPath)
+}
+
 func newFakeProbes(t *testing.T) *fakeProbes {
 	t.Helper()
 	f := &fakeProbes{answers: map[string]int{}}

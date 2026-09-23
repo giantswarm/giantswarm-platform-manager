@@ -2,6 +2,7 @@ package tools
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
@@ -145,5 +146,61 @@ func TestConditionStatus(t *testing.T) {
 		if got := conditionStatus(in); got != want {
 			t.Errorf("%q: %q", in, got)
 		}
+	}
+}
+
+// A stage that failed on a probe is re-read: still red it stays failed with
+// the probe named, clean it is enabled. A stage that failed otherwise, or
+// whose pull requests are not merged, is over for the watch.
+func TestFailedStageIsReReadOnlyAfterAProbe(t *testing.T) {
+	probe := verify.Dimension{ID: "muster-protected-resource-metadata", Kind: definitions.KindProbe, Mark: verify.Drifted, Probe: &verify.ProbeResult{Requests: []verify.Request{{URL: "https://agentgateway.example/x", Status: 404}}}}
+	if state, message, _ := decideStage(actions.StateFailed, liveResult(installations.StateDrifted, probe)); state != actions.StateFailed || !strings.HasPrefix(message, probeRed) {
+		t.Errorf("still red: %s %q", state, message)
+	}
+	if state, _, _ := decideStage(actions.StateFailed, liveResult(installations.StateEnabled)); state != actions.StateEnabled {
+		t.Errorf("clean again: %s", state)
+	}
+	const repo = "acme/configs"
+	merged := &actions.Action{Spec: actions.Spec{Installations: []string{birch, rowan}}, Status: actions.Status{PullRequests: []actions.PullRequest{{Installation: birch, Repository: repo, Number: 1, State: actions.PullRequestMerged}, {Installation: rowan, Repository: repo, Number: 2, State: actions.PullRequestOpen}}}}
+	onProbe := &actions.Rollout{Installations: []actions.InstallationRollout{{Name: birch, State: actions.StateFailed, Message: probeRed + "x (runtime): 404"}, {Name: rowan, Message: "not started"}}}
+	if i, why := watchedStage(merged, onProbe); i != 0 || why != "" {
+		t.Errorf("failed on a probe, merged: %d %q", i, why)
+	}
+	otherwise := &actions.Rollout{Installations: []actions.InstallationRollout{{Name: birch, State: actions.StateFailed, Message: "withdrawn by alice: over; " + probeRed + "x"}, {Name: rowan}}}
+	if i, why := watchedStage(merged, otherwise); i != -1 || !strings.Contains(why, "only a stage that failed on a probe is re-read") {
+		t.Errorf("failed otherwise: %d %q", i, why)
+	}
+	if !failedOnProbe(onProbe.Installations[0]) || failedOnProbe(otherwise.Installations[0]) || failedOnProbe(actions.InstallationRollout{State: actions.StateEnabled, Message: probeRed}) {
+		t.Error("failedOnProbe reads the state and the message")
+	}
+}
+
+// A recovered stage queues the stages after it again and hands the action
+// back to the wave — the failed result and the end of the rollout no longer
+// stand; the last stage recovered ends the action enabled; a re-read that
+// is still red changes nothing.
+func TestApplyStageRecoversAFailedStage(t *testing.T) {
+	failed := &actions.Result{State: actions.StateFailed, Message: "the wave stopped at birch"}
+	stages := func(states ...string) *actions.Rollout {
+		r := &actions.Rollout{FinishedAt: now()}
+		for i, s := range states {
+			r.Installations = append(r.Installations, actions.InstallationRollout{Name: []string{birch, rowan}[i], State: s, Message: "m"})
+		}
+		return r
+	}
+	status := actions.Status{State: actions.StateFailed, Result: failed, Rollout: stages(actions.StateEnabled, "")}
+	applyStage(&status, 0, actions.StateFailed)
+	if status.State != actions.StateRollingOut || status.Result != nil || status.Rollout.FinishedAt != nil || status.Rollout.Installations[1].State != actions.StateRollingOut || status.Rollout.Installations[1].Message != stageQueued {
+		t.Errorf("recovered with a stage left: %+v %+v", status.State, status.Rollout.Installations)
+	}
+	status = actions.Status{State: actions.StateFailed, Result: failed, Rollout: stages(actions.StateEnabled)}
+	applyStage(&status, 0, actions.StateFailed)
+	if status.State != actions.StateEnabled || status.Result == nil || status.Result.State != actions.StateEnabled || status.Result.Message != birch+" is enabled: m" || status.Rollout.FinishedAt == nil {
+		t.Errorf("the last stage recovered: %+v %+v", status.State, status.Result)
+	}
+	status = actions.Status{State: actions.StateFailed, Result: failed, Rollout: stages(actions.StateFailed, "")}
+	applyStage(&status, 0, actions.StateFailed)
+	if status.State != actions.StateFailed || status.Result != failed || status.Rollout.FinishedAt == nil || status.Rollout.Installations[1].State != "" {
+		t.Errorf("still red: %+v %+v", status.State, status.Rollout.Installations)
 	}
 }

@@ -377,7 +377,9 @@ func TestWatchActionFailsNamingTheProbe(t *testing.T) {
 	if r := find(t, li, rowan); r.Capabilities[0].State != installations.StateFailed {
 		t.Fatalf("list_installations: %+v", r.Capabilities[0])
 	}
-	if _, text, isErr := watchCall(t, admin, a.Name); !isErr || !strings.Contains(text, actions.StateFailed) {
+	// A failed stage is re-read: still red, the answer is failed with the
+	// probe named; the report the gateway did not take is offered again.
+	if w, text, isErr := watchCall(t, admin, a.Name); isErr || w.State != actions.StateFailed || w.Action.Status.State != actions.StateFailed || len(w.Red) == 0 || !strings.Contains(w.Report, "❌ "+edgeProbe) {
 		t.Fatalf("watch a failed action: %v %s", isErr, text)
 	}
 	if _, text, isErr := mergeCall(t, aliceC, a.Name); !isErr || !strings.Contains(text, actions.StateFailed) {
@@ -474,6 +476,28 @@ func TestWatchActionReadsALaterMigrationAsPlanned(t *testing.T) {
 		if d.Mark != verify.Planned || len(d.Differences) != 1 || d.Differences[0].Path != leaf || !strings.Contains(d.Differences[0].Planned, tag) || d.Differences[0].Rendered != "32000" {
 			t.Errorf("%s: %+v", id, d)
 		}
+	}
+	li, _, _ := listInstallations(t, aliceC, map[string]any{tools.ArgInstallations: []any{rowan}})
+	if r := find(t, li, rowan); r.Capabilities[0].State != installations.StateEnabled {
+		t.Fatalf("list_installations: %+v", r.Capabilities[0])
+	}
+}
+
+// A one-installation action that failed on a probe reads enabled after a
+// green re-read: the result is rewritten, the report names the recovery.
+func TestWatchActionRecoversAFailedStage(t *testing.T) {
+	st := newStack(t)
+	a, aliceC := rolledOut(t, st)
+	admin := adminLive(t, st)
+	restore := redEdgeProbe(t, st, aliceC, rowan)
+	if w, text, isErr := watchCall(t, admin, a.Name); isErr || w.State != actions.StateFailed || w.Action.Status.Result.State != actions.StateFailed {
+		t.Fatalf("the stop: %v %s", isErr, text)
+	}
+	restore()
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled || w.Action.Status.Result == nil || w.Action.Status.Result.State != actions.StateEnabled ||
+		!strings.HasPrefix(w.Action.Status.Result.Message, rowan+" is enabled: verified: ") || !strings.Contains(w.Report, "Recovered: the stage had failed (a probe is red: ") {
+		t.Fatalf("the recovery: %v %s", isErr, text)
 	}
 	li, _, _ := listInstallations(t, aliceC, map[string]any{tools.ArgInstallations: []any{rowan}})
 	if r := find(t, li, rowan); r.Capabilities[0].State != installations.StateEnabled {
