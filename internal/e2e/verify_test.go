@@ -729,7 +729,7 @@ func TestVerifyCapabilityReadsBackThePortal(t *testing.T) {
 	if res.Inputs.Source != verify.Source(true, false) || res.Refused != "" || res.State != installations.StateDrifted {
 		t.Fatalf("inputs %q refused %q state %q read back %v", res.Inputs.Source, res.Refused, res.State, back)
 	}
-	if back["portal.domain"] != "portal."+hub+".example.test" || back["portal.organization"] != "Example" || back["chart.line"] != chartLine ||
+	if back["portal.domain"] != "portal."+hub+".example.test" || back["portal.organization"] != "Example" || back[chartLineInput] != chartLine ||
 		back["plugins.github.enabled"] != false || back["plugins.grafana.enabled"] != false || back["plugins.flux.enabled"] != false || back["plugins.sentry.enabled"] != false || back["tunnel.enabled"] != false {
 		t.Fatalf("read back %v", back)
 	}
@@ -1023,11 +1023,14 @@ func TestVerifyCapabilityTakesThePortalsGitHubAppIDAsSupplied(t *testing.T) {
 	}
 }
 
-// The portal's input keys and the chart line every portal fixture follows.
+// The portal's input keys and the chart line every portal fixture follows,
+// with the input and the dimension that name it.
 const (
-	domainKey  = "domain"
-	grafanaKey = "grafana"
-	chartLine  = ">=2.1.0 <3.0.0"
+	domainKey      = "domain"
+	grafanaKey     = "grafana"
+	chartLine      = ">=2.1.0 <3.0.0"
+	chartLineInput = "chart.line"
+	chartLineDim   = "chart-line"
 )
 
 // rowanPortalInputs are the typed inputs of rowan's portal, with the grafana
@@ -1118,7 +1121,7 @@ func TestVerifyCapabilityTakesAMissingChoiceAsNotChecked(t *testing.T) {
 			t.Errorf("unset %v does not name %s", res.Inputs.Unset, field)
 		}
 	}
-	for _, field := range []string{"portal.domain", "portal.title", "plugins.grafana.enabled", "plugins.grafana.domain", "chart.line"} {
+	for _, field := range []string{"portal.domain", "portal.title", "plugins.grafana.enabled", "plugins.grafana.domain", chartLineInput} {
 		if slices.Contains(res.Inputs.Unset, field) {
 			t.Errorf("unset %v names %s, which is on record or no choice", res.Inputs.Unset, field)
 		}
@@ -1571,7 +1574,7 @@ func TestVerifyCapabilityReadsThePortalsValuesSources(t *testing.T) {
 			t.Errorf("file %q input %q", diff.File, diff.Input)
 		}
 	}
-	if d := dimension(t, feature(t, res, "portal"), "chart-line"); d.Mark != verify.AsDefined {
+	if d := dimension(t, feature(t, res, "portal"), chartLineDim); d.Mark != verify.AsDefined {
 		t.Errorf("the chart line's patch: %+v", d)
 	}
 
@@ -1613,7 +1616,7 @@ func TestVerifyCapabilityReadsTheChartLinesPatchByValue(t *testing.T) {
 
 	key := portalKustomizationOnRecord(t, st, p, rendered, `value: "`+chartLine+`"`)
 	res := verifyPortal(t, c, rowan, nil)
-	if d := dimension(t, feature(t, res, "portal"), "chart-line"); d.Mark != verify.AsDefined || len(d.Differences) != 0 {
+	if d := dimension(t, feature(t, res, "portal"), chartLineDim); d.Mark != verify.AsDefined || len(d.Differences) != 0 {
 		t.Errorf("the range in double quotes: %s %+v", d.Mark, d.Differences)
 	}
 	if f := kustomization(res); f.Change != plan.ChangeUnchanged {
@@ -1625,8 +1628,8 @@ func TestVerifyCapabilityReadsTheChartLinesPatchByValue(t *testing.T) {
 
 	const newer = ">=2.2.0 <3.0.0"
 	res = verifyPortal(t, c, rowan, map[string]any{"chart": map[string]any{"line": newer}})
-	d := dimension(t, feature(t, res, "portal"), "chart-line")
-	if want := []verify.Difference{{File: key, Path: "patches[0].patch:[1].value", Input: "chart.line", Rendered: newer, Current: chartLine, Line: 16, CurrentLine: 16}}; d.Mark != verify.DiffersByInput || !reflect.DeepEqual(d.Differences, want) {
+	d := dimension(t, feature(t, res, "portal"), chartLineDim)
+	if want := []verify.Difference{{File: key, Path: "patches[0].patch:[1].value", Input: chartLineInput, Rendered: newer, Current: chartLine, Line: 16, CurrentLine: 16}}; d.Mark != verify.DiffersByInput || !reflect.DeepEqual(d.Differences, want) {
 		t.Errorf("another range typed: %s\n%+v\nwant\n%+v", d.Mark, d.Differences, want)
 	}
 	if f := kustomization(res); f.Change != plan.ChangeUpdate {
