@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/giantswarm/mcp-oauth/providers/oidc"
+	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/aggregator"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
@@ -417,7 +418,10 @@ func (k *cluster) call(ctx context.Context, op string, args map[string]any) (str
 	}
 	name := k.tool(op)
 	res, err := k.s.s.Call(ctx, name, args)
-	if err != nil && isToolNotFound(err) {
+	if toolNotFound(res, err) {
+		// muster does not list the tool for this session yet (the fan-out
+		// to the installation's servers runs after initialize): wait for it,
+		// bounded, and call once more.
 		if werr := k.waitForTool(ctx, name); werr != nil {
 			return "", werr
 		}
@@ -434,7 +438,24 @@ func (k *cluster) call(ctx context.Context, op string, args map[string]any) (str
 }
 
 func isToolNotFound(err error) bool {
-	return strings.Contains(err.Error(), "tool not found") || strings.Contains(err.Error(), "unknown tool")
+	return toolNotFoundText(err.Error())
+}
+
+// toolNotFoundText says whether text is muster's refusal of a tool it does
+// not list for the session — "tool not found: x_kubernetes_get", "unknown
+// tool" — never an object of the installation that does not exist.
+func toolNotFoundText(text string) bool {
+	return strings.Contains(text, "tool not found") || strings.Contains(text, "unknown tool")
+}
+
+// toolNotFound says whether a call's answer is muster's tool-not-found: as
+// the call's error, or as the tool result's error text (muster answers it
+// either way).
+func toolNotFound(res *mcp.CallToolResult, err error) bool {
+	if err != nil {
+		return isToolNotFound(err)
+	}
+	return res != nil && res.IsError && toolNotFoundText(aggregator.TextOf(res))
 }
 
 // waitForTool waits, bounded, for muster to list name for this session.
@@ -465,17 +486,29 @@ var (
 	authServerRe = regexp.MustCompile(`server '([^']+)'`)
 	urlRe        = regexp.MustCompile(`https?://\S+`)
 	userRe       = regexp.MustCompile(`User "([^"]+)"`)
+	// objectNotFoundRe is the apiserver's NotFound as mcp-kubernetes relays
+	// it: the resource, the object's name in quotes, "not found"
+	// (`helmreleases.helm.toolkit.fluxcd.io "kagent" not found`). muster's
+	// "tool not found: x_kubernetes_get" and the apiserver's "the server
+	// could not find the requested resource" are refusals of the read, not
+	// an object that does not exist.
+	objectNotFoundRe = regexp.MustCompile(`"[^"]+" not found`)
 )
 
 // classify maps a tool's refusal to the verify's errors: muster's
 // auth_required for the installation, mcp-kubernetes's response_too_large
 // for a read it will not answer whole, the apiserver's forbidden naming the
-// person, an object that does not exist, anything else as it was said.
+// person, an object that does not exist (the apiserver's NotFound with the
+// object's name), anything else as it was said — muster's tool not found and
+// the apiserver's unknown resource among them, which a check reads as not
+// checked, never as an object missing from the installation.
 func classify(text string) error {
 	if tl := tooLarge(text); tl != nil {
 		return tl
 	}
 	switch {
+	case toolNotFoundText(text):
+		return errors.New("muster lists no such tool for this session: " + strings.TrimSpace(text))
 	case strings.HasPrefix(text, "auth_required") || strings.Contains(text, "requires authentication"):
 		a := &verify.AuthRequired{Message: text}
 		if m := authServerRe.FindStringSubmatch(text); m != nil {
@@ -489,7 +522,7 @@ func classify(text string) error {
 			f.Person = m[1]
 		}
 		return f
-	case strings.Contains(text, "not found"):
+	case objectNotFoundRe.MatchString(text):
 		return fmt.Errorf("%w: %s", verify.ErrNotFound, strings.TrimSpace(text))
 	}
 	return errors.New(strings.TrimSpace(text))
