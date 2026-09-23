@@ -1,6 +1,6 @@
 package e2e
 
-// The rollout watch on the live path: after the merge the actor's — or any
+// The rollout watch, a live tool: after the merge the actor's — or any
 // signed-in person's — watch_action reads the installation's Flux objects
 // through muster as that person, keeps the action rolling out while one is
 // not Ready, and once every one is Ready runs the probes and carries the

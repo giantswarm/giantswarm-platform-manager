@@ -165,7 +165,7 @@
                 },
                 "audiences": {
                     "type": "array",
-                    "description": "OAuth clients whose ID tokens the live surface accepts: a person's forwarded token names the client they signed in with, so this lists the platform's own client (`agent-platform` on the platform) and every other client people reach muster through (a developer portal's). The server trusts the union of this list and `muster.liveServer.requiredAudiences`: every forwarded token carries the required audiences by construction. The union must name at least one audience with `live.enabled`; the chart refuses to render otherwise.",
+                    "description": "OAuth clients whose ID tokens the live tools accept: a person's forwarded token names the client they signed in with, so this lists the platform's own client (`agent-platform` on the platform) and every other client people reach muster through (a developer portal's). The server trusts the union of this list and `muster.mcpServer.requiredAudiences`: every forwarded token carries the required audiences by construction. The union must name at least one audience with `live.enabled`; the chart refuses to render otherwise.",
                     "items": {
                         "type": "string"
                     }
@@ -176,7 +176,7 @@
                 },
                 "enabled": {
                     "type": "boolean",
-                    "description": "Serve the live surface: a second MCP endpoint at `live.path` muster forwards the person's own ID token to, whose tools `verify_installation` and `watch_action` read an installation through muster as the person. The Deployment serves the path; `muster.liveServer.enabled` registers it with muster and needs this on. Turn the path on in a release of its own and register it in the next: muster probes a registration once, and a probe that reaches the previous pod — still behind the Service while the release that turns the path on rolls out — finds no path there and leaves the registration failed until it is restarted by hand (giantswarm/muster#1295). Off: the live dimensions of every verify read not checked, and `get_info` reports `live.configured: false`."
+                    "description": "Serve the live tools `verify_installation` and `watch_action` on `mcp.path`, beside every other tool: they read an installation through muster as the person the platform ID token muster forwards next to the bearer names (`X-Muster-Id-Token`). The chart's `MCPServer` then sets `auth.forwardIdentity: true`, which needs muster with `auth.forwardIdentity` (giantswarm/muster#1317) and `oauth.enabled`. A call without a valid identity token is refused by the live tools, naming the header; the GitHub tools answer as before. Off: the live tools are not served, the live dimensions of every verify read not checked, and `get_info` reports `live.configured: false`."
                 },
                 "issuer": {
                     "type": "string",
@@ -207,10 +207,6 @@
                             "description": "muster's own MCP endpoint as reached from the pod: where a live read loops back to with the person's token. Empty derives `http://muster.<namespace>.svc.cluster.local:8090/mcp` in the release namespace."
                         }
                     }
-                },
-                "path": {
-                    "type": "string",
-                    "description": "MCP streamable-HTTP endpoint path of the live surface, next to `mcp.path` on the same Deployment."
                 }
             }
         },
@@ -228,37 +224,6 @@
             "type": "object",
             "additionalProperties": false,
             "properties": {
-                "liveServer": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "properties": {
-                        "description": {
-                            "type": "string",
-                            "description": "Human-readable description shown by muster."
-                        },
-                        "enabled": {
-                            "type": "boolean",
-                            "description": "Register the live surface with muster as a second MCPServer of the same Deployment: `auth.type: oauth` with `forwardToken: true` and no authorization server, so muster puts the person's own ID token on every call and runs no consent. Its tools `verify_installation` and `watch_action` read an installation through muster's kubernetes tools as the person. Rendered with `muster.mcpServer.enabled` and `oauth.enabled`; needs `live.enabled` — the chart refuses to render the registration of a path the Deployment does not serve — in a release before this one, so that muster's one probe of the registration finds the path answering (its state is then *Auth Required* until the first person's session connects, *Connected* after)."
-                        },
-                        "name": {
-                            "type": "string",
-                            "description": "MCPServer CR name (drives the tool prefix)."
-                        },
-                        "requiredAudiences": {
-                            "type": "array",
-                            "description": "Audiences the forwarded token must carry, rendered as the CR's `spec.auth.requiredAudiences` when set: muster requests them from the identity provider at login as cross-client audiences, so every token it forwards carries them whichever client the person signed in with (`dex-k8s-authenticator` on Giant Swarm installations, the audience the platform's other forwarded-token servers require). Trusted by the server next to `live.audiences`. People sign in again after a change.",
-                            "items": {
-                                "type": "string"
-                            }
-                        },
-                        "timeout": {
-                            "type": "integer",
-                            "description": "Seconds muster waits for one call: a verify reads every object of the definition's probes through muster and the installation's mcp-kubernetes within the one call.",
-                            "maximum": 300,
-                            "minimum": 1
-                        }
-                    }
-                },
                 "mcpServer": {
                     "type": "object",
                     "additionalProperties": false,
@@ -269,7 +234,7 @@
                         },
                         "auth": {
                             "type": "object",
-                            "description": "How muster authenticates to this server; rendered only with `oauth.enabled`: `auth.type: oauth` with the GitHub App `giantswarm-platform-manager` pinned as the authorization server — the pattern of the `github` and `pro` servers on the platform. GitHub publishes no discovery document, so the endpoints are named; the App's client credentials come from a Secret; no `scopes` for GitHub (the App's permissions are the App's), a `scopes` value for an authorization server that needs one. muster runs the consent once per person and puts their user token on every call.",
+                            "description": "How muster authenticates to this server; rendered only with `oauth.enabled`: `auth.type: oauth` with the GitHub App `giantswarm-platform-manager` pinned as the authorization server — the pattern of the `github` and `pro` servers on the platform. GitHub publishes no discovery document, so the endpoints are named; the App's client credentials come from a Secret; no `scopes` for GitHub (the App's permissions are the App's), a `scopes` value for an authorization server that needs one. muster runs the consent once per person and puts their user token on every call. With `live.enabled` the CR also sets `forwardIdentity: true`: muster puts the person's platform ID token in `X-Muster-Id-Token` on every call, next to the user token.",
                             "additionalProperties": false,
                             "properties": {
                                 "authorizationServer": {
@@ -335,9 +300,16 @@
                             "type": "string",
                             "description": "MCPServer CR name (drives the tool prefix)."
                         },
+                        "requiredAudiences": {
+                            "type": "array",
+                            "description": "Audiences the forwarded ID token must carry, rendered as the CR's `spec.auth.requiredAudiences` with `live.enabled`: muster requests them from the identity provider at login as cross-client audiences, so every token it forwards carries them whichever client the person signed in with (`dex-k8s-authenticator` on Giant Swarm installations, the audience the platform's other forwarded-token servers require). Trusted by the server next to `live.audiences`. People sign in again after a change.",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
                         "timeout": {
                             "type": "integer",
-                            "description": "Seconds muster waits for one call before it cancels it (the CR's `spec.timeout`; muster's own default is 30, the CRD allows 1–300). 120 because a write in `mode: commit` renders the change and opens the pull request within the one call.",
+                            "description": "Seconds muster waits for one call before it cancels it (the CR's `spec.timeout`; muster's own default is 30, the CRD allows 1–300). 180 for the longest call: a verify reads every object of the definition's probes through muster and the installation's mcp-kubernetes within the one call, and a write in `mode: commit` renders the change and opens the pull request within it.",
                             "maximum": 300,
                             "minimum": 1
                         }

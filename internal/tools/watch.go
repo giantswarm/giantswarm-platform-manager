@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -22,7 +21,7 @@ import (
 // conditionTrue is a condition's status when it holds.
 const conditionTrue = "True"
 
-// ToolWatchAction is the live surface's second tool: the rollout watch of an
+// ToolWatchAction is the second live tool: the rollout watch of an
 // action, as the person calling. The manager holds no token beyond a call, so
 // the watch is a call — from the portal's page, platformctl, an agent — not
 // a loop: it reads the Flux objects of the installation rolling out through
@@ -76,13 +75,9 @@ func (t *Tools) watchActionLive(ctx context.Context, req mcp.CallToolRequest) (*
 var watchable = []string{actions.StateRollingOut, actions.StateWaitingForCustomer, actions.StateEnabled}
 
 func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
-	token, ok := identity.TokenFromContext(ctx)
-	id, _ := identity.FromContext(ctx)
-	if !ok || id == nil {
-		return nil, errors.New(ToolWatchAction + " needs the person's token: the request carried no forwarded ID token — this tool is reached through muster's " + LiveToolPrefix + " registration, which forwards your own")
-	}
-	if t.d.Live == nil {
-		return nil, errors.New(ToolWatchAction + ": the live path is not configured (muster.liveServer); get_info reports live.configured")
+	token, id, err := t.forwarded(ctx, ToolWatchAction)
+	if err != nil {
+		return nil, err
 	}
 	if t.d.Actions == nil {
 		return nil, fmt.Errorf("%s: the manager runs without the Action records (no in-cluster ServiceAccount); get_info reports actions.configured", ToolWatchAction)
@@ -166,10 +161,10 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 	return out, nil
 }
 
-// resyncThroughMuster has the App-pinned registration re-read a as the
-// person before the watch decides: the live path carries the person's ID
-// token and no GitHub token, and muster puts their GitHub token on a call to
-// the manager's own get_action, which reads the pull requests and the
+// resyncThroughMuster has the manager's own get_action re-read a as the
+// person before the watch decides: the watch reads with the person's
+// forwarded ID token, and muster puts their GitHub token on the loop-back's
+// call to get_action, which reads the pull requests and the
 // markers from GitHub and records what changed — so an action whose pull
 // requests were merged outside the manager is watched all the same. It
 // answers "" when the record was re-read, else the note for the answer: the

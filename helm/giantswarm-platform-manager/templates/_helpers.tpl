@@ -78,12 +78,12 @@ oauth.baseURL, else the in-cluster Service URL.
 {{- end }}
 
 {{/*
-The audiences the live surface trusts, comma-separated: live.audiences and
-the live registration's requiredAudiences, in that order, without duplicates.
+The audiences the live tools trust, comma-separated: live.audiences and the
+MCPServer's requiredAudiences, in that order, without duplicates.
 Empty when neither names one.
 */}}
 {{- define "giantswarm-platform-manager.liveAudiences" -}}
-{{- concat (default (list) .Values.live.audiences) (default (list) .Values.muster.liveServer.requiredAudiences) | uniq | join "," -}}
+{{- concat (default (list) .Values.live.audiences) (default (list) .Values.muster.mcpServer.requiredAudiences) | uniq | join "," -}}
 {{- end }}
 
 {{/*

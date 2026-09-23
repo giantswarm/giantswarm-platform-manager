@@ -56,7 +56,7 @@ or <field>=- (stdin, one field) supplies a secret the plan's suppliedSecrets nam
 once, never printed, and never taken from the command line.
 verify prints the features of the definition with their marks and dimensions. approve, deny and
 merge are the review's tools called as you; the manager's answer says what follows. watch reads
-the rollout of a merged action as you (the live registration): the Flux objects, then the probes,
+the rollout of a merged action as you: the Flux objects, then the probes,
 and carries the action to enabled, waiting for the customer or failed — call it again while it
 is rolling out.
 
@@ -187,15 +187,10 @@ func (c *conn) valid() error {
 	return nil
 }
 
-// call runs one tool of the App-pinned registration and prints its answer:
+// call runs one tool of the manager and prints its answer:
 // as JSON when asked, else through show, which decodes the document into the
 // manager's type and formats it.
 func (c *conn) call(tool string, args map[string]any, stdout, stderr io.Writer, show func(json.RawMessage) error) int {
-	return c.callOn(muster.Server, tool, args, stdout, stderr, show)
-}
-
-// callOn is call against the named registration of the manager.
-func (c *conn) callOn(server, tool string, args map[string]any, stdout, stderr io.Writer, show func(json.RawMessage) error) int {
 	s, err := c.open(stderr)
 	if err != nil {
 		return fail(stderr, err)
@@ -203,7 +198,7 @@ func (c *conn) callOn(server, tool string, args map[string]any, stdout, stderr i
 	defer func() { _ = s.Close() }()
 	ctx, cancel := c.callCtx()
 	defer cancel()
-	raw, err := s.CallServer(ctx, server, tool, args)
+	raw, err := s.Call(ctx, tool, args)
 	if err != nil {
 		if auth, ok := muster.IsAuthRequired(err); ok {
 			if c.output == outputJSON {
@@ -227,12 +222,12 @@ func (c *conn) callOn(server, tool string, args map[string]any, stdout, stderr i
 	return exitOK
 }
 
-// callBoth is call over the two registrations of the manager: tool on the
-// App-pinned one and liveTool on the live one, with the same arguments; the
-// live answer, or why there is none, goes to show with the App-pinned one.
-// A live registration the person cannot reach — not registered, not
-// connected — is not a failure of the command: the repository result stands
-// and the live side says why. --output json prints the two documents as one
+// callBoth is call over the two halves of a result, both tools of the one
+// registration: tool, then liveTool with the same arguments and the first
+// answer's inputs; the live answer, or why there is none, goes to show with
+// the first. A live tool that refuses — not served, no identity forwarded,
+// an installation not connected — is not a failure of the command: the
+// repository result stands and the live side says why. --output json prints the two documents as one
 // object, {"repository": …, "live": …|null, "liveError": …}, with "liveCut"
 // {layer, tool, timeout} when the live call ended without an answer. Each
 // call has its own --timeout.
@@ -259,7 +254,7 @@ func (c *conn) callBoth(tool, liveTool string, args map[string]any, stdout, stde
 	}
 	liveCtx, cancelLive := c.callCtx()
 	defer cancelLive()
-	live, liveErr := s.CallServer(liveCtx, muster.LiveServer, liveTool, carryInputs(args, repo))
+	live, liveErr := s.Call(liveCtx, liveTool, carryInputs(args, repo))
 	if c.output == outputJSON {
 		doc := map[string]any{"repository": repo, "live": nil}
 		if liveErr != nil {

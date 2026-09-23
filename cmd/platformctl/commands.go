@@ -9,7 +9,6 @@ import (
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/platformctl/format"
-	"github.com/giantswarm/giantswarm-platform-manager/internal/platformctl/muster"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/platformctl/template"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
@@ -340,10 +339,10 @@ func cmdActionMerge(args []string, stdout, stderr io.Writer) int {
 	})
 }
 
-// cmdActionWatch is the rollout watch: watch_action on the live registration,
-// the reads as you, printed as the picture of the stage and the Action.
+// cmdActionWatch is the rollout watch: watch_action, the reads as you,
+// printed as the picture of the stage and the Action.
 func cmdActionWatch(args []string, stdout, stderr io.Writer) int {
-	return actionOnServer("watch", muster.LiveServer, tools.ToolWatchAction, false, args, stdout, stderr, func(raw json.RawMessage) error {
+	return actionByName("watch", tools.ToolWatchAction, false, args, stdout, stderr, func(raw json.RawMessage) error {
 		var r tools.WatchResult
 		if err := decode(raw, &r); err != nil {
 			return err
@@ -352,15 +351,9 @@ func cmdActionWatch(args []string, stdout, stderr io.Writer) int {
 	})
 }
 
-// actionByName is approve, deny and merge: one action by name to the review's
-// tool of that name on the App-pinned registration, as you; deny with its --reason.
+// actionByName is approve, deny, merge and watch: one action by name to the
+// manager's tool of that name, as you; deny with its --reason.
 func actionByName(name, tool string, withReason bool, args []string, stdout, stderr io.Writer, show func(json.RawMessage) error) int {
-	return actionOnServer(name, muster.Server, tool, withReason, args, stdout, stderr, show)
-}
-
-// actionOnServer is one action by name to tool on the named registration of
-// the manager (the App-pinned one, or the live one for the watch).
-func actionOnServer(name, server, tool string, withReason bool, args []string, stdout, stderr io.Writer, show func(json.RawMessage) error) int {
 	fs := newFlags("action "+name, stderr)
 	var c conn
 	c.flags(fs)
@@ -386,5 +379,5 @@ func actionOnServer(name, server, tool string, withReason bool, args []string, s
 	if withReason {
 		toolArgs[tools.ArgReason] = reason
 	}
-	return c.callOn(server, tool, toolArgs, stdout, stderr, show)
+	return c.call(tool, toolArgs, stdout, stderr, show)
 }

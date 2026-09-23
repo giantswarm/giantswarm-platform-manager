@@ -14,16 +14,15 @@ Giant Swarm-specific: it manages the giantswarm org's installations and ships
 as its own app on the hub installation, not as a component of the
 `agent-platform` meta chart.
 
-The live surface — the second registration muster forwards the person's own
-ID token to, whose `verify_installation` and `watch_action` read an installation as the person —
-is two switches, turned on in two releases: `live.enabled` serves the path in
-the Deployment (`live.issuer`, `live.audiences`, the key set over HTTPS), and
-`muster.liveServer.enabled`, in the release after it, renders the `MCPServer`
-that registers the path with muster. The chart refuses to render the
-registration without the path: muster probes a registration once, a probe
-that reaches a pod without the path leaves the registration failed until it
-is restarted, and a probe that finds the path answering reads *Auth Required*
-— *Connected* once the first person's session connects.
+With `live.enabled` the same registration serves `verify_installation` and
+`watch_action`, which read an installation as the person: the `MCPServer`
+sets `auth.forwardIdentity: true` (muster with `auth.forwardIdentity`,
+giantswarm/muster#1317), so muster puts the person's platform ID token in
+`X-Muster-Id-Token` on every call next to the user token, and the server
+verifies it against `live.issuer`, `live.audiences` and
+`muster.mcpServer.requiredAudiences` over the issuer's HTTPS key set. A call
+without a valid identity token is refused by the live tools, naming the
+header; every other tool answers with the user token alone.
 
 {{ template "chart.requirementsSection" . }}
 

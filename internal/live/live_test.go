@@ -51,7 +51,7 @@ func TestKindArgsSplitKindAndGroup(t *testing.T) {
 const platformClient = "agent-platform"
 
 func TestConfigValidateNamesTheMissingField(t *testing.T) {
-	cfg := Config{Path: "/mcp/live", Issuer: "https://dex.example.test/dex", Audiences: []string{platformClient}, MusterURL: "http://muster:8090/mcp", KubernetesFamily: "kubernetes"}
+	cfg := Config{Issuer: "https://dex.example.test/dex", Audiences: []string{platformClient}, MusterURL: "http://muster:8090/mcp", KubernetesFamily: "kubernetes"}
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,6 @@ func TestConfigValidateNamesTheMissingField(t *testing.T) {
 			c.KubernetesInstanceArg = "management_cluster"
 			c.KubernetesMember = "{{ .Installation"
 		}},
-		{"path", func(c *Config) { c.Path = "mcp" }},
 		{"JWKS URL over plain http", func(c *Config) { c.JWKSURL = "http://dex.dex.svc.cluster.local:5556/dex/keys" }},
 		{"JWKS URL without a host", func(c *Config) { c.JWKSURL = "https:///keys" }},
 	} {
@@ -85,7 +84,7 @@ func TestConfigValidateNamesTheMissingField(t *testing.T) {
 // configuration is read, naming the requirement, and never on the tokens; an
 // https one — a private Service name included — is what the allowance is for.
 func TestConfigValidateRefusesAPlainHTTPKeySet(t *testing.T) {
-	cfg := Config{Path: "/mcp/live", Issuer: "https://dex.example.test/dex", Audiences: []string{platformClient}, MusterURL: "http://muster:8090/mcp", KubernetesFamily: "kubernetes",
+	cfg := Config{Issuer: "https://dex.example.test/dex", Audiences: []string{platformClient}, MusterURL: "http://muster:8090/mcp", KubernetesFamily: "kubernetes",
 		JWKSURL: "https://dex.dex.svc.cluster.local:5556/dex/keys", AllowPrivateIPJWKS: true}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("an https key set on a private name: %v", err)

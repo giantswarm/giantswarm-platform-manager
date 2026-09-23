@@ -3,8 +3,8 @@ package e2e
 // The record follows GitHub: pull requests merged outside merge_action by a
 // person with the repositories' own merge path move the action to rolling
 // out on the next read, with who merged them and the approval recorded as
-// merged without approval; the watch on the live path re-reads the record
-// through the App-pinned registration as the person first, so it works on
+// merged without approval; the watch re-reads the record through the
+// manager's own get_action as the person first, so it works on
 // such an action; a pull request closed unmerged fails the action naming it;
 // and a fileset reverted out of the default branch again removes the action,
 // naming the objects the definition rendered that stay on the installation
@@ -100,9 +100,9 @@ func TestPullRequestsMergedOutsideMoveTheActionToRollingOut(t *testing.T) {
 	assertNoLeak(t, "the server's log", st.logs.String())
 }
 
-// The first call after the merges by hand is the watch, on the live path,
-// which carries no GitHub token: it has the App-pinned registration re-read
-// the action as the person through muster — muster puts their GitHub grant
+// The first call after the merges by hand is the watch, which reads with the
+// forwarded identity: it has the manager's own get_action re-read the action
+// as the person through muster — muster puts their GitHub grant
 // on the call — and watches the action that is rolling out now.
 func TestWatchActionReadsThePullRequestsThroughMuster(t *testing.T) {
 	st := newStack(t)

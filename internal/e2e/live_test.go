@@ -1,7 +1,8 @@
 package e2e
 
-// verify_installation on the live path: the person's ID token as the bearer,
-// the installation read through the fake muster as the person, the three
+// verify_installation on the one registration: the person's App user token
+// as the bearer and their ID token in X-Muster-Id-Token, the installation
+// read through the fake muster as the person, the three
 // marks over the live dimensions, the forbidden and the not-connected
 // results, waiting for the customer, the feed into list_installations.
 
@@ -9,18 +10,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/mcp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
@@ -151,52 +152,67 @@ func recordedProbes(t *testing.T, st *stack) map[string]actions.Probe {
 	return out
 }
 
-// The live path takes the ID token muster forwards and nothing else: no
-// bearer, a GitHub token, a token for another audience and an expired one
-// are refused with the challenge, before any tool runs; a token for any of
-// the trusted audiences — the platform's client, the audience the live
-// registration requires — is taken.
-func TestLivePathRefusesTokensItCannotVerify(t *testing.T) {
+// The live tools read as the person the forwarded identity names and no
+// one else: a call with the App user token alone, or with an ID token for
+// another audience or an expired one in X-Muster-Id-Token, is refused by the
+// tool, naming the header and muster's auth.forwardIdentity, before anything
+// reaches muster — while the GitHub tools answer on the same session, with
+// the App token alone. An ID token for any of the trusted audiences — the
+// platform's client, the audience the registration requires — is taken.
+func TestLiveToolsRefuseAnIdentityTheyCannotVerify(t *testing.T) {
 	st := newStack(t)
-	post := func(bearer string) *http.Response {
-		req, _ := http.NewRequest(http.MethodPost, st.srv.URL+livePath, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`))
-		req.Header.Set("Content-Type", "application/json")
-		if bearer != "" {
-			req.Header.Set("Authorization", "Bearer "+bearer)
-		}
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, _ = io.Copy(io.Discard, resp.Body)
-		_ = resp.Body.Close()
-		return resp
+	fixtures(st.ghs)
+	withIdentity := func(idToken string) *client.Client {
+		return st.client(t, map[string]string{"Authorization": "Bearer " + aliceToken, identity.ForwardedIdentityHeader: idToken})
 	}
-	for name, bearer := range map[string]string{
-		"no bearer":      "",
-		"a GitHub token": aliceToken,
-		"other audience": st.dex.token(t, liveAdmin, []string{"other-client"}, time.Hour),
-		"expired":        st.dex.token(t, liveAdmin, []string{liveAudience}, -time.Hour),
+	for name, c := range map[string]struct {
+		session *client.Client
+		want    string
+	}{
+		"no identity":    {st.mcpClient(t, aliceToken), "the call carried no " + identity.ForwardedIdentityHeader + " header"},
+		"a GitHub token": {withIdentity(aliceToken), "the " + identity.ForwardedIdentityHeader + " header was not accepted"},
+		// The token check's own words: the token's audiences and the
+		// trusted list, so a hub's operator sees which client the person
+		// signed in with.
+		"other audience": {withIdentity(st.dex.token(t, liveAdmin, []string{"other-client"}, time.Hour)), "audience mismatch: token audiences [other-client] not in trusted [" + liveAudience + " " + liveRequiredAudience + "]"},
+		"expired":        {withIdentity(st.dex.token(t, liveAdmin, []string{liveAudience}, -time.Hour)), "the " + identity.ForwardedIdentityHeader + " header was not accepted"},
 	} {
-		resp := post(bearer)
-		if resp.StatusCode != http.StatusUnauthorized || !strings.Contains(resp.Header.Get("WWW-Authenticate"), `realm="giantswarm-platform-manager-live"`) {
-			t.Errorf("%s: %d %q", name, resp.StatusCode, resp.Header.Get("WWW-Authenticate"))
+		for tool, args := range map[string]map[string]any{
+			tools.ToolVerifyInstallation: {tools.ArgInstallation: rowan},
+			tools.ToolWatchAction:        {tools.ArgAction: liveAction},
+		} {
+			text, isErr := call(t, c.session, tool, args)
+			if !isErr || !strings.Contains(text, c.want) || !strings.Contains(text, "auth.forwardIdentity") {
+				t.Errorf("%s, %s: %v %s", name, tool, isErr, text)
+			}
 		}
-	}
-	// An unlisted audience is refused with the token check's own words: the
-	// token's audiences and the trusted list, so a hub's operator sees which
-	// client the person signed in with.
-	if h := post(st.dex.token(t, liveAdmin, []string{"other-client"}, time.Hour)).Header.Get("WWW-Authenticate"); !strings.Contains(h, "audience mismatch: token audiences [other-client] not in trusted ["+liveAudience+" "+liveRequiredAudience+"]") {
-		t.Errorf("other audience: %q", h)
+		if text, isErr := call(t, c.session, tools.ToolListInstallations, map[string]any{tools.ArgInstallations: []string{rowan}}); isErr {
+			t.Errorf("%s: list_installations with the App token: %s", name, text)
+		}
 	}
 	for name, aud := range map[string]string{"the platform client": liveAudience, "the required audience": liveRequiredAudience} {
-		if resp := post(st.dex.token(t, liveAdmin, []string{aud}, time.Hour)); resp.StatusCode != http.StatusOK {
-			t.Errorf("a token for %s: %d", name, resp.StatusCode)
+		info := getInfo(t, withIdentity(st.dex.token(t, liveAdmin, []string{aud}, time.Hour)))
+		if id := info.Live.Identity; !id.Forwarded || id.Refused != "" || id.Person == nil || id.Person.Email != liveAdmin || info.Caller == nil || info.Caller.Login != alice {
+			t.Errorf("a token for %s: caller %+v identity %+v", name, info.Caller, id)
 		}
 	}
 	if len(st.muster.seen()) != 0 {
 		t.Errorf("nothing reached muster: %+v", st.muster.seen())
 	}
+}
+
+// getInfo is get_info's answer on c.
+func getInfo(t *testing.T, c *client.Client) tools.Info {
+	t.Helper()
+	text, isErr := call(t, c, tools.ToolGetInfo, nil)
+	if isErr {
+		t.Fatal(text)
+	}
+	var info tools.Info
+	if err := json.Unmarshal([]byte(text), &info); err != nil {
+		t.Fatal(err)
+	}
+	return info
 }
 
 // The installation runs as rendered: every live dimension as defined, every
@@ -445,20 +461,30 @@ func TestVerifyInstallationWithoutInputsOnRecord(t *testing.T) {
 	}
 }
 
-// get_info on the App-pinned path reports the live surface.
-func TestGetInfoReportsTheLiveSurface(t *testing.T) {
+// get_info reports the live tools on the one registration and the identity
+// forwarding they read with: the header, muster's setting, and whether this
+// call carried it — here it does not, and nothing is refused.
+func TestGetInfoReportsTheLiveTools(t *testing.T) {
 	st := newStack(t)
-	text, isErr := call(t, st.mcpClient(t, aliceToken), tools.ToolGetInfo, nil)
-	if isErr {
-		t.Fatal(text)
+	info := getInfo(t, st.mcpClient(t, aliceToken))
+	if !info.Live.Configured || info.Live.Tool != tools.ToolVerifyInstallation || info.Live.Issuer != st.dex.issuer || info.Live.KubernetesFamily != kubernetesFamily ||
+		!reflect.DeepEqual(info.Live.Audiences, []string{liveAudience, liveRequiredAudience}) || !reflect.DeepEqual(info.Live.Tools, []string{tools.ToolVerifyInstallation, tools.ToolWatchAction}) ||
+		info.Live.Identity.Header != identity.ForwardedIdentityHeader || info.Live.Identity.Muster != "auth.forwardIdentity" || info.Live.Identity.Forwarded || info.Live.Identity.Refused != "" {
+		t.Errorf("live: %+v", info.Live)
 	}
-	var info tools.Info
-	if err := json.Unmarshal([]byte(text), &info); err != nil {
+	c := st.mcpClient(t, aliceToken)
+	listed, err := c.ListTools(context.Background(), mcp.ListToolsRequest{})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if !info.Live.Configured || info.Live.ToolPrefix != tools.LiveToolPrefix || info.Live.Tool != tools.ToolVerifyInstallation || info.Live.Issuer != st.dex.issuer || info.Live.KubernetesFamily != kubernetesFamily ||
-		!reflect.DeepEqual(info.Live.Audiences, []string{liveAudience, liveRequiredAudience}) || !reflect.DeepEqual(info.Live.Tools, []string{tools.ToolVerifyInstallation, tools.ToolWatchAction}) {
-		t.Errorf("live: %+v", info.Live)
+	served := map[string]bool{}
+	for _, tool := range listed.Tools {
+		served[tool.Name] = true
+	}
+	for _, want := range append([]string{tools.ToolGetInfo, tools.ToolVerifyCapability}, info.Live.Tools...) {
+		if !served[want] {
+			t.Errorf("%s is not among the tools of the one registration", want)
+		}
 	}
 }
 

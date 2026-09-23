@@ -428,7 +428,7 @@ func Wave(w io.Writer, r tools.WaveResult) error {
 // it, its dimensions with theirs — a difference names the file or the live
 // object, the path and the input that drives it or drift; a probe its
 // requests, a live dimension its checks. liveErr says why there is no live
-// side when the live registration did not answer.
+// side when verify_installation did not answer.
 func Verify(w io.Writer, r verify.Result, liveErr error) error {
 	p := &printer{w: w}
 	p.f("verify %s on %s (hub %s), as %s\n", r.Capability, r.Installation, dash(r.Hub), dash(r.Caller))

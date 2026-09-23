@@ -1,15 +1,17 @@
-// Package live is the manager's second surface: the registration muster
-// forwards the person's own ID token to (MCPServer auth.forwardToken), and
-// the loop-back that reads an installation with it. The bearer of a request
-// on the live path is the platform identity provider's ID token for the
-// person; it is validated the way the platform's forward-mode servers
-// validate theirs (mcp-oauth's OIDC primitives: the issuer's JWKS, the
-// issuer, the audiences the forwarded tokens carry). A live read then opens
-// — or reuses, per person — an MCP session at muster's own endpoint with that
-// token and calls the installation's kubernetes tools through it: muster's
-// per-installation token exchange, the tunnel to a private installation, the
-// installation's mcp-kubernetes and the person's RBAC decide what is read.
-// The manager holds no credential of its own on any installation.
+// Package live is the manager's reads as the person: verify_installation and
+// watch_action on the one registration, which muster calls with the person's
+// App user token as the bearer and their platform ID token next to it
+// (MCPServer auth.forwardIdentity, the X-Muster-Id-Token header), and the
+// loop-back that reads an installation with that ID token. The forwarded
+// token is the platform identity provider's ID token for the person; it is
+// validated the way the platform's forward-mode servers validate theirs
+// (mcp-oauth's OIDC primitives: the issuer's JWKS, the issuer, the audiences
+// the forwarded tokens carry). A live read then opens — or reuses, per
+// person — an MCP session at muster's own endpoint with that token and calls
+// the installation's kubernetes tools through it: muster's per-installation
+// token exchange, the tunnel to a private installation, the installation's
+// mcp-kubernetes and the person's RBAC decide what is read. The manager holds
+// no credential of its own on any installation.
 package live
 
 import (
@@ -36,16 +38,14 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 )
 
-// Config is the live path's configuration, from the chart's values.
+// Config is the live reads' configuration, from the chart's values.
 type Config struct {
-	// Path is where the live MCP endpoint listens, next to the App-pinned one.
-	Path string
 	// Issuer is the platform identity provider's issuer: the iss every
 	// forwarded token carries.
 	Issuer string
 	// Audiences are the OAuth clients a forwarded token may carry in aud: a
 	// person's ID token names the client they signed in with — the
-	// platform's own, a portal's — and the audiences the live registration
+	// platform's own, a portal's — and the audiences the registration
 	// requires of muster, which every forwarded token carries by
 	// construction. A token is accepted when one of its audiences is listed.
 	// At least one is required: an empty list would accept any audience.
@@ -93,7 +93,7 @@ const ClientName = "giantswarm-platform-manager"
 
 // Validate checks required fields.
 func (c Config) Validate() error {
-	for _, f := range []struct{ what, v string }{{"path", c.Path}, {"issuer", c.Issuer}, {"muster URL", c.MusterURL}, {"kubernetes family", c.KubernetesFamily}} {
+	for _, f := range []struct{ what, v string }{{"issuer", c.Issuer}, {"muster URL", c.MusterURL}, {"kubernetes family", c.KubernetesFamily}} {
 		if strings.TrimSpace(f.v) == "" {
 			return fmt.Errorf("live: %s is required", f.what)
 		}
@@ -107,16 +107,13 @@ func (c Config) Validate() error {
 		}
 	}
 	if len(c.audiences()) == 0 {
-		return errors.New("live: audiences is required: at least one OAuth client whose ID tokens the live surface accepts (an empty list would accept every audience)")
+		return errors.New("live: audiences is required: at least one OAuth client whose ID tokens the live tools accept (an empty list would accept every audience)")
 	}
 	for _, f := range []struct{ what, v string }{{"issuer", c.Issuer}, {"muster URL", c.MusterURL}} {
 		u, err := url.Parse(f.v)
 		if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
 			return fmt.Errorf("live: %s must be an absolute http(s) URL: %q", f.what, f.v)
 		}
-	}
-	if !strings.HasPrefix(c.Path, "/") {
-		return fmt.Errorf("live: path must start with /: %q", c.Path)
 	}
 	if c.JWKSURL != "" {
 		if u, err := url.Parse(c.JWKSURL); err != nil || u.Host == "" || u.Scheme != "https" {
@@ -145,9 +142,8 @@ func ParseAudiences(s string) []string {
 	return out
 }
 
-// Info is the live path as get_info reports it.
+// Info is the live reads' configuration as get_info reports it.
 type Info struct {
-	Path                  string   `json:"path"`
 	Issuer                string   `json:"issuer"`
 	Audiences             []string `json:"audiences"`
 	MusterURL             string   `json:"musterUrl"`
@@ -200,7 +196,7 @@ func New(cfg Config, log *slog.Logger) (*Client, error) {
 			return nil, err
 		}
 	}
-	log.Info("live path enabled", "path", cfg.Path, "issuer", cfg.Issuer, "audiences", cfg.Audiences, "jwks", cfg.JWKSURL, "muster", cfg.MusterURL, "kubernetesFamily", cfg.KubernetesFamily, "instanceArg", cfg.KubernetesInstanceArg, "member", cfg.KubernetesMember)
+	log.Info("live reads enabled", "issuer", cfg.Issuer, "audiences", cfg.Audiences, "jwks", cfg.JWKSURL, "muster", cfg.MusterURL, "kubernetesFamily", cfg.KubernetesFamily, "instanceArg", cfg.KubernetesInstanceArg, "member", cfg.KubernetesMember)
 	return c, nil
 }
 
@@ -235,11 +231,8 @@ func rootCAs(file string) (*x509.CertPool, error) {
 
 // Info is the configuration as reported.
 func (c *Client) Info() Info {
-	return Info{Path: c.cfg.Path, Issuer: c.cfg.Issuer, Audiences: c.cfg.Audiences, MusterURL: c.cfg.MusterURL, KubernetesFamily: c.cfg.KubernetesFamily, KubernetesInstanceArg: c.cfg.KubernetesInstanceArg, KubernetesMember: c.cfg.KubernetesMember}
+	return Info{Issuer: c.cfg.Issuer, Audiences: c.cfg.Audiences, MusterURL: c.cfg.MusterURL, KubernetesFamily: c.cfg.KubernetesFamily, KubernetesInstanceArg: c.cfg.KubernetesInstanceArg, KubernetesMember: c.cfg.KubernetesMember}
 }
-
-// Path is where the live endpoint listens.
-func (c *Client) Path() string { return c.cfg.Path }
 
 // Verify validates a forwarded token: signature against the issuer's key
 // set, issuer, one of the audiences, time; the person it names comes back.
@@ -329,8 +322,8 @@ func (c *Client) session(ctx context.Context, sub, token string) (*session, erro
 // Call runs one of the aggregator's tools through the person's loop-back
 // session and answers its text: the manager's own App-pinned registration
 // among them, which muster calls with the person's GitHub token — how the
-// live path, which holds no GitHub token, has an Action record follow GitHub
-// as the person. A tool muster does not list for the person (a registration
+// watch, which reads with the forwarded ID token, has an Action record follow
+// GitHub as the person. A tool muster does not list for the person (a registration
 // they are not connected to) is refused without waiting; the tool's own
 // refusal is an error carrying its text, muster's auth_required among them.
 func (c *Client) Call(ctx context.Context, token string, id *identity.Identity, tool string, args map[string]any) (string, error) {
@@ -447,7 +440,7 @@ func (k *cluster) waitForTool(ctx context.Context, name string) error {
 			}
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("muster lists no %s for %s: the person's session is not connected to the installations' kubernetes servers (the family %q under muster.liveServer.kubernetes)", name, k.person, k.c.cfg.KubernetesFamily)
+			return fmt.Errorf("muster lists no %s for %s: the person's session is not connected to the installations' kubernetes servers (the family %q of live.muster.kubernetesFamily)", name, k.person, k.c.cfg.KubernetesFamily)
 		}
 		select {
 		case <-ctx.Done():

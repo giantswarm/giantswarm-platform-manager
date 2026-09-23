@@ -14,7 +14,7 @@ import (
 const (
 	chartDir   = "../../helm/giantswarm-platform-manager"
 	testValues = "../../tests/test-values.yaml"
-	liveName   = "giantswarm-platform-manager-live"
+	serverName = "giantswarm-platform-manager"
 )
 
 // render runs helm template over the test values and the arguments given and
@@ -72,93 +72,125 @@ func at(obj any, path string) any {
 	return obj
 }
 
-func liveEnv(t *testing.T, objects map[string]map[string]any) string {
+// mcpServers are the MCPServer objects of a render, by name.
+func mcpServers(objects map[string]map[string]any) []string {
+	var names []string
+	for key := range objects {
+		if name, ok := strings.CutPrefix(key, "MCPServer/"); ok {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// registration is the one MCPServer of a render.
+func registration(t *testing.T, objects map[string]map[string]any) map[string]any {
+	t.Helper()
+	if names := mcpServers(objects); !reflect.DeepEqual(names, []string{serverName}) {
+		t.Fatalf("MCPServers rendered: %v, want the one %s", names, serverName)
+	}
+	return objects["MCPServer/"+serverName]
+}
+
+func env(t *testing.T, objects map[string]map[string]any, name string) any {
 	t.Helper()
 	deployment := objects["Deployment/giantswarm-platform-manager"]
 	if deployment == nil {
 		t.Fatal("no Deployment rendered")
 	}
-	v, _ := at(deployment, "spec.template.spec.containers.giantswarm-platform-manager.env.LIVE_AUDIENCES.value").(string)
-	return v
+	return at(deployment, "spec.template.spec.containers.giantswarm-platform-manager.env."+name+".value")
 }
 
-// The platform shape: the live registration requires the cross-client
-// audience on the CR and the server trusts it next to the clients people
-// sign in with — the union, in order, is LIVE_AUDIENCES.
-func TestLiveRegistrationRendersRequiredAudiences(t *testing.T) {
+// The platform shape: one registration at /mcp, pinned to the App, that
+// forwards the person's identity and requires the cross-client audience; the
+// server trusts it next to the clients people sign in with — the union, in
+// order, is LIVE_AUDIENCES. Its timeout covers the longest call, a verify.
+func TestOneRegistrationForwardsTheIdentity(t *testing.T) {
 	objects, msg := render(t, "-f", filepath.Join("../../tests", "oauth-values.yaml"))
 	if msg != "" {
 		t.Fatal(msg)
 	}
-	live := objects["MCPServer/"+liveName]
-	if live == nil {
-		t.Fatal("no live MCPServer rendered")
+	mcp := registration(t, objects)
+	for path, want := range map[string]any{
+		"spec.url":                                 "http://giantswarm-platform-manager.default.svc.cluster.local:8080/mcp",
+		"spec.timeout":                             180,
+		"spec.auth.type":                           "oauth",
+		"spec.auth.forwardIdentity":                true,
+		"spec.auth.requiredAudiences":              []any{"dex-k8s-authenticator"},
+		"spec.auth.authorizationServer.issuer":     "https://github.com/apps/giantswarm-platform-manager",
+		"spec.auth.authorizationServer.grantScope": "subject",
+	} {
+		if got := at(mcp, path); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: %v, want %v", path, got, want)
+		}
 	}
-	if got := at(live, "spec.auth.requiredAudiences"); !reflect.DeepEqual(got, []any{"dex-k8s-authenticator"}) {
-		t.Errorf("spec.auth.requiredAudiences: %v", got)
+	if got := at(mcp, "spec.auth.forwardToken"); got != nil {
+		t.Errorf("spec.auth.forwardToken rendered: %v", got)
 	}
-	if got := at(live, "spec.auth.forwardToken"); got != true {
-		t.Errorf("spec.auth.forwardToken: %v", got)
+	if got := env(t, objects, "LIVE_AUDIENCES"); got != "agent-platform,dex-k8s-authenticator" {
+		t.Errorf("LIVE_AUDIENCES: %v", got)
 	}
-	if got := liveEnv(t, objects); got != "agent-platform,dex-k8s-authenticator" {
-		t.Errorf("LIVE_AUDIENCES: %q", got)
+	if got := env(t, objects, "LIVE_ENABLED"); got != "true" {
+		t.Errorf("LIVE_ENABLED: %v", got)
 	}
 }
 
-// The lab shape names one audience and requires none: the CR carries no
-// requiredAudiences and the server trusts the one.
-func TestLiveRegistrationWithoutRequiredAudiences(t *testing.T) {
+// The lab shape names one audience and requires none: the registration
+// forwards the identity without requiredAudiences and the server trusts the
+// one.
+func TestOneRegistrationWithoutRequiredAudiences(t *testing.T) {
 	objects, msg := render(t, "-f", filepath.Join("../../tests", "lab-oauth-values.yaml"))
 	if msg != "" {
 		t.Fatal(msg)
 	}
-	live := objects["MCPServer/"+liveName]
-	if live == nil {
-		t.Fatal("no live MCPServer rendered")
+	mcp := registration(t, objects)
+	if got := at(mcp, "spec.auth.forwardIdentity"); got != true {
+		t.Errorf("spec.auth.forwardIdentity: %v", got)
 	}
-	if got := at(live, "spec.auth.requiredAudiences"); got != nil {
+	if got := at(mcp, "spec.auth.requiredAudiences"); got != nil {
 		t.Errorf("spec.auth.requiredAudiences rendered: %v", got)
 	}
-	if got := liveEnv(t, objects); got != "agent-platform" {
-		t.Errorf("LIVE_AUDIENCES: %q", got)
+	if got := env(t, objects, "LIVE_AUDIENCES"); got != "agent-platform" {
+		t.Errorf("LIVE_AUDIENCES: %v", got)
+	}
+}
+
+// Without live.enabled the registration forwards no identity and requires
+// no audience, and the Deployment serves no live tools.
+func TestNoIdentityForwardedWithoutLive(t *testing.T) {
+	objects, msg := render(t, "-f", filepath.Join("../../tests", "oauth-values.yaml"), "--set", "live.enabled=false")
+	if msg != "" {
+		t.Fatal(msg)
+	}
+	mcp := registration(t, objects)
+	for _, path := range []string{"spec.auth.forwardIdentity", "spec.auth.requiredAudiences"} {
+		if got := at(mcp, path); got != nil {
+			t.Errorf("%s rendered: %v", path, got)
+		}
+	}
+	if got := at(mcp, "spec.auth.authorizationServer.issuer"); got != "https://github.com/apps/giantswarm-platform-manager" {
+		t.Errorf("the App pin: %v", got)
+	}
+	if got := env(t, objects, "LIVE_ENABLED"); got != nil {
+		t.Errorf("LIVE_ENABLED: %v", got)
 	}
 }
 
 // Neither list naming an audience refuses the render by name: an empty list
 // would accept every audience.
-func TestLiveRegistrationRefusesNoAudience(t *testing.T) {
-	_, msg := render(t, "-f", filepath.Join("../../tests", "oauth-values.yaml"), "--set", "live.audiences=null", "--set", "muster.liveServer.requiredAudiences=null")
+func TestLiveRefusesNoAudience(t *testing.T) {
+	_, msg := render(t, "-f", filepath.Join("../../tests", "oauth-values.yaml"), "--set", "live.audiences=null", "--set", "muster.mcpServer.requiredAudiences=null")
 	if !strings.Contains(msg, "live.audiences must name at least one OAuth client") {
 		t.Errorf("rendered, or refused for another reason: %q", msg)
 	}
 }
 
-// The path and the registration are two switches: live.enabled serves the
-// path in the Deployment on its own, so the release that turns it on can roll
-// out before the release that registers it — muster's one probe of the
-// registration then finds the path answering.
-func TestLivePathServedBeforeTheRegistration(t *testing.T) {
-	objects, msg := render(t, "-f", filepath.Join("../../tests", "oauth-values.yaml"), "--set", "muster.liveServer.enabled=false")
-	if msg != "" {
-		t.Fatal(msg)
-	}
-	if live := objects["MCPServer/"+liveName]; live != nil {
-		t.Error("the live MCPServer rendered without muster.liveServer.enabled")
-	}
-	deployment := objects["Deployment/giantswarm-platform-manager"]
-	if got := at(deployment, "spec.template.spec.containers.giantswarm-platform-manager.env.LIVE_ENABLED.value"); got != "true" {
-		t.Errorf("LIVE_ENABLED: %v", got)
-	}
-	if got := liveEnv(t, objects); got != "agent-platform,dex-k8s-authenticator" {
-		t.Errorf("LIVE_AUDIENCES: %q", got)
-	}
-}
-
-// A registration of a path the Deployment does not serve is refused by name:
-// a probe that finds no path leaves the registration failed in muster.
-func TestLiveRegistrationRequiresThePath(t *testing.T) {
-	_, msg := render(t, "-f", filepath.Join("../../tests", "oauth-values.yaml"), "--set", "live.enabled=false")
-	for _, want := range []string{"live.enabled", "muster.liveServer.enabled", "release of its own first"} {
+// The identity rides on the registration's OAuth auth: live tools without
+// OAuth would be served and never reached with an identity, so the render
+// is refused by name.
+func TestLiveRequiresOAuth(t *testing.T) {
+	_, msg := render(t, "-f", filepath.Join("../../tests", "oauth-values.yaml"), "--set", "oauth.enabled=false")
+	for _, want := range []string{"live.enabled", "auth.forwardIdentity", "oauth.enabled"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("the refusal does not name %q: %q", want, msg)
 		}

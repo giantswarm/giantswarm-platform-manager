@@ -10,10 +10,10 @@
 #   helm template giantswarm-platform-manager helm/giantswarm-platform-manager \
 #     -f tests/test-values.yaml -f tests/lab-oauth-values.yaml -s templates/mcpserver.yaml
 #
-# renders the MCPServer with `scopes` and without `expectedIssuer`; the second
-# document is the live registration (templates/mcpserver-live.yaml).
+# renders the MCPServer with `scopes`, without `expectedIssuer` and with
+# `forwardIdentity` (live.enabled), without `requiredAudiences`.
 #
-# The live surface in the lab: the forwarded tokens come from the lab Dex,
+# The live tools in the lab: the forwarded tokens come from the lab Dex,
 # whose issuer is https://localhost:<dex port>/dex (32000 by default); a pod
 # cannot reach that name, so the key set is read from the Dex Service — its
 # certificate carries dex.dex.svc.cluster.local — under the lab CA (Secret
@@ -34,8 +34,6 @@ live:
     kubernetesFamily: mcp-kubernetes
     kubernetesInstanceArg: ""
 muster:
-  liveServer:
-    enabled: true
   mcpServer:
     enabled: true
     auth:

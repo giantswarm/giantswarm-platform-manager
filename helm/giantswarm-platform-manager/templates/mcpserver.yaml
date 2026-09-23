@@ -7,8 +7,16 @@ refreshes their user token and puts it on every call as the bearer, which this
 server verifies with GET /user and acts with. The pin carries a scope
 parameter only when one is set: GitHub takes none, an authorization server
 that needs one (a Dex in a lab) gets it. Without OAuth muster connects
-anonymously and nothing acts as a person.
+anonymously and nothing acts as a person. With live.enabled the CR sets
+forwardIdentity: muster puts the person's platform ID token in
+X-Muster-Id-Token on every call, next to the user token, and the live tools
+read an installation as the person it names; requiredAudiences are what
+muster asks the identity provider for at login, so every forwarded token
+carries them, and the server trusts them next to live.audiences.
 */}}
+{{- if and .Values.live.enabled (not .Values.oauth.enabled) }}
+{{- fail "live.enabled forwards the person's identity on the MCPServer's auth (auth.forwardIdentity), which renders with oauth.enabled: set oauth.enabled" }}
+{{- end }}
 apiVersion: muster.giantswarm.io/v1alpha1
 kind: MCPServer
 metadata:
@@ -46,6 +54,13 @@ spec:
         name: {{ .clientCredentialsSecretRef.name | quote }}
         namespace: {{ .clientCredentialsSecretRef.namespace | default $.Release.Namespace | quote }}
       grantScope: {{ .grantScope | quote }}
+    {{- if $.Values.live.enabled }}
+    forwardIdentity: true
+    {{- with $.Values.muster.mcpServer.requiredAudiences }}
+    requiredAudiences:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- end }}
   {{- end }}
   {{- end }}
 {{- end }}
