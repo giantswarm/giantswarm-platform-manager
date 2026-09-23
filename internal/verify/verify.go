@@ -1363,18 +1363,20 @@ func assign(c *comparison, feats []definitions.Feature, refused string, own fact
 // route is the dimension a leaf at yamlPath of fd is observed under: the one
 // of the file's kind whose key names it most specifically (the first, on a
 // tie), else the kind's catch-all; nil when the kind has none. The keys name
-// paths inside the document a string field holds: the leaf's innerPath is
-// matched.
+// paths inside the document a string field holds, or the field that holds
+// the text: the leaf is matched at every level of its path (levels).
 func route(matchers []matcher, fd *fileDiff, yamlPath string) *Dimension {
 	var target *Dimension
 	best := 0
-	rel, yamlPath := observedPath(fd.kind, fd.path), innerPath(fd.documents, yamlPath)
+	rel, paths := observedPath(fd.kind, fd.path), levels(fd.documents, yamlPath)
 	for _, m := range matchers {
 		if m.kind != fd.kind {
 			continue
 		}
-		if n := m.match(rel, yamlPath); n > best {
-			target, best = m.dim, n
+		for _, p := range paths {
+			if n := m.match(rel, p); n > best {
+				target, best = m.dim, n
+			}
 		}
 	}
 	if target == nil {

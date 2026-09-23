@@ -8,9 +8,10 @@
 # A file dimension's key names the leaves it observes, and the comparison routes every difference by it.
 # A word with a slash or a file suffix names a file or directory — by its path under extras/backstage/,
 # or by its name at any depth; `<x>` stands for a part of a name; a directory covers everything beneath
-# it. Every other word is a YAML path inside the file (inside the YAML text a ConfigMap or Secret holds)
-# and covers everything beneath it: `[*]` is any list entry, `[x]` the entry with identity x, `<x>` any
-# map key or part of one. ` / ` separates alternatives; an alternative without a file word is observed in
+# it. Every other word is a YAML path inside the file (inside the YAML text a ConfigMap or Secret holds, or
+# inside a kustomization patch's text) and covers everything beneath it — a word over the field that holds
+# a text (`patches[1]`) covers the leaves inside it: `[*]` is any list entry, `[x]` the entry with identity
+# x, `<x>` any map key or part of one. ` / ` separates alternatives; an alternative without a file word is observed in
 # the files of the alternative before it. A remark in parentheses is not read. A leaf goes to the
 # dimension of its file's kind that names it most specifically (the longer words win, then file order),
 # else to the kind's dimension marked `catchAll: true` (whose key is prose), else it is reported under

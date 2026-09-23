@@ -79,17 +79,29 @@ func textMapping(s string) ([]document, bool) {
 	return docs, true
 }
 
-// payload says whether a leaf of the file itself sits in the data of a
-// ConfigMap or the stringData of a Secret — the fields that hold a document
-// as text: a chart's values, the portal's app-config. Inside such a document
-// every string that holds a mapping is one too; a kustomization's patches
-// and every other string are one leaf, whatever they hold.
+// payload says whether a leaf of the file itself sits in a field that holds
+// a document as text: the data of a ConfigMap or the stringData of a Secret
+// (a chart's values, the portal's app-config), or a kustomization's patch
+// (patches[n].patch) — a strategic merge patch is a mapping, and the
+// comparison names its entries, the values sources of the portal's
+// HelmRelease patch among them; a JSON 6902 patch is a list and stays one
+// leaf (textMapping). Inside such a document every string that holds a
+// mapping is one too; every other string is one leaf, whatever it holds.
 func payload(path string) bool {
 	segs := segments(path)
 	if len(segs) > 0 && strings.HasPrefix(segs[0], "[") {
 		segs = segs[1:] // the document's key in a file of several
 	}
-	return len(segs) > 0 && (segs[0] == "data" || segs[0] == "stringData")
+	if len(segs) == 0 {
+		return false
+	}
+	return segs[0] == "data" || segs[0] == "stringData" || patchText(segs)
+}
+
+// patchText says whether a path's segments name a kustomization's patch
+// text: patches[n].patch.
+func patchText(segs []string) bool {
+	return len(segs) == 3 && segs[0] == "patches" && strings.HasPrefix(segs[1], "[") && segs[2] == "patch"
 }
 
 // innerPath is a leaf's path inside the innermost of documents it sits in
@@ -101,6 +113,20 @@ func innerPath(documents map[string]bool, p string) string {
 		return p[len(d)+len(textSep):]
 	}
 	return p
+}
+
+// levels are the paths a leaf is named by, innermost first: its path inside
+// each document it sits in — the text a field holds, text inside text — then
+// its whole path in the file. A key names a leaf when it names it at any
+// level: the app-config's keys name paths inside data.values, and a word
+// over the field that holds a text (patches[1], the portal's HelmRelease
+// patch) covers the leaves of its document.
+func levels(documents map[string]bool, p string) []string {
+	var out []string
+	for d := holder(documents, p); d != ""; d = holder(documents, d) {
+		out = append(out, p[len(d)+len(textSep):])
+	}
+	return append(out, p)
 }
 
 // holder is the field of documents whose text a leaf sits in, the innermost

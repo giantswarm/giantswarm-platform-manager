@@ -6,6 +6,7 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -1496,5 +1497,90 @@ func TestVerifyCapabilityRegistrationsOnRecord(t *testing.T) {
 	st.ghs.mu.Unlock()
 	if !strings.Contains(tree, "./mcpservers") || !strings.Contains(tree, "./mcpclients") {
 		t.Errorf("the rendered tree kustomization dropped a registration directory:\n%s", tree)
+	}
+}
+
+// portalKustomizationOnRecord puts the portal a dry run rendered on record
+// with old replaced by new in the portal's own kustomization (the one under
+// backstage/, with the chart's patches), and answers its file key.
+func portalKustomizationOnRecord(t *testing.T, st *stack, p plan.Installation, old, new string) string {
+	t.Helper()
+	key := ""
+	for _, f := range p.Files {
+		content := f.Content
+		if strings.HasSuffix(f.Path, "/extras/backstage/backstage/kustomization.yaml") {
+			key = f.Repository + ":" + f.Path
+			content = strings.Replace(content, old, new, 1)
+			if content == f.Content {
+				t.Fatalf("nothing to replace in the kustomization:\n%s", content)
+			}
+		}
+		st.ghs.addFile(f.Repository, f.Path, content)
+	}
+	if key == "" {
+		t.Fatal("the plan renders no portal kustomization")
+	}
+	return key
+}
+
+// The portal's HelmRelease patch is compared source by source: a portal on
+// record that still lists a values source the definition no longer renders
+// (a Vertex chat's google-credentials-backstage) reads the source as the
+// removal's planned move and one lacking a source a migration added (M33's
+// user-secrets-backstage) reads it as the planned addition — every other
+// source unchanged, the values-sources dimension planned — while a patch
+// text changed in any other way is drift of the dimension; the chart line's
+// JSON 6902 patch stays one leaf.
+func TestVerifyCapabilityReadsThePortalsValuesSources(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	out, text, isErr := dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.CustomerPortal, tools.ArgInputs: rowanPortalInputs(map[string]any{enabledKey: false})})
+	if isErr {
+		t.Fatal(text)
+	}
+	p := findPlan(t, out, rowan)
+	const (
+		source      = "          - kind: Secret\n            name: %s\n            valuesKey: values\n"
+		userSecrets = "user-secrets-backstage"
+		google      = "google-credentials-backstage"
+		patch       = "patches[1].patch:spec."
+		sourcesDim  = "values-sources"
+	)
+	key := portalKustomizationOnRecord(t, st, p, fmt.Sprintf(source, userSecrets), fmt.Sprintf(source, google))
+
+	res := verifyPortal(t, c, rowan, nil)
+	d := dimension(t, feature(t, res, "portal"), sourcesDim)
+	if d.Mark != verify.Planned || len(d.Differences) != 6 || res.Summary[verify.Drifted] != 0 || res.State != installations.StateEnabled {
+		t.Fatalf("the sources swapped: %s %+v (summary %v state %q)", d.Mark, d.Differences, res.Summary, res.State)
+	}
+	for _, diff := range d.Differences {
+		switch {
+		case strings.HasPrefix(diff.Path, patch+"valuesFrom["+google+"]"):
+			if diff.Rendered != "" || diff.Current == "" || !strings.Contains(diff.Planned, "Moved: the HelmRelease's values source "+google) || !strings.Contains(diff.Planned, "M18") || diff.CurrentLine == 0 || diff.Line != 0 {
+				t.Errorf("the source the definition no longer renders: %+v", diff)
+			}
+		case strings.HasPrefix(diff.Path, patch+"valuesFrom["+userSecrets+"]"):
+			if diff.Current != "" || diff.Rendered == "" || !strings.Contains(diff.Planned, "Added: the HelmRelease reads values from the Secret "+userSecrets) || !strings.Contains(diff.Planned, "M33") || diff.Line == 0 || diff.CurrentLine != 0 {
+				t.Errorf("the source the migration added: %+v", diff)
+			}
+		default:
+			t.Errorf("a difference outside the two sources: %+v", diff)
+		}
+		if diff.File != key || diff.Input != "" {
+			t.Errorf("file %q input %q", diff.File, diff.Input)
+		}
+	}
+	if d := dimension(t, feature(t, res, "portal"), "chart-line"); d.Mark != verify.AsDefined {
+		t.Errorf("the chart line's patch: %+v", d)
+	}
+
+	// The patch hand-edited in another way: drift of the dimension, the
+	// planned sources still planned beside it.
+	portalKustomizationOnRecord(t, st, p, "        valuesFrom:\n", "        postRenderers: []\n        valuesFrom:\n")
+	res = verifyPortal(t, c, rowan, nil)
+	d = dimension(t, feature(t, res, "portal"), sourcesDim)
+	if d.Mark != verify.Drifted || len(d.Differences) != 1 || d.Differences[0].Path != patch+"postRenderers" || d.Differences[0].Current != "[]" || d.Differences[0].Planned != "" || res.State != installations.StateDrifted {
+		t.Fatalf("a hand-edited patch: %s %+v state %q", d.Mark, d.Differences, res.State)
 	}
 }
