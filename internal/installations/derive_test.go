@@ -166,8 +166,10 @@ func TestOrganisationHubs(t *testing.T) {
 const fixtureHubClientID = "Yx7hub0portal0client0id0on0record0"
 
 // A portal's client id is the extra static client of its host's dex-app
-// configmap patch that redirects to the portal; a patch without one, or
-// without extra static clients at all, names none.
+// configmap patch that redirects to the portal — its own client ahead of the
+// definition's backstage client that redirects there too, in either order,
+// backstage where it is the only one; a patch without one, or without extra
+// static clients at all, names none.
 func TestDexClientByRedirectURI(t *testing.T) {
 	uri := render.PortalRedirectURI("portal.fleet.test", fixtureHub)
 	patch := "oidc:\n  staticClients:\n    muster:\n      clientSecretRef: {name: dex-client-muster, key: secret}\n  extraStaticClients:\n" +
@@ -175,6 +177,17 @@ func TestDexClientByRedirectURI(t *testing.T) {
 		"    - id: " + fixtureHubClientID + "\n      name: Dev Portal\n      redirectURIs:\n        - " + uri + "\n      secretRef: {name: dex-client-backstage, key: secret}\n"
 	if id, err := dexClientByRedirectURI(patch, uri); err != nil || id != fixtureHubClientID {
 		t.Fatalf("matched by the redirect URI: %q, %v", id, err)
+	}
+	backstage := "    - id: " + render.PortalDexClientID + "\n      name: Dev Portal\n      redirectURIs:\n        - " + uri + "\n"
+	own := patch[strings.Index(patch, "    - id: "+fixtureHubClientID):]
+	for name, clients := range map[string]string{"backstage first": backstage + own, "backstage last": own + backstage} {
+		p := "oidc:\n  extraStaticClients:\n" + clients
+		if id, err := dexClientByRedirectURI(p, uri); err != nil || id != fixtureHubClientID {
+			t.Errorf("%s: %q, %v, want the portal's own client", name, id, err)
+		}
+	}
+	if id, err := dexClientByRedirectURI("oidc:\n  extraStaticClients:\n"+backstage, uri); err != nil || id != render.PortalDexClientID {
+		t.Errorf("the definition's client alone: %q, %v", id, err)
 	}
 	if id, err := dexClientByRedirectURI(patch, render.PortalRedirectURI("other.fleet.test", fixtureHub)); err != nil || id != "" {
 		t.Fatalf("another portal's redirect URI names no client: %q, %v", id, err)

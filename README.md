@@ -87,7 +87,9 @@ this order, writing nothing before the gate:
    `mcp-<name>-credentials-revision` beside the HelmReleases), so a rewrite of either credentials file draws
    it anew, and the server's and its Valkey's HelmReleases read it (`valuesFrom` with `targetPath`) into
    their charts' checksum values, whose pod-template annotations restart the pods; a reconcile without a
-   rotation keeps the revision and changes no pod template. Unseen by the
+   rotation keeps the revision and changes no pod template; muster's own credentials carry the same revision
+   (`<installation>-muster-credentials-revision`, the Secret `muster-credentials-revision`, handed to the muster and
+   valkey HelmReleases through the meta chart's `components.<name>.valuesFromRefs`). Unseen by the
    comparison: a literal the render changes under an encrypted field — the record holds it encrypted. A
    value frozen in a file the definition does not own whole (one with several owners) cannot rotate and
    refuses the commit naming the file.

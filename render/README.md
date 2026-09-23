@@ -74,7 +74,12 @@ server's HelmRelease and its Valkey's to read (`valuesFrom` with `targetPath`) i
 values (`existingSecretChecksum`, the keyed charts' `storage.valkey.existingSecretChecksum`, the Valkey
 chart's `auth.usersExistingSecretChecksum`). A rotation rewrites the credentials files, draws the revision
 anew and so rolls the server and its Valkey; a reconcile without one keeps it. A private installation adds
-the server's user values (the private-address flags) as a ConfigMap the HelmRelease reads.
+the server's user values (the private-address flags) as a ConfigMap the HelmRelease reads. muster's credentials get
+the same revision: held by `muster-oauth-credentials`, `muster-valkey-credentials` and the Secret
+`muster-credentials-revision` in the Flux namespace, and handed to the muster and valkey HelmReleases through the
+platform patch's `components.muster.valuesFromRefs` and `components.valkey.valuesFromRefs` (the meta chart renders
+them as the children's `valuesFrom`) onto the muster chart's `existingSecretChecksum` values and the Valkey chart's
+users Secret mark.
 
 A hub's `federation.targets` render the hub side (`hub.go`): the token-exchange broker's targets and the
 agentgateway's identity providers in the configmap patch, the targets' MCP servers with exchange auth,

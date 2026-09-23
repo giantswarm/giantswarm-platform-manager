@@ -302,7 +302,12 @@ func portalClientID(ctx context.Context, c *gh.Client, host Installation, domain
 }
 
 // dexClientByRedirectURI is the id of the extra static client of a dex-app
-// configmap patch that redirects to uri, empty for none.
+// configmap patch that redirects to uri, empty for none. A portal whose own
+// client was registered by hand shares the uri with the definition's client
+// (render.PortalDexClientID) once the definition renders that one beside
+// it: the own client is the id, whatever order the patch lists the two in —
+// a commit writes them in the definition's order, and an id that followed
+// the list's order would move with every read-back.
 func dexClientByRedirectURI(data, uri string) (string, error) {
 	var patch struct {
 		OIDC struct {
@@ -315,12 +320,17 @@ func dexClientByRedirectURI(data, uri string) (string, error) {
 	if err := yaml.Unmarshal([]byte(data), &patch); err != nil {
 		return "", err
 	}
+	id := ""
 	for _, client := range patch.OIDC.ExtraStaticClients {
-		if slices.Contains(client.RedirectURIs, uri) {
+		if !slices.Contains(client.RedirectURIs, uri) {
+			continue
+		}
+		if client.ID != render.PortalDexClientID {
 			return client.ID, nil
 		}
+		id = client.ID
 	}
-	return "", nil
+	return id, nil
 }
 
 // hostOf is the hostname of a URL (no port), empty for none.
