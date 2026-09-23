@@ -48,6 +48,11 @@ type WatchResult struct {
 	Verify *verify.Result `json:"verify,omitempty"`
 	// Red names the dimensions that decided failed or waiting for the customer.
 	Red []string `json:"red,omitempty"`
+	// Planned names the live dimensions whose only differences are planned
+	// changes, with the reasons: leaves a definition released after the
+	// action's commit renders and the migration list names — the next
+	// reconcile's business, never red.
+	Planned []string `json:"planned,omitempty"`
 	// Report is the text this call posted into the review's thread, when the
 	// stage reached a state; Message says when it could not be posted.
 	Report string `json:"report,omitempty"`
@@ -56,7 +61,7 @@ type WatchResult struct {
 
 func (t *Tools) registerWatchTool(s *mcpserver.MCPServer) {
 	s.AddTool(mcp.NewTool(ToolWatchAction,
-		mcp.WithDescription("The rollout watch of an action whose pull requests are merged, as you: reads the Flux objects the definition names on the installation rolling out — the HelmReleases with their Ready condition and revision — through muster's kubernetes tools with the token muster forwarded, and answers the picture. Once every one is Ready it runs the definition's probes (the live dimensions as you, the anonymous HTTP probes direct) and the stage moves to enabled (all green), waiting for the customer (the customer's own action is the only thing open) or failed (a probe is red, named); the report — pull requests, rollout per object, each probe, the open customer actions — goes into the review's thread and onto the Action. Nothing is waited for or hurried: call again while it is rolling out. On a wave the stage in flight is watched; the next stage's pull requests are merged by the actor's "+ToolMergeAction+" once it is enabled. An action waiting for the customer or enabled is re-read: the customer's action done flips it to enabled. Anyone signed in may watch; the reads are yours."),
+		mcp.WithDescription("The rollout watch of an action whose pull requests are merged, as you: reads the Flux objects the definition names on the installation rolling out — the HelmReleases with their Ready condition and revision — through muster's kubernetes tools with the token muster forwarded, and answers the picture. Once every one is Ready it runs the definition's probes (the live dimensions as you, the anonymous HTTP probes direct) and the stage moves to enabled (all green), waiting for the customer (the customer's own action is the only thing open) or failed (a probe is red, named); a value a definition released since the commit renders and the installation lacks is a planned change of that newer definition, listed, never red. The report — pull requests, rollout per object, each probe, the open customer actions — goes into the review's thread and onto the Action. Nothing is waited for or hurried: call again while it is rolling out. On a wave the stage in flight is watched; the next stage's pull requests are merged by the actor's "+ToolMergeAction+" once it is enabled. An action waiting for the customer or enabled is re-read: the customer's action done flips it to enabled. Anyone signed in may watch; the reads are yours."),
 		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithString(ArgAction, mcp.Required(), mcp.Description("The Action's name.")),
 	), t.watchActionLive)
@@ -125,7 +130,7 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 	prev := st.State
 	st.Objects, st.WatchedAt, st.WatchedBy = objects, now(), id.String()
 	status.Probes = mergeProbes(status.Probes, st.Name, probesOf(st.Name, res))
-	out := WatchResult{Installation: st.Name, Objects: objects, Ready: ready, Verify: &res}
+	out := WatchResult{Installation: st.Name, Objects: objects, Ready: ready, Verify: &res, Planned: plannedDimensions(res)}
 	if prev == actions.StateRollingOut && !ready {
 		st.Message = rolloutMessage(objects)
 		out.Next = "call " + ToolWatchAction + " again once Flux has reconciled the installation; nothing is hurried"
@@ -437,13 +442,47 @@ func redDimensions(res verify.Result) []string {
 	return red
 }
 
-// detailOf is one line of what a dimension saw: its reason, its first
-// difference, its first red check with the definition's note, or a probe's
-// failed request.
+// newerDefinition opens what the watch says of a planned change on the live
+// half: the definition renders a leaf the action's commit never wrote and
+// the installation never had, which the migration list names.
+const newerDefinition = "newer definition, not this action's: "
+
+// plannedDimensions names the dimensions of res whose only differences are
+// planned changes — a leaf a definition released after the action's commit
+// renders, named by the migration list — each with the reasons.
+func plannedDimensions(res verify.Result) []string {
+	var out []string
+	for _, f := range res.Features {
+		for _, d := range f.Dimensions {
+			if d.Mark == verify.Planned {
+				out = append(out, fmt.Sprintf("%s (%s): %s%s", d.ID, f.ID, newerDefinition, plannedReasons(d)))
+			}
+		}
+	}
+	return out
+}
+
+// plannedReasons are the reasons of a dimension's planned changes, each
+// once, in the order of its differences.
+func plannedReasons(d verify.Dimension) string {
+	var reasons []string
+	for _, diff := range d.Differences {
+		if diff.Planned != "" && !slices.Contains(reasons, diff.Planned) {
+			reasons = append(reasons, diff.Planned)
+		}
+	}
+	return strings.Join(reasons, "; ")
+}
+
+// detailOf is one line of what a dimension saw: its reason, its planned
+// changes with their reasons, its first difference, its first red check
+// with the definition's note, or a probe's failed request.
 func detailOf(d verify.Dimension) string {
 	switch {
 	case d.Reason != "":
 		return d.Reason
+	case d.Mark == verify.Planned && len(d.Differences) > 0:
+		return fmt.Sprintf("%d planned change(s): %s", len(d.Differences), plannedReasons(d))
 	case len(d.Differences) > 0:
 		return fmt.Sprintf("%d difference(s), the first at %s %s", len(d.Differences), d.Differences[0].Object, d.Differences[0].Path)
 	case d.Live != nil:
@@ -576,7 +615,7 @@ func (t *Tools) report(a *actions.Action, status actions.Status, i int, res veri
 		b.WriteString(strings.Join(lines, " · "))
 	}
 	green, notChecked := 0, []string{}
-	var red []string
+	var red, planned []string
 	for _, f := range res.Features {
 		for _, d := range f.Dimensions {
 			if d.Kind != definitions.KindLive && d.Kind != definitions.KindProbe {
@@ -589,6 +628,8 @@ func (t *Tools) report(a *actions.Action, status actions.Status, i int, res veri
 				if d.Reason != verify.ReasonRepositorySide {
 					notChecked = append(notChecked, d.ID)
 				}
+			case verify.Planned:
+				planned = append(planned, fmt.Sprintf("🔵 %s (%s): %s%s", d.ID, f.ID, newerDefinition, plannedReasons(d)))
 			default:
 				red = append(red, fmt.Sprintf("❌ %s (%s): %s", d.ID, f.ID, detailOf(d)))
 			}
@@ -597,6 +638,9 @@ func (t *Tools) report(a *actions.Action, status actions.Status, i int, res veri
 	fmt.Fprintf(&b, "\nProbes: ✅ %d as defined", green)
 	for _, r := range red {
 		b.WriteString("\n" + r)
+	}
+	for _, p := range planned {
+		b.WriteString("\n" + p)
 	}
 	if len(notChecked) > 0 {
 		sort.Strings(notChecked)

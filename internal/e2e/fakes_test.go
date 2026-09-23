@@ -248,6 +248,14 @@ func (g *fakeGitHub) addRepo(repo string, files map[string]string) {
 	g.files[repo] = files
 }
 
+// file is the content of p in the fixture owner/repo, when it has it.
+func (g *fakeGitHub) file(repo, p string) (string, bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	content, ok := g.files[repo][p]
+	return content, ok
+}
+
 // addFile adds one file to the fixture owner/repo.
 func (g *fakeGitHub) addFile(repo, p, content string) {
 	g.mu.Lock()
