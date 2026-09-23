@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"slices"
@@ -18,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -109,6 +111,139 @@ func (e *TooLarge) Error() string {
 // kib is n bytes in KiB, rounded.
 func kib(n int) string { return strconv.Itoa((n+512)/1024) + " KiB" }
 
+// The bounds of one live verify's reads through muster. A read answers in a
+// second or two when the installation's kubernetes tool is up; one that
+// waits on a server between sessions, a tunnel or an apiserver that does not
+// answer would otherwise hold the whole call until the caller's deadline
+// (platformctl's default of 5 minutes) with no word about what hung. A read
+// that does not answer within ReadTimeout is not checked, naming the object
+// and the bound; once ReadBudget of one verify has gone into reads, the
+// checks left are not read, naming the last read that did not answer — so
+// every call answers what it has, well within the caller's deadline.
+const (
+	ReadTimeout = 20 * time.Second
+	ReadBudget  = 2 * time.Minute
+)
+
+// Timeout is a read that did not answer within its bound: a result of the
+// path to the installation — muster, the tunnel, its kubernetes tool, the
+// apiserver — never of the installation's objects.
+type Timeout struct {
+	// What names the read: the object, the pod's log, the discovery.
+	What  string
+	After time.Duration
+}
+
+func (e *Timeout) Error() string {
+	return fmt.Sprintf("no answer within %s from %s", e.After.Round(time.Millisecond), e.What)
+}
+
+// BudgetSpent is a read not started: the live verify's read budget went into
+// reads that did not answer, and this check is left unread rather than
+// holding the call.
+type BudgetSpent struct {
+	Budget time.Duration
+	// Hung names the last read that did not answer.
+	Hung string
+}
+
+func (e *BudgetSpent) Error() string {
+	return fmt.Sprintf("not read: the live verify's read budget of %s is spent; the last read that did not answer: %s", e.Budget.Round(time.Millisecond), e.Hung)
+}
+
+// reader bounds the reads of one live verify through a Cluster: each within
+// the read timeout, all within the budget, and remembers what did not answer
+// for the checks that follow.
+type reader struct {
+	c        Cluster
+	timeout  time.Duration
+	budget   time.Duration
+	deadline time.Time
+	mu       sync.Mutex
+	hung     string
+}
+
+// newReader bounds c with opts' bounds, the defaults where opts leave them.
+func newReader(c Cluster, opts LiveOptions) *reader {
+	timeout, budget := opts.ReadTimeout, opts.ReadBudget
+	if timeout <= 0 {
+		timeout = ReadTimeout
+	}
+	if budget <= 0 {
+		budget = ReadBudget
+	}
+	return &reader{c: c, timeout: timeout, budget: budget, deadline: time.Now().Add(budget)}
+}
+
+// read runs one read of what under the bounds: the smaller of the read
+// timeout and what is left of the budget; none once the budget is spent.
+func (r *reader) read(ctx context.Context, what string, do func(context.Context) error) error {
+	remaining := time.Until(r.deadline)
+	if remaining <= 0 {
+		return &BudgetSpent{Budget: r.budget, Hung: r.lastHung()}
+	}
+	bound := min(r.timeout, remaining)
+	rctx, cancel := context.WithTimeout(ctx, bound)
+	defer cancel()
+	err := do(rctx)
+	if err != nil && errors.Is(rctx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
+		r.mu.Lock()
+		r.hung = what
+		r.mu.Unlock()
+		return &Timeout{What: what, After: bound}
+	}
+	return err
+}
+
+func (r *reader) lastHung() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.hung == "" {
+		return "none: the reads answered and the budget went into them"
+	}
+	return r.hung
+}
+
+func (r *reader) Get(ctx context.Context, namespace, resource, name string, shape Shape) (map[string]any, error) {
+	var out map[string]any
+	err := r.read(ctx, resource+" "+namespace+"/"+name, func(ctx context.Context) (err error) {
+		out, err = r.c.Get(ctx, namespace, resource, name, shape)
+		return err
+	})
+	return out, err
+}
+
+func (r *reader) List(ctx context.Context, namespace, resource, labelSelector string, shape Shape) ([]map[string]any, error) {
+	var out []map[string]any
+	what := "the " + resource + " objects in " + namespace
+	if labelSelector != "" {
+		what += " matching " + labelSelector
+	}
+	err := r.read(ctx, what, func(ctx context.Context) (err error) {
+		out, err = r.c.List(ctx, namespace, resource, labelSelector, shape)
+		return err
+	})
+	return out, err
+}
+
+func (r *reader) Logs(ctx context.Context, namespace, pod string, tail int) (string, error) {
+	var out string
+	err := r.read(ctx, "the log of pod "+namespace+"/"+pod, func(ctx context.Context) (err error) {
+		out, err = r.c.Logs(ctx, namespace, pod, tail)
+		return err
+	})
+	return out, err
+}
+
+func (r *reader) Serves(ctx context.Context, group, version, resource string) (bool, error) {
+	var out bool
+	err := r.read(ctx, "the discovery of "+group+"/"+version+" "+resource, func(ctx context.Context) (err error) {
+		out, err = r.c.Serves(ctx, group, version, resource)
+		return err
+	})
+	return out, err
+}
+
 // The reasons a dimension is not checked on the live path.
 const (
 	// ReasonRepositorySide: a dimension of the files or an anonymous probe,
@@ -172,6 +307,13 @@ type LiveOptions struct {
 	// direct — the rollout watch's whole picture in one result. Off, they
 	// read not checked: verify_capability's, on the repository side.
 	AnonymousProbes bool
+	// ReadTimeout and ReadBudget bound the reads through Cluster (ReadTimeout,
+	// ReadBudget); zero is the default.
+	ReadTimeout time.Duration
+	ReadBudget  time.Duration
+	// Log takes one line per check with its duration (live_check), so a
+	// slow call is attributable after the fact; nil logs nothing.
+	Log *slog.Logger
 }
 
 // CompareLive answers the live verify of opts' installation: every live
@@ -435,6 +577,9 @@ type executor struct {
 	lv      *liveRender
 	refused string
 	pr      *prober
+	// reads bounds the reads through opts.Cluster (reader); nil without a
+	// cluster.
+	reads *reader
 	// http holds the render's HTTP probes' checks by index into lv.probes,
 	// sent all at once by sendHTTP before any dimension is built: a host
 	// unreachable from the manager is waited for once, not in every
@@ -493,7 +638,9 @@ func (x *executor) dimension(ctx context.Context, d definitions.Dimension) Dimen
 		if p.Kind == render.HTTP {
 			c = x.http[i]
 		} else {
+			start := time.Now()
 			c, diffs, auth = x.run(ctx, p)
+			x.logCheck(p, c, time.Since(start))
 		}
 		live.Checks = append(live.Checks, c)
 		dim.Differences = append(dim.Differences, diffs...)
@@ -536,12 +683,33 @@ func checkRollUp(checks []Check) (Mark, string, string) {
 	return AsDefined, "", ""
 }
 
+// logCheck writes one line for a check of the installation's objects: the
+// probe, what it read, its mark and how long the reads took — what a call
+// that ran into a deadline is attributed by.
+func (x *executor) logCheck(p render.Probe, c Check, took time.Duration) {
+	if x.opts.Log == nil {
+		return
+	}
+	x.opts.Log.Info("live_check", "installation", x.opts.Installation, "probe", p.ID, "kind", p.Kind, "resource", p.Resource, "namespace", p.Namespace, "name", p.Name, "mark", c.Mark, "message", c.Message, "duration_ms", took.Milliseconds())
+}
+
+// cluster is the installation's reads, bounded (reader); nil without one.
+func (x *executor) cluster() Cluster {
+	if x.reads == nil && x.opts.Cluster != nil {
+		x.reads = newReader(x.opts.Cluster, x.opts)
+	}
+	if x.reads == nil {
+		return nil
+	}
+	return x.reads
+}
+
 // run executes one probe of the installation's objects: the check, the
 // differences a drift probe found, and muster's auth_required when the
 // installation is not connected. The HTTP probes are sendHTTP's.
 func (x *executor) run(ctx context.Context, p render.Probe) (Check, []Difference, *AuthRequired) {
 	c := check(p)
-	if x.opts.Cluster == nil {
+	if x.cluster() == nil {
 		c.Message = ReasonNoRender
 		return c, nil, nil
 	}
@@ -591,7 +759,7 @@ func firstLine(s string) string {
 
 // condition marks the object's condition against the expected status.
 func (x *executor) condition(ctx context.Context, c *Check, p render.Probe, condition, status string) error {
-	obj, err := x.opts.Cluster.Get(ctx, p.Namespace, p.Resource, p.Name, Readiness)
+	obj, err := x.cluster().Get(ctx, p.Namespace, p.Resource, p.Name, Readiness)
 	if err != nil {
 		return err
 	}
@@ -611,7 +779,7 @@ func (x *executor) condition(ctx context.Context, c *Check, p render.Probe, cond
 // present marks the object as existing, a Secret as carrying the keys, and
 // an object with a status.state as reporting none the probe rules out.
 func (x *executor) present(ctx context.Context, c *Check, p render.Probe) error {
-	obj, err := x.opts.Cluster.Get(ctx, p.Namespace, p.Resource, p.Name, Readiness)
+	obj, err := x.cluster().Get(ctx, p.Namespace, p.Resource, p.Name, Readiness)
 	if err != nil {
 		return err
 	}
@@ -657,7 +825,7 @@ const Rolling = "rolling: "
 // by discovery; not served, the check reads rolling.
 func (x *executor) apiServed(ctx context.Context, c *Check, p render.Probe) error {
 	resource, group, _ := strings.Cut(p.Resource, ".")
-	served, err := x.opts.Cluster.Serves(ctx, group, p.Expect.Version, resource)
+	served, err := x.cluster().Serves(ctx, group, p.Expect.Version, resource)
 	if err != nil {
 		return err
 	}
@@ -672,7 +840,7 @@ func (x *executor) apiServed(ctx context.Context, c *Check, p render.Probe) erro
 
 // podsRunning marks every pod the selector matches as Running.
 func (x *executor) podsRunning(ctx context.Context, c *Check, p render.Probe) error {
-	pods, err := x.opts.Cluster.List(ctx, p.Namespace, "Pod", p.Name, Readiness)
+	pods, err := x.cluster().List(ctx, p.Namespace, "Pod", p.Name, Readiness)
 	if err != nil {
 		return err
 	}
@@ -706,7 +874,7 @@ func (x *executor) logAbsent(ctx context.Context, c *Check, p render.Probe) erro
 	if err != nil {
 		return fmt.Errorf("pattern %q: %w", p.Expect.Absent, err)
 	}
-	obj, err := x.opts.Cluster.Get(ctx, p.Namespace, p.Resource, p.Name, Readiness)
+	obj, err := x.cluster().Get(ctx, p.Namespace, p.Resource, p.Name, Readiness)
 	if err != nil {
 		return err
 	}
@@ -714,7 +882,7 @@ func (x *executor) logAbsent(ctx context.Context, c *Check, p render.Probe) erro
 	if selector == "" {
 		return fmt.Errorf("%s %s/%s selects no pods (no spec.selector.matchLabels)", p.Resource, p.Namespace, p.Name)
 	}
-	pods, err := x.opts.Cluster.List(ctx, p.Namespace, "Pod", selector, Readiness)
+	pods, err := x.cluster().List(ctx, p.Namespace, "Pod", selector, Readiness)
 	if err != nil {
 		return err
 	}
@@ -723,7 +891,7 @@ func (x *executor) logAbsent(ctx context.Context, c *Check, p render.Probe) erro
 		return nil
 	}
 	for _, pod := range pods {
-		log, err := x.opts.Cluster.Logs(ctx, p.Namespace, nameOf(pod), LogTail)
+		log, err := x.cluster().Logs(ctx, p.Namespace, nameOf(pod), LogTail)
 		if err != nil {
 			return err
 		}
@@ -769,7 +937,7 @@ func (x *executor) drift(ctx context.Context, c *Check, p render.Probe) ([]Diffe
 		c.Mark, c.Message = NotChecked, ReasonNoValuesFile
 		return nil, nil
 	}
-	obj, err := x.opts.Cluster.Get(ctx, p.Namespace, p.Resource, p.Name, Configuration)
+	obj, err := x.cluster().Get(ctx, p.Namespace, p.Resource, p.Name, Configuration)
 	if err != nil {
 		return nil, err
 	}
@@ -861,7 +1029,7 @@ func (x *executor) helmReleaseValues(ctx context.Context, namespace string, hr m
 		if key == "" {
 			key = "values.yaml"
 		}
-		cm, err := x.opts.Cluster.Get(ctx, namespace, "ConfigMap", name, Configuration)
+		cm, err := x.cluster().Get(ctx, namespace, "ConfigMap", name, Configuration)
 		if err != nil {
 			return nil, fmt.Errorf("valuesFrom ConfigMap %s: %w", name, err)
 		}
