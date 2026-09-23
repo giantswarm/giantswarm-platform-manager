@@ -25,7 +25,7 @@ const (
 )
 
 var (
-	oak    = installations.Installation{Name: "oak", Customer: "acme", Repositories: installations.Repositories{Configs: oakConfigs, ManagementClusters: oakMCs}}
+	oak    = installations.Installation{Name: "oak", Customer: acme, Repositories: installations.Repositories{Configs: oakConfigs, ManagementClusters: oakMCs}}
 	hazel  = installations.Installation{Name: "hazel", Customer: "example", Repositories: installations.Repositories{Configs: hubConfigs, ManagementClusters: hubMCs}}
 	byName = map[string]installations.Installation{oak.Name: oak, hazel.Name: hazel}
 )

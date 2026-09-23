@@ -25,8 +25,11 @@ func (fakeInput) CustomerActions() []render.CustomerAction { return nil }
 func (fakeInput) Selected() map[string]any                 { return nil }
 
 // rowanKustomization is the kustomization the fake definition's include
-// lands in.
-const rowanKustomization = "installations/rowan/kustomization.yaml"
+// lands in; acme is rowan's customer.
+const (
+	rowanKustomization = "installations/rowan/kustomization.yaml"
+	acme               = "acme"
+)
 
 // filesDefinition is a definition that renders files under the customer's
 // configs repository and lists one include in a kustomization there.
@@ -95,7 +98,7 @@ func TestBuildReadsThePlansFilesAtOnce(t *testing.T) {
 		}
 		close(release)
 	}()
-	inst := installations.Installation{Name: "rowan", Customer: "acme", Repositories: installations.Repositories{Configs: "acme/configs", ManagementClusters: "acme/management-clusters"}}
+	inst := installations.Installation{Name: "rowan", Customer: acme, Repositories: installations.Repositories{Configs: "acme/configs", ManagementClusters: "acme/management-clusters"}}
 	p := Build(context.Background(), Options{Definition: filesDefinition(files), Installation: inst, Inputs: map[string]any{}, Content: true, Read: read})
 	if p.Refused != "" {
 		t.Fatalf("refused: %s", p.Refused)
@@ -206,7 +209,7 @@ func TestBuildAsksOnlyForSuppliedValuesWhoseFilesItWrites(t *testing.T) {
 		}
 		return "", gh.ErrNotFound
 	}
-	inst := installations.Installation{Name: "rowan", Customer: "acme", Repositories: installations.Repositories{Configs: "acme/configs", ManagementClusters: "acme/management-clusters"}}
+	inst := installations.Installation{Name: "rowan", Customer: acme, Repositories: installations.Repositories{Configs: "acme/configs", ManagementClusters: "acme/management-clusters"}}
 	p := Build(context.Background(), Options{Definition: def, Installation: inst, Inputs: map[string]any{}, Read: read})
 	if p.Refused != "" {
 		t.Fatalf("refused: %s", p.Refused)
