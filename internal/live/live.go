@@ -521,13 +521,17 @@ func tooLarge(text string) *verify.TooLarge {
 // slim for Readiness — the conditions and the revision, a workload's
 // selector, a pod's phase, the keys of a Secret, with a HelmRelease's values
 // and history, a workload's long environment and every object's managed
-// fields and last-applied configuration dropped — and normal for
-// Configuration, the values whole with only the bookkeeping dropped. mcp-
-// kubernetes offers no selection of paths, and a whole object (full) is what
-// its response cap refuses for a HelmRelease with history.
+// fields and last-applied configuration dropped —, normal for Configuration,
+// the values whole with only the bookkeeping dropped, and full for Manifest,
+// the managed fields kept. mcp-kubernetes offers no selection of paths, and
+// a whole object (full) is what its response cap refuses for a HelmRelease
+// with history; it masks a Secret's values in every output.
 func outputOf(shape verify.Shape) string {
-	if shape == verify.Configuration {
+	switch shape {
+	case verify.Configuration:
 		return "normal"
+	case verify.Manifest:
+		return "full"
 	}
 	return "slim"
 }

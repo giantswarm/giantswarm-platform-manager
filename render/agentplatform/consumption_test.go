@@ -875,6 +875,52 @@ func (c *consumption) dex() {
 			t.Errorf("dex-app: client %s is referenced by the emitted patch but the rendered configuration has no client with a secret reference by that id", id)
 		}
 	}
+	c.dexPods(rel)
+}
+
+// dexPods holds the SecretLoaded probes' pods and container to the rendered
+// dex-app: render.DexPodSelector matches the pods of one workload, Dex's
+// Deployment, and not the authenticator's, and its container
+// render.DexContainer is the one that loads the client secrets' variables. A
+// chart that relabels Dex's pods or renames the container fails here, not as
+// "no pod matches" or an unread check on every installation.
+func (c *consumption) dexPods(rel *release) {
+	t := c.t
+	want := map[string]string{}
+	for _, term := range strings.Split(render.DexPodSelector, ",") {
+		k, v, _ := strings.Cut(term, "=")
+		want[k] = v
+	}
+	var matched []string
+	for _, o := range rel.objects {
+		labels := mapOf(get(o, "spec", "template", "metadata", "labels"))
+		if labels == nil {
+			continue
+		}
+		matches := true
+		for k, v := range want {
+			matches = matches && str(labels[k]) == v
+		}
+		if !matches {
+			continue
+		}
+		matched = append(matched, o.kind()+" "+o.name())
+		var loads bool
+		for _, container := range list(get(o, "spec", "template", "spec", "containers")) {
+			if str(get(container, fieldName)) != render.DexContainer {
+				continue
+			}
+			for _, env := range list(get(container, "env")) {
+				loads = loads || strings.HasPrefix(str(get(env, fieldName)), "DEX_CLIENT_SECRET_")
+			}
+		}
+		if !loads {
+			t.Errorf("dex-app: %s %s: no container %s loads a DEX_CLIENT_SECRET_ variable", o.kind(), o.name(), render.DexContainer)
+		}
+	}
+	if len(matched) != 1 || !strings.HasPrefix(matched[0], "Deployment ") {
+		t.Errorf("dex-app: %s must select Dex's Deployment and nothing else, matched %v", render.DexPodSelector, matched)
+	}
 }
 
 // assertRead fails for every emitted Secret no rendered consumer references in

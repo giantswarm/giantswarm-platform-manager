@@ -574,8 +574,9 @@ func TestVerifyInstallationReadsWithinTheResponseCap(t *testing.T) {
 	}
 	// Every read asked for what its check reads: the meta chart's HelmRelease
 	// slim for its readiness and normal for its values, the ConfigMaps a
-	// drift probe compares normal, the Secrets and the pods slim, a log's
-	// last LogTail lines; nothing whole.
+	// drift probe compares normal, the Dex client Secrets whole for when
+	// their data changed, the other Secrets and the pods slim, a log's last
+	// LogTail lines; nothing else whole.
 	outputs := map[string]map[string]bool{}
 	for _, c := range st.muster.seen() {
 		switch c.Tool {
@@ -605,6 +606,8 @@ func TestVerifyInstallationReadsWithinTheResponseCap(t *testing.T) {
 			want = map[string]bool{outputNormal: true}
 		case kind == "deployment" && key == "deployment/kagent-oauth2-proxy":
 			want = map[string]bool{outputSlim: true, outputNormal: true}
+		case strings.HasPrefix(key, "secret/"+render.DexClientSecretName("")):
+			want = map[string]bool{outputFull: true}
 		default:
 			want = map[string]bool{outputSlim: true}
 		}

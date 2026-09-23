@@ -31,7 +31,8 @@ const (
 // probes are the checks of the running installation, one or more per live
 // dimension of features.yaml, in the order the verify slice runs them: the
 // releases, kagent's workloads, the Secrets, the model configuration, the
-// identity chain over HTTP, the tool access, the logs, and the drift of live
+// identity chain over HTTP, Dex holding every referenced client secret, the
+// tool access, the logs, and the drift of live
 // values against the render. Everything kagent's is probed only when kagent
 // is enabled. Nothing here runs anything: a probe is data.
 func (in *Input) probes() []render.Probe {
@@ -60,6 +61,9 @@ func (in *Input) probes() []render.Probe {
 			Statuses: []int{200, 302},
 			Note:     "Dex answers a client it knows with its login page (several connectors) or a redirect to the one connector; an unknown client is an error page",
 		}))
+	}
+	for _, c := range in.dexSecretClients() {
+		p = append(p, render.DexSecretLoadedProbe(dexSecretsLoadedDimension, featureIdentity, dexNamespace, c.secret, c.client))
 	}
 	p = append(p, httpProbe("live-muster-protected-resource", featureToolAccess, "https://"+in.host("muster")+"/.well-known/oauth-protected-resource", render.Expectation{
 		Status: 200, BodyContains: `"resource":"https://` + in.host("muster") + `/mcp"`,
@@ -196,6 +200,50 @@ func (in *Input) dexRedirectClients() []dexRedirectClient {
 // to the one connector otherwise, never an error page.
 func (in *Input) dexAuthURL(c dexRedirectClient) string {
 	return "https://" + in.host("dex") + "/auth?client_id=" + c.id + "&redirect_uri=" + c.redirectURI + "&response_type=code&scope=openid"
+}
+
+// dexSecretsLoadedDimension is the live dimension of Dex holding the current
+// secret of every client whose secret it reads from a Secret.
+const dexSecretsLoadedDimension = "live-dex-client-secrets-loaded" // #nosec G101 -- a dimension id, not a value
+
+// dexSecretClient is a client of the dex patch whose secret Dex reads from a
+// Secret in its namespace: the client by the patch's name for it (a built-in
+// client's chart key, an extra client's id) and the Secret.
+type dexSecretClient struct {
+	client, secret string
+}
+
+// dexSecretClients are the clients of the dex patch with a referenced
+// secret, in the patch's order, read from the patch itself so that every
+// reference it renders is probed: muster, the MCP servers, kagent's UI, the
+// portals' client, the hubs' token-exchange clients.
+func (in *Input) dexSecretClients() []dexSecretClient {
+	var out []dexSecretClient
+	oidc, _ := mapValue(in.dexPatch(), "oidc").(render.Map)
+	static, _ := mapValue(oidc, "staticClients").(render.Map)
+	for _, c := range static {
+		body, _ := c.Value.(render.Map)
+		if ref, ok := mapValue(body, "clientSecretRef").(render.Map); ok {
+			out = append(out, dexSecretClient{client: c.Key, secret: mapValue(ref, "name").(string)})
+		}
+	}
+	extra, _ := mapValue(oidc, "extraStaticClients").([]render.Map)
+	for _, c := range extra {
+		if ref, ok := mapValue(c, "secretRef").(render.Map); ok {
+			out = append(out, dexSecretClient{client: mapValue(c, "id").(string), secret: mapValue(ref, "name").(string)})
+		}
+	}
+	return out
+}
+
+// mapValue is the value of key in m; nil when m has none.
+func mapValue(m render.Map, key string) any {
+	for _, en := range m {
+		if en.Key == key {
+			return en.Value
+		}
+	}
+	return nil
 }
 
 // registeredServersDimension is the live dimension of the servers registered

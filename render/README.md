@@ -125,8 +125,8 @@ A `Result` also says what the running installation has to show for the render to
 `definitions/agent-platform/features.yaml`, in the order they are run: the HelmReleases Ready, kagent's
 workloads and its Postgres cluster, the oauth2-proxy Secret and the Flux ServiceAccount, the default
 ModelConfig's `Accepted` condition, `/api/agents` answered 403, `/oauth2/start` redirected to Dex as client
-`kagent`, Dex's `/auth` answering 302 for every rendered client with a redirect URI, muster's
-protected-resource metadata, the installation's own MCPServer objects, no audience mismatch in oauth2-proxy's
+`kagent`, Dex's `/auth` answering 302 for every rendered client with a redirect URI, Dex holding the current
+secret of every client the dex patch gives a secret reference, muster's protected-resource metadata, the installation's own MCPServer objects, no audience mismatch in oauth2-proxy's
 log, and the drift of live values against the rendered files. Each probe carries its kind, its target (an
 object by namespace, resource and name, or a URL), its expectation and the feature it marks; everything
 kagent's is probed only when kagent is enabled. Nothing here connects to a cluster or an endpoint: the verify
@@ -136,6 +136,17 @@ A `Drift` probe names the places it compares (`Expect.Compare`: a live path — 
 field as `field:path`, an argument list as `[args]` with a prefix — against a path of the rendered values file);
 without any, it compares a HelmRelease's whole user values (its `valuesFrom` ConfigMaps, then `spec.values`)
 against the rendered values file.
+
+A `SecretLoaded` probe names a Secret a workload reads only when its containers start, and the workload's
+pods and container (`Expect.Pods`, `Expect.Container`): every running container must have started at or after
+the Secret's data last changed, the time of the managed-fields entry that owns the data. Dex reads a referenced
+client secret into its environment at start, so a rotated secret stays unread until the container restarts
+(dex-app 3.2.3 restarts it on the change, earlier versions never do) and the client's sign-ins fail with
+`invalid_client` meanwhile; `render.DexSecretLoadedProbe` is that check for one client, and both definitions
+render one per client Secret their dex patch references. The check reads when the Secret changed, never its
+value: the kubernetes tool the verify reads through masks every Secret value, so a probe that sends the secret
+to Dex's token endpoint could not be run as the person. It errs one way only: a change of the Secret's labels by
+the manager that owns its data moves the time too and asks for a restart Dex did not need.
 
 `Actions` are what a person outside the platform team still has to do, as a note with a state. The model
 key is one, on every installation that runs kagent — the definition renders no file for it and nobody supplies

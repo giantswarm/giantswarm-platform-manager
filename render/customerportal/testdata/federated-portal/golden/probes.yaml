@@ -41,6 +41,16 @@
       - 200
       - 302
     note: Dex answers a client it knows with its login page (several connectors) or a redirect to the one connector; an unknown client is an error page
+- id: live-dex-portal-secret-loaded
+  feature: identity
+  kind: SecretLoaded
+  namespace: giantswarm
+  resource: Secret
+  name: dex-client-backstage
+  expect:
+    pods: app.kubernetes.io/name=dex
+    container: dex
+    note: Dex reads the secret of client backstage only when its container starts; one started before the Secret changed holds the old secret and the client's sign-ins fail until Dex restarts (dex-app 3.2.3 restarts it on the change)
 - id: live-values-secrets
   feature: secrets
   kind: ResourcePresent

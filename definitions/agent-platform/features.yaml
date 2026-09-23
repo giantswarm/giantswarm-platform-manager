@@ -40,6 +40,7 @@ features:
       - {id: live-kagent-api-protected, kind: live, key: /api/agents answered 403 by oauth2-proxy}
       - {id: live-kagent-login-redirect, kind: live, key: /oauth2/start 302 to Dex with client_id=kagent}
       - {id: live-dex-auth-per-client, kind: live, key: Dex /auth 302 for every rendered client}
+      - {id: live-dex-client-secrets-loaded, kind: live, key: "Dex started after every referenced client Secret last changed its data, for every client of the dex patch with a secret reference"}
       - {id: live-oauth2-proxy-audience, kind: live, key: no audience mismatch in oauth2-proxy's log}
   secrets:
     title: Secrets

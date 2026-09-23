@@ -177,6 +177,76 @@
       - 200
       - 302
     note: Dex answers a client it knows with its login page (several connectors) or a redirect to the one connector; an unknown client is an error page
+- id: live-dex-client-secrets-loaded
+  feature: identity
+  kind: SecretLoaded
+  namespace: giantswarm
+  resource: Secret
+  name: dex-client-muster
+  expect:
+    pods: app.kubernetes.io/name=dex
+    container: dex
+    note: Dex reads the secret of client muster only when its container starts; one started before the Secret changed holds the old secret and the client's sign-ins fail until Dex restarts (dex-app 3.2.3 restarts it on the change)
+- id: live-dex-client-secrets-loaded
+  feature: identity
+  kind: SecretLoaded
+  namespace: giantswarm
+  resource: Secret
+  name: dex-client-mcp-kubernetes
+  expect:
+    pods: app.kubernetes.io/name=dex
+    container: dex
+    note: Dex reads the secret of client mcpKubernetes only when its container starts; one started before the Secret changed holds the old secret and the client's sign-ins fail until Dex restarts (dex-app 3.2.3 restarts it on the change)
+- id: live-dex-client-secrets-loaded
+  feature: identity
+  kind: SecretLoaded
+  namespace: giantswarm
+  resource: Secret
+  name: dex-client-mcp-prometheus
+  expect:
+    pods: app.kubernetes.io/name=dex
+    container: dex
+    note: Dex reads the secret of client mcpPrometheus only when its container starts; one started before the Secret changed holds the old secret and the client's sign-ins fail until Dex restarts (dex-app 3.2.3 restarts it on the change)
+- id: live-dex-client-secrets-loaded
+  feature: identity
+  kind: SecretLoaded
+  namespace: giantswarm
+  resource: Secret
+  name: dex-client-mcp-capi
+  expect:
+    pods: app.kubernetes.io/name=dex
+    container: dex
+    note: Dex reads the secret of client mcpCapi only when its container starts; one started before the Secret changed holds the old secret and the client's sign-ins fail until Dex restarts (dex-app 3.2.3 restarts it on the change)
+- id: live-dex-client-secrets-loaded
+  feature: identity
+  kind: SecretLoaded
+  namespace: giantswarm
+  resource: Secret
+  name: dex-client-kagent
+  expect:
+    pods: app.kubernetes.io/name=dex
+    container: dex
+    note: Dex reads the secret of client kagent only when its container starts; one started before the Secret changed holds the old secret and the client's sign-ins fail until Dex restarts (dex-app 3.2.3 restarts it on the change)
+- id: live-dex-client-secrets-loaded
+  feature: identity
+  kind: SecretLoaded
+  namespace: giantswarm
+  resource: Secret
+  name: dex-client-backstage
+  expect:
+    pods: app.kubernetes.io/name=dex
+    container: dex
+    note: Dex reads the secret of client backstage only when its container starts; one started before the Secret changed holds the old secret and the client's sign-ins fail until Dex restarts (dex-app 3.2.3 restarts it on the change)
+- id: live-dex-client-secrets-loaded
+  feature: identity
+  kind: SecretLoaded
+  namespace: giantswarm
+  resource: Secret
+  name: dex-client-muster-token-exchange-gopher
+  expect:
+    pods: app.kubernetes.io/name=dex
+    container: dex
+    note: Dex reads the secret of client muster-token-exchange-gopher only when its container starts; one started before the Secret changed holds the old secret and the client's sign-ins fail until Dex restarts (dex-app 3.2.3 restarts it on the change)
 - id: live-muster-protected-resource
   feature: tool-access
   kind: HTTP

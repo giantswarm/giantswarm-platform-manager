@@ -154,13 +154,17 @@ func TestClassifyReadsResponseTooLarge(t *testing.T) {
 }
 
 // A read asks mcp-kubernetes for what its check reads: the slim output for
-// a readiness check, the normal output for a drift probe, never a whole
-// object — which the response cap refuses for a HelmRelease with history.
+// a readiness check, the normal output for a drift probe, and the whole
+// object — which the response cap refuses for a HelmRelease with history —
+// only where the managed fields are what is read, a Secret's.
 func TestOutputOfShape(t *testing.T) {
 	if got := outputOf(verify.Readiness); got != "slim" {
 		t.Errorf("readiness: %q", got)
 	}
 	if got := outputOf(verify.Configuration); got != "normal" {
 		t.Errorf("configuration: %q", got)
+	}
+	if got := outputOf(verify.Manifest); got != "full" {
+		t.Errorf("manifest: %q", got)
 	}
 }

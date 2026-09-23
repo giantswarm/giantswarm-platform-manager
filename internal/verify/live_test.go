@@ -204,6 +204,9 @@ const (
 	keySpec         = "spec"
 	keyStatus       = "status"
 	keyData         = "data"
+	keyMetadata     = "metadata"
+	keyName         = "name"
+	kindSecret      = "Secret"
 	conditionTrue   = "True"
 	proxyWorkload   = "proxy"
 	metaRelease     = "agent-platform"
@@ -268,8 +271,9 @@ func TestChecksAskForWhatTheyRead(t *testing.T) {
 			key("ConfigMap", valuesKey):        {keyData: map[string]any{"values.yaml": "kagent:\n  replicas: \"2\"\n", "x": "2"}},
 			key(kindDeployment, proxyWorkload): {keySpec: map[string]any{"selector": map[string]any{"matchLabels": map[string]any{"app": proxyWorkload}}}, keyStatus: conditions("Available")},
 			key("Secret", "credential"):        {keyData: map[string]any{"k": "***"}},
+			key(kindSecret, "loaded"):          secretWrittenAt(written),
 		},
-		pods: []map[string]any{{"metadata": map[string]any{"name": proxyWorkload + "-0"}, keyStatus: map[string]any{"phase": "Running"}}},
+		pods: []map[string]any{podStartedAt(proxyWorkload+"-0", proxyWorkload, started)},
 		log:  "level=info msg=\"listening\"\n",
 	}
 	x := &executor{opts: LiveOptions{Cluster: cluster}, lv: &liveRender{values: map[string]string{renderedLeaf: "2"}}}
@@ -288,6 +292,7 @@ func TestChecksAskForWhatTheyRead(t *testing.T) {
 		{"LogAbsent with the definition's note", render.Probe{Kind: render.LogAbsent, Namespace: testNamespace, Resource: kindDeployment, Name: proxyWorkload, Expect: render.Expectation{Absent: "does not match", Note: definitionNote}}, []Shape{Readiness, Readiness}, []int{LogTail}, definitionNote + "; " + logTailNote},
 		{"Drift of a HelmRelease's values", render.Probe{Kind: render.Drift, Namespace: testNamespace, Resource: kindHelmRelease, Name: testRelease}, []Shape{Configuration, Configuration}, nil, ""},
 		{"Drift of a place", render.Probe{Kind: render.Drift, Namespace: testNamespace, Resource: "ConfigMap", Name: valuesKey, Expect: render.Expectation{Compare: []render.Comparison{{Live: "data.x", Rendered: renderedLeaf}}}}, []Shape{Configuration}, nil, ""},
+		{"SecretLoaded", render.Probe{Kind: render.SecretLoaded, Namespace: testNamespace, Resource: kindSecret, Name: "loaded", Expect: render.Expectation{Pods: "app=" + proxyWorkload, Container: proxyWorkload}}, []Shape{Manifest, Readiness}, nil, ""},
 	} {
 		cluster.shapes, cluster.tails = nil, nil
 		check, diffs, auth := x.run(context.Background(), c.probe)
@@ -306,6 +311,105 @@ func TestChecksAskForWhatTheyRead(t *testing.T) {
 		if c.probe.Kind == render.LogAbsent && !strings.Contains(check.Message, "the last 200 lines") {
 			t.Errorf("%s: %q", c.name, check.Message)
 		}
+	}
+}
+
+// When a Secret's data was written and when the containers that read it
+// started, in the fixtures of the SecretLoaded checks.
+const (
+	written = "2026-09-23T16:21:23Z"
+	started = "2026-09-23T16:44:13Z"
+	earlier = "2026-09-23T16:20:00Z"
+	later   = "2026-09-23T17:00:00Z"
+)
+
+// managedFields is a managed-fields entry of manager at the time, owning the
+// fields of fieldsV1.
+func managedFields(manager, at string, fieldsV1 map[string]any) map[string]any {
+	return map[string]any{"manager": manager, "operation": "Apply", "time": at, "fieldsV1": fieldsV1}
+}
+
+// dataFields and labelFields are the fields an entry owns: a Secret's data,
+// its labels only.
+var (
+	dataFields  = map[string]any{"f:data": map[string]any{"f:secret": map[string]any{}}}
+	labelFields = map[string]any{"f:metadata": map[string]any{"f:labels": map[string]any{"f:team": map[string]any{}}}}
+)
+
+// secretWrittenAt is a Secret, its values masked as the kubernetes tool
+// answers them, whose data the managed-fields entries say was written at.
+func secretWrittenAt(at string, more ...map[string]any) map[string]any {
+	entries := []any{managedFields("kustomize-controller", at, dataFields)}
+	for _, m := range more {
+		entries = append(entries, m)
+	}
+	return map[string]any{keyMetadata: map[string]any{"managedFields": entries}, keyData: map[string]any{"secret": "***REDACTED***"}}
+}
+
+// podStartedAt is a pod whose container of the name runs since at; an empty
+// at is a container that waits to start.
+func podStartedAt(pod, container, at string) map[string]any {
+	state := map[string]any{"waiting": map[string]any{"reason": "CrashLoopBackOff"}}
+	if at != "" {
+		state = map[string]any{"running": map[string]any{"startedAt": at}}
+	}
+	return map[string]any{keyMetadata: map[string]any{keyName: pod}, keyStatus: map[string]any{"phase": "Running",
+		"containerStatuses": []any{map[string]any{keyName: "sidecar", "state": map[string]any{"running": map[string]any{"startedAt": later}}}, map[string]any{keyName: container, "state": state}}}}
+}
+
+// A Secret a container reads only at its start is loaded when every running
+// container started at or after the Secret's data last changed — the time
+// of the managed-fields entry that owns the data — and holds the value from
+// before when one started earlier, which the check names with the pod, the
+// Secret and both times: a rotated client secret Dex has not read since.
+// A later write of the labels alone moves nothing; the stringData a Secret
+// was written with counts as its data. A container not running reads the
+// Secret when it starts; with none running, or no entry saying when the data
+// changed, the check claims nothing; with no pod, the workload is not there.
+func TestSecretLoadedHoldsTheContainersToTheSecretsLastChange(t *testing.T) {
+	const object, container = "dex-client-mcp-capi", "dex"
+	probe := render.Probe{Kind: render.SecretLoaded, Namespace: "giantswarm", Resource: kindSecret, Name: object,
+		Expect: render.Expectation{Pods: "app.kubernetes.io/name=dex", Container: container, Note: definitionNote}}
+	for _, c := range []struct {
+		name    string
+		secret  map[string]any
+		pods    []map[string]any
+		mark    Mark
+		message string
+	}{
+		{"Dex restarted after the rotation", secretWrittenAt(written), []map[string]any{podStartedAt("dex-a", container, started)}, AsDefined,
+			"container dex of 1 pod(s) started after Secret giantswarm/dex-client-mcp-capi changed its data at " + written},
+		{"Dex started with the write", secretWrittenAt(written), []map[string]any{podStartedAt("dex-a", container, written)}, AsDefined,
+			"container dex of 1 pod(s) started after Secret giantswarm/dex-client-mcp-capi changed its data at " + written},
+		{"a rotation Dex has not read", secretWrittenAt(written), []map[string]any{podStartedAt("dex-a", container, earlier)}, Drifted,
+			"container dex of dex-a (at " + earlier + ") started before Secret giantswarm/dex-client-mcp-capi changed its data at " + written + ": it holds the value from before"},
+		{"one replica of two restarted", secretWrittenAt(written), []map[string]any{podStartedAt("dex-a", container, started), podStartedAt("dex-b", container, earlier)}, Drifted,
+			"container dex of dex-b (at " + earlier + ") started before Secret giantswarm/dex-client-mcp-capi changed its data at " + written + ": it holds the value from before"},
+		{"the latest data write counts", secretWrittenAt(earlier, managedFields("kubectl", later, dataFields)), []map[string]any{podStartedAt("dex-a", container, started)}, Drifted,
+			"container dex of dex-a (at " + started + ") started before Secret giantswarm/dex-client-mcp-capi changed its data at " + later + ": it holds the value from before"},
+		{"a later label change moves nothing", secretWrittenAt(written, managedFields("kubectl", later, labelFields)), []map[string]any{podStartedAt("dex-a", container, started)}, AsDefined,
+			"container dex of 1 pod(s) started after Secret giantswarm/dex-client-mcp-capi changed its data at " + written},
+		{"stringData is the data", map[string]any{keyMetadata: map[string]any{"managedFields": []any{managedFields("kubectl", later, map[string]any{"f:stringData": map[string]any{}})}}}, []map[string]any{podStartedAt("dex-a", container, started)}, Drifted,
+			"container dex of dex-a (at " + started + ") started before Secret giantswarm/dex-client-mcp-capi changed its data at " + later + ": it holds the value from before"},
+		{"a container not running is not counted", secretWrittenAt(written), []map[string]any{podStartedAt("dex-a", container, started), podStartedAt("dex-b", container, "")}, AsDefined,
+			"container dex of 1 pod(s) started after Secret giantswarm/dex-client-mcp-capi changed its data at " + written},
+		{"no container running", secretWrittenAt(written), []map[string]any{podStartedAt("dex-a", container, "")}, NotChecked,
+			"container dex runs in none of the 1 pod(s) app.kubernetes.io/name=dex selects: it reads the Secret when it starts"},
+		{"no record of the data's change", map[string]any{keyData: map[string]any{"secret": "***REDACTED***"}}, nil, NotChecked,
+			"no managed-fields entry of Secret giantswarm/dex-client-mcp-capi owns its data: when it changed is not known"},
+		{"no Dex pod", secretWrittenAt(written), nil, Drifted, "no pod matches app.kubernetes.io/name=dex"},
+	} {
+		cluster := &recordingCluster{objects: map[string]map[string]any{kindSecret + "/giantswarm/" + object: c.secret}, pods: c.pods}
+		x := &executor{opts: LiveOptions{Cluster: cluster}}
+		check, diffs, auth := x.run(context.Background(), probe)
+		if check.Mark != c.mark || check.Message != c.message || check.Note != definitionNote || check.Name != object || len(diffs) != 0 || auth != nil {
+			t.Errorf("%s: %+v (diffs %d, auth %v), want %q %q", c.name, check, len(diffs), auth, c.mark, c.message)
+		}
+	}
+	// Dex's Secret missing is the client unable to sign in at all.
+	x := &executor{opts: LiveOptions{Cluster: &recordingCluster{}}}
+	if check, _, _ := x.run(context.Background(), probe); check.Mark != Drifted || !strings.HasPrefix(check.Message, "does not exist") {
+		t.Errorf("no Secret: %+v", check)
 	}
 }
 
