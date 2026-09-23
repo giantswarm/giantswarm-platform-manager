@@ -89,6 +89,12 @@ type Config struct {
 // DefaultIdleLifetime is how long an idle loop-back session lives.
 const DefaultIdleLifetime = 15 * time.Minute
 
+// OpenTimeout bounds the opening of a person's loop-back session at muster
+// (the connection and the MCP initialize): a muster that does not answer is
+// named, and every other person's reads — which wait on the same lock —
+// are held no longer than this.
+const OpenTimeout = 30 * time.Second
+
 // ClientName is the clientInfo.name of the loop-back session at muster.
 const ClientName = "giantswarm-platform-manager"
 
@@ -317,8 +323,13 @@ func (c *Client) session(ctx context.Context, sub, token string) (*session, erro
 		return s, nil
 	}
 	s := &session{token: token, last: now}
-	agg, err := aggregator.Open(ctx, c.cfg.MusterURL, s.bearer, ClientName, c.cfg.Version, nil)
+	octx, cancel := context.WithTimeout(ctx, OpenTimeout)
+	defer cancel()
+	agg, err := aggregator.Open(octx, c.cfg.MusterURL, s.bearer, ClientName, c.cfg.Version, nil)
 	if err != nil {
+		if errors.Is(octx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
+			return nil, fmt.Errorf("the loop-back to muster at %s did not answer within %s", c.cfg.MusterURL, OpenTimeout)
+		}
 		return nil, fmt.Errorf("the loop-back to muster at %s: %w", c.cfg.MusterURL, err)
 	}
 	s.s = agg
