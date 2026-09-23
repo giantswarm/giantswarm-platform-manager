@@ -1,9 +1,11 @@
 package tools
 
 import (
+	"context"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
@@ -239,5 +241,22 @@ func TestApplyStageRecoversAFailedStage(t *testing.T) {
 	applyStage(&status, 0, actions.StateFailed)
 	if status.State != actions.StateFailed || status.Result != failed || status.Rollout.FinishedAt == nil || status.Rollout.Installations[1].State != "" {
 		t.Errorf("still red: %+v %+v", status.State, status.Rollout.Installations)
+	}
+}
+
+// The watch re-reads the pull requests with the call's own GitHub token: a
+// call without one reads the record as it was and says why in the answer's
+// note, and a record fresh enough is not re-read and needs no note.
+func TestResyncBeforeWatchNamesWhatItCouldNotReRead(t *testing.T) {
+	tl := New(Deps{Actions: struct{ actions.Store }{}})
+	a := &actions.Action{Status: actions.Status{State: actions.StateRollingOut}}
+	got, note := tl.resyncBeforeWatch(context.Background(), a)
+	if got != a || !strings.Contains(note, "not re-read from GitHub") || !strings.Contains(note, errNoGitHubToken.Error()) {
+		t.Errorf("without a GitHub token: %v %q", got == a, note)
+	}
+	synced := time.Now()
+	a.Status.SyncedAt = &synced
+	if got, note := tl.resyncBeforeWatch(context.Background(), a); got != a || note != "" {
+		t.Errorf("a fresh record: %v %q", got == a, note)
 	}
 }

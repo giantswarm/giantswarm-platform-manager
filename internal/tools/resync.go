@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -20,8 +21,8 @@ import (
 // path, or closed by one, and a fileset reverted out of the default branch
 // again are read on every read of the record — get_action, list_actions,
 // list_installations, the approval tools before they decide, and
-// watch_action through the App-pinned registration — as the person reading,
-// with their token, at most once per ResyncInterval per action. The manager
+// watch_action — as the person reading, with the GitHub token muster puts
+// on their call, at most once per ResyncInterval per action. The manager
 // holds no token of its own, so nothing resyncs unattended: the portal's
 // page and platformctl are what read periodically.
 
@@ -50,22 +51,39 @@ func (t *Tools) due(a *actions.Action) bool {
 // token (a server without OAuth), the record is fresh enough, or the reads
 // failed — a failed resync is logged and never fails the read that asked.
 func (t *Tools) resyncAs(ctx context.Context, a *actions.Action) *actions.Action {
-	token, ok := identity.TokenFromContext(ctx)
-	id, _ := identity.FromContext(ctx)
-	if !ok || id == nil || t.d.Actions == nil || !t.due(a) {
+	fresh, err := t.resyncCaller(ctx, a)
+	switch {
+	case errors.Is(err, errNoGitHubToken):
 		return a
-	}
-	c, err := t.person(token)
-	if err != nil {
-		t.d.Log.Warn("action_resync_failed", identity.LogAttr(ctx), "action", a.Name, "error", err.Error())
-		return a
-	}
-	fresh, err := t.resync(ctx, c, id, a)
-	if err != nil {
+	case err != nil:
 		t.d.Log.Warn("action_resync_failed", identity.LogAttr(ctx), "action", a.Name, "error", err.Error())
 		return a
 	}
 	return fresh
+}
+
+// errNoGitHubToken: the request carries no GitHub token to read the pull
+// requests with — a server without OAuth.
+var errNoGitHubToken = errors.New("the call carried no GitHub token (a server without OAuth)")
+
+// resyncCaller is a's record after it followed GitHub as the caller of ctx:
+// a itself when the manager keeps no records or the record is fresh enough,
+// errNoGitHubToken when the request carries no GitHub token, else the reads'
+// refusal.
+func (t *Tools) resyncCaller(ctx context.Context, a *actions.Action) (*actions.Action, error) {
+	if t.d.Actions == nil || !t.due(a) {
+		return a, nil
+	}
+	token, ok := identity.TokenFromContext(ctx)
+	id, _ := identity.FromContext(ctx)
+	if !ok || id == nil {
+		return nil, errNoGitHubToken
+	}
+	c, err := t.person(token)
+	if err != nil {
+		return nil, err
+	}
+	return t.resync(ctx, c, id, a)
 }
 
 // resyncAll is resyncAs over a list, in place.

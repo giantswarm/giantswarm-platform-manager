@@ -3,9 +3,8 @@ package e2e
 // The record follows GitHub: pull requests merged outside merge_action by a
 // person with the repositories' own merge path move the action to rolling
 // out on the next read, with who merged them and the approval recorded as
-// merged without approval; the watch re-reads the record through the
-// manager's own get_action as the person first, so it works on
-// such an action; a pull request closed unmerged fails the action naming it;
+// merged without approval; the watch re-reads the record as the person
+// first (watch_test.go), so it works on such an action; a pull request closed unmerged fails the action naming it;
 // and a fileset reverted out of the default branch again removes the action,
 // naming the objects the definition rendered that stay on the installation
 // until a person deletes them.
@@ -98,37 +97,6 @@ func TestPullRequestsMergedOutsideMoveTheActionToRollingOut(t *testing.T) {
 		t.Fatalf("a further read: %+v", again.Status)
 	}
 	assertNoLeak(t, "the server's log", st.logs.String())
-}
-
-// The first call after the merges by hand is the watch, which reads with the
-// forwarded identity: it has the manager's own get_action re-read the action
-// as the person through muster — muster puts their GitHub grant
-// on the call — and watches the action that is rolling out now.
-func TestWatchActionReadsThePullRequestsThroughMuster(t *testing.T) {
-	st := newStack(t)
-	out, _ := commitRowan(t, st)
-	mergeAllOutside(t, st)
-	populateStage(t, st.inst, *out.Action, rowan)
-
-	w, text, isErr := watchCall(t, adminLive(t, st), out.Action.Name)
-	if isErr || !w.Ready || w.State != actions.StateEnabled || strings.Contains(w.Message, "not re-read") {
-		t.Fatalf("the watch as the first read: %v %s", isErr, text)
-	}
-	if ap := w.Action.Status.Approval; ap == nil || ap.Decision != actions.DecisionMergedWithoutApproval || ap.DecidedBy != dave {
-		t.Fatalf("the approval: %+v", w.Action.Status.Approval)
-	}
-	for _, pr := range w.Action.Status.PullRequests {
-		if pr.State != actions.PullRequestMerged || pr.MergedBy != dave {
-			t.Fatalf("pull request on record: %+v", pr)
-		}
-	}
-	// The loop-back ran as the admin's GitHub grant: alice's.
-	if w.Action.Status.SyncedBy != alice || !strings.Contains(st.logs.String(), "action_resynced") {
-		t.Fatalf("synced by %q; log:\n%s", w.Action.Status.SyncedBy, st.logs.String())
-	}
-	if th := thread(t, st); len(th) != 2 || !strings.Contains(th[0], "Merged outside the manager by "+dave) || !strings.Contains(th[1], "*"+rowan+"* is *"+actions.StateEnabled+"*") {
-		t.Fatalf("the thread: %q", th)
-	}
 }
 
 // A pull request closed unmerged by hand fails the action on the next read,
