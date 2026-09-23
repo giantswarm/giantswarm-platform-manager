@@ -76,7 +76,45 @@ func New(ctx context.Context, c *client.Client, clientName, clientVersion string
 		_ = c.Close()
 		return nil, fmt.Errorf("initialize the MCP session with muster: %w", err)
 	}
+	if err := awaitBridgeTools(ctx, c); err != nil {
+		_ = c.Close()
+		return nil, err
+	}
 	return &Session{c: c}, nil
+}
+
+// bridgeReadyWithin bounds the wait for the bridge's meta tools: muster's CLI
+// bridge answers initialize before it has connected to the aggregator and
+// registered call_tool, so a call sent at once is refused with "tool
+// 'call_tool' not found".
+const bridgeReadyWithin = 20 * time.Second
+
+// awaitBridgeTools waits until the bridge lists call_tool, polling
+// tools/list, and answers why when it does not within bridgeReadyWithin.
+func awaitBridgeTools(ctx context.Context, c *client.Client) error {
+	deadline := time.Now().Add(bridgeReadyWithin)
+	var last error
+	for {
+		res, err := c.ListTools(ctx, mcp.ListToolsRequest{})
+		if err == nil {
+			for _, t := range res.Tools {
+				if t.Name == MetaCallTool {
+					return nil
+				}
+			}
+			last = fmt.Errorf("%s is not among the bridge's %d tool(s)", MetaCallTool, len(res.Tools))
+		} else {
+			last = err
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("the muster bridge did not connect to the aggregator within %s: %w", bridgeReadyWithin, last)
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("the muster bridge did not connect to the aggregator: %w", ctx.Err())
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
 }
 
 // Close ends the session.
