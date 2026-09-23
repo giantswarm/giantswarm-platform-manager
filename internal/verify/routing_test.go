@@ -43,12 +43,12 @@ func TestMatcherReadsKeys(t *testing.T) {
 	const appConfig, userValues, secrets = "backstage/app-config.yaml", "backstage/user-values.yaml", "backstage/user-secrets.enc.yaml"
 
 	k := m(definitions.KindBackstage, "app-config.yaml app.title / app.baseUrl / organization")
-	if got := k.words(); !reflect.DeepEqual(got, []string{"app-config.yaml", "app.title", "app.baseUrl", "organization"}) {
+	if got := k.words(); !reflect.DeepEqual(got, []string{"app-config.yaml", titlePath, "app.baseUrl", "organization"}) {
 		t.Errorf("words %v", got)
 	}
-	hits(t, k, appConfig, "app.title", "app.baseUrl", "organization", "organization.name")
+	hits(t, k, appConfig, titlePath, "app.baseUrl", "organization", "organization.name")
 	misses(t, k, appConfig, "app", "app.titleX", "app.routes")
-	misses(t, k, userValues, "app.title")
+	misses(t, k, userValues, titlePath)
 
 	whole, part := m(definitions.KindBackstage, "user-secrets.enc.yaml"), m(definitions.KindBackstage, "user-secrets.enc.yaml dexAuthCredentials.<name>")
 	hits(t, whole, secrets, "stringData.values", "dexAuthCredentials.maple", "")
@@ -67,9 +67,9 @@ func TestMatcherReadsKeys(t *testing.T) {
 		t.Error("a directory is less specific than a file in it")
 	}
 	sub := m(definitions.KindBackstage, "backstage/kustomization.yaml patches[0]")
-	hits(t, sub, "backstage/kustomization.yaml", "patches[0].patch", "patches[0].target.kind")
-	misses(t, sub, "backstage/kustomization.yaml", "patches[1].patch", "resources[a]")
-	misses(t, sub, "kustomization.yaml", "patches[0].patch")
+	hits(t, sub, "backstage/kustomization.yaml", chartPatch, "patches[0].target.kind")
+	misses(t, sub, "backstage/kustomization.yaml", releasePatch, "resources[a]")
+	misses(t, sub, "kustomization.yaml", chartPatch)
 	hits(t, m(definitions.KindBackstage, "kustomization.yaml resources"), "kustomization.yaml", "resources[./backstage/]")
 	hits(t, m(definitions.KindBackstage, "kustomization.yaml resources"), "backstage/kustomization.yaml", "resources[app-config.yaml]")
 
@@ -221,8 +221,8 @@ func TestRoutesThePortalsLeaves(t *testing.T) {
 	const portal = "management-clusters/maple/extras/backstage/"
 	fd := func(p string) *fileDiff { return &fileDiff{path: p, kind: kindOf(p)} }
 	for _, tc := range []struct{ file, path, want string }{
-		{portal + "backstage/kustomization.yaml", "patches[0].patch", "chart-line"},
-		{portal + "backstage/kustomization.yaml", "patches[1].patch", "values-sources"},
+		{portal + "backstage/kustomization.yaml", chartPatch, "chart-line"},
+		{portal + "backstage/kustomization.yaml", releasePatch, "values-sources"},
 		{portal + "backstage/kustomization.yaml", "resources[dex-client-backstage-secret.enc.yaml]", "extras-kustomization"},
 		{portal + "kustomization.yaml", "resources[./backstage/]", "extras-kustomization"},
 		{portal + "kustomization.yaml", "components[./agent-platform/]", "platform-component"},
@@ -298,6 +298,36 @@ func TestUnnamedLeavesAreReportedUnderOther(t *testing.T) {
 	vd.missing = nil
 	if _, others = assign(&comparison{files: files}, feats, "", nil); len(others) != 0 {
 		t.Errorf("nothing unnamed, yet %+v", others)
+	}
+}
+
+// A leaf inside the text a kustomization's patch holds is observed under
+// the dimension whose key names it at any level of its path: the word over
+// the patch (patches[1], the portal's HelmRelease patch) covers the leaves
+// of its document, a word inside the document names them more specifically
+// and wins, and the JSON 6902 patch stays the one leaf its word names.
+func TestRouteNamesALeafAtEveryLevel(t *testing.T) {
+	const kust, chartLine, valuesSources, sourceKinds, others = "backstage/kustomization.yaml ", "chart-line", "values-sources", "source-kinds", "others"
+	feats := []definitions.Feature{{ID: "chart", Dimensions: []definitions.Dimension{
+		{ID: chartLine, Kind: definitions.KindBackstage, Key: kust + "patches[0]"},
+		{ID: valuesSources, Kind: definitions.KindBackstage, Key: kust + "patches[1]"},
+		{ID: sourceKinds, Kind: definitions.KindBackstage, Key: kust + "spec.valuesFrom[*].kind"},
+		{ID: others, Kind: definitions.KindBackstage, CatchAll: true, Key: "everything else"},
+	}}}
+	matchers := matchersOf(feats, nil)
+	fd := &fileDiff{path: "management-clusters/x/extras/backstage/backstage/kustomization.yaml", kind: definitions.KindBackstage, documents: map[string]bool{releasePatch: true}}
+	for leaf, want := range map[string]string{
+		chartPatch:               chartLine,
+		"patches[0].target.kind": chartLine,
+		releasePatch + ":spec.valuesFrom[user-secrets-backstage].name": valuesSources,
+		releasePatch + ":spec.valuesFrom[user-secrets-backstage].kind": sourceKinds,
+		releasePatch + ":spec.postRenderers":                           valuesSources,
+		"patches[1].target.name":                                       valuesSources,
+		"resources[app-config.yaml]":                                   others,
+	} {
+		if d := route(matchers, fd, leaf); d == nil || d.ID != want {
+			t.Errorf("%s is observed under %v, want %s", leaf, d, want)
+		}
 	}
 }
 
