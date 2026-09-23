@@ -1592,11 +1592,11 @@ func TestVerifyCapabilityReadsThePortalsValuesSources(t *testing.T) {
 	}
 }
 
-// The chart line's JSON 6902 patch is compared by its operations' values: a
-// portal on record whose patch quotes the range in double quotes, where the
-// render quotes it singly, reads the chart-line dimension as defined and the
-// plan leaves the kustomization as it is; another range typed reads by input
-// at the value's leaf, and the plan updates the file.
+// The chart line's JSON 6902 patch is compared by its value: a portal on
+// record whose patch quotes the range in double quotes, where the render
+// quotes it singly, reads the chart-line dimension as defined and the plan
+// leaves the kustomization as it is; another range typed reads by input at
+// the patch, and the plan updates the file.
 func TestVerifyCapabilityReadsTheChartLinesPatchByValue(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
@@ -1633,7 +1633,8 @@ func TestVerifyCapabilityReadsTheChartLinesPatchByValue(t *testing.T) {
 	const newer = ">=2.2.0 <3.0.0"
 	res = verifyPortal(t, c, rowan, map[string]any{"chart": map[string]any{"line": newer}})
 	d := dimension(t, feature(t, res, "portal"), chartLineDim)
-	if want := []verify.Difference{{File: key, Path: "patches[0].patch:[1].value", Input: chartLineInput, Rendered: newer, Current: chartLine, Line: 16, CurrentLine: 16}}; d.Mark != verify.DiffersByInput || !reflect.DeepEqual(d.Differences, want) {
+	const canonical = "- op: remove\n  path: /spec/ref/tag\n- op: add\n  path: /spec/ref/semver\n  value: '%s'\n"
+	if want := []verify.Difference{{File: key, Path: "patches[0].patch", Input: chartLineInput, Rendered: fmt.Sprintf(canonical, newer), Current: fmt.Sprintf(canonical, chartLine), Line: 11, CurrentLine: 11}}; d.Mark != verify.DiffersByInput || !reflect.DeepEqual(d.Differences, want) {
 		t.Errorf("another range typed: %s\n%+v\nwant\n%+v", d.Mark, d.Differences, want)
 	}
 	if f := kustomization(res); f.Change != plan.ChangeUpdate {
