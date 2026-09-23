@@ -59,7 +59,7 @@ func (t *Tools) registerApprovalTools(s *mcpserver.MCPServer) {
 		mcp.WithString(ArgAction, mcp.Required(), mcp.Description("The Action's name (the action id of the review).")),
 	), t.approveAction)
 	s.AddTool(mcp.NewTool(ToolDenyAction,
-		mcp.WithDescription("The Deny button of an action's Team review, called as the clicking member (the actor included: a denial withdraws the action): records the reason on the Action, closes every pull request of the action as you and moves the Action to denied. A failed action is denied too: any pull request its failure left open is closed, the reason recorded, the action stays failed."),
+		mcp.WithDescription("The Deny button of an action's Team review, called as the clicking member (the actor included: a denial withdraws the action): records the reason on the Action, closes every pull request of the action as you and moves the Action to denied. A failed action is denied too, its approval decided or not: any pull request its failure left open — a wave's stages after the one that stopped on a red probe — is closed, the withdrawal recorded with the reason, the action stays failed and the approval as it was."),
 		mcp.WithIdempotentHintAnnotation(true), mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithString(ArgAction, mcp.Required(), mcp.Description("The Action's name.")),
 		mcp.WithString(ArgReason, mcp.Required(), mcp.Description("Why the action is denied; recorded on the Action.")),
@@ -172,13 +172,21 @@ func (t *Tools) denyAction(ctx context.Context, req mcp.CallToolRequest) (*mcp.C
 // commit that failed after opening pull requests closes them itself, and the
 // denial closes whatever it could not (the remote refused a close) and
 // records the reason; the action stays failed, the failure being its result.
+// An approved action that failed — a wave stopped by a red probe with the
+// next stages' pull requests open — is withdrawn the same way: the pull
+// requests are closed, the withdrawal recorded in the result, the approval
+// stands as decided.
 func (t *Tools) deny(ctx context.Context, args map[string]any) (any, error) {
 	a, id, err := t.loadAction(ctx, ToolDenyAction, args, actions.StatePendingApproval, actions.StateFailed)
 	if err != nil {
 		return nil, err
 	}
-	if a.Status.Approval != nil && a.Status.Approval.Decision != "" {
+	decidedAlready := a.Status.Approval != nil && a.Status.Approval.Decision != ""
+	if decidedAlready && (a.Status.State != actions.StateFailed || a.Status.Approval.Decision == actions.DecisionDenied) {
 		return nil, fmt.Errorf("%s: action %s is already %s by %s", ToolDenyAction, a.Name, a.Status.Approval.Decision, a.Status.Approval.DecidedBy)
+	}
+	if decidedAlready && len(openPRs(a.Status.PullRequests)) == 0 {
+		return nil, fmt.Errorf("%s: action %s is %s with no pull request open; nothing to withdraw", ToolDenyAction, a.Name, a.Status.State)
 	}
 	reason, _ := args[ArgReason].(string)
 	if reason = strings.TrimSpace(reason); reason == "" {
@@ -194,12 +202,30 @@ func (t *Tools) deny(ctx context.Context, args map[string]any) (any, error) {
 	if left := closeOpen(ctx, remote, status.PullRequests); len(left) > 0 {
 		return nil, fmt.Errorf("%s: closing as %s: %s", ToolDenyAction, id.Login, strings.Join(left, "; "))
 	}
-	approval := *approvalOf(&status)
-	approval.Decision, approval.DecidedBy, approval.Reason, approval.At = actions.DecisionDenied, id.Login, reason, now()
-	status.Approval = &approval
-	if status.State == actions.StateFailed {
+	switch {
+	case status.State == actions.StateFailed && decidedAlready:
+		status.Result.Message += fmt.Sprintf("; withdrawn by %s: %s (%d pull request(s) closed)", id.Login, reason, open)
+		if status.Rollout != nil {
+			for i := range status.Rollout.Installations {
+				st := &status.Rollout.Installations[i]
+				switch {
+				case st.State == "":
+					st.Message += "; its pull requests were closed by " + id.Login
+				case failedOnProbe(*st):
+					// Withdrawn, the stage is not re-read: the wave is over.
+					st.Message = fmt.Sprintf("withdrawn by %s: %s; %s", id.Login, reason, st.Message)
+				}
+			}
+		}
+	case status.State == actions.StateFailed:
+		approval := *approvalOf(&status)
+		approval.Decision, approval.DecidedBy, approval.Reason, approval.At = actions.DecisionDenied, id.Login, reason, now()
+		status.Approval = &approval
 		status.Result.Message += fmt.Sprintf("; denied by %s: %s (%d pull request(s) closed)", id.Login, reason, open)
-	} else {
+	default:
+		approval := *approvalOf(&status)
+		approval.Decision, approval.DecidedBy, approval.Reason, approval.At = actions.DecisionDenied, id.Login, reason, now()
+		status.Approval = &approval
 		status.State = actions.StateDenied
 		status.Result = &actions.Result{State: actions.StateDenied, Message: fmt.Sprintf("denied by %s: %s", id.Login, reason), At: now()}
 		// A wave's stages were pending approval too; denied, the files'

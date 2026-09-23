@@ -181,8 +181,8 @@ func TestWaveOverASetStopsAtARedProbe(t *testing.T) {
 	if _, text, isErr := mergeCall(t, aliceC, a.Name); !isErr || !strings.Contains(text, actions.StateFailed) {
 		t.Fatalf("merge a stopped wave: %v %s", isErr, text)
 	}
-	if _, text, isErr := watchCall(t, adminLive(t, st), a.Name); !isErr || !strings.Contains(text, actions.StateFailed) {
-		t.Fatalf("watch a stopped wave: %v %s", isErr, text)
+	if w, text, isErr := watchCall(t, adminLive(t, st), a.Name); isErr || w.State != actions.StateFailed || w.Action.Status.State != actions.StateFailed || w.Report != "" {
+		t.Fatalf("watch a stopped wave while red: %v %s", isErr, text)
 	}
 }
 
@@ -230,5 +230,111 @@ func TestWaveAdvancesOnceTheWatchSaysEnabled(t *testing.T) {
 	}
 	if _, text, isErr := mergeCall(t, aliceC, a.Name); !isErr || !strings.Contains(text, actions.StateEnabled) {
 		t.Fatalf("merge a done wave: %v %s", isErr, text)
+	}
+}
+
+// redEdgeProbe makes the installation's edge metadata probe answer 404 and
+// hands back what restores it.
+func redEdgeProbe(t *testing.T, st *stack, c *client.Client, installation string) func() {
+	t.Helper()
+	text, isErr := call(t, c, tools.ToolVerifyCapability, map[string]any{tools.ArgInstallation: installation})
+	var v verify.Result
+	if isErr || json.Unmarshal([]byte(text), &v) != nil {
+		t.Fatalf("verify %s: %v %s", installation, isErr, text)
+	}
+	u, err := url.Parse(dimension(t, feature(t, v, "tool-access"), edgeProbe).Probe.Requests[0].URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.probes.answer(u.Host+u.Path, http.StatusNotFound)
+	return func() { st.probes.restore(u.Host + u.Path) }
+}
+
+// A wave stopped by a red probe is re-read once the cause is fixed: while
+// the probe is red a watch answers failed and changes nothing; green again,
+// birch is enabled with the report naming the stop and the recovery, rowan
+// is queued again, the actor's merge takes rowan's pull requests and rowan's
+// watch ends the wave enabled.
+func TestWaveRecoversFromARedProbe(t *testing.T) {
+	st := newStack(t)
+	a, aliceC, _ := waveStage1(t, st)
+	admin := adminLive(t, st)
+	restore := redEdgeProbe(t, st, aliceC, birch)
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || w.State != actions.StateFailed || w.Action.Status.State != actions.StateFailed {
+		t.Fatalf("the stop: %v %s", isErr, text)
+	}
+	stopped := w.Action.Status.Result.Message
+
+	// Still red: failed, the probe named, the record as it was.
+	w, text, isErr = watchCall(t, admin, a.Name)
+	if isErr || w.State != actions.StateFailed || w.Action.Status.State != actions.StateFailed || w.Action.Status.Result.Message != stopped || w.Report != "" || len(w.Red) == 0 || w.Action.Status.Rollout.Installations[1].State != "" {
+		t.Fatalf("re-read while red: %v %s", isErr, text)
+	}
+	if len(thread(t, st)) != 2 {
+		t.Fatal("a re-read while red posted again")
+	}
+
+	restore()
+	w, text, isErr = watchCall(t, admin, a.Name)
+	if isErr || w.Installation != birch || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateRollingOut || w.Action.Status.Result != nil || w.Action.Status.Rollout.FinishedAt != nil ||
+		w.Action.Status.Rollout.Installations[1].State != actions.StateRollingOut || !strings.Contains(w.Next, tools.ToolMergeAction) {
+		t.Fatalf("the recovery: %v %s", isErr, text)
+	}
+	for _, want := range []string{"*" + birch + "* is *" + actions.StateEnabled + "* (stage 1 of 2)", "Recovered: the stage had failed (a probe is red: ", edgeProbe, "the wave goes on from here", "Next: " + alice + " merges the pull requests of *" + rowan + "*"} {
+		if !strings.Contains(w.Report, want) {
+			t.Errorf("the report lacks %q:\n%s", want, w.Report)
+		}
+	}
+	if th := thread(t, st); len(th) != 3 || th[2] != w.Report {
+		t.Fatalf("the thread: %q", th)
+	}
+	m, text, isErr := mergeCall(t, aliceC, a.Name)
+	if isErr || m.Stage != rowan || len(m.Merged) == 0 || m.Action.Status.State != actions.StateRollingOut {
+		t.Fatalf("stage 2 after the recovery: %v %s", isErr, text)
+	}
+	populateStage(t, st.inst, *m.Action, rowan)
+	w, text, isErr = watchCall(t, admin, a.Name)
+	if isErr || w.Installation != rowan || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled || w.Action.Status.Result == nil || w.Action.Status.Result.State != actions.StateEnabled || w.Action.Status.Rollout.FinishedAt == nil {
+		t.Fatalf("rowan's watch: %v %s", isErr, text)
+	}
+	li, text, isErr := listInstallations(t, aliceC, map[string]any{tools.ArgInstallations: []string{birch, rowan}})
+	if isErr || find(t, li, birch).Capabilities[0].State != installations.StateEnabled || find(t, li, rowan).Capabilities[0].State != installations.StateEnabled {
+		t.Fatalf("list_installations after the recovery: %v %s", isErr, text)
+	}
+}
+
+// The actor withdraws a wave that stopped on a red probe: deny_action closes
+// the next stage's open pull requests and records who withdrew them and why;
+// the action stays failed, the approval as decided, and the withdrawn stage
+// is not re-read any more.
+func TestDenyWithdrawsAStoppedWave(t *testing.T) {
+	st := newStack(t)
+	a, aliceC, _ := waveStage1(t, st)
+	redEdgeProbe(t, st, aliceC, birch)
+	if w, text, isErr := watchCall(t, adminLive(t, st), a.Name); isErr || w.State != actions.StateFailed {
+		t.Fatalf("the stop: %v %s", isErr, text)
+	}
+	const reason = "the definition is fixed forward by a new action"
+	d, text, isErr := decide(t, aliceC, tools.ToolDenyAction, map[string]any{tools.ArgAction: a.Name, tools.ArgReason: reason})
+	if isErr || d.Action.Status.State != actions.StateFailed || d.Action.Status.Approval.Decision != actions.DecisionApproved || d.Action.Status.Approval.DecidedBy != carol ||
+		!strings.Contains(d.Action.Status.Result.Message, "withdrawn by "+alice+": "+reason) || !strings.Contains(d.Message, "closed") {
+		t.Fatalf("the withdrawal: %v %s", isErr, text)
+	}
+	for _, pr := range d.Action.Status.PullRequests {
+		if pr.Installation == rowan && pr.State != actions.PullRequestClosed {
+			t.Errorf("rowan's pull request: %+v", pr)
+		}
+	}
+	for _, pr := range st.remote.PullRequests() {
+		if strings.HasPrefix(pr.Head, "platform/"+a.Name+"/"+rowan) && !pr.Closed {
+			t.Errorf("rowan's pull request on the remote: %+v", pr)
+		}
+	}
+	if st := d.Action.Status.Rollout.Installations; !strings.HasPrefix(st[0].Message, "withdrawn by "+alice) || !strings.Contains(st[1].Message, "closed by "+alice) {
+		t.Errorf("the stages: %+v", st)
+	}
+	if _, text, isErr := watchCall(t, adminLive(t, st), a.Name); !isErr || !strings.Contains(text, "only a stage that failed on a probe is re-read") {
+		t.Fatalf("a watch after the withdrawal: %v %s", isErr, text)
 	}
 }
