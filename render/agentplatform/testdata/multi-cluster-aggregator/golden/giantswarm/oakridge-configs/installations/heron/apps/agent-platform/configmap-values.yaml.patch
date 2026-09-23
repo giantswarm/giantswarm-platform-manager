@@ -7,22 +7,6 @@ components:
     enabled: true
   agent-manager:
     enabled: true
-  muster:
-    valuesFromRefs:
-      - kind: Secret
-        name: muster-credentials-revision
-        valuesKey: revision
-        targetPath: muster.oauth.server.existingSecretChecksum
-      - kind: Secret
-        name: muster-credentials-revision
-        valuesKey: revision
-        targetPath: muster.oauth.server.storage.valkey.existingSecretChecksum
-  valkey:
-    valuesFromRefs:
-      - kind: Secret
-        name: muster-credentials-revision
-        valuesKey: revision
-        targetPath: valkey.auth.usersExistingSecretChecksum
 postgres:
   enabled: true
 llmRouting:

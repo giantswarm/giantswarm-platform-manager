@@ -158,9 +158,11 @@ func (in *Input) configmapPatch() render.Map {
 			components = append(components, e(c, render.Map{e("enabled", true)}))
 		}
 	}
-	components = append(components,
-		e("muster", render.Map{e("valuesFromRefs", revisionRefs(musterRevisionSecret, musterChecksumValues...))}),
-		e("valkey", render.Map{e("valuesFromRefs", revisionRefs(musterRevisionSecret, valkeyChecksumValue))}))
+	if in.musterRevision() {
+		components = append(components,
+			e("muster", render.Map{e("valuesFromRefs", revisionRefs(musterRevisionSecret, musterChecksumValues...))}),
+			e("valkey", render.Map{e("valuesFromRefs", revisionRefs(musterRevisionSecret, valkeyChecksumValue))}))
+	}
 	m = append(m, e("components", components))
 
 	if in.kagent() {
@@ -403,6 +405,13 @@ func (in *Input) dexPatch() render.Map {
 	return render.Map{e("oidc", oidc)}
 }
 
+// musterRevision says whether the installation's meta chart hands muster and
+// its Valkey the credentials revision: the 4 line renders a child's
+// valuesFromRefs, the 3 line has no such knob, so there the Secrets stay as
+// they are (no revision key, no revision Secret) and a rotation still needs
+// a hand-run restart of muster and its Valkey.
+func (in *Input) musterRevision() bool { return in.Installation.ChartLine != lineThree }
+
 // musterChecksumValues are the muster chart's values the muster HelmRelease
 // takes the credentials revision into: the OAuth credentials Secret's mark and
 // the Valkey Secret's, each a pod-template checksum annotation (muster 5.32.0
@@ -458,17 +467,23 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 		files = append(files, e(file, nil))
 		r.Add(repo, dir+"/secrets/"+file, f)
 	}
-	revision := in.generatedName("muster-credentials-revision")
-	add(musterOAuthSecret+".yaml", render.Secret(musterOAuthSecret, platformNamespace, team,
+	oauthKeys := []render.SecretKey{
 		in.generated("dex-client-secret", "muster-dex-client-secret", render.Base64, 32),
 		in.generated("registration-token", "muster-registration-token", render.Base64, 32),
 		in.generated("oauth-encryption-key", "muster-oauth-encryption-key", render.Base64, 32),
-		render.GeneratedKey("credentials-revision", revision, render.Alphanumeric, revisionLength)))
-	add(musterValkeySecret+".yaml", render.Secret(musterValkeySecret, platformNamespace, team,
-		in.generated("valkey-password", "muster-valkey-password", render.Alphanumeric, 32),
-		render.GeneratedKey(revisionKey, revision, render.Alphanumeric, revisionLength)))
-	add(musterRevisionSecret+".yaml", render.Secret(musterRevisionSecret, fluxNamespace, team,
-		render.GeneratedKey(revisionKey, revision, render.Alphanumeric, revisionLength)))
+	}
+	valkeyKeys := []render.SecretKey{in.generated("valkey-password", "muster-valkey-password", render.Alphanumeric, 32)}
+	revision := in.generatedName("muster-credentials-revision")
+	if in.musterRevision() {
+		oauthKeys = append(oauthKeys, render.GeneratedKey("credentials-revision", revision, render.Alphanumeric, revisionLength))
+		valkeyKeys = append(valkeyKeys, render.GeneratedKey(revisionKey, revision, render.Alphanumeric, revisionLength))
+	}
+	add(musterOAuthSecret+".yaml", render.Secret(musterOAuthSecret, platformNamespace, team, oauthKeys...))
+	add(musterValkeySecret+".yaml", render.Secret(musterValkeySecret, platformNamespace, team, valkeyKeys...))
+	if in.musterRevision() {
+		add(musterRevisionSecret+".yaml", render.Secret(musterRevisionSecret, fluxNamespace, team,
+			render.GeneratedKey(revisionKey, revision, render.Alphanumeric, revisionLength)))
+	}
 	add(dexClientSecretFile("muster"), dexClientSecret("muster", in.generatedName("muster-dex-client-secret")))
 	if in.kagent() {
 		add("kagent-oauth2-proxy-credentials.yaml", render.Secret("kagent-oauth2-proxy-credentials", kagentNamespace, team,
