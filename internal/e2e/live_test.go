@@ -239,7 +239,7 @@ func TestVerifyInstallationAsDefined(t *testing.T) {
 			t.Errorf("%s: %s (%s) %+v", id, d.Mark, d.Reason, d.Live)
 		}
 	}
-	if d := dims["live-drift"]; d.Live == nil || len(d.Live.Checks) != 1 || d.Live.Checks[0].Resource != helmReleaseKind || len(d.Differences) != 0 {
+	if d := dims[liveDrift]; d.Live == nil || len(d.Live.Checks) != 1 || d.Live.Checks[0].Resource != helmReleaseKind || len(d.Differences) != 0 {
 		t.Errorf("live-drift: %+v", d)
 	}
 	if d := dims["live-oauth2-proxy-audience"]; d.Live == nil || !strings.Contains(d.Live.Checks[0].Message, "pod log") {
@@ -298,7 +298,7 @@ func TestVerifyInstallationDriftedNamesTheObject(t *testing.T) {
 		!strings.HasPrefix(d.Differences[0].Path, "muster.muster.oauth.server.trustedAudiences") || d.Differences[0].Input != "" {
 		t.Errorf("live-muster-trusted-audiences: %+v", d)
 	}
-	if other := liveDimensions(res)["live-drift"]; other.Mark != verify.AsDefined {
+	if other := liveDimensions(res)[liveDrift]; other.Mark != verify.AsDefined {
 		t.Errorf("the other live dimensions stand: %+v", other)
 	}
 	if s := rowanState(t, alice); s != installations.StateDrifted {
@@ -337,7 +337,7 @@ func TestVerifyInstallationFactOffTheRecordIsDrift(t *testing.T) {
 	})
 
 	res := verifyLive(t, st.liveClient(t, st.dex.token(t, liveAdmin, []string{liveAudience}, time.Hour)), rowan)
-	d := liveDimensions(res)["live-drift"]
+	d := liveDimensions(res)[liveDrift]
 	if d.Mark != verify.Drifted || len(d.Differences) != 1 || d.Differences[0].Input != "" || d.Differences[0].Path != "global.domain" || d.Differences[0].Rendered != "rowan.acme.test" {
 		t.Fatalf("live-drift: %+v", d)
 	}
@@ -538,7 +538,7 @@ func TestVerifyInstallationReadsWithinTheResponseCap(t *testing.T) {
 
 	res := verifyLive(t, admin, rowan)
 	dims := liveDimensions(res)
-	for _, id := range []string{"live-helmreleases-ready", "live-drift", "live-oauth2-proxy-audience"} {
+	for _, id := range []string{"live-helmreleases-ready", liveDrift, "live-oauth2-proxy-audience"} {
 		if d := dims[id]; d.Mark != verify.AsDefined {
 			t.Errorf("%s: %s (%s)", id, d.Mark, d.Reason)
 		}
@@ -605,7 +605,7 @@ func TestVerifyInstallationReadsWithinTheResponseCap(t *testing.T) {
 	})
 	res = verifyLive(t, admin, rowan)
 	dims = liveDimensions(res)
-	for _, id := range []string{"live-drift", "live-oauth2-proxy-audience"} {
+	for _, id := range []string{liveDrift, "live-oauth2-proxy-audience"} {
 		d := dims[id]
 		if d.Mark != verify.NotChecked || !strings.Contains(d.Reason, "larger than mcp-kubernetes answers") || !strings.Contains(d.Reason, "the limit is 128 KiB") || strings.Contains(d.Reason, "response_too_large") {
 			t.Errorf("%s: %s (%s)", id, d.Mark, d.Reason)
@@ -614,7 +614,7 @@ func TestVerifyInstallationReadsWithinTheResponseCap(t *testing.T) {
 	if d := dims["live-helmreleases-ready"]; d.Mark != verify.AsDefined {
 		t.Errorf("live-helmreleases-ready without the values: %s (%s)", d.Mark, d.Reason)
 	}
-	if p := recordedProbes(t, st)["live-drift"]; p.Result != string(verify.NotChecked) || !strings.Contains(p.Message, "larger than mcp-kubernetes answers") {
+	if p := recordedProbes(t, st)[liveDrift]; p.Result != string(verify.NotChecked) || !strings.Contains(p.Message, "larger than mcp-kubernetes answers") {
 		t.Errorf("recorded: %+v", p)
 	}
 }

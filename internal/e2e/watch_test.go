@@ -39,6 +39,7 @@ const (
 	statusTrue      = "True"
 	statusFalse     = "False"
 	modelKeyMissing = "secret kagent-anthropic-key not found"
+	liveDrift       = "live-drift"
 )
 
 // setAccepted turns the default ModelConfig's Accepted condition.
@@ -446,7 +447,7 @@ func TestWatchActionReadsALaterMigrationAsPlanned(t *testing.T) {
 	if w.Verify.Summary[verify.Planned] != 2 || w.Verify.Summary[verify.Drifted] != 0 {
 		t.Errorf("the live result: %v", w.Verify.Summary)
 	}
-	for _, want := range []string{"*" + rowan + "* is *" + actions.StateEnabled + "*", "🔵 live-drift (runtime): newer definition, not this action's: Added:", "🔵 live-kagent-provider-values (runtime): ", tag, "Done: the action is enabled."} {
+	for _, want := range []string{"*" + rowan + "* is *" + actions.StateEnabled + "*", "🔵 " + liveDrift + " (runtime): newer definition, not this action's: Added:", "🔵 live-kagent-provider-values (runtime): ", tag, "Done: the action is enabled."} {
 		if !strings.Contains(w.Report, want) {
 			t.Errorf("the report lacks %q:\n%s", want, w.Report)
 		}
@@ -454,7 +455,7 @@ func TestWatchActionReadsALaterMigrationAsPlanned(t *testing.T) {
 	if strings.Contains(w.Report, "❌") {
 		t.Errorf("the report is red:\n%s", w.Report)
 	}
-	if p, ok := probeOnRecord(w.Action, rowan, "live-drift"); !ok || p.Result != string(verify.Planned) || !strings.Contains(p.Message, "1 planned change(s): Added:") || !strings.Contains(p.Message, tag) {
+	if p, ok := probeOnRecord(w.Action, rowan, liveDrift); !ok || p.Result != string(verify.Planned) || !strings.Contains(p.Message, "1 planned change(s): Added:") || !strings.Contains(p.Message, tag) {
 		t.Errorf("the probe on record: %+v", p)
 	}
 
@@ -468,7 +469,7 @@ func TestWatchActionReadsALaterMigrationAsPlanned(t *testing.T) {
 	if merged.State != installations.StateEnabled || merged.Summary[verify.Drifted] != 0 || merged.Summary[verify.Planned] != 3 {
 		t.Errorf("merged: %q %v", merged.State, merged.Summary)
 	}
-	for _, id := range []string{"kagent-providers", "live-drift", "live-kagent-provider-values"} {
+	for _, id := range []string{"kagent-providers", liveDrift, "live-kagent-provider-values"} {
 		d := anyDimension(t, merged, id)
 		if d.Mark != verify.Planned || len(d.Differences) != 1 || d.Differences[0].Path != leaf || !strings.Contains(d.Differences[0].Planned, tag) || d.Differences[0].Rendered != "32000" {
 			t.Errorf("%s: %+v", id, d)
