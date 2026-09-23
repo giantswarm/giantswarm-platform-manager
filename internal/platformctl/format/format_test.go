@@ -292,7 +292,8 @@ func TestWatchPrintsTheRolloutPictureAndTheReport(t *testing.T) {
 	r := tools.WatchResult{Message: "rowan is enabled (action " + rowanAction + ", enabled): verified: 9 as defined", Action: a, Installation: rowan, State: actions.StateEnabled, Ready: true,
 		Objects: []actions.RolloutObject{{Kind: "HelmRelease", Namespace: "flux-giantswarm", Name: "agent-platform", Ready: "True", Revision: "4.44.1"}, {Kind: "HelmRelease", Namespace: "flux-giantswarm", Name: "muster", Ready: "False", Message: "Ready=False: install retries exhausted"}},
 		Red:     []string{"live-model-configs (runtime): Accepted=False: secret not found"},
-		Verify:  &verify.Result{Summary: map[verify.Mark]int{verify.AsDefined: 9, verify.Drifted: 1}},
+		Planned: []string{"live-drift (runtime): newer definition, not this action's: Added: the cap · M34"},
+		Verify:  &verify.Result{Summary: map[verify.Mark]int{verify.AsDefined: 9, verify.Drifted: 1, verify.Planned: 1}},
 		Report:  "*rowan* is *enabled* — watched as someone.\nProbes: ✅ 9 as defined",
 		Next:    "nothing: the action is enabled"}
 	var buf bytes.Buffer
@@ -300,7 +301,7 @@ func TestWatchPrintsTheRolloutPictureAndTheReport(t *testing.T) {
 		t.Fatal(err)
 	}
 	contains(t, buf.String(), "rowan is enabled (action "+rowanAction+", enabled)", "Rollout of rowan (ready: yes):", "HelmRelease flux-giantswarm/agent-platform", "Ready=True", "4.44.1",
-		"HelmRelease flux-giantswarm/muster", "Ready=False", "install retries exhausted", "Red:", "live-model-configs (runtime)", "Probes: 1 drifted, 9 as defined", "Report:", "  Probes: ✅ 9 as defined", "Next: nothing: the action is enabled", "Action "+rowanAction)
+		"HelmRelease flux-giantswarm/muster", "Ready=False", "install retries exhausted", "Red:", "live-model-configs (runtime)", "Planned:", "  live-drift (runtime): newer definition, not this action's: Added: the cap · M34", "Probes: 1 drifted, 1 planned, 9 as defined", "Report:", "  Probes: ✅ 9 as defined", "Next: nothing: the action is enabled", "Action "+rowanAction)
 }
 
 func TestWaveNamesTheOrderTheSkippedAndTheStages(t *testing.T) {

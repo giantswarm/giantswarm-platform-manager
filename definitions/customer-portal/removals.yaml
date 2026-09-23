@@ -2,6 +2,8 @@
 # Each is dropped from the fileset by the renderer, for the reason given. Key paths use the file prefixes and
 # the normalisation of schema.json's x-renders ([*] for a list index, [x] for the list entry with identity x,
 # <name> for a per-installation map key; a reason may reference <name> and is filled with the key that matched).
+# backstage:kustomization:<path> names a path in a kustomization, inside the text of a patch included: the
+# HelmRelease patch's values sources are spec.valuesFrom[<name>], one leaf per field of the source.
 #
 # The reason is what the Dev Portal shows a platform engineer next to the planned change, so it is one
 # sentence in their words: what is on the installation today, what replaces it and why. It starts with
@@ -101,6 +103,9 @@ removals:
     reason: "Moved: the mount of the platform's app-config fragment (extraAppConfig) leaves the portal's user values for the Agent Platform Component's values."
 
   # --- Backstage kustomization.yaml and files ---
+  - key: "backstage:kustomization:spec.valuesFrom[google-credentials-backstage]"
+    kind: other-definition
+    reason: "Moved: the HelmRelease's values source google-credentials-backstage (a Vertex chat's Google credentials) leaves the portal's kustomization patch for the Agent Platform Component, which carries the credentials in its own Secret · M18"
   - key: "backstage:kustomization:resources[google-credentials.enc.yaml]"
     kind: other-definition
     reason: "Moved: the google-credentials.enc.yaml resource entry leaves the portal's kustomization for the Agent Platform Component, which carries a Vertex chat's Google credentials in its own Secret · M18"

@@ -310,6 +310,26 @@ type liveRender struct {
 	// dexClients are the clients the rendered dex patch declares: what the
 	// anonymous per-client probes run for.
 	dexClients []plan.DexClient
+	// file is the values file as the capability's removals and migrations
+	// name it (the configmap: keys), with the keys read under the
+	// installation's facts: a rendered leaf the live object lacks under a
+	// key the migrations name is the planned addition it is on the record —
+	// a definition released after the values on the installation were
+	// written, the next reconcile's — not drift. nil without a values file.
+	file      *fileDiff
+	rms, migs plannedKeys
+}
+
+// plannedChange is the reason a live difference is a planned change, the
+// way planned reads one on the record: a leaf the live object lacks under a
+// key the migrations name, or a scalar merged as a set whose only change is
+// entries the migrations add; nothing for a leaf the live object holds with
+// another value, or lacks under no key.
+func (lv *liveRender) plannedChange(d *Difference) string {
+	if lv.file == nil {
+		return ""
+	}
+	return planned(lv.file, d, lv.rms, lv.migs)
 }
 
 // valuesKey stands for the values file in the flat maps attribution works on.
@@ -327,6 +347,14 @@ func renderLive(opts LiveOptions) (*liveRender, error) {
 			if strings.HasSuffix(path, dexPatchSuffix) {
 				lv.dexClients = plan.DexClients(f.Content, in)
 			}
+			if strings.HasSuffix(path, valuesSuffix(opts.Definition.Name)) {
+				lv.file = &fileDiff{path: path, kind: kindOf(path), documents: flattenLines(string(f.Content)).documents}
+			}
+		}
+	}
+	if lv.file != nil {
+		if lv.rms, lv.migs, err = plannedKeysOf(opts.Definition.Name, liveFacts(opts.Inputs.Values)); err != nil {
+			return nil, err
 		}
 	}
 	if lv.values != nil {
@@ -346,6 +374,32 @@ func renderLive(opts LiveOptions) (*liveRender, error) {
 // file that declares the Dex clients.
 const dexPatchSuffix = "/apps/dex-app/configmap-values.yaml.patch"
 
+// valuesSuffix ends the path of the capability's rendered values file, the
+// one the drift probes hold the live values against.
+func valuesSuffix(capability string) string {
+	return "/apps/" + capability + "/" + configMapPatch
+}
+
+// liveFacts are the installation's facts the planned keys are read under
+// on the live path, from the inputs on record: the base domain.
+func liveFacts(values map[string]any) facts {
+	return facts{factDomain: inputString(values, "installation", "baseDomain")}
+}
+
+// plannedKeysOf reads the capability's removals and migrations under the
+// installation's facts.
+func plannedKeysOf(capability string, f facts) (rms, migs plannedKeys, err error) {
+	removals, err := definitions.Removals(capability)
+	if err != nil {
+		return nil, nil, err
+	}
+	migrations, err := definitions.Migrations(capability)
+	if err != nil {
+		return nil, nil, err
+	}
+	return readRemovals(removals, f), readMigrations(migrations, f), nil
+}
+
 // renderValues renders values and flattens the definition's values file
 // under valuesKey; a definition without one flattens nothing.
 func renderValues(def installations.Capability, values map[string]any) (*render.Result, render.Input, map[string]map[string]string, error) {
@@ -357,7 +411,7 @@ func renderValues(def installations.Capability, values map[string]any) (*render.
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	suffix := "/apps/" + def.Name + "/configmap-values.yaml.patch"
+	suffix := valuesSuffix(def.Name)
 	flat := map[string]map[string]string{}
 	for _, files := range res.Files {
 		for path, f := range files {
@@ -744,7 +798,7 @@ func (x *executor) drift(ctx context.Context, c *Check, p render.Probe) ([]Diffe
 		}
 		liveValue, ok := resolve(obj, cmp.Live, cmp.Prefix)
 		if !ok {
-			diffs = append(diffs, Difference{Object: object, Path: cmp.Rendered, Rendered: rendered[""], Current: "", Input: x.lv.driven[valuesKey+"#"+cmp.Rendered]})
+			diffs = append(diffs, x.difference(object, cmp.Rendered, rendered[""], "", true))
 			continue
 		}
 		flatLive := map[string]string{}
@@ -757,7 +811,11 @@ func (x *executor) drift(ctx context.Context, c *Check, p render.Probe) ([]Diffe
 	case len(diffs) == 0:
 		c.Mark, c.Message = AsDefined, "equal to the render"
 	default:
-		c.Mark, c.Message = fileMark(diffs, true, false), fmt.Sprintf("%d difference(s)", len(diffs))
+		c.Mark = fileMark(diffs, true, false)
+		c.Message = fmt.Sprintf("%d difference(s)", len(diffs))
+		if c.Mark == Planned {
+			c.Message = fmt.Sprintf("%d planned change(s)", len(diffs))
+		}
 	}
 	if len(absent) > 0 && c.Mark != NotChecked {
 		c.Message += "; not rendered for these inputs: " + strings.Join(absent, ", ")
@@ -771,12 +829,21 @@ func (x *executor) drift(ctx context.Context, c *Check, p render.Probe) ([]Diffe
 func (x *executor) differences(object, prefix string, rendered, live map[string]string) []Difference {
 	var out []Difference
 	for p, want := range rendered {
-		full := join(prefix, p)
 		if got, ok := live[p]; !ok || got != want {
-			out = append(out, Difference{Object: object, Path: full, Rendered: want, Current: live[p], Input: x.lv.driven[valuesKey+"#"+full]})
+			out = append(out, x.difference(object, join(prefix, p), want, got, !ok))
 		}
 	}
 	return out
+}
+
+// difference is one place of the live object off the render at path: the
+// input that drives the leaf, and — for a leaf the live object lacks
+// (absent) under a key the capability's migrations name — the planned
+// change it is, as it is on the record.
+func (x *executor) difference(object, path, rendered, current string, absent bool) Difference {
+	d := Difference{Object: object, Path: path, Rendered: rendered, Current: current, Input: x.lv.driven[valuesKey+"#"+path], absent: absent}
+	d.Planned = x.lv.plannedChange(&d)
+	return d
 }
 
 // helmReleaseValues are the user values a HelmRelease reads: its valuesFrom

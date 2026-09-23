@@ -83,8 +83,8 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 			res.Unchanged = append(res.Unchanged, p.Name)
 			continue
 		}
-		if files := suppliedFilesToCreate(p); len(files) > 0 {
-			return nil, fmt.Errorf("%s: %s needs the supplied value(s) of %s — %s not on record; enable %s alone with %s and %s, or narrow the set; nothing is committed", tool, p.Name, strings.Join(p.SuppliedSecrets, ", "), strings.Join(files, ", "), p.Name, ArgInstallation, ArgSecrets)
+		if len(p.SuppliedSecrets) > 0 {
+			return nil, fmt.Errorf("%s: %s needs the supplied value(s) of %s — %s; enable %s alone with %s and %s, or narrow the set; nothing is committed", tool, p.Name, strings.Join(p.SuppliedSecrets, ", "), suppliedFilesToWrite(p), p.Name, ArgInstallation, ArgSecrets)
 		}
 		targets = append(targets, p)
 		res.Order = append(res.Order, p.Name)
@@ -131,10 +131,7 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		rotated = append(rotated, p.Rotating()...)
 		// The supplied fields render as markers: their files are on record
 		// (checked above) and never generated again, so no marker leaves.
-		markers := make(map[string]string, len(p.SuppliedSecrets))
-		for _, field := range p.SuppliedSecrets {
-			markers[field] = render.Supplied(field)
-		}
+		markers := withMarkers(nil, p.SuppliedOnRecord)
 		rendered, err := def.Render(env.inputs[p.Name], markers, render.ModeCommit)
 		if err != nil {
 			return nil, t.fail(ctx, tool, a, remote, prs, fmt.Errorf("%s: render: %w", p.Name, err))
@@ -163,20 +160,23 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 	return res, nil
 }
 
-// suppliedFilesToCreate names the files of p that carry a supplied value
-// and are not on record: a wave cannot fill them. The placeholder names the
-// file; whether it is encrypted is the commit step's decision from the
-// repository's rules.
-func suppliedFilesToCreate(p plan.Installation) []string {
+// suppliedFilesToWrite names the files of p that carry a supplied value and
+// that the commit would write — not on record, or rewritten: a wave cannot
+// fill them. The placeholder names the file; whether it is encrypted is the
+// commit step's decision from the repository's rules.
+func suppliedFilesToWrite(p plan.Installation) string {
 	marker := strings.TrimSuffix(render.Supplied(""), ")")
 	var files []string
 	for _, f := range p.Files {
-		if f.Change == plan.ChangeCreate && strings.Contains(f.Content, marker) {
+		if f.Change != plan.ChangeUnchanged && strings.Contains(f.Content, marker) {
 			files = append(files, f.Repository+":"+f.Path)
 		}
 	}
+	if len(files) == 0 {
+		return "no file on record holds them"
+	}
 	sort.Strings(files)
-	return files
+	return strings.Join(files, ", ") + " not on record as rendered"
 }
 
 func waveBody(order []string, skipped []actions.Skipped) string {

@@ -183,6 +183,9 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 	if len(inst.SuppliedSecrets) > 0 {
 		p.f("  You supply at commit: %s\n", strings.Join(inst.SuppliedSecrets, ", "))
 	}
+	if len(inst.SuppliedOnRecord) > 0 {
+		p.f("  Supplied values on record: %s — their files stand, nothing to supply\n", strings.Join(inst.SuppliedOnRecord, ", "))
+	}
 	if len(inst.DexClients) > 0 {
 		p.f("  Dex clients:\n")
 		for _, c := range inst.DexClients {
@@ -611,6 +614,12 @@ func Watch(w io.Writer, r tools.WatchResult) error {
 	if len(r.Red) > 0 {
 		p.f("Red:\n")
 		for _, d := range r.Red {
+			p.f("  %s\n", d)
+		}
+	}
+	if len(r.Planned) > 0 {
+		p.f("Planned:\n")
+		for _, d := range r.Planned {
 			p.f("  %s\n", d)
 		}
 	}

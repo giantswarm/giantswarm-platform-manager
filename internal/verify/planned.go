@@ -195,12 +195,19 @@ func (ks plannedKeys) entryReason(fd *fileDiff, yamlPath string) string {
 }
 
 // A key names a path inside the document a string field holds (the
-// app-config's keys inside data.values): the leaf's innerPath is matched.
+// app-config's keys inside data.values) or the field that holds the text
+// (a kustomization's patch): the leaf is matched at every level of its path
+// (levels), the first key that names it at any giving the reason.
 func (ks plannedKeys) find(fd *fileDiff, yamlPath string, exact bool) string {
-	got := segments(innerPath(fd.documents, yamlPath))
+	var got [][]string
+	for _, level := range levels(fd.documents, yamlPath) {
+		got = append(got, segments(level))
+	}
 	for _, k := range ks {
-		if values, ok := k.matches(fd, got, exact); ok {
-			return k.fill(values)
+		for _, segs := range got {
+			if values, ok := k.matches(fd, segs, exact); ok {
+				return k.fill(values)
+			}
 		}
 	}
 	return ""
@@ -241,12 +248,15 @@ func entryPath(yamlPath, entry string) string {
 	return yamlPath + "[" + entry + "]"
 }
 
-// covers says whether the key names the path yamlPath in fd — a path
-// inside the document a string field holds matched by its inner path, as
-// find matches it.
+// covers says whether the key names the path yamlPath in fd — at any level
+// of a path through the documents string fields hold, as find matches it.
 func (k plannedKey) covers(fd *fileDiff, yamlPath string) bool {
-	_, ok := k.matches(fd, segments(innerPath(fd.documents, yamlPath)), false)
-	return ok
+	for _, level := range levels(fd.documents, yamlPath) {
+		if _, ok := k.matches(fd, segments(level), false); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // matches says whether the key names the path got in fd — the key's

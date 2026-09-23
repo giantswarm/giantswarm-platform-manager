@@ -39,6 +39,7 @@ const (
 	statusTrue      = "True"
 	statusFalse     = "False"
 	modelKeyMissing = "secret kagent-anthropic-key not found"
+	liveDrift       = "live-drift"
 	// The report's two lines on the customer's actions.
 	openCustomerActions = "Open customer actions:"
 	customerActionsDone = "Customer actions done: model-key."
@@ -389,4 +390,99 @@ func TestWatchActionFailsNamingTheProbe(t *testing.T) {
 		t.Fatalf("merge a failed action: %v %s", isErr, text)
 	}
 	assertNoLeak(t, "the server's log", st.logs.String())
+}
+
+// withoutMaxTokens takes M34's leaf out of rowan the way an action committed
+// on the definition before M34 left it: the values file on record and the
+// live values — the meta chart's ConfigMap and kagent's HelmRelease — lack
+// kagent.providers.anthropic.config.maxTokens, which the definition of this
+// version renders.
+func withoutMaxTokens(t *testing.T, st *stack, a actions.Action) {
+	t.Helper()
+	const line = "        maxTokens: 32000\n"
+	path := "installations/" + rowan + "/apps/" + a.Spec.Capability + "/" + valuesFileKey + ".patch"
+	found := false
+	for _, pr := range a.Status.PullRequests {
+		content, ok := st.ghs.file(pr.Repository, path)
+		if !ok {
+			continue
+		}
+		without := strings.Replace(content, line, "", 1)
+		if without == content {
+			t.Fatalf("the record %s:%s carries no %q", pr.Repository, path, line)
+		}
+		st.ghs.addFiles(pr.Repository, map[string]string{path: without})
+		st.inst.edit("ConfigMap", fluxNamespace, konfiguration, func(obj map[string]any) {
+			obj["data"].(map[string]any)[valuesFileKey] = without
+		})
+		found = true
+	}
+	if !found {
+		t.Fatalf("no repository of action %s holds %s", a.Name, path)
+	}
+	st.inst.edit(helmReleaseKind, fluxNamespace, "kagent", func(obj map[string]any) {
+		config := obj["spec"].(map[string]any)["values"].(map[string]any)["providers"].(map[string]any)["anthropic"].(map[string]any)["config"].(map[string]any)
+		delete(config, "maxTokens")
+	})
+}
+
+// A definition released between the action's commit and its watch renders a
+// leaf the commit never wrote (M34: kagent's maxTokens): the installation
+// lacks it as the record does, and the watch judges the rollout by what the
+// action committed — the stage is enabled, the leaf in the report as a
+// planned change of the newer definition, never red — while verify_capability
+// and verify_installation give the one difference one mark, planned, on the
+// record and on the live half alike.
+func TestWatchActionReadsALaterMigrationAsPlanned(t *testing.T) {
+	const leaf, tag = "kagent.providers.anthropic.config.maxTokens", "M34"
+	st := newStack(t)
+	a, aliceC := rolledOut(t, st)
+	admin := adminLive(t, st)
+	withoutMaxTokens(t, st, a)
+
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || !w.Ready || w.State != actions.StateEnabled || len(w.Red) != 0 || len(w.Planned) != 2 ||
+		w.Action.Status.State != actions.StateEnabled || w.Action.Status.Result == nil || w.Action.Status.Result.State != actions.StateEnabled {
+		t.Fatalf("enabled with the planned leaf: %v %s", isErr, text)
+	}
+	for _, p := range w.Planned {
+		if !strings.Contains(p, "newer definition, not this action's: Added:") || !strings.Contains(p, tag) {
+			t.Errorf("the planned dimension: %q", p)
+		}
+	}
+	if w.Verify.Summary[verify.Planned] != 2 || w.Verify.Summary[verify.Drifted] != 0 {
+		t.Errorf("the live result: %v", w.Verify.Summary)
+	}
+	for _, want := range []string{"*" + rowan + "* is *" + actions.StateEnabled + "*", "🔵 " + liveDrift + " (runtime): newer definition, not this action's: Added:", "🔵 live-kagent-provider-values (runtime): ", tag, "Done: the action is enabled."} {
+		if !strings.Contains(w.Report, want) {
+			t.Errorf("the report lacks %q:\n%s", want, w.Report)
+		}
+	}
+	if strings.Contains(w.Report, "❌") {
+		t.Errorf("the report is red:\n%s", w.Report)
+	}
+	if p, ok := probeOnRecord(w.Action, rowan, liveDrift); !ok || p.Result != string(verify.Planned) || !strings.Contains(p.Message, "1 planned change(s): Added:") || !strings.Contains(p.Message, tag) {
+		t.Errorf("the probe on record: %+v", p)
+	}
+
+	text, isErr = call(t, aliceC, tools.ToolVerifyCapability, map[string]any{tools.ArgInstallation: rowan})
+	var repo verify.Result
+	if isErr || json.Unmarshal([]byte(text), &repo) != nil {
+		t.Fatalf("verify rowan: %v %s", isErr, text)
+	}
+	live := verifyLive(t, admin, rowan)
+	merged := verify.Merge(repo, live)
+	if merged.State != installations.StateEnabled || merged.Summary[verify.Drifted] != 0 || merged.Summary[verify.Planned] != 3 {
+		t.Errorf("merged: %q %v", merged.State, merged.Summary)
+	}
+	for _, id := range []string{"kagent-providers", liveDrift, "live-kagent-provider-values"} {
+		d := anyDimension(t, merged, id)
+		if d.Mark != verify.Planned || len(d.Differences) != 1 || d.Differences[0].Path != leaf || !strings.Contains(d.Differences[0].Planned, tag) || d.Differences[0].Rendered != "32000" {
+			t.Errorf("%s: %+v", id, d)
+		}
+	}
+	li, _, _ := listInstallations(t, aliceC, map[string]any{tools.ArgInstallations: []any{rowan}})
+	if r := find(t, li, rowan); r.Capabilities[0].State != installations.StateEnabled {
+		t.Fatalf("list_installations: %+v", r.Capabilities[0])
+	}
 }

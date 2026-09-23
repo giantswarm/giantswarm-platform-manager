@@ -205,6 +205,7 @@ const (
 	conditionTrue   = "True"
 	proxyWorkload   = "proxy"
 	metaRelease     = "agent-platform"
+	testRelease     = "rel"
 	renderedLeaf    = "kagent.replicas"
 	definitionNote  = "what a match means"
 )
@@ -260,7 +261,7 @@ func TestChecksAskForWhatTheyRead(t *testing.T) {
 	key := func(resource, name string) string { return resource + "/" + testNamespace + "/" + name }
 	cluster := &recordingCluster{
 		objects: map[string]map[string]any{
-			key(kindHelmRelease, "rel"): {keySpec: map[string]any{"valuesFrom": []any{map[string]any{"kind": "ConfigMap", "name": valuesKey}}, valuesKey: map[string]any{"kagent": map[string]any{"replicas": "2"}}},
+			key(kindHelmRelease, testRelease): {keySpec: map[string]any{"valuesFrom": []any{map[string]any{"kind": "ConfigMap", "name": valuesKey}}, valuesKey: map[string]any{"kagent": map[string]any{"replicas": "2"}}},
 				keyStatus: map[string]any{"conditions": conditions("Ready")["conditions"], "lastAppliedRevision": "1.2.3"}},
 			key("ConfigMap", valuesKey):        {keyData: map[string]any{"values.yaml": "kagent:\n  replicas: \"2\"\n", "x": "2"}},
 			key(kindDeployment, proxyWorkload): {keySpec: map[string]any{"selector": map[string]any{"matchLabels": map[string]any{"app": proxyWorkload}}}, keyStatus: conditions("Available")},
@@ -277,13 +278,13 @@ func TestChecksAskForWhatTheyRead(t *testing.T) {
 		tails  []int
 		note   string
 	}{
-		{"HelmReleaseReady", render.Probe{Kind: render.HelmReleaseReady, Namespace: testNamespace, Resource: kindHelmRelease, Name: "rel"}, []Shape{Readiness}, nil, ""},
+		{"HelmReleaseReady", render.Probe{Kind: render.HelmReleaseReady, Namespace: testNamespace, Resource: kindHelmRelease, Name: testRelease}, []Shape{Readiness}, nil, ""},
 		{"Condition", render.Probe{Kind: render.Condition, Namespace: testNamespace, Resource: kindDeployment, Name: proxyWorkload, Expect: render.Expectation{Condition: "Available", ConditionStatus: conditionTrue}}, []Shape{Readiness}, nil, ""},
 		{"ResourcePresent", render.Probe{Kind: render.ResourcePresent, Namespace: testNamespace, Resource: "Secret", Name: "credential", Expect: render.Expectation{Keys: []string{"k"}}}, []Shape{Readiness}, nil, ""},
 		{"PodsRunning", render.Probe{Kind: render.PodsRunning, Namespace: testNamespace, Name: "app=" + proxyWorkload}, []Shape{Readiness}, nil, ""},
 		{"LogAbsent", render.Probe{Kind: render.LogAbsent, Namespace: testNamespace, Resource: kindDeployment, Name: proxyWorkload, Expect: render.Expectation{Absent: "does not match"}}, []Shape{Readiness, Readiness}, []int{LogTail}, logTailNote},
 		{"LogAbsent with the definition's note", render.Probe{Kind: render.LogAbsent, Namespace: testNamespace, Resource: kindDeployment, Name: proxyWorkload, Expect: render.Expectation{Absent: "does not match", Note: definitionNote}}, []Shape{Readiness, Readiness}, []int{LogTail}, definitionNote + "; " + logTailNote},
-		{"Drift of a HelmRelease's values", render.Probe{Kind: render.Drift, Namespace: testNamespace, Resource: kindHelmRelease, Name: "rel"}, []Shape{Configuration, Configuration}, nil, ""},
+		{"Drift of a HelmRelease's values", render.Probe{Kind: render.Drift, Namespace: testNamespace, Resource: kindHelmRelease, Name: testRelease}, []Shape{Configuration, Configuration}, nil, ""},
 		{"Drift of a place", render.Probe{Kind: render.Drift, Namespace: testNamespace, Resource: "ConfigMap", Name: valuesKey, Expect: render.Expectation{Compare: []render.Comparison{{Live: "data.x", Rendered: renderedLeaf}}}}, []Shape{Configuration}, nil, ""},
 	} {
 		cluster.shapes, cluster.tails = nil, nil
@@ -316,5 +317,75 @@ func TestTooLargeReadsNotCheckedInPlainWords(t *testing.T) {
 	const want = "the object or log is larger than mcp-kubernetes answers (136 KiB, the limit is 128 KiB): the check asks for too much"
 	if check.Mark != NotChecked || check.Message != want || check.Name != metaRelease || len(diffs) != 0 || auth != nil {
 		t.Errorf("%+v (diffs %d, auth %v)", check, len(diffs), auth)
+	}
+}
+
+// A rendered leaf the live object lacks under a key the capability's
+// migrations name is the planned addition it is on the record — a
+// definition released after the installation's values were written — not
+// drift: the check and its differences read planned with the migration's
+// reason, on the whole values and on a compared place alike. A leaf the
+// live object holds with another value, or lacks under no key, is drift.
+func TestLiveDriftUnderAMigrationKeyIsPlanned(t *testing.T) {
+	const kagentKey, anthropicKey, configKey, maxTokens = "kagent", "anthropic", "config", "maxTokens"
+	const leaf, reason = kagentKey + ".providers." + anthropicKey + "." + configKey + "." + maxTokens, "Added: the cap · M34"
+	lv := &liveRender{values: map[string]string{renderedLeaf: "2", leaf: "32000"},
+		file: &fileDiff{path: "management-clusters/x/apps/agent-platform/" + configMapPatch, kind: definitions.KindConfigMap},
+		migs: readMigrations([]definitions.Migration{{Key: "configmap:" + leaf, Reason: reason}}, nil)}
+	withProviders := func(providers map[string]any) *recordingCluster {
+		// The meta chart's values hold kagent's providers under kagent, and
+		// kagent's own HelmRelease forwards them flat at spec.values.providers.
+		values := map[string]any{kagentKey: map[string]any{"replicas": "2"}}
+		if providers != nil {
+			values[kagentKey].(map[string]any)["providers"] = providers
+			values["providers"] = providers
+		}
+		return &recordingCluster{objects: map[string]map[string]any{kindHelmRelease + "/" + testNamespace + "/" + testRelease: {keySpec: map[string]any{valuesKey: values}}}}
+	}
+	whole := render.Probe{Kind: render.Drift, Namespace: testNamespace, Resource: kindHelmRelease, Name: testRelease}
+	place := render.Probe{Kind: render.Drift, Namespace: testNamespace, Resource: kindHelmRelease, Name: testRelease,
+		Expect: render.Expectation{Compare: []render.Comparison{{Live: "spec.values.providers", Rendered: "kagent.providers"}}}}
+	capped := map[string]any{anthropicKey: map[string]any{configKey: map[string]any{maxTokens: "32000"}}}
+	uncapped := map[string]any{anthropicKey: map[string]any{configKey: map[string]any{}}}
+	other := map[string]any{anthropicKey: map[string]any{configKey: map[string]any{maxTokens: "8192"}}}
+	for _, c := range []struct {
+		name    string
+		probe   render.Probe
+		cluster *recordingCluster
+		mark    Mark
+		message string
+		planned string
+	}{
+		{"the leaf absent from the values", whole, withProviders(nil), Planned, "1 planned change(s)", reason},
+		{"the leaf absent from the place", place, withProviders(uncapped), Planned, "1 planned change(s)", reason},
+		{"the place itself absent", place, withProviders(nil), Drifted, "1 difference(s)", ""},
+		{"the leaf with another value", whole, withProviders(other), Drifted, "1 difference(s)", ""},
+		{"the leaf present", place, withProviders(capped), AsDefined, "equal to the render", ""},
+	} {
+		x := &executor{opts: LiveOptions{Cluster: c.cluster}, lv: lv}
+		check, diffs, _ := x.run(context.Background(), c.probe)
+		if check.Mark != c.mark || check.Message != c.message {
+			t.Errorf("%s: %q %q, want %q %q", c.name, check.Mark, check.Message, c.mark, c.message)
+		}
+		if c.mark == AsDefined {
+			continue
+		}
+		if len(diffs) != 1 || diffs[0].Planned != c.planned {
+			t.Errorf("%s: %+v", c.name, diffs)
+		}
+		if c.mark == Planned && (diffs[0].Path != leaf || diffs[0].Rendered != "32000" || diffs[0].Current != "") {
+			t.Errorf("%s: the difference: %+v", c.name, diffs[0])
+		}
+	}
+	// A leaf absent under no key stays drift.
+	lv.values[kagentKey+".newLeaf"] = "x"
+	x := &executor{opts: LiveOptions{Cluster: withProviders(capped)}, lv: lv}
+	if check, diffs, _ := x.run(context.Background(), whole); check.Mark != Drifted || len(diffs) != 1 || diffs[0].Planned != "" || diffs[0].Path != kagentKey+".newLeaf" {
+		t.Errorf("an unnamed leaf: %+v %+v", check, diffs)
+	}
+	// Without a values file on the render nothing is planned.
+	x = &executor{opts: LiveOptions{Cluster: withProviders(nil)}, lv: &liveRender{values: lv.values, migs: lv.migs}}
+	if check, _, _ := x.run(context.Background(), whole); check.Mark != Drifted {
+		t.Errorf("without the file: %+v", check)
 	}
 }
