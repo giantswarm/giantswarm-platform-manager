@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mark3labs/mcp-go/mcp"
+
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 )
 
@@ -31,6 +33,16 @@ func TestClassifyMapsRefusals(t *testing.T) {
 	err = classify("Failed to get resource: the server is currently unable to handle the request")
 	if errors.Is(err, verify.ErrNotFound) || errors.As(err, &forbidden) || errors.As(err, &auth) {
 		t.Errorf("anything else stays an error: %#v", err)
+	}
+	// muster's refusal of a tool it does not list, and the apiserver's
+	// unknown resource, are not an object that does not exist.
+	for _, text := range []string{"tool not found: x_kubernetes_get", `unknown tool "x_kubernetes_list"`, "Failed to get resource: the server could not find the requested resource"} {
+		if err := classify(text); errors.Is(err, verify.ErrNotFound) || errors.As(err, &forbidden) || errors.As(err, &auth) || !strings.Contains(err.Error(), strings.TrimSpace(text)) {
+			t.Errorf("%q: %#v", text, err)
+		}
+	}
+	if !toolNotFound(nil, errors.New("tool not found: x_kubernetes_get")) || !toolNotFound(mcp.NewToolResultError("tool not found: x_kubernetes_get"), nil) || toolNotFound(mcp.NewToolResultError(`pods "x" not found`), nil) || toolNotFound(mcp.NewToolResultText("ok"), nil) {
+		t.Error("toolNotFound reads the call's error and the result's text")
 	}
 }
 
