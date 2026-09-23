@@ -255,10 +255,10 @@ func TestPortalFragmentChecksum(t *testing.T) {
 		checksum bool
 	}{
 		{">=2.1.0 <3.0.0", true},
-		{">=0.244.7 <1.0.0", false},
+		{">=1.0.0 <2.0.0", false},
 		{">=2.1.0 <" + portalFragmentChecksum, false},
 		{portalFragmentChecksum, true},
-		{"2.53.2", false},
+		{"2.60.1", false},
 		{"", false},
 	} {
 		portal := PortalRef{Installation: testPortalHost, Customer: testOrganisation, ChartLine: tc.line}
