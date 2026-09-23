@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -60,7 +61,7 @@ type WatchResult struct {
 
 func (t *Tools) registerWatchTool(s *mcpserver.MCPServer) {
 	s.AddTool(mcp.NewTool(ToolWatchAction,
-		mcp.WithDescription("The rollout watch of an action whose pull requests are merged, as you: reads the Flux objects the definition names on the installation rolling out — the HelmReleases with their Ready condition and revision — through muster's kubernetes tools with the token muster forwarded, and answers the picture. Once every one is Ready it runs the definition's probes (the live dimensions as you, the anonymous HTTP probes direct) and the stage moves to enabled (all green), waiting for the customer (the customer's own action is the only thing open) or failed (a probe is red, named); a value a definition released since the commit renders and the installation lacks is a planned change of that newer definition, listed, never red. The report — pull requests, rollout per object, each probe, the customer actions still open and the ones the installation reads done — goes into the review's thread and onto the Action. Nothing is waited for or hurried: call again while it is rolling out. On a wave the stage in flight is watched; the next stage's pull requests are merged by the actor's "+ToolMergeAction+" once it is enabled. An action waiting for the customer or enabled is re-read: the customer's action done flips it to enabled. Anyone signed in may watch; the reads are yours."),
+		mcp.WithDescription("The rollout watch of an action whose pull requests are merged, as you — an action rolling out, and one that failed on a red probe, which the watch re-reads once the cause is fixed: green, the stage is enabled and the wave goes on from it; still red, it stays failed, the probe named. It reads the Flux objects the definition names on the installation rolling out — the HelmReleases with their Ready condition and revision — through muster's kubernetes tools with the token muster forwarded, and answers the picture. Once every one is Ready it runs the definition's probes (the live dimensions as you, the anonymous HTTP probes direct) and the stage moves to enabled (all green), waiting for the customer (the customer's own action is the only thing open) or failed (a probe is red, named); a value a definition released since the commit renders and the installation lacks is a planned change of that newer definition, listed, never red. The report — pull requests, rollout per object, each probe, the customer actions still open and the ones the installation reads done — goes into the review's thread and onto the Action. Nothing is waited for or hurried: call again while it is rolling out. On a wave the stage in flight is watched; the next stage's pull requests are merged by the actor's "+ToolMergeAction+" once it is enabled. An action waiting for the customer or enabled is re-read: the customer's action done flips it to enabled. Anyone signed in may watch; the reads are yours."),
 		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithString(ArgAction, mcp.Required(), mcp.Description("The Action's name.")),
 	), t.watchActionLive)
@@ -71,8 +72,20 @@ func (t *Tools) watchActionLive(ctx context.Context, req mcp.CallToolRequest) (*
 }
 
 // watchable are the action states the watch takes: rolling out to carry on,
-// waiting for the customer and enabled to re-read.
-var watchable = []string{actions.StateRollingOut, actions.StateWaitingForCustomer, actions.StateEnabled}
+// waiting for the customer and enabled to re-read, failed to re-read a
+// stage that failed on a probe (probeRed).
+var watchable = []string{actions.StateRollingOut, actions.StateWaitingForCustomer, actions.StateEnabled, actions.StateFailed}
+
+// probeRed opens the message of a stage that failed on a red probe — the
+// one failure the watch re-reads: a transient red, an operator's fix, a
+// probe an older manager misjudged. A merge refused, a head moved, a pull
+// request closed unmerged or a commit that failed is over for good.
+const probeRed = "a probe is red: "
+
+// failedOnProbe says whether a stage failed on a red probe.
+func failedOnProbe(st actions.InstallationRollout) bool {
+	return st.State == actions.StateFailed && strings.HasPrefix(st.Message, probeRed)
+}
 
 func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 	token, id, err := t.forwarded(ctx, ToolWatchAction)
@@ -86,6 +99,7 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 	if name = strings.TrimSpace(name); name == "" {
 		return nil, fmt.Errorf("%s needs %s", ToolWatchAction, ArgAction)
 	}
+	start := time.Now()
 	a, err := t.d.Actions.Get(ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", ToolWatchAction, err)
@@ -97,7 +111,7 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 		}
 	}
 	if !slices.Contains(watchable, a.Status.State) {
-		return nil, fmt.Errorf("%s: action %s is %s%s — the watch follows an action rolling out and re-reads one waiting for the customer or enabled%s", ToolWatchAction, a.Name, a.Status.State, decidedBy(a), noteClause(note))
+		return nil, fmt.Errorf("%s: action %s is %s%s — the watch follows an action rolling out and re-reads one waiting for the customer, enabled or failed on a probe%s", ToolWatchAction, a.Name, a.Status.State, decidedBy(a), noteClause(note))
 	}
 	def, ok := installations.FindCapability(a.Spec.Capability)
 	if !ok {
@@ -119,7 +133,7 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 		return nil, fmt.Errorf("%s: %w", ToolWatchAction, err)
 	}
 	res := verify.CompareLive(ctx, verify.LiveOptions{Definition: def, Installation: st.Name, State: settledState(st.State),
-		Inputs: verify.Inputs{Source: "action " + a.Name, Values: inputs, Typed: a.Spec.Inputs}, Cluster: cluster, Probes: t.d.Probes, Person: id.String(), AnonymousProbes: true})
+		Inputs: verify.Inputs{Source: "action " + a.Name, Values: inputs, Typed: a.Spec.Inputs}, Cluster: cluster, Probes: t.d.Probes, Person: id.String(), AnonymousProbes: true, Log: t.d.Log})
 	res.Caller = id.String()
 	objects, ready := rolloutObjects(res)
 	prev := st.State
@@ -132,14 +146,18 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 	} else {
 		state, message, red := decideStage(prev, res)
 		out.Red = red
+		recovered := ""
 		if state != prev {
 			st.ReportedAt = nil
+			if prev == actions.StateFailed {
+				recovered = st.Message
+			}
 		}
 		st.State, st.Message = state, message
 		applyStage(&status, i, prev)
 		if st.ReportedAt == nil {
 			open, done := customerActions(def, inputs, res)
-			out.Report = t.report(a, status, i, res, open, done)
+			out.Report = t.report(a, status, i, res, open, done, recovered)
 			if told := t.postResult(ctx, a, out.Report); told == "" {
 				st.ReportedAt = now()
 			} else {
@@ -153,7 +171,7 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 		return nil, fmt.Errorf("%s: %s is %s and the action could not record it: %w", ToolWatchAction, st.Name, st.State, err)
 	}
 	out.Action, out.State = a, st.State
-	t.d.Log.Info("action_watch", identity.LogAttr(ctx), "action", a.Name, "installation", st.Name, "ready", ready, "state", st.State, "actionState", a.Status.State, "red", len(out.Red), "reported", st.ReportedAt != nil)
+	t.d.Log.Info("action_watch", identity.LogAttr(ctx), "action", a.Name, "installation", st.Name, "ready", ready, "state", st.State, "actionState", a.Status.State, "red", len(out.Red), "reported", st.ReportedAt != nil, "duration_ms", time.Since(start).Milliseconds())
 	out.Message = fmt.Sprintf("%s is %s (action %s, %s): %s.", st.Name, st.State, a.Name, a.Status.State, st.Message)
 	if note != "" {
 		out.Message += " " + note
@@ -174,12 +192,19 @@ func (t *Tools) resyncThroughMuster(ctx context.Context, token string, id *ident
 	if !t.due(a) {
 		return ""
 	}
+	ctx, cancel := context.WithTimeout(ctx, ResyncCallTimeout)
+	defer cancel()
 	if _, err := t.d.Live.Call(ctx, token, id, musterTool(ToolGetAction), map[string]any{ArgName: a.Name}); err != nil {
 		t.d.Log.Info("action_resync_skipped", identity.LogAttr(ctx), "action", a.Name, "error", err.Error())
 		return fmt.Sprintf("(The pull requests were not re-read from GitHub as you: %v; %s on the %s registration reads them.)", err, ToolGetAction, ToolPrefix)
 	}
 	return ""
 }
+
+// ResyncCallTimeout bounds the re-read of an action's pull requests through
+// muster before a watch: a call that does not answer leaves the record as it
+// was, said in the note, instead of holding the watch.
+const ResyncCallTimeout = 90 * time.Second
 
 // noteClause appends a note to a refusal.
 func noteClause(note string) string {
@@ -190,7 +215,8 @@ func noteClause(note string) string {
 }
 
 // watchedStage is the index of the stage the watch reads: the one rolling
-// out with every pull request merged, or one waiting for the customer; with
+// out with every pull request merged, one waiting for the customer, or one
+// that failed on a probe (re-read: green, the wave goes on from it); with
 // every stage enabled the last is re-read. -1 and why when no stage is
 // watchable yet.
 func watchedStage(a *actions.Action, r *actions.Rollout) (int, string) {
@@ -207,7 +233,10 @@ func watchedStage(a *actions.Action, r *actions.Rollout) (int, string) {
 			}
 			return -1, fmt.Sprintf("the pull requests of %s are not merged yet: the actor merges them with %s, and the watch follows", st.Name, ToolMergeAction)
 		case actions.StateFailed:
-			return -1, fmt.Sprintf("%s failed; the action is over", st.Name)
+			if failedOnProbe(st) && allMerged(a, st.Name) {
+				return i, ""
+			}
+			return -1, fmt.Sprintf("%s failed (%s); the action is over — only a stage that failed on a probe is re-read", st.Name, st.Message)
 		default:
 			return -1, fmt.Sprintf("%s is %s: nothing rolls out there yet", st.Name, orNotStarted(st.State))
 		}
@@ -295,13 +324,14 @@ func orNotRead(message string) string {
 // decideStage is what the live result says about a stage whose rollout is
 // done: enabled when nothing is red; waiting for the customer when every red
 // dimension is one the customer's own action holds up; otherwise failed for
-// a stage that was rolling out, drifted for one that had reached a state.
+// a stage that was rolling out or had failed already, drifted for one that
+// had reached a state.
 func decideStage(prev string, res verify.Result) (state, message string, red []string) {
 	red = redDimensions(res)
 	switch res.State {
 	case installations.StateDrifted:
-		if prev == actions.StateRollingOut {
-			return actions.StateFailed, "a probe is red: " + strings.Join(red, "; "), red
+		if prev == actions.StateRollingOut || prev == actions.StateFailed {
+			return actions.StateFailed, probeRed + strings.Join(red, "; "), red
 		}
 		return actions.StateDrifted, "drifted: " + strings.Join(red, "; "), red
 	case installations.StateWaitingForCustomer:
@@ -330,15 +360,29 @@ func settledState(state string) installations.State {
 // applyStage draws the action's state and result from the stages after
 // stage i moved from prev: a failed stage stops the wave with the stages
 // after it not started; a stage waiting for the customer holds it; every
-// stage enabled ends the action. The result is the rollout's final word:
-// written when the rollout ends (the stage was rolling out), rewritten when
-// a stage waiting for the customer flips to enabled.
+// stage enabled ends the action; a stage that had failed on a probe and
+// reads green again is recovered — the stages after it are queued again,
+// the action rolls out once more, the failed result no longer stands. The
+// result is the rollout's final word: written when the rollout ends (the
+// stage was rolling out), rewritten when a stage waiting for the customer
+// flips to enabled or a failed one recovers.
 func applyStage(status *actions.Status, i int, prev string) {
 	stages := status.Rollout.Installations
 	st := stages[i]
 	n := len(stages)
+	recovering := prev == actions.StateFailed && st.State != actions.StateFailed
+	if recovering {
+		for j := i + 1; j < n; j++ {
+			stages[j].State, stages[j].Message = actions.StateRollingOut, stageQueued
+		}
+		status.Result, status.Rollout.FinishedAt = nil, nil
+	}
 	switch st.State {
 	case actions.StateFailed:
+		if prev == actions.StateFailed {
+			// Re-read and still red: the stop stands as recorded.
+			return
+		}
 		for j := i + 1; j < n; j++ {
 			stages[j].State, stages[j].Message = "", "not started: the wave stopped at "+st.Name
 		}
@@ -353,7 +397,7 @@ func applyStage(status *actions.Status, i int, prev string) {
 		status.Result = &actions.Result{State: actions.StateFailed, Message: msg, At: now()}
 	case actions.StateWaitingForCustomer:
 		status.State = actions.StateWaitingForCustomer
-		if prev == actions.StateRollingOut {
+		if prev == actions.StateRollingOut || recovering {
 			msg := fmt.Sprintf("%s waits for the customer: %s", st.Name, st.Message)
 			if i+1 < n {
 				msg += fmt.Sprintf("; the wave continues once it is enabled (%d stage(s) queued)", n-i-1)
@@ -376,7 +420,7 @@ func applyStage(status *actions.Status, i int, prev string) {
 			if flipped {
 				status.Result = nil
 			}
-		case prev == actions.StateRollingOut || flipped || status.Result == nil:
+		case prev == actions.StateRollingOut || recovering || flipped || status.Result == nil:
 			msg := fmt.Sprintf("%s is enabled: %s", st.Name, st.Message)
 			if n > 1 {
 				msg = "every installation of the wave is verified: " + strings.Join(names(stages), ", ")
@@ -416,7 +460,7 @@ func nextAfter(a *actions.Action, status actions.Status, i int) string {
 	case actions.StateWaitingForCustomer:
 		return "the customer's action; " + ToolWatchAction + " or " + ToolVerifyInstallation + " flips the stage to enabled once it is done"
 	case actions.StateFailed:
-		return "the action is failed: fix what the red probe names and open a new action; " + ToolDenyAction + " closes any pull request left open"
+		return "the action is failed on a probe: fix what it names and " + ToolWatchAction + " re-reads the stage — green, the wave goes on from it; or " + ToolDenyAction + " as the actor withdraws the pull requests left open"
 	case actions.StateDrifted:
 		return "the installation is off its definition: reconcile it, or " + ToolVerifyInstallation + " once it is back"
 	}
@@ -599,9 +643,10 @@ const reportLimit = 2900
 
 // report is the stage's report for the review's thread: the state, the pull
 // requests, the rollout per object, each probe by mark, the customer actions
-// still open and the ones the installation reads done, and what follows.
-// Never a value.
-func (t *Tools) report(a *actions.Action, status actions.Status, i int, res verify.Result, open, done []render.Action) string {
+// still open and the ones the installation reads done, and what follows;
+// recovered, when the stage had failed on a probe, is the stop it read
+// itself out of. Never a value.
+func (t *Tools) report(a *actions.Action, status actions.Status, i int, res verify.Result, open, done []render.Action, recovered string) string {
 	stages := status.Rollout.Installations
 	st := stages[i]
 	var b strings.Builder
@@ -610,6 +655,9 @@ func (t *Tools) report(a *actions.Action, status actions.Status, i int, res veri
 		fmt.Fprintf(&b, " (stage %d of %d)", i+1, len(stages))
 	}
 	fmt.Fprintf(&b, " — watched as %s.", st.WatchedBy)
+	if recovered != "" {
+		fmt.Fprintf(&b, "\nRecovered: the stage had failed (%s); the re-read finds it as it should be, and the wave goes on from here.", recovered)
+	}
 	var prs []actions.PullRequest
 	for _, k := range a.StagePullRequests(st.Name) {
 		prs = append(prs, a.Status.PullRequests[k])

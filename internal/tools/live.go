@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -94,7 +95,7 @@ func (t *Tools) registerLiveTools(s *mcpserver.MCPServer) {
 	}
 	t.registerWatchTool(s)
 	s.AddTool(mcp.NewTool(ToolVerifyInstallation,
-		mcp.WithDescription("Verify the running installation against a capability's definition, as you: the definition's probes — HelmReleases Ready, workloads Available, the Secrets and MCPServer objects present, conditions, logs, the live values against the render from the inputs on record — read through muster's kubernetes tools with the platform ID token muster forwards for you (auth.forwardIdentity), so what you may read decides what is checked: an object you may not read is reported as not checked, forbidden for you, never as a failure of the installation; an installation you are not connected to in muster answers with muster's own sign-in. Grouped into the definition's features with one mark each — as defined, differs by input, drifted — and expanded to its dimensions; the repository dimensions read not checked here (verify_capability). The result is recorded on the newest action of the installation and feeds list_installations: drifted, or waiting for the customer when the only red dimension is the one the customer's action holds up."),
+		mcp.WithDescription("Verify the running installation against a capability's definition, as you: the definition's probes — HelmReleases Ready, workloads Available, the Secrets and MCPServer objects present, conditions, logs, the live values against the render from the inputs on record — read through muster's kubernetes tools with the platform ID token muster forwards for you (auth.forwardIdentity), so what you may read decides what is checked: an object you may not read is reported as not checked, forbidden for you, never as a failure of the installation; an installation you are not connected to in muster answers with muster's own sign-in. Every read is bounded (20 s each, 2 minutes in all): a read that does not answer is reported as not checked naming what did not answer, and the rest is marked, so the call answers what it has. Grouped into the definition's features with one mark each — as defined, differs by input, drifted — and expanded to its dimensions; the repository dimensions read not checked here (verify_capability). The result is recorded on the newest action of the installation and feeds list_installations: drifted, or waiting for the customer when the only red dimension is the one the customer's action holds up."),
 		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithString(ArgInstallation, mcp.Required(), mcp.Description("The installation to verify, by name: the management cluster muster reads for you.")),
 		mcp.WithString(ArgCapability, mcp.Description(capabilityArgDescription), mcp.Enum(installations.CapabilityNames()...)),
@@ -130,7 +131,8 @@ func (t *Tools) verifyLive(ctx context.Context, args map[string]any) (any, error
 	if err != nil {
 		return nil, err
 	}
-	opts := verify.LiveOptions{Definition: def, Installation: name, Inputs: verify.Inputs{Source: verify.SourceNone}, Probes: t.d.Probes, Person: id.String()}
+	start := time.Now()
+	opts := verify.LiveOptions{Definition: def, Installation: name, Inputs: verify.Inputs{Source: verify.SourceNone}, Probes: t.d.Probes, Person: id.String(), Log: t.d.Log}
 	given, err := givenInputs(args)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", ToolVerifyInstallation, err)
@@ -167,7 +169,7 @@ func (t *Tools) verifyLive(ctx context.Context, args map[string]any) (any, error
 			t.d.Log.Warn("live verify not recorded", identity.LogAttr(ctx), "action", record.Name, "error", err)
 		}
 	}
-	t.d.Log.Info(ToolVerifyInstallation, identity.LogAttr(ctx), "installation", name, "inputs", opts.Inputs.Source, "state", out.State, "summary", out.Summary)
+	t.d.Log.Info(ToolVerifyInstallation, identity.LogAttr(ctx), "installation", name, "inputs", opts.Inputs.Source, "state", out.State, "summary", out.Summary, "duration_ms", time.Since(start).Milliseconds())
 	return &out, nil
 }
 
