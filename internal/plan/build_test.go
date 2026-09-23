@@ -29,6 +29,8 @@ func (fakeInput) Selected() map[string]any                 { return nil }
 const (
 	rowanKustomization = "installations/rowan/kustomization.yaml"
 	acme               = "acme"
+	acmeConfigs        = "acme/configs"
+	acmeMCs            = "acme/management-clusters"
 )
 
 // filesDefinition is a definition that renders files under the customer's
@@ -98,7 +100,7 @@ func TestBuildReadsThePlansFilesAtOnce(t *testing.T) {
 		}
 		close(release)
 	}()
-	inst := installations.Installation{Name: "rowan", Customer: acme, Repositories: installations.Repositories{Configs: "acme/configs", ManagementClusters: "acme/management-clusters"}}
+	inst := installations.Installation{Name: "rowan", Customer: acme, Repositories: installations.Repositories{Configs: acmeConfigs, ManagementClusters: acmeMCs}}
 	p := Build(context.Background(), Options{Definition: filesDefinition(files), Installation: inst, Inputs: map[string]any{}, Content: true, Read: read})
 	if p.Refused != "" {
 		t.Fatalf("refused: %s", p.Refused)
@@ -113,7 +115,7 @@ func TestBuildReadsThePlansFilesAtOnce(t *testing.T) {
 	}
 	want := map[string]Change{"installations/rowan/a.yaml": ChangeUnchanged, "installations/rowan/b.yaml": ChangeCreate, "installations/rowan/c.yaml": ChangeUpdate, rowanKustomization: ChangeUpdate}
 	for _, f := range p.Files {
-		if f.Repository != "acme/configs" {
+		if f.Repository != acmeConfigs {
 			t.Errorf("%s in %s, want the configs repository on record", f.Path, f.Repository)
 		}
 		if c, ok := want[f.Path]; ok && f.Change != c {
@@ -209,7 +211,7 @@ func TestBuildAsksOnlyForSuppliedValuesWhoseFilesItWrites(t *testing.T) {
 		}
 		return "", gh.ErrNotFound
 	}
-	inst := installations.Installation{Name: "rowan", Customer: acme, Repositories: installations.Repositories{Configs: "acme/configs", ManagementClusters: "acme/management-clusters"}}
+	inst := installations.Installation{Name: "rowan", Customer: acme, Repositories: installations.Repositories{Configs: acmeConfigs, ManagementClusters: acmeMCs}}
 	p := Build(context.Background(), Options{Definition: def, Installation: inst, Inputs: map[string]any{}, Read: read})
 	if p.Refused != "" {
 		t.Fatalf("refused: %s", p.Refused)
