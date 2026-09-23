@@ -39,6 +39,9 @@ const (
 	statusTrue      = "True"
 	statusFalse     = "False"
 	modelKeyMissing = "secret kagent-anthropic-key not found"
+	// The report's two lines on the customer's actions.
+	openCustomerActions = "Open customer actions:"
+	customerActionsDone = "Customer actions done: model-key."
 )
 
 // setAccepted turns the default ModelConfig's Accepted condition.
@@ -216,13 +219,13 @@ func TestWatchActionCarriesTheRolloutToEnabled(t *testing.T) {
 	if stage.State != actions.StateEnabled || stage.ReportedAt == nil || !strings.HasPrefix(stage.Message, "verified: ") {
 		t.Fatalf("the stage: %+v", stage)
 	}
-	for _, want := range []string{"*" + rowan + "* is *" + actions.StateEnabled + "*", "watched as " + liveAdmin, "Pull requests: ", acmeMCs + "#1", acmeConfigs + "#2", "Rollout: HelmRelease " + fluxNamespace + "/" + platformRelease + " Ready=True (4.44.1)", "Probes: ✅ ", "Done: the action is enabled"} {
+	for _, want := range []string{"*" + rowan + "* is *" + actions.StateEnabled + "*", "watched as " + liveAdmin, "Pull requests: ", acmeMCs + "#1", acmeConfigs + "#2", "Rollout: HelmRelease " + fluxNamespace + "/" + platformRelease + " Ready=True (4.44.1)", "Probes: ✅ ", customerActionsDone, "Done: the action is enabled"} {
 		if !strings.Contains(w.Report, want) {
 			t.Errorf("the report lacks %q:\n%s", want, w.Report)
 		}
 	}
-	if strings.Contains(w.Report, "❌") {
-		t.Errorf("a red mark in a green report:\n%s", w.Report)
+	if strings.Contains(w.Report, "❌") || strings.Contains(w.Report, openCustomerActions) {
+		t.Errorf("a red mark or an open customer action in a green report:\n%s", w.Report)
 	}
 	if th := thread(t, st); len(th) != 2 || th[1] != w.Report {
 		t.Fatalf("the thread: %q", th)
@@ -268,10 +271,13 @@ func TestWatchActionWaitsForTheCustomerThenFlips(t *testing.T) {
 		w.Action.Status.State != actions.StateWaitingForCustomer || w.Action.Status.Result == nil || w.Action.Status.Result.State != actions.StateWaitingForCustomer || w.Action.Status.Rollout.FinishedAt == nil {
 		t.Fatalf("waiting: %v %s", isErr, text)
 	}
-	for _, want := range []string{"*" + rowan + "* is *" + actions.StateWaitingForCustomer + "*", "❌ live-model-configs (runtime): Accepted=False", "Open customer actions:", "kagent-anthropic-key"} {
+	for _, want := range []string{"*" + rowan + "* is *" + actions.StateWaitingForCustomer + "*", "❌ live-model-configs (runtime): Accepted=False", openCustomerActions, "kagent-anthropic-key"} {
 		if !strings.Contains(w.Report, want) {
 			t.Errorf("the report lacks %q:\n%s", want, w.Report)
 		}
+	}
+	if strings.Contains(w.Report, customerActionsDone) {
+		t.Errorf("the open action listed done:\n%s", w.Report)
 	}
 	if th := thread(t, st); len(th) != 2 || th[1] != w.Report {
 		t.Fatalf("the thread: %q", th)
@@ -300,7 +306,7 @@ func TestWatchActionWaitsForTheCustomerThenFlips(t *testing.T) {
 	if isErr || w.State != actions.StateEnabled || w.Report == "" || stageOf(w.Action, rowan).ReportedAt == nil {
 		t.Fatalf("the re-post: %v %s", isErr, text)
 	}
-	if th := thread(t, st); len(th) != 3 || !strings.Contains(th[2], "*"+rowan+"* is *"+actions.StateEnabled+"*") {
+	if th := thread(t, st); len(th) != 3 || !strings.Contains(th[2], "*"+rowan+"* is *"+actions.StateEnabled+"*") || !strings.Contains(th[2], customerActionsDone) || strings.Contains(th[2], openCustomerActions) {
 		t.Fatalf("the thread: %q", th)
 	}
 	if _, text, isErr := watchCall(t, admin, a.Name); isErr || len(thread(t, st)) != 3 {
