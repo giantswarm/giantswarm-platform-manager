@@ -43,15 +43,11 @@ func canonicalPatches(content string) (string, bool) {
 		if text == nil || text.Kind != yaml.ScalarNode {
 			continue
 		}
-		var v any
-		if err := yaml.Unmarshal([]byte(text.Value), &v); err != nil {
+		canonical, ok := CanonicalYAML(text.Value)
+		if !ok {
 			return "", false
 		}
-		canonical, err := yaml.Marshal(v)
-		if err != nil {
-			return "", false
-		}
-		text.Value, text.Tag, text.Style = string(canonical), tagStr, yaml.LiteralStyle
+		text.Value, text.Tag, text.Style = canonical, tagStr, yaml.LiteralStyle
 		found = true
 	}
 	if !found {
@@ -67,4 +63,19 @@ func canonicalPatches(content string) (string, bool) {
 		return "", false
 	}
 	return out.String(), true
+}
+
+// CanonicalYAML is text, YAML or JSON, in the one spelling its value encodes
+// to — quoting, flow or block style, indentation and a mapping's key order
+// set aside; false for text that is not YAML.
+func CanonicalYAML(text string) (string, bool) {
+	var v any
+	if err := yaml.Unmarshal([]byte(text), &v); err != nil {
+		return "", false
+	}
+	out, err := yaml.Marshal(v)
+	if err != nil {
+		return "", false
+	}
+	return string(out), true
 }
