@@ -201,7 +201,7 @@ func TestCapabilityToolsTakeTheCustomerPortal(t *testing.T) {
 	if err := json.Unmarshal([]byte(text), &res); err != nil {
 		t.Fatalf("decode: %v\n%s", err, text)
 	}
-	want := []string{"chart.line", "plugins.flux.enabled", "plugins.github.enabled", "plugins.grafana.enabled", "plugins.sentry.enabled", "portal.domain", "portal.organization"}
+	want := []string{chartLineInput, "plugins.flux.enabled", "plugins.github.enabled", "plugins.grafana.enabled", "plugins.sentry.enabled", "portal.domain", "portal.organization"}
 	if !slices.Equal(res.Inputs.Missing, want) || !strings.HasPrefix(res.CommitRefused, "Choose chart.line (") || !strings.Contains(res.CommitRefused, "; portal.domain (the portal's hostname); ") || !strings.HasSuffix(res.CommitRefused, " before a commit.") {
 		t.Fatalf("missing %v, commit refused %q", res.Inputs.Missing, res.CommitRefused)
 	}

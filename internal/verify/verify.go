@@ -907,8 +907,10 @@ func diffPaths(want, got map[string]string) []string {
 // leaves, and an entry added is its own. A payload string that holds a YAML
 // mapping over several lines — a ConfigMap's chart values, the portal's
 // app-config inside them — is the mapping's leaves, each under the field's
-// path and textSep (payload, textMapping). A file that is not YAML is one
-// leaf at the empty path. flattenLines also names each leaf's line.
+// path and textSep, and so is a kustomization's patch text, a JSON 6902
+// patch's operations by index (payload, textDocument). A file that is not
+// YAML is one leaf at the empty path. flattenLines also names each leaf's
+// line.
 func flattenYAML(content string) map[string]string {
 	return flattenLines(content).values
 }
@@ -919,12 +921,13 @@ func flatten(v any, prefix string, out map[string]string) {
 }
 
 // flattenIn flattens a decoded value to its leaves under prefix, inside a
-// document a string holds or not; a payload string that holds a mapping is
-// the mapping's leaves, its field recorded in documents when given.
+// document a string holds or not; a payload string that holds a document
+// (textDocument) is the document's leaves, its field recorded in documents
+// when given.
 func flattenIn(v any, prefix string, inDocument bool, out map[string]string, documents map[string]bool) {
 	switch t := v.(type) {
 	case string:
-		if docs, ok := textMapping(t); ok && (inDocument || payload(prefix)) {
+		if docs, ok := textDocument(t, !inDocument && patchField(prefix)); ok && (inDocument || payload(prefix)) {
 			if documents != nil {
 				documents[prefix] = true
 			}
