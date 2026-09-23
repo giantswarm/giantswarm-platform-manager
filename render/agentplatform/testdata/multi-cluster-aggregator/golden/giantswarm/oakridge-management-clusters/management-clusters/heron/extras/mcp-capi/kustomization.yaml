@@ -6,4 +6,35 @@ resources:
   - https://github.com/giantswarm/management-cluster-bases//extras/mcp-capi?ref=main
   - oauth-credentials.enc.yaml
   - valkey-credentials.enc.yaml
+  - credentials-revision.enc.yaml
   - dex-client-mcp-capi-secret.yaml
+patches:
+  - patch: |-
+      - op: add
+        path: /spec/valuesFrom/-
+        value:
+          kind: Secret
+          name: mcp-capi-credentials-revision
+          valuesKey: revision
+          targetPath: oauth.existingSecretChecksum
+      - op: add
+        path: /spec/valuesFrom/-
+        value:
+          kind: Secret
+          name: mcp-capi-credentials-revision
+          valuesKey: revision
+          targetPath: oauth.storage.valkey.existingSecretChecksum
+    target:
+      kind: HelmRelease
+      name: mcp-capi
+  - patch: |-
+      - op: add
+        path: /spec/valuesFrom
+        value:
+          - kind: Secret
+            name: mcp-capi-credentials-revision
+            valuesKey: revision
+            targetPath: valkey.auth.usersExistingSecretChecksum
+    target:
+      kind: HelmRelease
+      name: mcp-capi-valkey

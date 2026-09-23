@@ -18,6 +18,21 @@
 #
 # The M numbers are the wave-1 migration list's (M1–M11) and continue removals.yaml's (M30…).
 migrations:
+  # --- M35 — a rotated server credential rolls the server and its Valkey ---
+  # The revision is one generated value per server, held by its credentials Secret, its Valkey's and the
+  # revision Secret beside the HelmReleases; a rewrite of either credentials file draws it anew.
+  - key: extras:mcp-<name>/credentials-revision.enc.yaml
+    reason: "Added: the mcp-<name> server gets a credentials revision, a generated mark drawn anew with every rotation of its credentials, in the Secret mcp-<name>-credentials-revision beside its HelmReleases, which read it into their charts' checksum values so the server and its Valkey restart on rotated credentials instead of keeping the old ones until a hand-run restart · M35"
+  - key: extras:mcp-<name>/kustomization.yaml resources[credentials-revision.enc.yaml]
+    reason: "Added: the mcp-<name> server's kustomization lists credentials-revision.enc.yaml, so the revision Secret is applied with the server · M35"
+  - key: extras:mcp-<name>/kustomization.yaml patches
+    reason: "Added: the mcp-<name> server's HelmRelease and its Valkey's read the credentials revision from the Secret mcp-<name>-credentials-revision into their charts' checksum values (valuesFrom with targetPath), which the charts render as pod annotations, so a rotation restarts both pods and nothing else · M35"
+  - key: extras:mcp-<name>/oauth-credentials.enc.yaml stringData.CREDENTIALS_REVISION
+    reason: "Added: the mcp-<name> server's credentials Secret carries the credentials revision (CREDENTIALS_REVISION), so a rewrite of the Secret draws the revision anew and the server and its Valkey restart with it · M35"
+  - key: extras:mcp-<name>/oauth-credentials.enc.yaml stringData.credentials-revision
+    reason: "Added: the mcp-<name> server's credentials Secret carries the credentials revision (credentials-revision), so a rewrite of the Secret draws the revision anew and the server and its Valkey restart with it · M35"
+  - key: extras:mcp-<name>/valkey-credentials.enc.yaml stringData.revision
+    reason: "Added: the mcp-<name> server's Valkey Secret carries the credentials revision (revision), so a rewrite of the Secret draws the revision anew and the server and its Valkey restart with it · M35"
   # --- M34 — kagent's default ModelConfig gets an output cap per call ---
   - key: configmap:kagent.providers.anthropic.config.maxTokens
     reason: "Added: kagent's default ModelConfig caps one call's output at 32000 tokens instead of kagent's 8192, which the model's thinking shares with its visible answer and cut long answers mid-sentence; the same bound on every installation running kagent · M34"

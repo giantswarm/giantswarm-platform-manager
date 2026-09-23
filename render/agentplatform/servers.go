@@ -49,21 +49,73 @@ type oauthSecretKeys struct {
 	// this Secret rather than from the valkey-auth Secret; empty for a chart
 	// that reads the valkey-auth Secret's key directly.
 	valkeyPassword string
+	// revision carries the server's credentials revision (revisionSecret): a
+	// key no chart reads, held here so a rewrite of this Secret draws the
+	// revision anew.
+	revision string
 }
 
 // keyedOAuthKeys is the contract of the charts that read the Secret key by key
 // (mcp-kubernetes, mcp-capi); they take the Valkey password from the
 // valkey-auth Secret.
-var keyedOAuthKeys = oauthSecretKeys{dexClientSecret: "dex-client-secret", encryptionKey: "oauth-encryption-key"} // #nosec G101 -- Secret key names, not values
+var keyedOAuthKeys = oauthSecretKeys{dexClientSecret: "dex-client-secret", encryptionKey: "oauth-encryption-key", revision: "credentials-revision"} // #nosec G101 -- Secret key names, not values
 
 // envOAuthKeys is the contract of a chart that loads the Secret with envFrom
 // (mcp-prometheus): the keys are the variables its process reads, the Valkey
 // password included.
-var envOAuthKeys = oauthSecretKeys{dexClientSecret: "DEX_CLIENT_SECRET", encryptionKey: "MCP_OAUTH_ENCRYPTION_KEY", valkeyPassword: "VALKEY_PASSWORD"} // #nosec G101 -- Secret key names, not values
+var envOAuthKeys = oauthSecretKeys{dexClientSecret: "DEX_CLIENT_SECRET", encryptionKey: "MCP_OAUTH_ENCRYPTION_KEY", valkeyPassword: "VALKEY_PASSWORD", revision: "CREDENTIALS_REVISION"} // #nosec G101 -- Secret key names, not values
 
 // valkeyAuthKey is the key of a server's valkey-auth Secret: the fleet base's
 // Valkey reads the default user's password from it (aclUsers.default.passwordKey).
 const valkeyAuthKey = "default"
+
+// The server's credentials revision: a generated value drawn anew with every
+// rotation of the server's credentials and kept otherwise, which the pod
+// templates roll on. The server and its Valkey read their Secrets at start
+// and never again, so a rotation alone left them on the old values. The
+// revision is held by the server's credentials Secret and its Valkey's (a
+// rewrite of either draws it anew, and every file holding it is rewritten
+// with it) and by a third Secret beside the HelmReleases in the Flux
+// namespace, which both read into their charts' checksum values (valuesFrom
+// with targetPath): the charts render the value as a pod-template annotation,
+// so the pods restart with the rotation and stay put without one.
+const (
+	// revisionKey is the key the revision is read by: in the valkey-auth
+	// Secret beside the password, and in the revision Secret the HelmReleases read.
+	revisionKey = "revision"
+	// revisionLength is the size of the revision, an Alphanumeric value like
+	// the Valkey password.
+	revisionLength = 32
+	// revisionFile is the revision Secret's file in the server's extras
+	// directory; it matches the fleet's .sops.yaml rules (.*(secret|credential).*)
+	// and the commit step's secret-file test like the other two.
+	revisionFile = "credentials-revision.enc.yaml" // #nosec G101 -- a file name, not a value
+	// valkeyChecksumValue is the Valkey chart's mark for a users Secret it
+	// cannot read, rendered as the pod template's checksum annotation
+	// (giantswarm/valkey-app: valkey.auth.usersExistingSecretChecksum).
+	valkeyChecksumValue = "valkey.auth.usersExistingSecretChecksum"
+)
+
+// revisionSecretName is the Secret in the Flux namespace that carries the
+// server's credentials revision for its HelmReleases.
+func (s serverDefinition) revisionSecretName() string { return s.name + "-credentials-revision" }
+
+// checksumValues are the chart values the server's HelmRelease takes the
+// revision into: the OAuth credentials Secret's mark and, for a chart that
+// reads the Valkey password from the valkey-auth Secret rather than from the
+// OAuth Secret, that Secret's mark; each renders as a pod-template checksum
+// annotation.
+func (s serverDefinition) checksumValues() []string {
+	prefix := "oauth."
+	if s.valuesKey != "" {
+		prefix = s.valuesKey + ".oauth."
+	}
+	values := []string{prefix + "existingSecretChecksum"}
+	if s.oauthKeys.valkeyPassword == "" {
+		values = append(values, prefix+"storage.valkey.existingSecretChecksum")
+	}
+	return values
+}
 
 // servers are the platform's own MCP servers, the set the shared template
 // registers with muster on every installation.
@@ -166,14 +218,18 @@ func (s serverDefinition) mcpServerEntry(installation string) MCPServer {
 // Secret) and the valkey-auth Secret the fleet base's Valkey reads — plus,
 // where the dex-app chart reads a reference for the client, the Dex-side copy
 // of the client secret. The Valkey password is one generated value, so the
-// server and its Valkey agree wherever each reads it. With privateURLs the
-// directory also carries the server's user values and the kustomization turns
-// them into a ConfigMap the HelmRelease reads.
+// server and its Valkey agree wherever each reads it. Both Secrets carry the
+// server's credentials revision, and a third Secret in the Flux namespace
+// carries it for the HelmReleases, which the kustomization patches to read it
+// into their charts' checksum values, so a rotation rolls the server and its
+// Valkey. With privateURLs the directory also carries the server's user values
+// and the kustomization turns them into a ConfigMap the HelmRelease reads.
 func (s serverDefinition) extras(result *render.Result, repo render.Repository, dir string, in *Input) {
 	privateURLs := in.Installation.Private
 	valueName := in.generatedName(s.name + "-dex-client-secret")
 	valkeyValue := in.generatedName(s.name + "-valkey-password")
-	resources := []string{basesRepository + s.name + "?ref=main", "oauth-credentials.enc.yaml", "valkey-credentials.enc.yaml"}
+	revision := in.generatedName(s.name + "-credentials-revision")
+	resources := []string{basesRepository + s.name + "?ref=main", "oauth-credentials.enc.yaml", "valkey-credentials.enc.yaml", revisionFile}
 	if s.dexSecretRef {
 		resources = append(resources, dexClientSecretFile(s.name))
 		result.Add(repo, dir+"/"+dexClientSecretFile(s.name), dexClientSecret(s.name, valueName))
@@ -183,6 +239,7 @@ func (s serverDefinition) extras(result *render.Result, repo render.Repository, 
 		result.Add(repo, dir+"/"+userValuesFile, yamlFile(s.privateURLValues(in.Installation.Private)))
 		k.withUserValues(s.name)
 	}
+	k.withRevision(s)
 	result.Add(repo, dir+"/kustomization.yaml", render.File{Content: append([]byte(fileHeader), render.MustYAML(k)...)})
 	oauth := []render.SecretKey{
 		render.GeneratedKey(s.oauthKeys.dexClientSecret, valueName, render.Base64, 32),
@@ -191,9 +248,14 @@ func (s serverDefinition) extras(result *render.Result, repo render.Repository, 
 	if s.oauthKeys.valkeyPassword != "" {
 		oauth = append(oauth, render.GeneratedKey(s.oauthKeys.valkeyPassword, valkeyValue, render.Alphanumeric, 32))
 	}
+	oauth = append(oauth, render.GeneratedKey(s.oauthKeys.revision, revision, render.Alphanumeric, revisionLength))
 	result.Add(repo, dir+"/oauth-credentials.enc.yaml", render.Secret(s.name+"-oauth-credentials", s.name, nil, oauth...))
 	result.Add(repo, dir+"/valkey-credentials.enc.yaml", render.Secret(s.name+"-valkey-auth", s.name, nil,
 		render.GeneratedKey(valkeyAuthKey, valkeyValue, render.Alphanumeric, 32),
+		render.GeneratedKey(revisionKey, revision, render.Alphanumeric, revisionLength),
+	))
+	result.Add(repo, dir+"/"+revisionFile, render.Secret(s.revisionSecretName(), fluxNamespace, nil,
+		render.GeneratedKey(revisionKey, revision, render.Alphanumeric, revisionLength),
 	))
 }
 
@@ -232,21 +294,54 @@ type patchTarget struct {
 	Name string `yaml:"name"`
 }
 
+// op is one operation of a JSON patch on a HelmRelease.
+type op struct {
+	Op    string `yaml:"op"`
+	Path  string `yaml:"path"`
+	Value any    `yaml:"value"`
+}
+
+// The JSON patch operation that adds a value, and the paths it adds a
+// values source at: appended to the HelmRelease's valuesFrom, or as its list.
+const (
+	opAdd           = "add"
+	valuesFromPath  = "/spec/valuesFrom"
+	valuesFromEntry = valuesFromPath + "/-"
+)
+
+// patch appends a JSON patch on the HelmRelease of the name.
+func (k *kustomizationDoc) patch(helmRelease string, ops []op) {
+	patch := render.MustYAML(ops)
+	k.Patches = append(k.Patches, kustomizePatch{Patch: strings.TrimRight(string(patch), "\n"), Target: patchTarget{Kind: "HelmRelease", Name: helmRelease}})
+}
+
 // withUserValues generates the ConfigMap <helmRelease>-user-values from the
 // directory's user values (a stable name, no hash suffix) and appends it to
 // the HelmRelease's valuesFrom.
 func (k *kustomizationDoc) withUserValues(helmRelease string) {
 	name := helmRelease + "-user-values"
-	type op struct {
-		Op    string         `yaml:"op"`
-		Path  string         `yaml:"path"`
-		Value map[string]any `yaml:"value"`
-	}
-	patch := render.MustYAML([]op{{Op: "add", Path: "/spec/valuesFrom/-",
-		Value: map[string]any{"kind": "ConfigMap", "name": name, "valuesKey": "values"}}})
 	k.GeneratorOptions = &generatorOptions{DisableNameSuffixHash: true}
 	k.ConfigMapGenerator = []configMapGenerator{{Name: name, Namespace: fluxNamespace, Files: []string{"values=" + userValuesFile}}}
-	k.Patches = []kustomizePatch{{Patch: strings.TrimRight(string(patch), "\n"), Target: patchTarget{Kind: "HelmRelease", Name: helmRelease}}}
+	k.patch(helmRelease, []op{{Op: opAdd, Path: valuesFromEntry,
+		Value: map[string]any{"kind": "ConfigMap", "name": name, "valuesKey": "values"}}})
+}
+
+// withRevision hands the server's credentials revision to its HelmReleases:
+// valuesFrom entries reading the revision Secret's key into the charts'
+// checksum values, appended to the server's list after the values sources
+// the fleet base and the user values name, and created for its Valkey's,
+// whose fleet base names none. A rotation then rolls the server and its
+// Valkey and nothing else; a reconcile without one changes no pod template.
+func (k *kustomizationDoc) withRevision(s serverDefinition) {
+	source := func(targetPath string) render.Map {
+		return render.Map{e("kind", "Secret"), e("name", s.revisionSecretName()), e("valuesKey", revisionKey), e("targetPath", targetPath)}
+	}
+	var server []op
+	for _, value := range s.checksumValues() {
+		server = append(server, op{Op: opAdd, Path: valuesFromEntry, Value: source(value)})
+	}
+	k.patch(s.name, server)
+	k.patch(s.name+"-valkey", []op{{Op: opAdd, Path: valuesFromPath, Value: []render.Map{source(valkeyChecksumValue)}}})
 }
 
 // kustomization renders a kustomize Kustomization listing resources.
