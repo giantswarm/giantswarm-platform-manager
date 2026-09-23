@@ -6,6 +6,7 @@ resources:
   - https://github.com/giantswarm/management-cluster-bases//extras/mcp-kubernetes?ref=main
   - oauth-credentials.enc.yaml
   - valkey-credentials.enc.yaml
+  - credentials-revision.enc.yaml
   - dex-client-mcp-kubernetes-secret.yaml
 generatorOptions:
   disableNameSuffixHash: true
@@ -25,3 +26,32 @@ patches:
     target:
       kind: HelmRelease
       name: mcp-kubernetes
+  - patch: |-
+      - op: add
+        path: /spec/valuesFrom/-
+        value:
+          kind: Secret
+          name: mcp-kubernetes-credentials-revision
+          valuesKey: revision
+          targetPath: mcpKubernetes.oauth.existingSecretChecksum
+      - op: add
+        path: /spec/valuesFrom/-
+        value:
+          kind: Secret
+          name: mcp-kubernetes-credentials-revision
+          valuesKey: revision
+          targetPath: mcpKubernetes.oauth.storage.valkey.existingSecretChecksum
+    target:
+      kind: HelmRelease
+      name: mcp-kubernetes
+  - patch: |-
+      - op: add
+        path: /spec/valuesFrom
+        value:
+          - kind: Secret
+            name: mcp-kubernetes-credentials-revision
+            valuesKey: revision
+            targetPath: valkey.auth.usersExistingSecretChecksum
+    target:
+      kind: HelmRelease
+      name: mcp-kubernetes-valkey

@@ -60,11 +60,12 @@ func changedFiles(t *testing.T, st *stack, repository, branch string) []string {
 }
 
 // server are one MCP server's files on record, as "<repository>:<path>":
-// its credentials file holding three names, the Dex client Secret sharing
-// the client secret with it, the Valkey Secret sharing the password.
+// its credentials file holding four names, the Dex client Secret sharing
+// the client secret with it, the Valkey Secret sharing the password and the
+// credentials revision, the revision Secret sharing the revision.
 type mcpServer struct {
-	credentials, dexClient, valkey string
-	names                          []string // held by the credentials file
+	credentials, dexClient, valkey, revision string
+	names                                    []string // held by the credentials file
 }
 
 func serverOf(t *testing.T, p plan.Installation) mcpServer {
@@ -84,18 +85,28 @@ func serverOf(t *testing.T, p plan.Installation) mcpServer {
 		}
 		s.names = fileOf(t, p, s.credentials).Generated
 		for _, other := range p.GeneratedSecrets {
-			if other.Name != g.Name && slices.Contains(s.names, other.Name) && len(other.Files) == 2 {
+			if other.Name == g.Name || !slices.Contains(s.names, other.Name) {
+				continue
+			}
+			switch len(other.Files) {
+			case 2: // the password: the credentials file and the Valkey Secret
 				s.valkey = other.Files[0]
 				if s.valkey == s.credentials {
 					s.valkey = other.Files[1]
 				}
+			case 3: // the revision: both of those and the revision Secret
+				for _, f := range other.Files {
+					if f != s.credentials && !strings.HasSuffix(f, "/valkey-credentials.enc.yaml") {
+						s.revision = f
+					}
+				}
 			}
 		}
-		if len(s.names) == 3 && s.valkey != "" {
+		if len(s.names) == 4 && s.valkey != "" && s.revision != "" {
 			return s
 		}
 	}
-	t.Fatalf("no server holds three names in a %s, one shared with its Valkey Secret: %+v", credentialsFile, p.GeneratedSecrets)
+	t.Fatalf("no server holds four names in a %s, two shared with its Valkey Secret and one with its revision Secret: %+v", credentialsFile, p.GeneratedSecrets)
 	return mcpServer{}
 }
 
@@ -259,10 +270,10 @@ func TestReconcileKeepsTheEncryptedFilesOnRecord(t *testing.T) {
 
 // The render adds a field to an encrypted file's template — on record the
 // server's credentials file lacks it: the file has to be written, so every
-// name it holds rotates, forced by that file; the Dex client Secret and the
-// Valkey Secret kept on record share two of them and are rewritten with the
-// new values. Every other file stays, every other name is kept. The commit
-// writes those three files and nothing else.
+// name it holds rotates, forced by that file; the Dex client Secret, the
+// Valkey Secret and the revision Secret kept on record share three of them
+// and are rewritten with the new values. Every other file stays, every other
+// name is kept. The commit writes those four files and nothing else.
 func TestReconcileRotatesTheNamesOfAFileWhoseSkeletonChanges(t *testing.T) {
 	st := newStack(t)
 	c := enabledOnRecord(t, st)
@@ -287,10 +298,10 @@ func TestReconcileRotatesTheNamesOfAFileWhoseSkeletonChanges(t *testing.T) {
 	for _, n := range s.names {
 		forcedBy[n] = s.credentials
 	}
-	assertRotation(t, p, forcedBy, s.credentials, s.dexClient, s.valkey)
+	assertRotation(t, p, forcedBy, s.credentials, s.dexClient, s.valkey, s.revision)
 	_, written := commitReconcile(t, st, c, p, repository)
 	want := []string{path}
-	for _, id := range []string{s.dexClient, s.valkey} {
+	for _, id := range []string{s.dexClient, s.valkey, s.revision} {
 		_, p := splitID(t, id)
 		want = append(want, p)
 	}
@@ -303,8 +314,9 @@ func TestReconcileRotatesTheNamesOfAFileWhoseSkeletonChanges(t *testing.T) {
 // A new file shares a generated name with a file on record — the server's
 // Dex client Secret is absent, its credentials file kept: the client secret
 // rotates, forced by the new file; the credentials file is rewritten with it,
-// so the two other names it holds rotate too, forced by the credentials
-// file, and the Valkey Secret sharing the password is rewritten as well.
+// so the three other names it holds rotate too, forced by the credentials
+// file, and the Valkey Secret sharing the password and the revision and the
+// revision Secret sharing the revision are rewritten as well.
 func TestReconcileRotatesANameANewFileShares(t *testing.T) {
 	st := newStack(t)
 	c := enabledOnRecord(t, st)
@@ -325,9 +337,9 @@ func TestReconcileRotatesANameANewFileShares(t *testing.T) {
 	if fileOf(t, p, s.dexClient).Change != plan.ChangeCreate {
 		t.Fatalf("the Dex client Secret is on record: %+v", fileOf(t, p, s.dexClient))
 	}
-	assertRotation(t, p, forcedBy, s.credentials, s.dexClient, s.valkey)
+	assertRotation(t, p, forcedBy, s.credentials, s.dexClient, s.valkey, s.revision)
 	out, written := commitReconcile(t, st, c, p, repository)
-	if len(written) != 3 || !slices.Contains(written, path) {
+	if len(written) != 4 || !slices.Contains(written, path) {
 		t.Fatalf("the pull request writes %v", written)
 	}
 	if got := getAction(t, c, out.Action.Name); !slices.Equal(got.Status.Rotated, p.Rotating()) {

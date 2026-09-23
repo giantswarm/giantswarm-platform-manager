@@ -1303,9 +1303,9 @@ func TestVerifyCapabilityGrafanaIsTheInstallationsOwn(t *testing.T) {
 
 // An installation enabled before the mcp-* servers' Valkey password became
 // a generated Secret lacks mcp-prometheus's valkey-credentials.enc.yaml and
-// its kustomization entry: each difference is M9's planned addition, and
-// its reason names the server the key's <name> matched — mcp-prometheus,
-// not the mcp-* server.
+// its kustomization entry: each difference is M9's planned addition — the
+// Secret's revision key, added later, M35's — and its reason names the
+// server the key's <name> matched — mcp-prometheus, not the mcp-* server.
 func TestVerifyCapabilityPlannedAdditionNamesTheServer(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
@@ -1343,7 +1343,11 @@ func TestVerifyCapabilityPlannedAdditionNamesTheServer(t *testing.T) {
 					t.Errorf("%s/%s: a difference outside mcp-prometheus: %+v", f.ID, d.ID, diff)
 					continue
 				}
-				if d.Mark != verify.Planned || !strings.HasSuffix(diff.Planned, "· M9") || !strings.Contains(diff.Planned, "the mcp-prometheus server") || strings.Contains(diff.Planned, "mcp-*") {
+				migration := "· M9"
+				if diff.Path == "stringData.revision" {
+					migration = "· M35"
+				}
+				if d.Mark != verify.Planned || !strings.HasSuffix(diff.Planned, migration) || !strings.Contains(diff.Planned, "the mcp-prometheus server") || strings.Contains(diff.Planned, "mcp-*") {
 					t.Errorf("%s/%s (%s): %+v", f.ID, d.ID, d.Mark, diff)
 				}
 				named++
