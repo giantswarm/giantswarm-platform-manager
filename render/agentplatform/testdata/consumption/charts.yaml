@@ -93,7 +93,8 @@ charts:
   # The developer portal, rendered over the fleet base with the customer-portal
   # definition's own files (its app-config, values and Secrets) and, in the
   # platform shapes, the agent-platform definition's Component: its values
-  # ConfigMap and the Vertex credentials Secret.
+  # ConfigMap (with the fragment's checksum, which the chart takes from 2.60.2)
+  # and the Vertex credentials Secret.
   - name: backstage
     registry: gsoci.azurecr.io/charts/giantswarm/backstage
-    version: 2.58.1
+    version: 2.60.2

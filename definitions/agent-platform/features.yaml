@@ -117,5 +117,5 @@ features:
       - {id: portal-auth-extra-scopes, kind: backstage, key: agent-platform/app-config.yaml gs.auth.extraScopes}
       - {id: portal-auth-provider, kind: backstage, key: agent-platform/app-config.yaml gs.authProvider / auth.providers}
       - {id: portal-database-client, kind: backstage, key: agent-platform/app-config.yaml backend.database.client}
-      - {id: portal-extra-app-config, kind: backstage, key: agent-platform/values.yaml backstage.extraAppConfig (the Component's app-config file)}
+      - {id: portal-extra-app-config, kind: backstage, key: agent-platform/values.yaml backstage.extraAppConfig (the Component's app-config file and its checksum)}
       - {id: portal-helmrelease-values-from, kind: backstage, key: agent-platform/kustomization.yaml patches (the HelmRelease valuesFrom patch)}

@@ -1,6 +1,7 @@
 package agentplatform
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"strings"
 
@@ -123,6 +124,10 @@ const (
 	// plugin creates agents through agent-manager and reads no
 	// fluxServiceAccountName.
 	portalPluginRemoval = "1.1.0"
+	// portalFragmentChecksum is the first portal chart whose extraAppConfig
+	// entries take a checksum and roll the pod when it changes; an earlier
+	// chart's schema refuses the key.
+	portalFragmentChecksum = "2.60.2"
 )
 
 // The actions service lists the actions of these plugins for the chat's
@@ -249,11 +254,17 @@ func (in *Input) portalAppConfig() render.Map {
 }
 
 // portalValues are the platform's chart values: the fragment mounted as an
-// extra app-config file and, for a chat on Vertex, the Google project and
-// location the chart exports to the pod. No list: the portal's environment
-// is the customer-portal definition's.
+// extra app-config file, with its checksum where the portal's chart rolls
+// the pod on it (Backstage reads the file at start, and a changed ConfigMap
+// alone changes nothing the HelmRelease sees), and, for a chat on Vertex,
+// the Google project and location the chart exports to the pod. No list:
+// the portal's environment is the customer-portal definition's.
 func (in *Input) portalValues() render.Map {
-	m := render.Map{e("backstage", render.Map{e("extraAppConfig", []render.Map{{e("filename", portalAppConfigFile), e("configMapRef", portalAppConfigMap)}})})}
+	fragment := render.Map{e("filename", portalAppConfigFile), e("configMapRef", portalAppConfigMap)}
+	if in.portalRollsOnFragment() {
+		fragment = append(fragment, e("checksum", fmt.Sprintf("%x", sha256.Sum256(render.MustYAML(in.portalAppConfig())))))
+	}
+	m := render.Map{e("backstage", render.Map{e("extraAppConfig", []render.Map{fragment})})}
 	if in.aiChatVertex() {
 		m = append(m, e("google", render.Map{e("project", in.AIChat.Google.Project), e("location", in.AIChat.Google.Location)}))
 	}
@@ -279,6 +290,30 @@ func portalChartFloor(line string) (*semver.Version, error) {
 		return nil, fmt.Errorf("the chart line %q: %w", line, err)
 	}
 	return v, nil
+}
+
+// portalChartAdmits says whether a portal's chart line admits a chart at or
+// above v, the chart Flux resolves the line to once v is released: the upper
+// bound of a bounded range lies above v, or the tag is v or later.
+func portalChartAdmits(line string, v *semver.Version) bool {
+	floor, err := portalChartFloor(line)
+	if err != nil {
+		return false
+	}
+	if fields := strings.Fields(line); len(fields) == 2 {
+		ceiling, err := semver.NewVersion(strings.TrimPrefix(fields[1], "<"))
+		return err == nil && ceiling.GreaterThan(v)
+	}
+	return !floor.LessThan(v)
+}
+
+// portalRollsOnFragment says whether the hosted portal's chart takes the
+// fragment's checksum: its chart line resolves to portalFragmentChecksum or
+// later. A portal whose line is not on record gets no checksum, which an
+// earlier chart would refuse.
+func (in *Input) portalRollsOnFragment() bool {
+	p := in.hostedPortal()
+	return p != nil && portalChartAdmits(p.ChartLine, semver.MustParse(portalFragmentChecksum))
 }
 
 // portalReadsFluxServiceAccount says whether the hosted portal may run a
