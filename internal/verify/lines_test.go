@@ -26,6 +26,15 @@ const (
 // holds: the chart values, and the app-config inside them.
 var appConfigDocuments = map[string]bool{valuesField: true, valuesField + ":backstage.appConfig": true}
 
+// The portal's kustomization patches as the comparison names them — the
+// chart line's JSON 6902 patch and the HelmRelease's strategic merge patch —
+// and the app-config's title.
+const (
+	chartPatch   = "patches[0].patch"
+	releasePatch = "patches[1].patch"
+	titlePath    = "app.title"
+)
+
 // Every leaf of a file sits on a line: a mapping entry's key line, a
 // sequence entry's "- " line, the first line of a multi-line scalar, the
 // line of the key that holds an empty mapping or sequence; the values are
@@ -138,8 +147,9 @@ func TestRedactLeavesKeepsTheStructure(t *testing.T) {
 	if got := redactLeaves("not: [yaml", func(string) bool { return true }); got != "not: [yaml" {
 		t.Errorf("not YAML: %q", got)
 	}
-	if !payload("data.values") || !payload("stringData.values") || !payload("[ConfigMap/ns/c].data.values") || payload("spec.patch") || payload("patches[0].patch") || payload("") {
-		t.Error("payload is a ConfigMap's data or a Secret's stringData")
+	if !payload("data.values") || !payload("stringData.values") || !payload("[ConfigMap/ns/c].data.values") || !payload(chartPatch) || !payload("[Kustomization/ns/k].patches[1].patch") ||
+		payload("spec.patch") || payload("patches[0].target.kind") || payload("patches.patch") || payload("") {
+		t.Error("payload is a ConfigMap's data, a Secret's stringData or a kustomization's patch")
 	}
 }
 
@@ -165,14 +175,77 @@ func TestShownRedactsTheEncryptedFiles(t *testing.T) {
 	}
 }
 
+// A kustomization's patch text that holds a mapping — a strategic merge
+// patch, the portal's HelmRelease patch with its values sources — is the
+// mapping's leaves under patches[n].patch, each on its line of the file and
+// a list entry keyed by its name; a patch that holds a list (a JSON 6902
+// patch) stays one leaf, as does the patch's target. levels names a leaf
+// at every document it sits in, innermost first, then in the file.
+func TestFlattenLinesReadsAKustomizationPatch(t *testing.T) {
+	content := strings.Join([]string{
+		"resources:",                  // 1
+		"  - app-config.yaml",         // 2
+		"patches:",                    // 3
+		"  - patch: |",                // 4
+		"      - op: remove",          // 5
+		"        path: /spec/ref/tag", // 6
+		"    target:",                 // 7
+		"      kind: OCIRepository",   // 8
+		"  - patch: |",                // 9
+		"      apiVersion: helm.toolkit.fluxcd.io/v2", // 10
+		"      kind: HelmRelease",                     // 11
+		"      spec:",                                 // 12
+		"        valuesFrom:",                         // 13
+		"          - kind: ConfigMap",                 // 14
+		"            name: app-config-backstage",      // 15
+		"          - kind: Secret",                    // 16
+		"            name: user-secrets-backstage",    // 17
+		"    target:",                                 // 18
+		"      kind: HelmRelease",                     // 19
+		"",
+	}, "\n")
+	const hr, secretSource = "patches[1].patch:", "spec.valuesFrom[user-secrets-backstage]"
+	values, lines := valuesLines(content)
+	want := map[string]int{
+		"resources[app-config.yaml]": 2, chartPatch: 4, "patches[0].target.kind": 8,
+		hr + apiVersionPath: 10, hr + kindPath: 11, hr + "spec.valuesFrom[app-config-backstage].kind": 14, hr + "spec.valuesFrom[app-config-backstage].name": 15,
+		hr + secretSource + ".kind": 16, hr + secretSource + ".name": 17, "patches[1].target.kind": 19,
+	}
+	for path, line := range want {
+		if lines[path] != line {
+			t.Errorf("%s on line %d, want %d", path, lines[path], line)
+		}
+	}
+	if len(lines) != len(want) || len(values) != len(want) {
+		t.Errorf("%d lines, %d values, want %d: %v", len(lines), len(values), len(want), values)
+	}
+	if values[chartPatch] != "- op: remove\n  path: /spec/ref/tag\n" || values[hr+secretSource+".kind"] != "Secret" || values[hr+kindPath] != "HelmRelease" {
+		t.Errorf("values %v", values)
+	}
+	docs := flattenLines(content).documents
+	if !reflect.DeepEqual(docs, map[string]bool{releasePatch: true}) {
+		t.Errorf("the documents the file holds: %v", docs)
+	}
+	if got := levels(docs, hr+secretSource+".kind"); !reflect.DeepEqual(got, []string{secretSource + ".kind", hr + secretSource + ".kind"}) {
+		t.Errorf("the levels of a leaf inside the patch: %v", got)
+	}
+	inText := "backstage.appConfig:" + titlePath
+	if got := levels(appConfigDocuments, valuesField+":"+inText); !reflect.DeepEqual(got, []string{titlePath, inText, valuesField + ":" + inText}) {
+		t.Errorf("the levels of text inside text: %v", got)
+	}
+	if got := levels(nil, "plain.leaf"); !reflect.DeepEqual(got, []string{"plain.leaf"}) {
+		t.Errorf("the levels of a leaf of the file: %v", got)
+	}
+}
+
 // A string that holds a YAML mapping over several lines is the mapping's
 // leaves, each under the field's path and ":" — text inside text too — on
 // its line of the file where the text is a literal block scalar, on the
 // field's line where a quoted scalar folds its lines; a list held as text
 // (a patch) and a one-line "key: value" stay one leaf, as does every string
-// outside a ConfigMap's data or a Secret's stringData. flattenYAML's leaves
-// are the same, and innerPath and holder split a path at its last step into
-// a document, outside brackets.
+// outside a ConfigMap's data, a Secret's stringData or a kustomization's
+// patch. flattenYAML's leaves are the same, and innerPath and holder split
+// a path at its last step into a document, outside brackets.
 func TestFlattenLinesDescendsIntoText(t *testing.T) {
 	content := strings.Join([]string{
 		"apiVersion: v1",                            // 1
@@ -226,7 +299,7 @@ func TestFlattenLinesDescendsIntoText(t *testing.T) {
 	}
 	docs := appConfigDocuments
 	for p, inner := range map[string]string{
-		"data.values:backstage.appConfig:app.title":                                       "app.title",
+		"data.values:backstage.appConfig:app.title":                                       titlePath,
 		"data.values:backstage.appConfig:app.extensions[14].entity-card:catalog/labels":   "app.extensions[14].entity-card:catalog/labels",
 		"data.values:backstage.appConfig:app.extensions[29].page:scaffolder.config.title": "app.extensions[29].page:scaffolder.config.title",
 		"data.values:servers[http://x:8080/mcp].url":                                      "servers[http://x:8080/mcp].url",

@@ -617,6 +617,12 @@ func Watch(w io.Writer, r tools.WatchResult) error {
 			p.f("  %s\n", d)
 		}
 	}
+	if len(r.Planned) > 0 {
+		p.f("Planned:\n")
+		for _, d := range r.Planned {
+			p.f("  %s\n", d)
+		}
+	}
 	if r.Verify != nil {
 		p.f("Probes: %s\n", marks(r.Verify.Summary))
 	}

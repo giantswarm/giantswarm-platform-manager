@@ -98,6 +98,8 @@ func TestRollUp(t *testing.T) {
 // the file: configmap and dex-configmap the configmap patch of their app,
 // dex-secret the secret patch, extras a path under extras/ (a directory
 // covering everything beneath), backstage a fileset's file or a whole file.
+// A key names a leaf at any level of its path: inside the document a field
+// holds, or by the field that holds the text (a kustomization's patch).
 func TestRemovalsNameThePlannedChanges(t *testing.T) {
 	const migration, template, notPlatform, other, m25 = "migration", "template", "not-platform", "other-definition", "M25"
 	rms := readRemovals([]definitions.Removal{
@@ -111,16 +113,18 @@ func TestRemovalsNameThePlannedChanges(t *testing.T) {
 		{Key: "backstage:app-config:auth", Kind: other, Reason: "B1"},
 		{Key: "backstage:file:user-secrets.enc.yaml", Kind: other, Reason: "B2"},
 		{Key: "backstage:app-config:app.extensions[*]", Kind: other, Reason: "B3"},
+		{Key: "backstage:kustomization:spec.valuesFrom[google-credentials-backstage]", Kind: other, Reason: "B4"},
 		{Key: "teleport:tunnels", Kind: "other", Reason: "ignored"},
 	}, nil)
-	if len(rms) != 10 {
-		t.Fatalf("%d removals read, want 10 (a prefix of no file kind is left out)", len(rms))
+	if len(rms) != 11 {
+		t.Fatalf("%d removals read, want 11 (a prefix of no file kind is left out)", len(rms))
 	}
 	patch := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
 	dexCM := &fileDiff{path: testDexPatch, kind: definitions.KindDexConfigMap}
 	dexSecret := &fileDiff{path: testDexSecretPatch, kind: definitions.KindDexSecret}
 	agents := &fileDiff{path: "management-clusters/x/extras/agents/kustomization.yaml", kind: definitions.KindExtras}
-	kust := &fileDiff{path: "management-clusters/x/extras/agent-platform/kustomization.yaml", kind: definitions.KindExtras}
+	kust := &fileDiff{path: "management-clusters/x/extras/agent-platform/kustomization.yaml", kind: definitions.KindExtras, documents: map[string]bool{chartPatch: true}}
+	portalKust := &fileDiff{path: "management-clusters/x/extras/backstage/backstage/kustomization.yaml", kind: definitions.KindBackstage, documents: map[string]bool{releasePatch: true}}
 	appConfig := &fileDiff{path: "management-clusters/x/extras/backstage/backstage/app-config.yaml", kind: definitions.KindBackstage, documents: appConfigDocuments}
 	secrets := &fileDiff{path: "management-clusters/x/extras/backstage/backstage/user-secrets.enc.yaml", kind: definitions.KindBackstage}
 	fragment := &fileDiff{path: testComponentAppConfig, kind: definitions.KindBackstage, documents: map[string]bool{"data.app-config.agent-platform.yaml": true}}
@@ -145,7 +149,11 @@ func TestRemovalsNameThePlannedChanges(t *testing.T) {
 		{"a directory under extras covers its files", agents, "resources[a.yaml]", "E1"},
 		{"a whole file under extras", agents, "", "E1"},
 		{"a path in a file under extras", kust, "patches[0].path", "E2"},
+		{"a key over the patches names the leaves inside a patch's text", kust, "patches[0].patch:spec.values.x", "E2"},
 		{"a path beside it", kust, "resources[0]", ""},
+		{"a values source inside the kustomization patch's text", portalKust, "patches[1].patch:spec.valuesFrom[google-credentials-backstage].kind", "B4"},
+		{"a source beside it", portalKust, "patches[1].patch:spec.valuesFrom[user-secrets-backstage].kind", ""},
+		{"not the source of another portal file", appConfig, "data.values:spec.valuesFrom[google-credentials-backstage].kind", ""},
 		{"a backstage fileset", appConfig, "auth.providers", "B1"},
 		{"a backstage fileset's key inside the ConfigMap's text", appConfig, "data.values:backstage.appConfig:auth.providers", "B1"},
 		{"not the platform Component's file of the same name", fragment, "data.app-config.agent-platform.yaml:auth.providers", ""},
@@ -425,8 +433,8 @@ func TestNotCheckedReasonsNameWhatIsMissing(t *testing.T) {
 // difference and is named by its path. A leaf inside text the record holds
 // encrypted takes no part, the field's value standing; of a Secret the record
 // lacks every leaf inside the text differs, like every leaf of a created
-// file. Only a ConfigMap's data and a Secret's stringData hold documents: a
-// kustomization's patch is one leaf.
+// file. A ConfigMap's data, a Secret's stringData and a kustomization's
+// strategic merge patch hold documents; a JSON 6902 patch is one leaf.
 func TestDifferencesInsideText(t *testing.T) {
 	const appConfig = "management-clusters/x/extras/backstage/backstage/app-config.yaml"
 	head := "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: app-config-backstage\ndata:\n  values: |\n    backstage:\n      appConfig: |\n        app:\n"
@@ -436,7 +444,7 @@ func TestDifferencesInsideText(t *testing.T) {
 	got, docs := differences("r:"+appConfig, rendered, current, map[string]string{"r:" + appConfig + "#" + doc + "app.baseUrl": "portal.domain"})
 	want := []Difference{
 		{File: "r:" + appConfig, Path: doc + "app.baseUrl", Rendered: "https://portal.new", Current: "https://portal.old", Line: 11, CurrentLine: 11, Input: "portal.domain"},
-		{File: "r:" + appConfig, Path: doc + "app.title", Rendered: "Dev Portal", Current: "Old Portal", Line: 10, CurrentLine: 10},
+		{File: "r:" + appConfig, Path: doc + titlePath, Rendered: "Dev Portal", Current: "Old Portal", Line: 10, CurrentLine: 10},
 		{File: "r:" + appConfig, Path: doc + "muster.installations", Rendered: "", Current: "[]", Line: 0, CurrentLine: 13},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -453,7 +461,7 @@ func TestDifferencesInsideText(t *testing.T) {
 	if reason := rms.reason(fd, doc+"muster.installations"); reason != "Moved: muster" {
 		t.Errorf("a removal names the key inside the document: %q", reason)
 	}
-	if reason := rms.reason(fd, doc+"app.title"); reason != "" {
+	if reason := rms.reason(fd, doc+titlePath); reason != "" {
 		t.Errorf("a key beside it: %q", reason)
 	}
 	var paths []string
@@ -466,7 +474,7 @@ func TestDifferencesInsideText(t *testing.T) {
 	for _, d := range got {
 		paths = append(paths, d.Path)
 	}
-	if !slices.Equal(paths, []string{doc + "app.baseUrl", doc + "app.extensions[0].entity-card:catalog/labels", doc + "app.extensions[1].page:scaffolder.config.title", doc + "app.title", doc + "scaffolder"}) {
+	if !slices.Equal(paths, []string{doc + "app.baseUrl", doc + "app.extensions[0].entity-card:catalog/labels", doc + "app.extensions[1].page:scaffolder.config.title", doc + titlePath, doc + "scaffolder"}) {
 		t.Errorf("leaves with a colon in the key: %v", paths)
 	}
 	fd.documents = docs
@@ -487,8 +495,11 @@ func TestDifferencesInsideText(t *testing.T) {
 	if !reflect.DeepEqual(paths, []string{apiVersionPath, kindPath, "metadata.name", "stringData.values:authSessionSecret", "stringData.values:dexAuthCredentials.maple.clientId"}) || created[3].Rendered != render.Placeholder("session") || created[4].Line != 10 || created[4].Rendered != "backstage" {
 		t.Errorf("a created Secret differs at every leaf inside its text, like a created file: %+v", created)
 	}
-	if got, _ := differences("r:k", "patches:\n- patch: |\n    spec:\n      a: 1\n", "patches:\n- patch: |\n    spec:\n      a: 2\n", nil); len(got) != 1 || got[0].Path != "patches[0].patch" {
-		t.Errorf("a kustomization's patch is one leaf whatever it holds: %+v", got)
+	if got, _ := differences("r:k", "patches:\n- patch: |\n    spec:\n      a: 1\n", "patches:\n- patch: |\n    spec:\n      a: 2\n", nil); len(got) != 1 || got[0].Path != "patches[0].patch:spec.a" || got[0].Line != 4 || got[0].CurrentLine != 4 {
+		t.Errorf("a kustomization's strategic merge patch differs at its leaves, placed on their lines: %+v", got)
+	}
+	if got, _ := differences("r:k", "patches:\n- patch: |\n    - op: add\n      path: /a\n", "patches:\n- patch: |\n    - op: add\n      path: /b\n", nil); len(got) != 1 || got[0].Path != chartPatch {
+		t.Errorf("a JSON 6902 patch is one leaf: %+v", got)
 	}
 }
 
