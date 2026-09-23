@@ -149,6 +149,43 @@ func TestConditionStatus(t *testing.T) {
 	}
 }
 
+// A customer action is open while the live dimension it holds up is red or
+// was not read, and done once that dimension read as defined: the model
+// key's action is done when the ModelConfig reads Accepted, whatever the
+// definition lists; an action that holds up no dimension stays open.
+func TestSortActionsFollowTheLiveRead(t *testing.T) {
+	const modelKey, modelConfigs, signOff = "model-key", "live-model-configs", "sign-off"
+	key := render.Action{ID: modelKey, State: render.WaitingForCustomer, Dimension: modelConfigs, Note: "create the Secret"}
+	unread := render.Action{ID: signOff, State: render.WaitingForCustomer, Note: "no dimension reads it"}
+	settled := render.Action{ID: "settled", State: "Done", Dimension: modelConfigs}
+	ids := func(as []render.Action) []string {
+		var out []string
+		for _, a := range as {
+			out = append(out, a.ID)
+		}
+		return out
+	}
+	for _, tc := range []struct {
+		name       string
+		mark       verify.Mark
+		open, done []string
+	}{
+		{"accepted", verify.AsDefined, []string{signOff}, []string{modelKey}},
+		{"planned beside it", verify.Planned, []string{signOff}, []string{modelKey}},
+		{"not accepted", verify.Drifted, []string{modelKey, signOff}, nil},
+		{"not read", verify.NotChecked, []string{modelKey, signOff}, nil},
+	} {
+		res := liveResult(installations.StateEnabled, verify.Dimension{ID: modelConfigs, Kind: definitions.KindLive, Mark: tc.mark})
+		open, done := sortActions([]render.Action{key, unread, settled}, res)
+		if !reflect.DeepEqual(ids(open), tc.open) || !reflect.DeepEqual(ids(done), tc.done) {
+			t.Errorf("%s: open %v done %v, want %v and %v", tc.name, ids(open), ids(done), tc.open, tc.done)
+		}
+	}
+	if open, done := sortActions([]render.Action{key}, liveResult(installations.StateEnabled)); len(open) != 1 || len(done) != 0 {
+		t.Errorf("a dimension the result lacks: open %v done %v", ids(open), ids(done))
+	}
+}
+
 // A stage that failed on a probe is re-read: still red it stays failed with
 // the probe named, clean it is enabled. A stage that failed otherwise, or
 // whose pull requests are not merged, is over for the watch.
