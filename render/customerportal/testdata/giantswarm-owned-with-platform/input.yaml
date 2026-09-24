@@ -1,7 +1,10 @@
 # A Giant Swarm-owned portal on the 2.x chart line with the agent platform
 # enabled (the platform's Component listed, the Dex client carried by the
-# agent-platform definition), the tunnel's SPIFFE bundle, Sentry and the Flux
-# plugin, telemetry on, a title of its own. Invented names, placeholder values.
+# agent-platform definition) and handed over: the Component's fragment on
+# record owns the portal's lists, so the app-config includes the shared list
+# without the platform's section and carries none of it. The tunnel's SPIFFE
+# bundle, Sentry and the Flux plugin, telemetry on, a title of its own.
+# Invented names, placeholder values.
 input:
   installation:
     name: hazel
@@ -33,6 +36,9 @@ input:
       enabled: true
   tunnel:
     enabled: true
+  platformSection:
+    componentLists: true
+    aiChat: true
 secrets:
   plugins.github.appId: "654321"
   plugins.github.clientId: Iv1.placeholder-client-id

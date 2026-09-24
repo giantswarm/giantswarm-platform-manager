@@ -234,7 +234,9 @@ func TestDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := map[string]any{"modelServing": map[string]any{keyEnabled: false}, "aiChat": map[string]any{keyEnabled: false, "model": "claude-opus-5", keyProvider: "anthropic"}}; !reflect.DeepEqual(got, want) {
+	want := map[string]any{"modelServing": map[string]any{keyEnabled: false}, "aiChat": map[string]any{keyEnabled: false, "model": "claude-opus-5", keyProvider: "anthropic"},
+		"skills": map[string]any{"repositories": []any{}}}
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("defaults %v, want %v", got, want)
 	}
 }

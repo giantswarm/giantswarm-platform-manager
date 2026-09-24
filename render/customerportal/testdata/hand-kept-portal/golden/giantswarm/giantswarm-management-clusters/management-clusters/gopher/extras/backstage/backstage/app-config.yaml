@@ -1,0 +1,154 @@
+# Rendered by giantswarm-platform-manager, customer-portal definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config-backstage
+  namespace: flux-giantswarm
+data:
+  values: |
+    backstage:
+      appConfig: |
+        app:
+          title: Dev Portal
+          baseUrl: https://portal.gopher.example.io
+          extensions:
+            $include: shared-config.yaml#extensionsAgentPlatformAiChatGrafanaDashboards
+          routes:
+            $include: shared-config.yaml#routes
+        organization:
+          name: Example
+        backend:
+          auth:
+            pluginKeyStore:
+              type: static
+              static:
+                keys:
+                  - publicKeyFile: /app/plugin-keys/plugin-to-plugin/public.key
+                    privateKeyFile: /app/plugin-keys/plugin-to-plugin/private.key
+                    keyId: plugin-to-plugin
+          baseUrl: https://portal.gopher.example.io
+          listen:
+            port: 7007
+            host: 0.0.0.0
+          cors:
+            origin: https://portal.gopher.example.io
+            methods:
+              - GET
+              - HEAD
+              - PATCH
+              - POST
+              - PUT
+              - DELETE
+            credentials: true
+          csp:
+            connect-src:
+              $include: shared-config.yaml#csp.connectSrc
+            img-src:
+              $include: shared-config.yaml#csp.imgSrc
+            script-src:
+              $include: shared-config.yaml#csp.scriptSrc
+            worker-src:
+              $include: shared-config.yaml#csp.workerSrc
+          database:
+            client: better-sqlite3
+            connection: ':memory:'
+          cache:
+            store: memory
+          reading:
+            allow:
+              - host: '*.gopher.example.io'
+          actions:
+            filter:
+              exclude:
+                - id: gs:get-pagerduty-ids-for-entity
+            pluginSources:
+              - auth
+              - catalog
+              - gs
+        permission:
+          enabled: true
+        techdocs:
+          builder: local
+          generator:
+            runIn: local
+          publisher:
+            type: local
+        kubernetes:
+          serviceLocatorMethod:
+            type: multiTenant
+          clusterLocatorMethods:
+            - type: config
+              clusters:
+                - name: gopher
+                  url: https://happaapi.gopher.example.io
+                  authProvider: oidc
+                  oidcTokenProvider: oidc-gopher
+        auth:
+          environment: production
+          session:
+            secret: $${AUTH_SESSION_SECRET}
+          providers:
+            oidc-gopher:
+              development:
+                metadataUrl: https://dex.gopher.example.io/.well-known/openid-configuration
+                clientId: $${AUTH_DEX_GOPHER_CLIENT_ID}
+                clientSecret: $${AUTH_DEX_GOPHER_CLIENT_SECRET}
+              production:
+                metadataUrl: https://dex.gopher.example.io/.well-known/openid-configuration
+                clientId: $${AUTH_DEX_GOPHER_CLIENT_ID}
+                clientSecret: $${AUTH_DEX_GOPHER_CLIENT_SECRET}
+        grafana:
+          hosts:
+            - id: gopher
+              domain: https://grafana.gopher.example.io
+        proxy:
+          endpoints:
+            /grafana/api:
+              target: https://grafana.gopher.example.io/
+              headers:
+                Authorization: Bearer $${GRAFANA_TOKEN}
+        gs:
+          authProvider: oidc-gopher
+          auth:
+            extraScopes:
+              $include: shared-config.yaml#auth.extraScopes
+          installations:
+            gopher:
+              authProvider: oidc
+              baseDomain: gopher.example.io
+              oidcTokenProvider: oidc-gopher
+              pipeline: testing
+              providers:
+                - capa
+          adminGroups:
+            $include: shared-config.yaml#adminGroups
+          kubernetesVersions:
+            $include: shared-config.yaml#kubernetesVersions
+        catalog:
+          $include: shared-config.yaml#catalog
+        agentPlatform:
+          kagent:
+            installations:
+              gopher: {}
+          skills:
+            repositories:
+              - https://github.com/example/agent-skills
+        aiChat:
+          anthropic:
+            apiKey: $${ANTHROPIC_API_KEY}
+          mcp:
+            - name: backstage-actions
+              url: https://portal.gopher.example.io/api/mcp-actions/v1
+              useBackstageUserToken: true
+            - authProvider: oidc-gopher
+              name: muster
+              url: https://muster.gopher.example.io/mcp
+          model: claude-opus-4-8
+        mcpActions:
+          namespacedToolNames: false
+        muster:
+          installations:
+            - authProvider: oidc-gopher
+              name: gopher
+              url: https://muster.gopher.example.io/mcp

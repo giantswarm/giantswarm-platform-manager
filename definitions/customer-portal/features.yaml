@@ -63,7 +63,8 @@ features:
       - {id: live-dex-client-secret, kind: live, key: Secret dex-client-backstage in giantswarm with key secret}
   agent-platform-section:
     title: Agent platform section
-    description: On an installation with the platform enabled, the portal lists the agent-platform definition's Component and runs with its fragment.
+    description: On an installation with the platform enabled, the portal lists the agent-platform definition's Component and runs with its fragment, keeping the platform's section until the fragment owns the portal's lists.
     dimensions:
       - {id: platform-component, kind: backstage, key: kustomization.yaml components (./agent-platform/)}
+      - {id: platform-section-kept, kind: backstage, key: "app-config.yaml muster / agentPlatform / aiChat / mcpActions / backend.actions (the platform's section, kept as the record carries it until the Component's fragment owns the portal's lists)"}
       - {id: live-platform-fragment, kind: live, key: ConfigMap agent-platform-app-config-backstage in namespace backstage}

@@ -82,6 +82,9 @@ type Input struct {
 	Tunnel       Toggle       `json:"tunnel"`
 	PluginKeys   PluginKeys   `json:"pluginKeys"`
 	Federation   *Federation  `json:"federation"`
+	// PlatformSection is the portal's agent-platform section as the record
+	// carries it: read from the portal's files, never typed.
+	PlatformSection PlatformSection `json:"platformSection"`
 	// missing are the required person inputs the document lacks, filled
 	// with their Missing markers: a comparison renders them, a commit
 	// refuses them.
@@ -140,6 +143,17 @@ type FederatedInstallation struct {
 	// hub's tunnel: its cluster entry is the tunnel Service with TLS
 	// verification off (the Service presents a SPIFFE certificate).
 	Private bool `json:"private"`
+}
+
+// PlatformSection is the portal's agent-platform section on record: whether
+// the agent-platform Component's fragment owns the portal's lists (it
+// carries app.extensions), whether the portal runs the AI chat, and the keys
+// of the section the portal's own app-config carries, at their paths with
+// their values; see the schema.
+type PlatformSection struct {
+	ComponentLists bool           `json:"componentLists"`
+	AIChat         bool           `json:"aiChat"`
+	AppConfig      map[string]any `json:"appConfig"`
 }
 
 // Chart is the portal chart's release range.

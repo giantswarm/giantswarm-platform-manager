@@ -1,6 +1,7 @@
 package installations
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -65,11 +66,12 @@ type Capability struct {
 	Render func(raw any, secrets map[string]string, mode render.Mode) (*render.Result, error)
 	// RecordInputs are the inputs the definition derives from the record
 	// beyond installation.*, as the schema's other registry inputs name them
-	// (the customer portal's federation from the portal on record): laid
-	// over the defaults with the facts, under the read-back and the typed
-	// inputs; nil where the definition has none. An error refuses the
+	// (the customer portal's federation from the portal on record, its
+	// agent-platform section from the portal's files read as the caller):
+	// laid over the defaults with the facts, under the read-back and the
+	// typed inputs; nil where the definition has none. An error refuses the
 	// comparison, naming what the record lacks.
-	RecordInputs func(r Report) (map[string]any, error)
+	RecordInputs func(ctx context.Context, r Report, read Reader) (map[string]any, error)
 	// Prunes says whether the Flux Kustomization that applies the
 	// definition's tree deletes what leaves the record. The fleet's
 	// Kustomization over the extras tree does not (prune: false): a revert
@@ -207,13 +209,32 @@ func (s State) FromAction() bool {
 	return false
 }
 
-// portalRecordInputs is the customer portal's federation from the portal on
+// portalRecordInputs are the customer portal's inputs from the portal on
+// record: its federation (portalFederation) and its agent-platform section
+// (portalPlatformSection).
+func portalRecordInputs(ctx context.Context, r Report, read Reader) (map[string]any, error) {
+	federation, err := portalFederation(r)
+	if err != nil {
+		return nil, err
+	}
+	section, err := portalPlatformSection(ctx, r, read)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]any{"platformSection": section}
+	if federation != nil {
+		out["federation"] = federation
+	}
+	return out, nil
+}
+
+// portalFederation is the customer portal's federation from the portal on
 // record: federation.installations, every installation the hosted portal
 // shows besides its own with its facts, so the sign-in installation and the
 // token broker the same file names are among them; nothing where the
 // installation hosts no portal or the portal shows its own installation
 // alone. A name the registry does not know refuses the comparison.
-func portalRecordInputs(r Report) (map[string]any, error) {
+func portalFederation(r Report) (map[string]any, error) {
 	if r.Hosted == nil {
 		return nil, nil
 	}
@@ -235,5 +256,5 @@ func portalRecordInputs(r Report) (map[string]any, error) {
 		}
 		entries = append(entries, entry)
 	}
-	return map[string]any{"federation": map[string]any{"installations": entries}}, nil
+	return map[string]any{"installations": entries}, nil
 }

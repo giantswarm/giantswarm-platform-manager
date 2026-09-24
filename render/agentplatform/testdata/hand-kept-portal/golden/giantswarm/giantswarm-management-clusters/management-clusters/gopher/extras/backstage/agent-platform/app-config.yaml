@@ -11,6 +11,9 @@ data:
       kagent:
         installations:
           gopher: {}
+      skills:
+        repositories:
+          - https://github.com/example/agent-skills
     aiChat:
       anthropic:
         apiKey: $${ANTHROPIC_API_KEY}
