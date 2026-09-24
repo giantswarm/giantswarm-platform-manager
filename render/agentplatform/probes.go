@@ -30,15 +30,22 @@ const (
 
 // probes are the checks of the running installation, one or more per live
 // dimension of features.yaml, in the order the verify slice runs them: the
-// releases, kagent's workloads, the Secrets, the model configuration, the
-// identity chain over HTTP, Dex holding every referenced client secret, the
-// tool access, the logs, and the drift of live
-// values against the render. Everything kagent's is probed only when kagent
-// is enabled. Nothing here runs anything: a probe is data.
+// releases, the workloads that read muster's credentials, kagent's
+// workloads, the Secrets, the model configuration, the identity chain over
+// HTTP, Dex holding every referenced client secret, the tool access, the
+// logs, and the drift of live values against the render. Everything kagent's
+// is probed only when kagent is enabled. Nothing here runs anything: a probe
+// is data.
 func (in *Input) probes() []render.Probe {
 	var p []render.Probe
 	for _, name := range in.helmReleases() {
 		p = append(p, resourceProbe("live-helmreleases-ready", featureRuntime, render.HelmReleaseReady, fluxNamespace, "HelmRelease", name))
+	}
+	// A HelmRelease stays Ready when its pods turn unready after the upgrade,
+	// as a consumer left on rotated-away credentials does: its Deployment is
+	// read itself.
+	for _, c := range in.runningMusterConsumers() {
+		p = append(p, conditionProbe(platformWorkloadsDimension, featureRuntime, platformNamespace, "Deployment", c.deployment, "Available", conditionTrue))
 	}
 	if in.kagent() {
 		for _, name := range []string{"kagent-controller", "kagent-ui", oauth2ProxyDeployment} {
@@ -125,6 +132,10 @@ func (in *Input) actions() []render.Action {
 	}
 	return []render.Action{{ID: modelKeyActionID, Feature: featureRuntime, State: render.WaitingForCustomer, Dimension: modelKeyDimension, Note: modelKeyNote}}
 }
+
+// platformWorkloadsDimension is the live dimension of the Deployments that
+// read muster's credentials (musterConsumers).
+const platformWorkloadsDimension = "live-platform-workloads"
 
 // helmReleases are the HelmReleases the installation's platform consists of:
 // the meta chart, kagent when it runs, the connectivity chart, muster, the

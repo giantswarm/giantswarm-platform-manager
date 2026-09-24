@@ -553,3 +553,38 @@ func TestRegistrationLeavesAreNotPlanned(t *testing.T) {
 		}
 	}
 }
+
+// The credentials revision reaches every workload that reads muster's
+// credentials: an installation already on M37 lacks the refs of the chat
+// gateway's and the managers' HelmReleases, which are planned under M38 with
+// the component named; muster's and its Valkey's stay M37's, although the
+// newer entries come first; a component beside them is no migration's.
+func TestCredentialsConsumersRevisionIsPlanned(t *testing.T) {
+	ms, err := definitions.Migrations(installations.AgentPlatform)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const m37, m38 = "M37", "M38"
+	migs := readMigrations(ms, facts{factDomain: testDomain})
+	patch := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
+	for _, tc := range []struct {
+		component, tag string
+	}{
+		{"klaus-gateway", m38},
+		{"agent-manager", m38},
+		{"cluster-manager", m38},
+		{"model-manager", m38},
+		{"muster", m37},
+		{"valkey", m37},
+		{"agentgateway", ""},
+	} {
+		d := &Difference{Path: "components." + tc.component + ".valuesFromRefs[0].targetPath", Rendered: "x", absent: true}
+		got := planned(patch, d, nil, migs)
+		switch {
+		case tc.tag == "" && got != "":
+			t.Errorf("%s: planned %q, want none", d.Path, got)
+		case tc.tag != "" && (!strings.Contains(got, "the "+tc.component+" HelmRelease") || !strings.HasSuffix(got, "· "+tc.tag)):
+			t.Errorf("%s: planned %q, want it to name the %s HelmRelease and carry %s", d.Path, got, tc.component, tc.tag)
+		}
+	}
+}

@@ -7,10 +7,25 @@ components:
     enabled: true
   agent-manager:
     enabled: true
+    valuesFromRefs:
+      - kind: Secret
+        name: muster-credentials-revision
+        valuesKey: revision
+        targetPath: podAnnotations.muster-credentials-revision
   klaus-gateway:
     enabled: true
+    valuesFromRefs:
+      - kind: Secret
+        name: muster-credentials-revision
+        valuesKey: revision
+        targetPath: podAnnotations.muster-credentials-revision
   cluster-manager:
     enabled: true
+    valuesFromRefs:
+      - kind: Secret
+        name: muster-credentials-revision
+        valuesKey: revision
+        targetPath: podAnnotations.muster-credentials-revision
   muster:
     valuesFromRefs:
       - kind: Secret
@@ -27,6 +42,12 @@ components:
         name: muster-credentials-revision
         valuesKey: revision
         targetPath: valkey.auth.usersExistingSecretChecksum
+  model-manager:
+    valuesFromRefs:
+      - kind: Secret
+        name: muster-credentials-revision
+        valuesKey: revision
+        targetPath: podAnnotations.muster-credentials-revision
 postgres:
   enabled: true
 llmRouting:

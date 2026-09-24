@@ -34,12 +34,18 @@ var (
 	ErrPolicy = errors.New("agent-platform: fleet policy")
 )
 
-// The components of the definition beside muster and its servers.
+// The meta chart's components the definition names: muster and its Valkey,
+// which every installation runs, and the components beside them.
 const (
+	componentMuster         = "muster"
+	componentValkey         = "valkey"
 	componentKagent         = "kagent"
 	componentAgentManager   = "agent-manager"
 	componentKlausGateway   = "klaus-gateway"
 	componentClusterManager = "cluster-manager"
+	// componentModelManager is no choice of the policy's: the meta chart's 4
+	// line runs it by default and the definition leaves it on.
+	componentModelManager = "model-manager"
 )
 
 // organisationComponents are the components policy.yaml lists per
@@ -66,7 +72,7 @@ const (
 	musterOAuthSecret  = "muster-oauth-credentials"  // #nosec G101 -- a Secret name, not a value
 	musterValkeySecret = "muster-valkey-credentials" // #nosec G101 -- a Secret name, not a value
 	// musterRevisionSecret carries muster's credentials revision in the Flux
-	// namespace for the muster and valkey HelmReleases (valuesFrom); the
+	// namespace for its consumers' HelmReleases (valuesFrom); the
 	// revision is also a key of the two credentials Secrets, so a rewrite of
 	// either draws it anew (see servers.go: the same shape as a server's).
 	musterRevisionSecret = "muster-credentials-revision" // #nosec G101 -- a Secret name, not a value
@@ -593,6 +599,7 @@ func (in *Input) kagent() bool         { return in.Components[componentKagent] }
 func (in *Input) agentManager() bool   { return in.Components[componentAgentManager] }
 func (in *Input) klausGateway() bool   { return in.Components[componentKlausGateway] }
 func (in *Input) clusterManager() bool { return in.Components[componentClusterManager] }
+func (in *Input) modelManager() bool   { return in.Installation.ChartLine == lineFour }
 
 // portalHost is the installation whose management-clusters tree hosts the
 // portal the platform's portal section is written into (hostedPortal); empty
