@@ -11,7 +11,7 @@ require (
 	github.com/giantswarm/selfupdate-cosign v0.2.1
 	github.com/go-jose/go-jose/v4 v4.1.5
 	github.com/google/go-github/v92 v92.0.0
-	github.com/mark3labs/mcp-go v1.1.0
+	github.com/mark3labs/mcp-go v1.1.1
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
