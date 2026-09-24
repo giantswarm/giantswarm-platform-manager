@@ -26,8 +26,9 @@ const conditionTrue = "True"
 // action, as the person calling. The manager holds no token beyond a call, so
 // the watch is a call — from the portal's page, platformctl, an agent — not
 // a loop: it reads the Flux objects of the installation rolling out through
-// muster with the caller's token, and once every one is Ready runs the
-// probes and decides the stage's state.
+// muster with the caller's token, and once every one is Ready — or one
+// reports its release failed — runs the probes and decides the stage's
+// state.
 const ToolWatchAction = "watch_action"
 
 // WatchResult is watch_action's answer: the picture of the stage watched,
@@ -61,7 +62,7 @@ type WatchResult struct {
 
 func (t *Tools) registerWatchTool(s *mcpserver.MCPServer) {
 	s.AddTool(mcp.NewTool(ToolWatchAction,
-		mcp.WithDescription("The rollout watch of an action whose pull requests are merged, as you — an action rolling out, and one that failed on a red probe, which the watch re-reads once the cause is fixed: green, the stage is enabled and the wave goes on from it; still red, it stays failed, the probe named. It reads the Flux objects the definition names on the installation rolling out — the HelmReleases with their Ready condition and revision — through muster's kubernetes tools with the token muster forwarded, and answers the picture. Once every one is Ready it runs the definition's probes (the live dimensions as you, the anonymous HTTP probes direct) and the stage moves to enabled (all green), waiting for the customer (the customer's own action is the only thing open) or failed (a probe is red, named); a value a definition released since the commit renders and the installation lacks is a planned change of that newer definition, listed, never red. The report — pull requests, rollout per object, each probe, the customer actions still open and the ones the installation reads done — goes into the review's thread and onto the Action. Nothing is waited for or hurried: call again while it is rolling out. On a wave the stage in flight is watched; the next stage's pull requests are merged by the actor's "+ToolMergeAction+" once it is enabled. An action waiting for the customer or enabled is re-read: the customer's action done flips it to enabled. Anyone signed in may watch; the reads are yours."),
+		mcp.WithDescription("The rollout watch of an action whose pull requests are merged, as you — an action rolling out, and one that failed on a red probe, which the watch re-reads once the cause is fixed: green, the stage is enabled and the wave goes on from it; still red, it stays failed, the probe named. It reads the Flux objects the definition names on the installation rolling out — the HelmReleases with their Ready condition and revision — through muster's kubernetes tools with the token muster forwarded, and answers the picture. Once every one is Ready it runs the definition's probes (the live dimensions as you, the anonymous HTTP probes direct) and the stage moves to enabled (all green), waiting for the customer (the customer's own action is the only thing open) or failed (a probe is red, named); a HelmRelease whose last release Flux reports failed (Released=False after a failed install or upgrade, or Stalled=True) never becomes Ready on its own, so the stage is failed on its probe with Flux's verdict named, not rolling out; a value a definition released since the commit renders and the installation lacks is a planned change of that newer definition, listed, never red. The report — pull requests, rollout per object, each probe, the customer actions still open and the ones the installation reads done — goes into the review's thread and onto the Action. Nothing is waited for or hurried: call again while it is rolling out. On a wave the stage in flight is watched; the next stage's pull requests are merged by the actor's "+ToolMergeAction+" once it is enabled. An action waiting for the customer or enabled is re-read: the customer's action done flips it to enabled. Anyone signed in may watch; the reads are yours."),
 		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithString(ArgAction, mcp.Required(), mcp.Description("The Action's name.")),
 	), t.watchActionLive)
@@ -133,12 +134,12 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 	res := verify.CompareLive(ctx, verify.LiveOptions{Definition: def, Installation: st.Name, State: settledState(st.State),
 		Inputs: verify.Inputs{Source: "action " + a.Name, Values: inputs, Typed: a.Spec.Inputs}, Cluster: cluster, Probes: t.d.Probes, Person: id.String(), AnonymousProbes: true, Log: t.d.Log})
 	res.Caller = id.String()
-	objects, ready := rolloutObjects(res)
+	objects, ready, failed := rolloutObjects(res)
 	prev := st.State
 	st.Objects, st.WatchedAt, st.WatchedBy = objects, now(), id.String()
 	status.Probes = mergeProbes(status.Probes, st.Name, probesOf(st.Name, res))
 	out := WatchResult{Installation: st.Name, Objects: objects, Ready: ready, Verify: &res, Planned: plannedDimensions(res)}
-	if prev == actions.StateRollingOut && !ready {
+	if prev == actions.StateRollingOut && !ready && !failed {
 		st.Message = rolloutMessage(objects)
 		out.Next = "call " + ToolWatchAction + " again once Flux has reconciled the installation; nothing is hurried"
 	} else {
@@ -240,10 +241,13 @@ func orNotStarted(state string) string {
 }
 
 // rolloutObjects is the rollout picture in res: the Flux objects the render's
-// readiness probes read, and whether every one is Ready.
-func rolloutObjects(res verify.Result) ([]actions.RolloutObject, bool) {
-	objects := []actions.RolloutObject{}
-	ready := true
+// readiness probes read, whether every one is Ready, and whether one failed
+// — a HelmRelease whose last release Flux reports failed will not become
+// Ready on its own, so its stage is decided (failed on the red probe, re-read
+// once the cause is fixed) instead of rolling out for good.
+func rolloutObjects(res verify.Result) (objects []actions.RolloutObject, ready, failed bool) {
+	objects = []actions.RolloutObject{}
+	ready = true
 	for _, f := range res.Features {
 		for _, d := range f.Dimensions {
 			if d.Live == nil {
@@ -264,11 +268,12 @@ func rolloutObjects(res verify.Result) ([]actions.RolloutObject, bool) {
 				if obj.Ready != conditionTrue {
 					ready = false
 				}
+				failed = failed || c.Failed
 				objects = append(objects, obj)
 			}
 		}
 	}
-	return objects, ready
+	return objects, ready, failed
 }
 
 // isFluxKind says whether a probe's resource is a Flux HelmRelease or Kustomization.

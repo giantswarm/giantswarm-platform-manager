@@ -15,16 +15,25 @@ const (
 // portal's Deployment. TestRenderConsumption holds it to the rendered chart.
 const podSelector = "app.kubernetes.io/instance=backstage"
 
+// deploymentName is the portal's Deployment: the chart names it after its
+// name value, which the definition leaves at the chart's default.
+// TestRenderConsumption holds it to the rendered chart.
+const deploymentName = "backstage"
+
 // probes are the checks of the running portal, one or more per live dimension
 // of features.yaml, in the order the verify slice runs them: the release, the
-// pods, the home page, the sign-in chain over HTTP, Dex holding the client's
-// secret, the Secrets and, with the platform enabled, the platform's
-// fragment. Nothing here runs anything: a probe is data.
+// Deployment Available, the pods, the home page, the sign-in chain over
+// HTTP, Dex holding the client's secret, the Secrets and, with the platform
+// enabled, the platform's fragment. Nothing here runs anything: a probe is
+// data.
 func (in *Input) probes() []render.Probe {
 	start := in.portalURL() + "/api/auth/" + in.authProvider() + "/start?env=production"
 	dexAuth := "https://" + in.host("dex") + "/auth"
+	available := resourceProbe("live-deployment-available", featurePortal, render.Condition, backstageNamespace, "Deployment", deploymentName)
+	available.Expect = render.Expectation{Condition: "Available", ConditionStatus: "True"}
 	p := []render.Probe{
 		resourceProbe("live-helmrelease-ready", featurePortal, render.HelmReleaseReady, fluxNamespace, "HelmRelease", releaseName),
+		available,
 		resourceProbe("live-pods-running", featurePortal, render.PodsRunning, backstageNamespace, "Pod", podSelector),
 		httpProbe("live-portal-root", featurePortal, in.portalURL()+"/", render.Expectation{Status: 200}),
 		httpProbe("live-oidc-start", featureIdentity, start, render.Expectation{Status: 302, LocationContains: dexAuth,

@@ -489,6 +489,40 @@ func TestWatchActionReadsALaterMigrationAsPlanned(t *testing.T) {
 	}
 }
 
+// A HelmRelease whose upgrade Flux gave up on — Helm's wait timed out on a
+// pod that never started, Released=False, the release rolled back — will
+// not become Ready on its own: the watch fails the stage on the release's
+// probe, naming Flux's verdict, instead of reading it rolling out for good.
+// The release upgraded and Ready again, the re-read recovers the stage.
+func TestWatchActionFailsAReleaseFluxGaveUpOn(t *testing.T) {
+	const upgradeFailed = "Helm upgrade failed for release agent-platform/agent-platform with chart agent-platform@4.44.1: context deadline exceeded"
+	st := newStack(t)
+	a, _ := rolledOut(t, st)
+	admin := adminLive(t, st)
+	conditions := func(ready, readyMessage, released, releasedReason, releasedMessage string) {
+		st.inst.edit(helmReleaseKind, fluxNamespace, platformRelease, func(obj map[string]any) {
+			obj[statusKey].(map[string]any)[conditionsKey] = []any{
+				map[string]any{typeKey: "Ready", statusKey: ready, message: readyMessage},
+				map[string]any{typeKey: "Released", statusKey: released, "reason": releasedReason, message: releasedMessage},
+			}
+		})
+	}
+	conditions(statusFalse, "Helm rollback to previous release agent-platform/agent-platform.v3 succeeded", statusFalse, "UpgradeFailed", upgradeFailed)
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || w.Ready || w.State != actions.StateFailed || w.Action.Status.State != actions.StateFailed || w.Action.Status.Result == nil ||
+		!strings.Contains(strings.Join(w.Red, "\n"), "Released=False (UpgradeFailed): "+upgradeFailed) {
+		t.Fatalf("the failed release: %v %s", isErr, text)
+	}
+	if msg := stageOf(w.Action, rowan).Message; !strings.HasPrefix(msg, "a probe is red: ") || !strings.Contains(msg, platformRelease) {
+		t.Fatalf("the stage names the release: %q", msg)
+	}
+	conditions(statusTrue, "Helm upgrade succeeded", statusTrue, "UpgradeSucceeded", "upgraded")
+	w, text, isErr = watchCall(t, admin, a.Name)
+	if isErr || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled || !strings.Contains(w.Report, "Recovered: the stage had failed (a probe is red: ") {
+		t.Fatalf("the recovery: %v %s", isErr, text)
+	}
+}
+
 // A one-installation action that failed on a probe reads enabled after a
 // green re-read: the result is rewritten, the report names the recovery.
 func TestWatchActionRecoversAFailedStage(t *testing.T) {

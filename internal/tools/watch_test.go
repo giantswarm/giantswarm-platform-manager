@@ -39,18 +39,25 @@ func TestRolloutObjectsReadTheFluxChecks(t *testing.T) {
 		{Kind: string(render.Condition), Namespace: fluxNS, Resource: "Kustomization.kustomize.toolkit.fluxcd.io", Name: "extras", Mark: verify.NotChecked, Message: "forbidden for viewer: kustomizations is forbidden", Revision: "main@sha1:abc"},
 		{Kind: string(render.Condition), Namespace: "kagent", Resource: "Deployment", Name: "kagent-ui", Mark: verify.AsDefined, Message: "Available=True"},
 	}}})
-	objects, ready := rolloutObjects(res)
+	objects, ready, failed := rolloutObjects(res)
 	want := []actions.RolloutObject{
 		{Kind: helmRelease, Namespace: fluxNS, Name: installations.AgentPlatform, Ready: "True", Revision: "4.44.1", Message: isReady},
 		{Kind: helmRelease, Namespace: fluxNS, Name: "muster", Ready: "False", Message: notReady},
 		{Kind: "Kustomization", Namespace: fluxNS, Name: "extras", Revision: "main@sha1:abc", Message: "forbidden for viewer: kustomizations is forbidden"},
 	}
-	if ready || !reflect.DeepEqual(objects, want) {
-		t.Errorf("ready %v objects %+v", ready, objects)
+	if ready || failed || !reflect.DeepEqual(objects, want) {
+		t.Errorf("ready %v failed %v objects %+v", ready, failed, objects)
 	}
-	if _, ready := rolloutObjects(liveResult(installations.StateEnabled, verify.Dimension{ID: "live-helmreleases-ready", Kind: definitions.KindLive, Live: &verify.LiveResult{Checks: []verify.Check{
-		{Kind: string(render.HelmReleaseReady), Resource: helmRelease, Name: installations.AgentPlatform, Mark: verify.AsDefined, Message: isReady}}}})); !ready {
-		t.Error("one HelmRelease Ready is ready")
+	if _, ready, failed := rolloutObjects(liveResult(installations.StateEnabled, verify.Dimension{ID: "live-helmreleases-ready", Kind: definitions.KindLive, Live: &verify.LiveResult{Checks: []verify.Check{
+		{Kind: string(render.HelmReleaseReady), Resource: helmRelease, Name: installations.AgentPlatform, Mark: verify.AsDefined, Message: isReady}}}})); !ready || failed {
+		t.Errorf("one HelmRelease Ready is ready, not failed: ready %v failed %v", ready, failed)
+	}
+	// A HelmRelease whose last release failed is not Ready and failed: the
+	// stage is decided, not rolling out.
+	if _, ready, failed := rolloutObjects(liveResult(installations.StateDrifted, verify.Dimension{ID: "live-helmrelease-ready", Kind: definitions.KindLive, Live: &verify.LiveResult{Checks: []verify.Check{
+		{Kind: string(render.HelmReleaseReady), Resource: helmRelease, Name: "backstage", Mark: verify.Drifted, Failed: true,
+			Message: "Ready=False: Helm rollback succeeded; Released=False (UpgradeFailed): context deadline exceeded"}}}})); ready || !failed {
+		t.Errorf("a failed release: ready %v failed %v", ready, failed)
 	}
 }
 

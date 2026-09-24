@@ -225,8 +225,11 @@ The test needs `helm`, `kustomize` and the network (gsoci charts, the fleet base
 `RENDER_CONSUMPTION=1`; `make test-render-consumption` runs it, and the `render-consumption` CircleCI job runs
 it on every push next to the unit tests.
 
-The customer-portal definition has a render-consumption test of its own (`render/customerportal/consumption_test.go`,
-the same name, gate and Make target): it renders the backstage chart at the pin the agent-platform's `charts.yaml`
-carries and holds the `live-pods-running` probe's selector to the labels of the pods the chart renders — the
-portal's Deployment matches, no other workload does — so a chart that relabels its pods fails the test rather
-than reading *no pod matches* on every installation.
+The customer-portal definition has render-consumption tests of its own (`render/customerportal/consumption_test.go`,
+the same name prefix, gate and Make target). Both render the backstage chart at the pin the agent-platform's
+`charts.yaml` carries. The first holds the `live-pods-running` probe's selector to the labels of the pods the chart
+renders — the portal's Deployment, the one `live-deployment-available` names, matches, no other workload does — so
+a chart that relabels its pods fails the test rather than reading *no pod matches* on every installation. The
+second renders it with every shape's committed values, each generated value filled in as the commit step fills
+it, and holds every key the chart writes under a Secret's `data:` to the value generated or supplied, decoded as
+valid UTF-8: a leaf the render leaves unencoded fails there, not as a pod whose container never starts.
