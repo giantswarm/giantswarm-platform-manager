@@ -76,10 +76,14 @@ chart's `auth.usersExistingSecretChecksum`). A rotation rewrites the credentials
 anew and so rolls the server and its Valkey; a reconcile without one keeps it. A private installation adds
 the server's user values (the private-address flags) as a ConfigMap the HelmRelease reads. muster's credentials get
 the same revision: held by `muster-oauth-credentials`, `muster-valkey-credentials` and the Secret
-`muster-credentials-revision` in the Flux namespace, and handed to the muster and valkey HelmReleases through the
-platform patch's `components.muster.valuesFromRefs` and `components.valkey.valuesFromRefs` (the meta chart renders
-them as the children's `valuesFrom`) onto the muster chart's `existingSecretChecksum` values and the Valkey chart's
-users Secret mark.
+`muster-credentials-revision` in the Flux namespace, and handed to the HelmRelease of every workload that reads
+them (`musterConsumers` in `render.go`) through the platform patch's `components.<name>.valuesFromRefs` (the meta
+chart renders them as the children's `valuesFrom`): muster's onto the muster chart's `existingSecretChecksum`
+values, its Valkey's onto the Valkey chart's users Secret mark, and, where each runs, klaus-gateway's (its routing
+store is muster's Valkey) and the agent-manager's, cluster-manager's and model-manager's (their OAuth resource
+servers read the platform client's secret) onto the pod annotation `muster-credentials-revision`. Each of these
+reads its value once at start, so a rotation restarts all of them; the runtime feature probes each one's
+Deployment Available (`live-platform-workloads`).
 
 A hub's `federation.targets` render the hub side (`hub.go`): the token-exchange broker's targets and the
 agentgateway's identity providers in the configmap patch, the targets' MCP servers with exchange auth,
@@ -162,8 +166,8 @@ probe to a live dimension of the feature it names and every live dimension to at
 ## The render-consumption test
 
 The goldens prove what the definition renders; `TestRenderConsumption` (`render/agentplatform/consumption_test.go`)
-proves that the charts on the other side read it. Its shapes are its own table: the two agent-platform golden
-shapes, each with the customer-portal definition's input for the same installation
+proves that the charts on the other side read it. Its shapes are its own table: three agent-platform golden
+shapes (the chat gateway's among them), each with the customer-portal definition's input for the same installation
 (`render/agentplatform/testdata/consumption/<shape>.portal.yaml`, the supplied values as dry-run markers), and a
 portal-only installation without the platform. For every shape it writes both definitions' filesets into one
 tree (a path both render fails the test: one file, one owner), builds each emitted `extras/<x>/` directory over
@@ -191,8 +195,12 @@ exists, `optional: true` included (a missing optional key is a silently disabled
 with `envFrom` carries every key the chart's own Secret would (the chart is rendered once more with dummy inline
 credentials from `<chart>.inline-secret.values.yaml` to read that contract); a Secret mounted whole carries every
 `<mountPath>/<key>` the release's manifests mention; and every Dex static client the patch references gets its
-secret loaded by the dex Deployment from an emitted `dex-client-*` Secret. Every failure names the chart, the
-Secret, the key or the client, so a Renovate bump that breaks a contract reads as a diagnosis.
+secret loaded by the dex Deployment from an emitted `dex-client-*` Secret. It holds `musterConsumers` to the
+charts: every workload whose pods read `muster-oauth-credentials` or `muster-valkey-credentials` (a chart's test
+hook aside) is the Deployment of a consumer that runs, every consumer that runs has its Deployment rendered
+reading them, and on the 4 line the consumer's child is rendered once more with the revision Secret's
+`targetPath`s set where Flux merges them, which must change the Deployment's pod template. Every failure names
+the chart, the Secret, the key or the client, so a Renovate bump that breaks a contract reads as a diagnosis.
 
 The charts are pinned in `render/agentplatform/testdata/consumption/charts.yaml` (chart, OCI repository,
 version); the org's Renovate preset bumps each `version:` through its `registry:` line, and

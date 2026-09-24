@@ -89,8 +89,9 @@ this order, writing nothing before the gate:
    it anew, and the server's and its Valkey's HelmReleases read it (`valuesFrom` with `targetPath`) into
    their charts' checksum values, whose pod-template annotations restart the pods; a reconcile without a
    rotation keeps the revision and changes no pod template; muster's own credentials carry the same revision
-   (`<installation>-muster-credentials-revision`, the Secret `muster-credentials-revision`, handed to the muster and
-   valkey HelmReleases through the meta chart's `components.<name>.valuesFromRefs`). Unseen by the
+   (`<installation>-muster-credentials-revision`, the Secret `muster-credentials-revision`, handed through the meta
+   chart's `components.<name>.valuesFromRefs` to every workload that reads them: muster, its Valkey and, where each
+   runs, klaus-gateway and the agent-, cluster- and model-manager). Unseen by the
    comparison: a literal the render changes under an encrypted field — the record holds it encrypted. A
    value frozen in a file the definition does not own whole (one with several owners) cannot rotate and
    refuses the commit naming the file.
