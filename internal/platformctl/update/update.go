@@ -7,7 +7,10 @@
 // (github.com/giantswarm/selfupdate-cosign) checks the download against that
 // signature before anything is written. A release without a bundle, or a
 // download that does not match its bundle, is refused and the installed binary
-// stays as it is.
+// stays as it is. The verified binary replaces the executable with a single
+// rename (selfupdatecosign.Install): a platformctl started meanwhile runs the
+// old binary or the new one, several updates may run at once, and no other
+// file is touched.
 //
 // Remind is the one-line hint ahead of every other command while a newer
 // release exists. It never blocks — an outdated platformctl runs the command
@@ -196,9 +199,9 @@ func (u *Updater) Run(ctx context.Context, w io.Writer, checkOnly bool) error {
 		return fmt.Errorf("locating the running executable: %w", err)
 	}
 	_, _ = fmt.Fprintf(w, "Updating %s to %s...\n", exe, latest)
-	// Downloads the binary and its bundle, verifies, then replaces the file;
-	// a failed verification leaves it untouched.
-	if err := up.UpdateTo(ctx, rel, exe); err != nil {
+	// Downloads the binary and its bundle, verifies, then renames it over the
+	// file; a failed verification leaves it untouched.
+	if err := selfupdatecosign.Install(ctx, up, rel, exe); err != nil {
 		return fmt.Errorf("updating %s failed, it is unchanged: %w", exe, err)
 	}
 	_, _ = fmt.Fprintf(w, "Verified the signature and updated to %s.\n", latest)
