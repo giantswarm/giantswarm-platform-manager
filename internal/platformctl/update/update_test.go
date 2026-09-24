@@ -449,8 +449,13 @@ func TestRunReplacesTheExecutableOnceTheBundleVerifies(t *testing.T) {
 		t.Errorf("executable holds %q after the update", got)
 	}
 	if runtime.GOOS != "windows" {
-		if info, err := os.Stat(exe); err != nil || info.Mode()&0o111 == 0 {
-			t.Errorf("executable is not executable: %v %v", info.Mode(), err)
+		// Replaced in place: the binary keeps its mode, and neither a copy of
+		// the old one nor a staging file is left beside it.
+		if info, err := os.Stat(exe); err != nil || info.Mode().Perm() != 0o700 {
+			t.Errorf("executable's mode after the update: %v %v, want the replaced binary's -rwx------", info.Mode(), err)
+		}
+		if entries, err := os.ReadDir(filepath.Dir(exe)); err != nil || len(entries) != 1 {
+			t.Errorf("beside the executable after the update: %v %v", entries, err)
 		}
 	}
 	if !strings.Contains(out, "Verified the signature and updated to "+latestV) {
