@@ -33,6 +33,11 @@ const (
 	acmeMCs            = "acme/management-clusters"
 )
 
+// rowanInstallation is rowan with its repositories on record.
+func rowanInstallation() installations.Installation {
+	return installations.Installation{Name: "rowan", Customer: acme, Repositories: installations.Repositories{Configs: acmeConfigs, ManagementClusters: acmeMCs}}
+}
+
 // filesDefinition is a definition that renders files under the customer's
 // configs repository and lists one include in a kustomization there.
 func filesDefinition(files map[string]string) installations.Capability {
@@ -100,7 +105,7 @@ func TestBuildReadsThePlansFilesAtOnce(t *testing.T) {
 		}
 		close(release)
 	}()
-	inst := installations.Installation{Name: "rowan", Customer: acme, Repositories: installations.Repositories{Configs: acmeConfigs, ManagementClusters: acmeMCs}}
+	inst := rowanInstallation()
 	p := Build(context.Background(), Options{Definition: filesDefinition(files), Installation: inst, Inputs: map[string]any{}, Content: true, Read: read})
 	if p.Refused != "" {
 		t.Fatalf("refused: %s", p.Refused)
@@ -211,7 +216,7 @@ func TestBuildAsksOnlyForSuppliedValuesWhoseFilesItWrites(t *testing.T) {
 		}
 		return "", gh.ErrNotFound
 	}
-	inst := installations.Installation{Name: "rowan", Customer: acme, Repositories: installations.Repositories{Configs: acmeConfigs, ManagementClusters: acmeMCs}}
+	inst := rowanInstallation()
 	p := Build(context.Background(), Options{Definition: def, Installation: inst, Inputs: map[string]any{}, Read: read})
 	if p.Refused != "" {
 		t.Fatalf("refused: %s", p.Refused)

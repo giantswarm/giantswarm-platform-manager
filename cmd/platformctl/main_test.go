@@ -131,6 +131,41 @@ func TestReconcileTargetsThroughTheBridge(t *testing.T) {
 	}
 }
 
+// TestReconcileRotateThroughTheBridge holds the rotate names reconcile sends:
+// each --rotate is one name of the tool's rotate, for one installation, a set
+// and a commit alike, and the answer prints each as rotating on request —
+// never as forced by a file. A single-dash -rotate is the same flag.
+func TestReconcileRotateThroughTheBridge(t *testing.T) {
+	reconcile := func(rest ...string) []string { return append([]string{installationCmd, reconcileCmd}, rest...) }
+	const labValkey, hazelToken = "lab-muster-valkey-password", "hazel-muster-registration-token" // #nosec G101 -- generated value names, not values
+	onRequest := func(name string) string {
+		return "rotates on request: " + name + " — a new value replaces the one on record in "
+	}
+	for _, c := range []struct {
+		args []string
+		want []string
+	}{
+		{reconcile("lab", agentPlatform, "--dry-run", "--rotate", labValkey), []string{onRequest(labValkey)}},
+		{reconcile("lab", agentPlatform, "--dry-run", "-rotate", labValkey), []string{onRequest(labValkey)}},
+		{reconcile("lab", "hazel", agentPlatform, "--dry-run", "--rotate", labValkey, "--rotate", hazelToken), []string{"\nlab: ", onRequest(labValkey), "\nhazel: ", onRequest(hazelToken)}},
+		{reconcile("lab", agentPlatform, "--commit", "--rotate", labValkey), []string{"reconcile_capability commit: agent-platform on lab", onRequest(labValkey)}},
+	} {
+		code, out, errs := bridge(t, "connected", c.args...)
+		if code != exitOK {
+			t.Errorf("%v: exit %d, stderr %q", c.args, code, errs)
+			continue
+		}
+		for _, want := range c.want {
+			if !strings.Contains(out, want) {
+				t.Errorf("%v: output lacks %q:\n%s", c.args, want, out)
+			}
+		}
+		if strings.Contains(out, "forced by") {
+			t.Errorf("%v: a rotation on request reads as forced:\n%s", c.args, out)
+		}
+	}
+}
+
 // A set's dry run prints each planned file's path and change, and its content
 // only with --content — the manager's own default for a set, asked for
 // explicitly by the flag either way.

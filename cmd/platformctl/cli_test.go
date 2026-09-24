@@ -60,6 +60,8 @@ func TestExitCodes(t *testing.T) {
 		{[]string{installationCmd, listCmd, "--timeout", "soon"}, exitUsage, `invalid value "soon" for flag -timeout`},
 		{[]string{installationCmd, enableCmd, hazel, agentPlatform, "--dry-run=maybe"}, exitUsage, `invalid value "maybe" for flag -dry-run`},
 		{[]string{installationCmd, enableCmd, hazel, agentPlatform, "--input", "novalue", dryRunFlag}, exitUsage, `invalid value "novalue" for flag -input: --input takes key=value`},
+		{[]string{installationCmd, reconcileCmd, hazel, agentPlatform, dryRunFlag, "--rotate"}, exitUsage, "flag needs an argument: -rotate"},
+		{[]string{installationCmd, reconcileCmd, helpFlag}, exitOK, "--rotate name"},
 	} {
 		var stdout, stderr bytes.Buffer
 		if got := run(c.args, &stdout, &stderr); got != c.exit {

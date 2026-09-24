@@ -116,7 +116,7 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 		inputs = typed
 	}
 	spec := actions.Spec{Actor: actions.Actor{Login: id.Login, ID: id.ID, Email: id.Email}, Capability: out.Capability, Installations: []string{one}, Inputs: inputs, Kind: kind,
-		InputsByInstallation: map[string]map[string]any{one: inputs}, Customer: env.byName[one].Customer != env.hub.Customer, AccountEngineers: accountEngineers(env, one), Markers: markersOf(def, env, one)}
+		InputsByInstallation: map[string]map[string]any{one: inputs}, Customer: env.byName[one].Customer != env.hub.Customer, AccountEngineers: accountEngineers(env, one), Markers: markersOf(def, env, one), Rotate: rotateArg(args)}
 
 	// The gate: the installation is on record readably, read now.
 	if refusal := gateRefusal(*out, env.reports[one]); refusal != "" {
@@ -142,16 +142,7 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	if n := p.Diff[plan.ChangeUnknown]; n > 0 {
 		return nil, fmt.Errorf("%s: %d file(s) of %s could not be compared against the repository as you (%s); nothing is committed blind", tool, n, one, unknownFiles(p))
 	}
-	if refusal := p.DexAppRefusal(env.reports[one].Record); refusal != "" {
-		return nil, fmt.Errorf("%s: %s: %s; nothing is committed", tool, one, refusal)
-	}
-	if refusal := p.DexSecretRefusal(env.reports[one].Record); refusal != "" {
-		return nil, fmt.Errorf("%s: %s: %s; nothing is committed", tool, one, refusal)
-	}
-	if refusal := p.FrozenRefusal(); refusal != "" {
-		return nil, fmt.Errorf("%s: %s: %s; nothing is committed", tool, one, refusal)
-	}
-	if refusal := p.HubRefusal(); refusal != "" {
+	if refusal := commitRefusal(p, env.reports[one].Record); refusal != "" {
 		return nil, fmt.Errorf("%s: %s: %s; nothing is committed", tool, one, refusal)
 	}
 	if err := checkSupplied(p.SuppliedSecrets, secrets); err != nil {
@@ -655,6 +646,8 @@ func prBody(a *actions.Action, p plan.Installation, prs []plan.PullRequest) stri
 		for _, g := range p.GeneratedSecrets {
 			fmt.Fprintf(&b, "- %s (%s, %d)", g.Name, g.Kind, g.Length)
 			switch {
+			case g.Rotates && g.ForcedBy == plan.ForcedByRequest:
+				fmt.Fprintf(&b, " — rotated on request: a new value replaces the one on record in %s", strings.Join(g.FrozenIn, ", "))
 			case g.Rotates:
 				fmt.Fprintf(&b, " — rotated: a new value replaces the one on record in %s (forced by %s)", strings.Join(g.FrozenIn, ", "), g.ForcedBy)
 			case g.Kept:

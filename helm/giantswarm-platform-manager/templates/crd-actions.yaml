@@ -72,6 +72,10 @@ spec:
                 change:
                   description: The plan's change in one clause, as the review states it; never a value.
                   type: string
+                rotate:
+                  description: The generated values the person asked to rotate, by name; the review names them apart from the rotations a file to write forced. Names only.
+                  type: array
+                  items: {type: string}
                 installations:
                   description: The installations of the set, in the wave's order.
                   type: array

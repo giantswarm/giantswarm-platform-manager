@@ -75,6 +75,10 @@ type Spec struct {
 	// Change is the plan's change in one clause — files by change, generated
 	// secrets by name — on the record and in the pull requests; never a value.
 	Change string `json:"change,omitempty"`
+	// Rotate names the generated values the person asked to rotate
+	// (reconcile_capability's rotate), sorted: the review names them apart
+	// from the rotations a file to write forced. Names only.
+	Rotate []string `json:"rotate,omitempty"`
 	// Markers are, per installation, the file whose presence on the default
 	// branch of its repository means the capability's fileset is on record
 	// — the definition's enabled marker, resolved to the installation's

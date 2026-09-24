@@ -689,3 +689,70 @@ func TestFreshEnableSelectsTheFourLine(t *testing.T) {
 		}
 	}
 }
+
+// Revisions names, for every value of a component's credentials Secrets, the
+// revision its consumers roll on — muster's on the 4 line (none on the 3
+// line, which renders no revision), each MCP server's own — and holds the
+// mapping to the Secrets: every other value of a file holding a revision maps
+// to that revision, so a key added to a credentials Secret is covered, and
+// every name mapped is one the render generates.
+func TestRevisionsCoverTheCredentialsSecrets(t *testing.T) {
+	for _, shape := range shapes {
+		input, secrets := loadInput(t, shape)
+		in, err := Parse(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := Render(input, secrets, render.ModeCommit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		name := in.Installation.Name
+		generated, revisions := map[string]bool{}, map[string]bool{}
+		for _, r := range result.Revisions {
+			revisions[r] = true
+		}
+		for _, files := range result.Files {
+			for path, f := range files {
+				var held []string
+				for _, g := range f.Generated {
+					generated[g.Name] = true
+					if revisions[g.Name] {
+						held = append(held, g.Name)
+					}
+				}
+				for _, r := range held {
+					for _, g := range f.Generated {
+						if g.Name != r && result.Revisions[g.Name] != r {
+							t.Errorf("%s: %s holds the revision %s and %s, which maps to %q", shape, path, r, g.Name, result.Revisions[g.Name])
+						}
+					}
+				}
+			}
+		}
+		for value := range result.Revisions {
+			if !generated[value] {
+				t.Errorf("%s: %s is mapped to a revision and not generated", shape, value)
+			}
+		}
+		want := map[string]string{}
+		for _, s := range servers {
+			for _, v := range []string{"-dex-client-secret", "-oauth-encryption-key", "-valkey-password"} {
+				want[name+"-"+s.name+v] = name + "-" + s.name + "-credentials-revision"
+			}
+		}
+		muster := []string{"-muster-dex-client-secret", "-muster-registration-token", "-muster-oauth-encryption-key", "-muster-valkey-password"}
+		for _, v := range muster {
+			if in.musterRevision() {
+				want[name+v] = name + "-muster-credentials-revision"
+			} else if r, ok := result.Revisions[name+v]; ok {
+				t.Errorf("%s on the %s line: %s rolls with %s, and the line renders no revision", shape, in.Installation.ChartLine, name+v, r)
+			}
+		}
+		for value, revision := range want {
+			if got := result.Revisions[value]; got != revision {
+				t.Errorf("%s: %s rolls with %q, want %s", shape, value, got, revision)
+			}
+		}
+	}
+}

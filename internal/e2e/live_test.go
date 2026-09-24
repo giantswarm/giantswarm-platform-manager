@@ -499,7 +499,7 @@ func TestVerifyInstallationReadsRollingUntilPodCertificateRequestIsServed(t *tes
 	st := newStack(t)
 	fixtures(st.ghs)
 	inputs := kagentEnabled()
-	inputs[argInstallation] = map[string]any{"chartLine": "4", "podCertificateRequest": true}
+	inputs[argInstallation] = map[string]any{chartLineFact: "4", "podCertificateRequest": true}
 	enableRowanLive(t, st, st.mcpClient(t, aliceToken), inputs)
 	admin := st.dex.token(t, liveAdmin, []string{liveAudience}, time.Hour)
 	const dimension = "live-pod-certificate-request"

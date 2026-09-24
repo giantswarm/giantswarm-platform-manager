@@ -97,6 +97,7 @@ func newCapabilityCmd(tool string, allowSet bool) *cobra.Command {
 	var dryRun, commit, content, all bool
 	var inputs kvFlag
 	var secretFlags secretFlag
+	var rotate []string
 	syntax := "installation " + name + " <installation> <capability> --dry-run|--commit"
 	short := "Enable a capability on one installation: a dry run, or the action"
 	if allowSet {
@@ -138,6 +139,9 @@ func newCapabilityCmd(tool string, allowSet bool) *cobra.Command {
 			toolArgs[tools.ArgInstallations] = pos[:names]
 		default:
 			toolArgs[tools.ArgInstallation] = pos[0]
+		}
+		if len(rotate) > 0 {
+			toolArgs[tools.ArgRotate] = rotate
 		}
 		if len(inputs) > 0 {
 			typed, err := nest(inputs)
@@ -190,8 +194,10 @@ func newCapabilityCmd(tool string, allowSet bool) *cobra.Command {
 	fs.BoolVar(&content, "content", false, "print the rendered files, not only their paths and changes")
 	fs.Var(&inputs, "input", "a typed input of the definition as key=value, repeatable (kagent.enabled=true)")
 	fs.Var(&secretFlags, "secret", "with --commit: a secret the plan's suppliedSecrets name, as <field>=@<file>, <field>=env:<NAME> or <field>=- (stdin); repeatable")
+	fs.StringArrayVar(&rotate, "rotate", nil, "a generated value to rotate on request, by its `name` in the dry run (<installation>-muster-valkey-password), repeatable: a new value in every file that holds it, its credentials revision rolling every workload that reads it")
 	completeFlag(cmd, "input", cobra.NoFileCompletions)
 	completeFlag(cmd, "secret", cobra.NoFileCompletions)
+	completeFlag(cmd, "rotate", cobra.NoFileCompletions)
 	// The capability is the last word: after the installation for enable,
 	// after the first installation or first with --all for reconcile.
 	cmd.ValidArgsFunction = capabilityAt(func(_ *cobra.Command, pos []string) bool { return len(pos) == 1 })

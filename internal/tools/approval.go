@@ -516,9 +516,11 @@ func (t *Tools) postResult(ctx context.Context, a *actions.Action, text string) 
 }
 
 // reviewText is the review's mrkdwn, one line a reviewer reads in Slack: who
-// asks to do what on which installation. The pull requests are the review's
-// links and the change in full (files, generated secrets, rotations) is in
-// each pull request's body and on the Action's spec.change — never a value.
+// asks to do what on which installation, and which generated values the
+// person asked to rotate. The pull requests are the review's links and the
+// change in full (files, generated secrets, the rotations a file to write
+// forced) is in each pull request's body and on the Action's spec.change —
+// never a value.
 func reviewText(a *actions.Action) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "*%s* asks to %s *%s* on *%s*", a.Spec.Actor.Login, a.Spec.Kind, a.Spec.Capability, strings.Join(a.Spec.Installations, ", "))
@@ -541,12 +543,16 @@ func reviewText(a *actions.Action) string {
 		b.WriteString(" (a wave, in this order)")
 	}
 	b.WriteString(skippedClause(a.Spec.Skipped))
+	if len(a.Spec.Rotate) > 0 {
+		b.WriteString("; rotates on request: " + strings.Join(a.Spec.Rotate, ", "))
+	}
 	b.WriteString(".")
 	return b.String()
 }
 
-// changeSummary is the plan's change in one clause: files by change and the
-// generated secrets by name — the Action's spec.change.
+// changeSummary is the plan's change in one clause: files by change, the
+// generated secrets by name and the rotations, the ones on request apart from
+// the ones a file to write forced — the Action's spec.change.
 func changeSummary(p plan.Installation) string {
 	parts := []string{}
 	for _, c := range []plan.Change{plan.ChangeCreate, plan.ChangeUpdate} {
@@ -561,8 +567,12 @@ func changeSummary(p plan.Installation) string {
 		}
 		parts = append(parts, "generated secrets "+strings.Join(names, ", "))
 	}
-	if rotating := p.Rotating(); len(rotating) > 0 {
-		parts = append(parts, "rotates "+strings.Join(rotating, ", ")+" (a new value over the one on record; both sides roll)")
+	requested, forced := p.Rotations()
+	if len(requested) > 0 {
+		parts = append(parts, "rotates on request "+strings.Join(requested, ", ")+" (a new value over the one on record; both sides roll)")
+	}
+	if len(forced) > 0 {
+		parts = append(parts, "rotates "+strings.Join(forced, ", ")+" (a new value over the one on record; both sides roll)")
 	}
 	return strings.Join(parts, ", ")
 }
