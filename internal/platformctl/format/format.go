@@ -570,7 +570,7 @@ func outcome(req verify.Request) string {
 	if req.Error != "" {
 		return " — " + req.Error
 	}
-	return fmt.Sprintf(" → %d", req.Status)
+	return " → " + req.Answer()
 }
 
 // Decision is approve_action or deny_action: the manager's message, then the

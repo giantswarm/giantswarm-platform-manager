@@ -185,7 +185,7 @@ func TestVerifyCapabilityAsDefined(t *testing.T) {
 	if identity.Mark != verify.AsDefined {
 		t.Errorf("identity %q: %+v", identity.Mark, identity.Marks)
 	}
-	if d := dimension(t, identity, "dex-auth-request"); d.Kind != definitions.KindProbe || d.Mark != verify.AsDefined || len(d.Probe.Requests) == 0 || d.Probe.Requests[0].Status != http.StatusFound || d.Probe.Requests[0].Client == "" {
+	if d := dimension(t, identity, "dex-auth-request"); d.Kind != definitions.KindProbe || d.Mark != verify.AsDefined || len(d.Probe.Requests) == 0 || d.Probe.Requests[0].Status != http.StatusFound || d.Probe.Requests[0].Connector != fakeDexConnector || d.Probe.Requests[0].Client == "" {
 		t.Errorf("dex-auth-request: %+v", d)
 	}
 	if d := dimension(t, feature(t, res, "tool-access"), "muster-protected-resource-metadata"); d.Mark != verify.AsDefined || d.Probe.Requests[0].Status != http.StatusOK {

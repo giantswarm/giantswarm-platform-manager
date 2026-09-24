@@ -527,7 +527,7 @@ func detailOf(d verify.Dimension) string {
 	case d.Probe != nil:
 		for _, r := range d.Probe.Requests {
 			if !r.OK {
-				return strings.TrimSpace(fmt.Sprintf("%s answered %d %s", r.URL, r.Status, r.Error))
+				return r.URL + " answered " + r.Answer()
 			}
 		}
 	}
