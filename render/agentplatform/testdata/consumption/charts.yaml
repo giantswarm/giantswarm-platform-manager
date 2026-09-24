@@ -77,7 +77,7 @@ charts:
     version: 1.20.1
   - name: cluster-manager
     registry: gsoci.azurecr.io/charts/giantswarm/cluster-manager
-    version: 0.17.2
+    version: 0.17.4
   # The 4 line's other children the meta chart hands the platform's identity block
   # (global.identity, the muster credentials Secret named in it): model-manager
   # reads it for its OAuth resource server; the others are rendered to prove they
