@@ -4,6 +4,15 @@
   namespace: flux-giantswarm
   resource: HelmRelease
   name: backstage
+- id: live-deployment-available
+  feature: portal
+  kind: Condition
+  namespace: backstage
+  resource: Deployment
+  name: backstage
+  expect:
+    condition: Available
+    conditionStatus: "True"
 - id: live-pods-running
   feature: portal
   kind: PodsRunning

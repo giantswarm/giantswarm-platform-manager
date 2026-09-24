@@ -50,5 +50,5 @@ helm-schema: ## Regenerate values.schema.json (needs helm-values-schema-json and
 ##@ Render
 
 .PHONY: test-render-consumption
-test-render-consumption: ## Render the charts that consume the definitions' files at their pins (render/agentplatform/testdata/consumption): every emitted Secret checked against what they read, the portal's live pod selector against the backstage chart. Needs helm, kustomize and the network.
+test-render-consumption: ## Render the charts that consume the definitions' files at their pins (render/agentplatform/testdata/consumption): every emitted Secret checked against what they read, the portal's live pod selector and its Secrets' data against the backstage chart. Needs helm, kustomize and the network.
 	RENDER_CONSUMPTION=1 go test -count=1 -run TestRenderConsumption ./render/...

@@ -888,6 +888,54 @@ func TestDexAuthCredentialsAreBase64ForTheChart(t *testing.T) {
 	}
 }
 
+// TestGeneratedChartDataIsEncodedOnce holds every generated value of
+// user-secrets-backstage to the encoding the backstage chart needs: the chart
+// copies every leaf of the file under the data: of its Secrets, so each
+// placeholder is declared base64 — the commit step fills it with the value's
+// base64, which Kubernetes decodes back to the value — and a leaf carries the
+// placeholder alone, never base64 of it. The session secret and the salt keep
+// their names, so a rotation by name reaches them.
+// TestRenderConsumptionSecrets holds the same to the chart.
+func TestGeneratedChartDataIsEncodedOnce(t *testing.T) {
+	for _, shape := range shapes {
+		t.Run(shape, func(t *testing.T) {
+			input, secrets := loadInput(t, shape)
+			result, err := Render(input, secrets, render.ModeCommit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			userSecrets, ok := portalFile(result, userSecretsFile)
+			if !ok {
+				t.Fatalf("no %s rendered", userSecretsFile)
+			}
+			var values struct {
+				Session   string `yaml:"authSessionSecret"`
+				Telemetry struct {
+					Salt string `yaml:"salt"`
+				} `yaml:"telemetrydeck"`
+			}
+			if err := yaml.Unmarshal([]byte(stringData(t, userSecrets, "values")), &values); err != nil {
+				t.Fatal(err)
+			}
+			for leaf, want := range map[string]struct {
+				placeholder, name string
+			}{
+				"authSessionSecret":  {values.Session, generatedSessionSecret},
+				"telemetrydeck.salt": {values.Telemetry.Salt, generatedTelemetrySalt},
+			} {
+				if g := declarationOf(t, userSecrets, want.placeholder); g.Name != want.name {
+					t.Errorf("%s carries the placeholder of %q, want %q", leaf, g.Name, want.name)
+				}
+			}
+			for _, g := range userSecrets.Generated {
+				if g.Encoding != render.EncodedBase64 {
+					t.Errorf("%s declares %q with encoding %q, want %q: the chart copies the leaf under data:", userSecretsFile, g.Name, g.Encoding, render.EncodedBase64)
+				}
+			}
+		})
+	}
+}
+
 // TestSentryLeavesAreBase64ForTheChart holds the sentry leaves of
 // user-secrets-backstage to what the backstage chart reads: it copies
 // sentry.app.dsn, sentry.backend.dsn and sentry.reportURI under its Secret's

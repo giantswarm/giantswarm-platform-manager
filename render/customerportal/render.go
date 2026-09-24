@@ -80,7 +80,7 @@ const (
 	dexClientFile = "dex-client-backstage-secret.enc.yaml" // #nosec G101 -- a file name, not a value
 	// The generated values, named so the Dex client Secret and the portal's
 	// own Secret receive the same client secret: raw in the Dex client's
-	// Secret, base64 in the portal's values (dexCredentials).
+	// Secret, base64 in the portal's values (dexCredentials, chartData).
 	generatedSessionSecret   = "backstage-session-secret"    // #nosec G101 -- a placeholder name, not a value
 	generatedDexClientSecret = "backstage-dex-client-secret" // #nosec G101 -- a placeholder name, not a value; prefixed with the installation: never shared between installations
 	generatedTelemetrySalt   = "backstage-telemetrydeck-salt"
@@ -229,6 +229,16 @@ func generated(name string, kind render.GeneratedKind, length int) render.Genera
 	return render.Generated{Name: name, Placeholder: render.Placeholder(name), Kind: kind, Length: length}
 }
 
+// chartData is a generated value at a leaf the backstage chart copies under
+// its Secret's data: as it is — the commit step fills its placeholder with
+// the value's base64, once, which Kubernetes decodes back to the value the
+// pod reads. The value keeps its name: its other placeholders (the Dex
+// client's Secret carries the client secret raw) and a rotation by name
+// reach the same value.
+func chartData(name string, kind render.GeneratedKind, length int) render.Generated {
+	return generated(name, kind, length).Encoded(render.EncodedBase64)
+}
+
 // userSecrets is user-secrets-backstage: the chart values the portal reads
 // its own credentials from — the session secret, the Dex clients under the
 // installations' names (the chart exposes them as AUTH_DEX_<NAME>_CLIENT_ID
@@ -236,15 +246,16 @@ func generated(name string, kind render.GeneratedKind, length int) render.Genera
 // portal has a provider for, and the token broker's, supplied), the
 // telemetry salt, with sentry on the DSNs and the report URI and, with the
 // Grafana plugin wired, the Grafana token (grafana.apiToken, the chart's
-// GRAFANA_TOKEN). The Dex clients' leaves (dexCredentials), the sentry leaves
-// and the Grafana token are base64 (base64Leaf: the chart copies them under
-// its Secret's data: as they are); the portal's own client secret is the
-// generated value the Dex client's Secret carries raw, at its encoded
-// placeholder.
+// GRAFANA_TOKEN). The chart copies every one of these leaves under the data:
+// of its Secrets as it is, so each is base64-encoded exactly once: a literal
+// or a supplied value here (render.Base64Leaf), a generated one — the session
+// secret, the salt and the portal's own client secret, which the Dex client's
+// Secret carries raw — by the commit step at its encoded placeholder
+// (chartData).
 func (in *Input) userSecrets(secrets map[string]string) render.File {
-	session := generated(generatedSessionSecret, render.Base64, 32)
-	client := generated(in.Installation.Name+"-"+generatedDexClientSecret, render.Base64, 32).Encoded(render.EncodedBase64)
-	salt := generated(generatedTelemetrySalt, render.Alphanumeric, 32)
+	session := chartData(generatedSessionSecret, render.Base64, 32)
+	client := chartData(in.Installation.Name+"-"+generatedDexClientSecret, render.Base64, 32)
+	salt := chartData(generatedTelemetrySalt, render.Alphanumeric, 32)
 	credentials := render.Map{e(in.Installation.Name, dexCredentials(render.PortalDexClientID, client.Placeholder))}
 	for _, inst := range in.providerInstallations() {
 		if inst.Name != in.Installation.Name {

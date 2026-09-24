@@ -36,7 +36,8 @@ features:
       - {id: extra-env-vars, kind: backstage, key: user-values.yaml backstage.extraEnvVars}
       - {id: tunnel-bundle, kind: backstage, key: tunnelport-spiffe-bundle.yaml}
       - {id: tunnel-mount, kind: backstage, key: user-values.yaml backstage.extraVolumeMounts / backstage.extraVolumes}
-      - {id: live-helmrelease-ready, kind: live, key: HelmRelease backstage Ready in flux-giantswarm}
+      - {id: live-helmrelease-ready, kind: live, key: "HelmRelease backstage Ready in flux-giantswarm, its last release not failed (Stalled, or Released=False after a failed install or upgrade)"}
+      - {id: live-deployment-available, kind: live, key: Deployment backstage Available in namespace backstage}
       - {id: live-pods-running, kind: live, key: the portal's pods Running in namespace backstage}
       - {id: live-portal-root, kind: live, key: / answered 200}
   identity:
