@@ -22,6 +22,8 @@ const (
 	ArgCapability   = "capability"
 	ArgInputs       = "inputs"
 	ArgContent      = "content"
+	// ArgRotate names the generated values to rotate on request.
+	ArgRotate = "rotate"
 )
 
 // CapabilityResult is the dry run of enable_capability and
@@ -92,8 +94,14 @@ func capabilityOptions() []mcp.ToolOption {
 		mcp.WithObject(ArgInputs, mcp.Description(inputsArgDescription)),
 		mcp.WithBoolean(ArgContent, mcp.Description("Include the rendered content of every file and the file on record (default: true for one installation, false for a set); false answers paths and changes only. An answer above 1 MiB is refused with its size: ask for less.")),
 		mcp.WithObject(ArgSecrets, mcp.Description("mode commit only: the secret values the plan's suppliedSecrets name, by field. They land inside the encrypted files and nowhere else — not in the Action, not in a log, not in an answer.")),
+		mcp.WithArray(ArgRotate, mcp.Description(rotateArgDescription), mcp.Items(stringItems())),
 	}
 }
+
+// rotateArgDescription describes the rotate argument of the write tools.
+const rotateArgDescription = `Generated values to rotate on request, by name as the plan lists them (generatedSecrets[].name, e.g. <installation>-muster-valkey-password). ` +
+	`The dry run lists each with rotates and forcedBy "request", frozenIn the files on record that hold it, and those files as update; the commit draws a new value, rewrites every file that holds it — the other values of a rewritten file rotate with it — and draws the credentials revision of the component that owns it (forcedBy "request" as well), so every workload that reads it restarts. ` +
+	`A name applies to each installation of the set whose plan lists it (the names carry the installation); a name no plan of the set lists is refused, and so is one frozen in a file with other owners, before anything is written.`
 
 func (t *Tools) enableCapabilityTool() WriteTool {
 	return WriteTool{Name: ToolEnableCapability,
@@ -147,6 +155,7 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 		return nil, nil, fmt.Errorf("%s needs %s (one installation) or %s (a set)", tool, ArgInstallation, ArgInstallations)
 	}
 	inputs, _ := args[ArgInputs].(map[string]any)
+	rotate := rotateArg(args)
 	// One installation named alone is the plan in full; a set — two or more,
 	// the whole registry, one named next to a set — is the wave's shape.
 	whole := one != "" && len(set) == 0
@@ -184,7 +193,7 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 			out.Skipped = append(out.Skipped, skip)
 			continue
 		}
-		res, err := t.compare(ctx, env, r, def, inputs, content)
+		res, err := t.compare(ctx, env, r, def, inputs, content, rotate)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -194,8 +203,48 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 	if err := applyOrder(&out, stringSlice(args[ArgOrder])); err != nil {
 		return nil, nil, fmt.Errorf("%s: %w", tool, err)
 	}
+	if unknown := unknownRotations(rotate, out.Installations); len(unknown) > 0 {
+		where := "no plan of the set lists"
+		if whole {
+			where = "the plan of " + one + " does not list"
+		}
+		return nil, nil, fmt.Errorf("%s: %s names %s, which %s as a generated value: a name is the plan's generatedSecrets[].name and carries its installation (<installation>-muster-valkey-password); nothing is rotated or committed", tool, ArgRotate, strings.Join(unknown, ", "), where)
+	}
 	out.PullRequests = plan.PullRequests(plans(out.Installations), byName, hub)
 	return &out, env, nil
+}
+
+// rotateArg is the rotate argument, each name once, sorted.
+func rotateArg(args map[string]any) []string {
+	names := stringSlice(args[ArgRotate])
+	slices.Sort(names)
+	return slices.Compact(names)
+}
+
+// unknownRotations are the names of rotate (rotateArg) no rendered plan among
+// entries lists as a generated value: a name applies to each
+// installation whose plan lists it, so one no plan lists is a typo or another
+// installation's. A plan the definition refused lists none and takes no part;
+// with none rendered nothing is unknown — the refusals say why.
+func unknownRotations(rotate []string, entries []DryRun) []string {
+	listed := map[string]bool{}
+	rendered := false
+	for _, e := range entries {
+		if e.Refused != "" {
+			continue
+		}
+		rendered = true
+		for _, g := range e.GeneratedSecrets {
+			listed[g.Name] = true
+		}
+	}
+	var unknown []string
+	for _, n := range rotate {
+		if rendered && !listed[n] {
+			unknown = append(unknown, n)
+		}
+	}
+	return unknown
 }
 
 // contentArg says whether the files' content is answered: as asked, else

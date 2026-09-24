@@ -83,7 +83,9 @@ values, its Valkey's onto the Valkey chart's users Secret mark, and, where each 
 store is muster's Valkey) and the agent-manager's, cluster-manager's and model-manager's (their OAuth resource
 servers read the platform client's secret) onto the pod annotation `muster-credentials-revision`. Each of these
 reads its value once at start, so a rotation restarts all of them; the runtime feature probes each one's
-Deployment Available (`live-platform-workloads`).
+Deployment Available (`live-platform-workloads`). The result names each revision for the values of the Secrets
+it is held by (`Result.Revisions`, recorded with `Result.Revision` where the Secrets are rendered): a rotation
+asked for by name draws the value's revision with it, so its readers roll.
 
 A hub's `federation.targets` render the hub side (`hub.go`): the token-exchange broker's targets and the
 agentgateway's identity providers in the configmap patch, the targets' MCP servers with exchange auth,

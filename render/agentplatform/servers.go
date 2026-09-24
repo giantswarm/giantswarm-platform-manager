@@ -222,7 +222,9 @@ func (s serverDefinition) mcpServerEntry(installation string) MCPServer {
 // server's credentials revision, and a third Secret in the Flux namespace
 // carries it for the HelmReleases, which the kustomization patches to read it
 // into their charts' checksum values, so a rotation rolls the server and its
-// Valkey. With privateURLs the directory also carries the server's user values
+// Valkey; every value of the two Secrets names the revision as its own
+// (render.Result.Revisions), so a rotation asked for by name draws it too.
+// With privateURLs the directory also carries the server's user values
 // and the kustomization turns them into a ConfigMap the HelmRelease reads.
 func (s serverDefinition) extras(result *render.Result, repo render.Repository, dir string, in *Input) {
 	privateURLs := in.Installation.Private
@@ -249,11 +251,15 @@ func (s serverDefinition) extras(result *render.Result, repo render.Repository, 
 		oauth = append(oauth, render.GeneratedKey(s.oauthKeys.valkeyPassword, valkeyValue, render.Alphanumeric, 32))
 	}
 	oauth = append(oauth, render.GeneratedKey(s.oauthKeys.revision, revision, render.Alphanumeric, revisionLength))
-	result.Add(repo, dir+"/oauth-credentials.enc.yaml", render.Secret(s.name+"-oauth-credentials", s.name, nil, oauth...))
-	result.Add(repo, dir+"/valkey-credentials.enc.yaml", render.Secret(s.name+"-valkey-auth", s.name, nil,
+	valkey := []render.SecretKey{
 		render.GeneratedKey(valkeyAuthKey, valkeyValue, render.Alphanumeric, 32),
 		render.GeneratedKey(revisionKey, revision, render.Alphanumeric, revisionLength),
-	))
+	}
+	result.Add(repo, dir+"/oauth-credentials.enc.yaml", render.Secret(s.name+"-oauth-credentials", s.name, nil, oauth...))
+	result.Add(repo, dir+"/valkey-credentials.enc.yaml", render.Secret(s.name+"-valkey-auth", s.name, nil, valkey...))
+	// Every value of the two Secrets rolls the server and its Valkey with the revision.
+	result.Revision(revision, oauth...)
+	result.Revision(revision, valkey...)
 	result.Add(repo, dir+"/"+revisionFile, render.Secret(s.revisionSecretName(), fluxNamespace, nil,
 		render.GeneratedKey(revisionKey, revision, render.Alphanumeric, revisionLength),
 	))

@@ -505,7 +505,9 @@ func revisionRefs(secret string, targetPaths ...string) []render.Map {
 // platform's own Dex clients' among them, never the portal's (portalDexClient);
 // muster's credentials revision is held by its two credentials Secrets and by
 // the revision Secret in the Flux namespace its consumers' HelmReleases read,
-// so a rotation of muster's credentials rolls every workload that reads them.
+// so a rotation of muster's credentials rolls every workload that reads them;
+// every value of the two Secrets names the revision as its own
+// (render.Result.Revisions), so a rotation asked for by name draws it too.
 func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir string, secrets map[string]string) {
 	type patch struct {
 		Patch  string     `yaml:"patch"`
@@ -546,6 +548,9 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 	if in.musterRevision() {
 		oauthKeys = append(oauthKeys, render.GeneratedKey("credentials-revision", revision, render.Alphanumeric, revisionLength))
 		valkeyKeys = append(valkeyKeys, render.GeneratedKey(revisionKey, revision, render.Alphanumeric, revisionLength))
+		// Every value of the two Secrets rolls muster's consumers with the revision.
+		r.Revision(revision, oauthKeys...)
+		r.Revision(revision, valkeyKeys...)
 	}
 	add(musterOAuthSecret+".yaml", render.Secret(musterOAuthSecret, platformNamespace, team, oauthKeys...))
 	add(musterValkeySecret+".yaml", render.Secret(musterValkeySecret, platformNamespace, team, valkeyKeys...))

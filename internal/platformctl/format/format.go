@@ -173,6 +173,8 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 			switch {
 			case g.Refusal != "":
 				p.f("      refused: %s\n", g.Refusal)
+			case g.Rotates && g.ForcedBy == plan.ForcedByRequest:
+				p.f("      rotates on request: %s — a new value replaces the one on record in %s; both sides roll, the client is unusable between the two rollouts\n", g.Name, strings.Join(g.FrozenIn, ", "))
 			case g.Rotates:
 				p.f("      rotates: %s (forced by %s) — a new value replaces the one on record in %s; both sides roll, the client is unusable between the two rollouts\n", g.Name, g.ForcedBy, strings.Join(g.FrozenIn, ", "))
 			case g.Kept:

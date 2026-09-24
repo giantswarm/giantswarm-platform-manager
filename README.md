@@ -42,7 +42,7 @@ Behind muster the tools appear as `x_giantswarm-platform-manager_<tool>`.
 | `get_info` | read | The version, the caller (login and id), the pinned authorization server, the capability definitions with their input schemas, the write modes, the write tools, the approval channel configuration and the tools still to come. Call first. |
 | `list_installations` | read | Every installation of the registry with, per capability, its state, the inputs on record and the last action, every read as you at call time. `installations` (names) and `customer` narrow the answer; `summary: true` answers the states and the last actions alone, without the record, the portals and the federation facts — the overview's call. Every read of a call runs at once, 32 in flight at most. |
 | `enable_capability` | write | Enable a capability on one installation (`installation`) or a set (`installations`): with `dryRun: true` the plan — files per repository with the change each one is against the repository now, pull requests in dependency order, generated secrets by name, Dex clients and redirect URIs, the secrets the person supplies at commit (by field), customer actions, probes. `inputs` are the definition's typed inputs over the facts on record. With `mode: "commit"` and one `installation`: the gate, the Action in *pending approval*, the pull requests as the person (see [The commit](#the-commit)); `secrets` carries the supplied values by field. |
-| `reconcile_capability` | write | The same render over a set (empty: every installation of the registry), every file compared with the repository: all *unchanged* is an empty diff. Installations without the capability on record are listed as *skipped*: a wave reconciles what is on record; a fresh enable is `enable_capability` with one installation. |
+| `reconcile_capability` | write | The same render over a set (empty: every installation of the registry), every file compared with the repository: all *unchanged* is an empty diff. Installations without the capability on record are listed as *skipped*: a wave reconciles what is on record; a fresh enable is `enable_capability` with one installation. `rotate` names generated values to rotate on request (see [Rotation on request](#rotation-on-request)). |
 | `get_action`, `list_actions` | read | The Action records on the hub: one per enablement or reconcile a person commits — actor, installations, capability, inputs, pull requests, approval, rollout, probes, result. The record follows GitHub on every read, as you (at most once a minute per action): a pull request merged outside `merge_action` is recorded *merged* with its commit, time and `mergedBy`, and the action rolls out as after the merge; one closed unmerged fails it; a fileset gone from the default branch again moves it to *removed*, naming the objects left on the installation. See [The Action record](#the-action-record). |
 | `verify_capability` | read | One installation against a capability's definition, grouped into the definition's features with one mark each — *as defined*, *planned*, *differs by input*, *drifted* — and expanded to its dimensions: the owning repositories' files, read as the person, against the render from the inputs on record (every difference names the file, the path and the person's input that drives it — a choice the schema names, or one typed for the call, so the file expresses another choice than the one on record — the planned change it is — a key the capability's `removals.yaml` or `migrations.yaml` names — or drift: a leaf no choice drives, the ones the installation's facts derive included, which only a reconcile resolves), and the definition's anonymous HTTP probes. The live dimensions read *not checked* here: they are `verify_installation`'s. |
 | `verify_installation` | read, **live** | The same installation's running objects against the definition's probes — HelmReleases Ready, workloads Available, Secrets and MCPServer objects present, conditions, logs, Dex started since every client Secret it reads last changed, the live values against the render — read through muster's kubernetes tools **as the person**, with the platform ID token muster forwards next to the App user token (`X-Muster-Id-Token`, the `MCPServer`'s `auth.forwardIdentity` with `live.enabled`, muster ≥ 5.31.0); a call without a valid one is refused, naming the header. What the person may read decides what is checked: an object they may not read is *not checked, forbidden for them*, an installation they are not connected to answers with muster's own sign-in. The result is recorded on the installation's newest action and feeds `list_installations`: *drifted*, or *waiting for the customer* when the only red dimension is the one the customer's action holds up. A portal or `platformctl` shows the two verifies as one result. |
@@ -59,8 +59,10 @@ this order, writing nothing before the gate:
    repositories stands).
 2. **The plan**, as the dry run renders it; a definition's refusal, a file that could not be compared as the
    person, a generated value frozen where no rotation is possible (below), a section of the hub's Dev Portal on
-   record that a `customer-portal` plan would remove (`hubSections`), or a supplied secret left out of
-   `secrets` (or one the plan does not ask for) refuses the commit before any write. Every file on record
+   record that a `customer-portal` plan would remove (`hubSections`), a `rotate` name the plan does not list,
+   or a supplied secret left out of `secrets` (or one the plan does not ask for) refuses the commit before any
+   write. The plan's own refusals — the dex-app on record, the frozen values, the hub's portal — are one list
+   the commit, the wave's pre-check and the dry run's `commitRefused` share. Every file on record
    already: nothing to commit, no Action.
 3. **The Action** — created in *pending approval* with the actor, the capability, the installation and the
    inputs (never a secret value: `secrets` is its own argument and lands nowhere but the encrypted files).
@@ -79,9 +81,10 @@ this order, writing nothing before the gate:
    template), or a plain file to write carrying a key pair's public half: one new value is drawn and written
    into every file that holds it, the kept files rewritten and encrypted anew — and every other value a
    rewritten file holds rotates with it, down to the files sharing those (the server's Valkey password into
-   its Valkey Secret). The dry run says so (`generatedSecrets[].frozenIn`, `kept`, `rotates` with `forcedBy`,
-   the file that forced it), the Action records the rotated names (`status.rotated`), the pull request names
-   them. For the running installation a rotation means both sides roll: the server and the Dex client take
+   its Valkey Secret). A name also rotates when the person asks for it by name ([Rotation on
+   request](#rotation-on-request)). The dry run says so (`generatedSecrets[].frozenIn`, `kept`, `rotates`
+   with `forcedBy`, the file that forced it or `request`), the Action records the rotated names
+   (`status.rotated`), the pull request names them. For the running installation a rotation means both sides roll: the server and the Dex client take
    the new value with their Secrets, and the client is unusable between the two rollouts. The roll follows
    the commit: each MCP server's credentials carry a *credentials revision* (`<installation>-mcp-<name>-credentials-revision`,
    a generated value held by the server's credentials Secret, its Valkey's and a third Secret
@@ -155,13 +158,40 @@ result naming where and why. A stage *waiting for the customer* holds the wave t
 so, and the customer's action done flips the stage on the next watch. A wave carries no supplied secret
 values; an installation whose secret files are not on record is enabled alone.
 
+### Rotation on request
+
+`reconcile_capability` (and `enable_capability`, which shares its plan) takes `rotate`: generated values
+by name as the dry run lists them (`generatedSecrets[].name`, `<installation>-muster-valkey-password`).
+Each one the plan lists rotates whatever its files: the dry run shows it `rotates` with `forcedBy:
+"request"` and `frozenIn` the files on record that hold it, and those files read *update*. The definition
+names, for each value of a component's credentials Secrets, the credentials revision its consumers roll
+on (`render.Result.Revisions`, rendered next to the revision: muster's four credentials — its Dex client
+secret, registration token, OAuth encryption key and Valkey password — on
+`<installation>-muster-credentials-revision` on the 4 line, each MCP server's on its own); a value asked
+for draws its revision with it, also `forcedBy: "request"`, so every workload that reads the value
+restarts. The rest follows the rotation above: every file on record that holds a rotating name is
+rewritten with every value it holds — a rotation of muster's Valkey password rewrites
+`muster-valkey-credentials.yaml`, `muster-oauth-credentials.yaml` and `muster-credentials-revision.yaml`,
+which share the revision, and `dex-client-muster-secret.yaml` with the client secret — and nothing else
+rotates. The commit records the names asked for (`spec.rotate`); the review names them (*rotates on
+request: …*), the change and the pull request name them apart from the rotations a file forced.
+
+Names carry their installation, so over a set a name applies to each installation whose plan lists it
+and leaves the others as they are; a name no plan of the set (or of the one installation) lists is
+refused, naming it, before anything is written — the dry run as well. A name frozen in a file with other
+owners is refused like any rotation through such a file. A value no revision covers (kagent's
+oauth2-proxy credentials, the gateway's OBO keys, the hub's token-exchange credentials) rotates in its
+files and rolls nothing with it; dex-k8s-authenticator's client secret is not a generated value (it lives
+in the dex-app encrypted patch, which the manager does not write) and cannot be rotated here.
+
 ## The Action record
 
 Every enablement or reconcile a person commits is an `Action` — `platform-manager.giantswarm.io/v1alpha1`,
 namespaced, on the hub in the manager's namespace, read and written with the manager's own ServiceAccount:
 the record is the manager's, not the person's. `spec` is written once (`actor`, `capability`, `kind`
 enable|reconcile, `installations` in the wave's order, `inputs`, `markers` — per installation the
-definition's enabled marker in the installation's repository); `status` is a subresource (`state`,
+definition's enabled marker in the installation's repository, `rotate` — the generated values asked to
+rotate); `status` is a subresource (`state`,
 `pullRequests`, `approval`, `rollout`, `probes`, `result`, `syncedAt`/`syncedBy`, `orphans`). `get_action`
 and `list_actions` read it; `mode: "commit"` creates it and moves its state;
 `list_installations` carries the newest Action of an installation and capability as `lastAction`, and an
@@ -291,8 +321,8 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
   filesets, and the output is their tree — `<owner>/<repo>/<path>` per file, `includes.txt` with the shared
   kustomization entries — so `template` reproduces the goldens byte for byte. Shapes: `agent-platform`.
 - `platformctl installation list [<installation>…] [--customer <name>]`,
-  `platformctl installation enable <installation> <capability> --dry-run|--commit [--input k=v]… [--secret f=src]… [--content]`,
-  `platformctl installation reconcile <installation>…|--all <capability> --dry-run|--commit [--input k=v]… [--secret f=src]… [--content]`,
+  `platformctl installation enable <installation> <capability> --dry-run|--commit [--input k=v]… [--secret f=src]… [--rotate <name>]… [--content]`,
+  `platformctl installation reconcile <installation>…|--all <capability> --dry-run|--commit [--input k=v]… [--secret f=src]… [--rotate <name>]… [--content]`,
   `platformctl installation verify <installation> <capability>`,
   `platformctl action get <name>`, `platformctl action list [--installation <name>] [--capability <name>]`,
   `platformctl action approve <name>`, `platformctl action deny <name> --reason <text>`,
@@ -311,7 +341,8 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
   the commit creates or rewrites; a field whose encrypted files stand on record is listed as on record and
   needs no value, the value there stands; the value is sent
   once in the call's `secrets`, never printed, and never taken from the command line — a value typed there
-  is refused naming only the field. `verify` prints the definition's features with their marks and
+  is refused naming only the field. `--rotate <name>` (repeatable) is the tool's `rotate`: the dry run
+  prints each value *rotates on request*, apart from the rotations a file forced. `verify` prints the definition's features with their marks and
   dimensions; `approve`, `deny` and `merge` are the review's tools called as you, the manager's answer
   saying what follows; `watch` is `watch_action` — the rollout picture object by
   object, the dimensions that decided, the report, what follows — called again while it is rolling out.

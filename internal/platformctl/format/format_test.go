@@ -80,6 +80,7 @@ func TestPlan(t *testing.T) {
 			GeneratedSecrets: []plan.GeneratedSecret{
 				{Name: "muster-valkey-password", Kind: "alphanumeric", Length: 32, Files: []string{"x", "y"}, FrozenIn: []string{"x"}, Rotates: true, ForcedBy: "y"},
 				{Name: "muster-registration-token", Kind: "base64", Length: 32, Files: []string{"z"}, FrozenIn: []string{"z"}, Kept: true},
+				{Name: "muster-oauth-encryption-key", Kind: "base64", Length: 32, Files: []string{"w"}, FrozenIn: []string{"w"}, Rotates: true, ForcedBy: plan.ForcedByRequest},
 			},
 			SuppliedSecrets: []string{"kagent.modelKey"},
 			DexClients:      []plan.DexClient{{ID: kagent, Client: kagent, SecretRef: dexClientKagent, RedirectURIs: []string{"https://kagent.rowan.example/callback"}}},
@@ -102,12 +103,16 @@ func TestPlan(t *testing.T) {
 		"Includes: giantswarm/acme-management-clusters:management-clusters/rowan/extras/kustomization.yaml resources ./agent-platform/ (update)",
 		"muster-valkey-password (alphanumeric, 32): x, y", "rotates: muster-valkey-password (forced by y) — a new value replaces the one on record in x;",
 		"muster-registration-token (base64, 32): z", "kept: the value on record in z stands, nothing is written", "You supply at commit: kagent.modelKey",
+		"muster-oauth-encryption-key (base64, 32): w", "rotates on request: muster-oauth-encryption-key — a new value replaces the one on record in w;",
 		"kagent: client kagent; secretRef dex-client-kagent; redirect URIs https://kagent.rowan.example/callback",
 		"rowan: create the apiKeySecret (the model key is theirs)", "muster-ready: muster ready",
 		"1. giantswarm/acme-configs: 1 change for rowan", "generated secrets: muster-valkey-password",
 		"alder: not enabled", "Commit: not implemented yet")
 	if strings.Contains(out, "a: 1") {
 		t.Error("content printed without --content")
+	}
+	if strings.Contains(out, "forced by "+plan.ForcedByRequest) {
+		t.Error("a rotation on request reads as forced by a file")
 	}
 	b.Reset()
 	if err := Plan(&b, r, true); err != nil {

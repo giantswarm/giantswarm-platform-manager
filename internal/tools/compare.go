@@ -26,8 +26,9 @@ type DryRun struct {
 // the plan built once and read against the repositories as the caller; each
 // difference named an input or drift; the anonymous probes run.
 // verify_capability answers it as it is, a dry run regrouped as the plan's
-// entry (dryRun). content keeps the rendered files' content.
-func (t *Tools) compare(ctx context.Context, env *planned, r installations.Report, def installations.Capability, typed map[string]any, content bool) (*verify.Result, error) {
+// entry (dryRun). content keeps the rendered files' content; rotate names the
+// generated values the plan rotates on request (a dry run's rotate).
+func (t *Tools) compare(ctx context.Context, env *planned, r installations.Report, def installations.Capability, typed map[string]any, content bool, rotate []string) (*verify.Result, error) {
 	read := readAs(env.c)
 	values, back, err := mergeInputs(ctx, def, r, installations.Reader(read), typed, env.byName)
 	if err != nil {
@@ -39,26 +40,36 @@ func (t *Tools) compare(ctx context.Context, env *planned, r installations.Repor
 	}
 	env.inputs[r.Name] = values
 	in := verify.Inputs{Source: verify.Source(len(back) > 0, len(typed) > 0), Values: values, ReadBack: back, Unset: unset, Typed: typed}
-	res := verify.Compare(ctx, verify.Options{Definition: def, Installation: r.Installation, Hub: env.hub, State: capabilityState(r, def.Name), Inputs: in, Read: read, Content: content, Probes: t.d.Probes})
+	res := verify.Compare(ctx, verify.Options{Definition: def, Installation: r.Installation, Hub: env.hub, State: capabilityState(r, def.Name), Inputs: in, Read: read, Content: content, Probes: t.d.Probes, Rotate: rotate})
 	res.Caller = identity.Caller(ctx)
 	p := res.Plan()
-	dexApp, dexSecret, frozen, hubPortal := p.DexAppRefusal(r.Record), p.DexSecretRefusal(r.Record), p.FrozenRefusal(), p.HubRefusal()
 	switch {
 	case res.Refused != "":
 		res.CommitRefused = res.Refused
 	case len(res.Inputs.Missing) > 0:
 		res.CommitRefused = missingChoices(def.Name, res.Inputs.Missing)
-	case dexApp != "":
-		res.CommitRefused = dexApp
-	case dexSecret != "":
-		res.CommitRefused = dexSecret
-	case frozen != "":
-		res.CommitRefused = frozen
-	case hubPortal != "":
-		res.CommitRefused = hubPortal
+	default:
+		res.CommitRefused = commitRefusal(p, r.Record)
 	}
 	res.PullRequests = plan.PullRequests([]plan.Installation{p}, env.byName, env.hub)
 	return &res, nil
+}
+
+// commitRefusal is why a commit of p is refused over what its plan found on
+// the record, or "": the record's dex-app too old for a referenced Dex client,
+// its secret patch carrying a client the plan references, a generated value
+// frozen where it cannot rotate — a rotation asked for alike —, a section of
+// the hub's Dev Portal the commit would remove. It is the one list the
+// single commit, the wave's pre-check and the comparison's commitRefused take
+// these refusals from, the first one found answered, so the three refuse
+// alike (TestCommitRefusalsAreOneList).
+func commitRefusal(p plan.Installation, rec *installations.Record) string {
+	for _, refusal := range []string{p.DexAppRefusal(rec), p.DexSecretRefusal(rec), p.FrozenRefusal(), p.HubRefusal()} {
+		if refusal != "" {
+			return refusal
+		}
+	}
+	return ""
 }
 
 // missingInputs names the choices not on record for a refusal.

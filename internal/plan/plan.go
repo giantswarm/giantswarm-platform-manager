@@ -156,9 +156,11 @@ type GeneratedSecret struct {
 	Kept bool `json:"kept,omitempty"`
 	// Rotates: a file of the name has to be written — ForcedBy names it: a
 	// file to create, an existing file whose plaintext skeleton the render
-	// changes, or a file rewritten for another rotating name — so the commit
-	// draws a new value and writes it into every one of Files, the frozen
-	// ones rewritten; both sides roll on the installation.
+	// changes, or a file rewritten for another rotating name — or the person
+	// asked for the rotation by name, ForcedBy ForcedByRequest (so does the
+	// credentials revision of a value asked for) — so the commit draws a new
+	// value and writes it into every one of Files, the frozen ones
+	// rewritten; both sides roll on the installation.
 	Rotates  bool   `json:"rotates,omitempty"`
 	ForcedBy string `json:"forcedBy,omitempty"`
 	// Refusal is why a commit of this plan is refused before any write: the
@@ -365,6 +367,10 @@ type Options struct {
 	Inputs       map[string]any
 	Content      bool
 	Read         Reader
+	// Rotate names the generated values to rotate on request: each the plan
+	// lists rotates, forced by the request, and draws its credentials
+	// revision with it; a name the plan does not list takes no part.
+	Rotate []string
 }
 
 // Build renders the inputs through opts' definition and answers the plan for
@@ -475,7 +481,7 @@ func Build(ctx context.Context, opts Options) Installation {
 	}
 	// A file kept as it is that holds a rotating name is rewritten with the
 	// new value: an update after all.
-	for file := range frozen(generated, holders) {
+	for file := range frozen(generated, holders, requestedRotations(opts.Rotate, generated, res.Revisions)) {
 		if pf := &p.Files[held[file]]; pf.Change == ChangeUnchanged {
 			pf.Change = ChangeUpdate
 			p.Diff[ChangeUnchanged]--

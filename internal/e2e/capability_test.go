@@ -520,7 +520,7 @@ func TestEnableCapabilityRefusesTheFourLineWithoutPodCertificateRequest(t *testi
 		t.Fatal("rowan's chart version comes from the release its cluster App names, read from the releases repository as the person")
 	}
 	out, text, isErr = dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan,
-		tools.ArgInputs: map[string]any{argInstallation: map[string]any{"chartLine": "4"}}})
+		tools.ArgInputs: map[string]any{argInstallation: map[string]any{chartLineFact: "4"}}})
 	if isErr {
 		t.Fatal(text)
 	}

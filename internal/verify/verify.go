@@ -270,6 +270,8 @@ type Options struct {
 	Content bool
 	// Probes sends the anonymous probes; nil is a client that does not follow redirects.
 	Probes *http.Client
+	// Rotate names the generated values the plan rotates on request (plan.Options.Rotate).
+	Rotate []string
 }
 
 // Compare answers the verify of opts' installation.
@@ -497,7 +499,7 @@ func planned(fd *fileDiff, d *Difference, rms, migs plannedKeys) string {
 // with the files the definition renders flattened to their leaves by key.
 // The definition's refusal is the error.
 func build(ctx context.Context, opts Options, values map[string]any, read plan.Reader) (plan.Installation, map[string]map[string]string, error) {
-	p := plan.Build(ctx, plan.Options{Definition: opts.Definition, Installation: opts.Installation, Hub: opts.Hub, Inputs: values, Content: true, Read: read})
+	p := plan.Build(ctx, plan.Options{Definition: opts.Definition, Installation: opts.Installation, Hub: opts.Hub, Inputs: values, Content: true, Read: read, Rotate: opts.Rotate})
 	if p.Refused != "" {
 		return p, nil, errors.New(p.Refused)
 	}

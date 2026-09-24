@@ -183,6 +183,13 @@ type Result struct {
 	Includes []Include
 	Probes   []Probe  // what the verify slice checks on the running installation, in order
 	Actions  []Action // what a person outside the platform team still has to do
+	// Revisions maps a generated value to the credentials revision its
+	// consumers roll on, both by generated name: the revision is a generated
+	// value of its own that the pod templates of every workload reading the
+	// value carry, so drawing it anew restarts them. A rotation asked for by
+	// name draws the value's revision with it. A value no revision covers is
+	// absent.
+	Revisions map[string]string
 }
 
 // Probe is one check of the running installation, as data: the definition
@@ -298,6 +305,20 @@ func (r *Result) Add(repo Repository, path string, f File) {
 		panic(fmt.Sprintf("render: %s: %s rendered twice", repo, path))
 	}
 	r.Files[repo][path] = f
+}
+
+// Revision records revision as the credentials revision of every generated
+// value keys carry — the keys of the Secrets whose readers the revision rolls
+// — the revision itself left out.
+func (r *Result) Revision(revision string, keys ...SecretKey) {
+	if r.Revisions == nil {
+		r.Revisions = map[string]string{}
+	}
+	for _, k := range keys {
+		if k.Generated != nil && k.Generated.Name != revision {
+			r.Revisions[k.Generated.Name] = revision
+		}
+	}
 }
 
 // Include records an entry a shared kustomization must carry.
