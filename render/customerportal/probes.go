@@ -31,12 +31,7 @@ func (in *Input) probes() []render.Probe {
 			Note: "the sign-in redirects to the installation's Dex"}),
 		httpProbe("live-oidc-start", featureIdentity, start, render.Expectation{Status: 302, LocationContains: "client_id=" + render.PortalDexClientID,
 			Note: "the sign-in redirects as the portal's client"}),
-		httpProbe("live-dex-auth-portal-client", featureIdentity,
-			dexAuth+"?client_id="+render.PortalDexClientID+"&redirect_uri="+render.PortalRedirectURI(in.Portal.Domain, in.Installation.Name)+"&response_type=code&scope=openid",
-			render.Expectation{
-				Statuses: []int{200, 302},
-				Note:     "Dex answers a client it knows with its login page (several connectors) or a redirect to the one connector; an unknown client is an error page",
-			}),
+		render.DexAuthProbe("live-dex-auth-portal-client", featureIdentity, in.host("dex"), render.PortalDexClientID, render.PortalRedirectURI(in.Portal.Domain, in.Installation.Name)),
 		render.DexSecretLoadedProbe("live-dex-portal-secret-loaded", featureIdentity, dexNamespace, render.DexClientSecretName(render.PortalDexClientID), render.PortalDexClientID),
 	}
 	values := []string{userSecretsName, pluginKeysName}

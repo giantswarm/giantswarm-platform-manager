@@ -236,7 +236,8 @@ func TestVerifyPrintsFeaturesWithMarksAndDimensions(t *testing.T) {
 					{ID: "oauth2-proxy-gate", Kind: "probe", Key: "gate", Mark: verify.AsDefined,
 						Probe: &verify.ProbeResult{Expect: []int{302, 403}, Requests: []verify.Request{{URL: "https://kagent.rowan.example/", Status: 302, OK: true}}}},
 					{ID: "dex-auth-request", Kind: "probe", Key: "dex", Mark: verify.Drifted,
-						Probe: &verify.ProbeResult{Expect: []int{302}, Requests: []verify.Request{{URL: "https://dex.rowan.example/auth", Client: kagent, Error: "dial tcp: timeout", OK: false}}}},
+						Probe: &verify.ProbeResult{Expect: []int{302}, Requests: []verify.Request{{URL: "https://dex.rowan.example/auth", Client: kagent, Error: "dial tcp: timeout", OK: false},
+							{URL: "https://dex.rowan.example/auth", Client: kagent, Status: 404, Connector: "github", Message: "Dex does not know client kagent", OK: false}}}},
 				}},
 		},
 	}
@@ -258,7 +259,8 @@ func TestVerifyPrintsFeaturesWithMarksAndDimensions(t *testing.T) {
 		"[not checked] kagent/live (live: deployment) — "+verify.ReasonAuthority,
 		"expect 302|403",
 		"ok   https://kagent.rowan.example/ → 302",
-		"FAIL https://dex.rowan.example/auth (kagent) — dial tcp: timeout")
+		"FAIL https://dex.rowan.example/auth (kagent) — dial tcp: timeout",
+		"FAIL https://dex.rowan.example/auth (kagent) → 404 from connector github: Dex does not know client kagent")
 }
 
 func TestDecisionAndMergeCarryTheMessageAndTheAction(t *testing.T) {

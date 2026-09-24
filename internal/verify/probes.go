@@ -22,13 +22,33 @@ type ProbeResult struct {
 	Requests []Request `json:"requests"`
 }
 
-// Request is one anonymous HTTP request of a probe and its answer.
+// Request is one anonymous HTTP request of a probe and its answer. For a
+// probe that takes the Dex connector step, Connector is the connector Dex's
+// /auth answer named and Status the connector's answer; Message says what a
+// drifted answer means where the status alone does not (the client or the
+// redirect URI Dex does not know, an answer that names no connector).
 type Request struct {
-	URL    string `json:"url"`
-	Client string `json:"client,omitempty"`
-	Status int    `json:"status,omitempty"`
-	Error  string `json:"error,omitempty"`
-	OK     bool   `json:"ok"`
+	URL       string `json:"url"`
+	Client    string `json:"client,omitempty"`
+	Status    int    `json:"status,omitempty"`
+	Connector string `json:"connector,omitempty"`
+	Message   string `json:"message,omitempty"`
+	Error     string `json:"error,omitempty"`
+	OK        bool   `json:"ok"`
+}
+
+// Answer is the request's answer in one line: the status, the connector
+// whose answer it is and what a drifted answer means; the transport's error
+// when there was none.
+func (r Request) Answer() string {
+	if r.Error != "" {
+		return r.Error
+	}
+	s := reply{status: r.Status, connector: r.Connector}.String()
+	if r.Message != "" {
+		s += ": " + r.Message
+	}
+	return s
 }
 
 // The reasons a probe is not checked: ReasonNoDexClients, a per-client probe
@@ -183,7 +203,7 @@ func (pr *prober) probe(ctx context.Context, base ProbeData, clients []plan.DexC
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			reqs[i] = pr.send(ctx, u, p.Expect)
+			reqs[i] = pr.send(ctx, u, p)
 		}()
 	}
 	wg.Wait()
@@ -205,18 +225,17 @@ func (pr *prober) probe(ctx context.Context, base ProbeData, clients []plan.DexC
 	return d
 }
 
-// send is one anonymous request and its answer: the status held against
-// expect, or the transport's error.
-func (pr *prober) send(ctx context.Context, u string, expect []int) Request {
+// send is one anonymous request of probe p and its answer (get): the status
+// held against p's expectation, or the transport's error.
+func (pr *prober) send(ctx context.Context, u string, p definitions.Probe) Request {
 	r := Request{URL: u}
-	resp, err := pr.do(ctx, u)
+	rp, err := pr.get(ctx, u, p.DexConnectorStep)
 	if err != nil {
 		r.Error = strings.TrimSpace(err.Error())
 		return r
 	}
-	_ = resp.Body.Close()
-	r.Status = resp.StatusCode
-	r.OK = slices.Contains(expect, resp.StatusCode)
+	r.Status, r.Connector, r.Message = rp.status, rp.connector, rp.fault
+	r.OK = rp.fault == "" && slices.Contains(p.Expect, rp.status)
 	return r
 }
 

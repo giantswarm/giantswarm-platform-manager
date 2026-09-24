@@ -236,6 +236,7 @@ type Expectation struct {
 	Statuses         []int    `yaml:"statuses,omitempty"`         // HTTP: any of these status codes, where the answer has several right shapes
 	LocationContains string   `yaml:"locationContains,omitempty"` // HTTP: a substring of the Location header (302 probes)
 	BodyContains     string   `yaml:"bodyContains,omitempty"`     // HTTP: a substring of the body (200 probes)
+	DexConnectorStep bool     `yaml:"dexConnectorStep,omitempty"` // HTTP on Dex's /auth: the answer held to the expectation is the one of the connector /auth names, which validates the client and its redirect URI (DexAuthProbe)
 	Condition        string   `yaml:"condition,omitempty"`        // Condition: the type, e.g. Accepted, Ready
 	ConditionStatus  string   `yaml:"conditionStatus,omitempty"`  // Condition: True or False
 	Absent           string   `yaml:"absent,omitempty"`           // LogAbsent: a pattern that must not appear in the workload's log
