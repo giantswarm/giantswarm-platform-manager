@@ -81,7 +81,7 @@ const (
 // Input is the resolved inputs of one installation: the record
 // (definitions/agent-platform/schema.json's installation.*, read from the
 // registry and the repositories), the fleet policy (policy.yaml) applied to
-// it, and the two choices a person makes. The renderer reads nothing else.
+// it, and the choices a person makes. The renderer reads nothing else.
 type Input struct {
 	Installation Installation
 	// ModelServing is the person's choice: the meta chart's serving slice.
