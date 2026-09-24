@@ -49,8 +49,8 @@ features:
       - {id: oauth2-proxy-existing-secret, kind: configmap, key: kagent.oauth2-proxy.config.existingSecret}
       - {id: oauth2-proxy-inline-credentials, kind: configmap, key: kagent.oauth2-proxy.config.clientID / kagent.oauth2-proxy.config.clientSecret / kagent.oauth2-proxy.config.cookieSecret (never inline)}
       - {id: muster-and-valkey-existing-secrets, kind: configmap, key: muster.muster.oauth.server.existingSecret / muster.muster.oauth.server.storage.valkey.existingSecret / valkey}
-      - {id: muster-credentials-revision-refs, kind: configmap, key: components.muster.valuesFromRefs / components.valkey.valuesFromRefs (the credentials revision the muster and valkey HelmReleases read into their charts' checksum values)}
-      - {id: muster-credentials-revision, kind: extras, key: "agent-platform/secrets/muster-credentials-revision.yaml / agent-platform/secrets/muster-oauth-credentials.yaml stringData.credentials-revision / agent-platform/secrets/muster-valkey-credentials.yaml stringData.revision (the revision held by muster's credentials Secrets and by the Secret the HelmReleases read, so a rotation restarts muster and its Valkey)"}
+      - {id: muster-credentials-revision-refs, kind: configmap, key: "components.muster.valuesFromRefs / components.valkey.valuesFromRefs / components.klaus-gateway.valuesFromRefs / components.agent-manager.valuesFromRefs / components.cluster-manager.valuesFromRefs / components.model-manager.valuesFromRefs (the credentials revision the HelmReleases of the workloads that read muster's credentials take into their charts' checksum values or a pod annotation)"}
+      - {id: muster-credentials-revision, kind: extras, key: "agent-platform/secrets/muster-credentials-revision.yaml / agent-platform/secrets/muster-oauth-credentials.yaml stringData.credentials-revision / agent-platform/secrets/muster-valkey-credentials.yaml stringData.revision (the revision held by muster's credentials Secrets and by the Secret the HelmReleases read, so a rotation restarts every workload that reads them)"}
       - {id: forbid-inline-secrets, kind: configmap, key: gitops.forbidInlineSecrets}
       - {id: secret-values-patch-keys, kind: configmap, key: agent-platform/secret-values.yaml.patch}
       - {id: secrets-kustomization-list, kind: extras, key: agent-platform/secrets/kustomization.yaml}
@@ -74,6 +74,7 @@ features:
       - {id: live-model-configs, kind: live, key: ModelConfigs in the kagent namespace}
       - {id: live-kagent-provider-values, kind: live, key: kagent HelmRelease .spec.values.providers}
       - {id: live-helmreleases-ready, kind: live, key: "HelmReleases agent-platform, kagent, connectivity, muster, mcps Ready"}
+      - {id: live-platform-workloads, kind: live, key: "the Deployments that read muster's credentials Available: muster, its Valkey, and klaus-gateway, agent-manager, cluster-manager and model-manager where each runs"}
       - {id: live-kagent-workloads, kind: live, key: kagent pods Running and the CNPG cluster healthy}
       - {id: live-pod-certificate-request, kind: live, key: "certificates.k8s.io/v1beta1 podcertificaterequests served by the apiserver (Agent Substrate's feature gates, the 4 line)"}
       - {id: live-drift, kind: live, key: live values equal the rendered manifests}

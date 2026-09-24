@@ -159,9 +159,7 @@ func (in *Input) configmapPatch() render.Map {
 		}
 	}
 	if in.musterRevision() {
-		components = append(components,
-			e("muster", render.Map{e("valuesFromRefs", revisionRefs(musterRevisionSecret, musterChecksumValues...))}),
-			e("valkey", render.Map{e("valuesFromRefs", revisionRefs(musterRevisionSecret, valkeyChecksumValue))}))
+		components = in.musterRevisionRefs(components)
 	}
 	m = append(m, e("components", components))
 
@@ -405,12 +403,58 @@ func (in *Input) dexPatch() render.Map {
 	return render.Map{e("oidc", oidc)}
 }
 
-// musterRevision says whether the installation's meta chart hands muster and
-// its Valkey the credentials revision: the 4 line renders a child's
-// valuesFromRefs, the 3 line has no such knob, so there the Secrets stay as
-// they are (no revision key, no revision Secret) and a rotation still needs
-// a hand-run restart of muster and its Valkey.
+// musterRevision says whether the installation's meta chart hands muster's
+// credentials consumers the credentials revision: the 4 line renders a
+// child's valuesFromRefs, the 3 line has no such knob, so there the Secrets
+// stay as they are (no revision key, no revision Secret) and a rotation still
+// needs a hand-run restart of every consumer (musterConsumers).
 func (in *Input) musterRevision() bool { return in.Installation.ChartLine != lineThree }
+
+// musterConsumer is a child of the meta chart whose pods read a value of
+// muster's credentials Secrets (musterOAuthSecret, musterValkeySecret) once,
+// at container start: its component in the meta chart, the Deployment its
+// pods run under in the platform's namespace, the chart values its
+// HelmRelease reads the credentials revision into, and whether it runs on the
+// installation. A rotation restarts every consumer that runs, and the runtime
+// feature reads each one's Deployment Available.
+type musterConsumer struct {
+	component  string
+	deployment string
+	revision   []string
+	runs       func(*Input) bool
+}
+
+// musterConsumers are the workloads that read muster's credentials: muster
+// (the OAuth Secret and the Valkey password), its Valkey (the password its
+// default user authenticates with), the chat gateway where it runs (its
+// routing store is muster's Valkey, KLAUS_GATEWAY_VALKEY_PASSWORD), and the
+// managers, whose OAuth resource servers take the platform client's secret
+// from the Secret global.identity names (DEX_CLIENT_SECRET): the agent-manager
+// and the cluster-manager where the policy runs them, the model-manager
+// wherever the 4 line runs (the meta chart's default). TestRenderConsumption
+// holds the list to the charts: every pod that reads either Secret is a
+// consumer's, and the revision changes its pod template.
+var musterConsumers = []musterConsumer{
+	{component: componentMuster, deployment: componentMuster, revision: musterChecksumValues, runs: always},
+	{component: componentValkey, deployment: "muster-valkey", revision: []string{valkeyChecksumValue}, runs: always},
+	{component: componentKlausGateway, deployment: componentKlausGateway, revision: []string{podRevisionAnnotation}, runs: (*Input).klausGateway},
+	{component: componentAgentManager, deployment: componentAgentManager, revision: []string{podRevisionAnnotation}, runs: (*Input).agentManager},
+	{component: componentClusterManager, deployment: componentClusterManager, revision: []string{podRevisionAnnotation}, runs: (*Input).clusterManager},
+	{component: componentModelManager, deployment: componentModelManager, revision: []string{podRevisionAnnotation}, runs: (*Input).modelManager},
+}
+
+func always(*Input) bool { return true }
+
+// runningMusterConsumers are the consumers that run on the installation.
+func (in *Input) runningMusterConsumers() []musterConsumer {
+	var out []musterConsumer
+	for _, c := range musterConsumers {
+		if c.runs(in) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
 
 // musterChecksumValues are the muster chart's values the muster HelmRelease
 // takes the credentials revision into: the OAuth credentials Secret's mark and
@@ -419,6 +463,31 @@ func (in *Input) musterRevision() bool { return in.Installation.ChartLine != lin
 // refuses the keys — the meta chart's range floats every installation to the
 // newest release).
 var musterChecksumValues = []string{"muster.oauth.server.existingSecretChecksum", "muster.oauth.server.storage.valkey.existingSecretChecksum"}
+
+// podRevisionAnnotation is where a chart without a checksum value of its own
+// takes the revision: an entry of its podAnnotations, which the chart renders
+// onto the pod template, so the pods restart when the revision changes. The
+// key carries no dot: Flux reads a targetPath as a Helm --set path, where a
+// dot separates keys.
+const podRevisionAnnotation = "podAnnotations.muster-credentials-revision"
+
+// musterRevisionRefs hands the credentials revision to every running
+// consumer's HelmRelease (components.<name>.valuesFromRefs), in the
+// component's entry where the patch already carries one (its toggle), in a
+// new entry otherwise.
+func (in *Input) musterRevisionRefs(components render.Map) render.Map {
+	for _, c := range in.runningMusterConsumers() {
+		refs := e("valuesFromRefs", revisionRefs(musterRevisionSecret, c.revision...))
+		i := slices.IndexFunc(components, func(en render.Entry) bool { return en.Key == c.component })
+		if i < 0 {
+			components = append(components, e(c.component, render.Map{refs}))
+			continue
+		}
+		body, _ := components[i].Value.(render.Map)
+		components[i].Value = append(slices.Clone(body), refs)
+	}
+	return components
+}
 
 // revisionRefs are the Flux valuesFrom entries the meta chart renders into a
 // child HelmRelease (components.<name>.valuesFromRefs): the revision Secret's
@@ -435,8 +504,8 @@ func revisionRefs(secret string, targetPaths ...string) []render.Map {
 // kustomization over the fleet base and the Secrets the platform reads — the
 // platform's own Dex clients' among them, never the portal's (portalDexClient);
 // muster's credentials revision is held by its two credentials Secrets and by
-// the revision Secret in the Flux namespace the muster and valkey HelmReleases
-// read, so a rotation of muster's credentials rolls muster and its Valkey.
+// the revision Secret in the Flux namespace its consumers' HelmReleases read,
+// so a rotation of muster's credentials rolls every workload that reads them.
 func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir string, secrets map[string]string) {
 	type patch struct {
 		Patch  string     `yaml:"patch"`

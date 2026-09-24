@@ -64,6 +64,51 @@
   namespace: flux-giantswarm
   resource: HelmRelease
   name: mcp-capi-valkey
+- id: live-platform-workloads
+  feature: runtime
+  kind: Condition
+  namespace: agent-platform
+  resource: Deployment
+  name: muster
+  expect:
+    condition: Available
+    conditionStatus: "True"
+- id: live-platform-workloads
+  feature: runtime
+  kind: Condition
+  namespace: agent-platform
+  resource: Deployment
+  name: muster-valkey
+  expect:
+    condition: Available
+    conditionStatus: "True"
+- id: live-platform-workloads
+  feature: runtime
+  kind: Condition
+  namespace: agent-platform
+  resource: Deployment
+  name: agent-manager
+  expect:
+    condition: Available
+    conditionStatus: "True"
+- id: live-platform-workloads
+  feature: runtime
+  kind: Condition
+  namespace: agent-platform
+  resource: Deployment
+  name: cluster-manager
+  expect:
+    condition: Available
+    conditionStatus: "True"
+- id: live-platform-workloads
+  feature: runtime
+  kind: Condition
+  namespace: agent-platform
+  resource: Deployment
+  name: model-manager
+  expect:
+    condition: Available
+    conditionStatus: "True"
 - id: live-kagent-workloads
   feature: runtime
   kind: Condition
