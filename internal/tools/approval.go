@@ -59,10 +59,10 @@ func (t *Tools) registerApprovalTools(s *mcpserver.MCPServer) {
 		mcp.WithString(ArgAction, mcp.Required(), mcp.Description("The Action's name (the action id of the review).")),
 	), t.approveAction)
 	s.AddTool(mcp.NewTool(ToolDenyAction,
-		mcp.WithDescription("The Deny button of an action's Team review, called as the clicking member (the actor included: a denial withdraws the action): records the reason on the Action, closes every pull request of the action as you and moves the Action to denied. A failed action is denied too, its approval decided or not: any pull request its failure left open — a wave's stages after the one that stopped on a red probe — is closed, the withdrawal recorded with the reason, the action stays failed and the approval as it was."),
+		mcp.WithDescription("The Deny button of an action's Team review, called as the clicking member (the actor included: a denial withdraws the action): records the reason on the Action, closes every pull request of the action as you and moves the Action to denied. A failed action whose approval is not decided is denied the same way and stays failed. A merged action is withdrawn by its actor alone, with the reason: one failed after its approval (a stage failed and rolled back, a wave stopped on a red probe) or reverted (the watch read a merged pull request reverted on the default branch) — and one that still reads rolling out, waiting for the customer, enabled or drifted, once the revert is read now with your GitHub token (none found: nothing was taken back, refused). Any pull request still open is closed, the Action moves to withdrawn with the reason, the approval as decided, and the review's thread is told."),
 		mcp.WithIdempotentHintAnnotation(true), mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithString(ArgAction, mcp.Required(), mcp.Description("The Action's name.")),
-		mcp.WithString(ArgReason, mcp.Required(), mcp.Description("Why the action is denied; recorded on the Action.")),
+		mcp.WithString(ArgReason, mcp.Required(), mcp.Description("Why the action is denied or withdrawn; recorded on the Action and, for a withdrawal, in the review's thread.")),
 	), t.denyAction)
 	s.AddTool(mcp.NewTool(ToolMergeAction,
 		mcp.WithDescription("Merge the pull requests of an approved action as its actor, in dependency order, each once its checks are green (WRITES as you, with your own GitHub token through the App "+ToolPrefix+"); the Action moves to rolling out and the outcome is posted into the review's thread. Only the actor merges; a call before the approval answers what the action waits for, posts the review when none is up, and re-posts it when the gateway no longer holds it. A pull request whose checks are pending stops the call: call again."),
@@ -168,28 +168,27 @@ func (t *Tools) denyAction(ctx context.Context, req mcp.CallToolRequest) (*mcp.C
 }
 
 // deny withdraws an action pending approval: its pull requests are closed as
-// the member and it moves to denied. A failed action is denied too — a
-// commit that failed after opening pull requests closes them itself, and the
-// denial closes whatever it could not (the remote refused a close) and
-// records the reason; the action stays failed, the failure being its result.
-// An approved action that failed — a wave stopped by a red probe with the
-// next stages' pull requests open — is withdrawn the same way: the pull
-// requests are closed, the withdrawal recorded in the result, the approval
-// stands as decided.
+// the member and it moves to denied. A failed action whose approval is not
+// decided is denied too — a commit that failed after opening pull requests
+// closes them itself, and the denial closes whatever it could not (the
+// remote refused a close) and records the reason; the action stays failed,
+// the failure being its result. A merged action — failed after its approval,
+// reverted, or still reading its change live — is its actor's to withdraw
+// (withdraw).
 func (t *Tools) deny(ctx context.Context, args map[string]any) (any, error) {
-	a, id, err := t.loadAction(ctx, ToolDenyAction, args, actions.StatePendingApproval, actions.StateFailed)
+	a, id, err := t.loadAction(ctx, ToolDenyAction, args, actions.StatePendingApproval, actions.StateFailed, actions.StateReverted, actions.StateRollingOut, actions.StateWaitingForCustomer, actions.StateEnabled, actions.StateDrifted)
 	if err != nil {
 		return nil, err
 	}
-	decidedAlready := a.Status.Approval != nil && a.Status.Approval.Decision != ""
-	if decidedAlready && (a.Status.State != actions.StateFailed || a.Status.Approval.Decision == actions.DecisionDenied) {
+	reason, _ := args[ArgReason].(string)
+	reason = strings.TrimSpace(reason)
+	if withdrawal(a) {
+		return t.withdraw(ctx, a, id, reason)
+	}
+	if a.Status.Approval != nil && a.Status.Approval.Decision != "" {
 		return nil, fmt.Errorf("%s: action %s is already %s by %s", ToolDenyAction, a.Name, a.Status.Approval.Decision, a.Status.Approval.DecidedBy)
 	}
-	if decidedAlready && len(openPRs(a.Status.PullRequests)) == 0 {
-		return nil, fmt.Errorf("%s: action %s is %s with no pull request open; nothing to withdraw", ToolDenyAction, a.Name, a.Status.State)
-	}
-	reason, _ := args[ArgReason].(string)
-	if reason = strings.TrimSpace(reason); reason == "" {
+	if reason == "" {
 		return nil, fmt.Errorf("%s needs %s: the denial is recorded with it", ToolDenyAction, ArgReason)
 	}
 	token, _ := identity.TokenFromContext(ctx)
@@ -202,30 +201,12 @@ func (t *Tools) deny(ctx context.Context, args map[string]any) (any, error) {
 	if left := closeOpen(ctx, remote, status.PullRequests); len(left) > 0 {
 		return nil, fmt.Errorf("%s: closing as %s: %s", ToolDenyAction, id.Login, strings.Join(left, "; "))
 	}
-	switch {
-	case status.State == actions.StateFailed && decidedAlready:
-		status.Result.Message += fmt.Sprintf("; withdrawn by %s: %s (%d pull request(s) closed)", id.Login, reason, open)
-		if status.Rollout != nil {
-			for i := range status.Rollout.Installations {
-				st := &status.Rollout.Installations[i]
-				switch {
-				case st.State == "":
-					st.Message += "; its pull requests were closed by " + id.Login
-				case failedOnProbe(*st):
-					// Withdrawn, the stage is not re-read: the wave is over.
-					st.Message = fmt.Sprintf("withdrawn by %s: %s; %s", id.Login, reason, st.Message)
-				}
-			}
-		}
-	case status.State == actions.StateFailed:
-		approval := *approvalOf(&status)
-		approval.Decision, approval.DecidedBy, approval.Reason, approval.At = actions.DecisionDenied, id.Login, reason, now()
-		status.Approval = &approval
+	approval := *approvalOf(&status)
+	approval.Decision, approval.DecidedBy, approval.Reason, approval.At = actions.DecisionDenied, id.Login, reason, now()
+	status.Approval = &approval
+	if status.State == actions.StateFailed {
 		status.Result.Message += fmt.Sprintf("; denied by %s: %s (%d pull request(s) closed)", id.Login, reason, open)
-	default:
-		approval := *approvalOf(&status)
-		approval.Decision, approval.DecidedBy, approval.Reason, approval.At = actions.DecisionDenied, id.Login, reason, now()
-		status.Approval = &approval
+	} else {
 		status.State = actions.StateDenied
 		status.Result = &actions.Result{State: actions.StateDenied, Message: fmt.Sprintf("denied by %s: %s", id.Login, reason), At: now()}
 		// A wave's stages were pending approval too; denied, the files'

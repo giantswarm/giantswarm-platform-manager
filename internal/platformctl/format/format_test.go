@@ -277,6 +277,17 @@ func TestDecisionAndMergeCarryTheMessageAndTheAction(t *testing.T) {
 	contains(t, buf.String(), "approved by carol; the actor merges", "Action "+rowanAction, "State: pending approval")
 
 	buf.Reset()
+	at := time.Date(2026, 9, 24, 21, 0, 0, 0, time.UTC)
+	withdrawn := &actions.Action{Name: rowanAction, Spec: actions.Spec{Kind: actions.KindReconcile, Capability: agentPlatform, Installations: []string{rowan}}, Status: actions.Status{State: actions.StateWithdrawn,
+		PullRequests: []actions.PullRequest{{Repository: acmeConfigs, Number: 7, State: actions.PullRequestMerged, MergeCommit: "abc", Revert: &actions.Revert{Commit: "def", PullRequest: 9, PullRequestURL: "https://github.com/" + acmeConfigs + "/pull/9"}}},
+		Withdrawal:   &actions.Withdrawal{By: "alice", Reason: "rolled back by hand", At: &at}}}
+	if err := Decision(&buf, tools.Decision{Message: "alice withdrew the action", Action: withdrawn}); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, buf.String(), "State: withdrawn", " merged (abc), reverted by def ("+acmeConfigs+"#9 https://github.com/"+acmeConfigs+"/pull/9)",
+		"Withdrawn by alice at 2026-09-24T21:00:00Z — rolled back by hand")
+
+	buf.Reset()
 	m := tools.MergeResult{Message: "one merged, one waiting", Action: a,
 		Merged:  []actions.PullRequest{{Repository: acmeConfigs, Number: 7, URL: "https://github.com/" + acmeConfigs + "/pull/7"}},
 		Waiting: acmeMCs + "#8: checks pending"}

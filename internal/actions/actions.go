@@ -105,8 +105,10 @@ type Actor struct {
 
 // Status is how the action went, under the status subresource.
 type Status struct {
-	// State is one of the installations' states an action produces: pending
-	// approval, rolling out, waiting for the customer, enabled, failed.
+	// State is one of the installations' states an action produces —
+	// pending approval, rolling out, waiting for the customer, enabled,
+	// drifted, failed — or one of the action's own: refused, denied,
+	// reverted, withdrawn, removed.
 	State        string        `json:"state,omitempty"`
 	PullRequests []PullRequest `json:"pullRequests,omitempty"`
 	// Rotated names the generated values the commit drew anew over a value
@@ -128,6 +130,17 @@ type Status struct {
 	// installations that stay until a person deletes them; read from the
 	// render of the inputs on record, never from the cluster.
 	Orphans []Orphan `json:"orphans,omitempty"`
+	// Withdrawal is the actor's word on a merged action that failed or was
+	// reverted: who withdrew it, why and when (deny_action on a merged
+	// action). The review's thread carries the same.
+	Withdrawal *Withdrawal `json:"withdrawal,omitempty"`
+}
+
+// Withdrawal is the actor withdrawing a merged action, with the reason.
+type Withdrawal struct {
+	By     string     `json:"by"`
+	Reason string     `json:"reason"`
+	At     *time.Time `json:"at,omitempty"`
 }
 
 // Orphan is one object a revert left behind on an installation: the fleet's
@@ -161,6 +174,21 @@ type PullRequest struct {
 	MergedAt    *time.Time `json:"mergedAt,omitempty"`
 	MergedBy    string     `json:"mergedBy,omitempty"`
 	ClosedAt    *time.Time `json:"closedAt,omitempty"`
+	// Revert is the commit on the default branch that brought every file the
+	// merge changed back to its content before the merge, as the watch or the
+	// withdrawal read it: the pull request is reverted.
+	Revert *Revert `json:"revert,omitempty"`
+}
+
+// Revert is the commit that took a merged pull request back: its SHA and
+// page, the pull request it came through when GitHub links one, and when the
+// manager read it.
+type Revert struct {
+	Commit         string     `json:"commit"`
+	URL            string     `json:"url,omitempty"`
+	PullRequest    int        `json:"pullRequest,omitempty"`
+	PullRequestURL string     `json:"pullRequestUrl,omitempty"`
+	At             *time.Time `json:"at,omitempty"`
 }
 
 // Approval is the team review the action asked for and its decision.
@@ -356,9 +384,11 @@ func (a Action) InputsOnRecord(installation string) map[string]any {
 // The states an Action carries in status.state. pending approval, rolling
 // out, waiting for the customer, enabled, drifted and failed are the
 // installations' states an action produces (installations.State); refused,
-// denied and removed are the action's own — the gate refused it before
-// any write, the installation unreadable as the person or without
-// repositories on record, a member withdrew it, or the fileset it wrote left the
+// denied, reverted, withdrawn and removed are the action's own — the gate
+// refused it before any write, the installation unreadable as the person or
+// without repositories on record; a member withdrew it before its merge; a
+// merged pull request of it was reverted on the default branch; its actor
+// withdrew it after the merge; or the fileset it wrote left the
 // repositories' default branch again — and the installation's state read
 // from its repositories stands.
 const (
@@ -370,15 +400,26 @@ const (
 	StateEnabled            = string(installations.StateEnabled)
 	StateDrifted            = string(installations.StateDrifted)
 	StateDenied             = "denied"
+	StateReverted           = "reverted"
+	StateWithdrawn          = "withdrawn"
 	StateRemoved            = "removed"
 )
 
 // Terminal says whether state is one no read moves the action out of:
-// refused and denied never wrote to the repositories, removed is the
-// revert's last word. A failed action is not terminal for the resync — a
-// stage that failed after its merge can still be reverted.
+// refused and denied never wrote to the repositories, withdrawn is the
+// actor's last word on a merged action, removed the revert's. A failed
+// action is not terminal for the resync — a stage that failed after its
+// merge can still be reverted — and neither is a reverted one: the actor
+// withdraws it, and its fileset gone whole removes it.
 func Terminal(state string) bool {
-	return state == StateRefused || state == StateDenied || state == StateRemoved
+	return state == StateRefused || state == StateDenied || state == StateWithdrawn || state == StateRemoved
+}
+
+// Settled says whether state is one no stage's read moves the action out
+// of: a terminal one, or reverted — the watch and the live verify leave it
+// for its actor's withdrawal.
+func Settled(state string) bool {
+	return Terminal(state) || state == StateReverted
 }
 
 // InstallationState is the state the action gives installation: its stage of

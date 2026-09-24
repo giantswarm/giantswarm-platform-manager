@@ -46,7 +46,7 @@ Behind muster the tools appear as `x_giantswarm-platform-manager_<tool>`.
 | `get_action`, `list_actions` | read | The Action records on the hub: one per enablement or reconcile a person commits — actor, installations, capability, inputs, pull requests, approval, rollout, probes, result. The record follows GitHub on every read, as you (at most once a minute per action): a pull request merged outside `merge_action` is recorded *merged* with its commit, time and `mergedBy`, and the action rolls out as after the merge; one closed unmerged fails it; a fileset gone from the default branch again moves it to *removed*, naming the objects left on the installation. See [The Action record](#the-action-record). |
 | `verify_capability` | read | One installation against a capability's definition, grouped into the definition's features with one mark each — *as defined*, *planned*, *differs by input*, *drifted* — and expanded to its dimensions: the owning repositories' files, read as the person, against the render from the inputs on record (every difference names the file, the path and the person's input that drives it — a choice the schema names, or one typed for the call, so the file expresses another choice than the one on record — the planned change it is — a key the capability's `removals.yaml` or `migrations.yaml` names — or drift: a leaf no choice drives, the ones the installation's facts derive included, which only a reconcile resolves), and the definition's anonymous HTTP probes. The live dimensions read *not checked* here: they are `verify_installation`'s. |
 | `verify_installation` | read, **live** | The same installation's running objects against the definition's probes — HelmReleases Ready, workloads Available, Secrets and MCPServer objects present, conditions, logs, Dex started since every client Secret it reads last changed, the live values against the render — read through muster's kubernetes tools **as the person**, with the platform ID token muster forwards next to the App user token (`X-Muster-Id-Token`, the `MCPServer`'s `auth.forwardIdentity` with `live.enabled`, muster ≥ 5.31.0); a call without a valid one is refused, naming the header. What the person may read decides what is checked: an object they may not read is *not checked, forbidden for them*, an installation they are not connected to answers with muster's own sign-in. The result is recorded on the installation's newest action and feeds `list_installations`: *drifted*, or *waiting for the customer* when the only red dimension is the one the customer's action holds up. A portal or `platformctl` shows the two verifies as one result. |
-| `watch_action` | **live** | The rollout watch of an action whose pull requests are merged, **as the person calling** — the manager holds no token beyond a call, so the watch is a call (the portal's page, `platformctl action watch`, an agent), never a loop. Reads the Flux objects the definition names on the installation rolling out (the HelmReleases with their Ready condition and revision) through muster's kubernetes tools and answers the picture; once every one is Ready it runs the definition's probes — the live dimensions as the person, the anonymous HTTP probes direct — and the stage moves to *enabled*, *waiting for the customer* (the customer's own action is the only thing open) or *failed* (a probe is red, named). A HelmRelease whose last release Flux reports failed — `Released=False` after an install or upgrade Helm gave up on, rolled back or not, or `Stalled=True` — will not become Ready on its own: the stage is *failed* on its probe, Flux's reason and message named, and a later watch re-reads it. The report — pull requests, rollout per object, each probe, the open customer actions — goes into the review's thread and onto the Action (`status.rollout.installations[]`, `status.probes`, `status.result`). Nothing is waited for or hurried: call again while it is rolling out. Anyone signed in may watch; the reads are theirs, and the state follows the picture whoever read it. An action *waiting for the customer* or *enabled* is re-read: the customer's action done flips it to *enabled*. The watch first re-reads the action's pull requests from GitHub as you, as `get_action` does, with the GitHub token muster puts on the call next to your forwarded identity: an action whose pull requests were merged outside the manager is watched all the same. |
+| `watch_action` | **live** | The rollout watch of an action whose pull requests are merged, **as the person calling** — the manager holds no token beyond a call, so the watch is a call (the portal's page, `platformctl action watch`, an agent), never a loop. Reads the Flux objects the definition names on the installation rolling out (the HelmReleases with their Ready condition and revision) through muster's kubernetes tools and answers the picture; once every one is Ready it runs the definition's probes — the live dimensions as the person, the anonymous HTTP probes direct — and the stage moves to *enabled*, *waiting for the customer* (the customer's own action is the only thing open) or *failed* (a probe is red, named). A HelmRelease whose last release Flux reports failed — `Released=False` after an install or upgrade Helm gave up on, rolled back or not, or `Stalled=True` — will not become Ready on its own: the stage is *failed* on its probe, Flux's reason and message named, and a later watch re-reads it. The report — pull requests, rollout per object, each probe, the open customer actions — goes into the review's thread and onto the Action (`status.rollout.installations[]`, `status.probes`, `status.result`). Nothing is waited for or hurried: call again while it is rolling out. Anyone signed in may watch; the reads are theirs, and the state follows the picture whoever read it. An action *waiting for the customer* or *enabled* is re-read: the customer's action done flips it to *enabled*. The watch first re-reads the action's pull requests from GitHub as you, as `get_action` does, with the GitHub token muster puts on the call next to your forwarded identity: an action whose pull requests were merged outside the manager is watched all the same. Before it reads the installation it reads, with the same token, whether the stage's pull requests are still on the default branch: a revert leaves every object healthy on the previous values, so the probes cannot tell it — see [The Action record](#the-action-record). |
 
 ## The commit
 
@@ -192,16 +192,36 @@ the record is the manager's, not the person's. `spec` is written once (`actor`, 
 enable|reconcile, `installations` in the wave's order, `inputs`, `markers` — per installation the
 definition's enabled marker in the installation's repository, `rotate` — the generated values asked to
 rotate); `status` is a subresource (`state`,
-`pullRequests`, `approval`, `rollout`, `probes`, `result`, `syncedAt`/`syncedBy`, `orphans`). `get_action`
+`pullRequests`, `approval`, `rollout`, `probes`, `result`, `syncedAt`/`syncedBy`, `orphans`, `withdrawal`). `get_action`
 and `list_actions` read it; `mode: "commit"` creates it and moves its state;
 `list_installations` carries the newest Action of an installation and capability as `lastAction`, and an
 unfinished or failed action's state stands over the state read from the files.
 
 The states: *pending approval*, *rolling out*, *waiting for the customer*, *enabled*, *drifted* and *failed*
 are the installation's states an action produces; *refused* (the gate refused it before any write),
-*denied* (a member withdrew it) and *removed* (below) are the action's own, and the installation's state
-read from its repositories stands. A pull request is *open*, *merged* (with `mergeCommit`, `mergedAt` and
-`mergedBy`) or *closed*.
+*denied* (a member withdrew it before its merge), *reverted*, *withdrawn* and *removed* (below) are the
+action's own, and the installation's state read from its repositories stands. A pull request is *open*,
+*merged* (with `mergeCommit`, `mergedAt` and `mergedBy`, and `revert` once it was read reverted) or *closed*.
+
+**A merged pull request reverted on the default branch reads *reverted*, never *enabled*.** A revert
+leaves every object of the installation healthy on the previous values, so the probes cannot tell it:
+`watch_action` reads, before the installation, whether the stage's pull requests are still on the default
+branch, as the person with their GitHub token. A pull request is reverted when every file its merge commit
+changed carries its content from before the merge again — a file it added absent, one it modified or
+removed as it was; a later change that rewrote a file is not a revert. The action moves to *reverted*, the
+pull request's `revert` naming the reverting commit and the pull request GitHub links it to, the stage and
+the result naming them, the review's thread told; a read that fails decides nothing, and the watch refuses
+a reverted action. The merge's change is read once per commit and kept (the commit, and for a file it
+modified or removed its parent's tree); each watch costs the repositories' trees at HEAD, validated as the
+person, and a revert found two requests more to name it.
+
+**The actor withdraws a merged action** with `deny_action` and the reason: one *failed* after its approval
+(a stage failed and rolled back, a wave stopped on a red probe), one *reverted*, and one that still reads
+*rolling out*, *waiting for the customer*, *enabled* or *drifted* once the revert is read at the call (none
+found: nothing was taken back, and the withdrawal is refused). Any pull request still open is closed, the
+action moves to the terminal state *withdrawn* with `status.withdrawal` (by, reason, at), the approval as
+decided, and the review's thread is told. Approving stays a second person's; withdrawing a merged action is
+the actor's alone.
 
 **The record follows GitHub, not only the manager's own steps.** Every read of a record — `get_action`,
 `list_actions`, `list_installations` (the portal's page), the approval tools before they decide, and
@@ -344,7 +364,7 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
   is refused naming only the field. `--rotate <name>` (repeatable) is the tool's `rotate`: the dry run
   prints each value *rotates on request*, apart from the rotations a file forced. `verify` prints the definition's features with their marks and
   dimensions; `approve`, `deny` and `merge` are the review's tools called as you, the manager's answer
-  saying what follows; `watch` is `watch_action` — the rollout picture object by
+  saying what follows (`deny` on a merged action is its actor's withdrawal); `watch` is `watch_action` — the rollout picture object by
   object, the dimensions that decided, the report, what follows — called again while it is rolling out.
 - The calls go through `muster agent --mcp-server`, muster's own bridge: it takes the aggregator from
   muster's configuration (`--endpoint` names another) and signs you in to muster when needed. The bridge

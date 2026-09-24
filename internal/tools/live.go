@@ -200,12 +200,13 @@ func givenInputs(args map[string]any) (*verify.Inputs, error) {
 // the customer, or enabled again when the installation is back as defined
 // (the customer's action done flips a stage waiting for the customer to
 // enabled, and the action with it). list_installations reads it from there.
-// A stage rolling out is the watch's to carry; a failed one is over.
+// A stage rolling out is the watch's to carry; a failed one is over; an
+// action reverted or past its last word moves no more.
 func (t *Tools) recordLiveVerify(ctx context.Context, a actions.Action, installation string, res verify.Result) error {
 	status := a.Status
 	status.Probes = mergeProbes(status.Probes, installation, probesOf(installation, res))
 	status.Rollout = stagesOf(&a)
-	if i := stageIndex(status.Rollout, installation); i >= 0 && status.Result != nil && verifyMoves(status.Rollout.Installations[i].State) {
+	if i := stageIndex(status.Rollout, installation); i >= 0 && status.Result != nil && !actions.Settled(status.State) && verifyMoves(status.Rollout.Installations[i].State) {
 		st := &status.Rollout.Installations[i]
 		prev := st.State
 		st.State, st.Message, _ = decideStage(prev, res)

@@ -31,14 +31,20 @@ type fakeGitHub struct {
 	reset       time.Time
 	truncated   bool
 
+	// at are the files of a commit other than HEAD by ref, commits the
+	// commit documents by SHA.
+	at      map[string]map[string]string
+	commits map[string]map[string]any
+
 	inFlight, peak         atomic.Int64
 	treeRequests, treeFull atomic.Int64 // every tree request; the ones answered 200
 	blobRequests           atomic.Int64
+	commitRequests         atomic.Int64
 }
 
 func newFakeGitHub(t *testing.T) *fakeGitHub {
 	t.Helper()
-	g := &fakeGitHub{files: map[string]map[string]string{}, access: map[string]map[string]bool{}}
+	g := &fakeGitHub{files: map[string]map[string]string{}, access: map[string]map[string]bool{}, at: map[string]map[string]string{}, commits: map[string]map[string]any{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v3/repos/{owner}/{repo}/git/trees/{ref}", func(w http.ResponseWriter, r *http.Request) {
 		g.treeRequests.Add(1)
@@ -48,6 +54,9 @@ func newFakeGitHub(t *testing.T) *fakeGitHub {
 		}
 		g.mu.Lock()
 		files := g.files[repo]
+		if at, ok := g.at[r.PathValue("ref")]; ok {
+			files = at
+		}
 		truncated := g.truncated
 		g.mu.Unlock()
 		body, etag := treeJSON(files, truncated)
@@ -60,6 +69,20 @@ func newFakeGitHub(t *testing.T) *fakeGitHub {
 		w.Header().Set("ETag", etag)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(body)
+	})
+	mux.HandleFunc("GET /api/v3/repos/{owner}/{repo}/commits/{sha}", func(w http.ResponseWriter, r *http.Request) {
+		g.commitRequests.Add(1)
+		if !g.admit(w, r, r.PathValue("owner")+"/"+r.PathValue("repo")) {
+			return
+		}
+		g.mu.Lock()
+		doc, ok := g.commits[r.PathValue("sha")]
+		g.mu.Unlock()
+		if !ok {
+			writeJSON(w, http.StatusNotFound, map[string]any{messageKey: notFoundMessage})
+			return
+		}
+		writeJSON(w, http.StatusOK, doc)
 	})
 	mux.HandleFunc("GET /api/v3/repos/{owner}/{repo}/git/blobs/{sha}", func(w http.ResponseWriter, r *http.Request) {
 		g.blobRequests.Add(1)
@@ -76,7 +99,7 @@ func newFakeGitHub(t *testing.T) *fakeGitHub {
 				return
 			}
 		}
-		writeJSON(w, http.StatusNotFound, map[string]any{messageKey: "Not Found"})
+		writeJSON(w, http.StatusNotFound, map[string]any{messageKey: notFoundMessage})
 	})
 	g.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := g.inFlight.Add(1)
@@ -109,7 +132,7 @@ func (g *fakeGitHub) admit(w http.ResponseWriter, r *http.Request, repo string) 
 		return false
 	}
 	if !allowed {
-		writeJSON(w, http.StatusNotFound, map[string]any{messageKey: "Not Found"})
+		writeJSON(w, http.StatusNotFound, map[string]any{messageKey: notFoundMessage})
 		return false
 	}
 	return true
@@ -175,6 +198,11 @@ const (
 	// The keys of GitHub's documents the fake writes, and a fixture file.
 	shaKey, messageKey = "sha", "message"
 	oneYAML            = "one: 1\n"
+	notFoundMessage    = "Not Found"
+	// The commit fixtures: a merge, its parent, a file it removed.
+	mergeSHA, parentSHA           = "merge", "parent"
+	newPath, valuesPath, gonePath = "new", "values", "gone"
+	filenameKey, statusKey        = "filename", "status"
 )
 
 func (g *fakeGitHub) client(t *testing.T, files *Files, token string) *Client {
@@ -433,5 +461,56 @@ func TestReadFileAtReadsTheRefsTree(t *testing.T) {
 	}
 	if g.treeRequests.Load() != 2 || g.blobRequests.Load() != 1 {
 		t.Fatalf("two refs, one content: tree requests %d, blob requests %d", g.treeRequests.Load(), g.blobRequests.Load())
+	}
+}
+
+// A merge commit's change: the files it added, modified and removed, each
+// with its blob after and before the merge — the parent's tree read for the
+// before, once, as a commit whose change is cached; a person who cannot see
+// the repository is refused before the cache answers.
+func TestChangeOfReadsTheMergeOnceAndItsParentForTheBlobsBefore(t *testing.T) {
+	g := newFakeGitHub(t)
+	g.grant(aliceToken, repoFull)
+	g.set(repoFull, "kept", oneYAML)
+	g.at[parentSHA] = map[string]string{"kept": oneYAML, valuesPath: "old\n", gonePath: "bye\n"}
+	g.commits[mergeSHA] = map[string]any{shaKey: mergeSHA, "parents": []map[string]any{{shaKey: parentSHA}}, "files": []map[string]any{
+		{filenameKey: newPath, statusKey: "added", shaKey: blobSHA("new\n")},
+		{filenameKey: valuesPath, statusKey: "modified", shaKey: blobSHA("new values\n")},
+		{filenameKey: gonePath, statusKey: "removed", shaKey: blobSHA("bye\n")},
+	}}
+	files := NewFiles(time.Hour)
+	ch, err := ChangeOf(context.Background(), g.client(t, files, aliceToken), repoOwner, repoName, mergeSHA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []FileChange{{Path: newPath, Blob: blobSHA("new\n")}, {Path: valuesPath, Blob: blobSHA("new values\n"), Before: blobSHA("old\n")}, {Path: gonePath, Before: blobSHA("bye\n")}}
+	if ch.Commit != mergeSHA || fmt.Sprint(ch.Files) != fmt.Sprint(want) {
+		t.Fatalf("the change: %+v", ch)
+	}
+	// HEAD's tree and the parent's, one commit read.
+	if g.commitRequests.Load() != 1 || g.treeFull.Load() != 2 {
+		t.Fatalf("%d commit and %d tree request(s)", g.commitRequests.Load(), g.treeFull.Load())
+	}
+	if _, err := ChangeOf(context.Background(), g.client(t, files, aliceToken), repoOwner, repoName, mergeSHA); err != nil || g.commitRequests.Load() != 1 || g.treeRequests.Load() != 2 {
+		t.Fatalf("the second read: %v, %d commit and %d tree request(s)", err, g.commitRequests.Load(), g.treeRequests.Load())
+	}
+	if _, err := ChangeOf(context.Background(), g.client(t, files, bobToken), repoOwner, repoName, mergeSHA); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("a person who cannot see the repository: %v", err)
+	}
+	blobs, err := Blobs(context.Background(), g.client(t, files, aliceToken), repoOwner, repoName, []string{"kept", valuesPath})
+	if err != nil || blobs["kept"] != blobSHA(oneYAML) || blobs[valuesPath] != "" {
+		t.Fatalf("the blobs at HEAD: %v %v", blobs, err)
+	}
+}
+
+// A commit that only added files needs no parent tree: nothing was there before.
+func TestChangeOfAnAdditionReadsNoParent(t *testing.T) {
+	g := newFakeGitHub(t)
+	g.grant(aliceToken, repoFull)
+	g.set(repoFull, "new", "new\n")
+	g.commits[mergeSHA] = map[string]any{shaKey: mergeSHA, "parents": []map[string]any{{shaKey: parentSHA}}, "files": []map[string]any{{filenameKey: newPath, statusKey: "added", shaKey: blobSHA("new\n")}}}
+	ch, err := ChangeOf(context.Background(), g.client(t, NewFiles(0), aliceToken), repoOwner, repoName, mergeSHA)
+	if err != nil || len(ch.Files) != 1 || ch.Files[0].Before != "" || g.treeFull.Load() != 1 {
+		t.Fatalf("the change: %+v %v, %d tree(s)", ch, err, g.treeFull.Load())
 	}
 }

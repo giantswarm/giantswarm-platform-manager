@@ -344,8 +344,9 @@ func TestWaveStopsAtADexHoldingAnOldClientSecret(t *testing.T) {
 }
 
 // The actor withdraws a wave that stopped on a red probe: deny_action closes
-// the next stage's open pull requests and records who withdrew them and why;
-// the action stays failed, the approval as decided, and the withdrawn stage
+// the next stage's open pull requests and moves the action to withdrawn with
+// who withdrew it and why, the approval as decided, the review's thread
+// told; a member other than the actor is refused, and the withdrawn action
 // is not re-read any more.
 func TestDenyWithdrawsAStoppedWave(t *testing.T) {
 	st := newStack(t)
@@ -355,10 +356,17 @@ func TestDenyWithdrawsAStoppedWave(t *testing.T) {
 		t.Fatalf("the stop: %v %s", isErr, text)
 	}
 	const reason = "the definition is fixed forward by a new action"
+	if _, text, isErr := decide(t, st.mcpClient(t, carolToken), tools.ToolDenyAction, map[string]any{tools.ArgAction: a.Name, tools.ArgReason: reason}); !isErr || !strings.Contains(text, "withdrawn by its actor ("+alice+")") {
+		t.Fatalf("a withdrawal by the approver: %v %s", isErr, text)
+	}
 	d, text, isErr := decide(t, aliceC, tools.ToolDenyAction, map[string]any{tools.ArgAction: a.Name, tools.ArgReason: reason})
-	if isErr || d.Action.Status.State != actions.StateFailed || d.Action.Status.Approval.Decision != actions.DecisionApproved || d.Action.Status.Approval.DecidedBy != carol ||
+	if isErr || d.Action.Status.State != actions.StateWithdrawn || d.Action.Status.Approval.Decision != actions.DecisionApproved || d.Action.Status.Approval.DecidedBy != carol ||
+		d.Action.Status.Withdrawal == nil || d.Action.Status.Withdrawal.By != alice || d.Action.Status.Withdrawal.Reason != reason ||
 		!strings.Contains(d.Action.Status.Result.Message, "withdrawn by "+alice+": "+reason) || !strings.Contains(d.Message, "closed") {
 		t.Fatalf("the withdrawal: %v %s", isErr, text)
+	}
+	if th := thread(t, st); !strings.Contains(th[len(th)-1], "Withdrawn by *"+alice+"*: "+reason) {
+		t.Fatalf("the thread: %q", th)
 	}
 	for _, pr := range d.Action.Status.PullRequests {
 		if pr.Installation == rowan && pr.State != actions.PullRequestClosed {
@@ -370,10 +378,10 @@ func TestDenyWithdrawsAStoppedWave(t *testing.T) {
 			t.Errorf("rowan's pull request on the remote: %+v", pr)
 		}
 	}
-	if st := d.Action.Status.Rollout.Installations; !strings.HasPrefix(st[0].Message, "withdrawn by "+alice) || !strings.Contains(st[1].Message, "closed by "+alice) {
+	if st := d.Action.Status.Rollout.Installations; st[0].State != actions.StateWithdrawn || !strings.HasPrefix(st[0].Message, "withdrawn by "+alice) || !strings.Contains(st[1].Message, "closed by "+alice) {
 		t.Errorf("the stages: %+v", st)
 	}
-	if _, text, isErr := watchCall(t, adminLive(t, st), a.Name); !isErr || !strings.Contains(text, "only a stage that failed on a probe is re-read") {
+	if _, text, isErr := watchCall(t, adminLive(t, st), a.Name); !isErr || !strings.Contains(text, "is "+actions.StateWithdrawn) {
 		t.Fatalf("a watch after the withdrawal: %v %s", isErr, text)
 	}
 }
