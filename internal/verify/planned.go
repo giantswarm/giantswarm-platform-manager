@@ -30,12 +30,14 @@ type plannedKeys []plannedKey
 // groups appear, the file's first, then each segment's: what a match
 // captures, and what the reason's own <x> references are filled with — the
 // concrete server, client or target. A placeholder the key declares twice
-// stands for one value.
+// stands for one value. key is the key as the definition spells it; hub
+// marks a removal of kind hub, a section of the hub's Dev Portal.
 type plannedKey struct {
-	kind, reason string
-	file         *regexp.Regexp
-	path         []*regexp.Regexp
-	names        []string
+	key, kind, reason string
+	file              *regexp.Regexp
+	path              []*regexp.Regexp
+	names             []string
+	hub               bool
 }
 
 // factPlaceholders are the placeholders that stand for a fact of the
@@ -69,6 +71,7 @@ func readRemovals(rs []definitions.Removal, f facts) plannedKeys {
 			continue
 		}
 		if k, ok := parseKey(r.Key, r.Reason, f); ok {
+			k.hub = r.Kind == definitions.RemovalHub
 			out = append(out, k)
 		}
 	}
@@ -94,7 +97,7 @@ const (
 
 func parseKey(key, reason string, f facts) (plannedKey, bool) {
 	prefix, rest, _ := strings.Cut(key, ":")
-	k := plannedKey{reason: reason}
+	k := plannedKey{key: key, reason: reason}
 	var file, yamlPath string
 	switch prefix {
 	case definitions.KindConfigMap:
@@ -199,6 +202,15 @@ func (ks plannedKeys) entryReason(fd *fileDiff, yamlPath string) string {
 // (a kustomization's patch): the leaf is matched at every level of its path
 // (levels), the first key that names it at any giving the reason.
 func (ks plannedKeys) find(fd *fileDiff, yamlPath string, exact bool) string {
+	if k, values, ok := ks.first(fd, yamlPath, exact); ok {
+		return k.fill(values)
+	}
+	return ""
+}
+
+// first is the first key that names the path, with what its placeholders
+// stand for there.
+func (ks plannedKeys) first(fd *fileDiff, yamlPath string, exact bool) (plannedKey, map[string]string, bool) {
 	var got [][]string
 	for _, level := range levels(fd.documents, yamlPath) {
 		got = append(got, segments(level))
@@ -206,11 +218,40 @@ func (ks plannedKeys) find(fd *fileDiff, yamlPath string, exact bool) string {
 	for _, k := range ks {
 		for _, segs := range got {
 			if values, ok := k.matches(fd, segs, exact); ok {
-				return k.fill(values)
+				return k, values, true
 			}
 		}
 	}
+	return plannedKey{}, nil, false
+}
+
+// hubSection is the key of the hub's Dev Portal section (a removal of kind
+// hub) whose value on record the difference d removes: a leaf the record
+// carries with a value — not null, not an empty string, mapping or list —
+// that the plan drops or replaces. Empty for every other difference: a leaf
+// the record lacks, one with no value (removing it changes nothing), one
+// that no key or another kind's key names.
+func (ks plannedKeys) hubSection(fd *fileDiff, d *Difference) string {
+	switch {
+	case d.absent, d.Current == "", d.Current == "null", d.Current == "{}", d.Current == "[]":
+		return ""
+	}
+	if k, _, ok := ks.first(fd, d.Path, false); ok && k.hub {
+		return k.key
+	}
 	return ""
+}
+
+// hubSections are the keys of sections in found, in the keys' order: the
+// order the definition lists its removals in.
+func (ks plannedKeys) hubSections(found map[string]bool) []string {
+	var out []string
+	for _, k := range ks {
+		if found[k.key] {
+			out = append(out, k.key)
+		}
+	}
+	return out
 }
 
 // joined is the reason a scalar the plan merges as a comma-separated set

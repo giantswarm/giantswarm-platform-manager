@@ -228,6 +228,7 @@ type Result struct {
 	GeneratedSecrets []plan.GeneratedSecret `json:"generatedSecrets"`
 	SuppliedSecrets  []string               `json:"suppliedSecrets"`
 	SuppliedOnRecord []string               `json:"suppliedOnRecord,omitempty"`
+	HubSections      []string               `json:"hubSections,omitempty"`
 	DexClients       []plan.DexClient       `json:"dexClients"`
 	CustomerActions  []plan.CustomerAction  `json:"customerActions"`
 	Probes           []plan.Probe           `json:"probes"`
@@ -237,7 +238,8 @@ type Result struct {
 // and on record, only when asked for.
 func (r *Result) view(p plan.Installation, content bool) {
 	r.Files, r.Includes, r.Diff = p.Files, p.Includes, p.Diff
-	r.GeneratedSecrets, r.SuppliedSecrets, r.SuppliedOnRecord, r.DexClients, r.CustomerActions, r.Probes = p.GeneratedSecrets, p.SuppliedSecrets, p.SuppliedOnRecord, p.DexClients, p.CustomerActions, p.Probes
+	r.GeneratedSecrets, r.SuppliedSecrets, r.SuppliedOnRecord, r.HubSections = p.GeneratedSecrets, p.SuppliedSecrets, p.SuppliedOnRecord, p.HubSections
+	r.DexClients, r.CustomerActions, r.Probes = p.DexClients, p.CustomerActions, p.Probes
 	if !content {
 		r.Files = make([]plan.File, len(p.Files))
 		for i, f := range p.Files {
@@ -252,7 +254,7 @@ func (r *Result) view(p plan.Installation, content bool) {
 func (r Result) Plan() plan.Installation {
 	return plan.Installation{Name: r.Installation, State: r.State, Inputs: r.Inputs.Values, MissingInputs: r.Inputs.Missing, Refused: r.Refused, CommitRefused: r.CommitRefused,
 		Files: r.Files, Includes: r.Includes, Diff: r.Diff, GeneratedSecrets: r.GeneratedSecrets, SuppliedSecrets: r.SuppliedSecrets, SuppliedOnRecord: r.SuppliedOnRecord,
-		DexClients: r.DexClients, CustomerActions: r.CustomerActions, Probes: r.Probes}
+		HubSections: r.HubSections, DexClients: r.DexClients, CustomerActions: r.CustomerActions, Probes: r.Probes}
 }
 
 // Options shape one verify.
@@ -410,7 +412,9 @@ const Redacted = "<encrypted>"
 // it creates or updates differs at the leaves of the file as the plan
 // writes it that are off the record, each under a key the removals name
 // marked planned, as is each the record lacks under a key the migrations
-// name. The plan is the second answer, the definition's refusal the error.
+// name; the plan names the sections of the hub's Dev Portal whose value on
+// record those removals take (HubSections). The plan is the second answer,
+// the definition's refusal the error.
 func compare(ctx context.Context, opts Options, rms, migs plannedKeys) (*comparison, plan.Installation, error) {
 	rs := &reads{read: opts.Read, got: map[string]read{}}
 	p, base, err := build(ctx, opts, opts.Inputs.Values, rs.reader)
@@ -426,6 +430,7 @@ func compare(ctx context.Context, opts Options, rms, migs plannedKeys) (*compari
 		return other, err
 	})
 	c := &comparison{files: map[string]*fileDiff{}, dexClients: p.DexClients}
+	hub := map[string]bool{}
 	for _, f := range rendered(p) {
 		key := fileKey(f.Repository, f.Path)
 		fd := &fileDiff{key: key, path: f.Path, kind: kindOf(f.Path), documents: flattenLines(f.Content).documents}
@@ -438,11 +443,15 @@ func compare(ctx context.Context, opts Options, rms, migs plannedKeys) (*compari
 			maps.Copy(fd.documents, docs)
 			for i := range fd.diffs {
 				fd.diffs[i].Planned = planned(fd, &fd.diffs[i], rms, migs)
+				if section := rms.hubSection(fd, &fd.diffs[i]); section != "" {
+					hub[section] = true
+				}
 			}
 		}
 		fd.missing = missingLeaves(base[key])
 		c.files[key] = fd
 	}
+	p.HubSections = rms.hubSections(hub)
 	shown(p.Files)
 	return c, p, nil
 }

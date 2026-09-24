@@ -151,6 +151,9 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	if refusal := p.FrozenRefusal(); refusal != "" {
 		return nil, fmt.Errorf("%s: %s: %s; nothing is committed", tool, one, refusal)
 	}
+	if refusal := p.HubRefusal(); refusal != "" {
+		return nil, fmt.Errorf("%s: %s: %s; nothing is committed", tool, one, refusal)
+	}
 	if err := checkSupplied(p.SuppliedSecrets, secrets); err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
 	}

@@ -237,8 +237,8 @@ type Installation struct {
 	// CommitRefused says why a commit of this dry run would be refused (the
 	// definition's refusal, the same sentence as Refused; a choice not on
 	// record; the record's dex-app too old for a referenced Dex client; a
-	// generated value frozen where it cannot rotate); empty when a commit
-	// could go ahead.
+	// generated value frozen where it cannot rotate; a section of the hub's
+	// Dev Portal the commit would remove); empty when a commit could go ahead.
 	CommitRefused    string            `json:"commitRefused,omitempty"`
 	Files            []File            `json:"files"`
 	Includes         []Include         `json:"includes"`
@@ -253,10 +253,15 @@ type Installation struct {
 	// stand on record unchanged: a secret file on record is never generated
 	// again, so the value on record stands, the commit renders the field's
 	// marker, writes none of its files and asks for no value.
-	SuppliedOnRecord []string         `json:"suppliedOnRecord,omitempty"`
-	DexClients       []DexClient      `json:"dexClients"`
-	CustomerActions  []CustomerAction `json:"customerActions"`
-	Probes           []Probe          `json:"probes"`
+	SuppliedOnRecord []string `json:"suppliedOnRecord,omitempty"`
+	// HubSections are the sections of the hub's Dev Portal — the definition's
+	// removals of kind hub, by key — whose value on record the plan removes:
+	// the definition renders no hub shape, so a commit is held while one is
+	// (HubRefusal). The comparison plans their removal all the same.
+	HubSections     []string         `json:"hubSections,omitempty"`
+	DexClients      []DexClient      `json:"dexClients"`
+	CustomerActions []CustomerAction `json:"customerActions"`
+	Probes          []Probe          `json:"probes"`
 	// Diff counts the files by change; an empty diff is every file unchanged.
 	Diff map[Change]int `json:"diff"`
 }

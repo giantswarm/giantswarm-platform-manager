@@ -58,7 +58,8 @@ this order, writing nothing before the gate:
    reason, and the refusal is recorded as an Action in state *refused* (the installation's state read from its
    repositories stands).
 2. **The plan**, as the dry run renders it; a definition's refusal, a file that could not be compared as the
-   person, a generated value frozen where no rotation is possible (below), or a supplied secret left out of
+   person, a generated value frozen where no rotation is possible (below), a section of the hub's Dev Portal on
+   record that a `customer-portal` plan would remove (`hubSections`), or a supplied secret left out of
    `secrets` (or one the plan does not ask for) refuses the commit before any write. Every file on record
    already: nothing to commit, no Action.
 3. **The Action** — created in *pending approval* with the actor, the capability, the installation and the

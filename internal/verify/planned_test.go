@@ -412,6 +412,93 @@ func TestPortalVertexLeftoversArePlanned(t *testing.T) {
 	}
 }
 
+// portalConfigMap is a portal's ConfigMap as its tree keeps it: the chart's
+// values as text under data.values, the app-config as text under
+// backstage.appConfig when appConfig is set.
+func portalConfigMap(name, values string, appConfig bool) string {
+	indent := func(s, by string) string {
+		return by + strings.ReplaceAll(strings.TrimSuffix(s, "\n"), "\n", "\n"+by) + "\n"
+	}
+	if appConfig {
+		values = "backstage:\n  appConfig: |\n" + indent(values, "    ")
+	}
+	return "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: " + name + "\ndata:\n  values: |\n" + indent(values, "    ")
+}
+
+// The hub's Dev Portal on record: every section of it the customer-portal
+// definition's removals of kind hub name — the pages over muster, the
+// incident, CircleCI and scaffolder configuration, the registry's GitHub
+// and container registry access, the Postgres database of the app-config
+// and of the user values — is one the plan removes a value of, named once
+// by its key in the removals' order; the comparison plans each removal as
+// before. A customer's portal whose record carries a section without a
+// value (scaffolder: null, an empty roadmap) or an installation entry the
+// render drops (gs.installations, an ordinary removal) names none.
+func TestHubSectionsThePlanRemoves(t *testing.T) {
+	rs, err := definitions.Removals(installations.CustomerPortal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rms := readRemovals(rs, facts{factDomain: testDomain})
+	const dir = "management-clusters/x/extras/backstage/backstage/"
+	customer := "app:\n  title: Dev Portal\nbackend:\n  database:\n    client: better-sqlite3\n    connection: ':memory:'\ngs:\n  installations:\n    x:\n      baseDomain: x.example.test\n"
+	hubShaped := "app:\n  title: Dev Portal\nbackend:\n  database:\n    client: pg\n    connection:\n      host: postgres\n      port: 5432\n    pluginDivisionMode: schema\n" +
+		"gs:\n  installations:\n    x:\n      baseDomain: x.example.test\n    y:\n      baseDomain: y.example.test\n  github:\n    muster: true\n  containerRegistry:\n    host: registry.example.test\n" +
+		"pagerDuty:\n  eventsBaseUrl: https://events.example.test\nproxy:\n  endpoints:\n    /circleci/api:\n      target: https://circleci.example.test/api\n" +
+		"repositories:\n  muster: true\nplans:\n  muster: true\nroadmap:\n  muster: true\nscaffolder:\n  defaultAuthor:\n    name: Example\n"
+	values := "route:\n  enabled: true\n"
+	hubValues := values + "database:\n  size: 10Gi\n"
+	// sections are the hub sections the plan removes over the portal's two
+	// ConfigMaps on record, as compare names them, and how many differences
+	// a removal plans.
+	sections := func(appConfig, userValues string) ([]string, int) {
+		found, removed := map[string]bool{}, 0
+		for _, f := range []struct{ path, rendered, current string }{
+			{dir + "app-config.yaml", portalConfigMap("app-config-backstage", customer, true), portalConfigMap("app-config-backstage", appConfig, true)},
+			{dir + "user-values.yaml", portalConfigMap("user-values-backstage", values, false), portalConfigMap("user-values-backstage", userValues, false)},
+		} {
+			fd := &fileDiff{key: "r:" + f.path, path: f.path, kind: definitions.KindBackstage}
+			fd.diffs, fd.documents = differences(fd.key, f.rendered, f.current, nil)
+			for i := range fd.diffs {
+				d := &fd.diffs[i]
+				reason := planned(fd, d, rms, nil)
+				if strings.HasPrefix(reason, "Removed: ") {
+					removed++
+				}
+				section := rms.hubSection(fd, d)
+				if section == "" {
+					continue
+				}
+				found[section] = true
+				if !strings.HasPrefix(reason, "Removed: ") {
+					t.Errorf("%s: %s is planned %q, want the removal's reason", section, d.Path, reason)
+				}
+			}
+		}
+		return rms.hubSections(found), removed
+	}
+	want := []string{
+		"backstage:app-config:pagerDuty", "backstage:app-config:proxy.endpoints./circleci/api", "backstage:app-config:repositories",
+		"backstage:app-config:plans", "backstage:app-config:roadmap", "backstage:app-config:scaffolder", "backstage:app-config:gs.github",
+		"backstage:app-config:gs.containerRegistry", "backstage:app-config:backend.database", "backstage:user-values:database",
+	}
+	if got, _ := sections(hubShaped, hubValues); !slices.Equal(got, want) {
+		t.Errorf("the hub's portal:\n got %v\nwant %v", got, want)
+	}
+	for _, tc := range []struct {
+		name, appConfig, userValues string
+		removed                     int // the differences a removal plans
+	}{
+		{"the customer's portal as rendered", customer, values, 0},
+		{"a section on record without a value", customer + "scaffolder: null\nroadmap: {}\n", values + "database: null\n", 3},
+		{"an installation entry the render drops", strings.Replace(customer, "      baseDomain: x.example.test\n", "      baseDomain: x.example.test\n    y:\n      baseDomain: y.example.test\n", 1), values, 1},
+	} {
+		if got, removed := sections(tc.appConfig, tc.userValues); len(got) != 0 || removed != tc.removed {
+			t.Errorf("%s: hub sections %v, %d planned removal(s), want none and %d", tc.name, got, removed, tc.removed)
+		}
+	}
+}
+
 // Every removal key of every capability parses — its prefix names a file
 // kind the comparison observes — and neither the file nor a segment it
 // names carries a space: the parser splits a key's path on dots and
