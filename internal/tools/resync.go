@@ -140,7 +140,7 @@ func (t *Tools) resync(ctx context.Context, c *gh.Client, id *identity.Identity,
 	var posts []string
 
 	// A pull request closed unmerged: the action cannot complete.
-	if len(closed) > 0 && !actions.Terminal(status.State) && status.State != actions.StateFailed {
+	if len(closed) > 0 && !actions.Settled(status.State) && status.State != actions.StateFailed {
 		msg := fmt.Sprintf("%d pull request(s) closed unmerged outside the manager (%s)", len(closed), prList(closed))
 		if open := openPRs(status.PullRequests); len(open) > 0 {
 			msg += fmt.Sprintf("; %d pull request(s) stay open (%s) — %s closes them", len(open), prList(open), ToolDenyAction)

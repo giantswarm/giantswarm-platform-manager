@@ -53,6 +53,19 @@ type fakeGitHub struct {
 	// treeCalls counts the tree requests per owner/repo GitHub answered with
 	// a listing (200); treeChecks every one, the conditional 304s included.
 	treeCalls, treeChecks map[string]int
+	// history is the default branch of owner/repo commit by commit, oldest
+	// first, as the merges built it (mirror); commitCalls counts the commit
+	// reads per owner/repo.
+	history     map[string][]fakeCommit
+	commitCalls map[string]int
+}
+
+// fakeCommit is one commit of a fixture's default branch: its parent, the
+// pull request it merged (0 for a change by hand) and the tree after it.
+type fakeCommit struct {
+	sha, parent string
+	pull        int
+	tree        map[string]string
 }
 
 // fakePull is a pull request as the fake GitHub answers it.
@@ -68,9 +81,11 @@ type fakePull struct {
 // message is the key of GitHub's error bodies; nameKey the name of a file
 // or an object in the fakes' documents.
 const (
-	message = "message"
-	nameKey = "name"
-	shaKey  = "sha"
+	message     = "message"
+	nameKey     = "name"
+	shaKey      = "sha"
+	htmlURLKey  = "html_url"
+	filenameKey = "filename"
 )
 
 // defaultBranch is every fixture repository's default branch.
@@ -86,7 +101,8 @@ const (
 
 func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 	t.Helper()
-	g := &fakeGitHub{logins: logins, files: map[string]map[string]string{}, forbidden: map[string]bool{}, contentsCalls: map[string]int{}, treeCalls: map[string]int{}, treeChecks: map[string]int{}}
+	g := &fakeGitHub{logins: logins, files: map[string]map[string]string{}, forbidden: map[string]bool{}, contentsCalls: map[string]int{}, treeCalls: map[string]int{}, treeChecks: map[string]int{},
+		history: map[string][]fakeCommit{}, commitCalls: map[string]int{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v3/user", func(w http.ResponseWriter, r *http.Request) {
 		g.userCalls.Add(1)
@@ -120,10 +136,10 @@ func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 		t.Errorf("the Contents API was called for %s/%s:%s; the manager reads repositories as trees", r.PathValue("owner"), r.PathValue("repo"), r.PathValue("path"))
 		writeJSON(w, http.StatusInternalServerError, map[string]any{message: "the fake serves no Contents API"})
 	})
-	// The tree of owner/repo at a ref — HEAD for every fixture, whose files
-	// are its default branch — with a weak ETag over the listing, answered
-	// 304 to a matching If-None-Match as GitHub does; a repository that is
-	// not a fixture is 404, one in forbidden 403.
+	// The tree of owner/repo at a ref — a commit of the history, else HEAD,
+	// whose files are its default branch — with a weak ETag over the
+	// listing, answered 304 to a matching If-None-Match as GitHub does; a
+	// repository that is not a fixture is 404, one in forbidden 403.
 	mux.HandleFunc("GET /api/v3/repos/{owner}/{repo}/git/trees/{ref}", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := g.logins[bearer(r)]; !ok {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{message: badCredentials})
@@ -141,6 +157,9 @@ func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 		if !ok {
 			writeJSON(w, http.StatusNotFound, map[string]any{message: notFound})
 			return
+		}
+		if c, found := g.commitLocked(repo, r.PathValue("ref")); found {
+			files = c.tree
 		}
 		body, etag := treeJSON(files)
 		w.Header().Set("ETag", etag)
@@ -202,7 +221,7 @@ func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 			writeJSON(w, http.StatusNotFound, map[string]any{message: notFound})
 			return
 		}
-		doc := map[string]any{"number": number, "state": "open", "merged": false, "html_url": p.URL, "head": map[string]any{shaKey: p.HeadSHA}}
+		doc := map[string]any{"number": number, "state": "open", "merged": false, htmlURLKey: p.URL, "head": map[string]any{shaKey: p.HeadSHA}}
 		switch {
 		case p.Merged:
 			doc["state"], doc["merged"], doc["merge_commit_sha"] = "closed", true, p.MergeCommit
@@ -215,19 +234,132 @@ func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 		}
 		writeJSON(w, http.StatusOK, doc)
 	})
+	// A commit of the history: its first parent and the files it changed
+	// against it, each with its blob after ("added", "modified", "removed").
+	mux.HandleFunc("GET /api/v3/repos/{owner}/{repo}/commits/{sha}", func(w http.ResponseWriter, r *http.Request) {
+		repo, ok := g.readable(w, r)
+		if !ok {
+			return
+		}
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		g.commitCalls[repo]++
+		c, found := g.commitLocked(repo, r.PathValue("sha"))
+		if !found || c.parent == "" {
+			writeJSON(w, http.StatusNotFound, map[string]any{message: notFound})
+			return
+		}
+		parent, _ := g.commitLocked(repo, c.parent)
+		files := []map[string]any{}
+		for _, p := range slices.Sorted(maps.Keys(c.tree)) {
+			switch was, ok := parent.tree[p]; {
+			case !ok:
+				files = append(files, map[string]any{filenameKey: p, statusKey: "added", shaKey: blobSHA(c.tree[p])})
+			case was != c.tree[p]:
+				files = append(files, map[string]any{filenameKey: p, statusKey: "modified", shaKey: blobSHA(c.tree[p])})
+			}
+		}
+		for _, p := range slices.Sorted(maps.Keys(parent.tree)) {
+			if _, kept := c.tree[p]; !kept {
+				files = append(files, map[string]any{filenameKey: p, statusKey: "removed", shaKey: blobSHA(parent.tree[p])})
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{shaKey: c.sha, htmlURLKey: commitURL(repo, c.sha), "parents": []map[string]any{{shaKey: c.parent}}, "files": files})
+	})
+	// The commits of the default branch that changed ?path=, newest first.
+	mux.HandleFunc("GET /api/v3/repos/{owner}/{repo}/commits", func(w http.ResponseWriter, r *http.Request) {
+		repo, ok := g.readable(w, r)
+		if !ok {
+			return
+		}
+		path := r.URL.Query().Get("path")
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		list := []map[string]any{}
+		h := g.history[repo]
+		for i := len(h) - 1; i > 0; i-- {
+			was, had := h[i-1].tree[path]
+			now, has := h[i].tree[path]
+			if had != has || was != now {
+				list = append(list, map[string]any{shaKey: h[i].sha, htmlURLKey: commitURL(repo, h[i].sha)})
+			}
+		}
+		writeJSON(w, http.StatusOK, list)
+	})
+	// The pull requests a commit came through: the one it merged.
+	mux.HandleFunc("GET /api/v3/repos/{owner}/{repo}/commits/{sha}/pulls", func(w http.ResponseWriter, r *http.Request) {
+		repo, ok := g.readable(w, r)
+		if !ok {
+			return
+		}
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		list := []map[string]any{}
+		if c, found := g.commitLocked(repo, r.PathValue("sha")); found && c.pull > 0 {
+			list = append(list, map[string]any{"number": c.pull, htmlURLKey: pullURL(repo, c.pull), "merged_at": time.Now().UTC().Format(time.RFC3339)})
+		}
+		writeJSON(w, http.StatusOK, list)
+	})
 	g.Server = httptest.NewServer(mux)
 	t.Cleanup(g.Close)
 	return g
 }
 
+// readable answers owner/repo of the request when the bearer is known and
+// the fixture readable, else writes GitHub's refusal.
+func (g *fakeGitHub) readable(w http.ResponseWriter, r *http.Request) (string, bool) {
+	if _, ok := g.logins[bearer(r)]; !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]any{message: badCredentials})
+		return "", false
+	}
+	repo := r.PathValue("owner") + "/" + r.PathValue("repo")
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	switch {
+	case g.forbidden[repo]:
+		writeJSON(w, http.StatusForbidden, map[string]any{message: notAccessible})
+		return "", false
+	case g.files[repo] == nil:
+		writeJSON(w, http.StatusNotFound, map[string]any{message: notFound})
+		return "", false
+	}
+	return repo, true
+}
+
+// commitLocked is the commit sha of owner/repo's history. Called with g.mu held.
+func (g *fakeGitHub) commitLocked(repo, sha string) (fakeCommit, bool) {
+	for _, c := range g.history[repo] {
+		if c.sha == sha {
+			return c, true
+		}
+	}
+	return fakeCommit{}, false
+}
+
+func commitURL(repo, sha string) string { return "https://github.example/" + repo + "/commit/" + sha }
+func pullURL(repo string, n int) string {
+	return fmt.Sprintf("https://github.example/%s/pull/%d", repo, n)
+}
+
 // mirror brings the store of owner/repo from the tree before a merge to the
 // tree after it — the files the merge added or changed set, the ones it
-// removed deleted — leaving every other file of the store as it is.
-func (g *fakeGitHub) mirror(repo string, before, after map[string][]byte) {
+// removed deleted — leaving every other file of the store as it is, and
+// records the merge as commit sha of pull request pull on the history, on
+// the store as it was: a store changed by hand since the last merge is a
+// commit of its own first.
+func (g *fakeGitHub) mirror(repo, sha string, pull int, before, after map[string][]byte) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.files[repo] == nil {
 		g.files[repo] = map[string]string{}
+	}
+	h := g.history[repo]
+	if n := len(h); n == 0 || !maps.Equal(h[n-1].tree, g.files[repo]) {
+		parent := ""
+		if n > 0 {
+			parent = h[n-1].sha
+		}
+		h = append(h, fakeCommit{sha: blobSHA(fmt.Sprint(parent, g.files[repo]))[:40], parent: parent, tree: maps.Clone(g.files[repo])})
 	}
 	for p, content := range after {
 		if was, ok := before[p]; !ok || string(was) != string(content) {
@@ -239,6 +371,14 @@ func (g *fakeGitHub) mirror(repo string, before, after map[string][]byte) {
 			delete(g.files[repo], p)
 		}
 	}
+	g.history[repo] = append(h, fakeCommit{sha: sha, parent: h[len(h)-1].sha, pull: pull, tree: maps.Clone(g.files[repo])})
+}
+
+// commits is how often owner/repo's commits were read.
+func (g *fakeGitHub) commits(repo string) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.commitCalls[repo]
 }
 
 // addRepo makes owner/repo a fixture with files.
@@ -610,7 +750,7 @@ func (st *stack) merge(ctx context.Context, remote commit.Remote, pr commit.Pull
 	if err := remote.Merge(ctx, pr); err != nil {
 		return err
 	}
-	st.ghs.mirror(pr.Repository.String(), before, st.remote.Files(pr.Repository, defaultBranch))
+	st.ghs.mirror(pr.Repository.String(), pr.HeadSHA, pr.Number, before, st.remote.Files(pr.Repository, defaultBranch))
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	st.pulls[pullKey(pr.Repository, pr.Number)] = pullFacts{login: login, at: time.Now()}

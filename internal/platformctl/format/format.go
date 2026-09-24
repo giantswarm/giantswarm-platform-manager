@@ -294,6 +294,9 @@ func Action(w io.Writer, a actions.Action) error {
 	if res := a.Status.Result; res != nil {
 		p.f("Result: %s%s%s\n", dash(res.State), reason(res.Message), at(res.At))
 	}
+	if wd := a.Status.Withdrawal; wd != nil {
+		p.f("Withdrawn by %s%s%s\n", dash(wd.By), at(wd.At), reason(wd.Reason))
+	}
 	if a.Status.SyncedAt != nil {
 		p.f("Synced with GitHub%s as %s\n", at(a.Status.SyncedAt), dash(a.Status.SyncedBy))
 	}
@@ -316,7 +319,8 @@ func Action(w io.Writer, a actions.Action) error {
 }
 
 // mergeOf is a pull request's merge or close as recorded: who merged it and
-// when, with the merge commit, or when it was closed unmerged.
+// when, with the merge commit and the revert that took it back, or when it
+// was closed unmerged.
 func mergeOf(pr actions.PullRequest) string {
 	switch pr.State {
 	case actions.PullRequestMerged:
@@ -327,6 +331,12 @@ func mergeOf(pr actions.PullRequest) string {
 		s += at(pr.MergedAt)
 		if pr.MergeCommit != "" {
 			s += " (" + pr.MergeCommit + ")"
+		}
+		if rv := pr.Revert; rv != nil {
+			s += ", reverted by " + rv.Commit
+			if rv.PullRequest > 0 {
+				s += fmt.Sprintf(" (%s#%d %s)", pr.Repository, rv.PullRequest, rv.PullRequestURL)
+			}
 		}
 		return s
 	case actions.PullRequestClosed:

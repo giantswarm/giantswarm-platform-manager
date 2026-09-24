@@ -54,15 +54,19 @@ type Files struct {
 	lru   *list.List
 	bytes int
 
-	// flights coalesces concurrent fetches of one blob, across calls: the
-	// content is the SHA's whoever fetches it.
+	// changes are the merge commits' changes by owner/repo@sha: a commit
+	// never changes, so each is read once (change).
+	changes map[string]MergeChange
+
+	// flights coalesces concurrent fetches of one blob or one commit's
+	// change, across calls: the content is the SHA's whoever fetches it.
 	flights singleflight.Group
 }
 
 // NewFiles is an empty cache whose validations stand for freshness; zero
 // validates every call's first read of a repository.
 func NewFiles(freshness time.Duration) *Files {
-	return &Files{freshness: freshness, maxBytes: blobCacheBytes, now: time.Now, trees: map[treeKey]*tree{}, blobs: map[string]*list.Element{}, lru: list.New()}
+	return &Files{freshness: freshness, maxBytes: blobCacheBytes, now: time.Now, trees: map[treeKey]*tree{}, blobs: map[string]*list.Element{}, lru: list.New(), changes: map[string]MergeChange{}}
 }
 
 // treeKey names a repository's listing: owner/repo at a ref.
@@ -192,16 +196,11 @@ func (f *Files) fetch(ctx context.Context, c *Client, key treeKey, owner, repo, 
 	f.mu.Lock()
 	known := f.trees[key]
 	f.mu.Unlock()
-	u := fmt.Sprintf("repos/%s/%s/git/trees/%s?recursive=1", owner, repo, url.PathEscape(ref))
-	req, err := c.NewRequest(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, err
-	}
+	etag := ""
 	if known != nil {
-		req.Header.Set("If-None-Match", known.etag)
+		etag = known.etag
 	}
-	var body github.Tree
-	resp, err := c.Do(req, &body)
+	body, resp, err := treeAt(ctx, c, owner, repo, ref, etag)
 	now := f.now()
 	if err != nil {
 		var er *github.ErrorResponse
@@ -215,7 +214,7 @@ func (f *Files) fetch(ctx context.Context, c *Client, key treeKey, owner, repo, 
 		return nil, classify(err)
 	}
 	if body.GetTruncated() {
-		return nil, fmt.Errorf("GitHub truncates the tree of %s/%s at %s (over 100,000 entries or 7 MB), and the manager reads a repository as one tree", owner, repo, ref)
+		return nil, truncated(owner, repo, ref)
 	}
 	t := &tree{etag: resp.Header.Get("ETag"), sha: body.GetSHA(), entries: make(map[string]entry, len(body.Entries)), validated: map[string]time.Time{c.person: now}, used: now}
 	for _, e := range body.Entries {
@@ -230,6 +229,26 @@ func (f *Files) fetch(ctx context.Context, c *Client, key treeKey, owner, repo, 
 	}
 	f.mu.Unlock()
 	return t, nil
+}
+
+// treeAt asks GitHub for the recursive tree of owner/repo at ref as the
+// person, conditionally on etag when one is given.
+func treeAt(ctx context.Context, c *Client, owner, repo, ref, etag string) (github.Tree, *github.Response, error) {
+	u := fmt.Sprintf("repos/%s/%s/git/trees/%s?recursive=1", owner, repo, url.PathEscape(ref))
+	req, err := c.NewRequest(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return github.Tree{}, nil, err
+	}
+	if etag != "" {
+		req.Header.Set("If-None-Match", etag)
+	}
+	var body github.Tree
+	resp, err := c.Do(req, &body)
+	return body, resp, err
+}
+
+func truncated(owner, repo, ref string) error {
+	return fmt.Errorf("GitHub truncates the tree of %s/%s at %s (over 100,000 entries or 7 MB), and the manager reads a repository as one tree", owner, repo, ref)
 }
 
 // blob is the content of sha in owner/repo: cached, or fetched once however

@@ -105,9 +105,9 @@ spec:
               type: object
               properties:
                 state:
-                  description: The action's state, one of the installations' states an action produces, or the action's own — refused (the gate refused it before any write — the installation unreadable as the person, or without repositories on record), denied (a member withdrew it), removed (the fileset it wrote left the default branch again).
+                  description: The action's state, one of the installations' states an action produces, or the action's own — refused (the gate refused it before any write — the installation unreadable as the person, or without repositories on record), denied (a member withdrew it before its merge), reverted (a merged pull request of it was reverted on the default branch), withdrawn (its actor withdrew it after the merge, with the reason), removed (the fileset it wrote left the default branch again).
                   type: string
-                  enum: ["pending approval", "rolling out", "waiting for the customer", enabled, drifted, failed, refused, denied, removed]
+                  enum: ["pending approval", "rolling out", "waiting for the customer", enabled, drifted, failed, refused, denied, reverted, withdrawn, removed]
                 pullRequests:
                   type: array
                   items:
@@ -125,6 +125,16 @@ spec:
                       mergedAt: {type: string, format: date-time}
                       mergedBy: {type: string}
                       closedAt: {type: string, format: date-time}
+                      revert:
+                        description: The commit on the default branch that brought every file the merge changed back to its content before the merge, with the pull request it came through when GitHub links one.
+                        type: object
+                        required: [commit]
+                        properties:
+                          commit: {type: string}
+                          url: {type: string}
+                          pullRequest: {type: integer}
+                          pullRequestUrl: {type: string}
+                          at: {type: string, format: date-time}
                 rotated:
                   description: The generated values the commit drew anew over a value on record, by name — a new file needed a value frozen in an existing encrypted file, so every file of the name got the new one.
                   type: array
@@ -204,4 +214,12 @@ spec:
                       kind: {type: string}
                       namespace: {type: string}
                       name: {type: string}
+                withdrawal:
+                  description: The actor's withdrawal of a merged action that failed or was reverted — who, why and when; the review's thread carries the same.
+                  type: object
+                  required: [by, reason]
+                  properties:
+                    by: {type: string}
+                    reason: {type: string}
+                    at: {type: string, format: date-time}
 {{- end }}

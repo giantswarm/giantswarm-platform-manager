@@ -322,7 +322,7 @@ func newActionApproveCmd() *cobra.Command {
 }
 
 func newActionDenyCmd() *cobra.Command {
-	return actionByName("deny", "Deny an action as you, with the reason", tools.ToolDenyAction, true, func(stdout io.Writer, raw json.RawMessage) error {
+	return actionByName("deny", "Deny an action as you, with the reason; its actor withdraws a merged one that failed or was reverted", tools.ToolDenyAction, true, func(stdout io.Writer, raw json.RawMessage) error {
 		var d tools.Decision
 		if err := decode(raw, &d); err != nil {
 			return err
@@ -377,7 +377,7 @@ func actionByName(name, short, tool string, withReason bool, show func(stdout io
 	})
 	c.flags(cmd)
 	if withReason {
-		cmd.Flags().StringVar(&reason, tools.ArgReason, "", "why the action is denied (required)")
+		cmd.Flags().StringVar(&reason, tools.ArgReason, "", "why the action is denied or withdrawn (required)")
 		completeFlag(cmd, tools.ArgReason, cobra.NoFileCompletions)
 	}
 	return cmd
