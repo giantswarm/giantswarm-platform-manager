@@ -10,7 +10,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -1001,27 +1000,27 @@ func (x *executor) logAbsent(ctx context.Context, c *Check, p render.Probe) erro
 	return nil
 }
 
-// answer sends the anonymous request of the HTTP probe p and holds the answer
-// against the expectation, into c: not checked with ReasonUnreachable naming
-// the host and the transport's error as the detail when there was none.
+// answer sends the anonymous request of the HTTP probe p (get) and holds the
+// answer against the expectation, into c: not checked with ReasonUnreachable
+// naming the host and the transport's error as the detail when there was none.
 func (pr *prober) answer(ctx context.Context, c *Check, p render.Probe) {
-	resp, err := pr.do(ctx, p.URL)
+	r, err := pr.get(ctx, p.URL, p.Expect.DexConnectorStep)
 	if err != nil {
 		c.Mark, c.Message, c.Detail = NotChecked, unreachable(p.URL), strings.TrimSpace(err.Error())
 		return
 	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-	_ = resp.Body.Close()
-	c.Message = strconv.Itoa(resp.StatusCode)
+	c.Message = r.String()
 	switch {
-	case p.Expect.Status != 0 && resp.StatusCode != p.Expect.Status:
-		c.Mark, c.Message = Drifted, fmt.Sprintf("%d, expected %d", resp.StatusCode, p.Expect.Status)
-	case len(p.Expect.Statuses) > 0 && !slices.Contains(p.Expect.Statuses, resp.StatusCode):
-		c.Mark, c.Message = Drifted, fmt.Sprintf("%d, expected one of %v", resp.StatusCode, p.Expect.Statuses)
-	case p.Expect.LocationContains != "" && !strings.Contains(resp.Header.Get("Location"), p.Expect.LocationContains):
-		c.Mark, c.Message = Drifted, fmt.Sprintf("%d, Location %q does not contain %q", resp.StatusCode, resp.Header.Get("Location"), p.Expect.LocationContains)
-	case p.Expect.BodyContains != "" && !strings.Contains(string(body), p.Expect.BodyContains):
-		c.Mark, c.Message = Drifted, fmt.Sprintf("%d, body does not contain %q", resp.StatusCode, p.Expect.BodyContains)
+	case r.fault != "":
+		c.Mark, c.Message = Drifted, fmt.Sprintf("%s: %s", r, r.fault)
+	case p.Expect.Status != 0 && r.status != p.Expect.Status:
+		c.Mark, c.Message = Drifted, fmt.Sprintf("%s, expected %d", r, p.Expect.Status)
+	case len(p.Expect.Statuses) > 0 && !slices.Contains(p.Expect.Statuses, r.status):
+		c.Mark, c.Message = Drifted, fmt.Sprintf("%s, expected one of %v", r, p.Expect.Statuses)
+	case p.Expect.LocationContains != "" && !strings.Contains(r.location, p.Expect.LocationContains):
+		c.Mark, c.Message = Drifted, fmt.Sprintf("%s, Location %q does not contain %q", r, r.location, p.Expect.LocationContains)
+	case p.Expect.BodyContains != "" && !strings.Contains(string(r.body), p.Expect.BodyContains):
+		c.Mark, c.Message = Drifted, fmt.Sprintf("%s, body does not contain %q", r, p.Expect.BodyContains)
 	default:
 		c.Mark = AsDefined
 	}

@@ -57,10 +57,7 @@ func (in *Input) probes() []render.Probe {
 			}))
 	}
 	for _, c := range in.dexRedirectClients() {
-		p = append(p, httpProbe("live-dex-auth-per-client", featureIdentity, in.dexAuthURL(c), render.Expectation{
-			Statuses: []int{200, 302},
-			Note:     "Dex answers a client it knows with its login page (several connectors) or a redirect to the one connector; an unknown client is an error page",
-		}))
+		p = append(p, render.DexAuthProbe("live-dex-auth-per-client", featureIdentity, in.host("dex"), c.id, c.redirectURI))
 	}
 	for _, c := range in.dexSecretClients() {
 		p = append(p, render.DexSecretLoadedProbe(dexSecretsLoadedDimension, featureIdentity, dexNamespace, c.secret, c.client))
@@ -193,13 +190,6 @@ func (in *Input) dexRedirectClients() []dexRedirectClient {
 		clients = append(clients, dexRedirectClient{id: render.PortalDexClientID, redirectURI: render.PortalRedirectURI(p.Domain, in.Installation.Name)})
 	}
 	return clients
-}
-
-// dexAuthURL is the authorization request Dex answers for a client it
-// knows: its login page when several connectors are configured, a redirect
-// to the one connector otherwise, never an error page.
-func (in *Input) dexAuthURL(c dexRedirectClient) string {
-	return "https://" + in.host("dex") + "/auth?client_id=" + c.id + "&redirect_uri=" + c.redirectURI + "&response_type=code&scope=openid"
 }
 
 // dexSecretsLoadedDimension is the live dimension of Dex holding the current

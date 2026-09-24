@@ -409,12 +409,19 @@ func newFakeProbes(t *testing.T) *fakeProbes {
 	return f
 }
 
+// fakeDexConnector is the one connector of every installation's Dex here.
+const fakeDexConnector = "github"
+
 // expectedAnswer is what a healthy installation answers an anonymous probe:
-// the status, the Location of a redirect, the body.
+// the status, the Location of a redirect, the body. Dex has one connector:
+// /auth redirects to it with the request's query, and the connector answers
+// with a redirect to the identity provider.
 func expectedAnswer(host string, r *http.Request) (int, string, string) {
 	switch {
 	case strings.HasPrefix(host, "dex.") && r.URL.Path == "/auth" && r.URL.Query().Get("client_id") != "":
-		return http.StatusFound, "", ""
+		return http.StatusFound, "/auth/" + fakeDexConnector + "?" + r.URL.RawQuery, ""
+	case strings.HasPrefix(host, "dex.") && r.URL.Path == "/auth/"+fakeDexConnector && r.URL.Query().Get("client_id") != "":
+		return http.StatusFound, "https://github.example/login/oauth/authorize", ""
 	case strings.HasPrefix(host, "kagent.") && r.URL.Path == "/api/agents":
 		return http.StatusForbidden, "", ""
 	case strings.HasPrefix(host, "kagent.") && r.URL.Path == "/oauth2/start":
