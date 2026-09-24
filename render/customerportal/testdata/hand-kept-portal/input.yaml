@@ -1,0 +1,71 @@
+# A Giant Swarm-owned portal with the agent platform enabled, moving onto the
+# definition from a hand-kept app-config: the record lists its extensions one
+# by one and carries the platform's section itself (its muster registry, the
+# kagent installation and the skill repositories, the AI chat's blocks), and
+# the agent-platform Component's fragment on record is in the hand-kept shape,
+# its object-shaped keys alone and no extension list. So the app-config keeps
+# the section as the record carries it and includes the shared list with the
+# platform's section, the chat's entries and the Grafana dashboards card (the
+# plugin is wired), until the fragment owns the lists. Invented names,
+# placeholder values.
+input:
+  installation:
+    name: gopher
+    baseDomain: gopher.example.io
+    customer: giantswarm
+    provider: capa
+    pipeline: testing
+    agentPlatform: true
+  portal:
+    domain: portal.gopher.example.io
+    organization: Example
+  chart:
+    line: ">=2.1.0 <3.0.0"
+  plugins:
+    github:
+      enabled: false
+    grafana:
+      enabled: true
+    flux:
+      enabled: false
+    sentry:
+      enabled: false
+  tunnel:
+    enabled: false
+  platformSection:
+    componentLists: false
+    aiChat: true
+    appConfig:
+      muster:
+        installations:
+          - name: gopher
+            url: https://muster.gopher.example.io/mcp
+            authProvider: oidc-gopher
+      agentPlatform:
+        kagent:
+          installations:
+            gopher: {}
+        skills:
+          repositories:
+            - https://github.com/example/agent-skills
+      aiChat:
+        anthropic:
+          apiKey: $${ANTHROPIC_API_KEY}
+        model: claude-opus-4-8
+        mcp:
+          - name: backstage-actions
+            url: https://portal.gopher.example.io/api/mcp-actions/v1
+            useBackstageUserToken: true
+          - name: muster
+            url: https://muster.gopher.example.io/mcp
+            authProvider: oidc-gopher
+      mcpActions:
+        namespacedToolNames: false
+      backend:
+        actions:
+          pluginSources: [auth, catalog, gs]
+          filter:
+            exclude:
+              - id: gs:get-pagerduty-ids-for-entity
+secrets:
+  plugins.grafana.token: placeholder-grafana-token

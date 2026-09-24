@@ -6,7 +6,7 @@ drops, the consistency features and the anonymous probes. Data only; the render 
 | File | What it is |
 |---|---|
 | `schema.json` | JSON Schema (draft 2020-12, `additionalProperties: false`) of the inputs. Every leaf input carries `x-source` (registry, person or generated), `x-feature` and `x-renders`: the key paths of the fileset it produces. `x-files` names the repository file each fileset key is read back from; a person input carries `x-readback` (file; key, one path or a list the first on record answers from, a list step an index or a `[key=value]` selector; kind `value`, `present`, `host`, `installation` — the installation whose base domain the URL's host is under the service label `prefix` names — or `file`; prefix) where the record can answer it, and says why where it cannot. A default is declared only where every portal agrees. |
-| `removals.yaml` | Keys a portal installation carries today that no input renders, each with the reason it is dropped and its kind: the agent-platform definition renders it as its Component, or it is a section of the hub's Dev Portal that no shape renders yet (`hub`: a commit that would remove one with a value is refused). |
+| `removals.yaml` | Keys a portal installation carries today that no input renders, each with the reason it is dropped and its kind: the agent-platform definition renders it as its Component (`other-definition`: every such key is one that definition renders, and the portal's app-config keeps it until the Component's fragment owns the portal's lists), or it is a section of the hub's Dev Portal that no shape renders yet (`hub`: a commit that would remove one with a value is refused). |
 | `migrations.yaml` | Keys the definition renders that a portal enabled before a migration lacks, each with the migration that adds it: the portal's Dex client Secret, its user secrets and its plugin keys as SOPS-encrypted files of its directory with their kustomization entries, and the `type` every rendered Secret states (M33), the agent-platform definition's Component in its kustomization (M3). A leaf the record lacks under one of them is a planned change, not drift. |
 | `features.yaml` | The consistency features and the dimensions each one rolls up, one mark per feature, every dimension exactly once. A file dimension's key names the files and YAML paths it observes, in the grammar the file's header documents; the comparison routes every difference to the dimension that names it most specifically, to the kind's dimension marked `catchAll: true` when none does, and reports what no dimension names under the feature `other`. The `kind: live` dimensions are the definition's probes of the running portal: the render carries one or more probes per live dimension as data (`Result.Probes`), and the verify slice executes them. |
 | `probes.yaml` | The anonymous HTTP probes: the home page, the start of the sign-in, Dex's answer to the portal's client. Templates over the installation's base domain and codename and the portal's domain. |
@@ -87,12 +87,24 @@ Key paths in `x-renders`, `removals.yaml` and `migrations.yaml` are normalised: 
   secret (the Dex client's Secret carries the same secret raw); a federated installation's and the broker's
   credentials, the Sentry values and the Grafana token are supplied raw and encoded by the render.
 - The portal's agent-platform section is the agent-platform definition's: its fragment, values and Google
-  credentials are files of its own Component next to the portal's, listed by this definition's kustomization
-  and never written into the portal's files. The portal includes the shared extensions list without the
-  platform's section, with the Grafana dashboards card where the plugin is wired (`#extensionsGrafanaDashboards`:
-  the card is disabled in the app until a portal opts in through its list); the Component's fragment includes the
-  platform's pair over it, reading the wiring off the record. A portal that lists its extensions one by one today has
-  them replaced by the include: the entries are an `other-definition` removal, planned next to the include. The portal's environment stays the portal's: `backstage.extraEnvVars`
+  credentials are files of its own Component next to the portal's, listed by this definition's kustomization.
+  The portal includes the shared extensions list without the platform's section, with the Grafana dashboards card
+  where the plugin is wired (`#extensionsGrafanaDashboards`: the card is disabled in the app until a portal opts in
+  through its list); the Component's fragment includes the platform's pair over it, reading the wiring off the
+  record. That holds once the fragment on record owns the portal's lists (`platformSection.componentLists`: it
+  carries `app.extensions`), which it does where the portal is not hand-kept. Until then — a hand-kept portal, whose
+  Component writes its object-shaped keys alone, or a Component not rendered yet — the portal's app-config keeps the
+  section as the record carries it (`platformSection.appConfig`: the muster registry, `agentPlatform.kagent`,
+  `agentPlatform.skills`, the chat's `aiChat`, `mcpActions` and `backend.actions`) and includes the list with the
+  platform's section itself (`#extensionsAgentPlatform`, `#extensionsAgentPlatformAiChat` where the fragment or the
+  app-config carries the chat, `platformSection.aiChat`, each with its `GrafanaDashboards` pair). So moving a
+  hand-kept portal onto the definition takes three actions and the running portal keeps its platform section at
+  every step: this definition's commit replaces the literal extension list with the include and keeps the rest;
+  the agent-platform reconcile that follows finds the portal no longer hand-kept and takes the lists over, the skill
+  repositories and the chat read back from the app-config; this definition's next reconcile hands the section over,
+  its keys planned as `other-definition` removals (*Moved*), the include as *Changed*. `platformSection` is read on
+  every comparison from the portal's app-config and the fragment on record (`backstage:agent-platform/app-config` in
+  `x-files`), never typed. The portal's environment stays the portal's: `backstage.extraEnvVars`
   is one list Helm replaces wholesale across the HelmRelease's values sources (the shared base's default, the
   portal's user-values, the Component's values), so the user-values are its one owner — the avatars host of
   every installation the portal shows that runs the platform as the CSP image source

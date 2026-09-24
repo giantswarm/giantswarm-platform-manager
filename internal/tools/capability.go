@@ -329,7 +329,7 @@ func mergeInputs(ctx context.Context, def installations.Capability, r installati
 	}
 	merged[installations.InputsInstallation] = facts
 	if def.RecordInputs != nil {
-		record, err := def.RecordInputs(r)
+		record, err := def.RecordInputs(ctx, r, read)
 		if err != nil {
 			return nil, nil, err
 		}

@@ -1,6 +1,8 @@
 package customerportal
 
 import (
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/giantswarm/giantswarm-platform-manager/render"
@@ -96,7 +98,47 @@ func (in *Input) appConfig() render.Map {
 		}
 		m = append(m, e("flux", flux))
 	}
-	return append(m, e("gs", in.gsSection()), e("catalog", include("catalog")))
+	m = append(m, e("gs", in.gsSection()), e("catalog", include("catalog")))
+	if in.keepsPlatformSection() {
+		m = layOver(m, in.PlatformSection.AppConfig)
+	}
+	return m
+}
+
+// keepsPlatformSection says whether the portal's app-config keeps the
+// agent-platform section: the platform runs on the installation and its
+// Component's fragment on record does not own the portal's lists yet — the
+// portal is hand-kept, so the Component writes its object-shaped keys alone,
+// or the Component is not rendered yet. Backstage takes a list whole from the
+// later file, and the fragment's is the later one only once it carries one.
+// Until then the app-config keeps the section as the record carries it
+// (platformSection.appConfig: the muster registry, the agentPlatform keys, the
+// chat's blocks) and includes the extension list with the platform's section,
+// so neither this definition's commit nor the agent-platform reconcile that
+// takes the lists over leaves the running portal without them; once the
+// fragment carries the lists, the next reconcile hands the section over.
+func (in *Input) keepsPlatformSection() bool {
+	return in.Installation.AgentPlatform && !in.PlatformSection.ComponentLists
+}
+
+// layOver lays the record's keys over the rendered mapping m: a key m lacks
+// is appended with the record's value, in key order; a mapping both carry
+// takes the record's keys beneath it the same way; any other key m carries is
+// the definition's and stays.
+func layOver(m render.Map, record map[string]any) render.Map {
+	for _, key := range slices.Sorted(maps.Keys(record)) {
+		i := slices.IndexFunc(m, func(entry render.Entry) bool { return entry.Key == key })
+		if i < 0 {
+			m = append(m, e(key, record[key]))
+			continue
+		}
+		rendered, isMap := m[i].Value.(render.Map)
+		over, overMap := record[key].(map[string]any)
+		if isMap && overMap {
+			m[i].Value = layOver(rendered, over)
+		}
+	}
+	return m
 }
 
 // grafanaSection is grafana: the one host the plugin links, the
@@ -116,11 +158,16 @@ func (in *Input) grafanaSection() render.Map {
 // fragment includes the list with it where the platform runs, and Backstage
 // takes the later file's list whole — with the Grafana dashboards card
 // switched on where the plugin is wired: the card is disabled in the app
-// until a portal that carries the proxy entry opts in.
+// until a portal that carries the proxy entry opts in. While the app-config
+// keeps the platform's section (keepsPlatformSection) the list is the one
+// with it, with the chat's entries where the portal runs the chat: the
+// fragment carries none yet.
 func (in *Input) appSection() render.Map {
+	keep := in.keepsPlatformSection()
+	extensions := render.PortalExtensionsInclude(keep, keep && in.PlatformSection.AIChat, in.Plugins.Grafana.Enabled)
 	app := render.Map{
 		e("title", in.Portal.Title), e("baseUrl", in.portalURL()),
-		e("extensions", render.Map{e("$include", render.PortalExtensionsInclude(false, false, in.Plugins.Grafana.Enabled))}), e("routes", include("routes")),
+		e("extensions", render.Map{e("$include", extensions)}), e("routes", include("routes")),
 	}
 	if in.Plugins.Sentry.Enabled {
 		app = append(app, e("errorReporter", sentryReporter("SENTRY_DSN_APP")))

@@ -48,8 +48,13 @@ reconciles the portal), and a patch appending those sources to the portal HelmRe
 platform's values win. The fragment carries the platform's section, and on a portal the customer-portal
 definition renders the shared extension list with the platform's section and the installation's muster entry;
 Backstage and Helm replace lists wholesale, so on a hand-kept portal (a literal `app.extensions` on record) the
-Component writes its object-shaped keys alone and the portal's own lists stand, and the portal's environment
-(`backstage.extraEnvVars`) is the customer-portal definition's on every portal. With the chat on, the fragment
+Component writes its object-shaped keys alone and the portal's own lists stand — and the skill repositories
+(`skills.repositories`, the person's third choice, read back from the fragment, else from the portal's own
+app-config), a list that is the portal's own — and the portal's environment
+(`backstage.extraEnvVars`) is the customer-portal definition's on every portal. The customer-portal definition
+keeps the platform's section in the portal's app-config, the extension list with it included by anchor, until the
+fragment on record owns the portal's lists (its `platformSection`), so moving a hand-kept portal onto that
+definition never leaves the running portal without the section. With the chat on, the fragment
 carries the `aiChat` block — on Anthropic's API with the key from the chart's environment, or on Vertex AI
 (`aiChat.provider: vertex`) with the provider, the Google project, region and the mounted credentials file, the
 project and region in the Component's values too, which the chart exports — with the model and the chat's two MCP
