@@ -632,17 +632,18 @@ func doc(domain, customer string, serving bool) map[string]any {
 // x-source person leaves and every leaf typed for the call, a fact among
 // them. The record's facts are not among them.
 func TestDrivenInputsAreThePersonsAndTheTyped(t *testing.T) {
+	const skillsInput = "skills.repositories"
 	def, ok := installations.FindCapability(installations.AgentPlatform)
 	if !ok {
 		t.Fatal("no agent-platform definition")
 	}
 	chatInputs := []string{"aiChat.enabled", "aiChat.google.location", "aiChat.google.project", "aiChat.model", "aiChat.provider"}
 	got, err := drivenInputs(def, Inputs{Values: doc("a.test", "acme", true)})
-	if err != nil || !reflect.DeepEqual(got, append(slices.Clone(chatInputs), servingInput)) {
+	if err != nil || !reflect.DeepEqual(got, append(slices.Clone(chatInputs), servingInput, skillsInput)) {
 		t.Errorf("from the record: %v %v", got, err)
 	}
 	got, err = drivenInputs(def, Inputs{Values: doc("a.test", "acme", true), Typed: doc("b.test", "acme", false)})
-	if err != nil || !reflect.DeepEqual(got, append(slices.Clone(chatInputs), baseDomainInput, customerInput, servingInput)) {
+	if err != nil || !reflect.DeepEqual(got, append(slices.Clone(chatInputs), baseDomainInput, customerInput, servingInput, skillsInput)) {
 		t.Errorf("with facts typed: %v %v", got, err)
 	}
 }

@@ -93,6 +93,48 @@ func TestPortalFragmentExtensions(t *testing.T) {
 	}
 }
 
+// The fragment carries the skill repositories the person lists under
+// agentPlatform.skills.repositories, on a rendered portal and on a hand-kept
+// one alike — there the list is read back from the portal's own app-config,
+// so the list the fragment sets is the portal's — beside the kagent
+// installation where kagent runs, and alone where it does not; none listed,
+// no key, the plugin's empty default. Listed without a portal to carry them,
+// the input is refused.
+func TestPortalFragmentSkills(t *testing.T) {
+	const portal2x = ">=2.1.0 <3.0.0"
+	repositories := []string{"https://github.com/example/agent-skills", "https://github.com/example/more-skills"}
+	for _, tc := range []struct {
+		name         string
+		handKept     bool
+		kagent       bool
+		repositories []string
+		want         []string
+	}{
+		{"rendered portal", false, true, repositories, repositories},
+		{"hand-kept portal", true, true, repositories, repositories},
+		{"without kagent", false, false, repositories, repositories},
+		{"none listed", false, true, nil, nil},
+	} {
+		in := &Input{Installation: Installation{Name: testPortalHost, Customer: testOrganisation, Portals: []PortalRef{{Installation: testPortalHost, Customer: testOrganisation, HandKept: tc.handKept, ChartLine: portal2x}}},
+			Components: map[string]bool{componentKagent: tc.kagent}, SkillRepositories: tc.repositories}
+		platform, _ := fragmentValue(in.portalAppConfig(), "agentPlatform").(render.Map)
+		skills, _ := fragmentValue(platform, "skills").(render.Map)
+		if got, _ := fragmentValue(skills, "repositories").([]string); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: agentPlatform.skills.repositories %v, want %v", tc.name, got, tc.want)
+		}
+		if kagent := fragmentValue(platform, "kagent") != nil; kagent != tc.kagent {
+			t.Errorf("%s: agentPlatform.kagent rendered %v, want %v", tc.name, kagent, tc.kagent)
+		}
+		if platform == nil && (tc.kagent || len(tc.want) > 0) || platform != nil && !tc.kagent && len(tc.want) == 0 {
+			t.Errorf("%s: agentPlatform %v", tc.name, platform)
+		}
+	}
+	in := &Input{Installation: Installation{Name: testPortalHost, Customer: testOrganisation}, SkillRepositories: repositories}
+	if err := in.checkRecord(); err == nil || !strings.Contains(err.Error(), "skills.repositories") || !errors.Is(err, ErrInput) {
+		t.Errorf("skill repositories without a portal: %v", err)
+	}
+}
+
 // fragmentValue is the value of key in m, nil where m has no such entry.
 func fragmentValue(m render.Map, key string) any {
 	for _, entry := range m {

@@ -1,0 +1,34 @@
+# Rendered by giantswarm-platform-manager, customer-portal definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: user-values-backstage
+  namespace: flux-giantswarm
+data:
+  values: |
+    route:
+      enabled: true
+      parentRefs:
+        - name: giantswarm-default
+          namespace: envoy-gateway-system
+      hostnames:
+        - portal.gopher.example.io
+      backendTrafficPolicy:
+        enabled: true
+        spec:
+          tcpKeepalive:
+            idleTime: 60s
+            interval: 30s
+            probes: 3
+          timeout:
+            http:
+              connectionIdleTimeout: 1h
+              maxStreamDuration: 0s
+              requestTimeout: 0s
+            tcp:
+              connectTimeout: 10s
+    backstage:
+      extraEnvVars:
+        - name: BACKSTAGE_AVATARS_IMG_SRC
+          value: https://avatars.gopher.example.io

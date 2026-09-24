@@ -83,6 +83,11 @@ type Input struct {
 	// AIChat is the person's other choice: the portal's AI chat, in the
 	// platform's portal section (portal.go).
 	AIChat AIChat
+	// SkillRepositories are the repositories the portal's agent creation
+	// discovers skills in (skills.repositories), in the platform's portal
+	// section: the person's third choice, read back from the portal's files
+	// on record.
+	SkillRepositories []string
 	// Components are the components the policy gives the installation, by
 	// name: its organisation's list and, where the policy names a Slack app
 	// for the installation, the chat gateway.
@@ -391,6 +396,9 @@ type document struct {
 		Enabled bool `json:"enabled"`
 	} `json:"modelServing"`
 	AIChat AIChat `json:"aiChat"`
+	Skills struct {
+		Repositories []string `json:"repositories"`
+	} `json:"skills"`
 }
 
 // Parse validates raw against the schema and resolves the inputs: the record
@@ -401,9 +409,10 @@ type document struct {
 // stands (a hub without its broker client, a private target on a hub without a
 // published service-account issuer, the serving slice or a component of the 4
 // chart line on a record that selects the 3 line, kagent on the 4 line where
-// the cluster does not serve PodCertificateRequest, the chat on an
-// installation whose organisation hosts no portal for it, without a model,
-// or on Vertex without its Google project or location) is ErrInput too.
+// the cluster does not serve PodCertificateRequest, the chat or skill
+// repositories on an installation whose organisation hosts no portal for
+// them, the chat without a model, or on Vertex without its Google project or
+// location) is ErrInput too.
 func Parse(raw any) (*Input, error) {
 	schemaBytes, err := definitions.FS.ReadFile("agent-platform/schema.json")
 	if err != nil {
@@ -444,7 +453,8 @@ func Parse(raw any) (*Input, error) {
 	if err != nil {
 		return nil, err
 	}
-	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, AIChat: d.AIChat, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport}
+	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories,
+		Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport}
 	if in.Components, err = pol.components(in.Installation); err != nil {
 		return nil, err
 	}
@@ -548,6 +558,9 @@ func (in *Input) checkRecord() error {
 	}
 	if in.AIChat.Enabled && in.hostedPortal() == nil {
 		return refuse(describe("aiChat.enabled") + " asks for the chat in the developer portal's agent-platform section, and no portal carries one for this installation: the record lists no portal hosted on it, nor its organisation's on a sibling that is not hand-kept")
+	}
+	if len(in.SkillRepositories) > 0 && in.hostedPortal() == nil {
+		return refuse(describe("skills.repositories") + " lists the skill repositories of the developer portal's agent-platform section, and no portal carries one for this installation: the record lists no portal hosted on it, nor its organisation's on a sibling that is not hand-kept")
 	}
 	if in.AIChat.Enabled && in.AIChat.Model == "" {
 		return refuse(describe("aiChat.model") + " is empty; the chat answers with one model, and the schema's default stands where none is typed")

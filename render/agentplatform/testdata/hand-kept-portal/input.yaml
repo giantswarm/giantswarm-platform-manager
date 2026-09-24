@@ -4,12 +4,14 @@
 # therefore renders in the hand-kept shape — the object-shaped keys only (its kagent installation,
 # the fragment's mount, and the chat's blocks, read back from the portal's app-config: the aiChat
 # block, the actions server's tool naming and its actions, no extension list) — because a list it
-# set would replace the portal's own. The chat is hand-kept too (handKeptChat: the app-config
-# carries the aiChat block), so the portal's environment supplies the key: the Component renders no
-# credentials Secret and nothing is supplied at commit, and a wave reconciles the portal. Beside its own
-# portal the hub's ("aspen") signs it in; that portal is hand-kept too and takes no other
-# installation's Component. Otherwise the giantswarm-owned shape: the components the policy gives
-# the organisation, no Slack app, no serving slice. Invented names, placeholder values.
+# set would replace the portal's own; the skill repositories are the one list it sets, read back from
+# the portal's own app-config, so the list the fragment carries is the portal's. The chat is hand-kept
+# too (handKeptChat: the app-config carries the aiChat block), so the portal's environment supplies the
+# key: the Component renders no credentials Secret and nothing is supplied at commit, and a wave
+# reconciles the portal. Beside its own portal the hub's ("aspen") signs it in; that portal is
+# hand-kept too and takes no other installation's Component. Otherwise the giantswarm-owned shape:
+# the components the policy gives the organisation, no Slack app, no serving slice. Invented names,
+# placeholder values.
 input:
   installation:
     name: gopher
@@ -43,4 +45,7 @@ input:
   aiChat:
     enabled: true
     model: claude-opus-4-8
+  skills:
+    repositories:
+      - https://github.com/example/agent-skills
 secrets: {}

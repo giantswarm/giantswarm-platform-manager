@@ -1,0 +1,1 @@
+giantswarm/giantswarm-management-clusters:management-clusters/gopher/extras/kustomization.yaml resources ./backstage/

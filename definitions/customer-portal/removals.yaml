@@ -13,7 +13,11 @@
 #
 # kinds:
 #   other-definition    the portal's agent-platform section, which the agent-platform definition renders as its
-#                       own Component next to the portal's files; this definition never writes it into them
+#                       own Component next to the portal's files; each key is one that definition renders. The
+#                       section leaves the main app-config once the Component's fragment on record owns the
+#                       portal's lists (platformSection.componentLists); until then the render keeps it as the
+#                       record carries it (platformSection.appConfig) and includes the extension list with the
+#                       platform's section, so the removal is planned only once the fragment carries the key
 #   hub                 a section of the hub's Dev Portal (pages the hub serves over muster, the hub's incident,
 #                       CircleCI proxy and scaffolder configuration, its Postgres database); out of the definition
 #                       until a hub shape exists. The comparison plans the removal; a commit whose plan removes one
@@ -36,13 +40,19 @@ removals:
     kind: deprecated-form
     reason: "Changed: grafana.domain is the Grafana plugin's deprecated single-host form; the installation's own Grafana is listed as the one host of grafana.hosts, the form the plugin documents."
 
-  # --- Backstage app-config.yaml: the agent-platform section ---
+  # --- Backstage app-config.yaml: the agent-platform section, kept until the Component's fragment owns the lists ---
   - key: "backstage:app-config:muster"
     kind: other-definition
-    reason: "Moved: the muster entries in the main app-config move into the Agent Platform Component's app-config fragment, which the platform owns."
-  - key: "backstage:app-config:agentPlatform"
+    reason: "Moved: the muster entries in the main app-config move into the Agent Platform Component's app-config fragment, which lists the installation's muster."
+  - key: "backstage:app-config:agentPlatform.kagent"
     kind: other-definition
-    reason: "Moved: the agentPlatform section of the main app-config moves into the Agent Platform Component's app-config fragment, which the platform owns."
+    reason: "Moved: agentPlatform.kagent (the installations whose agents the portal shows) moves from the main app-config into the Agent Platform Component's app-config fragment, which lists the installation where kagent runs."
+  - key: "backstage:app-config:agentPlatform.skills"
+    kind: other-definition
+    reason: "Moved: agentPlatform.skills (the repositories the portal's agent creation discovers skills in) moves from the main app-config into the Agent Platform Component's app-config fragment, which carries the same repositories (its skills.repositories input)."
+  - key: "backstage:app-config:agentPlatform.fluxServiceAccountName"
+    kind: other-definition
+    reason: "Moved: agentPlatform.fluxServiceAccountName (the agents' Flux identity) leaves the main app-config; the Agent Platform Component's app-config fragment names it for a portal whose chart reads it, one before backstage 1.1.0."
   - key: "backstage:app-config:aiChat"
     kind: other-definition
     reason: "Moved: the aiChat block (the chat on Anthropic's API, its model and its MCP servers) moves from the main app-config into the Agent Platform Component's app-config fragment, which carries it where the chat is on · M18"
@@ -55,15 +65,17 @@ removals:
   - key: "backstage:app-config:app.extensions.$include"
     kind: other-definition
     reason: >-
-      Changed: app.extensions includes one list by $include in the main app-config today; the main app-config includes the shared list
-      without the platform's section (shared-config.yaml#extensions, or #extensionsGrafanaDashboards with the Grafana plugin wired) and
-      the Agent Platform Component's fragment layers the list with it (#extensionsAgentPlatform, or its GrafanaDashboards pair) over it.
+      Changed: app.extensions includes one list by $include in the main app-config today; where the platform runs, the main app-config
+      includes the shared list with the platform's section (shared-config.yaml#extensionsAgentPlatform, with the chat's entries and the
+      Grafana dashboards card where they are on) while the Agent Platform Component's fragment carries no list, and the list without it
+      (#extensions, or #extensionsGrafanaDashboards with the Grafana plugin wired) once the fragment's list, which Backstage keeps over it, does.
   - key: "backstage:app-config:app.extensions[*]"
     kind: other-definition
     reason: >-
-      Changed: the extensions are listed one by one in the main app-config today; the main app-config includes the shared list by
-      $include instead (shared-config.yaml#extensions, or #extensionsGrafanaDashboards with the Grafana plugin wired) and the Agent
-      Platform Component's fragment layers the platform's pair over it, so the entries listed by hand go.
+      Changed: the extensions are listed one by one in the main app-config today; the main app-config includes the shared list by $include
+      instead — where the platform runs and the Agent Platform Component's fragment carries no list yet, the one with the platform's section
+      (shared-config.yaml#extensionsAgentPlatform, with the chat's entries and the Grafana dashboards card where they are on), else the one
+      without it (#extensions, or #extensionsGrafanaDashboards) — so the entries listed by hand go.
 
   # --- Backstage app-config.yaml: the hub's Dev Portal ---
   - key: "backstage:app-config:pagerDuty"

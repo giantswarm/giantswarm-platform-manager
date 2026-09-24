@@ -1,0 +1,87 @@
+- id: live-helmrelease-ready
+  feature: portal
+  kind: HelmReleaseReady
+  namespace: flux-giantswarm
+  resource: HelmRelease
+  name: backstage
+- id: live-pods-running
+  feature: portal
+  kind: PodsRunning
+  namespace: backstage
+  resource: Pod
+  name: app.kubernetes.io/instance=backstage
+- id: live-portal-root
+  feature: portal
+  kind: HTTP
+  url: https://portal.gopher.example.io/
+  expect:
+    status: 200
+- id: live-oidc-start
+  feature: identity
+  kind: HTTP
+  url: https://portal.gopher.example.io/api/auth/oidc-gopher/start?env=production
+  expect:
+    status: 302
+    locationContains: https://dex.gopher.example.io/auth
+    note: the sign-in redirects to the installation's Dex
+- id: live-oidc-start
+  feature: identity
+  kind: HTTP
+  url: https://portal.gopher.example.io/api/auth/oidc-gopher/start?env=production
+  expect:
+    status: 302
+    locationContains: client_id=backstage
+    note: the sign-in redirects as the portal's client
+- id: live-dex-auth-portal-client
+  feature: identity
+  kind: HTTP
+  url: https://dex.gopher.example.io/auth?client_id=backstage&redirect_uri=https://portal.gopher.example.io/api/auth/oidc-gopher/handler/frame&response_type=code&scope=openid
+  expect:
+    statuses:
+      - 200
+      - 302
+    dexConnectorStep: true
+    note: Dex knows client backstage and its redirect URI when the connector its /auth answer names redirects to the identity provider or serves its login form; an unknown client answers 404, an unregistered redirect URI 400
+- id: live-dex-portal-secret-loaded
+  feature: identity
+  kind: SecretLoaded
+  namespace: giantswarm
+  resource: Secret
+  name: dex-client-backstage
+  expect:
+    pods: app.kubernetes.io/name=dex
+    container: dex
+    note: Dex reads the secret of client backstage only when its container starts; one started before the Secret changed holds the old secret and the client's sign-ins fail until Dex restarts (dex-app 3.2.3 restarts it on the change)
+- id: live-values-secrets
+  feature: secrets
+  kind: ResourcePresent
+  namespace: flux-giantswarm
+  resource: Secret
+  name: user-secrets-backstage
+  expect:
+    keys:
+      - values
+- id: live-values-secrets
+  feature: secrets
+  kind: ResourcePresent
+  namespace: flux-giantswarm
+  resource: Secret
+  name: plugin-keys-backstage
+  expect:
+    keys:
+      - values
+- id: live-dex-client-secret
+  feature: secrets
+  kind: ResourcePresent
+  namespace: giantswarm
+  resource: Secret
+  name: dex-client-backstage
+  expect:
+    keys:
+      - secret
+- id: live-platform-fragment
+  feature: agent-platform-section
+  kind: ResourcePresent
+  namespace: backstage
+  resource: ConfigMap
+  name: agent-platform-app-config-backstage
