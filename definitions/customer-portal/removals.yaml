@@ -14,8 +14,14 @@
 # kinds:
 #   other-definition    the portal's agent-platform section, which the agent-platform definition renders as its
 #                       own Component next to the portal's files; this definition never writes it into them
-#   not-rendered        a section of the hub's Dev Portal (pages the hub serves over muster, the hub's incident,
-#                       CircleCI proxy and scaffolder configuration); out of the definition until a hub shape exists
+#   hub                 a section of the hub's Dev Portal (pages the hub serves over muster, the hub's incident,
+#                       CircleCI proxy and scaffolder configuration, its Postgres database); out of the definition
+#                       until a hub shape exists. The comparison plans the removal; a commit whose plan removes one
+#                       the record carries with a value (not null, not empty) is refused for the installation,
+#                       naming the sections, so a customer-portal commit never strips the hub's portal
+#   not-rendered        an entry of the hub's registry of installations (gs.installations) that a customer portal
+#                       does not list: the definition renders the portal's own installation and the ones it
+#                       federates, and an entry beyond them goes with an ordinary removal
 #   off-value           a flag at the value it has when the key is absent; dropping it changes nothing
 #   deprecated-form     a key in a form its plugin has deprecated; the definition renders the same value in the form
 #                       the plugin documents
@@ -61,39 +67,39 @@ removals:
 
   # --- Backstage app-config.yaml: the hub's Dev Portal ---
   - key: "backstage:app-config:pagerDuty"
-    kind: not-rendered
+    kind: hub
     reason: "Removed: the pagerDuty block links the hub's incidents; a customer portal has no incident page, and the hub's own shape is not rendered yet."
   - key: "backstage:app-config:proxy.endpoints./circleci/api"
-    kind: not-rendered
+    kind: hub
     reason: "Removed: the /circleci/api proxy is the hub's CircleCI API proxy; a customer portal proxies only its installation's Grafana, and the hub's own shape is not rendered yet."
   - key: "backstage:app-config:repositories"
-    kind: not-rendered
+    kind: hub
     reason: "Removed: the repositories block is the hub's repositories page over muster; a customer portal has no such page, and the hub's own shape is not rendered yet."
   - key: "backstage:app-config:plans"
-    kind: not-rendered
+    kind: hub
     reason: "Removed: the plans block is the hub's plans page over muster; a customer portal has no such page, and the hub's own shape is not rendered yet."
   - key: "backstage:app-config:roadmap"
-    kind: not-rendered
+    kind: hub
     reason: "Removed: the roadmap block is the hub's roadmap page over muster; a customer portal has no such page, and the hub's own shape is not rendered yet."
   - key: "backstage:app-config:scaffolder"
-    kind: not-rendered
+    kind: hub
     reason: "Removed: the scaffolder block is the hub's software templates; a customer portal has no scaffolder, and the hub's own shape is not rendered yet."
   - key: "backstage:app-config:gs.github"
-    kind: not-rendered
+    kind: hub
     reason: "Removed: gs.github is the hub's GitHub pages over muster; a customer portal has no such pages, and the hub's own shape is not rendered yet."
   - key: "backstage:app-config:gs.containerRegistry"
-    kind: not-rendered
+    kind: hub
     reason: "Removed: gs.containerRegistry is the hub's registry access; a customer portal has no registry page, and the hub's own shape is not rendered yet."
   - key: "backstage:app-config:gs.installations.<name>"
     kind: not-rendered
     reason: "Removed: gs.installations lists every installation the hub knows; a customer portal lists only its own installation and those under federation.installations, so the entry for <name> goes."
   - key: "backstage:app-config:backend.database"
-    kind: not-rendered
+    kind: hub
     reason: "Removed: backend.database connects the hub to Postgres with its per-plugin division; a customer portal runs on the in-memory database, so the block goes."
 
   # --- Backstage user-values.yaml ---
   - key: "backstage:user-values:database"
-    kind: not-rendered
+    kind: hub
     reason: "Removed: the database block sizes the hub's Postgres engine and volume; a customer portal runs on the in-memory database, so the block goes."
   - key: "backstage:user-values:google"
     kind: other-definition

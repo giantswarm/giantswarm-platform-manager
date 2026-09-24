@@ -50,7 +50,9 @@ func TestEveryProbeTemplateExecutes(t *testing.T) {
 
 // TestEveryDefinitionParses holds every capability's data files to their
 // shape: features.yaml, probes.yaml, removals.yaml and migrations.yaml of
-// every definition load, and no file but migrations.yaml is empty. A
+// every definition load, no file but migrations.yaml is empty, and every
+// removal's kind is one its file's header documents — the engine acts on
+// some (kept, hub), so a kind spelled otherwise would silently be none. A
 // removals.yaml no code path reads at run time is caught here, not on the
 // first dry run that classifies with it.
 func TestEveryDefinitionParses(t *testing.T) {
@@ -85,12 +87,16 @@ func TestEveryDefinitionParses(t *testing.T) {
 			if len(removals) == 0 {
 				t.Error("removals.yaml: no removal")
 			}
+			kinds := documentedKinds(t, c)
 			seen := map[string]bool{}
 			for _, r := range removals {
 				if seen[r.Key] {
 					t.Errorf("removals.yaml: key %q listed twice", r.Key)
 				}
 				seen[r.Key] = true
+				if !kinds[r.Kind] {
+					t.Errorf("removals.yaml: key %q has kind %q, which the header's kinds do not document", r.Key, r.Kind)
+				}
 			}
 			migrations, err := definitions.Migrations(c)
 			if err != nil {
@@ -105,6 +111,32 @@ func TestEveryDefinitionParses(t *testing.T) {
 			}
 		})
 	}
+}
+
+// documentedKinds are the kinds a capability's removals.yaml documents in
+// its header: each line under "# kinds:" that names one in its first column.
+func documentedKinds(t *testing.T, capability string) map[string]bool {
+	t.Helper()
+	raw, err := definitions.FS.ReadFile(capability + "/removals.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := map[string]bool{}
+	var in bool
+	for _, line := range strings.Split(string(raw), "\n") {
+		switch {
+		case !strings.HasPrefix(line, "#"):
+			in = false
+		case line == "# kinds:":
+			in = true
+		case in && strings.HasPrefix(line, "#   ") && !strings.HasPrefix(line, "#    "):
+			kinds[strings.Fields(line[1:])[0]] = true
+		}
+	}
+	if len(kinds) == 0 {
+		t.Fatal("removals.yaml: the header documents no kind")
+	}
+	return kinds
 }
 
 // TestEveryReadBackNamesADeclaredFile holds every schema's x-readback to

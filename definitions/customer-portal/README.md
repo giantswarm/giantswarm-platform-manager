@@ -6,7 +6,7 @@ drops, the consistency features and the anonymous probes. Data only; the render 
 | File | What it is |
 |---|---|
 | `schema.json` | JSON Schema (draft 2020-12, `additionalProperties: false`) of the inputs. Every leaf input carries `x-source` (registry, person or generated), `x-feature` and `x-renders`: the key paths of the fileset it produces. `x-files` names the repository file each fileset key is read back from; a person input carries `x-readback` (file; key, one path or a list the first on record answers from, a list step an index or a `[key=value]` selector; kind `value`, `present`, `host`, `installation` — the installation whose base domain the URL's host is under the service label `prefix` names — or `file`; prefix) where the record can answer it, and says why where it cannot. A default is declared only where every portal agrees. |
-| `removals.yaml` | Keys a portal installation carries today that no input renders, each with the reason it is dropped: the agent-platform definition renders it as its Component, or it is a section of the hub's Dev Portal that no shape renders yet. |
+| `removals.yaml` | Keys a portal installation carries today that no input renders, each with the reason it is dropped and its kind: the agent-platform definition renders it as its Component, or it is a section of the hub's Dev Portal that no shape renders yet (`hub`: a commit that would remove one with a value is refused). |
 | `migrations.yaml` | Keys the definition renders that a portal enabled before a migration lacks, each with the migration that adds it: the portal's Dex client Secret, its user secrets and its plugin keys as SOPS-encrypted files of its directory with their kustomization entries, and the `type` every rendered Secret states (M33), the agent-platform definition's Component in its kustomization (M3). A leaf the record lacks under one of them is a planned change, not drift. |
 | `features.yaml` | The consistency features and the dimensions each one rolls up, one mark per feature, every dimension exactly once. A file dimension's key names the files and YAML paths it observes, in the grammar the file's header documents; the comparison routes every difference to the dimension that names it most specifically, to the kind's dimension marked `catchAll: true` when none does, and reports what no dimension names under the feature `other`. The `kind: live` dimensions are the definition's probes of the running portal: the render carries one or more probes per live dimension as data (`Result.Probes`), and the verify slice executes them. |
 | `probes.yaml` | The anonymous HTTP probes: the home page, the start of the sign-in, Dex's answer to the portal's client. Templates over the installation's base domain and codename and the portal's domain. |
@@ -46,11 +46,6 @@ Key paths in `x-renders`, `removals.yaml` and `migrations.yaml` are normalised: 
   definition's in either case, the file `dex-client-backstage-secret.enc.yaml` in the portal's directory; the
   agent-platform definition references it by name in its patch entry and renders no file for it, so on an
   installation with both capabilities no repository path and no Kubernetes object is rendered by two definitions.
-  The plaintext patch is authoritative only where the installation's encrypted Dex values (`secret-values.yaml.patch`) carry no
-  `oidc.extraStaticClients` and no `dexK8SAuthenticator.trustedPeers` list: the values merge takes a list whole from the encrypted side,
-  so the portal's client rendered into the plaintext list would never reach Dex. The record reads which of those lists the encrypted
-  file carries (its keys are plaintext; nothing is decrypted) and the commit is held while one of them is — `commitRefused` names the
-  file, the lists and the shadowed clients; the entries are carried over by hand first, then the lists dropped from the encrypted values.
   The plaintext patch is authoritative only where the installation's encrypted Dex values (`secret-values.yaml.patch`) carry no
   `oidc.extraStaticClients` and no `dexK8SAuthenticator.trustedPeers` list: the values merge takes a list whole from the encrypted side,
   so the portal's client rendered into the plaintext list would never reach Dex. The record reads which of those lists the encrypted
@@ -107,9 +102,15 @@ Key paths in `x-renders`, `removals.yaml` and `migrations.yaml` are normalised: 
   `NODE_EXTRA_CA_CERTS` on the mounted SPIFFE bundle with the tunnel on (Node reads extra CA certificates
   through that variable alone; without it the mount is inert), no list without either so the shared base's
   `'self'` stands — and the Component sets none.
-- The hub's Dev Portal — the pages it serves over muster, its incident links, proxies and scaffolder, its
-  registry of federated installations — is out of the definition until a hub shape exists; those keys are
-  `not-rendered` removals.
+- The hub's Dev Portal — the pages it serves over muster, its incident links, CircleCI proxy and scaffolder, its
+  GitHub and container registry access, its Postgres database — is out of the definition until a hub shape exists:
+  those sections are `hub` removals. The comparison plans their removal like any other's, but a commit whose plan
+  removes one the record carries with a value is refused for the installation — `commitRefused` names the sections
+  by file (`hubSections` lists their keys), and a wave over a set with that installation is refused whole — so a
+  customer-portal commit never strips the hub's portal. A section on record without a value (`scaffolder: null`)
+  goes without a refusal. The way out is the hub's shape as an input of the definition, or the portal kept by hand.
+  An entry of the hub's registry of installations (`gs.installations.<name>`) that a portal neither is nor
+  federates is an ordinary `not-rendered` removal.
 - `get_info` lists the definition with its schema and features, `list_installations` answers its state (marker:
   the portal's app-config in the management-clusters repository), `platformctl template` renders it, and
   `enable_capability`, `reconcile_capability` (one installation or the wave) and `verify_capability` take

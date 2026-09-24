@@ -28,6 +28,13 @@ type Removal struct {
 // has to land before the key goes.
 const RemovalKept = "kept"
 
+// RemovalHub is the kind of a removal that is a section of the hub's Dev
+// Portal, which the definition does not render: the comparison plans its
+// removal like any other's, and a commit whose plan removes one the record
+// carries with a value is held for the installation, naming the sections —
+// the definition would turn the hub's portal into a customer's.
+const RemovalHub = "hub"
+
 // KeptKeys are the key paths of a capability's removals of kind kept under
 // the file prefix (KindConfigMap, …), the prefix cut off, in file order.
 func KeptKeys(capability, prefix string) ([]string, error) {
