@@ -12,3 +12,8 @@ data:
         - filename: app-config.agent-platform.yaml
           configMapRef: agent-platform-app-config-backstage
           checksum: 360fec6a75e8e3e64fed6407b7f0e94be44c1130cec5916862ff62013cf05b05
+    observability:
+      otel:
+        endpoint: http://otlp-gateway.kube-system.svc.cluster.local:4317
+        protocol: grpc
+        headers: X-Scope-OrgID=giantswarm

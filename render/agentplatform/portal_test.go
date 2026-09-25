@@ -350,6 +350,47 @@ func fragmentChecksum(t *testing.T, in *Input) string {
 // without its chart line, or with one of another form, the plan is
 // refused naming the portal and the file; a portal of another organisation,
 // or an installation without kagent, is not held to it.
+// The Component's values send the backend's traces to the installation's OTLP
+// gateway under the tenant header where the hosted portal's chart line
+// resolves to a chart that takes observability.otel. A line whose charts all
+// precede portalTraces, and a portal whose line is not on record, get none:
+// their chart's schema refuses the key.
+func TestPortalTraces(t *testing.T) {
+	for _, tc := range []struct {
+		line   string
+		traces bool
+	}{
+		{">=2.1.0 <3.0.0", true},
+		{">=0.244.7 <1.0.0", false},
+		{">=2.1.0 <" + portalTraces, false},
+		{portalTraces, true},
+		{"2.67.0", false},
+		{"", false},
+	} {
+		portal := PortalRef{Installation: testPortalHost, Customer: testOrganisation, ChartLine: tc.line}
+		in := &Input{Installation: Installation{Name: testPortalHost, Customer: testOrganisation, Portals: []PortalRef{portal}}}
+		var values struct {
+			Observability *struct {
+				Otel map[string]string `yaml:"otel"`
+			} `yaml:"observability"`
+		}
+		if err := yaml.Unmarshal(render.MustYAML(in.portalValues()), &values); err != nil {
+			t.Fatal(err)
+		}
+		if tc.traces != (values.Observability != nil) {
+			t.Errorf("%q: observability %v, want it %v", tc.line, values.Observability, tc.traces)
+			continue
+		}
+		if !tc.traces {
+			continue
+		}
+		want := map[string]string{"endpoint": portalOTLPEndpoint, "protocol": "grpc", "headers": portalOTLPHeaders}
+		if !maps.Equal(values.Observability.Otel, want) {
+			t.Errorf("%q: observability.otel %v, want %v", tc.line, values.Observability.Otel, want)
+		}
+	}
+}
+
 func TestCheckRecordRefusesAPortalWithoutItsChartLine(t *testing.T) {
 	input, secrets := loadInput(t, shapePublicCustomer)
 	portals := input["installation"].(map[string]any)["portals"].([]any)
