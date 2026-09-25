@@ -22,7 +22,7 @@ kagent:
     config:
       existingSecret: kagent-oauth2-proxy-credentials
     extraArgs:
-      oidc-extra-audience: dex-k8s-authenticator,kagent,backstage,Yx7hub0portal0client0id0on0record0 # gitleaks:allow
+      oidc-extra-audience: dex-k8s-authenticator,kagent,backstage # gitleaks:allow
 muster:
   muster:
     oauth:
@@ -35,7 +35,6 @@ muster:
           - dex-k8s-authenticator
           - kagent
           - backstage
-          - Yx7hub0portal0client0id0on0record0
 agent-manager:
   oauth:
     baseURL: https://agentgateway.kestrel.oakridge.example/agent-manager
