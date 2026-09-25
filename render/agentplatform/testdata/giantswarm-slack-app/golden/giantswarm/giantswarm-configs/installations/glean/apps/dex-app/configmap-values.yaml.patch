@@ -20,7 +20,6 @@ oidc:
         key: secret
     dexK8SAuthenticator:
       trustedPeers:
-        - Yx7hub0portal0client0id0on0record0
         - backstage
         - muster-token-exchange-glean
   extraStaticClients:

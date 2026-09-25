@@ -63,7 +63,7 @@ kagent:
     config:
       existingSecret: kagent-oauth2-proxy-credentials
     extraArgs:
-      oidc-extra-audience: dex-k8s-authenticator,kagent,Yx7hub0portal0client0id0on0record0,backstage # gitleaks:allow
+      oidc-extra-audience: dex-k8s-authenticator,kagent,backstage # gitleaks:allow
 muster:
   muster:
     oauth:
@@ -82,7 +82,6 @@ muster:
         trustedAudiences:
           - dex-k8s-authenticator
           - kagent
-          - Yx7hub0portal0client0id0on0record0
           - backstage
 gateway:
   jwksEgress:
@@ -108,7 +107,6 @@ agent-platform-mcps:
       extraProviders:
         - issuer: https://dex.glean.example.io
           audiences:
-            - Yx7hub0portal0client0id0on0record0
             - backstage
           jwks:
             remote:

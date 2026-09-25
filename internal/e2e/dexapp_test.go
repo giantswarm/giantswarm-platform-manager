@@ -168,10 +168,15 @@ func TestCommitHeldByTheEncryptedDexLists(t *testing.T) {
 	if hold == "" || res.Refused != "" || res.CommitRefused != hold {
 		t.Fatalf("refused %q, commitRefused %q, want %q", res.Refused, res.CommitRefused, hold)
 	}
-	for _, part := range []string{acmeConfigs + ":" + secretPatch, "oidc.extraStaticClients (3 entries)", "oidc.staticClients.dexK8SAuthenticator.trustedPeers (2 entries)", "rendered clients kagent, backstage", "trusted peers " + hubPortalClientID + ", backstage", "by hand first"} {
+	for _, part := range []string{acmeConfigs + ":" + secretPatch, "oidc.extraStaticClients (3 entries)", "oidc.staticClients.dexK8SAuthenticator.trustedPeers (2 entries)", "rendered clients kagent, backstage", "trusted peers backstage", "by hand first"} {
 		if !strings.Contains(hold, part) {
 			t.Errorf("the hold names %q:\n%s", part, hold)
 		}
+	}
+	// The hub portal's client is the hub's Dex's: birch, a customer the
+	// portal lists, never trusts it.
+	if strings.Contains(hold, hubPortalClientID) {
+		t.Errorf("the hold names the hub portal's client:\n%s", hold)
 	}
 	if res.Diff[plan.ChangeUpdate] == 0 || len(res.DexClients) == 0 {
 		t.Fatalf("the comparison still runs: diff %v clients %d", res.Diff, len(res.DexClients))

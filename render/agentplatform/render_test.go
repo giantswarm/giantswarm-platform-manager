@@ -609,7 +609,7 @@ klausGateway:
 func TestPortalAudiences(t *testing.T) {
 	const opaqueA, opaqueB = "opaque-a", "opaque-b"
 	portal := func(domain, clientID string) PortalRef {
-		return PortalRef{Installation: "gopher", Customer: "giantswarm", Domain: domain, ClientID: clientID}
+		return PortalRef{Installation: portalCaseOwn, Customer: "giantswarm", Domain: domain, ClientID: clientID}
 	}
 	cases := []struct {
 		name      string
@@ -624,7 +624,7 @@ func TestPortalAudiences(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			in := &Input{Installation: Installation{Portals: c.portals}}
+			in := &Input{Installation: Installation{Name: portalCaseOwn, Portals: c.portals}}
 			if got := in.portalAudiences(); !slices.Equal(got, c.audiences) {
 				t.Fatalf("got %v, want %v", got, c.audiences)
 			}
