@@ -42,6 +42,10 @@
                     "type": "string",
                     "description": "The channel told of a review that targets a customer installation, without buttons (the Account Engineers' channel ID). Must differ from `channel`; empty sends no notice."
                 },
+                "standupChannel": {
+                    "type": "string",
+                    "description": "The owning team's standup channel (a Slack channel ID): an action on Giant Swarm's test installations alone (the hub's customer's, not the hub) needs no review, and its merge is told here in one sentence. Empty refuses `mode: commit` on test installations; the hub and customer installations keep the review."
+                },
                 "team": {
                     "type": "string",
                     "description": "The team whose members decide, as the gateway names it."

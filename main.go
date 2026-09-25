@@ -32,7 +32,7 @@ import (
 type options struct {
 	listen, mcpPath, githubAPIURL string
 
-	approvalsURL, approvalsTeam, approvalsChannel, approvalsNoticeChannel, approvalsTokenFile string
+	approvalsURL, approvalsTeam, approvalsChannel, approvalsNoticeChannel, approvalsStandupChannel, approvalsTokenFile string
 
 	registryRepository, registryPath, hub string
 
@@ -55,6 +55,7 @@ func parseFlags(args []string) (*options, error) {
 	f.StringVar(&o.approvalsTeam, "approvals-team", envOr("APPROVALS_TEAM", ""), "The team whose members decide, as the gateway names it (APPROVALS_TEAM)")
 	f.StringVar(&o.approvalsChannel, "approvals-channel", envOr("APPROVALS_CHANNEL", ""), "The capability-owning team's channel the reviews land in (APPROVALS_CHANNEL)")
 	f.StringVar(&o.approvalsNoticeChannel, "approvals-notice-channel", envOr("APPROVALS_NOTICE_CHANNEL", ""), "The channel told of a review that targets a customer installation, without buttons (APPROVALS_NOTICE_CHANNEL)")
+	f.StringVar(&o.approvalsStandupChannel, "approvals-standup-channel", envOr("APPROVALS_STANDUP_CHANNEL", ""), "The team's standup channel, told of an action on test installations, which needs no review (APPROVALS_STANDUP_CHANNEL)")
 	f.StringVar(&o.approvalsTokenFile, "approvals-token-file", envOr("APPROVALS_TOKEN_FILE", ""), "File with the projected ServiceAccount token, in the gateway's audience, the review requests carry (APPROVALS_TOKEN_FILE)")
 	f.StringVar(&o.registryRepository, "registry-repository", envOr("REGISTRY_REPOSITORY", "giantswarm/github"), "Repository (owner/repo) holding the installations catalog, read as the caller (REGISTRY_REPOSITORY)")
 	f.StringVar(&o.registryPath, "registry-path", envOr("REGISTRY_PATH", "catalog/installations.yaml"), "Path of the installations catalog in the registry repository (REGISTRY_PATH)")
@@ -95,7 +96,7 @@ func main() {
 // run wires the components and serves until ctx is done.
 func run(ctx context.Context, o *options, log *slog.Logger) error {
 	deps := tools.Deps{Version: version.String(), GitHubAPIURL: o.githubAPIURL, Files: gh.NewFiles(gh.DefaultFreshness), Log: log, Remote: tools.GitHubRemote(o.githubAPIURL),
-		Approvals: approvals.Config{GatewayURL: o.approvalsURL, Team: o.approvalsTeam, Channel: o.approvalsChannel, NoticeChannel: o.approvalsNoticeChannel, TokenFile: o.approvalsTokenFile},
+		Approvals: approvals.Config{GatewayURL: o.approvalsURL, Team: o.approvalsTeam, Channel: o.approvalsChannel, NoticeChannel: o.approvalsNoticeChannel, StandupChannel: o.approvalsStandupChannel, TokenFile: o.approvalsTokenFile},
 		Registry:  installations.Sources{Catalog: installations.Location{Repository: o.registryRepository, Path: o.registryPath}, Hub: o.hub}}
 	if o.actionsNamespace != "" {
 		store, err := actions.InCluster(o.actionsNamespace)

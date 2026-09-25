@@ -388,16 +388,24 @@ func setInput(doc map[string]any, path []string, v any) {
 	doc[path[len(path)-1]] = v
 }
 
+// testInstallation says whether the installation name of customer is one of
+// Giant Swarm's own test installations, the wave's first stage: the hub's
+// customer's, not the hub. The hub and every customer's installation are
+// production. An action on test installations alone needs no Team review.
+func testInstallation(name, customer string, hub installations.Installation) bool {
+	return name != hub.Name && customer == hub.Customer
+}
+
 // waveOrder sorts the reports into the wave's order (D8): Giant Swarm's own
 // test installations, the hub, then the customers' installations, by name
 // within each group.
 func waveOrder(reports []installations.Report, hub installations.Installation) []installations.Report {
 	group := func(r installations.Report) int {
 		switch {
+		case testInstallation(r.Name, r.Customer, hub):
+			return 0
 		case r.Name == hub.Name:
 			return 1
-		case r.Customer == hub.Customer:
-			return 0
 		}
 		return 2
 	}

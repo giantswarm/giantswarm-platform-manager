@@ -138,6 +138,9 @@ func (t *Tools) resync(ctx context.Context, c *gh.Client, id *identity.Identity,
 	fresh := *a
 	fresh.Status = status
 	var posts []string
+	// told is the stage an action that needs no review started outside
+	// merge_action: the standup channel hears of it as of a merge.
+	var told *stageMerge
 
 	// A pull request closed unmerged: the action cannot complete.
 	if len(closed) > 0 && !actions.Settled(status.State) && status.State != actions.StateFailed {
@@ -174,6 +177,9 @@ func (t *Tools) resync(ctx context.Context, c *gh.Client, id *identity.Identity,
 					status.Approval = &approval
 				}
 				posts = append(posts, fmt.Sprintf("Merged outside the manager by %s: %s. *%s* is rolling out — the rollout and the probes follow here.", by, prLinks(stagePRs(status.PullRequests, idx)), st.Name))
+				if noReview(&fresh) {
+					told = &stageMerge{by: by, stage: st.Name, pullRequests: stagePRs(status.PullRequests, idx)}
+				}
 			}
 			break
 		}
@@ -205,6 +211,9 @@ func (t *Tools) resync(ctx context.Context, c *gh.Client, id *identity.Identity,
 	}
 	for _, text := range posts {
 		t.postResult(ctx, out, text)
+	}
+	if told != nil {
+		t.tellStandup(ctx, out, *told)
 	}
 	return out, nil
 }

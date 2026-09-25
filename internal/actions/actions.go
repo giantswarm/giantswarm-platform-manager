@@ -469,10 +469,14 @@ const (
 // The decisions of an approval. DecisionMergedWithoutApproval is the
 // resync's: every pull request of the action was merged outside merge_action
 // before the team decided, and the record names who merged them.
+// DecisionNotRequired is the commit's: every target is one of Giant Swarm's
+// test installations, so no review is posted and the merge is told to the
+// team's standup channel instead.
 const (
 	DecisionApproved              = "approved"
 	DecisionDenied                = "denied"
 	DecisionMergedWithoutApproval = "merged without approval"
+	DecisionNotRequired           = "not required"
 )
 
 // Writer creates Actions and moves their status; commit writes with it, as
