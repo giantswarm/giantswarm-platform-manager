@@ -114,12 +114,15 @@ func (in *Input) audiences() []string {
 
 // portalAudiences are the Dex client ids the platform trusts for the
 // portals, each once — the same set wherever a portal's token is accepted:
-// the id of each portal's client where its host's Dex patch carries it, then
-// the definition's client (backstage) when a portal signs people in here. A
-// portal forwards tokens with the id of the client it signed in through,
-// whatever it is named. An id the installation trusts besides is not the
-// definition's to render: the plan keeps it in the list it is on record in.
-// An installation nobody lists renders none.
+// the id of the installation's own portal's client where its Dex patch
+// carries it, then the definition's client (backstage) when a portal signs
+// people in here. A portal forwards tokens with the id of the client it
+// signed in through, whatever it is named. A portal's client id is its
+// host's: a client of the host's Dex, whose tokens no other installation's
+// Dex issues, so it is never trusted on another installation. An id the
+// installation trusts besides is not the definition's to render: the plan
+// keeps it in the list it is on record in. An installation nobody lists
+// renders none.
 func (in *Input) portalAudiences() []string {
 	var ids []string
 	add := func(id string) {
@@ -128,7 +131,9 @@ func (in *Input) portalAudiences() []string {
 		}
 	}
 	for _, p := range in.Installation.Portals {
-		add(p.ClientID)
+		if p.Installation == in.Installation.Name {
+			add(p.ClientID)
+		}
 	}
 	if in.hasPortal() {
 		add(render.PortalDexClientID)
@@ -198,11 +203,25 @@ func (in *Input) configmapPatch() render.Map {
 		m = append(m, e("agent-manager", render.Map{e("oauth", in.managerOAuth("agent-manager"))}))
 	}
 	m = in.componentValues(m)
+	if in.singletonsOnDemand() {
+		m = append(m, e("scheduling", render.Map{e("singletons", render.Map{
+			e("nodeSelector", render.Map{e(karpenterCapacityType, capacityOnDemand)}),
+		})}))
+	}
 	m = append(m, e("valkey", render.Map{e("valkey", render.Map{e("auth", render.Map{
 		e("usersExistingSecret", musterValkeySecret),
 		e("aclUsers", render.Map{e("default", render.Map{e("passwordKey", "valkey-password")})}),
 	})})}))
 	return m
+}
+
+// The label Karpenter puts a node's capacity type in, and its on-demand value.
+const karpenterCapacityType, capacityOnDemand = "karpenter.sh/capacity-type", "on-demand"
+
+// singletonsOnDemand says whether the stateful singletons are pinned to
+// Karpenter's on-demand capacity (scheduling.singletonsCapacity).
+func (in *Input) singletonsOnDemand() bool {
+	return in.SingletonsCapacity == capacityOnDemand
 }
 
 // edgeJWTProvider says whether the edge accepts the portals' Dex ID token: a

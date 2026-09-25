@@ -427,3 +427,39 @@ func TestPortalChatCredentialsEncodeTheKey(t *testing.T) {
 		t.Errorf("the marker encoded:\n%s", secret)
 	}
 }
+
+// A portal's client id is a client of its host's Dex: the host trusts it,
+// and no other installation the portal lists does — neither in the
+// audiences (muster, the kagent UI, the edge) nor among the
+// authenticator's trusted peers. Every portal is trusted through the
+// definition's client wherever it signs people in.
+func TestPortalClientIDStaysOnItsHost(t *testing.T) {
+	const hostClient = "host-portal-client-on-record"
+	hub := PortalRef{Installation: portalCaseHub, Customer: portalCaseOrg, Domain: "portal." + portalCaseHub + ".example.io", ClientID: hostClient, HandKept: true}
+	for _, tc := range []struct {
+		name, installation string
+		want               []string
+	}{
+		{"the host", portalCaseHub, []string{hostClient, render.PortalDexClientID}},
+		{"a test installation the portal lists", portalCaseOwn, []string{render.PortalDexClientID}},
+		{"a customer installation the portal lists", portalCaseSibling, []string{render.PortalDexClientID}},
+	} {
+		in := &Input{Installation: Installation{Name: tc.installation, Customer: portalCaseOrg, Portals: []PortalRef{hub}}}
+		if got := in.portalAudiences(); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: portal audiences %v, want %v", tc.name, got, tc.want)
+		}
+		if tc.installation == portalCaseHub {
+			continue
+		}
+		if got := in.audiences(); slices.Contains(got, hostClient) {
+			t.Errorf("%s: audiences %v carry the host's portal client", tc.name, got)
+		}
+		dex, err := yaml.Marshal(in.dexPatch())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(dex), hostClient) {
+			t.Errorf("%s: the dex patch carries the host's portal client:\n%s", tc.name, dex)
+		}
+	}
+}

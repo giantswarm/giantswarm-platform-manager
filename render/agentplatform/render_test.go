@@ -40,6 +40,7 @@ const (
 	keyModel    = "model"
 	keyProvider = "provider"
 	keyGoogle   = "google"
+	keyCapacity = "singletonsCapacity"
 )
 
 // shapes are the installation shapes, in the order the goldens are rendered.
@@ -525,6 +526,11 @@ func TestRefusals(t *testing.T) {
 		{"an app-level token on a public installation", slackAppPublic, slackPublicSecrets, ErrUnknownSecret, fieldSlack + "app-token"},
 		{"a Slack credential where no gateway runs", base, with(fieldSlack+"bot-token", "x"), ErrUnknownSecret, fieldSlack + "bot-token"},
 		{"the model key is never supplied", base, with("kagent.modelKey", "x"), ErrUnknownSecret, "kagent.modelKey"},
+		{"on-demand singletons without Karpenter", clone(func(m map[string]any) {
+			m["installation"].(map[string]any)["provider"] = "capz"
+			m["scheduling"] = map[string]any{keyCapacity: capacityOnDemand}
+		}), secrets, ErrInput, "scheduling." + keyCapacity},
+		{"a capacity Karpenter does not name", clone(func(m map[string]any) { m["scheduling"] = map[string]any{keyCapacity: "spot"} }), secrets, ErrInput, keyCapacity},
 		{"serving on the 3 line", clone(func(m map[string]any) { m["modelServing"] = map[string]any{keyEnabled: true} }), secrets, ErrInput, "modelServing.enabled"},
 		{"the chat without a portal to carry it", clone(func(m map[string]any) {
 			m["installation"].(map[string]any)["portals"] = []any{}
@@ -609,7 +615,7 @@ klausGateway:
 func TestPortalAudiences(t *testing.T) {
 	const opaqueA, opaqueB = "opaque-a", "opaque-b"
 	portal := func(domain, clientID string) PortalRef {
-		return PortalRef{Installation: "gopher", Customer: "giantswarm", Domain: domain, ClientID: clientID}
+		return PortalRef{Installation: portalCaseOwn, Customer: "giantswarm", Domain: domain, ClientID: clientID}
 	}
 	cases := []struct {
 		name      string
@@ -624,7 +630,7 @@ func TestPortalAudiences(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			in := &Input{Installation: Installation{Portals: c.portals}}
+			in := &Input{Installation: Installation{Name: portalCaseOwn, Portals: c.portals}}
 			if got := in.portalAudiences(); !slices.Equal(got, c.audiences) {
 				t.Fatalf("got %v, want %v", got, c.audiences)
 			}

@@ -117,6 +117,10 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	}
 	spec := actions.Spec{Actor: actions.Actor{Login: id.Login, ID: id.ID, Email: id.Email}, Capability: out.Capability, Installations: []string{one}, Inputs: inputs, Kind: kind,
 		InputsByInstallation: map[string]map[string]any{one: inputs}, Customer: env.byName[one].Customer != env.hub.Customer, AccountEngineers: accountEngineers(env, one), Markers: markersOf(def, env, one), Rotate: rotateArg(args)}
+	test := testInstallation(one, env.byName[one].Customer, env.hub)
+	if err := t.standupRefusal(tool, test); err != nil {
+		return nil, err
+	}
 
 	// The gate: the installation is on record readably, read now.
 	if refusal := gateRefusal(*out, env.reports[one]); refusal != "" {
@@ -181,12 +185,16 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 		return nil, fmt.Errorf("%s: the pull requests are open (%s) and the action could not record them: %w", tool, prList(prs), err)
 	}
 	t.d.Log.Info(tool, identity.LogAttr(ctx), "action", a.Name, "installation", one, "state", a.Status.State, "pullRequests", len(prs))
-	a, err = t.askApproval(ctx, a, tool)
+	a, err = t.requestApproval(ctx, a, tool, test)
 	if err != nil {
 		return nil, fmt.Errorf("%w — the pull requests are open (%s) and the action pends approval; %s posts the review", err, prList(prs), ToolMergeAction)
 	}
 	res.Action = a
 	res.PullRequests = prs
+	if test {
+		res.Next = fmt.Sprintf("%s is a test installation: no Team review; the pull requests are open as you, and once green you merge them with %s, which tells the team's standup channel", one, ToolMergeAction)
+		return res, nil
+	}
 	res.Next = fmt.Sprintf("the action waits for the team's approval (review %s in %s); the pull requests are open as you, and once approved and green you merge them with %s", a.Status.Approval.ReviewID, a.Status.Approval.Channel, ToolMergeAction)
 	return res, nil
 }
