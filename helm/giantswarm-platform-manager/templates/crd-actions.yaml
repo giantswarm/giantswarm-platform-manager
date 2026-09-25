@@ -97,6 +97,16 @@ spec:
                   description: The inputs each installation of the set was rendered from at commit, the typed inputs over the facts on record, by installation; never a secret value.
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
+                keptByInstallation:
+                  description: Per installation, the entries of the platform patch's audience lists the commit kept beside the render; the live probes hold the objects against the render with them. Ids only, never a secret value.
+                  type: object
+                  additionalProperties:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        list: {type: string}
+                        entry: {type: string}
                 markers:
                   description: Per installation, the definition's enabled marker resolved to the installation's repository (owner/repo:path), whose absence from the default branch after the merge means the fileset was reverted.
                   type: object

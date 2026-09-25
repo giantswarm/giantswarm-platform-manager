@@ -143,6 +143,7 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 		return nil, fmt.Errorf("%s: %s: %s; nothing is committed", tool, one, missingInputs(p.MissingInputs))
 	}
 	spec.Change = changeSummary(p)
+	spec.KeptByInstallation = keptByInstallation(nil, p)
 	if n := p.Diff[plan.ChangeUnknown]; n > 0 {
 		return nil, fmt.Errorf("%s: %d file(s) of %s could not be compared against the repository as you (%s); nothing is committed blind", tool, n, one, unknownFiles(p))
 	}
@@ -698,6 +699,25 @@ func writeLost(b *strings.Builder, files []plan.File) {
 		}
 		b.WriteString("\n")
 	}
+}
+
+// keptByInstallation adds to byName, created when nil, the entries of p's
+// audience lists its files keep beside the render (plan.LiveKept), under
+// p's name; an installation that keeps none adds nothing. The live probes
+// read them back from the Action.
+func keptByInstallation(byName map[string][]plan.Kept, p plan.Installation) map[string][]plan.Kept {
+	var kept []plan.Kept
+	for _, f := range p.Files {
+		kept = append(kept, plan.LiveKept(f.Kept)...)
+	}
+	if len(kept) == 0 {
+		return byName
+	}
+	if byName == nil {
+		byName = map[string][]plan.Kept{}
+	}
+	byName[p.Name] = kept
+	return byName
 }
 
 func findPlan(out CapabilityResult, name string) (plan.Installation, bool) {
