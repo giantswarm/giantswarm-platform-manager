@@ -622,11 +622,13 @@ type fakeReview struct {
 // fakeGateway stands in for klaus-gateway's team-review endpoint: POST
 // /reviews answers a receipt, POST /reviews/{id}/results appends to the
 // review's thread — 404 for a review it does not hold (forgotten, as after a
-// restart on the memory store). Any other bearer than fixtureSA is 401.
+// restart on the memory store) —, POST /notices records a message without
+// buttons. Any other bearer than fixtureSA is 401.
 type fakeGateway struct {
 	*httptest.Server
 	mu      sync.Mutex
 	reviews []*fakeReview
+	notices []map[string]any
 	next    int
 	// down makes the results endpoint answer 502, as a gateway Slack refuses.
 	down bool
@@ -664,6 +666,21 @@ func newFakeGateway(t *testing.T) *fakeGateway {
 		}
 		writeJSON(w, http.StatusCreated, receipt)
 	})
+	mux.HandleFunc("POST /notices", func(w http.ResponseWriter, r *http.Request) {
+		if bearer(r) != fixtureSA {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{errorKey: "unauthorized"})
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{errorKey: err.Error()})
+			return
+		}
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		g.notices = append(g.notices, body)
+		writeJSON(w, http.StatusCreated, map[string]any{"channel": body["channel"], "ts": "1700000000.000300"})
+	})
 	mux.HandleFunc("POST /reviews/{id}/results", func(w http.ResponseWriter, r *http.Request) {
 		if bearer(r) != fixtureSA {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{errorKey: "unauthorized"})
@@ -700,6 +717,13 @@ func (g *fakeGateway) posted() []fakeReview {
 		out = append(out, *rv)
 	}
 	return out
+}
+
+// noticed returns every notice received, oldest first.
+func (g *fakeGateway) noticed() []map[string]any {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return slices.Clone(g.notices)
 }
 
 // forget drops the gateway's record of review id, as a restart would.

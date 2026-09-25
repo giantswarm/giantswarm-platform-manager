@@ -249,11 +249,12 @@ type Capabilities struct {
 type ApprovalsInfo struct {
 	// Configured says whether reviews are posted at all (a gateway URL is
 	// set); without it mode commit is refused.
-	Configured    bool   `json:"configured"`
-	GatewayURL    string `json:"gatewayUrl,omitempty"`
-	Team          string `json:"team,omitempty"`
-	Channel       string `json:"channel,omitempty"`
-	NoticeChannel string `json:"noticeChannel,omitempty"`
+	Configured     bool   `json:"configured"`
+	GatewayURL     string `json:"gatewayUrl,omitempty"`
+	Team           string `json:"team,omitempty"`
+	Channel        string `json:"channel,omitempty"`
+	NoticeChannel  string `json:"noticeChannel,omitempty"`
+	StandupChannel string `json:"standupChannel,omitempty"`
 }
 
 func (t *Tools) getInfo(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -271,7 +272,7 @@ func (t *Tools) getInfo(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallTo
 		GitHub:       GitHubInfo{APIURL: apiURL(t.d.GitHubAPIURL)},
 		Definitions:  defs,
 		Capabilities: Capabilities{Commit: true, Modes: []string{string(ModeCommit)}, ApplyRefused: true, WriteTools: names},
-		Approvals:    ApprovalsInfo{Configured: t.d.Approvals.Configured(), GatewayURL: t.d.Approvals.GatewayURL, Team: t.d.Approvals.Team, Channel: t.d.Approvals.Channel, NoticeChannel: t.d.Approvals.NoticeChannel},
+		Approvals:    ApprovalsInfo{Configured: t.d.Approvals.Configured(), GatewayURL: t.d.Approvals.GatewayURL, Team: t.d.Approvals.Team, Channel: t.d.Approvals.Channel, NoticeChannel: t.d.Approvals.NoticeChannel, StandupChannel: t.d.Approvals.StandupChannel},
 		Registry:     RegistryConfig{Catalog: t.d.Registry.Catalog, Hub: t.d.Registry.Hub, Configured: t.d.Registry.Hub != ""},
 		Actions:      t.actionsInfo(),
 		Live:         t.liveInfo(ctx),

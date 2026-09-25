@@ -93,14 +93,19 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 	}
 	changes := make([]string, 0, len(targets))
 	rollout := &actions.Rollout{Installations: make([]actions.InstallationRollout, 0, len(targets))}
+	test := true
 	for i, p := range targets {
 		if env.byName[p.Name].Customer != env.hub.Customer {
 			spec.Customer = true
 		}
+		test = test && testInstallation(p.Name, env.byName[p.Name].Customer, env.hub)
 		changes = append(changes, p.Name+": "+changeSummary(p))
 		rollout.Installations = append(rollout.Installations, actions.InstallationRollout{Name: p.Name, State: actions.StatePendingApproval, Message: fmt.Sprintf("stage %d of %d", i+1, len(targets))})
 	}
 	spec.Change = strings.Join(changes, "; ")
+	if err := t.standupRefusal(tool, test); err != nil {
+		return nil, err
+	}
 	name, err := actions.NewName(actions.KindReconcile, "wave")
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
@@ -137,12 +142,17 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		return nil, fmt.Errorf("%s: the pull requests are open (%s) and the action could not record them: %w", tool, prList(prs), err)
 	}
 	t.d.Log.Info(tool, identity.LogAttr(ctx), "action", a.Name, "wave", strings.Join(res.Order, ","), "skipped", len(res.Skipped), "pullRequests", len(prs))
-	a, err = t.askApproval(ctx, a, tool)
+	a, err = t.requestApproval(ctx, a, tool, test)
 	if err != nil {
 		return nil, fmt.Errorf("%w — the pull requests are open (%s) and the action pends approval; %s posts the review", err, prList(prs), ToolMergeAction)
 	}
 	res.Action = a
 	res.PullRequests = prs
+	if test {
+		res.Next = fmt.Sprintf("every target is a test installation: no Team review; the wave goes over %s in this order%s; once green you merge stage 1 (%s) as the actor with %s, which tells the team's standup channel, and call it again once Flux has reconciled it — the installation's verify runs first and, green, the next stage is merged; a red probe stops the wave with the remaining pull requests open",
+			strings.Join(res.Order, ", "), skippedClause(res.Skipped), res.Order[0], ToolMergeAction)
+		return res, nil
+	}
 	res.Next = fmt.Sprintf("the wave waits for the team's approval (review %s in %s) over %s in this order%s; once approved and green you merge stage 1 (%s) as the actor with %s, and call it again once Flux has reconciled it — the installation's verify runs first and, green, the next stage is merged; a red probe stops the wave with the remaining pull requests open",
 		a.Status.Approval.ReviewID, a.Status.Approval.Channel, strings.Join(res.Order, ", "), skippedClause(res.Skipped), res.Order[0], ToolMergeAction)
 	return res, nil

@@ -145,7 +145,7 @@ func newStack(t *testing.T) *stack {
 		Remote: func(token string) (commit.Remote, error) {
 			return asRemote{Remote: st.remote, login: logins[token], st: st}, nil
 		},
-		Approvals: approvals.Config{GatewayURL: st.gateway.URL, Team: reviewTeam, Channel: reviewChannel, NoticeChannel: noticeChannel, TokenFile: tokenFile},
+		Approvals: approvals.Config{GatewayURL: st.gateway.URL, Team: reviewTeam, Channel: reviewChannel, NoticeChannel: noticeChannel, StandupChannel: standupChannel, TokenFile: tokenFile},
 		Registry:  registrySources})
 	ts.AddWrite(tools.WriteTool{Name: testWrite, Description: "A fixture write.",
 		DryRun: func(_ context.Context, args map[string]any) (any, error) {
@@ -368,6 +368,9 @@ const (
 	reviewTeam    = "team-fixture"
 	reviewChannel = "C-fixture-team"
 	noticeChannel = "C-fixture-notice"
+	// standupChannel is the team's standup channel: told of an action on
+	// test installations, which needs no review.
+	standupChannel = "C-fixture-standup"
 )
 
 func (st *stack) record(login, op string, pr commit.PullRequest) {
