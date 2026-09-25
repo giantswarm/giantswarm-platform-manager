@@ -21,7 +21,6 @@ oidc:
     dexK8SAuthenticator:
       trustedPeers:
         - backstage
-        - Yx7hub0portal0client0id0on0record0
         - muster-token-exchange-kestrel
   extraStaticClients:
     - id: kagent
