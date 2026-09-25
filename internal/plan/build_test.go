@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -85,7 +86,7 @@ func TestBuildReadsThePlansFilesAtOnce(t *testing.T) {
 		}
 		switch path {
 		case rowanKustomization:
-			return "resources:\n- other\n", nil
+			return otherResources, nil
 		case "installations/rowan/a.yaml":
 			return "key: a\n", nil
 		case "installations/rowan/b.yaml":
@@ -208,7 +209,7 @@ func TestBuildAsksOnlyForSuppliedValuesWhoseFilesItWrites(t *testing.T) {
 	read := func(_ context.Context, _, path string) (string, error) {
 		switch path {
 		case rowanKustomization:
-			return "resources:\n- other\n", nil
+			return otherResources, nil
 		case kept:
 			return secretOnRecord("kept"), nil
 		case rewritten:
@@ -232,5 +233,67 @@ func TestBuildAsksOnlyForSuppliedValuesWhoseFilesItWrites(t *testing.T) {
 	}
 	if !slices.Equal(p.SuppliedOnRecord, []string{"kept.key"}) {
 		t.Errorf("on record %v, want the field of the file kept", p.SuppliedOnRecord)
+	}
+}
+
+// otherResources is the kustomization on record the fake definition's include
+// lands in, listing another owner's entry.
+const otherResources = "resources:\n- other\n"
+
+// A commit that writes over a file SOPS encrypted on record, its skeleton not
+// the render's, names what it loses there without a decryption: each value
+// the record holds under a readable key the render carries no leaf for
+// (Dropped), and each encrypted text the render writes a document of its
+// own in, a Secret's values, whose keys no one reads (Replaced). A file the
+// render keeps, one it creates and a plain file name nothing.
+func TestBuildNamesWhatTheCommitLosesOfAnEncryptedRecord(t *testing.T) {
+	const (
+		kept    = "installations/rowan/kept.enc.yaml"
+		keys    = "installations/rowan/keys.enc.yaml"
+		blob    = "installations/rowan/blob.enc.yaml"
+		created = "installations/rowan/created.enc.yaml"
+		plain   = "installations/rowan/plain.yaml"
+	)
+	files := map[string]string{
+		kept:    secretSkeleton("kept", "key: "+render.Placeholder("kept")),
+		keys:    secretSkeleton("keys", "key: "+render.Placeholder("keys")),
+		blob:    secretSkeleton("blob", "key: "+render.Placeholder("blob")),
+		created: secretSkeleton("created", "key: "+render.Placeholder("created")),
+		plain:   "a: 1\n",
+	}
+	read := func(_ context.Context, _, path string) (string, error) {
+		switch path {
+		case rowanKustomization:
+			return otherResources, nil
+		case kept:
+			return secretOnRecord("kept"), nil
+		case keys:
+			return secretOnRecord("keys", "EXTERNAL_ACCESS_MCP_TOKEN", "ANTHROPIC_API_KEY"), nil
+		case blob:
+			return strings.Replace(secretOnRecord("blob"), "type: Opaque\n", "", 1), nil
+		case plain:
+			return "a: 2\n", nil
+		}
+		return "", gh.ErrNotFound
+	}
+	p := Build(context.Background(), Options{Definition: filesDefinition(files), Installation: rowanInstallation(), Inputs: map[string]any{}, Read: read})
+	want := map[string]struct {
+		change            Change
+		dropped, replaced []string
+	}{
+		kept:    {change: ChangeUnchanged},
+		keys:    {ChangeUpdate, []string{"stringData.EXTERNAL_ACCESS_MCP_TOKEN", "stringData.ANTHROPIC_API_KEY"}, []string{"stringData.values"}},
+		blob:    {ChangeUpdate, nil, []string{"stringData.values"}},
+		created: {change: ChangeCreate},
+		plain:   {change: ChangeUpdate},
+	}
+	for _, f := range p.Files {
+		w, ok := want[f.Path]
+		if !ok {
+			continue
+		}
+		if f.Change != w.change || !slices.Equal(f.Dropped, w.dropped) || !slices.Equal(f.Replaced, w.replaced) {
+			t.Errorf("%s: %s, dropped %v, replaced %v; want %s, %v, %v", f.Path, f.Change, f.Dropped, f.Replaced, w.change, w.dropped, w.replaced)
+		}
 	}
 }

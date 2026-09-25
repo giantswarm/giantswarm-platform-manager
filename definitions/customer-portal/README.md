@@ -70,8 +70,9 @@ Key paths in `x-renders`, `removals.yaml` and `migrations.yaml` are normalised: 
   telemetry salt and the plugin-to-plugin signing key pair. What a person supplies at commit is named by
   field: the GitHub App's `plugins.github.appId`, `clientId`, `clientSecret`, `privateKey` and `webhookSecret` (the id
   is no credential, but it lives only in the encrypted file, so it is supplied like them and never set in the
-  inputs), Sentry's `plugins.sentry.appDsn`, `backendDsn` and `reportUri`, and the service-account token of the
-  installation's Grafana, `plugins.grafana.token`, where the Grafana plugin is wired.
+  inputs), Sentry's `plugins.sentry.appDsn`, `backendDsn` and `reportUri`, the service-account token of the
+  installation's Grafana, `plugins.grafana.token`, where the Grafana plugin is wired, and the AI chat's credential
+  while it is the portal's (below).
 - The Grafana plugin links the installation's own Grafana, `https://grafana.<base domain>`. The `grafana:` section
   is always rendered with that one host under the installation's name: the plugin's config schema requires the
   section, and a portal without it does not start. `plugins.grafana.enabled` says whether the plugin is wired —
@@ -81,14 +82,14 @@ Key paths in `x-renders`, `removals.yaml` and `migrations.yaml` are normalised: 
   installation's, and a portal that names another one is off the definition at the host.
 - Every leaf of `user-secrets-backstage` is base64, encoded exactly once: the chart copies `authSessionSecret`,
   `telemetrydeck.salt`, each `dexAuthCredentials` entry's `clientID` and `clientSecret`, the three sentry values
-  (`app.dsn`, `backend.dsn`, `reportURI`) and `grafana.apiToken` under the `data:` of its Secrets
+  (`app.dsn`, `backend.dsn`, `reportURI`), `grafana.apiToken` and the chat's `anthropic.apiKey` under the `data:` of its Secrets
   (`<name>-secrets`, `<name>-dex-auth-credentials-secret`) as they are, and the pod loads them with `envFrom`,
   so each value has to be the base64 of what the portal reads. The generated ones — the session secret, the
   telemetry salt and the portal's own client secret (the Dex client's Secret carries the same secret raw) — sit
   at their base64 placeholders, which the commit fills with the value's base64; the portal's own client id
-  (`backstage`), a federated installation's and the broker's credentials, the Sentry values and the Grafana
-  token are encoded by the render (`render.Base64Leaf`), the supplied ones supplied raw. The GitHub App's values
-  and the plugin keys land in the chart's `stringData:` and stay as they are. The render-consumption test renders
+  (`backstage`), a federated installation's and the broker's credentials, the Sentry values, the Grafana
+  token and the chat's key are encoded by the render (`render.Base64Leaf`), the supplied ones supplied raw. The GitHub App's values,
+  the plugin keys and a Vertex chat's `google.credentialsJson` land in the chart's `stringData:` and stay as they are. The render-consumption test renders
   the chart with every shape's committed values and holds every key under `data:` to the value generated or
   supplied, decoded as valid UTF-8.
 - The portal's agent-platform section is the agent-platform definition's: its fragment, values and Google
@@ -107,9 +108,22 @@ Key paths in `x-renders`, `removals.yaml` and `migrations.yaml` are normalised: 
   every step: this definition's commit replaces the literal extension list with the include and keeps the rest;
   the agent-platform reconcile that follows finds the portal no longer hand-kept and takes the lists over, the skill
   repositories and the chat read back from the app-config; this definition's next reconcile hands the section over,
-  its keys planned as `other-definition` removals (*Moved*), the include as *Changed*. `platformSection` is read on
-  every comparison from the portal's app-config and the fragment on record (`backstage:agent-platform/app-config` in
-  `x-files`), never typed. The portal's environment stays the portal's: `backstage.extraEnvVars`
+  its keys planned as `other-definition` removals (*Moved*), the include as *Changed*. The chat's credential is the
+  portal's through the whole move: where the platform runs and the record carries the chat (`platformSection.aiChat`),
+  the portal's user secrets carry it until the Component's credentials Secret is on record
+  (`platformSection.chatCredentials`, the presence of `agent-platform/ai-chat-credentials.enc.yaml`). The commit asks
+  for it under the field the agent-platform definition names it with — `aiChat.anthropic.apiKey`, or on Vertex AI
+  (`platformSection.chatProvider`) `aiChat.google.credentialsJson` — supplied from the portal's own encrypted file
+  (`--secret aiChat.anthropic.apiKey=@<file>`), and writes it as `anthropic.apiKey`, base64-encoded once for the
+  chart's `ANTHROPIC_API_KEY` that the kept `aiChat` block references (`google.credentialsJson` as supplied, the file
+  the chart mounts). The hand-kept user secrets are one encrypted values text, replaced whole by the first commit (the
+  dry run names it under the file's `replaced`), so without the key the chat would stop answering. The agent-platform
+  reconcile asks for nothing; the hand-over keeps user-secrets on record with the key and asks for nothing; the
+  agent-platform action after it — the portal's app-config no longer carries the chat — asks for the key into the
+  Component's Secret (its M18); from then on the portal's render carries none, and the copy on record goes with the
+  file's next rewrite. `platformSection` is read on every comparison from the portal's app-config, the fragment and the
+  Component's credentials Secret on record (`backstage:agent-platform/app-config` and
+  `backstage:file:agent-platform/ai-chat-credentials.enc.yaml` in `x-files`), never typed. The portal's environment stays the portal's: `backstage.extraEnvVars`
   is one list Helm replaces wholesale across the HelmRelease's values sources (the shared base's default, the
   portal's user-values, the Component's values), so the user-values are its one owner — the avatars host of
   every installation the portal shows that runs the platform as the CSP image source

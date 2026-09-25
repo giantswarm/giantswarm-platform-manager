@@ -157,7 +157,8 @@ func TestRenderConsumptionSecrets(t *testing.T) {
 // writes under data:, by Secret and key, for the values the definition
 // renders with the supplied secrets and the generated values by name: the
 // session secret and the telemetry salt (and with the plugins wired the
-// Sentry values and the Grafana token) in <name>-secrets, the Dex client
+// Sentry values and the Grafana token, and while the chat's key is the
+// portal's the Anthropic API key) in <name>-secrets, the Dex client
 // credentials by installation in <name>-dex-auth-credentials-secret.
 func (in *Input) chartData(secrets, generatedValues map[string]string) map[string]map[string]string {
 	own := in.Installation.Name
@@ -172,6 +173,9 @@ func (in *Input) chartData(secrets, generatedValues map[string]string) map[strin
 	}
 	if in.Plugins.Grafana.Enabled {
 		values["GRAFANA_TOKEN"] = secrets[fieldGrafanaToken]
+	}
+	if in.chatCredentialField() == fieldChatKey {
+		values["ANTHROPIC_API_KEY"] = secrets[fieldChatKey]
 	}
 	dex := map[string]string{}
 	add := func(key, clientID, clientSecret string) {

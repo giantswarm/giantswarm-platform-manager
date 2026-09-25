@@ -129,7 +129,12 @@ The plan per installation: its state, the effective inputs, the files with their
 (*create*, *update*, *unchanged*, *unknown* when the current file could not be read as the person) — an
 encrypted file kept *unchanged* names as `unseen` the literals the render puts under a field the record
 holds encrypted (a credentials Secret's client id), with the render's value: the comparison decrypts
-nothing, so the value on record stands whether or not it is that one —, the shared-kustomization includes, the generated secrets by name, kind and length — with `frozenIn`, the files
+nothing, so the value on record stands whether or not it is that one; an encrypted file the commit writes over
+whose skeleton is not the render's (kept by hand, or by an earlier shape) names what it loses there, read without
+decrypting: `dropped`, each value under a readable key the render carries no leaf for (the comparison plans it as
+*Removed:* by name), and `replaced`, each encrypted text the render writes a document of its own in (a Secret's
+`stringData.values`), whose keys no one reads, so a value it holds that the render does not carry is lost unless the
+definition asks for it at commit —, the shared-kustomization includes, the generated secrets by name, kind and length — with `frozenIn`, the files
 on record that hold the value already, `kept` when the value on record stands and no file of the name is
 written, and `rotates` with `forcedBy`, the file that has to be written, when the commit draws a new value
 into every file of the name (see [The commit](#the-commit)) — the secret values the person

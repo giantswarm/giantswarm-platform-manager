@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -1082,7 +1083,11 @@ func TestPlatformSectionStaysUntilTheFragmentOwnsTheLists(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			section["componentLists"], section["aiChat"] = tc.componentLists, tc.chat
 			input["installation"].(map[string]any)[agentPlatformKey] = tc.agentPlatform
-			result, err := Render(input, secrets, render.ModeCommit)
+			supplied := secrets
+			if !tc.chat || !tc.agentPlatform {
+				supplied = without(secrets, fieldChatKey)
+			}
+			result, err := Render(input, supplied, render.ModeCommit)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1101,6 +1106,94 @@ func TestPlatformSectionStaysUntilTheFragmentOwnsTheLists(t *testing.T) {
 			}
 			if backend["baseUrl"] != "https://portal.gopher.example.io" {
 				t.Errorf("the rendered backend is not the definition's under the kept actions: %v", backend)
+			}
+		})
+	}
+}
+
+// The AI chat's credential is the portal's own until the agent-platform
+// Component's credentials Secret is on record: where the platform runs and
+// the record carries the chat, a commit asks for it by the field the
+// agent-platform definition names it with and writes it into user-secrets —
+// the Anthropic API key as anthropic.apiKey, base64-encoded once for the
+// chart's ANTHROPIC_API_KEY, which the chat's kept block references; a
+// Vertex chat's service-account JSON as google.credentialsJson, as supplied —
+// so a hand-kept portal's first commit keeps its chat answering. A dry run
+// renders the marker; a commit without the value is refused. Once the
+// Component's Secret is on record, or without the chat or the platform,
+// user-secrets carry none and nothing is asked.
+func TestChatCredentialStaysThePortalsUntilTheComponentCarriesIt(t *testing.T) {
+	type chatValues struct {
+		Anthropic *struct {
+			APIKey string `yaml:"apiKey"`
+		} `yaml:"anthropic"`
+		Google *struct {
+			CredentialsJSON string `yaml:"credentialsJson"`
+		} `yaml:"google"`
+	}
+	const googleJSON = `{"type": "service_account", "project_id": "placeholder"}` // #nosec G101 -- a placeholder, no credential
+	for _, tc := range []struct {
+		name, provider, field           string
+		credentials, noChat, noPlatform bool
+	}{
+		{name: "hand-kept, on Anthropic's API", field: fieldChatKey},
+		{name: "hand-kept, on Vertex AI", provider: chatProviderVertex, field: fieldChatGoogleCredentials},
+		{name: "the Component's Secret on record", credentials: true},
+		{name: "no chat", noChat: true},
+		{name: "no platform", noPlatform: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			input, secrets := loadInput(t, "hand-kept-portal")
+			section := input["platformSection"].(map[string]any)
+			section["chatCredentials"], section["aiChat"] = tc.credentials, !tc.noChat
+			if tc.provider != "" {
+				section["chatProvider"] = tc.provider
+			}
+			input["installation"].(map[string]any)[agentPlatformKey] = !tc.noPlatform
+			secrets = without(secrets, fieldChatKey)
+			in, err := Parse(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fields := in.SuppliedSecretFields()
+			for _, f := range []string{fieldChatKey, fieldChatGoogleCredentials} {
+				if asked := slices.Contains(fields, f); asked != (f == tc.field) {
+					t.Errorf("%s asked %v, want %v: %v", f, asked, f == tc.field, fields)
+				}
+			}
+			values := func(t *testing.T, secrets map[string]string, mode render.Mode) chatValues {
+				t.Helper()
+				result, err := Render(input, secrets, mode)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var v chatValues
+				if err := yaml.Unmarshal([]byte(stringData(t, fileNamed(t, result, userSecretsFile), "values")), &v); err != nil {
+					t.Fatal(err)
+				}
+				return v
+			}
+			switch tc.field {
+			case "":
+				if v := values(t, secrets, render.ModeCommit); v.Anthropic != nil || v.Google != nil {
+					t.Errorf("user-secrets carry the chat's credential: %+v", v)
+				}
+				return
+			case fieldChatKey:
+				const key = "placeholder-anthropic-key"
+				if got := values(t, with(secrets, fieldChatKey, key), render.ModeCommit); got.Anthropic == nil || decodeBase64(t, got.Anthropic.APIKey) != key || got.Google != nil {
+					t.Errorf("user-secrets carry %+v, want anthropic.apiKey the base64 of the supplied key", got)
+				}
+				if got := values(t, in.SuppliedMarkers(), render.ModeCompare); got.Anthropic == nil || got.Anthropic.APIKey != Supplied(fieldChatKey) {
+					t.Errorf("a dry run's anthropic.apiKey is %+v, want the marker", got.Anthropic)
+				}
+			case fieldChatGoogleCredentials:
+				if got := values(t, with(secrets, fieldChatGoogleCredentials, googleJSON), render.ModeCommit); got.Google == nil || got.Google.CredentialsJSON != googleJSON || got.Anthropic != nil {
+					t.Errorf("user-secrets carry %+v, want google.credentialsJson as supplied", got)
+				}
+			}
+			if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrEmptySecret) {
+				t.Errorf("a commit without %s: %v, want ErrEmptySecret", tc.field, err)
 			}
 		})
 	}
