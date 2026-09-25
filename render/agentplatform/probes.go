@@ -197,8 +197,10 @@ func (in *Input) dexRedirectClients() []dexRedirectClient {
 	if in.kagent() {
 		clients = append(clients, dexRedirectClient{id: "kagent", redirectURI: in.kagentRedirectURI()})
 	}
-	for _, p := range in.Installation.Portals {
-		clients = append(clients, dexRedirectClient{id: render.PortalDexClientID, redirectURI: render.PortalRedirectURI(p.Domain, in.Installation.Name)})
+	if in.portalClient() {
+		for _, p := range in.Installation.Portals {
+			clients = append(clients, dexRedirectClient{id: render.PortalDexClientID, redirectURI: render.PortalRedirectURI(p.Domain, in.Installation.Name)})
+		}
 	}
 	return clients
 }
