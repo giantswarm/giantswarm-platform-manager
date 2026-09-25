@@ -609,8 +609,13 @@ func (rt rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 // reads from its token file and the fake gateway accepts.
 const fixtureSA = "sa-fixture-for-klaus-gateway"
 
-// errorKey is the key of the fake gateway's error bodies.
-const errorKey = "error"
+// errorKey is the key of the fake gateway's error bodies; channelKey the
+// channel of a message and its receipt; unauthorizedBody a refused bearer.
+const (
+	errorKey         = "error"
+	channelKey       = "channel"
+	unauthorizedBody = "unauthorized"
+)
 
 // fakeReview is one review the fake gateway received, as the manager sent it.
 type fakeReview struct {
@@ -668,7 +673,7 @@ func newFakeGateway(t *testing.T) *fakeGateway {
 	})
 	mux.HandleFunc("POST /notices", func(w http.ResponseWriter, r *http.Request) {
 		if bearer(r) != fixtureSA {
-			writeJSON(w, http.StatusUnauthorized, map[string]any{errorKey: "unauthorized"})
+			writeJSON(w, http.StatusUnauthorized, map[string]any{errorKey: unauthorizedBody})
 			return
 		}
 		var body map[string]any
@@ -679,7 +684,7 @@ func newFakeGateway(t *testing.T) *fakeGateway {
 		g.mu.Lock()
 		defer g.mu.Unlock()
 		g.notices = append(g.notices, body)
-		writeJSON(w, http.StatusCreated, map[string]any{"channel": body["channel"], "ts": "1700000000.000300"})
+		writeJSON(w, http.StatusCreated, map[string]any{channelKey: body[channelKey], "ts": "1700000000.000300"})
 	})
 	mux.HandleFunc("POST /reviews/{id}/results", func(w http.ResponseWriter, r *http.Request) {
 		if bearer(r) != fixtureSA {

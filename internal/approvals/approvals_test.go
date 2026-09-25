@@ -10,6 +10,8 @@ import (
 	"testing"
 )
 
+const standup = "CSTANDUP"
+
 // A notice goes to POST /notices with the team and the standup channel of
 // the configuration, the bearer from the token file; without a standup
 // channel nothing is sent.
@@ -23,19 +25,19 @@ func TestNoticeGoesToTheStandupChannel(t *testing.T) {
 			return
 		}
 		_ = json.NewDecoder(r.Body).Decode(&got)
-		_, _ = w.Write([]byte(`{"channel":"CSTANDUP","ts":"1.2"}`))
+		_, _ = w.Write([]byte(`{"channel":"` + standup + `","ts":"1.2"}`))
 	}))
 	defer srv.Close()
 	tokenFile := filepath.Join(t.TempDir(), "token")
 	if err := os.WriteFile(tokenFile, []byte("sa-token\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cfg := Config{GatewayURL: srv.URL, Team: "team-a", Channel: "CREVIEW", StandupChannel: "CSTANDUP", TokenFile: tokenFile}
+	cfg := Config{GatewayURL: srv.URL, Team: "team-a", Channel: "CREVIEW", StandupChannel: standup, TokenFile: tokenFile}
 	receipt, err := New(cfg, nil).Notice(context.Background(), Notice{Text: "*alice* reconciled *x* on *lab*.", PullRequests: []string{"https://example.test/pr/1"}})
-	if err != nil || receipt.Channel != "CSTANDUP" || receipt.TS != "1.2" {
+	if err != nil || receipt.Channel != standup || receipt.TS != "1.2" {
 		t.Fatalf("notice: %+v %v", receipt, err)
 	}
-	if got["team"] != "team-a" || got["channel"] != "CSTANDUP" || got["text"] != "*alice* reconciled *x* on *lab*." || len(got["pullRequests"].([]any)) != 1 {
+	if got["team"] != "team-a" || got["channel"] != standup || got["text"] != "*alice* reconciled *x* on *lab*." || len(got["pullRequests"].([]any)) != 1 {
 		t.Fatalf("the gateway received %v", got)
 	}
 	cfg.StandupChannel = ""
