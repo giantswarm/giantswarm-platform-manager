@@ -40,6 +40,7 @@ const (
 	keyModel    = "model"
 	keyProvider = "provider"
 	keyGoogle   = "google"
+	keyCapacity = "singletonsCapacity"
 )
 
 // shapes are the installation shapes, in the order the goldens are rendered.
@@ -527,9 +528,9 @@ func TestRefusals(t *testing.T) {
 		{"the model key is never supplied", base, with("kagent.modelKey", "x"), ErrUnknownSecret, "kagent.modelKey"},
 		{"on-demand singletons without Karpenter", clone(func(m map[string]any) {
 			m["installation"].(map[string]any)["provider"] = "capz"
-			m["scheduling"] = map[string]any{"singletonsCapacity": "on-demand"}
-		}), secrets, ErrInput, "scheduling.singletonsCapacity"},
-		{"a capacity Karpenter does not name", clone(func(m map[string]any) { m["scheduling"] = map[string]any{"singletonsCapacity": "spot"} }), secrets, ErrInput, "singletonsCapacity"},
+			m["scheduling"] = map[string]any{keyCapacity: capacityOnDemand}
+		}), secrets, ErrInput, "scheduling." + keyCapacity},
+		{"a capacity Karpenter does not name", clone(func(m map[string]any) { m["scheduling"] = map[string]any{keyCapacity: "spot"} }), secrets, ErrInput, keyCapacity},
 		{"serving on the 3 line", clone(func(m map[string]any) { m["modelServing"] = map[string]any{keyEnabled: true} }), secrets, ErrInput, "modelServing.enabled"},
 		{"the chat without a portal to carry it", clone(func(m map[string]any) {
 			m["installation"].(map[string]any)["portals"] = []any{}
