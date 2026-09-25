@@ -44,7 +44,8 @@ account's JSON, supplied as `aiChat.google.credentialsJson`, as the chart value 
 `/app/google/credentials.json` — with the Slack credentials the only values a person supplies at commit; where the
 portal's own app-config carries the chat by hand, `installation.portals[*].handKeptChat`, its environment supplies the
 credential already and the Component renders the chat's blocks without a Secret and asks for no value, so a wave
-reconciles the portal), and a patch appending those sources to the portal HelmRelease's `valuesFrom` — last, so the
+reconciles the portal — the customer-portal definition keeps the credential in the portal's user secrets, supplied
+under the same field, until the Component's Secret is on record), and a patch appending those sources to the portal HelmRelease's `valuesFrom` — last, so the
 platform's values win. The fragment carries the platform's section, and on a portal the customer-portal
 definition renders the shared extension list with the platform's section and the installation's muster entry;
 Backstage and Helm replace lists wholesale, so on a hand-kept portal (a literal `app.extensions` on record) the

@@ -6,8 +6,10 @@
 # its object-shaped keys alone and no extension list. So the app-config keeps
 # the section as the record carries it and includes the shared list with the
 # platform's section, the chat's entries and the Grafana dashboards card (the
-# plugin is wired), until the fragment owns the lists. Invented names,
-# placeholder values.
+# plugin is wired), until the fragment owns the lists. The chat's key is the
+# portal's until the Component's credentials Secret is on record, so the
+# user secrets carry it, supplied at commit. Invented names, placeholder
+# values.
 input:
   installation:
     name: gopher
@@ -68,4 +70,5 @@ input:
             exclude:
               - id: gs:get-pagerduty-ids-for-entity
 secrets:
+  aiChat.anthropic.apiKey: placeholder-anthropic-key
   plugins.grafana.token: placeholder-grafana-token

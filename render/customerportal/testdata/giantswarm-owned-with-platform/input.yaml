@@ -2,7 +2,8 @@
 # enabled (the platform's Component listed, the Dex client carried by the
 # agent-platform definition) and handed over: the Component's fragment on
 # record owns the portal's lists, so the app-config includes the shared list
-# without the platform's section and carries none of it. The tunnel's SPIFFE
+# without the platform's section and carries none of it, and the Component's
+# credentials Secret carries the chat's key. The tunnel's SPIFFE
 # bundle, Sentry and the Flux plugin, telemetry on, a title of its own.
 # Invented names, placeholder values.
 input:
@@ -39,6 +40,7 @@ input:
   platformSection:
     componentLists: true
     aiChat: true
+    chatCredentials: true
 secrets:
   plugins.github.appId: "654321"
   plugins.github.clientId: Iv1.placeholder-client-id

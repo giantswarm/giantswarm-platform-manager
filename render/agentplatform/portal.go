@@ -69,7 +69,10 @@ import (
 // hand-kept portal — and a wave, which carries no supplied value, reconciles
 // such a portal. The credential becomes the Component's when the hand-kept
 // block goes (the customer-portal definition's planned move), through an
-// enable of that installation alone with it supplied.
+// enable of that installation alone with it supplied; until the Secret is on
+// record the customer-portal definition keeps the credential in the portal's
+// user secrets, supplied under the same field, so the chat keeps it through
+// every step of the move.
 //
 // The portal's chart line (installation.portals[*].chartLine) decides one
 // key. Before backstage 1.1.0 the portal's agent-platform plugin composes the

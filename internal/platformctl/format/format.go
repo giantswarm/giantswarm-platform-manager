@@ -161,6 +161,12 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 			if len(f.Unseen) > 0 {
 				p.f("    %s holds encrypted, not compared: %s\n", f.Path, unseen(f.Unseen))
 			}
+			if len(f.Dropped) > 0 {
+				p.f("    %s drops what the record holds encrypted and no input renders: %s\n", f.Path, strings.Join(f.Dropped, ", "))
+			}
+			if len(f.Replaced) > 0 {
+				p.f("    %s replaces the encrypted values on record whole (%s): a key they hold that the definition does not render is lost — supply it at commit where the plan asks for it, or keep the file by hand\n", f.Path, strings.Join(f.Replaced, ", "))
+			}
 		}
 	}
 	for _, inc := range inst.Includes {

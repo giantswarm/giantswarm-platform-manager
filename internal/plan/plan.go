@@ -68,6 +68,19 @@ type File struct {
 	// not it is the render's, and a person reads here what the render
 	// assumes it to be.
 	Unseen []Unseen `json:"unseen,omitempty"`
+	// Dropped and Replaced are what the commit loses of a file SOPS encrypted
+	// on record that it writes over — one whose plaintext skeleton is not the
+	// render's, a file kept by hand or by an earlier shape: the manager
+	// decrypts nothing, so neither can be carried over. Dropped are the values
+	// the record holds that the render carries no leaf for, by YAML path
+	// (stringData.EXTERNAL_ACCESS_MCP_TOKEN): gone once the commit merges.
+	// Replaced are the encrypted texts the render writes a document of its own
+	// in (stringData.values, a Secret's chart values): written anew whole, so
+	// every key the record's text holds that the render does not carry goes
+	// with it, unnamed — a value still needed is supplied at commit where the
+	// definition asks for it, or the file is kept by hand.
+	Dropped  []string `json:"dropped,omitempty"`
+	Replaced []string `json:"replaced,omitempty"`
 	// Creates names the objects the file brings onto the installation, as
 	// "<kind>/<name>": a Secret its manifests declare, a Teleport provision
 	// token its tunnelport values list — none the file on record carries
@@ -461,6 +474,9 @@ func Build(ctx context.Context, opts Options) Installation {
 				}
 			}
 			pf.Change, pf.Error, pf.Unseen = change(current, err, content)
+			if pf.Change == ChangeUpdate && !Shared(path) && Encrypted(current) {
+				pf.Dropped, pf.Replaced = dropped(content, current)
+			}
 			pf.Creates, pf.References = introduced(content, current, err == nil), references(content)
 			p.Diff[pf.Change]++
 			if len(f.Generated) > 0 {

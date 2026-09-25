@@ -10,18 +10,29 @@ import (
 
 // The files of a portal on record the customer portal's platformSection is
 // read from, as the definition's x-files names them: the portal's own
-// app-config, and the agent-platform Component's app-config fragment beside
-// it.
+// app-config, and the agent-platform Component's app-config fragment and its
+// credentials Secret for the chat beside it.
 const (
-	portalAppConfigFile = "backstage:app-config"
-	portalFragmentFile  = "backstage:agent-platform/app-config"
+	portalAppConfigFile       = "backstage:app-config"
+	portalFragmentFile        = "backstage:agent-platform/app-config"
+	portalChatCredentialsFile = "backstage:file:agent-platform/ai-chat-credentials.enc.yaml" // #nosec G101 -- a file name, not a value
 )
 
 // The customer portal's platformSection facts, as its schema names them.
 const (
-	sectionComponentLists = "componentLists"
-	sectionAIChat         = "aiChat"
-	sectionAppConfig      = "appConfig"
+	sectionComponentLists  = "componentLists"
+	sectionAIChat          = "aiChat"
+	sectionChatProvider    = "chatProvider"
+	sectionChatCredentials = "chatCredentials"
+	sectionAppConfig       = "appConfig"
+)
+
+// chatProviderKey is where the chat's block names its provider, and
+// chatProviderAnthropic the provider of a block that names none: Claude on
+// Anthropic's API.
+const (
+	chatProviderKey       = "aiChat.anthropic.provider"
+	chatProviderAnthropic = "anthropic"
 )
 
 // portalExtensions is the portal's extension list, handed over by anchor:
@@ -47,9 +58,12 @@ var handedPortalKeys = func() []string {
 // portal's files on record, read as the caller: whether the Component's
 // fragment carries the extension list (componentLists: it owns the portal's
 // lists), whether the portal runs the chat (the fragment, else the main
-// app-config, carries the aiChat block), and every handed key the main
-// app-config carries but the extension list, at its path with its value
-// (appConfig). A file not on record carries nothing.
+// app-config, carries the aiChat block) and on which provider (the block's
+// aiChat.anthropic.provider, the fragment's first, as the agent-platform
+// definition reads it), whether the Component's credentials Secret for the
+// chat is on record (chatCredentials: its presence, nothing decrypted), and
+// every handed key the main app-config carries but the extension list, at
+// its path with its value (appConfig). A file not on record carries nothing.
 func portalPlatformSection(ctx context.Context, r Report, read Reader) (map[string]any, error) {
 	c, _ := FindCapability(CustomerPortal)
 	s, err := c.inputSchema()
@@ -72,9 +86,20 @@ func portalPlatformSection(ctx context.Context, r Report, read Reader) (map[stri
 	if err != nil {
 		return nil, err
 	}
+	credentials, err := doc(portalChatCredentialsFile)
+	if err != nil {
+		return nil, err
+	}
 	_, lists := lookup(fragment, splitKey(portalExtensions))
 	_, fragmentChat := lookup(fragment, splitKey(sectionAIChat))
 	_, ownChat := lookup(appConfig, splitKey(sectionAIChat))
+	provider := chatProviderAnthropic
+	for _, d := range []map[string]any{fragment, appConfig} {
+		if v, _ := lookup(d, splitKey(chatProviderKey)); v != nil {
+			provider = fmt.Sprint(v)
+			break
+		}
+	}
 	kept := map[string]any{}
 	for _, key := range handedPortalKeys {
 		if key == portalExtensions || strings.HasPrefix(key, portalExtensions+".") || strings.HasPrefix(key, portalExtensions+"[") {
@@ -84,5 +109,6 @@ func portalPlatformSection(ctx context.Context, r Report, read Reader) (map[stri
 			set(kept, splitKey(key), v)
 		}
 	}
-	return map[string]any{sectionComponentLists: lists, sectionAIChat: fragmentChat || ownChat, sectionAppConfig: kept}, nil
+	return map[string]any{sectionComponentLists: lists, sectionAIChat: fragmentChat || ownChat, sectionChatProvider: provider,
+		sectionChatCredentials: credentials != nil, sectionAppConfig: kept}, nil
 }
