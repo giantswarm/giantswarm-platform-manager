@@ -6,7 +6,7 @@
 # organisation (kagent, the agent-manager, the cluster-manager; no chat gateway, since the policy
 # names no Slack app for it), its own portal with the AI chat on — the portal is rendered, so the
 # fragment includes the shared list with the chat and the chat's Anthropic key is the one value
-# supplied at commit —, the chart range pinned. The model key Secret is the installation's own.
+# supplied at commit —, the stateful singletons on on-demand capacity, the chart range pinned. The model key Secret is the installation's own.
 # Invented names, placeholder values.
 input:
   installation:
@@ -34,6 +34,8 @@ input:
   # the render-consumption test renders on the 4 line.
   modelServing:
     enabled: false
+  scheduling:
+    singletonsCapacity: on-demand
   aiChat:
     enabled: true
     model: claude-opus-5

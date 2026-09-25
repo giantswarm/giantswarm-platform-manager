@@ -525,6 +525,11 @@ func TestRefusals(t *testing.T) {
 		{"an app-level token on a public installation", slackAppPublic, slackPublicSecrets, ErrUnknownSecret, fieldSlack + "app-token"},
 		{"a Slack credential where no gateway runs", base, with(fieldSlack+"bot-token", "x"), ErrUnknownSecret, fieldSlack + "bot-token"},
 		{"the model key is never supplied", base, with("kagent.modelKey", "x"), ErrUnknownSecret, "kagent.modelKey"},
+		{"on-demand singletons without Karpenter", clone(func(m map[string]any) {
+			m["installation"].(map[string]any)["provider"] = "capz"
+			m["scheduling"] = map[string]any{"singletonsCapacity": "on-demand"}
+		}), secrets, ErrInput, "scheduling.singletonsCapacity"},
+		{"a capacity Karpenter does not name", clone(func(m map[string]any) { m["scheduling"] = map[string]any{"singletonsCapacity": "spot"} }), secrets, ErrInput, "singletonsCapacity"},
 		{"serving on the 3 line", clone(func(m map[string]any) { m["modelServing"] = map[string]any{keyEnabled: true} }), secrets, ErrInput, "modelServing.enabled"},
 		{"the chat without a portal to carry it", clone(func(m map[string]any) {
 			m["installation"].(map[string]any)["portals"] = []any{}

@@ -235,7 +235,7 @@ func TestDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]any{"modelServing": map[string]any{keyEnabled: false}, "aiChat": map[string]any{keyEnabled: false, "model": "claude-opus-5", keyProvider: "anthropic"},
-		"skills": map[string]any{"repositories": []any{}}}
+		"scheduling": map[string]any{"singletonsCapacity": "any"}, "skills": map[string]any{"repositories": []any{}}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("defaults %v, want %v", got, want)
 	}
@@ -319,6 +319,20 @@ func TestAgentPlatformReadsBackModelServing(t *testing.T) {
 		t.Fatal(err)
 	}
 	if want := map[string]any{"modelServing.enabled": true}; !reflect.DeepEqual(got, want) {
+		t.Errorf("read back %v, want %v", got, want)
+	}
+}
+
+// The agent-platform definition reads the singletons' placement back from
+// the configmap patch on record.
+func TestAgentPlatformReadsBackSingletonsCapacity(t *testing.T) {
+	def, _ := FindCapability(AgentPlatform)
+	read := files(map[string]string{"acme/configs:" + def.EnabledMarker("rowan"): "scheduling:\n  singletons:\n    nodeSelector:\n      karpenter.sh/capacity-type: on-demand\n"})
+	got, err := def.ReadBack(context.Background(), read, readBackInstallation, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]any{"scheduling.singletonsCapacity": "on-demand"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("read back %v, want %v", got, want)
 	}
 }
