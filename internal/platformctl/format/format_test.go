@@ -75,6 +75,8 @@ func TestPlan(t *testing.T) {
 			Files: []plan.File{
 				{Repository: acmeConfigs, Path: "installations/rowan/apps/agent-platform/configmap-values.yaml.patch", Change: plan.ChangeCreate, Content: "a: 1\n"},
 				{Repository: acmeMCs, Path: "management-clusters/rowan/extras/agent-platform/kustomization.yaml", Change: plan.ChangeUnchanged},
+				{Repository: acmeMCs, Path: "management-clusters/rowan/extras/backstage/backstage/user-secrets.enc.yaml", Change: plan.ChangeUpdate,
+					Dropped: []string{"stringData.EXTERNAL_ACCESS_MCP_TOKEN"}, Replaced: []string{"stringData.values"}},
 			},
 			Includes: []plan.Include{{Repository: acmeMCs, Path: "management-clusters/rowan/extras/kustomization.yaml", List: plan.ListResources, Resource: "./agent-platform/", Change: plan.ChangeUpdate}},
 			GeneratedSecrets: []plan.GeneratedSecret{
@@ -86,7 +88,7 @@ func TestPlan(t *testing.T) {
 			DexClients:      []plan.DexClient{{ID: kagent, Client: kagent, SecretRef: dexClientKagent, RedirectURIs: []string{"https://kagent.rowan.example/callback"}}},
 			CustomerActions: []plan.CustomerAction{{Installation: rowan, Action: "create the apiKeySecret", Why: "the model key is theirs"}},
 			Probes:          []plan.Probe{{ID: "muster-ready", Feature: "muster", Key: "ready"}},
-			Diff:            map[plan.Change]int{plan.ChangeCreate: 1, plan.ChangeUnchanged: 1},
+			Diff:            map[plan.Change]int{plan.ChangeCreate: 1, plan.ChangeUnchanged: 1, plan.ChangeUpdate: 1},
 		}}},
 		PullRequests: []plan.PullRequest{{Order: 1, Repository: acmeConfigs, Installations: []string{rowan}, Changes: 1, GeneratedSecrets: []string{"muster-valkey-password"}}},
 		Skipped:      []tools.Skipped{{Name: "alder", Reason: tools.SkippedNotEnabled}},
@@ -99,7 +101,9 @@ func TestPlan(t *testing.T) {
 	out := b.String()
 	contains(t, out, "enable_capability dry run: agent-platform on hub hazel, as someone", "Order: rowan",
 		"rowan: not enabled", "A commit would be refused: the commit is not in this version",
-		"Files (1 create, 1 unchanged):", "    CHANGE", "create", "unchanged", "configmap-values.yaml.patch",
+		"Files (1 create, 1 update, 1 unchanged):", "    CHANGE", "create", "unchanged", "configmap-values.yaml.patch",
+		"user-secrets.enc.yaml drops what the record holds encrypted and no input renders: stringData.EXTERNAL_ACCESS_MCP_TOKEN",
+		"user-secrets.enc.yaml replaces the encrypted values on record whole (stringData.values): a key they hold that the definition does not render is lost",
 		"Includes: giantswarm/acme-management-clusters:management-clusters/rowan/extras/kustomization.yaml resources ./agent-platform/ (update)",
 		"muster-valkey-password (alphanumeric, 32): x, y", "rotates: muster-valkey-password (forced by y) — a new value replaces the one on record in x;",
 		"muster-registration-token (base64, 32): z", "kept: the value on record in z stands, nothing is written", "You supply at commit: kagent.modelKey",

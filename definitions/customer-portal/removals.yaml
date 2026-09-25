@@ -123,10 +123,10 @@ removals:
   # --- Backstage kustomization.yaml and files ---
   - key: "backstage:kustomization:spec.valuesFrom[google-credentials-backstage]"
     kind: other-definition
-    reason: "Moved: the HelmRelease's values source google-credentials-backstage (a Vertex chat's Google credentials) leaves the portal's kustomization patch for the Agent Platform Component, which carries the credentials in its own Secret · M18"
+    reason: "Moved: the HelmRelease's values source google-credentials-backstage (a Vertex chat's Google credentials) leaves the portal's kustomization patch; the credentials are supplied into the portal's user secrets until the Agent Platform Component carries them in its own Secret · M18"
   - key: "backstage:kustomization:resources[google-credentials.enc.yaml]"
     kind: other-definition
-    reason: "Moved: the google-credentials.enc.yaml resource entry leaves the portal's kustomization for the Agent Platform Component, which carries a Vertex chat's Google credentials in its own Secret · M18"
+    reason: "Moved: the google-credentials.enc.yaml resource entry leaves the portal's kustomization; a Vertex chat's Google credentials are supplied into the portal's user secrets until the Agent Platform Component carries them in its own Secret · M18"
   - key: "backstage:file:google-credentials.enc.yaml"
     kind: other-definition
-    reason: "Moved: google-credentials.enc.yaml (a Vertex chat's Google credentials) leaves the portal's directory for the Agent Platform Component's Secret agent-platform-ai-chat-credentials-backstage · M18"
+    reason: "Moved: google-credentials.enc.yaml (a Vertex chat's Google credentials) leaves the portal's directory; the credentials are supplied into the portal's user secrets until the Agent Platform Component's Secret agent-platform-ai-chat-credentials-backstage carries them · M18"

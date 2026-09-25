@@ -629,7 +629,8 @@ func prTitle(kind, installation, capability, action, detail string) string {
 }
 
 // prBody is the text of every pull request of the action: the action id, the
-// installation, the files and the generated secrets by name — never a value.
+// installation, the files, the generated secrets by name and what the commit
+// loses of the encrypted files on record it writes over — never a value.
 func prBody(a *actions.Action, p plan.Installation, prs []plan.PullRequest) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Action `%s`: %s %s on %s, opened by %s as the person.\n\n", a.Name, a.Spec.Kind, a.Spec.Capability, p.Name, ToolPrefix)
@@ -662,8 +663,33 @@ func prBody(a *actions.Action, p plan.Installation, prs []plan.PullRequest) stri
 	if len(p.SuppliedOnRecord) > 0 {
 		fmt.Fprintf(&b, "\nSupplied values on record, kept: %s — their files stand, nothing of them is written.\n", strings.Join(p.SuppliedOnRecord, ", "))
 	}
+	writeLost(&b, p.Files)
 	b.WriteString("\nThe action waits for the team's approval; merge follows it in this order.\n")
 	return b.String()
+}
+
+// writeLost names, for every encrypted file on record the commit writes over
+// unread, the values it drops and the encrypted texts it replaces whole
+// (plan.File's Dropped and Replaced); nothing where it loses none.
+func writeLost(b *strings.Builder, files []plan.File) {
+	header := false
+	for _, f := range files {
+		if len(f.Dropped) == 0 && len(f.Replaced) == 0 {
+			continue
+		}
+		if !header {
+			b.WriteString("\nEncrypted values on record this commit writes over unread (the manager decrypts nothing):\n")
+			header = true
+		}
+		fmt.Fprintf(b, "- %s:", f.Path)
+		if len(f.Dropped) > 0 {
+			fmt.Fprintf(b, " drops %s, rendered by no input;", strings.Join(f.Dropped, ", "))
+		}
+		if len(f.Replaced) > 0 {
+			fmt.Fprintf(b, " replaces %s whole, so a key it holds that the definition does not render is lost;", strings.Join(f.Replaced, ", "))
+		}
+		b.WriteString("\n")
+	}
 }
 
 func findPlan(out CapabilityResult, name string) (plan.Installation, bool) {

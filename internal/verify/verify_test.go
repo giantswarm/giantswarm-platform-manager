@@ -360,6 +360,24 @@ func TestDifferencesFollowTheSkeleton(t *testing.T) {
 	}
 }
 
+// A value the record holds encrypted under a readable key that the render
+// carries no leaf for is a planned removal naming the key: the manager
+// decrypts nothing, so the commit drops it. The values text beside it,
+// encrypted whole, is the record's and no difference.
+func TestDroppedEncryptedValuesArePlannedRemovals(t *testing.T) {
+	const enc = "ENC[AES256_GCM,data:x,type:str]"
+	rendered := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\nstringData:\n  values: |\n    a: GENERATED(a)\n"
+	current := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\nstringData:\n  values: " + enc + "\n  ANTHROPIC_API_KEY: " + enc + "\nsops:\n  encrypted_regex: ^(data|stringData)$\n  version: 3.9.0\n"
+	got, docs := differences("r:p", rendered, current, nil)
+	if len(got) != 1 || got[0].Path != "stringData.ANTHROPIC_API_KEY" || got[0].Current != Redacted || got[0].Rendered != "" {
+		t.Fatalf("differences %+v, want the dropped key alone", got)
+	}
+	fd := &fileDiff{path: "p", kind: definitions.KindBackstage, documents: docs}
+	if reason := planned(fd, &got[0], nil, nil); !strings.HasPrefix(reason, "Removed: stringData.ANTHROPIC_API_KEY is held encrypted on record") {
+		t.Errorf("planned %q, want the removal naming the key", reason)
+	}
+}
+
 // The reads: every file once as the caller, and the perturbed plans read
 // what was read, a file not read being absent.
 func TestReadsOnce(t *testing.T) {

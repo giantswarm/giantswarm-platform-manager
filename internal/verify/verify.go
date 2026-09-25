@@ -119,6 +119,9 @@ type Difference struct {
 	// absent says the record has no leaf at the path (the file is created,
 	// or the leaf is new): what a migration adds.
 	absent bool
+	// dropped says the record holds the leaf encrypted and the render has
+	// none: the commit drops a value the manager cannot carry over.
+	dropped bool
 }
 
 // Dimension is one observed aspect of a feature with its mark.
@@ -479,20 +482,31 @@ func shown(files []plan.File) {
 
 // planned is the reason a difference is a planned change: the removal that
 // names its path, or, for a leaf the record lacks, the migration that adds
-// it. A leaf the record holds with another value is no migration's — but
-// for a scalar the plan merges as a comma-separated set, whose only change
-// is the entries the migrations add (joined).
+// it, or, for a value the record holds encrypted that the render does not
+// carry, its removal by the commit (droppedReason). A leaf the record holds
+// with another value is no migration's — but for a scalar the plan merges as
+// a comma-separated set, whose only change is the entries the migrations
+// add (joined).
 func planned(fd *fileDiff, d *Difference, rms, migs plannedKeys) string {
 	if reason := rms.reason(fd, d.Path); reason != "" {
 		return reason
 	}
 	switch {
+	case d.dropped:
+		return droppedReason(d.Path)
 	case d.absent:
 		return migs.reason(fd, d.Path)
 	case plan.JoinedList(fd.path, d.Path):
 		return joined(fd, d, migs)
 	}
 	return ""
+}
+
+// droppedReason is the planned change of a value the record holds encrypted
+// that no input renders: the manager decrypts nothing, so the commit cannot
+// carry it over and drops it — the key names the value, readable on record.
+func droppedReason(path string) string {
+	return "Removed: " + path + " is held encrypted on record and rendered by no input, and the manager decrypts nothing, so the commit drops it; a value still needed is supplied at commit where the definition asks for it, or kept by hand."
 }
 
 // build is the plan of values for opts' installation, read through read,
@@ -563,7 +577,8 @@ func differences(key string, rendered, current string, driven map[string]string)
 		if okw && okg && plan.Opaque(w, g) || encrypted && underSOPS(p) || okw && len(missingFields(w)) > 0 || encryptedText(documents, got, p) || emptied(want, got, p) {
 			continue
 		}
-		d := Difference{File: key, Path: p, Rendered: w, Current: g, Line: wantLines[p], CurrentLine: gotLines[p], Input: driven[key+"#"+p], absent: !okg}
+		d := Difference{File: key, Path: p, Rendered: w, Current: g, Line: wantLines[p], CurrentLine: gotLines[p], Input: driven[key+"#"+p], absent: !okg,
+			dropped: encrypted && !okw && plan.Ciphertext(g)}
 		if encrypted && secret(p) {
 			d.Rendered, d.Current = redacted(okw), redacted(okg)
 		}
