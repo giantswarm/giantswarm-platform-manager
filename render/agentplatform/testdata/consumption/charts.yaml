@@ -15,7 +15,7 @@ charts:
     version: 0.10.9
   - name: mcp-capi
     registry: gsoci.azurecr.io/charts/giantswarm/mcp-capi
-    version: 0.5.22
+    version: 0.5.35
   # Every server's Valkey (the fleet base) and muster's (a child of the meta chart).
   - name: valkey
     registry: gsoci.azurecr.io/charts/giantswarm/valkey
