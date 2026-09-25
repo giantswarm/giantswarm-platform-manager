@@ -33,6 +33,13 @@ const (
 // else nowhere: a hand-kept sibling portal (the hub's Dev Portal) and another
 // organisation's portal take no Component. The Component sets the portal's
 // lists only where the portal is not hand-kept.
+
+// The chart lines of a 2.x portal and of a customer portal still on 0.244.
+const (
+	portal2x     = ">=2.1.0 <3.0.0"
+	portalLegacy = ">=0.244.7 <1.0.0"
+)
+
 func TestHostedPortal(t *testing.T) {
 	hub := PortalRef{Installation: portalCaseHub, Customer: portalCaseOrg, Domain: "portal." + portalCaseHub + ".example.io", HandKept: true}
 	own := PortalRef{Installation: portalCaseOwn, Customer: portalCaseOrg, Domain: "portal." + portalCaseOwn + ".example.io", HandKept: true}
@@ -103,7 +110,6 @@ func TestPortalFragmentExtensions(t *testing.T) {
 // no key, the plugin's empty default. Listed without a portal to carry them,
 // the input is refused.
 func TestPortalFragmentSkills(t *testing.T) {
-	const portal2x = ">=2.1.0 <3.0.0"
 	repositories := []string{"https://github.com/example/agent-skills", "https://github.com/example/more-skills"}
 	for _, tc := range []struct {
 		name         string
@@ -260,10 +266,10 @@ func TestPortalChartFloor(t *testing.T) {
 		floor string
 		reads bool
 	}{
-		{">=0.244.7 <1.0.0", "0.244.7", true},
+		{portalLegacy, "0.244.7", true},
 		{">=1.0.0 <2.0.0", "1.0.0", true},
 		{">=1.1.0 <2.0.0", "1.1.0", false},
-		{">=2.1.0 <3.0.0", "2.1.0", false},
+		{portal2x, "2.1.0", false},
 		{">=0.244.7 <3.0.0", "0.244.7", true},
 		{"0.120.0", "0.120.0", true},
 		{"2.53.2", "2.53.2", false},
@@ -298,7 +304,7 @@ func TestPortalFragmentChecksum(t *testing.T) {
 		line     string
 		checksum bool
 	}{
-		{">=2.1.0 <3.0.0", true},
+		{portal2x, true},
 		{">=1.0.0 <2.0.0", false},
 		{">=2.1.0 <" + portalFragmentChecksum, false},
 		{portalFragmentChecksum, true},
@@ -360,8 +366,8 @@ func TestPortalTraces(t *testing.T) {
 		line   string
 		traces bool
 	}{
-		{">=2.1.0 <3.0.0", true},
-		{">=0.244.7 <1.0.0", false},
+		{portal2x, true},
+		{portalLegacy, false},
 		{">=2.1.0 <" + portalTraces, false},
 		{portalTraces, true},
 		{"2.67.0", false},
@@ -404,7 +410,7 @@ func TestCheckRecordRefusesAPortalWithoutItsChartLine(t *testing.T) {
 	if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), `"x.x.x"`) {
 		t.Fatalf("a portal with a chart line of another form: %v", err)
 	}
-	own["chartLine"] = ">=0.244.7 <1.0.0"
+	own["chartLine"] = portalLegacy
 	delete(portals[1].(map[string]any), "chartLine")
 	if _, err := Render(input, secrets, render.ModeCommit); err != nil {
 		t.Fatalf("the hub's portal without its chart line is not this organisation's: %v", err)
