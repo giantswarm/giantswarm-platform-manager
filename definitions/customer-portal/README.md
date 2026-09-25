@@ -114,7 +114,8 @@ Key paths in `x-renders`, `removals.yaml` and `migrations.yaml` are normalised: 
   (`platformSection.chatCredentials`, the presence of `agent-platform/ai-chat-credentials.enc.yaml`). The commit asks
   for it under the field the agent-platform definition names it with — `aiChat.anthropic.apiKey`, or on Vertex AI
   (`platformSection.chatProvider`) `aiChat.google.credentialsJson` — supplied from the portal's own encrypted file
-  (`--secret aiChat.anthropic.apiKey=@<file>`), and writes it as `anthropic.apiKey`, base64-encoded once for the
+  (`--secret aiChat.anthropic.apiKey=@<file>`; the key itself, never its base64, which is what a working hand-kept
+  file holds under `anthropic.apiKey`), and writes it as `anthropic.apiKey`, base64-encoded once for the
   chart's `ANTHROPIC_API_KEY` that the kept `aiChat` block references (`google.credentialsJson` as supplied, the file
   the chart mounts). The hand-kept user secrets are one encrypted values text, replaced whole by the first commit (the
   dry run names it under the file's `replaced`), so without the key the chat would stop answering. The agent-platform
