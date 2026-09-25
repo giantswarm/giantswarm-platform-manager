@@ -609,8 +609,8 @@ klausGateway:
 
 // TestPortalAudiences holds the set the platform trusts for the portals to
 // what the definition knows, in order: each portal's client id where its
-// host's Dex patch carries it, then backstage — and none of them twice; an
-// installation nobody lists trusts none. What the installation trusts besides
+// host's Dex patch carries it, then backstage where its Secret is on record —
+// and none of them twice; an installation nobody lists trusts none. What the installation trusts besides
 // is the plan's to keep, not the render's.
 func TestPortalAudiences(t *testing.T) {
 	const opaqueA, opaqueB = "opaque-a", "opaque-b"
@@ -630,11 +630,15 @@ func TestPortalAudiences(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			in := &Input{Installation: Installation{Name: portalCaseOwn, Portals: c.portals}}
+			in := &Input{Installation: Installation{Name: portalCaseOwn, Portals: c.portals, PortalClientSecret: true}}
 			if got := in.portalAudiences(); !slices.Equal(got, c.audiences) {
 				t.Fatalf("got %v, want %v", got, c.audiences)
 			}
 		})
+	}
+	noSecret := &Input{Installation: Installation{Name: portalCaseOwn, Portals: []PortalRef{portal("a.example", opaqueA), portal("b.example", "")}}}
+	if got := noSecret.portalAudiences(); !slices.Equal(got, []string{opaqueA}) {
+		t.Errorf("no Secret on record for the definition's client: got %v, want [%s]", got, opaqueA)
 	}
 }
 

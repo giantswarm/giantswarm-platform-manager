@@ -40,6 +40,12 @@ type Record struct {
 	// management-clusters repository) enables the feature gates, or its chart
 	// does by default; read by readPodCertificateRequest.
 	PodCertificateRequest bool `json:"podCertificateRequest"`
+	// PortalClientSecret says the portal client's Secret is on record: the
+	// customer-portal definition's file in the installation's portal
+	// directory, or the portal client already in its Dex patch — the
+	// agent-platform definition renders the client only then; read by
+	// readPortalClientSecret.
+	PortalClientSecret bool `json:"portalClientSecret"`
 	// DexAppVersion is the dex-app the installation runs — spec.version of
 	// the App dex-app: the installation's own pin in its collections
 	// kustomization, else the fleet's shared base at the ref the
@@ -158,6 +164,8 @@ func (r *Registry) inspect(ctx context.Context, c *gh.Client, inst Installation,
 		recErr  error
 		pcr     bool
 		pcrErr  error
+		pcs     bool
+		pcsErr  error
 		dex     DexAppVersion
 		dexErr  error
 		lists   []DexSecretList
@@ -170,6 +178,7 @@ func (r *Registry) inspect(ctx context.Context, c *gh.Client, inst Installation,
 		wg.Go(func() { record, recErr = r.readRecord(ctx, c, owner, repo, inst) })
 		wg.Go(func() { pcr, pcrErr = readPodCertificateRequest(ctx, readAs(c), inst) })
 		wg.Go(func() { dex, dexErr = readDexAppVersion(ctx, readAt(c), inst) })
+		wg.Go(func() { pcs, pcsErr = readPortalClientSecret(ctx, c, inst) })
 		wg.Go(func() { lists, listErr = readDexSecretLists(ctx, readAs(c), inst) })
 		wg.Go(func() { reg, regErr = readRegistered(ctx, readAs(c), inst) })
 	}
@@ -189,8 +198,12 @@ func (r *Registry) inspect(ctx context.Context, c *gh.Client, inst Installation,
 			rep.Record = record
 			rep.Errors = append(rep.Errors, pcrErr.Error())
 			rep.Readable = false
+		case pcsErr != nil:
+			rep.Record = record
+			rep.Errors = append(rep.Errors, pcsErr.Error())
+			rep.Readable = false
 		default:
-			record.PodCertificateRequest = pcr
+			record.PodCertificateRequest, record.PortalClientSecret = pcr, pcs
 			rep.Record = record
 			if pcrErr != nil {
 				// The release the cluster App names is a fact of the record, not
@@ -396,7 +409,7 @@ func (r *Registry) InspectAll(ctx context.Context, c *gh.Client, insts []Install
 // types only what is not there.
 func (r *Record) Input() map[string]any {
 	in := map[string]any{"name": r.Name, "baseDomain": r.BaseDomain, "customer": r.Customer, "provider": r.Provider,
-		"private": r.Private, "chartLine": r.ChartLine, "musterClientId": r.MusterClientID, "podCertificateRequest": r.PodCertificateRequest}
+		"private": r.Private, "chartLine": r.ChartLine, "musterClientId": r.MusterClientID, "podCertificateRequest": r.PodCertificateRequest, "portalClientSecret": r.PortalClientSecret}
 	if r.DexAppVersion != "" {
 		// Optional in the schema: absent where the record says nothing.
 		in["dexAppVersion"] = r.DexAppVersion

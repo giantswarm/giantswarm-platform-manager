@@ -96,6 +96,12 @@ func (in *Input) kagentRedirectURI() string {
 // hasPortal says whether a developer portal signs people in on this installation.
 func (in *Input) hasPortal() bool { return len(in.Installation.Portals) > 0 }
 
+// portalClient says whether the render adds the portals' Dex client
+// (backstage): a portal signs people in here and the client's Secret is on
+// record — the customer-portal definition renders it, this one references
+// it. Without the Secret, Dex's rollout would stall on the missing mount.
+func (in *Input) portalClient() bool { return in.hasPortal() && in.Installation.PortalClientSecret }
+
 // audiences are the Dex client ids whose tokens the platform accepts as
 // bearer tokens: the authenticator, the kagent UI's client when it runs, and
 // the portals' (portalAudiences).
@@ -135,7 +141,7 @@ func (in *Input) portalAudiences() []string {
 			add(p.ClientID)
 		}
 	}
-	if in.hasPortal() {
+	if in.portalClient() {
 		add(render.PortalDexClientID)
 	}
 	return ids
@@ -229,7 +235,7 @@ func (in *Input) singletonsOnDemand() bool {
 // which on the 4 chart line validates it against a JWT provider of its own
 // (the 3 line's edge forwards the bearer untouched).
 func (in *Input) edgeJWTProvider() bool {
-	return in.Installation.ChartLine == lineFour && in.hasPortal()
+	return in.Installation.ChartLine == lineFour && len(in.portalAudiences()) > 0
 }
 
 // dexService is the in-cluster Dex Service the edge fetches the JWKS from.
@@ -408,7 +414,7 @@ func (in *Input) dexPatch() render.Map {
 			e("secretRef", dexClientRef("kagent")),
 			e("redirectURIs", []string{in.kagentRedirectURI()})})
 	}
-	if in.hasPortal() {
+	if in.portalClient() {
 		extra = append(extra, in.portalDexClient())
 	}
 	for _, hub := range in.Installation.Federation.Hubs {

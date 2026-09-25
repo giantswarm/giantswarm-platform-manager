@@ -22,6 +22,7 @@ input:
     chartLine: "4"
     musterClientId: 00000000-0000-4000-8000-000000000002
     podCertificateRequest: true
+    portalClientSecret: true
     portals:
       - installation: aspen
         customer: giantswarm

@@ -172,6 +172,12 @@ type Installation struct {
 	// cluster App on record enables the feature gates, or its chart does by
 	// default (substrate.go).
 	PodCertificateRequest bool `json:"podCertificateRequest"`
+	// PortalClientSecret says the portal client's Secret (dex-client-backstage
+	// in Dex's namespace) is on record: the customer-portal definition's file
+	// in the installation's portal directory, or the portal client already in
+	// its Dex patch. Only then does the render add the client, its audience
+	// and its trusted peer: this definition renders no file for the Secret.
+	PortalClientSecret bool `json:"portalClientSecret"`
 	// DexAppVersion is the dex-app the installation runs, where the record
 	// says: its own pin or the fleet's base. Renders nothing; the plan holds
 	// the commit until it takes the referenced Dex client secrets.

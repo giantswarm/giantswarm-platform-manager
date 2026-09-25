@@ -13,6 +13,12 @@ const (
 	// PortalDexClientID is the portal's Dex client id on every installation
 	// that hosts a portal.
 	PortalDexClientID = "backstage"
+	// PortalDexClientSecretFile is the file the customer-portal definition
+	// renders the portal client's Secret (dex-client-backstage, in Dex's
+	// namespace) into, in the portal's directory; the agent-platform
+	// definition references the Secret and renders the client only where it
+	// is on record (installation.portalClientSecret).
+	PortalDexClientSecretFile = "dex-client-backstage-secret.enc.yaml" // #nosec G101 -- a file name, not a value
 	// PortalDexClientName is the client's display name in Dex.
 	PortalDexClientName = "Dev Portal"
 	// DexSecretKey is the key every Dex client Secret carries.

@@ -77,7 +77,7 @@ const (
 	// the Secret in its dex patch entry and renders none); the name matches the
 	// fleet's .sops.yaml rules (.*(secret|credential).*) and the directory's
 	// .enc.yaml convention.
-	dexClientFile = "dex-client-backstage-secret.enc.yaml" // #nosec G101 -- a file name, not a value
+	dexClientFile = render.PortalDexClientSecretFile
 	// The generated values, named so the Dex client Secret and the portal's
 	// own Secret receive the same client secret: raw in the Dex client's
 	// Secret, base64 in the portal's values (dexCredentials, chartData).
