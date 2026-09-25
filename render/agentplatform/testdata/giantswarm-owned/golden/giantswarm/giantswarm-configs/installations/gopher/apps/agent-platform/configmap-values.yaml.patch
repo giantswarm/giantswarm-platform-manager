@@ -114,6 +114,10 @@ clusterManager:
       fqdns:
         - matchName: gsoci.azurecr.io
         - matchPattern: '*.blob.core.windows.net'
+scheduling:
+  singletons:
+    nodeSelector:
+      karpenter.sh/capacity-type: on-demand
 valkey:
   valkey:
     auth:

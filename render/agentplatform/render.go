@@ -209,11 +209,25 @@ func (in *Input) configmapPatch() render.Map {
 		m = append(m, e("agent-manager", render.Map{e("oauth", in.managerOAuth("agent-manager"))}))
 	}
 	m = in.componentValues(m)
+	if in.singletonsOnDemand() {
+		m = append(m, e("scheduling", render.Map{e("singletons", render.Map{
+			e("nodeSelector", render.Map{e(karpenterCapacityType, capacityOnDemand)}),
+		})}))
+	}
 	m = append(m, e("valkey", render.Map{e("valkey", render.Map{e("auth", render.Map{
 		e("usersExistingSecret", musterValkeySecret),
 		e("aclUsers", render.Map{e("default", render.Map{e("passwordKey", "valkey-password")})}),
 	})})}))
 	return m
+}
+
+// The label Karpenter puts a node's capacity type in, and its on-demand value.
+const karpenterCapacityType, capacityOnDemand = "karpenter.sh/capacity-type", "on-demand"
+
+// singletonsOnDemand says whether the stateful singletons are pinned to
+// Karpenter's on-demand capacity (scheduling.singletonsCapacity).
+func (in *Input) singletonsOnDemand() bool {
+	return in.SingletonsCapacity == capacityOnDemand
 }
 
 // edgeJWTProvider says whether the edge accepts the portals' Dex ID token: a

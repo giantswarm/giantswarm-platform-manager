@@ -136,6 +136,23 @@
         }
       }
     },
+    "scheduling": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One choice: where the platform's stateful singletons run.",
+      "properties": {
+        "singletonsCapacity": {
+          "type": "string",
+          "enum": ["any", "on-demand"],
+          "default": "any",
+          "x-source": "person",
+          "x-readback": {"file": "configmap", "key": "scheduling.singletons.nodeSelector.[karpenter.sh/capacity-type]"},
+          "x-feature": "runtime",
+          "x-renders": ["configmap:scheduling.singletons.nodeSelector"],
+          "description": "The Karpenter capacity the four stateful singletons (muster, muster-valkey, the kagent controller, klaus-gateway) run on: any (the NodePool's choice, spot included) or on-demand (karpenter.sh/capacity-type: on-demand), since a spot reclaim of their node takes muster's token store or the chat gateway away for minutes. on-demand is for a capa installation whose Karpenter NodePool admits on-demand; the pods stay Pending where no node carries the label."
+        }
+      }
+    },
     "aiChat": {
       "type": "object",
       "additionalProperties": false,

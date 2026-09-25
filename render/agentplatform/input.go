@@ -86,6 +86,9 @@ type Input struct {
 	Installation Installation
 	// ModelServing is the person's choice: the meta chart's serving slice.
 	ModelServing bool
+	// SingletonsCapacity is the person's choice: the Karpenter capacity the
+	// stateful singletons run on (scheduling.singletons), any or on-demand.
+	SingletonsCapacity string
 	// AIChat is the person's other choice: the portal's AI chat, in the
 	// platform's portal section (portal.go).
 	AIChat AIChat
@@ -407,6 +410,9 @@ type document struct {
 	ModelServing struct {
 		Enabled bool `json:"enabled"`
 	} `json:"modelServing"`
+	Scheduling struct {
+		SingletonsCapacity string `json:"singletonsCapacity"`
+	} `json:"scheduling"`
 	AIChat AIChat `json:"aiChat"`
 	Skills struct {
 		Repositories []string `json:"repositories"`
@@ -465,7 +471,7 @@ func Parse(raw any) (*Input, error) {
 	if err != nil {
 		return nil, err
 	}
-	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories,
+	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories,
 		Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport}
 	if in.Components, err = pol.components(in.Installation); err != nil {
 		return nil, err
@@ -554,6 +560,9 @@ func (in *Input) checkRecord() error {
 	}
 	if in.ModelServing && in.Installation.ChartLine != lineFour {
 		return refuse(fmt.Sprintf("%s is the 4 chart line's serving slice, and this installation runs the %s line; the record's chart line decides", describe("modelServing.enabled"), in.Installation.ChartLine))
+	}
+	if in.singletonsOnDemand() && in.Installation.Provider != providerCAPA {
+		return refuse(fmt.Sprintf("%s is on-demand, Karpenter's capacity type, and a %s installation runs no Karpenter the definition knows; the pods would stay Pending", describe("scheduling.singletonsCapacity"), in.Installation.Provider))
 	}
 	for _, c := range lineFourComponents {
 		if in.Components[c] && in.Installation.ChartLine != lineFour {

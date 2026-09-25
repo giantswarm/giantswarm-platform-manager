@@ -68,6 +68,7 @@ features:
       - {id: postgres-storage-class, kind: configmap, key: postgres.storage.storageClass}
       - {id: kagent-providers, kind: configmap, key: kagent.providers}
       - {id: kagent-model-configs, kind: configmap, key: kagent.modelConfigs}
+      - {id: singletons-placement, kind: configmap, key: scheduling.singletons}
       - {id: patch-top-level-keys, kind: configmap, catchAll: true, key: the patch's top-level keys (every key no other dimension names)}
       - {id: chart-line-on-record, kind: record, key: config.yaml.patch agentPlatform.kagentApiV2 (the meta chart line the record selects and a fresh enable writes)}
       - {id: extras-kustomization-resources, kind: extras, key: agent-platform/kustomization.yaml (resources and the chart line's patch)}

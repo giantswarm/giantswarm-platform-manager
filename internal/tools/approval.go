@@ -125,6 +125,9 @@ func (t *Tools) approve(ctx context.Context, args map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if noReview(a) {
+		return nil, fmt.Errorf("%s: action %s targets test installations alone and needs no review: %s merges it with %s", ToolApproveAction, a.Name, a.Spec.Actor.Login, ToolMergeAction)
+	}
 	if id.Login == a.Spec.Actor.Login {
 		t.d.Log.Info("action_approval_actor_refused", identity.LogAttr(ctx), "action", a.Name)
 		return nil, fmt.Errorf("%s: action %s is yours (%s): a second person of the team decides; Deny withdraws it", ToolApproveAction, a.Name, id.Login)
@@ -185,7 +188,9 @@ func (t *Tools) deny(ctx context.Context, args map[string]any) (any, error) {
 	if withdrawal(a) {
 		return t.withdraw(ctx, a, id, reason)
 	}
-	if a.Status.Approval != nil && a.Status.Approval.Decision != "" {
+	// An action that needs no review is denied like one pending the team's
+	// decision until it is merged.
+	if a.Status.Approval != nil && a.Status.Approval.Decision != "" && !noReview(a) {
 		return nil, fmt.Errorf("%s: action %s is already %s by %s", ToolDenyAction, a.Name, a.Status.Approval.Decision, a.Status.Approval.DecidedBy)
 	}
 	if reason == "" {
@@ -316,6 +321,12 @@ func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
 		return res, nil
 	}
 	res.Message = fmt.Sprintf("the pull requests of %s are merged as %s (%s); %s is rolling out — %s reads its rollout and runs the probes as you, and carries it to enabled%s.", res.Stage, id.Login, prList(res.Merged), res.Stage, ToolWatchAction, nextStage(a, res.Stage))
+	if noReview(a) {
+		if note := t.tellStandup(ctx, a, stageMerge{by: id.Login, stage: res.Stage, pullRequests: res.Merged}); note != "" {
+			res.Message += " " + note
+		}
+		return res, nil
+	}
 	if note := t.postResult(ctx, a, fmt.Sprintf("Merged as %s: %s. *%s* is rolling out — the rollout and the probes follow here.", id.Login, prLinks(res.Merged), res.Stage)); note != "" {
 		res.Message += " " + note
 	}
@@ -323,14 +334,25 @@ func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
 }
 
 // decided says whether the action's merge may go ahead: the team approved
-// it, or every pull request of its stage in flight was merged outside the
-// manager already — the repositories' own merge path let it through, and the
-// manager does not second-guess it for the stages that follow.
+// it, it needs no review (test installations alone), or every pull request
+// of its stage in flight was merged outside the manager already — the
+// repositories' own merge path let it through, and the manager does not
+// second-guess it for the stages that follow.
 func decided(a *actions.Action) bool {
 	if a.Status.Approval == nil {
 		return false
 	}
-	return a.Status.Approval.Decision == actions.DecisionApproved || a.Status.Approval.Decision == actions.DecisionMergedWithoutApproval
+	switch a.Status.Approval.Decision {
+	case actions.DecisionApproved, actions.DecisionMergedWithoutApproval, actions.DecisionNotRequired:
+		return true
+	}
+	return false
+}
+
+// noReview says whether the action needs no Team review: every target is
+// one of Giant Swarm's test installations.
+func noReview(a *actions.Action) bool {
+	return a.Status.Approval != nil && a.Status.Approval.Decision == actions.DecisionNotRequired
 }
 
 // startStage moves stage i of status to rolling out — its pull requests are
@@ -446,6 +468,66 @@ func (t *Tools) awaitApproval(ctx context.Context, a *actions.Action) (any, erro
 		return nil, fmt.Errorf("%s: action %s waits for the team's approval, and the gateway could not be reached to confirm its review: %w", ToolMergeAction, a.Name, err)
 	}
 	return res, nil
+}
+
+// reviewNotRequired is the approval's reason on an action that needs no review.
+const reviewNotRequired = "every target is a test installation: no Team review, the merge is told to the team's standup channel"
+
+// requestApproval is the commit's last step: the review posted, or — every
+// target a test installation — recorded as not required, nothing posted
+// until the merge tells the standup channel.
+func (t *Tools) requestApproval(ctx context.Context, a *actions.Action, tool string, test bool) (*actions.Action, error) {
+	if !test {
+		return t.askApproval(ctx, a, tool)
+	}
+	status := a.Status
+	approval := *approvalOf(&status)
+	approval.Decision, approval.Reason, approval.At = actions.DecisionNotRequired, reviewNotRequired, now()
+	status.Approval = &approval
+	out, err := t.d.Actions.UpdateStatus(ctx, a.Name, status)
+	if err != nil {
+		return nil, fmt.Errorf("%s: action %s needs no review and could not record it: %w", tool, a.Name, err)
+	}
+	t.d.Log.Info("action_review_not_required", identity.LogAttr(ctx), "action", out.Name)
+	return out, nil
+}
+
+// standupRefusal refuses a commit on test installations alone while no
+// standup channel is configured: the merge would be told to no one.
+func (t *Tools) standupRefusal(tool string, test bool) error {
+	if test && t.approvals.Config().StandupChannel == "" {
+		return fmt.Errorf("%s: an action on test installations alone needs no review and is told to the team's standup channel, and none is configured (chart approvals.standupChannel): nothing is committed", tool)
+	}
+	return nil
+}
+
+// tellStandup tells the team's standup channel of m, the merge of a stage
+// of an action that needs no review, in one sentence with the pull
+// requests; the answer's note when it could not (the merge stands).
+func (t *Tools) tellStandup(ctx context.Context, a *actions.Action, m stageMerge) string {
+	n := approvals.Notice{Text: standupText(a, m)}
+	for _, pr := range m.pullRequests {
+		n.PullRequests = append(n.PullRequests, pr.URL)
+	}
+	receipt, err := t.approvals.Notice(ctx, n)
+	if err != nil {
+		t.d.Log.Info("action_standup_not_told", "action", a.Name, "stage", m.stage, "error", err.Error())
+		return fmt.Sprintf("(The team's standup channel could not be told: %v.)", err)
+	}
+	t.d.Log.Info("action_standup_told", "action", a.Name, "stage", m.stage, "channel", receipt.Channel, "ts", receipt.TS)
+	return ""
+}
+
+// stageMerge is one stage's merge: by whom, which stage, its pull requests.
+type stageMerge struct {
+	by, stage    string
+	pullRequests []actions.PullRequest
+}
+
+// standupText is the standup notice's one sentence: who did what where.
+// Both kinds, enable and reconcile, take -d for the past.
+func standupText(a *actions.Action, m stageMerge) string {
+	return fmt.Sprintf("*%s* %sd *%s* on *%s*.", m.by, a.Spec.Kind, a.Spec.Capability, m.stage)
 }
 
 // askApproval posts the action's review to the team's channel (and the notice
