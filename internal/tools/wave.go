@@ -90,6 +90,7 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		InputsByInstallation: map[string]map[string]any{}, AccountEngineers: accountEngineers(env, res.Order...), Markers: markersOf(def, env, res.Order...), Rotate: rotateArg(args)}
 	for _, p := range targets {
 		spec.InputsByInstallation[p.Name] = p.Inputs
+		spec.KeptByInstallation = keptByInstallation(spec.KeptByInstallation, p)
 	}
 	changes := make([]string, 0, len(targets))
 	rollout := &actions.Rollout{Installations: make([]actions.InstallationRollout, 0, len(targets))}

@@ -32,6 +32,24 @@ const (
 	keyAudiences     = "audiences"
 )
 
+// LiveLists are the audience lists of the platform patch whose merged value
+// a live object carries whole: the values the HelmRelease reads, the kagent
+// UI's flag, muster's config. The live probes hold them against the render
+// with the entries the commit kept (Kept), not against the bare render.
+var LiveLists = []string{ListTrustedAudiences, ListExtraAudience, ListAllowedCallers}
+
+// LiveKept are the entries of kept that the live objects carry beside the
+// render: those of the LiveLists, in kept's order. Never nil for none.
+func LiveKept(kept []Kept) []Kept {
+	out := []Kept{}
+	for _, k := range kept {
+		if slices.Contains(LiveLists, k.List) {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
 // joinedLists are the lists of the platform patch the plan merges as a
 // comma-separated set (keepJoined), by key path: one scalar on the file,
 // whose entries the comparison addresses as <path>[<entry>].

@@ -24,6 +24,7 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 )
 
 // The API group and version of the Action, as the chart's CRD declares them.
@@ -85,6 +86,12 @@ type Spec struct {
 	// repository as "owner/repo:path" — what the resync reads to see the
 	// fileset gone again (a revert). Recorded at commit.
 	Markers map[string]string `json:"markers,omitempty"`
+	// KeptByInstallation are, per installation, the entries of the platform
+	// patch's audience lists the commit kept beside the render
+	// (plan.LiveKept): the live probes hold the objects against the value
+	// the commit wrote, render and kept entries, not the bare render.
+	// Recorded at commit; ids only, never a secret value.
+	KeptByInstallation map[string][]plan.Kept `json:"keptByInstallation,omitempty"`
 	// Skipped are the installations of the set a wave left out, and why:
 	// never a target, no pull request.
 	Skipped []Skipped `json:"skipped,omitempty"`
@@ -363,6 +370,12 @@ func Unstructured(a Action) *unstructured.Unstructured {
 // Includes says whether the action names installation.
 func (a Action) Includes(installation string) bool {
 	return slices.Contains(a.Spec.Installations, installation)
+}
+
+// KeptOnRecord are the entries of installation's audience lists the commit
+// kept beside the render, nil when it kept none.
+func (a Action) KeptOnRecord(installation string) []plan.Kept {
+	return a.Spec.KeptByInstallation[installation]
 }
 
 // InputsOnRecord are the inputs installation was rendered from, as the

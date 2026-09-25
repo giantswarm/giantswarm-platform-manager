@@ -306,6 +306,10 @@ type LiveOptions struct {
 	// waiting for the customer replace it.
 	State  installations.State
 	Inputs Inputs
+	// Kept are the entries of the audience lists the commit kept beside the
+	// render (plan.LiveKept), from the Action: the drift probes hold the live
+	// objects against the value the commit wrote, render and kept entries.
+	Kept []plan.Kept
 	// Cluster reads the installation as the person; nil when there are no
 	// inputs on record (nothing is read then).
 	Cluster Cluster
@@ -493,6 +497,7 @@ func renderLive(opts LiveOptions) (*liveRender, error) {
 	if err != nil {
 		return nil, err
 	}
+	withKept(flat[valuesKey], opts.Kept, valuesSuffix(opts.Definition.Name))
 	lv := &liveRender{probes: res.Probes, actions: res.Actions, values: flat[valuesKey]}
 	for _, files := range res.Files {
 		for path, f := range files {
@@ -520,6 +525,40 @@ func renderLive(opts LiveOptions) (*liveRender, error) {
 		})
 	}
 	return lv, nil
+}
+
+// withKept lays the entries the commit kept (plan.LiveKept) over the
+// flattened values file: a comma-joined list gains the id after the
+// render's, a list of ids its entry — the value the commit wrote and the
+// live objects carry. A list the render lacks gains nothing, as the commit
+// kept nothing there; an entry the render carries already is not repeated.
+func withKept(values map[string]string, kept []plan.Kept, file string) {
+	if values == nil {
+		return
+	}
+	for _, k := range kept {
+		if plan.JoinedList(file, k.List) {
+			if v, ok := values[k.List]; ok && !slices.Contains(plan.SplitJoined(v), k.Entry) {
+				values[k.List] = v + "," + k.Entry
+			}
+			continue
+		}
+		key := k.List + "[" + k.Entry + "]"
+		if _, ok := values[key]; ok || !hasPrefixKey(values, k.List+"[") {
+			continue
+		}
+		values[key] = k.Entry
+	}
+}
+
+// hasPrefixKey says whether a key of m starts with prefix.
+func hasPrefixKey(m map[string]string, prefix string) bool {
+	for k := range m {
+		if strings.HasPrefix(k, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // dexPatchSuffix ends the path of the rendered dex-app values patch, the

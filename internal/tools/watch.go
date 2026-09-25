@@ -144,7 +144,7 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 		return nil, fmt.Errorf("%s: %w", ToolWatchAction, err)
 	}
 	res := verify.CompareLive(ctx, verify.LiveOptions{Definition: def, Installation: st.Name, State: settledState(st.State),
-		Inputs: verify.Inputs{Source: "action " + a.Name, Values: inputs, Typed: a.Spec.Inputs}, Cluster: cluster, Probes: t.d.Probes, Person: id.String(), AnonymousProbes: true, Log: t.d.Log})
+		Inputs: verify.Inputs{Source: "action " + a.Name, Values: inputs, Typed: a.Spec.Inputs}, Kept: a.KeptOnRecord(st.Name), Cluster: cluster, Probes: t.d.Probes, Person: id.String(), AnonymousProbes: true, Log: t.d.Log})
 	res.Caller = id.String()
 	objects, ready, failed := rolloutObjects(res)
 	prev := st.State
