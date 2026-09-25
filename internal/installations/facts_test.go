@@ -24,7 +24,7 @@ func TestFactsPerDefinition(t *testing.T) {
 		t.Fatalf("all facts: %v", all)
 	}
 	want := map[string][]string{
-		AgentPlatform:  {agentPlatformFact, "baseDomain", "chartLine", "customer", "dexAppVersion", "hub", "musterClientId", "name", "podCertificateRequest", "private", "provider"},
+		AgentPlatform:  {agentPlatformFact, "baseDomain", "chartLine", "customer", "dexAppVersion", "hub", "musterClientId", "name", "podCertificateRequest", "portalClientSecret", "private", "provider"},
 		CustomerPortal: {agentPlatformFact, "baseDomain", "customer", "name", "pipeline", "provider", "region"},
 	}
 	for _, c := range Capabilities() {

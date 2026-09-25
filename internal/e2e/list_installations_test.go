@@ -212,6 +212,10 @@ func indentLines(s, prefix string) string {
 	return b.String()
 }
 
+// portalClientSecret stands for the customer-portal definition's encrypted
+// Secret dex-client-backstage: only its presence is read.
+const portalClientSecret = "apiVersion: v1\nkind: Secret\nmetadata:\n  name: dex-client-backstage\n  namespace: giantswarm\nsops: {}\n" // #nosec G101 -- a stand-in manifest without a value
+
 func fixtures(g *fakeGitHub) {
 	g.addRepo(registryRepo, map[string]string{registryPath: "---\napiVersion: backstage.io/v1alpha1\nkind: Group\nmetadata:\n    name: acme\nspec:\n    type: customer\n" +
 		resource(hub, "example", "capa", "example.test") + resource(alder, "acme", "capa", "acme.test") + resource(birch, "acme", "capa", "acme.test") +
@@ -224,6 +228,8 @@ func fixtures(g *fakeGitHub) {
 		// The hub's portal lists the hub itself: the platform's fragment joins the hub's portal tree as a Component.
 		"management-clusters/" + hub + "/extras/backstage/kustomization.yaml":           "# The portal's tree; the platform's fragment joins it as a Component.\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./backstage/\n",
 		"management-clusters/" + hub + "/extras/backstage/backstage/kustomization.yaml": hubPortalKustomization,
+		// The portal client's Secret on record, as the customer-portal definition renders it: the platform renders the client backstage.
+		installations.PortalClientSecretPath(hub): portalClientSecret,
 	})
 	g.addRepo(hubConfigs, map[string]string{
 		installations.ConfigPatchPath(hub): "codename: hazel\nbase: example.test\ncustomer: example\nmanagementCluster:\n  private: false\nagentPlatform:\n  kagentApiV2: true\nservices:\n  muster:\n    clientId: muster-hazel\n",
@@ -240,6 +246,7 @@ func fixtures(g *fakeGitHub) {
 		installations.CollectionsKustomizationPath(alder):   collectionsKustomization(""),
 		installations.CollectionsKustomizationPath(birch):   collectionsKustomization(platformDexApp),
 		extrasKustomizationPath(birch):                      extrasListingEverything,
+		installations.PortalClientSecretPath(birch):         portalClientSecret,
 		installations.ClusterAppManifestPath("rowan"):       releaseClusterAppManifest("rowan", "cluster-aws", rowanRelease),
 		installations.CollectionsKustomizationPath("rowan"): collectionsKustomization(platformDexApp),
 		extrasKustomizationPath("rowan"):                    extrasKustomization,

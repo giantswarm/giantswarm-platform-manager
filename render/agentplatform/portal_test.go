@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"maps"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -444,7 +446,7 @@ func TestPortalClientIDStaysOnItsHost(t *testing.T) {
 		{"a test installation the portal lists", portalCaseOwn, []string{render.PortalDexClientID}},
 		{"a customer installation the portal lists", portalCaseSibling, []string{render.PortalDexClientID}},
 	} {
-		in := &Input{Installation: Installation{Name: tc.installation, Customer: portalCaseOrg, Portals: []PortalRef{hub}}}
+		in := &Input{Installation: Installation{Name: tc.installation, Customer: portalCaseOrg, Portals: []PortalRef{hub}, PortalClientSecret: true}}
 		if got := in.portalAudiences(); !slices.Equal(got, tc.want) {
 			t.Errorf("%s: portal audiences %v, want %v", tc.name, got, tc.want)
 		}
@@ -460,6 +462,45 @@ func TestPortalClientIDStaysOnItsHost(t *testing.T) {
 		}
 		if strings.Contains(string(dex), hostClient) {
 			t.Errorf("%s: the dex patch carries the host's portal client:\n%s", tc.name, dex)
+		}
+	}
+}
+
+// A Dex client the render adds references a Secret the render creates, or
+// the portal client's Secret where the record says it is on record: the
+// customer-portal definition renders that one, and without it Dex's rollout
+// stalls on the missing mount. Every golden shape, with the Secret on record
+// and without it.
+func TestDexClientsReferenceSecretsOnRecord(t *testing.T) {
+	ref := regexp.MustCompile(`(?m)(?:secretRef|clientSecretRef):\s*\n\s*name: (\S+)`)
+	secret := regexp.MustCompile(`(?m)^kind: Secret\nmetadata:\n  name: (\S+)`)
+	portalSecret := dexClientSecretName(render.PortalDexClientID)
+	for _, shape := range shapes {
+		for _, onRecord := range []bool{true, false} {
+			input, secrets := loadInput(t, shape)
+			installation := maps.Clone(input["installation"].(map[string]any))
+			installation["portalClientSecret"] = onRecord
+			input["installation"] = installation
+			result, err := Render(input, secrets, render.ModeCommit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rendered, referenced := map[string]bool{}, map[string]bool{}
+			for name, content := range result.Tree() {
+				for _, m := range secret.FindAllStringSubmatch(string(content), -1) {
+					rendered[m[1]] = true
+				}
+				if strings.Contains(name, "/dex-app/") {
+					for _, m := range ref.FindAllStringSubmatch(string(content), -1) {
+						referenced[m[1]] = true
+					}
+				}
+			}
+			for name := range referenced {
+				if !rendered[name] && (name != portalSecret || !onRecord) {
+					t.Errorf("%s (the portal client's Secret on record: %v): a Dex client references the Secret %s, which neither the render nor the record provides", shape, onRecord, name)
+				}
+			}
 		}
 	}
 }
