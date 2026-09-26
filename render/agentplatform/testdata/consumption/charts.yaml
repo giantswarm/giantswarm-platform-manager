@@ -85,7 +85,7 @@ charts:
   - name: model-manager
     line: "4"
     registry: gsoci.azurecr.io/charts/giantswarm/model-manager
-    version: 1.1.8
+    version: 1.3.0
   - name: agentgateway
     line: "4"
     registry: gsoci.azurecr.io/charts/giantswarm/agentgateway
