@@ -1,0 +1,8 @@
+# Rendered by giantswarm-platform-manager, cluster-mcp-servers definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+oauth:
+  allowPrivateURLs: true
+  dex:
+    caSecret:
+      name: mcp-capi-dex-ca
+      key: ca.crt

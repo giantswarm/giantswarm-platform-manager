@@ -1,0 +1,8 @@
+# Rendered by giantswarm-platform-manager, cluster-mcp-servers definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+oidc:
+  staticClients:
+    mcpKubernetes:
+      clientSecretRef:
+        name: dex-client-mcp-kubernetes
+        key: secret

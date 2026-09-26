@@ -1,0 +1,3 @@
+giantswarm/acme-management-clusters:management-clusters/osprey/extras/kustomization.yaml resources ./mcp-capi/
+giantswarm/acme-management-clusters:management-clusters/osprey/extras/kustomization.yaml resources ./mcp-kubernetes/
+giantswarm/acme-management-clusters:management-clusters/osprey/extras/kustomization.yaml resources ./mcp-prometheus/

@@ -1,0 +1,14 @@
+# A private management cluster whose Dex is served with a certificate from
+# the installation's private CA: every server reaches Dex on private
+# addresses and trusts the installation's Dex CA Secret, mcp-kubernetes's
+# clients sit on private addresses too. Invented names.
+input:
+  installation:
+    name: kestrel
+    baseDomain: kestrel.acme.internal.example.test
+    customer: acme
+    dexAppVersion: 3.2.5
+  servers:
+    mcpKubernetes: {enabled: true, privateURLs: true, privateIPs: true, dexCA: true}
+    mcpPrometheus: {enabled: true, privateURLs: true, dexCA: true}
+    mcpCapi: {enabled: true, privateURLs: true, dexCA: true}

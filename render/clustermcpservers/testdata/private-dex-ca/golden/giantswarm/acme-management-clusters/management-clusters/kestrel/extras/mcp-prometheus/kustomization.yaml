@@ -1,0 +1,51 @@
+# Rendered by giantswarm-platform-manager, cluster-mcp-servers definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - https://github.com/giantswarm/management-cluster-bases//extras/mcp-prometheus?ref=main
+  - oauth-credentials.enc.yaml
+  - valkey-credentials.enc.yaml
+  - credentials-revision.enc.yaml
+  - dex-client-mcp-prometheus-secret.yaml
+  - dex-ca-secret.enc.yaml
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+  - name: mcp-prometheus-user-values
+    namespace: flux-giantswarm
+    files:
+      - values=user-values.yaml
+patches:
+  - patch: |-
+      - op: add
+        path: /spec/valuesFrom/-
+        value:
+          kind: ConfigMap
+          name: mcp-prometheus-user-values
+          valuesKey: values
+    target:
+      kind: HelmRelease
+      name: mcp-prometheus
+  - patch: |-
+      - op: add
+        path: /spec/valuesFrom/-
+        value:
+          kind: Secret
+          name: mcp-prometheus-credentials-revision
+          valuesKey: revision
+          targetPath: app.oauth.existingSecretChecksum
+    target:
+      kind: HelmRelease
+      name: mcp-prometheus
+  - patch: |-
+      - op: add
+        path: /spec/valuesFrom
+        value:
+          - kind: Secret
+            name: mcp-prometheus-credentials-revision
+            valuesKey: revision
+            targetPath: valkey.auth.usersExistingSecretChecksum
+    target:
+      kind: HelmRelease
+      name: mcp-prometheus-valkey

@@ -1,0 +1,32 @@
+# The consistency features of the cluster-mcp-servers definition and the dimensions each one rolls up.
+# A feature shows one mark (as defined, differs by input, drifted) and expands to its dimensions on demand.
+# Every dimension appears under exactly one feature. `kind` says where the dimension is observed:
+# extras and dex-configmap are files of the fileset (compared against the render); live is a probe
+# against the running installation, which the definition renders as data (Result.Probes) and the verify
+# slice executes; probe is an anonymous HTTP probe of probes.yaml.
+#
+# A file dimension's key names the leaves it observes, and the comparison routes every difference by it.
+# A word with a slash or a file suffix names a file or directory — by its path under extras/, or by its
+# name at any depth; `<x>` stands for a part of a name; a directory covers everything beneath it. Every
+# other word is a YAML path inside the file (inside a kustomization patch's text) and covers everything
+# beneath it. ` / ` separates alternatives. A remark in parentheses is not read. A leaf goes to the
+# dimension of its file's kind that names it most specifically, else to the kind's dimension marked
+# `catchAll: true` (whose key is prose). A live dimension's key is prose.
+features:
+  servers:
+    title: MCP servers
+    description: The management cluster's own MCP servers and their Valkeys, released from the fleet's bases, restarting together on rotated credentials.
+    dimensions:
+      - {id: mcp-private-urls, kind: extras, key: mcp-<name>/user-values.yaml / mcp-<name>/kustomization.yaml configMapGenerator / generatorOptions (the private-address and Dex CA values and the ConfigMap the HelmRelease reads them from)}
+      - {id: mcp-credentials-revision, kind: extras, key: "mcp-<name>/credentials-revision.enc.yaml / mcp-<name>/kustomization.yaml patches / mcp-<name>/oauth-credentials.enc.yaml stringData.CREDENTIALS_REVISION / stringData.credentials-revision / mcp-<name>/valkey-credentials.enc.yaml stringData.revision (the credentials revision the server's and its Valkey's HelmReleases read into their charts' checksum values, so a rotation restarts both)"}
+      - {id: mcp-directories, kind: extras, catchAll: true, key: "each server's kustomization, Dex client and credential Secrets"}
+      - {id: live-helmreleases-ready, kind: live, key: "HelmReleases mcp-<name> and mcp-<name>-valkey Ready"}
+      - {id: live-server-workloads, kind: live, key: "the Deployments mcp-<name> Available"}
+  identity:
+    title: Identity
+    description: Every server's Dex client reading its secret from a Secret in the cluster, and Dex holding the current one.
+    dimensions:
+      - {id: dex-static-clients, kind: dex-configmap, key: oidc.staticClients}
+      - {id: dex-other-keys, kind: dex-configmap, catchAll: true, key: every other key of the patch (the installation's own and the other definitions')}
+      - {id: live-dex-client-secrets-loaded, kind: live, key: "Dex started after every server's client Secret last changed its data"}
+      - {id: dex-discovery, kind: probe, key: Dex answers its OpenID discovery document (200)}

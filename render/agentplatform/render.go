@@ -62,8 +62,8 @@ func Render(raw any, secrets map[string]string, _ render.Mode) (*render.Result, 
 	in.platformExtras(r, clusters, extras+"agent-platform", secrets)
 	r.Include(clusters, extras+"kustomization.yaml", "./agent-platform/")
 	for _, s := range servers {
-		s.extras(r, clusters, extras+s.name, in)
-		r.Include(clusters, extras+"kustomization.yaml", "./"+s.name+"/")
+		s.Extras(r, clusters, extras+s.Name, in.serverOptions())
+		r.Include(clusters, extras+"kustomization.yaml", "./"+s.Name+"/")
 	}
 	if host := in.portalHost(); host != "" {
 		backstage := "management-clusters/" + host + "/extras/backstage/"
@@ -192,7 +192,7 @@ func (in *Input) configmapPatch() render.Map {
 		// A patch replaces the list as a whole, so the template's own entries come first.
 		list := make([]MCPServer, 0, len(servers)+len(targets)*len(servers))
 		for _, s := range servers {
-			list = append(list, s.mcpServerEntry(in.Installation.Name))
+			list = append(list, mcpServerEntry(s, in.Installation.Name))
 		}
 		list = append(list, in.targetServers()...)
 		mcps = append(mcps, e("mcpServers", list))
@@ -394,8 +394,8 @@ func (in *Input) portalDexClient() render.Map {
 func (in *Input) dexPatch() render.Map {
 	static := render.Map{e("muster", render.Map{e("clientSecretRef", dexClientRef("muster"))})}
 	for _, s := range servers {
-		if s.dexSecretRef {
-			static = append(static, e(s.dexClient, render.Map{e("clientSecretRef", dexClientRef(s.name))}))
+		if s.DexSecretRef {
+			static = append(static, e(s.DexClient, s.DexClientRef()))
 		}
 	}
 	// The portals' clients are trusted peers of the authenticator: a portal

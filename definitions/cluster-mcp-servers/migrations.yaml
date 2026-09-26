@@ -1,0 +1,21 @@
+# Keys the definition renders that an installation whose MCP servers were set up by hand lacks. Their absence
+# from the record is the first reconcile's planned addition, not drift: the comparison marks a leaf the
+# definition renders and the record does not have, under one of these keys, planned with the reason. Key paths
+# use the file prefixes and the normalisation of removals.yaml. The reason is one sentence for a platform
+# engineer, starting with Added:; a placeholder the key declares is filled with the part of the path that
+# matched ("the mcp-<name> server" reads "the mcp-capi server").
+migrations:
+  - key: extras:mcp-<name>/credentials-revision.enc.yaml
+    reason: "Added: the mcp-<name> server gets a credentials revision, a generated mark drawn anew with every rotation of its credentials, which its and its Valkey's HelmReleases read into their charts' checksum values, so both restart on rotated credentials instead of the server failing on a Valkey still holding the old password"
+  - key: extras:mcp-<name>/kustomization.yaml patches
+    reason: "Added: the mcp-<name> server's and its Valkey's HelmReleases read the credentials revision (valuesFrom with targetPath), so a rotation restarts both"
+  - key: extras:mcp-<name>/kustomization.yaml resources
+    reason: "Added: the mcp-<name> server's kustomization lists its credentials revision and its Dex client Secret, so they are applied with the rest"
+  - key: extras:mcp-<name>/dex-client-mcp-<name>-secret.yaml
+    reason: "Added: the mcp-<name> server's Dex client secret is a Secret in Dex's namespace, shared with the server's own credentials, so a rotation reaches both"
+  - key: extras:mcp-<name>/oauth-credentials.enc.yaml
+    reason: "Added: the mcp-<name> server's credentials Secret carries the credentials revision, so a rewrite of it draws the revision anew"
+  - key: extras:mcp-<name>/valkey-credentials.enc.yaml
+    reason: "Added: the mcp-<name> server's Valkey Secret carries the credentials revision, so a rewrite of it draws the revision anew"
+  - key: dex-configmap:oidc.staticClients.<name>.clientSecretRef
+    reason: "Added: the <name> Dex client reads its secret from the Secret in the cluster the server shares, instead of the encrypted Dex values"
