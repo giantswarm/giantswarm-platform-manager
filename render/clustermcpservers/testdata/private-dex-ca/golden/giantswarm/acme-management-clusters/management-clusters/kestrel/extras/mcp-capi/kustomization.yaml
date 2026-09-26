@@ -1,0 +1,58 @@
+# Rendered by giantswarm-platform-manager, cluster-mcp-servers definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - https://github.com/giantswarm/management-cluster-bases//extras/mcp-capi?ref=main
+  - oauth-credentials.enc.yaml
+  - valkey-credentials.enc.yaml
+  - credentials-revision.enc.yaml
+  - dex-client-mcp-capi-secret.yaml
+  - dex-ca-secret.enc.yaml
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+  - name: mcp-capi-user-values
+    namespace: flux-giantswarm
+    files:
+      - values=user-values.yaml
+patches:
+  - patch: |-
+      - op: add
+        path: /spec/valuesFrom/-
+        value:
+          kind: ConfigMap
+          name: mcp-capi-user-values
+          valuesKey: values
+    target:
+      kind: HelmRelease
+      name: mcp-capi
+  - patch: |-
+      - op: add
+        path: /spec/valuesFrom/-
+        value:
+          kind: Secret
+          name: mcp-capi-credentials-revision
+          valuesKey: revision
+          targetPath: oauth.existingSecretChecksum
+      - op: add
+        path: /spec/valuesFrom/-
+        value:
+          kind: Secret
+          name: mcp-capi-credentials-revision
+          valuesKey: revision
+          targetPath: oauth.storage.valkey.existingSecretChecksum
+    target:
+      kind: HelmRelease
+      name: mcp-capi
+  - patch: |-
+      - op: add
+        path: /spec/valuesFrom
+        value:
+          - kind: Secret
+            name: mcp-capi-credentials-revision
+            valuesKey: revision
+            targetPath: valkey.auth.usersExistingSecretChecksum
+    target:
+      kind: HelmRelease
+      name: mcp-capi-valkey

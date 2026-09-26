@@ -1,0 +1,13 @@
+# The anonymous HTTP probes of the cluster-mcp-servers definition: requests that carry no identity and run
+# direct from the manager against the installation's public endpoints. Each probe is a dimension of the
+# feature it names (kind probe) in the verify's result; the live dimensions of features.yaml (kind live)
+# are the reads that need the person's authority on the installation.
+# url is a Go template over {{.BaseDomain}} (the installation's) and {{.Installation}} (its codename).
+# expect lists the HTTP status codes that mean "as defined"; any other answer is drift, no answer (a
+# private installation unreachable from the manager) is not checked.
+probes:
+  - id: dex-discovery
+    feature: identity
+    key: Dex answers its OpenID discovery document (200)
+    url: https://dex.{{.BaseDomain}}/.well-known/openid-configuration
+    expect: [200]

@@ -1,0 +1,1 @@
+giantswarm/lakeside-management-clusters:management-clusters/heron/extras/kustomization.yaml resources ./mcp-kubernetes/

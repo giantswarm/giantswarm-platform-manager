@@ -8,6 +8,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/giantswarm-platform-manager/render"
+	"github.com/giantswarm/giantswarm-platform-manager/render/mcpservers"
 )
 
 // Every server's credentials revision is one generated name held by exactly
@@ -24,12 +25,12 @@ func TestServersCredentialsRevision(t *testing.T) {
 		}
 		installation, _ := input["installation"].(map[string]any)["name"].(string)
 		for _, s := range servers {
-			name := installation + "-" + s.name + "-credentials-revision"
+			name := installation + "-" + s.Name + "-credentials-revision"
 			var held []string
 			var dir string
 			for _, files := range result.Files {
 				for path, f := range files {
-					if !strings.Contains(path, "/extras/"+s.name+"/") {
+					if !strings.Contains(path, "/extras/"+s.Name+"/") {
 						continue
 					}
 					dir = path[:strings.LastIndex(path, "/")+1]
@@ -44,15 +45,15 @@ func TestServersCredentialsRevision(t *testing.T) {
 				}
 			}
 			slices.Sort(held)
-			if want := []string{revisionFile, "oauth-credentials.enc.yaml", "valkey-credentials.enc.yaml"}; !slices.Equal(held, want) {
-				t.Errorf("%s: %s: %s is held by %v, want %v", shape, s.name, name, held, want)
+			if want := []string{mcpservers.RevisionFile, "oauth-credentials.enc.yaml", "valkey-credentials.enc.yaml"}; !slices.Equal(held, want) {
+				t.Errorf("%s: %s: %s is held by %v, want %v", shape, s.Name, name, held, want)
 			}
 			files := result.Files[render.Repository(repositoryOf(t, result, dir))]
-			if !strings.Contains(string(files[dir+revisionFile].Content), "namespace: "+fluxNamespace+"\n") {
-				t.Errorf("%s: %s: the revision Secret is not in %s:\n%s", shape, s.name, fluxNamespace, files[dir+revisionFile].Content)
+			if !strings.Contains(string(files[dir+mcpservers.RevisionFile].Content), "namespace: "+fluxNamespace+"\n") {
+				t.Errorf("%s: %s: the revision Secret is not in %s:\n%s", shape, s.Name, fluxNamespace, files[dir+mcpservers.RevisionFile].Content)
 			}
-			want := map[string][]string{s.name: s.checksumValues(), s.name + "-valkey": {valkeyChecksumValue}}
-			got := revisionSources(t, files[dir+"kustomization.yaml"].Content, s.revisionSecretName())
+			want := map[string][]string{s.Name: s.ChecksumValues(), s.Name + "-valkey": {mcpservers.ValkeyChecksumValue}}
+			got := revisionSources(t, files[dir+"kustomization.yaml"].Content, s.RevisionSecretName())
 			for release, paths := range want {
 				if !slices.Equal(got[release], paths) {
 					t.Errorf("%s: HelmRelease %s reads the revision into %v, want %v", shape, release, got[release], paths)
@@ -114,7 +115,7 @@ func revisionSources(t *testing.T, kustomization []byte, secret string) map[stri
 				if m["kind"] != "Secret" || m["name"] != secret {
 					continue
 				}
-				if o.Op != "add" || !strings.HasPrefix(o.Path, "/spec/valuesFrom") || m["valuesKey"] != revisionKey {
+				if o.Op != "add" || !strings.HasPrefix(o.Path, "/spec/valuesFrom") || m["valuesKey"] != mcpservers.RevisionKey {
 					t.Errorf("HelmRelease %s: %+v", p.Target.Name, o)
 				}
 				path, _ := m["targetPath"].(string)

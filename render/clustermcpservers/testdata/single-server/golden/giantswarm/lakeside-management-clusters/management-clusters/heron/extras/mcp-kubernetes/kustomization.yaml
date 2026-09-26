@@ -1,0 +1,57 @@
+# Rendered by giantswarm-platform-manager, cluster-mcp-servers definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - https://github.com/giantswarm/management-cluster-bases//extras/mcp-kubernetes?ref=main
+  - oauth-credentials.enc.yaml
+  - valkey-credentials.enc.yaml
+  - credentials-revision.enc.yaml
+  - dex-client-mcp-kubernetes-secret.yaml
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+  - name: mcp-kubernetes-user-values
+    namespace: flux-giantswarm
+    files:
+      - values=user-values.yaml
+patches:
+  - patch: |-
+      - op: add
+        path: /spec/valuesFrom/-
+        value:
+          kind: ConfigMap
+          name: mcp-kubernetes-user-values
+          valuesKey: values
+    target:
+      kind: HelmRelease
+      name: mcp-kubernetes
+  - patch: |-
+      - op: add
+        path: /spec/valuesFrom/-
+        value:
+          kind: Secret
+          name: mcp-kubernetes-credentials-revision
+          valuesKey: revision
+          targetPath: mcpKubernetes.oauth.existingSecretChecksum
+      - op: add
+        path: /spec/valuesFrom/-
+        value:
+          kind: Secret
+          name: mcp-kubernetes-credentials-revision
+          valuesKey: revision
+          targetPath: mcpKubernetes.oauth.storage.valkey.existingSecretChecksum
+    target:
+      kind: HelmRelease
+      name: mcp-kubernetes
+  - patch: |-
+      - op: add
+        path: /spec/valuesFrom
+        value:
+          - kind: Secret
+            name: mcp-kubernetes-credentials-revision
+            valuesKey: revision
+            targetPath: valkey.auth.usersExistingSecretChecksum
+    target:
+      kind: HelmRelease
+      name: mcp-kubernetes-valkey

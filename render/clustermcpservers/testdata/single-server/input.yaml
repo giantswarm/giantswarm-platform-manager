@@ -1,0 +1,12 @@
+# A management cluster that runs mcp-kubernetes alone, Dex on private
+# addresses. Invented names.
+input:
+  installation:
+    name: heron
+    baseDomain: heron.lakeside.example.test
+    customer: lakeside
+    dexAppVersion: 3.2.3
+  servers:
+    mcpKubernetes: {enabled: true, privateURLs: true}
+    mcpPrometheus: {enabled: false}
+    mcpCapi: {enabled: false}
