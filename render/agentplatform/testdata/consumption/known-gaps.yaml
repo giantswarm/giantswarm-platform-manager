@@ -1,7 +1,4 @@
 # Emitted Secrets a consuming chart does not read yet because of a defect in the consumer,
 # each tracked by an issue. The test reports an entry as a known gap instead of failing, and
 # FAILS when the gap has closed (the Secret is read) so the entry is removed with the fix.
-gaps:
-  - secret: mcp-prometheus/mcp-prometheus-valkey-auth
-    issue: https://github.com/giantswarm/management-cluster-bases/issues/764
-    reason: the base's valkey HelmRelease carries auth.* at the top level; the valkey chart reads valkey.auth.*
+gaps: []
