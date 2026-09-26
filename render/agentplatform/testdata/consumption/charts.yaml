@@ -37,7 +37,7 @@ charts:
   - name: agent-platform
     line: "4"
     registry: gsoci.azurecr.io/charts/giantswarm/agent-platform
-    version: 4.58.0
+    version: 4.84.1
   # The meta chart hands its connectivity child the whole platform values, Secret
   # names included, so the test renders it too; it follows the meta chart's line.
   - name: agent-platform-connectivity
@@ -47,7 +47,7 @@ charts:
   - name: agent-platform-connectivity
     line: "4"
     registry: gsoci.azurecr.io/charts/giantswarm/agent-platform-connectivity
-    version: 4.58.0
+    version: 4.84.1
   # The meta chart's children that read the platform Secrets, at the newest
   # versions inside the ranges the meta chart declares for them — per line where
   # the lines' ranges differ.
