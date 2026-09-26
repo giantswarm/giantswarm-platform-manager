@@ -3,7 +3,8 @@
 # Every dimension appears under exactly one feature. `kind` says where the dimension is observed:
 # extras and dex-configmap are files of the fileset (compared against the render); live is a probe
 # against the running installation, which the definition renders as data (Result.Probes) and the verify
-# slice executes; probe is an anonymous HTTP probe of probes.yaml.
+# slice executes. The anonymous HTTP probes of probes.yaml join the feature each one names; they are not
+# listed here.
 #
 # A file dimension's key names the leaves it observes, and the comparison routes every difference by it.
 # A word with a slash or a file suffix names a file or directory — by its path under extras/, or by its
@@ -29,4 +30,3 @@ features:
       - {id: dex-static-clients, kind: dex-configmap, key: oidc.staticClients}
       - {id: dex-other-keys, kind: dex-configmap, catchAll: true, key: every other key of the patch (the installation's own and the other definitions')}
       - {id: live-dex-client-secrets-loaded, kind: live, key: "Dex started after every server's client Secret last changed its data"}
-      - {id: dex-discovery, kind: probe, key: Dex answers its OpenID discovery document (200)}
