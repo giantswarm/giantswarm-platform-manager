@@ -135,6 +135,14 @@ const (
 	// entries take a checksum and roll the pod when it changes; an earlier
 	// chart's schema refuses the key.
 	portalFragmentChecksum = "2.60.2"
+	// portalTraces is the first portal chart that exports the backend's
+	// traces from observability.otel; an earlier chart's schema refuses the
+	// key.
+	portalTraces = "2.68.0"
+	// portalOTLPEndpoint is the installation's OTLP gateway, which takes the
+	// tenant from portalOTLPHeaders.
+	portalOTLPEndpoint = "http://otlp-gateway.kube-system.svc.cluster.local:4317"
+	portalOTLPHeaders  = "X-Scope-OrgID=giantswarm"
 )
 
 // The actions service lists the actions of these plugins for the chat's
@@ -269,7 +277,8 @@ func (in *Input) portalAppConfig() render.Map {
 // portalValues are the platform's chart values: the fragment mounted as an
 // extra app-config file, with its checksum where the portal's chart rolls
 // the pod on it (Backstage reads the file at start, and a changed ConfigMap
-// alone changes nothing the HelmRelease sees), and, for a chat on Vertex,
+// alone changes nothing the HelmRelease sees), the OTLP export of the
+// backend's traces where the chart takes it, and, for a chat on Vertex,
 // the Google project and location the chart exports to the pod. No list:
 // the portal's environment is the customer-portal definition's.
 func (in *Input) portalValues() render.Map {
@@ -278,6 +287,10 @@ func (in *Input) portalValues() render.Map {
 		fragment = append(fragment, e("checksum", fmt.Sprintf("%x", sha256.Sum256(render.MustYAML(in.portalAppConfig())))))
 	}
 	m := render.Map{e("backstage", render.Map{e("extraAppConfig", []render.Map{fragment})})}
+	if in.portalExportsTraces() {
+		m = append(m, e("observability", render.Map{e("otel", render.Map{
+			e("endpoint", portalOTLPEndpoint), e("protocol", "grpc"), e("headers", portalOTLPHeaders)})}))
+	}
 	if in.aiChatVertex() {
 		m = append(m, e("google", render.Map{e("project", in.AIChat.Google.Project), e("location", in.AIChat.Google.Location)}))
 	}
@@ -327,6 +340,15 @@ func portalChartAdmits(line string, v *semver.Version) bool {
 func (in *Input) portalRollsOnFragment() bool {
 	p := in.hostedPortal()
 	return p != nil && portalChartAdmits(p.ChartLine, semver.MustParse(portalFragmentChecksum))
+}
+
+// portalExportsTraces says whether the hosted portal's chart takes
+// observability.otel: its chart line resolves to portalTraces or later. A
+// portal whose line is not on record exports nothing, which an earlier chart
+// would refuse.
+func (in *Input) portalExportsTraces() bool {
+	p := in.hostedPortal()
+	return p != nil && portalChartAdmits(p.ChartLine, semver.MustParse(portalTraces))
 }
 
 // portalReadsFluxServiceAccount says whether the hosted portal may run a

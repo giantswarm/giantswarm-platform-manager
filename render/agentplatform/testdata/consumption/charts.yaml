@@ -94,7 +94,7 @@ charts:
   # definition's own files (its app-config, values and Secrets) and, in the
   # platform shapes, the agent-platform definition's Component: its values
   # ConfigMap (with the fragment's checksum, which the chart takes from 2.60.2)
-  # and the Vertex credentials Secret.
+  # and the Vertex credentials Secret, and observability.otel (from 2.68.0).
   - name: backstage
     registry: gsoci.azurecr.io/charts/giantswarm/backstage
     version: 2.68.3
