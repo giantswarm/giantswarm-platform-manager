@@ -9,7 +9,7 @@ charts:
   # emitted extras/<server>/ directories.
   - name: mcp-kubernetes
     registry: gsoci.azurecr.io/charts/giantswarm/mcp-kubernetes
-    version: 1.2.37
+    version: 1.8.2
   - name: mcp-prometheus
     registry: gsoci.azurecr.io/charts/giantswarm/mcp-prometheus
     version: 0.10.13
