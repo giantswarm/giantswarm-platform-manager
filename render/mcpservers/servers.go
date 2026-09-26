@@ -237,8 +237,10 @@ func (s Server) userValues(o Options) render.Map {
 // server's credentials revision, and a third Secret in the Flux namespace
 // carries it for the HelmReleases, which the kustomization patches to read it
 // into their charts' checksum values, so a rotation rolls the server and its
-// Valkey; every value of the two Secrets names the revision as its own
-// (render.Result.Revisions), so a rotation asked for by name draws it too.
+// Valkey together (Flux watches the third Secret, so both HelmReleases
+// reconcile the moment it changes); every value of the two Secrets names the
+// revision as its own (render.Result.Revisions), so a rotation asked for by
+// name draws it too.
 // With user values (Options) the directory also carries them and the
 // kustomization turns them into a ConfigMap the HelmRelease reads.
 func (s Server) Extras(result *render.Result, repo render.Repository, dir string, o Options) {
@@ -278,7 +280,7 @@ func (s Server) Extras(result *render.Result, repo render.Repository, dir string
 	// Every value of the two Secrets rolls the server and its Valkey with the revision.
 	result.Revision(revision, oauth...)
 	result.Revision(revision, valkey...)
-	result.Add(repo, dir+"/"+RevisionFile, render.Secret(s.RevisionSecretName(), fluxNamespace, nil,
+	result.Add(repo, dir+"/"+RevisionFile, render.Secret(s.RevisionSecretName(), fluxNamespace, render.WatchedByFlux(nil),
 		render.GeneratedKey(RevisionKey, revision, render.Alphanumeric, RevisionLength),
 	))
 }

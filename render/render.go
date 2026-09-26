@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 
@@ -433,6 +434,20 @@ func GeneratedKey(key, name string, kind GeneratedKind, length int) SecretKey {
 // ValueKey is a SecretKey with a value the caller supplied.
 func ValueKey(key, value string) SecretKey {
 	return SecretKey{Key: key, Value: value}
+}
+
+// WatchedByFlux adds to labels (which it leaves unchanged) the label on a
+// Secret a HelmRelease reads through valuesFrom that has helm-controller
+// reconcile the HelmRelease as soon as the Secret changes, not at its next
+// interval: every HelmRelease that reads a credentials revision rolls with
+// it at once, so a server and its Valkey restart together.
+func WatchedByFlux(labels map[string]string) map[string]string {
+	out := maps.Clone(labels)
+	if out == nil {
+		out = map[string]string{}
+	}
+	out["reconcile.fluxcd.io/watch"] = "Enabled"
+	return out
 }
 
 // Secret renders an Opaque Secret manifest in plaintext. Keys keep their

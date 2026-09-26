@@ -580,7 +580,7 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 	add(musterOAuthSecret+".yaml", render.Secret(musterOAuthSecret, platformNamespace, team, oauthKeys...))
 	add(musterValkeySecret+".yaml", render.Secret(musterValkeySecret, platformNamespace, team, valkeyKeys...))
 	if in.musterRevision() {
-		add(musterRevisionSecret+".yaml", render.Secret(musterRevisionSecret, fluxNamespace, team,
+		add(musterRevisionSecret+".yaml", render.Secret(musterRevisionSecret, fluxNamespace, render.WatchedByFlux(team),
 			render.GeneratedKey(revisionKey, revision, render.Alphanumeric, revisionLength)))
 	}
 	add(dexClientSecretFile("muster"), dexClientSecret("muster", in.generatedName("muster-dex-client-secret")))
