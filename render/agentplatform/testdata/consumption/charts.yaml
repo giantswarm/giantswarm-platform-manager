@@ -12,7 +12,7 @@ charts:
     version: 1.2.37
   - name: mcp-prometheus
     registry: gsoci.azurecr.io/charts/giantswarm/mcp-prometheus
-    version: 0.10.9
+    version: 0.10.13
   - name: mcp-capi
     registry: gsoci.azurecr.io/charts/giantswarm/mcp-capi
     version: 0.5.35
