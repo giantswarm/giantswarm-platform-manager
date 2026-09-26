@@ -80,6 +80,7 @@ func TestEveryDefinitionParses(t *testing.T) {
 			if len(probes) == 0 {
 				t.Error("probes.yaml: no probe")
 			}
+			dimensionsAppearOnce(t, feats, probes)
 			removals, err := definitions.Removals(c)
 			if err != nil {
 				t.Fatalf("removals.yaml: %v", err)
@@ -110,6 +111,36 @@ func TestEveryDefinitionParses(t *testing.T) {
 				seen[m.Key] = true
 			}
 		})
+	}
+}
+
+// dimensionsAppearOnce holds a definition to one dimension per id: a
+// probe of probes.yaml joins the feature it names, which exists, and is
+// never also listed in features.yaml, where the verify would report it twice.
+func dimensionsAppearOnce(t *testing.T, feats []definitions.Feature, probes []definitions.Probe) {
+	t.Helper()
+	seen := map[string]bool{}
+	features := map[string]bool{}
+	for _, f := range feats {
+		features[f.ID] = true
+		for _, d := range f.Dimensions {
+			if d.Kind == definitions.KindProbe {
+				t.Errorf("features.yaml: dimension %q has kind probe: probes are declared in probes.yaml only", d.ID)
+			}
+			if seen[d.ID] {
+				t.Errorf("features.yaml: dimension %q listed twice", d.ID)
+			}
+			seen[d.ID] = true
+		}
+	}
+	for _, p := range probes {
+		if !features[p.Feature] {
+			t.Errorf("probes.yaml: probe %q names feature %q, which features.yaml does not define", p.ID, p.Feature)
+		}
+		if seen[p.ID] {
+			t.Errorf("probes.yaml: probe %q shares its id with another dimension", p.ID)
+		}
+		seen[p.ID] = true
 	}
 }
 
