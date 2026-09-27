@@ -247,6 +247,11 @@ type Target struct {
 	// Servers are the groups of the MCP servers the target runs: the servers
 	// whose extras directory its management-clusters repository carries.
 	Servers []string `json:"servers"`
+	// AgentPlatform says the target runs the agent platform, which renders
+	// the Dex side of this hub's client there: the pair's two files name each
+	// other (exchangeSecretName). Without it the target keeps the client by
+	// hand.
+	AgentPlatform bool `json:"agentPlatform"`
 }
 
 // groups are the target's federated MCP server groups: the servers it runs,

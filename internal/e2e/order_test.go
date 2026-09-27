@@ -39,16 +39,18 @@ const (
 	targetsKey    = "targets"
 	baseDomainKey = "baseDomain"
 	serversKey    = "servers"
+	platformKey   = "agentPlatform"
 )
 
 // targetServers are the servers a target in these inputs runs: all three.
 var targetServers = []any{"kubernetes", "prometheus", "capi"}
 
-// federation makes rowan the hub of alder, a private target or a public one.
+// federation makes rowan the hub of alder, a private target or a public one;
+// alder runs no agent platform and keeps rowan's Dex client by hand.
 func federation(private bool) map[string]any {
 	return minimalInputs(map[string]any{argInstallation: map[string]any{federationKey: map[string]any{
 		"brokerClientId": "broker", hubsKey: []any{},
-		targetsKey: []any{map[string]any{argInstallation: alder, baseDomainKey: alder + ".example", argPrivate: private, serversKey: targetServers}}}}})
+		targetsKey: []any{map[string]any{argInstallation: alder, baseDomainKey: alder + ".example", argPrivate: private, serversKey: targetServers, platformKey: false}}}}})
 }
 
 // position is the index of repository among prs, or -1.
@@ -107,30 +109,35 @@ func reconcileAndMerge(t *testing.T, st *stack, aliceC, carolC *client.Client, i
 }
 
 // rowan is enabled by hand without a hub; a reconcile that makes hazel its
-// hub renders hazel's token-exchange client into the configs dex patch with a
-// secretRef, and the client's Secret into management-clusters. The
-// management-clusters pull request comes first everywhere and the configs
-// one says it follows it for that Secret; merge_action merges them so.
-func TestMergeOrderFollowsAReferencedDexClient(t *testing.T) {
+// hub would create the Dex side of hazel's token-exchange client, whose value
+// is one with hazel's credentials Secret for rowan — a file of hazel's plan,
+// not on record. The commit draws a value per installation, so the pair would
+// disagree: the reconcile is refused before any write, naming hazel's file.
+// (The merge order a referenced Dex client's Secret sets is
+// TestBuildOrdersTheReferencedClient's.)
+func TestCommitRefusesOneSideOfAnExchangePair(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	sopsFixtures(t, st.ghs)
-	aliceC, carolC := st.mcpClient(t, aliceToken), st.mcpClient(t, carolToken)
+	aliceC := st.mcpClient(t, aliceToken)
 	putOnRecord(t, st, aliceC, rowan, minimalInputs(nil))
 	seedRemote(t, st)
 	inputs := minimalInputs(map[string]any{argInstallation: map[string]any{federationKey: map[string]any{hubsKey: []any{hub}, "registryHub": hub, targetsKey: []any{}}}})
-	// The registry's hub's client carries the fleet's plain id.
-	exchangeClient := "Secret/dex-client-muster-token-exchange-" + rowan
+	hubFile := hubMCs + ":management-clusters/" + hub + "/extras/agent-platform/secrets/" + rowan + "-token-exchange-credentials.yaml"
 
-	planned, merged := reconcileAndMerge(t, st, aliceC, carolC, inputs)
-	if len(planned) != 2 || planned[0].Repository != acmeMCs || planned[1].Repository != acmeConfigs || planned[1].AfterClause() != "after "+acmeMCs+" ("+exchangeClient+")" || len(planned[0].After) != 0 {
-		t.Fatalf("pull requests: %+v", planned)
+	dry, text, isErr := dryRun(t, aliceC, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: inputs})
+	if isErr {
+		t.Fatal(text)
 	}
-	if merged[0].Repository != acmeMCs || merged[1].Repository != acmeConfigs {
-		t.Fatalf("merged: %+v", merged)
+	if p := findPlan(t, dry, rowan); !strings.Contains(p.CommitRefused, "muster-token-exchange-"+rowan+"-client-secret is one value with "+hub+"'s "+hubFile) || !strings.Contains(p.CommitRefused, "not on record") {
+		t.Fatalf("commitRefused %q", p.CommitRefused)
 	}
-	if calls := st.calls(); !strings.HasPrefix(calls[len(calls)-2], alice+" "+commit.OpMerge+" "+acmeMCs+"#1") || !strings.HasPrefix(calls[len(calls)-1], alice+" "+commit.OpMerge+" "+acmeConfigs+"#2") {
-		t.Fatalf("remote calls: %v", calls)
+	calls := len(st.calls())
+	if _, text, isErr := commitCall(t, aliceC, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: inputs}); !isErr || !strings.Contains(text, hubFile) || !strings.Contains(text, "nothing is committed") {
+		t.Fatalf("commit: %v %s", isErr, text)
+	}
+	if got := st.calls(); len(got) != calls || len(st.remote.PullRequests()) != 0 {
+		t.Fatalf("a refused commit wrote: %v", got[calls:])
 	}
 }
 

@@ -17,6 +17,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -54,6 +55,29 @@ type Generated struct {
 	// Encoding is how the placeholder receives the value; empty is the value
 	// as generated.
 	Encoding Encoding
+	// Peer is the other side of a value two installations hold, each in its
+	// own plan: the commit step draws a value per installation and the
+	// manager decrypts nothing, so a value drawn on one side never reaches
+	// the other. Nil for a value of this installation alone.
+	Peer *Peer
+}
+
+// Peer names the file that holds a generated value in another installation:
+// the installation, and the path in its management-clusters repository.
+type Peer struct {
+	Installation string
+	Path         string
+}
+
+// Peered is f with peer set on every declaration of name.
+func (f File) Peered(name string, peer Peer) File {
+	f.Generated = slices.Clone(f.Generated)
+	for i := range f.Generated {
+		if f.Generated[i].Name == name {
+			f.Generated[i].Peer = &peer
+		}
+	}
+	return f
 }
 
 // GeneratedKind is the shape of a generated value.

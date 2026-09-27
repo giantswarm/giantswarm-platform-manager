@@ -40,7 +40,7 @@ func (t *Tools) compare(ctx context.Context, env *planned, r installations.Repor
 	}
 	env.inputs[r.Name] = values
 	in := verify.Inputs{Source: verify.Source(len(back) > 0, len(typed) > 0), Values: values, ReadBack: back, Unset: unset, Typed: typed}
-	res := verify.Compare(ctx, verify.Options{Definition: def, Installation: r.Installation, Hub: env.hub, State: capabilityState(r, def.Name), Inputs: in, Read: read, Content: content, Probes: t.d.Probes, Rotate: rotate})
+	res := verify.Compare(ctx, verify.Options{Definition: def, Installation: r.Installation, Hub: env.hub, State: capabilityState(r, def.Name), Inputs: in, Read: read, Content: content, Probes: t.d.Probes, Rotate: rotate, Installations: env.byName})
 	res.Caller = identity.Caller(ctx)
 	p := res.Plan()
 	switch {

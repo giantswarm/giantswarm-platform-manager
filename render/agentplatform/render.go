@@ -593,7 +593,8 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 	}
 	for _, hub := range in.Installation.Federation.Hubs {
 		client := in.targetClient(hub)
-		add(dexClientSecretFile(client), dexClientSecret(client, exchangeSecretName(client)))
+		add(dexClientSecretFile(client), dexClientSecret(client, exchangeSecretName(client)).
+			Peered(exchangeSecretName(client), render.Peer{Installation: hub, Path: secretsPath(hub, credentialsSecretName(in.Installation.Name)+".yaml")}))
 	}
 	if len(in.Installation.Federation.Targets) > 0 {
 		in.hubSecrets(add)
