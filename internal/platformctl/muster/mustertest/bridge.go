@@ -10,6 +10,7 @@ package mustertest
 import (
 	"context"
 	"encoding/json"
+	"path"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -73,35 +74,51 @@ func BridgeRecording(aggregator map[string]Tool, calls *[]map[string]any) *mcpse
 		mcp.WithObject("arguments"),
 		mcp.WithNumber("timeout"),
 	), callTool(aggregator, calls))
-	s.AddTool(mcp.NewTool("list_tools"), func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.AddTool(mcp.NewTool("list_tools"), toolList(aggregator))
+	s.AddTool(mcp.NewTool("filter_tools", mcp.WithString("pattern")), toolList(aggregator))
+	return s
+}
+
+// toolList is list_tools, and filter_tools with its glob pattern: the
+// aggregator's tool names as one JSON document.
+func toolList(aggregator map[string]Tool) mcpserver.ToolHandlerFunc {
+	return func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		pattern := req.GetString("pattern", "*")
 		names := make([]map[string]string, 0, len(aggregator))
 		for name := range aggregator {
-			names = append(names, map[string]string{"name": name})
+			if ok, _ := path.Match(pattern, name); ok {
+				names = append(names, map[string]string{"name": name})
+			}
 		}
 		doc, err := json.Marshal(map[string]any{"tools": names})
 		if err != nil {
 			return nil, err
 		}
-		return mcp.NewToolResultText(string(doc)), nil
-	})
-	return s
+		// muster's bridge appends its own notice after the list.
+		return mcp.NewToolResultText(string(doc) + "\n\n" + BridgeNotice), nil
+	}
 }
+
+// BridgeNotice is the text muster's bridge appends after a tool list.
+const BridgeNotice = "Use call_tool to run one of these tools."
 
 // callTool is muster's call_tool: the named tool's result as one JSON
 // document, the outer isError following the tool's; a name the aggregator
-// does not have is call_tool's own refusal.
+// does not have answers as that tool's error, "tool not found".
 func callTool(aggregator map[string]Tool, calls *[]map[string]any) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if calls != nil {
 			*calls = append(*calls, req.GetArguments())
 		}
 		name := req.GetString("name", "")
-		tool, ok := aggregator[name]
-		if !ok {
-			return mcp.NewToolResultError("Tool execution failed: tool not found: " + name), nil
-		}
 		args, _ := req.GetArguments()["arguments"].(map[string]any)
-		res := tool(ctx, args)
+		var res *mcp.CallToolResult
+		if tool, ok := aggregator[name]; ok {
+			res = tool(ctx, args)
+		} else {
+			// muster answers a tool its aggregator lacks as that tool's error.
+			res = mcp.NewToolResultError("Tool execution failed: tool not found: " + name)
+		}
 		if res == nil {
 			return mcp.NewToolResultError(BridgeDeadline), nil
 		}
