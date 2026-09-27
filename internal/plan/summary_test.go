@@ -64,3 +64,43 @@ func TestSummaryOfNothingAndOfTheUnreadable(t *testing.T) {
 		t.Fatalf("unreadable: %v", got)
 	}
 }
+
+// A kustomization's patches read by their target: a patch added with its
+// operations, one removed, one whose JSON patch gains, loses or changes an
+// operation (op and path, never the value), a strategic merge patch changed.
+func TestSummaryNamesAPatchByItsTarget(t *testing.T) {
+	patch := func(kind, name, body string) string {
+		return "  - patch: |-\n" + indent(body, "      ") + "    target:\n      kind: " + kind + "\n      name: " + name + "\n"
+	}
+	checksum := "- op: add\n  path: /spec/valuesFrom/-\n  value:\n    kind: Secret\n    name: rev\n"
+	current := "kind: Kustomization\npatches:\n" +
+		patch("HelmRelease", "mcp-kubernetes", checksum) +
+		patch("HelmRelease", "mcp-kubernetes-valkey", "- op: replace\n  path: /spec/suspend\n  value: false\n") +
+		patch("Deployment", "old", "- op: remove\n  path: /spec/replicas\n") +
+		patch("ConfigMap", "smp", "apiVersion: v1\nkind: ConfigMap\ndata:\n  a: '1'\n")
+	content := "kind: Kustomization\npatches:\n" +
+		patch("HelmRelease", "mcp-kubernetes", checksum+"- op: replace\n  path: /spec/interval\n  value: 5m\n") +
+		patch("HelmRelease", "mcp-kubernetes-valkey", "- op: replace\n  path: /spec/suspend\n  value: true\n") +
+		patch("ConfigMap", "smp", "apiVersion: v1\nkind: ConfigMap\ndata:\n  a: '2'\n") +
+		patch("Secret", "new", "- op: add\n  path: /metadata/labels/x\n  value: y\n")
+	got := Summary(Installation{Name: "jackal", Files: []File{{Path: smTree + "extras/mcp-kubernetes/kustomization.yaml", Change: ChangeUpdate, Current: current, Content: content}}})
+	want := []string{"mcp-kubernetes: patch ConfigMap smp changed; removes patch Deployment old; " +
+		"patch HelmRelease mcp-kubernetes +replace /spec/interval; patch HelmRelease mcp-kubernetes-valkey ~replace /spec/suspend; " +
+		"adds patch Secret new (add /metadata/labels/x)"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	for _, l := range got {
+		if strings.Contains(l, "5m") || strings.Contains(l, "true") {
+			t.Fatalf("a value in the summary: %s", l)
+		}
+	}
+}
+
+func indent(s, prefix string) string {
+	var b strings.Builder
+	for _, l := range strings.Split(strings.TrimSuffix(s, "\n"), "\n") {
+		b.WriteString(prefix + l + "\n")
+	}
+	return b.String()
+}

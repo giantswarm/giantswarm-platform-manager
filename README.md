@@ -129,8 +129,9 @@ A commit takes `reason` — why the actor makes the change, in a sentence; witho
 Slack alone: who asks to enable or reconcile which capability on which installations (whose customer, the
 account engineer the catalog records), the reason quoted, and *what changes* — a line per component from
 the comparison (`spec.changes`, `plan.Summary`): a component created whole reads *new*, versions read old →
-new, list entries added and removed, values keys by path without their values, a Secret's keys added and
-removed, the credentials that rotate (the ones asked for marked *on request*) — with the pull requests as
+new, list entries added and removed, a kustomization's patches by their target with the JSON patch
+operations they add, drop or change (op and path), values keys by path without their values, a Secret's keys
+added and removed, the credentials that rotate (the ones asked for marked *on request*) — with the pull requests as
 links; a wave whose installations change alike reads once, else per installation. The Account Engineers'
 channel (`approvals.noticeChannel`) never sees the review: once a stage on a customer installation reaches
 *enabled* — the watch or the live verify — it is told once, without buttons, who applied what where, why,
