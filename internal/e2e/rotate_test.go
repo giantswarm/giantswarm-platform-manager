@@ -51,7 +51,7 @@ func enabledOnTheFourLine(t *testing.T, st *stack) *client.Client {
 
 // rotateArgs are rowan's reconcile on the 4 line asking to rotate names.
 func rotateArgs(names ...string) map[string]any {
-	return map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: fourLineInputs(), tools.ArgRotate: names}
+	return map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: fourLineInputs(), tools.ArgRotate: names, tools.ArgReason: commitReason}
 }
 
 // The platform's secrets directory on record, and muster's files in it.
@@ -153,7 +153,7 @@ func TestReconcileRotatesMustersValkeyPasswordOnRequest(t *testing.T) {
 			assertNoLeak(t, "the pull request body", pr.Body)
 		}
 	}
-	if review := fmt.Sprint(st.gateway.posted()); !strings.Contains(review, "rotates on request: "+valkeyPassword+".") {
+	if review := fmt.Sprint(st.gateway.posted()); (!strings.Contains(review, "• agent-platform: rotates muster-dex-client-secret,") || !strings.Contains(review, ", muster-valkey-password (on request)")) {
 		t.Errorf("the review does not name the rotation on request: %s", review)
 	}
 	assertNoLeak(t, "the server's log", st.logs.String())
@@ -185,7 +185,7 @@ func TestRotateRefusesAnUnknownName(t *testing.T) {
 
 	// The wave: birch is on record, and its plan lists no name of rowan's.
 	wave := func(extra map[string]any, names ...string) map[string]any {
-		args := map[string]any{tools.ArgInstallations: []string{birch, rowan}, tools.ArgInputs: fourLineInputs(), tools.ArgRotate: names}
+		args := map[string]any{tools.ArgInstallations: []string{birch, rowan}, tools.ArgInputs: fourLineInputs(), tools.ArgRotate: names, tools.ArgReason: commitReason}
 		for k, v := range extra {
 			args[k] = v
 		}

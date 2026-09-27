@@ -231,6 +231,22 @@ func TestWatchActionCarriesTheRolloutToEnabled(t *testing.T) {
 	if th := thread(t, st); len(th) != 2 || th[1] != w.Report {
 		t.Fatalf("the thread: %q", th)
 	}
+	// rowan is a customer installation: the Account Engineers' channel is
+	// told now, once, that the change is applied — who, what, why, the
+	// account engineer and the pull requests.
+	noticed := st.gateway.noticed()
+	if len(noticed) != 1 || noticed[0]["channel"] != noticeChannel || stage.NoticedAt == nil {
+		t.Fatalf("the applied notice: %+v (noticedAt %v)", noticed, stage.NoticedAt)
+	}
+	applied := fmt.Sprint(noticed[0]["text"])
+	for _, want := range []string{"*" + alice + "* enabled *agent-platform* on *" + rowan + "* (account engineer Ada Example): the change is applied and verified.", ">*Why:* " + commitReason, "*What changed*\n• agent-platform: new"} {
+		if !strings.Contains(applied, want) {
+			t.Errorf("the applied notice lacks %q:\n%s", want, applied)
+		}
+	}
+	if prs, _ := noticed[0]["pullRequests"].([]any); len(prs) != 2 {
+		t.Errorf("the applied notice's pull requests: %v", prs)
+	}
 	for _, id := range []string{"live-helmreleases-ready", edgeProbe, "live-model-configs"} {
 		if p, ok := probeOnRecord(w.Action, rowan, id); !ok || p.Result != string(verify.AsDefined) {
 			t.Errorf("probe %s on record: %+v (%v)", id, p, ok)
@@ -249,7 +265,7 @@ func TestWatchActionCarriesTheRolloutToEnabled(t *testing.T) {
 
 	// A re-read of the enabled action: the picture, no second report.
 	w, text, isErr = watchCall(t, admin, a.Name)
-	if isErr || w.State != actions.StateEnabled || w.Report != "" || len(thread(t, st)) != 2 {
+	if isErr || w.State != actions.StateEnabled || w.Report != "" || len(thread(t, st)) != 2 || len(st.gateway.noticed()) != 1 {
 		t.Fatalf("re-read: %v %s", isErr, text)
 	}
 	assertNoLeak(t, "the report", w.Report)

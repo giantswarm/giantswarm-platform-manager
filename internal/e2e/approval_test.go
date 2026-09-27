@@ -66,14 +66,15 @@ func getAction(t *testing.T, c *client.Client, name string) actions.Action {
 }
 
 // The commit posts one review with the actor's email, the pull requests, both
-// buttons carrying the action id, the team's channel and — rowan being a
-// customer installation — the notice channel, its text naming the account
-// engineer the catalog records; the receipt is on the Action.
+// buttons carrying the action id and the team's channel, its text naming the
+// account engineer the catalog records, why and what changes; the Account
+// Engineers' channel is not asked (rowan is a customer installation: it is
+// told once the change is applied). The receipt is on the Action.
 func TestCommitPostsTheTeamReview(t *testing.T) {
 	st := newStack(t)
 	out, _ := commitRowan(t, st)
 	a := out.Action
-	if a.Status.Approval == nil || a.Status.Approval.ReviewID == "" || a.Status.Approval.Channel != reviewChannel || a.Status.Approval.NoticeChannel != noticeChannel || a.Status.Approval.Decision != "" || a.Status.Approval.PostedAt == nil {
+	if a.Status.Approval == nil || a.Status.Approval.ReviewID == "" || a.Status.Approval.Channel != reviewChannel || a.Status.Approval.NoticeChannel != "" || a.Status.Approval.Decision != "" || a.Status.Approval.PostedAt == nil {
 		t.Fatalf("approval on the action: %+v", a.Status.Approval)
 	}
 	if !a.Spec.Customer || a.Spec.Actor.Email != alice+"@example.test" || a.Spec.Change == "" || !strings.Contains(out.Next, tools.ToolMergeAction) {
@@ -86,7 +87,7 @@ func TestCommitPostsTheTeamReview(t *testing.T) {
 	body := posted[0].Body
 	approve, _ := body["approve"].(map[string]any)
 	deny, _ := body["deny"].(map[string]any)
-	if body["team"] != reviewTeam || body["channel"] != reviewChannel || body["noticeChannel"] != noticeChannel || body["actor"] != alice+"@example.test" ||
+	if body["team"] != reviewTeam || body["channel"] != reviewChannel || body["noticeChannel"] != nil || body["actor"] != alice+"@example.test" ||
 		approve["tool"] != "x_"+tools.ToolPrefix+"_"+tools.ToolApproveAction || deny["tool"] != "x_"+tools.ToolPrefix+"_"+tools.ToolDenyAction ||
 		approve["arguments"].(map[string]any)[tools.ArgAction] != a.Name || deny["arguments"].(map[string]any)[tools.ArgAction] != a.Name {
 		t.Fatalf("review body: %v", body)
@@ -96,10 +97,16 @@ func TestCommitPostsTheTeamReview(t *testing.T) {
 		t.Fatalf("review pull requests: %v", prs)
 	}
 	text, _ := body["text"].(string)
-	for _, want := range []string{alice, rowan, a.Spec.Capability, "customer", "account engineer Ada Example"} {
+	for _, want := range []string{alice, rowan, a.Spec.Capability, "customer", "account engineer Ada Example", ">*Why:* " + commitReason, "*What changes*\n• agent-platform: new"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("review text lacks %q: %s", want, text)
 		}
+	}
+	if len(st.gateway.noticed()) != 0 {
+		t.Fatalf("the review was noticed: %+v", st.gateway.noticed())
+	}
+	if a.Spec.Reason != commitReason || a.Spec.AccountEngineerOf[rowan] != "Ada Example" || len(a.Spec.Changes[rowan]) == 0 {
+		t.Fatalf("the action records reason %q, account engineers %v, changes %v", a.Spec.Reason, a.Spec.AccountEngineerOf, a.Spec.Changes)
 	}
 	if len(a.Spec.AccountEngineers) != 1 || a.Spec.AccountEngineers[0] != "Ada Example" {
 		t.Fatalf("the action records the account engineer: %v", a.Spec.AccountEngineers)

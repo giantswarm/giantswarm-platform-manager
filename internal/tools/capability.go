@@ -95,8 +95,12 @@ func capabilityOptions() []mcp.ToolOption {
 		mcp.WithBoolean(ArgContent, mcp.Description("Include the rendered content of every file and the file on record (default: true for one installation, false for a set); false answers paths and changes only. An answer above 1 MiB is refused with its size: ask for less.")),
 		mcp.WithObject(ArgSecrets, mcp.Description("mode commit only: the secret values the plan's suppliedSecrets name, by field. They land inside the encrypted files and nowhere else — not in the Action, not in a log, not in an answer.")),
 		mcp.WithArray(ArgRotate, mcp.Description(rotateArgDescription), mcp.Items(stringItems())),
+		mcp.WithString(ArgReason, mcp.Description(reasonArgDescription)),
 	}
 }
+
+// reasonArgDescription describes the reason argument of the write tools.
+const reasonArgDescription = `mode commit only, required: why you make the change, in a sentence a teammate judges it by — the team's review shows it above what changes, and so do the notices once it is applied. Recorded on the Action and in the pull requests.`
 
 // rotateArgDescription describes the rotate argument of the write tools.
 const rotateArgDescription = `Generated values to rotate on request, by name as the plan lists them (generatedSecrets[].name, e.g. <installation>-muster-valkey-password). ` +
