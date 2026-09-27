@@ -262,7 +262,7 @@ func TestEnableCapabilityDryRunTypedInputs(t *testing.T) {
 	if p := findPlan(t, out, rowan); !strings.Contains(p.Refused, "bogus") || len(p.Files) != 0 || len(out.PullRequests) != 0 {
 		t.Fatalf("unknown key: refused %q files %d prs %d", p.Refused, len(p.Files), len(out.PullRequests))
 	}
-	out, text, isErr = dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(map[string]any{argInstallation: map[string]any{federationKey: map[string]any{targetsKey: []any{map[string]any{argInstallation: alder, baseDomainKey: alder + ".example", argPrivate: false, serversKey: targetServers}}, hubsKey: []any{}}}})})
+	out, text, isErr = dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(map[string]any{argInstallation: map[string]any{federationKey: map[string]any{targetsKey: []any{map[string]any{argInstallation: alder, baseDomainKey: alder + ".example", argPrivate: false, serversKey: targetServers, platformKey: false}}, hubsKey: []any{}}}})})
 	if isErr {
 		t.Fatal(text)
 	}
@@ -282,7 +282,8 @@ func TestEnableCapabilityDryRunTypedInputs(t *testing.T) {
 // id for each hub, told apart by the registry's hub among the installation's
 // facts (installation.federation.registryHub, typed here with the federation:
 // a typed federation stands whole), and the pair shares the generated
-// secret's name.
+// secret's name. Each side names the other as its peer: a commit that would
+// create one side alone is refused.
 func TestDryRunRendersTheTokenExchangeClientUnderTheFleetsID(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
@@ -307,26 +308,43 @@ func TestDryRunRendersTheTokenExchangeClientUnderTheFleetsID(t *testing.T) {
 		t.Fatalf("no file %s in %+v", suffix, p.Files)
 		return plan.File{}
 	}
+	// Each side names the other as the pair's peer, and a commit that would
+	// create one side alone is refused, naming the other.
+	peered := func(p plan.Installation, name, peer string) {
+		t.Helper()
+		for _, g := range p.GeneratedSecrets {
+			if g.Name == name {
+				if g.Peer != peer || !strings.Contains(p.CommitRefused, name+" is one value with") || !strings.Contains(p.CommitRefused, peer) {
+					t.Errorf("%s: peer %q, commit refused %q; want the peer %s", name, g.Peer, p.CommitRefused, peer)
+				}
+				return
+			}
+		}
+		t.Errorf("no generated %s in %+v", name, p.GeneratedSecrets)
+	}
 	// The hub side: rowan brokers into alder. Not the registry's hub, its client carries its name; typed as the hub, the plain id.
 	hubInputs := func(registryHub bool) map[string]any {
 		return minimalInputs(map[string]any{argInstallation: map[string]any{"hub": registryHub, federationKey: map[string]any{
 			"brokerClientId": "broker", hubsKey: []any{},
-			targetsKey: []any{map[string]any{argInstallation: alder, baseDomainKey: alder + ".example", argPrivate: false, serversKey: targetServers}}}}})
+			targetsKey: []any{map[string]any{argInstallation: alder, baseDomainKey: alder + ".example", argPrivate: false, serversKey: targetServers, platformKey: true}}}}})
 	}
 	for _, tc := range []struct {
 		registryHub bool
 		client      string
 	}{{false, "muster-token-exchange-alder-rowan"}, {true, "muster-token-exchange-alder"}} {
-		credentials := fileWithSuffix(planOf(hubInputs(tc.registryHub)), "/secrets/"+alder+"-token-exchange-credentials.yaml")
+		hubPlan := planOf(hubInputs(tc.registryHub))
+		peered(hubPlan, tc.client+"-client-secret", acmeMCs+":management-clusters/"+alder+"/extras/agent-platform/secrets/dex-client-"+tc.client+"-secret.yaml")
+		credentials := fileWithSuffix(hubPlan, "/secrets/"+alder+"-token-exchange-credentials.yaml")
 		if want := "  client-id: " + tc.client + "\n  client-secret: GENERATED(" + tc.client + "-client-secret)\n"; !strings.Contains(credentials.Content, want) || !slices.Equal(credentials.Generated, []string{tc.client + "-client-secret"}) {
 			t.Errorf("hub %v: the credentials for %s lack %q:\n%s", tc.registryHub, alder, want, credentials.Content)
 		}
 	}
 	// The target side: the registry's hub hazel brokers into rowan under the plain id, birch under its own name.
 	for _, tc := range []struct {
-		hub, client string
-	}{{hub, "muster-token-exchange-" + rowan}, {birch, "muster-token-exchange-" + rowan + "-" + birch}} {
+		hub, client, mcs string
+	}{{hub, "muster-token-exchange-" + rowan, hubMCs}, {birch, "muster-token-exchange-" + rowan + "-" + birch, acmeMCs}} {
 		p := planOf(minimalInputs(map[string]any{argInstallation: map[string]any{federationKey: map[string]any{hubsKey: []any{tc.hub}, "registryHub": hub, targetsKey: []any{}}}}))
+		peered(p, tc.client+"-client-secret", tc.mcs+":management-clusters/"+tc.hub+"/extras/agent-platform/secrets/"+rowan+"-token-exchange-credentials.yaml")
 		var client *plan.DexClient
 		for i := range p.DexClients {
 			if p.DexClients[i].ID == tc.client {
