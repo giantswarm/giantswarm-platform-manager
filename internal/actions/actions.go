@@ -64,8 +64,8 @@ type Spec struct {
 	InputsByInstallation map[string]map[string]any `json:"inputsByInstallation,omitempty"`
 	// Kind is "enable" or "reconcile".
 	Kind string `json:"kind"`
-	// Customer marks a customer installation as the target: the Account
-	// Engineers' channel is told of the review.
+	// Customer marks a customer installation among the targets: the Account
+	// Engineers' channel is told once its change is applied.
 	Customer bool `json:"customer,omitempty"`
 	// AccountEngineers names, for the customer installations among the
 	// targets, the account engineer the installations catalog records for
@@ -73,6 +73,18 @@ type Spec struct {
 	// without repeats, "none on record for <installation>" where the catalog
 	// names none — so the review and the notice say whose customer is touched.
 	AccountEngineers []string `json:"accountEngineers,omitempty"`
+	// AccountEngineerOf maps each customer installation among the targets to
+	// its account engineer as AccountEngineers words it: the notice to the
+	// Account Engineers' channel once that installation's change is applied
+	// names them.
+	AccountEngineerOf map[string]string `json:"accountEngineerOf,omitempty"`
+	// Reason is why the actor commits the change, in their words: required on
+	// a commit, the review's and the notices' "why".
+	Reason string `json:"reason,omitempty"`
+	// Changes is, per installation, what the commit changes as a person
+	// reads it (plan.Summary): one line per component — new, versions,
+	// values keys, rotated credentials. Names and versions, never a secret value.
+	Changes map[string][]string `json:"changes,omitempty"`
 	// Change is the plan's change in one clause — files by change, generated
 	// secrets by name — on the record and in the pull requests; never a value.
 	Change string `json:"change,omitempty"`
@@ -232,6 +244,9 @@ type InstallationRollout struct {
 	WatchedAt  *time.Time `json:"watchedAt,omitempty"`
 	WatchedBy  string     `json:"watchedBy,omitempty"`
 	ReportedAt *time.Time `json:"reportedAt,omitempty"`
+	// NoticedAt is when the Account Engineers' channel was told the change is
+	// applied on this customer installation: once, at its first enabled.
+	NoticedAt *time.Time `json:"noticedAt,omitempty"`
 }
 
 // RolloutObject is one Flux object of the rollout as the watch read it:

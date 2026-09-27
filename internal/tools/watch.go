@@ -166,6 +166,7 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 		}
 		st.State, st.Message = state, message
 		applyStage(&status, i, prev)
+		t.tellApplied(ctx, a, &status, i)
 		if st.ReportedAt == nil {
 			open, done := customerActions(def, inputs, res)
 			out.Report = t.report(a, status, i, res, open, done, recovered)
