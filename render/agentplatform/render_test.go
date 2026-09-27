@@ -553,6 +553,9 @@ func TestRefusals(t *testing.T) {
 		}), secrets, ErrInput, "provider"},
 		{"a component of the 4 line on a record that selects the 3 line", lineThreeOwned, nil, ErrInput, "installation.chartLine selects the 3 line, and cluster-manager needs the platform's 4 chart line; agentPlatform.kagentApiV2: true in installations/gopher/config.yaml.patch selects 4"},
 		{"kagent on the 4 line where the record does not say the cluster serves PodCertificateRequest", noPodCertificateRequest, secrets, ErrInput, "installation.podCertificateRequest does not say this cluster serves certificates.k8s.io/v1beta1 podcertificaterequests, which kagent's Agent Substrate on the 4 chart line needs; enable the feature gates PodCertificateRequest, ClusterTrustBundle, ClusterTrustBundleProjection under cluster.internal.advancedConfiguration.{controlPlane.apiServer,controlPlane.controllerManager,kubelet}.featureGates in the cluster App's values (management-clusters/" + noPodCertificateRequest["installation"].(map[string]any)["name"].(string) + "/cluster-app-manifests.yaml), or run a cluster App chart that enables them by default (cluster-aws 10.3.0, cluster-azure 9.3.0, cluster-cloud-director 7.3.0 and later)"},
+		{"commit mode where no cluster-manager runs", clone(func(m map[string]any) {
+			m["clusterManager"] = map[string]any{"github": map[string]any{keyEnabled: true}}
+		}), secrets, ErrInput, "clusterManager.github.enabled"},
 		{"targets without a broker client", clone(func(m map[string]any) {
 			federation(m)["targets"] = []any{target(false)}
 		}), secrets, ErrInput, "federation.brokerClientId"},
@@ -572,6 +575,77 @@ func TestRefusals(t *testing.T) {
 				t.Fatalf("%q does not name %q", err, c.names)
 			}
 		})
+	}
+}
+
+// TestClusterManagerCommitModeAndEgress renders the cluster-manager's
+// values and egress from the choice and the provider: commit mode adds the
+// chart's github.enabled and GitHub's API to the egress, off it adds neither;
+// a capa installation opens its workload clusters by the connectivity chart's
+// aws preset, a provider without a preset opens none.
+func TestClusterManagerCommitModeAndEgress(t *testing.T) {
+	const base = "egress:\n  fqdns:\n    - matchName: gsoci.azurecr.io\n    - matchPattern: '*.blob.core.windows.net'\n"
+	const aws = "workloadClusters:\n  provider: aws\n"
+	const github = "    - matchName: api.github.com\n"
+	for _, c := range []struct {
+		name, shape string
+		commit      bool
+		values      string
+		egress      string
+	}{
+		{"commit mode on a capa hub", shapeHubPrivateTarget, true, "installation:\n  name: gopher\ngithub:\n  enabled: true\n", aws + base + github},
+		{"commit mode off on a capa hub", shapeHubPrivateTarget, false, "installation:\n  name: gopher\n", aws + base},
+		{"commit mode off on a capz installation", shapeGiantswarmSlackApp, false, "installation:\n  name: glean\n", base},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			input, _ := loadInput(t, c.shape)
+			input["clusterManager"] = map[string]any{"github": map[string]any{keyEnabled: c.commit}}
+			in, err := Parse(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := string(render.MustYAML(in.clusterManagerValues())); got != c.values {
+				t.Errorf("values:\n%s\nwant:\n%s", got, c.values)
+			}
+			if got := string(render.MustYAML(in.clusterManagerNetworkPolicy())); got != c.egress {
+				t.Errorf("egress:\n%s\nwant:\n%s", got, c.egress)
+			}
+		})
+	}
+}
+
+// TestOCIRepositoriesPollAtThePolicysInterval holds every OCIRepository the
+// definition renders to the policy's flux.sourceInterval.
+func TestOCIRepositoriesPollAtThePolicysInterval(t *testing.T) {
+	pol, err := loadPolicy()
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, secrets := loadInput(t, shapeHubPrivateTarget)
+	result, err := Render(input, secrets, render.ModeCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	for name, content := range result.Tree() {
+		for _, raw := range bytes.Split(content, []byte("\n---\n")) {
+			var obj struct {
+				Kind string `yaml:"kind"`
+				Spec struct {
+					Interval string `yaml:"interval"`
+				} `yaml:"spec"`
+			}
+			if yaml.Unmarshal(raw, &obj) != nil || obj.Kind != "OCIRepository" {
+				continue
+			}
+			seen++
+			if obj.Spec.Interval != pol.Flux.SourceInterval {
+				t.Errorf("%s: interval %q, want the policy's %q", name, obj.Spec.Interval, pol.Flux.SourceInterval)
+			}
+		}
+	}
+	if seen == 0 {
+		t.Fatal("the hub renders no OCIRepository")
 	}
 }
 
