@@ -74,7 +74,7 @@ charts:
   # on the 4 line.
   - name: klaus-gateway
     registry: gsoci.azurecr.io/charts/giantswarm/klaus-gateway
-    version: 1.20.1
+    version: 1.21.0
   - name: cluster-manager
     registry: gsoci.azurecr.io/charts/giantswarm/cluster-manager
     version: 0.19.2
