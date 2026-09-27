@@ -36,6 +36,9 @@ const Server = tools.ToolPrefix
 // DefaultBinary is the muster CLI as found on PATH.
 const DefaultBinary = "muster"
 
+// toolNotFound is how muster answers a call of a tool its aggregator does not have.
+const toolNotFound = "tool not found"
+
 // toolAuthLogin is the aggregator's own tool that connects a server for the person.
 const toolAuthLogin = "core_auth_login"
 
@@ -60,6 +63,9 @@ type Options struct {
 // Session is one connection to muster with the manager's tools in reach.
 type Session struct {
 	s *aggregator.Session
+	// endpoint is the aggregator the bridge reaches: Options.Endpoint, ""
+	// for muster's current context.
+	endpoint string
 }
 
 // Open starts `muster agent --mcp-server` and initializes the MCP session.
@@ -88,9 +94,10 @@ func Open(ctx context.Context, o Options) (*Session, error) {
 	}
 	s, err := New(ctx, c)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w; `muster auth status%s` says whether muster needs a sign-in", err, endpointFlag(o.Endpoint))
 	}
 	s.s.CallTimeout = o.CallTimeout
+	s.endpoint = o.Endpoint
 	return s, nil
 }
 
@@ -120,13 +127,22 @@ func (s *Session) Call(ctx context.Context, tool string, args map[string]any) (j
 		if auth := s.signIn(ctx, Server); auth != nil {
 			return nil, auth
 		}
+		if u := s.unreachable(ctx); u != nil {
+			return nil, u
+		}
 		return nil, err
 	}
 	if res.IsError {
 		if auth := s.signIn(ctx, Server); auth != nil {
 			return nil, auth
 		}
-		return nil, &ToolError{Tool: tool, Message: aggregator.TextOf(res)}
+		text := aggregator.TextOf(res)
+		if strings.Contains(text, toolNotFound) {
+			if u := s.unreachable(ctx); u != nil {
+				return nil, u
+			}
+		}
+		return nil, &ToolError{Tool: tool, Message: text}
 	}
 	return json.RawMessage(aggregator.TextOf(res)), nil
 }
@@ -145,6 +161,42 @@ func (s *Session) signIn(ctx context.Context, server string) *AuthRequired {
 		return nil
 	}
 	return &AuthRequired{Server: server, URL: url, Message: aggregator.TextOf(res)}
+}
+
+// unreachable answers an Unreachable when the aggregator lists none of the
+// manager's tools: the manager is not registered on that muster, or not
+// connected there. A list that fails decides nothing.
+func (s *Session) unreachable(ctx context.Context) *Unreachable {
+	names, err := s.s.Matching(ctx, "x_"+Server+"_*")
+	if err != nil || len(names) > 0 {
+		return nil
+	}
+	return &Unreachable{Endpoint: s.endpoint}
+}
+
+// Unreachable says the muster the bridge reached exposes none of the
+// manager's tools: the manager is registered on the registry hub's muster
+// only, and a muster context pointing elsewhere reaches another aggregator.
+type Unreachable struct {
+	// Endpoint is the aggregator reached, "" for muster's current context.
+	Endpoint string `json:"endpoint,omitempty"`
+}
+
+func (e *Unreachable) Error() string {
+	where := "muster's current context (`muster context list`)"
+	if e.Endpoint != "" {
+		where = e.Endpoint
+	}
+	return fmt.Sprintf("the manager is not reachable through muster: the aggregator at %s lists no %s tool; it is registered on the registry hub's muster, so pass --endpoint https://muster.<hub's base domain>/mcp or run `muster context use <hub>`, then `muster auth status` shows whether %s is connected for you", where, Server, Server)
+}
+
+// endpointFlag is muster's --endpoint flag for endpoint, "" for muster's
+// current context.
+func endpointFlag(endpoint string) string {
+	if endpoint == "" {
+		return ""
+	}
+	return " --endpoint " + endpoint
 }
 
 // AuthRequired says the person has not connected the manager in muster yet:
