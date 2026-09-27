@@ -131,7 +131,7 @@ func TestUnknownRotations(t *testing.T) {
 // action's changes; the change names them apart from the ones a file to
 // write forced.
 func TestReviewAndChangeNameTheRotationsOnRequest(t *testing.T) {
-	a := &actions.Action{Spec: actions.Spec{Actor: actions.Actor{Login: "alice"}, Kind: actions.KindReconcile, Capability: installations.AgentPlatform,
+	a := &actions.Action{Spec: actions.Spec{Actor: actions.Actor{Login: stAlice}, Kind: actions.KindReconcile, Capability: installations.AgentPlatform,
 		Installations: []string{rowan}, Rotate: []string{rowan + "-muster-valkey-password"}, Reason: "a leaked password",
 		Changes: map[string][]string{rowan: {"agent-platform: rotates muster-valkey-password (on request)"}}}}
 	if got, want := reviewText(a), "*alice* asks to reconcile *agent-platform* on *rowan*.\n>*Why:* a leaked password\n*What changes*\n• agent-platform: rotates muster-valkey-password (on request)"; got != want {

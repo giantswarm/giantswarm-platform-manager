@@ -153,7 +153,7 @@ func TestReconcileRotatesMustersValkeyPasswordOnRequest(t *testing.T) {
 			assertNoLeak(t, "the pull request body", pr.Body)
 		}
 	}
-	if review := fmt.Sprint(st.gateway.posted()); (!strings.Contains(review, "• agent-platform: rotates muster-dex-client-secret,") || !strings.Contains(review, ", muster-valkey-password (on request)")) {
+	if review := fmt.Sprint(st.gateway.posted()); !strings.Contains(review, "• agent-platform: rotates muster-dex-client-secret,") || !strings.Contains(review, ", muster-valkey-password (on request)") {
 		t.Errorf("the review does not name the rotation on request: %s", review)
 	}
 	assertNoLeak(t, "the server's log", st.logs.String())

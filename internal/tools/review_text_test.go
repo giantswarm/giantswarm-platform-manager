@@ -47,7 +47,7 @@ func TestAccountEngineersOfTheTargets(t *testing.T) {
 }
 
 func TestReviewTextNamesTheAccountEngineer(t *testing.T) {
-	actor := actions.Actor{Login: "alice"}
+	actor := actions.Actor{Login: stAlice}
 	spec := func(kind string, customer bool, aes []string, names ...string) actions.Spec {
 		return actions.Spec{Actor: actor, Kind: kind, Capability: installations.AgentPlatform, Installations: names, Customer: customer, AccountEngineers: aes}
 	}
@@ -74,7 +74,7 @@ func TestReviewTextNamesTheAccountEngineer(t *testing.T) {
 // component; a wave whose installations change alike reads once "on each",
 // else per installation; lines past whatMax are counted, never cut mid-line.
 func TestReviewTextSaysWhyAndWhat(t *testing.T) {
-	spec := actions.Spec{Actor: actions.Actor{Login: "alice"}, Kind: actions.KindReconcile, Capability: installations.ClusterMCPServers, Reason: "mcp-kubernetes 1.8.2 fixes the token refresh",
+	spec := actions.Spec{Actor: actions.Actor{Login: stAlice}, Kind: actions.KindReconcile, Capability: installations.ClusterMCPServers, Reason: "mcp-kubernetes 1.8.2 fixes the token refresh",
 		Installations: []string{rowan, birch}, Changes: map[string][]string{rowan: {"mcp-kubernetes: HelmRelease mcp-kubernetes 1.8.1 → 1.8.2"}, birch: {"mcp-kubernetes: HelmRelease mcp-kubernetes 1.8.1 → 1.8.2"}}}
 	want := "*alice* asks to reconcile *cluster-mcp-servers* on *rowan, birch* (a wave, in this order).\n>*Why:* mcp-kubernetes 1.8.2 fixes the token refresh\n*What changes on each*\n• mcp-kubernetes: HelmRelease mcp-kubernetes 1.8.1 → 1.8.2"
 	if got := reviewText(&actions.Action{Spec: spec}); got != want {
@@ -99,7 +99,7 @@ func TestReviewTextSaysWhyAndWhat(t *testing.T) {
 // The Account Engineers' notice once applied: who, what, where, whose
 // customer, why and what changed.
 func TestAppliedTextNamesTheAccountEngineer(t *testing.T) {
-	a := &actions.Action{Spec: actions.Spec{Actor: actions.Actor{Login: "alice"}, Kind: actions.KindReconcile, Capability: installations.ClusterMCPServers, Reason: "rotate after the leak",
+	a := &actions.Action{Spec: actions.Spec{Actor: actions.Actor{Login: stAlice}, Kind: actions.KindReconcile, Capability: installations.ClusterMCPServers, Reason: "rotate after the leak",
 		Installations: []string{rowan}, AccountEngineerOf: map[string]string{rowan: rtAda}, Changes: map[string][]string{rowan: {"mcp-kubernetes: rotates valkey-password (on request)"}}}}
 	want := "*alice* reconciled *cluster-mcp-servers* on *rowan* (account engineer Ada Example): the change is applied and verified.\n>*Why:* rotate after the leak\n*What changed*\n• mcp-kubernetes: rotates valkey-password (on request)"
 	if got := appliedText(a, rowan); got != want {

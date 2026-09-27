@@ -105,11 +105,11 @@ func TestCommitPostsTheTeamReview(t *testing.T) {
 	if len(st.gateway.noticed()) != 0 {
 		t.Fatalf("the review was noticed: %+v", st.gateway.noticed())
 	}
-	if a.Spec.Reason != commitReason || a.Spec.AccountEngineerOf[rowan] != "Ada Example" || len(a.Spec.Changes[rowan]) == 0 {
-		t.Fatalf("the action records reason %q, account engineers %v, changes %v", a.Spec.Reason, a.Spec.AccountEngineerOf, a.Spec.Changes)
-	}
 	if len(a.Spec.AccountEngineers) != 1 || a.Spec.AccountEngineers[0] != "Ada Example" {
 		t.Fatalf("the action records the account engineer: %v", a.Spec.AccountEngineers)
+	}
+	if a.Spec.Reason != commitReason || a.Spec.AccountEngineerOf[rowan] != a.Spec.AccountEngineers[0] || len(a.Spec.Changes[rowan]) == 0 {
+		t.Fatalf("the action records reason %q, account engineers %v, changes %v", a.Spec.Reason, a.Spec.AccountEngineerOf, a.Spec.Changes)
 	}
 	assertNoLeak(t, "the review", fmt.Sprint(body))
 	assertNoLeak(t, "the server's log", st.logs.String())
