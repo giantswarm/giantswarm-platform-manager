@@ -94,7 +94,12 @@ func revisionSources(t *testing.T, kustomization []byte, secret string) map[stri
 		t.Fatal(err)
 	}
 	out := map[string][]string{}
+	watched := false
 	for _, p := range k.Patches {
+		if p.Target.Kind == kindSecret {
+			watched = watched || p.Target.Name == secret && p.Patch == strings.TrimRight(render.WatchPatch(secret), "\n")
+			continue
+		}
 		if p.Target.Kind != "HelmRelease" {
 			t.Fatalf("a patch on a %s", p.Target.Kind)
 		}
@@ -122,6 +127,9 @@ func revisionSources(t *testing.T, kustomization []byte, secret string) map[stri
 				out[p.Target.Name] = append(out[p.Target.Name], path)
 			}
 		}
+	}
+	if !watched {
+		t.Errorf("the kustomization has Flux watch no %s: %+v", secret, k.Patches)
 	}
 	return out
 }

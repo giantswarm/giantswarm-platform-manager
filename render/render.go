@@ -16,7 +16,6 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
-	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -460,18 +459,20 @@ func ValueKey(key, value string) SecretKey {
 	return SecretKey{Key: key, Value: value}
 }
 
-// WatchedByFlux adds to labels (which it leaves unchanged) the label on a
-// Secret a HelmRelease reads through valuesFrom that has helm-controller
-// reconcile the HelmRelease as soon as the Secret changes, not at its next
-// interval: every HelmRelease that reads a credentials revision rolls with
-// it at once, so a server and its Valkey restart together.
-func WatchedByFlux(labels map[string]string) map[string]string {
-	out := maps.Clone(labels)
-	if out == nil {
-		out = map[string]string{}
-	}
-	out["reconcile.fluxcd.io/watch"] = "Enabled"
-	return out
+// WatchLabel is the label on a Secret a HelmRelease reads through
+// valuesFrom that has helm-controller reconcile the HelmRelease as soon as
+// the Secret changes, not at its next interval: every HelmRelease that reads
+// a credentials revision rolls with it at once, so a server and its Valkey
+// restart together.
+const WatchLabel = "reconcile.fluxcd.io/watch"
+
+// WatchPatch is the kustomize strategic-merge patch that puts WatchLabel on
+// the Secret name. The kustomization carries it, never the Secret's own
+// file: a label written into an encrypted file rewrites it, and a rewritten
+// file draws every value it holds anew. Flux decrypts after the build, so
+// the patch applies to the encrypted Secret.
+func WatchPatch(name string) string {
+	return "apiVersion: v1\nkind: Secret\nmetadata:\n  name: " + name + "\n  labels:\n    " + WatchLabel + ": Enabled\n"
 }
 
 // Secret renders an Opaque Secret manifest in plaintext. Keys keep their

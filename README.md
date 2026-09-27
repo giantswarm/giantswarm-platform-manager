@@ -74,8 +74,12 @@ this order, writing nothing before the gate:
    render changes nothing outside its values: the manager decrypts nothing, so the two are compared as YAML
    with the values the record holds encrypted (the fields under the repository's `encrypted_regex`) and the
    values the commit fills in left out — same keys, same metadata, same plaintext fields → `unchanged`, the
-   values in it *frozen* and its generated names `kept`; nothing is written. A reconcile of an installation
-   the manager enabled therefore rewrites no secret and rotates nothing. A name **rotates** only when a file
+   values in it *frozen* and its generated names `kept`; nothing is written. The labels and annotations of an
+   encrypted file take no part: the manager never rewrites an encrypted file for them, since a rewrite draws
+   every value it holds anew, and the kustomization carries them instead (Flux's
+   `reconcile.fluxcd.io/watch` on the credentials revision Secrets is a patch in the directory's
+   kustomization). A reconcile of an installation the manager enabled therefore rewrites no secret and
+   rotates nothing. A name **rotates** only when a file
    of the name has to be written — a file to create (a server's Dex client Secret next to its existing
    credentials file), an existing file whose plaintext skeleton the render changes (a field added to its
    template), or a plain file to write carrying a key pair's public half: one new value is drawn and written
@@ -97,7 +101,12 @@ this order, writing nothing before the gate:
    runs, klaus-gateway and the agent-, cluster- and model-manager). Unseen by the
    comparison: a literal the render changes under an encrypted field — the record holds it encrypted. A
    value frozen in a file the definition does not own whole (one with several owners) cannot rotate and
-   refuses the commit naming the file.
+   refuses the commit naming the file. Where the capability is on record (its marker file exists), a
+   rotation no request reaches refuses the commit too, naming the value and the file that forces it: a new
+   value ends every session and client that holds the old one (a new `*-oauth-encryption-key` signs out
+   everyone who uses the server), so a reconcile rotates only what a person asked for with `rotate`, and
+   what that request's rewritten files hold with it. The first enable of an installation set up by hand
+   still rotates a value a new file shares with one on record, the dry run naming it.
 5. **The pull requests** through gitops-commit, as the person, in dependency order — a pull request whose
    files create an object another one's files reference merges before it: the management-clusters Secret
    before the configs dex patch that names it through `secretRef`, teleport-fleet's tunnelport tokens before

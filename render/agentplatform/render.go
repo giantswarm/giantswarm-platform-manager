@@ -549,11 +549,20 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 	if in.hasPrivateTarget() {
 		k.Resources = append(k.Resources, "./tunnelport")
 	}
+	// Flux watches muster's revision Secret, so the HelmReleases that read it
+	// reconcile the moment it changes; the patch comes first, so the chart
+	// line's coming and going never shifts it.
+	if in.musterRevision() {
+		k.Patches = append(k.Patches, patch{
+			Patch:  strings.TrimRight(render.WatchPatch(musterRevisionSecret), "\n"),
+			Target: render.Map{e("kind", "Secret"), e("name", musterRevisionSecret)},
+		})
+	}
 	if semver := in.chartSemver(); semver != "" {
-		k.Patches = []patch{{
+		k.Patches = append(k.Patches, patch{
 			Patch:  "- op: replace\n  path: /spec/ref/semver\n  value: " + fmt.Sprintf("%q", semver),
 			Target: render.Map{e("kind", "OCIRepository"), e("name", "agent-platform")},
-		}}
+		})
 	}
 	r.Add(repo, dir+"/kustomization.yaml", yamlFile(k))
 
@@ -580,7 +589,7 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 	add(musterOAuthSecret+".yaml", render.Secret(musterOAuthSecret, platformNamespace, team, oauthKeys...))
 	add(musterValkeySecret+".yaml", render.Secret(musterValkeySecret, platformNamespace, team, valkeyKeys...))
 	if in.musterRevision() {
-		add(musterRevisionSecret+".yaml", render.Secret(musterRevisionSecret, fluxNamespace, render.WatchedByFlux(team),
+		add(musterRevisionSecret+".yaml", render.Secret(musterRevisionSecret, fluxNamespace, team,
 			render.GeneratedKey(revisionKey, revision, render.Alphanumeric, revisionLength)))
 	}
 	add(dexClientSecretFile("muster"), dexClientSecret("muster", in.generatedName("muster-dex-client-secret")))

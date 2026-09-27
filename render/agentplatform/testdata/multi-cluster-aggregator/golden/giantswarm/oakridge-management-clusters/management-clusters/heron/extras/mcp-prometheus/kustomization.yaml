@@ -10,6 +10,16 @@ resources:
   - dex-client-mcp-prometheus-secret.yaml
 patches:
   - patch: |-
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: mcp-prometheus-credentials-revision
+        labels:
+          reconcile.fluxcd.io/watch: Enabled
+    target:
+      kind: Secret
+      name: mcp-prometheus-credentials-revision
+  - patch: |-
       - op: add
         path: /spec/valuesFrom/-
         value:

@@ -181,8 +181,9 @@ type GeneratedSecret struct {
 	// repository is not on record): a value drawn here never reaches it.
 	Peer string `json:"peer,omitempty"`
 	// Refusal is why a commit of this plan is refused before any write: the
-	// name is frozen in a file the definition does not own whole, or it has
-	// a Peer and would be drawn here alone.
+	// name is frozen in a file the definition does not own whole, where the
+	// capability is on record it would rotate without a request, or it has a
+	// Peer and would be drawn here alone.
 	Refusal string `json:"refusal,omitempty"`
 }
 
@@ -394,6 +395,21 @@ type Options struct {
 	Installations map[string]installations.Installation
 }
 
+// markerOnRecord says whether the capability is on record for the
+// installation: the plan's file of the definition's marker exists.
+func (p Installation) markerOnRecord(opts Options) bool {
+	if opts.Definition.EnabledMarker == nil {
+		return false
+	}
+	marker := opts.Definition.EnabledMarker(opts.Installation.Name)
+	for _, f := range p.Files {
+		if f.Path == marker {
+			return f.Change == ChangeUnchanged || f.Change == ChangeUpdate
+		}
+	}
+	return false
+}
+
 // Build renders the inputs through opts' definition and answers the plan for
 // opts' installation. A refusal of the definition is the answer, not an error.
 func Build(ctx context.Context, opts Options) Installation {
@@ -514,7 +530,7 @@ func Build(ctx context.Context, opts Options) Installation {
 	}
 	// A file kept as it is that holds a rotating name is rewritten with the
 	// new value: an update after all.
-	for file := range frozen(generated, holders, requestedRotations(opts.Rotate, generated, res.Revisions)) {
+	for file := range frozen(generated, holders, requestedRotations(opts.Rotate, generated, res.Revisions), p.markerOnRecord(opts)) {
 		if pf := &p.Files[held[file]]; pf.Change == ChangeUnchanged {
 			pf.Change = ChangeUpdate
 			p.Diff[ChangeUnchanged]--
