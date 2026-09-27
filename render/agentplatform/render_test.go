@@ -748,7 +748,7 @@ func TestRevisionsCoverTheCredentialsSecrets(t *testing.T) {
 		want := map[string]string{}
 		for _, s := range servers {
 			for _, v := range []string{"-dex-client-secret", "-oauth-encryption-key", "-valkey-password"} {
-				want[name+"-"+s.name+v] = name + "-" + s.name + "-credentials-revision"
+				want[name+"-"+s.Name+v] = name + "-" + s.Name + "-credentials-revision"
 			}
 		}
 		muster := []string{"-muster-dex-client-secret", "-muster-registration-token", "-muster-oauth-encryption-key", "-muster-valkey-password"}

@@ -1,0 +1,31 @@
+- id: live-helmreleases-ready
+  feature: servers
+  kind: HelmReleaseReady
+  namespace: flux-giantswarm
+  resource: HelmRelease
+  name: mcp-kubernetes
+- id: live-helmreleases-ready
+  feature: servers
+  kind: HelmReleaseReady
+  namespace: flux-giantswarm
+  resource: HelmRelease
+  name: mcp-kubernetes-valkey
+- id: live-server-workloads
+  feature: servers
+  kind: Condition
+  namespace: mcp-kubernetes
+  resource: Deployment
+  name: mcp-kubernetes
+  expect:
+    condition: Available
+    conditionStatus: "True"
+- id: live-dex-client-secrets-loaded
+  feature: identity
+  kind: SecretLoaded
+  namespace: giantswarm
+  resource: Secret
+  name: dex-client-mcp-kubernetes
+  expect:
+    pods: app.kubernetes.io/name=dex
+    container: dex
+    note: Dex reads the secret of client mcpKubernetes only when its container starts; one started before the Secret changed holds the old secret and the client's sign-ins fail until Dex restarts (dex-app 3.2.3 restarts it on the change)

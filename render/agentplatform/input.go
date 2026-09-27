@@ -251,7 +251,7 @@ type Target struct {
 func (t Target) groups() []string {
 	groups := make([]string, 0, len(servers))
 	for _, s := range servers {
-		groups = append(groups, s.group)
+		groups = append(groups, s.Group)
 	}
 	return groups
 }

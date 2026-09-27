@@ -132,6 +132,15 @@ a public customer, a Giant Swarm-owned installation, a hub with a private target
 values) and a multi-cluster customer with one aggregator (invented names, placeholder values) and are
 diffed on every pull request; `go test ./render/... -update` rewrites them after an intended change.
 
+## The cluster-mcp-servers definition
+
+A management cluster's own MCP servers without the agent platform (`render/clustermcpservers`): per running
+server the extras directory `render/mcpservers` renders — the one the agent-platform definition renders for its
+installation's servers — with the user values the record says the server needs (Dex on private addresses, the
+clients' too, the installation's Dex CA Secret listed), and each server's Dex client as a `clientSecretRef` in the
+dex-app configmap patch, a file the plan merges keeping every other owner's clients and keys. It refuses where the
+agent platform is on record and below dex-app 3.2.3; see `definitions/cluster-mcp-servers/README.md`.
+
 ## Probes and customer actions
 
 A `Result` also says what the running installation has to show for the render to count as working, as data.

@@ -101,7 +101,7 @@ func TestRenderRefusals(t *testing.T) {
 }
 
 func TestShapes(t *testing.T) {
-	if got := Shapes(); len(got) != 2 || got[0] != "agent-platform" || got[1] != "customer-portal" {
+	if got := Shapes(); len(got) != 3 || got[0] != "agent-platform" || got[1] != "cluster-mcp-servers" || got[2] != "customer-portal" {
 		t.Fatalf("got %v", got)
 	}
 }

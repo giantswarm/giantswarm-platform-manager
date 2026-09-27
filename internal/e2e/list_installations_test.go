@@ -308,7 +308,7 @@ func TestListInstallationsStates(t *testing.T) {
 	if isErr {
 		t.Fatal(text)
 	}
-	if out.Caller != alice || out.Hub != hub || len(out.Installations) != 8 || len(out.Capabilities) != 2 || out.Capabilities[0] != installations.AgentPlatform || out.Capabilities[1] != installations.CustomerPortal ||
+	if out.Caller != alice || out.Hub != hub || len(out.Installations) != 8 || len(out.Capabilities) != 3 || out.Capabilities[0] != installations.AgentPlatform || out.Capabilities[1] != installations.CustomerPortal || out.Capabilities[2] != installations.ClusterMCPServers ||
 		out.Registry.Catalog.Repository != registryRepo || out.Registry.Portal.Repository != hubMCs || out.Registry.Portal.Path != installations.PortalConfigPath(hub) {
 		t.Fatalf("answer: %s", text)
 	}
@@ -371,7 +371,7 @@ func TestListInstallationsStates(t *testing.T) {
 	}
 
 	larch := find(t, out, "larch")
-	if larch.Readable || larch.Repositories.Known() || len(larch.Capabilities) != 2 || larch.Capabilities[1].State != installations.StateUnknown || len(larch.Errors) != 1 ||
+	if larch.Readable || larch.Repositories.Known() || len(larch.Capabilities) != 3 || larch.Capabilities[1].State != installations.StateUnknown || larch.Capabilities[2].State != installations.StateUnknown || len(larch.Errors) != 1 ||
 		len(larch.Sources) != 1 || larch.Sources[0] != installations.SourcePortal || larch.BaseDomain != "larch.example.test" {
 		t.Fatalf("larch: %+v", larch)
 	}
@@ -448,7 +448,7 @@ func TestListInstallationsSummary(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	out, text, isErr := listInstallations(t, st.mcpClient(t, aliceToken), map[string]any{tools.ArgSummary: true})
-	if isErr || !out.Summary || len(out.Installations) != 8 || len(out.Capabilities) != 2 {
+	if isErr || !out.Summary || len(out.Installations) != 8 || len(out.Capabilities) != 3 {
 		t.Fatalf("answer: %s", text)
 	}
 	hazelR, birchR, alderR, mapleR, oakR := find(t, out, hub), find(t, out, birch), find(t, out, alder), find(t, out, maple), find(t, out, "oak")
