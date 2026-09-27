@@ -262,7 +262,7 @@ func TestEnableCapabilityDryRunTypedInputs(t *testing.T) {
 	if p := findPlan(t, out, rowan); !strings.Contains(p.Refused, "bogus") || len(p.Files) != 0 || len(out.PullRequests) != 0 {
 		t.Fatalf("unknown key: refused %q files %d prs %d", p.Refused, len(p.Files), len(out.PullRequests))
 	}
-	out, text, isErr = dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(map[string]any{argInstallation: map[string]any{federationKey: map[string]any{targetsKey: []any{map[string]any{argInstallation: alder, baseDomainKey: alder + ".example", argPrivate: false}}, hubsKey: []any{}}}})})
+	out, text, isErr = dryRun(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(map[string]any{argInstallation: map[string]any{federationKey: map[string]any{targetsKey: []any{map[string]any{argInstallation: alder, baseDomainKey: alder + ".example", argPrivate: false, serversKey: targetServers}}, hubsKey: []any{}}}})})
 	if isErr {
 		t.Fatal(text)
 	}
@@ -311,7 +311,7 @@ func TestDryRunRendersTheTokenExchangeClientUnderTheFleetsID(t *testing.T) {
 	hubInputs := func(registryHub bool) map[string]any {
 		return minimalInputs(map[string]any{argInstallation: map[string]any{"hub": registryHub, federationKey: map[string]any{
 			"brokerClientId": "broker", hubsKey: []any{},
-			targetsKey: []any{map[string]any{argInstallation: alder, baseDomainKey: alder + ".example", argPrivate: false}}}}})
+			targetsKey: []any{map[string]any{argInstallation: alder, baseDomainKey: alder + ".example", argPrivate: false, serversKey: targetServers}}}}})
 	}
 	for _, tc := range []struct {
 		registryHub bool

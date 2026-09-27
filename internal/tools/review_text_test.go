@@ -47,7 +47,7 @@ func TestAccountEngineersOfTheTargets(t *testing.T) {
 }
 
 func TestReviewTextNamesTheAccountEngineer(t *testing.T) {
-	actor := actions.Actor{Login: "alice"}
+	actor := actions.Actor{Login: stAlice}
 	spec := func(kind string, customer bool, aes []string, names ...string) actions.Spec {
 		return actions.Spec{Actor: actor, Kind: kind, Capability: installations.AgentPlatform, Installations: names, Customer: customer, AccountEngineers: aes}
 	}
@@ -67,5 +67,42 @@ func TestReviewTextNamesTheAccountEngineer(t *testing.T) {
 		if got := reviewText(&actions.Action{Spec: tc.spec}); got != tc.want {
 			t.Errorf("got  %s\nwant %s", got, tc.want)
 		}
+	}
+}
+
+// The review says why and what changes: the reason quoted, a line per
+// component; a wave whose installations change alike reads once "on each",
+// else per installation; lines past whatMax are counted, never cut mid-line.
+func TestReviewTextSaysWhyAndWhat(t *testing.T) {
+	spec := actions.Spec{Actor: actions.Actor{Login: stAlice}, Kind: actions.KindReconcile, Capability: installations.ClusterMCPServers, Reason: "mcp-kubernetes 1.8.2 fixes the token refresh",
+		Installations: []string{rowan, birch}, Changes: map[string][]string{rowan: {"mcp-kubernetes: HelmRelease mcp-kubernetes 1.8.1 → 1.8.2"}, birch: {"mcp-kubernetes: HelmRelease mcp-kubernetes 1.8.1 → 1.8.2"}}}
+	want := "*alice* asks to reconcile *cluster-mcp-servers* on *rowan, birch* (a wave, in this order).\n>*Why:* mcp-kubernetes 1.8.2 fixes the token refresh\n*What changes on each*\n• mcp-kubernetes: HelmRelease mcp-kubernetes 1.8.1 → 1.8.2"
+	if got := reviewText(&actions.Action{Spec: spec}); got != want {
+		t.Errorf("alike:\ngot  %s\nwant %s", got, want)
+	}
+	spec.Changes[birch] = []string{"mcp-capi: new"}
+	want = "*alice* asks to reconcile *cluster-mcp-servers* on *rowan, birch* (a wave, in this order).\n>*Why:* mcp-kubernetes 1.8.2 fixes the token refresh\n*What changes on rowan*\n• mcp-kubernetes: HelmRelease mcp-kubernetes 1.8.1 → 1.8.2\n*What changes on birch*\n• mcp-capi: new"
+	if got := reviewText(&actions.Action{Spec: spec}); got != want {
+		t.Errorf("different:\ngot  %s\nwant %s", got, want)
+	}
+	long := make([]string, 60)
+	for i := range long {
+		long[i] = "component-" + strings.Repeat("x", 60)
+	}
+	spec.Installations, spec.Changes = []string{rowan}, map[string][]string{rowan: long}
+	got := reviewText(&actions.Action{Spec: spec})
+	if len(got) > 3000 || !strings.HasSuffix(got, " more; the pull requests carry the full change") {
+		t.Errorf("long (%d characters): …%s", len(got), got[len(got)-80:])
+	}
+}
+
+// The Account Engineers' notice once applied: who, what, where, whose
+// customer, why and what changed.
+func TestAppliedTextNamesTheAccountEngineer(t *testing.T) {
+	a := &actions.Action{Spec: actions.Spec{Actor: actions.Actor{Login: stAlice}, Kind: actions.KindReconcile, Capability: installations.ClusterMCPServers, Reason: "rotate after the leak",
+		Installations: []string{rowan}, AccountEngineerOf: map[string]string{rowan: rtAda}, Changes: map[string][]string{rowan: {"mcp-kubernetes: rotates valkey-password (on request)"}}}}
+	want := "*alice* reconciled *cluster-mcp-servers* on *rowan* (account engineer Ada Example): the change is applied and verified.\n>*Why:* rotate after the leak\n*What changed*\n• mcp-kubernetes: rotates valkey-password (on request)"
+	if got := appliedText(a, rowan); got != want {
+		t.Errorf("got  %s\nwant %s", got, want)
 	}
 }

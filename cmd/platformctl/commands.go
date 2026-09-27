@@ -98,6 +98,7 @@ func newCapabilityCmd(tool string, allowSet bool) *cobra.Command {
 	var inputs kvFlag
 	var secretFlags secretFlag
 	var rotate []string
+	var reason string
 	syntax := "installation " + name + " <installation> <capability> --dry-run|--commit"
 	short := "Enable a capability on one installation: a dry run, or the action"
 	if allowSet {
@@ -123,6 +124,9 @@ func newCapabilityCmd(tool string, allowSet bool) *cobra.Command {
 		if dryRun == commit {
 			return usageError(stderr, "one of --dry-run and --commit: "+syntax)
 		}
+		if commit && strings.TrimSpace(reason) == "" {
+			return usageError(stderr, "--commit needs --reason: why you make the change, for the team's review")
+		}
 		if dryRun && len(secretFlags) > 0 {
 			return usageError(stderr, "--secret goes with --commit; a dry run carries no secret value")
 		}
@@ -142,6 +146,9 @@ func newCapabilityCmd(tool string, allowSet bool) *cobra.Command {
 		}
 		if len(rotate) > 0 {
 			toolArgs[tools.ArgRotate] = rotate
+		}
+		if commit {
+			toolArgs[tools.ArgReason] = reason
 		}
 		if len(inputs) > 0 {
 			typed, err := nest(inputs)
@@ -197,7 +204,9 @@ func newCapabilityCmd(tool string, allowSet bool) *cobra.Command {
 	fs.StringArrayVar(&rotate, "rotate", nil, "a generated value to rotate on request, by its `name` in the dry run (<installation>-muster-valkey-password), repeatable: a new value in every file that holds it, its credentials revision rolling every workload that reads it")
 	completeFlag(cmd, "input", cobra.NoFileCompletions)
 	completeFlag(cmd, "secret", cobra.NoFileCompletions)
+	fs.StringVar(&reason, tools.ArgReason, "", "with --commit (required): why you make the change, in a sentence the team's review and the notices show")
 	completeFlag(cmd, "rotate", cobra.NoFileCompletions)
+	completeFlag(cmd, tools.ArgReason, cobra.NoFileCompletions)
 	// The capability is the last word: after the installation for enable,
 	// after the first installation or first with --all for reconcile.
 	cmd.ValidArgsFunction = capabilityAt(func(_ *cobra.Command, pos []string) bool { return len(pos) == 1 })

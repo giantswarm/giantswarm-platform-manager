@@ -117,12 +117,24 @@ this order, writing nothing before the gate:
    action id in the title and body. The Action records them and stays in *pending approval*: the approval, the merge
    and the rollout follow. An action on Giant Swarm's test installations alone — the hub's customer's, not the
    hub: the wave's first stage — needs no Team review: the approval is recorded *not required*, the actor merges
-   with `merge_action` once green, and the merge is told to the team's standup channel in one sentence
-   (`approvals.standupChannel`; unset, such a commit is refused). The hub and every customer installation keep
-   the review. A failure on the way moves the Action to *failed* and closes the pull requests
+   with `merge_action` once green, and the merge is told to the team's standup channel — who, what, why and
+   what changed (`approvals.standupChannel`; unset, such a commit is refused). The hub and every customer
+   installation keep the review. A failure on the way moves the Action to *failed* and closes the pull requests
    opened so far as the person, branches deleted, recorded *closed* with the reason on the Action; one the
    remote refused to close stays open on the record, and `deny_action` — which takes a failed action too —
    closes it, records the reason and leaves the action failed.
+
+A commit takes `reason` — why the actor makes the change, in a sentence; without one nothing is committed.
+**The review** in the team's channel (`approvals.channel`) is what a teammate judges the action by from
+Slack alone: who asks to enable or reconcile which capability on which installations (whose customer, the
+account engineer the catalog records), the reason quoted, and *what changes* — a line per component from
+the comparison (`spec.changes`, `plan.Summary`): a component created whole reads *new*, versions read old →
+new, list entries added and removed, values keys by path without their values, a Secret's keys added and
+removed, the credentials that rotate (the ones asked for marked *on request*) — with the pull requests as
+links; a wave whose installations change alike reads once, else per installation. The Account Engineers'
+channel (`approvals.noticeChannel`) never sees the review: once a stage on a customer installation reaches
+*enabled* — the watch or the live verify — it is told once, without buttons, who applied what where, why,
+what changed and the account engineer (`status.rollout.installations[].noticedAt`).
 
 The answer is the Action, the pull requests and the plan; no secret value appears in it, in a log or in a
 pull request. The manager holds no token of its own: `GITHUB_API_URL` is the GitHub the person's token goes to.
@@ -191,8 +203,8 @@ restarts. The rest follows the rotation above: every file on record that holds a
 rewritten with every value it holds — a rotation of muster's Valkey password rewrites
 `muster-valkey-credentials.yaml`, `muster-oauth-credentials.yaml` and `muster-credentials-revision.yaml`,
 which share the revision, and `dex-client-muster-secret.yaml` with the client secret — and nothing else
-rotates. The commit records the names asked for (`spec.rotate`); the review names them (*rotates on
-request: …*), the change and the pull request name them apart from the rotations a file forced.
+rotates. The commit records the names asked for (`spec.rotate`); the review marks them (*rotates
+valkey-password (on request)*), the change and the pull request name them apart from the rotations a file forced.
 
 Names carry their installation, so over a set a name applies to each installation whose plan lists it
 and leaves the others as they are; a name no plan of the set (or of the one installation) lists is
@@ -360,8 +372,8 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
   filesets, and the output is their tree — `<owner>/<repo>/<path>` per file, `includes.txt` with the shared
   kustomization entries — so `template` reproduces the goldens byte for byte. Shapes: `agent-platform`.
 - `platformctl installation list [<installation>…] [--customer <name>]`,
-  `platformctl installation enable <installation> <capability> --dry-run|--commit [--input k=v]… [--secret f=src]… [--rotate <name>]… [--content]`,
-  `platformctl installation reconcile <installation>…|--all <capability> --dry-run|--commit [--input k=v]… [--secret f=src]… [--rotate <name>]… [--content]`,
+  `platformctl installation enable <installation> <capability> --dry-run|--commit --reason <text> [--input k=v]… [--secret f=src]… [--rotate <name>]… [--content]`,
+  `platformctl installation reconcile <installation>…|--all <capability> --dry-run|--commit --reason <text> [--input k=v]… [--secret f=src]… [--rotate <name>]… [--content]`,
   `platformctl installation verify <installation> <capability>`,
   `platformctl action get <name>`, `platformctl action list [--installation <name>] [--capability <name>]`,
   `platformctl action approve <name>`, `platformctl action deny <name> --reason <text>`,
@@ -369,8 +381,8 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
   format the answers for a terminal;
   `--output json` prints the manager's answer as it is, for CI. `--input kagent.enabled=true` nests dotted
   keys into the tool's `inputs`; a value that parses as JSON is that value, anything else a string.
-  `--dry-run` is the tool's `dryRun`; `--commit` its `mode: commit` — the pull requests opened as you, the
-  Team review asked: for one installation the action, for `reconcile` over a set — two or more installations
+  `--dry-run` is the tool's `dryRun`; `--commit --reason <text>` its `mode: commit` with the `reason` — the
+  pull requests opened as you, the Team review asked: for one installation the action, for `reconcile` over a set — two or more installations
   named (the tool's `installations`), or `--all` for every installation of the registry — the wave over the
   set, one action rolled out a stage per merge. `installation verify` calls `verify_capability` and then
   `verify_installation` on the one registration and prints the two as one result — per dimension the side

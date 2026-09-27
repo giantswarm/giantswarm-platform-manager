@@ -524,14 +524,47 @@ type stageMerge struct {
 	pullRequests []actions.PullRequest
 }
 
-// standupText is the standup notice's one sentence: who did what where.
-// Both kinds, enable and reconcile, take -d for the past.
+// standupText is the standup notice: who did what where, why and what
+// changed. Both kinds, enable and reconcile, take -d for the past.
 func standupText(a *actions.Action, m stageMerge) string {
-	return fmt.Sprintf("*%s* %sd *%s* on *%s*.", m.by, a.Spec.Kind, a.Spec.Capability, m.stage)
+	return fmt.Sprintf("*%s* %sd *%s* on *%s*.", m.by, a.Spec.Kind, a.Spec.Capability, m.stage) +
+		whyAndWhat(a, "What changed", []string{m.stage})
 }
 
-// askApproval posts the action's review to the team's channel (and the notice
-// channel for a customer installation) and records the receipt on the Action.
+// appliedText is the Account Engineers' notice once the change is applied on
+// a customer installation: who did what where, whose customer, why and what
+// changed.
+func appliedText(a *actions.Action, installation string) string {
+	return fmt.Sprintf("*%s* %sd *%s* on *%s* (account engineer %s): the change is applied and verified.", a.Spec.Actor.Login, a.Spec.Kind, a.Spec.Capability, installation, a.Spec.AccountEngineerOf[installation]) +
+		whyAndWhat(a, "What changed", []string{installation})
+}
+
+// tellApplied tells the Account Engineers' channel, once, that the change of
+// stage i is applied: the stage just reached enabled on a customer
+// installation. It records the notice on the stage; a notice that could not
+// be posted is logged and tried again at the next read that sees the stage
+// enabled.
+func (t *Tools) tellApplied(ctx context.Context, a *actions.Action, status *actions.Status, i int) {
+	st := &status.Rollout.Installations[i]
+	if _, customer := a.Spec.AccountEngineerOf[st.Name]; !customer || st.State != actions.StateEnabled || st.NoticedAt != nil || t.approvals == nil {
+		return
+	}
+	n := approvals.Notice{Text: appliedText(a, st.Name)}
+	for _, k := range a.StagePullRequests(st.Name) {
+		n.PullRequests = append(n.PullRequests, status.PullRequests[k].URL)
+	}
+	receipt, err := t.approvals.Applied(ctx, n)
+	if err != nil {
+		t.d.Log.Info("action_applied_not_told", "action", a.Name, "installation", st.Name, "error", err.Error())
+		return
+	}
+	st.NoticedAt = now()
+	t.d.Log.Info("action_applied_told", "action", a.Name, "installation", st.Name, "channel", receipt.Channel, "ts", receipt.TS)
+}
+
+// askApproval posts the action's review to the team's channel and records
+// the receipt on the Action. The Account Engineers' channel is not asked:
+// it is told once the change is applied on a customer installation.
 func (t *Tools) askApproval(ctx context.Context, a *actions.Action, tool string) (*actions.Action, error) {
 	if t.approvals == nil {
 		return nil, fmt.Errorf("%s: no approval channel is configured (chart approvals.gatewayURL); action %s cannot be approved and nothing is merged", tool, a.Name)
@@ -542,9 +575,6 @@ func (t *Tools) askApproval(ctx context.Context, a *actions.Action, tool string)
 	for _, pr := range a.Status.PullRequests {
 		review.PullRequests = append(review.PullRequests, pr.URL)
 	}
-	if a.Spec.Customer {
-		review.NoticeChannel = t.approvals.Config().NoticeChannel
-	}
 	receipt, err := t.approvals.Post(ctx, review)
 	if err != nil {
 		return nil, fmt.Errorf("%s: the review of action %s could not be posted: %w", tool, a.Name, err)
@@ -552,15 +582,12 @@ func (t *Tools) askApproval(ctx context.Context, a *actions.Action, tool string)
 	status := a.Status
 	approval := *approvalOf(&status)
 	approval.Channel, approval.ReviewID, approval.PostedAt = receipt.Channel, receipt.ID, now()
-	if receipt.NoticeTS != "" {
-		approval.NoticeChannel = review.NoticeChannel
-	}
 	status.Approval = &approval
 	a, err = t.d.Actions.UpdateStatus(ctx, a.Name, status)
 	if err != nil {
 		return nil, fmt.Errorf("%s: the review of action %s is posted (%s) and the action could not record it: %w", tool, a.Name, receipt.ID, err)
 	}
-	t.d.Log.Info("action_review_posted", identity.LogAttr(ctx), "action", a.Name, "review", receipt.ID, "channel", receipt.Channel, "notice", receipt.NoticeTS != "")
+	t.d.Log.Info("action_review_posted", identity.LogAttr(ctx), "action", a.Name, "review", receipt.ID, "channel", receipt.Channel)
 	return a, nil
 }
 
@@ -578,12 +605,12 @@ func (t *Tools) postResult(ctx context.Context, a *actions.Action, text string) 
 	return ""
 }
 
-// reviewText is the review's mrkdwn, one line a reviewer reads in Slack: who
-// asks to do what on which installation, and which generated values the
-// person asked to rotate. The pull requests are the review's links and the
-// change in full (files, generated secrets, the rotations a file to write
-// forced) is in each pull request's body and on the Action's spec.change —
-// never a value.
+// reviewText is the review's mrkdwn, what a teammate judges the action by
+// from Slack alone: who asks to do what on which installation (whose
+// customer), why — the actor's reason — and what changes, a line per
+// component from the action's comparison (versions, values keys, rotated
+// credentials). The pull requests are the review's links and carry the
+// change in full; never a value.
 func reviewText(a *actions.Action) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "*%s* asks to %s *%s* on *%s*", a.Spec.Actor.Login, a.Spec.Kind, a.Spec.Capability, strings.Join(a.Spec.Installations, ", "))
@@ -606,10 +633,68 @@ func reviewText(a *actions.Action) string {
 		b.WriteString(" (a wave, in this order)")
 	}
 	b.WriteString(skippedClause(a.Spec.Skipped))
-	if len(a.Spec.Rotate) > 0 {
-		b.WriteString("; rotates on request: " + strings.Join(a.Spec.Rotate, ", "))
-	}
 	b.WriteString(".")
+	b.WriteString(whyAndWhat(a, "What changes", a.Spec.Installations))
+	return b.String()
+}
+
+// whatMax bounds the what-changes lines of one message: Slack takes 3000
+// characters a section, and the header and the reason come first.
+const whatMax = 2200
+
+// whyAndWhat is the reason as a quote and, under heading, the change of each
+// of installations a line per component — once for all when every
+// installation changes alike, else per installation — cut at whatMax with
+// the rest counted. Empty parts are left out.
+func whyAndWhat(a *actions.Action, heading string, installations []string) string {
+	var b strings.Builder
+	if a.Spec.Reason != "" {
+		b.WriteString("\n>*Why:* " + strings.ReplaceAll(a.Spec.Reason, "\n", "\n>"))
+	}
+	type group struct {
+		title string
+		lines []string
+	}
+	var groups []group
+	same := len(installations) > 1
+	for _, n := range installations[min(1, len(installations)):] {
+		same = same && slices.Equal(a.Spec.Changes[n], a.Spec.Changes[installations[0]])
+	}
+	switch {
+	case len(installations) == 1 || same:
+		title := "*" + heading + "*"
+		if same {
+			title = "*" + heading + " on each*"
+		}
+		groups = append(groups, group{title, a.Spec.Changes[installations[0]]})
+	default:
+		for _, n := range installations {
+			groups = append(groups, group{"*" + heading + " on " + n + "*", a.Spec.Changes[n]})
+		}
+	}
+	used, left := 0, 0
+	for _, g := range groups {
+		if len(g.lines) == 0 {
+			continue
+		}
+		if used > whatMax {
+			left += len(g.lines)
+			continue
+		}
+		b.WriteString("\n" + g.title)
+		used += len(g.title)
+		for _, l := range g.lines {
+			if used+len(l) > whatMax {
+				left++
+				continue
+			}
+			b.WriteString("\n• " + l)
+			used += len(l) + 3
+		}
+	}
+	if left > 0 {
+		fmt.Fprintf(&b, "\n• … %d more; the pull requests carry the full change", left)
+	}
 	return b.String()
 }
 

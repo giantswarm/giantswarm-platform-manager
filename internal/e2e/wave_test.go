@@ -26,7 +26,7 @@ import (
 )
 
 func waveArgs(extra map[string]any) map[string]any {
-	args := map[string]any{tools.ArgInstallations: []string{birch, rowan, alder}, tools.ArgInputs: minimalInputs(nil)}
+	args := map[string]any{tools.ArgInstallations: []string{birch, rowan, alder}, tools.ArgInputs: minimalInputs(nil), tools.ArgReason: commitReason}
 	for k, v := range extra {
 		args[k] = v
 	}
