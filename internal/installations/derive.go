@@ -14,6 +14,7 @@ import (
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
 	"github.com/giantswarm/giantswarm-platform-manager/render"
+	"github.com/giantswarm/giantswarm-platform-manager/render/mcpservers"
 )
 
 // The facts a definition derives from the portals' app-configs — which portals
@@ -131,6 +132,10 @@ type FederatedTarget struct {
 	// carry the organisation's plain name — the first's; every further hub's
 	// carries the hub's name (organisationHubs).
 	Hubs []string `json:"hubs"`
+	// Servers are the groups of the MCP servers the target runs: those whose
+	// extras directory (its kustomization) the target's management-clusters
+	// repository carries. The hub federates these alone.
+	Servers []string `json:"servers"`
 }
 
 // AgentPlatformPatchPath is where the installation's configs repository keeps
@@ -624,7 +629,35 @@ func (r *Registry) target(ctx context.Context, c *gh.Client, name string, inspec
 			return FederatedTarget{}, err
 		}
 	}
-	return FederatedTarget{Installation: name, BaseDomain: rec.BaseDomain, Private: private, PlatformProxied: proxied, Hubs: hubs}, nil
+	servers, err := targetServers(ctx, c, inst)
+	if err != nil {
+		return FederatedTarget{}, err
+	}
+	return FederatedTarget{Installation: name, BaseDomain: rec.BaseDomain, Private: private, PlatformProxied: proxied, Hubs: hubs, Servers: servers}, nil
+}
+
+// targetServers are the groups of the MCP servers a target runs: every server
+// whose extras kustomization its management-clusters repository carries.
+func targetServers(ctx context.Context, c *gh.Client, inst Installation) ([]string, error) {
+	if inst.Repositories.ManagementClusters == "" {
+		return nil, errors.New("no management-clusters repository on record")
+	}
+	owner, repo, err := gh.SplitRepo(inst.Repositories.ManagementClusters)
+	if err != nil {
+		return nil, err
+	}
+	servers := []string{}
+	for _, s := range mcpservers.Servers {
+		path := clusterMCPServerKustomization(inst.Name, s.Name)
+		ok, err := gh.FileExists(ctx, c, owner, repo, path)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+		if ok {
+			servers = append(servers, s.Group)
+		}
+	}
+	return servers, nil
 }
 
 // proxied says whether a portal that hub brokers for proxies name's agent

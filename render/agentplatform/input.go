@@ -244,14 +244,19 @@ type Target struct {
 	// carries the organisation's plain connector on the target's Dex, every
 	// further hub its own (connector). Empty: this hub alone brokers into it.
 	Hubs []string `json:"hubs"`
+	// Servers are the groups of the MCP servers the target runs: the servers
+	// whose extras directory its management-clusters repository carries.
+	Servers []string `json:"servers"`
 }
 
-// groups are the federated MCP server groups of every target: the target's
-// own three servers, the set the shared template registers everywhere.
+// groups are the target's federated MCP server groups: the servers it runs,
+// in the order the shared template registers them.
 func (t Target) groups() []string {
 	groups := make([]string, 0, len(servers))
 	for _, s := range servers {
-		groups = append(groups, s.Group)
+		if slices.Contains(t.Servers, s.Group) {
+			groups = append(groups, s.Group)
+		}
 	}
 	return groups
 }

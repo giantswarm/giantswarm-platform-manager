@@ -38,13 +38,17 @@ const (
 	hubsKey       = "hubs"
 	targetsKey    = "targets"
 	baseDomainKey = "baseDomain"
+	serversKey    = "servers"
 )
+
+// targetServers are the servers a target in these inputs runs: all three.
+var targetServers = []any{"kubernetes", "prometheus", "capi"}
 
 // federation makes rowan the hub of alder, a private target or a public one.
 func federation(private bool) map[string]any {
 	return minimalInputs(map[string]any{argInstallation: map[string]any{federationKey: map[string]any{
 		"brokerClientId": "broker", hubsKey: []any{},
-		targetsKey: []any{map[string]any{argInstallation: alder, baseDomainKey: alder + ".example", argPrivate: private}}}}})
+		targetsKey: []any{map[string]any{argInstallation: alder, baseDomainKey: alder + ".example", argPrivate: private, serversKey: targetServers}}}}})
 }
 
 // position is the index of repository among prs, or -1.
