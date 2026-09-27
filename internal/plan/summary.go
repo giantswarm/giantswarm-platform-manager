@@ -301,6 +301,12 @@ func (d *differ) list(at string, old, next []any) {
 		}
 		return
 	}
+	if op, ok := patchesByTarget(old); ok {
+		if np, ok := patchesByTarget(next); ok {
+			d.lists = append(d.lists, patchChanges(op, np)...)
+			return
+		}
+	}
 	oi, okO := byIdentity(old)
 	ni, okN := byIdentity(next)
 	if !okO || !okN {
@@ -397,6 +403,104 @@ func yamlString(v any) (any, bool) {
 		return out, true
 	}
 	return nil, false
+}
+
+// patchesByTarget keys a kustomization's patches by their target (HelmRelease
+// mcp-kubernetes), a second patch of the same target by #2 and on; false when
+// an entry carries no target.
+func patchesByTarget(list []any) (map[string]map[string]any, bool) {
+	out := map[string]map[string]any{}
+	for _, e := range list {
+		m, ok := e.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		t, ok := m["target"].(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		kind, _ := t["kind"].(string)
+		name, _ := t["name"].(string)
+		id := strings.TrimSpace(kind + " " + name)
+		if id == "" {
+			return nil, false
+		}
+		key := id
+		for i := 2; out[key] != nil; i++ {
+			key = fmt.Sprintf("%s #%d", id, i)
+		}
+		out[key] = m
+	}
+	return out, true
+}
+
+// patchChanges names each patch added, removed or changed by its target, and
+// for a JSON patch the operations by op and path — added +, removed −,
+// the same op and path with another value ~; never a value.
+func patchChanges(old, next map[string]map[string]any) []string {
+	var out []string
+	for _, id := range sortedKeys(old, next) {
+		o, n := old[id], next[id]
+		switch {
+		case o == nil:
+			out = append(out, "adds patch "+id+opsClause(patchOps(n)))
+		case n == nil:
+			out = append(out, "removes patch "+id)
+		case fmt.Sprint(o) != fmt.Sprint(n):
+			out = append(out, "patch "+id+" "+opsDiff(patchOps(o), patchOps(n)))
+		}
+	}
+	return out
+}
+
+// patchOps reads a patch's JSON patch operations as "op path" with the
+// value's rendering; nil for a strategic merge patch.
+func patchOps(m map[string]any) map[string]string {
+	raw, _ := m["patch"].(string)
+	var ops []map[string]any
+	if yaml.Unmarshal([]byte(raw), &ops) != nil {
+		return nil
+	}
+	out := map[string]string{}
+	for _, op := range ops {
+		o, _ := op["op"].(string)
+		p, _ := op["path"].(string)
+		if o == "" || p == "" {
+			return nil
+		}
+		out[o+" "+p] = fmt.Sprint(op["value"], op["from"])
+	}
+	return out
+}
+
+func opsClause(ops map[string]string) string {
+	if len(ops) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(slices.Sorted(maps.Keys(ops)), ", ") + ")"
+}
+
+func opsDiff(old, next map[string]string) string {
+	if old == nil || next == nil {
+		return "changed"
+	}
+	var parts []string
+	for _, k := range sortedKeys(old, next) {
+		o, inOld := old[k]
+		n, inNext := next[k]
+		switch {
+		case !inOld:
+			parts = append(parts, "+"+k)
+		case !inNext:
+			parts = append(parts, "−"+k)
+		case o != n:
+			parts = append(parts, "~"+k)
+		}
+	}
+	if len(parts) == 0 {
+		return "changed"
+	}
+	return strings.Join(parts, " ")
 }
 
 // byIdentity keys a list of maps by the first of name, id or path every
