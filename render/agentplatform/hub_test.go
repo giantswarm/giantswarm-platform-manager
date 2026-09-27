@@ -72,7 +72,7 @@ func TestPrivatePlatformTargetTunnels(t *testing.T) {
 	if strings.Contains(remoteapps, "marmot") || strings.Contains(tunnels, "marmot") {
 		t.Errorf("the public target marmot is tunnelled")
 	}
-	if got := (Target{Installation: "x", Private: true, Servers: []string{"kubernetes", "prometheus", "capi"}}).tunnelledApps(); len(got) != 5 || got[4].name != "kubernetes" {
+	if got := (Target{Installation: "x", Private: true, Servers: []string{groupKubernetes, "prometheus", "capi"}}).tunnelledApps(); len(got) != 5 || got[4].name != "kubernetes" {
 		t.Errorf("a private target the portal does not proxy: %+v", got)
 	}
 }
@@ -288,24 +288,30 @@ func TestTokenExchangeClientIsTheFleets(t *testing.T) {
 	}
 }
 
+// The group and the target the servers test narrows the federation to.
+const (
+	groupKubernetes = "kubernetes"
+	targetBurrow    = "burrow"
+)
+
 // A hub federates only the servers a target runs: a target running
 // mcp-kubernetes alone gets one entry in muster's list and, private, one
 // tunnelled MCP server.
 func TestTargetFederatesTheServersItRuns(t *testing.T) {
 	input, _ := loadInput(t, shapeHubPrivateTarget)
 	burrow := input["installation"].(map[string]any)["federation"].(map[string]any)["targets"].([]any)[0].(map[string]any)
-	burrow["servers"] = []any{"kubernetes"}
+	burrow["servers"] = []any{groupKubernetes}
 	in, err := Parse(input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var groups []string
 	for _, s := range in.targetServers() {
-		if s.Cluster == "burrow" {
+		if s.Cluster == targetBurrow {
 			groups = append(groups, s.Group)
 		}
 	}
-	if strings.Join(groups, ",") != "kubernetes" {
+	if strings.Join(groups, ",") != groupKubernetes {
 		t.Errorf("burrow's servers in muster's list: %v", groups)
 	}
 	var mcps []string
@@ -317,7 +323,7 @@ func TestTargetFederatesTheServersItRuns(t *testing.T) {
 	if strings.Join(mcps, ",") != "mcp-kubernetes" {
 		t.Errorf("burrow's tunnelled MCP servers: %v", mcps)
 	}
-	burrow["servers"] = []any{"kubernetes", "grafana"}
+	burrow["servers"] = []any{groupKubernetes, "grafana"}
 	if _, err := Parse(input); err == nil {
 		t.Errorf("a server the platform does not run is accepted")
 	}
