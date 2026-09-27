@@ -3,6 +3,7 @@ package plan
 import (
 	"errors"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -30,7 +31,10 @@ var markerPrefixes = []string{strings.TrimSuffix(render.Placeholder(""), ")"), s
 // compared as YAML: every key, every entry of a sequence, every scalar the
 // record holds in plaintext against the render's — but a scalar the commit
 // fills in and a scalar the record holds encrypted against nothing: the
-// manager decrypts nothing, and the value on record stands. SOPS's own block,
+// manager decrypts nothing, and the value on record stands. The labels and
+// annotations of an encrypted file take no part either (MetadataMark): the
+// manager never rewrites an encrypted file for them, since a rewrite draws
+// every value it holds anew; its kustomization carries them. SOPS's own block,
 // comments and formatting take no part. Any other file is compared by its
 // bytes, so this answers false for it.
 func sameSkeleton(rendered, current string) bool {
@@ -42,15 +46,54 @@ func sameSkeleton(rendered, current string) bool {
 	if err != nil || len(r) != len(c) || len(c) == 0 {
 		return false
 	}
-	if !encrypted(c) && !strings.Contains(rendered, markerPrefixes[0]) {
+	enc := encrypted(c)
+	if !enc && !strings.Contains(rendered, markerPrefixes[0]) {
 		return false
 	}
 	for i := range r {
+		if enc {
+			dropMetadataMarks(root(r[i]))
+			dropMetadataMarks(root(c[i]))
+		}
 		if !sameNode(r[i], c[i], true) {
 			return false
 		}
 	}
 	return true
+}
+
+// metadataMarks are the fields of an object's metadata that an encrypted
+// file's comparison leaves out.
+var metadataMarks = []string{"labels", "annotations"}
+
+// MetadataMark says whether a leaf's YAML path is under a label or an
+// annotation of an object's metadata.
+func MetadataMark(path string) bool {
+	for _, m := range metadataMarks {
+		if p := "metadata." + m; path == p || strings.HasPrefix(path, p+".") {
+			return true
+		}
+	}
+	return false
+}
+
+// dropMetadataMarks removes the labels and annotations from the metadata of
+// the object a document's root mapping is.
+func dropMetadataMarks(obj *yaml.Node) {
+	if obj.Kind != yaml.MappingNode {
+		return
+	}
+	md := entry(obj, "metadata")
+	if md == nil || md.Kind != yaml.MappingNode {
+		return
+	}
+	var kept []*yaml.Node
+	for i := 0; i+1 < len(md.Content); i += 2 {
+		if !slices.Contains(metadataMarks, md.Content[i].Value) {
+			kept = append(kept, md.Content[i], md.Content[i+1])
+		}
+	}
+	md.Content = kept
 }
 
 // Unseen is a literal the render puts under a field the record holds

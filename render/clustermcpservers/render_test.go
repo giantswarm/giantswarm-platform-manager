@@ -157,7 +157,12 @@ func revisionSources(t *testing.T, kustomization []byte, secret string) map[stri
 		t.Fatal(err)
 	}
 	out := map[string][]string{}
+	watched := false
 	for _, p := range k.Patches {
+		if p.Target.Kind == "Secret" {
+			watched = watched || p.Target.Name == secret && p.Patch == strings.TrimRight(render.WatchPatch(secret), "\n")
+			continue
+		}
 		var ops []struct {
 			Op, Path string
 			Value    any
@@ -178,6 +183,9 @@ func revisionSources(t *testing.T, kustomization []byte, secret string) map[stri
 				}
 			}
 		}
+	}
+	if !watched {
+		t.Errorf("the kustomization has Flux watch no %s: %+v", secret, k.Patches)
 	}
 	return out
 }

@@ -237,8 +237,8 @@ func (s Server) userValues(o Options) render.Map {
 // server's credentials revision, and a third Secret in the Flux namespace
 // carries it for the HelmReleases, which the kustomization patches to read it
 // into their charts' checksum values, so a rotation rolls the server and its
-// Valkey together (Flux watches the third Secret, so both HelmReleases
-// reconcile the moment it changes); every value of the two Secrets names the
+// Valkey together (the kustomization has Flux watch the third Secret, so
+// both HelmReleases reconcile the moment it changes); every value of the two Secrets names the
 // revision as its own (render.Result.Revisions), so a rotation asked for by
 // name draws it too.
 // With user values (Options) the directory also carries them and the
@@ -256,7 +256,11 @@ func (s Server) Extras(result *render.Result, repo render.Repository, dir string
 	if o.DexCA {
 		resources = append(resources, DexCAFile)
 	}
-	k := kustomizationDoc{APIVersion: KustomizationAPIVersion, Kind: KustomizationKind, Resources: resources}
+	// The first patch has Flux watch the revision Secret, so both HelmReleases
+	// reconcile the moment it changes; first, so the patches that come and go
+	// with the user values never shift it.
+	k := kustomizationDoc{APIVersion: KustomizationAPIVersion, Kind: KustomizationKind, Resources: resources,
+		Patches: []kustomizePatch{{Patch: strings.TrimRight(render.WatchPatch(s.RevisionSecretName()), "\n"), Target: patchTarget{Kind: "Secret", Name: s.RevisionSecretName()}}}}
 	if values := s.userValues(o); values != nil {
 		result.Add(repo, dir+"/"+userValuesFile, render.File{Content: append([]byte(o.Header), render.MustYAML(values)...)})
 		k.withUserValues(s.Name)
@@ -280,7 +284,7 @@ func (s Server) Extras(result *render.Result, repo render.Repository, dir string
 	// Every value of the two Secrets rolls the server and its Valkey with the revision.
 	result.Revision(revision, oauth...)
 	result.Revision(revision, valkey...)
-	result.Add(repo, dir+"/"+RevisionFile, render.Secret(s.RevisionSecretName(), fluxNamespace, render.WatchedByFlux(nil),
+	result.Add(repo, dir+"/"+RevisionFile, render.Secret(s.RevisionSecretName(), fluxNamespace, nil,
 		render.GeneratedKey(RevisionKey, revision, render.Alphanumeric, RevisionLength),
 	))
 }

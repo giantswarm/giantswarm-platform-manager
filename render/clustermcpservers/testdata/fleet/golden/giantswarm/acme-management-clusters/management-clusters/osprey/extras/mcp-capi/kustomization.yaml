@@ -10,6 +10,16 @@ resources:
   - dex-client-mcp-capi-secret.yaml
 patches:
   - patch: |-
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: mcp-capi-credentials-revision
+        labels:
+          reconcile.fluxcd.io/watch: Enabled
+    target:
+      kind: Secret
+      name: mcp-capi-credentials-revision
+  - patch: |-
       - op: add
         path: /spec/valuesFrom/-
         value:
