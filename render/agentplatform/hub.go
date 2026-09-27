@@ -262,13 +262,14 @@ func trustBundleTokenName(hub string) string { return "tunnelport-trust-bundle-t
 
 // tunnelExtras is extras/agent-platform/tunnelport/: the tunnelport operator
 // release in muster's namespace (the trust-bundle Secret it writes is mounted
-// there) and one RemoteApp per tunnelled app of every private target.
+// there), its chart polled at the policy's interval, and one RemoteApp per
+// tunnelled app of every private target.
 func (in *Input) tunnelExtras(r *render.Result, repo render.Repository, dir string) {
 	r.Add(repo, dir+"/kustomization.yaml", render.File{Content: kustomization("oci-repository.yaml", "helm-release.yaml", "remoteapps.yaml")})
 	r.Add(repo, dir+"/oci-repository.yaml", yamlFile(render.Map{
 		e("apiVersion", "source.toolkit.fluxcd.io/v1"), e("kind", "OCIRepository"),
 		e("metadata", render.Map{e("name", "tunnelport"), e("namespace", fluxNamespace)}),
-		e("spec", render.Map{e("interval", "10m"), e("url", tunnelportChart), e("ref", render.Map{e("semver", tunnelportSemver)}), e("provider", "generic")}),
+		e("spec", render.Map{e("interval", in.SourceInterval), e("url", tunnelportChart), e("ref", render.Map{e("semver", tunnelportSemver)}), e("provider", "generic")}),
 	}))
 	remediation := render.Map{e("remediation", render.Map{e("retries", 10), e("remediateLastFailure", false)})}
 	r.Add(repo, dir+"/helm-release.yaml", yamlFile(render.Map{

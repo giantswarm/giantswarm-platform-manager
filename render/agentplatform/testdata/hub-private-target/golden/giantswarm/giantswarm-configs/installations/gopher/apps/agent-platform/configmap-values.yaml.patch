@@ -229,15 +229,17 @@ agent-platform-mcps:
 cluster-manager:
   installation:
     name: gopher
+  github:
+    enabled: true
 clusterManager:
   networkPolicy:
     workloadClusters:
-      fqdns:
-        - matchPattern: '*.*.elb.amazonaws.com'
+      provider: aws
     egress:
       fqdns:
         - matchName: gsoci.azurecr.io
         - matchPattern: '*.blob.core.windows.net'
+        - matchName: api.github.com
 valkey:
   valkey:
     auth:

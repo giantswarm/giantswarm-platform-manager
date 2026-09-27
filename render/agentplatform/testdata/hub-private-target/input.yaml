@@ -7,8 +7,10 @@
 # back from the hub's patch. The hub's own Dev Portal signs in on gopher and is hand-kept (its
 # app-config carries a literal extension list of its own), so the portal Component renders in the
 # hand-kept shape: the object-shaped keys only, none of the lists the portal owns (extensions,
-# muster registry, environment). No Slack app is named for the hub, so no chat gateway and nothing
-# supplied at commit. Invented names, placeholder values.
+# muster registry, environment). The cluster-manager commits through its GitHub App (commit mode on,
+# its App's OAuth client the installation's own Secret) and reaches its workload clusters by the
+# provider's preset. No Slack app is named for the hub, so no chat gateway and nothing supplied at
+# commit. Invented names, placeholder values.
 input:
   installation:
     name: gopher
@@ -48,4 +50,7 @@ input:
           hubs: [gopher]
   modelServing:
     enabled: true
+  clusterManager:
+    github:
+      enabled: true
 secrets: {}
