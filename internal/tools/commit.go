@@ -92,6 +92,10 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	case one == "":
 		return t.capabilityWave(ctx, tool, args)
 	}
+	reason, err := reasonArg(tool, args)
+	if err != nil {
+		return nil, err
+	}
 	secrets, err := secretValues(args[ArgSecrets])
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
@@ -116,7 +120,7 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 		inputs = typed
 	}
 	spec := actions.Spec{Actor: actions.Actor{Login: id.Login, ID: id.ID, Email: id.Email}, Capability: out.Capability, Installations: []string{one}, Inputs: inputs, Kind: kind,
-		InputsByInstallation: map[string]map[string]any{one: inputs}, Customer: env.byName[one].Customer != env.hub.Customer, AccountEngineers: accountEngineers(env, one), Markers: markersOf(def, env, one), Rotate: rotateArg(args)}
+		InputsByInstallation: map[string]map[string]any{one: inputs}, Customer: env.byName[one].Customer != env.hub.Customer, AccountEngineers: accountEngineers(env, one), AccountEngineerOf: accountEngineerOf(env, one), Reason: reason, Markers: markersOf(def, env, one), Rotate: rotateArg(args)}
 	test := testInstallation(one, env.byName[one].Customer, env.hub)
 	if err := t.standupRefusal(tool, test); err != nil {
 		return nil, err
@@ -143,6 +147,7 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 		return nil, fmt.Errorf("%s: %s: %s; nothing is committed", tool, one, missingInputs(p.MissingInputs))
 	}
 	spec.Change = changeSummary(p)
+	spec.Changes = map[string][]string{one: plan.Summary(p)}
 	spec.KeptByInstallation = keptByInstallation(nil, p)
 	if n := p.Diff[plan.ChangeUnknown]; n > 0 {
 		return nil, fmt.Errorf("%s: %d file(s) of %s could not be compared against the repository as you (%s); nothing is committed blind", tool, n, one, unknownFiles(p))
@@ -278,6 +283,30 @@ func accountEngineers(env *planned, names ...string) []string {
 		}
 	}
 	return out
+}
+
+// accountEngineerOf maps each customer installation among names to its
+// account engineer, worded as accountEngineers words it.
+func accountEngineerOf(env *planned, names ...string) map[string]string {
+	out := map[string]string{}
+	for _, n := range names {
+		if ae := accountEngineers(env, n); len(ae) > 0 {
+			out[n] = ae[0]
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// reasonArg is the commit's reason: why the actor makes the change, required.
+func reasonArg(tool string, args map[string]any) (string, error) {
+	reason, _ := args[ArgReason].(string)
+	if reason = strings.TrimSpace(reason); reason == "" {
+		return "", fmt.Errorf("%s: mode commit needs %s — why you make the change, in a sentence the team's review shows (platformctl --reason): nothing is committed", tool, ArgReason)
+	}
+	return reason, nil
 }
 
 func markersOf(def installations.Capability, env *planned, names ...string) map[string]string {
@@ -643,6 +672,9 @@ func prTitle(kind, installation, capability, action, detail string) string {
 func prBody(a *actions.Action, p plan.Installation, prs []plan.PullRequest) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Action `%s`: %s %s on %s, opened by %s as the person.\n\n", a.Name, a.Spec.Kind, a.Spec.Capability, p.Name, ToolPrefix)
+	if a.Spec.Reason != "" {
+		fmt.Fprintf(&b, "Why: %s\n\n", a.Spec.Reason)
+	}
 	fmt.Fprintf(&b, "Pull requests of this action, in dependency order (a pull request whose files create an object another one's files reference merges first):\n")
 	for _, pr := range prs {
 		fmt.Fprintf(&b, "%d. %s — %d file(s)", pr.Order, pr.Repository, pr.Changes)

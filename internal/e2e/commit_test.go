@@ -45,9 +45,15 @@ var leakMarkers = []string{modelKeyValue, "GENERATED(", "SUPPLIED("}
 
 var actionOf = regexp.MustCompile(`recorded on action (\S+)`)
 
+// commitReason is the reason the tests commit with.
+const commitReason = "the fleet moves to the new chart"
+
 func commitCall(t *testing.T, c *client.Client, tool string, args map[string]any) (tools.CommitResult, string, bool) {
 	t.Helper()
 	args[tools.ArgMode] = string(tools.ModeCommit)
+	if _, ok := args[tools.ArgReason]; !ok {
+		args[tools.ArgReason] = commitReason
+	}
 	text, isErr := call(t, c, tool, args)
 	var out tools.CommitResult
 	if !isErr {

@@ -105,7 +105,7 @@ func TestReadSecretsRefusesEmptyAndMissingSources(t *testing.T) {
 // refusal reaches stderr, the value does not.
 func TestCommitNeverEchoesATypedSecret(t *testing.T) {
 	var stdout, stderr strings.Builder
-	args := []string{installationCmd, "enable", "hazel", agentPlatform, "--commit", "--secret", modelKey + "=" + placeholder}
+	args := []string{installationCmd, "enable", "hazel", agentPlatform, "--commit", "--reason", "r", "--secret", modelKey + "=" + placeholder}
 	if got := run(args, &stdout, &stderr); got != exitUsage {
 		t.Fatalf("exit %d, want %d\n%s%s", got, exitUsage, stdout.String(), stderr.String())
 	}

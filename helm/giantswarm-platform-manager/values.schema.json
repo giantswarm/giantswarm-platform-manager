@@ -40,7 +40,7 @@
                 },
                 "noticeChannel": {
                     "type": "string",
-                    "description": "The channel told of a review that targets a customer installation, without buttons (the Account Engineers' channel ID). Must differ from `channel`; empty sends no notice."
+                    "description": "The channel told, without buttons, once an action's change is applied on a customer installation: who, what, why and the account engineer (the Account Engineers' channel ID); it never sees the review. Must differ from `channel`; empty sends no notice."
                 },
                 "standupChannel": {
                     "type": "string",
