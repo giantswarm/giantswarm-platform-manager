@@ -58,7 +58,7 @@ func TestFrozenRotatesThroughTheRewrittenFiles(t *testing.T) {
 		{file: credentials, change: ChangeUnchanged, secret: []string{client, key, password}},
 		{file: valkey, change: ChangeUnchanged, secret: []string{password}},
 		{file: dexClient, change: ChangeCreate, secret: []string{client}},
-	}, nil)
+	}, nil, false)
 	rotating(t, g, client, dexClient, credentials)
 	rotating(t, g, key, credentials, credentials)
 	rotating(t, g, password, credentials, credentials, valkey)
@@ -84,7 +84,7 @@ func TestFrozenKeepsTheValuesWhenNoFileIsWritten(t *testing.T) {
 		{file: dexClient, change: ChangeUnchanged, secret: []string{client}},
 		{file: valkey, change: ChangeUnchanged, secret: []string{password}},
 		{file: "acme/mcs:extras/other.yaml", change: ChangeUnknown, secret: []string{"other"}},
-	}, nil)
+	}, nil, false)
 	kept(t, g, client, dexClient, credentials)
 	kept(t, g, password, credentials, valkey)
 	if gs := g["other"]; gs.Rotates || gs.Kept || len(gs.FrozenIn) != 0 {
@@ -107,7 +107,7 @@ func TestFrozenARewrittenSkeletonForcesItsNames(t *testing.T) {
 		{file: credentials, change: ChangeUpdate, secret: []string{client, key}},
 		{file: dexClient, change: ChangeUnchanged, secret: []string{client}},
 		{file: valkey, change: ChangeUnchanged, secret: []string{password}},
-	}, nil)
+	}, nil, false)
 	rotating(t, g, client, credentials, dexClient, credentials)
 	rotating(t, g, key, credentials, credentials)
 	kept(t, g, password, valkey)
@@ -126,7 +126,7 @@ func TestFrozenPublicHalfNeedsThePair(t *testing.T) {
 	rewrite := frozen(g, []holder{
 		{file: keys, change: ChangeUnchanged, secret: []string{pair}},
 		{file: configmap, change: ChangeUpdate, public: []string{pair}},
-	}, nil)
+	}, nil, false)
 	rotating(t, g, pair, configmap, keys)
 	if len(rewrite) != 2 || !rewrite[keys] || !rewrite[configmap] {
 		t.Fatalf("rewritten files %v", rewrite)
@@ -135,7 +135,7 @@ func TestFrozenPublicHalfNeedsThePair(t *testing.T) {
 	rewrite = frozen(g, []holder{
 		{file: keys, change: ChangeUpdate, secret: []string{pair}},
 		{file: configmap, change: ChangeUnchanged, public: []string{pair}},
-	}, nil)
+	}, nil, false)
 	rotating(t, g, pair, keys, keys)
 	if len(rewrite) != 2 || !rewrite[configmap] {
 		t.Fatalf("the plain file kept with the public half is not rewritten: %v", rewrite)
@@ -157,7 +157,7 @@ func TestFrozenRevisionCouplesTheFilesOfAServer(t *testing.T) {
 		{file: valkey, change: ChangeUpdate, secret: []string{password, revision}},
 		{file: revisionFile, change: ChangeUnchanged, secret: []string{revision}},
 		{file: dexClient, change: ChangeUnchanged, secret: []string{client}},
-	}, nil)
+	}, nil, false)
 	rotating(t, g, password, valkey, valkey)
 	rotating(t, g, revision, valkey, revisionFile, credentials, valkey)
 	rotating(t, g, client, credentials, dexClient, credentials)
@@ -173,7 +173,7 @@ func TestFrozenRevisionCouplesTheFilesOfAServer(t *testing.T) {
 		{file: valkey, change: ChangeUnchanged, secret: []string{password, revision}},
 		{file: revisionFile, change: ChangeUnchanged, secret: []string{revision}},
 		{file: dexClient, change: ChangeUnchanged, secret: []string{client}},
-	}, nil)
+	}, nil, false)
 	kept(t, g, revision, revisionFile, credentials, valkey)
 	kept(t, g, password, valkey)
 	if len(rewrite) != 0 {
@@ -188,7 +188,7 @@ func TestFrozenInASharedFileIsRefused(t *testing.T) {
 	frozen(g, []holder{
 		{file: patch, change: ChangeUnchanged, shared: true, secret: []string{client}},
 		{file: dexClient, change: ChangeCreate, secret: []string{client}},
-	}, nil)
+	}, nil, false)
 	gs := g[client]
 	if gs.Rotates || gs.Kept || gs.ForcedBy != "" || !strings.Contains(gs.Refusal, client) || !strings.Contains(gs.Refusal, patch) {
 		t.Fatalf("client: %+v", gs)
@@ -214,7 +214,7 @@ func TestFrozenRotatesOnRequest(t *testing.T) {
 		{file: revisionFile, change: ChangeUnchanged, secret: []string{revision}},
 		{file: dexClient, change: ChangeUnchanged, secret: []string{client}},
 		{file: otherFile, change: ChangeUnchanged, secret: []string{other}},
-	}, []string{password, revision})
+	}, []string{password, revision}, false)
 	rotating(t, g, password, ForcedByRequest, valkey)
 	rotating(t, g, revision, ForcedByRequest, revisionFile, credentials, valkey)
 	rotating(t, g, client, credentials, dexClient, credentials)
@@ -237,7 +237,7 @@ func TestFrozenOnRequestInASharedFileIsRefused(t *testing.T) {
 	frozen(g, []holder{
 		{file: patch, change: ChangeUnchanged, shared: true, secret: []string{client}},
 		{file: dexClient, change: ChangeUnchanged, secret: []string{client}},
-	}, []string{client})
+	}, []string{client}, false)
 	gs := g[client]
 	if gs.Rotates || gs.Kept || gs.ForcedBy != "" || !strings.Contains(gs.Refusal, client) || !strings.Contains(gs.Refusal, patch) {
 		t.Fatalf("client: %+v", gs)
@@ -340,5 +340,54 @@ func TestBuildRotatesOnRequest(t *testing.T) {
 	}
 	if p.Diff[ChangeUpdate] != 4 || p.Diff[ChangeUnchanged] != 1 || p.FrozenRefusal() != "" {
 		t.Fatalf("diff %v, refusal %q", p.Diff, p.FrozenRefusal())
+	}
+}
+
+// A server enabled as gazelle's are: its revision Secret's skeleton changes
+// (the render adds a key) while its credentials file and Valkey Secret hold
+// the revision beside their values. Where the capability is on record,
+// nobody asked for a rotation, so none happens: every name the change would
+// rotate is refused, naming the file that forces it, and the commit refuses.
+func TestFrozenRefusesAnUnrequestedRotationOnRecord(t *testing.T) {
+	g := generatedOf(client, key, password, revision)
+	frozen(g, []holder{
+		{file: credentials, change: ChangeUnchanged, secret: []string{client, key, revision}},
+		{file: valkey, change: ChangeUnchanged, secret: []string{password, revision}},
+		{file: dexClient, change: ChangeUnchanged, secret: []string{client}},
+		{file: revisionFile, change: ChangeUpdate, secret: []string{revision}},
+	}, nil, true)
+	for _, n := range []string{client, key, password, revision} {
+		if gs := g[n]; gs.Rotates || gs.Kept || !strings.Contains(gs.Refusal, n+" would rotate") || !strings.Contains(gs.Refusal, "rotate "+n) {
+			t.Fatalf("%s: %+v, want refused", n, gs)
+		}
+	}
+	if !strings.Contains(g[revision].Refusal, "forced by "+revisionFile) {
+		t.Fatalf("the refusal does not name the file: %q", g[revision].Refusal)
+	}
+	p := Installation{GeneratedSecrets: []GeneratedSecret{*g[client], *g[key], *g[password], *g[revision]}}
+	if len(p.Rotating()) != 0 || p.FrozenRefusal() == "" {
+		t.Fatalf("rotating %v, refusal %q", p.Rotating(), p.FrozenRefusal())
+	}
+}
+
+// On record, a rotation asked for goes ahead with everything it reaches: the
+// Valkey password and its revision asked for, the credentials file holding
+// the revision rewritten, its client secret and key with it. A skeleton
+// change elsewhere that no request reaches is still refused.
+func TestFrozenRotatesWhatARequestReachesOnRecord(t *testing.T) {
+	const keys = "acme/mcs:portal/plugin-keys-secret.enc.yaml"
+	g := generatedOf(client, key, password, revision, pair)
+	frozen(g, []holder{
+		{file: credentials, change: ChangeUnchanged, secret: []string{client, key, revision}},
+		{file: valkey, change: ChangeUnchanged, secret: []string{password, revision}},
+		{file: dexClient, change: ChangeUnchanged, secret: []string{client}},
+		{file: keys, change: ChangeUpdate, secret: []string{pair}},
+	}, []string{password, revision}, true)
+	rotating(t, g, password, ForcedByRequest, valkey)
+	rotating(t, g, revision, ForcedByRequest, credentials, valkey)
+	rotating(t, g, client, credentials, dexClient, credentials)
+	rotating(t, g, key, credentials, credentials)
+	if gs := g[pair]; gs.Rotates || !strings.Contains(gs.Refusal, "forced by "+keys) {
+		t.Fatalf("the unrequested rotation: %+v", gs)
 	}
 }

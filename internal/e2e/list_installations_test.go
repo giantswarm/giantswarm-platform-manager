@@ -213,8 +213,13 @@ func indentLines(s, prefix string) string {
 }
 
 // portalClientSecret stands for the customer-portal definition's encrypted
-// Secret dex-client-backstage: only its presence is read.
-const portalClientSecret = "apiVersion: v1\nkind: Secret\nmetadata:\n  name: dex-client-backstage\n  namespace: giantswarm\nsops: {}\n" // #nosec G101 -- a stand-in manifest without a value
+// Secret dex-client-backstage, of the render's skeleton with its value
+// encrypted: a reconcile keeps it.
+const portalClientSecret = "apiVersion: v1\nkind: Secret\nmetadata:\n  name: dex-client-backstage\n  namespace: giantswarm\ntype: Opaque\nstringData:\n  secret: ENC[AES256_GCM,data:c3RhbmQtaW4=,type:str]\nsops: {}\n" // #nosec G101 -- a stand-in manifest without a value
+
+// portalUserSecrets stands for the customer-portal definition's encrypted
+// Secret user-secrets-backstage, its values document encrypted whole.
+const portalUserSecrets = "apiVersion: v1\nkind: Secret\nmetadata:\n  name: user-secrets-backstage\n  namespace: flux-giantswarm\ntype: Opaque\nstringData:\n  values: ENC[AES256_GCM,data:c3RhbmQtaW4=,type:str]\nsops: {}\n" // #nosec G101 -- a stand-in manifest without a value
 
 func fixtures(g *fakeGitHub) {
 	g.addRepo(registryRepo, map[string]string{registryPath: "---\napiVersion: backstage.io/v1alpha1\nkind: Group\nmetadata:\n    name: acme\nspec:\n    type: customer\n" +
@@ -230,6 +235,8 @@ func fixtures(g *fakeGitHub) {
 		"management-clusters/" + hub + "/extras/backstage/backstage/kustomization.yaml": hubPortalKustomization,
 		// The portal client's Secret on record, as the customer-portal definition renders it: the platform renders the client backstage.
 		installations.PortalClientSecretPath(hub): portalClientSecret,
+		// The portal's user secrets on record, encrypted whole: a reconcile keeps them and the client secret they share.
+		"management-clusters/" + hub + "/extras/backstage/backstage/user-secrets.enc.yaml": portalUserSecrets,
 	})
 	g.addRepo(hubConfigs, map[string]string{
 		installations.ConfigPatchPath(hub): "codename: hazel\nbase: example.test\ncustomer: example\nmanagementCluster:\n  private: false\nagentPlatform:\n  kagentApiV2: true\nservices:\n  muster:\n    clientId: muster-hazel\n",
