@@ -136,6 +136,10 @@ type FederatedTarget struct {
 	// extras directory (its kustomization) the target's management-clusters
 	// repository carries. The hub federates these alone.
 	Servers []string `json:"servers"`
+	// AgentPlatform says the target runs the agent platform: its enabled
+	// marker is on record. Its render holds the Dex side of the hub's
+	// token-exchange client, one value with the hub's credentials Secret.
+	AgentPlatform bool `json:"agentPlatform"`
 }
 
 // AgentPlatformPatchPath is where the installation's configs repository keeps
@@ -606,8 +610,10 @@ func (r *Report) fail(msg string) {
 
 // target is a federated target's facts: the registry's base domain (the
 // record's, read where the target was not inspected), whether it is reached
-// through the tunnel, whether the hub's portal proxies its agent platform and
-// the hubs of the hub's organisation that broker into it (organisationHubs).
+// through the tunnel, whether the hub's portal proxies its agent platform,
+// the hubs of the hub's organisation that broker into it (organisationHubs),
+// the MCP servers it runs and whether it runs the agent platform (its
+// marker).
 func (r *Registry) target(ctx context.Context, c *gh.Client, name string, inspected *Report, private, proxied bool, hubs []string) (FederatedTarget, error) {
 	inst, ok := r.Find(name)
 	if !ok {
@@ -633,7 +639,12 @@ func (r *Registry) target(ctx context.Context, c *gh.Client, name string, inspec
 	if err != nil {
 		return FederatedTarget{}, err
 	}
-	return FederatedTarget{Installation: name, BaseDomain: rec.BaseDomain, Private: private, PlatformProxied: proxied, Hubs: hubs, Servers: servers}, nil
+	platform, _ := FindCapability(AgentPlatform)
+	marker := readMarker(ctx, c, inst, platform)
+	if marker.err != nil {
+		return FederatedTarget{}, fmt.Errorf("%s: %w", platform.EnabledMarker(name), marker.err)
+	}
+	return FederatedTarget{Installation: name, BaseDomain: rec.BaseDomain, Private: private, PlatformProxied: proxied, Hubs: hubs, Servers: servers, AgentPlatform: marker.enabled}, nil
 }
 
 // targetServers are the groups of the MCP servers a target runs: every server

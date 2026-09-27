@@ -491,7 +491,7 @@ func TestRefusals(t *testing.T) {
 	noPodCertificateRequest, _ := loadInput(t, shapePublicCustomer)
 	noPodCertificateRequest["installation"].(map[string]any)["chartLine"] = lineFour
 	target := func(private bool) map[string]any {
-		return map[string]any{"installation": "x", "baseDomain": "x.example", "private": private, "servers": []any{groupKubernetes}}
+		return map[string]any{"installation": "x", "baseDomain": "x.example", "private": private, "servers": []any{groupKubernetes}, "agentPlatform": true}
 	}
 	clone := func(mutate func(map[string]any)) map[string]any {
 		var c map[string]any

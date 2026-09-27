@@ -36,12 +36,14 @@ input:
         - installation: burrow
           baseDomain: burrow.example.io
           servers: [kubernetes, prometheus, capi]
+          agentPlatform: true
           private: true
           platformProxied: true
           hubs: [gopher]
         - installation: marmot
           baseDomain: marmot.example.io
           servers: [kubernetes, prometheus, capi]
+          agentPlatform: true
           private: false
           hubs: [gopher]
   modelServing:

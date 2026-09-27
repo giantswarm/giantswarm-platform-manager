@@ -26,11 +26,13 @@ input:
         - installation: kestrel
           baseDomain: kestrel.oakridge.example
           servers: [kubernetes, prometheus, capi]
+          agentPlatform: true
           private: false
           hubs: [heron]
         - installation: plover
           baseDomain: plover.oakridge.example
           servers: [kubernetes, prometheus, capi]
+          agentPlatform: true
           private: false
           hubs: [heron]
 secrets: {}

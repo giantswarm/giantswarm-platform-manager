@@ -328,3 +328,46 @@ func TestTargetFederatesTheServersItRuns(t *testing.T) {
 		t.Errorf("a server the platform does not run is accepted")
 	}
 }
+
+// The two files of a token-exchange client name each other as the pair's
+// peer: the hub's credentials Secret the target's Dex-side copy where the
+// target runs the agent platform, the target's copy the hub's credentials
+// Secret. A target without the agent platform keeps the client by hand: the
+// hub's side has no peer.
+func TestExchangePairNamesItsPeer(t *testing.T) {
+	peerOf := func(input map[string]any, supplied map[string]string, path string) *render.Peer {
+		t.Helper()
+		result, err := Render(input, supplied, render.ModeCommit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, files := range result.Files {
+			if f, ok := files[path]; ok {
+				if len(f.Generated) != 1 {
+					t.Fatalf("%s generates %+v", path, f.Generated)
+				}
+				return f.Generated[0].Peer
+			}
+		}
+		t.Fatalf("no %s rendered", path)
+		return nil
+	}
+	secrets := func(installation, file string) string {
+		return "management-clusters/" + installation + "/extras/agent-platform/secrets/" + file
+	}
+	hub, hubSecrets := loadInput(t, shapeHubPrivateTarget)
+	marmot := hub["installation"].(map[string]any)["federation"].(map[string]any)["targets"].([]any)[1].(map[string]any)
+	marmot["agentPlatform"] = false
+	want := render.Peer{Installation: targetBurrow, Path: secrets(targetBurrow, "dex-client-muster-token-exchange-burrow-secret.yaml")}
+	if got := peerOf(hub, hubSecrets, secrets("gopher", "burrow-token-exchange-credentials.yaml")); got == nil || *got != want {
+		t.Errorf("the hub's credentials for burrow: peer %+v, want %+v", got, want)
+	}
+	if got := peerOf(hub, hubSecrets, secrets("gopher", "marmot-token-exchange-credentials.yaml")); got != nil {
+		t.Errorf("the hub's credentials for marmot, which keeps its client by hand: peer %+v", got)
+	}
+	target, targetSecrets := loadInput(t, shapeGiantswarmSlackApp)
+	want = render.Peer{Installation: "gopher", Path: secrets("gopher", "glean-token-exchange-credentials.yaml")}
+	if got := peerOf(target, targetSecrets, secrets("glean", "dex-client-muster-token-exchange-glean-secret.yaml")); got == nil || *got != want {
+		t.Errorf("glean's Dex-side copy of gopher's client: peer %+v, want %+v", got, want)
+	}
+}

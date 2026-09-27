@@ -286,7 +286,8 @@ func fixtures(g *fakeGitHub) {
 
 // A hub federates the MCP servers each target runs: the servers whose extras
 // kustomization the target's management-clusters repository carries. birch
-// runs mcp-kubernetes alone, alder none.
+// runs mcp-kubernetes alone, alder none. birch runs the agent platform (its
+// marker is on record), alder does not.
 func TestListInstallationsTargetServers(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
@@ -301,9 +302,13 @@ func TestListInstallationsTargetServers(t *testing.T) {
 	if hazel.Federation == nil {
 		t.Fatalf("hazel federation: %+v", hazel)
 	}
-	servers := map[string][]string{}
+	servers, platform := map[string][]string{}, map[string]bool{}
 	for _, target := range hazel.Federation.Targets {
 		servers[target.Installation] = target.Servers
+		platform[target.Installation] = target.AgentPlatform
+	}
+	if !platform[birch] || platform[alder] {
+		t.Fatalf("hazel's targets' agent platform: %v", platform)
 	}
 	if len(servers) != 2 || !slices.Equal(servers[birch], []string{"kubernetes"}) || servers[alder] == nil || len(servers[alder]) != 0 {
 		t.Fatalf("hazel's targets' servers: %v\n%s", servers, text)
