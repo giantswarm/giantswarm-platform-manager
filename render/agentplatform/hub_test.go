@@ -72,7 +72,7 @@ func TestPrivatePlatformTargetTunnels(t *testing.T) {
 	if strings.Contains(remoteapps, "marmot") || strings.Contains(tunnels, "marmot") {
 		t.Errorf("the public target marmot is tunnelled")
 	}
-	if got := (Target{Installation: "x", Private: true}).tunnelledApps(); len(got) != 5 || got[4].name != "kubernetes" {
+	if got := (Target{Installation: "x", Private: true, Servers: []string{"kubernetes", "prometheus", "capi"}}).tunnelledApps(); len(got) != 5 || got[4].name != "kubernetes" {
 		t.Errorf("a private target the portal does not proxy: %+v", got)
 	}
 }
@@ -285,5 +285,40 @@ func TestTokenExchangeClientIsTheFleets(t *testing.T) {
 	}
 	if kustomization := string(two[warrenSecrets+"kustomization.yaml"]); !strings.Contains(kustomization, "  - dex-client-muster-token-exchange-warren-secret.yaml\n  - dex-client-muster-token-exchange-warren-aspen-secret.yaml\n") {
 		t.Errorf("the secrets kustomization:\n%s", kustomization)
+	}
+}
+
+// A hub federates only the servers a target runs: a target running
+// mcp-kubernetes alone gets one entry in muster's list and, private, one
+// tunnelled MCP server.
+func TestTargetFederatesTheServersItRuns(t *testing.T) {
+	input, _ := loadInput(t, shapeHubPrivateTarget)
+	burrow := input["installation"].(map[string]any)["federation"].(map[string]any)["targets"].([]any)[0].(map[string]any)
+	burrow["servers"] = []any{"kubernetes"}
+	in, err := Parse(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var groups []string
+	for _, s := range in.targetServers() {
+		if s.Cluster == "burrow" {
+			groups = append(groups, s.Group)
+		}
+	}
+	if strings.Join(groups, ",") != "kubernetes" {
+		t.Errorf("burrow's servers in muster's list: %v", groups)
+	}
+	var mcps []string
+	for _, a := range in.Installation.Federation.Targets[0].tunnelledApps() {
+		if strings.HasPrefix(a.name, "mcp-") {
+			mcps = append(mcps, a.name)
+		}
+	}
+	if strings.Join(mcps, ",") != "mcp-kubernetes" {
+		t.Errorf("burrow's tunnelled MCP servers: %v", mcps)
+	}
+	burrow["servers"] = []any{"kubernetes", "grafana"}
+	if _, err := Parse(input); err == nil {
+		t.Errorf("a server the platform does not run is accepted")
 	}
 }

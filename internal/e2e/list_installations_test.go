@@ -9,6 +9,7 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -274,6 +275,32 @@ func fixtures(g *fakeGitHub) {
 	g.addRepo(basesRepo, map[string]string{installations.DexAppBasePath: dexAppApp(fleetDexApp)})
 	g.forbid("example/sealed-management-clusters")
 	g.forbid("example/sealed-configs")
+}
+
+// A hub federates the MCP servers each target runs: the servers whose extras
+// kustomization the target's management-clusters repository carries. birch
+// runs mcp-kubernetes alone, alder none.
+func TestListInstallationsTargetServers(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	portal := strings.Replace(portalConfig(hub, alder, birch), "        gs:\n", "        gs:\n          clusterTokenBroker:\n            tokenUrl: https://muster."+hub+".example.test/token\n", 1)
+	st.ghs.addFile(hubMCs, installations.PortalConfigPath(hub), portal)
+	st.ghs.addFile(acmeMCs, installations.ClusterMCPServersMarker(birch), "resources:\n  - https://github.com/giantswarm/management-cluster-bases/extras/mcp-kubernetes?ref=main\n")
+	out, text, isErr := listInstallations(t, st.mcpClient(t, aliceToken), nil)
+	if isErr {
+		t.Fatal(text)
+	}
+	hazel := find(t, out, hub)
+	if hazel.Federation == nil {
+		t.Fatalf("hazel federation: %+v", hazel)
+	}
+	servers := map[string][]string{}
+	for _, target := range hazel.Federation.Targets {
+		servers[target.Installation] = target.Servers
+	}
+	if len(servers) != 2 || !slices.Equal(servers[birch], []string{"kubernetes"}) || servers[alder] == nil || len(servers[alder]) != 0 {
+		t.Fatalf("hazel's targets' servers: %v\n%s", servers, text)
+	}
 }
 
 func listInstallations(t *testing.T, c *client.Client, args map[string]any) (tools.ListInstallationsResult, string, bool) {
