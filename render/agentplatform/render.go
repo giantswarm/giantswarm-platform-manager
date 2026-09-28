@@ -62,8 +62,8 @@ func Render(raw any, secrets map[string]string, _ render.Mode) (*render.Result, 
 	in.platformExtras(r, clusters, extras+"agent-platform", secrets)
 	r.Include(clusters, extras+"kustomization.yaml", "./agent-platform/")
 	for _, s := range servers {
-		s.extras(r, clusters, extras+s.name, in)
-		r.Include(clusters, extras+"kustomization.yaml", "./"+s.name+"/")
+		s.Extras(r, clusters, extras+s.Name, in.serverOptions())
+		r.Include(clusters, extras+"kustomization.yaml", "./"+s.Name+"/")
 	}
 	if host := in.portalHost(); host != "" {
 		backstage := "management-clusters/" + host + "/extras/backstage/"
@@ -192,7 +192,7 @@ func (in *Input) configmapPatch() render.Map {
 		// A patch replaces the list as a whole, so the template's own entries come first.
 		list := make([]MCPServer, 0, len(servers)+len(targets)*len(servers))
 		for _, s := range servers {
-			list = append(list, s.mcpServerEntry(in.Installation.Name))
+			list = append(list, mcpServerEntry(s, in.Installation.Name))
 		}
 		list = append(list, in.targetServers()...)
 		mcps = append(mcps, e("mcpServers", list))
@@ -394,8 +394,8 @@ func (in *Input) portalDexClient() render.Map {
 func (in *Input) dexPatch() render.Map {
 	static := render.Map{e("muster", render.Map{e("clientSecretRef", dexClientRef("muster"))})}
 	for _, s := range servers {
-		if s.dexSecretRef {
-			static = append(static, e(s.dexClient, render.Map{e("clientSecretRef", dexClientRef(s.name))}))
+		if s.DexSecretRef {
+			static = append(static, e(s.DexClient, s.DexClientRef()))
 		}
 	}
 	// The portals' clients are trusted peers of the authenticator: a portal
@@ -549,11 +549,20 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 	if in.hasPrivateTarget() {
 		k.Resources = append(k.Resources, "./tunnelport")
 	}
+	// Flux watches muster's revision Secret, so the HelmReleases that read it
+	// reconcile the moment it changes; the patch comes first, so the chart
+	// line's coming and going never shifts it.
+	if in.musterRevision() {
+		k.Patches = append(k.Patches, patch{
+			Patch:  strings.TrimRight(render.WatchPatch(musterRevisionSecret), "\n"),
+			Target: render.Map{e("kind", "Secret"), e("name", musterRevisionSecret)},
+		})
+	}
 	if semver := in.chartSemver(); semver != "" {
-		k.Patches = []patch{{
+		k.Patches = append(k.Patches, patch{
 			Patch:  "- op: replace\n  path: /spec/ref/semver\n  value: " + fmt.Sprintf("%q", semver),
 			Target: render.Map{e("kind", "OCIRepository"), e("name", "agent-platform")},
-		}}
+		})
 	}
 	r.Add(repo, dir+"/kustomization.yaml", yamlFile(k))
 
@@ -593,7 +602,8 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 	}
 	for _, hub := range in.Installation.Federation.Hubs {
 		client := in.targetClient(hub)
-		add(dexClientSecretFile(client), dexClientSecret(client, exchangeSecretName(client)))
+		add(dexClientSecretFile(client), dexClientSecret(client, exchangeSecretName(client)).
+			Peered(exchangeSecretName(client), render.Peer{Installation: hub, Path: secretsPath(hub, credentialsSecretName(in.Installation.Name)+".yaml")}))
 	}
 	if len(in.Installation.Federation.Targets) > 0 {
 		in.hubSecrets(add)

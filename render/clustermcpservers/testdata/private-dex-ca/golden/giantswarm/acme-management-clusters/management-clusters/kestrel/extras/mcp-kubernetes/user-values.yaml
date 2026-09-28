@@ -1,0 +1,15 @@
+# Rendered by giantswarm-platform-manager, cluster-mcp-servers definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+mcpKubernetes:
+  oauth:
+    allowPrivateURLs: true
+    sso:
+      allowPrivateIPs: true
+    cimd:
+      allowPrivateIPs: true
+    redirectURISecurity:
+      allowPrivateIPRedirectURIs: true
+    dex:
+      caSecret:
+        name: mcp-kubernetes-dex-ca
+        key: ca.crt

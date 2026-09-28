@@ -14,6 +14,11 @@ import (
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
+
+	"regexp"
+
+	"github.com/giantswarm/giantswarm-platform-manager/render"
+	"github.com/giantswarm/giantswarm-platform-manager/render/mcpservers"
 )
 
 // enabledOnRecord enables rowan through a commit and puts the pull requests'
@@ -34,14 +39,52 @@ func enabledOnRecord(t *testing.T, st *stack) *client.Client {
 // branchPrefix is where every action's pull requests live.
 const branchPrefix = "platform/"
 
-func reconcileDryRun(t *testing.T, c *client.Client) plan.Installation {
+func reconcileDryRun(t *testing.T, c *client.Client, rotate ...string) plan.Installation {
 	t.Helper()
-	out, text, isErr := dryRun(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(nil)})
+	out, text, isErr := dryRun(t, c, tools.ToolReconcileCapability, reconcileArgs(rotate))
 	if isErr {
 		t.Fatal(text)
 	}
 	assertNoValue(t, "the dry run", text)
 	return findPlan(t, out, rowan)
+}
+
+// reconcileArgs are the arguments of rowan's reconcile, rotating the names
+// asked for.
+func reconcileArgs(rotate []string) map[string]any {
+	args := map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(nil)}
+	if len(rotate) > 0 {
+		args[tools.ArgRotate] = rotate
+	}
+	return args
+}
+
+// assertUnrequestedRefused holds a reconcile's dry run to the refusal of a
+// rotation nobody asked for: every name of forcedBy refused, naming the
+// file that forces it, none rotating, the commit refused before any write.
+func assertUnrequestedRefused(t *testing.T, st *stack, c *client.Client, p plan.Installation, forcedBy map[string]string) {
+	t.Helper()
+	for _, g := range p.GeneratedSecrets {
+		by, forced := forcedBy[g.Name]
+		switch {
+		case g.Rotates:
+			t.Errorf("%s rotates without a request: %+v", g.Name, g)
+		case forced && !strings.Contains(g.Refusal, g.Name+" would rotate, forced by "+by):
+			t.Errorf("%s: %+v, want refused, forced by %s", g.Name, g, by)
+		case !forced && g.Refusal != "":
+			t.Errorf("%s is refused: %q", g.Name, g.Refusal)
+		}
+	}
+	if !strings.Contains(p.CommitRefused, "a reconcile rotates a value only on request") {
+		t.Fatalf("commitRefused %q", p.CommitRefused)
+	}
+	before := len(st.remote.PullRequests())
+	if _, text, isErr := commitCall(t, c, tools.ToolReconcileCapability, reconcileArgs(nil)); !isErr || !strings.Contains(text, "would rotate") {
+		t.Fatalf("the commit without a request: %v %s", isErr, text)
+	}
+	if opened := len(st.remote.PullRequests()) - before; opened != 0 {
+		t.Fatalf("a refused commit opened %d pull request(s)", opened)
+	}
 }
 
 // changedFiles are the paths a branch of the remote carries changed or added
@@ -167,9 +210,9 @@ func keysOf(m map[string]string) []string {
 
 // commitReconcile commits the reconcile of rowan and answers the files its
 // one pull request writes, all encrypted where the record is, none leaking.
-func commitReconcile(t *testing.T, st *stack, c *client.Client, p plan.Installation, repository string) (tools.CommitResult, []string) {
+func commitReconcile(t *testing.T, st *stack, c *client.Client, p plan.Installation, repository string, rotate ...string) (tools.CommitResult, []string) {
 	t.Helper()
-	out, text, isErr := commitCall(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(nil)})
+	out, text, isErr := commitCall(t, c, tools.ToolReconcileCapability, reconcileArgs(rotate))
 	if isErr || out.Action == nil || len(out.PullRequests) != 1 || out.PullRequests[0].Repository != repository || !slices.Equal(out.Action.Status.Rotated, p.Rotating()) {
 		t.Fatalf("the reconcile's commit: %s", text)
 	}
@@ -270,10 +313,12 @@ func TestReconcileKeepsTheEncryptedFilesOnRecord(t *testing.T) {
 
 // The render adds a field to an encrypted file's template — on record the
 // server's credentials file lacks it: the file has to be written, so every
-// name it holds rotates, forced by that file; the Dex client Secret, the
-// Valkey Secret and the revision Secret kept on record share three of them
-// and are rewritten with the new values. Every other file stays, every other
-// name is kept. The commit writes those four files and nothing else.
+// name it holds would rotate, forced by that file. Nobody asked, so the
+// reconcile refuses them and commits nothing. Asked for by name, they
+// rotate: the Dex client Secret, the Valkey Secret and the revision Secret
+// kept on record share three of them and are rewritten with the new values;
+// every other file stays, every other name is kept, and the commit writes
+// those four files and nothing else.
 func TestReconcileRotatesTheNamesOfAFileWhoseSkeletonChanges(t *testing.T) {
 	st := newStack(t)
 	c := enabledOnRecord(t, st)
@@ -293,13 +338,18 @@ func TestReconcileRotatesTheNamesOfAFileWhoseSkeletonChanges(t *testing.T) {
 	}
 	st.ghs.addFile(repository, path, strings.Join(without, "\n"))
 
-	p := reconcileDryRun(t, c)
 	forcedBy := map[string]string{}
 	for _, n := range s.names {
 		forcedBy[n] = s.credentials
 	}
+	assertUnrequestedRefused(t, st, c, reconcileDryRun(t, c), forcedBy)
+
+	p := reconcileDryRun(t, c, s.names...)
+	for _, n := range s.names {
+		forcedBy[n] = plan.ForcedByRequest
+	}
 	assertRotation(t, p, forcedBy, s.credentials, s.dexClient, s.valkey, s.revision)
-	_, written := commitReconcile(t, st, c, p, repository)
+	_, written := commitReconcile(t, st, c, p, repository, s.names...)
 	want := []string{path}
 	for _, id := range []string{s.dexClient, s.valkey, s.revision} {
 		_, p := splitID(t, id)
@@ -313,10 +363,13 @@ func TestReconcileRotatesTheNamesOfAFileWhoseSkeletonChanges(t *testing.T) {
 
 // A new file shares a generated name with a file on record — the server's
 // Dex client Secret is absent, its credentials file kept: the client secret
-// rotates, forced by the new file; the credentials file is rewritten with it,
-// so the three other names it holds rotate too, forced by the credentials
-// file, and the Valkey Secret sharing the password and the revision and the
-// revision Secret sharing the revision are rewritten as well.
+// would rotate, forced by the new file, and with it the three other names
+// the credentials file holds. Nobody asked, so the reconcile refuses. Asked
+// for the client secret alone, the rotation reaches the rest: the
+// credentials file is rewritten with it, so the three other names it holds
+// rotate too, forced by the credentials file, and the Valkey Secret sharing
+// the password and the revision and the revision Secret sharing the
+// revision are rewritten as well.
 func TestReconcileRotatesANameANewFileShares(t *testing.T) {
 	st := newStack(t)
 	c := enabledOnRecord(t, st)
@@ -331,18 +384,101 @@ func TestReconcileRotatesANameANewFileShares(t *testing.T) {
 	for _, n := range s.names {
 		forcedBy[n] = s.credentials
 	}
-	for _, g := range fileOf(t, p, s.dexClient).Generated {
+	clientSecrets := fileOf(t, p, s.dexClient).Generated
+	for _, g := range clientSecrets {
 		forcedBy[g] = s.dexClient
 	}
 	if fileOf(t, p, s.dexClient).Change != plan.ChangeCreate {
 		t.Fatalf("the Dex client Secret is on record: %+v", fileOf(t, p, s.dexClient))
 	}
+	assertUnrequestedRefused(t, st, c, p, forcedBy)
+
+	p = reconcileDryRun(t, c, clientSecrets...)
+	for _, g := range clientSecrets {
+		forcedBy[g] = plan.ForcedByRequest
+	}
+	for _, n := range s.names {
+		if strings.HasSuffix(n, "-credentials-revision") {
+			forcedBy[n] = plan.ForcedByRequest // the revision of a value asked for is drawn with it
+		}
+	}
 	assertRotation(t, p, forcedBy, s.credentials, s.dexClient, s.valkey, s.revision)
-	out, written := commitReconcile(t, st, c, p, repository)
+	out, written := commitReconcile(t, st, c, p, repository, clientSecrets...)
 	if len(written) != 4 || !slices.Contains(written, path) {
 		t.Fatalf("the pull request writes %v", written)
 	}
 	if got := getAction(t, c, out.Action.Name); !slices.Equal(got.Status.Rotated, p.Rotating()) {
 		t.Fatalf("get_action: %+v", got.Status)
+	}
+}
+
+// watchPatch matches the kustomization patch that has Flux watch a
+// credentials revision Secret, as the render writes it.
+var watchPatch = regexp.MustCompile(`  - patch: \|-\n      apiVersion: v1\n      kind: Secret\n      metadata:\n        name: \S+\n        labels:\n          ` + regexp.QuoteMeta(render.WatchLabel) + `: Enabled\n    target:\n      kind: Secret\n      name: \S+\n`)
+
+// fluxNamespaceLine matches the namespace line of a Secret in the Flux
+// namespace, with its indentation.
+var fluxNamespaceLine = regexp.MustCompile(`\n( +)namespace: flux-giantswarm\n`)
+
+// An installation enabled before the watch label moved to the
+// kustomizations, as gazelle is: its kustomizations lack the watch patch,
+// its revision Secrets the label — or, as on the installations reconciled
+// while the label lived in the Secret's own file, carry it there. Either
+// way the reconcile rotates nothing: every encrypted file stays as it is,
+// every generated value is kept, and the commit writes the kustomizations
+// alone, in plaintext.
+func TestReconcileMovesTheWatchLabelWithoutARotation(t *testing.T) {
+	for name, labelInFile := range map[string]bool{"label nowhere (gazelle)": false, "label in the encrypted file": true} {
+		t.Run(name, func(t *testing.T) {
+			st := newStack(t)
+			c := enabledOnRecord(t, st)
+			var kustomizations []string
+			for repository, files := range st.ghs.repos() {
+				for path, content := range files {
+					switch {
+					case strings.HasSuffix(path, "/kustomization.yaml") && watchPatch.MatchString(content):
+						st.ghs.addFile(repository, path, watchPatch.ReplaceAllString(content, ""))
+						kustomizations = append(kustomizations, repository+":"+path)
+					case labelInFile && strings.HasSuffix(path, "/"+mcpservers.RevisionFile):
+						m := fluxNamespaceLine.FindStringSubmatch(content)
+						if m == nil {
+							t.Fatalf("%s on record has no Flux namespace line:\n%s", path, content)
+						}
+						st.ghs.addFile(repository, path, strings.Replace(content, m[0], m[0]+m[1]+"labels:\n"+m[1]+m[1]+render.WatchLabel+": Enabled\n", 1))
+					}
+				}
+			}
+			if len(kustomizations) < len(mcpservers.Servers) {
+				t.Fatalf("the watch patch is in %d kustomization(s): %v", len(kustomizations), kustomizations)
+			}
+			slices.Sort(kustomizations)
+
+			p := reconcileDryRun(t, c)
+			for _, g := range p.GeneratedSecrets {
+				if g.Rotates || g.Refusal != "" || len(g.FrozenIn) > 0 && !g.Kept {
+					t.Errorf("%s: %+v, want kept", g.Name, g)
+				}
+			}
+			var written []string
+			for _, f := range p.Files {
+				if f.Change != plan.ChangeUnchanged {
+					written = append(written, f.Repository+":"+f.Path)
+				}
+			}
+			slices.Sort(written)
+			if !slices.Equal(written, kustomizations) || p.CommitRefused != "" || len(p.Rotating()) != 0 {
+				t.Fatalf("files written %v, want %v (commitRefused %q, rotating %v)", written, kustomizations, p.CommitRefused, p.Rotating())
+			}
+			repository, _ := splitID(t, kustomizations[0])
+			out, got := commitReconcile(t, st, c, p, repository)
+			var want []string
+			for _, id := range kustomizations {
+				_, path := splitID(t, id)
+				want = append(want, path)
+			}
+			if !slices.Equal(got, want) || len(out.Action.Status.Rotated) != 0 {
+				t.Fatalf("the pull request writes %v, want %v; rotated %v", got, want, out.Action.Status.Rotated)
+			}
+		})
 	}
 }

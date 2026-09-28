@@ -42,10 +42,15 @@ func (h holder) names() []string {
 // (ForcedByRequest), and its files are rewritten the same way. Every rotating
 // name says what forced it: the request, or a file. A rotation through a file
 // the definition does not own whole would write over the other owners'
-// values: refused, naming the file — a requested one alike.
-func frozen(generated map[string]*GeneratedSecret, holders []holder, requested []string) map[string]bool {
+// values: refused, naming the file — a requested one alike. Where the
+// capability is on record (onRecord), a rotation no request reaches is
+// refused as well, naming the file that forces it: a new value ends every
+// session and client that holds the old one, so a reconcile rotates only
+// what a person asked for — the names asked for and every name of a file
+// their rotation rewrites.
+func frozen(generated map[string]*GeneratedSecret, holders []holder, requested []string, onRecord bool) map[string]bool {
 	frozenIn := map[string][]string{} // name → the secret files on record that hold it
-	onRecord := map[string][]string{} // name → every file on record that holds it, a rotation rewrites them
+	heldBy := map[string][]string{}   // name → every file on record that holds it, a rotation rewrites them
 	byFile := map[string]holder{}
 	needing := map[string]bool{}
 	forcedBy := map[string]string{}
@@ -68,18 +73,19 @@ func frozen(generated map[string]*GeneratedSecret, holders []holder, requested [
 				frozenIn[n] = append(frozenIn[n], h.file)
 			}
 			for _, n := range h.names() {
-				onRecord[n] = append(onRecord[n], h.file)
+				heldBy[n] = append(heldBy[n], h.file)
 			}
 		}
 		if h.change != ChangeUnchanged {
 			need(h.names(), h.file)
 		}
 	}
+	asked := reached(requested, heldBy, byFile)
 	rewrite := map[string]bool{}
 	for changed := true; changed; {
 		changed = false
 		for _, n := range keys(needing) {
-			for _, f := range onRecord[n] {
+			for _, f := range heldBy[n] {
 				if rewrite[f] {
 					continue
 				}
@@ -100,6 +106,10 @@ func frozen(generated map[string]*GeneratedSecret, holders []holder, requested [
 			gs.Kept = true
 			continue
 		}
+		if onRecord && !asked[name] {
+			gs.Refusal = fmt.Sprintf("%s would rotate, forced by %s: the capability is on record, and a new value ends every session and client that holds the old one; a reconcile rotates a value only on request (rotate %s)", name, forcedBy[name], name)
+			continue
+		}
 		gs.Rotates = true
 		gs.ForcedBy = forcedBy[name]
 		for _, f := range files {
@@ -112,6 +122,24 @@ func frozen(generated map[string]*GeneratedSecret, holders []holder, requested [
 		}
 	}
 	return rewrite
+}
+
+// reached are the names a rotation of names draws anew: the names, and
+// every name a file on record holds that one of them is held by, down to
+// the files that share those.
+func reached(names []string, heldBy map[string][]string, byFile map[string]holder) map[string]bool {
+	out := map[string]bool{}
+	for queue := slices.Clone(names); len(queue) > 0; queue = queue[1:] {
+		n := queue[0]
+		if out[n] {
+			continue
+		}
+		out[n] = true
+		for _, f := range heldBy[n] {
+			queue = append(queue, byFile[f].names()...)
+		}
+	}
+	return out
 }
 
 // Rotated are the files on record the commit rewrites with a new value:

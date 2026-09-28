@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -53,6 +54,29 @@ type Generated struct {
 	// Encoding is how the placeholder receives the value; empty is the value
 	// as generated.
 	Encoding Encoding
+	// Peer is the other side of a value two installations hold, each in its
+	// own plan: the commit step draws a value per installation and the
+	// manager decrypts nothing, so a value drawn on one side never reaches
+	// the other. Nil for a value of this installation alone.
+	Peer *Peer
+}
+
+// Peer names the file that holds a generated value in another installation:
+// the installation, and the path in its management-clusters repository.
+type Peer struct {
+	Installation string
+	Path         string
+}
+
+// Peered is f with peer set on every declaration of name.
+func (f File) Peered(name string, peer Peer) File {
+	f.Generated = slices.Clone(f.Generated)
+	for i := range f.Generated {
+		if f.Generated[i].Name == name {
+			f.Generated[i].Peer = &peer
+		}
+	}
+	return f
 }
 
 // GeneratedKind is the shape of a generated value.
@@ -433,6 +457,22 @@ func GeneratedKey(key, name string, kind GeneratedKind, length int) SecretKey {
 // ValueKey is a SecretKey with a value the caller supplied.
 func ValueKey(key, value string) SecretKey {
 	return SecretKey{Key: key, Value: value}
+}
+
+// WatchLabel is the label on a Secret a HelmRelease reads through
+// valuesFrom that has helm-controller reconcile the HelmRelease as soon as
+// the Secret changes, not at its next interval: every HelmRelease that reads
+// a credentials revision rolls with it at once, so a server and its Valkey
+// restart together.
+const WatchLabel = "reconcile.fluxcd.io/watch"
+
+// WatchPatch is the kustomize strategic-merge patch that puts WatchLabel on
+// the Secret name. The kustomization carries it, never the Secret's own
+// file: a label written into an encrypted file rewrites it, and a rewritten
+// file draws every value it holds anew. Flux decrypts after the build, so
+// the patch applies to the encrypted Secret.
+func WatchPatch(name string) string {
+	return "apiVersion: v1\nkind: Secret\nmetadata:\n  name: " + name + "\n  labels:\n    " + WatchLabel + ": Enabled\n"
 }
 
 // Secret renders an Opaque Secret manifest in plaintext. Keys keep their

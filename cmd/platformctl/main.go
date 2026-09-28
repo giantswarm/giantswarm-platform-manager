@@ -32,8 +32,8 @@ const usage = `platformctl — the laptop and CI surface of giantswarm-platform-
       Render a capability's fileset locally from an inputs document (` + "`input`" + ` and ` + "`secrets`" + `);
       no token, no network. Without --out the files are printed.
   platformctl installation list [<installation>...] [--customer <name>]
-  platformctl installation enable <installation> <capability> --dry-run|--commit [--input k=v]... [--secret f=src]... [--rotate <name>]... [--content]
-  platformctl installation reconcile <installation>...|--all <capability> --dry-run|--commit [--input k=v]... [--secret f=src]... [--rotate <name>]... [--content]
+  platformctl installation enable <installation> <capability> --dry-run|--commit --reason <text> [--input k=v]... [--secret f=src]... [--rotate <name>]... [--content]
+  platformctl installation reconcile <installation>...|--all <capability> --dry-run|--commit --reason <text> [--input k=v]... [--secret f=src]... [--rotate <name>]... [--content]
   platformctl installation verify <installation> <capability>
   platformctl action get <name>
   platformctl action list [--installation <name>] [--capability <name>]

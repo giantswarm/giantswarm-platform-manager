@@ -1,0 +1,28 @@
+# Keys found in an installation's fileset that no input of schema.json renders. Each is dropped from the
+# fileset by the renderer, for the reason given. Key paths use the file prefixes and the normalisation of
+# schema.json's x-renders ([*] for a list index, <name> for a map key or a part of a name).
+#
+# The reason is what the Dev Portal shows a platform engineer next to the planned change, so it is one
+# sentence in their words: what is on the installation today, what replaces it and why. It starts with
+# Removed:, names the value or the object, and never the file the key is in.
+#
+# kinds:
+#   referenced-secret   an inline credential in the encrypted Dex values that a Secret in the cluster replaces;
+#                       dex-app reads the reference and ignores the inline value next to it, which a person
+#                       deletes from the encrypted values (the definition decrypts nothing)
+removals:
+  - key: dex-secret:oidc.staticClients.mcpKubernetes.clientSecret
+    kind: referenced-secret
+    reason: >-
+      Removed: mcp-kubernetes's Dex client secret is inline in the encrypted Dex values; the client reads it from the Secret
+      dex-client-mcp-kubernetes-secret under extras/mcp-kubernetes instead, and Dex ignores the inline value next to it.
+  - key: dex-secret:oidc.staticClients.mcpPrometheus.clientSecret
+    kind: referenced-secret
+    reason: >-
+      Removed: mcp-prometheus's Dex client secret is inline in the encrypted Dex values; the client reads it from the Secret
+      dex-client-mcp-prometheus-secret under extras/mcp-prometheus instead, and Dex ignores the inline value next to it.
+  - key: dex-secret:oidc.staticClients.mcpCapi.clientSecret
+    kind: referenced-secret
+    reason: >-
+      Removed: mcp-capi's Dex client secret is inline in the encrypted Dex values; the client reads it from the Secret
+      dex-client-mcp-capi-secret under extras/mcp-capi instead, and Dex ignores the inline value next to it.

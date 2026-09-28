@@ -176,8 +176,14 @@ type GeneratedSecret struct {
 	// rewritten; both sides roll on the installation.
 	Rotates  bool   `json:"rotates,omitempty"`
 	ForcedBy string `json:"forcedBy,omitempty"`
+	// Peer is the other side of a value two installations hold, each in its
+	// own plan, as "<repository>:<path>" (the path alone where the peer's
+	// repository is not on record): a value drawn here never reaches it.
+	Peer string `json:"peer,omitempty"`
 	// Refusal is why a commit of this plan is refused before any write: the
-	// name is frozen in a file the definition does not own whole.
+	// name is frozen in a file the definition does not own whole, where the
+	// capability is on record it would rotate without a request, or it has a
+	// Peer and would be drawn here alone.
 	Refusal string `json:"refusal,omitempty"`
 }
 
@@ -384,6 +390,24 @@ type Options struct {
 	// lists rotates, forced by the request, and draws its credentials
 	// revision with it; a name the plan does not list takes no part.
 	Rotate []string
+	// Installations are the registry's installations by name: where a
+	// generated value's peer (render.Peer) is on record.
+	Installations map[string]installations.Installation
+}
+
+// markerOnRecord says whether the capability is on record for the
+// installation: the plan's file of the definition's marker exists.
+func (p Installation) markerOnRecord(opts Options) bool {
+	if opts.Definition.EnabledMarker == nil {
+		return false
+	}
+	marker := opts.Definition.EnabledMarker(opts.Installation.Name)
+	for _, f := range p.Files {
+		if f.Path == marker {
+			return f.Change == ChangeUnchanged || f.Change == ChangeUpdate
+		}
+	}
+	return false
 }
 
 // Build renders the inputs through opts' definition and answers the plan for
@@ -412,10 +436,19 @@ func Build(ctx context.Context, opts Options) Installation {
 	// rendered files' current content and the kustomizations the includes
 	// land in. The walk below reads from what was fetched.
 	var files []fileRef
+	peers := map[string]peer{} // a generated name → the other side of it
 	for repo, byPath := range res.Files {
 		target := ResolveRepository(string(repo), opts.Installation, opts.Hub)
-		for path := range byPath {
+		for path, f := range byPath {
 			files = append(files, fileRef{target, path})
+			for _, g := range f.Generated {
+				if _, seen := peers[g.Name]; g.Peer != nil && !seen {
+					peers[g.Name] = peerOf(*g.Peer, opts.Installations)
+					if peers[g.Name].err == nil {
+						files = append(files, peers[g.Name].ref)
+					}
+				}
+			}
 		}
 	}
 	for _, inc := range res.Includes {
@@ -497,12 +530,15 @@ func Build(ctx context.Context, opts Options) Installation {
 	}
 	// A file kept as it is that holds a rotating name is rewritten with the
 	// new value: an update after all.
-	for file := range frozen(generated, holders, requestedRotations(opts.Rotate, generated, res.Revisions)) {
+	for file := range frozen(generated, holders, requestedRotations(opts.Rotate, generated, res.Revisions), p.markerOnRecord(opts)) {
 		if pf := &p.Files[held[file]]; pf.Change == ChangeUnchanged {
 			pf.Change = ChangeUpdate
 			p.Diff[ChangeUnchanged]--
 			p.Diff[ChangeUpdate]++
 		}
+	}
+	for name, pr := range peers {
+		pr.refuse(ctx, generated[name], opts.Read)
 	}
 	p.SuppliedSecrets, p.SuppliedOnRecord = splitSupplied(supplied, suppliedIn, p.Files)
 	p.includes(ctx, opts, res.Includes)

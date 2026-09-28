@@ -1,0 +1,13 @@
+# A management cluster without the agent platform running all three servers
+# on public addresses, its capability on record. Invented names.
+input:
+  installation:
+    name: osprey
+    baseDomain: osprey.acme.example.test
+    customer: acme
+    dexAppVersion: 3.2.5
+    agentPlatform: false
+  servers:
+    mcpKubernetes: {enabled: true}
+    mcpPrometheus: {enabled: true}
+    mcpCapi: {enabled: true}

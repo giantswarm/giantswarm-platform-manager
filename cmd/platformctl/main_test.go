@@ -114,9 +114,9 @@ func TestReconcileTargetsThroughTheBridge(t *testing.T) {
 		{reconcile("lab", agentPlatform, "--dry-run"), []string{"reconcile_capability dry run: agent-platform on hub " + mustertest.Hub, "Order: lab\n"}},
 		{reconcile("lab", "hazel", agentPlatform, "--dry-run"), []string{"reconcile_capability dry run: agent-platform on hub " + mustertest.Hub, "Order: lab, hazel\n"}},
 		{reconcile("--all", agentPlatform, "--dry-run"), []string{"reconcile_capability dry run: agent-platform on hub " + mustertest.Hub, "Order: " + all + "\n"}},
-		{reconcile("lab", agentPlatform, "--commit"), []string{"reconcile_capability commit: agent-platform on lab (hub " + mustertest.Hub + ")"}},
-		{reconcile("lab", "hazel", agentPlatform, "--commit"), []string{"reconcile_capability commit: agent-platform wave on hub " + mustertest.Hub, "Order: lab, hazel\n"}},
-		{reconcile("--all", agentPlatform, "--commit"), []string{"reconcile_capability commit: agent-platform wave on hub " + mustertest.Hub, "Order: " + all + "\n"}},
+		{reconcile("lab", agentPlatform, "--commit", "--reason", "r"), []string{"reconcile_capability commit: agent-platform on lab (hub " + mustertest.Hub + ")"}},
+		{reconcile("lab", "hazel", agentPlatform, "--commit", "--reason", "r"), []string{"reconcile_capability commit: agent-platform wave on hub " + mustertest.Hub, "Order: lab, hazel\n"}},
+		{reconcile("--all", agentPlatform, "--commit", "--reason", "r"), []string{"reconcile_capability commit: agent-platform wave on hub " + mustertest.Hub, "Order: " + all + "\n"}},
 	} {
 		code, out, errs := bridge(t, "connected", c.args...)
 		if code != exitOK {
@@ -148,7 +148,7 @@ func TestReconcileRotateThroughTheBridge(t *testing.T) {
 		{reconcile("lab", agentPlatform, "--dry-run", "--rotate", labValkey), []string{onRequest(labValkey)}},
 		{reconcile("lab", agentPlatform, "--dry-run", "-rotate", labValkey), []string{onRequest(labValkey)}},
 		{reconcile("lab", "hazel", agentPlatform, "--dry-run", "--rotate", labValkey, "--rotate", hazelToken), []string{"\nlab: ", onRequest(labValkey), "\nhazel: ", onRequest(hazelToken)}},
-		{reconcile("lab", agentPlatform, "--commit", "--rotate", labValkey), []string{"reconcile_capability commit: agent-platform on lab", onRequest(labValkey)}},
+		{reconcile("lab", agentPlatform, "--commit", "--reason", "r", "--rotate", labValkey), []string{"reconcile_capability commit: agent-platform on lab", onRequest(labValkey)}},
 	} {
 		code, out, errs := bridge(t, "connected", c.args...)
 		if code != exitOK {

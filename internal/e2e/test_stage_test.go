@@ -7,6 +7,7 @@ package e2e
 // review, and merge_action waits for it without telling the standup channel.
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -76,7 +77,7 @@ func TestTestInstallationNeedsNoReviewAndTellsTheStandupChannel(t *testing.T) {
 	}
 	n := noticed[0]
 	prs, _ := n["pullRequests"].([]any)
-	if n["team"] != reviewTeam || n["channel"] != standupChannel || n["text"] != "*"+alice+"* enabled *agent-platform* on *"+rowan+"*." || len(prs) != 2 || prs[0] != m.Merged[0].URL {
+	if n["team"] != reviewTeam || n["channel"] != standupChannel || !strings.HasPrefix(fmt.Sprint(n["text"]), "*"+alice+"* enabled *agent-platform* on *"+rowan+"*.\n>*Why:* "+commitReason+"\n*What changed*\n• agent-platform: new") || len(prs) != 2 || prs[0] != m.Merged[0].URL {
 		t.Fatalf("the standup notice: %+v", n)
 	}
 }

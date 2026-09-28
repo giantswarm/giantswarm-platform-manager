@@ -72,7 +72,7 @@ func TestPrivatePlatformTargetTunnels(t *testing.T) {
 	if strings.Contains(remoteapps, "marmot") || strings.Contains(tunnels, "marmot") {
 		t.Errorf("the public target marmot is tunnelled")
 	}
-	if got := (Target{Installation: "x", Private: true}).tunnelledApps(); len(got) != 5 || got[4].name != "kubernetes" {
+	if got := (Target{Installation: "x", Private: true, Servers: []string{groupKubernetes, "prometheus", "capi"}}).tunnelledApps(); len(got) != 5 || got[4].name != "kubernetes" {
 		t.Errorf("a private target the portal does not proxy: %+v", got)
 	}
 }
@@ -285,5 +285,89 @@ func TestTokenExchangeClientIsTheFleets(t *testing.T) {
 	}
 	if kustomization := string(two[warrenSecrets+"kustomization.yaml"]); !strings.Contains(kustomization, "  - dex-client-muster-token-exchange-warren-secret.yaml\n  - dex-client-muster-token-exchange-warren-aspen-secret.yaml\n") {
 		t.Errorf("the secrets kustomization:\n%s", kustomization)
+	}
+}
+
+// The group and the target the servers test narrows the federation to.
+const (
+	groupKubernetes = "kubernetes"
+	targetBurrow    = "burrow"
+)
+
+// A hub federates only the servers a target runs: a target running
+// mcp-kubernetes alone gets one entry in muster's list and, private, one
+// tunnelled MCP server.
+func TestTargetFederatesTheServersItRuns(t *testing.T) {
+	input, _ := loadInput(t, shapeHubPrivateTarget)
+	burrow := input["installation"].(map[string]any)["federation"].(map[string]any)["targets"].([]any)[0].(map[string]any)
+	burrow["servers"] = []any{groupKubernetes}
+	in, err := Parse(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var groups []string
+	for _, s := range in.targetServers() {
+		if s.Cluster == targetBurrow {
+			groups = append(groups, s.Group)
+		}
+	}
+	if strings.Join(groups, ",") != groupKubernetes {
+		t.Errorf("burrow's servers in muster's list: %v", groups)
+	}
+	var mcps []string
+	for _, a := range in.Installation.Federation.Targets[0].tunnelledApps() {
+		if strings.HasPrefix(a.name, "mcp-") {
+			mcps = append(mcps, a.name)
+		}
+	}
+	if strings.Join(mcps, ",") != "mcp-kubernetes" {
+		t.Errorf("burrow's tunnelled MCP servers: %v", mcps)
+	}
+	burrow["servers"] = []any{groupKubernetes, "grafana"}
+	if _, err := Parse(input); err == nil {
+		t.Errorf("a server the platform does not run is accepted")
+	}
+}
+
+// The two files of a token-exchange client name each other as the pair's
+// peer: the hub's credentials Secret the target's Dex-side copy where the
+// target runs the agent platform, the target's copy the hub's credentials
+// Secret. A target without the agent platform keeps the client by hand: the
+// hub's side has no peer.
+func TestExchangePairNamesItsPeer(t *testing.T) {
+	peerOf := func(input map[string]any, supplied map[string]string, path string) *render.Peer {
+		t.Helper()
+		result, err := Render(input, supplied, render.ModeCommit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, files := range result.Files {
+			if f, ok := files[path]; ok {
+				if len(f.Generated) != 1 {
+					t.Fatalf("%s generates %+v", path, f.Generated)
+				}
+				return f.Generated[0].Peer
+			}
+		}
+		t.Fatalf("no %s rendered", path)
+		return nil
+	}
+	secrets := func(installation, file string) string {
+		return "management-clusters/" + installation + "/extras/agent-platform/secrets/" + file
+	}
+	hub, hubSecrets := loadInput(t, shapeHubPrivateTarget)
+	marmot := hub["installation"].(map[string]any)["federation"].(map[string]any)["targets"].([]any)[1].(map[string]any)
+	marmot["agentPlatform"] = false
+	want := render.Peer{Installation: targetBurrow, Path: secrets(targetBurrow, "dex-client-muster-token-exchange-burrow-secret.yaml")}
+	if got := peerOf(hub, hubSecrets, secrets("gopher", "burrow-token-exchange-credentials.yaml")); got == nil || *got != want {
+		t.Errorf("the hub's credentials for burrow: peer %+v, want %+v", got, want)
+	}
+	if got := peerOf(hub, hubSecrets, secrets("gopher", "marmot-token-exchange-credentials.yaml")); got != nil {
+		t.Errorf("the hub's credentials for marmot, which keeps its client by hand: peer %+v", got)
+	}
+	target, targetSecrets := loadInput(t, shapeGiantswarmSlackApp)
+	want = render.Peer{Installation: "gopher", Path: secrets("gopher", "glean-token-exchange-credentials.yaml")}
+	if got := peerOf(target, targetSecrets, secrets("glean", "dex-client-muster-token-exchange-glean-secret.yaml")); got == nil || *got != want {
+		t.Errorf("glean's Dex-side copy of gopher's client: peer %+v, want %+v", got, want)
 	}
 }

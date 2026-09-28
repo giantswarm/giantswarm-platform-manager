@@ -1,0 +1,264 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/giantswarm/giantswarm-platform-manager/main/definitions/cluster-mcp-servers/schema.json",
+  "title": "cluster-mcp-servers definition inputs",
+  "description": "The closed input set of the cluster-mcp-servers capability: a management cluster's own MCP servers (mcp-kubernetes, mcp-prometheus, mcp-capi) on an installation without the agent platform, released from the fleet's bases into extras/mcp-<name> of its management-clusters repository. The renderer turns these inputs into each server's directory — the kustomization over the fleet base, the OAuth credentials and valkey-auth Secrets, the Dex client's Secret, the credentials revision Secret the server's and its Valkey's HelmReleases read into their charts' checksum values so a rotation restarts both, and the user values where Dex is private — and each server's Dex client as a referenced Secret in the installation's dex-app configmap patch. Where the agent platform is enabled, the agent-platform definition renders the same servers and this one refuses. Annotations: x-source says where a value comes from (registry: read from the installations registry, never typed; person: typed by the person enabling or reconciling). x-feature names the consistency feature of features.yaml the input's dimensions roll up to. x-files names the repository file a fileset key is read back from (<name> the installation). servers.<server>.enabled is read from the record (Capability.RecordInputs). x-readback on a person input names the file and key its value is read back from on record and lays the value over the record (kind value, present — whether the key exists — or file — whether the file is on record). x-renders lists the key paths the input produces, prefixed by the file: extras (a file under the installation's extras/), dex-configmap (the dex-app configmap patch).",
+  "x-files": {
+    "dex-configmap": {
+      "repository": "configs",
+      "path": "installations/<name>/apps/dex-app/configmap-values.yaml.patch"
+    },
+    "mcp-kubernetes:kustomization": {
+      "repository": "management-clusters",
+      "path": "management-clusters/<name>/extras/mcp-kubernetes/kustomization.yaml"
+    },
+    "mcp-kubernetes:user-values": {
+      "repository": "management-clusters",
+      "path": "management-clusters/<name>/extras/mcp-kubernetes/user-values.yaml"
+    },
+    "mcp-prometheus:kustomization": {
+      "repository": "management-clusters",
+      "path": "management-clusters/<name>/extras/mcp-prometheus/kustomization.yaml"
+    },
+    "mcp-prometheus:user-values": {
+      "repository": "management-clusters",
+      "path": "management-clusters/<name>/extras/mcp-prometheus/user-values.yaml"
+    },
+    "mcp-capi:kustomization": {
+      "repository": "management-clusters",
+      "path": "management-clusters/<name>/extras/mcp-capi/kustomization.yaml"
+    },
+    "mcp-capi:user-values": {
+      "repository": "management-clusters",
+      "path": "management-clusters/<name>/extras/mcp-capi/user-values.yaml"
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "installation"
+  ],
+  "properties": {
+    "installation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "baseDomain",
+        "customer"
+      ],
+      "description": "The facts on record. Read from the installations registry, the installation's config.yaml.patch and the cluster App's manifest; never typed and never in the form.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The installation's codename; it names the generated values, so no credential is shared between installations.",
+          "x-source": "registry",
+          "x-feature": "servers",
+          "x-renders": [
+            "extras:mcp-<name>/"
+          ]
+        },
+        "baseDomain": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The installation's base domain, where its Dex answers the anonymous probes.",
+          "x-source": "registry",
+          "x-feature": "identity",
+          "x-renders": []
+        },
+        "customer": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The owning organisation as the configs and management-clusters repositories name it.",
+          "x-source": "registry",
+          "x-feature": "servers",
+          "x-renders": []
+        },
+        "dexAppVersion": {
+          "type": "string",
+          "description": "The dex-app the installation runs, read as the agent-platform definition reads it. A version older than 3.2.3 refuses the render: from 3.2.3 Dex restarts when a referenced client Secret changes, so a rotation of a server's Dex client secret reaches Dex; before it Dex keeps the old secret and the server's sign-ins fail until a hand-run restart. An absent version refuses nothing.",
+          "x-source": "registry",
+          "x-feature": "identity",
+          "x-renders": []
+        },
+        "agentPlatform": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether agent-platform is on record for the installation. Then the agent-platform definition renders the installation's MCP servers and this one refuses.",
+          "x-source": "registry",
+          "x-feature": "servers",
+          "x-renders": []
+        }
+      }
+    },
+    "servers": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The installation's MCP servers.",
+      "properties": {
+        "mcpKubernetes": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "How the installation runs mcp-kubernetes.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "mcp-kubernetes runs on the installation. On an installation with the capability on record, read from the record: whether extras/mcp-kubernetes/kustomization.yaml is there; a fresh enable runs every server. Without it the render has no mcp-kubernetes directory and no Dex client for it.",
+              "x-source": "person",
+              "x-feature": "servers",
+              "x-renders": [
+                "extras:mcp-kubernetes/",
+                "dex-configmap:oidc.staticClients.mcpKubernetes.clientSecretRef"
+              ]
+            },
+            "privateURLs": {
+              "type": "boolean",
+              "default": false,
+              "description": "Dex is reached on private addresses: mcp-kubernetes's OAuth issuer URL may resolve to a private IP, and so may its SSO forwarded-token JWKS fetch, in the server's user values.",
+              "x-source": "person",
+              "x-feature": "servers",
+              "x-readback": {
+                "file": "mcp-kubernetes:user-values",
+                "key": "mcpKubernetes.oauth.allowPrivateURLs"
+              },
+              "x-renders": [
+                "extras:mcp-kubernetes/user-values.yaml",
+                "extras:mcp-kubernetes/kustomization.yaml configMapGenerator"
+              ]
+            },
+            "dexCA": {
+              "type": "boolean",
+              "default": false,
+              "description": "Dex is served with a certificate from the installation's private CA: mcp-kubernetes's kustomization lists the installation's own Secret mcp-kubernetes-dex-ca (mcp-kubernetes/dex-ca-secret.enc.yaml, never rendered) and the user values point the chart at it.",
+              "x-source": "person",
+              "x-feature": "servers",
+              "x-readback": {
+                "file": "mcp-kubernetes:user-values",
+                "key": "mcpKubernetes.oauth.dex.caSecret",
+                "kind": "present"
+              },
+              "x-renders": [
+                "extras:mcp-kubernetes/user-values.yaml",
+                "extras:mcp-kubernetes/kustomization.yaml resources"
+              ]
+            },
+            "privateIPs": {
+              "type": "boolean",
+              "default": false,
+              "description": "The clients' metadata documents and redirect URIs are on private addresses too (a private installation): mcp-kubernetes's CIMD fetch and redirect URI checks allow private IPs.",
+              "x-source": "person",
+              "x-feature": "servers",
+              "x-readback": {
+                "file": "mcp-kubernetes:user-values",
+                "key": "mcpKubernetes.oauth.cimd.allowPrivateIPs"
+              },
+              "x-renders": [
+                "extras:mcp-kubernetes/user-values.yaml"
+              ]
+            }
+          }
+        },
+        "mcpPrometheus": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "How the installation runs mcp-prometheus.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "mcp-prometheus runs on the installation. On an installation with the capability on record, read from the record: whether extras/mcp-prometheus/kustomization.yaml is there; a fresh enable runs every server. Without it the render has no mcp-prometheus directory and no Dex client for it.",
+              "x-source": "person",
+              "x-feature": "servers",
+              "x-renders": [
+                "extras:mcp-prometheus/",
+                "dex-configmap:oidc.staticClients.mcpPrometheus.clientSecretRef"
+              ]
+            },
+            "privateURLs": {
+              "type": "boolean",
+              "default": false,
+              "description": "Dex is reached on private addresses: mcp-prometheus's OAuth issuer URL may resolve to a private IP, in the server's user values.",
+              "x-source": "person",
+              "x-feature": "servers",
+              "x-readback": {
+                "file": "mcp-prometheus:user-values",
+                "key": "app.oauth.allowPrivateURLs"
+              },
+              "x-renders": [
+                "extras:mcp-prometheus/user-values.yaml",
+                "extras:mcp-prometheus/kustomization.yaml configMapGenerator"
+              ]
+            },
+            "dexCA": {
+              "type": "boolean",
+              "default": false,
+              "description": "Dex is served with a certificate from the installation's private CA: mcp-prometheus's kustomization lists the installation's own Secret mcp-prometheus-dex-ca (mcp-prometheus/dex-ca-secret.enc.yaml, never rendered) and the user values point the chart at it.",
+              "x-source": "person",
+              "x-feature": "servers",
+              "x-readback": {
+                "file": "mcp-prometheus:user-values",
+                "key": "app.oauth.dexCASecret",
+                "kind": "present"
+              },
+              "x-renders": [
+                "extras:mcp-prometheus/user-values.yaml",
+                "extras:mcp-prometheus/kustomization.yaml resources"
+              ]
+            }
+          }
+        },
+        "mcpCapi": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "How the installation runs mcp-capi.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "mcp-capi runs on the installation. On an installation with the capability on record, read from the record: whether extras/mcp-capi/kustomization.yaml is there; a fresh enable runs every server. Without it the render has no mcp-capi directory and no Dex client for it.",
+              "x-source": "person",
+              "x-feature": "servers",
+              "x-renders": [
+                "extras:mcp-capi/",
+                "dex-configmap:oidc.staticClients.mcpCapi.clientSecretRef"
+              ]
+            },
+            "privateURLs": {
+              "type": "boolean",
+              "default": false,
+              "description": "Dex is reached on private addresses: mcp-capi's OAuth issuer URL may resolve to a private IP, in the server's user values.",
+              "x-source": "person",
+              "x-feature": "servers",
+              "x-readback": {
+                "file": "mcp-capi:user-values",
+                "key": "oauth.allowPrivateURLs"
+              },
+              "x-renders": [
+                "extras:mcp-capi/user-values.yaml",
+                "extras:mcp-capi/kustomization.yaml configMapGenerator"
+              ]
+            },
+            "dexCA": {
+              "type": "boolean",
+              "default": false,
+              "description": "Dex is served with a certificate from the installation's private CA: mcp-capi's kustomization lists the installation's own Secret mcp-capi-dex-ca (mcp-capi/dex-ca-secret.enc.yaml, never rendered) and the user values point the chart at it.",
+              "x-source": "person",
+              "x-feature": "servers",
+              "x-readback": {
+                "file": "mcp-capi:user-values",
+                "key": "oauth.dex.caSecret",
+                "kind": "present"
+              },
+              "x-renders": [
+                "extras:mcp-capi/user-values.yaml",
+                "extras:mcp-capi/kustomization.yaml resources"
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}
