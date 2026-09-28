@@ -1,5 +1,7 @@
 package render
 
+import "github.com/Masterminds/semver/v3"
+
 // Dex as the dex-app chart runs it, where the definitions' probes look for it.
 const (
 	// DexPodSelector selects Dex's pods: the chart's name label, which the
@@ -34,4 +36,26 @@ func DexSecretLoadedProbe(id, feature, namespace, secret, client string) Probe {
 	return Probe{ID: id, Feature: feature, Kind: SecretLoaded, Namespace: namespace, Resource: "Secret", Name: secret,
 		Expect: Expectation{Pods: DexPodSelector, Container: DexContainer,
 			Note: "Dex reads the secret of client " + client + " only when its container starts; one started before the Secret changed holds the old secret and the client's sign-ins fail until Dex restarts (dex-app 3.2.3 restarts it on the change)"}}
+}
+
+// DexAppLine2 is the first dex-app of the 2.x line that carries the 3.x Dex
+// features up to 3.2.5 — the referenced client Secrets, the roll on a
+// configuration change and the restart on a rotated Secret — without 3.0.0's
+// code-flow-only responseTypes default.
+const DexAppLine2 = "2.4.0"
+
+// DexAppTakes says whether dex-app version carries the Dex feature 3.x
+// introduced in release since: since or later, or DexAppLine2 or later on the
+// 2.x line. A pre-release of either takes nothing.
+func DexAppTakes(version *semver.Version, since string) bool {
+	if version.Major() == 2 {
+		return !version.LessThan(semver.MustParse(DexAppLine2))
+	}
+	return !version.LessThan(semver.MustParse(since))
+}
+
+// DexAppNeeds names the dex-app versions that carry the Dex feature 3.x
+// introduced in release since, for a refusal.
+func DexAppNeeds(since string) string {
+	return "dex-app " + since + " or later (" + DexAppLine2 + " or later on the 2.x line)"
 }

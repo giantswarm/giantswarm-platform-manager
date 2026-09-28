@@ -38,10 +38,10 @@ var (
 	ErrUnknownSecret = errors.New(Capability + ": unknown secret value")
 )
 
-// DexAppRotation is the first dex-app that restarts Dex when a referenced
+// DexAppRotation is the first 3.x dex-app that restarts Dex when a referenced
 // client Secret changes. Before it, Dex keeps the secret it started with, so a
 // rotation of a server's Dex client secret fails the server's sign-ins until a
-// hand-run restart.
+// hand-run restart. The 2.x line restarts from render.DexAppLine2.
 const DexAppRotation = "3.2.3"
 
 const (
@@ -163,8 +163,8 @@ func (in *Input) check(secrets map[string]string) error {
 		if err != nil {
 			return refuse(ErrInput, describe("installation.dexAppVersion")+" "+v+" is no version")
 		}
-		if version.LessThan(semver.MustParse(DexAppRotation)) {
-			return refuse(ErrPolicy, "dex-app "+v+" on "+in.Installation.Name+" keeps a rotated client secret until Dex restarts by hand; the servers' Dex clients need dex-app "+DexAppRotation+" or later, which restarts Dex when their Secrets change")
+		if !render.DexAppTakes(version, DexAppRotation) {
+			return refuse(ErrPolicy, "dex-app "+v+" on "+in.Installation.Name+" keeps a rotated client secret until Dex restarts by hand; the servers' Dex clients need "+render.DexAppNeeds(DexAppRotation)+", which restarts Dex when their Secrets change")
 		}
 	}
 	for field := range secrets {
