@@ -397,6 +397,55 @@ func TestPortalTraces(t *testing.T) {
 	}
 }
 
+// The Component's values turn on the backend's Prometheus metrics and a
+// ServiceMonitor under the tenant label where the hosted portal's chart line
+// resolves to a chart that takes them; an earlier line gets neither, since its
+// chart's schema refuses both keys.
+func TestPortalMetrics(t *testing.T) {
+	for _, tc := range []struct {
+		line    string
+		metrics bool
+	}{
+		{portal2x, true},
+		{portalLegacy, false},
+		{">=2.1.0 <" + portalMetrics, false},
+		{portalTraces, false},
+		{portalMetrics, true},
+		{"", false},
+	} {
+		portal := PortalRef{Installation: testPortalHost, Customer: testOrganisation, ChartLine: tc.line}
+		in := &Input{Installation: Installation{Name: testPortalHost, Customer: testOrganisation, Portals: []PortalRef{portal}}}
+		var values struct {
+			Observability struct {
+				Metrics *struct {
+					Enabled bool `yaml:"enabled"`
+				} `yaml:"metrics"`
+			} `yaml:"observability"`
+			ServiceMonitor *struct {
+				Enabled bool              `yaml:"enabled"`
+				Labels  map[string]string `yaml:"labels"`
+			} `yaml:"serviceMonitor"`
+		}
+		if err := yaml.Unmarshal(render.MustYAML(in.portalValues()), &values); err != nil {
+			t.Fatal(err)
+		}
+		if tc.metrics != (values.Observability.Metrics != nil) || tc.metrics != (values.ServiceMonitor != nil) {
+			t.Errorf("%q: observability.metrics %v, serviceMonitor %v, want them %v", tc.line, values.Observability.Metrics, values.ServiceMonitor, tc.metrics)
+			continue
+		}
+		if !tc.metrics {
+			continue
+		}
+		if !values.Observability.Metrics.Enabled || !values.ServiceMonitor.Enabled {
+			t.Errorf("%q: metrics %v, serviceMonitor %v, want both enabled", tc.line, values.Observability.Metrics.Enabled, values.ServiceMonitor.Enabled)
+		}
+		want := map[string]string{"observability.giantswarm.io/tenant": portalTenant}
+		if !maps.Equal(values.ServiceMonitor.Labels, want) {
+			t.Errorf("%q: serviceMonitor.labels %v, want %v", tc.line, values.ServiceMonitor.Labels, want)
+		}
+	}
+}
+
 func TestCheckRecordRefusesAPortalWithoutItsChartLine(t *testing.T) {
 	input, secrets := loadInput(t, shapePublicCustomer)
 	portals := input["installation"].(map[string]any)["portals"].([]any)

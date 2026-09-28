@@ -47,7 +47,9 @@ credential already and the Component renders the chat's blocks without a Secret 
 reconciles the portal — the customer-portal definition keeps the credential in the portal's user secrets, supplied
 under the same field, until the Component's Secret is on record), the backend's trace export where the portal's
 chart line resolves to 2.68.0 or later (`observability.otel`: the installation's `otlp-gateway` on 4317 over gRPC
-with the `giantswarm` tenant header; an earlier chart's schema refuses the key), and a patch appending those sources to the portal HelmRelease's `valuesFrom` — last, so the
+with the `giantswarm` tenant header; an earlier chart's schema refuses the key), the backend's Prometheus metrics
+where the line resolves to 2.73.1 or later (`observability.metrics.enabled` and a `serviceMonitor` labelled
+`observability.giantswarm.io/tenant: giantswarm`; an earlier chart's schema refuses both keys), and a patch appending those sources to the portal HelmRelease's `valuesFrom` — last, so the
 platform's values win. The fragment carries the platform's section, and on a portal the customer-portal
 definition renders the shared extension list with the platform's section and the installation's muster entry;
 Backstage and Helm replace lists wholesale, so on a hand-kept portal (a literal `app.extensions` on record) the
