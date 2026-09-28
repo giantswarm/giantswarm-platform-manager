@@ -73,7 +73,7 @@ func (in *Input) probes() []render.Probe {
 		Status: 200, BodyContains: `"resource":"https://` + in.host("muster") + `/mcp"`,
 	}))
 	for _, s := range servers {
-		p = append(p, resourceProbe("live-own-mcp-servers", featureToolAccess, render.ResourcePresent, platformNamespace, mcpServerResource, in.Installation.Name+"-"+s.name))
+		p = append(p, resourceProbe("live-own-mcp-servers", featureToolAccess, render.ResourcePresent, platformNamespace, mcpServerResource, in.Installation.Name+"-"+s.Name))
 	}
 	for _, s := range in.Installation.MCPServers {
 		p = append(p, registeredServerProbe(s))
@@ -147,7 +147,7 @@ func (in *Input) helmReleases() []string {
 	}
 	names = append(names, "agent-platform-connectivity", "muster", "agent-platform-mcps")
 	for _, s := range servers {
-		names = append(names, s.name, s.name+"-valkey")
+		names = append(names, s.Name, s.Name+"-valkey")
 	}
 	return names
 }

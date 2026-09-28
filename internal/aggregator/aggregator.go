@@ -22,8 +22,9 @@ import (
 
 // The meta tools every aggregator tool is reached through.
 const (
-	MetaCallTool  = "call_tool"
-	MetaListTools = "list_tools"
+	MetaCallTool    = "call_tool"
+	MetaListTools   = "list_tools"
+	MetaFilterTools = "filter_tools"
 )
 
 // ArgCallTimeout is call_tool's timeout argument on muster's CLI bridge:
@@ -142,21 +143,35 @@ func (s *Session) Call(ctx context.Context, name string, args map[string]any) (*
 // Tools names the aggregator's tools for this session, as list_tools answers
 // them: a server the person is not connected to contributes none.
 func (s *Session) Tools(ctx context.Context) ([]string, error) {
+	return s.toolList(ctx, MetaListTools, map[string]any{})
+}
+
+// Matching names the aggregator's tools whose name matches the glob pattern,
+// as filter_tools answers them: unlike list_tools, one page covers a
+// server's tools however many the aggregator carries.
+func (s *Session) Matching(ctx context.Context, pattern string) ([]string, error) {
+	return s.toolList(ctx, MetaFilterTools, map[string]any{"pattern": pattern})
+}
+
+// toolList calls a meta tool that answers a tool list and names the tools.
+func (s *Session) toolList(ctx context.Context, meta string, args map[string]any) ([]string, error) {
 	req := mcp.CallToolRequest{}
-	req.Params.Name = MetaListTools
-	req.Params.Arguments = map[string]any{}
+	req.Params.Name = meta
+	req.Params.Arguments = args
 	res, err := s.c.CallTool(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", MetaListTools, err)
+		return nil, fmt.Errorf("%s: %w", meta, err)
 	}
 	var doc struct {
 		Tools []struct {
 			Name string `json:"name"`
 		} `json:"tools"`
 	}
+	// The bridge may append its own notices after the list: the first JSON
+	// value is the answer.
 	text := TextOf(res)
-	if err := json.Unmarshal([]byte(text), &doc); err != nil {
-		return nil, fmt.Errorf("%s answered something other than a tool list: %.200q", MetaListTools, text)
+	if err := json.NewDecoder(strings.NewReader(text)).Decode(&doc); err != nil {
+		return nil, fmt.Errorf("%s answered something other than a tool list: %.200q", meta, text)
 	}
 	names := make([]string, 0, len(doc.Tools))
 	for _, t := range doc.Tools {

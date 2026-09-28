@@ -53,6 +53,10 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 	if args[ArgSecrets] != nil {
 		return nil, fmt.Errorf("%s: a wave carries no supplied secret values (%s): a reconcile over a set leaves every secret file on record alone; an installation whose secret files are not on record yet is enabled alone, with %s and %s", tool, ArgSecrets, ArgInstallation, ArgSecrets)
 	}
+	reason, err := reasonArg(tool, args)
+	if err != nil {
+		return nil, err
+	}
 	args[ArgContent] = true
 	out, env, err := t.capabilityPlan(ctx, tool, args)
 	if err != nil {
@@ -87,9 +91,10 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		return nil, fmt.Errorf("%s: %q is not a capability definition", tool, out.Capability)
 	}
 	spec := actions.Spec{Actor: actions.Actor{Login: id.Login, ID: id.ID, Email: id.Email}, Capability: out.Capability, Installations: res.Order, Inputs: typed, Kind: actions.KindReconcile, Skipped: res.Skipped,
-		InputsByInstallation: map[string]map[string]any{}, AccountEngineers: accountEngineers(env, res.Order...), Markers: markersOf(def, env, res.Order...), Rotate: rotateArg(args)}
+		InputsByInstallation: map[string]map[string]any{}, AccountEngineers: accountEngineers(env, res.Order...), AccountEngineerOf: accountEngineerOf(env, res.Order...), Reason: reason, Changes: map[string][]string{}, Markers: markersOf(def, env, res.Order...), Rotate: rotateArg(args)}
 	for _, p := range targets {
 		spec.InputsByInstallation[p.Name] = p.Inputs
+		spec.Changes[p.Name] = plan.Summary(p)
 		spec.KeptByInstallation = keptByInstallation(spec.KeptByInstallation, p)
 	}
 	changes := make([]string, 0, len(targets))

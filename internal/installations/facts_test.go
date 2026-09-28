@@ -23,9 +23,15 @@ func TestFactsPerDefinition(t *testing.T) {
 	if all[agentPlatformFact] != true || all["customerPortal"] != false || all["region"] != "example-region-1" || all["chartLine"] != "4" || all["hub"] != true {
 		t.Fatalf("all facts: %v", all)
 	}
+	// Every definition takes these; each adds its own.
+	common := []string{agentPlatformFact, "baseDomain", "customer", "name"}
+	facts := func(own ...string) []string {
+		return slices.Sorted(slices.Values(append(slices.Clone(common), own...)))
+	}
 	want := map[string][]string{
-		AgentPlatform:  {agentPlatformFact, "baseDomain", "chartLine", "customer", "dexAppVersion", "hub", "musterClientId", "name", "podCertificateRequest", "portalClientSecret", "private", "provider"},
-		CustomerPortal: {agentPlatformFact, "baseDomain", "customer", "name", "pipeline", "provider", "region"},
+		AgentPlatform:     facts("chartLine", "dexAppVersion", "hub", "musterClientId", "podCertificateRequest", "portalClientSecret", "private", "provider"),
+		CustomerPortal:    facts("pipeline", "provider", "region"),
+		ClusterMCPServers: facts("dexAppVersion"),
 	}
 	for _, c := range Capabilities() {
 		facts, err := c.Facts(all)

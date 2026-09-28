@@ -72,3 +72,9 @@ federation:
   teleport:
     clusterName: teleport.giantswarm.io
     proxyAddr: teleport.giantswarm.io:443
+
+# The poll interval of every OCIRepository the definition renders (the tunnelport operator's today):
+# the one every Bumblebee OCIRepository of an installation's extras polls at, so a release runs
+# within minutes of its push without a manual reconcile. Their HelmReleases keep their own interval.
+flux:
+  sourceInterval: 1m

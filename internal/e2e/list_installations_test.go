@@ -9,6 +9,7 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -213,8 +214,13 @@ func indentLines(s, prefix string) string {
 }
 
 // portalClientSecret stands for the customer-portal definition's encrypted
-// Secret dex-client-backstage: only its presence is read.
-const portalClientSecret = "apiVersion: v1\nkind: Secret\nmetadata:\n  name: dex-client-backstage\n  namespace: giantswarm\nsops: {}\n" // #nosec G101 -- a stand-in manifest without a value
+// Secret dex-client-backstage, of the render's skeleton with its value
+// encrypted: a reconcile keeps it.
+const portalClientSecret = "apiVersion: v1\nkind: Secret\nmetadata:\n  name: dex-client-backstage\n  namespace: giantswarm\ntype: Opaque\nstringData:\n  secret: ENC[AES256_GCM,data:c3RhbmQtaW4=,type:str]\nsops: {}\n" // #nosec G101 -- a stand-in manifest without a value
+
+// portalUserSecrets stands for the customer-portal definition's encrypted
+// Secret user-secrets-backstage, its values document encrypted whole.
+const portalUserSecrets = "apiVersion: v1\nkind: Secret\nmetadata:\n  name: user-secrets-backstage\n  namespace: flux-giantswarm\ntype: Opaque\nstringData:\n  values: ENC[AES256_GCM,data:c3RhbmQtaW4=,type:str]\nsops: {}\n" // #nosec G101 -- a stand-in manifest without a value
 
 func fixtures(g *fakeGitHub) {
 	g.addRepo(registryRepo, map[string]string{registryPath: "---\napiVersion: backstage.io/v1alpha1\nkind: Group\nmetadata:\n    name: acme\nspec:\n    type: customer\n" +
@@ -230,6 +236,8 @@ func fixtures(g *fakeGitHub) {
 		"management-clusters/" + hub + "/extras/backstage/backstage/kustomization.yaml": hubPortalKustomization,
 		// The portal client's Secret on record, as the customer-portal definition renders it: the platform renders the client backstage.
 		installations.PortalClientSecretPath(hub): portalClientSecret,
+		// The portal's user secrets on record, encrypted whole: a reconcile keeps them and the client secret they share.
+		"management-clusters/" + hub + "/extras/backstage/backstage/user-secrets.enc.yaml": portalUserSecrets,
 	})
 	g.addRepo(hubConfigs, map[string]string{
 		installations.ConfigPatchPath(hub): "codename: hazel\nbase: example.test\ncustomer: example\nmanagementCluster:\n  private: false\nagentPlatform:\n  kagentApiV2: true\nservices:\n  muster:\n    clientId: muster-hazel\n",
@@ -276,6 +284,37 @@ func fixtures(g *fakeGitHub) {
 	g.forbid("example/sealed-configs")
 }
 
+// A hub federates the MCP servers each target runs: the servers whose extras
+// kustomization the target's management-clusters repository carries. birch
+// runs mcp-kubernetes alone, alder none. birch runs the agent platform (its
+// marker is on record), alder does not.
+func TestListInstallationsTargetServers(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	portal := strings.Replace(portalConfig(hub, alder, birch), "        gs:\n", "        gs:\n          clusterTokenBroker:\n            tokenUrl: https://muster."+hub+".example.test/token\n", 1)
+	st.ghs.addFile(hubMCs, installations.PortalConfigPath(hub), portal)
+	st.ghs.addFile(acmeMCs, installations.ClusterMCPServersMarker(birch), "resources:\n  - https://github.com/giantswarm/management-cluster-bases/extras/mcp-kubernetes?ref=main\n")
+	out, text, isErr := listInstallations(t, st.mcpClient(t, aliceToken), nil)
+	if isErr {
+		t.Fatal(text)
+	}
+	hazel := find(t, out, hub)
+	if hazel.Federation == nil {
+		t.Fatalf("hazel federation: %+v", hazel)
+	}
+	servers, platform := map[string][]string{}, map[string]bool{}
+	for _, target := range hazel.Federation.Targets {
+		servers[target.Installation] = target.Servers
+		platform[target.Installation] = target.AgentPlatform
+	}
+	if !platform[birch] || platform[alder] {
+		t.Fatalf("hazel's targets' agent platform: %v", platform)
+	}
+	if len(servers) != 2 || !slices.Equal(servers[birch], []string{"kubernetes"}) || servers[alder] == nil || len(servers[alder]) != 0 {
+		t.Fatalf("hazel's targets' servers: %v\n%s", servers, text)
+	}
+}
+
 func listInstallations(t *testing.T, c *client.Client, args map[string]any) (tools.ListInstallationsResult, string, bool) {
 	t.Helper()
 	text, isErr := call(t, c, tools.ToolListInstallations, args)
@@ -308,7 +347,7 @@ func TestListInstallationsStates(t *testing.T) {
 	if isErr {
 		t.Fatal(text)
 	}
-	if out.Caller != alice || out.Hub != hub || len(out.Installations) != 8 || len(out.Capabilities) != 2 || out.Capabilities[0] != installations.AgentPlatform || out.Capabilities[1] != installations.CustomerPortal ||
+	if out.Caller != alice || out.Hub != hub || len(out.Installations) != 8 || len(out.Capabilities) != 3 || out.Capabilities[0] != installations.AgentPlatform || out.Capabilities[1] != installations.CustomerPortal || out.Capabilities[2] != installations.ClusterMCPServers ||
 		out.Registry.Catalog.Repository != registryRepo || out.Registry.Portal.Repository != hubMCs || out.Registry.Portal.Path != installations.PortalConfigPath(hub) {
 		t.Fatalf("answer: %s", text)
 	}
@@ -371,7 +410,7 @@ func TestListInstallationsStates(t *testing.T) {
 	}
 
 	larch := find(t, out, "larch")
-	if larch.Readable || larch.Repositories.Known() || len(larch.Capabilities) != 2 || larch.Capabilities[1].State != installations.StateUnknown || len(larch.Errors) != 1 ||
+	if larch.Readable || larch.Repositories.Known() || len(larch.Capabilities) != 3 || larch.Capabilities[1].State != installations.StateUnknown || larch.Capabilities[2].State != installations.StateUnknown || len(larch.Errors) != 1 ||
 		len(larch.Sources) != 1 || larch.Sources[0] != installations.SourcePortal || larch.BaseDomain != "larch.example.test" {
 		t.Fatalf("larch: %+v", larch)
 	}
@@ -448,7 +487,7 @@ func TestListInstallationsSummary(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	out, text, isErr := listInstallations(t, st.mcpClient(t, aliceToken), map[string]any{tools.ArgSummary: true})
-	if isErr || !out.Summary || len(out.Installations) != 8 || len(out.Capabilities) != 2 {
+	if isErr || !out.Summary || len(out.Installations) != 8 || len(out.Capabilities) != 3 {
 		t.Fatalf("answer: %s", text)
 	}
 	hazelR, birchR, alderR, mapleR, oakR := find(t, out, hub), find(t, out, birch), find(t, out, alder), find(t, out, maple), find(t, out, "oak")

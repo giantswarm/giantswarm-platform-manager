@@ -180,9 +180,9 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 			case g.Refusal != "":
 				p.f("      refused: %s\n", g.Refusal)
 			case g.Rotates && g.ForcedBy == plan.ForcedByRequest:
-				p.f("      rotates on request: %s — a new value replaces the one on record in %s; both sides roll, the client is unusable between the two rollouts\n", g.Name, strings.Join(g.FrozenIn, ", "))
+				p.f("      rotates on request: %s — a new value replaces the one on record in %s; both sides roll, the client is unusable between the two rollouts%s\n", g.Name, strings.Join(g.FrozenIn, ", "), signsOut(g.Name))
 			case g.Rotates:
-				p.f("      rotates: %s (forced by %s) — a new value replaces the one on record in %s; both sides roll, the client is unusable between the two rollouts\n", g.Name, g.ForcedBy, strings.Join(g.FrozenIn, ", "))
+				p.f("      rotates: %s (forced by %s) — a new value replaces the one on record in %s; both sides roll, the client is unusable between the two rollouts%s\n", g.Name, g.ForcedBy, strings.Join(g.FrozenIn, ", "), signsOut(g.Name))
 			case g.Kept:
 				p.f("      kept: the value on record in %s stands, nothing is written\n", strings.Join(g.FrozenIn, ", "))
 			}
@@ -758,4 +758,14 @@ func unseen(list []plan.Unseen) string {
 		parts = append(parts, u.Path+": "+u.Value)
 	}
 	return strings.Join(parts, ", ")
+}
+
+// signsOut is what a rotation of the generated value name ends for people,
+// where it ends more than the client's rollout: a new OAuth encryption key
+// makes every session and token the server stores unreadable.
+func signsOut(name string) string {
+	if strings.HasSuffix(name, "-oauth-encryption-key") {
+		return "; every session the server holds ends, so everyone who uses it signs in again"
+	}
+	return ""
 }

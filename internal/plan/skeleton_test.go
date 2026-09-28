@@ -1,6 +1,9 @@
 package plan
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // The render of a Secret and the file on record as SOPS wrote it: the values
 // under stringData encrypted, a comment encrypted, SOPS's block, its own
@@ -87,12 +90,12 @@ func TestUnseenNamesTheLiteralsUnderEncryptedFields(t *testing.T) {
 
 // A key the render adds or drops under the encrypted field, a plaintext
 // field the render changes, a type that changes: the file has to be written.
+// (A label is no such change: TestSameSkeletonLeavesAnEncryptedFilesLabelsOut.)
 func TestSameSkeletonSeesTheSkeletonChange(t *testing.T) {
 	for name, rendered := range map[string]string{
 		"a key added":             renderedFile + "  oauth-encryption-key: GENERATED(x-key)\n",
 		"a key dropped":           "apiVersion: v1\nkind: Secret\nmetadata:\n  name: muster-oauth-credentials\n  namespace: agent-platform\n  labels:\n    application.giantswarm.io/team: bumblebee\ntype: Opaque\nstringData:\n  dex-client-secret: GENERATED(x-client)\n  registration-token: GENERATED(x-token)\n  slack-token: SUPPLIED(slack.token)\n  client-id: muster\n",
 		"a plaintext field moved": "apiVersion: v1\nkind: Secret\nmetadata:\n  name: muster-oauth-credentials\n  namespace: mcp-prometheus\n  labels:\n    application.giantswarm.io/team: bumblebee\ntype: Opaque\nstringData:\n  dex-client-secret: GENERATED(x-client)\n  registration-token: GENERATED(x-token)\n  slack-token: SUPPLIED(slack.token)\n  client-id: muster\n  ttl: 3\n",
-		"a label added":           "apiVersion: v1\nkind: Secret\nmetadata:\n  name: muster-oauth-credentials\n  namespace: agent-platform\n  labels:\n    application.giantswarm.io/team: bumblebee\n    tier: two\ntype: Opaque\nstringData:\n  dex-client-secret: GENERATED(x-client)\n  registration-token: GENERATED(x-token)\n  slack-token: SUPPLIED(slack.token)\n  client-id: muster\n  ttl: 3\n",
 		"a type changed":          "apiVersion: v1\nkind: Secret\nmetadata:\n  name: muster-oauth-credentials\n  namespace: agent-platform\n  labels:\n    application.giantswarm.io/team: bumblebee\ntype: \"Opaque\"\nstringData:\n  dex-client-secret: GENERATED(x-client)\n  registration-token: GENERATED(x-token)\n  slack-token: SUPPLIED(slack.token)\n  client-id: muster\n  ttl: 3\nimmutable: true\n",
 		"a sops block of its own": renderedFile + "sops:\n  version: 1\n",
 	} {
@@ -123,5 +126,26 @@ func TestSameSkeletonPlainFiles(t *testing.T) {
 	}
 	if sameSkeleton("a: 1\n---\nb: 2\n", "a: 1\nsops:\n  version: 1\n") {
 		t.Fatal("a second document is unseen")
+	}
+}
+
+// The labels and annotations of an encrypted file take no part: the label
+// the kustomization now carries, on record in the file or not, leaves it as
+// it is. A key the render adds under stringData still changes the skeleton.
+func TestSameSkeletonLeavesAnEncryptedFilesLabelsOut(t *testing.T) {
+	labelled := strings.Replace(fileOnRecord, "        application.giantswarm.io/team: bumblebee\n",
+		"        application.giantswarm.io/team: bumblebee\n        reconcile.fluxcd.io/watch: Enabled\n    annotations:\n        note: kept\n", 1)
+	if !sameSkeleton(renderedFile, labelled) {
+		t.Fatal("a label and an annotation on record changed the skeleton")
+	}
+	unlabelled := strings.Replace(fileOnRecord, "    labels:\n        application.giantswarm.io/team: bumblebee\n", "", 1)
+	if !sameSkeleton(renderedFile, unlabelled) {
+		t.Fatal("the labels the render adds changed the skeleton")
+	}
+	if sameSkeleton(strings.Replace(renderedFile, "  ttl: 3\n", "  ttl: 3\n  extra: GENERATED(x-extra)\n", 1), fileOnRecord) {
+		t.Fatal("a key the render adds did not change the skeleton")
+	}
+	if !MetadataMark("metadata.labels.reconcile.fluxcd.io/watch") || !MetadataMark("metadata.annotations") || MetadataMark("metadata.name") || MetadataMark("stringData.labels") {
+		t.Fatal("MetadataMark")
 	}
 }

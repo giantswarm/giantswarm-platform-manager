@@ -108,8 +108,7 @@ cluster-manager:
 clusterManager:
   networkPolicy:
     workloadClusters:
-      fqdns:
-        - matchPattern: '*.*.elb.amazonaws.com'
+      provider: aws
     egress:
       fqdns:
         - matchName: gsoci.azurecr.io

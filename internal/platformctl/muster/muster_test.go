@@ -122,6 +122,42 @@ func TestCallOfAToolMusterDoesNotKnowIsCallToolsRefusal(t *testing.T) {
 	if _, ok := IsAuthRequired(err); ok {
 		t.Fatal("a connected server's unknown tool is not a sign-in")
 	}
+	var u *Unreachable
+	if errors.As(err, &u) {
+		t.Fatal("a connected server's unknown tool is no unreachable manager")
+	}
+}
+
+// A muster whose aggregator has no manager — another installation's, the
+// current context pointing elsewhere — answers call_tool's "tool not found"
+// for every manager tool: the call says the manager is not reachable
+// through that muster and how to reach the one it is registered on.
+func TestCallOfAMusterWithoutTheManagerSaysItIsUnreachable(t *testing.T) {
+	c, err := client.NewInProcessClient(mustertest.Bridge(map[string]mustertest.Tool{
+		"x_mcp-kubernetes_pods_list": func(context.Context, map[string]any) *mcp.CallToolResult { return mcp.NewToolResultText("[]") },
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(context.Background(), c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	_, err = s.Call(context.Background(), "list_actions", nil)
+	var u *Unreachable
+	if !errors.As(err, &u) || u.Endpoint != "" {
+		t.Fatalf("got %v", err)
+	}
+	for _, want := range []string{"not reachable through muster", "muster's current context", "--endpoint", "muster context use"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("%q lacks %q", err, want)
+		}
+	}
+	s.endpoint = "https://muster.elsewhere.test/mcp"
+	if _, err := s.Call(context.Background(), "list_actions", nil); !strings.Contains(err.Error(), "the aggregator at https://muster.elsewhere.test/mcp lists no") {
+		t.Fatalf("got %v", err)
+	}
 }
 
 func TestOpenNamesTheMissingBinary(t *testing.T) {

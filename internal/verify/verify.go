@@ -275,6 +275,8 @@ type Options struct {
 	Probes *http.Client
 	// Rotate names the generated values the plan rotates on request (plan.Options.Rotate).
 	Rotate []string
+	// Installations are the registry's installations by name (plan.Options.Installations).
+	Installations map[string]installations.Installation
 }
 
 // Compare answers the verify of opts' installation.
@@ -513,7 +515,7 @@ func droppedReason(path string) string {
 // with the files the definition renders flattened to their leaves by key.
 // The definition's refusal is the error.
 func build(ctx context.Context, opts Options, values map[string]any, read plan.Reader) (plan.Installation, map[string]map[string]string, error) {
-	p := plan.Build(ctx, plan.Options{Definition: opts.Definition, Installation: opts.Installation, Hub: opts.Hub, Inputs: values, Content: true, Read: read, Rotate: opts.Rotate})
+	p := plan.Build(ctx, plan.Options{Definition: opts.Definition, Installation: opts.Installation, Hub: opts.Hub, Inputs: values, Content: true, Read: read, Rotate: opts.Rotate, Installations: opts.Installations})
 	if p.Refused != "" {
 		return p, nil, errors.New(p.Refused)
 	}
@@ -551,8 +553,9 @@ func rendered(p plan.Installation) []plan.File {
 // entries under the key is the key without its entries, and the entries
 // are the differences. Of an encrypted file SOPS's own block takes no part, and a leaf SOPS encrypts
 // (one under its encrypted_regex) is the difference with the values
-// redacted; every other leaf of it — type, the metadata, apiVersion, kind —
-// shows its values like a plain file's. The lines of such a file are those
+// redacted; its labels and annotations take no part (plan.MetadataMark: the
+// kustomization carries them); every other leaf of it — type, the metadata,
+// apiVersion, kind — shows its values like a plain file's. The lines of such a file are those
 // of the file as the result shows it, redacted (shown).
 func differences(key string, rendered, current string, driven map[string]string) ([]Difference, map[string]bool) {
 	rendered_, current_ := flattenLines(rendered), flattenLines(current)
@@ -574,7 +577,7 @@ func differences(key string, rendered, current string, driven map[string]string)
 	for _, p := range diffPaths(want, got) {
 		w, okw := want[p]
 		g, okg := got[p]
-		if okw && okg && plan.Opaque(w, g) || encrypted && underSOPS(p) || okw && len(missingFields(w)) > 0 || encryptedText(documents, got, p) || emptied(want, got, p) {
+		if okw && okg && plan.Opaque(w, g) || encrypted && (underSOPS(p) || plan.MetadataMark(p)) || okw && len(missingFields(w)) > 0 || encryptedText(documents, got, p) || emptied(want, got, p) {
 			continue
 		}
 		d := Difference{File: key, Path: p, Rendered: w, Current: g, Line: wantLines[p], CurrentLine: gotLines[p], Input: driven[key+"#"+p], absent: !okg,

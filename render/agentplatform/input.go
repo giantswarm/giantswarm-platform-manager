@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"gopkg.in/yaml.v3"
@@ -97,6 +98,10 @@ type Input struct {
 	// section: the person's third choice, read back from the portal's files
 	// on record.
 	SkillRepositories []string
+	// ClusterManagerCommit is the person's choice: the cluster-manager's
+	// commit mode through its GitHub App (clusterManager.github.enabled), read
+	// back from the configmap patch on record.
+	ClusterManagerCommit bool
 	// Components are the components the policy gives the installation, by
 	// name: its organisation's list and, where the policy names a Slack app
 	// for the installation, the chat gateway.
@@ -110,6 +115,9 @@ type Input struct {
 	Connectors Connectors
 	// Teleport is the Teleport cluster a tunnel joins.
 	Teleport Teleport
+	// SourceInterval is the poll interval of every OCIRepository the
+	// definition renders: the policy's flux.sourceInterval.
+	SourceInterval string
 	// selectsLine says the enable selected the 4 chart line over the
 	// record's 3: the render writes the selection into the record
 	// (recordSelection) and Selected answers it.
@@ -244,14 +252,24 @@ type Target struct {
 	// carries the organisation's plain connector on the target's Dex, every
 	// further hub its own (connector). Empty: this hub alone brokers into it.
 	Hubs []string `json:"hubs"`
+	// Servers are the groups of the MCP servers the target runs: the servers
+	// whose extras directory its management-clusters repository carries.
+	Servers []string `json:"servers"`
+	// AgentPlatform says the target runs the agent platform, which renders
+	// the Dex side of this hub's client there: the pair's two files name each
+	// other (exchangeSecretName). Without it the target keeps the client by
+	// hand.
+	AgentPlatform bool `json:"agentPlatform"`
 }
 
-// groups are the federated MCP server groups of every target: the target's
-// own three servers, the set the shared template registers everywhere.
+// groups are the target's federated MCP server groups: the servers it runs,
+// in the order the shared template registers them.
 func (t Target) groups() []string {
 	groups := make([]string, 0, len(servers))
 	for _, s := range servers {
-		groups = append(groups, s.group)
+		if slices.Contains(t.Servers, s.Group) {
+			groups = append(groups, s.Group)
+		}
 	}
 	return groups
 }
@@ -324,6 +342,9 @@ type policy struct {
 		Connector Connectors `yaml:"connector"`
 		Teleport  Teleport   `yaml:"teleport"`
 	} `yaml:"federation"`
+	Flux struct {
+		SourceInterval string `yaml:"sourceInterval"`
+	} `yaml:"flux"`
 }
 
 func loadPolicy() (*policy, error) {
@@ -334,6 +355,9 @@ func loadPolicy() (*policy, error) {
 	var pol policy
 	if err := yaml.Unmarshal(raw, &pol); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrPolicy, err)
+	}
+	if _, err := time.ParseDuration(pol.Flux.SourceInterval); err != nil {
+		return nil, fmt.Errorf("%w: flux.sourceInterval: %w", ErrPolicy, err)
 	}
 	return &pol, nil
 }
@@ -417,6 +441,11 @@ type document struct {
 	Skills struct {
 		Repositories []string `json:"repositories"`
 	} `json:"skills"`
+	ClusterManager struct {
+		GitHub struct {
+			Enabled bool `json:"enabled"`
+		} `json:"github"`
+	} `json:"clusterManager"`
 }
 
 // Parse validates raw against the schema and resolves the inputs: the record
@@ -430,7 +459,8 @@ type document struct {
 // the cluster does not serve PodCertificateRequest, the chat or skill
 // repositories on an installation whose organisation hosts no portal for
 // them, the chat without a model, or on Vertex without its Google project or
-// location) is ErrInput too.
+// location, the cluster-manager's commit mode where no cluster-manager runs)
+// is ErrInput too.
 func Parse(raw any) (*Input, error) {
 	schemaBytes, err := definitions.FS.ReadFile("agent-platform/schema.json")
 	if err != nil {
@@ -472,7 +502,7 @@ func Parse(raw any) (*Input, error) {
 		return nil, err
 	}
 	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories,
-		Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport}
+		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval}
 	if in.Components, err = pol.components(in.Installation); err != nil {
 		return nil, err
 	}
@@ -582,6 +612,9 @@ func (in *Input) checkRecord() error {
 	}
 	if len(in.SkillRepositories) > 0 && in.hostedPortal() == nil {
 		return refuse(describe("skills.repositories") + " lists the skill repositories of the developer portal's agent-platform section, and no portal carries one for this installation: the record lists no portal hosted on it, nor its organisation's on a sibling that is not hand-kept")
+	}
+	if in.ClusterManagerCommit && !in.clusterManager() {
+		return refuse(fmt.Sprintf("%s asks for the cluster-manager's commit mode, and the fleet policy runs no cluster-manager on %s's installations", describe("clusterManager.github.enabled"), in.Installation.Customer))
 	}
 	if in.AIChat.Enabled && in.AIChat.Model == "" {
 		return refuse(describe("aiChat.model") + " is empty; the chat answers with one model, and the schema's default stands where none is typed")

@@ -34,10 +34,14 @@ input:
       targets:
         - installation: marmot
           baseDomain: marmot.example.io
+          servers: [kubernetes, prometheus, capi]
+          agentPlatform: true
           private: false
           hubs: [gopher, warren]
         - installation: vole
           baseDomain: vole.example.io
+          servers: [kubernetes, prometheus, capi]
+          agentPlatform: true
           private: false
           hubs: [warren]
 secrets: {}

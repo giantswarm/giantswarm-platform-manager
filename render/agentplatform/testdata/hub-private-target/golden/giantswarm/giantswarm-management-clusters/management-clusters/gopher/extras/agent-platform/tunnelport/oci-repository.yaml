@@ -6,7 +6,7 @@ metadata:
   name: tunnelport
   namespace: flux-giantswarm
 spec:
-  interval: 10m
+  interval: 1m
   url: oci://gsoci.azurecr.io/charts/giantswarm/tunnelport
   ref:
     semver: '>=1.0.4'
