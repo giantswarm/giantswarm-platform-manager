@@ -91,6 +91,9 @@ func (in *Input) componentToggles(components render.Map) render.Map {
 
 // componentValues appends the enabled components' values to the configmap patch.
 func (in *Input) componentValues(m render.Map) render.Map {
+	if v := in.agentManagerValues(); len(v) > 0 {
+		m = append(m, e(componentAgentManager, v))
+	}
 	if in.klausGateway() {
 		m = append(m, e("klausGateway", in.klausGatewayValues()))
 	}
@@ -99,6 +102,33 @@ func (in *Input) componentValues(m render.Map) render.Map {
 		if np := in.clusterManagerNetworkPolicy(); len(np) > 0 {
 			m = append(m, e("clusterManager", render.Map{e("networkPolicy", np)}))
 		}
+	}
+	if in.modelManager() && in.ModelManagerCommit {
+		m = append(m, e(componentModelManager, render.Map{githubEnabled()}))
+	}
+	return m
+}
+
+// githubEnabled is a manager chart's commit mode: registered with muster
+// pinned to the manager's GitHub App, the pull request opened as the person,
+// with the App's OAuth client from the installation's own Secret
+// (giantswarm-<manager>-oauth-client, the chart's default, not rendered).
+func githubEnabled() render.Entry { return e("github", render.Map{e("enabled", true)}) }
+
+// agentManagerValues is the agent-manager's section where it runs: on the 3
+// line its OAuth section, and with the person's choice its commit mode. Its
+// egress to GitHub's API is the connectivity chart's default (skill
+// discovery), so commit mode adds none.
+func (in *Input) agentManagerValues() render.Map {
+	var m render.Map
+	if !in.agentManager() {
+		return m
+	}
+	if in.Installation.ChartLine == lineThree {
+		m = append(m, e("oauth", in.managerOAuth(componentAgentManager)))
+	}
+	if in.AgentManagerCommit {
+		m = append(m, githubEnabled())
 	}
 	return m
 }
@@ -160,7 +190,7 @@ func (in *Input) clusterManagerValues() render.Map {
 		m = append(m, e("oauth", in.managerOAuth(componentClusterManager)))
 	}
 	if in.ClusterManagerCommit {
-		m = append(m, e("github", render.Map{e("enabled", true)}))
+		m = append(m, githubEnabled())
 	}
 	return m
 }

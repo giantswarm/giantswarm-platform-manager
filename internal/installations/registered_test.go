@@ -145,7 +145,7 @@ func TestReadRegistered(t *testing.T) {
 	want := []RegisteredServer{
 		{Name: "pond-mcp-timescale", URL: "https://mcp-timescale.pond.lakeside.example/mcp", Auth: authExchange, DexTokenEndpoint: "https://dex.pond.lakeside.example/token"}, // #nosec G101 -- an endpoint URL, not a credential
 		{Name: "reeds-mcp-docs", URL: "https://mcp-docs.reeds.lakeside.example/mcp", Auth: authForward},
-		{Name: "github", URL: "https://api.githubcopilot.com/mcp/", Auth: authOAuth, GitHubGrant: true},
+		{Name: keyGitHub, URL: "https://api.githubcopilot.com/mcp/", Auth: authOAuth, GitHubGrant: true},
 		{Name: "gazelle-mcp-runbooks", URL: "http://mcp-runbooks.mcp-runbooks.svc:8080/mcp", Auth: authNone},
 		{Name: "github-shared", URL: "https://api.githubcopilot.com/mcp/", Auth: authOAuth},
 	}
