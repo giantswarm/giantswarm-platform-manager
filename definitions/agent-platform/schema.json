@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/giantswarm/giantswarm-platform-manager/main/definitions/agent-platform/schema.json",
   "title": "agent-platform definition inputs",
-  "description": "The input set of the agent-platform capability: the installation's record and the person's choices. Everything the fileset carries derives from the record (installation.*: the registry and the installation's config.yaml.patch, read, never typed), from the fleet policy (policy.yaml: which components an owning organisation's installations run, the installations with a Slack app — where the chat gateway runs — and the gateway's shape, the connector names a target's Dex registers for a hub and the Teleport cluster) and from the shared template; a person decides whether the installation serves models, where its stateful singletons run, whether its developer portal runs the AI chat, and with what model, which repositories the portal's agent creation discovers skills in, and whether the cluster-manager commits through its GitHub App. Annotations: x-source says where a value comes from (registry: read from the installations registry or the repositories, never typed; generated: created once and read back from the checkout; person: a choice). x-feature names the consistency feature of features.yaml. x-files names the repository file each fileset key is rendered to (<name> the installation; document the path in the file of the YAML text its keys sit in, a key with dots in it bracketed); x-readback on a person input names the file — one, or several, the first on record holding the key answering — and key its value is read back from on record (kind value, present or host). x-renders lists the key paths the input produces, prefixed by the file: configmap (agent-platform configmap-values.yaml.patch), dex-configmap (the dex-app patch), extras (extras/agent-platform/ and the MCP servers' extras), backstage:* (the portal's agent-platform Component), teleport (teleport-fleet). List indices are written [*], per-installation map keys <name>.",
+  "description": "The input set of the agent-platform capability: the installation's record and the person's choices. Everything the fileset carries derives from the record (installation.*: the registry and the installation's config.yaml.patch, read, never typed), from the fleet policy (policy.yaml: which components an owning organisation's installations run, the installations with a Slack app — where the chat gateway runs — and the gateway's shape, the connector names a target's Dex registers for a hub and the Teleport cluster) and from the shared template; a person decides whether the installation serves models, where its stateful singletons run, whether its developer portal runs the AI chat, and with what model, which repositories the portal's agent creation discovers skills in, and whether the cluster-manager, the model-manager and the agent-manager commit through their GitHub Apps. Annotations: x-source says where a value comes from (registry: read from the installations registry or the repositories, never typed; generated: created once and read back from the checkout; person: a choice). x-feature names the consistency feature of features.yaml. x-files names the repository file each fileset key is rendered to (<name> the installation; document the path in the file of the YAML text its keys sit in, a key with dots in it bracketed); x-readback on a person input names the file — one, or several, the first on record holding the key answering — and key its value is read back from on record (kind value, present or host). x-renders lists the key paths the input produces, prefixed by the file: configmap (agent-platform configmap-values.yaml.patch), dex-configmap (the dex-app patch), extras (extras/agent-platform/ and the MCP servers' extras), backstage:* (the portal's agent-platform Component), teleport (teleport-fleet). List indices are written [*], per-installation map keys <name>.",
   "type": "object",
   "additionalProperties": false,
   "required": ["installation"],
@@ -227,6 +227,50 @@
           "x-feature": "portal",
           "x-renders": ["backstage:app-config:agentPlatform.skills.repositories"],
           "description": "The GitHub repositories the portal's agent creation discovers skills in (agentPlatform.skills.repositories): every SKILL.md in one is a skill the create flow offers. The Component's fragment carries the list, on a hand-kept portal too, since the list is read back from the portal's own files; none, the key is not written and the catalog is empty, the plugin's default. Read back from the fragment on record, else from the portal's own app-config — a hand-kept portal lists the repositories there, and the list moves into the fragment at the next reconcile."
+        }
+      }
+    },
+    "modelManager": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One choice: the model-manager's commit mode.",
+      "properties": {
+        "github": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "x-source": "person",
+              "x-readback": {"file": "configmap", "key": "model-manager.github.enabled"},
+              "x-feature": "runtime",
+              "x-renders": ["configmap:model-manager.github.enabled"],
+              "description": "The model-manager's commit mode through its GitHub App (model-manager.github.enabled): the chart registers with muster pinned to the App and wire_model, unwire_model and the kserve load_model and unload_model take mode: commit, the pull request opened as the person in the repository that owns the target namespace. The connectivity chart opens its egress to api.github.com (GET /user, the pull request). The App's OAuth client is the installation's own Secret, giantswarm-model-manager-oauth-client in agent-platform, not rendered. On the 4 chart line only, where the model-manager runs. Read back from the configmap patch on record."
+            }
+          }
+        }
+      }
+    },
+    "agentManager": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One choice: the agent-manager's commit mode.",
+      "properties": {
+        "github": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "x-source": "person",
+              "x-readback": {"file": "configmap", "key": "agent-manager.github.enabled"},
+              "x-feature": "runtime",
+              "x-renders": ["configmap:agent-manager.github.enabled"],
+              "description": "The agent-manager's commit mode through its GitHub App (agent-manager.github.enabled): the chart registers with muster pinned to the App and create_agent, update_agent and delete_agent take mode: commit, the pull request opened as the person in the repository that owns the target namespace. The connectivity chart opens its egress to api.github.com (GET /user, the pull request). The App's OAuth client is the installation's own Secret, giantswarm-agent-manager-oauth-client in agent-platform, not rendered. Where the fleet policy runs the agent-manager only. Read back from the configmap patch on record."
+            }
+          }
         }
       }
     },

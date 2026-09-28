@@ -205,9 +205,6 @@ func (in *Input) configmapPatch() render.Map {
 	if len(mcps) > 0 {
 		m = append(m, e("agent-platform-mcps", mcps))
 	}
-	if in.agentManager() && in.Installation.ChartLine == lineThree {
-		m = append(m, e("agent-manager", render.Map{e("oauth", in.managerOAuth("agent-manager"))}))
-	}
 	m = in.componentValues(m)
 	if in.singletonsOnDemand() {
 		m = append(m, e("scheduling", render.Map{e("singletons", render.Map{

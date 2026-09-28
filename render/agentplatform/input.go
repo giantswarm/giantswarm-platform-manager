@@ -102,6 +102,11 @@ type Input struct {
 	// commit mode through its GitHub App (clusterManager.github.enabled), read
 	// back from the configmap patch on record.
 	ClusterManagerCommit bool
+	// ModelManagerCommit and AgentManagerCommit are the person's choices of
+	// the model-manager's and the agent-manager's commit mode through their
+	// GitHub Apps (modelManager.github.enabled, agentManager.github.enabled),
+	// read back from the configmap patch on record.
+	ModelManagerCommit, AgentManagerCommit bool
 	// Components are the components the policy gives the installation, by
 	// name: its organisation's list and, where the policy names a Slack app
 	// for the installation, the chat gateway.
@@ -441,11 +446,17 @@ type document struct {
 	Skills struct {
 		Repositories []string `json:"repositories"`
 	} `json:"skills"`
-	ClusterManager struct {
-		GitHub struct {
-			Enabled bool `json:"enabled"`
-		} `json:"github"`
-	} `json:"clusterManager"`
+	ClusterManager commitChoice `json:"clusterManager"`
+	ModelManager   commitChoice `json:"modelManager"`
+	AgentManager   commitChoice `json:"agentManager"`
+}
+
+// commitChoice is a manager's commit mode through its GitHub App: the one
+// choice clusterManager, modelManager and agentManager each carry.
+type commitChoice struct {
+	GitHub struct {
+		Enabled bool `json:"enabled"`
+	} `json:"github"`
 }
 
 // Parse validates raw against the schema and resolves the inputs: the record
@@ -502,7 +513,7 @@ func Parse(raw any) (*Input, error) {
 		return nil, err
 	}
 	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories,
-		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval}
+		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval}
 	if in.Components, err = pol.components(in.Installation); err != nil {
 		return nil, err
 	}
@@ -615,6 +626,12 @@ func (in *Input) checkRecord() error {
 	}
 	if in.ClusterManagerCommit && !in.clusterManager() {
 		return refuse(fmt.Sprintf("%s asks for the cluster-manager's commit mode, and the fleet policy runs no cluster-manager on %s's installations", describe("clusterManager.github.enabled"), in.Installation.Customer))
+	}
+	if in.AgentManagerCommit && !in.agentManager() {
+		return refuse(fmt.Sprintf("%s asks for the agent-manager's commit mode, and the fleet policy runs no agent-manager on %s's installations", describe("agentManager.github.enabled"), in.Installation.Customer))
+	}
+	if in.ModelManagerCommit && !in.modelManager() {
+		return refuse(describe("modelManager.github.enabled") + " asks for the model-manager's commit mode, and the model-manager runs on the platform's 4 chart line only; agentPlatform.kagentApiV2: true in the installation's config.yaml.patch selects 4")
 	}
 	if in.AIChat.Enabled && in.AIChat.Model == "" {
 		return refuse(describe("aiChat.model") + " is empty; the chat answers with one model, and the schema's default stands where none is typed")

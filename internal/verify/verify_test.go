@@ -651,17 +651,18 @@ func doc(domain, customer string, serving bool) map[string]any {
 // them. The record's facts are not among them.
 func TestDrivenInputsAreThePersonsAndTheTyped(t *testing.T) {
 	const skillsInput, commitInput = "skills.repositories", "clusterManager.github.enabled"
+	const agentCommitInput, modelCommitInput = "agentManager.github.enabled", "modelManager.github.enabled"
 	def, ok := installations.FindCapability(installations.AgentPlatform)
 	if !ok {
 		t.Fatal("no agent-platform definition")
 	}
 	chatInputs := []string{"aiChat.enabled", "aiChat.google.location", "aiChat.google.project", "aiChat.model", "aiChat.provider"}
 	got, err := drivenInputs(def, Inputs{Values: doc("a.test", "acme", true)})
-	if err != nil || !reflect.DeepEqual(got, append(slices.Clone(chatInputs), commitInput, servingInput, "scheduling.singletonsCapacity", skillsInput)) {
+	if err != nil || !reflect.DeepEqual(got, slices.Concat([]string{agentCommitInput}, chatInputs, []string{commitInput, modelCommitInput, servingInput, "scheduling.singletonsCapacity", skillsInput})) {
 		t.Errorf("from the record: %v %v", got, err)
 	}
 	got, err = drivenInputs(def, Inputs{Values: doc("a.test", "acme", true), Typed: doc("b.test", "acme", false)})
-	if err != nil || !reflect.DeepEqual(got, append(slices.Clone(chatInputs), commitInput, baseDomainInput, customerInput, servingInput, "scheduling.singletonsCapacity", skillsInput)) {
+	if err != nil || !reflect.DeepEqual(got, slices.Concat([]string{agentCommitInput}, chatInputs, []string{commitInput, baseDomainInput, customerInput, modelCommitInput, servingInput, "scheduling.singletonsCapacity", skillsInput})) {
 		t.Errorf("with facts typed: %v %v", got, err)
 	}
 }

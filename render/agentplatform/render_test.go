@@ -556,6 +556,10 @@ func TestRefusals(t *testing.T) {
 		{"commit mode where no cluster-manager runs", clone(func(m map[string]any) {
 			m["clusterManager"] = map[string]any{"github": map[string]any{keyEnabled: true}}
 		}), secrets, ErrInput, "clusterManager.github.enabled"},
+		{"model-manager commit mode on the 3 line", clone(func(m map[string]any) {
+			m["installation"].(map[string]any)["chartLine"] = lineThree
+			m["modelManager"] = map[string]any{"github": map[string]any{keyEnabled: true}}
+		}), secrets, ErrInput, "modelManager.github.enabled"},
 		{"targets without a broker client", clone(func(m map[string]any) {
 			federation(m)["targets"] = []any{target(false)}
 		}), secrets, ErrInput, "federation.brokerClientId"},
@@ -611,6 +615,59 @@ func TestClusterManagerCommitModeAndEgress(t *testing.T) {
 				t.Errorf("egress:\n%s\nwant:\n%s", got, c.egress)
 			}
 		})
+	}
+}
+
+// TestManagersCommitMode renders the model-manager's and the agent-manager's
+// commit mode from their choices: each adds its chart's github.enabled, off
+// neither is written; the agent-manager's is refused where the policy runs
+// none.
+func TestManagersCommitMode(t *testing.T) {
+	for _, c := range []struct {
+		name         string
+		model, agent bool
+		wantM, wantA string
+	}{
+		{"both on", true, true, "github:\n  enabled: true\n", "github:\n  enabled: true\n"},
+		{"model-manager only", true, false, "github:\n  enabled: true\n", ""},
+		{"both off", false, false, "", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			input, secrets := loadInput(t, shapeHubPrivateTarget)
+			input["modelManager"] = map[string]any{"github": map[string]any{keyEnabled: c.model}}
+			input["agentManager"] = map[string]any{"github": map[string]any{keyEnabled: c.agent}}
+			result, err := Render(input, secrets, render.ModeCommit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var patch map[string]any
+			for name, content := range result.Tree() {
+				if strings.HasSuffix(name, "apps/agent-platform/configmap-values.yaml.patch") {
+					if err := yaml.Unmarshal(content, &patch); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			if patch == nil {
+				t.Fatal("no configmap patch rendered")
+			}
+			for key, want := range map[string]string{"model-manager": c.wantM, "agent-manager": c.wantA} {
+				got := ""
+				if v, ok := patch[key].(map[string]any); ok && v["github"] != nil {
+					got = string(render.MustYAML(map[string]any{"github": v["github"]}))
+				}
+				if got != want {
+					t.Errorf("%s:\n%s\nwant:\n%s", key, got, want)
+				}
+			}
+		})
+	}
+	input, secrets := loadInput(t, shapeHubPrivateTarget)
+	input["installation"].(map[string]any)["customer"] = "fleetio"
+	input["clusterManager"] = map[string]any{"github": map[string]any{keyEnabled: false}}
+	input["agentManager"] = map[string]any{"github": map[string]any{keyEnabled: true}}
+	if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "agentManager.github.enabled") {
+		t.Fatalf("agent-manager commit mode where the policy runs none: %v", err)
 	}
 }
 
