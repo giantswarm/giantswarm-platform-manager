@@ -139,10 +139,16 @@ const (
 	// traces from observability.otel; an earlier chart's schema refuses the
 	// key.
 	portalTraces = "2.68.0"
+	// portalMetrics is the first portal chart that serves the backend's
+	// Prometheus metrics from observability.metrics and renders a
+	// ServiceMonitor; an earlier chart's schema refuses both keys.
+	portalMetrics = "2.73.1"
+	// portalTenant is the Mimir tenant of the portal's traces and metrics.
+	portalTenant = "giantswarm"
 	// portalOTLPEndpoint is the installation's OTLP gateway, which takes the
 	// tenant from portalOTLPHeaders.
 	portalOTLPEndpoint = "http://otlp-gateway.kube-system.svc.cluster.local:4317"
-	portalOTLPHeaders  = "X-Scope-OrgID=giantswarm"
+	portalOTLPHeaders  = "X-Scope-OrgID=" + portalTenant
 )
 
 // The actions service lists the actions of these plugins for the chat's
@@ -278,9 +284,10 @@ func (in *Input) portalAppConfig() render.Map {
 // extra app-config file, with its checksum where the portal's chart rolls
 // the pod on it (Backstage reads the file at start, and a changed ConfigMap
 // alone changes nothing the HelmRelease sees), the OTLP export of the
-// backend's traces where the chart takes it, and, for a chat on Vertex,
-// the Google project and location the chart exports to the pod. No list:
-// the portal's environment is the customer-portal definition's.
+// backend's traces and its scraped metrics where the chart takes them, and,
+// for a chat on Vertex, the Google project and location the chart exports to
+// the pod. No list: the portal's environment is the customer-portal
+// definition's.
 func (in *Input) portalValues() render.Map {
 	fragment := render.Map{e("filename", portalAppConfigFile), e("configMapRef", portalAppConfigMap)}
 	if in.portalRollsOnFragment() {
@@ -288,8 +295,16 @@ func (in *Input) portalValues() render.Map {
 	}
 	m := render.Map{e("backstage", render.Map{e("extraAppConfig", []render.Map{fragment})})}
 	if in.portalExportsTraces() {
-		m = append(m, e("observability", render.Map{e("otel", render.Map{
-			e("endpoint", portalOTLPEndpoint), e("protocol", "grpc"), e("headers", portalOTLPHeaders)})}))
+		observability := render.Map{e("otel", render.Map{
+			e("endpoint", portalOTLPEndpoint), e("protocol", "grpc"), e("headers", portalOTLPHeaders)})}
+		if in.portalServesMetrics() {
+			observability = append(observability, e("metrics", render.Map{e("enabled", true)}))
+		}
+		m = append(m, e("observability", observability))
+	}
+	if in.portalServesMetrics() {
+		m = append(m, e("serviceMonitor", render.Map{e("enabled", true),
+			e("labels", render.Map{e("observability.giantswarm.io/tenant", portalTenant)})}))
 	}
 	if in.aiChatVertex() {
 		m = append(m, e("google", render.Map{e("project", in.AIChat.Google.Project), e("location", in.AIChat.Google.Location)}))
@@ -349,6 +364,14 @@ func (in *Input) portalRollsOnFragment() bool {
 func (in *Input) portalExportsTraces() bool {
 	p := in.hostedPortal()
 	return p != nil && portalChartAdmits(p.ChartLine, semver.MustParse(portalTraces))
+}
+
+// portalServesMetrics says whether the hosted portal's chart takes
+// observability.metrics and serviceMonitor: its chart line resolves to
+// portalMetrics or later.
+func (in *Input) portalServesMetrics() bool {
+	p := in.hostedPortal()
+	return p != nil && portalChartAdmits(p.ChartLine, semver.MustParse(portalMetrics))
 }
 
 // portalReadsFluxServiceAccount says whether the hosted portal may run a

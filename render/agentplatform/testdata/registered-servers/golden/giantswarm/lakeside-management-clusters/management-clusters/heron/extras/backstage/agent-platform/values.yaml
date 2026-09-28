@@ -17,3 +17,9 @@ data:
         endpoint: http://otlp-gateway.kube-system.svc.cluster.local:4317
         protocol: grpc
         headers: X-Scope-OrgID=giantswarm
+      metrics:
+        enabled: true
+    serviceMonitor:
+      enabled: true
+      labels:
+        observability.giantswarm.io/tenant: giantswarm
