@@ -250,7 +250,8 @@ func chatActions() render.Map {
 // entries where the chat is on, with the Grafana dashboards card where the
 // portal's plugin is wired) and the installation's muster; and, with the
 // chat on, the aiChat block, the actions server's tool naming and the
-// actions the service lists for it.
+// actions the service lists for it; where the portal reads GitHub through
+// this installation's muster, the gs block for it (github.go).
 func (in *Input) portalAppConfig() render.Map {
 	m := render.Map{}
 	if in.portalOwnsLists() {
@@ -271,6 +272,9 @@ func (in *Input) portalAppConfig() render.Map {
 	}
 	if in.portalOwnsLists() {
 		m = append(m, e("muster", render.Map{e("installations", []render.Map{in.musterEntry(in.Installation.Name)})}))
+	}
+	if in.portalGitHub() {
+		m = append(m, e("gs", in.portalGitHubConfig()))
 	}
 	if in.aiChat() {
 		m = append(m, e("aiChat", in.aiChatSection()),
@@ -421,7 +425,9 @@ func valuesSource(kind, name string) render.Map {
 
 // portalFiles renders the platform's directory under the portal's
 // extras/backstage/: the fragment's ConfigMap, the values that mount it,
-// the chat's credentials Secret where the Component carries the key, and
+// the chat's credentials Secret where the Component carries the key, the
+// broker client's Secret where the portal reads GitHub through this
+// installation's muster (github.go), and
 // the Component listing them with the patch that appends the values sources
 // to the portal's HelmRelease.
 func (in *Input) portalFiles(r *render.Result, repo render.Repository, dir string, secrets map[string]string) {
@@ -433,6 +439,11 @@ func (in *Input) portalFiles(r *render.Result, repo render.Repository, dir strin
 		r.Add(repo, dir+"/"+portalCredentialsFile, in.chatCredentials(secrets))
 		resources = append(resources, portalCredentialsFile)
 		ops = append(ops, valuesSource("Secret", portalCredentialsSecret))
+	}
+	if in.portalGitHub() {
+		r.Add(repo, dir+"/"+portalBrokerFile, in.portalBrokerCredentials())
+		resources = append(resources, portalBrokerFile)
+		ops = append(ops, valuesSource("Secret", portalBrokerSecret))
 	}
 	component := render.Map{e("apiVersion", "kustomize.config.k8s.io/v1alpha1"), e("kind", "Component"),
 		e("resources", resources),

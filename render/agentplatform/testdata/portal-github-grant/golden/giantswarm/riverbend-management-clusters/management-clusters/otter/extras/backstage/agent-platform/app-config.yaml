@@ -1,0 +1,31 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-platform-app-config-backstage
+  namespace: backstage
+data:
+  app-config.agent-platform.yaml: |
+    app:
+      extensions:
+        $include: shared-config.yaml#extensionsAgentPlatform
+    agentPlatform:
+      kagent:
+        installations:
+          otter: {}
+    muster:
+      installations:
+        - name: otter
+          url: https://muster.otter.riverbend.example/mcp
+          authProvider: oidc-otter
+    gs:
+      clusterTokenBroker:
+        clientId: $${AUTH_DEX_MUSTER_BROKER_CLIENT_ID}
+        clientSecret: $${AUTH_DEX_MUSTER_BROKER_CLIENT_SECRET}
+        tokenUrl: https://muster.otter.riverbend.example/oauth/token
+      github:
+        brokerAudience: github
+        muster:
+          installation: otter
+          server: github

@@ -48,13 +48,15 @@ func AgentPlatformExtrasPath(name string) string {
 // RegisteredServer is an MCP server registered on the installation beyond
 // the platform's own three, as the definitions' installation.mcpServers[*]
 // names it: the object's name, where muster reaches it, how muster
-// authenticates to it (none, forward, exchange, oauth) and, for exchange, the
-// Dex the exchange runs at.
+// authenticates to it (none, forward, exchange, oauth), for exchange the
+// Dex the exchange runs at, and for oauth whether it holds the person's own
+// GitHub grant: GitHub's authorization server, each person's grant their own.
 type RegisteredServer struct {
 	Name             string `json:"name"`
 	URL              string `json:"url"`
 	Auth             string `json:"auth"`
 	DexTokenEndpoint string `json:"dexTokenEndpoint,omitempty"`
+	GitHubGrant      bool   `json:"githubGrant,omitempty"`
 }
 
 // RegisteredClient is an MCP client registered on the installation with a
@@ -72,6 +74,13 @@ type Registered struct {
 	Servers []RegisteredServer `json:"servers"`
 	Clients []RegisteredClient `json:"clients"`
 }
+
+// A server holds the person's own GitHub grant where its authorization server
+// is GitHub's and its grants are scoped to the person (muster's grantScope).
+const (
+	githubIssuer      = "https://github.com/login/oauth"
+	grantScopeSubject = "subject"
+)
 
 // The ways muster authenticates to a registered server, in the
 // agent-platform-mcps chart's words.
@@ -222,7 +231,8 @@ func documents(data string, fn func(doc *yaml.Node) error) error {
 // for a document of another kind, an error for an MCPServer without a name or
 // a URL. The auth mode follows muster's spec: a token exchange enabled is
 // exchange, an authorization server named is oauth, forwardToken is forward,
-// anything else none.
+// anything else none. An oauth server at GitHub's authorization server with
+// subject-scoped grants holds the person's GitHub grant.
 func registeredServer(doc *yaml.Node) (RegisteredServer, bool, error) {
 	var o struct {
 		Kind     string `yaml:"kind"`
@@ -238,7 +248,8 @@ func registeredServer(doc *yaml.Node) (RegisteredServer, bool, error) {
 					DexTokenEndpoint string `yaml:"dexTokenEndpoint"`
 				} `yaml:"tokenExchange"`
 				AuthorizationServer struct {
-					Issuer string `yaml:"issuer"`
+					Issuer     string `yaml:"issuer"`
+					GrantScope string `yaml:"grantScope"`
 				} `yaml:"authorizationServer"`
 			} `yaml:"auth"`
 		} `yaml:"spec"`
@@ -257,7 +268,8 @@ func registeredServer(doc *yaml.Node) (RegisteredServer, bool, error) {
 	case o.Spec.Auth.TokenExchange.Enabled:
 		s.Auth, s.DexTokenEndpoint = authExchange, o.Spec.Auth.TokenExchange.DexTokenEndpoint
 	case o.Spec.Auth.AuthorizationServer.Issuer != "":
-		s.Auth = authOAuth
+		as := o.Spec.Auth.AuthorizationServer
+		s.Auth, s.GitHubGrant = authOAuth, as.Issuer == githubIssuer && as.GrantScope == grantScopeSubject
 	case o.Spec.Auth.ForwardToken:
 		s.Auth = authForward
 	}

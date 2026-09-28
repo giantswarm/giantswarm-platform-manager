@@ -322,7 +322,7 @@ func (in *Input) musterValues() render.Map {
 	if uris := in.clientRedirectURIs(); len(uris) > 0 {
 		server = append(server, e("trustedPublicRegistrationRedirectURIs", uris))
 	}
-	if len(in.Installation.Federation.Targets) > 0 {
+	if in.brokers() {
 		server = append(server, e("tokenExchangeBroker", in.brokerValues()))
 	}
 	oauth := render.Map{}
@@ -605,7 +605,7 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 		add(dexClientSecretFile(client), dexClientSecret(client, exchangeSecretName(client)).
 			Peered(exchangeSecretName(client), render.Peer{Installation: hub, Path: secretsPath(hub, credentialsSecretName(in.Installation.Name)+".yaml")}))
 	}
-	if len(in.Installation.Federation.Targets) > 0 {
+	if in.brokers() {
 		in.hubSecrets(add)
 	}
 	in.componentSecrets(add, secrets)
