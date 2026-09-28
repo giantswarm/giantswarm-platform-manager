@@ -3,5 +3,3 @@
 resources:
   - https://github.com/giantswarm/management-cluster-bases/extras/backstage/base?ref=main
   - ./backstage/
-components:
-  - ./agent-platform/
