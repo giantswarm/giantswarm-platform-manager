@@ -119,6 +119,9 @@ type Difference struct {
 	// absent says the record has no leaf at the path (the file is created,
 	// or the leaf is new): what a migration adds.
 	absent bool
+	// dropped says the record holds the leaf encrypted and the render has
+	// none: the commit drops a value the manager cannot carry over.
+	dropped bool
 }
 
 // Dimension is one observed aspect of a feature with its mark.
@@ -228,6 +231,7 @@ type Result struct {
 	GeneratedSecrets []plan.GeneratedSecret `json:"generatedSecrets"`
 	SuppliedSecrets  []string               `json:"suppliedSecrets"`
 	SuppliedOnRecord []string               `json:"suppliedOnRecord,omitempty"`
+	HubSections      []string               `json:"hubSections,omitempty"`
 	DexClients       []plan.DexClient       `json:"dexClients"`
 	CustomerActions  []plan.CustomerAction  `json:"customerActions"`
 	Probes           []plan.Probe           `json:"probes"`
@@ -237,7 +241,8 @@ type Result struct {
 // and on record, only when asked for.
 func (r *Result) view(p plan.Installation, content bool) {
 	r.Files, r.Includes, r.Diff = p.Files, p.Includes, p.Diff
-	r.GeneratedSecrets, r.SuppliedSecrets, r.SuppliedOnRecord, r.DexClients, r.CustomerActions, r.Probes = p.GeneratedSecrets, p.SuppliedSecrets, p.SuppliedOnRecord, p.DexClients, p.CustomerActions, p.Probes
+	r.GeneratedSecrets, r.SuppliedSecrets, r.SuppliedOnRecord, r.HubSections = p.GeneratedSecrets, p.SuppliedSecrets, p.SuppliedOnRecord, p.HubSections
+	r.DexClients, r.CustomerActions, r.Probes = p.DexClients, p.CustomerActions, p.Probes
 	if !content {
 		r.Files = make([]plan.File, len(p.Files))
 		for i, f := range p.Files {
@@ -252,7 +257,7 @@ func (r *Result) view(p plan.Installation, content bool) {
 func (r Result) Plan() plan.Installation {
 	return plan.Installation{Name: r.Installation, State: r.State, Inputs: r.Inputs.Values, MissingInputs: r.Inputs.Missing, Refused: r.Refused, CommitRefused: r.CommitRefused,
 		Files: r.Files, Includes: r.Includes, Diff: r.Diff, GeneratedSecrets: r.GeneratedSecrets, SuppliedSecrets: r.SuppliedSecrets, SuppliedOnRecord: r.SuppliedOnRecord,
-		DexClients: r.DexClients, CustomerActions: r.CustomerActions, Probes: r.Probes}
+		HubSections: r.HubSections, DexClients: r.DexClients, CustomerActions: r.CustomerActions, Probes: r.Probes}
 }
 
 // Options shape one verify.
@@ -268,6 +273,10 @@ type Options struct {
 	Content bool
 	// Probes sends the anonymous probes; nil is a client that does not follow redirects.
 	Probes *http.Client
+	// Rotate names the generated values the plan rotates on request (plan.Options.Rotate).
+	Rotate []string
+	// Installations are the registry's installations by name (plan.Options.Installations).
+	Installations map[string]installations.Installation
 }
 
 // Compare answers the verify of opts' installation.
@@ -410,7 +419,9 @@ const Redacted = "<encrypted>"
 // it creates or updates differs at the leaves of the file as the plan
 // writes it that are off the record, each under a key the removals name
 // marked planned, as is each the record lacks under a key the migrations
-// name. The plan is the second answer, the definition's refusal the error.
+// name; the plan names the sections of the hub's Dev Portal whose value on
+// record those removals take (HubSections). The plan is the second answer,
+// the definition's refusal the error.
 func compare(ctx context.Context, opts Options, rms, migs plannedKeys) (*comparison, plan.Installation, error) {
 	rs := &reads{read: opts.Read, got: map[string]read{}}
 	p, base, err := build(ctx, opts, opts.Inputs.Values, rs.reader)
@@ -426,6 +437,7 @@ func compare(ctx context.Context, opts Options, rms, migs plannedKeys) (*compari
 		return other, err
 	})
 	c := &comparison{files: map[string]*fileDiff{}, dexClients: p.DexClients}
+	hub := map[string]bool{}
 	for _, f := range rendered(p) {
 		key := fileKey(f.Repository, f.Path)
 		fd := &fileDiff{key: key, path: f.Path, kind: kindOf(f.Path), documents: flattenLines(f.Content).documents}
@@ -438,11 +450,15 @@ func compare(ctx context.Context, opts Options, rms, migs plannedKeys) (*compari
 			maps.Copy(fd.documents, docs)
 			for i := range fd.diffs {
 				fd.diffs[i].Planned = planned(fd, &fd.diffs[i], rms, migs)
+				if section := rms.hubSection(fd, &fd.diffs[i]); section != "" {
+					hub[section] = true
+				}
 			}
 		}
 		fd.missing = missingLeaves(base[key])
 		c.files[key] = fd
 	}
+	p.HubSections = rms.hubSections(hub)
 	shown(p.Files)
 	return c, p, nil
 }
@@ -468,14 +484,18 @@ func shown(files []plan.File) {
 
 // planned is the reason a difference is a planned change: the removal that
 // names its path, or, for a leaf the record lacks, the migration that adds
-// it. A leaf the record holds with another value is no migration's — but
-// for a scalar the plan merges as a comma-separated set, whose only change
-// is the entries the migrations add (joined).
+// it, or, for a value the record holds encrypted that the render does not
+// carry, its removal by the commit (droppedReason). A leaf the record holds
+// with another value is no migration's — but for a scalar the plan merges as
+// a comma-separated set, whose only change is the entries the migrations
+// add (joined).
 func planned(fd *fileDiff, d *Difference, rms, migs plannedKeys) string {
 	if reason := rms.reason(fd, d.Path); reason != "" {
 		return reason
 	}
 	switch {
+	case d.dropped:
+		return droppedReason(d.Path)
 	case d.absent:
 		return migs.reason(fd, d.Path)
 	case plan.JoinedList(fd.path, d.Path):
@@ -484,11 +504,18 @@ func planned(fd *fileDiff, d *Difference, rms, migs plannedKeys) string {
 	return ""
 }
 
+// droppedReason is the planned change of a value the record holds encrypted
+// that no input renders: the manager decrypts nothing, so the commit cannot
+// carry it over and drops it — the key names the value, readable on record.
+func droppedReason(path string) string {
+	return "Removed: " + path + " is held encrypted on record and rendered by no input, and the manager decrypts nothing, so the commit drops it; a value still needed is supplied at commit where the definition asks for it, or kept by hand."
+}
+
 // build is the plan of values for opts' installation, read through read,
 // with the files the definition renders flattened to their leaves by key.
 // The definition's refusal is the error.
 func build(ctx context.Context, opts Options, values map[string]any, read plan.Reader) (plan.Installation, map[string]map[string]string, error) {
-	p := plan.Build(ctx, plan.Options{Definition: opts.Definition, Installation: opts.Installation, Hub: opts.Hub, Inputs: values, Content: true, Read: read})
+	p := plan.Build(ctx, plan.Options{Definition: opts.Definition, Installation: opts.Installation, Hub: opts.Hub, Inputs: values, Content: true, Read: read, Rotate: opts.Rotate, Installations: opts.Installations})
 	if p.Refused != "" {
 		return p, nil, errors.New(p.Refused)
 	}
@@ -526,8 +553,9 @@ func rendered(p plan.Installation) []plan.File {
 // entries under the key is the key without its entries, and the entries
 // are the differences. Of an encrypted file SOPS's own block takes no part, and a leaf SOPS encrypts
 // (one under its encrypted_regex) is the difference with the values
-// redacted; every other leaf of it — type, the metadata, apiVersion, kind —
-// shows its values like a plain file's. The lines of such a file are those
+// redacted; its labels and annotations take no part (plan.MetadataMark: the
+// kustomization carries them); every other leaf of it — type, the metadata,
+// apiVersion, kind — shows its values like a plain file's. The lines of such a file are those
 // of the file as the result shows it, redacted (shown).
 func differences(key string, rendered, current string, driven map[string]string) ([]Difference, map[string]bool) {
 	rendered_, current_ := flattenLines(rendered), flattenLines(current)
@@ -549,10 +577,11 @@ func differences(key string, rendered, current string, driven map[string]string)
 	for _, p := range diffPaths(want, got) {
 		w, okw := want[p]
 		g, okg := got[p]
-		if okw && okg && plan.Opaque(w, g) || encrypted && underSOPS(p) || okw && len(missingFields(w)) > 0 || encryptedText(documents, got, p) || emptied(want, got, p) {
+		if okw && okg && plan.Opaque(w, g) || encrypted && (underSOPS(p) || plan.MetadataMark(p)) || okw && len(missingFields(w)) > 0 || encryptedText(documents, got, p) || emptied(want, got, p) {
 			continue
 		}
-		d := Difference{File: key, Path: p, Rendered: w, Current: g, Line: wantLines[p], CurrentLine: gotLines[p], Input: driven[key+"#"+p], absent: !okg}
+		d := Difference{File: key, Path: p, Rendered: w, Current: g, Line: wantLines[p], CurrentLine: gotLines[p], Input: driven[key+"#"+p], absent: !okg,
+			dropped: encrypted && !okw && plan.Ciphertext(g)}
 		if encrypted && secret(p) {
 			d.Rendered, d.Current = redacted(okw), redacted(okg)
 		}

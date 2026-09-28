@@ -5,6 +5,10 @@
 # url is a Go template over {{.BaseDomain}} (the installation's), {{.Installation}} (its codename),
 # {{.PortalDomain}} (the portal's hostname, portal.domain) and, for perDexClient probes, {{.ClientID}}
 # and {{.RedirectURI}} (query-escaped) of every client the rendered dex patch declares.
+# dexConnectorStep takes an authorization request one step further: Dex's /auth only picks the
+# connector and answers the same for any client (its picker page, or a redirect to the one connector),
+# so the probe requests the /auth/<connector> that answer names and holds the connector's answer to
+# expect; the connector answers an unknown client 404 and an unregistered redirect URI 400.
 # expect lists the HTTP status codes that mean "as defined"; any other answer is drift, no answer
 # (a target unreachable from the manager) is not checked.
 probes:
@@ -20,7 +24,8 @@ probes:
     expect: [302]
   - id: dex-auth-request
     feature: identity
-    key: Dex answers the auth request of every client the definition declares (the login page or a redirect)
+    key: Dex knows every client the definition declares and its redirect URI (its connector answers the auth request with a redirect or its login form)
     url: https://dex.{{.BaseDomain}}/auth?client_id={{.ClientID}}&redirect_uri={{.RedirectURI}}&response_type=code&scope=openid
     perDexClient: true
+    dexConnectorStep: true
     expect: [200, 302]

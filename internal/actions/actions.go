@@ -24,6 +24,7 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 )
 
 // The API group and version of the Action, as the chart's CRD declares them.
@@ -63,8 +64,8 @@ type Spec struct {
 	InputsByInstallation map[string]map[string]any `json:"inputsByInstallation,omitempty"`
 	// Kind is "enable" or "reconcile".
 	Kind string `json:"kind"`
-	// Customer marks a customer installation as the target: the Account
-	// Engineers' channel is told of the review.
+	// Customer marks a customer installation among the targets: the Account
+	// Engineers' channel is told once its change is applied.
 	Customer bool `json:"customer,omitempty"`
 	// AccountEngineers names, for the customer installations among the
 	// targets, the account engineer the installations catalog records for
@@ -72,15 +73,37 @@ type Spec struct {
 	// without repeats, "none on record for <installation>" where the catalog
 	// names none — so the review and the notice say whose customer is touched.
 	AccountEngineers []string `json:"accountEngineers,omitempty"`
+	// AccountEngineerOf maps each customer installation among the targets to
+	// its account engineer as AccountEngineers words it: the notice to the
+	// Account Engineers' channel once that installation's change is applied
+	// names them.
+	AccountEngineerOf map[string]string `json:"accountEngineerOf,omitempty"`
+	// Reason is why the actor commits the change, in their words: required on
+	// a commit, the review's and the notices' "why".
+	Reason string `json:"reason,omitempty"`
+	// Changes is, per installation, what the commit changes as a person
+	// reads it (plan.Summary): one line per component — new, versions,
+	// values keys, rotated credentials. Names and versions, never a secret value.
+	Changes map[string][]string `json:"changes,omitempty"`
 	// Change is the plan's change in one clause — files by change, generated
 	// secrets by name — on the record and in the pull requests; never a value.
 	Change string `json:"change,omitempty"`
+	// Rotate names the generated values the person asked to rotate
+	// (reconcile_capability's rotate), sorted: the review names them apart
+	// from the rotations a file to write forced. Names only.
+	Rotate []string `json:"rotate,omitempty"`
 	// Markers are, per installation, the file whose presence on the default
 	// branch of its repository means the capability's fileset is on record
 	// — the definition's enabled marker, resolved to the installation's
 	// repository as "owner/repo:path" — what the resync reads to see the
 	// fileset gone again (a revert). Recorded at commit.
 	Markers map[string]string `json:"markers,omitempty"`
+	// KeptByInstallation are, per installation, the entries of the platform
+	// patch's audience lists the commit kept beside the render
+	// (plan.LiveKept): the live probes hold the objects against the value
+	// the commit wrote, render and kept entries, not the bare render.
+	// Recorded at commit; ids only, never a secret value.
+	KeptByInstallation map[string][]plan.Kept `json:"keptByInstallation,omitempty"`
 	// Skipped are the installations of the set a wave left out, and why:
 	// never a target, no pull request.
 	Skipped []Skipped `json:"skipped,omitempty"`
@@ -101,8 +124,10 @@ type Actor struct {
 
 // Status is how the action went, under the status subresource.
 type Status struct {
-	// State is one of the installations' states an action produces: pending
-	// approval, rolling out, waiting for the customer, enabled, failed.
+	// State is one of the installations' states an action produces —
+	// pending approval, rolling out, waiting for the customer, enabled,
+	// drifted, failed — or one of the action's own: refused, denied,
+	// reverted, withdrawn, removed.
 	State        string        `json:"state,omitempty"`
 	PullRequests []PullRequest `json:"pullRequests,omitempty"`
 	// Rotated names the generated values the commit drew anew over a value
@@ -124,6 +149,17 @@ type Status struct {
 	// installations that stay until a person deletes them; read from the
 	// render of the inputs on record, never from the cluster.
 	Orphans []Orphan `json:"orphans,omitempty"`
+	// Withdrawal is the actor's word on a merged action that failed or was
+	// reverted: who withdrew it, why and when (deny_action on a merged
+	// action). The review's thread carries the same.
+	Withdrawal *Withdrawal `json:"withdrawal,omitempty"`
+}
+
+// Withdrawal is the actor withdrawing a merged action, with the reason.
+type Withdrawal struct {
+	By     string     `json:"by"`
+	Reason string     `json:"reason"`
+	At     *time.Time `json:"at,omitempty"`
 }
 
 // Orphan is one object a revert left behind on an installation: the fleet's
@@ -157,6 +193,21 @@ type PullRequest struct {
 	MergedAt    *time.Time `json:"mergedAt,omitempty"`
 	MergedBy    string     `json:"mergedBy,omitempty"`
 	ClosedAt    *time.Time `json:"closedAt,omitempty"`
+	// Revert is the commit on the default branch that brought every file the
+	// merge changed back to its content before the merge, as the watch or the
+	// withdrawal read it: the pull request is reverted.
+	Revert *Revert `json:"revert,omitempty"`
+}
+
+// Revert is the commit that took a merged pull request back: its SHA and
+// page, the pull request it came through when GitHub links one, and when the
+// manager read it.
+type Revert struct {
+	Commit         string     `json:"commit"`
+	URL            string     `json:"url,omitempty"`
+	PullRequest    int        `json:"pullRequest,omitempty"`
+	PullRequestURL string     `json:"pullRequestUrl,omitempty"`
+	At             *time.Time `json:"at,omitempty"`
 }
 
 // Approval is the team review the action asked for and its decision.
@@ -193,6 +244,9 @@ type InstallationRollout struct {
 	WatchedAt  *time.Time `json:"watchedAt,omitempty"`
 	WatchedBy  string     `json:"watchedBy,omitempty"`
 	ReportedAt *time.Time `json:"reportedAt,omitempty"`
+	// NoticedAt is when the Account Engineers' channel was told the change is
+	// applied on this customer installation: once, at its first enabled.
+	NoticedAt *time.Time `json:"noticedAt,omitempty"`
 }
 
 // RolloutObject is one Flux object of the rollout as the watch read it:
@@ -333,6 +387,12 @@ func (a Action) Includes(installation string) bool {
 	return slices.Contains(a.Spec.Installations, installation)
 }
 
+// KeptOnRecord are the entries of installation's audience lists the commit
+// kept beside the render, nil when it kept none.
+func (a Action) KeptOnRecord(installation string) []plan.Kept {
+	return a.Spec.KeptByInstallation[installation]
+}
+
 // InputsOnRecord are the inputs installation was rendered from, as the
 // record carries them: its entry of InputsByInstallation, else the action's
 // inputs when they are a single installation's merged document (the shape
@@ -352,9 +412,11 @@ func (a Action) InputsOnRecord(installation string) map[string]any {
 // The states an Action carries in status.state. pending approval, rolling
 // out, waiting for the customer, enabled, drifted and failed are the
 // installations' states an action produces (installations.State); refused,
-// denied and removed are the action's own — the gate refused it before
-// any write, the installation unreadable as the person or without
-// repositories on record, a member withdrew it, or the fileset it wrote left the
+// denied, reverted, withdrawn and removed are the action's own — the gate
+// refused it before any write, the installation unreadable as the person or
+// without repositories on record; a member withdrew it before its merge; a
+// merged pull request of it was reverted on the default branch; its actor
+// withdrew it after the merge; or the fileset it wrote left the
 // repositories' default branch again — and the installation's state read
 // from its repositories stands.
 const (
@@ -366,15 +428,26 @@ const (
 	StateEnabled            = string(installations.StateEnabled)
 	StateDrifted            = string(installations.StateDrifted)
 	StateDenied             = "denied"
+	StateReverted           = "reverted"
+	StateWithdrawn          = "withdrawn"
 	StateRemoved            = "removed"
 )
 
 // Terminal says whether state is one no read moves the action out of:
-// refused and denied never wrote to the repositories, removed is the
-// revert's last word. A failed action is not terminal for the resync — a
-// stage that failed after its merge can still be reverted.
+// refused and denied never wrote to the repositories, withdrawn is the
+// actor's last word on a merged action, removed the revert's. A failed
+// action is not terminal for the resync — a stage that failed after its
+// merge can still be reverted — and neither is a reverted one: the actor
+// withdraws it, and its fileset gone whole removes it.
 func Terminal(state string) bool {
-	return state == StateRefused || state == StateDenied || state == StateRemoved
+	return state == StateRefused || state == StateDenied || state == StateWithdrawn || state == StateRemoved
+}
+
+// Settled says whether state is one no stage's read moves the action out
+// of: a terminal one, or reverted — the watch and the live verify leave it
+// for its actor's withdrawal.
+func Settled(state string) bool {
+	return Terminal(state) || state == StateReverted
 }
 
 // InstallationState is the state the action gives installation: its stage of
@@ -424,10 +497,14 @@ const (
 // The decisions of an approval. DecisionMergedWithoutApproval is the
 // resync's: every pull request of the action was merged outside merge_action
 // before the team decided, and the record names who merged them.
+// DecisionNotRequired is the commit's: every target is one of Giant Swarm's
+// test installations, so no review is posted and the merge is told to the
+// team's standup channel instead.
 const (
 	DecisionApproved              = "approved"
 	DecisionDenied                = "denied"
 	DecisionMergedWithoutApproval = "merged without approval"
+	DecisionNotRequired           = "not required"
 )
 
 // Writer creates Actions and moves their status; commit writes with it, as

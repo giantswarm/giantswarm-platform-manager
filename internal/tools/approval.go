@@ -59,10 +59,10 @@ func (t *Tools) registerApprovalTools(s *mcpserver.MCPServer) {
 		mcp.WithString(ArgAction, mcp.Required(), mcp.Description("The Action's name (the action id of the review).")),
 	), t.approveAction)
 	s.AddTool(mcp.NewTool(ToolDenyAction,
-		mcp.WithDescription("The Deny button of an action's Team review, called as the clicking member (the actor included: a denial withdraws the action): records the reason on the Action, closes every pull request of the action as you and moves the Action to denied. A failed action is denied too, its approval decided or not: any pull request its failure left open — a wave's stages after the one that stopped on a red probe — is closed, the withdrawal recorded with the reason, the action stays failed and the approval as it was."),
+		mcp.WithDescription("The Deny button of an action's Team review, called as the clicking member (the actor included: a denial withdraws the action): records the reason on the Action, closes every pull request of the action as you and moves the Action to denied. A failed action whose approval is not decided is denied the same way and stays failed. A merged action is withdrawn by its actor alone, with the reason: one failed after its approval (a stage failed and rolled back, a wave stopped on a red probe) or reverted (the watch read a merged pull request reverted on the default branch) — and one that still reads rolling out, waiting for the customer, enabled or drifted, once the revert is read now with your GitHub token (none found: nothing was taken back, refused). Any pull request still open is closed, the Action moves to withdrawn with the reason, the approval as decided, and the review's thread is told."),
 		mcp.WithIdempotentHintAnnotation(true), mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithString(ArgAction, mcp.Required(), mcp.Description("The Action's name.")),
-		mcp.WithString(ArgReason, mcp.Required(), mcp.Description("Why the action is denied; recorded on the Action.")),
+		mcp.WithString(ArgReason, mcp.Required(), mcp.Description("Why the action is denied or withdrawn; recorded on the Action and, for a withdrawal, in the review's thread.")),
 	), t.denyAction)
 	s.AddTool(mcp.NewTool(ToolMergeAction,
 		mcp.WithDescription("Merge the pull requests of an approved action as its actor, in dependency order, each once its checks are green (WRITES as you, with your own GitHub token through the App "+ToolPrefix+"); the Action moves to rolling out and the outcome is posted into the review's thread. Only the actor merges; a call before the approval answers what the action waits for, posts the review when none is up, and re-posts it when the gateway no longer holds it. A pull request whose checks are pending stops the call: call again."),
@@ -125,6 +125,9 @@ func (t *Tools) approve(ctx context.Context, args map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if noReview(a) {
+		return nil, fmt.Errorf("%s: action %s targets test installations alone and needs no review: %s merges it with %s", ToolApproveAction, a.Name, a.Spec.Actor.Login, ToolMergeAction)
+	}
 	if id.Login == a.Spec.Actor.Login {
 		t.d.Log.Info("action_approval_actor_refused", identity.LogAttr(ctx), "action", a.Name)
 		return nil, fmt.Errorf("%s: action %s is yours (%s): a second person of the team decides; Deny withdraws it", ToolApproveAction, a.Name, id.Login)
@@ -168,28 +171,29 @@ func (t *Tools) denyAction(ctx context.Context, req mcp.CallToolRequest) (*mcp.C
 }
 
 // deny withdraws an action pending approval: its pull requests are closed as
-// the member and it moves to denied. A failed action is denied too — a
-// commit that failed after opening pull requests closes them itself, and the
-// denial closes whatever it could not (the remote refused a close) and
-// records the reason; the action stays failed, the failure being its result.
-// An approved action that failed — a wave stopped by a red probe with the
-// next stages' pull requests open — is withdrawn the same way: the pull
-// requests are closed, the withdrawal recorded in the result, the approval
-// stands as decided.
+// the member and it moves to denied. A failed action whose approval is not
+// decided is denied too — a commit that failed after opening pull requests
+// closes them itself, and the denial closes whatever it could not (the
+// remote refused a close) and records the reason; the action stays failed,
+// the failure being its result. A merged action — failed after its approval,
+// reverted, or still reading its change live — is its actor's to withdraw
+// (withdraw).
 func (t *Tools) deny(ctx context.Context, args map[string]any) (any, error) {
-	a, id, err := t.loadAction(ctx, ToolDenyAction, args, actions.StatePendingApproval, actions.StateFailed)
+	a, id, err := t.loadAction(ctx, ToolDenyAction, args, actions.StatePendingApproval, actions.StateFailed, actions.StateReverted, actions.StateRollingOut, actions.StateWaitingForCustomer, actions.StateEnabled, actions.StateDrifted)
 	if err != nil {
 		return nil, err
 	}
-	decidedAlready := a.Status.Approval != nil && a.Status.Approval.Decision != ""
-	if decidedAlready && (a.Status.State != actions.StateFailed || a.Status.Approval.Decision == actions.DecisionDenied) {
+	reason, _ := args[ArgReason].(string)
+	reason = strings.TrimSpace(reason)
+	if withdrawal(a) {
+		return t.withdraw(ctx, a, id, reason)
+	}
+	// An action that needs no review is denied like one pending the team's
+	// decision until it is merged.
+	if a.Status.Approval != nil && a.Status.Approval.Decision != "" && !noReview(a) {
 		return nil, fmt.Errorf("%s: action %s is already %s by %s", ToolDenyAction, a.Name, a.Status.Approval.Decision, a.Status.Approval.DecidedBy)
 	}
-	if decidedAlready && len(openPRs(a.Status.PullRequests)) == 0 {
-		return nil, fmt.Errorf("%s: action %s is %s with no pull request open; nothing to withdraw", ToolDenyAction, a.Name, a.Status.State)
-	}
-	reason, _ := args[ArgReason].(string)
-	if reason = strings.TrimSpace(reason); reason == "" {
+	if reason == "" {
 		return nil, fmt.Errorf("%s needs %s: the denial is recorded with it", ToolDenyAction, ArgReason)
 	}
 	token, _ := identity.TokenFromContext(ctx)
@@ -202,30 +206,12 @@ func (t *Tools) deny(ctx context.Context, args map[string]any) (any, error) {
 	if left := closeOpen(ctx, remote, status.PullRequests); len(left) > 0 {
 		return nil, fmt.Errorf("%s: closing as %s: %s", ToolDenyAction, id.Login, strings.Join(left, "; "))
 	}
-	switch {
-	case status.State == actions.StateFailed && decidedAlready:
-		status.Result.Message += fmt.Sprintf("; withdrawn by %s: %s (%d pull request(s) closed)", id.Login, reason, open)
-		if status.Rollout != nil {
-			for i := range status.Rollout.Installations {
-				st := &status.Rollout.Installations[i]
-				switch {
-				case st.State == "":
-					st.Message += "; its pull requests were closed by " + id.Login
-				case failedOnProbe(*st):
-					// Withdrawn, the stage is not re-read: the wave is over.
-					st.Message = fmt.Sprintf("withdrawn by %s: %s; %s", id.Login, reason, st.Message)
-				}
-			}
-		}
-	case status.State == actions.StateFailed:
-		approval := *approvalOf(&status)
-		approval.Decision, approval.DecidedBy, approval.Reason, approval.At = actions.DecisionDenied, id.Login, reason, now()
-		status.Approval = &approval
+	approval := *approvalOf(&status)
+	approval.Decision, approval.DecidedBy, approval.Reason, approval.At = actions.DecisionDenied, id.Login, reason, now()
+	status.Approval = &approval
+	if status.State == actions.StateFailed {
 		status.Result.Message += fmt.Sprintf("; denied by %s: %s (%d pull request(s) closed)", id.Login, reason, open)
-	default:
-		approval := *approvalOf(&status)
-		approval.Decision, approval.DecidedBy, approval.Reason, approval.At = actions.DecisionDenied, id.Login, reason, now()
-		status.Approval = &approval
+	} else {
 		status.State = actions.StateDenied
 		status.Result = &actions.Result{State: actions.StateDenied, Message: fmt.Sprintf("denied by %s: %s", id.Login, reason), At: now()}
 		// A wave's stages were pending approval too; denied, the files'
@@ -335,6 +321,12 @@ func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
 		return res, nil
 	}
 	res.Message = fmt.Sprintf("the pull requests of %s are merged as %s (%s); %s is rolling out — %s reads its rollout and runs the probes as you, and carries it to enabled%s.", res.Stage, id.Login, prList(res.Merged), res.Stage, ToolWatchAction, nextStage(a, res.Stage))
+	if noReview(a) {
+		if note := t.tellStandup(ctx, a, stageMerge{by: id.Login, stage: res.Stage, pullRequests: res.Merged}); note != "" {
+			res.Message += " " + note
+		}
+		return res, nil
+	}
 	if note := t.postResult(ctx, a, fmt.Sprintf("Merged as %s: %s. *%s* is rolling out — the rollout and the probes follow here.", id.Login, prLinks(res.Merged), res.Stage)); note != "" {
 		res.Message += " " + note
 	}
@@ -342,14 +334,25 @@ func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
 }
 
 // decided says whether the action's merge may go ahead: the team approved
-// it, or every pull request of its stage in flight was merged outside the
-// manager already — the repositories' own merge path let it through, and the
-// manager does not second-guess it for the stages that follow.
+// it, it needs no review (test installations alone), or every pull request
+// of its stage in flight was merged outside the manager already — the
+// repositories' own merge path let it through, and the manager does not
+// second-guess it for the stages that follow.
 func decided(a *actions.Action) bool {
 	if a.Status.Approval == nil {
 		return false
 	}
-	return a.Status.Approval.Decision == actions.DecisionApproved || a.Status.Approval.Decision == actions.DecisionMergedWithoutApproval
+	switch a.Status.Approval.Decision {
+	case actions.DecisionApproved, actions.DecisionMergedWithoutApproval, actions.DecisionNotRequired:
+		return true
+	}
+	return false
+}
+
+// noReview says whether the action needs no Team review: every target is
+// one of Giant Swarm's test installations.
+func noReview(a *actions.Action) bool {
+	return a.Status.Approval != nil && a.Status.Approval.Decision == actions.DecisionNotRequired
 }
 
 // startStage moves stage i of status to rolling out — its pull requests are
@@ -467,8 +470,101 @@ func (t *Tools) awaitApproval(ctx context.Context, a *actions.Action) (any, erro
 	return res, nil
 }
 
-// askApproval posts the action's review to the team's channel (and the notice
-// channel for a customer installation) and records the receipt on the Action.
+// reviewNotRequired is the approval's reason on an action that needs no review.
+const reviewNotRequired = "every target is a test installation: no Team review, the merge is told to the team's standup channel"
+
+// requestApproval is the commit's last step: the review posted, or — every
+// target a test installation — recorded as not required, nothing posted
+// until the merge tells the standup channel.
+func (t *Tools) requestApproval(ctx context.Context, a *actions.Action, tool string, test bool) (*actions.Action, error) {
+	if !test {
+		return t.askApproval(ctx, a, tool)
+	}
+	status := a.Status
+	approval := *approvalOf(&status)
+	approval.Decision, approval.Reason, approval.At = actions.DecisionNotRequired, reviewNotRequired, now()
+	status.Approval = &approval
+	out, err := t.d.Actions.UpdateStatus(ctx, a.Name, status)
+	if err != nil {
+		return nil, fmt.Errorf("%s: action %s needs no review and could not record it: %w", tool, a.Name, err)
+	}
+	t.d.Log.Info("action_review_not_required", identity.LogAttr(ctx), "action", out.Name)
+	return out, nil
+}
+
+// standupRefusal refuses a commit on test installations alone while no
+// standup channel is configured: the merge would be told to no one.
+func (t *Tools) standupRefusal(tool string, test bool) error {
+	if test && t.approvals.Config().StandupChannel == "" {
+		return fmt.Errorf("%s: an action on test installations alone needs no review and is told to the team's standup channel, and none is configured (chart approvals.standupChannel): nothing is committed", tool)
+	}
+	return nil
+}
+
+// tellStandup tells the team's standup channel of m, the merge of a stage
+// of an action that needs no review, in one sentence with the pull
+// requests; the answer's note when it could not (the merge stands).
+func (t *Tools) tellStandup(ctx context.Context, a *actions.Action, m stageMerge) string {
+	n := approvals.Notice{Text: standupText(a, m)}
+	for _, pr := range m.pullRequests {
+		n.PullRequests = append(n.PullRequests, pr.URL)
+	}
+	receipt, err := t.approvals.Notice(ctx, n)
+	if err != nil {
+		t.d.Log.Info("action_standup_not_told", "action", a.Name, "stage", m.stage, "error", err.Error())
+		return fmt.Sprintf("(The team's standup channel could not be told: %v.)", err)
+	}
+	t.d.Log.Info("action_standup_told", "action", a.Name, "stage", m.stage, "channel", receipt.Channel, "ts", receipt.TS)
+	return ""
+}
+
+// stageMerge is one stage's merge: by whom, which stage, its pull requests.
+type stageMerge struct {
+	by, stage    string
+	pullRequests []actions.PullRequest
+}
+
+// standupText is the standup notice: who did what where, why and what
+// changed. Both kinds, enable and reconcile, take -d for the past.
+func standupText(a *actions.Action, m stageMerge) string {
+	return fmt.Sprintf("*%s* %sd *%s* on *%s*.", m.by, a.Spec.Kind, a.Spec.Capability, m.stage) +
+		whyAndWhat(a, "What changed", []string{m.stage})
+}
+
+// appliedText is the Account Engineers' notice once the change is applied on
+// a customer installation: who did what where, whose customer, why and what
+// changed.
+func appliedText(a *actions.Action, installation string) string {
+	return fmt.Sprintf("*%s* %sd *%s* on *%s* (account engineer %s): the change is applied and verified.", a.Spec.Actor.Login, a.Spec.Kind, a.Spec.Capability, installation, a.Spec.AccountEngineerOf[installation]) +
+		whyAndWhat(a, "What changed", []string{installation})
+}
+
+// tellApplied tells the Account Engineers' channel, once, that the change of
+// stage i is applied: the stage just reached enabled on a customer
+// installation. It records the notice on the stage; a notice that could not
+// be posted is logged and tried again at the next read that sees the stage
+// enabled.
+func (t *Tools) tellApplied(ctx context.Context, a *actions.Action, status *actions.Status, i int) {
+	st := &status.Rollout.Installations[i]
+	if _, customer := a.Spec.AccountEngineerOf[st.Name]; !customer || st.State != actions.StateEnabled || st.NoticedAt != nil || t.approvals == nil {
+		return
+	}
+	n := approvals.Notice{Text: appliedText(a, st.Name)}
+	for _, k := range a.StagePullRequests(st.Name) {
+		n.PullRequests = append(n.PullRequests, status.PullRequests[k].URL)
+	}
+	receipt, err := t.approvals.Applied(ctx, n)
+	if err != nil {
+		t.d.Log.Info("action_applied_not_told", "action", a.Name, "installation", st.Name, "error", err.Error())
+		return
+	}
+	st.NoticedAt = now()
+	t.d.Log.Info("action_applied_told", "action", a.Name, "installation", st.Name, "channel", receipt.Channel, "ts", receipt.TS)
+}
+
+// askApproval posts the action's review to the team's channel and records
+// the receipt on the Action. The Account Engineers' channel is not asked:
+// it is told once the change is applied on a customer installation.
 func (t *Tools) askApproval(ctx context.Context, a *actions.Action, tool string) (*actions.Action, error) {
 	if t.approvals == nil {
 		return nil, fmt.Errorf("%s: no approval channel is configured (chart approvals.gatewayURL); action %s cannot be approved and nothing is merged", tool, a.Name)
@@ -479,9 +575,6 @@ func (t *Tools) askApproval(ctx context.Context, a *actions.Action, tool string)
 	for _, pr := range a.Status.PullRequests {
 		review.PullRequests = append(review.PullRequests, pr.URL)
 	}
-	if a.Spec.Customer {
-		review.NoticeChannel = t.approvals.Config().NoticeChannel
-	}
 	receipt, err := t.approvals.Post(ctx, review)
 	if err != nil {
 		return nil, fmt.Errorf("%s: the review of action %s could not be posted: %w", tool, a.Name, err)
@@ -489,15 +582,12 @@ func (t *Tools) askApproval(ctx context.Context, a *actions.Action, tool string)
 	status := a.Status
 	approval := *approvalOf(&status)
 	approval.Channel, approval.ReviewID, approval.PostedAt = receipt.Channel, receipt.ID, now()
-	if receipt.NoticeTS != "" {
-		approval.NoticeChannel = review.NoticeChannel
-	}
 	status.Approval = &approval
 	a, err = t.d.Actions.UpdateStatus(ctx, a.Name, status)
 	if err != nil {
 		return nil, fmt.Errorf("%s: the review of action %s is posted (%s) and the action could not record it: %w", tool, a.Name, receipt.ID, err)
 	}
-	t.d.Log.Info("action_review_posted", identity.LogAttr(ctx), "action", a.Name, "review", receipt.ID, "channel", receipt.Channel, "notice", receipt.NoticeTS != "")
+	t.d.Log.Info("action_review_posted", identity.LogAttr(ctx), "action", a.Name, "review", receipt.ID, "channel", receipt.Channel)
 	return a, nil
 }
 
@@ -515,10 +605,12 @@ func (t *Tools) postResult(ctx context.Context, a *actions.Action, text string) 
 	return ""
 }
 
-// reviewText is the review's mrkdwn, one line a reviewer reads in Slack: who
-// asks to do what on which installation. The pull requests are the review's
-// links and the change in full (files, generated secrets, rotations) is in
-// each pull request's body and on the Action's spec.change — never a value.
+// reviewText is the review's mrkdwn, what a teammate judges the action by
+// from Slack alone: who asks to do what on which installation (whose
+// customer), why — the actor's reason — and what changes, a line per
+// component from the action's comparison (versions, values keys, rotated
+// credentials). The pull requests are the review's links and carry the
+// change in full; never a value.
 func reviewText(a *actions.Action) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "*%s* asks to %s *%s* on *%s*", a.Spec.Actor.Login, a.Spec.Kind, a.Spec.Capability, strings.Join(a.Spec.Installations, ", "))
@@ -542,11 +634,73 @@ func reviewText(a *actions.Action) string {
 	}
 	b.WriteString(skippedClause(a.Spec.Skipped))
 	b.WriteString(".")
+	b.WriteString(whyAndWhat(a, "What changes", a.Spec.Installations))
 	return b.String()
 }
 
-// changeSummary is the plan's change in one clause: files by change and the
-// generated secrets by name — the Action's spec.change.
+// whatMax bounds the what-changes lines of one message: Slack takes 3000
+// characters a section, and the header and the reason come first.
+const whatMax = 2200
+
+// whyAndWhat is the reason as a quote and, under heading, the change of each
+// of installations a line per component — once for all when every
+// installation changes alike, else per installation — cut at whatMax with
+// the rest counted. Empty parts are left out.
+func whyAndWhat(a *actions.Action, heading string, installations []string) string {
+	var b strings.Builder
+	if a.Spec.Reason != "" {
+		b.WriteString("\n>*Why:* " + strings.ReplaceAll(a.Spec.Reason, "\n", "\n>"))
+	}
+	type group struct {
+		title string
+		lines []string
+	}
+	var groups []group
+	same := len(installations) > 1
+	for _, n := range installations[min(1, len(installations)):] {
+		same = same && slices.Equal(a.Spec.Changes[n], a.Spec.Changes[installations[0]])
+	}
+	switch {
+	case len(installations) == 1 || same:
+		title := "*" + heading + "*"
+		if same {
+			title = "*" + heading + " on each*"
+		}
+		groups = append(groups, group{title, a.Spec.Changes[installations[0]]})
+	default:
+		for _, n := range installations {
+			groups = append(groups, group{"*" + heading + " on " + n + "*", a.Spec.Changes[n]})
+		}
+	}
+	used, left := 0, 0
+	for _, g := range groups {
+		if len(g.lines) == 0 {
+			continue
+		}
+		if used > whatMax {
+			left += len(g.lines)
+			continue
+		}
+		b.WriteString("\n" + g.title)
+		used += len(g.title)
+		for _, l := range g.lines {
+			if used+len(l) > whatMax {
+				left++
+				continue
+			}
+			b.WriteString("\n• " + l)
+			used += len(l) + 3
+		}
+	}
+	if left > 0 {
+		fmt.Fprintf(&b, "\n• … %d more; the pull requests carry the full change", left)
+	}
+	return b.String()
+}
+
+// changeSummary is the plan's change in one clause: files by change, the
+// generated secrets by name and the rotations, the ones on request apart from
+// the ones a file to write forced — the Action's spec.change.
 func changeSummary(p plan.Installation) string {
 	parts := []string{}
 	for _, c := range []plan.Change{plan.ChangeCreate, plan.ChangeUpdate} {
@@ -561,8 +715,12 @@ func changeSummary(p plan.Installation) string {
 		}
 		parts = append(parts, "generated secrets "+strings.Join(names, ", "))
 	}
-	if rotating := p.Rotating(); len(rotating) > 0 {
-		parts = append(parts, "rotates "+strings.Join(rotating, ", ")+" (a new value over the one on record; both sides roll)")
+	requested, forced := p.Rotations()
+	if len(requested) > 0 {
+		parts = append(parts, "rotates on request "+strings.Join(requested, ", ")+" (a new value over the one on record; both sides roll)")
+	}
+	if len(forced) > 0 {
+		parts = append(parts, "rotates "+strings.Join(forced, ", ")+" (a new value over the one on record; both sides roll)")
 	}
 	return strings.Join(parts, ", ")
 }

@@ -42,11 +42,11 @@ Behind muster the tools appear as `x_giantswarm-platform-manager_<tool>`.
 | `get_info` | read | The version, the caller (login and id), the pinned authorization server, the capability definitions with their input schemas, the write modes, the write tools, the approval channel configuration and the tools still to come. Call first. |
 | `list_installations` | read | Every installation of the registry with, per capability, its state, the inputs on record and the last action, every read as you at call time. `installations` (names) and `customer` narrow the answer; `summary: true` answers the states and the last actions alone, without the record, the portals and the federation facts — the overview's call. Every read of a call runs at once, 32 in flight at most. |
 | `enable_capability` | write | Enable a capability on one installation (`installation`) or a set (`installations`): with `dryRun: true` the plan — files per repository with the change each one is against the repository now, pull requests in dependency order, generated secrets by name, Dex clients and redirect URIs, the secrets the person supplies at commit (by field), customer actions, probes. `inputs` are the definition's typed inputs over the facts on record. With `mode: "commit"` and one `installation`: the gate, the Action in *pending approval*, the pull requests as the person (see [The commit](#the-commit)); `secrets` carries the supplied values by field. |
-| `reconcile_capability` | write | The same render over a set (empty: every installation of the registry), every file compared with the repository: all *unchanged* is an empty diff. Installations without the capability on record are listed as *skipped*: a wave reconciles what is on record; a fresh enable is `enable_capability` with one installation. |
+| `reconcile_capability` | write | The same render over a set (empty: every installation of the registry), every file compared with the repository: all *unchanged* is an empty diff. Installations without the capability on record are listed as *skipped*: a wave reconciles what is on record; a fresh enable is `enable_capability` with one installation. `rotate` names generated values to rotate on request (see [Rotation on request](#rotation-on-request)). |
 | `get_action`, `list_actions` | read | The Action records on the hub: one per enablement or reconcile a person commits — actor, installations, capability, inputs, pull requests, approval, rollout, probes, result. The record follows GitHub on every read, as you (at most once a minute per action): a pull request merged outside `merge_action` is recorded *merged* with its commit, time and `mergedBy`, and the action rolls out as after the merge; one closed unmerged fails it; a fileset gone from the default branch again moves it to *removed*, naming the objects left on the installation. See [The Action record](#the-action-record). |
 | `verify_capability` | read | One installation against a capability's definition, grouped into the definition's features with one mark each — *as defined*, *planned*, *differs by input*, *drifted* — and expanded to its dimensions: the owning repositories' files, read as the person, against the render from the inputs on record (every difference names the file, the path and the person's input that drives it — a choice the schema names, or one typed for the call, so the file expresses another choice than the one on record — the planned change it is — a key the capability's `removals.yaml` or `migrations.yaml` names — or drift: a leaf no choice drives, the ones the installation's facts derive included, which only a reconcile resolves), and the definition's anonymous HTTP probes. The live dimensions read *not checked* here: they are `verify_installation`'s. |
 | `verify_installation` | read, **live** | The same installation's running objects against the definition's probes — HelmReleases Ready, workloads Available, Secrets and MCPServer objects present, conditions, logs, Dex started since every client Secret it reads last changed, the live values against the render — read through muster's kubernetes tools **as the person**, with the platform ID token muster forwards next to the App user token (`X-Muster-Id-Token`, the `MCPServer`'s `auth.forwardIdentity` with `live.enabled`, muster ≥ 5.31.0); a call without a valid one is refused, naming the header. What the person may read decides what is checked: an object they may not read is *not checked, forbidden for them*, an installation they are not connected to answers with muster's own sign-in. The result is recorded on the installation's newest action and feeds `list_installations`: *drifted*, or *waiting for the customer* when the only red dimension is the one the customer's action holds up. A portal or `platformctl` shows the two verifies as one result. |
-| `watch_action` | **live** | The rollout watch of an action whose pull requests are merged, **as the person calling** — the manager holds no token beyond a call, so the watch is a call (the portal's page, `platformctl action watch`, an agent), never a loop. Reads the Flux objects the definition names on the installation rolling out (the HelmReleases with their Ready condition and revision) through muster's kubernetes tools and answers the picture; once every one is Ready it runs the definition's probes — the live dimensions as the person, the anonymous HTTP probes direct — and the stage moves to *enabled*, *waiting for the customer* (the customer's own action is the only thing open) or *failed* (a probe is red, named). The report — pull requests, rollout per object, each probe, the open customer actions — goes into the review's thread and onto the Action (`status.rollout.installations[]`, `status.probes`, `status.result`). Nothing is waited for or hurried: call again while it is rolling out. Anyone signed in may watch; the reads are theirs, and the state follows the picture whoever read it. An action *waiting for the customer* or *enabled* is re-read: the customer's action done flips it to *enabled*. The watch first re-reads the action's pull requests from GitHub as you, as `get_action` does, with the GitHub token muster puts on the call next to your forwarded identity: an action whose pull requests were merged outside the manager is watched all the same. |
+| `watch_action` | **live** | The rollout watch of an action whose pull requests are merged, **as the person calling** — the manager holds no token beyond a call, so the watch is a call (the portal's page, `platformctl action watch`, an agent), never a loop. Reads the Flux objects the definition names on the installation rolling out (the HelmReleases with their Ready condition and revision) through muster's kubernetes tools and answers the picture; once every one is Ready it runs the definition's probes — the live dimensions as the person, the anonymous HTTP probes direct — and the stage moves to *enabled*, *waiting for the customer* (the customer's own action is the only thing open) or *failed* (a probe is red, named). A HelmRelease whose last release Flux reports failed — `Released=False` after an install or upgrade Helm gave up on, rolled back or not, or `Stalled=True` — will not become Ready on its own: the stage is *failed* on its probe, Flux's reason and message named, and a later watch re-reads it. The report — pull requests, rollout per object, each probe, the open customer actions — goes into the review's thread and onto the Action (`status.rollout.installations[]`, `status.probes`, `status.result`). Nothing is waited for or hurried: call again while it is rolling out. Anyone signed in may watch; the reads are theirs, and the state follows the picture whoever read it. An action *waiting for the customer* or *enabled* is re-read: the customer's action done flips it to *enabled*. The watch first re-reads the action's pull requests from GitHub as you, as `get_action` does, with the GitHub token muster puts on the call next to your forwarded identity: an action whose pull requests were merged outside the manager is watched all the same. Before it reads the installation it reads, with the same token, whether the stage's pull requests are still on the default branch: a revert leaves every object healthy on the previous values, so the probes cannot tell it — see [The Action record](#the-action-record). |
 
 ## The commit
 
@@ -58,8 +58,11 @@ this order, writing nothing before the gate:
    reason, and the refusal is recorded as an Action in state *refused* (the installation's state read from its
    repositories stands).
 2. **The plan**, as the dry run renders it; a definition's refusal, a file that could not be compared as the
-   person, a generated value frozen where no rotation is possible (below), or a supplied secret left out of
-   `secrets` (or one the plan does not ask for) refuses the commit before any write. Every file on record
+   person, a generated value frozen where no rotation is possible (below), a section of the hub's Dev Portal on
+   record that a `customer-portal` plan would remove (`hubSections`), a `rotate` name the plan does not list,
+   or a supplied secret left out of `secrets` (or one the plan does not ask for) refuses the commit before any
+   write. The plan's own refusals — the dex-app on record, the frozen values, the hub's portal — are one list
+   the commit, the wave's pre-check and the dry run's `commitRefused` share. Every file on record
    already: nothing to commit, no Action.
 3. **The Action** — created in *pending approval* with the actor, the capability, the installation and the
    inputs (never a secret value: `secrets` is its own argument and lands nowhere but the encrypted files).
@@ -71,16 +74,21 @@ this order, writing nothing before the gate:
    render changes nothing outside its values: the manager decrypts nothing, so the two are compared as YAML
    with the values the record holds encrypted (the fields under the repository's `encrypted_regex`) and the
    values the commit fills in left out — same keys, same metadata, same plaintext fields → `unchanged`, the
-   values in it *frozen* and its generated names `kept`; nothing is written. A reconcile of an installation
-   the manager enabled therefore rewrites no secret and rotates nothing. A name **rotates** only when a file
+   values in it *frozen* and its generated names `kept`; nothing is written. The labels and annotations of an
+   encrypted file take no part: the manager never rewrites an encrypted file for them, since a rewrite draws
+   every value it holds anew, and the kustomization carries them instead (Flux's
+   `reconcile.fluxcd.io/watch` on the credentials revision Secrets is a patch in the directory's
+   kustomization). A reconcile of an installation the manager enabled therefore rewrites no secret and
+   rotates nothing. A name **rotates** only when a file
    of the name has to be written — a file to create (a server's Dex client Secret next to its existing
    credentials file), an existing file whose plaintext skeleton the render changes (a field added to its
    template), or a plain file to write carrying a key pair's public half: one new value is drawn and written
    into every file that holds it, the kept files rewritten and encrypted anew — and every other value a
    rewritten file holds rotates with it, down to the files sharing those (the server's Valkey password into
-   its Valkey Secret). The dry run says so (`generatedSecrets[].frozenIn`, `kept`, `rotates` with `forcedBy`,
-   the file that forced it), the Action records the rotated names (`status.rotated`), the pull request names
-   them. For the running installation a rotation means both sides roll: the server and the Dex client take
+   its Valkey Secret). A name also rotates when the person asks for it by name ([Rotation on
+   request](#rotation-on-request)). The dry run says so (`generatedSecrets[].frozenIn`, `kept`, `rotates`
+   with `forcedBy`, the file that forced it or `request`), the Action records the rotated names
+   (`status.rotated`), the pull request names them. For the running installation a rotation means both sides roll: the server and the Dex client take
    the new value with their Secrets, and the client is unusable between the two rollouts. The roll follows
    the commit: each MCP server's credentials carry a *credentials revision* (`<installation>-mcp-<name>-credentials-revision`,
    a generated value held by the server's credentials Secret, its Valkey's and a third Secret
@@ -88,11 +96,17 @@ this order, writing nothing before the gate:
    it anew, and the server's and its Valkey's HelmReleases read it (`valuesFrom` with `targetPath`) into
    their charts' checksum values, whose pod-template annotations restart the pods; a reconcile without a
    rotation keeps the revision and changes no pod template; muster's own credentials carry the same revision
-   (`<installation>-muster-credentials-revision`, the Secret `muster-credentials-revision`, handed to the muster and
-   valkey HelmReleases through the meta chart's `components.<name>.valuesFromRefs`). Unseen by the
+   (`<installation>-muster-credentials-revision`, the Secret `muster-credentials-revision`, handed through the meta
+   chart's `components.<name>.valuesFromRefs` to every workload that reads them: muster, its Valkey and, where each
+   runs, klaus-gateway and the agent-, cluster- and model-manager). Unseen by the
    comparison: a literal the render changes under an encrypted field — the record holds it encrypted. A
    value frozen in a file the definition does not own whole (one with several owners) cannot rotate and
-   refuses the commit naming the file.
+   refuses the commit naming the file. Where the capability is on record (its marker file exists), a
+   rotation no request reaches refuses the commit too, naming the value and the file that forces it: a new
+   value ends every session and client that holds the old one (a new `*-oauth-encryption-key` signs out
+   everyone who uses the server), so a reconcile rotates only what a person asked for with `rotate`, and
+   what that request's rewritten files hold with it. The first enable of an installation set up by hand
+   still rotates a value a new file shares with one on record, the dry run naming it.
 5. **The pull requests** through gitops-commit, as the person, in dependency order — a pull request whose
    files create an object another one's files reference merges before it: the management-clusters Secret
    before the configs dex patch that names it through `secretRef`, teleport-fleet's tunnelport tokens before
@@ -101,10 +115,27 @@ this order, writing nothing before the gate:
    conventional-commit form — `feat(<installation>): enable <capability> (<action>)`, `fix(<installation>):
    reconcile <capability> (<action>)` — so the repositories' semantic-pull-request check passes as opened, the
    action id in the title and body. The Action records them and stays in *pending approval*: the approval, the merge
-   and the rollout follow. A failure on the way moves the Action to *failed* and closes the pull requests
+   and the rollout follow. An action on Giant Swarm's test installations alone — the hub's customer's, not the
+   hub: the wave's first stage — needs no Team review: the approval is recorded *not required*, the actor merges
+   with `merge_action` once green, and the merge is told to the team's standup channel — who, what, why and
+   what changed (`approvals.standupChannel`; unset, such a commit is refused). The hub and every customer
+   installation keep the review. A failure on the way moves the Action to *failed* and closes the pull requests
    opened so far as the person, branches deleted, recorded *closed* with the reason on the Action; one the
    remote refused to close stays open on the record, and `deny_action` — which takes a failed action too —
    closes it, records the reason and leaves the action failed.
+
+A commit takes `reason` — why the actor makes the change, in a sentence; without one nothing is committed.
+**The review** in the team's channel (`approvals.channel`) is what a teammate judges the action by from
+Slack alone: who asks to enable or reconcile which capability on which installations (whose customer, the
+account engineer the catalog records), the reason quoted, and *what changes* — a line per component from
+the comparison (`spec.changes`, `plan.Summary`): a component created whole reads *new*, versions read old →
+new, list entries added and removed, a kustomization's patches by their target with the JSON patch
+operations they add, drop or change (op and path), values keys by path without their values, a Secret's keys
+added and removed, the credentials that rotate (the ones asked for marked *on request*) — with the pull requests as
+links; a wave whose installations change alike reads once, else per installation. The Account Engineers'
+channel (`approvals.noticeChannel`) never sees the review: once a stage on a customer installation reaches
+*enabled* — the watch or the live verify — it is told once, without buttons, who applied what where, why,
+what changed and the account engineer (`status.rollout.installations[].noticedAt`).
 
 The answer is the Action, the pull requests and the plan; no secret value appears in it, in a log or in a
 pull request. The manager holds no token of its own: `GITHUB_API_URL` is the GitHub the person's token goes to.
@@ -124,7 +155,12 @@ The plan per installation: its state, the effective inputs, the files with their
 (*create*, *update*, *unchanged*, *unknown* when the current file could not be read as the person) — an
 encrypted file kept *unchanged* names as `unseen` the literals the render puts under a field the record
 holds encrypted (a credentials Secret's client id), with the render's value: the comparison decrypts
-nothing, so the value on record stands whether or not it is that one —, the shared-kustomization includes, the generated secrets by name, kind and length — with `frozenIn`, the files
+nothing, so the value on record stands whether or not it is that one; an encrypted file the commit writes over
+whose skeleton is not the render's (kept by hand, or by an earlier shape) names what it loses there, read without
+decrypting: `dropped`, each value under a readable key the render carries no leaf for (the comparison plans it as
+*Removed:* by name), and `replaced`, each encrypted text the render writes a document of its own in (a Secret's
+`stringData.values`), whose keys no one reads, so a value it holds that the render does not carry is lost unless the
+definition asks for it at commit —, the shared-kustomization includes, the generated secrets by name, kind and length — with `frozenIn`, the files
 on record that hold the value already, `kept` when the value on record stands and no file of the name is
 written, and `rotates` with `forcedBy`, the file that has to be written, when the commit draws a new value
 into every file of the name (see [The commit](#the-commit)) — the secret values the person
@@ -153,23 +189,70 @@ result naming where and why. A stage *waiting for the customer* holds the wave t
 so, and the customer's action done flips the stage on the next watch. A wave carries no supplied secret
 values; an installation whose secret files are not on record is enabled alone.
 
+### Rotation on request
+
+`reconcile_capability` (and `enable_capability`, which shares its plan) takes `rotate`: generated values
+by name as the dry run lists them (`generatedSecrets[].name`, `<installation>-muster-valkey-password`).
+Each one the plan lists rotates whatever its files: the dry run shows it `rotates` with `forcedBy:
+"request"` and `frozenIn` the files on record that hold it, and those files read *update*. The definition
+names, for each value of a component's credentials Secrets, the credentials revision its consumers roll
+on (`render.Result.Revisions`, rendered next to the revision: muster's four credentials — its Dex client
+secret, registration token, OAuth encryption key and Valkey password — on
+`<installation>-muster-credentials-revision` on the 4 line, each MCP server's on its own); a value asked
+for draws its revision with it, also `forcedBy: "request"`, so every workload that reads the value
+restarts. The rest follows the rotation above: every file on record that holds a rotating name is
+rewritten with every value it holds — a rotation of muster's Valkey password rewrites
+`muster-valkey-credentials.yaml`, `muster-oauth-credentials.yaml` and `muster-credentials-revision.yaml`,
+which share the revision, and `dex-client-muster-secret.yaml` with the client secret — and nothing else
+rotates. The commit records the names asked for (`spec.rotate`); the review marks them (*rotates
+valkey-password (on request)*), the change and the pull request name them apart from the rotations a file forced.
+
+Names carry their installation, so over a set a name applies to each installation whose plan lists it
+and leaves the others as they are; a name no plan of the set (or of the one installation) lists is
+refused, naming it, before anything is written — the dry run as well. A name frozen in a file with other
+owners is refused like any rotation through such a file. A value no revision covers (kagent's
+oauth2-proxy credentials, the gateway's OBO keys, the hub's token-exchange credentials) rotates in its
+files and rolls nothing with it; dex-k8s-authenticator's client secret is not a generated value (it lives
+in the dex-app encrypted patch, which the manager does not write) and cannot be rotated here.
+
 ## The Action record
 
 Every enablement or reconcile a person commits is an `Action` — `platform-manager.giantswarm.io/v1alpha1`,
 namespaced, on the hub in the manager's namespace, read and written with the manager's own ServiceAccount:
 the record is the manager's, not the person's. `spec` is written once (`actor`, `capability`, `kind`
 enable|reconcile, `installations` in the wave's order, `inputs`, `markers` — per installation the
-definition's enabled marker in the installation's repository); `status` is a subresource (`state`,
-`pullRequests`, `approval`, `rollout`, `probes`, `result`, `syncedAt`/`syncedBy`, `orphans`). `get_action`
+definition's enabled marker in the installation's repository, `rotate` — the generated values asked to
+rotate); `status` is a subresource (`state`,
+`pullRequests`, `approval`, `rollout`, `probes`, `result`, `syncedAt`/`syncedBy`, `orphans`, `withdrawal`). `get_action`
 and `list_actions` read it; `mode: "commit"` creates it and moves its state;
 `list_installations` carries the newest Action of an installation and capability as `lastAction`, and an
 unfinished or failed action's state stands over the state read from the files.
 
 The states: *pending approval*, *rolling out*, *waiting for the customer*, *enabled*, *drifted* and *failed*
 are the installation's states an action produces; *refused* (the gate refused it before any write),
-*denied* (a member withdrew it) and *removed* (below) are the action's own, and the installation's state
-read from its repositories stands. A pull request is *open*, *merged* (with `mergeCommit`, `mergedAt` and
-`mergedBy`) or *closed*.
+*denied* (a member withdrew it before its merge), *reverted*, *withdrawn* and *removed* (below) are the
+action's own, and the installation's state read from its repositories stands. A pull request is *open*,
+*merged* (with `mergeCommit`, `mergedAt` and `mergedBy`, and `revert` once it was read reverted) or *closed*.
+
+**A merged pull request reverted on the default branch reads *reverted*, never *enabled*.** A revert
+leaves every object of the installation healthy on the previous values, so the probes cannot tell it:
+`watch_action` reads, before the installation, whether the stage's pull requests are still on the default
+branch, as the person with their GitHub token. A pull request is reverted when every file its merge commit
+changed carries its content from before the merge again — a file it added absent, one it modified or
+removed as it was; a later change that rewrote a file is not a revert. The action moves to *reverted*, the
+pull request's `revert` naming the reverting commit and the pull request GitHub links it to, the stage and
+the result naming them, the review's thread told; a read that fails decides nothing, and the watch refuses
+a reverted action. The merge's change is read once per commit and kept (the commit, and for a file it
+modified or removed its parent's tree); each watch costs the repositories' trees at HEAD, validated as the
+person, and a revert found two requests more to name it.
+
+**The actor withdraws a merged action** with `deny_action` and the reason: one *failed* after its approval
+(a stage failed and rolled back, a wave stopped on a red probe), one *reverted*, and one that still reads
+*rolling out*, *waiting for the customer*, *enabled* or *drifted* once the revert is read at the call (none
+found: nothing was taken back, and the withdrawal is refused). Any pull request still open is closed, the
+action moves to the terminal state *withdrawn* with `status.withdrawal` (by, reason, at), the approval as
+decided, and the review's thread is told. Approving stays a second person's; withdrawing a merged action is
+the actor's alone.
 
 **The record follows GitHub, not only the manager's own steps.** Every read of a record — `get_action`,
 `list_actions`, `list_installations` (the portal's page), the approval tools before they decide, and
@@ -272,7 +355,8 @@ read is *unknown* and listed under `unreadable`, with the reason.
 Flags, each with an environment variable (`--listen` / `LISTEN`, `--mcp-path` / `MCP_PATH`,
 `--github-api-url` / `GITHUB_API_URL`, `--enable-oauth` / `OAUTH_ENABLED`, `--oauth-base-url` /
 `OAUTH_BASE_URL`, `--oauth-authorization-server` / `OAUTH_AUTHORIZATION_SERVER`, `--approvals-url` /
-`APPROVALS_URL`, `--approvals-channel` / `APPROVALS_CHANNEL`, `--registry-repository` / `REGISTRY_REPOSITORY`,
+`APPROVALS_URL`, `--approvals-channel` / `APPROVALS_CHANNEL`, `--approvals-standup-channel` /
+`APPROVALS_STANDUP_CHANNEL`, `--registry-repository` / `REGISTRY_REPOSITORY`,
 `--registry-path` / `REGISTRY_PATH`, `--hub` / `HUB_INSTALLATION`); `giantswarm-platform-manager -h` lists
 them. The chart in [`helm/giantswarm-platform-manager`](helm/giantswarm-platform-manager/README.md)
 sets them from its values.
@@ -289,8 +373,8 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
   filesets, and the output is their tree — `<owner>/<repo>/<path>` per file, `includes.txt` with the shared
   kustomization entries — so `template` reproduces the goldens byte for byte. Shapes: `agent-platform`.
 - `platformctl installation list [<installation>…] [--customer <name>]`,
-  `platformctl installation enable <installation> <capability> --dry-run|--commit [--input k=v]… [--secret f=src]… [--content]`,
-  `platformctl installation reconcile <installation>…|--all <capability> --dry-run|--commit [--input k=v]… [--secret f=src]… [--content]`,
+  `platformctl installation enable <installation> <capability> --dry-run|--commit --reason <text> [--input k=v]… [--secret f=src]… [--rotate <name>]… [--content]`,
+  `platformctl installation reconcile <installation>…|--all <capability> --dry-run|--commit --reason <text> [--input k=v]… [--secret f=src]… [--rotate <name>]… [--content]`,
   `platformctl installation verify <installation> <capability>`,
   `platformctl action get <name>`, `platformctl action list [--installation <name>] [--capability <name>]`,
   `platformctl action approve <name>`, `platformctl action deny <name> --reason <text>`,
@@ -298,8 +382,8 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
   format the answers for a terminal;
   `--output json` prints the manager's answer as it is, for CI. `--input kagent.enabled=true` nests dotted
   keys into the tool's `inputs`; a value that parses as JSON is that value, anything else a string.
-  `--dry-run` is the tool's `dryRun`; `--commit` its `mode: commit` — the pull requests opened as you, the
-  Team review asked: for one installation the action, for `reconcile` over a set — two or more installations
+  `--dry-run` is the tool's `dryRun`; `--commit --reason <text>` its `mode: commit` with the `reason` — the
+  pull requests opened as you, the Team review asked: for one installation the action, for `reconcile` over a set — two or more installations
   named (the tool's `installations`), or `--all` for every installation of the registry — the wave over the
   set, one action rolled out a stage per merge. `installation verify` calls `verify_capability` and then
   `verify_installation` on the one registration and prints the two as one result — per dimension the side
@@ -309,9 +393,10 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
   the commit creates or rewrites; a field whose encrypted files stand on record is listed as on record and
   needs no value, the value there stands; the value is sent
   once in the call's `secrets`, never printed, and never taken from the command line — a value typed there
-  is refused naming only the field. `verify` prints the definition's features with their marks and
+  is refused naming only the field. `--rotate <name>` (repeatable) is the tool's `rotate`: the dry run
+  prints each value *rotates on request*, apart from the rotations a file forced. `verify` prints the definition's features with their marks and
   dimensions; `approve`, `deny` and `merge` are the review's tools called as you, the manager's answer
-  saying what follows; `watch` is `watch_action` — the rollout picture object by
+  saying what follows (`deny` on a merged action is its actor's withdrawal); `watch` is `watch_action` — the rollout picture object by
   object, the dimensions that decided, the report, what follows — called again while it is rolling out.
 - The calls go through `muster agent --mcp-server`, muster's own bridge: it takes the aggregator from
   muster's configuration (`--endpoint` names another) and signs you in to muster when needed. The bridge

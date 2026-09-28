@@ -32,8 +32,8 @@ const usage = `platformctl — the laptop and CI surface of giantswarm-platform-
       Render a capability's fileset locally from an inputs document (` + "`input`" + ` and ` + "`secrets`" + `);
       no token, no network. Without --out the files are printed.
   platformctl installation list [<installation>...] [--customer <name>]
-  platformctl installation enable <installation> <capability> --dry-run|--commit [--input k=v]... [--secret f=src]... [--content]
-  platformctl installation reconcile <installation>...|--all <capability> --dry-run|--commit [--input k=v]... [--secret f=src]... [--content]
+  platformctl installation enable <installation> <capability> --dry-run|--commit --reason <text> [--input k=v]... [--secret f=src]... [--rotate <name>]... [--content]
+  platformctl installation reconcile <installation>...|--all <capability> --dry-run|--commit --reason <text> [--input k=v]... [--secret f=src]... [--rotate <name>]... [--content]
   platformctl installation verify <installation> <capability>
   platformctl action get <name>
   platformctl action list [--installation <name>] [--capability <name>]
@@ -61,12 +61,19 @@ requests opened as you, the Team review asked — for one installation the actio
 a set (two or more installations named, or --all for every installation of the registry) the wave
 over the set, one action rolled out a stage per merge. --secret <field>=@<file>, <field>=env:<NAME>
 or <field>=- (stdin, one field) supplies a secret the plan's suppliedSecrets name; the value is sent
-once, never printed, and never taken from the command line.
+once, never printed, and never taken from the command line. --rotate <name> (repeatable) rotates a
+generated value on request, named as the dry run's generated secrets list it
+(<installation>-muster-valkey-password): the dry run shows it "rotates on request" with the files that
+hold it, the commit writes a new value into them and draws its component's credentials revision, so
+every workload that reads it restarts. Over a set a name applies where an installation's plan lists
+it; a name no plan lists is refused.
 verify prints the features of the definition with their marks and dimensions. approve, deny and
-merge are the review's tools called as you; the manager's answer says what follows. watch reads
-the rollout of a merged action as you: the Flux objects, then the probes,
-and carries the action to enabled, waiting for the customer or failed — call it again while it
-is rolling out.
+merge are the review's tools called as you; the manager's answer says what follows. deny on a
+merged action that failed or was reverted is its actor's withdrawal: the action moves to
+withdrawn with the reason, the review's thread told. watch reads the rollout of a merged action
+as you: whether its pull requests are still on the default branch (reverted, naming the revert,
+when they are not), the Flux objects, then the probes, and carries the action to enabled,
+waiting for the customer or failed — call it again while it is rolling out.
 
 self-update installs the latest release over this binary once its cosign bundle verifies as a
 CircleCI build of giantswarm/giantswarm-platform-manager; --check only reports both versions. The

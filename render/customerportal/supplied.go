@@ -11,8 +11,11 @@ import (
 // private key and webhook secret when the github plugin is on (the id is no
 // credential, but it lives only in the encrypted file); the Sentry DSNs and
 // report URI when sentry is on; the Grafana service-account token when the
-// Grafana plugin is wired. A dry run passes Supplied markers for exactly
-// these fields and lists them by name; no value ever appears in a dry run.
+// Grafana plugin is wired; the AI chat's Anthropic API key (or a Vertex
+// chat's service-account JSON) while the chat's credential is the portal's,
+// until the agent-platform Component's Secret carries it. A dry run passes
+// Supplied markers for exactly these fields and lists them by name; no value
+// ever appears in a dry run.
 func (in *Input) SuppliedSecretFields() []string { return in.suppliedSecretFields() }
 
 // Supplied is the marker a dry run renders in place of a supplied secret

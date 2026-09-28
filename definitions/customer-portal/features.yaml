@@ -36,7 +36,8 @@ features:
       - {id: extra-env-vars, kind: backstage, key: user-values.yaml backstage.extraEnvVars}
       - {id: tunnel-bundle, kind: backstage, key: tunnelport-spiffe-bundle.yaml}
       - {id: tunnel-mount, kind: backstage, key: user-values.yaml backstage.extraVolumeMounts / backstage.extraVolumes}
-      - {id: live-helmrelease-ready, kind: live, key: HelmRelease backstage Ready in flux-giantswarm}
+      - {id: live-helmrelease-ready, kind: live, key: "HelmRelease backstage Ready in flux-giantswarm, its last release not failed (Stalled, or Released=False after a failed install or upgrade)"}
+      - {id: live-deployment-available, kind: live, key: Deployment backstage Available in namespace backstage}
       - {id: live-pods-running, kind: live, key: the portal's pods Running in namespace backstage}
       - {id: live-portal-root, kind: live, key: / answered 200}
   identity:
@@ -49,7 +50,7 @@ features:
       - {id: dex-client-values, kind: backstage, key: user-secrets.enc.yaml dexAuthCredentials.<name>}
       - {id: dex-client-entry, kind: dex-configmap, catchAll: true, key: "the portal's client in the dex patch, and every other leaf of it (this definition's patch without the platform, the agent-platform definition's with it)"}
       - {id: live-oidc-start, kind: live, key: /api/auth/oidc-<name>/start 302 to Dex as client backstage}
-      - {id: live-dex-auth-portal-client, kind: live, key: Dex /auth answers client backstage (its login page or a redirect)}
+      - {id: live-dex-auth-portal-client, kind: live, key: "Dex knows client backstage and its redirect URI: the connector its /auth answer names answers 302 or its login form"}
       - {id: live-dex-portal-secret-loaded, kind: live, key: Dex started after Secret dex-client-backstage in giantswarm last changed its data}
   secrets:
     title: Secrets
@@ -63,7 +64,8 @@ features:
       - {id: live-dex-client-secret, kind: live, key: Secret dex-client-backstage in giantswarm with key secret}
   agent-platform-section:
     title: Agent platform section
-    description: On an installation with the platform enabled, the portal lists the agent-platform definition's Component and runs with its fragment.
+    description: On an installation with the platform enabled, the portal lists the agent-platform definition's Component and runs with its fragment, keeping the platform's section until the fragment owns the portal's lists.
     dimensions:
       - {id: platform-component, kind: backstage, key: kustomization.yaml components (./agent-platform/)}
+      - {id: platform-section-kept, kind: backstage, key: "app-config.yaml muster / agentPlatform / aiChat / mcpActions / backend.actions (the platform's section, kept as the record carries it until the Component's fragment owns the portal's lists)"}
       - {id: live-platform-fragment, kind: live, key: ConfigMap agent-platform-app-config-backstage in namespace backstage}

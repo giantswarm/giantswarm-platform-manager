@@ -44,12 +44,20 @@ account's JSON, supplied as `aiChat.google.credentialsJson`, as the chart value 
 `/app/google/credentials.json` — with the Slack credentials the only values a person supplies at commit; where the
 portal's own app-config carries the chat by hand, `installation.portals[*].handKeptChat`, its environment supplies the
 credential already and the Component renders the chat's blocks without a Secret and asks for no value, so a wave
-reconciles the portal), and a patch appending those sources to the portal HelmRelease's `valuesFrom` — last, so the
+reconciles the portal — the customer-portal definition keeps the credential in the portal's user secrets, supplied
+under the same field, until the Component's Secret is on record), the backend's trace export where the portal's
+chart line resolves to 2.68.0 or later (`observability.otel`: the installation's `otlp-gateway` on 4317 over gRPC
+with the `giantswarm` tenant header; an earlier chart's schema refuses the key), and a patch appending those sources to the portal HelmRelease's `valuesFrom` — last, so the
 platform's values win. The fragment carries the platform's section, and on a portal the customer-portal
 definition renders the shared extension list with the platform's section and the installation's muster entry;
 Backstage and Helm replace lists wholesale, so on a hand-kept portal (a literal `app.extensions` on record) the
-Component writes its object-shaped keys alone and the portal's own lists stand, and the portal's environment
-(`backstage.extraEnvVars`) is the customer-portal definition's on every portal. With the chat on, the fragment
+Component writes its object-shaped keys alone and the portal's own lists stand — and the skill repositories
+(`skills.repositories`, the person's third choice, read back from the fragment, else from the portal's own
+app-config), a list that is the portal's own — and the portal's environment
+(`backstage.extraEnvVars`) is the customer-portal definition's on every portal. The customer-portal definition
+keeps the platform's section in the portal's app-config, the extension list with it included by anchor, until the
+fragment on record owns the portal's lists (its `platformSection`), so moving a hand-kept portal onto that
+definition never leaves the running portal without the section. With the chat on, the fragment
 carries the `aiChat` block — on Anthropic's API with the key from the chart's environment, or on Vertex AI
 (`aiChat.provider: vertex`) with the provider, the Google project, region and the mounted credentials file, the
 project and region in the Component's values too, which the chart exports — with the model and the chat's two MCP
@@ -76,10 +84,16 @@ chart's `auth.usersExistingSecretChecksum`). A rotation rewrites the credentials
 anew and so rolls the server and its Valkey; a reconcile without one keeps it. A private installation adds
 the server's user values (the private-address flags) as a ConfigMap the HelmRelease reads. muster's credentials get
 the same revision: held by `muster-oauth-credentials`, `muster-valkey-credentials` and the Secret
-`muster-credentials-revision` in the Flux namespace, and handed to the muster and valkey HelmReleases through the
-platform patch's `components.muster.valuesFromRefs` and `components.valkey.valuesFromRefs` (the meta chart renders
-them as the children's `valuesFrom`) onto the muster chart's `existingSecretChecksum` values and the Valkey chart's
-users Secret mark.
+`muster-credentials-revision` in the Flux namespace, and handed to the HelmRelease of every workload that reads
+them (`musterConsumers` in `render.go`) through the platform patch's `components.<name>.valuesFromRefs` (the meta
+chart renders them as the children's `valuesFrom`): muster's onto the muster chart's `existingSecretChecksum`
+values, its Valkey's onto the Valkey chart's users Secret mark, and, where each runs, klaus-gateway's (its routing
+store is muster's Valkey) and the agent-manager's, cluster-manager's and model-manager's (their OAuth resource
+servers read the platform client's secret) onto the pod annotation `muster-credentials-revision`. Each of these
+reads its value once at start, so a rotation restarts all of them; the runtime feature probes each one's
+Deployment Available (`live-platform-workloads`). The result names each revision for the values of the Secrets
+it is held by (`Result.Revisions`, recorded with `Result.Revision` where the Secrets are rendered): a rotation
+asked for by name draws the value's revision with it, so its readers roll.
 
 A hub's `federation.targets` render the hub side (`hub.go`): the token-exchange broker's targets and the
 agentgateway's identity providers in the configmap patch, the targets' MCP servers with exchange auth,
@@ -117,6 +131,15 @@ The golden filesets under `render/agentplatform/testdata/<shape>/golden/` are th
 a public customer, a Giant Swarm-owned installation, a hub with a private target (tunnel and tunnelport
 values) and a multi-cluster customer with one aggregator (invented names, placeholder values) and are
 diffed on every pull request; `go test ./render/... -update` rewrites them after an intended change.
+
+## The cluster-mcp-servers definition
+
+A management cluster's own MCP servers without the agent platform (`render/clustermcpservers`): per running
+server the extras directory `render/mcpservers` renders — the one the agent-platform definition renders for its
+installation's servers — with the user values the record says the server needs (Dex on private addresses, the
+clients' too, the installation's Dex CA Secret listed), and each server's Dex client as a `clientSecretRef` in the
+dex-app configmap patch, a file the plan merges keeping every other owner's clients and keys. It refuses where the
+agent platform is on record and below dex-app 3.2.3; see `definitions/cluster-mcp-servers/README.md`.
 
 ## Probes and customer actions
 
@@ -162,8 +185,8 @@ probe to a live dimension of the feature it names and every live dimension to at
 ## The render-consumption test
 
 The goldens prove what the definition renders; `TestRenderConsumption` (`render/agentplatform/consumption_test.go`)
-proves that the charts on the other side read it. Its shapes are its own table: the two agent-platform golden
-shapes, each with the customer-portal definition's input for the same installation
+proves that the charts on the other side read it. Its shapes are its own table: three agent-platform golden
+shapes (the chat gateway's among them), each with the customer-portal definition's input for the same installation
 (`render/agentplatform/testdata/consumption/<shape>.portal.yaml`, the supplied values as dry-run markers), and a
 portal-only installation without the platform. For every shape it writes both definitions' filesets into one
 tree (a path both render fails the test: one file, one owner), builds each emitted `extras/<x>/` directory over
@@ -191,8 +214,12 @@ exists, `optional: true` included (a missing optional key is a silently disabled
 with `envFrom` carries every key the chart's own Secret would (the chart is rendered once more with dummy inline
 credentials from `<chart>.inline-secret.values.yaml` to read that contract); a Secret mounted whole carries every
 `<mountPath>/<key>` the release's manifests mention; and every Dex static client the patch references gets its
-secret loaded by the dex Deployment from an emitted `dex-client-*` Secret. Every failure names the chart, the
-Secret, the key or the client, so a Renovate bump that breaks a contract reads as a diagnosis.
+secret loaded by the dex Deployment from an emitted `dex-client-*` Secret. It holds `musterConsumers` to the
+charts: every workload whose pods read `muster-oauth-credentials` or `muster-valkey-credentials` (a chart's test
+hook aside) is the Deployment of a consumer that runs, every consumer that runs has its Deployment rendered
+reading them, and on the 4 line the consumer's child is rendered once more with the revision Secret's
+`targetPath`s set where Flux merges them, which must change the Deployment's pod template. Every failure names
+the chart, the Secret, the key or the client, so a Renovate bump that breaks a contract reads as a diagnosis.
 
 The charts are pinned in `render/agentplatform/testdata/consumption/charts.yaml` (chart, OCI repository,
 version); the org's Renovate preset bumps each `version:` through its `registry:` line, and
@@ -210,8 +237,11 @@ The test needs `helm`, `kustomize` and the network (gsoci charts, the fleet base
 `RENDER_CONSUMPTION=1`; `make test-render-consumption` runs it, and the `render-consumption` CircleCI job runs
 it on every push next to the unit tests.
 
-The customer-portal definition has a render-consumption test of its own (`render/customerportal/consumption_test.go`,
-the same name, gate and Make target): it renders the backstage chart at the pin the agent-platform's `charts.yaml`
-carries and holds the `live-pods-running` probe's selector to the labels of the pods the chart renders — the
-portal's Deployment matches, no other workload does — so a chart that relabels its pods fails the test rather
-than reading *no pod matches* on every installation.
+The customer-portal definition has render-consumption tests of its own (`render/customerportal/consumption_test.go`,
+the same name prefix, gate and Make target). Both render the backstage chart at the pin the agent-platform's
+`charts.yaml` carries. The first holds the `live-pods-running` probe's selector to the labels of the pods the chart
+renders — the portal's Deployment, the one `live-deployment-available` names, matches, no other workload does — so
+a chart that relabels its pods fails the test rather than reading *no pod matches* on every installation. The
+second renders it with every shape's committed values, each generated value filled in as the commit step fills
+it, and holds every key the chart writes under a Secret's `data:` to the value generated or supplied, decoded as
+valid UTF-8: a leaf the render leaves unencoded fails there, not as a pod whose container never starts.

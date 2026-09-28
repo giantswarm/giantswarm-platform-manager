@@ -77,10 +77,10 @@ const (
 	// the Secret in its dex patch entry and renders none); the name matches the
 	// fleet's .sops.yaml rules (.*(secret|credential).*) and the directory's
 	// .enc.yaml convention.
-	dexClientFile = "dex-client-backstage-secret.enc.yaml" // #nosec G101 -- a file name, not a value
+	dexClientFile = render.PortalDexClientSecretFile
 	// The generated values, named so the Dex client Secret and the portal's
 	// own Secret receive the same client secret: raw in the Dex client's
-	// Secret, base64 in the portal's values (dexCredentials).
+	// Secret, base64 in the portal's values (dexCredentials, chartData).
 	generatedSessionSecret   = "backstage-session-secret"    // #nosec G101 -- a placeholder name, not a value
 	generatedDexClientSecret = "backstage-dex-client-secret" // #nosec G101 -- a placeholder name, not a value; prefixed with the installation: never shared between installations
 	generatedTelemetrySalt   = "backstage-telemetrydeck-salt"
@@ -97,7 +97,8 @@ const (
 // Render turns an installation's inputs into its fileset. raw is the decoded
 // input document (map[string]any at the top, as a YAML or JSON decoder returns
 // it); secrets carries the values the person supplies, by field name — the
-// GitHub App's credentials, the Sentry DSNs, the Grafana token. Everything else the portal needs
+// GitHub App's credentials, the Sentry DSNs, the Grafana token, the AI chat's
+// credential while it is the portal's. Everything else the portal needs
 // is a placeholder the commit step generates. mode says what the render is
 // for: a commit refuses a required person input the document lacks, a
 // comparison renders its Missing marker.
@@ -229,22 +230,37 @@ func generated(name string, kind render.GeneratedKind, length int) render.Genera
 	return render.Generated{Name: name, Placeholder: render.Placeholder(name), Kind: kind, Length: length}
 }
 
+// chartData is a generated value at a leaf the backstage chart copies under
+// its Secret's data: as it is — the commit step fills its placeholder with
+// the value's base64, once, which Kubernetes decodes back to the value the
+// pod reads. The value keeps its name: its other placeholders (the Dex
+// client's Secret carries the client secret raw) and a rotation by name
+// reach the same value.
+func chartData(name string, kind render.GeneratedKind, length int) render.Generated {
+	return generated(name, kind, length).Encoded(render.EncodedBase64)
+}
+
 // userSecrets is user-secrets-backstage: the chart values the portal reads
 // its own credentials from — the session secret, the Dex clients under the
 // installations' names (the chart exposes them as AUTH_DEX_<NAME>_CLIENT_ID
 // and _CLIENT_SECRET: the portal's own generated; another installation's the
 // portal has a provider for, and the token broker's, supplied), the
-// telemetry salt, with sentry on the DSNs and the report URI and, with the
-// Grafana plugin wired, the Grafana token (grafana.apiToken, the chart's
-// GRAFANA_TOKEN). The Dex clients' leaves (dexCredentials), the sentry leaves
-// and the Grafana token are base64 (base64Leaf: the chart copies them under
-// its Secret's data: as they are); the portal's own client secret is the
-// generated value the Dex client's Secret carries raw, at its encoded
-// placeholder.
+// telemetry salt, with sentry on the DSNs and the report URI, with the
+// Grafana plugin wired the Grafana token (grafana.apiToken, the chart's
+// GRAFANA_TOKEN) and, while the AI chat's credential is the portal's
+// (chatCredentialField), the chat's Anthropic API key (anthropic.apiKey, the
+// chart's ANTHROPIC_API_KEY, which the chat's app-config block references).
+// The chart copies every one of these leaves under the data: of its Secrets
+// as it is, so each is base64-encoded exactly once: a literal or a supplied
+// value here (render.Base64Leaf), a generated one — the session secret, the
+// salt and the portal's own client secret, which the Dex client's Secret
+// carries raw — by the commit step at its encoded placeholder (chartData). A
+// Vertex chat's service-account JSON (google.credentialsJson) lands in the
+// chart's stringData: and stays as supplied.
 func (in *Input) userSecrets(secrets map[string]string) render.File {
-	session := generated(generatedSessionSecret, render.Base64, 32)
-	client := generated(in.Installation.Name+"-"+generatedDexClientSecret, render.Base64, 32).Encoded(render.EncodedBase64)
-	salt := generated(generatedTelemetrySalt, render.Alphanumeric, 32)
+	session := chartData(generatedSessionSecret, render.Base64, 32)
+	client := chartData(in.Installation.Name+"-"+generatedDexClientSecret, render.Base64, 32)
+	salt := chartData(generatedTelemetrySalt, render.Alphanumeric, 32)
 	credentials := render.Map{e(in.Installation.Name, dexCredentials(render.PortalDexClientID, client.Placeholder))}
 	for _, inst := range in.providerInstallations() {
 		if inst.Name != in.Installation.Name {
@@ -270,6 +286,12 @@ func (in *Input) userSecrets(secrets map[string]string) render.File {
 	}
 	if in.Plugins.Grafana.Enabled {
 		values = append(values, e("grafana", render.Map{e("apiToken", render.Base64Leaf(secrets[fieldGrafanaToken]))}))
+	}
+	switch field := in.chatCredentialField(); field {
+	case fieldChatKey:
+		values = append(values, e("anthropic", render.Map{e("apiKey", render.Base64Leaf(secrets[field]))}))
+	case fieldChatGoogleCredentials:
+		values = append(values, e("google", render.Map{e("credentialsJson", secrets[field])}))
 	}
 	return valuesSecret(userSecretsName, values, session, client, salt)
 }

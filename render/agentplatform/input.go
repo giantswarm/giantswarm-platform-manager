@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"gopkg.in/yaml.v3"
@@ -34,12 +35,18 @@ var (
 	ErrPolicy = errors.New("agent-platform: fleet policy")
 )
 
-// The components of the definition beside muster and its servers.
+// The meta chart's components the definition names: muster and its Valkey,
+// which every installation runs, and the components beside them.
 const (
+	componentMuster         = "muster"
+	componentValkey         = "valkey"
 	componentKagent         = "kagent"
 	componentAgentManager   = "agent-manager"
 	componentKlausGateway   = "klaus-gateway"
 	componentClusterManager = "cluster-manager"
+	// componentModelManager is no choice of the policy's: the meta chart's 4
+	// line runs it by default and the definition leaves it on.
+	componentModelManager = "model-manager"
 )
 
 // organisationComponents are the components policy.yaml lists per
@@ -66,7 +73,7 @@ const (
 	musterOAuthSecret  = "muster-oauth-credentials"  // #nosec G101 -- a Secret name, not a value
 	musterValkeySecret = "muster-valkey-credentials" // #nosec G101 -- a Secret name, not a value
 	// musterRevisionSecret carries muster's credentials revision in the Flux
-	// namespace for the muster and valkey HelmReleases (valuesFrom); the
+	// namespace for its consumers' HelmReleases (valuesFrom); the
 	// revision is also a key of the two credentials Secrets, so a rewrite of
 	// either draws it anew (see servers.go: the same shape as a server's).
 	musterRevisionSecret = "muster-credentials-revision" // #nosec G101 -- a Secret name, not a value
@@ -75,14 +82,26 @@ const (
 // Input is the resolved inputs of one installation: the record
 // (definitions/agent-platform/schema.json's installation.*, read from the
 // registry and the repositories), the fleet policy (policy.yaml) applied to
-// it, and the two choices a person makes. The renderer reads nothing else.
+// it, and the choices a person makes. The renderer reads nothing else.
 type Input struct {
 	Installation Installation
 	// ModelServing is the person's choice: the meta chart's serving slice.
 	ModelServing bool
+	// SingletonsCapacity is the person's choice: the Karpenter capacity the
+	// stateful singletons run on (scheduling.singletons), any or on-demand.
+	SingletonsCapacity string
 	// AIChat is the person's other choice: the portal's AI chat, in the
 	// platform's portal section (portal.go).
 	AIChat AIChat
+	// SkillRepositories are the repositories the portal's agent creation
+	// discovers skills in (skills.repositories), in the platform's portal
+	// section: the person's third choice, read back from the portal's files
+	// on record.
+	SkillRepositories []string
+	// ClusterManagerCommit is the person's choice: the cluster-manager's
+	// commit mode through its GitHub App (clusterManager.github.enabled), read
+	// back from the configmap patch on record.
+	ClusterManagerCommit bool
 	// Components are the components the policy gives the installation, by
 	// name: its organisation's list and, where the policy names a Slack app
 	// for the installation, the chat gateway.
@@ -96,6 +115,9 @@ type Input struct {
 	Connectors Connectors
 	// Teleport is the Teleport cluster a tunnel joins.
 	Teleport Teleport
+	// SourceInterval is the poll interval of every OCIRepository the
+	// definition renders: the policy's flux.sourceInterval.
+	SourceInterval string
 	// selectsLine says the enable selected the 4 chart line over the
 	// record's 3: the render writes the selection into the record
 	// (recordSelection) and Selected answers it.
@@ -158,6 +180,12 @@ type Installation struct {
 	// cluster App on record enables the feature gates, or its chart does by
 	// default (substrate.go).
 	PodCertificateRequest bool `json:"podCertificateRequest"`
+	// PortalClientSecret says the portal client's Secret (dex-client-backstage
+	// in Dex's namespace) is on record: the customer-portal definition's file
+	// in the installation's portal directory, or the portal client already in
+	// its Dex patch. Only then does the render add the client, its audience
+	// and its trusted peer: this definition renders no file for the Secret.
+	PortalClientSecret bool `json:"portalClientSecret"`
 	// DexAppVersion is the dex-app the installation runs, where the record
 	// says: its own pin or the fleet's base. Renders nothing; the plan holds
 	// the commit until it takes the referenced Dex client secrets.
@@ -224,14 +252,24 @@ type Target struct {
 	// carries the organisation's plain connector on the target's Dex, every
 	// further hub its own (connector). Empty: this hub alone brokers into it.
 	Hubs []string `json:"hubs"`
+	// Servers are the groups of the MCP servers the target runs: the servers
+	// whose extras directory its management-clusters repository carries.
+	Servers []string `json:"servers"`
+	// AgentPlatform says the target runs the agent platform, which renders
+	// the Dex side of this hub's client there: the pair's two files name each
+	// other (exchangeSecretName). Without it the target keeps the client by
+	// hand.
+	AgentPlatform bool `json:"agentPlatform"`
 }
 
-// groups are the federated MCP server groups of every target: the target's
-// own three servers, the set the shared template registers everywhere.
+// groups are the target's federated MCP server groups: the servers it runs,
+// in the order the shared template registers them.
 func (t Target) groups() []string {
 	groups := make([]string, 0, len(servers))
 	for _, s := range servers {
-		groups = append(groups, s.group)
+		if slices.Contains(t.Servers, s.Group) {
+			groups = append(groups, s.Group)
+		}
 	}
 	return groups
 }
@@ -304,6 +342,9 @@ type policy struct {
 		Connector Connectors `yaml:"connector"`
 		Teleport  Teleport   `yaml:"teleport"`
 	} `yaml:"federation"`
+	Flux struct {
+		SourceInterval string `yaml:"sourceInterval"`
+	} `yaml:"flux"`
 }
 
 func loadPolicy() (*policy, error) {
@@ -314,6 +355,9 @@ func loadPolicy() (*policy, error) {
 	var pol policy
 	if err := yaml.Unmarshal(raw, &pol); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrPolicy, err)
+	}
+	if _, err := time.ParseDuration(pol.Flux.SourceInterval); err != nil {
+		return nil, fmt.Errorf("%w: flux.sourceInterval: %w", ErrPolicy, err)
 	}
 	return &pol, nil
 }
@@ -390,7 +434,18 @@ type document struct {
 	ModelServing struct {
 		Enabled bool `json:"enabled"`
 	} `json:"modelServing"`
+	Scheduling struct {
+		SingletonsCapacity string `json:"singletonsCapacity"`
+	} `json:"scheduling"`
 	AIChat AIChat `json:"aiChat"`
+	Skills struct {
+		Repositories []string `json:"repositories"`
+	} `json:"skills"`
+	ClusterManager struct {
+		GitHub struct {
+			Enabled bool `json:"enabled"`
+		} `json:"github"`
+	} `json:"clusterManager"`
 }
 
 // Parse validates raw against the schema and resolves the inputs: the record
@@ -401,9 +456,11 @@ type document struct {
 // stands (a hub without its broker client, a private target on a hub without a
 // published service-account issuer, the serving slice or a component of the 4
 // chart line on a record that selects the 3 line, kagent on the 4 line where
-// the cluster does not serve PodCertificateRequest, the chat on an
-// installation whose organisation hosts no portal for it, without a model,
-// or on Vertex without its Google project or location) is ErrInput too.
+// the cluster does not serve PodCertificateRequest, the chat or skill
+// repositories on an installation whose organisation hosts no portal for
+// them, the chat without a model, or on Vertex without its Google project or
+// location, the cluster-manager's commit mode where no cluster-manager runs)
+// is ErrInput too.
 func Parse(raw any) (*Input, error) {
 	schemaBytes, err := definitions.FS.ReadFile("agent-platform/schema.json")
 	if err != nil {
@@ -444,7 +501,8 @@ func Parse(raw any) (*Input, error) {
 	if err != nil {
 		return nil, err
 	}
-	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, AIChat: d.AIChat, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport}
+	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories,
+		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval}
 	if in.Components, err = pol.components(in.Installation); err != nil {
 		return nil, err
 	}
@@ -533,6 +591,9 @@ func (in *Input) checkRecord() error {
 	if in.ModelServing && in.Installation.ChartLine != lineFour {
 		return refuse(fmt.Sprintf("%s is the 4 chart line's serving slice, and this installation runs the %s line; the record's chart line decides", describe("modelServing.enabled"), in.Installation.ChartLine))
 	}
+	if in.singletonsOnDemand() && in.Installation.Provider != providerCAPA {
+		return refuse(fmt.Sprintf("%s is on-demand, Karpenter's capacity type, and a %s installation runs no Karpenter the definition knows; the pods would stay Pending", describe("scheduling.singletonsCapacity"), in.Installation.Provider))
+	}
 	for _, c := range lineFourComponents {
 		if in.Components[c] && in.Installation.ChartLine != lineFour {
 			return refuse(fmt.Sprintf("%s selects the %s line, and %s needs the platform's 4 chart line; agentPlatform.kagentApiV2: true in installations/%s/config.yaml.patch selects 4", describe("installation.chartLine"), in.Installation.ChartLine, c, in.Installation.Name))
@@ -548,6 +609,12 @@ func (in *Input) checkRecord() error {
 	}
 	if in.AIChat.Enabled && in.hostedPortal() == nil {
 		return refuse(describe("aiChat.enabled") + " asks for the chat in the developer portal's agent-platform section, and no portal carries one for this installation: the record lists no portal hosted on it, nor its organisation's on a sibling that is not hand-kept")
+	}
+	if len(in.SkillRepositories) > 0 && in.hostedPortal() == nil {
+		return refuse(describe("skills.repositories") + " lists the skill repositories of the developer portal's agent-platform section, and no portal carries one for this installation: the record lists no portal hosted on it, nor its organisation's on a sibling that is not hand-kept")
+	}
+	if in.ClusterManagerCommit && !in.clusterManager() {
+		return refuse(fmt.Sprintf("%s asks for the cluster-manager's commit mode, and the fleet policy runs no cluster-manager on %s's installations", describe("clusterManager.github.enabled"), in.Installation.Customer))
 	}
 	if in.AIChat.Enabled && in.AIChat.Model == "" {
 		return refuse(describe("aiChat.model") + " is empty; the chat answers with one model, and the schema's default stands where none is typed")
@@ -593,6 +660,7 @@ func (in *Input) kagent() bool         { return in.Components[componentKagent] }
 func (in *Input) agentManager() bool   { return in.Components[componentAgentManager] }
 func (in *Input) klausGateway() bool   { return in.Components[componentKlausGateway] }
 func (in *Input) clusterManager() bool { return in.Components[componentClusterManager] }
+func (in *Input) modelManager() bool   { return in.Installation.ChartLine == lineFour }
 
 // portalHost is the installation whose management-clusters tree hosts the
 // portal the platform's portal section is written into (hostedPortal); empty

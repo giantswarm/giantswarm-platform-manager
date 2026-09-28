@@ -9,6 +9,19 @@ const (
 	DexContainer = "dex"
 )
 
+// DexAuthProbe is the live check that Dex knows client and its redirect URI:
+// the authorization request on dexHost's /auth, taken through the connector
+// step (Expectation.DexConnectorStep). The connector answers a client it knows
+// with a registered redirect URI with a redirect to the identity provider (a
+// password connector with its form), an unknown client with 404 and a
+// redirect URI not registered for the client with 400.
+func DexAuthProbe(id, feature, dexHost, client, redirectURI string) Probe {
+	return Probe{ID: id, Feature: feature, Kind: HTTP,
+		URL: "https://" + dexHost + "/auth?client_id=" + client + "&redirect_uri=" + redirectURI + "&response_type=code&scope=openid",
+		Expect: Expectation{Statuses: []int{200, 302}, DexConnectorStep: true,
+			Note: "Dex knows client " + client + " and its redirect URI when the connector its /auth answer names redirects to the identity provider or serves its login form; an unknown client answers 404, an unregistered redirect URI 400"}}
+}
+
 // DexSecretLoadedProbe is the live check that Dex holds the current secret of
 // a client whose secret it reads from the Secret secret in namespace, Dex's:
 // Dex reads a referenced client secret into its environment only when its

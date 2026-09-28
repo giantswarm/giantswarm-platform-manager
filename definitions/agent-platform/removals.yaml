@@ -132,12 +132,6 @@ removals:
     reason: >-
       Moved: backend.actions (the actions the portal lists for the chat's MCP actions server) sits in the main app-config today; the Agent Platform Component
       carries it where the chat is on, and the main app-config is the customer-portal capability's to clean up · M18
-  - key: backstage:app-config:agentPlatform.skills
-    kind: other-definition
-    reason: >-
-      Kept: agentPlatform.skills lists the portal's skill repositories in the main app-config; the customer-portal capability owns that list, and the Agent
-      Platform Component writes none of it.
-
 
   # --- agent-platform configmap-values.yaml.patch ---
   - key: configmap:gitops.forbidInlineSecrets

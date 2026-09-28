@@ -37,12 +37,20 @@ func (h holder) names() []string {
 // every file of the name, the kept ones rewritten. A rewritten file gives
 // every name it holds a new value, so a name kept in it rotates as well —
 // down to the files that share those (a valkey password held by the server's
-// credentials and by its Valkey's). Every rotating name says which file
-// forced it. A rotation through a file the definition does not own whole
-// would write over the other owners' values: refused, naming the file.
-func frozen(generated map[string]*GeneratedSecret, holders []holder) map[string]bool {
+// credentials and by its Valkey's). A name the person asked to rotate
+// (requested) needs a new value whatever its files, forced by the request
+// (ForcedByRequest), and its files are rewritten the same way. Every rotating
+// name says what forced it: the request, or a file. A rotation through a file
+// the definition does not own whole would write over the other owners'
+// values: refused, naming the file — a requested one alike. Where the
+// capability is on record (onRecord), a rotation no request reaches is
+// refused as well, naming the file that forces it: a new value ends every
+// session and client that holds the old one, so a reconcile rotates only
+// what a person asked for — the names asked for and every name of a file
+// their rotation rewrites.
+func frozen(generated map[string]*GeneratedSecret, holders []holder, requested []string, onRecord bool) map[string]bool {
 	frozenIn := map[string][]string{} // name → the secret files on record that hold it
-	onRecord := map[string][]string{} // name → every file on record that holds it, a rotation rewrites them
+	heldBy := map[string][]string{}   // name → every file on record that holds it, a rotation rewrites them
 	byFile := map[string]holder{}
 	needing := map[string]bool{}
 	forcedBy := map[string]string{}
@@ -54,6 +62,7 @@ func frozen(generated map[string]*GeneratedSecret, holders []holder) map[string]
 			}
 		}
 	}
+	need(requested, ForcedByRequest)
 	for _, h := range holders {
 		byFile[h.file] = h
 		switch h.change {
@@ -64,18 +73,19 @@ func frozen(generated map[string]*GeneratedSecret, holders []holder) map[string]
 				frozenIn[n] = append(frozenIn[n], h.file)
 			}
 			for _, n := range h.names() {
-				onRecord[n] = append(onRecord[n], h.file)
+				heldBy[n] = append(heldBy[n], h.file)
 			}
 		}
 		if h.change != ChangeUnchanged {
 			need(h.names(), h.file)
 		}
 	}
+	asked := reached(requested, heldBy, byFile)
 	rewrite := map[string]bool{}
 	for changed := true; changed; {
 		changed = false
 		for _, n := range keys(needing) {
-			for _, f := range onRecord[n] {
+			for _, f := range heldBy[n] {
 				if rewrite[f] {
 					continue
 				}
@@ -96,6 +106,10 @@ func frozen(generated map[string]*GeneratedSecret, holders []holder) map[string]
 			gs.Kept = true
 			continue
 		}
+		if onRecord && !asked[name] {
+			gs.Refusal = fmt.Sprintf("%s would rotate, forced by %s: the capability is on record, and a new value ends every session and client that holds the old one; a reconcile rotates a value only on request (rotate %s)", name, forcedBy[name], name)
+			continue
+		}
 		gs.Rotates = true
 		gs.ForcedBy = forcedBy[name]
 		for _, f := range files {
@@ -108,6 +122,24 @@ func frozen(generated map[string]*GeneratedSecret, holders []holder) map[string]
 		}
 	}
 	return rewrite
+}
+
+// reached are the names a rotation of names draws anew: the names, and
+// every name a file on record holds that one of them is held by, down to
+// the files that share those.
+func reached(names []string, heldBy map[string][]string, byFile map[string]holder) map[string]bool {
+	out := map[string]bool{}
+	for queue := slices.Clone(names); len(queue) > 0; queue = queue[1:] {
+		n := queue[0]
+		if out[n] {
+			continue
+		}
+		out[n] = true
+		for _, f := range heldBy[n] {
+			queue = append(queue, byFile[f].names()...)
+		}
+	}
+	return out
 }
 
 // Rotated are the files on record the commit rewrites with a new value:
@@ -128,10 +160,45 @@ func (p Installation) Rotated() map[string]bool {
 // Rotating names the generated values the commit draws anew over a value on
 // record, sorted.
 func (p Installation) Rotating() []string {
-	var out []string
+	requested, forced := p.Rotations()
+	return slices.Sorted(slices.Values(append(requested, forced...)))
+}
+
+// Rotations divides Rotating into the values rotated on request — asked for
+// by name, or the credentials revision of one asked for — and the ones a
+// file to write forced, each sorted.
+func (p Installation) Rotations() (requested, forced []string) {
 	for _, g := range p.GeneratedSecrets {
-		if g.Rotates {
-			out = append(out, g.Name)
+		switch {
+		case !g.Rotates:
+		case g.ForcedBy == ForcedByRequest:
+			requested = append(requested, g.Name)
+		default:
+			forced = append(forced, g.Name)
+		}
+	}
+	return requested, forced
+}
+
+// ForcedByRequest is the ForcedBy of a generated value that rotates because a
+// person asked for it by name (reconcile_capability's rotate), or because it
+// is the credentials revision of one asked for: no file forced it.
+const ForcedByRequest = "request"
+
+// requestedRotations are the generated values of the plan a rotation is asked for,
+// each followed by the credentials revision its consumers roll on where the
+// definition names one (revisions) — drawing the revision anew restarts every
+// workload that reads the value. A name the plan does not list takes no part:
+// over a set, a name applies to each installation whose plan lists it.
+func requestedRotations(names []string, generated map[string]*GeneratedSecret, revisions map[string]string) []string {
+	var out []string
+	for _, n := range names {
+		if generated[n] == nil {
+			continue
+		}
+		out = append(out, n)
+		if r := revisions[n]; generated[r] != nil {
+			out = append(out, r)
 		}
 	}
 	return out

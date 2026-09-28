@@ -109,6 +109,8 @@ spec:
               value: {{ .Values.approvals.team | quote }}
             - name: APPROVALS_NOTICE_CHANNEL
               value: {{ .Values.approvals.noticeChannel | quote }}
+            - name: APPROVALS_STANDUP_CHANNEL
+              value: {{ .Values.approvals.standupChannel | quote }}
             - name: APPROVALS_TOKEN_FILE
               value: /var/run/secrets/klaus-gateway/token
             {{- end }}

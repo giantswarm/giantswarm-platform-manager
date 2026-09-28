@@ -12,6 +12,7 @@ input:
     chartLine: "3"
     musterClientId: 00000000-0000-4000-8000-000000000003
     podCertificateRequest: false
+    portalClientSecret: true
     portals:
       - installation: kestrel
         customer: oakridge
@@ -24,10 +25,14 @@ input:
       targets:
         - installation: kestrel
           baseDomain: kestrel.oakridge.example
+          servers: [kubernetes, prometheus, capi]
+          agentPlatform: true
           private: false
           hubs: [heron]
         - installation: plover
           baseDomain: plover.oakridge.example
+          servers: [kubernetes, prometheus, capi]
+          agentPlatform: true
           private: false
           hubs: [heron]
 secrets: {}

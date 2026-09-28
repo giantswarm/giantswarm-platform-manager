@@ -10,7 +10,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -283,6 +282,11 @@ type Check struct {
 	// (a Kustomization's source revision, a HelmRelease's chart version),
 	// when the object carries one: the rollout watch reads it.
 	Revision string `json:"revision,omitempty"`
+	// Failed says the object will not reach the condition on its own: a
+	// HelmRelease whose last release failed (releaseFailure), the message
+	// naming Flux's verdict. The rollout watch reads it: the stage is
+	// failed, not rolling out.
+	Failed bool `json:"failed,omitempty"`
 }
 
 // LiveResult is what a live dimension's probes answered.
@@ -302,6 +306,10 @@ type LiveOptions struct {
 	// waiting for the customer replace it.
 	State  installations.State
 	Inputs Inputs
+	// Kept are the entries of the audience lists the commit kept beside the
+	// render (plan.LiveKept), from the Action: the drift probes hold the live
+	// objects against the value the commit wrote, render and kept entries.
+	Kept []plan.Kept
 	// Cluster reads the installation as the person; nil when there are no
 	// inputs on record (nothing is read then).
 	Cluster Cluster
@@ -489,6 +497,7 @@ func renderLive(opts LiveOptions) (*liveRender, error) {
 	if err != nil {
 		return nil, err
 	}
+	withKept(flat[valuesKey], opts.Kept, valuesSuffix(opts.Definition.Name))
 	lv := &liveRender{probes: res.Probes, actions: res.Actions, values: flat[valuesKey]}
 	for _, files := range res.Files {
 		for path, f := range files {
@@ -516,6 +525,40 @@ func renderLive(opts LiveOptions) (*liveRender, error) {
 		})
 	}
 	return lv, nil
+}
+
+// withKept lays the entries the commit kept (plan.LiveKept) over the
+// flattened values file: a comma-joined list gains the id after the
+// render's, a list of ids its entry — the value the commit wrote and the
+// live objects carry. A list the render lacks gains nothing, as the commit
+// kept nothing there; an entry the render carries already is not repeated.
+func withKept(values map[string]string, kept []plan.Kept, file string) {
+	if values == nil {
+		return
+	}
+	for _, k := range kept {
+		if plan.JoinedList(file, k.List) {
+			if v, ok := values[k.List]; ok && !slices.Contains(plan.SplitJoined(v), k.Entry) {
+				values[k.List] = v + "," + k.Entry
+			}
+			continue
+		}
+		key := k.List + "[" + k.Entry + "]"
+		if _, ok := values[key]; ok || !hasPrefixKey(values, k.List+"[") {
+			continue
+		}
+		values[key] = k.Entry
+	}
+}
+
+// hasPrefixKey says whether a key of m starts with prefix.
+func hasPrefixKey(m map[string]string, prefix string) bool {
+	for k := range m {
+		if strings.HasPrefix(k, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // dexPatchSuffix ends the path of the rendered dex-app values patch, the
@@ -765,7 +808,9 @@ func firstLine(s string) string {
 	return line
 }
 
-// condition marks the object's condition against the expected status.
+// condition marks the object's condition against the expected status. A
+// HelmRelease off it whose last release failed is marked failed, Flux's
+// verdict appended to the message (releaseFailure).
 func (x *executor) condition(ctx context.Context, c *Check, p render.Probe, condition, status string) error {
 	obj, err := x.cluster().Get(ctx, p.Namespace, p.Resource, p.Name, Readiness)
 	if err != nil {
@@ -781,7 +826,34 @@ func (x *executor) condition(ctx context.Context, c *Check, p render.Probe, cond
 	default:
 		c.Mark, c.Message = Drifted, condition+"="+got+": "+message
 	}
+	if kind, _, _ := strings.Cut(p.Resource, "."); c.Mark == Drifted && kind == helmReleaseKind {
+		if failure := releaseFailure(obj); failure != "" {
+			c.Failed, c.Message = true, c.Message+"; "+failure
+		}
+	}
 	return nil
+}
+
+// helmReleaseKind is Flux's HelmRelease.
+const helmReleaseKind = "HelmRelease"
+
+// releaseFailure is Flux's verdict on a HelmRelease whose last release
+// failed, as "<type>=<status> (<reason>): <message>": Stalled=True, the
+// retries exhausted or a spec Flux cannot act on, or Released=False, the
+// last install or upgrade failed — the one Helm gave up waiting on, rolled
+// back or not. The release will not become Ready with what it has; "" for
+// one in progress or waiting on a dependency or its chart, which may.
+func releaseFailure(obj map[string]any) string {
+	for _, verdict := range []struct{ condition, status string }{{"Stalled", "True"}, {"Released", "False"}} {
+		m := conditionEntry(obj, verdict.condition)
+		if got, _ := m["status"].(string); m == nil || got != verdict.status {
+			continue
+		}
+		reason, _ := m["reason"].(string)
+		message, _ := m["message"].(string)
+		return fmt.Sprintf("%s=%s (%s): %s", verdict.condition, verdict.status, reason, firstLine(message))
+	}
+	return ""
 }
 
 // present marks the object as existing, a Secret as carrying the keys, and
@@ -1001,27 +1073,27 @@ func (x *executor) logAbsent(ctx context.Context, c *Check, p render.Probe) erro
 	return nil
 }
 
-// answer sends the anonymous request of the HTTP probe p and holds the answer
-// against the expectation, into c: not checked with ReasonUnreachable naming
-// the host and the transport's error as the detail when there was none.
+// answer sends the anonymous request of the HTTP probe p (get) and holds the
+// answer against the expectation, into c: not checked with ReasonUnreachable
+// naming the host and the transport's error as the detail when there was none.
 func (pr *prober) answer(ctx context.Context, c *Check, p render.Probe) {
-	resp, err := pr.do(ctx, p.URL)
+	r, err := pr.get(ctx, p.URL, p.Expect.DexConnectorStep)
 	if err != nil {
 		c.Mark, c.Message, c.Detail = NotChecked, unreachable(p.URL), strings.TrimSpace(err.Error())
 		return
 	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-	_ = resp.Body.Close()
-	c.Message = strconv.Itoa(resp.StatusCode)
+	c.Message = r.String()
 	switch {
-	case p.Expect.Status != 0 && resp.StatusCode != p.Expect.Status:
-		c.Mark, c.Message = Drifted, fmt.Sprintf("%d, expected %d", resp.StatusCode, p.Expect.Status)
-	case len(p.Expect.Statuses) > 0 && !slices.Contains(p.Expect.Statuses, resp.StatusCode):
-		c.Mark, c.Message = Drifted, fmt.Sprintf("%d, expected one of %v", resp.StatusCode, p.Expect.Statuses)
-	case p.Expect.LocationContains != "" && !strings.Contains(resp.Header.Get("Location"), p.Expect.LocationContains):
-		c.Mark, c.Message = Drifted, fmt.Sprintf("%d, Location %q does not contain %q", resp.StatusCode, resp.Header.Get("Location"), p.Expect.LocationContains)
-	case p.Expect.BodyContains != "" && !strings.Contains(string(body), p.Expect.BodyContains):
-		c.Mark, c.Message = Drifted, fmt.Sprintf("%d, body does not contain %q", resp.StatusCode, p.Expect.BodyContains)
+	case r.fault != "":
+		c.Mark, c.Message = Drifted, fmt.Sprintf("%s: %s", r, r.fault)
+	case p.Expect.Status != 0 && r.status != p.Expect.Status:
+		c.Mark, c.Message = Drifted, fmt.Sprintf("%s, expected %d", r, p.Expect.Status)
+	case len(p.Expect.Statuses) > 0 && !slices.Contains(p.Expect.Statuses, r.status):
+		c.Mark, c.Message = Drifted, fmt.Sprintf("%s, expected one of %v", r, p.Expect.Statuses)
+	case p.Expect.LocationContains != "" && !strings.Contains(r.location, p.Expect.LocationContains):
+		c.Mark, c.Message = Drifted, fmt.Sprintf("%s, Location %q does not contain %q", r, r.location, p.Expect.LocationContains)
+	case p.Expect.BodyContains != "" && !strings.Contains(string(r.body), p.Expect.BodyContains):
+		c.Mark, c.Message = Drifted, fmt.Sprintf("%s, body does not contain %q", r, p.Expect.BodyContains)
 	default:
 		c.Mark = AsDefined
 	}
@@ -1042,7 +1114,7 @@ func (x *executor) drift(ctx context.Context, c *Check, p render.Probe) ([]Diffe
 	var diffs []Difference
 	if len(p.Expect.Compare) == 0 {
 		kind, _, _ := strings.Cut(p.Resource, ".")
-		if kind != "HelmRelease" {
+		if kind != helmReleaseKind {
 			c.Mark, c.Message = NotChecked, "the probe names no place of the object to compare"
 			return nil, nil
 		}
@@ -1262,16 +1334,26 @@ func walk(v any, path, prefix string) (any, bool) {
 
 // conditionOf is the object's condition of that type: status, message, found.
 func conditionOf(obj map[string]any, condition string) (string, string, bool) {
+	m := conditionEntry(obj, condition)
+	if m == nil {
+		return "", "", false
+	}
+	status, _ := m["status"].(string)
+	message, _ := m["message"].(string)
+	return status, message, true
+}
+
+// conditionEntry is the object's condition of that type as it reads; nil
+// where the object carries none.
+func conditionEntry(obj map[string]any, condition string) map[string]any {
 	conditions, _ := dig(obj, "status", "conditions").([]any)
 	for _, c := range conditions {
 		m, _ := c.(map[string]any)
 		if t, _ := m["type"].(string); t == condition {
-			status, _ := m["status"].(string)
-			message, _ := m["message"].(string)
-			return status, message, true
+			return m
 		}
 	}
-	return "", "", false
+	return nil
 }
 
 // revisionOf is the revision a Flux object reports: a Kustomization's

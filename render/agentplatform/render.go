@@ -62,8 +62,8 @@ func Render(raw any, secrets map[string]string, _ render.Mode) (*render.Result, 
 	in.platformExtras(r, clusters, extras+"agent-platform", secrets)
 	r.Include(clusters, extras+"kustomization.yaml", "./agent-platform/")
 	for _, s := range servers {
-		s.extras(r, clusters, extras+s.name, in)
-		r.Include(clusters, extras+"kustomization.yaml", "./"+s.name+"/")
+		s.Extras(r, clusters, extras+s.Name, in.serverOptions())
+		r.Include(clusters, extras+"kustomization.yaml", "./"+s.Name+"/")
 	}
 	if host := in.portalHost(); host != "" {
 		backstage := "management-clusters/" + host + "/extras/backstage/"
@@ -96,6 +96,12 @@ func (in *Input) kagentRedirectURI() string {
 // hasPortal says whether a developer portal signs people in on this installation.
 func (in *Input) hasPortal() bool { return len(in.Installation.Portals) > 0 }
 
+// portalClient says whether the render adds the portals' Dex client
+// (backstage): a portal signs people in here and the client's Secret is on
+// record — the customer-portal definition renders it, this one references
+// it. Without the Secret, Dex's rollout would stall on the missing mount.
+func (in *Input) portalClient() bool { return in.hasPortal() && in.Installation.PortalClientSecret }
+
 // audiences are the Dex client ids whose tokens the platform accepts as
 // bearer tokens: the authenticator, the kagent UI's client when it runs, and
 // the portals' (portalAudiences).
@@ -114,12 +120,15 @@ func (in *Input) audiences() []string {
 
 // portalAudiences are the Dex client ids the platform trusts for the
 // portals, each once — the same set wherever a portal's token is accepted:
-// the id of each portal's client where its host's Dex patch carries it, then
-// the definition's client (backstage) when a portal signs people in here. A
-// portal forwards tokens with the id of the client it signed in through,
-// whatever it is named. An id the installation trusts besides is not the
-// definition's to render: the plan keeps it in the list it is on record in.
-// An installation nobody lists renders none.
+// the id of the installation's own portal's client where its Dex patch
+// carries it, then the definition's client (backstage) when a portal signs
+// people in here. A portal forwards tokens with the id of the client it
+// signed in through, whatever it is named. A portal's client id is its
+// host's: a client of the host's Dex, whose tokens no other installation's
+// Dex issues, so it is never trusted on another installation. An id the
+// installation trusts besides is not the definition's to render: the plan
+// keeps it in the list it is on record in. An installation nobody lists
+// renders none.
 func (in *Input) portalAudiences() []string {
 	var ids []string
 	add := func(id string) {
@@ -128,9 +137,11 @@ func (in *Input) portalAudiences() []string {
 		}
 	}
 	for _, p := range in.Installation.Portals {
-		add(p.ClientID)
+		if p.Installation == in.Installation.Name {
+			add(p.ClientID)
+		}
 	}
-	if in.hasPortal() {
+	if in.portalClient() {
 		add(render.PortalDexClientID)
 	}
 	return ids
@@ -159,9 +170,7 @@ func (in *Input) configmapPatch() render.Map {
 		}
 	}
 	if in.musterRevision() {
-		components = append(components,
-			e("muster", render.Map{e("valuesFromRefs", revisionRefs(musterRevisionSecret, musterChecksumValues...))}),
-			e("valkey", render.Map{e("valuesFromRefs", revisionRefs(musterRevisionSecret, valkeyChecksumValue))}))
+		components = in.musterRevisionRefs(components)
 	}
 	m = append(m, e("components", components))
 
@@ -183,7 +192,7 @@ func (in *Input) configmapPatch() render.Map {
 		// A patch replaces the list as a whole, so the template's own entries come first.
 		list := make([]MCPServer, 0, len(servers)+len(targets)*len(servers))
 		for _, s := range servers {
-			list = append(list, s.mcpServerEntry(in.Installation.Name))
+			list = append(list, mcpServerEntry(s, in.Installation.Name))
 		}
 		list = append(list, in.targetServers()...)
 		mcps = append(mcps, e("mcpServers", list))
@@ -200,6 +209,11 @@ func (in *Input) configmapPatch() render.Map {
 		m = append(m, e("agent-manager", render.Map{e("oauth", in.managerOAuth("agent-manager"))}))
 	}
 	m = in.componentValues(m)
+	if in.singletonsOnDemand() {
+		m = append(m, e("scheduling", render.Map{e("singletons", render.Map{
+			e("nodeSelector", render.Map{e(karpenterCapacityType, capacityOnDemand)}),
+		})}))
+	}
 	m = append(m, e("valkey", render.Map{e("valkey", render.Map{e("auth", render.Map{
 		e("usersExistingSecret", musterValkeySecret),
 		e("aclUsers", render.Map{e("default", render.Map{e("passwordKey", "valkey-password")})}),
@@ -207,12 +221,21 @@ func (in *Input) configmapPatch() render.Map {
 	return m
 }
 
+// The label Karpenter puts a node's capacity type in, and its on-demand value.
+const karpenterCapacityType, capacityOnDemand = "karpenter.sh/capacity-type", "on-demand"
+
+// singletonsOnDemand says whether the stateful singletons are pinned to
+// Karpenter's on-demand capacity (scheduling.singletonsCapacity).
+func (in *Input) singletonsOnDemand() bool {
+	return in.SingletonsCapacity == capacityOnDemand
+}
+
 // edgeJWTProvider says whether the edge accepts the portals' Dex ID token: a
 // portal's chat forwards the signed-in person's token to the edge on /mcp,
 // which on the 4 chart line validates it against a JWT provider of its own
 // (the 3 line's edge forwards the bearer untouched).
 func (in *Input) edgeJWTProvider() bool {
-	return in.Installation.ChartLine == lineFour && in.hasPortal()
+	return in.Installation.ChartLine == lineFour && len(in.portalAudiences()) > 0
 }
 
 // dexService is the in-cluster Dex Service the edge fetches the JWKS from.
@@ -371,8 +394,8 @@ func (in *Input) portalDexClient() render.Map {
 func (in *Input) dexPatch() render.Map {
 	static := render.Map{e("muster", render.Map{e("clientSecretRef", dexClientRef("muster"))})}
 	for _, s := range servers {
-		if s.dexSecretRef {
-			static = append(static, e(s.dexClient, render.Map{e("clientSecretRef", dexClientRef(s.name))}))
+		if s.DexSecretRef {
+			static = append(static, e(s.DexClient, s.DexClientRef()))
 		}
 	}
 	// The portals' clients are trusted peers of the authenticator: a portal
@@ -391,7 +414,7 @@ func (in *Input) dexPatch() render.Map {
 			e("secretRef", dexClientRef("kagent")),
 			e("redirectURIs", []string{in.kagentRedirectURI()})})
 	}
-	if in.hasPortal() {
+	if in.portalClient() {
 		extra = append(extra, in.portalDexClient())
 	}
 	for _, hub := range in.Installation.Federation.Hubs {
@@ -405,12 +428,58 @@ func (in *Input) dexPatch() render.Map {
 	return render.Map{e("oidc", oidc)}
 }
 
-// musterRevision says whether the installation's meta chart hands muster and
-// its Valkey the credentials revision: the 4 line renders a child's
-// valuesFromRefs, the 3 line has no such knob, so there the Secrets stay as
-// they are (no revision key, no revision Secret) and a rotation still needs
-// a hand-run restart of muster and its Valkey.
+// musterRevision says whether the installation's meta chart hands muster's
+// credentials consumers the credentials revision: the 4 line renders a
+// child's valuesFromRefs, the 3 line has no such knob, so there the Secrets
+// stay as they are (no revision key, no revision Secret) and a rotation still
+// needs a hand-run restart of every consumer (musterConsumers).
 func (in *Input) musterRevision() bool { return in.Installation.ChartLine != lineThree }
+
+// musterConsumer is a child of the meta chart whose pods read a value of
+// muster's credentials Secrets (musterOAuthSecret, musterValkeySecret) once,
+// at container start: its component in the meta chart, the Deployment its
+// pods run under in the platform's namespace, the chart values its
+// HelmRelease reads the credentials revision into, and whether it runs on the
+// installation. A rotation restarts every consumer that runs, and the runtime
+// feature reads each one's Deployment Available.
+type musterConsumer struct {
+	component  string
+	deployment string
+	revision   []string
+	runs       func(*Input) bool
+}
+
+// musterConsumers are the workloads that read muster's credentials: muster
+// (the OAuth Secret and the Valkey password), its Valkey (the password its
+// default user authenticates with), the chat gateway where it runs (its
+// routing store is muster's Valkey, KLAUS_GATEWAY_VALKEY_PASSWORD), and the
+// managers, whose OAuth resource servers take the platform client's secret
+// from the Secret global.identity names (DEX_CLIENT_SECRET): the agent-manager
+// and the cluster-manager where the policy runs them, the model-manager
+// wherever the 4 line runs (the meta chart's default). TestRenderConsumption
+// holds the list to the charts: every pod that reads either Secret is a
+// consumer's, and the revision changes its pod template.
+var musterConsumers = []musterConsumer{
+	{component: componentMuster, deployment: componentMuster, revision: musterChecksumValues, runs: always},
+	{component: componentValkey, deployment: "muster-valkey", revision: []string{valkeyChecksumValue}, runs: always},
+	{component: componentKlausGateway, deployment: componentKlausGateway, revision: []string{podRevisionAnnotation}, runs: (*Input).klausGateway},
+	{component: componentAgentManager, deployment: componentAgentManager, revision: []string{podRevisionAnnotation}, runs: (*Input).agentManager},
+	{component: componentClusterManager, deployment: componentClusterManager, revision: []string{podRevisionAnnotation}, runs: (*Input).clusterManager},
+	{component: componentModelManager, deployment: componentModelManager, revision: []string{podRevisionAnnotation}, runs: (*Input).modelManager},
+}
+
+func always(*Input) bool { return true }
+
+// runningMusterConsumers are the consumers that run on the installation.
+func (in *Input) runningMusterConsumers() []musterConsumer {
+	var out []musterConsumer
+	for _, c := range musterConsumers {
+		if c.runs(in) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
 
 // musterChecksumValues are the muster chart's values the muster HelmRelease
 // takes the credentials revision into: the OAuth credentials Secret's mark and
@@ -419,6 +488,31 @@ func (in *Input) musterRevision() bool { return in.Installation.ChartLine != lin
 // refuses the keys — the meta chart's range floats every installation to the
 // newest release).
 var musterChecksumValues = []string{"muster.oauth.server.existingSecretChecksum", "muster.oauth.server.storage.valkey.existingSecretChecksum"}
+
+// podRevisionAnnotation is where a chart without a checksum value of its own
+// takes the revision: an entry of its podAnnotations, which the chart renders
+// onto the pod template, so the pods restart when the revision changes. The
+// key carries no dot: Flux reads a targetPath as a Helm --set path, where a
+// dot separates keys.
+const podRevisionAnnotation = "podAnnotations.muster-credentials-revision"
+
+// musterRevisionRefs hands the credentials revision to every running
+// consumer's HelmRelease (components.<name>.valuesFromRefs), in the
+// component's entry where the patch already carries one (its toggle), in a
+// new entry otherwise.
+func (in *Input) musterRevisionRefs(components render.Map) render.Map {
+	for _, c := range in.runningMusterConsumers() {
+		refs := e("valuesFromRefs", revisionRefs(musterRevisionSecret, c.revision...))
+		i := slices.IndexFunc(components, func(en render.Entry) bool { return en.Key == c.component })
+		if i < 0 {
+			components = append(components, e(c.component, render.Map{refs}))
+			continue
+		}
+		body, _ := components[i].Value.(render.Map)
+		components[i].Value = append(slices.Clone(body), refs)
+	}
+	return components
+}
 
 // revisionRefs are the Flux valuesFrom entries the meta chart renders into a
 // child HelmRelease (components.<name>.valuesFromRefs): the revision Secret's
@@ -435,8 +529,10 @@ func revisionRefs(secret string, targetPaths ...string) []render.Map {
 // kustomization over the fleet base and the Secrets the platform reads — the
 // platform's own Dex clients' among them, never the portal's (portalDexClient);
 // muster's credentials revision is held by its two credentials Secrets and by
-// the revision Secret in the Flux namespace the muster and valkey HelmReleases
-// read, so a rotation of muster's credentials rolls muster and its Valkey.
+// the revision Secret in the Flux namespace its consumers' HelmReleases read,
+// so a rotation of muster's credentials rolls every workload that reads them;
+// every value of the two Secrets names the revision as its own
+// (render.Result.Revisions), so a rotation asked for by name draws it too.
 func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir string, secrets map[string]string) {
 	type patch struct {
 		Patch  string     `yaml:"patch"`
@@ -453,11 +549,20 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 	if in.hasPrivateTarget() {
 		k.Resources = append(k.Resources, "./tunnelport")
 	}
+	// Flux watches muster's revision Secret, so the HelmReleases that read it
+	// reconcile the moment it changes; the patch comes first, so the chart
+	// line's coming and going never shifts it.
+	if in.musterRevision() {
+		k.Patches = append(k.Patches, patch{
+			Patch:  strings.TrimRight(render.WatchPatch(musterRevisionSecret), "\n"),
+			Target: render.Map{e("kind", "Secret"), e("name", musterRevisionSecret)},
+		})
+	}
 	if semver := in.chartSemver(); semver != "" {
-		k.Patches = []patch{{
+		k.Patches = append(k.Patches, patch{
 			Patch:  "- op: replace\n  path: /spec/ref/semver\n  value: " + fmt.Sprintf("%q", semver),
 			Target: render.Map{e("kind", "OCIRepository"), e("name", "agent-platform")},
-		}}
+		})
 	}
 	r.Add(repo, dir+"/kustomization.yaml", yamlFile(k))
 
@@ -477,6 +582,9 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 	if in.musterRevision() {
 		oauthKeys = append(oauthKeys, render.GeneratedKey("credentials-revision", revision, render.Alphanumeric, revisionLength))
 		valkeyKeys = append(valkeyKeys, render.GeneratedKey(revisionKey, revision, render.Alphanumeric, revisionLength))
+		// Every value of the two Secrets rolls muster's consumers with the revision.
+		r.Revision(revision, oauthKeys...)
+		r.Revision(revision, valkeyKeys...)
 	}
 	add(musterOAuthSecret+".yaml", render.Secret(musterOAuthSecret, platformNamespace, team, oauthKeys...))
 	add(musterValkeySecret+".yaml", render.Secret(musterValkeySecret, platformNamespace, team, valkeyKeys...))
@@ -494,7 +602,8 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 	}
 	for _, hub := range in.Installation.Federation.Hubs {
 		client := in.targetClient(hub)
-		add(dexClientSecretFile(client), dexClientSecret(client, exchangeSecretName(client)))
+		add(dexClientSecretFile(client), dexClientSecret(client, exchangeSecretName(client)).
+			Peered(exchangeSecretName(client), render.Peer{Installation: hub, Path: secretsPath(hub, credentialsSecretName(in.Installation.Name)+".yaml")}))
 	}
 	if len(in.Installation.Federation.Targets) > 0 {
 		in.hubSecrets(add)

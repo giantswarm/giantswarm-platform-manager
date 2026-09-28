@@ -4,6 +4,15 @@
   namespace: flux-giantswarm
   resource: HelmRelease
   name: backstage
+- id: live-deployment-available
+  feature: portal
+  kind: Condition
+  namespace: backstage
+  resource: Deployment
+  name: backstage
+  expect:
+    condition: Available
+    conditionStatus: "True"
 - id: live-pods-running
   feature: portal
   kind: PodsRunning
@@ -40,7 +49,8 @@
     statuses:
       - 200
       - 302
-    note: Dex answers a client it knows with its login page (several connectors) or a redirect to the one connector; an unknown client is an error page
+    dexConnectorStep: true
+    note: Dex knows client backstage and its redirect URI when the connector its /auth answer names redirects to the identity provider or serves its login form; an unknown client answers 404, an unregistered redirect URI 400
 - id: live-dex-portal-secret-loaded
   feature: identity
   kind: SecretLoaded

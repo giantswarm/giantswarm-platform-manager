@@ -68,6 +68,19 @@ type File struct {
 	// not it is the render's, and a person reads here what the render
 	// assumes it to be.
 	Unseen []Unseen `json:"unseen,omitempty"`
+	// Dropped and Replaced are what the commit loses of a file SOPS encrypted
+	// on record that it writes over — one whose plaintext skeleton is not the
+	// render's, a file kept by hand or by an earlier shape: the manager
+	// decrypts nothing, so neither can be carried over. Dropped are the values
+	// the record holds that the render carries no leaf for, by YAML path
+	// (stringData.EXTERNAL_ACCESS_MCP_TOKEN): gone once the commit merges.
+	// Replaced are the encrypted texts the render writes a document of its own
+	// in (stringData.values, a Secret's chart values): written anew whole, so
+	// every key the record's text holds that the render does not carry goes
+	// with it, unnamed — a value still needed is supplied at commit where the
+	// definition asks for it, or the file is kept by hand.
+	Dropped  []string `json:"dropped,omitempty"`
+	Replaced []string `json:"replaced,omitempty"`
 	// Creates names the objects the file brings onto the installation, as
 	// "<kind>/<name>": a Secret its manifests declare, a Teleport provision
 	// token its tunnelport values list — none the file on record carries
@@ -156,13 +169,21 @@ type GeneratedSecret struct {
 	Kept bool `json:"kept,omitempty"`
 	// Rotates: a file of the name has to be written — ForcedBy names it: a
 	// file to create, an existing file whose plaintext skeleton the render
-	// changes, or a file rewritten for another rotating name — so the commit
-	// draws a new value and writes it into every one of Files, the frozen
-	// ones rewritten; both sides roll on the installation.
+	// changes, or a file rewritten for another rotating name — or the person
+	// asked for the rotation by name, ForcedBy ForcedByRequest (so does the
+	// credentials revision of a value asked for) — so the commit draws a new
+	// value and writes it into every one of Files, the frozen ones
+	// rewritten; both sides roll on the installation.
 	Rotates  bool   `json:"rotates,omitempty"`
 	ForcedBy string `json:"forcedBy,omitempty"`
+	// Peer is the other side of a value two installations hold, each in its
+	// own plan, as "<repository>:<path>" (the path alone where the peer's
+	// repository is not on record): a value drawn here never reaches it.
+	Peer string `json:"peer,omitempty"`
 	// Refusal is why a commit of this plan is refused before any write: the
-	// name is frozen in a file the definition does not own whole.
+	// name is frozen in a file the definition does not own whole, where the
+	// capability is on record it would rotate without a request, or it has a
+	// Peer and would be drawn here alone.
 	Refusal string `json:"refusal,omitempty"`
 }
 
@@ -237,8 +258,8 @@ type Installation struct {
 	// CommitRefused says why a commit of this dry run would be refused (the
 	// definition's refusal, the same sentence as Refused; a choice not on
 	// record; the record's dex-app too old for a referenced Dex client; a
-	// generated value frozen where it cannot rotate); empty when a commit
-	// could go ahead.
+	// generated value frozen where it cannot rotate; a section of the hub's
+	// Dev Portal the commit would remove); empty when a commit could go ahead.
 	CommitRefused    string            `json:"commitRefused,omitempty"`
 	Files            []File            `json:"files"`
 	Includes         []Include         `json:"includes"`
@@ -253,10 +274,15 @@ type Installation struct {
 	// stand on record unchanged: a secret file on record is never generated
 	// again, so the value on record stands, the commit renders the field's
 	// marker, writes none of its files and asks for no value.
-	SuppliedOnRecord []string         `json:"suppliedOnRecord,omitempty"`
-	DexClients       []DexClient      `json:"dexClients"`
-	CustomerActions  []CustomerAction `json:"customerActions"`
-	Probes           []Probe          `json:"probes"`
+	SuppliedOnRecord []string `json:"suppliedOnRecord,omitempty"`
+	// HubSections are the sections of the hub's Dev Portal — the definition's
+	// removals of kind hub, by key — whose value on record the plan removes:
+	// the definition renders no hub shape, so a commit is held while one is
+	// (HubRefusal). The comparison plans their removal all the same.
+	HubSections     []string         `json:"hubSections,omitempty"`
+	DexClients      []DexClient      `json:"dexClients"`
+	CustomerActions []CustomerAction `json:"customerActions"`
+	Probes          []Probe          `json:"probes"`
 	// Diff counts the files by change; an empty diff is every file unchanged.
 	Diff map[Change]int `json:"diff"`
 }
@@ -360,6 +386,28 @@ type Options struct {
 	Inputs       map[string]any
 	Content      bool
 	Read         Reader
+	// Rotate names the generated values to rotate on request: each the plan
+	// lists rotates, forced by the request, and draws its credentials
+	// revision with it; a name the plan does not list takes no part.
+	Rotate []string
+	// Installations are the registry's installations by name: where a
+	// generated value's peer (render.Peer) is on record.
+	Installations map[string]installations.Installation
+}
+
+// markerOnRecord says whether the capability is on record for the
+// installation: the plan's file of the definition's marker exists.
+func (p Installation) markerOnRecord(opts Options) bool {
+	if opts.Definition.EnabledMarker == nil {
+		return false
+	}
+	marker := opts.Definition.EnabledMarker(opts.Installation.Name)
+	for _, f := range p.Files {
+		if f.Path == marker {
+			return f.Change == ChangeUnchanged || f.Change == ChangeUpdate
+		}
+	}
+	return false
 }
 
 // Build renders the inputs through opts' definition and answers the plan for
@@ -388,10 +436,19 @@ func Build(ctx context.Context, opts Options) Installation {
 	// rendered files' current content and the kustomizations the includes
 	// land in. The walk below reads from what was fetched.
 	var files []fileRef
+	peers := map[string]peer{} // a generated name → the other side of it
 	for repo, byPath := range res.Files {
 		target := ResolveRepository(string(repo), opts.Installation, opts.Hub)
-		for path := range byPath {
+		for path, f := range byPath {
 			files = append(files, fileRef{target, path})
+			for _, g := range f.Generated {
+				if _, seen := peers[g.Name]; g.Peer != nil && !seen {
+					peers[g.Name] = peerOf(*g.Peer, opts.Installations)
+					if peers[g.Name].err == nil {
+						files = append(files, peers[g.Name].ref)
+					}
+				}
+			}
 		}
 	}
 	for _, inc := range res.Includes {
@@ -450,6 +507,9 @@ func Build(ctx context.Context, opts Options) Installation {
 				}
 			}
 			pf.Change, pf.Error, pf.Unseen = change(current, err, content)
+			if pf.Change == ChangeUpdate && !Shared(path) && Encrypted(current) {
+				pf.Dropped, pf.Replaced = dropped(content, current)
+			}
 			pf.Creates, pf.References = introduced(content, current, err == nil), references(content)
 			p.Diff[pf.Change]++
 			if len(f.Generated) > 0 {
@@ -470,12 +530,15 @@ func Build(ctx context.Context, opts Options) Installation {
 	}
 	// A file kept as it is that holds a rotating name is rewritten with the
 	// new value: an update after all.
-	for file := range frozen(generated, holders) {
+	for file := range frozen(generated, holders, requestedRotations(opts.Rotate, generated, res.Revisions), p.markerOnRecord(opts)) {
 		if pf := &p.Files[held[file]]; pf.Change == ChangeUnchanged {
 			pf.Change = ChangeUpdate
 			p.Diff[ChangeUnchanged]--
 			p.Diff[ChangeUpdate]++
 		}
+	}
+	for name, pr := range peers {
+		pr.refuse(ctx, generated[name], opts.Read)
 	}
 	p.SuppliedSecrets, p.SuppliedOnRecord = splitSupplied(supplied, suppliedIn, p.Files)
 	p.includes(ctx, opts, res.Includes)

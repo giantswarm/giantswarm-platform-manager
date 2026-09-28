@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -25,13 +26,15 @@ import (
 var update = flag.Bool("update", false, "rewrite the golden filesets from the current render")
 
 // shapes are the portal shapes with a golden fileset under testdata/<shape>/.
-var shapes = []string{"customer-portal", "giantswarm-owned-with-platform", "federated-portal"}
+var shapes = []string{"customer-portal", "giantswarm-owned-with-platform", "federated-portal", "hand-kept-portal"}
 
 // enabledKey is the on/off switch of every plugin section; domainKey the
-// portal's and the Grafana host's domain leaf.
+// portal's and the Grafana host's domain leaf; agentPlatformKey the agent
+// platform's key: an installation's fact and the portal's section.
 const (
-	enabledKey = "enabled"
-	domainKey  = "domain"
+	enabledKey       = "enabled"
+	domainKey        = "domain"
+	agentPlatformKey = "agentPlatform"
 )
 
 func loadInput(t *testing.T, shape string) (map[string]any, map[string]string) {
@@ -232,7 +235,7 @@ func TestExtraEnvVarsOwnership(t *testing.T) {
 	// The federated shape's own installation runs the platform as well as
 	// the sibling that signs people in.
 	bothPlatforms, federatedSecrets := loadInput(t, "federated-portal")
-	bothPlatforms["installation"].(map[string]any)["agentPlatform"] = true
+	bothPlatforms["installation"].(map[string]any)[agentPlatformKey] = true
 	for _, c := range []struct {
 		name    string
 		shape   string
@@ -662,12 +665,9 @@ func TestGrafanaIsTheInstallationsOwn(t *testing.T) {
 			proxy, hasProxy := appConfig["proxy"]
 			userSecrets := string(tree[fileOf(t, tree, userSecretsFile)])
 			extensions, _ := appConfig["app"].(map[string]any)["extensions"].(map[string]any)
-			anchor := "shared-config.yaml#extensions"
-			if wired {
-				anchor += "GrafanaDashboards"
-			}
-			if extensions["$include"] != anchor {
-				t.Errorf("wired %v: app.extensions %v, want the include of %s", wired, extensions, anchor)
+			anchor, _ := extensions["$include"].(string)
+			if !strings.HasPrefix(anchor, "shared-config.yaml#extensions") || strings.HasSuffix(anchor, "GrafanaDashboards") != wired {
+				t.Errorf("wired %v: app.extensions %v, want the include of a shared list with the dashboards card exactly where wired", wired, extensions)
 			}
 			if !wired {
 				if hasProxy || strings.Contains(userSecrets, "grafana") {
@@ -706,7 +706,7 @@ func TestRefusals(t *testing.T) {
 	federation := func(fields map[string]any, names ...string) map[string]any {
 		var insts []any
 		for _, name := range names {
-			insts = append(insts, map[string]any{"name": name, "baseDomain": name + ".acme.example.test", "providers": []any{"capa"}, "pipeline": "stable", "agentPlatform": false})
+			insts = append(insts, map[string]any{"name": name, "baseDomain": name + ".acme.example.test", "providers": []any{"capa"}, "pipeline": "stable", agentPlatformKey: false})
 		}
 		fields["installations"] = insts
 		return fields
@@ -741,8 +741,8 @@ func TestRefusals(t *testing.T) {
 		{"federation without its credentials", clone(func(m map[string]any) { m["federation"] = federation(map[string]any{}, "alder") }), secrets, ErrEmptySecret, "federation.alder.clientId"},
 		{"federated installation without its platform fact", clone(func(m map[string]any) {
 			m["federation"] = federation(map[string]any{}, "alder")
-			delete(m["federation"].(map[string]any)["installations"].([]any)[0].(map[string]any), "agentPlatform")
-		}), secrets, ErrInput, "agentPlatform"},
+			delete(m["federation"].(map[string]any)["installations"].([]any)[0].(map[string]any), agentPlatformKey)
+		}), secrets, ErrInput, agentPlatformKey},
 	}
 	// Every refusal reads as one sentence: what the input is, its key, what
 	// is wrong and what supplies it.
@@ -889,6 +889,54 @@ func TestDexAuthCredentialsAreBase64ForTheChart(t *testing.T) {
 	}
 }
 
+// TestGeneratedChartDataIsEncodedOnce holds every generated value of
+// user-secrets-backstage to the encoding the backstage chart needs: the chart
+// copies every leaf of the file under the data: of its Secrets, so each
+// placeholder is declared base64 — the commit step fills it with the value's
+// base64, which Kubernetes decodes back to the value — and a leaf carries the
+// placeholder alone, never base64 of it. The session secret and the salt keep
+// their names, so a rotation by name reaches them.
+// TestRenderConsumptionSecrets holds the same to the chart.
+func TestGeneratedChartDataIsEncodedOnce(t *testing.T) {
+	for _, shape := range shapes {
+		t.Run(shape, func(t *testing.T) {
+			input, secrets := loadInput(t, shape)
+			result, err := Render(input, secrets, render.ModeCommit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			userSecrets, ok := portalFile(result, userSecretsFile)
+			if !ok {
+				t.Fatalf("no %s rendered", userSecretsFile)
+			}
+			var values struct {
+				Session   string `yaml:"authSessionSecret"`
+				Telemetry struct {
+					Salt string `yaml:"salt"`
+				} `yaml:"telemetrydeck"`
+			}
+			if err := yaml.Unmarshal([]byte(stringData(t, userSecrets, "values")), &values); err != nil {
+				t.Fatal(err)
+			}
+			for leaf, want := range map[string]struct {
+				placeholder, name string
+			}{
+				"authSessionSecret":  {values.Session, generatedSessionSecret},
+				"telemetrydeck.salt": {values.Telemetry.Salt, generatedTelemetrySalt},
+			} {
+				if g := declarationOf(t, userSecrets, want.placeholder); g.Name != want.name {
+					t.Errorf("%s carries the placeholder of %q, want %q", leaf, g.Name, want.name)
+				}
+			}
+			for _, g := range userSecrets.Generated {
+				if g.Encoding != render.EncodedBase64 {
+					t.Errorf("%s declares %q with encoding %q, want %q: the chart copies the leaf under data:", userSecretsFile, g.Name, g.Encoding, render.EncodedBase64)
+				}
+			}
+		})
+	}
+}
+
 // TestSentryLeavesAreBase64ForTheChart holds the sentry leaves of
 // user-secrets-backstage to what the backstage chart reads: it copies
 // sentry.app.dsn, sentry.backend.dsn and sentry.reportURI under its Secret's
@@ -1005,4 +1053,241 @@ func decodeBase64(t *testing.T, value string) string {
 		t.Fatalf("%q is not base64: %v", value, err)
 	}
 	return string(b)
+}
+
+// The portal's app-config keeps the agent-platform section until the
+// Component's fragment on record owns the portal's lists: on a hand-kept
+// portal moving onto the definition it includes the shared list with the
+// platform's section — the chat's entries where the portal runs the chat,
+// the dashboards card where the plugin is wired — and carries the section as
+// the record does (the muster registry, the kagent installation, the skill
+// repositories, the chat's blocks), so the running portal keeps them. Once
+// the fragment carries the lists, the list is the one without the section
+// and the section is the fragment's alone; without the platform there is no
+// Component, and the app-config carries neither.
+func TestPlatformSectionStaysUntilTheFragmentOwnsTheLists(t *testing.T) {
+	input, secrets := loadInput(t, "hand-kept-portal")
+	section := input["platformSection"].(map[string]any)
+	kept := section["appConfig"].(map[string]any)
+	for _, tc := range []struct {
+		name                 string
+		componentLists, chat bool
+		agentPlatform, keeps bool
+		anchor               string
+	}{
+		{name: "hand-kept, the fragment in the hand-kept shape", chat: true, agentPlatform: true, keeps: true, anchor: "extensionsAgentPlatformAiChatGrafanaDashboards"},
+		{name: "the chat off", agentPlatform: true, keeps: true, anchor: "extensionsAgentPlatformGrafanaDashboards"},
+		{name: "the fragment owns the lists", componentLists: true, chat: true, agentPlatform: true, anchor: "extensionsGrafanaDashboards"},
+		{name: "no platform", chat: true, anchor: "extensionsGrafanaDashboards"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			section["componentLists"], section["aiChat"] = tc.componentLists, tc.chat
+			input["installation"].(map[string]any)[agentPlatformKey] = tc.agentPlatform
+			supplied := secrets
+			if !tc.chat || !tc.agentPlatform {
+				supplied = without(secrets, fieldChatKey)
+			}
+			result, err := Render(input, supplied, render.ModeCommit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			appConfig := appConfigDoc(t, result.Tree())
+			if got := appConfig["app"].(map[string]any)["extensions"]; !reflect.DeepEqual(got, map[string]any{"$include": render.PortalSharedInclude(tc.anchor)}) {
+				t.Errorf("app.extensions %v, want the include of %s", got, tc.anchor)
+			}
+			backend, _ := appConfig["backend"].(map[string]any)
+			for _, key := range []string{"muster", agentPlatformKey, "aiChat", "mcpActions"} {
+				if got, has := appConfig[key]; has != tc.keeps || tc.keeps && !reflect.DeepEqual(roundTrip(t, got), roundTrip(t, kept[key])) {
+					t.Errorf("%s: %v (kept %v), want the record's %v", key, got, tc.keeps, kept[key])
+				}
+			}
+			if actions, has := backend["actions"]; has != tc.keeps || tc.keeps && !reflect.DeepEqual(roundTrip(t, actions), roundTrip(t, kept["backend"].(map[string]any)["actions"])) {
+				t.Errorf("backend.actions: %v (kept %v)", actions, tc.keeps)
+			}
+			if backend["baseUrl"] != "https://portal.gopher.example.io" {
+				t.Errorf("the rendered backend is not the definition's under the kept actions: %v", backend)
+			}
+		})
+	}
+}
+
+// The AI chat's credential is the portal's own until the agent-platform
+// Component's credentials Secret is on record: where the platform runs and
+// the record carries the chat, a commit asks for it by the field the
+// agent-platform definition names it with and writes it into user-secrets —
+// the Anthropic API key as anthropic.apiKey, base64-encoded once for the
+// chart's ANTHROPIC_API_KEY, which the chat's kept block references; a
+// Vertex chat's service-account JSON as google.credentialsJson, as supplied —
+// so a hand-kept portal's first commit keeps its chat answering. A dry run
+// renders the marker; a commit without the value is refused. Once the
+// Component's Secret is on record, or without the chat or the platform,
+// user-secrets carry none and nothing is asked.
+func TestChatCredentialStaysThePortalsUntilTheComponentCarriesIt(t *testing.T) {
+	type chatValues struct {
+		Anthropic *struct {
+			APIKey string `yaml:"apiKey"`
+		} `yaml:"anthropic"`
+		Google *struct {
+			CredentialsJSON string `yaml:"credentialsJson"`
+		} `yaml:"google"`
+	}
+	const googleJSON = `{"project_id": "placeholder"}`
+	for _, tc := range []struct {
+		name, provider, field           string
+		credentials, noChat, noPlatform bool
+	}{
+		{name: "hand-kept, on Anthropic's API", field: fieldChatKey},
+		{name: "hand-kept, on Vertex AI", provider: chatProviderVertex, field: fieldChatGoogleCredentials},
+		{name: "the Component's Secret on record", credentials: true},
+		{name: "no chat", noChat: true},
+		{name: "no platform", noPlatform: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			input, secrets := loadInput(t, "hand-kept-portal")
+			section := input["platformSection"].(map[string]any)
+			section["chatCredentials"], section["aiChat"] = tc.credentials, !tc.noChat
+			if tc.provider != "" {
+				section["chatProvider"] = tc.provider
+			}
+			input["installation"].(map[string]any)[agentPlatformKey] = !tc.noPlatform
+			secrets = without(secrets, fieldChatKey)
+			in, err := Parse(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fields := in.SuppliedSecretFields()
+			for _, f := range []string{fieldChatKey, fieldChatGoogleCredentials} {
+				if asked := slices.Contains(fields, f); asked != (f == tc.field) {
+					t.Errorf("%s asked %v, want %v: %v", f, asked, f == tc.field, fields)
+				}
+			}
+			values := func(t *testing.T, secrets map[string]string, mode render.Mode) chatValues {
+				t.Helper()
+				result, err := Render(input, secrets, mode)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var v chatValues
+				if err := yaml.Unmarshal([]byte(stringData(t, fileNamed(t, result, userSecretsFile), "values")), &v); err != nil {
+					t.Fatal(err)
+				}
+				return v
+			}
+			switch tc.field {
+			case "":
+				if v := values(t, secrets, render.ModeCommit); v.Anthropic != nil || v.Google != nil {
+					t.Errorf("user-secrets carry the chat's credential: %+v", v)
+				}
+				return
+			case fieldChatKey:
+				const key = "placeholder-anthropic-key"
+				if got := values(t, with(secrets, fieldChatKey, key), render.ModeCommit); got.Anthropic == nil || decodeBase64(t, got.Anthropic.APIKey) != key || got.Google != nil {
+					t.Errorf("user-secrets carry %+v, want anthropic.apiKey the base64 of the supplied key", got)
+				}
+				if got := values(t, in.SuppliedMarkers(), render.ModeCompare); got.Anthropic == nil || got.Anthropic.APIKey != Supplied(fieldChatKey) {
+					t.Errorf("a dry run's anthropic.apiKey is %+v, want the marker", got.Anthropic)
+				}
+			case fieldChatGoogleCredentials:
+				if got := values(t, with(secrets, fieldChatGoogleCredentials, googleJSON), render.ModeCommit); got.Google == nil || got.Google.CredentialsJSON != googleJSON || got.Anthropic != nil {
+					t.Errorf("user-secrets carry %+v, want google.credentialsJson as supplied", got)
+				}
+			}
+			if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrEmptySecret) {
+				t.Errorf("a commit without %s: %v, want ErrEmptySecret", tc.field, err)
+			}
+		})
+	}
+}
+
+// Every key this definition hands to the agent-platform definition — its
+// removals of kind other-definition, the changes a dry run names Moved or
+// Changed into the Component — is one that definition renders: an
+// app-config key in the Component's fragment, a user-values key in its
+// values, a Vertex chat's credentials (the file, its resource entry, its
+// values source) as the Component's own credentials Secret and the patch
+// that appends it to the portal's HelmRelease. The agent-platform render is
+// the shape that carries all of them: a rendered portal on a chart before
+// backstage 1.1.0 with kagent, the chat on Vertex, and skill repositories.
+func TestHandedKeysAreRenderedByTheAgentPlatform(t *testing.T) {
+	input, secrets := agentPlatformInput(t, "public-customer")
+	input["skills"] = map[string]any{"repositories": []any{"https://github.com/example/agent-skills"}}
+	result, err := agentplatform.Render(input, secrets, render.ModeCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree := result.Tree()
+	component := "extras/backstage/" + render.PortalPlatformDir + "/"
+	fragment := configMapData(t, tree[fileOf(t, tree, component+"app-config.yaml")])
+	values := configMapData(t, tree[fileOf(t, tree, component+"values.yaml")])
+	kustomization := string(tree[fileOf(t, tree, component+"kustomization.yaml")])
+	credentials := string(tree[fileOf(t, tree, component+"ai-chat-credentials.enc.yaml")])
+	removals, err := definitions.Removals("customer-portal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var handed int
+	for _, r := range removals {
+		if r.Kind != definitions.RemovalOtherDefinition {
+			continue
+		}
+		handed++
+		fileset, path, _ := strings.Cut(strings.TrimPrefix(r.Key, definitions.KindBackstage+":"), ":")
+		switch fileset {
+		case "app-config":
+			if !carries(fragment, path) {
+				t.Errorf("%s is handed to the Component, whose fragment does not carry %s:\n%s", r.Key, path, tree[fileOf(t, tree, component+"app-config.yaml")])
+			}
+		case "user-values":
+			if !carries(values, path) {
+				t.Errorf("%s is handed to the Component, whose values do not carry %s: %v", r.Key, path, values)
+			}
+		case "kustomization", "file":
+			if !strings.Contains(credentials, "credentialsJson:") || !strings.Contains(kustomization, "name: agent-platform-ai-chat-credentials-backstage") {
+				t.Errorf("%s is handed to the Component, which carries no credentials Secret for the chat on Vertex appended to the HelmRelease:\n%s\n%s", r.Key, kustomization, credentials)
+			}
+		default:
+			t.Errorf("%s: a handed key of a file the Component has no counterpart of", r.Key)
+		}
+	}
+	if handed == 0 {
+		t.Fatal("removals.yaml hands no key to the agent-platform definition; the test proves nothing")
+	}
+}
+
+// configMapData is the one data key of a rendered ConfigMap, decoded: the
+// YAML text it carries.
+func configMapData(t *testing.T, content []byte) map[string]any {
+	t.Helper()
+	var cm struct {
+		Data map[string]string `yaml:"data"`
+	}
+	if err := yaml.Unmarshal(content, &cm); err != nil || len(cm.Data) != 1 {
+		t.Fatalf("a ConfigMap with one data key: %v\n%s", err, content)
+	}
+	var doc map[string]any
+	for _, text := range cm.Data {
+		if err := yaml.Unmarshal([]byte(text), &doc); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return doc
+}
+
+// carries says whether doc holds the key path of a removal, cut at its first
+// list step or $include: the list or the include is the key.
+func carries(doc map[string]any, path string) bool {
+	if i := strings.IndexAny(path, "[$"); i >= 0 {
+		path = strings.TrimSuffix(path[:i], ".")
+	}
+	var cur any = doc
+	for _, k := range strings.Split(path, ".") {
+		m, ok := cur.(map[string]any)
+		if !ok {
+			return false
+		}
+		if cur, ok = m[k]; !ok {
+			return false
+		}
+	}
+	return true
 }

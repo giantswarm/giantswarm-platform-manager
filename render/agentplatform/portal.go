@@ -35,9 +35,13 @@ import (
 // hub's Dev Portal among them (installation.portals[*].handKept, read from
 // the record) — owns its extensions and its muster registry; there the
 // Component writes only object-shaped keys (the kagent installation, the
-// fragment's mount, the chat's blocks), which merge. The day the
-// customer-portal definition renders such a portal the fact reads false and
-// the Component takes the lists over. The portal's environment,
+// fragment's mount, the chat's blocks), which merge, and the skill
+// repositories, a list it reads back from the portal's own app-config, so the
+// list it sets is the portal's own. The day the customer-portal definition
+// renders such a portal the fact reads false and the Component takes the
+// lists over; until the fragment carries them, that definition keeps the
+// platform's section in the portal's app-config (its platformSection), so
+// the portal runs with the section at every step. The portal's environment,
 // backstage.extraEnvVars, is the portal's own whatever the portal: the
 // customer-portal definition's user-values carry the whole list (the avatars
 // image source, the tunnel's CA variable) and the Component sets none, so no
@@ -65,7 +69,10 @@ import (
 // hand-kept portal — and a wave, which carries no supplied value, reconciles
 // such a portal. The credential becomes the Component's when the hand-kept
 // block goes (the customer-portal definition's planned move), through an
-// enable of that installation alone with it supplied.
+// enable of that installation alone with it supplied; until the Secret is on
+// record the customer-portal definition keeps the credential in the portal's
+// user secrets, supplied under the same field, so the chat keeps it through
+// every step of the move.
 //
 // The portal's chart line (installation.portals[*].chartLine) decides one
 // key. Before backstage 1.1.0 the portal's agent-platform plugin composes the
@@ -128,6 +135,14 @@ const (
 	// entries take a checksum and roll the pod when it changes; an earlier
 	// chart's schema refuses the key.
 	portalFragmentChecksum = "2.60.2"
+	// portalTraces is the first portal chart that exports the backend's
+	// traces from observability.otel; an earlier chart's schema refuses the
+	// key.
+	portalTraces = "2.68.0"
+	// portalOTLPEndpoint is the installation's OTLP gateway, which takes the
+	// tenant from portalOTLPHeaders.
+	portalOTLPEndpoint = "http://otlp-gateway.kube-system.svc.cluster.local:4317"
+	portalOTLPHeaders  = "X-Scope-OrgID=giantswarm"
 )
 
 // The actions service lists the actions of these plugins for the chat's
@@ -221,9 +236,10 @@ func chatActions() render.Map {
 }
 
 // portalAppConfig is the platform's app-config fragment: the agent-platform
-// plugin's section where kagent runs (the agents' Flux identity where the
-// portal's plugin reads it, and the installation among the kagent
-// installations); where the Component owns the portal's lists, the
+// plugin's section (where kagent runs, the agents' Flux identity where the
+// portal's plugin reads it and the installation among the kagent
+// installations; the skill repositories the agent creation discovers skills
+// in, where there are any); where the Component owns the portal's lists, the
 // platform's extensions through the shared include (with the chat's
 // entries where the chat is on, with the Grafana dashboards card where the
 // portal's plugin is wired) and the installation's muster; and, with the
@@ -234,12 +250,17 @@ func (in *Input) portalAppConfig() render.Map {
 	if in.portalOwnsLists() {
 		m = append(m, e("app", render.Map{e("extensions", render.Map{e("$include", render.PortalExtensionsInclude(true, in.aiChat(), in.hostedPortal().GrafanaWired))})}))
 	}
+	platform := render.Map{}
 	if in.kagent() {
-		platform := render.Map{}
 		if in.portalReadsFluxServiceAccount() {
 			platform = append(platform, e("fluxServiceAccountName", fluxServiceAccount))
 		}
 		platform = append(platform, e("kagent", render.Map{e("installations", render.Map{e(in.Installation.Name, render.Map{})})}))
+	}
+	if len(in.SkillRepositories) > 0 {
+		platform = append(platform, e("skills", render.Map{e("repositories", in.SkillRepositories)}))
+	}
+	if len(platform) > 0 {
 		m = append(m, e("agentPlatform", platform))
 	}
 	if in.portalOwnsLists() {
@@ -256,7 +277,8 @@ func (in *Input) portalAppConfig() render.Map {
 // portalValues are the platform's chart values: the fragment mounted as an
 // extra app-config file, with its checksum where the portal's chart rolls
 // the pod on it (Backstage reads the file at start, and a changed ConfigMap
-// alone changes nothing the HelmRelease sees), and, for a chat on Vertex,
+// alone changes nothing the HelmRelease sees), the OTLP export of the
+// backend's traces where the chart takes it, and, for a chat on Vertex,
 // the Google project and location the chart exports to the pod. No list:
 // the portal's environment is the customer-portal definition's.
 func (in *Input) portalValues() render.Map {
@@ -265,6 +287,10 @@ func (in *Input) portalValues() render.Map {
 		fragment = append(fragment, e("checksum", fmt.Sprintf("%x", sha256.Sum256(render.MustYAML(in.portalAppConfig())))))
 	}
 	m := render.Map{e("backstage", render.Map{e("extraAppConfig", []render.Map{fragment})})}
+	if in.portalExportsTraces() {
+		m = append(m, e("observability", render.Map{e("otel", render.Map{
+			e("endpoint", portalOTLPEndpoint), e("protocol", "grpc"), e("headers", portalOTLPHeaders)})}))
+	}
 	if in.aiChatVertex() {
 		m = append(m, e("google", render.Map{e("project", in.AIChat.Google.Project), e("location", in.AIChat.Google.Location)}))
 	}
@@ -314,6 +340,15 @@ func portalChartAdmits(line string, v *semver.Version) bool {
 func (in *Input) portalRollsOnFragment() bool {
 	p := in.hostedPortal()
 	return p != nil && portalChartAdmits(p.ChartLine, semver.MustParse(portalFragmentChecksum))
+}
+
+// portalExportsTraces says whether the hosted portal's chart takes
+// observability.otel: its chart line resolves to portalTraces or later. A
+// portal whose line is not on record exports nothing, which an earlier chart
+// would refuse.
+func (in *Input) portalExportsTraces() bool {
+	p := in.hostedPortal()
+	return p != nil && portalChartAdmits(p.ChartLine, semver.MustParse(portalTraces))
 }
 
 // portalReadsFluxServiceAccount says whether the hosted portal may run a

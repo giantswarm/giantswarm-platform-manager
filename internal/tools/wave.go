@@ -53,6 +53,10 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 	if args[ArgSecrets] != nil {
 		return nil, fmt.Errorf("%s: a wave carries no supplied secret values (%s): a reconcile over a set leaves every secret file on record alone; an installation whose secret files are not on record yet is enabled alone, with %s and %s", tool, ArgSecrets, ArgInstallation, ArgSecrets)
 	}
+	reason, err := reasonArg(tool, args)
+	if err != nil {
+		return nil, err
+	}
 	args[ArgContent] = true
 	out, env, err := t.capabilityPlan(ctx, tool, args)
 	if err != nil {
@@ -67,24 +71,12 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 	// refused for one installation is refused whole, with nothing recorded.
 	var targets []plan.Installation
 	for _, p := range plans(out.Installations) {
-		dexApp, dexSecret := p.DexAppRefusal(env.reports[p.Name].Record), p.DexSecretRefusal(env.reports[p.Name].Record)
-		switch {
-		case p.Refused != "":
-			return nil, fmt.Errorf("%s: the definition refuses the inputs on record for %s: %s — narrow the set (%s) or fix the record; nothing is committed", tool, p.Name, p.Refused, ArgInstallations)
-		case len(p.MissingInputs) > 0:
-			return nil, fmt.Errorf("%s: %s: %s — reconcile %s alone with %s and %s, or narrow the set; nothing is committed", tool, p.Name, missingInputs(p.MissingInputs), p.Name, ArgInstallation, ArgInputs)
-		case p.Diff[plan.ChangeUnknown] > 0:
-			return nil, fmt.Errorf("%s: %d file(s) of %s could not be compared against the repository as you (%s); nothing is committed blind", tool, p.Diff[plan.ChangeUnknown], p.Name, unknownFiles(p))
-		case dexApp != "":
-			return nil, fmt.Errorf("%s: %s: %s; nothing is committed", tool, p.Name, dexApp)
-		case dexSecret != "":
-			return nil, fmt.Errorf("%s: %s: %s; nothing is committed", tool, p.Name, dexSecret)
-		case len(p.Files)-p.Diff[plan.ChangeUnchanged] == 0:
+		if err := waveRefusal(tool, p, env.reports[p.Name].Record); err != nil {
+			return nil, err
+		}
+		if len(p.Files)-p.Diff[plan.ChangeUnchanged] == 0 {
 			res.Unchanged = append(res.Unchanged, p.Name)
 			continue
-		}
-		if len(p.SuppliedSecrets) > 0 {
-			return nil, fmt.Errorf("%s: %s needs the supplied value(s) of %s — %s; enable %s alone with %s and %s, or narrow the set; nothing is committed", tool, p.Name, strings.Join(p.SuppliedSecrets, ", "), suppliedFilesToWrite(p), p.Name, ArgInstallation, ArgSecrets)
 		}
 		targets = append(targets, p)
 		res.Order = append(res.Order, p.Name)
@@ -99,20 +91,27 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		return nil, fmt.Errorf("%s: %q is not a capability definition", tool, out.Capability)
 	}
 	spec := actions.Spec{Actor: actions.Actor{Login: id.Login, ID: id.ID, Email: id.Email}, Capability: out.Capability, Installations: res.Order, Inputs: typed, Kind: actions.KindReconcile, Skipped: res.Skipped,
-		InputsByInstallation: map[string]map[string]any{}, AccountEngineers: accountEngineers(env, res.Order...), Markers: markersOf(def, env, res.Order...)}
+		InputsByInstallation: map[string]map[string]any{}, AccountEngineers: accountEngineers(env, res.Order...), AccountEngineerOf: accountEngineerOf(env, res.Order...), Reason: reason, Changes: map[string][]string{}, Markers: markersOf(def, env, res.Order...), Rotate: rotateArg(args)}
 	for _, p := range targets {
 		spec.InputsByInstallation[p.Name] = p.Inputs
+		spec.Changes[p.Name] = plan.Summary(p)
+		spec.KeptByInstallation = keptByInstallation(spec.KeptByInstallation, p)
 	}
 	changes := make([]string, 0, len(targets))
 	rollout := &actions.Rollout{Installations: make([]actions.InstallationRollout, 0, len(targets))}
+	test := true
 	for i, p := range targets {
 		if env.byName[p.Name].Customer != env.hub.Customer {
 			spec.Customer = true
 		}
+		test = test && testInstallation(p.Name, env.byName[p.Name].Customer, env.hub)
 		changes = append(changes, p.Name+": "+changeSummary(p))
 		rollout.Installations = append(rollout.Installations, actions.InstallationRollout{Name: p.Name, State: actions.StatePendingApproval, Message: fmt.Sprintf("stage %d of %d", i+1, len(targets))})
 	}
 	spec.Change = strings.Join(changes, "; ")
+	if err := t.standupRefusal(tool, test); err != nil {
+		return nil, err
+	}
 	name, err := actions.NewName(actions.KindReconcile, "wave")
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
@@ -149,15 +148,44 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		return nil, fmt.Errorf("%s: the pull requests are open (%s) and the action could not record them: %w", tool, prList(prs), err)
 	}
 	t.d.Log.Info(tool, identity.LogAttr(ctx), "action", a.Name, "wave", strings.Join(res.Order, ","), "skipped", len(res.Skipped), "pullRequests", len(prs))
-	a, err = t.askApproval(ctx, a, tool)
+	a, err = t.requestApproval(ctx, a, tool, test)
 	if err != nil {
 		return nil, fmt.Errorf("%w — the pull requests are open (%s) and the action pends approval; %s posts the review", err, prList(prs), ToolMergeAction)
 	}
 	res.Action = a
 	res.PullRequests = prs
+	if test {
+		res.Next = fmt.Sprintf("every target is a test installation: no Team review; the wave goes over %s in this order%s; once green you merge stage 1 (%s) as the actor with %s, which tells the team's standup channel, and call it again once Flux has reconciled it — the installation's verify runs first and, green, the next stage is merged; a red probe stops the wave with the remaining pull requests open",
+			strings.Join(res.Order, ", "), skippedClause(res.Skipped), res.Order[0], ToolMergeAction)
+		return res, nil
+	}
 	res.Next = fmt.Sprintf("the wave waits for the team's approval (review %s in %s) over %s in this order%s; once approved and green you merge stage 1 (%s) as the actor with %s, and call it again once Flux has reconciled it — the installation's verify runs first and, green, the next stage is merged; a red probe stops the wave with the remaining pull requests open",
 		a.Status.Approval.ReviewID, a.Status.Approval.Channel, strings.Join(res.Order, ", "), skippedClause(res.Skipped), res.Order[0], ToolMergeAction)
 	return res, nil
+}
+
+// waveRefusal is why a wave over a set with p in it is refused whole, before
+// anything is written, or nil: the definition's refusal of the inputs on
+// record, a choice not on record, a file not comparable as the caller, the
+// plan's own refusals (commitRefusal, the single commit's and the
+// comparison's list), or a supplied value a file to write needs — a wave
+// carries none. Each names the installation and the way out.
+func waveRefusal(tool string, p plan.Installation, rec *installations.Record) error {
+	switch {
+	case p.Refused != "":
+		return fmt.Errorf("%s: the definition refuses the inputs on record for %s: %s — narrow the set (%s) or fix the record; nothing is committed", tool, p.Name, p.Refused, ArgInstallations)
+	case len(p.MissingInputs) > 0:
+		return fmt.Errorf("%s: %s: %s — reconcile %s alone with %s and %s, or narrow the set; nothing is committed", tool, p.Name, missingInputs(p.MissingInputs), p.Name, ArgInstallation, ArgInputs)
+	case p.Diff[plan.ChangeUnknown] > 0:
+		return fmt.Errorf("%s: %d file(s) of %s could not be compared against the repository as you (%s); nothing is committed blind", tool, p.Diff[plan.ChangeUnknown], p.Name, unknownFiles(p))
+	}
+	if refusal := commitRefusal(p, rec); refusal != "" {
+		return fmt.Errorf("%s: %s: %s; nothing is committed", tool, p.Name, refusal)
+	}
+	if len(p.SuppliedSecrets) > 0 && len(p.Files)-p.Diff[plan.ChangeUnchanged] > 0 {
+		return fmt.Errorf("%s: %s needs the supplied value(s) of %s — %s; enable %s alone with %s and %s, or narrow the set; nothing is committed", tool, p.Name, strings.Join(p.SuppliedSecrets, ", "), suppliedFilesToWrite(p), p.Name, ArgInstallation, ArgSecrets)
+	}
+	return nil
 }
 
 // suppliedFilesToWrite names the files of p that carry a supplied value and

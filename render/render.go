@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -53,6 +54,29 @@ type Generated struct {
 	// Encoding is how the placeholder receives the value; empty is the value
 	// as generated.
 	Encoding Encoding
+	// Peer is the other side of a value two installations hold, each in its
+	// own plan: the commit step draws a value per installation and the
+	// manager decrypts nothing, so a value drawn on one side never reaches
+	// the other. Nil for a value of this installation alone.
+	Peer *Peer
+}
+
+// Peer names the file that holds a generated value in another installation:
+// the installation, and the path in its management-clusters repository.
+type Peer struct {
+	Installation string
+	Path         string
+}
+
+// Peered is f with peer set on every declaration of name.
+func (f File) Peered(name string, peer Peer) File {
+	f.Generated = slices.Clone(f.Generated)
+	for i := range f.Generated {
+		if f.Generated[i].Name == name {
+			f.Generated[i].Peer = &peer
+		}
+	}
+	return f
 }
 
 // GeneratedKind is the shape of a generated value.
@@ -183,6 +207,13 @@ type Result struct {
 	Includes []Include
 	Probes   []Probe  // what the verify slice checks on the running installation, in order
 	Actions  []Action // what a person outside the platform team still has to do
+	// Revisions maps a generated value to the credentials revision its
+	// consumers roll on, both by generated name: the revision is a generated
+	// value of its own that the pod templates of every workload reading the
+	// value carry, so drawing it anew restarts them. A rotation asked for by
+	// name draws the value's revision with it. A value no revision covers is
+	// absent.
+	Revisions map[string]string
 }
 
 // Probe is one check of the running installation, as data: the definition
@@ -236,6 +267,7 @@ type Expectation struct {
 	Statuses         []int    `yaml:"statuses,omitempty"`         // HTTP: any of these status codes, where the answer has several right shapes
 	LocationContains string   `yaml:"locationContains,omitempty"` // HTTP: a substring of the Location header (302 probes)
 	BodyContains     string   `yaml:"bodyContains,omitempty"`     // HTTP: a substring of the body (200 probes)
+	DexConnectorStep bool     `yaml:"dexConnectorStep,omitempty"` // HTTP on Dex's /auth: the answer held to the expectation is the one of the connector /auth names, which validates the client and its redirect URI (DexAuthProbe)
 	Condition        string   `yaml:"condition,omitempty"`        // Condition: the type, e.g. Accepted, Ready
 	ConditionStatus  string   `yaml:"conditionStatus,omitempty"`  // Condition: True or False
 	Absent           string   `yaml:"absent,omitempty"`           // LogAbsent: a pattern that must not appear in the workload's log
@@ -297,6 +329,20 @@ func (r *Result) Add(repo Repository, path string, f File) {
 		panic(fmt.Sprintf("render: %s: %s rendered twice", repo, path))
 	}
 	r.Files[repo][path] = f
+}
+
+// Revision records revision as the credentials revision of every generated
+// value keys carry — the keys of the Secrets whose readers the revision rolls
+// — the revision itself left out.
+func (r *Result) Revision(revision string, keys ...SecretKey) {
+	if r.Revisions == nil {
+		r.Revisions = map[string]string{}
+	}
+	for _, k := range keys {
+		if k.Generated != nil && k.Generated.Name != revision {
+			r.Revisions[k.Generated.Name] = revision
+		}
+	}
 }
 
 // Include records an entry a shared kustomization must carry.
@@ -411,6 +457,22 @@ func GeneratedKey(key, name string, kind GeneratedKind, length int) SecretKey {
 // ValueKey is a SecretKey with a value the caller supplied.
 func ValueKey(key, value string) SecretKey {
 	return SecretKey{Key: key, Value: value}
+}
+
+// WatchLabel is the label on a Secret a HelmRelease reads through
+// valuesFrom that has helm-controller reconcile the HelmRelease as soon as
+// the Secret changes, not at its next interval: every HelmRelease that reads
+// a credentials revision rolls with it at once, so a server and its Valkey
+// restart together.
+const WatchLabel = "reconcile.fluxcd.io/watch"
+
+// WatchPatch is the kustomize strategic-merge patch that puts WatchLabel on
+// the Secret name. The kustomization carries it, never the Secret's own
+// file: a label written into an encrypted file rewrites it, and a rewritten
+// file draws every value it holds anew. Flux decrypts after the build, so
+// the patch applies to the encrypted Secret.
+func WatchPatch(name string) string {
+	return "apiVersion: v1\nkind: Secret\nmetadata:\n  name: " + name + "\n  labels:\n    " + WatchLabel + ": Enabled\n"
 }
 
 // Secret renders an Opaque Secret manifest in plaintext. Keys keep their

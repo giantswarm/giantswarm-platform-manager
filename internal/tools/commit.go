@@ -92,6 +92,10 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	case one == "":
 		return t.capabilityWave(ctx, tool, args)
 	}
+	reason, err := reasonArg(tool, args)
+	if err != nil {
+		return nil, err
+	}
 	secrets, err := secretValues(args[ArgSecrets])
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
@@ -116,7 +120,11 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 		inputs = typed
 	}
 	spec := actions.Spec{Actor: actions.Actor{Login: id.Login, ID: id.ID, Email: id.Email}, Capability: out.Capability, Installations: []string{one}, Inputs: inputs, Kind: kind,
-		InputsByInstallation: map[string]map[string]any{one: inputs}, Customer: env.byName[one].Customer != env.hub.Customer, AccountEngineers: accountEngineers(env, one), Markers: markersOf(def, env, one)}
+		InputsByInstallation: map[string]map[string]any{one: inputs}, Customer: env.byName[one].Customer != env.hub.Customer, AccountEngineers: accountEngineers(env, one), AccountEngineerOf: accountEngineerOf(env, one), Reason: reason, Markers: markersOf(def, env, one), Rotate: rotateArg(args)}
+	test := testInstallation(one, env.byName[one].Customer, env.hub)
+	if err := t.standupRefusal(tool, test); err != nil {
+		return nil, err
+	}
 
 	// The gate: the installation is on record readably, read now.
 	if refusal := gateRefusal(*out, env.reports[one]); refusal != "" {
@@ -139,16 +147,12 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 		return nil, fmt.Errorf("%s: %s: %s; nothing is committed", tool, one, missingInputs(p.MissingInputs))
 	}
 	spec.Change = changeSummary(p)
+	spec.Changes = map[string][]string{one: plan.Summary(p)}
+	spec.KeptByInstallation = keptByInstallation(nil, p)
 	if n := p.Diff[plan.ChangeUnknown]; n > 0 {
 		return nil, fmt.Errorf("%s: %d file(s) of %s could not be compared against the repository as you (%s); nothing is committed blind", tool, n, one, unknownFiles(p))
 	}
-	if refusal := p.DexAppRefusal(env.reports[one].Record); refusal != "" {
-		return nil, fmt.Errorf("%s: %s: %s; nothing is committed", tool, one, refusal)
-	}
-	if refusal := p.DexSecretRefusal(env.reports[one].Record); refusal != "" {
-		return nil, fmt.Errorf("%s: %s: %s; nothing is committed", tool, one, refusal)
-	}
-	if refusal := p.FrozenRefusal(); refusal != "" {
+	if refusal := commitRefusal(p, env.reports[one].Record); refusal != "" {
 		return nil, fmt.Errorf("%s: %s: %s; nothing is committed", tool, one, refusal)
 	}
 	if err := checkSupplied(p.SuppliedSecrets, secrets); err != nil {
@@ -186,12 +190,16 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 		return nil, fmt.Errorf("%s: the pull requests are open (%s) and the action could not record them: %w", tool, prList(prs), err)
 	}
 	t.d.Log.Info(tool, identity.LogAttr(ctx), "action", a.Name, "installation", one, "state", a.Status.State, "pullRequests", len(prs))
-	a, err = t.askApproval(ctx, a, tool)
+	a, err = t.requestApproval(ctx, a, tool, test)
 	if err != nil {
 		return nil, fmt.Errorf("%w — the pull requests are open (%s) and the action pends approval; %s posts the review", err, prList(prs), ToolMergeAction)
 	}
 	res.Action = a
 	res.PullRequests = prs
+	if test {
+		res.Next = fmt.Sprintf("%s is a test installation: no Team review; the pull requests are open as you, and once green you merge them with %s, which tells the team's standup channel", one, ToolMergeAction)
+		return res, nil
+	}
 	res.Next = fmt.Sprintf("the action waits for the team's approval (review %s in %s); the pull requests are open as you, and once approved and green you merge them with %s", a.Status.Approval.ReviewID, a.Status.Approval.Channel, ToolMergeAction)
 	return res, nil
 }
@@ -275,6 +283,30 @@ func accountEngineers(env *planned, names ...string) []string {
 		}
 	}
 	return out
+}
+
+// accountEngineerOf maps each customer installation among names to its
+// account engineer, worded as accountEngineers words it.
+func accountEngineerOf(env *planned, names ...string) map[string]string {
+	out := map[string]string{}
+	for _, n := range names {
+		if ae := accountEngineers(env, n); len(ae) > 0 {
+			out[n] = ae[0]
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// reasonArg is the commit's reason: why the actor makes the change, required.
+func reasonArg(tool string, args map[string]any) (string, error) {
+	reason, _ := args[ArgReason].(string)
+	if reason = strings.TrimSpace(reason); reason == "" {
+		return "", fmt.Errorf("%s: mode commit needs %s — why you make the change, in a sentence the team's review shows (platformctl --reason): nothing is committed", tool, ArgReason)
+	}
+	return reason, nil
 }
 
 func markersOf(def installations.Capability, env *planned, names ...string) map[string]string {
@@ -635,10 +667,14 @@ func prTitle(kind, installation, capability, action, detail string) string {
 }
 
 // prBody is the text of every pull request of the action: the action id, the
-// installation, the files and the generated secrets by name — never a value.
+// installation, the files, the generated secrets by name and what the commit
+// loses of the encrypted files on record it writes over — never a value.
 func prBody(a *actions.Action, p plan.Installation, prs []plan.PullRequest) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Action `%s`: %s %s on %s, opened by %s as the person.\n\n", a.Name, a.Spec.Kind, a.Spec.Capability, p.Name, ToolPrefix)
+	if a.Spec.Reason != "" {
+		fmt.Fprintf(&b, "Why: %s\n\n", a.Spec.Reason)
+	}
 	fmt.Fprintf(&b, "Pull requests of this action, in dependency order (a pull request whose files create an object another one's files reference merges first):\n")
 	for _, pr := range prs {
 		fmt.Fprintf(&b, "%d. %s — %d file(s)", pr.Order, pr.Repository, pr.Changes)
@@ -652,6 +688,8 @@ func prBody(a *actions.Action, p plan.Installation, prs []plan.PullRequest) stri
 		for _, g := range p.GeneratedSecrets {
 			fmt.Fprintf(&b, "- %s (%s, %d)", g.Name, g.Kind, g.Length)
 			switch {
+			case g.Rotates && g.ForcedBy == plan.ForcedByRequest:
+				fmt.Fprintf(&b, " — rotated on request: a new value replaces the one on record in %s", strings.Join(g.FrozenIn, ", "))
 			case g.Rotates:
 				fmt.Fprintf(&b, " — rotated: a new value replaces the one on record in %s (forced by %s)", strings.Join(g.FrozenIn, ", "), g.ForcedBy)
 			case g.Kept:
@@ -666,8 +704,52 @@ func prBody(a *actions.Action, p plan.Installation, prs []plan.PullRequest) stri
 	if len(p.SuppliedOnRecord) > 0 {
 		fmt.Fprintf(&b, "\nSupplied values on record, kept: %s — their files stand, nothing of them is written.\n", strings.Join(p.SuppliedOnRecord, ", "))
 	}
+	writeLost(&b, p.Files)
 	b.WriteString("\nThe action waits for the team's approval; merge follows it in this order.\n")
 	return b.String()
+}
+
+// writeLost names, for every encrypted file on record the commit writes over
+// unread, the values it drops and the encrypted texts it replaces whole
+// (plan.File's Dropped and Replaced); nothing where it loses none.
+func writeLost(b *strings.Builder, files []plan.File) {
+	header := false
+	for _, f := range files {
+		if len(f.Dropped) == 0 && len(f.Replaced) == 0 {
+			continue
+		}
+		if !header {
+			b.WriteString("\nEncrypted values on record this commit writes over unread (the manager decrypts nothing):\n")
+			header = true
+		}
+		fmt.Fprintf(b, "- %s:", f.Path)
+		if len(f.Dropped) > 0 {
+			fmt.Fprintf(b, " drops %s, rendered by no input;", strings.Join(f.Dropped, ", "))
+		}
+		if len(f.Replaced) > 0 {
+			fmt.Fprintf(b, " replaces %s whole, so a key it holds that the definition does not render is lost;", strings.Join(f.Replaced, ", "))
+		}
+		b.WriteString("\n")
+	}
+}
+
+// keptByInstallation adds to byName, created when nil, the entries of p's
+// audience lists its files keep beside the render (plan.LiveKept), under
+// p's name; an installation that keeps none adds nothing. The live probes
+// read them back from the Action.
+func keptByInstallation(byName map[string][]plan.Kept, p plan.Installation) map[string][]plan.Kept {
+	var kept []plan.Kept
+	for _, f := range p.Files {
+		kept = append(kept, plan.LiveKept(f.Kept)...)
+	}
+	if len(kept) == 0 {
+		return byName
+	}
+	if byName == nil {
+		byName = map[string][]plan.Kept{}
+	}
+	byName[p.Name] = kept
+	return byName
 }
 
 func findPlan(out CapabilityResult, name string) (plan.Installation, bool) {

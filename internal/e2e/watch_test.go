@@ -231,6 +231,22 @@ func TestWatchActionCarriesTheRolloutToEnabled(t *testing.T) {
 	if th := thread(t, st); len(th) != 2 || th[1] != w.Report {
 		t.Fatalf("the thread: %q", th)
 	}
+	// rowan is a customer installation: the Account Engineers' channel is
+	// told now, once, that the change is applied — who, what, why, the
+	// account engineer and the pull requests.
+	noticed := st.gateway.noticed()
+	if len(noticed) != 1 || noticed[0]["channel"] != noticeChannel || stage.NoticedAt == nil {
+		t.Fatalf("the applied notice: %+v (noticedAt %v)", noticed, stage.NoticedAt)
+	}
+	applied := fmt.Sprint(noticed[0]["text"])
+	for _, want := range []string{"*" + alice + "* enabled *agent-platform* on *" + rowan + "* (account engineer Ada Example): the change is applied and verified.", ">*Why:* " + commitReason, "*What changed*\n• agent-platform: new"} {
+		if !strings.Contains(applied, want) {
+			t.Errorf("the applied notice lacks %q:\n%s", want, applied)
+		}
+	}
+	if prs, _ := noticed[0]["pullRequests"].([]any); len(prs) != 2 {
+		t.Errorf("the applied notice's pull requests: %v", prs)
+	}
 	for _, id := range []string{"live-helmreleases-ready", edgeProbe, "live-model-configs"} {
 		if p, ok := probeOnRecord(w.Action, rowan, id); !ok || p.Result != string(verify.AsDefined) {
 			t.Errorf("probe %s on record: %+v (%v)", id, p, ok)
@@ -249,7 +265,7 @@ func TestWatchActionCarriesTheRolloutToEnabled(t *testing.T) {
 
 	// A re-read of the enabled action: the picture, no second report.
 	w, text, isErr = watchCall(t, admin, a.Name)
-	if isErr || w.State != actions.StateEnabled || w.Report != "" || len(thread(t, st)) != 2 {
+	if isErr || w.State != actions.StateEnabled || w.Report != "" || len(thread(t, st)) != 2 || len(st.gateway.noticed()) != 1 {
 		t.Fatalf("re-read: %v %s", isErr, text)
 	}
 	assertNoLeak(t, "the report", w.Report)
@@ -486,6 +502,40 @@ func TestWatchActionReadsALaterMigrationAsPlanned(t *testing.T) {
 	li, _, _ := listInstallations(t, aliceC, map[string]any{tools.ArgInstallations: []any{rowan}})
 	if r := find(t, li, rowan); r.Capabilities[0].State != installations.StateEnabled {
 		t.Fatalf("list_installations: %+v", r.Capabilities[0])
+	}
+}
+
+// A HelmRelease whose upgrade Flux gave up on — Helm's wait timed out on a
+// pod that never started, Released=False, the release rolled back — will
+// not become Ready on its own: the watch fails the stage on the release's
+// probe, naming Flux's verdict, instead of reading it rolling out for good.
+// The release upgraded and Ready again, the re-read recovers the stage.
+func TestWatchActionFailsAReleaseFluxGaveUpOn(t *testing.T) {
+	const upgradeFailed = "Helm upgrade failed for release agent-platform/agent-platform with chart agent-platform@4.44.1: context deadline exceeded"
+	st := newStack(t)
+	a, _ := rolledOut(t, st)
+	admin := adminLive(t, st)
+	conditions := func(ready, readyMessage, released, releasedReason, releasedMessage string) {
+		st.inst.edit(helmReleaseKind, fluxNamespace, platformRelease, func(obj map[string]any) {
+			obj[statusKey].(map[string]any)[conditionsKey] = []any{
+				map[string]any{typeKey: "Ready", statusKey: ready, message: readyMessage},
+				map[string]any{typeKey: "Released", statusKey: released, "reason": releasedReason, message: releasedMessage},
+			}
+		})
+	}
+	conditions(statusFalse, "Helm rollback to previous release agent-platform/agent-platform.v3 succeeded", statusFalse, "UpgradeFailed", upgradeFailed)
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || w.Ready || w.State != actions.StateFailed || w.Action.Status.State != actions.StateFailed || w.Action.Status.Result == nil ||
+		!strings.Contains(strings.Join(w.Red, "\n"), "Released=False (UpgradeFailed): "+upgradeFailed) {
+		t.Fatalf("the failed release: %v %s", isErr, text)
+	}
+	if msg := stageOf(w.Action, rowan).Message; !strings.HasPrefix(msg, "a probe is red: ") || !strings.Contains(msg, platformRelease) {
+		t.Fatalf("the stage names the release: %q", msg)
+	}
+	conditions(statusTrue, "Helm upgrade succeeded", statusTrue, "UpgradeSucceeded", "upgraded")
+	w, text, isErr = watchCall(t, admin, a.Name)
+	if isErr || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled || !strings.Contains(w.Report, "Recovered: the stage had failed (a probe is red: ") {
+		t.Fatalf("the recovery: %v %s", isErr, text)
 	}
 }
 

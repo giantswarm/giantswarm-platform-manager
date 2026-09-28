@@ -1,14 +1,19 @@
 package installations
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 	"github.com/giantswarm/giantswarm-platform-manager/render/agentplatform"
+	"github.com/giantswarm/giantswarm-platform-manager/render/clustermcpservers"
 	"github.com/giantswarm/giantswarm-platform-manager/render/customerportal"
+	"github.com/giantswarm/giantswarm-platform-manager/render/mcpservers"
 )
 
 // State is a capability's state on an installation. The first two are read
@@ -65,11 +70,12 @@ type Capability struct {
 	Render func(raw any, secrets map[string]string, mode render.Mode) (*render.Result, error)
 	// RecordInputs are the inputs the definition derives from the record
 	// beyond installation.*, as the schema's other registry inputs name them
-	// (the customer portal's federation from the portal on record): laid
-	// over the defaults with the facts, under the read-back and the typed
-	// inputs; nil where the definition has none. An error refuses the
+	// (the customer portal's federation from the portal on record, its
+	// agent-platform section from the portal's files read as the caller):
+	// laid over the defaults with the facts, under the read-back and the
+	// typed inputs; nil where the definition has none. An error refuses the
 	// comparison, naming what the record lacks.
-	RecordInputs func(r Report) (map[string]any, error)
+	RecordInputs func(ctx context.Context, r Report, read Reader) (map[string]any, error)
 	// Prunes says whether the Flux Kustomization that applies the
 	// definition's tree deletes what leaves the record. The fleet's
 	// Kustomization over the extras tree does not (prune: false): a revert
@@ -134,6 +140,10 @@ const (
 	// installation's management-clusters repository carries the portal's
 	// app-config.
 	CustomerPortal = "customer-portal"
+	// ClusterMCPServers is the cluster-mcp-servers capability: enabled once
+	// the installation's management-clusters repository carries its
+	// mcp-kubernetes extras.
+	ClusterMCPServers = clustermcpservers.Capability
 )
 
 // Capabilities is the registry of the capability definitions the manager
@@ -162,7 +172,51 @@ func Capabilities() []Capability {
 		RecordInputs:     portalRecordInputs,
 		// The extras/backstage tree, under the same Kustomization.
 		Prunes: false,
+	}, {
+		Name:             ClusterMCPServers,
+		Description:      "The management cluster's own MCP servers without the agent platform: mcp-kubernetes, mcp-prometheus and mcp-capi with their Valkeys, restarting together on rotated credentials, and their Dex clients.",
+		MarkerRepository: ManagementClustersRepository,
+		EnabledMarker:    ClusterMCPServersMarker,
+		Parse:            func(raw any) (render.Input, error) { return clustermcpservers.Parse(raw) },
+		Render:           clustermcpservers.Render,
+		RecordInputs:     clusterMCPServersRecordInputs,
+		// The extras tree, under the fleet's non-pruning Kustomization.
+		Prunes: false,
 	}}
+}
+
+// ClusterMCPServersMarker is the cluster-mcp-servers capability's marker: the
+// mcp-kubernetes extras' kustomization, which every management cluster that
+// runs its own MCP servers carries.
+func ClusterMCPServersMarker(installation string) string {
+	return clusterMCPServerKustomization(installation, "mcp-kubernetes")
+}
+
+// clusterMCPServerKustomization is the kustomization of a server's extras directory.
+func clusterMCPServerKustomization(installation, server string) string {
+	return "management-clusters/" + installation + "/extras/" + server + "/kustomization.yaml"
+}
+
+// clusterMCPServersRecordInputs are the servers the record runs, where the
+// capability is on record: servers.<server>.enabled, whether the server's
+// extras directory is there. A fresh enable reads nothing, and every server runs.
+func clusterMCPServersRecordInputs(ctx context.Context, r Report, read Reader) (map[string]any, error) {
+	if !r.enabled(ClusterMCPServers) {
+		return nil, nil
+	}
+	servers := map[string]any{}
+	for _, s := range mcpservers.Servers {
+		_, err := read(ctx, r.Repositories.ManagementClusters, clusterMCPServerKustomization(r.Name, s.Name))
+		switch {
+		case errors.Is(err, gh.ErrNotFound):
+			servers[s.DexClient] = map[string]any{"enabled": false}
+		case err != nil:
+			return nil, fmt.Errorf("%s: %w", clusterMCPServerKustomization(r.Name, s.Name), err)
+		default:
+			servers[s.DexClient] = map[string]any{"enabled": true}
+		}
+	}
+	return map[string]any{"servers": servers}, nil
 }
 
 // CapabilityNames are the registry's names, in registry order.
@@ -207,13 +261,32 @@ func (s State) FromAction() bool {
 	return false
 }
 
-// portalRecordInputs is the customer portal's federation from the portal on
+// portalRecordInputs are the customer portal's inputs from the portal on
+// record: its federation (portalFederation) and its agent-platform section
+// (portalPlatformSection).
+func portalRecordInputs(ctx context.Context, r Report, read Reader) (map[string]any, error) {
+	federation, err := portalFederation(r)
+	if err != nil {
+		return nil, err
+	}
+	section, err := portalPlatformSection(ctx, r, read)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]any{"platformSection": section}
+	if federation != nil {
+		out["federation"] = federation
+	}
+	return out, nil
+}
+
+// portalFederation is the customer portal's federation from the portal on
 // record: federation.installations, every installation the hosted portal
 // shows besides its own with its facts, so the sign-in installation and the
 // token broker the same file names are among them; nothing where the
 // installation hosts no portal or the portal shows its own installation
 // alone. A name the registry does not know refuses the comparison.
-func portalRecordInputs(r Report) (map[string]any, error) {
+func portalFederation(r Report) (map[string]any, error) {
 	if r.Hosted == nil {
 		return nil, nil
 	}
@@ -235,5 +308,5 @@ func portalRecordInputs(r Report) (map[string]any, error) {
 		}
 		entries = append(entries, entry)
 	}
-	return map[string]any{"federation": map[string]any{"installations": entries}}, nil
+	return map[string]any{"installations": entries}, nil
 }

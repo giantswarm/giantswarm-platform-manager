@@ -75,7 +75,7 @@ func (t *Tools) verifyInstallation(ctx context.Context, token, name string, def 
 		byName[inst.Name] = inst
 	}
 	env := &planned{c: c, hub: hub, byName: byName, reports: map[string]installations.Report{r.Name: r}, inputs: map[string]map[string]any{}}
-	out, err := t.compare(ctx, env, r, def, typed, content)
+	out, err := t.compare(ctx, env, r, def, typed, content, nil)
 	if err != nil {
 		return nil, err
 	}

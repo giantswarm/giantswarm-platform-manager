@@ -161,6 +161,12 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 			if len(f.Unseen) > 0 {
 				p.f("    %s holds encrypted, not compared: %s\n", f.Path, unseen(f.Unseen))
 			}
+			if len(f.Dropped) > 0 {
+				p.f("    %s drops what the record holds encrypted and no input renders: %s\n", f.Path, strings.Join(f.Dropped, ", "))
+			}
+			if len(f.Replaced) > 0 {
+				p.f("    %s replaces the encrypted values on record whole (%s): a key they hold that the definition does not render is lost — supply it at commit where the plan asks for it, or keep the file by hand\n", f.Path, strings.Join(f.Replaced, ", "))
+			}
 		}
 	}
 	for _, inc := range inst.Includes {
@@ -173,8 +179,10 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 			switch {
 			case g.Refusal != "":
 				p.f("      refused: %s\n", g.Refusal)
+			case g.Rotates && g.ForcedBy == plan.ForcedByRequest:
+				p.f("      rotates on request: %s — a new value replaces the one on record in %s; both sides roll, the client is unusable between the two rollouts%s\n", g.Name, strings.Join(g.FrozenIn, ", "), signsOut(g.Name))
 			case g.Rotates:
-				p.f("      rotates: %s (forced by %s) — a new value replaces the one on record in %s; both sides roll, the client is unusable between the two rollouts\n", g.Name, g.ForcedBy, strings.Join(g.FrozenIn, ", "))
+				p.f("      rotates: %s (forced by %s) — a new value replaces the one on record in %s; both sides roll, the client is unusable between the two rollouts%s\n", g.Name, g.ForcedBy, strings.Join(g.FrozenIn, ", "), signsOut(g.Name))
 			case g.Kept:
 				p.f("      kept: the value on record in %s stands, nothing is written\n", strings.Join(g.FrozenIn, ", "))
 			}
@@ -292,6 +300,9 @@ func Action(w io.Writer, a actions.Action) error {
 	if res := a.Status.Result; res != nil {
 		p.f("Result: %s%s%s\n", dash(res.State), reason(res.Message), at(res.At))
 	}
+	if wd := a.Status.Withdrawal; wd != nil {
+		p.f("Withdrawn by %s%s%s\n", dash(wd.By), at(wd.At), reason(wd.Reason))
+	}
 	if a.Status.SyncedAt != nil {
 		p.f("Synced with GitHub%s as %s\n", at(a.Status.SyncedAt), dash(a.Status.SyncedBy))
 	}
@@ -314,7 +325,8 @@ func Action(w io.Writer, a actions.Action) error {
 }
 
 // mergeOf is a pull request's merge or close as recorded: who merged it and
-// when, with the merge commit, or when it was closed unmerged.
+// when, with the merge commit and the revert that took it back, or when it
+// was closed unmerged.
 func mergeOf(pr actions.PullRequest) string {
 	switch pr.State {
 	case actions.PullRequestMerged:
@@ -325,6 +337,12 @@ func mergeOf(pr actions.PullRequest) string {
 		s += at(pr.MergedAt)
 		if pr.MergeCommit != "" {
 			s += " (" + pr.MergeCommit + ")"
+		}
+		if rv := pr.Revert; rv != nil {
+			s += ", reverted by " + rv.Commit
+			if rv.PullRequest > 0 {
+				s += fmt.Sprintf(" (%s#%d %s)", pr.Repository, rv.PullRequest, rv.PullRequestURL)
+			}
 		}
 		return s
 	case actions.PullRequestClosed:
@@ -570,7 +588,7 @@ func outcome(req verify.Request) string {
 	if req.Error != "" {
 		return " — " + req.Error
 	}
-	return fmt.Sprintf(" → %d", req.Status)
+	return " → " + req.Answer()
 }
 
 // Decision is approve_action or deny_action: the manager's message, then the
@@ -740,4 +758,14 @@ func unseen(list []plan.Unseen) string {
 		parts = append(parts, u.Path+": "+u.Value)
 	}
 	return strings.Join(parts, ", ")
+}
+
+// signsOut is what a rotation of the generated value name ends for people,
+// where it ends more than the client's rollout: a new OAuth encryption key
+// makes every session and token the server stores unreadable.
+func signsOut(name string) string {
+	if strings.HasSuffix(name, "-oauth-encryption-key") {
+		return "; every session the server holds ends, so everyone who uses it signs in again"
+	}
+	return ""
 }

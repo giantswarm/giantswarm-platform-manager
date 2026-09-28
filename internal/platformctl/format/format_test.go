@@ -75,17 +75,20 @@ func TestPlan(t *testing.T) {
 			Files: []plan.File{
 				{Repository: acmeConfigs, Path: "installations/rowan/apps/agent-platform/configmap-values.yaml.patch", Change: plan.ChangeCreate, Content: "a: 1\n"},
 				{Repository: acmeMCs, Path: "management-clusters/rowan/extras/agent-platform/kustomization.yaml", Change: plan.ChangeUnchanged},
+				{Repository: acmeMCs, Path: "management-clusters/rowan/extras/backstage/backstage/user-secrets.enc.yaml", Change: plan.ChangeUpdate,
+					Dropped: []string{"stringData.EXTERNAL_ACCESS_MCP_TOKEN"}, Replaced: []string{"stringData.values"}},
 			},
 			Includes: []plan.Include{{Repository: acmeMCs, Path: "management-clusters/rowan/extras/kustomization.yaml", List: plan.ListResources, Resource: "./agent-platform/", Change: plan.ChangeUpdate}},
 			GeneratedSecrets: []plan.GeneratedSecret{
 				{Name: "muster-valkey-password", Kind: "alphanumeric", Length: 32, Files: []string{"x", "y"}, FrozenIn: []string{"x"}, Rotates: true, ForcedBy: "y"},
 				{Name: "muster-registration-token", Kind: "base64", Length: 32, Files: []string{"z"}, FrozenIn: []string{"z"}, Kept: true},
+				{Name: "muster-oauth-encryption-key", Kind: "base64", Length: 32, Files: []string{"w"}, FrozenIn: []string{"w"}, Rotates: true, ForcedBy: plan.ForcedByRequest},
 			},
 			SuppliedSecrets: []string{"kagent.modelKey"},
 			DexClients:      []plan.DexClient{{ID: kagent, Client: kagent, SecretRef: dexClientKagent, RedirectURIs: []string{"https://kagent.rowan.example/callback"}}},
 			CustomerActions: []plan.CustomerAction{{Installation: rowan, Action: "create the apiKeySecret", Why: "the model key is theirs"}},
 			Probes:          []plan.Probe{{ID: "muster-ready", Feature: "muster", Key: "ready"}},
-			Diff:            map[plan.Change]int{plan.ChangeCreate: 1, plan.ChangeUnchanged: 1},
+			Diff:            map[plan.Change]int{plan.ChangeCreate: 1, plan.ChangeUnchanged: 1, plan.ChangeUpdate: 1},
 		}}},
 		PullRequests: []plan.PullRequest{{Order: 1, Repository: acmeConfigs, Installations: []string{rowan}, Changes: 1, GeneratedSecrets: []string{"muster-valkey-password"}}},
 		Skipped:      []tools.Skipped{{Name: "alder", Reason: tools.SkippedNotEnabled}},
@@ -98,16 +101,22 @@ func TestPlan(t *testing.T) {
 	out := b.String()
 	contains(t, out, "enable_capability dry run: agent-platform on hub hazel, as someone", "Order: rowan",
 		"rowan: not enabled", "A commit would be refused: the commit is not in this version",
-		"Files (1 create, 1 unchanged):", "    CHANGE", "create", "unchanged", "configmap-values.yaml.patch",
+		"Files (1 create, 1 update, 1 unchanged):", "    CHANGE", "create", "unchanged", "configmap-values.yaml.patch",
+		"user-secrets.enc.yaml drops what the record holds encrypted and no input renders: stringData.EXTERNAL_ACCESS_MCP_TOKEN",
+		"user-secrets.enc.yaml replaces the encrypted values on record whole (stringData.values): a key they hold that the definition does not render is lost",
 		"Includes: giantswarm/acme-management-clusters:management-clusters/rowan/extras/kustomization.yaml resources ./agent-platform/ (update)",
 		"muster-valkey-password (alphanumeric, 32): x, y", "rotates: muster-valkey-password (forced by y) — a new value replaces the one on record in x;",
 		"muster-registration-token (base64, 32): z", "kept: the value on record in z stands, nothing is written", "You supply at commit: kagent.modelKey",
+		"muster-oauth-encryption-key (base64, 32): w", "rotates on request: muster-oauth-encryption-key — a new value replaces the one on record in w;",
 		"kagent: client kagent; secretRef dex-client-kagent; redirect URIs https://kagent.rowan.example/callback",
 		"rowan: create the apiKeySecret (the model key is theirs)", "muster-ready: muster ready",
 		"1. giantswarm/acme-configs: 1 change for rowan", "generated secrets: muster-valkey-password",
 		"alder: not enabled", "Commit: not implemented yet")
 	if strings.Contains(out, "a: 1") {
 		t.Error("content printed without --content")
+	}
+	if strings.Contains(out, "forced by "+plan.ForcedByRequest) {
+		t.Error("a rotation on request reads as forced by a file")
 	}
 	b.Reset()
 	if err := Plan(&b, r, true); err != nil {
@@ -236,7 +245,8 @@ func TestVerifyPrintsFeaturesWithMarksAndDimensions(t *testing.T) {
 					{ID: "oauth2-proxy-gate", Kind: "probe", Key: "gate", Mark: verify.AsDefined,
 						Probe: &verify.ProbeResult{Expect: []int{302, 403}, Requests: []verify.Request{{URL: "https://kagent.rowan.example/", Status: 302, OK: true}}}},
 					{ID: "dex-auth-request", Kind: "probe", Key: "dex", Mark: verify.Drifted,
-						Probe: &verify.ProbeResult{Expect: []int{302}, Requests: []verify.Request{{URL: "https://dex.rowan.example/auth", Client: kagent, Error: "dial tcp: timeout", OK: false}}}},
+						Probe: &verify.ProbeResult{Expect: []int{302}, Requests: []verify.Request{{URL: "https://dex.rowan.example/auth", Client: kagent, Error: "dial tcp: timeout", OK: false},
+							{URL: "https://dex.rowan.example/auth", Client: kagent, Status: 404, Connector: "github", Message: "Dex does not know client kagent", OK: false}}}},
 				}},
 		},
 	}
@@ -258,7 +268,8 @@ func TestVerifyPrintsFeaturesWithMarksAndDimensions(t *testing.T) {
 		"[not checked] kagent/live (live: deployment) — "+verify.ReasonAuthority,
 		"expect 302|403",
 		"ok   https://kagent.rowan.example/ → 302",
-		"FAIL https://dex.rowan.example/auth (kagent) — dial tcp: timeout")
+		"FAIL https://dex.rowan.example/auth (kagent) — dial tcp: timeout",
+		"FAIL https://dex.rowan.example/auth (kagent) → 404 from connector github: Dex does not know client kagent")
 }
 
 func TestDecisionAndMergeCarryTheMessageAndTheAction(t *testing.T) {
@@ -268,6 +279,17 @@ func TestDecisionAndMergeCarryTheMessageAndTheAction(t *testing.T) {
 		t.Fatal(err)
 	}
 	contains(t, buf.String(), "approved by carol; the actor merges", "Action "+rowanAction, "State: pending approval")
+
+	buf.Reset()
+	at := time.Date(2026, 9, 24, 21, 0, 0, 0, time.UTC)
+	withdrawn := &actions.Action{Name: rowanAction, Spec: actions.Spec{Kind: actions.KindReconcile, Capability: agentPlatform, Installations: []string{rowan}}, Status: actions.Status{State: actions.StateWithdrawn,
+		PullRequests: []actions.PullRequest{{Repository: acmeConfigs, Number: 7, State: actions.PullRequestMerged, MergeCommit: "abc", Revert: &actions.Revert{Commit: "def", PullRequest: 9, PullRequestURL: "https://github.com/" + acmeConfigs + "/pull/9"}}},
+		Withdrawal:   &actions.Withdrawal{By: "alice", Reason: "rolled back by hand", At: &at}}}
+	if err := Decision(&buf, tools.Decision{Message: "alice withdrew the action", Action: withdrawn}); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, buf.String(), "State: withdrawn", " merged (abc), reverted by def ("+acmeConfigs+"#9 https://github.com/"+acmeConfigs+"/pull/9)",
+		"Withdrawn by alice at 2026-09-24T21:00:00Z — rolled back by hand")
 
 	buf.Reset()
 	m := tools.MergeResult{Message: "one merged, one waiting", Action: a,

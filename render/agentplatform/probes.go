@@ -30,15 +30,22 @@ const (
 
 // probes are the checks of the running installation, one or more per live
 // dimension of features.yaml, in the order the verify slice runs them: the
-// releases, kagent's workloads, the Secrets, the model configuration, the
-// identity chain over HTTP, Dex holding every referenced client secret, the
-// tool access, the logs, and the drift of live
-// values against the render. Everything kagent's is probed only when kagent
-// is enabled. Nothing here runs anything: a probe is data.
+// releases, the workloads that read muster's credentials, kagent's
+// workloads, the Secrets, the model configuration, the identity chain over
+// HTTP, Dex holding every referenced client secret, the tool access, the
+// logs, and the drift of live values against the render. Everything kagent's
+// is probed only when kagent is enabled. Nothing here runs anything: a probe
+// is data.
 func (in *Input) probes() []render.Probe {
 	var p []render.Probe
 	for _, name := range in.helmReleases() {
 		p = append(p, resourceProbe("live-helmreleases-ready", featureRuntime, render.HelmReleaseReady, fluxNamespace, "HelmRelease", name))
+	}
+	// A HelmRelease stays Ready when its pods turn unready after the upgrade,
+	// as a consumer left on rotated-away credentials does: its Deployment is
+	// read itself.
+	for _, c := range in.runningMusterConsumers() {
+		p = append(p, conditionProbe(platformWorkloadsDimension, featureRuntime, platformNamespace, "Deployment", c.deployment, "Available", conditionTrue))
 	}
 	if in.kagent() {
 		for _, name := range []string{"kagent-controller", "kagent-ui", oauth2ProxyDeployment} {
@@ -57,10 +64,7 @@ func (in *Input) probes() []render.Probe {
 			}))
 	}
 	for _, c := range in.dexRedirectClients() {
-		p = append(p, httpProbe("live-dex-auth-per-client", featureIdentity, in.dexAuthURL(c), render.Expectation{
-			Statuses: []int{200, 302},
-			Note:     "Dex answers a client it knows with its login page (several connectors) or a redirect to the one connector; an unknown client is an error page",
-		}))
+		p = append(p, render.DexAuthProbe("live-dex-auth-per-client", featureIdentity, in.host("dex"), c.id, c.redirectURI))
 	}
 	for _, c := range in.dexSecretClients() {
 		p = append(p, render.DexSecretLoadedProbe(dexSecretsLoadedDimension, featureIdentity, dexNamespace, c.secret, c.client))
@@ -69,7 +73,7 @@ func (in *Input) probes() []render.Probe {
 		Status: 200, BodyContains: `"resource":"https://` + in.host("muster") + `/mcp"`,
 	}))
 	for _, s := range servers {
-		p = append(p, resourceProbe("live-own-mcp-servers", featureToolAccess, render.ResourcePresent, platformNamespace, mcpServerResource, in.Installation.Name+"-"+s.name))
+		p = append(p, resourceProbe("live-own-mcp-servers", featureToolAccess, render.ResourcePresent, platformNamespace, mcpServerResource, in.Installation.Name+"-"+s.Name))
 	}
 	for _, s := range in.Installation.MCPServers {
 		p = append(p, registeredServerProbe(s))
@@ -129,6 +133,10 @@ func (in *Input) actions() []render.Action {
 	return []render.Action{{ID: modelKeyActionID, Feature: featureRuntime, State: render.WaitingForCustomer, Dimension: modelKeyDimension, Note: modelKeyNote}}
 }
 
+// platformWorkloadsDimension is the live dimension of the Deployments that
+// read muster's credentials (musterConsumers).
+const platformWorkloadsDimension = "live-platform-workloads"
+
 // helmReleases are the HelmReleases the installation's platform consists of:
 // the meta chart, kagent when it runs, the connectivity chart, muster, the
 // servers' registration, and every own MCP server with its Valkey.
@@ -139,7 +147,7 @@ func (in *Input) helmReleases() []string {
 	}
 	names = append(names, "agent-platform-connectivity", "muster", "agent-platform-mcps")
 	for _, s := range servers {
-		names = append(names, s.name, s.name+"-valkey")
+		names = append(names, s.Name, s.Name+"-valkey")
 	}
 	return names
 }
@@ -189,17 +197,12 @@ func (in *Input) dexRedirectClients() []dexRedirectClient {
 	if in.kagent() {
 		clients = append(clients, dexRedirectClient{id: "kagent", redirectURI: in.kagentRedirectURI()})
 	}
-	for _, p := range in.Installation.Portals {
-		clients = append(clients, dexRedirectClient{id: render.PortalDexClientID, redirectURI: render.PortalRedirectURI(p.Domain, in.Installation.Name)})
+	if in.portalClient() {
+		for _, p := range in.Installation.Portals {
+			clients = append(clients, dexRedirectClient{id: render.PortalDexClientID, redirectURI: render.PortalRedirectURI(p.Domain, in.Installation.Name)})
+		}
 	}
 	return clients
-}
-
-// dexAuthURL is the authorization request Dex answers for a client it
-// knows: its login page when several connectors are configured, a redirect
-// to the one connector otherwise, never an error page.
-func (in *Input) dexAuthURL(c dexRedirectClient) string {
-	return "https://" + in.host("dex") + "/auth?client_id=" + c.id + "&redirect_uri=" + c.redirectURI + "&response_type=code&scope=openid"
 }
 
 // dexSecretsLoadedDimension is the live dimension of Dex holding the current

@@ -18,6 +18,17 @@
 #
 # The M numbers are the wave-1 migration list's (M1–M11) and continue removals.yaml's (M30…).
 migrations:
+  # --- M38 — a rotated muster credential rolls every workload that reads it ---
+  # The chat gateway reads muster's Valkey password and the managers the platform client's secret, each once at
+  # start; their HelmReleases take M37's revision onto a pod annotation.
+  - key: configmap:components.klaus-gateway.valuesFromRefs
+    reason: "Added: the klaus-gateway HelmRelease reads muster's credentials revision from the Secret muster-credentials-revision onto a pod annotation (valuesFrom with targetPath), so a rotation of muster's Valkey password restarts the gateway, which reads the password at start, instead of leaving it unready on the old one until a hand-run restart · M38"
+  - key: configmap:components.agent-manager.valuesFromRefs
+    reason: "Added: the agent-manager HelmRelease reads muster's credentials revision from the Secret muster-credentials-revision onto a pod annotation (valuesFrom with targetPath), so a rotation of the platform client's secret restarts the agent-manager, which reads it at start, instead of leaving it on the old one until a hand-run restart · M38"
+  - key: configmap:components.cluster-manager.valuesFromRefs
+    reason: "Added: the cluster-manager HelmRelease reads muster's credentials revision from the Secret muster-credentials-revision onto a pod annotation (valuesFrom with targetPath), so a rotation of the platform client's secret restarts the cluster-manager, which reads it at start, instead of leaving it on the old one until a hand-run restart · M38"
+  - key: configmap:components.model-manager.valuesFromRefs
+    reason: "Added: the model-manager HelmRelease reads muster's credentials revision from the Secret muster-credentials-revision onto a pod annotation (valuesFrom with targetPath), so a rotation of the platform client's secret restarts the model-manager, which reads it at start, instead of leaving it on the old one until a hand-run restart · M38"
   # --- M37 — a rotated muster credential rolls muster and its Valkey ---
   # muster's revision is one generated value held by its two credentials Secrets and the revision Secret in the
   # Flux namespace; the meta chart hands it to the muster and valkey HelmReleases as valuesFrom entries.

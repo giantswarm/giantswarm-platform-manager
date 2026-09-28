@@ -50,7 +50,9 @@ func TestEveryProbeTemplateExecutes(t *testing.T) {
 
 // TestEveryDefinitionParses holds every capability's data files to their
 // shape: features.yaml, probes.yaml, removals.yaml and migrations.yaml of
-// every definition load, and no file but migrations.yaml is empty. A
+// every definition load, no file but migrations.yaml is empty, and every
+// removal's kind is one its file's header documents — the engine acts on
+// some (kept, hub), so a kind spelled otherwise would silently be none. A
 // removals.yaml no code path reads at run time is caught here, not on the
 // first dry run that classifies with it.
 func TestEveryDefinitionParses(t *testing.T) {
@@ -78,6 +80,7 @@ func TestEveryDefinitionParses(t *testing.T) {
 			if len(probes) == 0 {
 				t.Error("probes.yaml: no probe")
 			}
+			dimensionsAppearOnce(t, feats, probes)
 			removals, err := definitions.Removals(c)
 			if err != nil {
 				t.Fatalf("removals.yaml: %v", err)
@@ -85,12 +88,16 @@ func TestEveryDefinitionParses(t *testing.T) {
 			if len(removals) == 0 {
 				t.Error("removals.yaml: no removal")
 			}
+			kinds := documentedKinds(t, c)
 			seen := map[string]bool{}
 			for _, r := range removals {
 				if seen[r.Key] {
 					t.Errorf("removals.yaml: key %q listed twice", r.Key)
 				}
 				seen[r.Key] = true
+				if !kinds[r.Kind] {
+					t.Errorf("removals.yaml: key %q has kind %q, which the header's kinds do not document", r.Key, r.Kind)
+				}
 			}
 			migrations, err := definitions.Migrations(c)
 			if err != nil {
@@ -105,6 +112,62 @@ func TestEveryDefinitionParses(t *testing.T) {
 			}
 		})
 	}
+}
+
+// dimensionsAppearOnce holds a definition to one dimension per id: a
+// probe of probes.yaml joins the feature it names, which exists, and is
+// never also listed in features.yaml, where the verify would report it twice.
+func dimensionsAppearOnce(t *testing.T, feats []definitions.Feature, probes []definitions.Probe) {
+	t.Helper()
+	seen := map[string]bool{}
+	features := map[string]bool{}
+	for _, f := range feats {
+		features[f.ID] = true
+		for _, d := range f.Dimensions {
+			if d.Kind == definitions.KindProbe {
+				t.Errorf("features.yaml: dimension %q has kind probe: probes are declared in probes.yaml only", d.ID)
+			}
+			if seen[d.ID] {
+				t.Errorf("features.yaml: dimension %q listed twice", d.ID)
+			}
+			seen[d.ID] = true
+		}
+	}
+	for _, p := range probes {
+		if !features[p.Feature] {
+			t.Errorf("probes.yaml: probe %q names feature %q, which features.yaml does not define", p.ID, p.Feature)
+		}
+		if seen[p.ID] {
+			t.Errorf("probes.yaml: probe %q shares its id with another dimension", p.ID)
+		}
+		seen[p.ID] = true
+	}
+}
+
+// documentedKinds are the kinds a capability's removals.yaml documents in
+// its header: each line under "# kinds:" that names one in its first column.
+func documentedKinds(t *testing.T, capability string) map[string]bool {
+	t.Helper()
+	raw, err := definitions.FS.ReadFile(capability + "/removals.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := map[string]bool{}
+	var in bool
+	for _, line := range strings.Split(string(raw), "\n") {
+		switch {
+		case !strings.HasPrefix(line, "#"):
+			in = false
+		case line == "# kinds:":
+			in = true
+		case in && strings.HasPrefix(line, "#   ") && !strings.HasPrefix(line, "#    "):
+			kinds[strings.Fields(line[1:])[0]] = true
+		}
+	}
+	if len(kinds) == 0 {
+		t.Fatal("removals.yaml: the header documents no kind")
+	}
+	return kinds
 }
 
 // TestEveryReadBackNamesADeclaredFile holds every schema's x-readback to

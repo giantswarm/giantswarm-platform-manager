@@ -3,6 +3,7 @@ package agentplatform
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -60,6 +61,7 @@ const portalInputSuffix = ".portal.yaml"
 var consumptionShapes = []consumptionShape{
 	{name: shapePublicCustomer, platform: shapePublicCustomer, portal: shapePublicCustomer + portalInputSuffix},
 	{name: shapeGiantswarmOwned, platform: shapeGiantswarmOwned, portal: shapeGiantswarmOwned + portalInputSuffix},
+	{name: shapeGiantswarmSlackApp, platform: shapeGiantswarmSlackApp, portal: shapeGiantswarmSlackApp + portalInputSuffix},
 	{name: "customer-portal", portal: "customer-portal" + portalInputSuffix},
 }
 
@@ -226,6 +228,18 @@ type release struct {
 	values  []string
 	objects []object
 	text    string
+	// targets are the release's valuesFrom entries that read a key of an
+	// emitted Secret into one value (targetPath), each at the index of values
+	// where Flux merges it; the render takes none of them, since the Secret's
+	// value is the commit step's.
+	targets []target
+}
+
+// target is one valuesFrom entry with a targetPath: the Secret and the value.
+type target struct {
+	at     int
+	secret string
+	path   string
 }
 
 func (r *release) String() string {
@@ -351,6 +365,9 @@ func consume(t *testing.T, shape consumptionShape, charts *chartStore) {
 	c.assertRead()
 	c.assertKeys()
 	c.assertWholeSecrets()
+	if c.platform != nil {
+		c.assertMusterConsumers()
+	}
 }
 
 // renderPortal renders the customer-portal definition from its input under
@@ -579,6 +596,9 @@ func (c *consumption) helmReleases(objects []object, fleet bool) []*release {
 			rel.ns = hr.namespace("")
 		}
 		for _, vf := range list(get(hr, fieldSpec, "valuesFrom")) {
+			if str(get(vf, fieldKind)) == kindSecret && str(get(vf, "targetPath")) != "" {
+				rel.targets = append(rel.targets, target{at: len(rel.values), secret: str(get(vf, fieldName)), path: str(get(vf, "targetPath"))})
+			}
 			if str(get(vf, fieldKind)) != kindConfigMap {
 				continue
 			}
@@ -699,13 +719,18 @@ func (c *consumption) writeValues(name string, values []byte) string {
 // template renders a release with helm and collects the Secret references of
 // everything it rendered.
 func (c *consumption) template(rel *release) {
-	out := run(c.t, "helm", append([]string{"template", rel.name, c.charts.pull(c.t, rel.chart), "-n", rel.ns}, flags(rel.values)...)...)
+	out := c.helmTemplate(rel, rel.values)
 	rel.text = string(out)
 	rel.objects = decode(c.t, out)
 	c.rendered = append(c.rendered, rel)
 	for _, o := range rel.objects {
 		c.collect(rel, o)
 	}
+}
+
+// helmTemplate renders rel's chart at its pin, as rel, with the values files.
+func (c *consumption) helmTemplate(rel *release, values []string) []byte {
+	return run(c.t, "helm", append([]string{"template", rel.name, c.charts.pull(c.t, rel.chart), "-n", rel.ns}, flags(values)...)...)
 }
 
 // collect records every Secret reference of one rendered object: the pod
@@ -1002,7 +1027,7 @@ func (c *consumption) assertWholeSecrets() {
 			t.Fatalf("%s reads Secret %s whole (envFrom): add %s so the chart renders its own Secret and names the keys it reads", r.rel, s, inline)
 		}
 		own := &release{chart: r.rel.chart, name: r.rel.name, ns: r.rel.ns, values: r.rel.values}
-		own.objects = decode(t, run(t, "helm", append([]string{"template", own.name, c.charts.pull(t, own.chart), "-n", own.ns}, flags(append(slices.Clone(own.values), inline))...)...))
+		own.objects = decode(t, c.helmTemplate(own, append(slices.Clone(own.values), inline)))
 		var contract []string
 		for _, o := range own.objects {
 			if o.kind() == kindSecret {
@@ -1047,6 +1072,126 @@ func (c *consumption) assertWholeSecrets() {
 				t.Errorf("Secret %v: %s mounts it whole at %s and the release's manifests read %s/%s, a key it does not carry", whole, v.consumer, v.mountPath, v.mountPath, m[1])
 			}
 		}
+	}
+}
+
+// assertMusterConsumers holds musterConsumers to the rendered charts: every
+// workload whose pods read muster's credentials Secrets — an environment
+// variable, envFrom or a volume — is the Deployment of a consumer that runs,
+// and every consumer that runs has its Deployment rendered reading them (the
+// runtime feature probes it by that name). On a line with the credentials
+// revision each consumer's HelmRelease reads it, and the revision reaches the
+// pod template: the child rendered once more with the revision Secret's
+// targetPaths set, where Flux merges them, renders a different pod template
+// for the Deployment. A consumer the list misses, a chart that renders none of
+// the values, or a spec.values that shadows them fails here, not as a
+// workload left on rotated-away credentials.
+func (c *consumption) assertMusterConsumers() {
+	t := c.t
+	running := map[string]bool{}
+	for _, mc := range c.platform.runningMusterConsumers() {
+		running[mc.deployment] = true
+	}
+	credentials := func(ns, secret string) bool {
+		return ns == platformNamespace && (secret == musterOAuthSecret || secret == musterValkeySecret)
+	}
+	readers := map[string]*release{}
+	for _, r := range c.refs {
+		// A HelmRelease's valuesFrom is Flux's, read again on every reconcile.
+		if credentials(r.ns, r.secret) && !strings.HasPrefix(r.consumer, kindHelmRel+"/") {
+			readers[r.consumer] = r.rel
+		}
+	}
+	for _, v := range c.volumes {
+		for _, s := range v.sources {
+			if credentials(v.ns, s.secret) {
+				readers[v.consumer] = v.rel
+			}
+		}
+	}
+	for _, consumer := range sortedKeys(readers) {
+		rel := readers[consumer]
+		if helmTest(rel, consumer) {
+			continue
+		}
+		name, deployment := strings.CutPrefix(consumer, "Deployment/")
+		if !deployment || !running[name] {
+			t.Errorf("%s (%s) reads muster's credentials, but musterConsumers has no running consumer with that Deployment: a rotation leaves it on the old values", consumer, rel)
+			continue
+		}
+		delete(running, name)
+		if c.platform.musterRevision() {
+			c.assertRolled(rel, consumer)
+		}
+	}
+	for _, name := range sortedKeys(running) {
+		t.Errorf("musterConsumers runs Deployment %s, but no rendered workload of that name reads muster's credentials in namespace %s: the list is stale or the Deployment is named otherwise, and its probe reads nothing", name, platformNamespace)
+	}
+}
+
+// helmTest says whether the consumer is a chart's test hook, which Flux runs
+// only when a HelmRelease asks for its tests, and none of these does.
+func helmTest(rel *release, consumer string) bool {
+	for _, o := range rel.objects {
+		if o.kind()+"/"+o.name() == consumer {
+			return strings.Contains(str(get(o, "metadata", "annotations", "helm.sh/hook")), "test")
+		}
+	}
+	return false
+}
+
+// revisionMarker stands in for the revision the commit step generates.
+const revisionMarker = "rolled"
+
+// assertRolled renders rel once more with every targetPath its HelmRelease
+// reads from the revision Secret set to revisionMarker, at the place in the
+// values Flux merges it, and fails unless the consumer's pod template changes.
+func (c *consumption) assertRolled(rel *release, consumer string) {
+	t := c.t
+	var values []string
+	next, revisions := 0, 0
+	for _, tg := range rel.targets {
+		if tg.secret != musterRevisionSecret {
+			continue
+		}
+		if strings.Contains(tg.path, `\`) {
+			t.Fatalf("%s: targetPath %q escapes a key; the test sets plain dotted paths only", rel, tg.path)
+		}
+		var set any = revisionMarker
+		keys := strings.Split(tg.path, ".")
+		for i := len(keys) - 1; i >= 0; i-- {
+			set = map[string]any{keys[i]: set}
+		}
+		raw, err := yaml.Marshal(set)
+		if err != nil {
+			t.Fatal(err)
+		}
+		values = append(values, rel.values[next:tg.at]...)
+		values = append(values, c.writeValues(fmt.Sprintf("%s-revision-%d", rel.name, revisions), raw))
+		next = tg.at
+		revisions++
+	}
+	if revisions == 0 {
+		t.Errorf("%s reads muster's credentials, but its HelmRelease (%s) takes no credentials revision from %s: a rotation leaves it on the old values", consumer, rel, musterRevisionSecret)
+		return
+	}
+	values = append(values, rel.values[next:]...)
+	rolled := decode(t, c.helmTemplate(rel, values))
+	template := func(objects []object) string {
+		for _, o := range objects {
+			if o.kind()+"/"+o.name() == consumer {
+				out, err := yaml.Marshal(get(o, fieldSpec, "template"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				return string(out)
+			}
+		}
+		t.Fatalf("%s: %s is not rendered", rel, consumer)
+		return ""
+	}
+	if template(rel.objects) == template(rolled) {
+		t.Errorf("%s: its HelmRelease reads the credentials revision, but %s's pod template does not change with it: the chart renders none of the target values onto the pod, or spec.values shadows them", rel, consumer)
 	}
 }
 

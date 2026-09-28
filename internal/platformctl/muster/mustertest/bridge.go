@@ -10,6 +10,7 @@ package mustertest
 import (
 	"context"
 	"encoding/json"
+	"path"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -73,35 +74,51 @@ func BridgeRecording(aggregator map[string]Tool, calls *[]map[string]any) *mcpse
 		mcp.WithObject("arguments"),
 		mcp.WithNumber("timeout"),
 	), callTool(aggregator, calls))
-	s.AddTool(mcp.NewTool("list_tools"), func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.AddTool(mcp.NewTool("list_tools"), toolList(aggregator))
+	s.AddTool(mcp.NewTool("filter_tools", mcp.WithString("pattern")), toolList(aggregator))
+	return s
+}
+
+// toolList is list_tools, and filter_tools with its glob pattern: the
+// aggregator's tool names as one JSON document.
+func toolList(aggregator map[string]Tool) mcpserver.ToolHandlerFunc {
+	return func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		pattern := req.GetString("pattern", "*")
 		names := make([]map[string]string, 0, len(aggregator))
 		for name := range aggregator {
-			names = append(names, map[string]string{"name": name})
+			if ok, _ := path.Match(pattern, name); ok {
+				names = append(names, map[string]string{"name": name})
+			}
 		}
 		doc, err := json.Marshal(map[string]any{"tools": names})
 		if err != nil {
 			return nil, err
 		}
-		return mcp.NewToolResultText(string(doc)), nil
-	})
-	return s
+		// muster's bridge appends its own notice after the list.
+		return mcp.NewToolResultText(string(doc) + "\n\n" + BridgeNotice), nil
+	}
 }
+
+// BridgeNotice is the text muster's bridge appends after a tool list.
+const BridgeNotice = "Use call_tool to run one of these tools."
 
 // callTool is muster's call_tool: the named tool's result as one JSON
 // document, the outer isError following the tool's; a name the aggregator
-// does not have is call_tool's own refusal.
+// does not have answers as that tool's error, "tool not found".
 func callTool(aggregator map[string]Tool, calls *[]map[string]any) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if calls != nil {
 			*calls = append(*calls, req.GetArguments())
 		}
 		name := req.GetString("name", "")
-		tool, ok := aggregator[name]
-		if !ok {
-			return mcp.NewToolResultError("Tool execution failed: tool not found: " + name), nil
-		}
 		args, _ := req.GetArguments()["arguments"].(map[string]any)
-		res := tool(ctx, args)
+		var res *mcp.CallToolResult
+		if tool, ok := aggregator[name]; ok {
+			res = tool(ctx, args)
+		} else {
+			// muster answers a tool its aggregator lacks as that tool's error.
+			res = mcp.NewToolResultError("Tool execution failed: tool not found: " + name)
+		}
 		if res == nil {
 			return mcp.NewToolResultError(BridgeDeadline), nil
 		}
@@ -123,7 +140,9 @@ func callTool(aggregator map[string]Tool, calls *[]map[string]any) mcpserver.Too
 // x_<server>_ when connected, hidden when not, and core_auth_login answering
 // the sign-in challenge in the latter case. The connected manager's
 // enable_capability and verify_capability echo the installation, capability
-// and dryRun they were called with.
+// and dryRun they were called with; the capability tools answer each rotate
+// name as a generated value rotating on request in the plan of the
+// installation whose name it carries.
 func Manager(connected bool) map[string]Tool {
 	server := tools.ToolPrefix
 	m := map[string]Tool{}
@@ -151,7 +170,7 @@ func Manager(connected bool) map[string]Tool {
 		return document(tools.CapabilityResult{
 			Caller: Caller, Hub: Hub, Tool: tools.ToolEnableCapability,
 			Capability: str(args[tools.ArgCapability]), DryRun: dryRun,
-			Order: order, Installations: entries(order, content(args, true)),
+			Order: order, Installations: entries(order, content(args, true), strs(args[tools.ArgRotate])),
 		})
 	}
 	m["x_"+server+"_"+tools.ToolReconcileCapability] = func(_ context.Context, args map[string]any) *mcp.CallToolResult {
@@ -172,13 +191,14 @@ func Manager(connected bool) map[string]Tool {
 			return mcp.NewToolResultError(tools.ToolReconcileCapability + " needs installation (one installation) or installations (a set)")
 		}
 		capability := str(args[tools.ArgCapability])
+		rotate := strs(args[tools.ArgRotate])
 		if str(args[tools.ArgMode]) != string(tools.ModeCommit) {
-			return document(tools.CapabilityResult{Caller: Caller, Hub: Hub, Tool: tools.ToolReconcileCapability, Capability: capability, DryRun: true, Order: order, Installations: entries(order, content(args, !set))})
+			return document(tools.CapabilityResult{Caller: Caller, Hub: Hub, Tool: tools.ToolReconcileCapability, Capability: capability, DryRun: true, Order: order, Installations: entries(order, content(args, !set), rotate)})
 		}
 		if set {
 			return document(tools.WaveResult{Caller: Caller, Hub: Hub, Tool: tools.ToolReconcileCapability, Capability: capability, Order: order})
 		}
-		return document(tools.CommitResult{Caller: Caller, Hub: Hub, Tool: tools.ToolReconcileCapability, Capability: capability, Installation: order[0]})
+		return document(tools.CommitResult{Caller: Caller, Hub: Hub, Tool: tools.ToolReconcileCapability, Capability: capability, Installation: order[0], Plan: entries(order[:1], false, rotate)[0].Installation})
 	}
 	m["x_"+server+"_"+tools.ToolVerifyCapability] = func(_ context.Context, args map[string]any) *mcp.CallToolResult {
 		return document(verify.Result{
@@ -207,8 +227,10 @@ func content(args map[string]any, whole bool) bool {
 }
 
 // entries are the dry run's entries: one planned file per installation, its
-// content when asked for; Oversized's content is above the answer limit.
-func entries(order []string, content bool) []tools.DryRun {
+// content when asked for; Oversized's content is above the answer limit. A
+// name of rotate that carries the installation's name is a generated value of
+// that file, rotating on request.
+func entries(order []string, content bool, rotate []string) []tools.DryRun {
 	out := make([]tools.DryRun, 0, len(order))
 	for _, name := range order {
 		f := plan.File{Repository: "acme/" + name + "-configs", Path: "installations/" + name + "/apps/agent-platform/configmap-values.yaml.patch", Change: plan.ChangeUpdate}
@@ -218,7 +240,14 @@ func entries(order []string, content bool) []tools.DryRun {
 				f.Content = strings.Repeat("x", tools.AnswerLimit)
 			}
 		}
-		out = append(out, tools.DryRun{Installation: plan.Installation{Name: name, Files: []plan.File{f}, Diff: map[plan.Change]int{plan.ChangeUpdate: 1}}})
+		id := f.Repository + ":" + f.Path
+		generated := []plan.GeneratedSecret{}
+		for _, r := range rotate {
+			if strings.HasPrefix(r, name+"-") {
+				generated = append(generated, plan.GeneratedSecret{Name: r, Kind: "alphanumeric", Length: 32, Files: []string{id}, FrozenIn: []string{id}, Rotates: true, ForcedBy: plan.ForcedByRequest})
+			}
+		}
+		out = append(out, tools.DryRun{Installation: plan.Installation{Name: name, Files: []plan.File{f}, GeneratedSecrets: generated, Diff: map[plan.Change]int{plan.ChangeUpdate: 1}}})
 	}
 	return out
 }

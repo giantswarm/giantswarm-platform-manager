@@ -64,6 +64,51 @@
   namespace: flux-giantswarm
   resource: HelmRelease
   name: mcp-capi-valkey
+- id: live-platform-workloads
+  feature: runtime
+  kind: Condition
+  namespace: agent-platform
+  resource: Deployment
+  name: muster
+  expect:
+    condition: Available
+    conditionStatus: "True"
+- id: live-platform-workloads
+  feature: runtime
+  kind: Condition
+  namespace: agent-platform
+  resource: Deployment
+  name: muster-valkey
+  expect:
+    condition: Available
+    conditionStatus: "True"
+- id: live-platform-workloads
+  feature: runtime
+  kind: Condition
+  namespace: agent-platform
+  resource: Deployment
+  name: agent-manager
+  expect:
+    condition: Available
+    conditionStatus: "True"
+- id: live-platform-workloads
+  feature: runtime
+  kind: Condition
+  namespace: agent-platform
+  resource: Deployment
+  name: cluster-manager
+  expect:
+    condition: Available
+    conditionStatus: "True"
+- id: live-platform-workloads
+  feature: runtime
+  kind: Condition
+  namespace: agent-platform
+  resource: Deployment
+  name: model-manager
+  expect:
+    condition: Available
+    conditionStatus: "True"
 - id: live-kagent-workloads
   feature: runtime
   kind: Condition
@@ -149,7 +194,8 @@
     statuses:
       - 200
       - 302
-    note: Dex answers a client it knows with its login page (several connectors) or a redirect to the one connector; an unknown client is an error page
+    dexConnectorStep: true
+    note: Dex knows client 00000000-0000-4000-8000-000000000004 and its redirect URI when the connector its /auth answer names redirects to the identity provider or serves its login form; an unknown client answers 404, an unregistered redirect URI 400
 - id: live-dex-auth-per-client
   feature: identity
   kind: HTTP
@@ -158,7 +204,8 @@
     statuses:
       - 200
       - 302
-    note: Dex answers a client it knows with its login page (several connectors) or a redirect to the one connector; an unknown client is an error page
+    dexConnectorStep: true
+    note: Dex knows client kagent and its redirect URI when the connector its /auth answer names redirects to the identity provider or serves its login form; an unknown client answers 404, an unregistered redirect URI 400
 - id: live-dex-auth-per-client
   feature: identity
   kind: HTTP
@@ -167,7 +214,8 @@
     statuses:
       - 200
       - 302
-    note: Dex answers a client it knows with its login page (several connectors) or a redirect to the one connector; an unknown client is an error page
+    dexConnectorStep: true
+    note: Dex knows client backstage and its redirect URI when the connector its /auth answer names redirects to the identity provider or serves its login form; an unknown client answers 404, an unregistered redirect URI 400
 - id: live-dex-auth-per-client
   feature: identity
   kind: HTTP
@@ -176,7 +224,8 @@
     statuses:
       - 200
       - 302
-    note: Dex answers a client it knows with its login page (several connectors) or a redirect to the one connector; an unknown client is an error page
+    dexConnectorStep: true
+    note: Dex knows client backstage and its redirect URI when the connector its /auth answer names redirects to the identity provider or serves its login form; an unknown client answers 404, an unregistered redirect URI 400
 - id: live-dex-client-secrets-loaded
   feature: identity
   kind: SecretLoaded

@@ -107,18 +107,18 @@ func TestHostedPortalFollowsTheRecord(t *testing.T) {
 		t.Error("an installation without a portal hosts none")
 	}
 	// The definition's inputs: the set as federation.installations, region only where known; an unknown name refuses.
-	in, err := portalRecordInputs(Report{Hosted: &HostedPortal{Installations: hosted.Installations}})
+	in, err := portalFederation(Report{Hosted: &HostedPortal{Installations: hosted.Installations}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, _ := in["federation"].(map[string]any)["installations"].([]any)
+	entries, _ := in["installations"].([]any)
 	if len(entries) != 2 || entries[0].(map[string]any)["name"] != fixtureAggregator || entries[1].(map[string]any)["pipeline"] != stable || entries[0].(map[string]any)["agentPlatform"] != false || entries[1].(map[string]any)["private"] != true || entries[0].(map[string]any)["private"] != false {
 		t.Errorf("record inputs: %v", in)
 	}
-	if _, err := portalRecordInputs(Report{Hosted: hosted}); err == nil || !strings.Contains(err.Error(), spruce) {
+	if _, err := portalFederation(Report{Hosted: hosted}); err == nil || !strings.Contains(err.Error(), spruce) {
 		t.Errorf("an unknown name refuses by name: %v", err)
 	}
-	if in, err := portalRecordInputs(Report{}); err != nil || in != nil {
+	if in, err := portalFederation(Report{}); err != nil || in != nil {
 		t.Errorf("no portal, no inputs: %v %v", in, err)
 	}
 }

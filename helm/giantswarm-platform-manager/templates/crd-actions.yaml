@@ -63,15 +63,32 @@ spec:
                   type: string
                   enum: [enable, reconcile]
                 customer:
-                  description: The target is a customer installation; the notice channel is told of the review.
+                  description: A customer installation is among the targets; the notice channel is told once its change is applied.
                   type: boolean
                 accountEngineers:
-                  description: The account engineers the installations catalog records for the customer installations targeted, in the installations' order without repeats; the review and the notice name them.
+                  description: The account engineers the installations catalog records for the customer installations targeted, in the installations' order without repeats; the review names them.
                   type: array
                   items: {type: string}
-                change:
-                  description: The plan's change in one clause, as the review states it; never a value.
+                accountEngineerOf:
+                  description: Each customer installation among the targets and its account engineer; the notice once its change is applied names them.
+                  type: object
+                  additionalProperties: {type: string}
+                reason:
+                  description: Why the actor commits the change, in their words; the review's and the notices' why.
                   type: string
+                change:
+                  description: The plan's change in one clause, on the record and in the pull requests; never a value.
+                  type: string
+                changes:
+                  description: Per installation, what the commit changes as a person reads it, one line per component (new, versions, values keys, rotated credentials); never a secret value.
+                  type: object
+                  additionalProperties:
+                    type: array
+                    items: {type: string}
+                rotate:
+                  description: The generated values the person asked to rotate, by name; the review names them apart from the rotations a file to write forced. Names only.
+                  type: array
+                  items: {type: string}
                 installations:
                   description: The installations of the set, in the wave's order.
                   type: array
@@ -93,6 +110,16 @@ spec:
                   description: The inputs each installation of the set was rendered from at commit, the typed inputs over the facts on record, by installation; never a secret value.
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
+                keptByInstallation:
+                  description: Per installation, the entries of the platform patch's audience lists the commit kept beside the render; the live probes hold the objects against the render with them. Ids only, never a secret value.
+                  type: object
+                  additionalProperties:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        list: {type: string}
+                        entry: {type: string}
                 markers:
                   description: Per installation, the definition's enabled marker resolved to the installation's repository (owner/repo:path), whose absence from the default branch after the merge means the fileset was reverted.
                   type: object
@@ -101,9 +128,9 @@ spec:
               type: object
               properties:
                 state:
-                  description: The action's state, one of the installations' states an action produces, or the action's own — refused (the gate refused it before any write — the installation unreadable as the person, or without repositories on record), denied (a member withdrew it), removed (the fileset it wrote left the default branch again).
+                  description: The action's state, one of the installations' states an action produces, or the action's own — refused (the gate refused it before any write — the installation unreadable as the person, or without repositories on record), denied (a member withdrew it before its merge), reverted (a merged pull request of it was reverted on the default branch), withdrawn (its actor withdrew it after the merge, with the reason), removed (the fileset it wrote left the default branch again).
                   type: string
-                  enum: ["pending approval", "rolling out", "waiting for the customer", enabled, drifted, failed, refused, denied, removed]
+                  enum: ["pending approval", "rolling out", "waiting for the customer", enabled, drifted, failed, refused, denied, reverted, withdrawn, removed]
                 pullRequests:
                   type: array
                   items:
@@ -121,6 +148,16 @@ spec:
                       mergedAt: {type: string, format: date-time}
                       mergedBy: {type: string}
                       closedAt: {type: string, format: date-time}
+                      revert:
+                        description: The commit on the default branch that brought every file the merge changed back to its content before the merge, with the pull request it came through when GitHub links one.
+                        type: object
+                        required: [commit]
+                        properties:
+                          commit: {type: string}
+                          url: {type: string}
+                          pullRequest: {type: integer}
+                          pullRequestUrl: {type: string}
+                          at: {type: string, format: date-time}
                 rotated:
                   description: The generated values the commit drew anew over a value on record, by name — a new file needed a value frozen in an existing encrypted file, so every file of the name got the new one.
                   type: array
@@ -166,6 +203,7 @@ spec:
                           watchedAt: {type: string, format: date-time}
                           watchedBy: {type: string}
                           reportedAt: {type: string, format: date-time}
+                          noticedAt: {type: string, format: date-time}
                 probes:
                   type: array
                   items:
@@ -200,4 +238,12 @@ spec:
                       kind: {type: string}
                       namespace: {type: string}
                       name: {type: string}
+                withdrawal:
+                  description: The actor's withdrawal of a merged action that failed or was reverted — who, why and when; the review's thread carries the same.
+                  type: object
+                  required: [by, reason]
+                  properties:
+                    by: {type: string}
+                    reason: {type: string}
+                    at: {type: string, format: date-time}
 {{- end }}

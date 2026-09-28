@@ -234,7 +234,10 @@ func TestDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := map[string]any{"modelServing": map[string]any{keyEnabled: false}, "aiChat": map[string]any{keyEnabled: false, "model": "claude-opus-5", keyProvider: "anthropic"}}; !reflect.DeepEqual(got, want) {
+	want := map[string]any{"modelServing": map[string]any{keyEnabled: false}, "aiChat": map[string]any{keyEnabled: false, "model": "claude-opus-5", keyProvider: "anthropic"},
+		"scheduling": map[string]any{"singletonsCapacity": "any"}, "skills": map[string]any{"repositories": []any{}},
+		"clusterManager": map[string]any{"github": map[string]any{keyEnabled: false}}}
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("defaults %v, want %v", got, want)
 	}
 }
@@ -318,6 +321,44 @@ func TestAgentPlatformReadsBackModelServing(t *testing.T) {
 	}
 	if want := map[string]any{"modelServing.enabled": true}; !reflect.DeepEqual(got, want) {
 		t.Errorf("read back %v, want %v", got, want)
+	}
+}
+
+// The agent-platform definition reads the singletons' placement back from
+// the configmap patch on record.
+func TestAgentPlatformReadsBackSingletonsCapacity(t *testing.T) {
+	def, _ := FindCapability(AgentPlatform)
+	read := files(map[string]string{"acme/configs:" + def.EnabledMarker("rowan"): "scheduling:\n  singletons:\n    nodeSelector:\n      karpenter.sh/capacity-type: on-demand\n"})
+	got, err := def.ReadBack(context.Background(), read, readBackInstallation, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]any{"scheduling.singletonsCapacity": "on-demand"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("read back %v, want %v", got, want)
+	}
+}
+
+// The agent-platform definition reads the cluster-manager's commit mode back
+// from the configmap patch on record: on where the manager's values carry it,
+// nothing where they do not, so the default stands.
+func TestAgentPlatformReadsBackClusterManagerCommit(t *testing.T) {
+	def, _ := FindCapability(AgentPlatform)
+	for _, tc := range []struct {
+		name  string
+		patch string
+		want  map[string]any
+	}{
+		{"commit mode on", "cluster-manager:\n  installation:\n    name: rowan\n  github:\n    enabled: true\n", map[string]any{"clusterManager.github.enabled": true}},
+		{"commit mode not on record", "cluster-manager:\n  installation:\n    name: rowan\n", map[string]any{}},
+	} {
+		read := files(map[string]string{"acme/configs:" + def.EnabledMarker("rowan"): tc.patch})
+		got, err := def.ReadBack(context.Background(), read, readBackInstallation, nil)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: read back %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }
 

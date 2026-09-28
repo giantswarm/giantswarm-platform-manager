@@ -15,6 +15,7 @@ input:
     chartLine: "4"
     musterClientId: 00000000-0000-4000-8000-000000000004
     podCertificateRequest: true
+    portalClientSecret: true
     portals:
       - installation: gopher
         customer: giantswarm
@@ -33,10 +34,14 @@ input:
       targets:
         - installation: marmot
           baseDomain: marmot.example.io
+          servers: [kubernetes, prometheus, capi]
+          agentPlatform: true
           private: false
           hubs: [gopher, warren]
         - installation: vole
           baseDomain: vole.example.io
+          servers: [kubernetes, prometheus, capi]
+          agentPlatform: true
           private: false
           hubs: [warren]
 secrets: {}

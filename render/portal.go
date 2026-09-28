@@ -13,10 +13,18 @@ const (
 	// PortalDexClientID is the portal's Dex client id on every installation
 	// that hosts a portal.
 	PortalDexClientID = "backstage"
+	// PortalDexClientSecretFile is the file the customer-portal definition
+	// renders the portal client's Secret (dex-client-backstage, in Dex's
+	// namespace) into, in the portal's directory; the agent-platform
+	// definition references the Secret and renders the client only where it
+	// is on record (installation.portalClientSecret).
+	PortalDexClientSecretFile = "dex-client-backstage-secret.enc.yaml" // #nosec G101 -- a file name, not a value
 	// PortalDexClientName is the client's display name in Dex.
 	PortalDexClientName = "Dev Portal"
 	// DexSecretKey is the key every Dex client Secret carries.
 	DexSecretKey = "secret"
+	// DexNamespace is where an installation's Dex runs and reads client Secrets.
+	DexNamespace = "giantswarm"
 	// PortalDir is the portal's own directory under its extras/backstage/:
 	// the kustomization, the app-config and values ConfigMaps and the Secrets
 	// the customer-portal definition renders, listed by the tree's
@@ -78,6 +86,18 @@ func PortalExtensionsInclude(agentPlatform, aiChat, grafanaWired bool) string {
 // DexClientSecretName is the Secret in Dex's namespace that carries a
 // component's client secret.
 func DexClientSecretName(component string) string { return "dex-client-" + component }
+
+// DexClientSecretFile is that Secret's file name; it matches the fleet's
+// .sops.yaml rules (.*(secret|credential).*) and the commit step's secret-file test.
+func DexClientSecretFile(component string) string {
+	return DexClientSecretName(component) + "-secret.yaml"
+}
+
+// DexClientSecret renders the Dex-side Secret of a client whose secret is the
+// generated value valueName, shared with the workload's own Secret.
+func DexClientSecret(component, valueName string) File {
+	return Secret(DexClientSecretName(component), DexNamespace, nil, GeneratedKey(DexSecretKey, valueName, Base64, 32))
+}
 
 // PortalAuthProvider is the portal's sign-in provider on an installation's
 // Dex, named as every installation-hosted portal names it.

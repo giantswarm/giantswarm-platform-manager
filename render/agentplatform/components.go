@@ -1,6 +1,10 @@
 package agentplatform
 
-import "github.com/giantswarm/giantswarm-platform-manager/render"
+import (
+	"slices"
+
+	"github.com/giantswarm/giantswarm-platform-manager/render"
+)
 
 // The klaus-gateway and cluster-manager components. The fleet policy
 // (policy.yaml) runs the gateway on the installations with a Slack app and
@@ -9,7 +13,7 @@ import "github.com/giantswarm/giantswarm-platform-manager/render"
 // here. The gateway's shape is the policy's, its routes, URLs and Slack mode
 // derive from the installation facts; its Slack credentials are supplied by
 // the person, its OBO keys generated. The cluster-manager's egress derives
-// from the provider.
+// from the provider, its commit mode is the person's choice.
 
 const (
 	// klausGatewayOBOSecret carries the gateway's HMAC keys for the
@@ -143,38 +147,49 @@ func (in *Input) managerOAuth(path string) render.Map {
 	}
 }
 
-// clusterManagerValues names the installation the manager runs on and, on the
-// 3 line, its OAuth section; the 4 line derives issuer, client and secret from
-// the template's global identity block and the base URL from the domain.
+// clusterManagerValues names the installation the manager runs on, on the 3
+// line its OAuth section — the 4 line derives issuer, client and secret from
+// the template's global identity block and the base URL from the domain — and
+// with the person's choice its commit mode: the chart registers with muster
+// pinned to its GitHub App and opens a node pool's pull request as the person,
+// with the App's OAuth client from the installation's own Secret
+// (giantswarm-cluster-manager-oauth-client, the chart's default, not rendered).
 func (in *Input) clusterManagerValues() render.Map {
 	m := render.Map{e("installation", render.Map{e("name", in.Installation.Name)})}
 	if in.Installation.ChartLine == lineThree {
 		m = append(m, e("oauth", in.managerOAuth(componentClusterManager)))
 	}
+	if in.ClusterManagerCommit {
+		m = append(m, e("github", render.Map{e("enabled", true)}))
+	}
 	return m
 }
 
-// The cluster-manager's egress by provider: the workload clusters' API servers
-// sit behind the provider's load balancers; the registry and the Azure blob
-// endpoints (release assets, model caches) are the same everywhere.
+// The cluster-manager's egress. The workload clusters' API servers by the
+// connectivity chart's provider preset (aws: the CAPA clusters' API server
+// load balancers, *.*.elb.amazonaws.com); a provider without a preset opens
+// none, as the chart's empty default does. The registry and the Azure blob
+// endpoints (release assets, model caches) are the same everywhere; GitHub's
+// API (GET /user, the pull request) is commit mode's.
 var (
-	workloadClusterAPIPatterns = map[string][]string{"capa": {"*.*.elb.amazonaws.com"}}
-	clusterManagerEgress       = []render.Map{{e("matchName", "gsoci.azurecr.io")}, {e("matchPattern", "*.blob.core.windows.net")}}
+	workloadClusterPresets = map[string]string{providerCAPA: "aws"}
+	clusterManagerEgress   = []render.Map{{e("matchName", "gsoci.azurecr.io")}, {e("matchPattern", "*.blob.core.windows.net")}}
+	clusterManagerGitHub   = render.Map{e("matchName", "api.github.com")}
 )
 
 // clusterManagerNetworkPolicy is the manager's egress as the connectivity
-// chart reads it: Cilium FQDN selectors for the workload clusters' API servers
-// (where the definition knows the provider's pattern) and for other egress.
+// chart reads it: the provider's preset for the workload clusters' API
+// servers, and Cilium FQDN selectors for other egress.
 func (in *Input) clusterManagerNetworkPolicy() render.Map {
 	m := render.Map{}
-	if patterns := workloadClusterAPIPatterns[in.Installation.Provider]; len(patterns) > 0 {
-		var fqdns []render.Map
-		for _, p := range patterns {
-			fqdns = append(fqdns, render.Map{e("matchPattern", p)})
-		}
-		m = append(m, e("workloadClusters", render.Map{e("fqdns", fqdns)}))
+	if preset := workloadClusterPresets[in.Installation.Provider]; preset != "" {
+		m = append(m, e("workloadClusters", render.Map{e("provider", preset)}))
 	}
-	return append(m, e("egress", render.Map{e("fqdns", clusterManagerEgress)}))
+	egress := slices.Clone(clusterManagerEgress)
+	if in.ClusterManagerCommit {
+		egress = append(egress, clusterManagerGitHub)
+	}
+	return append(m, e("egress", render.Map{e("fqdns", egress)}))
 }
 
 // componentSecrets adds the enabled components' Secrets to the platform

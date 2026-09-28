@@ -1,0 +1,33 @@
+# The customer-portal definition's input for the giantswarm-slack-app shape: the
+# same installation as ../giantswarm-slack-app/input.yaml with the platform
+# enabled, its own portal beside the hub's hand-kept one. The shape the test
+# renders the chat gateway with: on the 4 line, where the gateway's routing
+# store is muster's Valkey. The chart line holds the pin in charts.yaml.
+# Invented names; the supplied values are dry-run markers.
+input:
+  installation:
+    name: glean
+    baseDomain: glean.example.io
+    customer: giantswarm
+    provider: capz
+    region: example-region-3
+    pipeline: testing
+    agentPlatform: true
+  portal:
+    domain: portal.glean.example.io
+    title: Example Portal
+    organization: Example
+    supportUrl: https://support.example.io/
+  chart:
+    line: ">=2.0.0 <3.0.0"
+  plugins:
+    github:
+      enabled: true
+    grafana:
+      enabled: false
+    flux:
+      enabled: false
+    sentry:
+      enabled: false
+  tunnel:
+    enabled: false

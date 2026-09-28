@@ -26,8 +26,9 @@ const conditionTrue = "True"
 // action, as the person calling. The manager holds no token beyond a call, so
 // the watch is a call — from the portal's page, platformctl, an agent — not
 // a loop: it reads the Flux objects of the installation rolling out through
-// muster with the caller's token, and once every one is Ready runs the
-// probes and decides the stage's state.
+// muster with the caller's token, and once every one is Ready — or one
+// reports its release failed — runs the probes and decides the stage's
+// state.
 const ToolWatchAction = "watch_action"
 
 // WatchResult is watch_action's answer: the picture of the stage watched,
@@ -61,7 +62,7 @@ type WatchResult struct {
 
 func (t *Tools) registerWatchTool(s *mcpserver.MCPServer) {
 	s.AddTool(mcp.NewTool(ToolWatchAction,
-		mcp.WithDescription("The rollout watch of an action whose pull requests are merged, as you — an action rolling out, and one that failed on a red probe, which the watch re-reads once the cause is fixed: green, the stage is enabled and the wave goes on from it; still red, it stays failed, the probe named. It reads the Flux objects the definition names on the installation rolling out — the HelmReleases with their Ready condition and revision — through muster's kubernetes tools with the token muster forwarded, and answers the picture. Once every one is Ready it runs the definition's probes (the live dimensions as you, the anonymous HTTP probes direct) and the stage moves to enabled (all green), waiting for the customer (the customer's own action is the only thing open) or failed (a probe is red, named); a value a definition released since the commit renders and the installation lacks is a planned change of that newer definition, listed, never red. The report — pull requests, rollout per object, each probe, the customer actions still open and the ones the installation reads done — goes into the review's thread and onto the Action. Nothing is waited for or hurried: call again while it is rolling out. On a wave the stage in flight is watched; the next stage's pull requests are merged by the actor's "+ToolMergeAction+" once it is enabled. An action waiting for the customer or enabled is re-read: the customer's action done flips it to enabled. Anyone signed in may watch; the reads are yours."),
+		mcp.WithDescription("The rollout watch of an action whose pull requests are merged, as you — an action rolling out, and one that failed on a red probe, which the watch re-reads once the cause is fixed: green, the stage is enabled and the wave goes on from it; still red, it stays failed, the probe named. It reads the Flux objects the definition names on the installation rolling out — the HelmReleases with their Ready condition and revision — through muster's kubernetes tools with the token muster forwarded, and answers the picture. Once every one is Ready it runs the definition's probes (the live dimensions as you, the anonymous HTTP probes direct) and the stage moves to enabled (all green), waiting for the customer (the customer's own action is the only thing open) or failed (a probe is red, named); a HelmRelease whose last release Flux reports failed (Released=False after a failed install or upgrade, or Stalled=True) never becomes Ready on its own, so the stage is failed on its probe with Flux's verdict named, not rolling out; a value a definition released since the commit renders and the installation lacks is a planned change of that newer definition, listed, never red. The report — pull requests, rollout per object, each probe, the customer actions still open and the ones the installation reads done — goes into the review's thread and onto the Action. Nothing is waited for or hurried: call again while it is rolling out. On a wave the stage in flight is watched; the next stage's pull requests are merged by the actor's "+ToolMergeAction+" once it is enabled. An action waiting for the customer or enabled is re-read: the customer's action done flips it to enabled. Before it reads the installation, the watch reads with your GitHub token whether the stage's pull requests are still on the default branch — every file a merge changed back to its content before the merge is a revert (healthy objects on the previous values read as defined, so the probes cannot tell): the action moves to reverted, naming the reverting commit and its pull request, never enabled, the thread told; its actor withdraws it with "+ToolDenyAction+". A read that fails decides nothing. Anyone signed in may watch; the reads are yours."),
 		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithString(ArgAction, mcp.Required(), mcp.Description("The Action's name.")),
 	), t.watchActionLive)
@@ -108,6 +109,9 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 	if a, note = t.resyncBeforeWatch(ctx, a); note != "" {
 		t.d.Log.Info("action_resync_skipped", identity.LogAttr(ctx), "action", a.Name, "note", note)
 	}
+	if a.Status.State == actions.StateReverted {
+		return nil, fmt.Errorf("%s: action %s is reverted (%s) — the watch reads no stage whose pull requests left the default branch; its actor (%s) withdraws it with %s and the reason%s", ToolWatchAction, a.Name, resultMessage(a), a.Spec.Actor.Login, ToolDenyAction, noteClause(note))
+	}
 	if !slices.Contains(watchable, a.Status.State) {
 		return nil, fmt.Errorf("%s: action %s is %s%s — the watch follows an action rolling out and re-reads one waiting for the customer, enabled or failed on a probe%s", ToolWatchAction, a.Name, a.Status.State, decidedBy(a), noteClause(note))
 	}
@@ -116,10 +120,19 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 		return nil, fmt.Errorf("%s: action %s names capability %q, which is not a definition of this version", ToolWatchAction, a.Name, a.Spec.Capability)
 	}
 	status := a.Status
+	status.PullRequests = slices.Clone(status.PullRequests)
 	status.Rollout = stagesOf(a)
 	i, why := watchedStage(a, status.Rollout)
 	if i < 0 {
 		return nil, fmt.Errorf("%s: %s%s", ToolWatchAction, why, noteClause(note))
+	}
+	// Healthy objects on the previous values read as defined: whether the
+	// stage's pull requests are still on the default branch is read first.
+	if out, err := t.watchReverts(ctx, a, &status, i); out != nil || err != nil {
+		if out != nil && note != "" {
+			out.Message += " " + note
+		}
+		return out, err
 	}
 	st := &status.Rollout.Installations[i]
 	inputs := a.InputsOnRecord(st.Name)
@@ -131,14 +144,14 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 		return nil, fmt.Errorf("%s: %w", ToolWatchAction, err)
 	}
 	res := verify.CompareLive(ctx, verify.LiveOptions{Definition: def, Installation: st.Name, State: settledState(st.State),
-		Inputs: verify.Inputs{Source: "action " + a.Name, Values: inputs, Typed: a.Spec.Inputs}, Cluster: cluster, Probes: t.d.Probes, Person: id.String(), AnonymousProbes: true, Log: t.d.Log})
+		Inputs: verify.Inputs{Source: "action " + a.Name, Values: inputs, Typed: a.Spec.Inputs}, Kept: a.KeptOnRecord(st.Name), Cluster: cluster, Probes: t.d.Probes, Person: id.String(), AnonymousProbes: true, Log: t.d.Log})
 	res.Caller = id.String()
-	objects, ready := rolloutObjects(res)
+	objects, ready, failed := rolloutObjects(res)
 	prev := st.State
 	st.Objects, st.WatchedAt, st.WatchedBy = objects, now(), id.String()
 	status.Probes = mergeProbes(status.Probes, st.Name, probesOf(st.Name, res))
 	out := WatchResult{Installation: st.Name, Objects: objects, Ready: ready, Verify: &res, Planned: plannedDimensions(res)}
-	if prev == actions.StateRollingOut && !ready {
+	if prev == actions.StateRollingOut && !ready && !failed {
 		st.Message = rolloutMessage(objects)
 		out.Next = "call " + ToolWatchAction + " again once Flux has reconciled the installation; nothing is hurried"
 	} else {
@@ -153,6 +166,7 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 		}
 		st.State, st.Message = state, message
 		applyStage(&status, i, prev)
+		t.tellApplied(ctx, a, &status, i)
 		if st.ReportedAt == nil {
 			open, done := customerActions(def, inputs, res)
 			out.Report = t.report(a, status, i, res, open, done, recovered)
@@ -189,6 +203,14 @@ func (t *Tools) resyncBeforeWatch(ctx context.Context, a *actions.Action) (*acti
 		return a, fmt.Sprintf("(The pull requests were not re-read from GitHub as you: %v; the watch read the record as it was.)", err)
 	}
 	return fresh, ""
+}
+
+// resultMessage is the action's result in one clause, or its state.
+func resultMessage(a *actions.Action) string {
+	if a.Status.Result == nil || a.Status.Result.Message == "" {
+		return a.Status.State
+	}
+	return a.Status.Result.Message
 }
 
 // noteClause appends a note to a refusal.
@@ -240,10 +262,13 @@ func orNotStarted(state string) string {
 }
 
 // rolloutObjects is the rollout picture in res: the Flux objects the render's
-// readiness probes read, and whether every one is Ready.
-func rolloutObjects(res verify.Result) ([]actions.RolloutObject, bool) {
-	objects := []actions.RolloutObject{}
-	ready := true
+// readiness probes read, whether every one is Ready, and whether one failed
+// — a HelmRelease whose last release Flux reports failed will not become
+// Ready on its own, so its stage is decided (failed on the red probe, re-read
+// once the cause is fixed) instead of rolling out for good.
+func rolloutObjects(res verify.Result) (objects []actions.RolloutObject, ready, failed bool) {
+	objects = []actions.RolloutObject{}
+	ready = true
 	for _, f := range res.Features {
 		for _, d := range f.Dimensions {
 			if d.Live == nil {
@@ -264,11 +289,12 @@ func rolloutObjects(res verify.Result) ([]actions.RolloutObject, bool) {
 				if obj.Ready != conditionTrue {
 					ready = false
 				}
+				failed = failed || c.Failed
 				objects = append(objects, obj)
 			}
 		}
 	}
-	return objects, ready
+	return objects, ready, failed
 }
 
 // isFluxKind says whether a probe's resource is a Flux HelmRelease or Kustomization.
@@ -445,7 +471,7 @@ func nextAfter(a *actions.Action, status actions.Status, i int) string {
 	case actions.StateWaitingForCustomer:
 		return "the customer's action; " + ToolWatchAction + " or " + ToolVerifyInstallation + " flips the stage to enabled once it is done"
 	case actions.StateFailed:
-		return "the action is failed on a probe: fix what it names and " + ToolWatchAction + " re-reads the stage — green, the wave goes on from it; or " + ToolDenyAction + " as the actor withdraws the pull requests left open"
+		return "the action is failed on a probe: fix what it names and " + ToolWatchAction + " re-reads the stage — green, the wave goes on from it; or " + ToolDenyAction + " as the actor withdraws the action with the reason, closing the pull requests left open"
 	case actions.StateDrifted:
 		return "the installation is off its definition: reconcile it, or " + ToolVerifyInstallation + " once it is back"
 	}
@@ -527,7 +553,7 @@ func detailOf(d verify.Dimension) string {
 	case d.Probe != nil:
 		for _, r := range d.Probe.Requests {
 			if !r.OK {
-				return strings.TrimSpace(fmt.Sprintf("%s answered %d %s", r.URL, r.Status, r.Error))
+				return r.URL + " answered " + r.Answer()
 			}
 		}
 	}

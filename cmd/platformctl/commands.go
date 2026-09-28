@@ -97,6 +97,8 @@ func newCapabilityCmd(tool string, allowSet bool) *cobra.Command {
 	var dryRun, commit, content, all bool
 	var inputs kvFlag
 	var secretFlags secretFlag
+	var rotate []string
+	var reason string
 	syntax := "installation " + name + " <installation> <capability> --dry-run|--commit"
 	short := "Enable a capability on one installation: a dry run, or the action"
 	if allowSet {
@@ -122,6 +124,9 @@ func newCapabilityCmd(tool string, allowSet bool) *cobra.Command {
 		if dryRun == commit {
 			return usageError(stderr, "one of --dry-run and --commit: "+syntax)
 		}
+		if commit && strings.TrimSpace(reason) == "" {
+			return usageError(stderr, "--commit needs --reason: why you make the change, for the team's review")
+		}
 		if dryRun && len(secretFlags) > 0 {
 			return usageError(stderr, "--secret goes with --commit; a dry run carries no secret value")
 		}
@@ -138,6 +143,12 @@ func newCapabilityCmd(tool string, allowSet bool) *cobra.Command {
 			toolArgs[tools.ArgInstallations] = pos[:names]
 		default:
 			toolArgs[tools.ArgInstallation] = pos[0]
+		}
+		if len(rotate) > 0 {
+			toolArgs[tools.ArgRotate] = rotate
+		}
+		if commit {
+			toolArgs[tools.ArgReason] = reason
 		}
 		if len(inputs) > 0 {
 			typed, err := nest(inputs)
@@ -190,8 +201,12 @@ func newCapabilityCmd(tool string, allowSet bool) *cobra.Command {
 	fs.BoolVar(&content, "content", false, "print the rendered files, not only their paths and changes")
 	fs.Var(&inputs, "input", "a typed input of the definition as key=value, repeatable (kagent.enabled=true)")
 	fs.Var(&secretFlags, "secret", "with --commit: a secret the plan's suppliedSecrets name, as <field>=@<file>, <field>=env:<NAME> or <field>=- (stdin); repeatable")
+	fs.StringArrayVar(&rotate, "rotate", nil, "a generated value to rotate on request, by its `name` in the dry run (<installation>-muster-valkey-password), repeatable: a new value in every file that holds it, its credentials revision rolling every workload that reads it")
 	completeFlag(cmd, "input", cobra.NoFileCompletions)
 	completeFlag(cmd, "secret", cobra.NoFileCompletions)
+	fs.StringVar(&reason, tools.ArgReason, "", "with --commit (required): why you make the change, in a sentence the team's review and the notices show")
+	completeFlag(cmd, "rotate", cobra.NoFileCompletions)
+	completeFlag(cmd, tools.ArgReason, cobra.NoFileCompletions)
 	// The capability is the last word: after the installation for enable,
 	// after the first installation or first with --all for reconcile.
 	cmd.ValidArgsFunction = capabilityAt(func(_ *cobra.Command, pos []string) bool { return len(pos) == 1 })
@@ -316,7 +331,7 @@ func newActionApproveCmd() *cobra.Command {
 }
 
 func newActionDenyCmd() *cobra.Command {
-	return actionByName("deny", "Deny an action as you, with the reason", tools.ToolDenyAction, true, func(stdout io.Writer, raw json.RawMessage) error {
+	return actionByName("deny", "Deny an action as you, with the reason; its actor withdraws a merged one that failed or was reverted", tools.ToolDenyAction, true, func(stdout io.Writer, raw json.RawMessage) error {
 		var d tools.Decision
 		if err := decode(raw, &d); err != nil {
 			return err
@@ -371,7 +386,7 @@ func actionByName(name, short, tool string, withReason bool, show func(stdout io
 	})
 	c.flags(cmd)
 	if withReason {
-		cmd.Flags().StringVar(&reason, tools.ArgReason, "", "why the action is denied (required)")
+		cmd.Flags().StringVar(&reason, tools.ArgReason, "", "why the action is denied or withdrawn (required)")
 		completeFlag(cmd, tools.ArgReason, cobra.NoFileCompletions)
 	}
 	return cmd

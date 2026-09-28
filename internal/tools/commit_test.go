@@ -7,6 +7,7 @@ import (
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 )
 
 // The GitOps repositories run amannn/action-semantic-pull-request with its
@@ -47,5 +48,30 @@ func TestPRTitleIsSemantic(t *testing.T) {
 		if m[3] == "" || !strings.Contains(m[3], tc.action) {
 			t.Errorf("%q: subject %q does not carry the action id", got, m[3])
 		}
+	}
+}
+
+// The pull request names what the commit loses of the encrypted files on
+// record it writes over unread — the values it drops, the texts it replaces
+// whole — so the person approving reads it next to the files; a commit that
+// loses nothing says nothing of it.
+func TestPRBodyNamesTheEncryptedValuesTheCommitLoses(t *testing.T) {
+	a := &actions.Action{}
+	a.Name = "reconcile-rowan-k3x9ab"
+	a.Spec = actions.Spec{Kind: actions.KindReconcile, Capability: installations.CustomerPortal}
+	const secrets = "management-clusters/rowan/extras/backstage/backstage/user-secrets.enc.yaml"
+	p := plan.Installation{Name: rowan, Files: []plan.File{
+		{Path: secrets, Change: plan.ChangeUpdate, Dropped: []string{"stringData.EXTERNAL_ACCESS_MCP_TOKEN"}, Replaced: []string{"stringData.values"}},
+		{Path: "management-clusters/rowan/extras/backstage/backstage/app-config.yaml", Change: plan.ChangeUpdate},
+	}}
+	body := prBody(a, p, nil)
+	for _, want := range []string{"Encrypted values on record this commit writes over unread", secrets + ": drops stringData.EXTERNAL_ACCESS_MCP_TOKEN", "replaces stringData.values whole"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the body lacks %q:\n%s", want, body)
+		}
+	}
+	p.Files = p.Files[1:]
+	if body := prBody(a, p, nil); strings.Contains(body, "Encrypted values on record") {
+		t.Errorf("a commit that loses nothing names a loss:\n%s", body)
 	}
 }

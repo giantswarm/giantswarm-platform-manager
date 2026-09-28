@@ -40,6 +40,7 @@ const (
 	keyModel    = "model"
 	keyProvider = "provider"
 	keyGoogle   = "google"
+	keyCapacity = "singletonsCapacity"
 )
 
 // shapes are the installation shapes, in the order the goldens are rendered.
@@ -490,7 +491,7 @@ func TestRefusals(t *testing.T) {
 	noPodCertificateRequest, _ := loadInput(t, shapePublicCustomer)
 	noPodCertificateRequest["installation"].(map[string]any)["chartLine"] = lineFour
 	target := func(private bool) map[string]any {
-		return map[string]any{"installation": "x", "baseDomain": "x.example", "private": private}
+		return map[string]any{"installation": "x", "baseDomain": "x.example", "private": private, "servers": []any{groupKubernetes}, "agentPlatform": true}
 	}
 	clone := func(mutate func(map[string]any)) map[string]any {
 		var c map[string]any
@@ -525,6 +526,11 @@ func TestRefusals(t *testing.T) {
 		{"an app-level token on a public installation", slackAppPublic, slackPublicSecrets, ErrUnknownSecret, fieldSlack + "app-token"},
 		{"a Slack credential where no gateway runs", base, with(fieldSlack+"bot-token", "x"), ErrUnknownSecret, fieldSlack + "bot-token"},
 		{"the model key is never supplied", base, with("kagent.modelKey", "x"), ErrUnknownSecret, "kagent.modelKey"},
+		{"on-demand singletons without Karpenter", clone(func(m map[string]any) {
+			m["installation"].(map[string]any)["provider"] = "capz"
+			m["scheduling"] = map[string]any{keyCapacity: capacityOnDemand}
+		}), secrets, ErrInput, "scheduling." + keyCapacity},
+		{"a capacity Karpenter does not name", clone(func(m map[string]any) { m["scheduling"] = map[string]any{keyCapacity: "spot"} }), secrets, ErrInput, keyCapacity},
 		{"serving on the 3 line", clone(func(m map[string]any) { m["modelServing"] = map[string]any{keyEnabled: true} }), secrets, ErrInput, "modelServing.enabled"},
 		{"the chat without a portal to carry it", clone(func(m map[string]any) {
 			m["installation"].(map[string]any)["portals"] = []any{}
@@ -547,6 +553,9 @@ func TestRefusals(t *testing.T) {
 		}), secrets, ErrInput, "provider"},
 		{"a component of the 4 line on a record that selects the 3 line", lineThreeOwned, nil, ErrInput, "installation.chartLine selects the 3 line, and cluster-manager needs the platform's 4 chart line; agentPlatform.kagentApiV2: true in installations/gopher/config.yaml.patch selects 4"},
 		{"kagent on the 4 line where the record does not say the cluster serves PodCertificateRequest", noPodCertificateRequest, secrets, ErrInput, "installation.podCertificateRequest does not say this cluster serves certificates.k8s.io/v1beta1 podcertificaterequests, which kagent's Agent Substrate on the 4 chart line needs; enable the feature gates PodCertificateRequest, ClusterTrustBundle, ClusterTrustBundleProjection under cluster.internal.advancedConfiguration.{controlPlane.apiServer,controlPlane.controllerManager,kubelet}.featureGates in the cluster App's values (management-clusters/" + noPodCertificateRequest["installation"].(map[string]any)["name"].(string) + "/cluster-app-manifests.yaml), or run a cluster App chart that enables them by default (cluster-aws 10.3.0, cluster-azure 9.3.0, cluster-cloud-director 7.3.0 and later)"},
+		{"commit mode where no cluster-manager runs", clone(func(m map[string]any) {
+			m["clusterManager"] = map[string]any{"github": map[string]any{keyEnabled: true}}
+		}), secrets, ErrInput, "clusterManager.github.enabled"},
 		{"targets without a broker client", clone(func(m map[string]any) {
 			federation(m)["targets"] = []any{target(false)}
 		}), secrets, ErrInput, "federation.brokerClientId"},
@@ -566,6 +575,77 @@ func TestRefusals(t *testing.T) {
 				t.Fatalf("%q does not name %q", err, c.names)
 			}
 		})
+	}
+}
+
+// TestClusterManagerCommitModeAndEgress renders the cluster-manager's
+// values and egress from the choice and the provider: commit mode adds the
+// chart's github.enabled and GitHub's API to the egress, off it adds neither;
+// a capa installation opens its workload clusters by the connectivity chart's
+// aws preset, a provider without a preset opens none.
+func TestClusterManagerCommitModeAndEgress(t *testing.T) {
+	const base = "egress:\n  fqdns:\n    - matchName: gsoci.azurecr.io\n    - matchPattern: '*.blob.core.windows.net'\n"
+	const aws = "workloadClusters:\n  provider: aws\n"
+	const github = "    - matchName: api.github.com\n"
+	for _, c := range []struct {
+		name, shape string
+		commit      bool
+		values      string
+		egress      string
+	}{
+		{"commit mode on a capa hub", shapeHubPrivateTarget, true, "installation:\n  name: gopher\ngithub:\n  enabled: true\n", aws + base + github},
+		{"commit mode off on a capa hub", shapeHubPrivateTarget, false, "installation:\n  name: gopher\n", aws + base},
+		{"commit mode off on a capz installation", shapeGiantswarmSlackApp, false, "installation:\n  name: glean\n", base},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			input, _ := loadInput(t, c.shape)
+			input["clusterManager"] = map[string]any{"github": map[string]any{keyEnabled: c.commit}}
+			in, err := Parse(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := string(render.MustYAML(in.clusterManagerValues())); got != c.values {
+				t.Errorf("values:\n%s\nwant:\n%s", got, c.values)
+			}
+			if got := string(render.MustYAML(in.clusterManagerNetworkPolicy())); got != c.egress {
+				t.Errorf("egress:\n%s\nwant:\n%s", got, c.egress)
+			}
+		})
+	}
+}
+
+// TestOCIRepositoriesPollAtThePolicysInterval holds every OCIRepository the
+// definition renders to the policy's flux.sourceInterval.
+func TestOCIRepositoriesPollAtThePolicysInterval(t *testing.T) {
+	pol, err := loadPolicy()
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, secrets := loadInput(t, shapeHubPrivateTarget)
+	result, err := Render(input, secrets, render.ModeCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	for name, content := range result.Tree() {
+		for _, raw := range bytes.Split(content, []byte("\n---\n")) {
+			var obj struct {
+				Kind string `yaml:"kind"`
+				Spec struct {
+					Interval string `yaml:"interval"`
+				} `yaml:"spec"`
+			}
+			if yaml.Unmarshal(raw, &obj) != nil || obj.Kind != "OCIRepository" {
+				continue
+			}
+			seen++
+			if obj.Spec.Interval != pol.Flux.SourceInterval {
+				t.Errorf("%s: interval %q, want the policy's %q", name, obj.Spec.Interval, pol.Flux.SourceInterval)
+			}
+		}
+	}
+	if seen == 0 {
+		t.Fatal("the hub renders no OCIRepository")
 	}
 }
 
@@ -603,13 +683,13 @@ klausGateway:
 
 // TestPortalAudiences holds the set the platform trusts for the portals to
 // what the definition knows, in order: each portal's client id where its
-// host's Dex patch carries it, then backstage — and none of them twice; an
-// installation nobody lists trusts none. What the installation trusts besides
+// host's Dex patch carries it, then backstage where its Secret is on record —
+// and none of them twice; an installation nobody lists trusts none. What the installation trusts besides
 // is the plan's to keep, not the render's.
 func TestPortalAudiences(t *testing.T) {
 	const opaqueA, opaqueB = "opaque-a", "opaque-b"
 	portal := func(domain, clientID string) PortalRef {
-		return PortalRef{Installation: "gopher", Customer: "giantswarm", Domain: domain, ClientID: clientID}
+		return PortalRef{Installation: portalCaseOwn, Customer: "giantswarm", Domain: domain, ClientID: clientID}
 	}
 	cases := []struct {
 		name      string
@@ -624,11 +704,15 @@ func TestPortalAudiences(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			in := &Input{Installation: Installation{Portals: c.portals}}
+			in := &Input{Installation: Installation{Name: portalCaseOwn, Portals: c.portals, PortalClientSecret: true}}
 			if got := in.portalAudiences(); !slices.Equal(got, c.audiences) {
 				t.Fatalf("got %v, want %v", got, c.audiences)
 			}
 		})
+	}
+	noSecret := &Input{Installation: Installation{Name: portalCaseOwn, Portals: []PortalRef{portal("a.example", opaqueA), portal("b.example", "")}}}
+	if got := noSecret.portalAudiences(); !slices.Equal(got, []string{opaqueA}) {
+		t.Errorf("no Secret on record for the definition's client: got %v, want [%s]", got, opaqueA)
 	}
 }
 
@@ -685,6 +769,73 @@ func TestFreshEnableSelectsTheFourLine(t *testing.T) {
 		for path := range files {
 			if strings.HasSuffix(path, "/"+render.RecordFile) {
 				t.Errorf("%s: %s written for an organisation without a line-4 component", repo, path)
+			}
+		}
+	}
+}
+
+// Revisions names, for every value of a component's credentials Secrets, the
+// revision its consumers roll on — muster's on the 4 line (none on the 3
+// line, which renders no revision), each MCP server's own — and holds the
+// mapping to the Secrets: every other value of a file holding a revision maps
+// to that revision, so a key added to a credentials Secret is covered, and
+// every name mapped is one the render generates.
+func TestRevisionsCoverTheCredentialsSecrets(t *testing.T) {
+	for _, shape := range shapes {
+		input, secrets := loadInput(t, shape)
+		in, err := Parse(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := Render(input, secrets, render.ModeCommit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		name := in.Installation.Name
+		generated, revisions := map[string]bool{}, map[string]bool{}
+		for _, r := range result.Revisions {
+			revisions[r] = true
+		}
+		for _, files := range result.Files {
+			for path, f := range files {
+				var held []string
+				for _, g := range f.Generated {
+					generated[g.Name] = true
+					if revisions[g.Name] {
+						held = append(held, g.Name)
+					}
+				}
+				for _, r := range held {
+					for _, g := range f.Generated {
+						if g.Name != r && result.Revisions[g.Name] != r {
+							t.Errorf("%s: %s holds the revision %s and %s, which maps to %q", shape, path, r, g.Name, result.Revisions[g.Name])
+						}
+					}
+				}
+			}
+		}
+		for value := range result.Revisions {
+			if !generated[value] {
+				t.Errorf("%s: %s is mapped to a revision and not generated", shape, value)
+			}
+		}
+		want := map[string]string{}
+		for _, s := range servers {
+			for _, v := range []string{"-dex-client-secret", "-oauth-encryption-key", "-valkey-password"} {
+				want[name+"-"+s.Name+v] = name + "-" + s.Name + "-credentials-revision"
+			}
+		}
+		muster := []string{"-muster-dex-client-secret", "-muster-registration-token", "-muster-oauth-encryption-key", "-muster-valkey-password"}
+		for _, v := range muster {
+			if in.musterRevision() {
+				want[name+v] = name + "-muster-credentials-revision"
+			} else if r, ok := result.Revisions[name+v]; ok {
+				t.Errorf("%s on the %s line: %s rolls with %s, and the line renders no revision", shape, in.Installation.ChartLine, name+v, r)
+			}
+		}
+		for value, revision := range want {
+			if got := result.Revisions[value]; got != revision {
+				t.Errorf("%s: %s rolls with %q, want %s", shape, value, got, revision)
 			}
 		}
 	}

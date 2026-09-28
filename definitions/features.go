@@ -54,6 +54,10 @@ type Probe struct {
 	URL string `yaml:"url"`
 	// PerDexClient runs the probe once per client of the rendered dex patch.
 	PerDexClient bool `yaml:"perDexClient"`
+	// DexConnectorStep holds the connector's answer to the expectation, not
+	// /auth's: the probe requests the /auth/<connector> Dex's /auth answer
+	// names (render.Expectation.DexConnectorStep).
+	DexConnectorStep bool `yaml:"dexConnectorStep"`
 	// Expect are the status codes that mean as defined.
 	Expect []int `yaml:"expect"`
 }

@@ -206,6 +206,9 @@ const (
 	keyData         = "data"
 	keyMetadata     = "metadata"
 	keyName         = "name"
+	keyConditions   = "conditions"
+	keyType         = "type"
+	keyMessage      = "message"
 	kindSecret      = "Secret"
 	conditionTrue   = "True"
 	proxyWorkload   = "proxy"
@@ -261,13 +264,13 @@ func (c *recordingCluster) Serves(context.Context, string, string, string) (bool
 // note says next to the definition's sentence.
 func TestChecksAskForWhatTheyRead(t *testing.T) {
 	conditions := func(condition string) map[string]any {
-		return map[string]any{"conditions": []any{map[string]any{"type": condition, keyStatus: conditionTrue, "message": "ok"}}}
+		return map[string]any{keyConditions: []any{map[string]any{keyType: condition, keyStatus: conditionTrue, keyMessage: "ok"}}}
 	}
 	key := func(resource, name string) string { return resource + "/" + testNamespace + "/" + name }
 	cluster := &recordingCluster{
 		objects: map[string]map[string]any{
 			key(kindHelmRelease, testRelease): {keySpec: map[string]any{"valuesFrom": []any{map[string]any{"kind": "ConfigMap", "name": valuesKey}}, valuesKey: map[string]any{"kagent": map[string]any{"replicas": "2"}}},
-				keyStatus: map[string]any{"conditions": conditions("Ready")["conditions"], "lastAppliedRevision": "1.2.3"}},
+				keyStatus: map[string]any{keyConditions: conditions("Ready")[keyConditions], "lastAppliedRevision": "1.2.3"}},
 			key("ConfigMap", valuesKey):        {keyData: map[string]any{"values.yaml": "kagent:\n  replicas: \"2\"\n", "x": "2"}},
 			key(kindDeployment, proxyWorkload): {keySpec: map[string]any{"selector": map[string]any{"matchLabels": map[string]any{"app": proxyWorkload}}}, keyStatus: conditions("Available")},
 			key("Secret", "credential"):        {keyData: map[string]any{"k": "***"}},
@@ -310,6 +313,50 @@ func TestChecksAskForWhatTheyRead(t *testing.T) {
 		}
 		if c.probe.Kind == render.LogAbsent && !strings.Contains(check.Message, "the last 200 lines") {
 			t.Errorf("%s: %q", c.name, check.Message)
+		}
+	}
+}
+
+// A HelmRelease not Ready is failed when Flux's verdict on its last release
+// is: Released=False after a failed upgrade — rolled back, or retried and in
+// progress again — or Stalled=True; the message names the verdict. An upgrade
+// in progress over a good release, a release waiting on a dependency and a
+// Ready one are not failed.
+func TestHelmReleaseReadyNamesAFailedRelease(t *testing.T) {
+	condition := func(kind, status, reason, message string) any {
+		return map[string]any{keyType: kind, keyStatus: status, "reason": reason, keyMessage: message}
+	}
+	const upgradeFailed = "Helm upgrade failed for release backstage/backstage with chart backstage@2.66.1: context deadline exceeded"
+	progressing := condition("Ready", "Unknown", "Progressing", "Running 'upgrade' action with timeout of 10m0s")
+	for _, c := range []struct {
+		name       string
+		conditions []any
+		mark       Mark
+		failed     bool
+		message    string
+	}{
+		{"an upgrade in progress over a good release", []any{progressing, condition("Released", conditionTrue, "UpgradeSucceeded", "upgraded")},
+			Drifted, false, "Ready=Unknown: Running 'upgrade' action with timeout of 10m0s"},
+		{"waiting on a dependency", []any{condition("Ready", "False", "DependencyNotReady", "dependency 'flux-giantswarm/cnpg' is not ready")},
+			Drifted, false, "Ready=False: dependency 'flux-giantswarm/cnpg' is not ready"},
+		{"an upgrade rolled back", []any{condition("Ready", "False", "RollbackSucceeded", "Helm rollback to previous release backstage/backstage.v7 succeeded"),
+			condition("Released", "False", "UpgradeFailed", upgradeFailed), condition("Remediated", conditionTrue, "RollbackSucceeded", "rolled back")},
+			Drifted, true, "Ready=False: Helm rollback to previous release backstage/backstage.v7 succeeded; Released=False (UpgradeFailed): " + upgradeFailed},
+		{"a retry in progress after a failed upgrade", []any{progressing, condition("Released", "False", "UpgradeFailed", upgradeFailed)},
+			Drifted, true, "Ready=Unknown: Running 'upgrade' action with timeout of 10m0s; Released=False (UpgradeFailed): " + upgradeFailed},
+		{"retries exhausted", []any{condition("Ready", "False", "UpgradeFailed", upgradeFailed), condition("Stalled", conditionTrue, "RetriesExceeded", "Failed to upgrade after 11 attempt(s)"),
+			condition("Released", "False", "UpgradeFailed", upgradeFailed)},
+			Drifted, true, "Ready=False: " + upgradeFailed + "; Stalled=True (RetriesExceeded): Failed to upgrade after 11 attempt(s)"},
+		{"Ready", []any{condition("Ready", conditionTrue, "UpgradeSucceeded", "upgraded"), condition("Released", conditionTrue, "UpgradeSucceeded", "upgraded")},
+			AsDefined, false, "Ready=True"},
+	} {
+		cluster := &recordingCluster{objects: map[string]map[string]any{
+			kindHelmRelease + "/" + testNamespace + "/" + testRelease: {keyStatus: map[string]any{keyConditions: c.conditions}},
+		}}
+		x := &executor{opts: LiveOptions{Cluster: cluster}}
+		check, _, _ := x.run(context.Background(), render.Probe{Kind: render.HelmReleaseReady, Namespace: testNamespace, Resource: kindHelmRelease, Name: testRelease})
+		if check.Mark != c.mark || check.Failed != c.failed || check.Message != c.message {
+			t.Errorf("%s: %s failed=%v %q, want %s failed=%v %q", c.name, check.Mark, check.Failed, check.Message, c.mark, c.failed, c.message)
 		}
 	}
 }
@@ -518,9 +565,8 @@ func (c *hangingCluster) Get(ctx context.Context, namespace, resource, name stri
 // check is logged with its duration.
 func TestLiveReadsAreBounded(t *testing.T) {
 	const hung, after, okRelease = "hung", "after", "answers"
-	const conditionsKey, typeKey, nameKey = "conditions", "type", "name"
 	ready := func(name string) map[string]any {
-		return map[string]any{keyStatus: map[string]any{conditionsKey: []any{map[string]any{typeKey: "Ready", keyStatus: conditionTrue, "message": "ok"}}}, "metadata": map[string]any{nameKey: name}}
+		return map[string]any{keyStatus: map[string]any{keyConditions: []any{map[string]any{keyType: "Ready", keyStatus: conditionTrue, keyMessage: "ok"}}}, keyMetadata: map[string]any{keyName: name}}
 	}
 	key := func(name string) string { return kindHelmRelease + "/" + testNamespace + "/" + name }
 	cluster := &hangingCluster{hang: key(hung), recordingCluster: recordingCluster{objects: map[string]map[string]any{

@@ -8,6 +8,16 @@ resources:
   - ./tunnelport
 patches:
   - patch: |-
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: muster-credentials-revision
+        labels:
+          reconcile.fluxcd.io/watch: Enabled
+    target:
+      kind: Secret
+      name: muster-credentials-revision
+  - patch: |-
       - op: replace
         path: /spec/ref/semver
         value: ">=4.0.0 <5.0.0"

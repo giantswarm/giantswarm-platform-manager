@@ -1,7 +1,9 @@
 // Package approvals is the manager's client of klaus-gateway's Team review:
-// one review per action, posted to the capability-owning team's channel
-// (and noticed to a second channel), and the results posted into the
-// review's thread as the action moves. The client authenticates with the
+// one review per action, posted to the capability-owning team's channel,
+// and the results posted into the review's thread as the action moves; an
+// action that needs no review is told to the team's standup channel as a
+// notice, and a change applied on a customer installation to the Account
+// Engineers' channel. The client authenticates with the
 // pod's projected ServiceAccount token for the gateway's audience, read from
 // its file on every call so the kubelet's rotation is followed; it holds no
 // other credential and never sees a person's token.
@@ -28,9 +30,14 @@ type Config struct {
 	Team string
 	// Channel is the capability-owning team's channel the review lands in.
 	Channel string
-	// NoticeChannel gets the same text without buttons when a customer
-	// installation is a target (the Account Engineers' channel). Empty: no notice.
+	// NoticeChannel is told, without buttons, once an action's change is
+	// applied on a customer installation (the Account Engineers' channel);
+	// it never sees the review. Empty: no notice.
 	NoticeChannel string
+	// StandupChannel is the owning team's standup channel: an action on
+	// Giant Swarm's test installations needs no review and is told there,
+	// one sentence without buttons. Empty: such an action is refused.
+	StandupChannel string
 	// TokenFile holds the projected ServiceAccount token (audience: the
 	// gateway's) the requests carry as the bearer.
 	TokenFile string
@@ -68,18 +75,25 @@ type Tool struct {
 
 // Review is one approval request as POST /reviews takes it.
 type Review struct {
-	Team          string   `json:"team"`
-	Channel       string   `json:"channel"`
-	Text          string   `json:"text"`
-	Actor         string   `json:"actor,omitempty"`
-	PullRequests  []string `json:"pullRequests,omitempty"`
-	Link          string   `json:"link,omitempty"`
-	Approve       Tool     `json:"approve"`
-	Deny          *Tool    `json:"deny,omitempty"`
-	NoticeChannel string   `json:"noticeChannel,omitempty"`
+	Team         string   `json:"team"`
+	Channel      string   `json:"channel"`
+	Text         string   `json:"text"`
+	Actor        string   `json:"actor,omitempty"`
+	PullRequests []string `json:"pullRequests,omitempty"`
+	Link         string   `json:"link,omitempty"`
+	Approve      Tool     `json:"approve"`
+	Deny         *Tool    `json:"deny,omitempty"`
 }
 
-// Receipt is the gateway's answer to a posted review.
+// Notice is a message that asks for nothing, as POST /notices takes it.
+type Notice struct {
+	Team         string   `json:"team"`
+	Channel      string   `json:"channel"`
+	Text         string   `json:"text"`
+	PullRequests []string `json:"pullRequests,omitempty"`
+}
+
+// Receipt is the gateway's answer to a posted review or notice.
 type Receipt struct {
 	ID       string `json:"id"`
 	Channel  string `json:"channel"`
@@ -108,8 +122,8 @@ func New(cfg Config, hc *http.Client) *Client {
 // Config is the client's configuration.
 func (c *Client) Config() Config { return c.cfg }
 
-// Post posts one review; the review's team, channel and notice channel are
-// the configuration's unless r names them.
+// Post posts one review; the review's team and channel are the
+// configuration's unless r names them.
 func (c *Client) Post(ctx context.Context, r Review) (Receipt, error) {
 	if r.Team == "" {
 		r.Team = c.cfg.Team
@@ -123,6 +137,32 @@ func (c *Client) Post(ctx context.Context, r Review) (Receipt, error) {
 	}
 	if out.ID == "" {
 		return Receipt{}, errors.New("approvals: the gateway answered a review without an id")
+	}
+	return out, nil
+}
+
+// Notice posts n to the standup channel; the team is the configuration's.
+func (c *Client) Notice(ctx context.Context, n Notice) (Receipt, error) {
+	if c.cfg.StandupChannel == "" {
+		return Receipt{}, errors.New("approvals: no standup channel is configured (chart approvals.standupChannel)")
+	}
+	return c.tell(ctx, c.cfg.StandupChannel, n)
+}
+
+// Applied posts n to the notice channel (the Account Engineers'): a change
+// applied on a customer installation. The team is the configuration's.
+func (c *Client) Applied(ctx context.Context, n Notice) (Receipt, error) {
+	if c.cfg.NoticeChannel == "" {
+		return Receipt{}, errors.New("approvals: no notice channel is configured (chart approvals.noticeChannel)")
+	}
+	return c.tell(ctx, c.cfg.NoticeChannel, n)
+}
+
+func (c *Client) tell(ctx context.Context, channel string, n Notice) (Receipt, error) {
+	n.Team, n.Channel = c.cfg.Team, channel
+	var out Receipt
+	if err := c.do(ctx, "/notices", n, &out); err != nil {
+		return Receipt{}, err
 	}
 	return out, nil
 }

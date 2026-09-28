@@ -28,16 +28,43 @@ type Removal struct {
 // has to land before the key goes.
 const RemovalKept = "kept"
 
+// RemovalHub is the kind of a removal that is a section of the hub's Dev
+// Portal, which the definition does not render: the comparison plans its
+// removal like any other's, and a commit whose plan removes one the record
+// carries with a value is held for the installation, naming the sections —
+// the definition would turn the hub's portal into a customer's.
+const RemovalHub = "hub"
+
+// RemovalOtherDefinition is the kind of a removal that is a key the
+// capability hands to the other definition, which renders it in a file of
+// its own: the customer-portal definition's agent-platform section, which
+// the agent-platform definition's Component carries.
+const RemovalOtherDefinition = "other-definition"
+
 // KeptKeys are the key paths of a capability's removals of kind kept under
 // the file prefix (KindConfigMap, …), the prefix cut off, in file order.
 func KeptKeys(capability, prefix string) ([]string, error) {
+	return keysOfKind(capability, prefix, RemovalKept)
+}
+
+// HandedKeys are the key paths of a capability's removals of kind
+// other-definition under the file prefix (backstage:app-config, …), the
+// prefix cut off, in file order: the keys the capability hands to the other
+// definition.
+func HandedKeys(capability, prefix string) ([]string, error) {
+	return keysOfKind(capability, prefix, RemovalOtherDefinition)
+}
+
+// keysOfKind are the key paths of a capability's removals of kind under the
+// file prefix, the prefix cut off, in file order.
+func keysOfKind(capability, prefix, kind string) ([]string, error) {
 	rs, err := Removals(capability)
 	if err != nil {
 		return nil, err
 	}
 	var out []string
 	for _, r := range rs {
-		if path, ok := strings.CutPrefix(r.Key, prefix+":"); ok && r.Kind == RemovalKept {
+		if path, ok := strings.CutPrefix(r.Key, prefix+":"); ok && r.Kind == kind {
 			out = append(out, path)
 		}
 	}
