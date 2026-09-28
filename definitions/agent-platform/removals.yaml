@@ -75,6 +75,11 @@ removals:
     reason: >-
       Kept: muster's trusted issuers are listed by hand here, the cluster's service-account issuer that kagent's agents present among them; they stay until
       the shared defaults derive them (this installation's Dex and the service-account issuer) from the installation's facts · M15
+  - key: configmap:muster.muster.oauth.server.providerTokenRefreshThreshold
+    kind: kept
+    reason: >-
+      Kept: how much lifetime muster's Dex token must have left before muster hands it out is raised here, so a long agent turn's forwarded
+      token outlives the turn; it stays until the shared defaults set it for every installation
   # The installation's own three servers by identity, the entry's url — the server's in-cluster Service as the
   # shared defaults register it, or the server on the installation's own base domain (<domain>: the fact, never a
   # wildcard). Any other entry is nobody's planned change: a registered server's home is its MCPServer object under
