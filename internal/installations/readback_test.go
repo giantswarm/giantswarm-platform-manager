@@ -59,6 +59,7 @@ const readBackFilesSchema = `{
 // The inputs the tests read back or find unset, by dotted input key.
 const (
 	keyEnabled         = "enabled"
+	keyGitHub          = "github"
 	keyProvider        = "provider"
 	inputChatEnabled   = "chat.enabled"
 	inputChatModel     = "chat.model"
@@ -236,9 +237,9 @@ func TestDefaults(t *testing.T) {
 	}
 	want := map[string]any{"modelServing": map[string]any{keyEnabled: false}, "aiChat": map[string]any{keyEnabled: false, "model": "claude-opus-5", keyProvider: "anthropic"},
 		"scheduling": map[string]any{"singletonsCapacity": "any"}, "skills": map[string]any{"repositories": []any{}},
-		"clusterManager": map[string]any{"github": map[string]any{keyEnabled: false}},
-		"modelManager":   map[string]any{"github": map[string]any{keyEnabled: false}},
-		"agentManager":   map[string]any{"github": map[string]any{keyEnabled: false}}}
+		"clusterManager": map[string]any{keyGitHub: map[string]any{keyEnabled: false}},
+		"modelManager":   map[string]any{keyGitHub: map[string]any{keyEnabled: false}},
+		"agentManager":   map[string]any{keyGitHub: map[string]any{keyEnabled: false}}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("defaults %v, want %v", got, want)
 	}
