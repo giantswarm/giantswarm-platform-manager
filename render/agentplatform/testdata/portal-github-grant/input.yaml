@@ -1,0 +1,38 @@
+# A public installation that is not the registry's hub and hosts its organisation's portal: invented
+# names, placeholder values. Its muster holds the person's own GitHub grant (a registered server at
+# GitHub's authorization server with subject-scoped grants), so its broker releases the grant to the
+# portal: the github grant target and the portal's broker client, whose secret the commit draws once
+# for muster's Secret and the Component's. The portal reads GitHub through gs.github and holds no
+# GitHub App. The hub's portal signs people in on it too, and the hub's muster brokers tokens into it.
+# The policy's default components, the AI chat off.
+input:
+  installation:
+    name: otter
+    baseDomain: otter.riverbend.example
+    customer: riverbend
+    provider: capa
+    private: false
+    chartLine: "3"
+    musterClientId: 00000000-0000-4000-8000-000000000002
+    podCertificateRequest: false
+    portalClientSecret: true
+    portals:
+      - installation: otter
+        customer: riverbend
+        domain: portal.otter.riverbend.example
+        clientId: backstage
+        chartLine: ">=2.1.0 <3.0.0"
+      - installation: gopher
+        customer: giantswarm
+        domain: portal.example.io
+        clientId: Yx7hub0portal0client0id0on0record0
+        chartLine: ">=2.1.0 <3.0.0"
+    federation:
+      hubs: [gopher]
+      registryHub: gopher
+      targets: []
+    mcpServers:
+      - name: github
+        url: https://api.githubcopilot.com/mcp/
+        auth: oauth
+        githubGrant: true

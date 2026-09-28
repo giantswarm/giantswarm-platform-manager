@@ -122,7 +122,10 @@ spec:
       issuer: https://github.com/login/oauth
       grantScope: subject
 `
-	plainServer = "apiVersion: muster.giantswarm.io/v1alpha1\nkind: MCPServer\nmetadata:\n  name: gazelle-mcp-runbooks\nspec:\n  url: http://mcp-runbooks.mcp-runbooks.svc:8080/mcp\n  auth:\n    type: none\n"
+	// sharedGrantServer is GitHub's authorization server with one grant for
+	// everyone: no person's own grant.
+	sharedGrantServer = "apiVersion: muster.giantswarm.io/v1alpha1\nkind: MCPServer\nmetadata:\n  name: github-shared\nspec:\n  url: https://api.githubcopilot.com/mcp/\n  auth:\n    type: oauth\n    authorizationServer:\n      issuer: https://github.com/login/oauth\n"
+	plainServer       = "apiVersion: muster.giantswarm.io/v1alpha1\nkind: MCPServer\nmetadata:\n  name: gazelle-mcp-runbooks\nspec:\n  url: http://mcp-runbooks.mcp-runbooks.svc:8080/mcp\n  auth:\n    type: none\n"
 
 	hostedClient = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: hosted-agent-runtime\n  namespace: agent-platform\ndata:\n  redirectURIs: |\n    https://agents.runtime.example/identities/oauth2/callback/a\n\n    https://agents.runtime.example/identities/oauth2/callback/b\n"
 )
@@ -133,7 +136,7 @@ spec:
 // redirect URIs; a document of another kind among them is skipped.
 func TestReadRegistered(t *testing.T) {
 	files := registrationFiles(treeWithRegistrations,
-		map[string]string{"a-exchange.yaml": exchangeServer, "b-forward.yaml": forwardServer, "c-oauth.yaml": oauthServer, "d-plain.yaml": plainServer + "---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: beside\n"},
+		map[string]string{"a-exchange.yaml": exchangeServer, "b-forward.yaml": forwardServer, "c-oauth.yaml": oauthServer, "d-plain.yaml": plainServer + "---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: beside\n", "e-shared.yaml": sharedGrantServer},
 		map[string]string{"runtime.yaml": hostedClient})
 	reg, err := readRegistered(context.Background(), treeOf(files), registeringInstallation)
 	if err != nil {
@@ -142,8 +145,9 @@ func TestReadRegistered(t *testing.T) {
 	want := []RegisteredServer{
 		{Name: "pond-mcp-timescale", URL: "https://mcp-timescale.pond.lakeside.example/mcp", Auth: authExchange, DexTokenEndpoint: "https://dex.pond.lakeside.example/token"}, // #nosec G101 -- an endpoint URL, not a credential
 		{Name: "reeds-mcp-docs", URL: "https://mcp-docs.reeds.lakeside.example/mcp", Auth: authForward},
-		{Name: keyGitHub, URL: "https://api.githubcopilot.com/mcp/", Auth: authOAuth},
+		{Name: keyGitHub, URL: "https://api.githubcopilot.com/mcp/", Auth: authOAuth, GitHubGrant: true},
 		{Name: "gazelle-mcp-runbooks", URL: "http://mcp-runbooks.mcp-runbooks.svc:8080/mcp", Auth: authNone},
+		{Name: "github-shared", URL: "https://api.githubcopilot.com/mcp/", Auth: authOAuth},
 	}
 	if len(reg.Servers) != len(want) {
 		t.Fatalf("servers: %+v", reg.Servers)
