@@ -65,9 +65,8 @@ func (in *Input) portalGitHub() bool {
 // subject token — the person's ID token from this installation's Dex, issued
 // to the portal's client — against this list, and muster refuses a broker
 // without one. The subject is the token's email, the identity the person's
-// grant is filed under. An issuer the record trusts besides (the cluster's
-// service-account issuer that kagent's agents present) is the installation's
-// own, and the plan keeps its entry.
+// grant is filed under. An issuer the record trusts besides is the
+// installation's own, and the plan keeps its entry.
 func (in *Input) trustedIssuers() []render.Map {
 	issuer := "https://" + in.host("dex")
 	entry := render.Map{e("issuer", issuer), e("jwksUrl", issuer+"/keys"),
