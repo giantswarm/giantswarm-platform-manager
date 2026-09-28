@@ -1,0 +1,25 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-platform-values-backstage
+  namespace: flux-giantswarm
+data:
+  values: |
+    backstage:
+      extraAppConfig:
+        - filename: app-config.agent-platform.yaml
+          configMapRef: agent-platform-app-config-backstage
+          checksum: 7fbc62949f579a544b456b9edf4625fcaec267c7032a697f0b209482bfc86824
+    observability:
+      otel:
+        endpoint: http://otlp-gateway.kube-system.svc.cluster.local:4317
+        protocol: grpc
+        headers: X-Scope-OrgID=giantswarm
+      metrics:
+        enabled: true
+    serviceMonitor:
+      enabled: true
+      labels:
+        observability.giantswarm.io/tenant: giantswarm

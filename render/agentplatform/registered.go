@@ -22,6 +22,10 @@ type RegisteredServer struct {
 	Auth string `json:"auth"`
 	// DexTokenEndpoint is, for exchange, the Dex the exchange runs at.
 	DexTokenEndpoint string `json:"dexTokenEndpoint,omitempty"`
+	// GitHubGrant says, for oauth, that the server holds the person's own
+	// GitHub grant: GitHub's authorization server, grants scoped to the
+	// person (github.go).
+	GitHubGrant bool `json:"githubGrant,omitempty"`
 }
 
 // RegisteredClient is an MCP client registered on the installation with a

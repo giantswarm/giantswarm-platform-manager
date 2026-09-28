@@ -162,3 +162,33 @@ func TestKeepDexPatchKeepsTheInstallationsOwnTrustedPeers(t *testing.T) {
 		t.Errorf("the render's peers alone keep nothing: %v, %v:\n%s", err, kept, got)
 	}
 }
+
+// muster's trusted issuers merge by issuer: an issuer on record keeps its
+// entry whole in place of the render's, an issuer the render lacks is kept
+// after the render's, and the render's own issuer the record lacks stands.
+func TestKeepAudiencesKeepsTheRecordsTrustedIssuersByIssuer(t *testing.T) {
+	const (
+		rendered = "muster:\n  muster:\n    oauth:\n      server:\n        trustedIssuers:\n" +
+			"          - issuer: https://dex.otter.example\n            allowedAudiences:\n              - backstage\n" +
+			"          - issuer: https://new.otter.example\n            allowedAudiences:\n              - backstage\n"
+		current = "muster:\n  muster:\n    oauth:\n      server:\n        trustedIssuers:\n" +
+			"          - issuer: https://dex.otter.example\n            allowedAudiences:\n              - backstage\n              - hand-kept-client\n" +
+			"          - issuer: https://irsa.otter.example\n            allowedClaims:\n              sub: system:serviceaccount:kagent:*\n"
+	)
+	got, kept, err := keepAudiences([]byte(rendered), []byte(current))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []Kept{{ListTrustedIssuers, "https://dex.otter.example"}, {ListTrustedIssuers, "https://irsa.otter.example"}}; !slices.Equal(kept, want) {
+		t.Fatalf("kept %v, want %v", kept, want)
+	}
+	s := string(got)
+	for _, frag := range []string{"- hand-kept-client\n", "issuer: https://new.otter.example\n", "issuer: https://irsa.otter.example\n", "sub: system:serviceaccount:kagent:*\n"} {
+		if !strings.Contains(s, frag) {
+			t.Errorf("merged file lacks %q:\n%s", frag, s)
+		}
+	}
+	if strings.Count(s, "issuer: https://dex.otter.example") != 1 {
+		t.Errorf("the record's issuer is listed twice:\n%s", s)
+	}
+}

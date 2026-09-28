@@ -40,7 +40,8 @@ const (
 	// client, an access token and its expiry, never the refresh token. The
 	// hub's Dev Portal backs its GitHub auth API with it, so the portal needs
 	// no GitHub App. A customer aggregator brokers for its siblings but holds
-	// no GitHub grant, so it renders none.
+	// no GitHub grant, so it renders none. Another installation whose muster
+	// holds the grant renders it for the portal it hosts (github.go).
 	githubGrantTarget = "github"
 	githubGrantIssuer = "https://github.com/login/oauth"
 )
@@ -158,9 +159,10 @@ func credentialsSecretName(target string) string { return target + "-token-excha
 // Dex client by hand: no peer, the hub's side draws alone.
 func exchangeSecretName(client string) string { return client + "-client-secret" }
 
-// brokerValues is muster.muster.oauth.server.tokenExchangeBroker: the hub's
-// broker client, on the registry's hub the GitHub grant target, the targets
-// it may mint for, and each target's exchange.
+// brokerValues is muster.muster.oauth.server.tokenExchangeBroker: the
+// broker client, where muster holds the person's GitHub grant for the portal
+// the GitHub grant target, the targets it may mint for, and each target's
+// exchange.
 func (in *Input) brokerValues() render.Map {
 	m := render.Map{}
 	if in.hasPrivateTarget() {
@@ -170,7 +172,7 @@ func (in *Input) brokerValues() render.Map {
 	}
 	names := make([]string, 0, len(in.Installation.Federation.Targets)+1)
 	targets := render.Map{}
-	if in.Installation.Hub {
+	if in.grantsGitHub() {
 		names = append(names, githubGrantTarget)
 		targets = append(targets, e(githubGrantTarget, render.Map{e("grantIssuer", githubGrantIssuer)}))
 	}
@@ -185,9 +187,9 @@ func (in *Input) brokerValues() render.Map {
 		targets = append(targets, e(t.Installation, entry))
 	}
 	return append(m,
-		e("brokerClients", render.Map{e(in.Installation.Federation.BrokerClientID,
+		e("brokerClients", render.Map{e(in.brokerClient(),
 			render.Map{e("clientCredentialsSecretRef", render.Map{e("name", brokerClients)})})}),
-		e("clientAudiences", render.Map{e(in.Installation.Federation.BrokerClientID, names)}),
+		e("clientAudiences", render.Map{e(in.brokerClient(), names)}),
 		e("targets", targets))
 }
 
@@ -228,13 +230,12 @@ func (in *Input) targetServers() []MCPServer {
 	return list
 }
 
-// hubSecrets are the extras Secrets of a hub: the broker client's credentials
-// and, per target, the hub's client in the target's Dex.
+// hubSecrets are the extras Secrets of a broker: the broker client's
+// credentials and, per target, the hub's client in the target's Dex.
 func (in *Input) hubSecrets(add func(file string, f render.File)) {
 	add(brokerClients+".yaml", render.Secret(brokerClients, platformNamespace,
 		map[string]string{"muster.giantswarm.io/type": "broker-client-credentials"},
-		render.ValueKey("client-id", in.Installation.Federation.BrokerClientID),
-		in.generated("client-secret", "muster-broker-client-secret", render.Base64, 32)))
+		render.ValueKey("client-id", in.brokerClient()), in.brokerClientSecretKey()))
 	for _, t := range in.Installation.Federation.Targets {
 		client := in.hubClient(t)
 		f := render.Secret(t.credentialsSecret(), platformNamespace,
