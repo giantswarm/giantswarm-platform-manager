@@ -25,6 +25,10 @@ const (
 	// allowed to call its team reviews: the policy names the platform's own,
 	// an installation the other teams' that run there (the hub's sweeps).
 	ListAllowedCallers = "klausGateway.reviews.allowedCallers"
+	// ListTrustedIssuers is muster's list of the issuers it validates tokens
+	// of, one entry per issuer: the render's where it carries one, every
+	// issuer the record trusts besides kept whole.
+	ListTrustedIssuers = "muster.muster.oauth.server.trustedIssuers"
 
 	keyAuthenticator = "dexK8SAuthenticator"
 	keyTrustedPeers  = "trustedPeers"
@@ -95,6 +99,8 @@ func keepAudiences(rendered, current []byte) ([]byte, []Kept, error) {
 	keepProviders(at(ren, providers...), at(cur, providers...), &kept)
 	callers := strings.Split(ListAllowedCallers, ".")
 	keepList(at(ren, callers...), at(cur, callers...), ListAllowedCallers, &kept)
+	issuers := strings.Split(ListTrustedIssuers, ".")
+	keepIssuers(at(ren, issuers...), at(cur, issuers...), &kept)
 	keepSubtrees(ren, cur, keptPlatformKeys, &kept)
 	if len(kept) == 0 {
 		return rendered, nil, nil
@@ -156,6 +162,36 @@ func keepProviders(ren, cur *yaml.Node, kept *[]Kept) {
 				keepList(entry(r, keyAudiences), entry(c, keyAudiences), ListEdgeAudiences, kept)
 			}
 		}
+	}
+}
+
+// keepIssuers merges into the sequence ren of muster's trusted issuers the
+// record's entries by issuer: an issuer on record keeps its entry whole in
+// place of the render's — its audiences and private-address allowances are
+// the installation's — and an issuer the render lacks is appended, each
+// recorded under ListTrustedIssuers. A side that is no sequence keeps
+// nothing; a list the render lacks is kept whole as one of the definition's
+// kept keys.
+func keepIssuers(ren, cur *yaml.Node, kept *[]Kept) {
+	if ren == nil || ren.Kind != yaml.SequenceNode || cur == nil || cur.Kind != yaml.SequenceNode {
+		return
+	}
+	for _, c := range cur.Content {
+		issuer := entry(c, keyIssuer)
+		if issuer == nil || issuer.Value == "" {
+			continue
+		}
+		replaced := false
+		for i, r := range ren.Content {
+			if ri := entry(r, keyIssuer); ri != nil && ri.Value == issuer.Value {
+				ren.Content[i], replaced = c, true
+			}
+		}
+		if !replaced {
+			ren.Content = append(ren.Content, c)
+		}
+		ren.Style = 0
+		*kept = append(*kept, Kept{List: ListTrustedIssuers, Entry: issuer.Value})
 	}
 }
 

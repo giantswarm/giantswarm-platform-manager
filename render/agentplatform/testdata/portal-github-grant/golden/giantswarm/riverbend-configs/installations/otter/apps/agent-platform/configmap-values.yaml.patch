@@ -35,6 +35,14 @@ muster:
           - dex-k8s-authenticator
           - kagent
           - backstage
+        trustedIssuers:
+          - issuer: https://dex.otter.riverbend.example
+            jwksUrl: https://dex.otter.riverbend.example/keys
+            allowedAudiences:
+              - backstage
+            subjectClaim: email
+            acceptedTypHeaders:
+              - ""
         tokenExchangeBroker:
           brokerClients:
             backstage:

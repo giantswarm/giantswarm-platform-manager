@@ -319,6 +319,9 @@ func (in *Input) musterValues() render.Map {
 		server = append(server, e("allowPrivateIPClientMetadata", true), e("allowPrivateIPRedirectURIs", true))
 	}
 	server = append(server, e("trustedAudiences", in.audiences()))
+	if in.portalGitHub() {
+		server = append(server, e("trustedIssuers", in.trustedIssuers()))
+	}
 	if uris := in.clientRedirectURIs(); len(uris) > 0 {
 		server = append(server, e("trustedPublicRegistrationRedirectURIs", uris))
 	}

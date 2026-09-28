@@ -9,8 +9,9 @@ import (
 
 // The portal reads GitHub through this installation's muster only where the
 // muster holds the person's GitHub grant and the installation is neither the
-// hub nor a broker for targets: then the broker, the Component's gs block and
-// its broker Secret render; in every other case none of them does. The
+// hub nor a broker for targets, and the portal is its own: then the broker,
+// the installation's Dex among muster's trusted issuers, the Component's gs
+// block and its broker Secret render; in every other case none of them does. The
 // broker client's secret is one generated name in muster's Secret and the
 // Component's, so the commit draws it once for both.
 func TestPortalGitHubThroughOwnMuster(t *testing.T) {
@@ -31,6 +32,9 @@ func TestPortalGitHubThroughOwnMuster(t *testing.T) {
 			inst["mcpServers"] = []any{map[string]any{"name": server, "url": "https://api.githubcopilot.com/mcp/", "auth": "oauth"}}
 		}, false},
 		{"no hosted portal", func(inst map[string]any) { inst["portals"] = inst["portals"].([]any)[1:] }, false},
+		{"a sibling's portal", func(inst map[string]any) {
+			inst["portals"].([]any)[0].(map[string]any)["installation"] = "badger"
+		}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			input, secrets := loadInput(t, shapePortalGitHubGrant)
@@ -43,6 +47,7 @@ func TestPortalGitHubThroughOwnMuster(t *testing.T) {
 			patch := string(tree[patchPath])
 			got := map[string]bool{
 				"broker":           strings.Contains(patch, "tokenExchangeBroker"),
+				"trusted issuer":   strings.Contains(patch, "trustedIssuers:\n          - issuer: https://dex.otter.riverbend.example\n"),
 				"grant target":     strings.Contains(patch, "grantIssuer: "+githubGrantIssuer),
 				"gs block":         strings.Contains(string(tree[component+"app-config.yaml"]), "brokerAudience: github"),
 				"component secret": tree[component+portalBrokerFile] != nil,

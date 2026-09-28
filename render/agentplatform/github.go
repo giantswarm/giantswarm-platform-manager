@@ -10,7 +10,8 @@ import "github.com/giantswarm/giantswarm-platform-manager/render"
 // (installation.mcpServers[*].githubGrant) — and hosts a portal does the same
 // for that portal. People connect GitHub there, and the portal needs no GitHub
 // App of its own. The broker gets the github grant target and one broker
-// client, the portal's. The Component gives the portal that client's
+// client, the portal's; muster trusts the installation's Dex as the issuer
+// of the portal's subject tokens. The Component gives the portal that client's
 // credentials, the broker's token URL and gs.github. The client's secret is
 // drawn once, in the commit that creates both of its files: muster's
 // broker-clients Secret and the Component's Secret. A hub, or an
@@ -50,10 +51,31 @@ func (in *Input) githubGrantServer() string {
 
 // portalGitHub says whether the hosted portal reads GitHub as the person
 // through this installation's muster: it holds the grant, it is neither the
-// hub nor a broker for targets, and it hosts a portal.
+// hub nor a broker for targets, and the portal is its own — a sibling's
+// portal signs people in at the sibling's Dex, whose tokens this muster does
+// not trust.
 func (in *Input) portalGitHub() bool {
+	p := in.hostedPortal()
 	return !in.Installation.Hub && len(in.Installation.Federation.Targets) == 0 &&
-		in.hostedPortal() != nil && in.githubGrantServer() != ""
+		p != nil && p.Installation == in.Installation.Name && in.githubGrantServer() != ""
+}
+
+// trustedIssuers is muster.muster.oauth.server.trustedIssuers where the
+// portal reads GitHub through this muster: the broker validates the portal's
+// subject token — the person's ID token from this installation's Dex, issued
+// to the portal's client — against this list, and muster refuses a broker
+// without one. The subject is the token's email, the identity the person's
+// grant is filed under. An issuer the record trusts besides (the cluster's
+// service-account issuer that kagent's agents present) is the installation's
+// own, and the plan keeps its entry.
+func (in *Input) trustedIssuers() []render.Map {
+	issuer := "https://" + in.host("dex")
+	entry := render.Map{e("issuer", issuer), e("jwksUrl", issuer+"/keys"),
+		e("allowedAudiences", in.portalAudiences()), e("subjectClaim", "email"), e("acceptedTypHeaders", []string{""})}
+	if in.Installation.Private {
+		entry = append(entry, e("allowPrivateIPJWKS", true))
+	}
+	return []render.Map{entry}
 }
 
 // grantsGitHub says whether the broker releases the person's GitHub grant:
