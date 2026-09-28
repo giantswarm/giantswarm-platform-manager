@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/giantswarm/giantswarm-platform-manager/main/definitions/agent-platform/schema.json",
   "title": "agent-platform definition inputs",
-  "description": "The input set of the agent-platform capability: the installation's record and the person's choices. Everything the fileset carries derives from the record (installation.*: the registry and the installation's config.yaml.patch, read, never typed), from the fleet policy (policy.yaml: which components an owning organisation's installations run, the installations with a Slack app — where the chat gateway runs — and the gateway's shape, the connector names a target's Dex registers for a hub and the Teleport cluster) and from the shared template; a person decides whether the installation serves models, where its stateful singletons run, whether its developer portal runs the AI chat, and with what model, which repositories the portal's agent creation discovers skills in, and whether the cluster-manager, the model-manager and the agent-manager commit through their GitHub Apps. Annotations: x-source says where a value comes from (registry: read from the installations registry or the repositories, never typed; generated: created once and read back from the checkout; person: a choice). x-feature names the consistency feature of features.yaml. x-files names the repository file each fileset key is rendered to (<name> the installation; document the path in the file of the YAML text its keys sit in, a key with dots in it bracketed); x-readback on a person input names the file — one, or several, the first on record holding the key answering — and key its value is read back from on record (kind value, present or host). x-renders lists the key paths the input produces, prefixed by the file: configmap (agent-platform configmap-values.yaml.patch), dex-configmap (the dex-app patch), extras (extras/agent-platform/ and the MCP servers' extras), backstage:* (the portal's agent-platform Component), teleport (teleport-fleet). List indices are written [*], per-installation map keys <name>.",
+  "description": "The input set of the agent-platform capability: the installation's record and the person's choices. Everything the fileset carries derives from the record (installation.*: the registry and the installation's config.yaml.patch, read, never typed), from the fleet policy (policy.yaml: which components an owning organisation's installations run, the installations with a Slack app — where the chat gateway runs — and the gateway's shape, the connector names a target's Dex registers for a hub and the Teleport cluster) and from the shared template; a person decides whether the installation serves models, where its stateful singletons run, whether its developer portal runs the AI chat, and with what model, which repositories the portal's agent creation discovers skills in, whether the cluster-manager, the model-manager and the agent-manager commit through their GitHub Apps, and the agent-manager's skill catalog. Annotations: x-source says where a value comes from (registry: read from the installations registry or the repositories, never typed; generated: created once and read back from the checkout; person: a choice). x-feature names the consistency feature of features.yaml. x-files names the repository file each fileset key is rendered to (<name> the installation; document the path in the file of the YAML text its keys sit in, a key with dots in it bracketed); x-readback on a person input names the file — one, or several, the first on record holding the key answering — and key its value is read back from on record (kind value, present or host). x-renders lists the key paths the input produces, prefixed by the file: configmap (agent-platform configmap-values.yaml.patch), dex-configmap (the dex-app patch), extras (extras/agent-platform/ and the MCP servers' extras), backstage:* (the portal's agent-platform Component), teleport (teleport-fleet). List indices are written [*], per-installation map keys <name>.",
   "type": "object",
   "additionalProperties": false,
   "required": ["installation"],
@@ -256,8 +256,42 @@
     "agentManager": {
       "type": "object",
       "additionalProperties": false,
-      "description": "One choice: the agent-manager's commit mode.",
+      "description": "Two choices: the agent-manager's commit mode and its skill catalog.",
       "properties": {
+        "skills": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repositories": {
+              "type": "array",
+              "items": {"type": "string", "minLength": 1},
+              "default": [],
+              "x-source": "person",
+              "x-readback": {"file": "configmap", "key": "agent-manager.skills.repositories"},
+              "x-feature": "runtime",
+              "x-renders": ["configmap:agent-manager.skills.repositories"],
+              "description": "The GitHub repositories agent-manager's list_skills discovers skills in (agent-manager.skills.repositories), the catalog meta agents create agents from. None, the key is not written and the chart's default (giantswarm/agent-skills) stands. Read back from the configmap patch on record."
+            },
+            "appSecretName": {
+              "type": "string",
+              "default": "",
+              "x-source": "person",
+              "x-readback": {"file": "configmap", "key": "agent-manager.skills.github.app.secretName"},
+              "x-feature": "runtime",
+              "x-renders": ["configmap:agent-manager.skills.github.app.secretName"],
+              "description": "The installation's Secret in agent-platform holding the read-only skills GitHub App's app-id, installation-id and private-key (agent-manager.skills.github.app.secretName; giantswarm-agent-skills-app by convention, not rendered): agent-manager discovers and pins skills with the App's installation tokens and offers a private repository only to the people who can read it. The Secret exists before this is set: a missing one stops the pod. Empty, anonymous discovery, public repositories only. Read back from the configmap patch on record."
+            },
+            "gitAuthSecretName": {
+              "type": "string",
+              "default": "",
+              "x-source": "person",
+              "x-readback": {"file": "configmap", "key": "agent-manager.skills.gitAuthSecretName"},
+              "x-feature": "runtime",
+              "x-renders": ["configmap:agent-manager.skills.gitAuthSecretName"],
+              "description": "The Secret in kagent (key token) every agent with a git skill fetches its skills with at boot unless it names its own (agent-manager.skills.gitAuthSecretName; kagent-skills-token, the token the GitOps agents boot with, not rendered). Empty, such agents fetch anonymously. Read back from the configmap patch on record."
+            }
+          }
+        },
         "github": {
           "type": "object",
           "additionalProperties": false,
