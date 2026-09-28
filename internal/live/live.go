@@ -386,7 +386,8 @@ func (k *cluster) call(ctx context.Context, op string, args map[string]any) (str
 		args[k.c.cfg.KubernetesInstanceArg] = member
 	}
 	name := k.tool(op)
-	res, err := k.s.s.Call(ctx, name, args)
+	do := func() (*mcp.CallToolResult, error) { return k.s.s.Call(ctx, name, args) }
+	res, err := callPaced(ctx, do)
 	if toolNotFound(res, err) {
 		// muster does not list the tool for this session yet (the fan-out
 		// to the installation's servers runs after initialize): wait for it,
@@ -394,7 +395,7 @@ func (k *cluster) call(ctx context.Context, op string, args map[string]any) (str
 		if werr := k.waitForTool(ctx, name); werr != nil {
 			return "", werr
 		}
-		res, err = k.s.s.Call(ctx, name, args)
+		res, err = callPaced(ctx, do)
 	}
 	if err != nil {
 		return "", err
@@ -404,6 +405,53 @@ func (k *cluster) call(ctx context.Context, op string, args map[string]any) (str
 		return "", classify(text)
 	}
 	return text, nil
+}
+
+// rateLimitExceeded is the error code of mcp-oauth's refusal of a request
+// over its per-IP or per-user limit (HTTP 429 with Retry-After), as muster
+// relays it. Every call muster makes to an installation shares the hub's
+// egress address, so the per-IP bucket (10 per second, burst 20 on
+// mcp-kubernetes) is spent by one live verify's reads alone.
+const rateLimitExceeded = "rate_limit_exceeded"
+
+// rateLimitBackoff is the first wait after a rate-limit refusal, the
+// limiter's Retry-After for a rate of 10 per second; each further refusal
+// doubles it, up to rateLimitMaxBackoff. A variable for the tests.
+var rateLimitBackoff = time.Second
+
+const rateLimitMaxBackoff = 4 * time.Second
+
+// rateLimited says whether a call's answer is a rate-limit refusal: as the
+// call's error, or as the tool result's error text.
+func rateLimited(res *mcp.CallToolResult, err error) bool {
+	if err != nil {
+		return strings.Contains(err.Error(), rateLimitExceeded)
+	}
+	return res != nil && res.IsError && strings.Contains(aggregator.TextOf(res), rateLimitExceeded)
+}
+
+// callPaced answers do's call, called again after a back-off while it is
+// refused for a rate limit: the refusal is transient, not an answer about
+// the installation. The last refusal is the answer once the next wait would
+// pass ctx's deadline (the read's bound), so the check names the limit
+// rather than a read that did not answer.
+func callPaced(ctx context.Context, do func() (*mcp.CallToolResult, error)) (*mcp.CallToolResult, error) {
+	wait := rateLimitBackoff
+	for {
+		res, err := do()
+		if !rateLimited(res, err) {
+			return res, err
+		}
+		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) <= wait {
+			return res, err
+		}
+		select {
+		case <-ctx.Done():
+			return res, err
+		case <-time.After(wait):
+		}
+		wait = min(2*wait, rateLimitMaxBackoff)
+	}
 }
 
 func isToolNotFound(err error) bool {

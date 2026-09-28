@@ -1,10 +1,12 @@
 package live
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 
@@ -167,4 +169,63 @@ func TestOutputOfShape(t *testing.T) {
 	if got := outputOf(verify.Manifest); got != "full" {
 		t.Errorf("manifest: %q", got)
 	}
+}
+
+// A kubernetes tool call refused for a rate limit — as the result's error
+// text or as the call's error — is called again after a back-off and answers
+// the call that got through; one refused until the read's bound answers the
+// refusal before the bound, so the check names the limit, not a timeout.
+func TestCallPacedRetriesARateLimitRefusal(t *testing.T) {
+	defer func(d time.Duration) { rateLimitBackoff = d }(rateLimitBackoff)
+	rateLimitBackoff = 10 * time.Millisecond
+	refused := mcp.NewToolResultError("failed to call tool: internal error: rate_limit_exceeded")
+	answer := mcp.NewToolResultText(`{"kind":"Secret"}`)
+
+	t.Run("refused, then answered", func(t *testing.T) {
+		calls := 0
+		res, err := callPaced(context.Background(), func() (*mcp.CallToolResult, error) {
+			calls++
+			switch calls {
+			case 1:
+				return refused, nil
+			case 2:
+				return nil, errors.New("failed to call tool: internal error: rate_limit_exceeded")
+			}
+			return answer, nil
+		})
+		if err != nil || res != answer || calls != 3 {
+			t.Fatalf("callPaced = %v, %v after %d calls; want the answer after 3", res, err, calls)
+		}
+	})
+
+	t.Run("refused until the bound", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+		calls := 0
+		res, err := callPaced(ctx, func() (*mcp.CallToolResult, error) {
+			calls++
+			return refused, nil
+		})
+		if err != nil || res != refused {
+			t.Fatalf("callPaced = %v, %v; want the refusal", res, err)
+		}
+		if ctx.Err() != nil {
+			t.Fatalf("callPaced answered after the bound; want the refusal before it")
+		}
+		if calls < 2 {
+			t.Fatalf("callPaced called %d times; want a retry within the bound", calls)
+		}
+	})
+
+	t.Run("any other answer is not retried", func(t *testing.T) {
+		calls := 0
+		other := mcp.NewToolResultError(`secrets "x" not found`)
+		res, _ := callPaced(context.Background(), func() (*mcp.CallToolResult, error) {
+			calls++
+			return other, nil
+		})
+		if res != other || calls != 1 {
+			t.Fatalf("callPaced = %v after %d calls; want the answer at once", res, calls)
+		}
+	})
 }
