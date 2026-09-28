@@ -33,7 +33,7 @@ func TestPortalPlatformSection(t *testing.T) {
 	report := Report{Installation: Installation{Name: fixtureInstallation, Repositories: Repositories{ManagementClusters: mcs}}}
 	kept := map[string]any{
 		"muster":        map[string]any{"installations": []any{map[string]any{"url": muster}}},
-		"agentPlatform": map[string]any{"skills": map[string]any{"repositories": []any{"https://github.com/example/agent-skills"}}},
+		"agentPlatform": map[string]any{keySkills: map[string]any{keyRepositories: []any{"https://github.com/example/agent-skills"}}},
 		sectionAIChat:   map[string]any{"model": "claude-sonnet-5"},
 		"backend":       map[string]any{"actions": map[string]any{"pluginSources": []any{"catalog"}}},
 	}

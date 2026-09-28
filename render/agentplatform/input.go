@@ -107,6 +107,11 @@ type Input struct {
 	// GitHub Apps (modelManager.github.enabled, agentManager.github.enabled),
 	// read back from the configmap patch on record.
 	ModelManagerCommit, AgentManagerCommit bool
+	// AgentManagerSkills is the person's choice of agent-manager's skill
+	// catalog (agentManager.skills): the repositories list_skills discovers
+	// and the Secrets private ones are read and booted with, read back from
+	// the configmap patch on record.
+	AgentManagerSkills AgentManagerSkills
 	// Components are the components the policy gives the installation, by
 	// name: its organisation's list and, where the policy names a Slack app
 	// for the installation, the chat gateway.
@@ -448,7 +453,24 @@ type document struct {
 	} `json:"skills"`
 	ClusterManager commitChoice `json:"clusterManager"`
 	ModelManager   commitChoice `json:"modelManager"`
-	AgentManager   commitChoice `json:"agentManager"`
+	AgentManager   struct {
+		commitChoice
+		Skills AgentManagerSkills `json:"skills"`
+	} `json:"agentManager"`
+}
+
+// AgentManagerSkills is agent-manager's skill catalog: the repositories
+// list_skills discovers skills in, the Secret of the skills GitHub App they
+// are read with, and the Secret agents with a git skill boot with.
+type AgentManagerSkills struct {
+	Repositories      []string `json:"repositories"`
+	AppSecretName     string   `json:"appSecretName"`
+	GitAuthSecretName string   `json:"gitAuthSecretName"`
+}
+
+// set is whether the person chose anything for the catalog.
+func (s AgentManagerSkills) set() bool {
+	return len(s.Repositories) > 0 || s.AppSecretName != "" || s.GitAuthSecretName != ""
 }
 
 // commitChoice is a manager's commit mode through its GitHub App: the one
@@ -513,7 +535,7 @@ func Parse(raw any) (*Input, error) {
 		return nil, err
 	}
 	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories,
-		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval}
+		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval}
 	if in.Components, err = pol.components(in.Installation); err != nil {
 		return nil, err
 	}
@@ -629,6 +651,9 @@ func (in *Input) checkRecord() error {
 	}
 	if in.AgentManagerCommit && !in.agentManager() {
 		return refuse(fmt.Sprintf("%s asks for the agent-manager's commit mode, and the fleet policy runs no agent-manager on %s's installations", describe("agentManager.github.enabled"), in.Installation.Customer))
+	}
+	if in.AgentManagerSkills.set() && !in.agentManager() {
+		return refuse(fmt.Sprintf("%s asks for the agent-manager's skill catalog, and the fleet policy runs no agent-manager on %s's installations", describe("agentManager.skills"), in.Installation.Customer))
 	}
 	if in.ModelManagerCommit && !in.modelManager() {
 		return refuse(describe("modelManager.github.enabled") + " asks for the model-manager's commit mode, and the model-manager runs on the platform's 4 chart line only; agentPlatform.kagentApiV2: true in the installation's config.yaml.patch selects 4")

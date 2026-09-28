@@ -39,6 +39,7 @@ const (
 const (
 	keyEnabled = "enabled"
 	keyGitHub  = "github"
+	keySkills  = "skills"
 	// gitHubOn is a manager's commit mode as its chart values carry it.
 	gitHubOn    = "github:\n  enabled: true\n"
 	keyModel    = "model"
@@ -672,6 +673,53 @@ func TestManagersCommitMode(t *testing.T) {
 	input["agentManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: true}}
 	if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "agentManager.github.enabled") {
 		t.Fatalf("agent-manager commit mode where the policy runs none: %v", err)
+	}
+}
+
+// TestAgentManagerSkills renders the agent-manager's skill catalog from its
+// choices: only what is chosen is written, under the agent-manager's values
+// next to its commit mode; refused where the policy runs no agent-manager.
+func TestAgentManagerSkills(t *testing.T) {
+	input, secrets := loadInput(t, shapeHubPrivateTarget)
+	input["agentManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: true}, keySkills: map[string]any{ //nolint:gosec // Secret names in a fixture, no credential
+		"repositories":  []any{"https://github.com/acme/skills", "https://github.com/acme/skills-internal"},
+		"appSecretName": "acme-skills-app", "gitAuthSecretName": "acme-skills-token"}}
+	result, err := Render(input, secrets, render.ModeCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var patch map[string]any
+	for name, content := range result.Tree() {
+		if strings.HasSuffix(name, "apps/agent-platform/configmap-values.yaml.patch") {
+			if err := yaml.Unmarshal(content, &patch); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	got := string(render.MustYAML(patch["agent-manager"]))
+	want := gitHubOn + "skills:\n  gitAuthSecretName: acme-skills-token\n  github:\n    app:\n      secretName: acme-skills-app\n  repositories:\n    - https://github.com/acme/skills\n    - https://github.com/acme/skills-internal\n"
+	if got != want {
+		t.Errorf("agent-manager:\n%s\nwant:\n%s", got, want)
+	}
+
+	input, secrets = loadInput(t, shapeHubPrivateTarget)
+	input["agentManager"] = map[string]any{keySkills: map[string]any{"repositories": []any{"https://github.com/acme/skills"}}}
+	result, err = Render(input, secrets, render.ModeCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range result.Tree() {
+		if strings.HasSuffix(name, "apps/agent-platform/configmap-values.yaml.patch") && strings.Contains(string(content), "gitAuthSecretName") {
+			t.Errorf("a catalog without Secrets renders none:\n%s", content)
+		}
+	}
+
+	input, secrets = loadInput(t, shapeHubPrivateTarget)
+	input["installation"].(map[string]any)["customer"] = "fleetio"
+	input["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
+	input["agentManager"] = map[string]any{keySkills: map[string]any{"gitAuthSecretName": "acme-skills-token"}} //nolint:gosec // a Secret's name in a fixture, no credential
+	if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "agentManager.skills") {
+		t.Fatalf("a skill catalog where the policy runs no agent-manager: %v", err)
 	}
 }
 

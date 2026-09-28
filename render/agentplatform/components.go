@@ -127,8 +127,30 @@ func (in *Input) agentManagerValues() render.Map {
 	if in.Installation.ChartLine == lineThree {
 		m = append(m, e("oauth", in.managerOAuth(componentAgentManager)))
 	}
+	if skills := in.agentManagerSkills(); len(skills) > 0 {
+		m = append(m, e("skills", skills))
+	}
 	if in.AgentManagerCommit {
 		m = append(m, githubEnabled())
+	}
+	return m
+}
+
+// agentManagerSkills is the agent-manager's skill catalog: the repositories
+// list_skills discovers, the skills GitHub App's Secret they are read with and
+// the boot credential composed onto every agent with a git skill — each only
+// where the person chose it.
+func (in *Input) agentManagerSkills() render.Map {
+	var m render.Map
+	s := in.AgentManagerSkills
+	if len(s.Repositories) > 0 {
+		m = append(m, e("repositories", s.Repositories))
+	}
+	if s.AppSecretName != "" {
+		m = append(m, e("github", render.Map{e("app", render.Map{e("secretName", s.AppSecretName)})}))
+	}
+	if s.GitAuthSecretName != "" {
+		m = append(m, e("gitAuthSecretName", s.GitAuthSecretName))
 	}
 	return m
 }
