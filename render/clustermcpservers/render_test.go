@@ -206,6 +206,7 @@ func TestRefusals(t *testing.T) {
 	}{
 		{"the agent platform renders the servers", with(func(in map[string]any) { installation(in)["agentPlatform"] = true }), nil, ErrPolicy, "reconcile agent-platform instead"},
 		{"a dex-app that keeps a rotated secret", with(func(in map[string]any) { installation(in)["dexAppVersion"] = "3.2.2" }), nil, ErrPolicy, "need dex-app 3.2.3 or later"},
+		{"a 2.x dex-app that keeps a rotated secret", with(func(in map[string]any) { installation(in)["dexAppVersion"] = "2.3.0" }), nil, ErrPolicy, "need dex-app 3.2.3 or later (2.4.0 or later on the 2.x line)"},
 		{"a dex-app that is no version", with(func(in map[string]any) { installation(in)["dexAppVersion"] = "latest" }), nil, ErrInput, "is no version"},
 		{"a supplied value", with(func(map[string]any) {}), map[string]string{"servers.mcpKubernetes.token": "x"}, ErrUnknownSecret, "generates every credential"},
 		{"no server runs", with(func(in map[string]any) {

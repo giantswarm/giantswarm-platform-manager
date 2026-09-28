@@ -139,7 +139,7 @@ server the extras directory `render/mcpservers` renders — the one the agent-pl
 installation's servers — with the user values the record says the server needs (Dex on private addresses, the
 clients' too, the installation's Dex CA Secret listed), and each server's Dex client as a `clientSecretRef` in the
 dex-app configmap patch, a file the plan merges keeping every other owner's clients and keys. It refuses where the
-agent platform is on record and below dex-app 3.2.3; see `definitions/cluster-mcp-servers/README.md`.
+agent platform is on record and below dex-app 3.2.3 (2.4.0 on the 2.x line); see `definitions/cluster-mcp-servers/README.md`.
 
 ## Probes and customer actions
 

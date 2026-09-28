@@ -14,6 +14,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // modelServingKey is the one choice's key in the inputs.
@@ -22,7 +23,7 @@ const modelServingKey = "modelServing"
 // dexAppRefusal is the plan's refusal for an installation whose record says
 // it runs version, read from source.
 func dexAppRefusal(name, version, source string) string {
-	return "dex-app " + version + " on record (" + source + "): the referenced Dex client secrets need dex-app " + plan.DexAppReferencedSecrets + " or later; pin it in " + installations.CollectionsKustomizationPath(name) + " first"
+	return "dex-app " + version + " on record (" + source + "): the referenced Dex client secrets need " + render.DexAppNeeds(plan.DexAppReferencedSecrets) + "; pin it in " + installations.CollectionsKustomizationPath(name) + " first"
 }
 
 // The record reads the dex-app from the installation's own pin where its

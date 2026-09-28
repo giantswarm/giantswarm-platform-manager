@@ -8,9 +8,9 @@ import (
 )
 
 // A plan whose Dex patch declares a client with a referenced Secret is held
-// where the dex-app on record is older than 3.2.2, naming the version, the
-// file it was read from and the kustomization to pin it in; 3.2.2 and later
-// commit, so does a record without a version (the report says why) and a
+// where the dex-app on record is older than 3.2.2 (2.4.0 on the 2.x line),
+// naming the version, the file it was read from and the kustomization to pin
+// it in; 3.2.2 and later, and 2.4.0 and later on the 2.x line, commit, so does a record without a version (the report says why) and a
 // plan without a referenced client.
 func TestDexAppRefusal(t *testing.T) {
 	const name, fleetDexApp = "maple", "2.2.3"
@@ -27,6 +27,11 @@ func TestDexAppRefusal(t *testing.T) {
 		{"a pre-release of the version that takes them", referenced, &installations.Record{DexAppVersion: "3.2.2-rc.1", DexAppSource: source}, true},
 		{"the version that takes them", referenced, &installations.Record{DexAppVersion: "3.2.2", DexAppSource: source}, false},
 		{"a later version", referenced, &installations.Record{DexAppVersion: "v3.3.0", DexAppSource: source}, false},
+		{"the 2.x line before the referenced secrets", referenced, &installations.Record{DexAppVersion: "2.3.0", DexAppSource: source}, true},
+		{"a pre-release of the 2.x line that takes them", referenced, &installations.Record{DexAppVersion: "2.4.0-rc.1", DexAppSource: source}, true},
+		{"the 2.x line that takes them", referenced, &installations.Record{DexAppVersion: "2.4.0", DexAppSource: source}, false},
+		{"a later 2.x version", referenced, &installations.Record{DexAppVersion: "2.4.1", DexAppSource: source}, false},
+		{"3.0.0, before the referenced secrets on the 3.x line", referenced, &installations.Record{DexAppVersion: "3.0.0", DexAppSource: source}, true},
 		{"no version on record", referenced, &installations.Record{}, false},
 		{"no record", referenced, nil, false},
 		{"a version that is no semantic version", referenced, &installations.Record{DexAppVersion: "latest", DexAppSource: source}, false},
@@ -42,7 +47,7 @@ func TestDexAppRefusal(t *testing.T) {
 		if !c.refused {
 			continue
 		}
-		want := "dex-app " + c.record.DexAppVersion + " on record (" + source + "): the referenced Dex client secrets need dex-app 3.2.2 or later; pin it in management-clusters/" + name + "/collections/kustomization.yaml first"
+		want := "dex-app " + c.record.DexAppVersion + " on record (" + source + "): the referenced Dex client secrets need dex-app 3.2.2 or later (2.4.0 or later on the 2.x line); pin it in management-clusters/" + name + "/collections/kustomization.yaml first"
 		if got != want {
 			t.Errorf("%s:\n got %s\nwant %s", c.name, got, want)
 		}

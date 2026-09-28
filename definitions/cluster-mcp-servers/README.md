@@ -28,6 +28,6 @@ clients and keys stay their owners'.
 ## Refusals
 
 - The agent platform is on record: the agent-platform definition renders the installation's servers.
-- dex-app older than 3.2.3: before it, Dex keeps a rotated client secret until someone restarts it, so a
+- dex-app older than 3.2.3 (2.4.0 on the 2.x line): before it, Dex keeps a rotated client secret until someone restarts it, so a
   rotation would fail the servers' sign-ins.
 - No server runs, a supplied value (the definition generates every credential), an input the schema rejects.
