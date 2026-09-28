@@ -247,7 +247,7 @@
               "x-readback": {"file": "configmap", "key": "model-manager.github.enabled"},
               "x-feature": "runtime",
               "x-renders": ["configmap:model-manager.github.enabled"],
-              "description": "The model-manager's commit mode through its GitHub App (model-manager.github.enabled): the chart registers with muster pinned to the App and wire_model, unwire_model and the kserve load_model and unload_model take mode: commit, the pull request opened as the person in the repository that owns the target namespace. The connectivity chart opens its egress to api.github.com (GET /user, the pull request). The App's OAuth client is the installation's own Secret, giantswarm-model-manager-oauth-client in agent-platform, not rendered. On the 4 chart line only, where the model-manager runs. Read back from the configmap patch on record."
+              "description": "The model-manager's commit mode through its GitHub App (model-manager.github.enabled): the chart registers with muster pinned to the App and wire_model, unwire_model and the kserve load_model and unload_model take mode: commit, the pull request opened as the person in the repository that owns the target namespace. The connectivity chart opens its egress to api.github.com (GET /user, the pull request). The App's OAuth client is the installation's own Secret, model-manager-oauth-client in agent-platform, not rendered. On the 4 chart line only, where the model-manager runs. Read back from the configmap patch on record."
             }
           }
         }
@@ -269,7 +269,7 @@
               "x-readback": {"file": "configmap", "key": "agent-manager.github.enabled"},
               "x-feature": "runtime",
               "x-renders": ["configmap:agent-manager.github.enabled"],
-              "description": "The agent-manager's commit mode through its GitHub App (agent-manager.github.enabled): the chart registers with muster pinned to the App and create_agent, update_agent and delete_agent take mode: commit, the pull request opened as the person in the repository that owns the target namespace. The connectivity chart opens its egress to api.github.com (GET /user, the pull request). The App's OAuth client is the installation's own Secret, giantswarm-agent-manager-oauth-client in agent-platform, not rendered. Where the fleet policy runs the agent-manager only. Read back from the configmap patch on record."
+              "description": "The agent-manager's commit mode through its GitHub App (agent-manager.github.enabled): the chart registers with muster pinned to the App and create_agent, update_agent and delete_agent take mode: commit, the pull request opened as the person in the repository that owns the target namespace. The connectivity chart opens its egress to api.github.com (GET /user, the pull request). The App's OAuth client is the installation's own Secret, agent-platform-agent-manager-oauth-client in agent-platform, not rendered. Where the fleet policy runs the agent-manager only. Read back from the configmap patch on record."
             }
           }
         }
