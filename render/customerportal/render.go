@@ -8,9 +8,8 @@
 // with the portal's environment, the Secrets the chart reads its credentials
 // from, the plugin signing keys, the tunnel's SPIFFE bundle reference — and
 // the portal's Dex client. The agent-platform section of the portal is the
-// agent-platform definition's: a kustomize Component this definition lists
-// when installation.agentPlatform says the platform is enabled, never files
-// of its own; the portal's environment (backstage.extraEnvVars) stays this
+// agent-platform definition's: a kustomize Component that definition renders
+// and lists in the portal's kustomization, never files of this one; the portal's environment (backstage.extraEnvVars) stays this
 // definition's whole, the avatars hosts of the platforms the portal shows
 // included.
 //
@@ -154,15 +153,15 @@ func (in *Input) grafanaURL() string { return "https://" + in.host("grafana") }
 func (in *Input) authProvider() string { return render.PortalAuthProvider(in.signInInstallation()) }
 
 // extrasKustomization is extras/backstage/kustomization.yaml: the fleet's
-// backstage base (the namespace), the portal's directory and, with the
-// platform enabled, the agent-platform definition's Component. As the fleet
-// writes its portal kustomizations, without apiVersion and kind.
+// backstage base (the namespace) and the portal's directory. The
+// agent-platform definition's Component is that definition's entry: it lists
+// it with the directory it renders, and the plan keeps an entry on record
+// that this render does not list. Listed here, a portal enabled on an
+// installation whose platform has no Component yet would name a directory
+// that is not there, and the tree would not build. As the fleet writes its
+// portal kustomizations, without apiVersion and kind.
 func (in *Input) extrasKustomization() render.File {
-	k := render.Map{e("resources", []string{basesRepository + "base?ref=main", "./" + portalDir + "/"})}
-	if in.Installation.AgentPlatform {
-		k = append(k, e("components", []string{render.PortalPlatformComponent()}))
-	}
-	return yamlFile(k)
+	return yamlFile(render.Map{e("resources", []string{basesRepository + "base?ref=main", "./" + portalDir + "/"})})
 }
 
 // valuesSource is one entry of the HelmRelease's spec.valuesFrom.

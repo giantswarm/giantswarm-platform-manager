@@ -204,16 +204,22 @@ func TestDexClientOwnership(t *testing.T) {
 	if got, want := portalEntry(t, apPatch), roundTrip(t, render.PortalDexClient("portal.hazel.example.test", "hazel")); !reflect.DeepEqual(got, want) {
 		t.Errorf("the agent-platform definition's dex patch carries %v, want %v", got, want)
 	}
-	// And the Component entry this definition lists is the one the agent-platform definition asks for.
-	extras := result.Files["giantswarm/giantswarm-management-clusters"]["management-clusters/hazel/extras/backstage/kustomization.yaml"]
-	var asked string
+	// And the Component entry is the agent-platform definition's alone: it
+	// includes it into this definition's extras kustomization, which lists no
+	// components, so a portal enabled before the Component exists builds.
+	const extrasPath = "management-clusters/hazel/extras/backstage/kustomization.yaml"
+	extras := result.Files["giantswarm/giantswarm-management-clusters"][extrasPath]
+	var asked render.Include
 	for _, inc := range apResult.Includes {
 		if inc.Component {
-			asked = inc.Resource
+			asked = inc
 		}
 	}
-	if asked == "" || !bytes.Contains(extras.Content, []byte("- "+asked+"\n")) {
-		t.Errorf("the extras kustomization does not list the Component %q the agent-platform definition asks for:\n%s", asked, extras.Content)
+	if asked.Path != extrasPath || asked.Resource != render.PortalPlatformComponent() {
+		t.Errorf("the agent-platform definition includes %+v, want %s into %s", asked, render.PortalPlatformComponent(), extrasPath)
+	}
+	if bytes.Contains(extras.Content, []byte("components:")) {
+		t.Errorf("the extras kustomization lists a component of its own:\n%s", extras.Content)
 	}
 }
 

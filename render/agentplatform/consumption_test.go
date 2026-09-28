@@ -414,6 +414,47 @@ func (c *consumption) write(result *render.Result) {
 			}
 		}
 	}
+	for _, inc := range result.Includes {
+		c.include(inc)
+	}
+}
+
+// include lists a definition's entry in a kustomization the tree carries, as
+// the plan's commit does: a resource under resources, a Component under
+// components, once. A kustomization only the record carries (the
+// installation's extras/kustomization.yaml) is not in the tree, which builds
+// each extras directory on its own.
+func (c *consumption) include(inc render.Include) {
+	full := filepath.Join(c.dir, string(inc.Repository), inc.Path)
+	raw, err := os.ReadFile(full) // #nosec G304 -- a path under the test's own tree
+	if errors.Is(err, fs.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	var k map[string]any
+	if err := yaml.Unmarshal(raw, &k); err != nil {
+		c.t.Fatal(err)
+	}
+	list := "resources"
+	if inc.Component {
+		list = "components"
+	}
+	entries, _ := k[list].([]any)
+	for _, e := range entries {
+		if e == inc.Resource {
+			return
+		}
+	}
+	k[list] = append(entries, inc.Resource)
+	out, err := yaml.Marshal(k)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	if err := os.WriteFile(full, out, 0o600); err != nil {
+		c.t.Fatal(err)
+	}
 }
 
 // extras builds one emitted extras directory over the fleet base and renders

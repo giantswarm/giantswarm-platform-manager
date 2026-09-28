@@ -16,7 +16,8 @@ drops, the consistency features and the anonymous probes. Data only; the render 
 The definition renders the portal into the installation's management-clusters repository, under
 `management-clusters/<name>/extras/backstage/` (`backstage:kustomization:`, `backstage:app-config:`,
 `backstage:user-values:`, `backstage:file:`): the kustomization over the fleet's backstage base with the
-portal's directory and, with the platform enabled, the agent-platform definition's Component; the portal's
+portal's directory (the agent-platform definition lists its Component there itself, with the directory it
+renders, and the plan keeps the entry); the portal's
 directory over the fleet's main base with the chart's release range and the HelmRelease's values sources
 patched in, the app-config and values ConfigMaps (the values carry the portal's route and its environment,
 `backstage.extraEnvVars`), the Secrets `user-secrets-backstage`,
