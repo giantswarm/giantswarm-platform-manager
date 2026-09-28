@@ -33,6 +33,8 @@ const (
 	// dollar survives the fleet's variable substitution.
 	brokerClientIDEnv     = "$${AUTH_DEX_MUSTER_BROKER_CLIENT_ID}"
 	brokerClientSecretEnv = "$${AUTH_DEX_MUSTER_BROKER_CLIENT_SECRET}" // #nosec G101 -- a variable reference, not a value
+	// gsGitHub is the portal's gs.github key.
+	gsGitHub = "github"
 )
 
 // githubGrantServer is the registered server that holds the person's own
@@ -86,7 +88,7 @@ func (in *Input) portalGitHubConfig() render.Map {
 	return render.Map{
 		e("clusterTokenBroker", render.Map{e("clientId", brokerClientIDEnv), e("clientSecret", brokerClientSecretEnv),
 			e("tokenUrl", "https://"+in.host("muster")+"/oauth/token")}),
-		e("github", render.Map{e("brokerAudience", githubGrantTarget),
+		e(gsGitHub, render.Map{e("brokerAudience", githubGrantTarget),
 			e("muster", render.Map{e("installation", in.Installation.Name), e("server", in.githubGrantServer())})}),
 	}
 }

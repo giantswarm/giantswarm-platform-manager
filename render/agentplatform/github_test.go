@@ -18,6 +18,8 @@ func TestPortalGitHubThroughOwnMuster(t *testing.T) {
 		patchPath = "giantswarm/riverbend-configs/installations/otter/apps/agent-platform/configmap-values.yaml.patch"
 		component = "giantswarm/riverbend-management-clusters/management-clusters/otter/extras/backstage/agent-platform/"
 		muster    = "giantswarm/riverbend-management-clusters/management-clusters/otter/extras/agent-platform/secrets/muster-broker-clients.yaml"
+		// server is the shape's GitHub server's name.
+		server = "github"
 	)
 	for _, tc := range []struct {
 		name   string
@@ -26,7 +28,7 @@ func TestPortalGitHubThroughOwnMuster(t *testing.T) {
 	}{
 		{"the grant on a portal's installation", func(map[string]any) {}, true},
 		{"no grant server", func(inst map[string]any) {
-			inst["mcpServers"] = []any{map[string]any{"name": "github", "url": "https://api.githubcopilot.com/mcp/", "auth": "oauth"}}
+			inst["mcpServers"] = []any{map[string]any{"name": server, "url": "https://api.githubcopilot.com/mcp/", "auth": "oauth"}}
 		}, false},
 		{"no hosted portal", func(inst map[string]any) { inst["portals"] = inst["portals"].([]any)[1:] }, false},
 	} {
