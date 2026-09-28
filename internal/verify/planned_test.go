@@ -92,7 +92,7 @@ func TestEveryMigrationKeyIsRendered(t *testing.T) {
 // what stands beside them — another client, the portal's own files, another
 // Component — is no migration's, and the removals come first as everywhere.
 func TestFleetAdditionsArePlanned(t *testing.T) {
-	const m3, m5, m30, m32, m33 = "M3", "M5", "M30", "M32", "M33"
+	const m5, m30, m32, m33 = "M5", "M30", "M32", "M33"
 	keys := func(capability string) (plannedKeys, plannedKeys) {
 		rs, err := definitions.Removals(capability)
 		if err != nil {
@@ -137,7 +137,7 @@ func TestFleetAdditionsArePlanned(t *testing.T) {
 		{"the GitHub App's Secret states its type too", portalRms, portalMigs, portalFile("backstage/github-app-credentials.enc.yaml"), absent("type"), "states its type (Opaque)", m33},
 		{"the GitHub App's Secret itself is no migration", portalRms, portalMigs, portalFile("backstage/github-app-credentials.enc.yaml"), absent(""), "", ""},
 		{"the portal's own file", portalRms, portalMigs, portalFile("backstage/app-config.yaml"), absent(""), "", ""},
-		{"the platform's Component in the portal's kustomization", portalRms, portalMigs, portalFile("kustomization.yaml"), absent("components[./agent-platform/]"), "the agent-platform definition's Component ./agent-platform/", m3},
+		{"the platform's Component is the agent-platform definition's entry, no migration of the portal's", portalRms, portalMigs, portalFile("kustomization.yaml"), absent("components[./agent-platform/]"), "", ""},
 		{"another Component", portalRms, portalMigs, portalFile("kustomization.yaml"), absent("components[./other/]"), "", ""},
 		{"a leaf on record with another value", portalRms, portalMigs, portalFile("backstage/user-secrets.enc.yaml"), &Difference{Path: "metadata.namespace", Rendered: "x", Current: "y"}, "", ""},
 	} {

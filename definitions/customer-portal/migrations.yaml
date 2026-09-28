@@ -32,7 +32,3 @@ migrations:
     reason: "Added: the portal's kustomization lists the Secret plugin-keys-backstage, so it is applied with the portal · M33"
   - key: backstage:kustomization:spec.valuesFrom[plugin-keys-backstage]
     reason: "Added: the HelmRelease reads values from the Secret plugin-keys-backstage, a values source of the portal's kustomization patch after its ConfigMaps · M33"
-
-  # --- M3 — the portal lists the platform's Component (the agent-platform definition renders its files) ---
-  - key: backstage:kustomization:components[./agent-platform/]
-    reason: "Added: the portal's kustomization lists the agent-platform definition's Component ./agent-platform/ beside the portal's directory, so the portal runs with the platform's section where the platform is enabled · M3"
