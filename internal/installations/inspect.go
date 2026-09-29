@@ -53,6 +53,11 @@ type Record struct {
 	// DexAppSource is the file it was read from, repository:path.
 	DexAppVersion string `json:"dexAppVersion,omitempty"`
 	DexAppSource  string `json:"dexAppSource,omitempty"`
+	// CollectionsStage is the stage the installation's app collection
+	// follows: the <stage> of the bases/collections/<provider>/stages/<stage>
+	// its collections kustomization names (readCollectionsStage); empty when
+	// it names none.
+	CollectionsStage string `json:"collectionsStage,omitempty"`
 	// DexSecretLists are the lists the installation's encrypted dex-app
 	// secret patch carries that the values merge takes whole over the
 	// plaintext patch's — the hand-registered extra static clients, the
@@ -159,25 +164,28 @@ func (r *Registry) inspect(ctx context.Context, c *gh.Client, inst Installation,
 	}
 
 	var (
-		wg      sync.WaitGroup
-		record  *Record
-		recErr  error
-		pcr     bool
-		pcrErr  error
-		pcs     bool
-		pcsErr  error
-		dex     DexAppVersion
-		dexErr  error
-		lists   []DexSecretList
-		listErr error
-		reg     Registered
-		regErr  error
-		markers = make([]markerRead, len(caps))
+		wg       sync.WaitGroup
+		record   *Record
+		recErr   error
+		pcr      bool
+		pcrErr   error
+		pcs      bool
+		pcsErr   error
+		dex      DexAppVersion
+		dexErr   error
+		stage    string
+		stageErr error
+		lists    []DexSecretList
+		listErr  error
+		reg      Registered
+		regErr   error
+		markers  = make([]markerRead, len(caps))
 	)
 	if detail == Full {
 		wg.Go(func() { record, recErr = r.readRecord(ctx, c, owner, repo, inst) })
 		wg.Go(func() { pcr, pcrErr = readPodCertificateRequest(ctx, readAs(c), inst) })
 		wg.Go(func() { dex, dexErr = readDexAppVersion(ctx, readAt(c), inst) })
+		wg.Go(func() { stage, stageErr = readCollectionsStage(ctx, readAt(c), inst) })
 		wg.Go(func() { pcs, pcsErr = readPortalClientSecret(ctx, c, inst) })
 		wg.Go(func() { lists, listErr = readDexSecretLists(ctx, readAs(c), inst) })
 		wg.Go(func() { reg, regErr = readRegistered(ctx, readAs(c), inst) })
@@ -221,6 +229,12 @@ func (r *Registry) inspect(ctx context.Context, c *gh.Client, inst Installation,
 				rep.Errors = append(rep.Errors, dexErr.Error())
 			} else if dex.Version != "" {
 				record.DexAppVersion, record.DexAppSource = dex.Version, dex.Source()
+			}
+			// So is the stage its collection follows.
+			if stageErr != nil {
+				rep.Errors = append(rep.Errors, stageErr.Error())
+			} else {
+				record.CollectionsStage = stage
 			}
 			// So are the lists the encrypted Dex values carry.
 			if listErr != nil {
@@ -413,6 +427,9 @@ func (r *Record) Input() map[string]any {
 	if r.DexAppVersion != "" {
 		// Optional in the schema: absent where the record says nothing.
 		in["dexAppVersion"] = r.DexAppVersion
+	}
+	if r.CollectionsStage != "" {
+		in["collectionsStage"] = r.CollectionsStage
 	}
 	return in
 }

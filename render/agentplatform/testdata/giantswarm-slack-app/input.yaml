@@ -5,7 +5,8 @@
 # no public route renders. On the 4 chart line, with its own portal beside the hub's ("gopher") and
 # the hub's token-exchange client in its Dex; the platform's portal section lands in its own
 # portal's tree, never in the hub's hand-kept one. The codename is the policy's; the domain and
-# every value are invented.
+# every value are invented. Its app collection follows the testing stage, so it runs the platform's
+# release candidates.
 input:
   installation:
     name: glean
@@ -14,6 +15,7 @@ input:
     provider: capz
     private: true
     chartLine: "4"
+    collectionsStage: testing
     musterClientId: 00000000-0000-4000-8000-000000000004
     podCertificateRequest: true
     portalClientSecret: true

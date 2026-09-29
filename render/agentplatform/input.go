@@ -129,7 +129,8 @@ type Input struct {
 	// definition renders: the policy's flux.sourceInterval.
 	SourceInterval string
 	// ReleaseCandidates says the installation runs the platform's release
-	// candidates: the policy's releaseCandidates.installations names it.
+	// candidates: its collection follows the policy's releaseCandidates.stage
+	// and its organisation is among releaseCandidates.customers.
 	ReleaseCandidates bool
 	// selectsLine says the enable selected the 4 chart line over the
 	// record's 3: the render writes the selection into the record
@@ -202,9 +203,13 @@ type Installation struct {
 	// DexAppVersion is the dex-app the installation runs, where the record
 	// says: its own pin or the fleet's base. Renders nothing; the plan holds
 	// the commit until it takes the referenced Dex client secrets.
-	DexAppVersion string      `json:"dexAppVersion,omitempty"`
-	Portals       []PortalRef `json:"portals"`
-	Federation    Federation  `json:"federation"`
+	DexAppVersion string `json:"dexAppVersion,omitempty"`
+	// CollectionsStage is the stage the installation's app collection
+	// follows, where the record says; with the policy's releaseCandidates it
+	// decides whether the installation runs release candidates.
+	CollectionsStage string      `json:"collectionsStage,omitempty"`
+	Portals          []PortalRef `json:"portals"`
+	Federation       Federation  `json:"federation"`
 	// MCPServers are the servers registered on the installation beyond the
 	// platform's own three: the MCPServer objects under
 	// extras/agent-platform/mcpservers/ on record (registered.go).
@@ -352,7 +357,8 @@ type policy struct {
 	} `yaml:"components"`
 	KlausGateway      GatewayPolicy `yaml:"klausGateway"`
 	ReleaseCandidates struct {
-		Installations []string `yaml:"installations"`
+		Stage     string   `yaml:"stage"`
+		Customers []string `yaml:"customers"`
 	} `yaml:"releaseCandidates"`
 	Federation struct {
 		Connector Connectors `yaml:"connector"`
@@ -376,6 +382,14 @@ func loadPolicy() (*policy, error) {
 		return nil, fmt.Errorf("%w: flux.sourceInterval: %w", ErrPolicy, err)
 	}
 	return &pol, nil
+}
+
+// releaseCandidates says the policy runs the platform's release candidates on
+// an installation: its collection follows the policy's releaseCandidates.stage
+// and its organisation is among releaseCandidates.customers.
+func (p *policy) releaseCandidates(inst Installation) bool {
+	rc := p.ReleaseCandidates
+	return rc.Stage != "" && inst.CollectionsStage == rc.Stage && slices.Contains(rc.Customers, inst.Customer)
 }
 
 // components are the components the policy gives an installation: its
@@ -542,7 +556,7 @@ func Parse(raw any) (*Input, error) {
 	}
 	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories,
 		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
-		ReleaseCandidates: slices.Contains(pol.ReleaseCandidates.Installations, d.Installation.Name)}
+		ReleaseCandidates: pol.releaseCandidates(d.Installation)}
 	if in.Components, err = pol.components(in.Installation); err != nil {
 		return nil, err
 	}
@@ -635,7 +649,7 @@ func (in *Input) checkRecord() error {
 		return refuse(fmt.Sprintf("%s is on-demand, Karpenter's capacity type, and a %s installation runs no Karpenter the definition knows; the pods would stay Pending", describe("scheduling.singletonsCapacity"), in.Installation.Provider))
 	}
 	if in.ReleaseCandidates && in.Installation.ChartLine != lineFour {
-		return refuse(fmt.Sprintf("the fleet policy's releaseCandidates.installations names %s, and release candidates are the 4 chart line's (gitops.prereleases); %s selects the %s line, and agentPlatform.kagentApiV2: true in installations/%s/config.yaml.patch selects 4", in.Installation.Name, describe("installation.chartLine"), in.Installation.ChartLine, in.Installation.Name))
+		return refuse(fmt.Sprintf("%s is %s, whose installations of %s run release candidates (the fleet policy's releaseCandidates), and release candidates are the 4 chart line's (gitops.prereleases); %s selects the %s line, and agentPlatform.kagentApiV2: true in installations/%s/config.yaml.patch selects 4", describe("installation.collectionsStage"), in.Installation.CollectionsStage, in.Installation.Customer, describe("installation.chartLine"), in.Installation.ChartLine, in.Installation.Name))
 	}
 	for _, c := range lineFourComponents {
 		if in.Components[c] && in.Installation.ChartLine != lineFour {
