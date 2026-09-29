@@ -48,6 +48,14 @@ const currentPlatformPatchKept = `kagent:
   oauth2ProxyIngress:
     additionalPeers:
       - app: teleport-kube-agent
+  controller:
+    nodeSelector:
+      karpenter.sh/capacity-type: on-demand
+postgres:
+  affinity:
+    podAntiAffinityType: preferred
+    nodeSelector:
+      karpenter.sh/capacity-type: on-demand
 muster:
   resources:
     limits:
@@ -89,6 +97,8 @@ func TestKeepAudiencesCarriesTheKeptKeysFromTheRecord(t *testing.T) {
 		"kagent.providers.anthropic.model",
 		"kagent.modelConfigs",
 		"kagent.oauth2ProxyIngress.additionalPeers",
+		"kagent.controller.nodeSelector",
+		"postgres.affinity.nodeSelector",
 	} {
 		if at(ren, strings.Split(path, ".")...) == nil {
 			t.Errorf("%s: not carried into the render:\n%s", path, out)
@@ -119,6 +129,8 @@ func TestKeepAudiencesCarriesTheKeptKeysFromTheRecord(t *testing.T) {
 		{List: "muster.muster.oauth.server.dex", Entry: "connectorId"},
 		{List: "muster.muster.oauth.server", Entry: "trustedIssuers"},
 		{List: "muster.muster.oauth.server", Entry: "providerTokenRefreshThreshold"},
+		{List: "kagent.controller", Entry: "nodeSelector"},
+		{List: "postgres", Entry: "affinity"},
 	}
 	for _, w := range want {
 		if !slices.Contains(kept, w) {
@@ -160,7 +172,7 @@ func TestKeepSubtreesLeavesTheRendersOwnKeyAndAPathThroughAScalar(t *testing.T) 
 }
 
 func TestKeptPlatformKeysReadTheDefinition(t *testing.T) {
-	for _, want := range []string{"muster.muster.oauth.server.trustedIssuers", "kagent.oauth2ProxyIngress", "muster.muster.oauth.server.dex.connectorId", "muster.muster.oauth.server.providerTokenRefreshThreshold"} {
+	for _, want := range []string{"muster.muster.oauth.server.trustedIssuers", "kagent.oauth2ProxyIngress", "muster.muster.oauth.server.dex.connectorId", "muster.muster.oauth.server.providerTokenRefreshThreshold", "kagent.controller.nodeSelector", "postgres.affinity"} {
 		if !slices.Contains(keptPlatformKeys, want) {
 			t.Errorf("the agent-platform definition keeps %s; kept keys: %v", want, keptPlatformKeys)
 		}
