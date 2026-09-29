@@ -261,7 +261,8 @@ type Installation struct {
 	Refused string `json:"refused,omitempty"`
 	// CommitRefused says why a commit of this dry run would be refused (the
 	// definition's refusal, the same sentence as Refused; a choice not on
-	// record; the record's dex-app too old for a referenced Dex client; a
+	// record; the record's dex-app too old for a referenced Dex client; the
+	// release candidates dropped while one is ahead of the stable release; a
 	// generated value frozen where it cannot rotate; a section of the hub's
 	// Dev Portal the commit would remove); empty when a commit could go ahead.
 	CommitRefused    string            `json:"commitRefused,omitempty"`
@@ -286,10 +287,15 @@ type Installation struct {
 	// removals of kind hub, by key — whose value on record the plan removes:
 	// the definition renders no hub shape, so a commit is held while one is
 	// (HubRefusal). The comparison plans their removal all the same.
-	HubSections     []string         `json:"hubSections,omitempty"`
-	DexClients      []DexClient      `json:"dexClients"`
-	CustomerActions []CustomerAction `json:"customerActions"`
-	Probes          []Probe          `json:"probes"`
+	HubSections []string `json:"hubSections,omitempty"`
+	// DropsPrereleases says the plan's agent-platform values patch drops
+	// gitops.prereleases that the patch on record sets: the installation
+	// stops following the platform's release candidates
+	// (ReleaseCandidateRefusal).
+	DropsPrereleases bool             `json:"dropsPrereleases,omitempty"`
+	DexClients       []DexClient      `json:"dexClients"`
+	CustomerActions  []CustomerAction `json:"customerActions"`
+	Probes           []Probe          `json:"probes"`
 	// Diff counts the files by change; an empty diff is every file unchanged.
 	Diff map[Change]int `json:"diff"`
 }
@@ -551,6 +557,9 @@ func Build(ctx context.Context, opts Options) Installation {
 			p.Files = append(p.Files, pf)
 			if strings.HasSuffix(path, dexPatchFile) {
 				p.DexClients = DexClients(f.Content, in)
+			}
+			if strings.HasSuffix(path, platformPatchFile) && pf.Change == ChangeUpdate {
+				p.DropsPrereleases = dropsPrereleases(current, content)
 			}
 		}
 	}

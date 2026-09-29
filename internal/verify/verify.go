@@ -242,6 +242,7 @@ type Result struct {
 	SuppliedSecrets  []string               `json:"suppliedSecrets"`
 	SuppliedOnRecord []string               `json:"suppliedOnRecord,omitempty"`
 	HubSections      []string               `json:"hubSections,omitempty"`
+	DropsPrereleases bool                   `json:"dropsPrereleases,omitempty"`
 	DexClients       []plan.DexClient       `json:"dexClients"`
 	CustomerActions  []plan.CustomerAction  `json:"customerActions"`
 	Probes           []plan.Probe           `json:"probes"`
@@ -252,6 +253,7 @@ type Result struct {
 func (r *Result) view(p plan.Installation, content bool) {
 	r.Files, r.Includes, r.Diff = p.Files, p.Includes, p.Diff
 	r.GeneratedSecrets, r.SuppliedSecrets, r.SuppliedOnRecord, r.HubSections = p.GeneratedSecrets, p.SuppliedSecrets, p.SuppliedOnRecord, p.HubSections
+	r.DropsPrereleases = p.DropsPrereleases
 	r.DexClients, r.CustomerActions, r.Probes = p.DexClients, p.CustomerActions, p.Probes
 	r.MissingFacts = p.MissingFacts
 	if !content {
@@ -268,7 +270,7 @@ func (r *Result) view(p plan.Installation, content bool) {
 func (r Result) Plan() plan.Installation {
 	return plan.Installation{Name: r.Installation, State: r.State, Inputs: r.Inputs.Values, MissingInputs: r.Inputs.Missing, Refused: r.Refused, CommitRefused: r.CommitRefused, MissingFacts: r.MissingFacts,
 		Files: r.Files, Includes: r.Includes, Diff: r.Diff, GeneratedSecrets: r.GeneratedSecrets, SuppliedSecrets: r.SuppliedSecrets, SuppliedOnRecord: r.SuppliedOnRecord,
-		HubSections: r.HubSections, DexClients: r.DexClients, CustomerActions: r.CustomerActions, Probes: r.Probes}
+		HubSections: r.HubSections, DropsPrereleases: r.DropsPrereleases, DexClients: r.DexClients, CustomerActions: r.CustomerActions, Probes: r.Probes}
 }
 
 // Options shape one verify.

@@ -72,6 +72,15 @@ type Record struct {
 	// is held while the encrypted patch carries it.
 	DexSecretLists  []DexSecretList `json:"dexSecretLists,omitempty"`
 	DexSecretSource string          `json:"dexSecretSource,omitempty"`
+	// PlatformCandidate is, where the installation's agent-platform values
+	// patch on record sets gitops.prereleases, agent-platform's 4.x release
+	// candidate that no stable release has caught up with yet
+	// (readPlatformCandidate), and PlatformStable the line's latest stable
+	// release; both empty where the patch does not set it or no candidate is
+	// ahead. A commit that drops gitops.prereleases is held while one is: a
+	// stable-only range would move the installation down to PlatformStable.
+	PlatformCandidate string `json:"platformCandidate,omitempty"`
+	PlatformStable    string `json:"platformStable,omitempty"`
 }
 
 // configPatch is the part of config.yaml.patch the record reads.
@@ -187,6 +196,8 @@ func (r *Registry) inspect(ctx context.Context, c *gh.Client, inst Installation,
 		listErr error
 		reg     Registered
 		regErr  error
+		rc      PlatformCandidate
+		rcErr   error
 		markers = make([]markerRead, len(caps))
 	)
 	if detail == Full {
@@ -200,6 +211,14 @@ func (r *Registry) inspect(ctx context.Context, c *gh.Client, inst Installation,
 		wg.Go(func() { pcs, pcsErr = readPortalClientSecret(ctx, c, inst) })
 		wg.Go(func() { lists, listErr = readDexSecretLists(ctx, readAs(c), inst) })
 		wg.Go(func() { reg, regErr = readRegistered(ctx, readAs(c), inst) })
+		wg.Go(func() {
+			on, err := readPrereleasesOnRecord(ctx, readAs(c), inst)
+			if err != nil || !on {
+				rcErr = err
+				return
+			}
+			rc, rcErr = readPlatformCandidate(ctx, releasesAs(c), releaseCandidateMajor)
+		})
 	}
 	for i, cap := range caps {
 		wg.Go(func() { markers[i] = readMarker(ctx, c, inst, cap) })
@@ -227,9 +246,16 @@ func (r *Registry) inspect(ctx context.Context, c *gh.Client, inst Installation,
 			rep.Record = record
 			rep.Errors = append(rep.Errors, colErr.Error())
 			rep.Readable = false
+		case rcErr != nil:
+			// Unread, a candidate ahead of the stable release must not read as
+			// none: the commit that drops the candidates would go ahead.
+			rep.Record = record
+			rep.Errors = append(rep.Errors, rcErr.Error())
+			rep.Readable = false
 		default:
 			record.PodCertificateRequest, record.PortalClientSecret = pcr, pcs
 			record.CollectionsStage = col.stage()
+			record.PlatformCandidate, record.PlatformStable = rc.Candidate, rc.Stable
 			rep.Record = record
 			if pcrErr != nil {
 				// The release the cluster App names is a fact of the record, not

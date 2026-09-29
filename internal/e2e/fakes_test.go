@@ -49,6 +49,10 @@ type fakeGitHub struct {
 	// failing holds the owner/repo:path whose blob GitHub answers with a
 	// 502, the rest of the repository readable.
 	failing map[string]bool
+	// releases are the GitHub releases of owner/repo, newest first; a
+	// repository in failingReleases answers its releases with a 502.
+	releases        map[string][]fakeRelease
+	failingReleases map[string]bool
 	// contentsCalls counts the blob reads per owner/repo:path — the files
 	// the server under test fetched by content, not the ones it answered
 	// from a tree or its cache.
@@ -104,7 +108,7 @@ const (
 
 func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 	t.Helper()
-	g := &fakeGitHub{logins: logins, files: map[string]map[string]string{}, forbidden: map[string]bool{}, failing: map[string]bool{}, contentsCalls: map[string]int{}, treeCalls: map[string]int{}, treeChecks: map[string]int{},
+	g := &fakeGitHub{logins: logins, files: map[string]map[string]string{}, forbidden: map[string]bool{}, failing: map[string]bool{}, releases: map[string][]fakeRelease{}, failingReleases: map[string]bool{}, contentsCalls: map[string]int{}, treeCalls: map[string]int{}, treeChecks: map[string]int{},
 		history: map[string][]fakeCommit{}, commitCalls: map[string]int{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v3/user", func(w http.ResponseWriter, r *http.Request) {
@@ -274,6 +278,22 @@ func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 		writeJSON(w, http.StatusOK, map[string]any{shaKey: c.sha, htmlURLKey: commitURL(repo, c.sha), "parents": []map[string]any{{shaKey: c.parent}}, "files": files})
 	})
 	// The commits of the default branch that changed ?path=, newest first.
+	// The releases of owner/repo, newest first, on one page.
+	mux.HandleFunc("GET /api/v3/repos/{owner}/{repo}/releases", func(w http.ResponseWriter, r *http.Request) {
+		repo := r.PathValue("owner") + "/" + r.PathValue("repo")
+		g.mu.Lock()
+		failing, list := g.failingReleases[repo], g.releases[repo]
+		g.mu.Unlock()
+		if failing {
+			writeJSON(w, http.StatusBadGateway, map[string]any{message: "Server Error"})
+			return
+		}
+		out := make([]map[string]any, 0, len(list))
+		for _, rel := range list {
+			out = append(out, map[string]any{"tag_name": rel.tag, "prerelease": rel.prerelease})
+		}
+		writeJSON(w, http.StatusOK, out)
+	})
 	mux.HandleFunc("GET /api/v3/repos/{owner}/{repo}/commits", func(w http.ResponseWriter, r *http.Request) {
 		repo, ok := g.readable(w, r)
 		if !ok {
@@ -426,6 +446,26 @@ func (g *fakeGitHub) forbid(repo string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.forbidden[repo] = true
+}
+
+// fakeRelease is one GitHub release of the fake.
+type fakeRelease struct {
+	tag        string
+	prerelease bool
+}
+
+// setReleases makes owner/repo's releases list, newest first.
+func (g *fakeGitHub) setReleases(repo string, list ...fakeRelease) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.releases[repo] = list
+}
+
+// failReleases makes the releases read of owner/repo a 502.
+func (g *fakeGitHub) failReleases(repo string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failingReleases[repo] = true
 }
 
 // fail makes the blob read of owner/repo:path a 502, as a transient GitHub

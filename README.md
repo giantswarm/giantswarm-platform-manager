@@ -61,7 +61,8 @@ this order, writing nothing before the gate:
    person, a generated value frozen where no rotation is possible (below), a section of the hub's Dev Portal on
    record that a `customer-portal` plan would remove (`hubSections`), a `rotate` name the plan does not list,
    or a supplied secret left out of `secrets` (or one the plan does not ask for) refuses the commit before any
-   write. The plan's own refusals — the dex-app on record, the frozen values, the hub's portal — are one list
+   write. The plan's own refusals — the dex-app on record, the release candidates dropped while one is ahead of
+   the stable release, the frozen values, the hub's portal — are one list
    the commit, the wave's pre-check and the dry run's `commitRefused` share. Every file on record
    already: nothing to commit, no Action.
 3. **The Action** — created in *pending approval* with the actor, the capability, the installation and the
