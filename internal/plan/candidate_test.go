@@ -23,7 +23,7 @@ func TestDropsPrereleases(t *testing.T) {
 // ahead of the stable release, and only then.
 func TestReleaseCandidateRefusal(t *testing.T) {
 	ahead := &installations.Record{PlatformCandidate: "v4.2.0-rc.2", PlatformStable: "v4.1.0"}
-	drops := Installation{Name: "hazel", DropsPrereleases: true}
+	drops := Installation{Name: hazel.Name, DropsPrereleases: true}
 	got := drops.ReleaseCandidateRefusal(ahead)
 	if !strings.Contains(got, "v4.2.0-rc.2 is ahead") || !strings.Contains(got, "down to the latest stable release v4.1.0") || !strings.Contains(got, "devctl release promote giantswarm/agent-platform") {
 		t.Errorf("the refusal: %q", got)
@@ -35,9 +35,9 @@ func TestReleaseCandidateRefusal(t *testing.T) {
 		p   Installation
 		rec *installations.Record
 	}{
-		"keeps the candidates": {Installation{Name: "hazel"}, ahead},
+		"keeps the candidates": {Installation{Name: hazel.Name}, ahead},
 		"no candidate ahead":   {drops, &installations.Record{}},
-		"no record":            {drops, nil},
+		"without a record":     {drops, nil},
 	} {
 		if got := c.p.ReleaseCandidateRefusal(c.rec); got != "" {
 			t.Errorf("%s: %q", name, got)
