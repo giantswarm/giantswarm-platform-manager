@@ -812,14 +812,15 @@ releaseCandidates:
 `), &pol); err != nil {
 		t.Fatal(err)
 	}
+	const giantswarm = "giantswarm"
 	for _, c := range []struct {
 		stage, customer string
 		want            bool
 	}{
-		{"testing", "giantswarm", true},
-		{"staging", "giantswarm", false},
-		{"stable", "giantswarm", false},
-		{"", "giantswarm", false},
+		{"testing", giantswarm, true},
+		{"staging", giantswarm, false},
+		{"stable", giantswarm, false},
+		{"", giantswarm, false},
 		{"testing", "gk-software", false},
 	} {
 		if got := pol.releaseCandidates(Installation{CollectionsStage: c.stage, Customer: c.customer}); got != c.want {
@@ -827,7 +828,7 @@ releaseCandidates:
 		}
 	}
 	var none policy
-	if none.releaseCandidates(Installation{CollectionsStage: "", Customer: "giantswarm"}) {
+	if none.releaseCandidates(Installation{CollectionsStage: "", Customer: giantswarm}) {
 		t.Error("a policy that names no stage runs release candidates on an installation with none on record")
 	}
 }

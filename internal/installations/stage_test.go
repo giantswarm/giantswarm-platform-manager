@@ -7,6 +7,10 @@ import (
 	"testing"
 )
 
+// The collection stages the cases read: the fleet's default and the one that
+// runs release candidates.
+const stableStage, testingStage = "stable", "testing"
+
 // The collections stage on record is the stage of the collection base the
 // installation's collections kustomization names as a remote resource; an
 // installation without the kustomization, or whose resources name no stage,
@@ -22,10 +26,10 @@ func TestCollectionsStageFromTheRecord(t *testing.T) {
 		files map[string]string
 		want  string
 	}{
-		{"the stable stage", map[string]string{kustomization: collectionsFixture("main", pinnedDexApp)}, "stable"},
-		{"the testing stage", map[string]string{kustomization: stageBase("testing")}, "testing"},
+		{"the stable stage", map[string]string{kustomization: collectionsFixture("main", pinnedDexApp)}, stableStage},
+		{"the testing stage", map[string]string{kustomization: stageBase(testingStage)}, testingStage},
 		{"a stage without the scheme", map[string]string{kustomization: "resources:\n  - github.com/" + fixtureBases + "//bases/collections/capa/stages/staging?ref=v1.2.0\n"}, "staging"},
-		{"a local resource before the base", map[string]string{kustomization: "resources:\n  - ./extras\n  - https://github.com/" + fixtureBases + "//bases/collections/capa/stages/testing\n"}, "testing"},
+		{"a local resource before the base", map[string]string{kustomization: "resources:\n  - ./extras\n  - https://github.com/" + fixtureBases + "//bases/collections/capa/stages/testing\n"}, testingStage},
 		{"a base that is no stage", map[string]string{kustomization: "resources:\n  - https://github.com/" + fixtureBases + "//bases/collections/shared/base?ref=main\n"}, ""},
 		{"no kustomization on record", map[string]string{}, ""},
 	}
