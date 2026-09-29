@@ -491,6 +491,13 @@ func TestRefusals(t *testing.T) {
 	lineThreeOwned["installation"].(map[string]any)["chartLine"] = lineThree
 	lineThreeOwned["installation"].(map[string]any)["agentPlatform"] = true
 	delete(lineThreeOwned, "modelServing")
+	// An installation the policy runs release candidates on (glean) with the
+	// capability on record, its record on the 3 line: adoption keeps the line,
+	// and the chart's gitops.prereleases is the 4 line's.
+	lineThreeCandidates, lineThreeCandidatesSecrets := loadInput(t, shapeGiantswarmSlackApp)
+	lineThreeCandidates["installation"].(map[string]any)["chartLine"] = lineThree
+	lineThreeCandidates["installation"].(map[string]any)["agentPlatform"] = true
+	delete(lineThreeCandidates, "modelServing")
 	// A 4-line record whose cluster App does not say the cluster serves
 	// PodCertificateRequest: no gates on record, a chart before the default.
 	noPodCertificateRequest, _ := loadInput(t, shapePublicCustomer)
@@ -528,6 +535,7 @@ func TestRefusals(t *testing.T) {
 		{"unknown record key", clone(func(m map[string]any) { m["installation"].(map[string]any)["replicas"] = 3 }), secrets, ErrInput, "replicas"},
 		{"empty Slack credential where the gateway runs", slackAppPublic, nil, ErrEmptySecret, fieldSlack + "bot-token"},
 		{"no app-level token on a private installation", slackApp, withoutAppToken, ErrEmptySecret, fieldSlack + "app-token"},
+		{"release candidates on the 3 line", lineThreeCandidates, lineThreeCandidatesSecrets, ErrInput, "releaseCandidates.installations"},
 		{"an app-level token on a public installation", slackAppPublic, slackPublicSecrets, ErrUnknownSecret, fieldSlack + "app-token"},
 		{"a Slack credential where no gateway runs", base, with(fieldSlack+"bot-token", "x"), ErrUnknownSecret, fieldSlack + "bot-token"},
 		{"the model key is never supplied", base, with("kagent.modelKey", "x"), ErrUnknownSecret, "kagent.modelKey"},

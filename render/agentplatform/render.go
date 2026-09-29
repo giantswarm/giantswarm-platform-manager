@@ -160,6 +160,9 @@ var servingComponents = []string{"kserve-llmisvc-crd", "kserve-llmisvc-resources
 func (in *Input) configmapPatch() render.Map {
 	var m render.Map
 	m = append(m, e("global", render.Map{e("domain", in.Installation.BaseDomain)}))
+	if in.ReleaseCandidates {
+		m = append(m, e("gitops", render.Map{e("prereleases", true)}))
+	}
 
 	components := render.Map{e("kagent", render.Map{e("enabled", in.kagent())}),
 		e("agent-manager", render.Map{e("enabled", in.agentManager())})}

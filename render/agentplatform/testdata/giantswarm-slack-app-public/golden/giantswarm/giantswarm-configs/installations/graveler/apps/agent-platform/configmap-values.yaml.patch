@@ -2,6 +2,8 @@
 # the next reconcile writes it again from the installation's inputs.
 global:
   domain: graveler.example.io
+gitops:
+  prereleases: true
 components:
   kagent:
     enabled: true
