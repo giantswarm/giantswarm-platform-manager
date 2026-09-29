@@ -6,7 +6,7 @@ require (
 	filippo.io/age v1.3.2
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/creativeprojects/go-selfupdate v1.6.0
-	github.com/giantswarm/gitops-commit v0.10.0
+	github.com/giantswarm/gitops-commit v0.10.1
 	github.com/giantswarm/mcp-oauth v1.4.9
 	github.com/giantswarm/selfupdate-cosign v0.3.1
 	github.com/go-jose/go-jose/v4 v4.1.5
@@ -119,7 +119,6 @@ require (
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/go-containerregistry v0.21.7 // indirect
 	github.com/google/go-github/v86 v86.0.0 // indirect
-	github.com/google/go-github/v88 v88.0.0 // indirect
 	github.com/google/go-querystring v1.2.0 // indirect
 	github.com/google/jsonschema-go v0.4.2 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
