@@ -42,6 +42,8 @@ const currentPlatformPatchKept = `kagent:
     anthropic:
       # the installation's own pick, until the fleet default is right for it
       model: claude-opus-5
+    annotations:
+      ui.giantswarm.io/display-name: Anthropic Opus 5
   modelConfigs:
     - name: anthropic-opus-5
       provider: Anthropic
@@ -95,6 +97,7 @@ func TestKeepAudiencesCarriesTheKeptKeysFromTheRecord(t *testing.T) {
 		"muster.muster.oauth.server.providerTokenRefreshThreshold",
 		"muster.resources.limits.memory",
 		"kagent.providers.anthropic.model",
+		"kagent.providers.annotations",
 		"kagent.modelConfigs",
 		"kagent.oauth2ProxyIngress.additionalPeers",
 		"kagent.controller.nodeSelector",
@@ -123,6 +126,7 @@ func TestKeepAudiencesCarriesTheKeptKeysFromTheRecord(t *testing.T) {
 	want := []Kept{
 		{List: ListAllowedCallers, Entry: "system:serviceaccount:marge:marge-shield-sweep"},
 		{List: "kagent.providers.anthropic", Entry: "model"},
+		{List: "kagent.providers", Entry: "annotations"},
 		{List: kagentKey, Entry: "modelConfigs"},
 		{List: kagentKey, Entry: "oauth2ProxyIngress"},
 		{List: musterKey, Entry: "resources"},
@@ -172,7 +176,7 @@ func TestKeepSubtreesLeavesTheRendersOwnKeyAndAPathThroughAScalar(t *testing.T) 
 }
 
 func TestKeptPlatformKeysReadTheDefinition(t *testing.T) {
-	for _, want := range []string{"muster.muster.oauth.server.trustedIssuers", "kagent.oauth2ProxyIngress", "muster.muster.oauth.server.dex.connectorId", "muster.muster.oauth.server.providerTokenRefreshThreshold", "kagent.controller.nodeSelector", "postgres.affinity"} {
+	for _, want := range []string{"muster.muster.oauth.server.trustedIssuers", "kagent.oauth2ProxyIngress", "muster.muster.oauth.server.dex.connectorId", "muster.muster.oauth.server.providerTokenRefreshThreshold", "kagent.controller.nodeSelector", "postgres.affinity", "kagent.providers.annotations"} {
 		if !slices.Contains(keptPlatformKeys, want) {
 			t.Errorf("the agent-platform definition keeps %s; kept keys: %v", want, keptPlatformKeys)
 		}

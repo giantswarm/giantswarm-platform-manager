@@ -40,6 +40,11 @@ removals:
     reason: >-
       Kept: kagent.providers.anthropic.model pins this installation's default Anthropic model; the pin stays until the shared defaults' fleet-wide pick is
       the right one for it and the installation's own is moved there or dropped by hand · M26
+  - key: configmap:kagent.providers.annotations
+    kind: kept
+    reason: >-
+      Kept: kagent.providers.annotations names this installation's default ModelConfig in the UI (ui.giantswarm.io/display-name) after the model it pins;
+      the name stays with the model pin, until the shared defaults carry both
   - key: configmap:kagent.modelConfigs
     kind: kept
     reason: "Kept: kagent's ModelConfigs are inlined in these values; they stay until each is a ModelConfig object under extras, next to the agents that use it · M25"
