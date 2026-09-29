@@ -46,6 +46,9 @@ type fakeGitHub struct {
 	mu        sync.Mutex
 	files     map[string]map[string]string // owner/repo → path → content
 	forbidden map[string]bool
+	// failing holds the owner/repo:path whose blob GitHub answers with a
+	// 502, the rest of the repository readable.
+	failing map[string]bool
 	// contentsCalls counts the blob reads per owner/repo:path — the files
 	// the server under test fetched by content, not the ones it answered
 	// from a tree or its cache.
@@ -101,7 +104,7 @@ const (
 
 func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 	t.Helper()
-	g := &fakeGitHub{logins: logins, files: map[string]map[string]string{}, forbidden: map[string]bool{}, contentsCalls: map[string]int{}, treeCalls: map[string]int{}, treeChecks: map[string]int{},
+	g := &fakeGitHub{logins: logins, files: map[string]map[string]string{}, forbidden: map[string]bool{}, failing: map[string]bool{}, contentsCalls: map[string]int{}, treeCalls: map[string]int{}, treeChecks: map[string]int{},
 		history: map[string][]fakeCommit{}, commitCalls: map[string]int{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v3/user", func(w http.ResponseWriter, r *http.Request) {
@@ -187,6 +190,10 @@ func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 		}
 		var found *string
 		for p, content := range g.files[repo] {
+			if blobSHA(content) == r.PathValue("sha") && g.failing[repo+":"+p] {
+				writeJSON(w, http.StatusBadGateway, map[string]any{message: "Server Error"})
+				return
+			}
 			if blobSHA(content) == r.PathValue("sha") {
 				g.contentsCalls[repo+":"+p]++
 				found = &content
@@ -419,6 +426,14 @@ func (g *fakeGitHub) forbid(repo string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.forbidden[repo] = true
+}
+
+// fail makes the blob read of owner/repo:path a 502, as a transient GitHub
+// error answers it; the tree and every other file stay readable.
+func (g *fakeGitHub) fail(repo, p string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failing[repo+":"+p] = true
 }
 
 // has says whether the store of owner/repo carries path.

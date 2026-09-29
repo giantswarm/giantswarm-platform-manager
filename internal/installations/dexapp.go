@@ -57,22 +57,19 @@ func readAt(c *gh.Client) refReader {
 
 // readDexAppVersion reads the dex-app inst runs, from the record as the
 // person: the installation's own pin — a patch on the App dex-app in its
-// collections kustomization — wins; without one, the App of the fleet's base
-// (DexAppBasePath in the repository the kustomization's remote resource
-// names, at the ref it names). An installation without the kustomization, or
-// a base without the App, has no version on record: the empty answer, no
-// error. A file that cannot be read or parsed, a kustomization that names no
-// base and a version that is no semantic version are errors of the report.
-func readDexAppVersion(ctx context.Context, read refReader, inst Installation) (DexAppVersion, error) {
-	kustomizationPath := CollectionsKustomizationPath(inst.Name)
-	data, err := read(ctx, inst.Repositories.ManagementClusters, kustomizationPath, "")
-	if errors.Is(err, gh.ErrNotFound) {
+// collections kustomization (col) — wins; without one, the App of the
+// fleet's base (DexAppBasePath in the repository the kustomization's remote
+// resource names, at the ref it names). An installation without the
+// kustomization, or a base without the App, has no version on record: the
+// empty answer, no error. A base that cannot be read or parsed, a patch that
+// does not decode, a kustomization that names no base and a version that is
+// no semantic version are errors of the report.
+func readDexAppVersion(ctx context.Context, read refReader, inst Installation, col collections) (DexAppVersion, error) {
+	if !col.found {
 		return DexAppVersion{}, nil
 	}
-	if err != nil {
-		return DexAppVersion{}, fmt.Errorf("the dex-app on record: %w", err)
-	}
-	pin, base, err := dexAppPin(data)
+	kustomizationPath := CollectionsKustomizationPath(inst.Name)
+	pin, base, err := dexAppPin(col.kustomization)
 	if err != nil {
 		return DexAppVersion{}, fmt.Errorf("the dex-app on record: %s in %s: %w", kustomizationPath, inst.Repositories.ManagementClusters, err)
 	}
@@ -83,7 +80,7 @@ func readDexAppVersion(ctx context.Context, read refReader, inst Installation) (
 	if base.Repository == "" {
 		return DexAppVersion{}, fmt.Errorf("the dex-app on record: %s in %s names no remote base to read the App from", kustomizationPath, inst.Repositories.ManagementClusters)
 	}
-	data, err = read(ctx, base.Repository, DexAppBasePath, base.Ref)
+	data, err := read(ctx, base.Repository, DexAppBasePath, base.Ref)
 	if errors.Is(err, gh.ErrNotFound) {
 		return DexAppVersion{}, nil
 	}
@@ -135,15 +132,11 @@ type collectionsKustomization struct {
 }
 
 // dexAppPin reads the installation's own pin of the App dex-app from its
-// collections kustomization — a JSON 6902 patch on the App that replaces or
+// collections kustomization k — a JSON 6902 patch on the App that replaces or
 // adds /spec/version, or a strategic merge patch of the App with
 // spec.version — and the remote base its resources name: the first resource
 // that is a GitHub repository URL, with its ref. No pin is the empty string.
-func dexAppPin(kustomization string) (pin string, base remoteBase, err error) {
-	var k collectionsKustomization
-	if err := yaml.Unmarshal([]byte(kustomization), &k); err != nil {
-		return "", remoteBase{}, fmt.Errorf("decode: %w", err)
-	}
+func dexAppPin(k collectionsKustomization) (pin string, base remoteBase, err error) {
 	for _, r := range k.Resources {
 		if b, ok := parseRemoteBase(r); ok {
 			base = b
