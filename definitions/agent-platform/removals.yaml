@@ -46,6 +46,11 @@ removals:
   - key: configmap:kagent.controller.resources
     kind: kept
     reason: "Kept: the kagent controller's CPU and memory requests are tuned here; they stay until the chart's defaults, or the shared defaults, size the controller for every installation · M23"
+  - key: configmap:kagent.controller.nodeSelector
+    kind: kept
+    reason: >-
+      Kept: the kagent controller is pinned to on-demand nodes here, since a spot reclaim of its node restarts it and ends every running agent turn;
+      it stays until the singletons' placement choice can pin the controller without muster, valkey and klaus-gateway
   - key: configmap:muster.resources
     kind: kept
     reason: "Kept: muster's CPU and memory requests are tuned here; they stay until the chart's defaults, or the shared defaults, size muster for every installation · M23"
@@ -67,6 +72,11 @@ removals:
   - key: configmap:postgres.backup
     kind: migration
     reason: "Removed: the platform Postgres backup settings are written here; the shared defaults derive them from the installation's subscription · M17"
+  - key: configmap:postgres.affinity
+    kind: kept
+    reason: >-
+      Kept: the platform Postgres instances are pinned to on-demand nodes here, since a spot reclaim evicts an instance and its failover restarts the
+      kagent controller; it stays until the singletons' placement choice covers the Postgres instances
   - key: configmap:muster.muster.oauth.server.dex.connectorId
     kind: kept
     reason: "Kept: muster's Dex login connector is pinned here; the shared defaults pick one connector for every Giant Swarm installation, which this installation's Dex may lack, so the pin stays until they choose per installation · M27"
