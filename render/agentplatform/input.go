@@ -128,6 +128,10 @@ type Input struct {
 	// SourceInterval is the poll interval of every OCIRepository the
 	// definition renders: the policy's flux.sourceInterval.
 	SourceInterval string
+	// ReleaseCandidates says the installation runs the platform's release
+	// candidates: its collection follows the policy's releaseCandidates.stage
+	// and its organisation is among releaseCandidates.customers.
+	ReleaseCandidates bool
 	// selectsLine says the enable selected the 4 chart line over the
 	// record's 3: the render writes the selection into the record
 	// (recordSelection) and Selected answers it.
@@ -199,9 +203,13 @@ type Installation struct {
 	// DexAppVersion is the dex-app the installation runs, where the record
 	// says: its own pin or the fleet's base. Renders nothing; the plan holds
 	// the commit until it takes the referenced Dex client secrets.
-	DexAppVersion string      `json:"dexAppVersion,omitempty"`
-	Portals       []PortalRef `json:"portals"`
-	Federation    Federation  `json:"federation"`
+	DexAppVersion string `json:"dexAppVersion,omitempty"`
+	// CollectionsStage is the stage the installation's app collection
+	// follows, where the record says; with the policy's releaseCandidates it
+	// decides whether the installation runs release candidates.
+	CollectionsStage string      `json:"collectionsStage,omitempty"`
+	Portals          []PortalRef `json:"portals"`
+	Federation       Federation  `json:"federation"`
 	// MCPServers are the servers registered on the installation beyond the
 	// platform's own three: the MCPServer objects under
 	// extras/agent-platform/mcpservers/ on record (registered.go).
@@ -347,8 +355,12 @@ type policy struct {
 		Default   []string            `yaml:"default"`
 		Customers map[string][]string `yaml:"customers"`
 	} `yaml:"components"`
-	KlausGateway GatewayPolicy `yaml:"klausGateway"`
-	Federation   struct {
+	KlausGateway      GatewayPolicy `yaml:"klausGateway"`
+	ReleaseCandidates struct {
+		Stage     string   `yaml:"stage"`
+		Customers []string `yaml:"customers"`
+	} `yaml:"releaseCandidates"`
+	Federation struct {
 		Connector Connectors `yaml:"connector"`
 		Teleport  Teleport   `yaml:"teleport"`
 	} `yaml:"federation"`
@@ -370,6 +382,14 @@ func loadPolicy() (*policy, error) {
 		return nil, fmt.Errorf("%w: flux.sourceInterval: %w", ErrPolicy, err)
 	}
 	return &pol, nil
+}
+
+// releaseCandidates says the policy runs the platform's release candidates on
+// an installation: its collection follows the policy's releaseCandidates.stage
+// and its organisation is among releaseCandidates.customers.
+func (p *policy) releaseCandidates(inst Installation) bool {
+	rc := p.ReleaseCandidates
+	return rc.Stage != "" && inst.CollectionsStage == rc.Stage && slices.Contains(rc.Customers, inst.Customer)
 }
 
 // components are the components the policy gives an installation: its
@@ -535,7 +555,8 @@ func Parse(raw any) (*Input, error) {
 		return nil, err
 	}
 	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories,
-		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval}
+		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
+		ReleaseCandidates: pol.releaseCandidates(d.Installation)}
 	if in.Components, err = pol.components(in.Installation); err != nil {
 		return nil, err
 	}
@@ -626,6 +647,9 @@ func (in *Input) checkRecord() error {
 	}
 	if in.singletonsOnDemand() && in.Installation.Provider != providerCAPA {
 		return refuse(fmt.Sprintf("%s is on-demand, Karpenter's capacity type, and a %s installation runs no Karpenter the definition knows; the pods would stay Pending", describe("scheduling.singletonsCapacity"), in.Installation.Provider))
+	}
+	if in.ReleaseCandidates && in.Installation.ChartLine != lineFour {
+		return refuse(fmt.Sprintf("%s is %s, whose installations of %s run release candidates (the fleet policy's releaseCandidates), and release candidates are the 4 chart line's (gitops.prereleases); %s selects the %s line, and agentPlatform.kagentApiV2: true in installations/%s/config.yaml.patch selects 4", describe("installation.collectionsStage"), in.Installation.CollectionsStage, in.Installation.Customer, describe("installation.chartLine"), in.Installation.ChartLine, in.Installation.Name))
 	}
 	for _, c := range lineFourComponents {
 		if in.Components[c] && in.Installation.ChartLine != lineFour {
@@ -734,13 +758,24 @@ func (in *Input) hostedPortal() *PortalRef {
 	return nil
 }
 
+// releaseTagFilter is the tag filter patched onto the agent-platform
+// OCIRepository beside a range that admits release candidates: stable releases
+// and release candidates only. The chart's branch builds are pushed to the same
+// repository with a pre-release of their own (X.Y.Z-r<hash>t<time>h<sha>),
+// which the range alone would select.
+const releaseTagFilter = `^v?[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$`
+
 // chartSemver is the range patched onto the agent-platform OCIRepository: the 4
-// line pins itself; the 3 line runs the base's range.
+// line pins itself, its release candidates included where the installation
+// runs them; the 3 line runs the base's range.
 func (in *Input) chartSemver() string {
-	if in.Installation.ChartLine == lineFour {
-		return ">=4.0.0 <5.0.0"
+	if in.Installation.ChartLine != lineFour {
+		return ""
 	}
-	return ""
+	if in.ReleaseCandidates {
+		return ">=4.0.0-0 <5.0.0-0"
+	}
+	return ">=4.0.0 <5.0.0"
 }
 
 // check applies the rules the schema cannot express to the supplied secret

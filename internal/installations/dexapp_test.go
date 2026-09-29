@@ -54,6 +54,17 @@ func filesAt(m map[string]string, reads *[]string) refReader {
 	}
 }
 
+// dexAppAt reads the dex-app on record as inspect does: the collections
+// kustomization, then the version from it.
+func dexAppAt(t *testing.T, read refReader, inst Installation) (DexAppVersion, error) {
+	t.Helper()
+	col, err := readCollections(t.Context(), read, inst)
+	if err != nil {
+		return DexAppVersion{}, err
+	}
+	return readDexAppVersion(t.Context(), read, inst, col)
+}
+
 // The dex-app on record is the installation's own pin where its collections
 // kustomization patches the App's version, else the base's App at the ref
 // the kustomization names; an installation without the kustomization, or a
@@ -81,7 +92,7 @@ func TestDexAppVersionFromTheRecord(t *testing.T) {
 	}
 	for _, c := range cases {
 		var reads []string
-		got, err := readDexAppVersion(context.Background(), filesAt(c.files, &reads), inst)
+		got, err := dexAppAt(t, filesAt(c.files, &reads), inst)
 		if err != nil {
 			t.Errorf("%s: %v", c.name, err)
 			continue
@@ -98,9 +109,9 @@ func TestDexAppVersionFromTheRecord(t *testing.T) {
 	}
 }
 
-// A kustomization or a base that cannot be read or parsed, a kustomization
-// that names no remote base, and a version that is no semantic version are
-// errors of the report, each naming the file.
+// A patch that does not decode, a base that cannot be read or parsed, a
+// kustomization that names no remote base, and a version that is no semantic
+// version are errors of the report, each naming the file.
 func TestDexAppVersionErrors(t *testing.T) {
 	inst := Installation{Name: fixtureInstallation, Repositories: Repositories{ManagementClusters: fixtureMCs}}
 	kustomization := fixtureMCs + ":" + CollectionsKustomizationPath(fixtureInstallation)
@@ -110,7 +121,7 @@ func TestDexAppVersionErrors(t *testing.T) {
 		files map[string]string
 		want  string
 	}{
-		{"a kustomization that does not decode", map[string]string{kustomization: "resources: [not\n"}, CollectionsKustomizationPath(fixtureInstallation)},
+		{"a patch that does not decode", map[string]string{kustomization: collectionsFixture("main", "") + "patches:\n  - patch: \"[not\"\n"}, CollectionsKustomizationPath(fixtureInstallation)},
 		{"a kustomization without a remote base", map[string]string{kustomization: "resources:\n  - ./apps/\n"}, "names no remote base"},
 		{"a pin that is no semantic version", map[string]string{kustomization: collectionsFixture("main", "latest")}, `"latest" is no semantic version`},
 		{"a base without the App", map[string]string{kustomization: collectionsFixture("main", ""), baseAtMain: "kind: ConfigMap\nmetadata:\n  name: dex-app\n"}, "no App dex-app"},
@@ -119,14 +130,20 @@ func TestDexAppVersionErrors(t *testing.T) {
 	}
 	for _, c := range cases {
 		var reads []string
-		got, err := readDexAppVersion(context.Background(), filesAt(c.files, &reads), inst)
+		got, err := dexAppAt(t, filesAt(c.files, &reads), inst)
 		if err == nil || !strings.Contains(err.Error(), c.want) || !strings.HasPrefix(err.Error(), "the dex-app on record: ") {
 			t.Errorf("%s: %+v, %v; want an error naming %q", c.name, got, err, c.want)
 		}
 	}
 	refused := errors.New("github: 403")
-	forbidden := func(_ context.Context, _, _, _ string) (string, error) { return "", refused }
-	if _, err := readDexAppVersion(context.Background(), forbidden, inst); !errors.Is(err, refused) {
+	baseForbidden := func(ctx context.Context, repository, path, ref string) (string, error) {
+		if repository == fixtureBases {
+			return "", refused
+		}
+		var reads []string
+		return filesAt(map[string]string{kustomization: collectionsFixture("main", "")}, &reads)(ctx, repository, path, ref)
+	}
+	if _, err := dexAppAt(t, baseForbidden, inst); !errors.Is(err, refused) {
 		t.Errorf("a read that fails is the report's error: %v", err)
 	}
 }

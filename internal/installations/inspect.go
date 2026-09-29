@@ -53,6 +53,11 @@ type Record struct {
 	// DexAppSource is the file it was read from, repository:path.
 	DexAppVersion string `json:"dexAppVersion,omitempty"`
 	DexAppSource  string `json:"dexAppSource,omitempty"`
+	// CollectionsStage is the stage the installation's app collection
+	// follows: the <stage> of the bases/collections/<provider>/stages/<stage>
+	// its collections kustomization names (collections.stage); empty when
+	// it names none.
+	CollectionsStage string `json:"collectionsStage,omitempty"`
 	// DexSecretLists are the lists the installation's encrypted dex-app
 	// secret patch carries that the values merge takes whole over the
 	// plaintext patch's — the hand-registered extra static clients, the
@@ -166,6 +171,8 @@ func (r *Registry) inspect(ctx context.Context, c *gh.Client, inst Installation,
 		pcrErr  error
 		pcs     bool
 		pcsErr  error
+		col     collections
+		colErr  error
 		dex     DexAppVersion
 		dexErr  error
 		lists   []DexSecretList
@@ -177,7 +184,11 @@ func (r *Registry) inspect(ctx context.Context, c *gh.Client, inst Installation,
 	if detail == Full {
 		wg.Go(func() { record, recErr = r.readRecord(ctx, c, owner, repo, inst) })
 		wg.Go(func() { pcr, pcrErr = readPodCertificateRequest(ctx, readAs(c), inst) })
-		wg.Go(func() { dex, dexErr = readDexAppVersion(ctx, readAt(c), inst) })
+		wg.Go(func() {
+			if col, colErr = readCollections(ctx, readAt(c), inst); colErr == nil {
+				dex, dexErr = readDexAppVersion(ctx, readAt(c), inst, col)
+			}
+		})
 		wg.Go(func() { pcs, pcsErr = readPortalClientSecret(ctx, c, inst) })
 		wg.Go(func() { lists, listErr = readDexSecretLists(ctx, readAs(c), inst) })
 		wg.Go(func() { reg, regErr = readRegistered(ctx, readAs(c), inst) })
@@ -202,8 +213,15 @@ func (r *Registry) inspect(ctx context.Context, c *gh.Client, inst Installation,
 			rep.Record = record
 			rep.Errors = append(rep.Errors, pcsErr.Error())
 			rep.Readable = false
+		case colErr != nil:
+			// The stage the collection follows decides what the plan renders:
+			// unread, it must not read as no stage.
+			rep.Record = record
+			rep.Errors = append(rep.Errors, colErr.Error())
+			rep.Readable = false
 		default:
 			record.PodCertificateRequest, record.PortalClientSecret = pcr, pcs
+			record.CollectionsStage = col.stage()
 			rep.Record = record
 			if pcrErr != nil {
 				// The release the cluster App names is a fact of the record, not
@@ -413,6 +431,9 @@ func (r *Record) Input() map[string]any {
 	if r.DexAppVersion != "" {
 		// Optional in the schema: absent where the record says nothing.
 		in["dexAppVersion"] = r.DexAppVersion
+	}
+	if r.CollectionsStage != "" {
+		in["collectionsStage"] = r.CollectionsStage
 	}
 	return in
 }

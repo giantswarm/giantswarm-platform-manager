@@ -491,6 +491,14 @@ func TestRefusals(t *testing.T) {
 	lineThreeOwned["installation"].(map[string]any)["chartLine"] = lineThree
 	lineThreeOwned["installation"].(map[string]any)["agentPlatform"] = true
 	delete(lineThreeOwned, "modelServing")
+	// An installation the policy runs release candidates on (glean: Giant
+	// Swarm's, its collection on the testing stage) with the capability on
+	// record, its record on the 3 line: adoption keeps the line, and the
+	// chart's gitops.prereleases is the 4 line's.
+	lineThreeCandidates, lineThreeCandidatesSecrets := loadInput(t, shapeGiantswarmSlackApp)
+	lineThreeCandidates["installation"].(map[string]any)["chartLine"] = lineThree
+	lineThreeCandidates["installation"].(map[string]any)["agentPlatform"] = true
+	delete(lineThreeCandidates, "modelServing")
 	// A 4-line record whose cluster App does not say the cluster serves
 	// PodCertificateRequest: no gates on record, a chart before the default.
 	noPodCertificateRequest, _ := loadInput(t, shapePublicCustomer)
@@ -528,6 +536,7 @@ func TestRefusals(t *testing.T) {
 		{"unknown record key", clone(func(m map[string]any) { m["installation"].(map[string]any)["replicas"] = 3 }), secrets, ErrInput, "replicas"},
 		{"empty Slack credential where the gateway runs", slackAppPublic, nil, ErrEmptySecret, fieldSlack + "bot-token"},
 		{"no app-level token on a private installation", slackApp, withoutAppToken, ErrEmptySecret, fieldSlack + "app-token"},
+		{"release candidates on the 3 line", lineThreeCandidates, lineThreeCandidatesSecrets, ErrInput, "installation.collectionsStage"},
 		{"an app-level token on a public installation", slackAppPublic, slackPublicSecrets, ErrUnknownSecret, fieldSlack + "app-token"},
 		{"a Slack credential where no gateway runs", base, with(fieldSlack+"bot-token", "x"), ErrUnknownSecret, fieldSlack + "bot-token"},
 		{"the model key is never supplied", base, with("kagent.modelKey", "x"), ErrUnknownSecret, "kagent.modelKey"},
@@ -787,6 +796,40 @@ klausGateway:
 	}
 	if pol.KlausGateway.A2A.DefaultAgent != fleet {
 		t.Errorf("the policy's default agent changed to %q", pol.KlausGateway.A2A.DefaultAgent)
+	}
+}
+
+// TestReleaseCandidatesFollowTheStage runs release candidates where the
+// installation's collection follows the policy's stage and its organisation
+// is listed, and nowhere else: another stage, no stage on record, another
+// organisation, or a policy that names no stage.
+func TestReleaseCandidatesFollowTheStage(t *testing.T) {
+	var pol policy
+	if err := yaml.Unmarshal([]byte(`
+releaseCandidates:
+  stage: testing
+  customers: [giantswarm]
+`), &pol); err != nil {
+		t.Fatal(err)
+	}
+	const giantswarm = "giantswarm"
+	for _, c := range []struct {
+		stage, customer string
+		want            bool
+	}{
+		{"testing", giantswarm, true},
+		{"staging", giantswarm, false},
+		{"stable", giantswarm, false},
+		{"", giantswarm, false},
+		{"testing", "gk-software", false},
+	} {
+		if got := pol.releaseCandidates(Installation{CollectionsStage: c.stage, Customer: c.customer}); got != c.want {
+			t.Errorf("stage %q, customer %q: %v, want %v", c.stage, c.customer, got, c.want)
+		}
+	}
+	var none policy
+	if none.releaseCandidates(Installation{CollectionsStage: "", Customer: giantswarm}) {
+		t.Error("a policy that names no stage runs release candidates on an installation with none on record")
 	}
 }
 

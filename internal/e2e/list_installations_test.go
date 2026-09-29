@@ -338,6 +338,38 @@ func find(t *testing.T, out tools.ListInstallationsResult, name string) installa
 	return installations.Report{}
 }
 
+// A collections kustomization GitHub fails to answer leaves the installation
+// unreadable: the stage its collection follows decides what the plan
+// renders, and an unread stage must not plan as none. The report names the
+// file's error, and a commit is refused before any write.
+func TestUnreadableCollectionsLeaveTheInstallationUnreadable(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	path := installations.CollectionsKustomizationPath(rowan)
+	st.ghs.addFile(acmeMCs, path, strings.Replace(collectionsKustomization(platformDexApp), "/stages/stable", "/stages/testing", 1))
+	st.ghs.fail(acmeMCs, path)
+	seedRemote(t, st)
+	c := st.mcpClient(t, aliceToken)
+
+	out, text, isErr := listInstallations(t, c, map[string]any{tools.ArgInstallations: []string{rowan}})
+	if isErr {
+		t.Fatal(text)
+	}
+	r := find(t, out, rowan)
+	if r.Readable || r.Capabilities[0].State != installations.StateUnknown || !strings.Contains(strings.Join(r.Errors, " "), "the collections on record") ||
+		(r.Record != nil && r.Record.CollectionsStage != "") {
+		t.Fatalf("rowan with its collections unread: %+v %v", r.Record, r.Errors)
+	}
+
+	_, text, isErr = commitCall(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(nil)})
+	if !isErr || !strings.Contains(text, "commit refused") || !strings.Contains(text, tools.SkippedUnreadable) {
+		t.Fatalf("the commit: %v %s", isErr, text)
+	}
+	if prs := st.remote.PullRequests(); len(prs) != 0 {
+		t.Fatalf("the remote saw %d pull request(s)", len(prs))
+	}
+}
+
 // Every installation of the registry is answered with the state readable
 // from its repositories now, as alice.
 func TestListInstallationsStates(t *testing.T) {

@@ -160,6 +160,9 @@ var servingComponents = []string{"kserve-llmisvc-crd", "kserve-llmisvc-resources
 func (in *Input) configmapPatch() render.Map {
 	var m render.Map
 	m = append(m, e("global", render.Map{e("domain", in.Installation.BaseDomain)}))
+	if in.ReleaseCandidates {
+		m = append(m, e("gitops", render.Map{e("prereleases", true)}))
+	}
 
 	components := render.Map{e("kagent", render.Map{e("enabled", in.kagent())}),
 		e("agent-manager", render.Map{e("enabled", in.agentManager())})}
@@ -559,8 +562,12 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 		})
 	}
 	if semver := in.chartSemver(); semver != "" {
+		ops := "- op: replace\n  path: /spec/ref/semver\n  value: " + fmt.Sprintf("%q", semver)
+		if in.ReleaseCandidates {
+			ops += "\n- op: add\n  path: /spec/ref/semverFilter\n  value: " + fmt.Sprintf("%q", releaseTagFilter)
+		}
 		k.Patches = append(k.Patches, patch{
-			Patch:  "- op: replace\n  path: /spec/ref/semver\n  value: " + fmt.Sprintf("%q", semver),
+			Patch:  ops,
 			Target: render.Map{e("kind", "OCIRepository"), e("name", "agent-platform")},
 		})
 	}
