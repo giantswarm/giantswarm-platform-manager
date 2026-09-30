@@ -77,6 +77,14 @@ const (
 	// revision is also a key of the two credentials Secrets, so a rewrite of
 	// either draws it anew (see servers.go: the same shape as a server's).
 	musterRevisionSecret = "muster-credentials-revision" // #nosec G101 -- a Secret name, not a value
+	// kagentOAuth2ProxySecret carries the kagent UI's oauth2-proxy client and
+	// cookie secrets, read into its environment at container start.
+	kagentOAuth2ProxySecret = "kagent-oauth2-proxy-credentials" // #nosec G101 -- a Secret name, not a value
+	// kagentRevisionSecret carries kagent's credentials revision in the Flux
+	// namespace for the kagent HelmRelease (valuesFrom), which rolls the
+	// oauth2-proxy with it; the revision is also a key of
+	// kagentOAuth2ProxySecret, the shape of muster's.
+	kagentRevisionSecret = "kagent-credentials-revision" // #nosec G101 -- a Secret name, not a value
 )
 
 // Input is the resolved inputs of one installation: the record

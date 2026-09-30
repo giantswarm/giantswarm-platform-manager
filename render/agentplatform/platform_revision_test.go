@@ -1,6 +1,7 @@
 package agentplatform
 
 import (
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -103,6 +104,9 @@ func TestMusterCredentialsRevision(t *testing.T) {
 			want[c.component] = c.revision
 		}
 		for component, body := range doc.Components {
+			if component == componentKagent {
+				continue // kagent's own revision (TestKagentCredentialsRevision)
+			}
 			paths, consumer := want[component]
 			if !consumer {
 				if body.ValuesFromRefs != nil {
@@ -135,5 +139,87 @@ func TestMusterCredentialsRevision(t *testing.T) {
 	}
 	if with == 0 || without == 0 || gateway == 0 {
 		t.Errorf("the shapes cover %d with the revision (the 4 line), %d without (the 3 line) and %d with the chat gateway's; want each", with, without, gateway)
+	}
+}
+
+// TestKagentCredentialsRevision holds kagent's credentials revision to its
+// shape on every shape that runs kagent: on the 4 line the revision is held by
+// its Secret in the Flux namespace and by the oauth2-proxy's credentials
+// Secret, Flux watches it, the kagent HelmRelease reads it into the
+// oauth2-proxy's pod annotations, and a rotation of the client or the cookie
+// secret draws it; on the 3 line none of it is rendered.
+func TestKagentCredentialsRevision(t *testing.T) {
+	with, without := 0, 0
+	for _, shape := range shapes {
+		input, secrets := loadInput(t, shape)
+		in, err := Parse(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !in.kagent() {
+			continue
+		}
+		result, err := Render(input, secrets, render.ModeCommit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		name := in.generatedName(kagentRevisionSecret)
+		var held []string
+		var patch, extras []byte
+		for _, files := range result.Files {
+			for path, f := range files {
+				if strings.HasSuffix(path, "/apps/agent-platform/configmap-values.yaml.patch") {
+					patch = f.Content
+				}
+				if strings.HasSuffix(path, "/extras/agent-platform/kustomization.yaml") {
+					extras = f.Content
+				}
+				for _, g := range f.Generated {
+					if g.Name == name {
+						held = append(held, path[strings.LastIndex(path, "/")+1:])
+					}
+				}
+			}
+		}
+		slices.Sort(held)
+		var doc struct {
+			Components map[string]struct {
+				Enabled        *bool               `yaml:"enabled"`
+				ValuesFromRefs []map[string]string `yaml:"valuesFromRefs"`
+			} `yaml:"components"`
+		}
+		if err := yaml.Unmarshal(patch, &doc); err != nil {
+			t.Fatalf("%s: the platform patch: %v", shape, err)
+		}
+		kagent := doc.Components[componentKagent]
+		if !in.musterRevision() {
+			without++
+			if len(held) > 0 || kagent.ValuesFromRefs != nil {
+				t.Errorf("%s: the 3 line holds kagent's revision in %v and hands it to the kagent HelmRelease (%v)", shape, held, kagent.ValuesFromRefs)
+			}
+			continue
+		}
+		with++
+		if want := []string{kagentRevisionSecret + ".yaml", kagentOAuth2ProxySecret + ".yaml"}; !slices.Equal(held, want) {
+			t.Errorf("%s: %s is held by %v, want %v", shape, name, held, want)
+		}
+		want := []map[string]string{{"kind": kindSecret, "name": kagentRevisionSecret, "valuesKey": revisionKey, "targetPath": kagentRevisionAnnotation}}
+		if !slices.EqualFunc(kagent.ValuesFromRefs, want, maps.Equal) {
+			t.Errorf("%s: components.kagent.valuesFromRefs is %v, want %v", shape, kagent.ValuesFromRefs, want)
+		}
+		if kagent.Enabled == nil || !*kagent.Enabled {
+			t.Errorf("%s: components.kagent carries the revision but lost its toggle (enabled: %v)", shape, kagent.Enabled)
+		}
+		if !strings.Contains(string(extras), "name: "+kagentRevisionSecret+"\n        labels:\n          "+render.WatchLabel+": Enabled") {
+			t.Errorf("%s: the extras kustomization does not mark %s for Flux to watch:\n%s", shape, kagentRevisionSecret, extras)
+		}
+		for _, value := range []string{"kagent-dex-client-secret", "kagent-cookie-secret"} {
+			if got := result.Revisions[in.generatedName(value)]; got != name {
+				t.Errorf("%s: a rotation of %s draws revision %q, want %q", shape, value, got, name)
+			}
+		}
+	}
+	if with == 0 || without == 0 {
+		t.Errorf("the kagent shapes cover %d with the revision (the 4 line) and %d without (the 3 line); want each", with, without)
 	}
 }

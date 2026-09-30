@@ -174,6 +174,9 @@ func (in *Input) configmapPatch() render.Map {
 	}
 	if in.musterRevision() {
 		components = in.musterRevisionRefs(components)
+		if in.kagent() {
+			components = kagentRevisionRefs(components)
+		}
 	}
 	m = append(m, e("components", components))
 
@@ -293,7 +296,7 @@ func (in *Input) kagentValues() render.Map {
 			}),
 		})}),
 		e("oauth2-proxy", render.Map{
-			e("config", render.Map{e("existingSecret", "kagent-oauth2-proxy-credentials")}),
+			e("config", render.Map{e("existingSecret", kagentOAuth2ProxySecret)}),
 			e("extraArgs", render.Map{e("oidc-extra-audience", strings.Join(in.audiences(), ","))}),
 		}),
 	}
@@ -505,15 +508,34 @@ const podRevisionAnnotation = "podAnnotations.muster-credentials-revision"
 // new entry otherwise.
 func (in *Input) musterRevisionRefs(components render.Map) render.Map {
 	for _, c := range in.runningMusterConsumers() {
-		refs := e("valuesFromRefs", revisionRefs(musterRevisionSecret, c.revision...))
-		i := slices.IndexFunc(components, func(en render.Entry) bool { return en.Key == c.component })
-		if i < 0 {
-			components = append(components, e(c.component, render.Map{refs}))
-			continue
-		}
-		body, _ := components[i].Value.(render.Map)
-		components[i].Value = append(slices.Clone(body), refs)
+		components = withValuesFromRefs(components, c.component, revisionRefs(musterRevisionSecret, c.revision...))
 	}
+	return components
+}
+
+// kagentRevisionAnnotation is where the kagent chart's oauth2-proxy
+// subchart takes kagent's credentials revision: an entry of its
+// podAnnotations, rendered onto the proxy's pod template.
+const kagentRevisionAnnotation = "oauth2-proxy.podAnnotations.kagent-credentials-revision"
+
+// kagentRevisionRefs hands kagent's credentials revision to the kagent
+// HelmRelease, whose oauth2-proxy reads the client and cookie secrets of
+// kagentOAuth2ProxySecret into its environment once, at container start.
+func kagentRevisionRefs(components render.Map) render.Map {
+	return withValuesFromRefs(components, componentKagent, revisionRefs(kagentRevisionSecret, kagentRevisionAnnotation))
+}
+
+// withValuesFromRefs sets component's valuesFromRefs in components, in the
+// component's entry where the patch already carries one (its toggle), in a
+// new entry otherwise.
+func withValuesFromRefs(components render.Map, component string, refs []render.Map) render.Map {
+	entry := e("valuesFromRefs", refs)
+	i := slices.IndexFunc(components, func(en render.Entry) bool { return en.Key == component })
+	if i < 0 {
+		return append(components, e(component, render.Map{entry}))
+	}
+	body, _ := components[i].Value.(render.Map)
+	components[i].Value = append(slices.Clone(body), entry)
 	return components
 }
 
@@ -536,6 +558,8 @@ func revisionRefs(secret string, targetPaths ...string) []render.Map {
 // so a rotation of muster's credentials rolls every workload that reads them;
 // every value of the two Secrets names the revision as its own
 // (render.Result.Revisions), so a rotation asked for by name draws it too.
+// kagent's oauth2-proxy credentials take the same shape with kagent's own
+// revision (kagentRevisionSecret), which rolls only the proxy.
 func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir string, secrets map[string]string) {
 	type patch struct {
 		Patch  string     `yaml:"patch"`
@@ -556,10 +580,16 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 	// reconcile the moment it changes; the patch comes first, so the chart
 	// line's coming and going never shifts it.
 	if in.musterRevision() {
-		k.Patches = append(k.Patches, patch{
-			Patch:  strings.TrimRight(render.WatchPatch(musterRevisionSecret), "\n"),
-			Target: render.Map{e("kind", "Secret"), e("name", musterRevisionSecret)},
-		})
+		watched := []string{musterRevisionSecret}
+		if in.kagent() {
+			watched = append(watched, kagentRevisionSecret)
+		}
+		for _, name := range watched {
+			k.Patches = append(k.Patches, patch{
+				Patch:  strings.TrimRight(render.WatchPatch(name), "\n"),
+				Target: render.Map{e("kind", "Secret"), e("name", name)},
+			})
+		}
 	}
 	if semver := in.chartSemver(); semver != "" {
 		ops := "- op: replace\n  path: /spec/ref/semver\n  value: " + fmt.Sprintf("%q", semver)
@@ -601,10 +631,22 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 	}
 	add(dexClientSecretFile("muster"), dexClientSecret("muster", in.generatedName("muster-dex-client-secret")))
 	if in.kagent() {
-		add("kagent-oauth2-proxy-credentials.yaml", render.Secret("kagent-oauth2-proxy-credentials", kagentNamespace, team,
+		proxyKeys := []render.SecretKey{
 			render.ValueKey("client-id", "kagent"),
 			in.generated("client-secret", "kagent-dex-client-secret", render.Base64, 32),
-			in.generated("cookie-secret", "kagent-cookie-secret", render.Alphanumeric, 32)))
+			in.generated("cookie-secret", "kagent-cookie-secret", render.Alphanumeric, 32),
+		}
+		kagentRevision := in.generatedName(kagentRevisionSecret)
+		if in.musterRevision() {
+			proxyKeys = append(proxyKeys, render.GeneratedKey("credentials-revision", kagentRevision, render.Alphanumeric, revisionLength))
+			// Both secrets roll the oauth2-proxy with kagent's revision.
+			r.Revision(kagentRevision, proxyKeys...)
+		}
+		add(kagentOAuth2ProxySecret+".yaml", render.Secret(kagentOAuth2ProxySecret, kagentNamespace, team, proxyKeys...))
+		if in.musterRevision() {
+			add(kagentRevisionSecret+".yaml", render.Secret(kagentRevisionSecret, fluxNamespace, team,
+				render.GeneratedKey(revisionKey, kagentRevision, render.Alphanumeric, revisionLength)))
+		}
 		add(dexClientSecretFile("kagent"), dexClientSecret("kagent", in.generatedName("kagent-dex-client-secret")))
 	}
 	for _, hub := range in.Installation.Federation.Hubs {
