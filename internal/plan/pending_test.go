@@ -60,7 +60,7 @@ func kagentDefinition() (installations.Capability, map[string]string) {
 		rendered[path] = string(f.Content)
 	}
 	return installations.Capability{
-		Name:          "kagent",
+		Name:          kagentClient,
 		Parse:         func(any) (render.Input, error) { return fakeInput{}, nil },
 		EnabledMarker: func(string) string { return proxyMarker },
 		Render: func(any, map[string]string, render.Mode) (*render.Result, error) {
