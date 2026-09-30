@@ -367,6 +367,7 @@ func consume(t *testing.T, shape consumptionShape, charts *chartStore) {
 	c.assertWholeSecrets()
 	if c.platform != nil {
 		c.assertMusterConsumers()
+		c.assertKagentConsumers()
 	}
 }
 
@@ -1162,7 +1163,7 @@ func (c *consumption) assertMusterConsumers() {
 		}
 		delete(running, name)
 		if c.platform.musterRevision() {
-			c.assertRolled(rel, consumer)
+			c.assertRolled(rel, consumer, musterRevisionSecret)
 		}
 	}
 	for _, name := range sortedKeys(running) {
@@ -1184,15 +1185,46 @@ func helmTest(rel *release, consumer string) bool {
 // revisionMarker stands in for the revision the commit step generates.
 const revisionMarker = "rolled"
 
+// assertKagentConsumers holds kagent's credentials revision to the rendered
+// kagent chart: every workload whose pods read the oauth2-proxy's credentials
+// Secret (kagentOAuth2ProxySecret) rolls with kagentRevisionSecret, so a
+// rotation of the kagent client or cookie secret restarts it.
+func (c *consumption) assertKagentConsumers() {
+	if !c.platform.kagent() || !c.platform.musterRevision() {
+		return
+	}
+	readers := map[string]*release{}
+	for _, r := range c.refs {
+		if r.ns == kagentNamespace && r.secret == kagentOAuth2ProxySecret && !strings.HasPrefix(r.consumer, kindHelmRel+"/") {
+			readers[r.consumer] = r.rel
+		}
+	}
+	for _, v := range c.volumes {
+		for _, s := range v.sources {
+			if v.ns == kagentNamespace && s.secret == kagentOAuth2ProxySecret {
+				readers[v.consumer] = v.rel
+			}
+		}
+	}
+	if len(readers) == 0 {
+		c.t.Errorf("no rendered workload reads %s in namespace %s: the oauth2-proxy's probe and its credentials revision roll nothing", kagentOAuth2ProxySecret, kagentNamespace)
+	}
+	for _, consumer := range sortedKeys(readers) {
+		if !helmTest(readers[consumer], consumer) {
+			c.assertRolled(readers[consumer], consumer, kagentRevisionSecret)
+		}
+	}
+}
+
 // assertRolled renders rel once more with every targetPath its HelmRelease
 // reads from the revision Secret set to revisionMarker, at the place in the
 // values Flux merges it, and fails unless the consumer's pod template changes.
-func (c *consumption) assertRolled(rel *release, consumer string) {
+func (c *consumption) assertRolled(rel *release, consumer, revisionSecret string) {
 	t := c.t
 	var values []string
 	next, revisions := 0, 0
 	for _, tg := range rel.targets {
-		if tg.secret != musterRevisionSecret {
+		if tg.secret != revisionSecret {
 			continue
 		}
 		if strings.Contains(tg.path, `\`) {
@@ -1213,7 +1245,7 @@ func (c *consumption) assertRolled(rel *release, consumer string) {
 		revisions++
 	}
 	if revisions == 0 {
-		t.Errorf("%s reads muster's credentials, but its HelmRelease (%s) takes no credentials revision from %s: a rotation leaves it on the old values", consumer, rel, musterRevisionSecret)
+		t.Errorf("%s reads rotated credentials, but its HelmRelease (%s) takes no credentials revision from %s: a rotation leaves it on the old values", consumer, rel, revisionSecret)
 		return
 	}
 	values = append(values, rel.values[next:]...)
