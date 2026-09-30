@@ -306,9 +306,10 @@ type LiveOptions struct {
 	// waiting for the customer replace it.
 	State  installations.State
 	Inputs Inputs
-	// Kept are the entries of the audience lists the commit kept beside the
-	// render (plan.LiveKept), from the Action: the drift probes hold the live
-	// objects against the value the commit wrote, render and kept entries.
+	// Kept are the entries of the audience lists kept beside the render
+	// (plan.LiveKept): the Action's, which the commit wrote, or the handed-over
+	// inputs', which the files on record keep. The drift probes hold the live
+	// objects against render and kept entries.
 	Kept []plan.Kept
 	// Cluster reads the installation as the person; nil when there are no
 	// inputs on record (nothing is read then).

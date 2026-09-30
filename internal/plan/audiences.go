@@ -54,6 +54,16 @@ func LiveKept(kept []Kept) []Kept {
 	return out
 }
 
+// LiveKept are the entries of p's audience lists its files keep beside the
+// render (LiveKept), over all its files; nil when it keeps none.
+func (p Installation) LiveKept() []Kept {
+	var kept []Kept
+	for _, f := range p.Files {
+		kept = append(kept, LiveKept(f.Kept)...)
+	}
+	return kept
+}
+
 // joinedLists are the lists of the platform patch the plan merges as a
 // comma-separated set (keepJoined), by key path: one scalar on the file,
 // whose entries the comparison addresses as <path>[<entry>].

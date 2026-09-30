@@ -1641,3 +1641,20 @@ func TestVerifyCapabilityReadsTheChartLinesPatchByValue(t *testing.T) {
 		t.Errorf("the plan leaves another range: %s", f.Change)
 	}
 }
+
+// The hub's platform patch keeps an id beside the render in the kagent UI's
+// oidc-extra-audience: verify_capability's inputs carry it, so the live half
+// handed those inputs holds the live objects against render and kept entry.
+func TestVerifyCapabilityInputsCarryTheKeptEntries(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	res := verifyWith(t, st.mcpClient(t, aliceToken), hub, nil)
+	if !slices.Contains(res.Inputs.Kept, plan.Kept{List: plan.ListExtraAudience, Entry: hubExtraAudienceID}) {
+		t.Fatalf("inputs kept: %v", res.Inputs.Kept)
+	}
+	for _, k := range res.Inputs.Kept {
+		if !slices.Contains(plan.LiveLists, k.List) {
+			t.Errorf("a kept entry no live object carries: %v", k)
+		}
+	}
+}

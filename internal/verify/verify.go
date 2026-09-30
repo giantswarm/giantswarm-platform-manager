@@ -201,6 +201,11 @@ type Inputs struct {
 	// attributed to itself (Difference.Input). An action's are the inputs
 	// its wave was called with.
 	Typed map[string]any `json:"typed,omitempty"`
+	// Kept are the entries of the audience lists the files on record keep
+	// beside the render (plan.LiveKept): the live half, handed these
+	// inputs, holds the live objects against render and kept entries, the
+	// value the files carry, as the reconcile keeps them.
+	Kept []plan.Kept `json:"kept,omitempty"`
 }
 
 // Result is the verify of one installation × capability.
@@ -321,6 +326,7 @@ func Compare(ctx context.Context, opts Options) Result {
 			// selections laid over (a fresh enable's chart line).
 			r.Inputs.Values = p.Inputs
 		}
+		r.Inputs.Kept = p.LiveKept()
 		r.view(p, opts.Content)
 	}
 	dims, others := assign(c, feats, r.Refused, own)
