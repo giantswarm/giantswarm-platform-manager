@@ -50,11 +50,13 @@ const (
 // the tunnel's loopback port on the hub (the ghostunnel target), distinct from
 // tunnelPort; the upstream port is the Teleport app's, advertised by the target.
 // probe is the upstream's health path where GET / would not answer 2xx without
-// a token; empty for no HTTP probe.
+// a token; empty for no HTTP probe. replicas is the proxy's pod count, 0 for
+// tunnelport's default of one.
 type tunnelledApp struct {
-	name  string
-	port  int
-	probe string
+	name     string
+	port     int
+	probe    string
+	replicas int
 }
 
 // tunnelledApps are the target's Dex (the exchange endpoint), each federated
@@ -64,7 +66,10 @@ type tunnelledApp struct {
 // no HTTP probe) — the portal reaches both through the tunnel — and the API
 // server the broker's tokens are for.
 func (t Target) tunnelledApps() []tunnelledApp {
-	apps := []tunnelledApp{{name: "dex", port: 5556}}
+	// Dex runs two proxy pods: every token refresh of a user of the target
+	// passes it, and tunnelport's disruption budget keeps one of them serving
+	// while a node drains, so an eviction no longer answers a refresh with 503.
+	apps := []tunnelledApp{{name: "dex", port: 5556, replicas: 2}}
 	for _, g := range t.groups() {
 		apps = append(apps, tunnelledApp{name: "mcp-" + g, port: 8080})
 	}
@@ -300,6 +305,9 @@ func (in *Input) tunnelExtras(r *render.Result, repo render.Repository, dir stri
 		}
 		for _, app := range t.tunnelledApps() {
 			spec := render.Map{e("appName", t.appName(app.name)), e("port", app.port), e("tokenName", t.tokenName(app.name, in.Installation.Name))}
+			if app.replicas > 0 {
+				spec = append(spec, e("replicas", app.replicas))
+			}
 			if app.probe != "" {
 				spec = append(spec, e("probe", render.Map{e("path", app.probe)}))
 			}
