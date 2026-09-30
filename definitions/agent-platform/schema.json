@@ -290,6 +290,15 @@
               "x-feature": "runtime",
               "x-renders": ["configmap:agent-manager.skills.gitAuthSecretName"],
               "description": "The Secret in kagent (key token) every agent with a git skill fetches its skills with at boot unless it names its own (agent-manager.skills.gitAuthSecretName; kagent-skills-token, the token the GitOps agents boot with, not rendered). Empty, such agents fetch anonymously. Read back from the configmap patch on record."
+            },
+            "mintGitAuthSecret": {
+              "type": "boolean",
+              "default": false,
+              "x-source": "person",
+              "x-readback": {"file": "configmap", "key": "agent-manager.skills.mintGitAuthSecret"},
+              "x-feature": "runtime",
+              "x-renders": ["configmap:agent-manager.skills.mintGitAuthSecret"],
+              "description": "agent-manager keeps the boot Secret of git skills filled with the skills GitHub App's installation token (agent-manager.skills.mintGitAuthSecret, agent-manager 1.8.0 or newer): the chart renders agent-manager-skills-token in kagent and composes it onto every agent with a git skill, so no personal token is needed. Needs appSecretName; replaces gitAuthSecretName. Turned off, the chart removes that Secret and every agent that names it stops booting its private skills. Read back from the configmap patch on record."
             }
           }
         },

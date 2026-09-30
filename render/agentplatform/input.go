@@ -481,16 +481,18 @@ type document struct {
 
 // AgentManagerSkills is agent-manager's skill catalog: the repositories
 // list_skills discovers skills in, the Secret of the skills GitHub App they
-// are read with, and the Secret agents with a git skill boot with.
+// are read with, and the Secret agents with a git skill boot with — provisioned
+// and named, or minted from the App by agent-manager.
 type AgentManagerSkills struct {
 	Repositories      []string `json:"repositories"`
 	AppSecretName     string   `json:"appSecretName"`
 	GitAuthSecretName string   `json:"gitAuthSecretName"`
+	MintGitAuthSecret bool     `json:"mintGitAuthSecret"`
 }
 
 // set is whether the person chose anything for the catalog.
 func (s AgentManagerSkills) set() bool {
-	return len(s.Repositories) > 0 || s.AppSecretName != "" || s.GitAuthSecretName != ""
+	return len(s.Repositories) > 0 || s.AppSecretName != "" || s.GitAuthSecretName != "" || s.MintGitAuthSecret
 }
 
 // commitChoice is a manager's commit mode through its GitHub App: the one
@@ -678,6 +680,14 @@ func (in *Input) checkRecord() error {
 	}
 	if in.AgentManagerSkills.set() && !in.agentManager() {
 		return refuse(fmt.Sprintf("%s asks for the agent-manager's skill catalog, and the fleet policy runs no agent-manager on %s's installations", describe("agentManager.skills"), in.Installation.Customer))
+	}
+	if skills := in.AgentManagerSkills; skills.MintGitAuthSecret {
+		if skills.GitAuthSecretName != "" {
+			return refuse(describe("agentManager.skills.mintGitAuthSecret") + " and " + describe("agentManager.skills.gitAuthSecretName") + " both name the agents' boot Secret; the minted one replaces the provisioned one")
+		}
+		if skills.AppSecretName == "" {
+			return refuse(describe("agentManager.skills.mintGitAuthSecret") + " mints the skills GitHub App's installation token, and " + describe("agentManager.skills.appSecretName") + " names no App")
+		}
 	}
 	if in.ModelManagerCommit && !in.modelManager() {
 		return refuse(describe("modelManager.github.enabled") + " asks for the model-manager's commit mode, and the model-manager runs on the platform's 4 chart line only; agentPlatform.kagentApiV2: true in the installation's config.yaml.patch selects 4")
