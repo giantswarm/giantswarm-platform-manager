@@ -738,10 +738,7 @@ func writeLost(b *strings.Builder, files []plan.File) {
 // p's name; an installation that keeps none adds nothing. The live probes
 // read them back from the Action.
 func keptByInstallation(byName map[string][]plan.Kept, p plan.Installation) map[string][]plan.Kept {
-	var kept []plan.Kept
-	for _, f := range p.Files {
-		kept = append(kept, plan.LiveKept(f.Kept)...)
-	}
+	kept := p.LiveKept()
 	if len(kept) == 0 {
 		return byName
 	}

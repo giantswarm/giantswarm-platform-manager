@@ -682,3 +682,63 @@ func TestVerifyInstallationReadsRegisteredServers(t *testing.T) {
 		t.Errorf("failed: %s %+v", d.Mark, d.Live)
 	}
 }
+
+// An audience the files on record keep beside the render — the id a portal
+// the manager has no record of calls kagent with — reads as defined on the
+// kagent UI's flag when verify_installation is handed verify_capability's
+// inputs, which carry the kept entries; held against the bare render, the
+// same flag reads drifted.
+func TestVerifyInstallationHoldsTheHandedOverKeptEntries(t *testing.T) {
+	const (
+		handKept  = "hand-kept"
+		flag      = "--oidc-extra-audience="
+		dimension = "live-oauth2-proxy-extra-audience"
+	)
+	st := newStack(t)
+	fixtures(st.ghs)
+	alice := st.mcpClient(t, aliceToken)
+	enableRowanLive(t, st, alice, kagentEnabled())
+	edited := false
+	st.inst.edit("Deployment", kagentNamespace, "kagent-oauth2-proxy", func(obj map[string]any) {
+		containers := obj["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)["containers"].([]any)
+		args := containers[0].(map[string]any)["args"].([]any)
+		for i, a := range args {
+			if s, _ := a.(string); strings.HasPrefix(s, flag) {
+				args[i], edited = s+","+handKept, true
+			}
+		}
+	})
+	if !edited {
+		t.Fatal("the oauth2-proxy Deployment carries no " + flag)
+	}
+	admin := st.liveClient(t, st.dex.token(t, liveAdmin, []string{liveAudience}, time.Hour))
+	inputs := verifyWith(t, alice, rowan, nil).Inputs
+
+	live := func(in verify.Inputs) verify.Dimension {
+		t.Helper()
+		b, err := json.Marshal(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var arg map[string]any
+		if err := json.Unmarshal(b, &arg); err != nil {
+			t.Fatal(err)
+		}
+		text, isErr := call(t, admin, tools.ToolVerifyInstallation, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: arg})
+		if isErr {
+			t.Fatalf("%s: %s", tools.ToolVerifyInstallation, text)
+		}
+		var out verify.Result
+		if err := json.Unmarshal([]byte(text), &out); err != nil {
+			t.Fatalf("decode: %v\n%s", err, text)
+		}
+		return liveDimensions(out)[dimension]
+	}
+	if d := live(inputs); d.Mark != verify.Drifted {
+		t.Errorf("against the bare render: %s (%s)", d.Mark, d.Reason)
+	}
+	inputs.Kept = append(inputs.Kept, plan.Kept{List: plan.ListExtraAudience, Entry: handKept})
+	if d := live(inputs); d.Mark != verify.AsDefined {
+		t.Errorf("with the kept entry: %s (%s) %+v", d.Mark, d.Reason, d.Differences)
+	}
+}
