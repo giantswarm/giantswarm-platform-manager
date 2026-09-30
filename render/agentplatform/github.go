@@ -30,6 +30,10 @@ const (
 	portalBrokerFile   = "github-broker-credentials.enc.yaml"     // #nosec G101 -- a file name, not a value
 	// brokerClientSecret is the generated broker client secret's base name.
 	brokerClientSecret = "muster-broker-client-secret" // #nosec G101 -- a value's name, not a value
+	// portalBrokerHolder is where a hub's portal holds the broker client's
+	// secret: a supplied value of the customer-portal definition, which a
+	// commit of this one never writes.
+	portalBrokerHolder = "the customer-portal capability's federation.tokenBroker (the portal's dexAuthCredentials.musterBroker)"
 	// The portal's environment variables for the broker client; the doubled
 	// dollar survives the fleet's variable substitution.
 	brokerClientIDEnv     = "$${AUTH_DEX_MUSTER_BROKER_CLIENT_ID}"

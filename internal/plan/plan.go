@@ -180,10 +180,14 @@ type GeneratedSecret struct {
 	// own plan, as "<repository>:<path>" (the path alone where the peer's
 	// repository is not on record): a value drawn here never reaches it.
 	Peer string `json:"peer,omitempty"`
+	// HeldBy is a holder of the value outside this plan (render.Generated's
+	// HeldBy): a rotation here never reaches it.
+	HeldBy string `json:"heldBy,omitempty"`
 	// Refusal is why a commit of this plan is refused before any write: the
 	// name is frozen in a file the definition does not own whole, where the
-	// capability is on record it would rotate without a request, or it has a
-	// Peer and would be drawn here alone.
+	// capability is on record it would rotate without a request, it has a
+	// Peer and would be drawn here alone, or it is HeldBy another holder and
+	// would rotate here alone.
 	Refusal string `json:"refusal,omitempty"`
 }
 
@@ -476,6 +480,9 @@ func Build(ctx context.Context, opts Options) Installation {
 					gs = &GeneratedSecret{Name: g.Name, Kind: string(g.Kind), Length: g.Length}
 					generated[g.Name] = gs
 				}
+				if g.HeldBy != "" {
+					gs.HeldBy = g.HeldBy
+				}
 				if !slices.Contains(gs.Files, h.file) {
 					gs.Files = append(gs.Files, h.file)
 				}
@@ -539,6 +546,9 @@ func Build(ctx context.Context, opts Options) Installation {
 	}
 	for name, pr := range peers {
 		pr.refuse(ctx, generated[name], opts.Read)
+	}
+	for _, gs := range generated {
+		refuseRotationHeldBy(gs)
 	}
 	p.SuppliedSecrets, p.SuppliedOnRecord = splitSupplied(supplied, suppliedIn, p.Files)
 	p.includes(ctx, opts, res.Includes)
