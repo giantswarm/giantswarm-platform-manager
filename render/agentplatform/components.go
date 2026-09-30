@@ -138,8 +138,8 @@ func (in *Input) agentManagerValues() render.Map {
 
 // agentManagerSkills is the agent-manager's skill catalog: the repositories
 // list_skills discovers, the skills GitHub App's Secret they are read with and
-// the boot credential composed onto every agent with a git skill — each only
-// where the person chose it.
+// the boot credential composed onto every agent with a git skill (named, or
+// minted from the App) — each only where the person chose it.
 func (in *Input) agentManagerSkills() render.Map {
 	var m render.Map
 	s := in.AgentManagerSkills
@@ -151,6 +151,9 @@ func (in *Input) agentManagerSkills() render.Map {
 	}
 	if s.GitAuthSecretName != "" {
 		m = append(m, e("gitAuthSecretName", s.GitAuthSecretName))
+	}
+	if s.MintGitAuthSecret {
+		m = append(m, e("mintGitAuthSecret", true))
 	}
 	return m
 }

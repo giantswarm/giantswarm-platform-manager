@@ -724,6 +724,37 @@ func TestAgentManagerSkills(t *testing.T) {
 	}
 
 	input, secrets = loadInput(t, shapeHubPrivateTarget)
+	input["agentManager"] = map[string]any{keySkills: map[string]any{"appSecretName": "acme-skills-app", "mintGitAuthSecret": true}}
+	result, err = Render(input, secrets, render.ModeCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	patch = nil
+	for name, content := range result.Tree() {
+		if strings.HasSuffix(name, "apps/agent-platform/configmap-values.yaml.patch") {
+			if err := yaml.Unmarshal(content, &patch); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	got = string(render.MustYAML(patch["agent-manager"]))
+	want = "skills:\n  github:\n    app:\n      secretName: acme-skills-app\n  mintGitAuthSecret: true\n"
+	if got != want {
+		t.Errorf("a minted boot Secret:\n%s\nwant:\n%s", got, want)
+	}
+
+	for name, skills := range map[string]map[string]any{
+		"minted and named":   {"appSecretName": "acme-skills-app", "mintGitAuthSecret": true, "gitAuthSecretName": "acme-skills-token"},
+		"minted without App": {"mintGitAuthSecret": true},
+	} {
+		input, secrets = loadInput(t, shapeHubPrivateTarget)
+		input["agentManager"] = map[string]any{keySkills: skills}
+		if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "mintGitAuthSecret") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+
+	input, secrets = loadInput(t, shapeHubPrivateTarget)
 	input["installation"].(map[string]any)["customer"] = "fleetio"
 	input["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
 	input["agentManager"] = map[string]any{keySkills: map[string]any{"gitAuthSecretName": "acme-skills-token"}} //nolint:gosec // a Secret's name in a fixture, no credential
