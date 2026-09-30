@@ -293,3 +293,80 @@ func filledIn(value string) bool {
 	}
 	return false
 }
+
+// pendingRevisions reads an encrypted file on record against the render
+// where the render adds a credentials revision the record does not hold yet
+// (an entry whose value is the marker of one of revisions, under a mapping
+// the record carries without that key): it answers the render without those
+// entries and the revisions they name, or rendered and none. The caller keeps
+// the file as recorded when the rest is its skeleton: the manager decrypts
+// nothing, so writing the key in would draw every value the file holds anew,
+// ending the sessions and clients that hold them, only to add a mark. The
+// revision joins the file with the next rotation a person asks for, which
+// rewrites it from the render.
+func pendingRevisions(rendered, current string, revisions map[string]bool) (string, []string) {
+	r, err := documents(rendered)
+	if err != nil {
+		return rendered, nil
+	}
+	c, err := documents(current)
+	if err != nil || len(r) != len(c) || !encrypted(c) {
+		return rendered, nil
+	}
+	var names []string
+	for i := range r {
+		names = dropPending(root(r[i]), root(c[i]), revisions, names)
+	}
+	if len(names) == 0 {
+		return rendered, nil
+	}
+	var buf strings.Builder
+	enc := yaml.NewEncoder(&buf)
+	for _, doc := range r {
+		if err := enc.Encode(doc); err != nil {
+			return rendered, nil
+		}
+	}
+	if err := enc.Close(); err != nil {
+		return rendered, nil
+	}
+	return buf.String(), names
+}
+
+// dropPending removes from the render's mapping r every entry the record's
+// mapping c lacks whose value is the marker of a revision, down the mappings
+// both carry, appending the revisions removed to names.
+func dropPending(r, c *yaml.Node, revisions map[string]bool, names []string) []string {
+	if r.Kind != yaml.MappingNode || c.Kind != yaml.MappingNode {
+		return names
+	}
+	ck := entries(c)
+	var kept []*yaml.Node
+	for i := 0; i+1 < len(r.Content); i += 2 {
+		key, value := r.Content[i], r.Content[i+1]
+		cv, onRecord := ck[key.Value]
+		if name, ok := revisionMarker(value, revisions); ok && !onRecord {
+			names = append(names, name)
+			continue
+		}
+		if onRecord {
+			names = dropPending(value, cv, revisions, names)
+		}
+		kept = append(kept, key, value)
+	}
+	r.Content = kept
+	return names
+}
+
+// revisionMarker is the revision whose marker the scalar is.
+func revisionMarker(n *yaml.Node, revisions map[string]bool) (string, bool) {
+	if n.Kind != yaml.ScalarNode {
+		return "", false
+	}
+	name, ok := strings.CutPrefix(n.Value, markerPrefixes[0])
+	if !ok {
+		return "", false
+	}
+	name, ok = strings.CutSuffix(name, ")")
+	return name, ok && revisions[name]
+}

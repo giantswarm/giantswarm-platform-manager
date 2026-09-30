@@ -460,6 +460,10 @@ func Build(ctx context.Context, opts Options) Installation {
 	}
 	opts.Read = fetch(ctx, opts.Read, files).read
 	generated := map[string]*GeneratedSecret{}
+	revisions := map[string]bool{} // the credentials revisions the render names
+	for _, r := range res.Revisions {
+		revisions[r] = true
+	}
 	var holders []holder
 	held := map[string]int{} // a holder's file → its index in p.Files
 	for _, repo := range SortedRepositories(res.Files) {
@@ -514,6 +518,14 @@ func Build(ctx context.Context, opts Options) Installation {
 				}
 			}
 			pf.Change, pf.Error, pf.Unseen = change(current, err, content)
+			if pf.Change == ChangeUpdate && !Shared(path) {
+				// A revision the record does not hold yet waits for a
+				// requested rotation: the file stands, and holds no revision.
+				if without, pending := pendingRevisions(content, current, revisions); len(pending) > 0 && sameSkeleton(without, current) {
+					pf.Change, pf.Unseen = ChangeUnchanged, unseen(without, current)
+					h.secret = slices.DeleteFunc(h.secret, func(n string) bool { return slices.Contains(pending, n) })
+				}
+			}
 			if pf.Change == ChangeUpdate && !Shared(path) && Encrypted(current) {
 				pf.Dropped, pf.Replaced = dropped(content, current)
 			}
