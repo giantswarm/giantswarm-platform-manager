@@ -40,6 +40,10 @@ const (
 	keyEnabled = "enabled"
 	keyGitHub  = "github"
 	keySkills  = "skills"
+	// keyMint and skillsApp are the minted boot Secret's choice and the
+	// skills GitHub App's Secret the agent-manager cases name.
+	keyMint   = "mintGitAuthSecret"
+	skillsApp = "acme-skills-app"
 	// gitHubOn is a manager's commit mode as its chart values carry it.
 	gitHubOn    = "github:\n  enabled: true\n"
 	keyModel    = "model"
@@ -692,7 +696,7 @@ func TestAgentManagerSkills(t *testing.T) {
 	input, secrets := loadInput(t, shapeHubPrivateTarget)
 	input["agentManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: true}, keySkills: map[string]any{ //nolint:gosec // Secret names in a fixture, no credential
 		"repositories":  []any{"https://github.com/acme/skills", "https://github.com/acme/skills-internal"},
-		"appSecretName": "acme-skills-app", "gitAuthSecretName": "acme-skills-token"}}
+		"appSecretName": skillsApp, "gitAuthSecretName": "acme-skills-token"}}
 	result, err := Render(input, secrets, render.ModeCommit)
 	if err != nil {
 		t.Fatal(err)
@@ -724,7 +728,7 @@ func TestAgentManagerSkills(t *testing.T) {
 	}
 
 	input, secrets = loadInput(t, shapeHubPrivateTarget)
-	input["agentManager"] = map[string]any{keySkills: map[string]any{"appSecretName": "acme-skills-app", "mintGitAuthSecret": true}}
+	input["agentManager"] = map[string]any{keySkills: map[string]any{"appSecretName": skillsApp, keyMint: true}}
 	result, err = Render(input, secrets, render.ModeCommit)
 	if err != nil {
 		t.Fatal(err)
@@ -738,18 +742,18 @@ func TestAgentManagerSkills(t *testing.T) {
 		}
 	}
 	got = string(render.MustYAML(patch["agent-manager"]))
-	want = "skills:\n  github:\n    app:\n      secretName: acme-skills-app\n  mintGitAuthSecret: true\n"
+	want = "skills:\n  github:\n    app:\n      secretName: " + skillsApp + "\n  " + keyMint + ": true\n"
 	if got != want {
 		t.Errorf("a minted boot Secret:\n%s\nwant:\n%s", got, want)
 	}
 
 	for name, skills := range map[string]map[string]any{
-		"minted and named":   {"appSecretName": "acme-skills-app", "mintGitAuthSecret": true, "gitAuthSecretName": "acme-skills-token"},
-		"minted without App": {"mintGitAuthSecret": true},
+		"minted and named":   {"appSecretName": skillsApp, keyMint: true, "gitAuthSecretName": "acme-skills-token"},
+		"minted without App": {keyMint: true},
 	} {
 		input, secrets = loadInput(t, shapeHubPrivateTarget)
 		input["agentManager"] = map[string]any{keySkills: skills}
-		if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "mintGitAuthSecret") {
+		if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), keyMint) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
