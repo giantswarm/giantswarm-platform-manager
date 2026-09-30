@@ -40,10 +40,14 @@ const (
 	keyEnabled = "enabled"
 	keyGitHub  = "github"
 	keySkills  = "skills"
-	// keyMint and skillsApp are the minted boot Secret's choice and the
-	// skills GitHub App's Secret the agent-manager cases name.
+	// keyApp, keyToken and keyMint are the agent-manager skills inputs naming
+	// the skills GitHub App's Secret, the boot Secret and the minted boot
+	// Secret's choice; skillsApp and skillsTok the Secrets the cases name.
+	keyApp    = "appSecretName"
+	keyToken  = "gitAuthSecretName" //nolint:gosec // an input's name, no credential
 	keyMint   = "mintGitAuthSecret"
 	skillsApp = "acme-skills-app"
+	skillsTok = "acme-skills-token" //nolint:gosec // a Secret's name in a fixture, no credential
 	// gitHubOn is a manager's commit mode as its chart values carry it.
 	gitHubOn    = "github:\n  enabled: true\n"
 	keyModel    = "model"
@@ -695,8 +699,8 @@ func TestManagersCommitMode(t *testing.T) {
 func TestAgentManagerSkills(t *testing.T) {
 	input, secrets := loadInput(t, shapeHubPrivateTarget)
 	input["agentManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: true}, keySkills: map[string]any{ //nolint:gosec // Secret names in a fixture, no credential
-		"repositories":  []any{"https://github.com/acme/skills", "https://github.com/acme/skills-internal"},
-		"appSecretName": skillsApp, "gitAuthSecretName": "acme-skills-token"}}
+		"repositories": []any{"https://github.com/acme/skills", "https://github.com/acme/skills-internal"},
+		keyApp:         skillsApp, keyToken: skillsTok}}
 	result, err := Render(input, secrets, render.ModeCommit)
 	if err != nil {
 		t.Fatal(err)
@@ -728,7 +732,7 @@ func TestAgentManagerSkills(t *testing.T) {
 	}
 
 	input, secrets = loadInput(t, shapeHubPrivateTarget)
-	input["agentManager"] = map[string]any{keySkills: map[string]any{"appSecretName": skillsApp, keyMint: true}}
+	input["agentManager"] = map[string]any{keySkills: map[string]any{keyApp: skillsApp, keyMint: true}}
 	result, err = Render(input, secrets, render.ModeCommit)
 	if err != nil {
 		t.Fatal(err)
@@ -748,7 +752,7 @@ func TestAgentManagerSkills(t *testing.T) {
 	}
 
 	for name, skills := range map[string]map[string]any{
-		"minted and named":   {"appSecretName": skillsApp, keyMint: true, "gitAuthSecretName": "acme-skills-token"},
+		"minted and named":   {keyApp: skillsApp, keyMint: true, keyToken: skillsTok}, //nolint:gosec // Secret names in a fixture, no credential
 		"minted without App": {keyMint: true},
 	} {
 		input, secrets = loadInput(t, shapeHubPrivateTarget)
@@ -761,7 +765,7 @@ func TestAgentManagerSkills(t *testing.T) {
 	input, secrets = loadInput(t, shapeHubPrivateTarget)
 	input["installation"].(map[string]any)["customer"] = "fleetio"
 	input["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
-	input["agentManager"] = map[string]any{keySkills: map[string]any{"gitAuthSecretName": "acme-skills-token"}} //nolint:gosec // a Secret's name in a fixture, no credential
+	input["agentManager"] = map[string]any{keySkills: map[string]any{keyToken: skillsTok}} //nolint:gosec // a Secret's name in a fixture, no credential
 	if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "agentManager.skills") {
 		t.Fatalf("a skill catalog where the policy runs no agent-manager: %v", err)
 	}
