@@ -13,6 +13,7 @@ spec:
   appName: dex-burrow
   port: 5556
   tokenName: dex-burrow-bot-token
+  replicas: 2
 ---
 apiVersion: access.giantswarm.io/v1alpha1
 kind: RemoteApp
