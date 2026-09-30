@@ -106,3 +106,53 @@ func TestBuildRefusesADrawOfOneSideOfAPair(t *testing.T) {
 		})
 	}
 }
+
+// A value another capability holds (render.Generated's HeldBy) is created
+// and kept here as any other, but a rotation here alone is refused, naming
+// the holder; a value without an outside holder rotates on request.
+func TestBuildRefusesARotationOfAValueHeldOutside(t *testing.T) {
+	const holder = "the customer-portal capability's federation.tokenBroker"
+	hubFile := hubMCs + ":" + pairHubSide
+	onRecord := map[string]string{hubFile: pairOnRecord("oak-token-exchange-credentials")}
+	for _, tc := range []struct {
+		name     string
+		heldBy   string
+		onRecord map[string]string
+		rotate   []string
+		refused  bool
+		rotates  bool
+	}{
+		{name: "created", heldBy: holder, onRecord: map[string]string{}},
+		{name: "kept", heldBy: holder, onRecord: onRecord},
+		{name: "rotated on request", heldBy: holder, onRecord: onRecord, rotate: []string{pairName}, refused: true},
+		{name: "no outside holder, rotated on request", onRecord: onRecord, rotate: []string{pairName}, rotates: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			def := pairDefinition(nil)
+			base := def.Render
+			def.Render = func(in any, m map[string]string, mode render.Mode) (*render.Result, error) {
+				res, err := base(in, m, mode)
+				f := res.Files[renderedHub][pairHubSide]
+				res.Files[renderedHub][pairHubSide] = f.HeldBy(pairName, tc.heldBy)
+				return res, err
+			}
+			read := func(_ context.Context, repository, path string) (string, error) {
+				if c, ok := tc.onRecord[repository+":"+path]; ok {
+					return c, nil
+				}
+				return "", gh.ErrNotFound
+			}
+			p := Build(context.Background(), Options{Definition: def, Installation: hazel, Hub: hazel, Inputs: map[string]any{}, Read: read, Rotate: tc.rotate, Installations: byName})
+			if p.Refused != "" || len(p.GeneratedSecrets) != 1 {
+				t.Fatalf("refused %q, generated %+v", p.Refused, p.GeneratedSecrets)
+			}
+			g, refusal := p.GeneratedSecrets[0], p.FrozenRefusal()
+			if tc.refused != (refusal != "") || tc.refused && !strings.Contains(refusal, holder+" holds it too") {
+				t.Errorf("refusal %q, want refused %v naming %q", refusal, tc.refused, holder)
+			}
+			if g.Rotates != tc.rotates || g.HeldBy != tc.heldBy {
+				t.Errorf("rotates %v held by %q, want %v %q", g.Rotates, g.HeldBy, tc.rotates, tc.heldBy)
+			}
+		})
+	}
+}

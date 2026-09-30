@@ -371,3 +371,36 @@ func TestExchangePairNamesItsPeer(t *testing.T) {
 		t.Errorf("glean's Dex-side copy of gopher's client: peer %+v, want %+v", got, want)
 	}
 }
+
+// A broker's client secret is held by the portal too. Where the portal's
+// copy is the customer-portal definition's supplied value (a hub, an
+// aggregator), muster's side names that holder, so a rotation here alone is
+// refused; where the hosted portal reads GitHub through this muster, both
+// files are rendered here and hold the one generated name, no outside holder.
+func TestBrokerClientSecretHeldByThePortal(t *testing.T) {
+	for _, tc := range []struct {
+		shape, repo, name string
+		heldBy            string
+	}{
+		{shapeHubPrivateTarget, portalTenant, portalCaseOwn, portalBrokerHolder},
+		{shapeSecondHub, portalTenant, "warren", portalBrokerHolder},
+		{shapeMultiClusterAggregator, "oakridge", "heron", portalBrokerHolder},
+		{shapePortalGitHubGrant, "riverbend", "otter", ""},
+	} {
+		t.Run(tc.shape, func(t *testing.T) {
+			input, secrets := loadInput(t, tc.shape)
+			result, err := Render(input, secrets, render.ModeCommit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := "management-clusters/" + tc.name + "/extras/agent-platform/secrets/" + brokerClients + ".yaml"
+			f, ok := result.Files[render.Repository("giantswarm/"+tc.repo+"-management-clusters")][path]
+			if !ok || len(f.Generated) != 1 {
+				t.Fatalf("no %s with one generated value: %+v", path, f.Generated)
+			}
+			if g := f.Generated[0]; g.HeldBy != tc.heldBy {
+				t.Errorf("%s held by %q, want %q", g.Name, g.HeldBy, tc.heldBy)
+			}
+		})
+	}
+}

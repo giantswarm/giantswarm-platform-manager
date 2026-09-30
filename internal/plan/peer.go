@@ -73,3 +73,17 @@ func (p peer) refuse(ctx context.Context, gs *GeneratedSecret, read Reader) {
 	gs.Rotates, gs.ForcedBy = false, ""
 	gs.Refusal = pair + ": " + why + " and the token exchange would fail with invalid_client — the manager decrypts nothing, so a person puts the one value on both sides"
 }
+
+// refuseRotationHeldBy refuses a rotation of gs where another holder keeps
+// the value outside this plan (gs.HeldBy): the commit writes the new value
+// into this plan's files alone and the manager decrypts nothing, so the
+// holder would keep the old one. Creating the value stands: the person
+// supplies the drawn value to the holder, as the holder's definition asks.
+func refuseRotationHeldBy(gs *GeneratedSecret) {
+	if gs.HeldBy == "" || !gs.Rotates {
+		return
+	}
+	gs.Refusal = fmt.Sprintf("%s would rotate, forced by %s, but %s holds it too and this plan does not write there: the new value would reach %s alone, and the manager decrypts nothing, so a person rotates both sides together",
+		gs.Name, gs.ForcedBy, gs.HeldBy, strings.Join(gs.Files, ", "))
+	gs.Rotates, gs.ForcedBy = false, ""
+}

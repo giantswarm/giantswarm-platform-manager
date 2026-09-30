@@ -238,9 +238,16 @@ func (in *Input) targetServers() []MCPServer {
 // hubSecrets are the extras Secrets of a broker: the broker client's
 // credentials and, per target, the hub's client in the target's Dex.
 func (in *Input) hubSecrets(add func(file string, f render.File)) {
-	add(brokerClients+".yaml", render.Secret(brokerClients, platformNamespace,
+	secret := in.brokerClientSecretKey()
+	clients := render.Secret(brokerClients, platformNamespace,
 		map[string]string{"muster.giantswarm.io/type": "broker-client-credentials"},
-		render.ValueKey("client-id", in.brokerClient()), in.brokerClientSecretKey()))
+		render.ValueKey("client-id", in.brokerClient()), secret)
+	if !in.portalGitHub() {
+		// The portal's copy is the customer-portal definition's supplied
+		// value; a hosted portal's GitHub broker renders it here instead.
+		clients = clients.HeldBy(secret.Generated.Name, portalBrokerHolder)
+	}
+	add(brokerClients+".yaml", clients)
 	for _, t := range in.Installation.Federation.Targets {
 		client := in.hubClient(t)
 		f := render.Secret(t.credentialsSecret(), platformNamespace,
