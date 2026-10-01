@@ -219,3 +219,13 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
+
+replace github.com/klauspost/compress v1.18.6 => github.com/klauspost/compress v1.20.1
+
+replace github.com/prometheus/prometheus v0.51.0 => github.com/prometheus/prometheus v0.315.0
+
+replace github.com/yuin/goldmark v1.4.13 => github.com/yuin/goldmark v1.8.6
+
+replace go.etcd.io/etcd/v3 v3.6.8 => go.etcd.io/etcd/v3 v3.7.2
+
+replace go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.34.0 => go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.46.0
