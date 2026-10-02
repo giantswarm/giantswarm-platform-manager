@@ -116,7 +116,7 @@ this order, writing nothing before the gate:
    reconcile <capability> (<action>)` — so the repositories' semantic-pull-request check passes as opened, the
    action id in the title and body. The Action records them and stays in *pending approval*: the approval, the merge
    and the rollout follow. An action on Giant Swarm's test installations alone — the hub's customer's, not the
-   hub: the wave's first stage — needs no Team review: the approval is recorded *not required*, the actor merges
+   hub: the wave's first stage — needs no Team review: the approval is recorded *not required*, the Action reads *ready to merge*, the actor merges
    with `merge_action` once green, and the merge is told to the team's standup channel — who, what, why and
    what changed (`approvals.standupChannel`; unset, such a commit is refused). The hub and every customer
    installation keep the review. A failure on the way moves the Action to *failed* and closes the pull requests
@@ -228,7 +228,7 @@ and `list_actions` read it; `mode: "commit"` creates it and moves its state;
 `list_installations` carries the newest Action of an installation and capability as `lastAction`, and an
 unfinished or failed action's state stands over the state read from the files.
 
-The states: *pending approval*, *rolling out*, *waiting for the customer*, *enabled*, *drifted* and *failed*
+The states: *pending approval*, *ready to merge* (no Team review needed: the actor merges), *rolling out*, *waiting for the customer*, *enabled*, *drifted* and *failed*
 are the installation's states an action produces; *refused* (the gate refused it before any write),
 *denied* (a member withdrew it before its merge), *reverted*, *withdrawn* and *removed* (below) are the
 action's own, and the installation's state read from its repositories stands. A pull request is *open*,

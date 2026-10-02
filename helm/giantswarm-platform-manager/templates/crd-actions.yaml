@@ -130,7 +130,7 @@ spec:
                 state:
                   description: The action's state, one of the installations' states an action produces, or the action's own — refused (the gate refused it before any write — the installation unreadable as the person, or without repositories on record), denied (a member withdrew it before its merge), reverted (a merged pull request of it was reverted on the default branch), withdrawn (its actor withdrew it after the merge, with the reason), removed (the fileset it wrote left the default branch again).
                   type: string
-                  enum: ["pending approval", "rolling out", "waiting for the customer", enabled, drifted, failed, refused, denied, reverted, withdrawn, removed]
+                  enum: ["pending approval", "ready to merge", "rolling out", "waiting for the customer", enabled, drifted, failed, refused, denied, reverted, withdrawn, removed]
                 pullRequests:
                   type: array
                   items:
