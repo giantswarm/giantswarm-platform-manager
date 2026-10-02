@@ -27,19 +27,22 @@ type ProbeResult struct {
 // /auth answer named and Status the connector's answer; Message says what a
 // drifted answer means where the status alone does not (the client or the
 // redirect URI Dex does not know, an answer that names no connector).
+// Planned is the migration of a client the plan creates and the record
+// lacks (PlannedObjects): Dex does not know it yet, a planned change.
 type Request struct {
 	URL       string `json:"url"`
 	Client    string `json:"client,omitempty"`
 	Status    int    `json:"status,omitempty"`
 	Connector string `json:"connector,omitempty"`
 	Message   string `json:"message,omitempty"`
+	Planned   string `json:"planned,omitempty"`
 	Error     string `json:"error,omitempty"`
 	OK        bool   `json:"ok"`
 }
 
 // Answer is the request's answer in one line: the status, the connector
-// whose answer it is and what a drifted answer means; the transport's error
-// when there was none.
+// whose answer it is, what a drifted answer means and the migration that
+// plans its client; the transport's error when there was none.
 func (r Request) Answer() string {
 	if r.Error != "" {
 		return r.Error
@@ -48,7 +51,7 @@ func (r Request) Answer() string {
 	if r.Message != "" {
 		s += ": " + r.Message
 	}
-	return s
+	return withPlanned(s, r.Planned)
 }
 
 // The reasons a probe is not checked: ReasonNoDexClients, a per-client probe
@@ -112,9 +115,13 @@ func choice(values map[string]any, field string) string {
 // in flight at most. Each phase of a comparison — the definition's anonymous
 // probes, the render's live HTTP probes — runs under one deadline on its
 // context, ProbePhaseTimeout long.
+//
+// planned are the objects the plan creates that the record lacks: a Dex
+// client among them that a request is answered wrong for is planned.
 type prober struct {
-	client *http.Client
-	slots  chan struct{}
+	client  *http.Client
+	slots   chan struct{}
+	planned PlannedObjects
 }
 
 // newProber probes with client; nil is a client that does not follow
@@ -149,7 +156,8 @@ func (pr *prober) probeAll(ctx context.Context, base ProbeData, clients []plan.D
 
 // probe runs one anonymous probe and answers it as a dimension of kind probe:
 // as defined when every request answered an expected status, drifted when
-// any answered another, not checked with ReasonUnreachable when one got no
+// any answered another — planned when every such request is for a Dex
+// client the plan creates and the record lacks — not checked with ReasonUnreachable when one got no
 // answer and none answered another status (an unexpected status is drift
 // whatever the other requests did; an unreachable target is no comparison),
 // not checked when it had no request to make, or when its template names a
@@ -217,6 +225,11 @@ func (pr *prober) probe(ctx context.Context, base ProbeData, clients []plan.DexC
 			if d.Mark == AsDefined {
 				d.Mark, d.Reason, d.Detail = NotChecked, unreachable(r.URL), r.Error
 			}
+		case !r.OK && pr.planned.client(r.Client) != "":
+			r.Planned = pr.planned.client(r.Client)
+			if d.Mark != Drifted {
+				d.Mark, d.Reason, d.Detail = Planned, "", ""
+			}
 		case !r.OK:
 			d.Mark, d.Reason, d.Detail = Drifted, "", ""
 		}
@@ -267,4 +280,13 @@ func unreachable(u string) string {
 		host = p.Host
 	}
 	return ReasonUnreachable + ": " + host
+}
+
+// withPlanned is an answer with the migration that plans its object
+// appended; the answer alone without one.
+func withPlanned(answer, reason string) string {
+	if reason == "" {
+		return answer
+	}
+	return answer + "; planned: " + reason
 }
