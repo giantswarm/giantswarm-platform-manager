@@ -557,8 +557,8 @@ func TestASeededNoReviewActionReadsReadyToMerge(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	seeded := actions.Action{Name: "enable-rowan-2", Namespace: actionsNamespace, CreatedAt: time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC),
-		Spec: actions.Spec{Actor: actions.Actor{Login: alice}, Capability: installations.AgentPlatform, Installations: []string{rowan}, Kind: "enable"},
-		Status: actions.Status{State: actions.StatePendingApproval, PullRequests: []actions.PullRequest{{Repository: acmeConfigs, Number: 12, URL: "https://github.com/" + acmeConfigs + "/pull/12", State: "open"}},
+		Spec: actions.Spec{Actor: actions.Actor{Login: alice}, Capability: installations.AgentPlatform, Installations: []string{rowan}, Kind: actions.KindEnable},
+		Status: actions.Status{State: actions.StatePendingApproval, PullRequests: []actions.PullRequest{{Repository: acmeConfigs, Number: 12, URL: "https://github.com/" + acmeConfigs + "/pull/12", State: actions.PullRequestOpen}},
 			Approval: &actions.Approval{Decision: actions.DecisionNotRequired}}}
 	if _, err := st.dyn.Resource(actions.GVR).Namespace(actionsNamespace).Create(context.Background(), actions.Unstructured(seeded), metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
