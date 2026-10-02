@@ -206,6 +206,10 @@ type Inputs struct {
 	// inputs, holds the live objects against render and kept entries, the
 	// value the files carry, as the reconcile keeps them.
 	Kept []plan.Kept `json:"kept,omitempty"`
+	// Planned are the objects the plan creates that the record lacks, each
+	// with its migration (plannedObjects): the live half, handed these
+	// inputs, reads a check of one still missing as planned, not drifted.
+	Planned PlannedObjects `json:"planned,omitempty"`
 }
 
 // Result is the verify of one installation × capability.
@@ -327,6 +331,9 @@ func Compare(ctx context.Context, opts Options) Result {
 			r.Inputs.Values = p.Inputs
 		}
 		r.Inputs.Kept = p.LiveKept()
+		if c != nil {
+			r.Inputs.Planned = c.planned
+		}
 		r.view(p, opts.Content)
 	}
 	dims, others := assign(c, feats, r.Refused, own)
@@ -334,7 +341,9 @@ func Compare(ctx context.Context, opts Options) Result {
 	if c != nil {
 		clients = c.dexClients
 	}
-	probed := newProber(opts.Probes).probeAll(ctx, probeData(opts.Installation.Name, opts.Installation.BaseDomain, opts.Inputs.Values), clients, c != nil, probes)
+	pr := newProber(opts.Probes)
+	pr.planned = r.Inputs.Planned
+	probed := pr.probeAll(ctx, probeData(opts.Installation.Name, opts.Installation.BaseDomain, opts.Inputs.Values), clients, c != nil, probes)
 	for _, fd := range feats {
 		f := Feature{ID: fd.ID, Title: fd.Title, Marks: map[Mark]int{}, Dimensions: []Dimension{}}
 		for _, d := range fd.Dimensions {
@@ -396,6 +405,8 @@ type comparison struct {
 	// files by key: the kind, the differences (Input filled), or why unreadable.
 	files      map[string]*fileDiff
 	dexClients []plan.DexClient
+	// planned are the objects the plan creates that the record lacks.
+	planned PlannedObjects
 }
 
 type fileDiff struct {
@@ -465,6 +476,7 @@ func compare(ctx context.Context, opts Options, rms, migs plannedKeys) (*compari
 		c.files[key] = fd
 	}
 	p.HubSections = rms.hubSections(hub)
+	c.planned = plannedObjects(rendered(p), c.files, p.DexClients, func(key string) string { return rs.got[key].content })
 	shown(p.Files)
 	return c, p, nil
 }

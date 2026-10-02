@@ -354,6 +354,7 @@ func CompareLive(ctx context.Context, opts LiveOptions) Result {
 		}
 	}
 	x := &executor{opts: opts, lv: lv, refused: r.Refused, pr: newProber(opts.Probes)}
+	x.pr.planned = opts.Inputs.Planned
 	x.sendHTTP(ctx)
 	held := map[string]bool{}
 	var clients []plan.DexClient
@@ -656,6 +657,9 @@ func (x *executor) sendHTTP(ctx context.Context) {
 			defer wg.Done()
 			x.http[i] = check(p)
 			x.pr.answer(ctx, &x.http[i], p)
+			if reason := x.pr.planned.probeClient(p.URL); reason != "" && x.http[i].Mark == Drifted {
+				x.http[i].Mark, x.http[i].Message = Planned, withPlanned(x.http[i].Message, reason)
+			}
 		}()
 	}
 	wg.Wait()
@@ -797,7 +801,11 @@ func (x *executor) run(ctx context.Context, p render.Probe) (Check, []Difference
 	case errors.As(err, &forbidden):
 		c.Mark, c.Message = NotChecked, forbidden.Error()
 	case errors.Is(err, ErrNotFound):
-		c.Mark, c.Message = Drifted, "does not exist: "+strings.TrimPrefix(err.Error(), ErrNotFound.Error()+": ")
+		what := strings.TrimPrefix(err.Error(), ErrNotFound.Error()+": ")
+		c.Mark, c.Message = Drifted, "does not exist: "+what
+		if reason := x.opts.Inputs.Planned.object(p.Resource, p.Namespace, p.Name); reason != "" {
+			c.Mark, c.Message = Planned, withPlanned("does not exist yet: "+what, reason)
+		}
 	default:
 		c.Mark, c.Message = NotChecked, err.Error()
 	}
