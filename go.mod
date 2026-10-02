@@ -7,7 +7,7 @@ require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/creativeprojects/go-selfupdate v1.6.0
 	github.com/giantswarm/gitops-commit v0.11.0
-	github.com/giantswarm/mcp-oauth v1.6.0
+	github.com/giantswarm/mcp-oauth v1.7.0
 	github.com/giantswarm/selfupdate-cosign v0.3.2
 	github.com/go-jose/go-jose/v4 v4.1.5
 	github.com/google/go-containerregistry v0.22.1
