@@ -186,7 +186,8 @@ func (in *Input) configmapPatch() render.Map {
 	if in.ModelServing {
 		m = append(m, e("modelServing", render.Map{
 			e("serving", render.Map{e("runtimeClassName", servingRuntimeClass)}),
-			e("modelsGateway", render.Map{e("enabled", true)}),
+			e("modelsGateway", render.Map{e("enabled", true),
+				e("tls", render.Map{e("issuerRef", render.Map{e("name", in.Installation.ClusterIssuer)})})}),
 		}))
 	}
 

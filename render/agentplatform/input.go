@@ -189,6 +189,10 @@ type Installation struct {
 	Private        bool   `json:"private"`
 	ChartLine      string `json:"chartLine"`
 	MusterClientID string `json:"musterClientId"`
+	// ClusterIssuer is the cert-manager ClusterIssuer of the installation's
+	// Gateway API hosts, where the record says: the serving slice's models
+	// Gateway takes its certificate from it.
+	ClusterIssuer string `json:"clusterIssuer,omitempty"`
 	// Hub says this is the registry's hub: its broker releases the person's
 	// GitHub grant to the Dev Portal (hub.go).
 	Hub bool `json:"hub"`
@@ -654,6 +658,9 @@ func (in *Input) checkRecord() error {
 	}
 	if in.ModelServing && in.Installation.ChartLine != lineFour {
 		return refuse(fmt.Sprintf("%s is the 4 chart line's serving slice, and this installation runs the %s line; the record's chart line decides", describe("modelServing.enabled"), in.Installation.ChartLine))
+	}
+	if in.ModelServing && in.Installation.ClusterIssuer == "" {
+		return refuse(fmt.Sprintf("%s serves the models Gateway with a certificate from %s, and the record names none; gatewayApi.clusterIssuer in installations/%s/config.yaml.patch or the shared default supplies it", describe("modelServing.enabled"), describe("installation.clusterIssuer"), in.Installation.Name))
 	}
 	if in.singletonsOnDemand() && in.Installation.Provider != providerCAPA {
 		return refuse(fmt.Sprintf("%s is on-demand, Karpenter's capacity type, and a %s installation runs no Karpenter the definition knows; the pods would stay Pending", describe("scheduling.singletonsCapacity"), in.Installation.Provider))

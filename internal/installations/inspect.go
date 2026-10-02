@@ -1,6 +1,7 @@
 package installations
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -34,6 +35,10 @@ type Record struct {
 	// MusterClientID is services.muster.clientId in config.yaml.patch, when
 	// the installation sets one.
 	MusterClientID string `json:"musterClientId,omitempty"`
+	// ClusterIssuer is the cert-manager ClusterIssuer of the installation's
+	// Gateway API hosts: gatewayApi.clusterIssuer in config.yaml.patch, else
+	// the shared default's.
+	ClusterIssuer string `json:"clusterIssuer,omitempty"`
 	// PodCertificateRequest says the cluster serves certificates.k8s.io/v1beta1
 	// PodCertificateRequest — what kagent's Agent Substrate needs on the 4
 	// chart line: the cluster App on record (cluster-app-manifests.yaml in the
@@ -85,6 +90,9 @@ type configPatch struct {
 			ClientID string `yaml:"clientId"`
 		} `yaml:"muster"`
 	} `yaml:"services"`
+	GatewayAPI struct {
+		ClusterIssuer string `yaml:"clusterIssuer"`
+	} `yaml:"gatewayApi"`
 }
 
 // CapabilityState is one capability on one installation.
@@ -314,7 +322,8 @@ func unknownCapabilities(caps []Capability, name string) []CapabilityState {
 const sharedConfigsRepository, sharedDefaultConfig = "shared-configs", "default/config.yaml"
 
 // readRecord reads the installation's config.yaml.patch into the record, the
-// platform's client id from the shared default where the patch has none.
+// platform's client id and the cluster issuer from the shared default where
+// the patch has none.
 func (r *Registry) readRecord(ctx context.Context, c *gh.Client, owner, repo string, inst Installation) (*Record, error) {
 	data, err := gh.ReadFile(ctx, c, owner, repo, ConfigPatchPath(inst.Name))
 	if err != nil {
@@ -325,13 +334,16 @@ func (r *Registry) readRecord(ctx context.Context, c *gh.Client, owner, repo str
 		return nil, fmt.Errorf("the facts on record: %s in %s: %w", ConfigPatchPath(inst.Name), inst.Repositories.Configs, err)
 	}
 	rec := &Record{Name: inst.Name, BaseDomain: inst.BaseDomain, Customer: inst.Customer, Provider: inst.Provider,
-		ChartLine: "3", MusterClientID: p.Services.Muster.ClientID}
-	if rec.MusterClientID == "" {
+		ChartLine: "3", MusterClientID: p.Services.Muster.ClientID, ClusterIssuer: p.GatewayAPI.ClusterIssuer}
+	if rec.MusterClientID == "" || rec.ClusterIssuer == "" {
 		// konfigure overlays the patch on the shared default: an installation
-		// without its own client id runs on the fleet's.
-		if rec.MusterClientID, err = r.shared.clientID(ctx, c, owner); err != nil {
+		// without its own client id or issuer runs on the fleet's.
+		var shared configPatch
+		if shared, err = r.shared.config(ctx, c, owner); err != nil {
 			return nil, err
 		}
+		rec.MusterClientID = cmp.Or(rec.MusterClientID, shared.Services.Muster.ClientID)
+		rec.ClusterIssuer = cmp.Or(rec.ClusterIssuer, shared.GatewayAPI.ClusterIssuer)
 	}
 	if p.AgentPlatform.KagentAPIV2 {
 		rec.ChartLine = "4"
@@ -349,20 +361,21 @@ func (r *Registry) readRecord(ctx context.Context, c *gh.Client, owner, repo str
 }
 
 // sharedDefaults reads an owner's shared default config once per call: every
-// installation of the owner without its own client id asks for the same file.
+// installation of the owner without its own client id or issuer asks for the
+// same file.
 type sharedDefaults struct {
 	mu      sync.Mutex
 	byOwner map[string]*sharedDefault
 }
 
 type sharedDefault struct {
-	once     sync.Once
-	clientID string
-	err      error
+	once   sync.Once
+	config configPatch
+	err    error
 }
 
-// clientID is services.muster.clientId of owner's shared default config.
-func (s *sharedDefaults) clientID(ctx context.Context, c *gh.Client, owner string) (string, error) {
+// config is owner's shared default config, in the shape of a patch.
+func (s *sharedDefaults) config(ctx context.Context, c *gh.Client, owner string) (configPatch, error) {
 	s.mu.Lock()
 	if s.byOwner == nil {
 		s.byOwner = map[string]*sharedDefault{}
@@ -379,14 +392,11 @@ func (s *sharedDefaults) clientID(ctx context.Context, c *gh.Client, owner strin
 			d.err = fmt.Errorf("the facts on record: %s in %s/%s: %w", sharedDefaultConfig, owner, sharedConfigsRepository, err)
 			return
 		}
-		var p configPatch
-		if err := yaml.Unmarshal([]byte(shared), &p); err != nil {
+		if err := yaml.Unmarshal([]byte(shared), &d.config); err != nil {
 			d.err = fmt.Errorf("the facts on record: %s in %s/%s: %w", sharedDefaultConfig, owner, sharedConfigsRepository, err)
-			return
 		}
-		d.clientID = p.Services.Muster.ClientID
 	})
-	return d.clientID, d.err
+	return d.config, d.err
 }
 
 // exists says whether path is a file in owner/repo as the person: answered
@@ -434,6 +444,9 @@ func (r *Record) Input() map[string]any {
 	}
 	if r.CollectionsStage != "" {
 		in["collectionsStage"] = r.CollectionsStage
+	}
+	if r.ClusterIssuer != "" {
+		in["clusterIssuer"] = r.ClusterIssuer
 	}
 	return in
 }

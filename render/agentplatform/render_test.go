@@ -507,6 +507,10 @@ func TestRefusals(t *testing.T) {
 	lineThreeCandidates["installation"].(map[string]any)["chartLine"] = lineThree
 	lineThreeCandidates["installation"].(map[string]any)["agentPlatform"] = true
 	delete(lineThreeCandidates, "modelServing")
+	// The serving slice on a record that names no cluster issuer: the models
+	// Gateway's certificate would have no source.
+	servingWithoutIssuer, servingWithoutIssuerSecrets := loadInput(t, shapeGiantswarmOwned)
+	delete(servingWithoutIssuer["installation"].(map[string]any), "clusterIssuer")
 	// A 4-line record whose cluster App does not say the cluster serves
 	// PodCertificateRequest: no gates on record, a chart before the default.
 	noPodCertificateRequest, _ := loadInput(t, shapePublicCustomer)
@@ -553,6 +557,7 @@ func TestRefusals(t *testing.T) {
 			m["scheduling"] = map[string]any{keyCapacity: capacityOnDemand}
 		}), secrets, ErrInput, "scheduling." + keyCapacity},
 		{"a capacity Karpenter does not name", clone(func(m map[string]any) { m["scheduling"] = map[string]any{keyCapacity: "spot"} }), secrets, ErrInput, keyCapacity},
+		{"serving without a cluster issuer", servingWithoutIssuer, servingWithoutIssuerSecrets, ErrInput, "installation.clusterIssuer"},
 		{"serving on the 3 line", clone(func(m map[string]any) { m["modelServing"] = map[string]any{keyEnabled: true} }), secrets, ErrInput, "modelServing.enabled"},
 		{"the chat without a portal to carry it", clone(func(m map[string]any) {
 			m["installation"].(map[string]any)["portals"] = []any{}
