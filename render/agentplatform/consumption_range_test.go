@@ -11,7 +11,13 @@ import (
 // declares, and a meta chart bump that moved a child's range past its pin, each
 // fail with the version to pin, the newest release inside the range.
 func TestOutsideRangeNamesThePin(t *testing.T) {
-	released := []string{"1.1.0", "1.2.0", "1.2.1", "1.2.3", "1.2.4-dev.branch.h0abc123", "1.3.0", "latest"}
+	const (
+		kagentRange = ">=1.2.0 <1.3.0"
+		pinNewest   = "pin 1.2.3, the newest release inside it"
+		belowRange  = "1.0.9"
+		aboveRange  = "1.3.0"
+	)
+	released := []string{belowRange, "1.2.0", "1.2.1", "1.2.3", "1.2.4-dev.branch.h0abc123", aboveRange, "main"}
 	tags := func(string) ([]string, error) { return released, nil }
 	kagent := func(version string) pin {
 		return pin{Name: "kagent", Line: lineFour, Registry: "gsoci.azurecr.io/giantswarm/kagent/helm/kagent", Version: version}
@@ -19,11 +25,11 @@ func TestOutsideRangeNamesThePin(t *testing.T) {
 	for _, tc := range []struct {
 		name, version, rng, want string
 	}{
-		{name: "inside the range", version: "1.2.1", rng: ">=1.2.0 <1.3.0"},
-		{name: "child bumped alone", version: "1.3.0", rng: ">=1.2.0 <1.3.0", want: "pin 1.2.3, the newest release inside it"},
-		{name: "meta chart moved the range", version: "1.1.0", rng: ">=1.2.0 <1.3.0", want: "pin 1.2.3, the newest release inside it"},
-		{name: "prerelease range", version: "1.1.0", rng: ">=1.2.0-0 <1.3.0-0", want: "pin 1.2.3, the newest release inside it"},
-		{name: "nothing released inside", version: "1.1.0", rng: ">=2.0.0 <3.0.0", want: "no release of gsoci.azurecr.io/giantswarm/kagent/helm/kagent is inside it"},
+		{name: "inside the range", version: "1.2.1", rng: kagentRange},
+		{name: "child bumped alone", version: aboveRange, rng: kagentRange, want: pinNewest},
+		{name: "meta chart moved the range", version: belowRange, rng: kagentRange, want: pinNewest},
+		{name: "prerelease range", version: belowRange, rng: ">=1.2.0-0 <1.3.0-0", want: pinNewest},
+		{name: "nothing released inside", version: belowRange, rng: ">=2.0.0 <3.0.0", want: "no release of gsoci.azurecr.io/giantswarm/kagent/helm/kagent is inside it"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := outsideRange(kagent(tc.version), "kagent", tc.rng, lineFour, tags)
@@ -40,7 +46,7 @@ func TestOutsideRangeNamesThePin(t *testing.T) {
 	}
 
 	failing := func(string) ([]string, error) { return nil, errors.New("unauthorized") }
-	if got := outsideRange(kagent("1.3.0"), "kagent", ">=1.2.0 <1.3.0", lineFour, failing); !strings.Contains(got, "listing the releases of gsoci.azurecr.io/giantswarm/kagent/helm/kagent: unauthorized") {
+	if got := outsideRange(kagent(aboveRange), "kagent", kagentRange, lineFour, failing); !strings.Contains(got, "listing the releases of gsoci.azurecr.io/giantswarm/kagent/helm/kagent: unauthorized") {
 		t.Fatalf("a registry that cannot list: want the listing error named, got %q", got)
 	}
 }
