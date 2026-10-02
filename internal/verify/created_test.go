@@ -14,10 +14,12 @@ import (
 
 // The migrations that create the objects below, as their reasons end.
 const (
-	m5Secret  = "Added: the kagent Dex client's secret is the Secret dex-client-kagent under extras/agent-platform/secrets · M5"
+	m5Secret  = "Added: the kagent Dex client's secret is the Secret dex-client-kagent under extras/agent-platform/secrets · M5" // #nosec G101 -- a migration's reason, not a value
 	m30Client = "Added: Dex gets a client named backstage for the Dev Portal and every customer portal · M30"
 	clientM30 = "backstage"
-	secretM5  = "dex-client-kagent"
+	secretM5  = "dex-client-kagent" // #nosec G101 -- a Secret's name, not a value
+	// dexAuthDimension is the live Dex auth probe's dimension.
+	dexAuthDimension = "live-dex-auth-per-client"
 )
 
 // The objects a plan creates that the record lacks are each of a file the
@@ -47,9 +49,9 @@ func TestPlannedObjectsAreWhatTheRecordLacks(t *testing.T) {
 	}
 	diffs := map[string]*fileDiff{
 		fileKey(repo, secretFile): {key: fileKey(repo, secretFile), path: secretFile, diffs: []Difference{
-			{Path: "metadata.name", Rendered: secretM5, absent: true, Planned: m5Secret}}},
+			{Path: kindPath, Rendered: kindSecret, absent: true, Planned: m5Secret}}},
 		fileKey(repo, strayFile): {key: fileKey(repo, strayFile), path: strayFile, diffs: []Difference{
-			{Path: "metadata.name", Rendered: "stray", absent: true}}},
+			{Path: kindPath, Rendered: kindSecret, absent: true}}},
 		fileKey(configRepo, testDexPatch): {key: fileKey(configRepo, testDexPatch), path: testDexPatch, diffs: []Difference{
 			{Path: "oidc.extraStaticClients[backstage].id", Rendered: clientM30, absent: true, Planned: m30Client},
 			{Path: "oidc.extraStaticClients[backstage].name", Rendered: "Backstage", absent: true, Planned: m30Client}}},
@@ -118,9 +120,9 @@ func TestUnknownPlannedDexClientIsPlanned(t *testing.T) {
 	const callback = "https://portal.example.test/api/auth/oidc/handler/frame"
 	host, client := tlsServing(t, fakeDex{connectors: []string{connectorGitHub}, clients: map[string][]string{clientMuster: {callback}}})
 	planned := PlannedObjects{{Kind: PlannedDexClient, Name: clientM30, Reason: m30Client}}
-	anonymous := definitions.Probe{ID: "dex-auth-request", Feature: featureIdentity,
-		URL:          "https://" + host + "/auth?client_id={{.ClientID}}&redirect_uri={{.RedirectURI}}&response_type=code&scope=openid",
-		PerDexClient: true, DexConnectorStep: true, Expect: []int{200, 302}}
+	anonymous := dex
+	anonymous.URL = "https://" + host + "/auth?client_id={{.ClientID}}&redirect_uri={{.RedirectURI}}&response_type=code&scope=openid"
+	anonymous.DexConnectorStep, anonymous.Expect = true, []int{200, 302}
 	for _, tc := range []struct {
 		name    string
 		planned PlannedObjects
@@ -130,7 +132,7 @@ func TestUnknownPlannedDexClientIsPlanned(t *testing.T) {
 		{"before the migration", planned, []string{clientM30}, Planned},
 		{"after the merge", nil, []string{clientM30}, Drifted},
 		{"a known client beside it", planned, []string{clientMuster, clientM30}, Planned},
-		{"an unknown client beside it", planned, []string{"bogus", clientM30}, Drifted},
+		{"an unknown client beside it", planned, []string{"stranger", clientM30}, Drifted},
 	} {
 		var cls []plan.DexClient
 		for _, id := range tc.clients {
@@ -144,10 +146,10 @@ func TestUnknownPlannedDexClientIsPlanned(t *testing.T) {
 			t.Errorf("%s: anonymous: mark %q, requests %+v, want %q", tc.name, d.Mark, d.Probe.Requests, tc.mark)
 		}
 
-		x := &executor{lv: &liveRender{probes: []render.Probe{render.DexAuthProbe("live-dex-auth-per-client", featureIdentity, host, clientM30, callback)}}, pr: newProber(client)}
+		x := &executor{lv: &liveRender{probes: []render.Probe{render.DexAuthProbe(dexAuthDimension, featureIdentity, host, clientM30, callback)}}, pr: newProber(client)}
 		x.pr.planned = tc.planned
 		x.sendHTTP(context.Background())
-		c := x.dimension(context.Background(), definitions.Dimension{ID: "live-dex-auth-per-client", Kind: definitions.KindLive}).Live.Checks[0]
+		c := x.dimension(context.Background(), definitions.Dimension{ID: dexAuthDimension, Kind: definitions.KindLive}).Live.Checks[0]
 		want := Drifted
 		if tc.planned != nil {
 			want = Planned
