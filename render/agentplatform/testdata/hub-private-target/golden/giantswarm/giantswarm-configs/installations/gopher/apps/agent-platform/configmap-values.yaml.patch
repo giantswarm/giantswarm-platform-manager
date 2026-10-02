@@ -75,6 +75,9 @@ modelServing:
     runtimeClassName: nvidia
   modelsGateway:
     enabled: true
+    tls:
+      issuerRef:
+        name: letsencrypt-example
 muster:
   muster:
     extraCaFile:

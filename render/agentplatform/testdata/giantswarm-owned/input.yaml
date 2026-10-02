@@ -6,7 +6,7 @@
 # organisation (kagent, the agent-manager, the cluster-manager; no chat gateway, since the policy
 # names no Slack app for it), its own portal with the AI chat on — the portal is rendered, so the
 # fragment includes the shared list with the chat and the chat's Anthropic key is the one value
-# supplied at commit —, the stateful singletons on on-demand capacity, the chart range pinned. The model key Secret is the installation's own.
+# supplied at commit —, the serving slice with the models Gateway certificate from the record's cluster issuer, the stateful singletons on on-demand capacity, the chart range pinned. The model key Secret is the installation's own.
 # Invented names, placeholder values.
 input:
   installation:
@@ -17,6 +17,7 @@ input:
     private: false
     chartLine: "3"
     musterClientId: 00000000-0000-4000-8000-000000000002
+    clusterIssuer: letsencrypt-example
     podCertificateRequest: true
     portalClientSecret: true
     portals:
@@ -29,12 +30,8 @@ input:
       hubs: []
       registryHub: gopher
       targets: []
-  # The serving slice is chosen on the hub-private-target shape: the connectivity
-  # chart of the 4 line renders it only with a certificate for the models Gateway,
-  # which the definition does not name yet (#67), and this shape is the one
-  # the render-consumption test renders on the 4 line.
   modelServing:
-    enabled: false
+    enabled: true
   scheduling:
     singletonsCapacity: on-demand
   aiChat:
