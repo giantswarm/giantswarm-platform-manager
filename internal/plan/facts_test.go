@@ -18,10 +18,18 @@ type factsInput struct {
 
 func (in factsInput) Facts() []render.Fact { return in.facts }
 
+// The two facts' keys, and the one file the fake definition renders.
+const (
+	subscriptionKey = "provider.azure.subscriptionId"
+	issuerKey       = "provider.azure.oidcIssuerUrl"
+	factsFile       = "installations/rowan/facts.yaml"
+	factsContent    = "key: facts\n"
+)
+
 // azureFacts are two facts of the record, as a provider's render needs them.
 var azureFacts = []render.Fact{
-	{Key: "provider.azure.subscriptionId", Source: "the AzureCluster's subscription", Renders: "the snapshot store's identity"},
-	{Key: "provider.azure.oidcIssuerUrl", Source: "the API server's service-account issuer", Renders: "the snapshot store's identity"},
+	{Key: subscriptionKey, Source: "the AzureCluster's subscription", Renders: "the snapshot store's identity"},
+	{Key: issuerKey, Source: "the API server's service-account issuer", Renders: "the snapshot store's identity"},
 }
 
 // The plan reads the facts the render needs from the installation's record
@@ -39,13 +47,13 @@ func TestBuildNamesTheRecordsMissingFacts(t *testing.T) {
 		refusal string
 	}{
 		"both set":   {record: "provider:\n  kind: capz\n  azure:\n    subscriptionId: sub\n    oidcIssuerUrl: https://issuer\n"},
-		"none":       {record: "provider:\n  kind: capz\n", missing: []string{"provider.azure.subscriptionId", "provider.azure.oidcIssuerUrl"}, refusal: "the record " + file + " leaves provider.azure.subscriptionId and provider.azure.oidcIssuerUrl empty; the installation's configuration renders the snapshot store's identity from them, and the chart refuses the install without them. Set them there first: provider.azure.subscriptionId is the AzureCluster's subscription; provider.azure.oidcIssuerUrl is the API server's service-account issuer"},
-		"one empty":  {record: "provider:\n  azure:\n    subscriptionId: sub\n    oidcIssuerUrl: \"\"\n", missing: []string{"provider.azure.oidcIssuerUrl"}, refusal: "leaves provider.azure.oidcIssuerUrl empty; the installation's configuration renders the snapshot store's identity from it, and the chart refuses the install without it. Set it there first: provider.azure.oidcIssuerUrl is"},
-		"not a leaf": {record: "provider:\n  azure:\n    subscriptionId: {id: sub}\n    oidcIssuerUrl: https://issuer\n", missing: []string{"provider.azure.subscriptionId"}, refusal: "leaves provider.azure.subscriptionId empty"},
-		"unreadable": {err: gh.ErrNotFound, missing: []string{"provider.azure.subscriptionId", "provider.azure.oidcIssuerUrl"}, refusal: "the record " + file + ", which has to set provider.azure.subscriptionId and provider.azure.oidcIssuerUrl, could not be read: " + gh.ErrNotFound.Error()},
+		"none":       {record: "provider:\n  kind: capz\n", missing: []string{subscriptionKey, issuerKey}, refusal: "the record " + file + " leaves provider.azure.subscriptionId and provider.azure.oidcIssuerUrl empty; the installation's configuration renders the snapshot store's identity from them, and the chart refuses the install without them. Set them there first: provider.azure.subscriptionId is the AzureCluster's subscription; provider.azure.oidcIssuerUrl is the API server's service-account issuer"},
+		"one empty":  {record: "provider:\n  azure:\n    subscriptionId: sub\n    oidcIssuerUrl: \"\"\n", missing: []string{issuerKey}, refusal: "leaves provider.azure.oidcIssuerUrl empty; the installation's configuration renders the snapshot store's identity from it, and the chart refuses the install without it. Set it there first: provider.azure.oidcIssuerUrl is"},
+		"not a leaf": {record: "provider:\n  azure:\n    subscriptionId: {id: sub}\n    oidcIssuerUrl: https://issuer\n", missing: []string{subscriptionKey}, refusal: "leaves provider.azure.subscriptionId empty"},
+		"unreadable": {err: gh.ErrNotFound, missing: []string{subscriptionKey, issuerKey}, refusal: "the record " + file + ", which has to set provider.azure.subscriptionId and provider.azure.oidcIssuerUrl, could not be read: " + gh.ErrNotFound.Error()},
 	} {
 		t.Run(name, func(t *testing.T) {
-			def := filesDefinition(map[string]string{"installations/rowan/a.yaml": "key: a\n"})
+			def := filesDefinition(map[string]string{factsFile: factsContent})
 			def.Parse = func(any) (render.Input, error) { return factsInput{facts: azureFacts}, nil }
 			read := func(_ context.Context, repository, path string) (string, error) {
 				if repository == acmeConfigs && path == record {
@@ -82,7 +90,7 @@ func TestBuildWithoutFactsReadsNoRecord(t *testing.T) {
 		}
 		return "", errors.New("absent")
 	}
-	p := Build(context.Background(), Options{Definition: filesDefinition(map[string]string{"installations/rowan/a.yaml": "key: a\n"}), Installation: rowanInstallation(), Inputs: map[string]any{}, Read: read})
+	p := Build(context.Background(), Options{Definition: filesDefinition(map[string]string{factsFile: factsContent}), Installation: rowanInstallation(), Inputs: map[string]any{}, Read: read})
 	if p.MissingFacts != nil || p.FactsRefusal() != "" {
 		t.Errorf("facts %+v, refusal %q", p.MissingFacts, p.FactsRefusal())
 	}
