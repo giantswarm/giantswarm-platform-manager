@@ -20,8 +20,8 @@ const PlatformRepository = "giantswarm/agent-platform"
 // gitops.prereleases is the 4 chart line's.
 const releaseCandidateMajor = 4
 
-// maxReleasePages bounds the releases read looking for the latest stable
-// release, newest first.
+// maxReleasePages bounds the releases read, 100 to a page: the bound devctl
+// release promote reads within.
 const maxReleasePages = 10
 
 // The tags agent-platform's releases carry.
@@ -53,16 +53,18 @@ func releasesAs(c *gh.Client) releasesPage {
 	}
 }
 
-// readPlatformCandidate reads, as the person, agent-platform's release
-// candidate of major that is newer than the line's latest stable release: the
-// version an installation that follows release candidates can run and a
-// stable-only range cannot select, so that dropping the candidates moves the
-// installation down to Stable. The releases are read newest first until the
-// line's first stable release; zero where no candidate is ahead of it.
+// readPlatformCandidate reads, as the person, agent-platform's highest
+// release candidate of major that is newer than the line's highest stable
+// release: the version an installation that follows release candidates can
+// run and a stable-only range cannot select, so that dropping the candidates
+// moves the installation down to Stable. Both are highest by semver over every
+// release read, as Flux and devctl release promote select them, not first in
+// GitHub's order: a hotfix of an older line cut after a candidate is listed
+// before it. Zero where no candidate is ahead.
 func readPlatformCandidate(ctx context.Context, list releasesPage, major uint64) (PlatformCandidate, error) {
-	var highest *semver.Version
-	var candidate, stable string
-	for page := 1; page <= maxReleasePages && stable == ""; page++ {
+	var candidate, stable *semver.Version
+	var candidateTag, stableTag string
+	for page := 1; page <= maxReleasePages; page++ {
 		releases, more, err := list(ctx, PlatformRepository, page)
 		if err != nil {
 			return PlatformCandidate{}, fmt.Errorf("agent-platform's release candidates: %w", err)
@@ -74,15 +76,12 @@ func readPlatformCandidate(ctx context.Context, list releasesPage, major uint64)
 			}
 			switch {
 			case platformStableTag.MatchString(r.Tag) && !r.Prerelease:
-				if stable == "" {
-					stable = r.Tag
-					if highest != nil && !highest.GreaterThan(v) {
-						highest, candidate = nil, ""
-					}
+				if stable == nil || v.GreaterThan(stable) {
+					stable, stableTag = v, r.Tag
 				}
-			case platformCandidateTag.MatchString(r.Tag) && r.Prerelease && stable == "":
-				if highest == nil || v.GreaterThan(highest) {
-					highest, candidate = v, r.Tag
+			case platformCandidateTag.MatchString(r.Tag) && r.Prerelease:
+				if candidate == nil || v.GreaterThan(candidate) {
+					candidate, candidateTag = v, r.Tag
 				}
 			}
 		}
@@ -90,10 +89,10 @@ func readPlatformCandidate(ctx context.Context, list releasesPage, major uint64)
 			break
 		}
 	}
-	if candidate == "" {
+	if candidate == nil || stable != nil && !candidate.GreaterThan(stable) {
 		return PlatformCandidate{}, nil
 	}
-	return PlatformCandidate{Candidate: candidate, Stable: stable}, nil
+	return PlatformCandidate{Candidate: candidateTag, Stable: stableTag}, nil
 }
 
 // PlatformExtrasKustomizationPath is the kustomization of the installation's
@@ -125,19 +124,53 @@ func readPrereleasesOnRecord(ctx context.Context, read Reader, inst Installation
 		if p.Target.Kind != "OCIRepository" || p.Target.Name != "agent-platform" {
 			continue
 		}
+		on, err := setsSemverFilter(p.Patch)
+		if err != nil {
+			return false, fmt.Errorf("the release candidates on record: %s in %s: decode the patch on the OCIRepository agent-platform: %w", path, inst.Repositories.ManagementClusters, err)
+		}
+		if on {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// setsSemverFilter says whether a patch on the OCIRepository sets
+// spec.ref.semverFilter: a JSON 6902 op on /spec/ref/semverFilter, or a
+// strategic merge patch that carries it.
+func setsSemverFilter(patch string) (bool, error) {
+	var node yaml.Node
+	if err := yaml.Unmarshal([]byte(patch), &node); err != nil {
+		return false, err
+	}
+	if len(node.Content) == 0 {
+		return false, nil
+	}
+	if node.Content[0].Kind == yaml.SequenceNode {
 		var ops []struct {
 			Path string `yaml:"path"`
 		}
-		if err := yaml.Unmarshal([]byte(p.Patch), &ops); err != nil {
-			return false, fmt.Errorf("the release candidates on record: %s in %s: decode the patch on the OCIRepository agent-platform: %w", path, inst.Repositories.ManagementClusters, err)
+		if err := node.Decode(&ops); err != nil {
+			return false, err
 		}
 		for _, op := range ops {
 			if op.Path == "/spec/ref/semverFilter" {
 				return true, nil
 			}
 		}
+		return false, nil
 	}
-	return false, nil
+	var merge struct {
+		Spec struct {
+			Ref struct {
+				SemverFilter string `yaml:"semverFilter"`
+			} `yaml:"ref"`
+		} `yaml:"spec"`
+	}
+	if err := node.Decode(&merge); err != nil {
+		return false, err
+	}
+	return merge.Spec.Ref.SemverFilter != "", nil
 }
 
 // PrereleasesIn says whether an agent-platform values patch sets

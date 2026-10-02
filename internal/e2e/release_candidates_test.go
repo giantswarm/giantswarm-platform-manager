@@ -73,18 +73,30 @@ func TestDroppingReleaseCandidatesWaitsForThePromotion(t *testing.T) {
 }
 
 // An installation that runs release candidates, whose platform's releases
-// cannot be read, is unreadable: a candidate ahead must not read as none.
-func TestUnreadablePlatformReleasesLeaveTheInstallationUnreadable(t *testing.T) {
+// cannot be read, stays readable: a plan that keeps the candidates goes
+// ahead, and only a commit that drops them is held, since a candidate ahead
+// must not read as none.
+func TestUnreadablePlatformReleasesHoldOnlyTheDrop(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	hazelRunsReleaseCandidates(t, st.ghs)
 	st.ghs.failReleases(installations.PlatformRepository)
-	out, text, isErr := listInstallations(t, st.mcpClient(t, aliceToken), map[string]any{tools.ArgInstallations: []string{hub}})
+	c := st.mcpClient(t, aliceToken)
+	out, text, isErr := listInstallations(t, c, map[string]any{tools.ArgInstallations: []string{hub}})
 	if isErr {
 		t.Fatal(text)
 	}
 	r := find(t, out, hub)
-	if r.Readable || !strings.Contains(strings.Join(r.Errors, " "), "agent-platform's release candidates") {
-		t.Fatalf("hazel with the platform's releases unread: readable %v, %v", r.Readable, r.Errors)
+	if !r.Readable || r.Record == nil || !r.Record.PlatformCandidateUnread || !strings.Contains(strings.Join(r.Errors, " "), "agent-platform's release candidates") {
+		t.Fatalf("hazel with the platform's releases unread: readable %v, %+v, %v", r.Readable, r.Record, r.Errors)
+	}
+
+	seedRemote(t, st)
+	planned, text, isErr := dryRun(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: hub, tools.ArgInputs: minimalInputs(nil)})
+	if isErr {
+		t.Fatal(text)
+	}
+	if p := findPlan(t, planned, hub); !p.DropsPrereleases || !strings.Contains(p.CommitRefused, "could not be read") {
+		t.Fatalf("the dry run: drops %v, commit refused %q", p.DropsPrereleases, p.CommitRefused)
 	}
 }

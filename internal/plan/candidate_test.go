@@ -20,7 +20,7 @@ func TestDropsPrereleases(t *testing.T) {
 }
 
 // A commit that drops the release candidates is held while a candidate is
-// ahead of the stable release, and only then.
+// ahead of the stable release or the releases are unread, and only then.
 func TestReleaseCandidateRefusal(t *testing.T) {
 	ahead := &installations.Record{PlatformCandidate: "v4.2.0-rc.2", PlatformStable: "v4.1.0"}
 	drops := Installation{Name: hazel.Name, DropsPrereleases: true}
@@ -31,6 +31,10 @@ func TestReleaseCandidateRefusal(t *testing.T) {
 	if got := drops.ReleaseCandidateRefusal(&installations.Record{PlatformCandidate: "v4.0.0-rc.1"}); !strings.Contains(got, "no stable release at all") {
 		t.Errorf("without a stable release: %q", got)
 	}
+	unread := &installations.Record{PlatformCandidateUnread: true}
+	if got := drops.ReleaseCandidateRefusal(unread); !strings.Contains(got, "could not be read") {
+		t.Errorf("the releases unread: %q", got)
+	}
 	for name, c := range map[string]struct {
 		p   Installation
 		rec *installations.Record
@@ -38,6 +42,7 @@ func TestReleaseCandidateRefusal(t *testing.T) {
 		"keeps the candidates": {Installation{Name: hazel.Name}, ahead},
 		"no candidate ahead":   {drops, &installations.Record{}},
 		"without a record":     {drops, nil},
+		"keeps them, unread":   {Installation{Name: hazel.Name}, unread},
 	} {
 		if got := c.p.ReleaseCandidateRefusal(c.rec); got != "" {
 			t.Errorf("%s: %q", name, got)

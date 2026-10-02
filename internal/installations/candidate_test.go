@@ -27,10 +27,10 @@ func pages(releases ...gh.Release) releasesPage {
 func rc(tag string) gh.Release     { return gh.Release{Tag: tag, Prerelease: true} }
 func stable(tag string) gh.Release { return gh.Release{Tag: tag} }
 
-// The candidate ahead is the highest 4.x release candidate cut since the
-// line's latest stable release, read newest first across pages; a candidate
-// the stable release caught up with, a draft, another line and other tags do
-// not count.
+// The candidate ahead is the highest 4.x release candidate above the line's
+// highest stable release, both by semver across every page whatever GitHub's
+// order; a candidate the stable release caught up with, a draft, another line
+// and other tags do not count.
 func TestPlatformCandidate(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -41,6 +41,8 @@ func TestPlatformCandidate(t *testing.T) {
 		{"rc.10 after rc.9", []gh.Release{rc("v4.2.0-rc.9"), rc("v4.2.0-rc.10"), stable("v4.1.0")}, PlatformCandidate{Candidate: "v4.2.0-rc.10", Stable: "v4.1.0"}},
 		{"promoted", []gh.Release{stable("v4.2.0"), rc("v4.2.0-rc.2"), stable("v4.1.0")}, PlatformCandidate{}},
 		{"a draft, another line and other tags", []gh.Release{{Tag: "v4.3.0-rc.1", Draft: true, Prerelease: true}, rc("v5.0.0-rc.1"), rc("v4.2.0-dev.1"), {Tag: "v4.2.0-rc.1"}, stable("v4.1.0")}, PlatformCandidate{}},
+		{"a lower hotfix cut after the candidate", []gh.Release{stable("v4.103.2"), rc("v4.104.0-rc.1"), stable("v4.103.1"), stable("v4.103.0")}, PlatformCandidate{Candidate: "v4.104.0-rc.1", Stable: "v4.103.2"}},
+		{"a lower hotfix cut after the promotion", []gh.Release{stable("v4.103.3"), rc("v4.104.0-rc.2"), stable("v4.104.0"), rc("v4.104.0-rc.1")}, PlatformCandidate{}},
 		{"no stable release of the line", []gh.Release{rc("v4.0.0-rc.1"), stable("v3.9.0")}, PlatformCandidate{Candidate: "v4.0.0-rc.1"}},
 		{"none at all", nil, PlatformCandidate{}},
 	}
@@ -71,6 +73,8 @@ func TestPrereleasesOnRecord(t *testing.T) {
 		want  bool
 	}{
 		{"the release tag filter", map[string]string{key: patch("      - op: replace\n        path: /spec/ref/semver\n        value: \">=4.0.0-0 <5.0.0-0\"\n      - op: add\n        path: /spec/ref/semverFilter\n        value: \"^v?[0-9.]+$\"\n")}, true},
+		{"the release tag filter, merged", map[string]string{key: patch("      apiVersion: source.toolkit.fluxcd.io/v1\n      kind: OCIRepository\n      metadata:\n        name: agent-platform\n      spec:\n        ref:\n          semverFilter: \"^v?[0-9.]+$\"\n")}, true},
+		{"the stable range, merged", map[string]string{key: patch("      kind: OCIRepository\n      metadata:\n        name: agent-platform\n      spec:\n        ref:\n          semver: \">=4.0.0 <5.0.0\"\n")}, false},
 		{"the stable range", map[string]string{key: patch("      - op: replace\n        path: /spec/ref/semver\n        value: \">=4.0.0 <5.0.0\"\n")}, false},
 		{"no kustomization", map[string]string{}, false},
 	}

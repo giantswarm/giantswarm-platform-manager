@@ -277,7 +277,6 @@ func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{shaKey: c.sha, htmlURLKey: commitURL(repo, c.sha), "parents": []map[string]any{{shaKey: c.parent}}, "files": files})
 	})
-	// The commits of the default branch that changed ?path=, newest first.
 	// The releases of owner/repo, newest first, on one page.
 	mux.HandleFunc("GET /api/v3/repos/{owner}/{repo}/releases", func(w http.ResponseWriter, r *http.Request) {
 		repo := r.PathValue("owner") + "/" + r.PathValue("repo")
@@ -294,6 +293,7 @@ func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 		}
 		writeJSON(w, http.StatusOK, out)
 	})
+	// The commits of the default branch that changed ?path=, newest first.
 	mux.HandleFunc("GET /api/v3/repos/{owner}/{repo}/commits", func(w http.ResponseWriter, r *http.Request) {
 		repo, ok := g.readable(w, r)
 		if !ok {

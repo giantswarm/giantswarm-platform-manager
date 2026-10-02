@@ -9,13 +9,20 @@ import (
 // ReleaseCandidateRefusal says why a commit of p is refused for the release
 // candidate rec's installation runs: p drops gitops.prereleases
 // (DropsPrereleases) while agent-platform's release candidate
-// rec.PlatformCandidate is ahead of its latest stable release. The
+// rec.PlatformCandidate is ahead of its latest stable release, or while
+// whether one is could not be read (rec.PlatformCandidateUnread). The
 // stable-only range would then select rec.PlatformStable, and helm-controller
 // would downgrade the platform. Empty where nothing refuses: a plan that
 // keeps the candidates, or no candidate ahead. The comparison runs either
 // way; only the commit is held until the candidate is promoted.
 func (p Installation) ReleaseCandidateRefusal(rec *installations.Record) string {
-	if !p.DropsPrereleases || rec == nil || rec.PlatformCandidate == "" {
+	if !p.DropsPrereleases || rec == nil {
+		return ""
+	}
+	if rec.PlatformCandidateUnread {
+		return fmt.Sprintf("%s runs agent-platform's release candidates, and whether one is ahead of the latest stable release could not be read: dropping gitops.prereleases now could move it down to an older release. Read the installation again, then commit", p.Name)
+	}
+	if rec.PlatformCandidate == "" {
 		return ""
 	}
 	to := "the latest stable release " + rec.PlatformStable
