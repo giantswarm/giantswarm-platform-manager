@@ -72,6 +72,19 @@ type Record struct {
 	// is held while the encrypted patch carries it.
 	DexSecretLists  []DexSecretList `json:"dexSecretLists,omitempty"`
 	DexSecretSource string          `json:"dexSecretSource,omitempty"`
+	// PlatformCandidate is, where the installation's extras kustomization on
+	// record patches a semverFilter onto the agent-platform OCIRepository
+	// (readPrereleasesOnRecord), agent-platform's 4.x release candidate that
+	// no stable release has caught up with yet (readPlatformCandidate), and
+	// PlatformStable the line's latest stable release; both empty where the
+	// kustomization patches none or no candidate is ahead. A commit that drops
+	// gitops.prereleases is held while one is: a stable-only range would move
+	// the installation down to PlatformStable. PlatformCandidateUnread says the
+	// kustomization or the releases could not be read: such a commit is held
+	// alike, every other plan goes ahead.
+	PlatformCandidate       string `json:"platformCandidate,omitempty"`
+	PlatformStable          string `json:"platformStable,omitempty"`
+	PlatformCandidateUnread bool   `json:"platformCandidateUnread,omitempty"`
 }
 
 // configPatch is the part of config.yaml.patch the record reads.
@@ -187,6 +200,8 @@ func (r *Registry) inspect(ctx context.Context, c *gh.Client, inst Installation,
 		listErr error
 		reg     Registered
 		regErr  error
+		rc      PlatformCandidate
+		rcErr   error
 		markers = make([]markerRead, len(caps))
 	)
 	if detail == Full {
@@ -200,6 +215,14 @@ func (r *Registry) inspect(ctx context.Context, c *gh.Client, inst Installation,
 		wg.Go(func() { pcs, pcsErr = readPortalClientSecret(ctx, c, inst) })
 		wg.Go(func() { lists, listErr = readDexSecretLists(ctx, readAs(c), inst) })
 		wg.Go(func() { reg, regErr = readRegistered(ctx, readAs(c), inst) })
+		wg.Go(func() {
+			on, err := readPrereleasesOnRecord(ctx, readAs(c), inst)
+			if err != nil || !on {
+				rcErr = err
+				return
+			}
+			rc, rcErr = readPlatformCandidate(ctx, releasesAs(c), releaseCandidateMajor)
+		})
 	}
 	for i, cap := range caps {
 		wg.Go(func() { markers[i] = readMarker(ctx, c, inst, cap) })
@@ -230,7 +253,14 @@ func (r *Registry) inspect(ctx context.Context, c *gh.Client, inst Installation,
 		default:
 			record.PodCertificateRequest, record.PortalClientSecret = pcr, pcs
 			record.CollectionsStage = col.stage()
+			record.PlatformCandidate, record.PlatformStable = rc.Candidate, rc.Stable
 			rep.Record = record
+			if rcErr != nil {
+				// Only a plan that drops the candidates needs to know whether
+				// one is ahead: unread, that plan is held, not the others.
+				record.PlatformCandidateUnread = true
+				rep.Errors = append(rep.Errors, rcErr.Error())
+			}
 			if pcrErr != nil {
 				// The release the cluster App names is a fact of the record, not
 				// a condition of reading the installation: unreadable, the fact

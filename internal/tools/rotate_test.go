@@ -15,7 +15,7 @@ import (
 )
 
 // The plan's refusals, as plan.Installation answers them.
-var planRefusals = []string{"DexAppRefusal", "DexSecretRefusal", "FrozenRefusal", "HubRefusal"}
+var planRefusals = []string{"DexAppRefusal", "DexSecretRefusal", "ReleaseCandidateRefusal", "FrozenRefusal", "HubRefusal"}
 
 // The single commit, the wave's pre-check and the comparison's
 // commitRefused take the plan's refusals from commitRefusal and nowhere else,
