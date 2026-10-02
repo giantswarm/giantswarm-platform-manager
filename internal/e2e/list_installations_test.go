@@ -452,7 +452,7 @@ func TestListInstallationsStates(t *testing.T) {
 	if len(out.Unreadable) != 2 || out.Unreadable[0] != "larch" || out.Unreadable[1] != "oak" {
 		t.Fatalf("unreadable: %v", out.Unreadable)
 	}
-	if len(out.States.FromRepositories) != 3 || len(out.States.FromActions) != 5 {
+	if len(out.States.FromRepositories) != 3 || len(out.States.FromActions) != 6 {
 		t.Fatalf("states: %+v", out.States)
 	}
 }

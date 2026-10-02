@@ -550,6 +550,32 @@ func TestGetActionOnASeededAction(t *testing.T) {
 	}
 }
 
+// An Action recorded in pending approval whose approval is not required —
+// from before ready to merge was a state of its own — reads ready to merge in
+// get_action, list_actions and list_installations.
+func TestASeededNoReviewActionReadsReadyToMerge(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	seeded := actions.Action{Name: "enable-rowan-2", Namespace: actionsNamespace, CreatedAt: time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC),
+		Spec: actions.Spec{Actor: actions.Actor{Login: alice}, Capability: installations.AgentPlatform, Installations: []string{rowan}, Kind: "enable"},
+		Status: actions.Status{State: actions.StatePendingApproval, PullRequests: []actions.PullRequest{{Repository: acmeConfigs, Number: 12, URL: "https://github.com/" + acmeConfigs + "/pull/12", State: "open"}},
+			Approval: &actions.Approval{Decision: actions.DecisionNotRequired}}}
+	if _, err := st.dyn.Resource(actions.GVR).Namespace(actionsNamespace).Create(context.Background(), actions.Unstructured(seeded), metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	c := st.mcpClient(t, aliceToken)
+	if got := getAction(t, c, seeded.Name); got.Status.State != actions.StateReadyToMerge {
+		t.Fatalf("get_action: %s", got.Status.State)
+	}
+	if listed := listActionsOf(t, c, rowan); len(listed) != 1 || listed[0].Status.State != actions.StateReadyToMerge {
+		t.Fatalf("list_actions: %+v", listed)
+	}
+	out, text, isErr := listInstallations(t, c, map[string]any{tools.ArgInstallations: []string{rowan}})
+	if isErr || find(t, out, rowan).Capabilities[0].State != installations.StateReadyToMerge {
+		t.Fatalf("list_installations: %v %.500s", isErr, text)
+	}
+}
+
 // The 4 line's prerequisite: kagent's Agent Substrate needs a cluster that
 // serves PodCertificateRequest, and the record says whether it does — the
 // cluster App's values in the management-clusters repository enable the
