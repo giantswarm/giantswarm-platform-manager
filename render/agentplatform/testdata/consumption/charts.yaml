@@ -50,7 +50,9 @@ charts:
     version: 4.102.0
   # The meta chart's children that read the platform Secrets, at the newest
   # versions inside the ranges the meta chart declares for them — per line where
-  # the lines' ranges differ.
+  # the lines' ranges differ. renovate-custom.json5 bumps the 4 line's children in
+  # one group with its meta chart pin; a pin outside its range fails the test
+  # with the version to pin.
   - name: muster
     registry: gsoci.azurecr.io/charts/giantswarm/muster
     version: 5.35.2
