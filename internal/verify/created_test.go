@@ -27,8 +27,10 @@ const (
 // by its manifest's kind, namespace and name — and each Dex client the
 // rendered dex patch declares that the patch on record has no entry for,
 // under the migration that names its leaves. A created file no migration
-// names is drift, not planned; a client the record carries, and every object
-// once the record carries it, is no planned object.
+// names is drift, not planned; so is a built-in client, the shared
+// template's, whose entry the patch on record lacks while the plan adds its
+// secret's reference; a client the record carries, and every object once
+// the record carries it, is no planned object.
 func TestPlannedObjectsAreWhatTheRecordLacks(t *testing.T) {
 	const (
 		repo       = "giantswarm/giantswarm-management-clusters"
@@ -36,12 +38,14 @@ func TestPlannedObjectsAreWhatTheRecordLacks(t *testing.T) {
 		strayFile  = "management-clusters/x/extras/agent-platform/secrets/stray-secret.yaml"
 		configRepo = "giantswarm/giantswarm-configs"
 		muster     = "dex-client-muster"
+		mcpCapi    = "dex-client-mcp-capi"                                                                                                    // #nosec G101 -- a Secret's name, not a value
+		m1Ref      = "Added: the Dex client mcpCapi reads its secret from a Secret in the cluster instead of the encrypted values patch · M1" // #nosec G101 -- a migration's reason, not a value
 	)
 	secret := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: " + secretM5 + "\n  namespace: giantswarm\nstringData:\n  secret: x\n"
 	stray := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: stray\n"
 	withClient := "oidc:\n  staticClients:\n    muster:\n      clientSecretRef:\n        name: " + muster + "\n  extraStaticClients:\n  - id: backstage\n    name: Backstage\n"
 	without := "oidc:\n  staticClients:\n    muster:\n      clientSecretRef:\n        name: " + muster + "\n"
-	clients := []plan.DexClient{{ID: "muster-x", Client: "muster", SecretRef: muster}, {ID: clientM30, Name: "Backstage"}}
+	clients := []plan.DexClient{{ID: "muster-x", Client: "muster", SecretRef: muster}, {ID: "mcp-capi-x", Client: "mcpCapi", SecretRef: mcpCapi}, {Client: "unnamed"}, {ID: clientM30, Name: "Backstage"}}
 	files := []plan.File{
 		{Repository: repo, Path: secretFile, Change: plan.ChangeCreate, Content: secret},
 		{Repository: repo, Path: strayFile, Change: plan.ChangeCreate, Content: stray},
@@ -54,7 +58,8 @@ func TestPlannedObjectsAreWhatTheRecordLacks(t *testing.T) {
 			{Path: kindPath, Rendered: kindSecret, absent: true}}},
 		fileKey(configRepo, testDexPatch): {key: fileKey(configRepo, testDexPatch), path: testDexPatch, diffs: []Difference{
 			{Path: "oidc.extraStaticClients[backstage].id", Rendered: clientM30, absent: true, Planned: m30Client},
-			{Path: "oidc.extraStaticClients[backstage].name", Rendered: "Backstage", absent: true, Planned: m30Client}}},
+			{Path: "oidc.extraStaticClients[backstage].name", Rendered: "Backstage", absent: true, Planned: m30Client},
+			{Path: "oidc.staticClients.mcpCapi.clientSecretRef.name", Rendered: mcpCapi, absent: true, Planned: m1Ref}}},
 	}
 	onRecord := func(dex string) func(string) string {
 		return func(key string) string {
@@ -71,6 +76,11 @@ func TestPlannedObjectsAreWhatTheRecordLacks(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("before the migration: %+v, want %+v", got, want)
+	}
+
+	// A request that names no client is no planned client's.
+	if reason := (PlannedObjects{{Kind: PlannedDexClient, Reason: m1Ref}}).client(""); reason != "" {
+		t.Errorf("no client: planned %q", reason)
 	}
 
 	// After the merge the record carries both: the file is unchanged and the

@@ -33,8 +33,12 @@ type PlannedObjects []PlannedObject
 // object is the reason of the planned object of the kind (a resource as a
 // probe names it, Secret or Deployment.apps) by namespace and name; an
 // object whose manifest names no namespace takes the one its kustomization
-// sets, so it matches by name. Empty for an object no migration creates.
+// sets, so it matches by name. Empty for an object no migration creates,
+// and for no name.
 func (ps PlannedObjects) object(resource, namespace, name string) string {
+	if name == "" {
+		return ""
+	}
 	kind, _, _ := strings.Cut(resource, ".")
 	for _, o := range ps {
 		if o.Kind == kind && o.Name == name && (o.Namespace == "" || o.Namespace == namespace) {
@@ -65,9 +69,11 @@ func (ps PlannedObjects) probeClient(u string) string {
 
 // plannedObjects are the objects the plan creates that the record lacks,
 // each with the migration that adds it: the objects of every file the plan
-// creates whose leaves a migration names, and the clients of the rendered
-// dex patch the patch on record has no entry for, a migration naming their
-// leaves. A created file or client no migration names is drift, not
+// creates whose leaves a migration names, and the extra clients of the
+// rendered dex patch the patch on record has no entry for, a migration
+// naming their leaves. A built-in client is the shared template's, which
+// the patch only adds to (its secret's reference): the plan never creates
+// one, so a built-in client Dex does not know is drift. A created file or client no migration names is drift, not
 // planned, and is left out. current is a file's content on record by key.
 func plannedObjects(files []plan.File, diffs map[string]*fileDiff, clients []plan.DexClient, current func(key string) string) PlannedObjects {
 	var out PlannedObjects
@@ -80,7 +86,10 @@ func plannedObjects(files []plan.File, diffs map[string]*fileDiff, clients []pla
 		case strings.HasSuffix(f.Path, dexPatchSuffix) && (f.Change == plan.ChangeCreate || f.Change == plan.ChangeUpdate):
 			record := flattenLines(current(fd.key))
 			for _, c := range clients {
-				entry := dexClientEntry(c)
+				if c.Client != "" || c.ID == "" {
+					continue
+				}
+				entry := entryPath("oidc.extraStaticClients", c.ID)
 				if carries(record, entry) {
 					continue
 				}
@@ -108,15 +117,6 @@ func plannedObjects(files []plan.File, diffs map[string]*fileDiff, clients []pla
 		}
 	}
 	return out
-}
-
-// dexClientEntry is the path of the client's entry in the dex patch: a
-// built-in client under its chart key, an extra one by its id.
-func dexClientEntry(c plan.DexClient) string {
-	if c.Client != "" {
-		return "oidc.staticClients." + c.Client
-	}
-	return entryPath("oidc.extraStaticClients", c.ID)
 }
 
 // firstPlanned is the migration's reason of the first leaf the record lacks
