@@ -48,3 +48,6 @@ func (in *Input) CustomerActions() []render.CustomerAction { return nil }
 
 // Selected is nil: the portal definition chooses nothing beyond the document.
 func (in *Input) Selected() map[string]any { return nil }
+
+// Facts is nil: the portal renders from its inputs alone.
+func (in *Input) Facts() []render.Fact { return nil }

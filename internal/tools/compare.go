@@ -62,14 +62,15 @@ func (t *Tools) compare(ctx context.Context, env *planned, r installations.Repor
 // the hub's Dev Portal the commit would remove. It is the one list the
 // single commit, the wave's pre-check and the comparison's commitRefused take
 // these refusals from, the first one found answered, so the three refuse
-// alike (TestCommitRefusalsAreOneList).
+// alike (TestCommitRefusalsAreOneList). Last, a fact the render needs that
+// the record leaves empty (FactsRefusal).
 func commitRefusal(p plan.Installation, rec *installations.Record) string {
 	for _, refusal := range []string{p.DexAppRefusal(rec), p.DexSecretRefusal(rec), p.FrozenRefusal(), p.HubRefusal()} {
 		if refusal != "" {
 			return refusal
 		}
 	}
-	return ""
+	return p.FactsRefusal()
 }
 
 // missingInputs names the choices not on record for a refusal.

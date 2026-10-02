@@ -36,6 +36,9 @@ const (
 	// providerCAPA is the provider whose installations publish their
 	// service-account issuer at irsa.<base domain>: the tunnel's oidc join.
 	providerCAPA = "capa"
+	// providerCAPZ is the Azure provider: its record carries the facts the
+	// Substrate snapshot store needs (providerFacts).
+	providerCAPZ = "capz"
 )
 
 // serviceAccountIssuer is the hub's published service-account issuer, where
