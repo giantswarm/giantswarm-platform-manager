@@ -233,6 +233,7 @@ type Result struct {
 	// would write for this installation (the dry run's entry, regrouped).
 	// CommitRefused says why a commit of this plan would be refused.
 	CommitRefused    string                 `json:"commitRefused,omitempty"`
+	MissingFacts     *plan.MissingFacts     `json:"missingFacts,omitempty"`
 	Files            []plan.File            `json:"files"`
 	Includes         []plan.Include         `json:"includes"`
 	Diff             map[plan.Change]int    `json:"diff"`
@@ -252,6 +253,7 @@ func (r *Result) view(p plan.Installation, content bool) {
 	r.Files, r.Includes, r.Diff = p.Files, p.Includes, p.Diff
 	r.GeneratedSecrets, r.SuppliedSecrets, r.SuppliedOnRecord, r.HubSections = p.GeneratedSecrets, p.SuppliedSecrets, p.SuppliedOnRecord, p.HubSections
 	r.DexClients, r.CustomerActions, r.Probes = p.DexClients, p.CustomerActions, p.Probes
+	r.MissingFacts = p.MissingFacts
 	if !content {
 		r.Files = make([]plan.File, len(p.Files))
 		for i, f := range p.Files {
@@ -264,7 +266,7 @@ func (r *Result) view(p plan.Installation, content bool) {
 // Plan is the result regrouped as the dry run's entry: what a commit would
 // write, without the marks.
 func (r Result) Plan() plan.Installation {
-	return plan.Installation{Name: r.Installation, State: r.State, Inputs: r.Inputs.Values, MissingInputs: r.Inputs.Missing, Refused: r.Refused, CommitRefused: r.CommitRefused,
+	return plan.Installation{Name: r.Installation, State: r.State, Inputs: r.Inputs.Values, MissingInputs: r.Inputs.Missing, Refused: r.Refused, CommitRefused: r.CommitRefused, MissingFacts: r.MissingFacts,
 		Files: r.Files, Includes: r.Includes, Diff: r.Diff, GeneratedSecrets: r.GeneratedSecrets, SuppliedSecrets: r.SuppliedSecrets, SuppliedOnRecord: r.SuppliedOnRecord,
 		HubSections: r.HubSections, DexClients: r.DexClients, CustomerActions: r.CustomerActions, Probes: r.Probes}
 }

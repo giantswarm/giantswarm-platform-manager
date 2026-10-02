@@ -279,6 +279,9 @@ type Installation struct {
 	// again, so the value on record stands, the commit renders the field's
 	// marker, writes none of its files and asks for no value.
 	SuppliedOnRecord []string `json:"suppliedOnRecord,omitempty"`
+	// MissingFacts are the facts of the record the render needs that the
+	// record leaves empty: a commit is held while one is (FactsRefusal).
+	MissingFacts *MissingFacts `json:"missingFacts,omitempty"`
 	// HubSections are the sections of the hub's Dev Portal — the definition's
 	// removals of kind hub, by key — whose value on record the plan removes:
 	// the definition renders no hub shape, so a commit is held while one is
@@ -458,6 +461,10 @@ func Build(ctx context.Context, opts Options) Installation {
 	for _, inc := range res.Includes {
 		files = append(files, fileRef{ResolveRepository(string(inc.Repository), opts.Installation, opts.Hub), inc.Path})
 	}
+	facts := in.Facts()
+	if len(facts) > 0 {
+		files = append(files, recordRef(opts))
+	}
 	opts.Read = fetch(ctx, opts.Read, files).read
 	generated := map[string]*GeneratedSecret{}
 	revisions := map[string]bool{} // the credentials revisions the render names
@@ -562,6 +569,7 @@ func Build(ctx context.Context, opts Options) Installation {
 	for _, gs := range generated {
 		refuseRotationHeldBy(gs)
 	}
+	p.MissingFacts = missingFacts(ctx, opts.Read, recordRef(opts), facts)
 	p.SuppliedSecrets, p.SuppliedOnRecord = splitSupplied(supplied, suppliedIn, p.Files)
 	p.includes(ctx, opts, res.Includes)
 	sort.SliceStable(p.Files, func(i, j int) bool {

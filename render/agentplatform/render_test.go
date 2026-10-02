@@ -1036,3 +1036,36 @@ func TestRevisionsCoverTheCredentialsSecrets(t *testing.T) {
 		}
 	}
 }
+
+// The facts of the record the render needs: on capz, where kagent runs on
+// the 4 chart line, the subscription and the service-account issuer the
+// shared configuration renders the Substrate snapshot store's Workload
+// Identity from; nothing on capa, or on the 3 line.
+func TestFactsAreTheProvidersOnTheFourLine(t *testing.T) {
+	for name, c := range map[string]struct {
+		provider, line string
+		want           []string
+	}{
+		"capz on 4": {providerCAPZ, lineFour, []string{"provider.azure.subscriptionId", "provider.azure.oidcIssuerUrl"}},
+		"capa on 4": {providerCAPA, lineFour, nil},
+		"capz on 3": {providerCAPZ, lineThree, nil},
+	} {
+		in := &Input{Components: map[string]bool{componentKagent: true}}
+		in.Installation.Provider, in.Installation.ChartLine = c.provider, c.line
+		var got []string
+		for _, f := range in.Facts() {
+			got = append(got, f.Key)
+			if f.Source == "" || !strings.Contains(f.Renders, "kagent.harness.snapshotStore.crossplane.capz") {
+				t.Errorf("%s: %+v names no source or what it renders", name, f)
+			}
+		}
+		if strings.Join(got, ",") != strings.Join(c.want, ",") {
+			t.Errorf("%s: %v, want %v", name, got, c.want)
+		}
+	}
+	in := &Input{Components: map[string]bool{}}
+	in.Installation.Provider, in.Installation.ChartLine = providerCAPZ, lineFour
+	if got := in.Facts(); got != nil {
+		t.Errorf("without kagent: %v", got)
+	}
+}
