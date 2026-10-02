@@ -16,6 +16,8 @@ import (
 	"testing"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/crane"
 	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/giantswarm-platform-manager/render"
@@ -693,21 +695,63 @@ func (c *consumption) pin(chart string) (pin, bool) {
 // line runs the base's range), and a child's range is the line's: a pin outside
 // it is an entry of charts.yaml for the other line, or none for this one.
 func (c *consumption) checkRange(p pin, hr, rng string) {
-	if rng == "" {
-		return
-	}
-	constraint, err := semver.NewConstraint(rng)
-	if err != nil {
-		c.t.Fatalf("HelmRelease %s: OCIRepository range %q: %v", hr, rng, err)
-	}
-	if constraint.Check(semver.MustParse(p.Version)) {
-		return
-	}
 	line := ""
 	if c.platform != nil {
 		line = c.platform.Installation.ChartLine
 	}
-	c.t.Fatalf("chart %s: pinned %s is outside the range %s that HelmRelease %s follows on the %s line — %s/charts.yaml needs an entry for it with line: %q", p.Name, p.Version, rng, hr, line, consumptionDir, line)
+	if msg := outsideRange(p, hr, rng, line, listTags); msg != "" {
+		c.t.Fatal(msg)
+	}
+}
+
+// outsideRange is the failure of a pin outside the range rng, "" for one inside
+// it. The failure names the version to pin, the newest release of the pin's
+// repository inside the range, so a meta chart bump that moved a child's range,
+// or a child bumped ahead of it, is one edit of charts.yaml.
+func outsideRange(p pin, hr, rng, line string, tags func(repository string) ([]string, error)) string {
+	if rng == "" {
+		return ""
+	}
+	constraint, err := semver.NewConstraint(rng)
+	if err != nil {
+		return fmt.Sprintf("HelmRelease %s: OCIRepository range %q: %v", hr, rng, err)
+	}
+	if constraint.Check(semver.MustParse(p.Version)) {
+		return ""
+	}
+	want := "no release of " + p.Registry + " is inside it"
+	if released, err := tags(p.Registry); err != nil {
+		want = "listing the releases of " + p.Registry + ": " + err.Error()
+	} else if v := newestInside(released, constraint); v != "" {
+		want = "pin " + v + ", the newest release inside it"
+	}
+	return fmt.Sprintf("chart %s: pinned %s is outside the range %s that HelmRelease %s follows on the %s line: %s, in %s/charts.yaml (an entry with line: %q where the other line pins another version)", p.Name, p.Version, rng, hr, line, want, consumptionDir, line)
+}
+
+// newestInside is the newest release among tags inside constraint, "" when none
+// is: releases only, since the pins are what Renovate moves them to and it skips
+// the prereleases a dev build tags.
+func newestInside(tags []string, constraint *semver.Constraints) string {
+	var newest *semver.Version
+	for _, tag := range tags {
+		v, err := semver.StrictNewVersion(tag)
+		if err != nil || v.Prerelease() != "" || !constraint.Check(v) {
+			continue
+		}
+		if newest == nil || v.GreaterThan(newest) {
+			newest = v
+		}
+	}
+	if newest == nil {
+		return ""
+	}
+	return newest.Original()
+}
+
+// listTags lists an OCI repository's tags anonymously, the way the test pulls
+// its charts.
+func listTags(repository string) ([]string, error) {
+	return crane.ListTags(repository, crane.WithAuth(authn.Anonymous))
 }
 
 // standIns are the files standing in for the shared template's ConfigMap of a
