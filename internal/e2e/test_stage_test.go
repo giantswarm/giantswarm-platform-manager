@@ -7,6 +7,7 @@ package e2e
 // review, and merge_action waits for it without telling the standup channel.
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/giantswarm/gitops-commit/commit"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
 )
 
@@ -52,7 +54,7 @@ func TestTestInstallationNeedsNoReviewAndTellsTheStandupChannel(t *testing.T) {
 		t.Fatalf("commit: %v %s", isErr, text)
 	}
 	a := out.Action
-	if a.Spec.Customer || a.Status.State != actions.StatePendingApproval || a.Status.Approval == nil || a.Status.Approval.Decision != actions.DecisionNotRequired || a.Status.Approval.ReviewID != "" || !strings.Contains(out.Next, "no Team review") {
+	if a.Spec.Customer || a.Status.State != actions.StateReadyToMerge || a.Status.Approval == nil || a.Status.Approval.Decision != actions.DecisionNotRequired || a.Status.Approval.ReviewID != "" || !strings.Contains(out.Next, "no Team review") {
 		t.Fatalf("the action on a test installation: %+v %+v; next %q", a.Spec, a.Status.Approval, out.Next)
 	}
 	if posted, noticed := st.gateway.posted(), st.gateway.noticed(); len(posted) != 0 || len(noticed) != 0 {
@@ -60,6 +62,13 @@ func TestTestInstallationNeedsNoReviewAndTellsTheStandupChannel(t *testing.T) {
 	}
 	if _, text, isErr := decide(t, carolC, tools.ToolApproveAction, map[string]any{tools.ArgAction: a.Name}); !isErr || !strings.Contains(text, "needs no review") {
 		t.Fatalf("an approval of an action that needs none: %v %s", isErr, text)
+	}
+	// Ready to merge wherever it is read: the actions and the installation.
+	if listed := listActionsOf(t, aliceC, rowan); len(listed) != 1 || listed[0].Status.State != actions.StateReadyToMerge {
+		t.Fatalf("list_actions: %+v", listed)
+	}
+	if li, text, isErr := listInstallations(t, aliceC, map[string]any{tools.ArgInstallations: []string{rowan}}); isErr || find(t, li, rowan).Capabilities[0].State != installations.StateReadyToMerge {
+		t.Fatalf("list_installations: %v %.500s", isErr, text)
 	}
 
 	// Green: alice merges without anyone's approval; one sentence reaches
@@ -85,7 +94,7 @@ func TestTestInstallationNeedsNoReviewAndTellsTheStandupChannel(t *testing.T) {
 func TestCustomerInstallationKeepsTheReview(t *testing.T) {
 	st := newStack(t)
 	out, aliceC := commitRowan(t, st)
-	if out.Action.Status.Approval == nil || out.Action.Status.Approval.ReviewID == "" || out.Action.Status.Approval.Decision != "" {
+	if out.Action.Status.State != actions.StatePendingApproval || out.Action.Status.Approval == nil || out.Action.Status.Approval.ReviewID == "" || out.Action.Status.Approval.Decision != "" {
 		t.Fatalf("the action on a customer installation: %+v", out.Action.Status.Approval)
 	}
 	for _, pr := range st.remote.PullRequests() {
@@ -96,5 +105,56 @@ func TestCustomerInstallationKeepsTheReview(t *testing.T) {
 	}
 	if posted, noticed := st.gateway.posted(), st.gateway.noticed(); len(posted) != 1 || len(noticed) != 0 {
 		t.Fatalf("%d review(s), %d standup notice(s)", len(posted), len(noticed))
+	}
+}
+
+// A member denies an action that is ready to merge: its pull requests are
+// closed and it moves to denied, as one pending the Team review.
+func TestDenyAnActionReadyToMerge(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	sopsFixtures(t, st.ghs)
+	rowanAsTestInstallation(t, st.ghs)
+	seedRemote(t, st)
+	aliceC := st.mcpClient(t, aliceToken)
+	out, text, isErr := commitCall(t, aliceC, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(nil)})
+	if isErr || out.Action == nil || out.Action.Status.State != actions.StateReadyToMerge {
+		t.Fatalf("commit: %v %s", isErr, text)
+	}
+	d, text, isErr := decide(t, aliceC, tools.ToolDenyAction, map[string]any{tools.ArgAction: out.Action.Name, tools.ArgReason: "not now"})
+	if isErr || d.Action == nil || d.Action.Status.State != actions.StateDenied {
+		t.Fatalf("deny: %v %s", isErr, text)
+	}
+	for _, pr := range st.remote.PullRequests() {
+		if !pr.Closed {
+			t.Fatalf("%s#%d stays open", pr.Repository, pr.Number)
+		}
+	}
+}
+
+// A wave over test installations alone is ready to merge, its stages too,
+// until its first stage is merged.
+func TestWaveOverTestInstallationsIsReadyToMerge(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	sopsFixtures(t, st.ghs)
+	rowanAsTestInstallation(t, st.ghs)
+	st.ghs.addFile(acmeConfigs, installations.Capabilities()[0].EnabledMarker(rowan), "muster: {}\n")
+	seedRemote(t, st)
+	aliceC := st.mcpClient(t, aliceToken)
+	text, isErr := call(t, aliceC, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallations: []string{rowan}, tools.ArgInputs: minimalInputs(nil), tools.ArgReason: commitReason, tools.ArgMode: string(tools.ModeCommit)})
+	var w tools.WaveResult
+	if isErr || json.Unmarshal([]byte(text), &w) != nil || w.Action == nil {
+		t.Fatalf("wave commit: %v %s", isErr, text)
+	}
+	a := w.Action
+	if a.Status.State != actions.StateReadyToMerge || a.Status.Rollout == nil || len(a.Status.Rollout.Installations) != 1 || a.Status.Rollout.Installations[0].State != actions.StateReadyToMerge {
+		t.Fatalf("the wave: %s %+v", a.Status.State, a.Status.Rollout)
+	}
+	for _, pr := range st.remote.PullRequests() {
+		st.remote.SetChecks(pr.PullRequest, commit.ChecksSuccess)
+	}
+	if m, text, isErr := mergeCall(t, aliceC, a.Name); isErr || m.Stage != rowan || m.Action.Status.State != actions.StateRollingOut {
+		t.Fatalf("merge: %v %s", isErr, text)
 	}
 }

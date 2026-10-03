@@ -99,7 +99,7 @@ func (t *Tools) registerLiveTools(s *mcpserver.MCPServer) {
 		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithString(ArgInstallation, mcp.Required(), mcp.Description("The installation to verify, by name: the management cluster muster reads for you.")),
 		mcp.WithString(ArgCapability, mcp.Description(capabilityArgDescription), mcp.Enum(installations.CapabilityNames()...)),
-		mcp.WithObject(ArgInputs, mcp.Description("The inputs object of "+ToolVerifyCapability+"'s answer (source, values, readBack), so both halves render from the same inputs; left out, the newest action's inputs on record; without either the live dimensions read not checked.")),
+		mcp.WithObject(ArgInputs, mcp.Description("The inputs object of "+ToolVerifyCapability+"'s answer (source, values, readBack, kept), so both halves render from the same inputs and hold the live objects against the entries the files on record keep; left out, the newest action's inputs on record; without either the live dimensions read not checked.")),
 	), t.verifyInstallationLive)
 }
 
@@ -138,7 +138,7 @@ func (t *Tools) verifyLive(ctx context.Context, args map[string]any) (any, error
 		return nil, fmt.Errorf("%s: %w", ToolVerifyInstallation, err)
 	}
 	if given != nil {
-		opts.Inputs = *given
+		opts.Inputs, opts.Kept = *given, given.Kept
 	}
 	var record *actions.Action
 	for i := range acts {
@@ -175,7 +175,7 @@ func (t *Tools) verifyLive(ctx context.Context, args map[string]any) (any, error
 }
 
 // givenInputs are the inputs the caller handed over: verify_capability's
-// inputs object (source, values, readBack), decoded; nil when none.
+// inputs object (source, values, readBack, kept), decoded; nil when none.
 func givenInputs(args map[string]any) (*verify.Inputs, error) {
 	raw, ok := args[ArgInputs].(map[string]any)
 	if !ok {

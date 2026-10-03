@@ -34,10 +34,35 @@
       matchCurrentVersion: '/^4\\./',
       allowedVersions: '/^4\\./',
       groupName: 'agent-platform 4 line',
+      separateMajorMinor: false,
+    },
+    {
+      // The 4 line's children are pinned at the newest versions inside the
+      // ranges the meta chart's 4 line pin declares for them, so a bump of the
+      // meta chart that moves a range and a bump of a child alone can each fail
+      // the test: they are one group with the meta chart, majors included (a
+      // range moves across a child's major), and one pull request moves them
+      // together. Where a child's newest release is outside the new range, the
+      // test's failure names the version to pin.
+      matchDatasources: [
+        'docker',
+      ],
+      matchPackageNames: [
+        'gsoci.azurecr.io/giantswarm/kagent/helm/kagent',
+        'gsoci.azurecr.io/charts/giantswarm/klaus-gateway',
+        'gsoci.azurecr.io/charts/giantswarm/model-manager',
+        'gsoci.azurecr.io/charts/giantswarm/agentgateway',
+        'gsoci.azurecr.io/charts/giantswarm/cluster-manager',
+        'gsoci.azurecr.io/charts/giantswarm/kserve-llmisvc-crd',
+        'gsoci.azurecr.io/charts/giantswarm/kserve-llmisvc-resources',
+        'gsoci.azurecr.io/charts/giantswarm/kserve-runtime-configs',
+      ],
+      groupName: 'agent-platform 4 line',
+      separateMajorMinor: false,
     },
     {
       // agent-manager is pinned per line too: the 3 line's meta chart follows
-      // 0.x, the 4 line's 1.x.
+      // 0.x, the 4 line's 1.x, which moves with the 4 line's group.
       matchDatasources: [
         'docker',
       ],
@@ -46,6 +71,25 @@
       ],
       matchCurrentVersion: '/^0\\./',
       allowedVersions: '/^0\\./',
+    },
+    {
+      matchDatasources: [
+        'docker',
+      ],
+      matchPackageNames: [
+        'gsoci.azurecr.io/charts/giantswarm/agent-manager',
+      ],
+      matchCurrentVersion: '!/^0\\./',
+      groupName: 'agent-platform 4 line',
+      separateMajorMinor: false,
+    },
+    {
+      // The testdata pins are fixtures of the render-consumption test, not what
+      // ships: their bumps go in as test(deps), which cuts no release.
+      matchFileNames: [
+        'render/agentplatform/testdata/**',
+      ],
+      semanticCommitType: 'test',
     },
   ],
 }

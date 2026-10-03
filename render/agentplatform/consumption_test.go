@@ -16,6 +16,8 @@ import (
 	"testing"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/crane"
 	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/giantswarm-platform-manager/render"
@@ -367,6 +369,7 @@ func consume(t *testing.T, shape consumptionShape, charts *chartStore) {
 	c.assertWholeSecrets()
 	if c.platform != nil {
 		c.assertMusterConsumers()
+		c.assertKagentConsumers()
 	}
 }
 
@@ -692,21 +695,63 @@ func (c *consumption) pin(chart string) (pin, bool) {
 // line runs the base's range), and a child's range is the line's: a pin outside
 // it is an entry of charts.yaml for the other line, or none for this one.
 func (c *consumption) checkRange(p pin, hr, rng string) {
-	if rng == "" {
-		return
-	}
-	constraint, err := semver.NewConstraint(rng)
-	if err != nil {
-		c.t.Fatalf("HelmRelease %s: OCIRepository range %q: %v", hr, rng, err)
-	}
-	if constraint.Check(semver.MustParse(p.Version)) {
-		return
-	}
 	line := ""
 	if c.platform != nil {
 		line = c.platform.Installation.ChartLine
 	}
-	c.t.Fatalf("chart %s: pinned %s is outside the range %s that HelmRelease %s follows on the %s line — %s/charts.yaml needs an entry for it with line: %q", p.Name, p.Version, rng, hr, line, consumptionDir, line)
+	if msg := outsideRange(p, hr, rng, line, listTags); msg != "" {
+		c.t.Fatal(msg)
+	}
+}
+
+// outsideRange is the failure of a pin outside the range rng, "" for one inside
+// it. The failure names the version to pin, the newest release of the pin's
+// repository inside the range, so a meta chart bump that moved a child's range,
+// or a child bumped ahead of it, is one edit of charts.yaml.
+func outsideRange(p pin, hr, rng, line string, tags func(repository string) ([]string, error)) string {
+	if rng == "" {
+		return ""
+	}
+	constraint, err := semver.NewConstraint(rng)
+	if err != nil {
+		return fmt.Sprintf("HelmRelease %s: OCIRepository range %q: %v", hr, rng, err)
+	}
+	if constraint.Check(semver.MustParse(p.Version)) {
+		return ""
+	}
+	want := "no release of " + p.Registry + " is inside it"
+	if released, err := tags(p.Registry); err != nil {
+		want = "listing the releases of " + p.Registry + ": " + err.Error()
+	} else if v := newestInside(released, constraint); v != "" {
+		want = "pin " + v + ", the newest release inside it"
+	}
+	return fmt.Sprintf("chart %s: pinned %s is outside the range %s that HelmRelease %s follows on the %s line: %s, in %s/charts.yaml (an entry with line: %q where the other line pins another version)", p.Name, p.Version, rng, hr, line, want, consumptionDir, line)
+}
+
+// newestInside is the newest release among tags inside constraint, "" when none
+// is: releases only, since the pins are what Renovate moves them to and it skips
+// the prereleases a dev build tags.
+func newestInside(tags []string, constraint *semver.Constraints) string {
+	var newest *semver.Version
+	for _, tag := range tags {
+		v, err := semver.StrictNewVersion(tag)
+		if err != nil || v.Prerelease() != "" || !constraint.Check(v) {
+			continue
+		}
+		if newest == nil || v.GreaterThan(newest) {
+			newest = v
+		}
+	}
+	if newest == nil {
+		return ""
+	}
+	return newest.Original()
+}
+
+// listTags lists an OCI repository's tags anonymously, the way the test pulls
+// its charts.
+func listTags(repository string) ([]string, error) {
+	return crane.ListTags(repository, crane.WithAuth(authn.Anonymous))
 }
 
 // standIns are the files standing in for the shared template's ConfigMap of a
@@ -1162,7 +1207,7 @@ func (c *consumption) assertMusterConsumers() {
 		}
 		delete(running, name)
 		if c.platform.musterRevision() {
-			c.assertRolled(rel, consumer)
+			c.assertRolled(rel, consumer, musterRevisionSecret)
 		}
 	}
 	for _, name := range sortedKeys(running) {
@@ -1184,15 +1229,46 @@ func helmTest(rel *release, consumer string) bool {
 // revisionMarker stands in for the revision the commit step generates.
 const revisionMarker = "rolled"
 
+// assertKagentConsumers holds kagent's credentials revision to the rendered
+// kagent chart: every workload whose pods read the oauth2-proxy's credentials
+// Secret (kagentOAuth2ProxySecret) rolls with kagentRevisionSecret, so a
+// rotation of the kagent client or cookie secret restarts it.
+func (c *consumption) assertKagentConsumers() {
+	if !c.platform.kagent() || !c.platform.musterRevision() {
+		return
+	}
+	readers := map[string]*release{}
+	for _, r := range c.refs {
+		if r.ns == kagentNamespace && r.secret == kagentOAuth2ProxySecret && !strings.HasPrefix(r.consumer, kindHelmRel+"/") {
+			readers[r.consumer] = r.rel
+		}
+	}
+	for _, v := range c.volumes {
+		for _, s := range v.sources {
+			if v.ns == kagentNamespace && s.secret == kagentOAuth2ProxySecret {
+				readers[v.consumer] = v.rel
+			}
+		}
+	}
+	if len(readers) == 0 {
+		c.t.Errorf("no rendered workload reads %s in namespace %s: the oauth2-proxy's probe and its credentials revision roll nothing", kagentOAuth2ProxySecret, kagentNamespace)
+	}
+	for _, consumer := range sortedKeys(readers) {
+		if !helmTest(readers[consumer], consumer) {
+			c.assertRolled(readers[consumer], consumer, kagentRevisionSecret)
+		}
+	}
+}
+
 // assertRolled renders rel once more with every targetPath its HelmRelease
 // reads from the revision Secret set to revisionMarker, at the place in the
 // values Flux merges it, and fails unless the consumer's pod template changes.
-func (c *consumption) assertRolled(rel *release, consumer string) {
+func (c *consumption) assertRolled(rel *release, consumer, revisionSecret string) {
 	t := c.t
 	var values []string
 	next, revisions := 0, 0
 	for _, tg := range rel.targets {
-		if tg.secret != musterRevisionSecret {
+		if tg.secret != revisionSecret {
 			continue
 		}
 		if strings.Contains(tg.path, `\`) {
@@ -1213,7 +1289,7 @@ func (c *consumption) assertRolled(rel *release, consumer string) {
 		revisions++
 	}
 	if revisions == 0 {
-		t.Errorf("%s reads muster's credentials, but its HelmRelease (%s) takes no credentials revision from %s: a rotation leaves it on the old values", consumer, rel, musterRevisionSecret)
+		t.Errorf("%s reads rotated credentials, but its HelmRelease (%s) takes no credentials revision from %s: a rotation leaves it on the old values", consumer, rel, revisionSecret)
 		return
 	}
 	values = append(values, rel.values[next:]...)

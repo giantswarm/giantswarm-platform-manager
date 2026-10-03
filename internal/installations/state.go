@@ -29,6 +29,9 @@ const (
 	StateNotEnabled State = "not enabled"
 	// StatePendingApproval: an enablement asked for approval and waits.
 	StatePendingApproval State = "pending approval"
+	// StateReadyToMerge: an enablement that needs no Team review — every
+	// target a test installation — waits for its actor's merge.
+	StateReadyToMerge State = "ready to merge"
 	// StateRollingOut: the pull requests are merged and the rollout runs.
 	StateRollingOut State = "rolling out"
 	// StateWaitingForCustomer: the rollout needs an action of the customer.
@@ -255,7 +258,7 @@ func (s State) OnRecord() bool { return s == StateEnabled }
 // unfinished or failed action lets stand over the state read from the files.
 func (s State) FromAction() bool {
 	switch s {
-	case StatePendingApproval, StateRollingOut, StateWaitingForCustomer, StateDrifted, StateFailed:
+	case StatePendingApproval, StateReadyToMerge, StateRollingOut, StateWaitingForCustomer, StateDrifted, StateFailed:
 		return true
 	}
 	return false

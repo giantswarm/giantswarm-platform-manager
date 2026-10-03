@@ -40,6 +40,14 @@ const (
 	keyEnabled = "enabled"
 	keyGitHub  = "github"
 	keySkills  = "skills"
+	// keyApp, keyToken and keyMint are the agent-manager skills inputs naming
+	// the skills GitHub App's Secret, the boot Secret and the minted boot
+	// Secret's choice; skillsApp and skillsTok the Secrets the cases name.
+	keyApp    = "appSecretName"
+	keyToken  = "gitAuthSecretName" //nolint:gosec // an input's name, no credential
+	keyMint   = "mintGitAuthSecret"
+	skillsApp = "acme-skills-app"
+	skillsTok = "acme-skills-token" //nolint:gosec // a Secret's name in a fixture, no credential
 	// gitHubOn is a manager's commit mode as its chart values carry it.
 	gitHubOn    = "github:\n  enabled: true\n"
 	keyModel    = "model"
@@ -499,6 +507,10 @@ func TestRefusals(t *testing.T) {
 	lineThreeCandidates["installation"].(map[string]any)["chartLine"] = lineThree
 	lineThreeCandidates["installation"].(map[string]any)["agentPlatform"] = true
 	delete(lineThreeCandidates, "modelServing")
+	// The serving slice on a record that names no cluster issuer: the models
+	// Gateway's certificate would have no source.
+	servingWithoutIssuer, servingWithoutIssuerSecrets := loadInput(t, shapeGiantswarmOwned)
+	delete(servingWithoutIssuer["installation"].(map[string]any), "clusterIssuer")
 	// A 4-line record whose cluster App does not say the cluster serves
 	// PodCertificateRequest: no gates on record, a chart before the default.
 	noPodCertificateRequest, _ := loadInput(t, shapePublicCustomer)
@@ -545,6 +557,7 @@ func TestRefusals(t *testing.T) {
 			m["scheduling"] = map[string]any{keyCapacity: capacityOnDemand}
 		}), secrets, ErrInput, "scheduling." + keyCapacity},
 		{"a capacity Karpenter does not name", clone(func(m map[string]any) { m["scheduling"] = map[string]any{keyCapacity: "spot"} }), secrets, ErrInput, keyCapacity},
+		{"serving without a cluster issuer", servingWithoutIssuer, servingWithoutIssuerSecrets, ErrInput, "installation.clusterIssuer"},
 		{"serving on the 3 line", clone(func(m map[string]any) { m["modelServing"] = map[string]any{keyEnabled: true} }), secrets, ErrInput, "modelServing.enabled"},
 		{"the chat without a portal to carry it", clone(func(m map[string]any) {
 			m["installation"].(map[string]any)["portals"] = []any{}
@@ -691,8 +704,8 @@ func TestManagersCommitMode(t *testing.T) {
 func TestAgentManagerSkills(t *testing.T) {
 	input, secrets := loadInput(t, shapeHubPrivateTarget)
 	input["agentManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: true}, keySkills: map[string]any{ //nolint:gosec // Secret names in a fixture, no credential
-		"repositories":  []any{"https://github.com/acme/skills", "https://github.com/acme/skills-internal"},
-		"appSecretName": "acme-skills-app", "gitAuthSecretName": "acme-skills-token"}}
+		"repositories": []any{"https://github.com/acme/skills", "https://github.com/acme/skills-internal"},
+		keyApp:         skillsApp, keyToken: skillsTok}}
 	result, err := Render(input, secrets, render.ModeCommit)
 	if err != nil {
 		t.Fatal(err)
@@ -724,9 +737,40 @@ func TestAgentManagerSkills(t *testing.T) {
 	}
 
 	input, secrets = loadInput(t, shapeHubPrivateTarget)
+	input["agentManager"] = map[string]any{keySkills: map[string]any{keyApp: skillsApp, keyMint: true}}
+	result, err = Render(input, secrets, render.ModeCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	patch = nil
+	for name, content := range result.Tree() {
+		if strings.HasSuffix(name, "apps/agent-platform/configmap-values.yaml.patch") {
+			if err := yaml.Unmarshal(content, &patch); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	got = string(render.MustYAML(patch["agent-manager"]))
+	want = "skills:\n  github:\n    app:\n      secretName: " + skillsApp + "\n  " + keyMint + ": true\n"
+	if got != want {
+		t.Errorf("a minted boot Secret:\n%s\nwant:\n%s", got, want)
+	}
+
+	for name, skills := range map[string]map[string]any{
+		"minted and named":   {keyApp: skillsApp, keyMint: true, keyToken: skillsTok}, //nolint:gosec // Secret names in a fixture, no credential
+		"minted without App": {keyMint: true},
+	} {
+		input, secrets = loadInput(t, shapeHubPrivateTarget)
+		input["agentManager"] = map[string]any{keySkills: skills}
+		if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), keyMint) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+
+	input, secrets = loadInput(t, shapeHubPrivateTarget)
 	input["installation"].(map[string]any)["customer"] = "fleetio"
 	input["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
-	input["agentManager"] = map[string]any{keySkills: map[string]any{"gitAuthSecretName": "acme-skills-token"}} //nolint:gosec // a Secret's name in a fixture, no credential
+	input["agentManager"] = map[string]any{keySkills: map[string]any{keyToken: skillsTok}} //nolint:gosec // a Secret's name in a fixture, no credential
 	if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "agentManager.skills") {
 		t.Fatalf("a skill catalog where the policy runs no agent-manager: %v", err)
 	}
@@ -990,5 +1034,38 @@ func TestRevisionsCoverTheCredentialsSecrets(t *testing.T) {
 				t.Errorf("%s: %s rolls with %q, want %s", shape, value, got, revision)
 			}
 		}
+	}
+}
+
+// The facts of the record the render needs: on capz, where kagent runs on
+// the 4 chart line, the subscription and the service-account issuer the
+// shared configuration renders the Substrate snapshot store's Workload
+// Identity from; nothing on capa, or on the 3 line.
+func TestFactsAreTheProvidersOnTheFourLine(t *testing.T) {
+	for name, c := range map[string]struct {
+		provider, line string
+		want           []string
+	}{
+		"capz on 4": {providerCAPZ, lineFour, []string{"provider.azure.subscriptionId", "provider.azure.oidcIssuerUrl"}},
+		"capa on 4": {providerCAPA, lineFour, nil},
+		"capz on 3": {providerCAPZ, lineThree, nil},
+	} {
+		in := &Input{Components: map[string]bool{componentKagent: true}}
+		in.Installation.Provider, in.Installation.ChartLine = c.provider, c.line
+		var got []string
+		for _, f := range in.Facts() {
+			got = append(got, f.Key)
+			if f.Source == "" || !strings.Contains(f.Renders, "kagent.harness.snapshotStore.crossplane.capz") {
+				t.Errorf("%s: %+v names no source or what it renders", name, f)
+			}
+		}
+		if strings.Join(got, ",") != strings.Join(c.want, ",") {
+			t.Errorf("%s: %v, want %v", name, got, c.want)
+		}
+	}
+	in := &Input{Components: map[string]bool{}}
+	in.Installation.Provider, in.Installation.ChartLine = providerCAPZ, lineFour
+	if got := in.Facts(); got != nil {
+		t.Errorf("without kagent: %v", got)
 	}
 }

@@ -52,7 +52,7 @@ func (in *Input) probes() []render.Probe {
 			p = append(p, conditionProbe("live-kagent-workloads", featureRuntime, kagentNamespace, "Deployment", name, "Available", conditionTrue))
 		}
 		p = append(p, conditionProbe("live-kagent-workloads", featureRuntime, kagentNamespace, "Cluster.postgresql.cnpg.io", "kagent-pg", "Ready", conditionTrue))
-		credentials := resourceProbe("live-oauth2-proxy-secret-and-flux-sa", featureSecrets, render.ResourcePresent, kagentNamespace, "Secret", "kagent-oauth2-proxy-credentials")
+		credentials := resourceProbe("live-oauth2-proxy-secret-and-flux-sa", featureSecrets, render.ResourcePresent, kagentNamespace, "Secret", kagentOAuth2ProxySecret)
 		credentials.Expect.Keys = []string{"client-id", "client-secret", "cookie-secret"}
 		p = append(p, credentials,
 			resourceProbe("live-oauth2-proxy-secret-and-flux-sa", featureSecrets, render.ResourcePresent, kagentNamespace, "ServiceAccount", "kagent-flux"),

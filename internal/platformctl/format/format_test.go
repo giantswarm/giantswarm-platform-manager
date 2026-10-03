@@ -157,6 +157,19 @@ func TestActions(t *testing.T) {
 		t.Fatal(err)
 	}
 	contains(t, b.String(), "No actions in platform-manager for installation oak.")
+
+	// An action that needs no review prints ready to merge.
+	a.Status.State, a.Status.Approval, a.Status.Rollout, a.Status.Result = actions.StateReadyToMerge, &actions.Approval{Decision: actions.DecisionNotRequired}, nil, nil
+	b.Reset()
+	if err := Action(&b, a); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, b.String(), "State: ready to merge")
+	b.Reset()
+	if err := Actions(&b, tools.ListActionsResult{Namespace: namespace, Actions: []actions.Action{a}}); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, b.String(), "enable-rowan-1", "ready to merge")
 }
 
 func TestJSONAndAuthRequired(t *testing.T) {

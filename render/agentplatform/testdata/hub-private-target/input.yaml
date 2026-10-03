@@ -21,6 +21,7 @@ input:
     hub: true
     chartLine: "4"
     musterClientId: 00000000-0000-4000-8000-000000000002
+    clusterIssuer: letsencrypt-example
     podCertificateRequest: true
     portalClientSecret: true
     portals:

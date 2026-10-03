@@ -5,6 +5,11 @@ global:
 components:
   kagent:
     enabled: true
+    valuesFromRefs:
+      - kind: Secret
+        name: kagent-credentials-revision
+        valuesKey: revision
+        targetPath: oauth2-proxy.podAnnotations.kagent-credentials-revision
   agent-manager:
     enabled: true
     valuesFromRefs:
@@ -70,6 +75,9 @@ modelServing:
     runtimeClassName: nvidia
   modelsGateway:
     enabled: true
+    tls:
+      issuerRef:
+        name: letsencrypt-example
 muster:
   muster:
     extraCaFile:

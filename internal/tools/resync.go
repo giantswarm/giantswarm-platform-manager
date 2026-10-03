@@ -156,12 +156,12 @@ func (t *Tools) resync(ctx context.Context, c *gh.Client, id *identity.Identity,
 		posts = append(posts, fmt.Sprintf("Closed unmerged outside the manager: %s. The action is failed.", prLinks(closed)))
 	}
 
-	// The stage in flight of an action pending approval, every pull request
+	// The stage in flight of an action pending approval or ready to merge, every pull request
 	// merged outside merge_action: it rolls out as after the merge.
 	// The rollout is written only when a stage starts: a single installation's
 	// action carries none before its merge, and its absence is what lets the
 	// files' state stand once the action is denied.
-	if status.State == actions.StatePendingApproval {
+	if status.State == actions.StatePendingApproval || status.State == actions.StateReadyToMerge {
 		stages := stagesOf(&fresh)
 		for i, st := range stages.Installations {
 			if st.State == actions.StateEnabled {

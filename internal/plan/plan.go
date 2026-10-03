@@ -180,10 +180,14 @@ type GeneratedSecret struct {
 	// own plan, as "<repository>:<path>" (the path alone where the peer's
 	// repository is not on record): a value drawn here never reaches it.
 	Peer string `json:"peer,omitempty"`
+	// HeldBy is a holder of the value outside this plan (render.Generated's
+	// HeldBy): a rotation here never reaches it.
+	HeldBy string `json:"heldBy,omitempty"`
 	// Refusal is why a commit of this plan is refused before any write: the
 	// name is frozen in a file the definition does not own whole, where the
-	// capability is on record it would rotate without a request, or it has a
-	// Peer and would be drawn here alone.
+	// capability is on record it would rotate without a request, it has a
+	// Peer and would be drawn here alone, or it is HeldBy another holder and
+	// would rotate here alone.
 	Refusal string `json:"refusal,omitempty"`
 }
 
@@ -257,7 +261,8 @@ type Installation struct {
 	Refused string `json:"refused,omitempty"`
 	// CommitRefused says why a commit of this dry run would be refused (the
 	// definition's refusal, the same sentence as Refused; a choice not on
-	// record; the record's dex-app too old for a referenced Dex client; a
+	// record; the record's dex-app too old for a referenced Dex client; the
+	// release candidates dropped while one is ahead of the stable release; a
 	// generated value frozen where it cannot rotate; a section of the hub's
 	// Dev Portal the commit would remove); empty when a commit could go ahead.
 	CommitRefused    string            `json:"commitRefused,omitempty"`
@@ -275,14 +280,22 @@ type Installation struct {
 	// again, so the value on record stands, the commit renders the field's
 	// marker, writes none of its files and asks for no value.
 	SuppliedOnRecord []string `json:"suppliedOnRecord,omitempty"`
+	// MissingFacts are the facts of the record the render needs that the
+	// record leaves empty: a commit is held while one is (FactsRefusal).
+	MissingFacts *MissingFacts `json:"missingFacts,omitempty"`
 	// HubSections are the sections of the hub's Dev Portal — the definition's
 	// removals of kind hub, by key — whose value on record the plan removes:
 	// the definition renders no hub shape, so a commit is held while one is
 	// (HubRefusal). The comparison plans their removal all the same.
-	HubSections     []string         `json:"hubSections,omitempty"`
-	DexClients      []DexClient      `json:"dexClients"`
-	CustomerActions []CustomerAction `json:"customerActions"`
-	Probes          []Probe          `json:"probes"`
+	HubSections []string `json:"hubSections,omitempty"`
+	// DropsPrereleases says the plan's agent-platform values patch drops
+	// gitops.prereleases that the patch on record sets: the installation
+	// stops following the platform's release candidates
+	// (ReleaseCandidateRefusal).
+	DropsPrereleases bool             `json:"dropsPrereleases,omitempty"`
+	DexClients       []DexClient      `json:"dexClients"`
+	CustomerActions  []CustomerAction `json:"customerActions"`
+	Probes           []Probe          `json:"probes"`
 	// Diff counts the files by change; an empty diff is every file unchanged.
 	Diff map[Change]int `json:"diff"`
 }
@@ -454,8 +467,16 @@ func Build(ctx context.Context, opts Options) Installation {
 	for _, inc := range res.Includes {
 		files = append(files, fileRef{ResolveRepository(string(inc.Repository), opts.Installation, opts.Hub), inc.Path})
 	}
+	facts := in.Facts()
+	if len(facts) > 0 {
+		files = append(files, recordRef(opts))
+	}
 	opts.Read = fetch(ctx, opts.Read, files).read
 	generated := map[string]*GeneratedSecret{}
+	revisions := map[string]bool{} // the credentials revisions the render names
+	for _, r := range res.Revisions {
+		revisions[r] = true
+	}
 	var holders []holder
 	held := map[string]int{} // a holder's file → its index in p.Files
 	for _, repo := range SortedRepositories(res.Files) {
@@ -475,6 +496,9 @@ func Build(ctx context.Context, opts Options) Installation {
 				if gs == nil {
 					gs = &GeneratedSecret{Name: g.Name, Kind: string(g.Kind), Length: g.Length}
 					generated[g.Name] = gs
+				}
+				if g.HeldBy != "" {
+					gs.HeldBy = g.HeldBy
 				}
 				if !slices.Contains(gs.Files, h.file) {
 					gs.Files = append(gs.Files, h.file)
@@ -507,6 +531,14 @@ func Build(ctx context.Context, opts Options) Installation {
 				}
 			}
 			pf.Change, pf.Error, pf.Unseen = change(current, err, content)
+			if pf.Change == ChangeUpdate && !Shared(path) {
+				// A revision the record does not hold yet waits for a
+				// requested rotation: the file stands, and holds no revision.
+				if without, pending := pendingRevisions(content, current, revisions); len(pending) > 0 && sameSkeleton(without, current) {
+					pf.Change, pf.Unseen = ChangeUnchanged, unseen(without, current)
+					h.secret = slices.DeleteFunc(h.secret, func(n string) bool { return slices.Contains(pending, n) })
+				}
+			}
 			if pf.Change == ChangeUpdate && !Shared(path) && Encrypted(current) {
 				pf.Dropped, pf.Replaced = dropped(content, current)
 			}
@@ -526,6 +558,9 @@ func Build(ctx context.Context, opts Options) Installation {
 			if strings.HasSuffix(path, dexPatchFile) {
 				p.DexClients = DexClients(f.Content, in)
 			}
+			if strings.HasSuffix(path, platformPatchFile) && pf.Change == ChangeUpdate {
+				p.DropsPrereleases = dropsPrereleases(current, content)
+			}
 		}
 	}
 	// A file kept as it is that holds a rotating name is rewritten with the
@@ -540,6 +575,10 @@ func Build(ctx context.Context, opts Options) Installation {
 	for name, pr := range peers {
 		pr.refuse(ctx, generated[name], opts.Read)
 	}
+	for _, gs := range generated {
+		refuseRotationHeldBy(gs)
+	}
+	p.MissingFacts = missingFacts(ctx, opts.Read, recordRef(opts), facts)
 	p.SuppliedSecrets, p.SuppliedOnRecord = splitSupplied(supplied, suppliedIn, p.Files)
 	p.includes(ctx, opts, res.Includes)
 	sort.SliceStable(p.Files, func(i, j int) bool {

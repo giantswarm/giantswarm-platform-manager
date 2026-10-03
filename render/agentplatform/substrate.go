@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
+
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // Agent Substrate — the kagent runtime of the meta chart's 4 line (4.49.0 and
@@ -76,4 +78,30 @@ func podCertificateRequestDefaults() string {
 		charts[i] = chart + " " + ClusterChartsWithPodCertificateRequest[chart]
 	}
 	return strings.Join(charts, ", ")
+}
+
+// capzSnapshotStore is what the installation's configuration renders from a
+// CAPZ record's provider facts: the Substrate snapshot store's Workload
+// Identity, whose values the meta chart requires at install.
+const capzSnapshotStore = "the Substrate snapshot store's Workload Identity (kagent.harness.snapshotStore.crossplane.capz)"
+
+// providerFacts are, per provider, the keys of the record the shared
+// configuration renders the snapshot store from: the shared default carries
+// them empty, so each installation's record sets them. A provider not listed
+// needs none.
+var providerFacts = map[string][]render.Fact{
+	providerCAPZ: {
+		{Key: "provider.azure.subscriptionId", Source: "the subscription of the management cluster's AzureCluster (spec.subscriptionID)", Renders: capzSnapshotStore},
+		{Key: "provider.azure.oidcIssuerUrl", Source: "the API server's service-account issuer, the issuer of its /.well-known/openid-configuration (AzureCluster status.oidcIssuerProfile.issuerURL)", Renders: capzSnapshotStore},
+	},
+}
+
+// Facts are the provider's facts where kagent runs on the 4 chart line — the
+// line a fresh enable selects counts —: the line whose runtime is the
+// Substrate.
+func (in *Input) Facts() []render.Fact {
+	if in.Installation.ChartLine != lineFour || !in.kagent() {
+		return nil
+	}
+	return providerFacts[in.Installation.Provider]
 }

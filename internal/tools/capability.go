@@ -57,7 +57,7 @@ type planned struct {
 }
 
 // commitNext says what mode commit does with a dry run, word for word.
-const commitNext = `mode "commit" with installation (one installation) opens the pull requests above as you, in this order, and records the Action on the hub in pending approval; reconcile_capability with installations (a set) is one wave: one action, one approval, the pull requests per installation, merged one installation after the other in the order above, each verified before the next; ` +
+const commitNext = `mode "commit" with installation (one installation) opens the pull requests above as you, in this order, and records the Action on the hub in pending approval (ready to merge when every target is a test installation: no Team review); reconcile_capability with installations (a set) is one wave: one action, one approval, the pull requests per installation, merged one installation after the other in the order above, each verified before the next; ` +
 	`secrets carries the values of suppliedSecrets by field, and no value leaves the encrypted files`
 
 // Skipped is an installation of the set the dry run did not render, and why.

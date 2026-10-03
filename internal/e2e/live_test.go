@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -92,6 +93,29 @@ func enableRowanLive(t *testing.T, st *stack, c *client.Client, inputs map[strin
 func verifyLive(t *testing.T, c *client.Client, name string) verify.Result {
 	t.Helper()
 	text, isErr := call(t, c, tools.ToolVerifyInstallation, map[string]any{tools.ArgInstallation: name})
+	if isErr {
+		t.Fatalf("%s %s: %s", tools.ToolVerifyInstallation, name, text)
+	}
+	var out verify.Result
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		t.Fatalf("decode: %v\n%s", err, text)
+	}
+	return out
+}
+
+// verifyLiveWith is verify_installation of name handed in, verify_capability's
+// inputs object, as the Capabilities tab hands it over.
+func verifyLiveWith(t *testing.T, c *client.Client, name string, in verify.Inputs) verify.Result {
+	t.Helper()
+	b, err := json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var arg map[string]any
+	if err := json.Unmarshal(b, &arg); err != nil {
+		t.Fatal(err)
+	}
+	text, isErr := call(t, c, tools.ToolVerifyInstallation, map[string]any{tools.ArgInstallation: name, tools.ArgInputs: arg})
 	if isErr {
 		t.Fatalf("%s %s: %s", tools.ToolVerifyInstallation, name, text)
 	}
@@ -680,5 +704,112 @@ func TestVerifyInstallationReadsRegisteredServers(t *testing.T) {
 	})
 	if d = liveDimensions(verifyLive(t, st.liveClient(t, admin), rowan))[dim]; d.Mark != verify.Drifted || d.Live.Checks[0].Message != "state Failed: dial tcp: connection refused" {
 		t.Errorf("failed: %s %+v", d.Mark, d.Live)
+	}
+}
+
+// An audience the files on record keep beside the render — the id a portal
+// the manager has no record of calls kagent with — reads as defined on the
+// kagent UI's flag when verify_installation is handed verify_capability's
+// inputs, which carry the kept entries; held against the bare render, the
+// same flag reads drifted.
+func TestVerifyInstallationHoldsTheHandedOverKeptEntries(t *testing.T) {
+	const (
+		handKept  = "hand-kept"
+		flag      = "--oidc-extra-audience="
+		dimension = "live-oauth2-proxy-extra-audience"
+	)
+	st := newStack(t)
+	fixtures(st.ghs)
+	alice := st.mcpClient(t, aliceToken)
+	enableRowanLive(t, st, alice, kagentEnabled())
+	edited := false
+	st.inst.edit("Deployment", kagentNamespace, "kagent-oauth2-proxy", func(obj map[string]any) {
+		containers := obj["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)["containers"].([]any)
+		args := containers[0].(map[string]any)["args"].([]any)
+		for i, a := range args {
+			if s, _ := a.(string); strings.HasPrefix(s, flag) {
+				args[i], edited = s+","+handKept, true
+			}
+		}
+	})
+	if !edited {
+		t.Fatal("the oauth2-proxy Deployment carries no " + flag)
+	}
+	admin := st.liveClient(t, st.dex.token(t, liveAdmin, []string{liveAudience}, time.Hour))
+	inputs := verifyWith(t, alice, rowan, nil).Inputs
+
+	live := func(in verify.Inputs) verify.Dimension {
+		t.Helper()
+		return liveDimensions(verifyLiveWith(t, admin, rowan, in))[dimension]
+	}
+	if d := live(inputs); d.Mark != verify.Drifted {
+		t.Errorf("against the bare render: %s (%s)", d.Mark, d.Reason)
+	}
+	inputs.Kept = append(inputs.Kept, plan.Kept{List: plan.ListExtraAudience, Entry: handKept})
+	if d := live(inputs); d.Mark != verify.AsDefined {
+		t.Errorf("with the kept entry: %s (%s) %+v", d.Mark, d.Reason, d.Differences)
+	}
+}
+
+// An installation enabled before a migration lacks the Secret the migration
+// creates — here the kagent client's: its file and kustomization entry are
+// not on record and the installation has no such Secret. verify_capability's
+// inputs name it with the migration, and verify_installation handed them
+// reads the Secret check planned, naming the migration, the installation not
+// drifted. Read from the action's inputs alone — the watch's case once the
+// merge put the file on record — the same missing Secret is drifted, and so
+// is the installation.
+func TestVerifyInstallationReadsAMigrationsSecretPlanned(t *testing.T) {
+	const (
+		dimension = "live-dex-client-secrets-loaded"
+		file      = "dex-client-kagent-secret.yaml"
+	)
+	secret := render.DexClientSecretName("kagent")
+	st := newStack(t)
+	fixtures(st.ghs)
+	alice := st.mcpClient(t, aliceToken)
+	enableRowanLive(t, st, alice, kagentEnabled())
+	st.ghs.mu.Lock()
+	for p, content := range st.ghs.files[acmeMCs] {
+		switch {
+		case strings.HasSuffix(p, "/extras/agent-platform/secrets/"+file):
+			delete(st.ghs.files[acmeMCs], p)
+		case strings.HasSuffix(p, "/extras/agent-platform/secrets/kustomization.yaml"):
+			st.ghs.files[acmeMCs][p] = strings.ReplaceAll(content, "  - "+file+"\n", "")
+		}
+	}
+	st.ghs.mu.Unlock()
+	st.inst.mu.Lock()
+	delete(st.inst.objects, objectKey("Secret", render.DexNamespace, secret))
+	st.inst.mu.Unlock()
+	admin := st.liveClient(t, st.dex.token(t, liveAdmin, []string{liveAudience}, time.Hour))
+
+	inputs := verifyWith(t, alice, rowan, nil).Inputs
+	if !slices.ContainsFunc(inputs.Planned, func(o verify.PlannedObject) bool {
+		return o.Kind == "Secret" && o.Namespace == render.DexNamespace && o.Name == secret && strings.HasSuffix(o.Reason, "· M5")
+	}) {
+		t.Fatalf("the inputs name no planned Secret %s: %+v", secret, inputs.Planned)
+	}
+	checkOf := func(d verify.Dimension) verify.Check {
+		t.Helper()
+		for _, c := range d.Live.Checks {
+			if c.Name == secret {
+				return c
+			}
+		}
+		t.Fatalf("%s checks no Secret %s: %+v", dimension, secret, d.Live)
+		return verify.Check{}
+	}
+
+	res := verifyLiveWith(t, admin, rowan, inputs)
+	d := liveDimensions(res)[dimension]
+	if c := checkOf(d); d.Mark != verify.Planned || c.Mark != verify.Planned || !strings.HasSuffix(c.Message, "· M5") || res.State == installations.StateDrifted {
+		t.Errorf("handed the inputs: %s %+v, state %q", d.Mark, c, res.State)
+	}
+
+	res = verifyLive(t, admin, rowan)
+	d = liveDimensions(res)[dimension]
+	if c := checkOf(d); d.Mark != verify.Drifted || c.Mark != verify.Drifted || res.State != installations.StateDrifted {
+		t.Errorf("from the action's inputs: %s %+v, state %q", d.Mark, c, res.State)
 	}
 }

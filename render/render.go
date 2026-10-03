@@ -59,6 +59,11 @@ type Generated struct {
 	// manager decrypts nothing, so a value drawn on one side never reaches
 	// the other. Nil for a value of this installation alone.
 	Peer *Peer
+	// HeldBy names a holder of the value outside this render — another
+	// capability's supplied value, copied there by a person: the commit
+	// never writes it, so a rotation here alone leaves it on the old value.
+	// Empty where every holder is rendered here.
+	HeldBy string
 }
 
 // Peer names the file that holds a generated value in another installation:
@@ -74,6 +79,18 @@ func (f File) Peered(name string, peer Peer) File {
 	for i := range f.Generated {
 		if f.Generated[i].Name == name {
 			f.Generated[i].Peer = &peer
+		}
+	}
+	return f
+}
+
+// HeldBy is f with holder set as the outside holder of every declaration of
+// name.
+func (f File) HeldBy(name, holder string) File {
+	f.Generated = slices.Clone(f.Generated)
+	for i := range f.Generated {
+		if f.Generated[i].Name == name {
+			f.Generated[i].HeldBy = holder
 		}
 	}
 	return f
@@ -136,8 +153,8 @@ func (g Generated) Encoded(encoding Encoding) Generated {
 // person supplies at commit, the required person inputs no layer of the
 // document holds (rendered as Missing markers, by field), the id of a
 // built-in Dex client the dex-app chart's key names (empty where the
-// definition has none), and the actions the customer takes that no pull
-// request delivers.
+// definition has none), the actions the customer takes that no pull
+// request delivers, and the facts of the record the rendered platform needs.
 type Input interface {
 	SuppliedMarkers() map[string]string
 	SuppliedSecretFields() []string
@@ -148,6 +165,21 @@ type Input interface {
 	// the document's shape, for the plan to answer as the effective inputs:
 	// the chart line a fresh enable selects. Nil where the document stands.
 	Selected() map[string]any
+	// Facts are the keys of the installation's record (RecordFile) that the
+	// rendered files need set beyond the definition's inputs: the
+	// installation's configuration renders values from them that the
+	// definition never writes, so a commit is refused while one is empty.
+	// Nil where the render needs none.
+	Facts() []Fact
+}
+
+// Fact is a key of the installation's record a render needs: its path in
+// RecordFile, where its value comes from (Source), and what the
+// installation's configuration renders from it (Renders).
+type Fact struct {
+	Key     string `json:"key"`
+	Source  string `json:"source"`
+	Renders string `json:"renders"`
 }
 
 // RecordFile is the installation's record in its configs repository,

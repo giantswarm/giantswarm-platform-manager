@@ -656,7 +656,7 @@ func TestDrivenInputsAreThePersonsAndTheTyped(t *testing.T) {
 	if !ok {
 		t.Fatal("no agent-platform definition")
 	}
-	agentInputs := []string{agentCommitInput, "agentManager.skills.appSecretName", "agentManager.skills.gitAuthSecretName", "agentManager.skills.repositories"}
+	agentInputs := []string{agentCommitInput, "agentManager.skills.appSecretName", "agentManager.skills.gitAuthSecretName", "agentManager.skills.mintGitAuthSecret", "agentManager.skills.repositories"}
 	chatInputs := []string{"aiChat.enabled", "aiChat.google.location", "aiChat.google.project", "aiChat.model", "aiChat.provider"}
 	got, err := drivenInputs(def, Inputs{Values: doc("a.test", "acme", true)})
 	if err != nil || !reflect.DeepEqual(got, slices.Concat(agentInputs, chatInputs, []string{commitInput, modelCommitInput, servingInput, "scheduling.singletonsCapacity", skillsInput})) {

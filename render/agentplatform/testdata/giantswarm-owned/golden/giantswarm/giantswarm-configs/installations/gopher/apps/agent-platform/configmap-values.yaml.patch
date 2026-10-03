@@ -5,6 +5,11 @@ global:
 components:
   kagent:
     enabled: true
+    valuesFromRefs:
+      - kind: Secret
+        name: kagent-credentials-revision
+        valuesKey: revision
+        targetPath: oauth2-proxy.podAnnotations.kagent-credentials-revision
   agent-manager:
     enabled: true
     valuesFromRefs:
@@ -19,6 +24,14 @@ components:
         name: muster-credentials-revision
         valuesKey: revision
         targetPath: podAnnotations.muster-credentials-revision
+  kserve-llmisvc-crd:
+    enabled: true
+  kserve-llmisvc-resources:
+    enabled: true
+  kserve-runtime-configs:
+    enabled: true
+  modelServing:
+    enabled: true
   muster:
     valuesFromRefs:
       - kind: Secret
@@ -57,6 +70,14 @@ kagent:
       existingSecret: kagent-oauth2-proxy-credentials
     extraArgs:
       oidc-extra-audience: dex-k8s-authenticator,kagent,backstage # gitleaks:allow
+modelServing:
+  serving:
+    runtimeClassName: nvidia
+  modelsGateway:
+    enabled: true
+    tls:
+      issuerRef:
+        name: letsencrypt-example
 muster:
   muster:
     oauth:

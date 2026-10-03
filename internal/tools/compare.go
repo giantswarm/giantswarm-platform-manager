@@ -57,19 +57,21 @@ func (t *Tools) compare(ctx context.Context, env *planned, r installations.Repor
 
 // commitRefusal is why a commit of p is refused over what its plan found on
 // the record, or "": the record's dex-app too old for a referenced Dex client,
-// its secret patch carrying a client the plan references, a generated value
+// its secret patch carrying a client the plan references, the release
+// candidates dropped while one is ahead of the stable release, a generated value
 // frozen where it cannot rotate — a rotation asked for alike —, a section of
 // the hub's Dev Portal the commit would remove. It is the one list the
 // single commit, the wave's pre-check and the comparison's commitRefused take
 // these refusals from, the first one found answered, so the three refuse
-// alike (TestCommitRefusalsAreOneList).
+// alike (TestCommitRefusalsAreOneList). Last, a fact the render needs that
+// the record leaves empty (FactsRefusal).
 func commitRefusal(p plan.Installation, rec *installations.Record) string {
-	for _, refusal := range []string{p.DexAppRefusal(rec), p.DexSecretRefusal(rec), p.FrozenRefusal(), p.HubRefusal()} {
+	for _, refusal := range []string{p.DexAppRefusal(rec), p.DexSecretRefusal(rec), p.ReleaseCandidateRefusal(rec), p.FrozenRefusal(), p.HubRefusal()} {
 		if refusal != "" {
 			return refusal
 		}
 	}
-	return ""
+	return p.FactsRefusal()
 }
 
 // missingInputs names the choices not on record for a refusal.

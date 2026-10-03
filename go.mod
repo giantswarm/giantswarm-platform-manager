@@ -6,10 +6,11 @@ require (
 	filippo.io/age v1.3.2
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/creativeprojects/go-selfupdate v1.6.0
-	github.com/giantswarm/gitops-commit v0.10.1
-	github.com/giantswarm/mcp-oauth v1.4.13
-	github.com/giantswarm/selfupdate-cosign v0.3.1
+	github.com/giantswarm/gitops-commit v0.11.0
+	github.com/giantswarm/mcp-oauth v1.6.0
+	github.com/giantswarm/selfupdate-cosign v0.3.2
 	github.com/go-jose/go-jose/v4 v4.1.5
+	github.com/google/go-containerregistry v0.22.1
 	github.com/google/go-github/v92 v92.0.0
 	github.com/mark3labs/mcp-go v1.1.1
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
@@ -79,6 +80,8 @@ require (
 	github.com/davidmz/go-pageant v1.0.2 // indirect
 	github.com/digitorus/pkcs7 v0.0.0-20230818184609-3a137a874352 // indirect
 	github.com/digitorus/timestamp v0.0.0-20231217203849-220c5c2851b7 // indirect
+	github.com/docker/cli v29.7.2+incompatible // indirect
+	github.com/docker/docker-credential-helpers v0.9.3 // indirect
 	github.com/envoyproxy/go-control-plane/envoy v1.37.0 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.3.3 // indirect
 	github.com/fatih/color v1.19.0 // indirect
@@ -117,7 +120,6 @@ require (
 	github.com/google/certificate-transparency-go v1.3.3 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
-	github.com/google/go-containerregistry v0.21.7 // indirect
 	github.com/google/go-github/v86 v86.0.0 // indirect
 	github.com/google/go-querystring v1.2.0 // indirect
 	github.com/google/jsonschema-go v0.4.2 // indirect
@@ -144,6 +146,7 @@ require (
 	github.com/in-toto/in-toto-golang v0.11.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/json-iterator/go v1.1.13-0.20220915233716-71ac16282d12 // indirect
+	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/lib/pq v1.12.3 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
@@ -156,6 +159,7 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/oklog/ulid/v2 v2.1.1 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
+	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
@@ -211,6 +215,7 @@ require (
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/ini.v1 v1.67.3 // indirect
+	gotest.tools/v3 v3.5.2 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20260721132016-d427ff9ee9ad // indirect
 	k8s.io/utils v0.0.0-20260626114624-be93311217bd // indirect
@@ -219,3 +224,13 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
+
+replace github.com/klauspost/compress v1.18.6 => github.com/klauspost/compress v1.20.1
+
+replace github.com/prometheus/prometheus v0.51.0 => github.com/prometheus/prometheus v0.315.0
+
+replace github.com/yuin/goldmark v1.4.13 => github.com/yuin/goldmark v1.8.6
+
+replace go.etcd.io/etcd/v3 v3.6.8 => go.etcd.io/etcd/v3 v3.7.2
+
+replace go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.34.0 => go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.46.0

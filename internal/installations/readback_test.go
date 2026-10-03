@@ -241,7 +241,7 @@ func TestDefaults(t *testing.T) {
 		"scheduling": map[string]any{"singletonsCapacity": "any"}, keySkills: map[string]any{keyRepositories: []any{}},
 		"clusterManager": map[string]any{keyGitHub: map[string]any{keyEnabled: false}},
 		"modelManager":   map[string]any{keyGitHub: map[string]any{keyEnabled: false}},
-		"agentManager":   map[string]any{keyGitHub: map[string]any{keyEnabled: false}, keySkills: map[string]any{keyRepositories: []any{}, "appSecretName": "", "gitAuthSecretName": ""}}}
+		"agentManager":   map[string]any{keyGitHub: map[string]any{keyEnabled: false}, keySkills: map[string]any{keyRepositories: []any{}, "appSecretName": "", "gitAuthSecretName": "", "mintGitAuthSecret": false}}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("defaults %v, want %v", got, want)
 	}
@@ -353,6 +353,7 @@ func TestAgentPlatformReadsBackClusterManagerCommit(t *testing.T) {
 		patch string
 		want  map[string]any
 	}{
+		{"agent-manager boot Secret minted from the App", "agent-manager:\n  skills:\n    github:\n      app:\n        secretName: acme-skills-app\n    mintGitAuthSecret: true\n", map[string]any{"agentManager.skills.appSecretName": "acme-skills-app", "agentManager.skills.mintGitAuthSecret": true}}, //nolint:gosec // a Secret's name in a fixture, no credential
 		{"commit mode on", "cluster-manager:\n  installation:\n    name: rowan\n  github:\n    enabled: true\n", map[string]any{"clusterManager.github.enabled": true}},
 		{"commit mode not on record", "cluster-manager:\n  installation:\n    name: rowan\n", map[string]any{}},
 		{"model-manager and agent-manager commit mode on", "agent-manager:\n  github:\n    enabled: true\nmodel-manager:\n  github:\n    enabled: true\n", map[string]any{"modelManager.github.enabled": true, "agentManager.github.enabled": true}},

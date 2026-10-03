@@ -24,6 +24,7 @@ func (fakeInput) MissingInputs() []string                  { return nil }
 func (fakeInput) BuiltInDexClientID(string) string         { return "" }
 func (fakeInput) CustomerActions() []render.CustomerAction { return nil }
 func (fakeInput) Selected() map[string]any                 { return nil }
+func (fakeInput) Facts() []render.Fact                     { return nil }
 
 // rowanKustomization is the kustomization the fake definition's include
 // lands in; acme is rowan's customer.
@@ -169,6 +170,7 @@ func (suppliedInput) MissingInputs() []string                  { return nil }
 func (suppliedInput) BuiltInDexClientID(string) string         { return "" }
 func (suppliedInput) CustomerActions() []render.CustomerAction { return nil }
 func (suppliedInput) Selected() map[string]any                 { return nil }
+func (suppliedInput) Facts() []render.Fact                     { return nil }
 
 // secretSkeleton is a Secret file as the render writes it before encryption,
 // its values under stringData.values.

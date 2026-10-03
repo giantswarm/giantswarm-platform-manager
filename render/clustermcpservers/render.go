@@ -246,7 +246,8 @@ func (in *Input) probes() []render.Probe {
 
 // The render.Input contract: the definition asks for no supplied value, no
 // required person input can be missing, the shared template names the
-// servers' Dex client ids, and no action is the customer's.
+// servers' Dex client ids, no action is the customer's, and the render needs
+// no fact of the record beyond the inputs.
 
 func (in *Input) SuppliedMarkers() map[string]string       { return nil }
 func (in *Input) SuppliedSecretFields() []string           { return nil }
@@ -254,3 +255,4 @@ func (in *Input) MissingInputs() []string                  { return nil }
 func (in *Input) BuiltInDexClientID(string) string         { return "" }
 func (in *Input) CustomerActions() []render.CustomerAction { return nil }
 func (in *Input) Selected() map[string]any                 { return nil }
+func (in *Input) Facts() []render.Fact                     { return nil }

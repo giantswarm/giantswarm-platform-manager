@@ -76,9 +76,11 @@ func (t *Tools) registerApprovalTools(s *mcpserver.MCPServer) {
 func musterTool(name string) string { return "x_" + ToolPrefix + "_" + name }
 
 // pendingAction loads the action args name and refuses one that is not
-// pending approval, a call without a caller, and a manager without the records.
+// pending approval or ready to merge — the approval refuses the latter
+// itself, naming its merge — a call without a caller, and a manager without
+// the records.
 func (t *Tools) pendingAction(ctx context.Context, tool string, args map[string]any) (*actions.Action, *identity.Identity, error) {
-	return t.loadAction(ctx, tool, args, actions.StatePendingApproval)
+	return t.loadAction(ctx, tool, args, actions.StatePendingApproval, actions.StateReadyToMerge)
 }
 
 // loadAction loads the action args name — the record following GitHub first,
@@ -179,7 +181,7 @@ func (t *Tools) denyAction(ctx context.Context, req mcp.CallToolRequest) (*mcp.C
 // reverted, or still reading its change live — is its actor's to withdraw
 // (withdraw).
 func (t *Tools) deny(ctx context.Context, args map[string]any) (any, error) {
-	a, id, err := t.loadAction(ctx, ToolDenyAction, args, actions.StatePendingApproval, actions.StateFailed, actions.StateReverted, actions.StateRollingOut, actions.StateWaitingForCustomer, actions.StateEnabled, actions.StateDrifted)
+	a, id, err := t.loadAction(ctx, ToolDenyAction, args, actions.StatePendingApproval, actions.StateReadyToMerge, actions.StateFailed, actions.StateReverted, actions.StateRollingOut, actions.StateWaitingForCustomer, actions.StateEnabled, actions.StateDrifted)
 	if err != nil {
 		return nil, err
 	}
@@ -214,11 +216,11 @@ func (t *Tools) deny(ctx context.Context, args map[string]any) (any, error) {
 	} else {
 		status.State = actions.StateDenied
 		status.Result = &actions.Result{State: actions.StateDenied, Message: fmt.Sprintf("denied by %s: %s", id.Login, reason), At: now()}
-		// A wave's stages were pending approval too; denied, the files'
-		// state stands for each of them.
+		// A wave's stages were pending approval or ready to merge too;
+		// denied, the files' state stands for each of them.
 		if status.Rollout != nil {
 			for i := range status.Rollout.Installations {
-				if status.Rollout.Installations[i].State == actions.StatePendingApproval {
+				if s := status.Rollout.Installations[i].State; s == actions.StatePendingApproval || s == actions.StateReadyToMerge {
 					status.Rollout.Installations[i].State = actions.StateDenied
 				}
 			}
@@ -237,7 +239,7 @@ func (t *Tools) mergeAction(ctx context.Context, req mcp.CallToolRequest) (*mcp.
 }
 
 func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
-	a, id, err := t.loadAction(ctx, ToolMergeAction, args, actions.StatePendingApproval, actions.StateRollingOut, actions.StateWaitingForCustomer)
+	a, id, err := t.loadAction(ctx, ToolMergeAction, args, actions.StatePendingApproval, actions.StateReadyToMerge, actions.StateRollingOut, actions.StateWaitingForCustomer)
 	if err != nil {
 		return nil, err
 	}
@@ -387,7 +389,7 @@ func stageNotEnabled(a *actions.Action, st actions.InstallationRollout) error {
 
 // stagesOf is the action's rollout with one entry per installation of the
 // wave, in order — the entries as recorded, the missing ones in the action's
-// state (pending approval before the first merge).
+// state (pending approval or ready to merge before the first merge).
 func stagesOf(a *actions.Action) *actions.Rollout {
 	r := &actions.Rollout{}
 	if a.Status.Rollout != nil {
@@ -474,8 +476,8 @@ func (t *Tools) awaitApproval(ctx context.Context, a *actions.Action) (any, erro
 const reviewNotRequired = "every target is a test installation: no Team review, the merge is told to the team's standup channel"
 
 // requestApproval is the commit's last step: the review posted, or — every
-// target a test installation — recorded as not required, nothing posted
-// until the merge tells the standup channel.
+// target a test installation — recorded as not required and the action ready
+// to merge, nothing posted until the merge tells the standup channel.
 func (t *Tools) requestApproval(ctx context.Context, a *actions.Action, tool string, test bool) (*actions.Action, error) {
 	if !test {
 		return t.askApproval(ctx, a, tool)
@@ -484,6 +486,7 @@ func (t *Tools) requestApproval(ctx context.Context, a *actions.Action, tool str
 	approval := *approvalOf(&status)
 	approval.Decision, approval.Reason, approval.At = actions.DecisionNotRequired, reviewNotRequired, now()
 	status.Approval = &approval
+	actions.ReadyToMerge(&status)
 	out, err := t.d.Actions.UpdateStatus(ctx, a.Name, status)
 	if err != nil {
 		return nil, fmt.Errorf("%s: action %s needs no review and could not record it: %w", tool, a.Name, err)

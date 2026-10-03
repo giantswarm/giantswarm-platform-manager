@@ -263,7 +263,7 @@ func fixtures(g *fakeGitHub) {
 	g.addRepo(acmeConfigs, map[string]string{
 		installations.ConfigPatchPath(alder):   "codename: alder\nbase: acme.test\n",
 		installations.ConfigPatchPath(birch):   "codename: birch\nbase: acme.test\n",
-		installations.ConfigPatchPath("rowan"): "codename: rowan\nbase: acme.test\nservices:\n  muster:\n    clientId: muster-rowan\n",
+		installations.ConfigPatchPath("rowan"): "codename: rowan\nbase: acme.test\nservices:\n  muster:\n    clientId: muster-rowan\ngatewayApi:\n  clusterIssuer: private-example\n",
 		// birch's muster trusts a client on record in that list only; its authenticator trusts a peer on record in that list only.
 		installations.Capabilities()[0].EnabledMarker(birch): "muster:\n  muster:\n    oauth:\n      server:\n        trustedAudiences:\n          - dex-k8s-authenticator\n          - " + birchPortalClientID + "\n",
 		installations.DexPatchPath(birch):                    "oidc:\n  staticClients:\n    dexK8SAuthenticator:\n      trustedPeers:\n        - dex-k8s-authenticator\n        - " + birchPeerClientID + "\n",
@@ -278,7 +278,8 @@ func fixtures(g *fakeGitHub) {
 		// maple's platform values on record, put there by hand: the agent-platform marker.
 		installations.Capabilities()[0].EnabledMarker(maple): "muster:\n  muster:\n    oauth:\n      server:\n        trustedAudiences:\n          - dex-k8s-authenticator\n",
 	})
-	g.addRepo("example/shared-configs", map[string]string{"default/config.yaml": "services:\n  muster:\n    clientId: muster-shared\n"})
+	// The fleet's defaults: the platform's client id and the Gateway API hosts' issuer.
+	g.addRepo("example/shared-configs", map[string]string{"default/config.yaml": "services:\n  muster:\n    clientId: muster-shared\ngatewayApi:\n  clusterIssuer: letsencrypt-example\n"})
 	g.addRepo(basesRepo, map[string]string{installations.DexAppBasePath: dexAppApp(fleetDexApp)})
 	g.forbid("example/sealed-management-clusters")
 	g.forbid("example/sealed-configs")
@@ -417,7 +418,8 @@ func TestListInstallationsStates(t *testing.T) {
 	}
 
 	rowan := find(t, out, "rowan")
-	if rowan.Capabilities[0].State != installations.StateNotEnabled || rowan.Capabilities[0].Enabled {
+	// rowan's patch names its own issuer, over the shared default's.
+	if rowan.Capabilities[0].State != installations.StateNotEnabled || rowan.Capabilities[0].Enabled || rowan.Record == nil || rowan.Record.ClusterIssuer != "private-example" {
 		t.Fatalf("rowan: %+v", rowan)
 	}
 
@@ -429,7 +431,7 @@ func TestListInstallationsStates(t *testing.T) {
 	// maple's people enabled both capabilities by hand: the filesets on
 	// record are the fact, whoever put them there.
 	mapleR := find(t, out, maple)
-	if !mapleR.Readable || mapleR.Record == nil || mapleR.Record.MusterClientID != "muster-shared" ||
+	if !mapleR.Readable || mapleR.Record == nil || mapleR.Record.MusterClientID != "muster-shared" || mapleR.Record.ClusterIssuer != "letsencrypt-example" ||
 		mapleR.Capabilities[0].State != installations.StateEnabled || !mapleR.Capabilities[0].Enabled ||
 		mapleR.Capabilities[1].State != installations.StateEnabled || !mapleR.Capabilities[1].Enabled || len(mapleR.Errors) != 0 {
 		t.Fatalf("maple: %+v", mapleR)
@@ -450,7 +452,7 @@ func TestListInstallationsStates(t *testing.T) {
 	if len(out.Unreadable) != 2 || out.Unreadable[0] != "larch" || out.Unreadable[1] != "oak" {
 		t.Fatalf("unreadable: %v", out.Unreadable)
 	}
-	if len(out.States.FromRepositories) != 3 || len(out.States.FromActions) != 5 {
+	if len(out.States.FromRepositories) != 3 || len(out.States.FromActions) != 6 {
 		t.Fatalf("states: %+v", out.States)
 	}
 }

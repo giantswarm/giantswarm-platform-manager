@@ -77,6 +77,14 @@ const (
 	// revision is also a key of the two credentials Secrets, so a rewrite of
 	// either draws it anew (see servers.go: the same shape as a server's).
 	musterRevisionSecret = "muster-credentials-revision" // #nosec G101 -- a Secret name, not a value
+	// kagentOAuth2ProxySecret carries the kagent UI's oauth2-proxy client and
+	// cookie secrets, read into its environment at container start.
+	kagentOAuth2ProxySecret = "kagent-oauth2-proxy-credentials" // #nosec G101 -- a Secret name, not a value
+	// kagentRevisionSecret carries kagent's credentials revision in the Flux
+	// namespace for the kagent HelmRelease (valuesFrom), which rolls the
+	// oauth2-proxy with it; the revision is also a key of
+	// kagentOAuth2ProxySecret, the shape of muster's.
+	kagentRevisionSecret = "kagent-credentials-revision" // #nosec G101 -- a Secret name, not a value
 )
 
 // Input is the resolved inputs of one installation: the record
@@ -181,6 +189,10 @@ type Installation struct {
 	Private        bool   `json:"private"`
 	ChartLine      string `json:"chartLine"`
 	MusterClientID string `json:"musterClientId"`
+	// ClusterIssuer is the cert-manager ClusterIssuer of the installation's
+	// Gateway API hosts, where the record says: the serving slice's models
+	// Gateway takes its certificate from it.
+	ClusterIssuer string `json:"clusterIssuer,omitempty"`
 	// Hub says this is the registry's hub: its broker releases the person's
 	// GitHub grant to the Dev Portal (hub.go).
 	Hub bool `json:"hub"`
@@ -481,16 +493,18 @@ type document struct {
 
 // AgentManagerSkills is agent-manager's skill catalog: the repositories
 // list_skills discovers skills in, the Secret of the skills GitHub App they
-// are read with, and the Secret agents with a git skill boot with.
+// are read with, and the Secret agents with a git skill boot with — provisioned
+// and named, or minted from the App by agent-manager.
 type AgentManagerSkills struct {
 	Repositories      []string `json:"repositories"`
 	AppSecretName     string   `json:"appSecretName"`
 	GitAuthSecretName string   `json:"gitAuthSecretName"`
+	MintGitAuthSecret bool     `json:"mintGitAuthSecret"`
 }
 
 // set is whether the person chose anything for the catalog.
 func (s AgentManagerSkills) set() bool {
-	return len(s.Repositories) > 0 || s.AppSecretName != "" || s.GitAuthSecretName != ""
+	return len(s.Repositories) > 0 || s.AppSecretName != "" || s.GitAuthSecretName != "" || s.MintGitAuthSecret
 }
 
 // commitChoice is a manager's commit mode through its GitHub App: the one
@@ -645,6 +659,9 @@ func (in *Input) checkRecord() error {
 	if in.ModelServing && in.Installation.ChartLine != lineFour {
 		return refuse(fmt.Sprintf("%s is the 4 chart line's serving slice, and this installation runs the %s line; the record's chart line decides", describe("modelServing.enabled"), in.Installation.ChartLine))
 	}
+	if in.ModelServing && in.Installation.ClusterIssuer == "" {
+		return refuse(fmt.Sprintf("%s serves the models Gateway with a certificate from %s, and the record names none; gatewayApi.clusterIssuer in installations/%s/config.yaml.patch or the shared default supplies it", describe("modelServing.enabled"), describe("installation.clusterIssuer"), in.Installation.Name))
+	}
 	if in.singletonsOnDemand() && in.Installation.Provider != providerCAPA {
 		return refuse(fmt.Sprintf("%s is on-demand, Karpenter's capacity type, and a %s installation runs no Karpenter the definition knows; the pods would stay Pending", describe("scheduling.singletonsCapacity"), in.Installation.Provider))
 	}
@@ -678,6 +695,14 @@ func (in *Input) checkRecord() error {
 	}
 	if in.AgentManagerSkills.set() && !in.agentManager() {
 		return refuse(fmt.Sprintf("%s asks for the agent-manager's skill catalog, and the fleet policy runs no agent-manager on %s's installations", describe("agentManager.skills"), in.Installation.Customer))
+	}
+	if skills := in.AgentManagerSkills; skills.MintGitAuthSecret {
+		if skills.GitAuthSecretName != "" {
+			return refuse(describe("agentManager.skills.mintGitAuthSecret") + " and " + describe("agentManager.skills.gitAuthSecretName") + " both name the agents' boot Secret; the minted one replaces the provisioned one")
+		}
+		if skills.AppSecretName == "" {
+			return refuse(describe("agentManager.skills.mintGitAuthSecret") + " mints the skills GitHub App's installation token, and " + describe("agentManager.skills.appSecretName") + " names no App")
+		}
 	}
 	if in.ModelManagerCommit && !in.modelManager() {
 		return refuse(describe("modelManager.github.enabled") + " asks for the model-manager's commit mode, and the model-manager runs on the platform's 4 chart line only; agentPlatform.kagentApiV2: true in the installation's config.yaml.patch selects 4")
