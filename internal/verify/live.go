@@ -786,6 +786,8 @@ func (x *executor) run(ctx context.Context, p render.Probe) (Check, []Difference
 		err = x.apiServed(ctx, &c, p)
 	case render.SecretLoaded:
 		err = x.secretLoaded(ctx, &c, p)
+	case render.SourceFollowed:
+		err = x.sourceFollowed(ctx, &c, p, time.Now())
 	default:
 		c.Message = "probe kind " + string(p.Kind) + " is not one this verify runs"
 	}
@@ -1038,6 +1040,100 @@ func containerStarted(pod map[string]any, container string) (time.Time, bool) {
 		return t, err == nil
 	}
 	return time.Time{}, false
+}
+
+// gitRepositoryResource is Flux's GitRepository, the source a Konfiguration renders from.
+const gitRepositoryResource = "GitRepository.source.toolkit.fluxcd.io"
+
+// sourceFollowSlack is how long past its interval a Konfiguration may still
+// be on the previous revision without lagging: the operator requeues an
+// interval after a reconcile ends, and renders every Konfiguration in turn.
+const sourceFollowSlack = 30 * time.Second
+
+// sourceFollowed marks a Konfiguration against the GitRepository its spec
+// names: on the source's artifact it is as defined; a revision it attempted
+// and failed to apply is drifted at once, Ready's message appended; behind
+// for less than its reconciliation interval (and the slack) since the
+// artifact changed, it reads rolling; behind for longer, it lags and is
+// drifted. Where the artifact's time is not known, it is not marked.
+func (x *executor) sourceFollowed(ctx context.Context, c *Check, p render.Probe, now time.Time) error {
+	kfg, err := x.cluster().Get(ctx, p.Namespace, p.Resource, p.Name, Readiness)
+	if err != nil {
+		return err
+	}
+	name, _ := dig(kfg, "spec", "sources", "flux", "gitRepository", "name").(string)
+	namespace, _ := dig(kfg, "spec", "sources", "flux", "gitRepository", "namespace").(string)
+	if namespace == "" {
+		namespace = p.Namespace
+	}
+	if name == "" {
+		c.Mark, c.Message = Drifted, "names no Flux GitRepository source"
+		return nil
+	}
+	repo, err := x.cluster().Get(ctx, namespace, gitRepositoryResource, name, Readiness)
+	if err != nil {
+		return err
+	}
+	source := "GitRepository " + namespace + "/" + name
+	want := commitOf(dig(repo, "status", "artifact", "revision"))
+	applied, _ := dig(kfg, "status", "lastAppliedRevision").(string)
+	attempted, _ := dig(kfg, "status", "lastAttemptedRevision").(string)
+	c.Revision = applied
+	if want == "" {
+		c.Mark, c.Message = Drifted, source+" has no artifact"
+		return nil
+	}
+	if applied == want {
+		c.Mark, c.Message = AsDefined, "applied "+source+"'s revision "+short(want)
+		return nil
+	}
+	behind := fmt.Sprintf("applied %s, %s is at %s", short(applied), source, short(want))
+	if attempted == want {
+		_, message, _ := conditionOf(kfg, "Ready")
+		c.Mark, c.Message = Drifted, behind+" and failed to apply it: "+firstLine(message)
+		return nil
+	}
+	rawInterval, _ := dig(kfg, "spec", "reconciliation", "interval").(string)
+	interval, err := time.ParseDuration(rawInterval)
+	if err != nil {
+		c.Message = behind + "; its reconciliation interval " + strconv.Quote(rawInterval) + " is not a duration"
+		return nil
+	}
+	rawMoved, _ := dig(repo, "status", "artifact", "lastUpdateTime").(string)
+	moved, err := time.Parse(time.RFC3339, rawMoved)
+	if err != nil {
+		c.Message = behind + "; when the source moved is not known"
+		return nil
+	}
+	since := now.Sub(moved).Round(time.Second)
+	behind += fmt.Sprintf(" since %s (%s ago)", moved.UTC().Format(time.RFC3339), since)
+	if since <= interval+sourceFollowSlack {
+		c.Mark, c.Message = Drifted, Rolling+behind+"; it reconciles every "+interval.String()
+		return nil
+	}
+	c.Mark, c.Message = Drifted, behind+": past its "+interval.String()+" reconciliation interval"
+	return nil
+}
+
+// commitOf is the commit of a Flux artifact revision ("main@sha1:<commit>").
+func commitOf(revision any) string {
+	s, _ := revision.(string)
+	if i := strings.LastIndex(s, ":"); i >= 0 {
+		return s[i+1:]
+	}
+	return s
+}
+
+// short is a commit as git abbreviates it, 12 characters; "no revision"
+// for none.
+func short(commit string) string {
+	if commit == "" {
+		return "no revision"
+	}
+	if len(commit) > 12 {
+		return commit[:12]
+	}
+	return commit
 }
 
 // logAbsent reads the last LogTail lines of the log of every pod of the

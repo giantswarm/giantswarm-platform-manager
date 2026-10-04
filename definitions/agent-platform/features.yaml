@@ -76,6 +76,7 @@ features:
       - {id: extras-kustomization-resources, kind: extras, key: agent-platform/kustomization.yaml (resources and the chart line's patch)}
       - {id: live-model-configs, kind: live, key: ModelConfigs in the kagent namespace}
       - {id: live-kagent-provider-values, kind: live, key: kagent HelmRelease .spec.values.providers}
+      - {id: live-konfiguration-source, kind: live, key: "Konfiguration agent-platform-konfiguration on its GitRepository's revision: behind within its reconciliation interval reads rolling, longer drifted"}
       - {id: live-helmreleases-ready, kind: live, key: "HelmReleases agent-platform, kagent, connectivity, muster, mcps Ready"}
       - {id: live-platform-workloads, kind: live, key: "the Deployments that read muster's credentials Available: muster, its Valkey, and klaus-gateway, agent-manager, cluster-manager and model-manager where each runs"}
       - {id: live-kagent-workloads, kind: live, key: kagent pods Running and the CNPG cluster healthy}
