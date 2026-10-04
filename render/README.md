@@ -147,7 +147,8 @@ agent platform is on record and below dex-app 3.2.3 (2.4.0 on the 2.x line); see
 
 A `Result` also says what the running installation has to show for the render to count as working, as data.
 `Probes` are the checks of the installation, one or more per `kind: live` dimension of
-`definitions/agent-platform/features.yaml`, in the order they are run: the HelmReleases Ready, kagent's
+`definitions/agent-platform/features.yaml`, in the order they are run: the Konfiguration on its source's
+revision, the HelmReleases Ready, kagent's
 workloads and its Postgres cluster, the oauth2-proxy Secret and the Flux ServiceAccount, the default
 ModelConfig's `Accepted` condition, `/api/agents` answered 403, `/oauth2/start` redirected to Dex as client
 `kagent`, Dex's `/auth` answering 302 for every rendered client with a redirect URI, Dex holding the current
@@ -172,6 +173,14 @@ render one per client Secret their dex patch references. The check reads when th
 value: the kubernetes tool the verify reads through masks every Secret value, so a probe that sends the secret
 to Dex's token endpoint could not be run as the person. It errs one way only: a change of the Secret's labels by
 the manager that owns its data moves the time too and asks for a restart Dex did not need.
+
+A `SourceFollowed` probe names a konfigure `Konfiguration`. It holds the Konfiguration's `lastAppliedRevision`
+to the artifact of the Flux GitRepository its `spec.sources.flux.gitRepository` names. On the artifact's commit
+it is as defined. If the Konfiguration attempted that commit and failed, it is drifted, with its Ready message.
+If it is behind for no longer than its `spec.reconciliation.interval` (plus 30s) since the artifact changed, it
+reads rolling. If it is behind for longer, it is drifted and names both commits and how long it has lagged. The
+agent-platform definition probes `agent-platform-konfiguration`, which renders the values the meta chart's
+HelmRelease reads, so a lag shows in the verify and the watch without annotating the object.
 
 `Actions` are what a person outside the platform team still has to do, as a note with a state. The model
 key is one, on every installation that runs kagent — the definition renders no file for it and nobody supplies

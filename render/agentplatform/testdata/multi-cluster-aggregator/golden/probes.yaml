@@ -1,3 +1,9 @@
+- id: live-konfiguration-source
+  feature: runtime
+  kind: SourceFollowed
+  namespace: flux-giantswarm
+  resource: Konfiguration.konfigure.giantswarm.io
+  name: agent-platform-konfiguration
 - id: live-helmreleases-ready
   feature: runtime
   kind: HelmReleaseReady

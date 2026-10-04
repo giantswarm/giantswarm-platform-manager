@@ -291,6 +291,11 @@ const (
 	// Secret's data last changed, so each holds the Secret's current value.
 	// The Secret's values are never read.
 	SecretLoaded ProbeKind = "SecretLoaded"
+	// SourceFollowed is a konfigure Konfiguration (Namespace, Name) whose
+	// last applied revision is the current artifact of the Flux GitRepository
+	// its spec names: behind for less than its reconciliation interval it
+	// reads rolling, behind for longer drifted.
+	SourceFollowed ProbeKind = "SourceFollowed"
 )
 
 // Expectation is what a probe expects; the fields its kind does not read stay zero.

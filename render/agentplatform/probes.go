@@ -23,6 +23,9 @@ const (
 	oauth2ProxyDeployment = "kagent-oauth2-proxy"
 	// musterConfigMap carries muster's server configuration as the chart renders it.
 	musterConfigMap = "muster-config"
+	// konfiguration renders the meta chart's values from the configs
+	// repository into the ConfigMap the agent-platform HelmRelease reads.
+	konfiguration = "agent-platform-konfiguration"
 	// conditionTrue and conditionFalse are the statuses a Condition probe expects.
 	conditionTrue  = "True"
 	conditionFalse = "False"
@@ -30,14 +33,15 @@ const (
 
 // probes are the checks of the running installation, one or more per live
 // dimension of features.yaml, in the order the verify slice runs them: the
-// releases, the workloads that read muster's credentials, kagent's
-// workloads, the Secrets, the model configuration, the identity chain over
-// HTTP, Dex holding every referenced client secret, the tool access, the
-// logs, and the drift of live values against the render. Everything kagent's
+// configuration on its source's revision, the releases, the workloads that
+// read muster's credentials, kagent's workloads, the Secrets, the model
+// configuration, the identity chain over HTTP, Dex holding every referenced
+// client secret, the tool access, the logs, and the drift of live values
+// against the render. Everything kagent's
 // is probed only when kagent is enabled. Nothing here runs anything: a probe
 // is data.
 func (in *Input) probes() []render.Probe {
-	var p []render.Probe
+	p := []render.Probe{resourceProbe("live-konfiguration-source", featureRuntime, render.SourceFollowed, fluxNamespace, "Konfiguration.konfigure.giantswarm.io", konfiguration)}
 	for _, name := range in.helmReleases() {
 		p = append(p, resourceProbe("live-helmreleases-ready", featureRuntime, render.HelmReleaseReady, fluxNamespace, "HelmRelease", name))
 	}

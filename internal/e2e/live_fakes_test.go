@@ -356,6 +356,13 @@ func (f *fakeInstallation) populate(t *testing.T, installation string, res *rend
 			f.put(kind, p.Namespace, p.Name, map[string]any{metadataKey: map[string]any{managedFieldsKey: []any{dataWrite(dataWritten)}}, dataKey: map[string]any{render.DexSecretKey: "***"}})
 			f.put("Pod", p.Namespace, podOf(p), map[string]any{metadataKey: map[string]any{"labels": labelsOf(p.Expect.Pods)}, statusKey: map[string]any{"phase": "Running",
 				"containerStatuses": []any{map[string]any{nameKey: p.Expect.Container, "state": map[string]any{"running": map[string]any{startedAtKey: containerStarted}}}}}})
+		case render.SourceFollowed:
+			// The Konfiguration on its GitRepository's commit.
+			const repo, commit = "giantswarm-config", "6aeb7ac319a0d15007a8d4342dbbd7f2fadb9c63"
+			f.put(kind, p.Namespace, p.Name, map[string]any{"spec": map[string]any{"reconciliation": map[string]any{"interval": "1m"},
+				"sources": map[string]any{"flux": map[string]any{"gitRepository": map[string]any{nameKey: repo}}}},
+				statusKey: map[string]any{"lastAppliedRevision": commit, "lastAttemptedRevision": commit}})
+			f.put("GitRepository", p.Namespace, repo, map[string]any{statusKey: map[string]any{"artifact": map[string]any{"revision": "main@sha1:" + commit, "lastUpdateTime": dataWritten}}})
 		case render.ResourcePresent:
 			obj := map[string]any{}
 			if len(p.Expect.Keys) > 0 {

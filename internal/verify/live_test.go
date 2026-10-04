@@ -198,24 +198,25 @@ func TestHTTPProbeAcceptsAnyOfTheStatuses(t *testing.T) {
 
 // The names and keys of the recording cluster's objects.
 const (
-	testNamespace   = "ns"
-	kindHelmRelease = "HelmRelease"
-	kindDeployment  = "Deployment"
-	keySpec         = "spec"
-	keyStatus       = "status"
-	keyData         = "data"
-	keyMetadata     = "metadata"
-	keyName         = "name"
-	keyConditions   = "conditions"
-	keyType         = "type"
-	keyMessage      = "message"
-	kindSecret      = "Secret"
-	conditionTrue   = "True"
-	proxyWorkload   = "proxy"
-	metaRelease     = "agent-platform"
-	testRelease     = "rel"
-	renderedLeaf    = "kagent.replicas"
-	definitionNote  = "what a match means"
+	testNamespace     = "ns"
+	kindHelmRelease   = "HelmRelease"
+	kindDeployment    = "Deployment"
+	keySpec           = "spec"
+	keyStatus         = "status"
+	keyData           = "data"
+	keyMetadata       = "metadata"
+	keyName           = "name"
+	keyConditions     = "conditions"
+	keyType           = "type"
+	keyMessage        = "message"
+	kindSecret        = "Secret"
+	conditionTrue     = "True"
+	proxyWorkload     = "proxy"
+	kindKonfiguration = "Konfiguration.konfigure.giantswarm.io"
+	metaRelease       = "agent-platform"
+	testRelease       = "rel"
+	renderedLeaf      = "kagent.replicas"
+	definitionNote    = "what a match means"
 )
 
 // recordingCluster serves the objects, the pods and the log it holds and
@@ -275,6 +276,9 @@ func TestChecksAskForWhatTheyRead(t *testing.T) {
 			key(kindDeployment, proxyWorkload): {keySpec: map[string]any{"selector": map[string]any{"matchLabels": map[string]any{"app": proxyWorkload}}}, keyStatus: conditions("Available")},
 			key("Secret", "credential"):        {keyData: map[string]any{"k": "***"}},
 			key(kindSecret, "loaded"):          secretWrittenAt(written),
+			key(kindKonfiguration, "konfiguration"): {keySpec: map[string]any{"sources": map[string]any{"flux": map[string]any{"gitRepository": map[string]any{keyName: "configs"}}}},
+				keyStatus: map[string]any{"lastAppliedRevision": "abc"}},
+			key(gitRepositoryResource, "configs"): {keyStatus: map[string]any{"artifact": map[string]any{"revision": "main@sha1:abc"}}},
 		},
 		pods: []map[string]any{podStartedAt(proxyWorkload+"-0", proxyWorkload, started)},
 		log:  "level=info msg=\"listening\"\n",
@@ -295,6 +299,7 @@ func TestChecksAskForWhatTheyRead(t *testing.T) {
 		{"LogAbsent with the definition's note", render.Probe{Kind: render.LogAbsent, Namespace: testNamespace, Resource: kindDeployment, Name: proxyWorkload, Expect: render.Expectation{Absent: "does not match", Note: definitionNote}}, []Shape{Readiness, Readiness}, []int{LogTail}, definitionNote + "; " + logTailNote},
 		{"Drift of a HelmRelease's values", render.Probe{Kind: render.Drift, Namespace: testNamespace, Resource: kindHelmRelease, Name: testRelease}, []Shape{Configuration, Configuration}, nil, ""},
 		{"Drift of a place", render.Probe{Kind: render.Drift, Namespace: testNamespace, Resource: "ConfigMap", Name: valuesKey, Expect: render.Expectation{Compare: []render.Comparison{{Live: "data.x", Rendered: renderedLeaf}}}}, []Shape{Configuration}, nil, ""},
+		{"SourceFollowed", render.Probe{Kind: render.SourceFollowed, Namespace: testNamespace, Resource: kindKonfiguration, Name: "konfiguration"}, []Shape{Readiness, Readiness}, nil, ""},
 		{"SecretLoaded", render.Probe{Kind: render.SecretLoaded, Namespace: testNamespace, Resource: kindSecret, Name: "loaded", Expect: render.Expectation{Pods: "app=" + proxyWorkload, Container: proxyWorkload}}, []Shape{Manifest, Readiness}, nil, ""},
 	} {
 		cluster.shapes, cluster.tails = nil, nil
@@ -457,6 +462,77 @@ func TestSecretLoadedHoldsTheContainersToTheSecretsLastChange(t *testing.T) {
 	x := &executor{opts: LiveOptions{Cluster: &recordingCluster{}}}
 	if check, _, _ := x.run(context.Background(), probe); check.Mark != Drifted || !strings.HasPrefix(check.Message, "does not exist") {
 		t.Errorf("no Secret: %+v", check)
+	}
+}
+
+// A Konfiguration follows the GitRepository its spec names: on the artifact's
+// commit it is as defined; behind within its reconciliation interval and the
+// slack since the artifact changed it reads rolling; behind for longer it
+// lags; a revision it attempted and failed is drifted at once with Ready's
+// message. Where the artifact's time or the interval cannot be read, the
+// check claims nothing.
+func TestSourceFollowedHoldsAKonfigurationToItsSource(t *testing.T) {
+	const (
+		head, previous = "6aeb7ac319a0d15007a8d4342dbbd7f2fadb9c63", "bb6b2318711ded5267e40b43411d52f77dcdb726"
+		moved          = "2026-10-02T17:37:42Z"
+		source         = "GitRepository flux-giantswarm/giantswarm-config"
+	)
+	probe := render.Probe{Kind: render.SourceFollowed, Namespace: "flux-giantswarm", Resource: kindKonfiguration, Name: "agent-platform-konfiguration"}
+	movedAt, err := time.Parse(time.RFC3339, moved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	behind := "applied bb6b2318711d, " + source + " is at 6aeb7ac319a0"
+	for _, c := range []struct {
+		name               string
+		applied, attempted string
+		interval, updated  string
+		after              time.Duration
+		mark               Mark
+		message            string
+	}{
+		{"on the source's commit", head, head, "1m", moved, time.Hour, AsDefined, "applied " + source + "'s revision 6aeb7ac319a0"},
+		{"behind within the interval", previous, previous, "1m", moved, 13 * time.Second, Drifted,
+			Rolling + behind + " since " + moved + " (13s ago); it reconciles every 1m0s"},
+		{"behind within the slack", previous, previous, "1m", moved, 90 * time.Second, Drifted,
+			Rolling + behind + " since " + moved + " (1m30s ago); it reconciles every 1m0s"},
+		{"behind past the interval", previous, previous, "1m", moved, 10 * time.Minute, Drifted,
+			behind + " since " + moved + " (10m0s ago): past its 1m0s reconciliation interval"},
+		{"the source's commit failed", previous, head, "1m", moved, 13 * time.Second, Drifted,
+			behind + " and failed to apply it: Attempted revision: " + head},
+		{"never applied", "", "", "1m", moved, 10 * time.Minute, Drifted,
+			"applied no revision, " + source + " is at 6aeb7ac319a0 since " + moved + " (10m0s ago): past its 1m0s reconciliation interval"},
+		{"the artifact's time unknown", previous, previous, "1m", "", time.Hour, NotChecked, behind + "; when the source moved is not known"},
+		{"the interval unreadable", previous, previous, "often", moved, time.Hour, NotChecked, behind + `; its reconciliation interval "often" is not a duration`},
+	} {
+		kfg := map[string]any{
+			keySpec: map[string]any{"reconciliation": map[string]any{"interval": c.interval},
+				"sources": map[string]any{"flux": map[string]any{"gitRepository": map[string]any{keyName: "giantswarm-config", "namespace": "flux-giantswarm"}}}},
+			keyStatus: map[string]any{"lastAppliedRevision": c.applied, "lastAttemptedRevision": c.attempted,
+				keyConditions: []any{map[string]any{keyType: "Ready", keyStatus: "False", keyMessage: "Attempted revision: " + c.attempted}}},
+		}
+		repo := map[string]any{keyStatus: map[string]any{"artifact": map[string]any{"revision": "main@sha1:" + head, "lastUpdateTime": c.updated}}}
+		cluster := &recordingCluster{objects: map[string]map[string]any{
+			kindKonfiguration + "/flux-giantswarm/agent-platform-konfiguration": kfg,
+			gitRepositoryResource + "/flux-giantswarm/giantswarm-config":        repo,
+		}}
+		x := &executor{opts: LiveOptions{Cluster: cluster}}
+		got := check(probe)
+		if err := x.sourceFollowed(context.Background(), &got, probe, movedAt.Add(c.after)); err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if got.Mark != c.mark || got.Message != c.message || got.Revision != c.applied {
+			t.Errorf("%s: %+v, want %q %q", c.name, got, c.mark, c.message)
+		}
+		if !reflect.DeepEqual(cluster.shapes, []Shape{Readiness, Readiness}) {
+			t.Errorf("%s asked for %v", c.name, cluster.shapes)
+		}
+	}
+	// A Konfiguration without a Flux source has nothing to follow.
+	x := &executor{opts: LiveOptions{Cluster: &recordingCluster{objects: map[string]map[string]any{
+		kindKonfiguration + "/flux-giantswarm/agent-platform-konfiguration": {keySpec: map[string]any{}}}}}}
+	if got, _, _ := x.run(context.Background(), probe); got.Mark != Drifted || got.Message != "names no Flux GitRepository source" {
+		t.Errorf("no source: %+v", got)
 	}
 }
 
