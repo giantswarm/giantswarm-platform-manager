@@ -337,12 +337,12 @@ func (f *fakeInstallation) populate(t *testing.T, installation string, res *rend
 			obj := conditionTrue("Ready")
 			switch p.Name {
 			case "agent-platform":
-				obj["spec"] = map[string]any{"valuesFrom": []any{map[string]any{"kind": "ConfigMap", "name": "agent-platform-konfiguration", "valuesKey": "configmap-values.yaml"}},
+				obj[specKey] = map[string]any{"valuesFrom": []any{map[string]any{"kind": "ConfigMap", "name": "agent-platform-konfiguration", "valuesKey": "configmap-values.yaml"}},
 					"values": map[string]any{"gitops": map[string]any{"namespace": p.Namespace}}}
 				bulky(obj)
 				f.put("ConfigMap", p.Namespace, "agent-platform-konfiguration", map[string]any{"data": map[string]any{"configmap-values.yaml": valuesFile}})
 			case "kagent":
-				obj["spec"] = map[string]any{"values": map[string]any{"providers": at("kagent.providers")}}
+				obj[specKey] = map[string]any{"values": map[string]any{"providers": at("kagent.providers")}}
 			}
 			f.put(kind, p.Namespace, p.Name, obj)
 		case render.Condition:
@@ -359,7 +359,7 @@ func (f *fakeInstallation) populate(t *testing.T, installation string, res *rend
 		case render.SourceFollowed:
 			// The Konfiguration on its GitRepository's commit.
 			const repo, commit = "giantswarm-config", "6aeb7ac319a0d15007a8d4342dbbd7f2fadb9c63"
-			f.put(kind, p.Namespace, p.Name, map[string]any{"spec": map[string]any{"reconciliation": map[string]any{"interval": "1m"},
+			f.put(kind, p.Namespace, p.Name, map[string]any{specKey: map[string]any{"reconciliation": map[string]any{"interval": "1m"},
 				"sources": map[string]any{"flux": map[string]any{"gitRepository": map[string]any{nameKey: repo}}}},
 				statusKey: map[string]any{"lastAppliedRevision": commit, "lastAttemptedRevision": commit}})
 			f.put("GitRepository", p.Namespace, repo, map[string]any{statusKey: map[string]any{"artifact": map[string]any{"revision": "main@sha1:" + commit, "lastUpdateTime": dataWritten}}})
@@ -379,8 +379,8 @@ func (f *fakeInstallation) populate(t *testing.T, installation string, res *rend
 			}
 			if kind == "Deployment" {
 				pod := p.Name + "-0"
-				f.put("Deployment", p.Namespace, p.Name, map[string]any{"spec": map[string]any{"selector": map[string]any{"matchLabels": map[string]any{"app": p.Name}},
-					"template": map[string]any{"spec": map[string]any{"containers": []any{map[string]any{"name": p.Name,
+				f.put("Deployment", p.Namespace, p.Name, map[string]any{specKey: map[string]any{"selector": map[string]any{"matchLabels": map[string]any{"app": p.Name}},
+					"template": map[string]any{specKey: map[string]any{"containers": []any{map[string]any{"name": p.Name,
 						"args": []any{"--provider=oidc", "--oidc-extra-audience=" + fmt.Sprint(at("kagent.oauth2-proxy.extraArgs.oidc-extra-audience"))}}}}}}})
 				f.put("Pod", p.Namespace, pod, map[string]any{metadataKey: map[string]any{"labels": map[string]any{"app": p.Name}}, statusKey: map[string]any{"phase": "Running"}})
 				f.logs[p.Namespace+"/"+pod] = busyLog()
@@ -405,6 +405,7 @@ const (
 	managedFieldsKey = "managedFields"
 	dataKey          = "data"
 	startedAtKey     = "startedAt"
+	specKey          = "spec"
 )
 
 // dataWrite is a managed-fields entry of the manager that wrote a Secret's
@@ -476,7 +477,7 @@ func shaped(obj map[string]any, output string) map[string]any {
 		return out
 	}
 	if kind, _ := out["kind"].(string); kind == helmReleaseKind {
-		if spec, ok := out["spec"].(map[string]any); ok {
+		if spec, ok := out[specKey].(map[string]any); ok {
 			delete(spec, "values")
 		}
 		if status, ok := out[statusKey].(map[string]any); ok {

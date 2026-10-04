@@ -213,6 +213,9 @@ const (
 	conditionTrue     = "True"
 	proxyWorkload     = "proxy"
 	kindKonfiguration = "Konfiguration.konfigure.giantswarm.io"
+	keyApplied        = "lastAppliedRevision"
+	conditionReady    = "Ready"
+	fluxGiantswarm    = "flux-giantswarm"
 	metaRelease       = "agent-platform"
 	testRelease       = "rel"
 	renderedLeaf      = "kagent.replicas"
@@ -271,13 +274,13 @@ func TestChecksAskForWhatTheyRead(t *testing.T) {
 	cluster := &recordingCluster{
 		objects: map[string]map[string]any{
 			key(kindHelmRelease, testRelease): {keySpec: map[string]any{"valuesFrom": []any{map[string]any{"kind": "ConfigMap", "name": valuesKey}}, valuesKey: map[string]any{"kagent": map[string]any{"replicas": "2"}}},
-				keyStatus: map[string]any{keyConditions: conditions("Ready")[keyConditions], "lastAppliedRevision": "1.2.3"}},
+				keyStatus: map[string]any{keyConditions: conditions(conditionReady)[keyConditions], keyApplied: "1.2.3"}},
 			key("ConfigMap", valuesKey):        {keyData: map[string]any{"values.yaml": "kagent:\n  replicas: \"2\"\n", "x": "2"}},
 			key(kindDeployment, proxyWorkload): {keySpec: map[string]any{"selector": map[string]any{"matchLabels": map[string]any{"app": proxyWorkload}}}, keyStatus: conditions("Available")},
 			key("Secret", "credential"):        {keyData: map[string]any{"k": "***"}},
 			key(kindSecret, "loaded"):          secretWrittenAt(written),
 			key(kindKonfiguration, "konfiguration"): {keySpec: map[string]any{"sources": map[string]any{"flux": map[string]any{"gitRepository": map[string]any{keyName: "configs"}}}},
-				keyStatus: map[string]any{"lastAppliedRevision": "abc"}},
+				keyStatus: map[string]any{keyApplied: "abc"}},
 			key(gitRepositoryResource, "configs"): {keyStatus: map[string]any{"artifact": map[string]any{"revision": "main@sha1:abc"}}},
 		},
 		pods: []map[string]any{podStartedAt(proxyWorkload+"-0", proxyWorkload, started)},
@@ -332,7 +335,7 @@ func TestHelmReleaseReadyNamesAFailedRelease(t *testing.T) {
 		return map[string]any{keyType: kind, keyStatus: status, "reason": reason, keyMessage: message}
 	}
 	const upgradeFailed = "Helm upgrade failed for release backstage/backstage with chart backstage@2.66.1: context deadline exceeded"
-	progressing := condition("Ready", "Unknown", "Progressing", "Running 'upgrade' action with timeout of 10m0s")
+	progressing := condition(conditionReady, "Unknown", "Progressing", "Running 'upgrade' action with timeout of 10m0s")
 	for _, c := range []struct {
 		name       string
 		conditions []any
@@ -342,17 +345,17 @@ func TestHelmReleaseReadyNamesAFailedRelease(t *testing.T) {
 	}{
 		{"an upgrade in progress over a good release", []any{progressing, condition("Released", conditionTrue, "UpgradeSucceeded", "upgraded")},
 			Drifted, false, "Ready=Unknown: Running 'upgrade' action with timeout of 10m0s"},
-		{"waiting on a dependency", []any{condition("Ready", "False", "DependencyNotReady", "dependency 'flux-giantswarm/cnpg' is not ready")},
+		{"waiting on a dependency", []any{condition(conditionReady, "False", "DependencyNotReady", "dependency 'flux-giantswarm/cnpg' is not ready")},
 			Drifted, false, "Ready=False: dependency 'flux-giantswarm/cnpg' is not ready"},
-		{"an upgrade rolled back", []any{condition("Ready", "False", "RollbackSucceeded", "Helm rollback to previous release backstage/backstage.v7 succeeded"),
+		{"an upgrade rolled back", []any{condition(conditionReady, "False", "RollbackSucceeded", "Helm rollback to previous release backstage/backstage.v7 succeeded"),
 			condition("Released", "False", "UpgradeFailed", upgradeFailed), condition("Remediated", conditionTrue, "RollbackSucceeded", "rolled back")},
 			Drifted, true, "Ready=False: Helm rollback to previous release backstage/backstage.v7 succeeded; Released=False (UpgradeFailed): " + upgradeFailed},
 		{"a retry in progress after a failed upgrade", []any{progressing, condition("Released", "False", "UpgradeFailed", upgradeFailed)},
 			Drifted, true, "Ready=Unknown: Running 'upgrade' action with timeout of 10m0s; Released=False (UpgradeFailed): " + upgradeFailed},
-		{"retries exhausted", []any{condition("Ready", "False", "UpgradeFailed", upgradeFailed), condition("Stalled", conditionTrue, "RetriesExceeded", "Failed to upgrade after 11 attempt(s)"),
+		{"retries exhausted", []any{condition(conditionReady, "False", "UpgradeFailed", upgradeFailed), condition("Stalled", conditionTrue, "RetriesExceeded", "Failed to upgrade after 11 attempt(s)"),
 			condition("Released", "False", "UpgradeFailed", upgradeFailed)},
 			Drifted, true, "Ready=False: " + upgradeFailed + "; Stalled=True (RetriesExceeded): Failed to upgrade after 11 attempt(s)"},
-		{"Ready", []any{condition("Ready", conditionTrue, "UpgradeSucceeded", "upgraded"), condition("Released", conditionTrue, "UpgradeSucceeded", "upgraded")},
+		{conditionReady, []any{condition(conditionReady, conditionTrue, "UpgradeSucceeded", "upgraded"), condition("Released", conditionTrue, "UpgradeSucceeded", "upgraded")},
 			AsDefined, false, "Ready=True"},
 	} {
 		cluster := &recordingCluster{objects: map[string]map[string]any{
@@ -477,7 +480,7 @@ func TestSourceFollowedHoldsAKonfigurationToItsSource(t *testing.T) {
 		moved          = "2026-10-02T17:37:42Z"
 		source         = "GitRepository flux-giantswarm/giantswarm-config"
 	)
-	probe := render.Probe{Kind: render.SourceFollowed, Namespace: "flux-giantswarm", Resource: kindKonfiguration, Name: "agent-platform-konfiguration"}
+	probe := render.Probe{Kind: render.SourceFollowed, Namespace: fluxGiantswarm, Resource: kindKonfiguration, Name: "agent-platform-konfiguration"}
 	movedAt, err := time.Parse(time.RFC3339, moved)
 	if err != nil {
 		t.Fatal(err)
@@ -507,9 +510,9 @@ func TestSourceFollowedHoldsAKonfigurationToItsSource(t *testing.T) {
 	} {
 		kfg := map[string]any{
 			keySpec: map[string]any{"reconciliation": map[string]any{"interval": c.interval},
-				"sources": map[string]any{"flux": map[string]any{"gitRepository": map[string]any{keyName: "giantswarm-config", "namespace": "flux-giantswarm"}}}},
-			keyStatus: map[string]any{"lastAppliedRevision": c.applied, "lastAttemptedRevision": c.attempted,
-				keyConditions: []any{map[string]any{keyType: "Ready", keyStatus: "False", keyMessage: "Attempted revision: " + c.attempted}}},
+				"sources": map[string]any{"flux": map[string]any{"gitRepository": map[string]any{keyName: "giantswarm-config", "namespace": fluxGiantswarm}}}},
+			keyStatus: map[string]any{keyApplied: c.applied, "lastAttemptedRevision": c.attempted,
+				keyConditions: []any{map[string]any{keyType: conditionReady, keyStatus: "False", keyMessage: "Attempted revision: " + c.attempted}}},
 		}
 		repo := map[string]any{keyStatus: map[string]any{"artifact": map[string]any{"revision": "main@sha1:" + head, "lastUpdateTime": c.updated}}}
 		cluster := &recordingCluster{objects: map[string]map[string]any{
@@ -542,7 +545,7 @@ func TestSourceFollowedHoldsAKonfigurationToItsSource(t *testing.T) {
 func TestTooLargeReadsNotCheckedInPlainWords(t *testing.T) {
 	cluster := &recordingCluster{err: &TooLarge{Bytes: 139264, Limit: 131072}}
 	x := &executor{opts: LiveOptions{Cluster: cluster}}
-	check, diffs, auth := x.run(context.Background(), render.Probe{Kind: render.HelmReleaseReady, Namespace: "flux-giantswarm", Resource: kindHelmRelease, Name: metaRelease})
+	check, diffs, auth := x.run(context.Background(), render.Probe{Kind: render.HelmReleaseReady, Namespace: fluxGiantswarm, Resource: kindHelmRelease, Name: metaRelease})
 	const want = "the object or log is larger than mcp-kubernetes answers (136 KiB, the limit is 128 KiB): the check asks for too much"
 	if check.Mark != NotChecked || check.Message != want || check.Name != metaRelease || len(diffs) != 0 || auth != nil {
 		t.Errorf("%+v (diffs %d, auth %v)", check, len(diffs), auth)
@@ -642,7 +645,7 @@ func (c *hangingCluster) Get(ctx context.Context, namespace, resource, name stri
 func TestLiveReadsAreBounded(t *testing.T) {
 	const hung, after, okRelease = "hung", "after", "answers"
 	ready := func(name string) map[string]any {
-		return map[string]any{keyStatus: map[string]any{keyConditions: []any{map[string]any{keyType: "Ready", keyStatus: conditionTrue, keyMessage: "ok"}}}, keyMetadata: map[string]any{keyName: name}}
+		return map[string]any{keyStatus: map[string]any{keyConditions: []any{map[string]any{keyType: conditionReady, keyStatus: conditionTrue, keyMessage: "ok"}}}, keyMetadata: map[string]any{keyName: name}}
 	}
 	key := func(name string) string { return kindHelmRelease + "/" + testNamespace + "/" + name }
 	cluster := &hangingCluster{hang: key(hung), recordingCluster: recordingCluster{objects: map[string]map[string]any{
