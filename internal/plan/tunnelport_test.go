@@ -213,3 +213,67 @@ func TestKeepTunnelportValuesKeepsTheOtherHubsTokensOfASharedTunnel(t *testing.T
 		t.Errorf("kept %v, want otter's token", kept)
 	}
 }
+
+// prunedTunnels is the fleet's values file with two tunnels the hub gopher no
+// longer renders: one its own alone, which goes, and one otter shares, which
+// keeps otter's token.
+const prunedTunnels = `tunnelport:
+  consumers:
+    gopher:
+      installNamespace: agent-platform
+      issuer: https://irsa.gopher.example.io
+  trustBundle:
+    tokens:
+      - name: tunnelport-trust-bundle-token-gopher
+        consumer: gopher
+  tunnels:
+    - name: dex-burrow
+      appLabels:
+        app: dex
+        cluster: burrow
+        customer: giantswarm
+      tokens:
+        - name: dex-burrow-bot-token
+          consumer: gopher
+    - name: mcp-kubernetes-burrow
+      appLabels:
+        app: mcp-kubernetes
+        cluster: burrow
+        customer: giantswarm
+      tokens:
+        - name: mcp-kubernetes-burrow-bot-token
+          consumer: gopher
+    - name: mcp-prometheus-burrow
+      appLabels:
+        app: mcp-prometheus
+        cluster: burrow
+        customer: giantswarm
+      tokens:
+        - name: mcp-prometheus-burrow-bot-token
+          consumer: gopher
+        - name: mcp-prometheus-burrow-bot-token-otter
+          consumer: otter
+`
+
+func TestKeepTunnelportValuesPrunesTheHubsTokensOfTunnelsItNoLongerRenders(t *testing.T) {
+	got, kept, err := keepTunnelportValues([]byte(renderedTunnelport), []byte(prunedTunnels))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(got)
+	if strings.Contains(s, "mcp-kubernetes-burrow") {
+		t.Errorf("the tunnel only gopher joined stays:\n%s", s)
+	}
+	if strings.Contains(s, "mcp-prometheus-burrow-bot-token\n") {
+		t.Errorf("gopher's token of a tunnel it no longer renders stays:\n%s", s)
+	}
+	if !strings.Contains(s, "        - name: mcp-prometheus-burrow-bot-token-otter\n          consumer: otter\n") {
+		t.Errorf("otter's token of the shared tunnel is gone:\n%s", s)
+	}
+	if !strings.Contains(s, "    - name: dex-burrow\n") {
+		t.Errorf("the rendered tunnel is gone:\n%s", s)
+	}
+	if want := (Kept{listTunnels, "mcp-prometheus-burrow"}); len(kept) != 1 || kept[0] != want {
+		t.Errorf("kept %v, want %v", kept, want)
+	}
+}

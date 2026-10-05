@@ -64,7 +64,8 @@ type tunnelledApp struct {
 // proxies its kagent (the UI and API v1 behind oauth2-proxy, whose health route
 // is /ping) and its agentgateway (the kagent API v2 controller's gRPC listener,
 // no HTTP probe) — the portal reaches both through the tunnel — and the API
-// server the broker's tokens are for.
+// server the broker's tokens are for. A browse-only target has no federated
+// group and no proxied platform: its Dex and its API server alone.
 func (t Target) tunnelledApps() []tunnelledApp {
 	// Dex runs two proxy pods: every token refresh of a user of the target
 	// passes it, and tunnelport's disruption budget keeps one of them serving
@@ -206,10 +207,14 @@ func extraCaFile() render.Map {
 }
 
 // identityProviders is agent-platform-mcps.identityProviders: the exchange at
-// each target's Dex that the targets' MCP servers authenticate through.
+// each target's Dex that the targets' MCP servers authenticate through; a
+// browse-only target federates no server and gets none.
 func (in *Input) identityProviders() render.Map {
 	providers := render.Map{}
 	for _, t := range in.Installation.Federation.Targets {
+		if t.BrowseOnly {
+			continue
+		}
 		entry := render.Map{e("tokenEndpoint", t.dexTokenEndpoint())}
 		if t.Private {
 			entry = append(entry, e("expectedIssuer", t.issuer()))
@@ -329,5 +334,10 @@ func (in *Input) tunnelExtras(r *render.Result, repo render.Repository, dir stri
 		"# Service named <app>-<target> on :" + tunnelPort + ", TLS terminated with the app's SVID. spec.port is the\n" +
 		"# tunnel's loopback port; the upstream port is the Teleport app's, advertised by the target. A target\n" +
 		"# whose agent platform the portal proxies is also tunnelled to its kagent and its agentgateway.\n"
+	for _, t := range in.Installation.Federation.Targets {
+		if t.BrowseOnly {
+			header += "# " + t.Installation + " is browse-only (policy federation.browseOnly): no MCP server, kagent or agentgateway tunnel.\n"
+		}
+	}
 	r.Add(repo, dir+"/remoteapps.yaml", render.File{Content: append([]byte(header), bytes.Join(docs, []byte("---\n"))...)})
 }
