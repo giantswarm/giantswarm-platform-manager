@@ -86,6 +86,12 @@ federation:
   teleport:
     clusterName: teleport.giantswarm.io
     proxyAddr: teleport.giantswarm.io:443
+  # The installations a hub's portal lists for browsing alone, by name: the broker still mints the
+  # person's tokens for their API servers, through the dex and kubernetes tunnels where they are
+  # private, and no hub federates their MCP servers, registers an identity provider at their Dex or
+  # tunnels to their MCP servers, kagent or agentgateway. A hub's own tokens of the tunnels it no
+  # longer renders leave teleport-fleet's values, and a tunnel with them once no token is left.
+  browseOnly: [elver]
 
 # The poll interval of every OCIRepository the definition renders (the tunnelport operator's today):
 # the one every Bumblebee OCIRepository of an installation's extras polls at, so a release runs

@@ -17,7 +17,8 @@ import (
 // replaces the one of its name or is appended; a tunnel is shared by every hub
 // that brokers into its target, each hub with a token of its own, so the tunnel
 // of its name takes the hub's labels and the hub's token and keeps the other
-// hubs' tokens — and everything else stays, comments included. The file is
+// hubs' tokens; a tunnel the hub no longer renders loses the hub's token, and
+// goes once no token is left — and everything else stays, comments included. The file is
 // never created here: without the template on record its values mean nothing.
 
 const (
@@ -29,6 +30,7 @@ const (
 	keyTokens            = "tokens"
 	keyTunnels           = "tunnels"
 	keyName              = "name"
+	keyConsumer          = "consumer"
 	// The lists of the values file the plan names in Kept.
 	listConsumers         = keyTunnelport + "." + keyConsumers
 	listTrustBundleTokens = keyTunnelport + "." + keyTrustBundle + "." + keyTokens
@@ -85,6 +87,9 @@ func keepTunnelportValues(rendered, current []byte) ([]byte, []Kept, error) {
 	}
 	tunnels, err := nodeUnder(curTP, keyTunnels, yaml.SequenceNode)
 	if err != nil {
+		return nil, nil, err
+	}
+	if err := m.prune(tunnels, entry(renTP, keyTunnels), entry(renTP, keyConsumers)); err != nil {
 		return nil, nil, err
 	}
 	if err := m.sequence(tunnels, entry(renTP, keyTunnels), listTunnels, m.tunnel); err != nil {
@@ -164,6 +169,61 @@ func (m *merge) sequence(cur, ren *yaml.Node, list string, same func(cur, ren *y
 			m.kept = append(m.kept, Kept{List: list, Entry: name})
 		}
 	}
+	return nil
+}
+
+// prune takes the hub's own tokens — the tokens whose consumer is the hub the
+// rendering names among its consumers — out of every tunnel on record the
+// rendering no longer carries, and the tunnel with them once no token is left:
+// a target the hub stopped tunnelling to leaves no join behind. Another hub's
+// token keeps the tunnel.
+func (m *merge) prune(cur, ren, consumers *yaml.Node) error {
+	hubs := map[string]bool{}
+	if consumers != nil {
+		for i := 0; i+1 < len(consumers.Content); i += 2 {
+			hubs[consumers.Content[i].Value] = true
+		}
+	}
+	rendered := map[string]bool{}
+	if ren != nil {
+		for _, item := range ren.Content {
+			if n := entry(item, keyName); n != nil {
+				rendered[n.Value] = true
+			}
+		}
+	}
+	kept := cur.Content[:0:0]
+	for _, item := range cur.Content {
+		n := entry(item, keyName)
+		if n == nil {
+			return fmt.Errorf("%s: an entry without a name", listTunnels)
+		}
+		if rendered[n.Value] {
+			kept = append(kept, item)
+			continue
+		}
+		tokens := entry(item, keyTokens)
+		if tokens == nil || tokens.Kind != yaml.SequenceNode {
+			kept = append(kept, item)
+			continue
+		}
+		others := tokens.Content[:0:0]
+		for _, token := range tokens.Content {
+			if c := entry(token, keyConsumer); c == nil || !hubs[c.Value] {
+				others = append(others, token)
+			}
+		}
+		if len(others) == len(tokens.Content) {
+			kept = append(kept, item)
+			continue
+		}
+		m.changed = true
+		if len(others) > 0 {
+			tokens.Content = others
+			kept = append(kept, item)
+		}
+	}
+	cur.Content = kept
 	return nil
 }
 

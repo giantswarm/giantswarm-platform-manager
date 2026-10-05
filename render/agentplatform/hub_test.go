@@ -329,6 +329,42 @@ func TestTargetFederatesTheServersItRuns(t *testing.T) {
 	}
 }
 
+// A target the policy keeps to browsing (federation.browseOnly) keeps the
+// broker's exchange and its credentials, and the hub federates none of its
+// servers, registers no identity provider for it and tunnels its Dex and its
+// API server alone.
+func TestBrowseOnlyTargetIsBrowsedAlone(t *testing.T) {
+	input, _ := loadInput(t, shapeHubPrivateTarget)
+	target := input["installation"].(map[string]any)["federation"].(map[string]any)["targets"].([]any)[0].(map[string]any)
+	target["installation"] = "elver"
+	target["platformProxied"] = true
+	in, err := Parse(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !in.Installation.Federation.Targets[0].BrowseOnly {
+		t.Fatal("elver is not browse-only")
+	}
+	for _, s := range in.targetServers() {
+		if s.Cluster == "elver" {
+			t.Errorf("elver's %s server is in muster's list", s.Group)
+		}
+	}
+	if entry := lookup(in.identityProviders(), "elver"); entry != nil {
+		t.Errorf("elver has an identity provider: %v", entry)
+	}
+	if entry := lookup(lookup(in.brokerValues(), "targets").(render.Map), "elver"); entry == nil {
+		t.Error("the broker no longer exchanges into elver")
+	}
+	var apps []string
+	for _, a := range in.Installation.Federation.Targets[0].tunnelledApps() {
+		apps = append(apps, a.name)
+	}
+	if strings.Join(apps, ",") != "dex,kubernetes" {
+		t.Errorf("elver's tunnelled apps: %v", apps)
+	}
+}
+
 // The two files of a token-exchange client name each other as the pair's
 // peer: the hub's credentials Secret the target's Dex-side copy where the
 // target runs the agent platform, the target's copy the hub's credentials
@@ -403,4 +439,14 @@ func TestBrokerClientSecretHeldByThePortal(t *testing.T) {
 			}
 		})
 	}
+}
+
+// lookup is the value under key in m; nil where m lacks it.
+func lookup(m render.Map, key string) any {
+	for _, entry := range m {
+		if entry.Key == key {
+			return entry.Value
+		}
+	}
+	return nil
 }

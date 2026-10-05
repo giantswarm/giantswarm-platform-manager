@@ -290,6 +290,12 @@ type Target struct {
 	// other (exchangeSecretName). Without it the target keeps the client by
 	// hand.
 	AgentPlatform bool `json:"agentPlatform"`
+	// BrowseOnly says the policy keeps the target to browsing
+	// (federation.browseOnly): the hub's portal still lists its clusters
+	// through the broker, and the hub federates none of its MCP servers,
+	// registers no identity provider at its Dex and tunnels nothing beyond
+	// its Dex and its API server. The policy's, never the record's.
+	BrowseOnly bool `json:"-"`
 }
 
 // groups are the target's federated MCP server groups: the servers it runs,
@@ -373,8 +379,9 @@ type policy struct {
 		Customers []string `yaml:"customers"`
 	} `yaml:"releaseCandidates"`
 	Federation struct {
-		Connector Connectors `yaml:"connector"`
-		Teleport  Teleport   `yaml:"teleport"`
+		Connector  Connectors `yaml:"connector"`
+		Teleport   Teleport   `yaml:"teleport"`
+		BrowseOnly []string   `yaml:"browseOnly"`
 	} `yaml:"federation"`
 	Flux struct {
 		SourceInterval string `yaml:"sourceInterval"`
@@ -437,6 +444,17 @@ func (p *policy) gateway(inst Installation) GatewayPolicy {
 		g.A2A.DefaultAgent = own.DefaultAgent
 	}
 	return g
+}
+
+// browseOnly keeps the targets the policy names under federation.browseOnly
+// to browsing: no MCP server group and no proxied agent platform, so the hub
+// renders for them only what the portal's browsing needs (Target.BrowseOnly).
+func (p *policy) browseOnly(targets []Target) {
+	for i := range targets {
+		if slices.Contains(p.Federation.BrowseOnly, targets[i].Installation) {
+			targets[i].BrowseOnly, targets[i].Servers, targets[i].PlatformProxied = true, nil, false
+		}
+	}
 }
 
 // connectors renders the hub's connector names from the record.
@@ -577,6 +595,7 @@ func Parse(raw any) (*Input, error) {
 	if in.Connectors, err = pol.connectors(in.Installation); err != nil {
 		return nil, err
 	}
+	pol.browseOnly(in.Installation.Federation.Targets)
 	in.selectLine()
 	if err := in.checkRecord(); err != nil {
 		return nil, err
