@@ -42,23 +42,24 @@ func TestAnswerAboveTheLimitIsRefusedNamingSizeAndLimit(t *testing.T) {
 // carry a finding without their relations, the generated values a commit
 // writes, rotates or refuses — and counts the rest.
 func TestASetsEntryCarriesWhatDiffers(t *testing.T) {
+	const configs, configmap = "acme/configs", "configmap"
 	marks := map[verify.Mark]int{verify.Drifted: 1, verify.AsDefined: 1, verify.NotChecked: 1}
 	res := &verify.Result{Installation: "lab", Summary: marks, Features: []verify.Feature{{
 		ID: "runtime", Title: "Runtime", Mark: verify.Drifted, Marks: marks,
 		Dimensions: []verify.Dimension{{
-			ID: "kagent-providers", Kind: "configmap", Key: "kagent.providers", Mark: verify.Drifted, Reason: "the record differs", Detail: "the transport's error",
+			ID: "kagent-providers", Kind: configmap, Key: "kagent.providers", Mark: verify.Drifted, Reason: "the record differs", Detail: "the transport's error",
 			Files:       []string{"acme/configs:installations/lab/apps/agent-platform/configmap-values.yaml.patch"},
 			Differences: []verify.Difference{{Path: "kagent.providers.anthropic.config.maxTokens", Rendered: "32000", Current: "8192"}},
 			Probe:       &verify.ProbeResult{},
-		}, {ID: "kagent-image", Kind: "configmap", Key: "kagent.image", Mark: verify.AsDefined},
+		}, {ID: "kagent-image", Kind: configmap, Key: "kagent.image", Mark: verify.AsDefined},
 			{ID: "live-kagent", Kind: "live", Key: "kagent answers", Mark: verify.NotChecked, Reason: "needs your session on the installation"}},
 	}}}
 	whole := dryRun(res)
 	whole.Files = []plan.File{
-		{Repository: "acme/configs", Path: "update.yaml", Change: plan.ChangeUpdate, Generated: []string{"lab-cookie"}, Kept: []plan.Kept{{List: "a", Entry: "b"}}, Creates: []string{"Secret/a"}, References: []string{"Secret/b"}},
-		{Repository: "acme/configs", Path: "unchanged.yaml", Change: plan.ChangeUnchanged, References: []string{"Secret/b"}},
-		{Repository: "acme/configs", Path: "unseen.yaml", Change: plan.ChangeUnchanged, Unseen: []plan.Unseen{{}}},
-		{Repository: "acme/configs", Path: "unreadable.yaml", Change: plan.ChangeUnchanged, Error: "forbidden"},
+		{Repository: configs, Path: "update.yaml", Change: plan.ChangeUpdate, Generated: []string{"lab-cookie"}, Kept: []plan.Kept{{List: "a", Entry: "b"}}, Creates: []string{"Secret/a"}, References: []string{"Secret/b"}},
+		{Repository: configs, Path: "unchanged.yaml", Change: plan.ChangeUnchanged, References: []string{"Secret/b"}},
+		{Repository: configs, Path: "unseen.yaml", Change: plan.ChangeUnchanged, Unseen: []plan.Unseen{{}}},
+		{Repository: configs, Path: "unreadable.yaml", Change: plan.ChangeUnchanged, Error: "forbidden"},
 	}
 	whole.GeneratedSecrets = []plan.GeneratedSecret{{Name: "lab-new"}, {Name: "lab-kept", Kept: true}, {Name: "lab-rotated", Kept: true, Rotates: true}, {Name: "lab-refused", Kept: true, Refusal: "frozen"}}
 	if d := whole.Features[0].Dimensions[0]; len(whole.Features[0].Dimensions) != 3 || len(d.Differences) != 1 || len(d.Files) != 1 || d.Detail == "" || d.Probe == nil {
@@ -70,7 +71,7 @@ func TestASetsEntryCarriesWhatDiffers(t *testing.T) {
 		t.Fatalf("a set's entry lists dimensions that do not differ: %+v", set.Features[0].Dimensions)
 	}
 	d := set.Features[0].Dimensions[0]
-	if d.ID != "kagent-providers" || d.Kind != "configmap" || d.Key != "kagent.providers" || d.Mark != verify.Drifted || d.Reason != "the record differs" {
+	if d.ID != "kagent-providers" || d.Kind != configmap || d.Key != "kagent.providers" || d.Mark != verify.Drifted || d.Reason != "the record differs" {
 		t.Errorf("a set's entry lost a mark or its reason: %+v", d)
 	}
 	if len(d.Differences) != 0 || len(d.Files) != 0 || d.Detail != "" || d.Probe != nil {
