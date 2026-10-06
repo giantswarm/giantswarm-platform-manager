@@ -8,6 +8,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 
+	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 )
 
@@ -16,11 +17,11 @@ import (
 // never an answer the path to the person drops.
 func TestAnswerAboveTheLimitIsRefusedNamingSizeAndLimit(t *testing.T) {
 	small := Answer(map[string]any{"ok": true})
-	if small.IsError || !strings.Contains(text(small), `"ok": true`) {
+	if small.IsError || !strings.Contains(text(small), `"ok":true`) {
 		t.Fatalf("a small answer: %+v", small)
 	}
 	doc := map[string]any{"content": strings.Repeat("x", AnswerLimit)}
-	b, _ := json.MarshalIndent(doc, "", "  ")
+	b, _ := json.Marshal(doc)
 	big := Answer(doc)
 	if !big.IsError {
 		t.Fatalf("an answer of %d bytes was not refused", len(b))
@@ -35,35 +36,69 @@ func TestAnswerAboveTheLimitIsRefusedNamingSizeAndLimit(t *testing.T) {
 	}
 }
 
-// One installation's entry carries the comparison's evidence; a set's entry
-// carries every dimension's mark and reason and none of it.
-func TestASetsEntryCarriesTheMarksWithoutTheEvidence(t *testing.T) {
-	res := &verify.Result{Installation: "lab", Summary: map[verify.Mark]int{verify.Drifted: 1}, Features: []verify.Feature{{
-		ID: "runtime", Title: "Runtime", Mark: verify.Drifted, Marks: map[verify.Mark]int{verify.Drifted: 1},
+// One installation's entry carries the comparison's evidence and the plan
+// whole; a set's entry carries what differs — the differing dimensions with
+// their mark and reason and none of the evidence, the files that change or
+// carry a finding without their relations, the generated values a commit
+// writes, rotates or refuses — and counts the rest.
+func TestASetsEntryCarriesWhatDiffers(t *testing.T) {
+	const configs, configmap = "acme/configs", "configmap"
+	marks := map[verify.Mark]int{verify.Drifted: 1, verify.AsDefined: 1, verify.NotChecked: 1}
+	res := &verify.Result{Installation: "lab", Summary: marks, Features: []verify.Feature{{
+		ID: "runtime", Title: "Runtime", Mark: verify.Drifted, Marks: marks,
 		Dimensions: []verify.Dimension{{
-			ID: "kagent-providers", Kind: "configmap", Key: "kagent.providers", Mark: verify.Drifted, Reason: "the record differs", Detail: "the transport's error",
+			ID: "kagent-providers", Kind: configmap, Key: "kagent.providers", Mark: verify.Drifted, Reason: "the record differs", Detail: "the transport's error",
 			Files:       []string{"acme/configs:installations/lab/apps/agent-platform/configmap-values.yaml.patch"},
 			Differences: []verify.Difference{{Path: "kagent.providers.anthropic.config.maxTokens", Rendered: "32000", Current: "8192"}},
 			Probe:       &verify.ProbeResult{},
-		}},
+		}, {ID: "kagent-image", Kind: configmap, Key: "kagent.image", Mark: verify.AsDefined},
+			{ID: "live-kagent", Kind: "live", Key: "kagent answers", Mark: verify.NotChecked, Reason: "needs your session on the installation"}},
 	}}}
-	whole := dryRun(res, true)
-	if d := whole.Features[0].Dimensions[0]; len(d.Differences) != 1 || len(d.Files) != 1 || d.Detail == "" || d.Probe == nil {
-		t.Fatalf("one installation's entry lost evidence: %+v", d)
+	whole := dryRun(res)
+	whole.Files = []plan.File{
+		{Repository: configs, Path: "update.yaml", Change: plan.ChangeUpdate, Generated: []string{"lab-cookie"}, Kept: []plan.Kept{{List: "a", Entry: "b"}}, Creates: []string{"Secret/a"}, References: []string{"Secret/b"}},
+		{Repository: configs, Path: "unchanged.yaml", Change: plan.ChangeUnchanged, References: []string{"Secret/b"}},
+		{Repository: configs, Path: "unseen.yaml", Change: plan.ChangeUnchanged, Unseen: []plan.Unseen{{}}},
+		{Repository: configs, Path: "unreadable.yaml", Change: plan.ChangeUnchanged, Error: "forbidden"},
 	}
-	set := dryRun(res, false)
+	whole.GeneratedSecrets = []plan.GeneratedSecret{{Name: "lab-new"}, {Name: "lab-kept", Kept: true}, {Name: "lab-rotated", Kept: true, Rotates: true}, {Name: "lab-refused", Kept: true, Refusal: "frozen"}}
+	if d := whole.Features[0].Dimensions[0]; len(whole.Features[0].Dimensions) != 3 || len(d.Differences) != 1 || len(d.Files) != 1 || d.Detail == "" || d.Probe == nil {
+		t.Fatalf("one installation's entry lost evidence: %+v", whole.Features[0])
+	}
+
+	set := rolledUp(whole)
+	if len(set.Features[0].Dimensions) != 1 {
+		t.Fatalf("a set's entry lists dimensions that do not differ: %+v", set.Features[0].Dimensions)
+	}
 	d := set.Features[0].Dimensions[0]
-	if d.ID != "kagent-providers" || d.Kind != "configmap" || d.Key != "kagent.providers" || d.Mark != verify.Drifted || d.Reason != "the record differs" {
+	if d.ID != "kagent-providers" || d.Kind != configmap || d.Key != "kagent.providers" || d.Mark != verify.Drifted || d.Reason != "the record differs" {
 		t.Errorf("a set's entry lost a mark or its reason: %+v", d)
 	}
 	if len(d.Differences) != 0 || len(d.Files) != 0 || d.Detail != "" || d.Probe != nil {
 		t.Errorf("a set's entry carries evidence: %+v", d)
 	}
-	if set.Name != "lab" || set.Summary[verify.Drifted] != 1 || set.Features[0].Mark != verify.Drifted || set.Features[0].Marks[verify.Drifted] != 1 {
-		t.Errorf("a set's entry lost the roll-up: %+v", set)
+	if set.Name != "lab" || set.Summary[verify.AsDefined] != 1 || set.Features[0].Mark != verify.Drifted || set.Features[0].Marks[verify.NotChecked] != 1 {
+		t.Errorf("a set's entry lost the counts: %+v", set)
 	}
-	if got := res.Features[0].Dimensions[0]; len(got.Differences) != 1 {
-		t.Errorf("the result itself was stripped: %+v", got)
+	var paths []string
+	for _, f := range set.Files {
+		paths = append(paths, f.Path)
+		if f.Generated != nil || f.Kept != nil || f.Creates != nil || f.References != nil {
+			t.Errorf("a set's file carries its relations: %+v", f)
+		}
+	}
+	if got := strings.Join(paths, " "); got != "update.yaml unseen.yaml unreadable.yaml" {
+		t.Errorf("a set's files: got %s", got)
+	}
+	var names []string
+	for _, g := range set.GeneratedSecrets {
+		names = append(names, g.Name)
+	}
+	if got := strings.Join(names, " "); got != "lab-new lab-rotated lab-refused" {
+		t.Errorf("a set's generated values: got %s", got)
+	}
+	if len(whole.Features[0].Dimensions) != 3 || len(whole.Files) != 4 || whole.Files[0].References == nil || len(whole.GeneratedSecrets) != 4 {
+		t.Errorf("the whole entry was stripped: %+v", whole)
 	}
 }
 

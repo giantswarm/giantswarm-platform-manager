@@ -194,7 +194,7 @@ func TestCapabilityToolsTakeTheCustomerPortal(t *testing.T) {
 		}
 	}
 	text, isErr := call(t, c, tools.ToolVerifyCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.CustomerPortal})
-	if isErr || !strings.Contains(text, `"capability": "`+installations.CustomerPortal+`"`) || !strings.Contains(text, `"source": "`+verify.Source(true, false)+`"`) || strings.Contains(text, `"refused": "`) {
+	if isErr || !strings.Contains(text, `"capability":"`+installations.CustomerPortal+`"`) || !strings.Contains(text, `"source":"`+verify.Source(true, false)+`"`) || strings.Contains(text, `"refused":"`) {
 		t.Fatalf("verify customer-portal: isErr %v, %s", isErr, text)
 	}
 	var res verify.Result
@@ -387,8 +387,14 @@ func TestReconcileCapabilityDryRunOverTheSet(t *testing.T) {
 	}
 	hazel := findPlan(t, out, hub)
 	// The updates: the hub's patch, its dex patch (the portal's client on record) and its portal tree's kustomization, which the platform's Component joins.
-	if hazel.Diff[plan.ChangeUpdate] != 3 || hazel.Diff[plan.ChangeUnchanged] != 1 || hazel.Diff[plan.ChangeCreate] != len(hazel.Files)-4 || hazel.Files[0].Content != "" {
+	// A set lists the files that change; the diff counts the unchanged one too.
+	if hazel.Diff[plan.ChangeUpdate] != 3 || hazel.Diff[plan.ChangeUnchanged] != 1 || hazel.Diff[plan.ChangeCreate] != len(hazel.Files)-3 || hazel.Files[0].Content != "" {
 		t.Fatalf("hazel diff %v, first file %+v", hazel.Diff, hazel.Files[0])
+	}
+	for _, f := range hazel.Files {
+		if f.Change == plan.ChangeUnchanged || f.Kept != nil || f.References != nil {
+			t.Errorf("a set's file carries what does not differ: %+v", f)
+		}
 	}
 	// The portal's client id is a fact from the hub's Dex patch, on every
 	// installation the portal lists; what an installation's own patches trust
@@ -457,9 +463,13 @@ func TestDryRunKeepsEachAudienceListsOwnEntries(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	c := st.mcpClient(t, aliceToken)
-	out, text, isErr := dryRun(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInputs: minimalInputs(nil), tools.ArgContent: true})
-	if isErr {
-		t.Fatal(text)
+	// The kept entries are evidence: one installation's dry run answers them.
+	one := func(name string) plan.Installation {
+		out, text, isErr := dryRun(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: name, tools.ArgInputs: minimalInputs(nil)})
+		if isErr {
+			t.Fatal(text)
+		}
+		return findPlan(t, out, name)
 	}
 	file := func(p plan.Installation, suffix string) plan.File {
 		for _, f := range p.Files {
@@ -471,7 +481,7 @@ func TestDryRunKeepsEachAudienceListsOwnEntries(t *testing.T) {
 		return plan.File{}
 	}
 	platformPatch, dexPatch := "/apps/"+installations.AgentPlatform+"/configmap-values.yaml.patch", "/apps/dex-app/configmap-values.yaml.patch"
-	hazel := findPlan(t, out, hub)
+	hazel := one(hub)
 	patch, dex := file(hazel, platformPatch), file(hazel, dexPatch)
 	// The hub's dex patch keeps the portal's client on record too: the definition declares backstage, not its id.
 	if !slices.Equal(patch.Kept, []plan.Kept{{List: plan.ListExtraAudience, Entry: hubExtraAudienceID}}) || !slices.Equal(dex.Kept, []plan.Kept{{List: plan.ListTrustedPeers, Entry: hubPeerClientID}, {List: "oidc.extraStaticClients", Entry: hubPortalClientID}}) {
@@ -484,7 +494,7 @@ func TestDryRunKeepsEachAudienceListsOwnEntries(t *testing.T) {
 		t.Errorf("hazel dex patch:\n%s", dex.Content)
 	}
 	// birch's authenticator trusts itself on record: that stays as well.
-	birch := findPlan(t, out, privateFixture)
+	birch := one(privateFixture)
 	patch, dex = file(birch, platformPatch), file(birch, dexPatch)
 	if !slices.Equal(patch.Kept, []plan.Kept{{List: plan.ListTrustedAudiences, Entry: birchPortalClientID}}) || !slices.Equal(dex.Kept, []plan.Kept{{List: plan.ListTrustedPeers, Entry: "dex-k8s-authenticator"}, {List: plan.ListTrustedPeers, Entry: birchPeerClientID}}) {
 		t.Fatalf("birch kept: patch %v, dex %v", patch.Kept, dex.Kept)

@@ -175,7 +175,7 @@ func TestVerifyCapabilityAsDefined(t *testing.T) {
 		t.Errorf("content without asking: %q on record %q", res.Files[0].Content, res.Files[0].Current)
 	}
 	text, isErr := call(t, c, tools.ToolVerifyCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgContent: true})
-	if isErr || !strings.Contains(text, `"content": "`) {
+	if isErr || !strings.Contains(text, `"content":"`) {
 		t.Errorf("content asked for: isErr %v, %.200s", isErr, text)
 	}
 	if d := dimension(t, runtime, "live-helmreleases-ready"); d.Mark != verify.NotChecked || d.Reason != verify.ReasonAuthority {

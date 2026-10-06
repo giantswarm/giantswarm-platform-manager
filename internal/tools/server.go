@@ -311,10 +311,12 @@ func result(v any, err error) (*mcp.CallToolResult, error) {
 	return Answer(v), nil
 }
 
-// Answer renders v as the tool's JSON text; an answer above AnswerLimit is
-// the tool's refusal, naming the size and the limit.
+// Answer renders v as the tool's JSON text, compact: indentation would add
+// a third to every answer and more again once muster escapes it into its own
+// document. An answer above AnswerLimit is the tool's refusal, naming the size
+// and the limit.
 func Answer(v any) *mcp.CallToolResult {
-	b, err := json.MarshalIndent(v, "", "  ")
+	b, err := json.Marshal(v)
 	if err != nil {
 		return mcp.NewToolResultError("encode result: " + err.Error())
 	}
