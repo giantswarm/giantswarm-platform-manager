@@ -354,10 +354,10 @@ func TestWriteFrameworkRefusesApply(t *testing.T) {
 	if text, isErr := call(t, c, testWrite, map[string]any{argInstallation: installation}); !isErr || !strings.Contains(text, "mode is required") {
 		t.Fatalf("no mode: error %v %q", isErr, text)
 	}
-	if text, isErr := call(t, c, testWrite, map[string]any{tools.ArgDryRun: true, argInstallation: installation}); isErr || !strings.Contains(text, `"rendered": true`) || strings.Contains(text, "dryRun") {
+	if text, isErr := call(t, c, testWrite, map[string]any{tools.ArgDryRun: true, argInstallation: installation}); isErr || !strings.Contains(text, `"rendered":true`) || strings.Contains(text, "dryRun") {
 		t.Fatalf("dry run: error %v %q", isErr, text)
 	}
-	if text, isErr := call(t, c, testWrite, map[string]any{tools.ArgMode: "commit"}); isErr || !strings.Contains(text, `"as": "alice"`) || st.committedAs != alice {
+	if text, isErr := call(t, c, testWrite, map[string]any{tools.ArgMode: "commit"}); isErr || !strings.Contains(text, `"as":"alice"`) || st.committedAs != alice {
 		t.Fatalf("commit: error %v %q (as %q)", isErr, text, st.committedAs)
 	}
 }

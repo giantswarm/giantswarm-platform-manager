@@ -88,7 +88,7 @@ func stringItems() map[string]any { return map[string]any{"type": "string"} }
 func capabilityOptions() []mcp.ToolOption {
 	return []mcp.ToolOption{
 		mcp.WithString(ArgInstallation, mcp.Description("The one installation to render, by name: a capability not on record renders as a fresh enable — which selects the 4 chart line and writes agentPlatform.kagentApiV2 into the record (installations/<name>/config.yaml.patch, one more file of the configs pull request) where the fleet policy grants the organisation a component the 4 line alone carries —, one on record as the changes to it; the answer says why a commit would be refused.")),
-		mcp.WithArray(ArgInstallations, mcp.Description("The set to render; empty with no installation is every installation of the registry. A set answers each installation's plan with the comparison rolled up — every dimension with its mark and reason, none of the evidence — and no file content unless content is true; one installation's dry run (installation, alone) carries both. Installations without the capability on record are skipped, listed with the reason: a fresh enable is enable_capability with installation, alone."), mcp.Items(stringItems())),
+		mcp.WithArray(ArgInstallations, mcp.Description("The set to render; empty with no installation is every installation of the registry. A set answers each installation's plan rolled up to what differs — the files that change or carry a finding, the generated values a commit writes, rotates or refuses, each feature's dimensions that differ with their mark and reason, none of the evidence; the diff and the comparison's counts cover the rest — and no file content unless content is true; one installation's dry run (installation, alone) carries it all. Installations without the capability on record are skipped, listed with the reason: a fresh enable is enable_capability with installation, alone."), mcp.Items(stringItems())),
 		mcp.WithArray(ArgOrder, mcp.Description("The rollout order of the set when the default (Giant Swarm's test installations, the hub, the customers) is not the one wanted: every rendered installation of the set exactly once."), mcp.Items(stringItems())),
 		mcp.WithString(ArgCapability, mcp.Description(capabilityArgDescription), mcp.Enum(installations.CapabilityNames()...)),
 		mcp.WithObject(ArgInputs, mcp.Description(inputsArgDescription)),
@@ -137,6 +137,11 @@ func (t *Tools) capabilityDryRun(ctx context.Context, tool string, args map[stri
 	if err != nil {
 		return nil, err
 	}
+	if !wholeArg(args) {
+		for i, e := range out.Installations {
+			out.Installations[i] = rolledUp(e)
+		}
+	}
 	t.d.Log.Info(tool, identity.LogAttr(ctx), "dryRun", true, "installations", len(out.Installations), "skipped", len(out.Skipped), "pullRequests", len(out.PullRequests))
 	return out, nil
 }
@@ -160,9 +165,7 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 	}
 	inputs, _ := args[ArgInputs].(map[string]any)
 	rotate := rotateArg(args)
-	// One installation named alone is the plan in full; a set — two or more,
-	// the whole registry, one named next to a set — is the wave's shape.
-	whole := one != "" && len(set) == 0
+	whole := wholeArg(args)
 	content := contentArg(args, whole)
 
 	c, err := t.person(token)
@@ -202,7 +205,7 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 			return nil, nil, err
 		}
 		out.Order = append(out.Order, r.Name)
-		out.Installations = append(out.Installations, dryRun(res, whole))
+		out.Installations = append(out.Installations, dryRun(res))
 	}
 	if err := applyOrder(&out, stringSlice(args[ArgOrder])); err != nil {
 		return nil, nil, fmt.Errorf("%s: %w", tool, err)
@@ -249,6 +252,14 @@ func unknownRotations(rotate []string, entries []DryRun) []string {
 		}
 	}
 	return unknown
+}
+
+// wholeArg says whether args name one installation alone, the plan in full;
+// a set — two or more, the whole registry, one named next to a set — is the
+// wave's shape, its answer rolled up.
+func wholeArg(args map[string]any) bool {
+	one, _ := args[ArgInstallation].(string)
+	return one != "" && len(stringSlice(args[ArgInstallations])) == 0
 }
 
 // contentArg says whether the files' content is answered: as asked, else

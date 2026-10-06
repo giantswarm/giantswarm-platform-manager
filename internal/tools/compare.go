@@ -93,32 +93,51 @@ func missingChoices(capability string, fields []string) string {
 	return "Choose " + strings.Join(parts, "; ") + " before a commit."
 }
 
-// dryRun is the result regrouped as the dry run's entry. One installation's
-// entry carries the comparison with its evidence, as verify_capability
-// answers it; a set's entry carries it rolled up — every dimension with its
-// mark and reason, none of the differences, files compared or probe details
-// — so a wave's answer stays in proportion to the set.
-func dryRun(res *verify.Result, evidence bool) DryRun {
-	features := res.Features
-	if !evidence {
-		features = rolledUp(features)
-	}
-	return DryRun{Installation: res.Plan(), Features: features, Summary: res.Summary}
+// dryRun is the result regrouped as the dry run's entry: the plan and the
+// comparison with its evidence, as verify_capability answers it. A set's
+// answer rolls each entry up (rolledUp); the wave commits the entries whole.
+func dryRun(res *verify.Result) DryRun {
+	return DryRun{Installation: res.Plan(), Features: res.Features, Summary: res.Summary}
 }
 
-// rolledUp is the features with each dimension's mark and reason and none of
-// the evidence behind them.
-func rolledUp(features []verify.Feature) []verify.Feature {
-	out := make([]verify.Feature, len(features))
-	for i, f := range features {
-		dims := make([]verify.Dimension, len(f.Dimensions))
-		for j, d := range f.Dimensions {
-			dims[j] = verify.Dimension{ID: d.ID, Kind: d.Kind, Key: d.Key, Mark: d.Mark, Reason: d.Reason}
+// rolledUp is a set's entry: what differs from the definition, the rest
+// counted — so a set's answer grows with what the wave would change, not with
+// the fleet. Each feature keeps its mark and counts and lists the dimensions
+// that differ with their mark and reason, none of the evidence; the files are
+// those that change or carry a finding (an error, a literal held encrypted,
+// a value dropped or replaced), without the objects and values they relate,
+// which the pull requests carry for the set; the generated values are those a
+// commit writes, rotates or refuses, not the ones kept on record. The diff and
+// the summary count everything; one installation's dry run lists it.
+func rolledUp(e DryRun) DryRun {
+	features := make([]verify.Feature, len(e.Features))
+	for i, f := range e.Features {
+		dims := []verify.Dimension{}
+		for _, d := range f.Dimensions {
+			if d.Mark != verify.AsDefined && d.Mark != verify.NotChecked {
+				dims = append(dims, verify.Dimension{ID: d.ID, Kind: d.Kind, Key: d.Key, Mark: d.Mark, Reason: d.Reason})
+			}
 		}
 		f.Dimensions = dims
-		out[i] = f
+		features[i] = f
 	}
-	return out
+	e.Features = features
+	files := []plan.File{}
+	for _, f := range e.Files {
+		if f.Change != plan.ChangeUnchanged || f.Error != "" || len(f.Unseen) > 0 || len(f.Dropped) > 0 || len(f.Replaced) > 0 {
+			f.Generated, f.Kept, f.Creates, f.References = nil, nil, nil, nil
+			files = append(files, f)
+		}
+	}
+	e.Files = files
+	generated := []plan.GeneratedSecret{}
+	for _, g := range e.GeneratedSecrets {
+		if !g.Kept || g.Rotates || g.Refusal != "" {
+			generated = append(generated, g)
+		}
+	}
+	e.GeneratedSecrets = generated
+	return e
 }
 
 // plans are the entries' plans.
