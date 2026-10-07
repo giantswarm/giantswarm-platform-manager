@@ -113,6 +113,15 @@ type Kept struct {
 	Entry string `json:"entry"`
 }
 
+// String is the entry under the list or mapping it is kept in
+// (resources[github-oauth-client.yaml]); the entry alone at a file's top level.
+func (k Kept) String() string {
+	if k.List == "" {
+		return k.Entry
+	}
+	return k.List + "[" + k.Entry + "]"
+}
+
 // kustomizationFile is the base name of the files other owners add entries to.
 const kustomizationFile = "kustomization.yaml"
 

@@ -20,6 +20,9 @@ var (
 	semanticTypes  = map[string]bool{"feat": true, "fix": true, "docs": true, "style": true, "refactor": true, "perf": true, "test": true, "build": true, "ci": true, "chore": true, "revert": true}
 )
 
+// reconcileAction is the name of the reconcile action the tests title and describe.
+const reconcileAction = "reconcile-rowan-k3x9ab"
+
 // Every title the manager opens passes the check as opened, the installation
 // is its scope, and the action id stays in it.
 func TestPRTitleIsSemantic(t *testing.T) {
@@ -28,7 +31,7 @@ func TestPRTitleIsSemantic(t *testing.T) {
 		want                 string
 	}{
 		{actions.KindEnable, "enable-rowan-k3x9ab", "", "feat(rowan): enable agent-platform (enable-rowan-k3x9ab)"},
-		{actions.KindReconcile, "reconcile-rowan-k3x9ab", "", "fix(rowan): reconcile agent-platform (reconcile-rowan-k3x9ab)"},
+		{actions.KindReconcile, reconcileAction, "", "fix(rowan): reconcile agent-platform (reconcile-rowan-k3x9ab)"},
 		{actions.KindReconcile, "reconcile-wave-k3x9ab", "stage 2 of 3", "fix(rowan): reconcile agent-platform (reconcile-wave-k3x9ab, stage 2 of 3)"},
 	} {
 		got := prTitle(tc.kind, rowan, installations.AgentPlatform, tc.action, tc.detail)
@@ -57,7 +60,7 @@ func TestPRTitleIsSemantic(t *testing.T) {
 // loses nothing says nothing of it.
 func TestPRBodyNamesTheEncryptedValuesTheCommitLoses(t *testing.T) {
 	a := &actions.Action{}
-	a.Name = "reconcile-rowan-k3x9ab"
+	a.Name = reconcileAction
 	a.Spec = actions.Spec{Kind: actions.KindReconcile, Capability: installations.CustomerPortal}
 	const secrets = "management-clusters/rowan/extras/backstage/backstage/user-secrets.enc.yaml"
 	p := plan.Installation{Name: rowan, Files: []plan.File{
@@ -73,5 +76,26 @@ func TestPRBodyNamesTheEncryptedValuesTheCommitLoses(t *testing.T) {
 	p.Files = p.Files[1:]
 	if body := prBody(a, p, nil); strings.Contains(body, "Encrypted values on record") {
 		t.Errorf("a commit that loses nothing names a loss:\n%s", body)
+	}
+}
+
+// The pull request names the entries a written shared file keeps beside the
+// render — Secrets listed by hand in the secrets kustomization — so the person
+// approving reads that they stay; an unchanged file's are not named.
+func TestPRBodyNamesTheEntriesAWrittenFileKeeps(t *testing.T) {
+	a := &actions.Action{}
+	a.Name = reconcileAction
+	a.Spec = actions.Spec{Kind: actions.KindReconcile, Capability: installations.AgentPlatform}
+	const kust = "management-clusters/rowan/extras/agent-platform/secrets/kustomization.yaml"
+	hand := []plan.Kept{{List: plan.ListResources, Entry: "github-oauth-client.yaml"}, {List: plan.ListResources, Entry: "slack-oauth-client.yaml"}}
+	p := plan.Installation{Name: rowan, Files: []plan.File{{Path: kust, Change: plan.ChangeUpdate, Kept: hand}}}
+	body := prBody(a, p, nil)
+	want := "Entries on record the definition does not render, kept beside it:\n- " + kust + ": resources[github-oauth-client.yaml], resources[slack-oauth-client.yaml]\n"
+	if !strings.Contains(body, want) {
+		t.Errorf("the body lacks %q:\n%s", want, body)
+	}
+	p.Files[0].Change = plan.ChangeUnchanged
+	if body := prBody(a, p, nil); strings.Contains(body, "kept beside it") {
+		t.Errorf("an unchanged file's kept entries are named:\n%s", body)
 	}
 }
