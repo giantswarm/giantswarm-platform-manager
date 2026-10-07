@@ -545,8 +545,8 @@ func withValuesFromRefs(components render.Map, component string, refs []render.M
 }
 
 // componentHolds sets every held component's versionRange in components, after
-// its toggle where the patch carries one, in a new entry otherwise, with the
-// comment naming the input that keeps it.
+// its toggle where the patch carries one, in a new entry otherwise, with its
+// reason as the comment, or the one naming the input that keeps it.
 func (in *Input) componentHolds(components render.Map) render.Map {
 	names := slices.Sorted(maps.Keys(in.Versions.Components))
 	for _, component := range names {
@@ -556,7 +556,7 @@ func (in *Input) componentHolds(components render.Map) render.Map {
 		}
 		// Quoted, as a hold is written by hand: a version never reads as a number.
 		value := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: hold, Style: yaml.DoubleQuotedStyle}
-		entry := render.Entry{Key: "versionRange", Value: value, Comment: holdComment("components." + component)}
+		entry := render.Entry{Key: "versionRange", Value: value, Comment: holdComment("components."+component, in.Versions.Reasons.Components[component])}
 		i := slices.IndexFunc(components, func(en render.Entry) bool { return en.Key == component })
 		if i < 0 {
 			components = append(components, e(component, render.Map{entry}))
@@ -626,7 +626,7 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 	}
 	semver, comment := in.chartSemver(), ""
 	if hold := in.Versions.Chart; hold != "" {
-		semver, comment = hold, "# "+holdComment("chart")+"\n"
+		semver, comment = hold, commentLines(holdComment("chart", in.Versions.Reasons.Chart))
 	}
 	if semver != "" {
 		ops := comment + "- op: replace\n  path: /spec/ref/semver\n  value: " + fmt.Sprintf("%q", semver)

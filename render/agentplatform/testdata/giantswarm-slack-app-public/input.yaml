@@ -6,8 +6,10 @@
 # its Dex; the hub's hand-kept Dev Portal carries its own section for the installations it proxies,
 # so no portal Component renders. Its app collection follows the testing stage, so it runs the
 # platform's release candidates. Its meta chart, agent-manager and chat gateway are held on
-# versions of their own (versions.*), which the render keeps with a comment naming the input. The
-# codename is the policy's; the domain and every value are invented.
+# versions of their own (versions.*), which the render keeps with a comment: the reason a person
+# wrote above the hold (versions.reasons.*, the chart's and agent-manager's here), else the one
+# naming the input (the gateway's). The codename is the policy's; the domain and every value are
+# invented.
 input:
   installation:
     name: graveler
@@ -37,6 +39,12 @@ input:
     components:
       agent-manager: "1.9.2"
       klaus-gateway: "4.0.0"
+    reasons:
+      chart: |-
+        Held on the running release until the next line lands here as one window
+        (acme/platform#12); back to the range in that PR.
+      components:
+        agent-manager: "Held with the meta chart (acme/platform#12): the next release renders what the running line does not serve."
 secrets:
   klausGateway.slack.bot-token: PLACEHOLDER-SLACK-BOT-TOKEN
   klausGateway.slack.signing-secret: PLACEHOLDER-SLACK-SIGNING-SECRET

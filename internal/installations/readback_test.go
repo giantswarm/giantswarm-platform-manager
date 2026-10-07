@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
 )
 
@@ -20,7 +22,8 @@ const readBackSchema = `{
   "properties": {
     "installation": {"type": "object", "properties": {"name": {"type": "string"}}},
     "serving": {"type": "object", "properties": {
-      "enabled": {"type": "boolean", "default": false, "x-readback": {"file": "values", "key": "components.serving.enabled"}}
+      "enabled": {"type": "boolean", "default": false, "x-readback": {"file": "values", "key": "components.serving.enabled"}},
+      "reason": {"type": "string", "x-readback": {"file": "values", "key": "components.serving.enabled", "kind": "comment", "skip": "^Rendered"}}
     }},
     "tunnel": {"type": "object", "properties": {
       "enabled": {"type": "boolean", "default": false, "x-readback": {"file": "values", "key": "tunnel", "kind": "present"}}
@@ -120,13 +123,14 @@ var readBackRegistry = []Installation{{Name: readBackSibling, BaseDomain: "birch
 // The kinds read the file the definition renders the fileset key to: value
 // takes the leaf, present says whether the key exists, host the host of a
 // URL, installation the installation whose base domain the host is once
-// the service label is stripped (the installation read for here); a
-// [key=value] step selects a list's entry, a list of keys answers from the
-// first on record (the deprecated form here, the current one absent); a key
-// or file not on record yields nothing.
+// the service label is stripped (the installation read for here), comment
+// the lines written above the key, their markers stripped; a [key=value]
+// step selects a list's entry, a list of keys answers from the first on
+// record (the deprecated form here, the current one absent); a key or file
+// not on record yields nothing.
 func TestReadBackKinds(t *testing.T) {
 	read := files(map[string]string{
-		readBackValues: "components:\n  serving:\n    enabled: true\ntunnel:\n  port: 8443\napp:\n  baseUrl: https://portal.rowan.acme.test/\n" +
+		readBackValues: "components:\n  serving:\n    # Serving on, by hand:\n    #   the GPU pool is in (acme/platform#7).\n    enabled: true\ntunnel:\n  port: 8443\napp:\n  baseUrl: https://portal.rowan.acme.test/\n" +
 			"broker:\n  tokenUrl: https://muster.rowan.acme.test/oauth/token\nresources:\n  - $include: shared.yaml#docs\n  - label: Support\n    icon: LiveHelp\n    url: https://support.acme.test/\ngrafana:\n  domain: https://grafana.acme.test\n",
 	})
 	got, err := readBack(context.Background(), read, readBackInstallation, readBackRegistry, readBackFixture(t))
@@ -134,11 +138,45 @@ func TestReadBackKinds(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]any{
-		"serving.enabled": true, inputTunnelEnabled: true, "portal.domain": readBackPortal,
+		"serving.enabled": true, "serving.reason": "Serving on, by hand:\n  the GPU pool is in (acme/platform#7).", inputTunnelEnabled: true, "portal.domain": readBackPortal,
 		inputSupportURL: "https://support.acme.test/", "portal.grafana": readBackGrafana, inputBroker: readBackName,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("read back %v, want %v", got, want)
+	}
+}
+
+// A comment kind reads the comment above the key: none where the key
+// carries none, or the comment matches the skip (the one the definition
+// writes itself); a comment above a list entry selected by [key=value] is
+// the entry's, through YAML text in a scalar too.
+func TestReadBackCommentKind(t *testing.T) {
+	for _, c := range []struct{ name, values, want string }{
+		{"no comment", "components:\n  serving:\n    enabled: true\n", ""},
+		{"the definition's own", "components:\n  serving:\n    # Rendered by the definition.\n    enabled: true\n", ""},
+		{"a comment with blank marker lines", "components:\n  serving:\n    #\n    # Serving on.\n    #\n    enabled: true\n", "Serving on."},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := readBack(context.Background(), files(map[string]string{readBackValues: c.values}), readBackInstallation, readBackRegistry, readBackFixture(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if reason, _ := got["serving.reason"].(string); reason != c.want {
+				t.Errorf("read back %q, want %q", reason, c.want)
+			}
+		})
+	}
+	node := &yaml.Node{}
+	if err := yaml.Unmarshal([]byte("patches:\n  - patch: |-\n      - op: add\n        path: /x\n        value: 1\n      # Held for the window.\n      - op: replace\n        path: /spec/ref/semver\n        value: \"4.1.0\"\n    target:\n      kind: OCIRepository\n"), node); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := commentAt(node, splitKey("patches.[target.kind=OCIRepository].patch.[path=/spec/ref/semver]")); !ok || got != "Held for the window." {
+		t.Errorf("the entry's comment: %q %v", got, ok)
+	}
+	for _, path := range []string{"patches.[target.kind=OCIRepository].patch.[path=/x]", "patches.[target.kind=Secret].patch", "patches.0.patch.[path=/spec/ref/semver].value", "patches.0.target.kind.deeper"} {
+		if got, ok := commentAt(node, splitKey(path)); ok {
+			t.Errorf("%s: a comment %q where none is", path, got)
+		}
 	}
 }
 
@@ -240,6 +278,8 @@ func TestDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The holds and their reasons, by component: none by default.
+	holds := map[string]any{"muster": "", "valkey": "", "kagent": "", "agent-manager": "", "klaus-gateway": "", "cluster-manager": "", "model-manager": ""}
 	want := map[string]any{"modelServing": map[string]any{keyEnabled: false}, "aiChat": map[string]any{keyEnabled: false, "model": "claude-opus-5", keyProvider: "anthropic"},
 		"scheduling": map[string]any{"singletonsCapacity": "any"}, keySkills: map[string]any{keyRepositories: []any{}},
 		"hive": map[string]any{keyEnabled: false, "plans": map[string]any{keyRepositories: []any{}}, "magazine": map[string]any{"repository": ""},
@@ -247,7 +287,7 @@ func TestDefaults(t *testing.T) {
 		"clusterManager": map[string]any{keyGitHub: map[string]any{keyEnabled: false}},
 		"modelManager":   map[string]any{keyGitHub: map[string]any{keyEnabled: false}},
 		"agentManager":   map[string]any{keyGitHub: map[string]any{keyEnabled: false}, keySkills: map[string]any{keyRepositories: []any{}, "appSecretName": "", "gitAuthSecretName": "", "mintGitAuthSecret": false}},
-		"versions":       map[string]any{"chart": "", "components": map[string]any{"muster": "", "valkey": "", "kagent": "", "agent-manager": "", "klaus-gateway": "", "cluster-manager": "", "model-manager": ""}}}
+		"versions":       map[string]any{"chart": "", "components": holds, "reasons": map[string]any{"chart": "", "components": holds}}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("defaults %v, want %v", got, want)
 	}
@@ -477,12 +517,15 @@ func TestCustomerPortalReadsBackThePortal(t *testing.T) {
 // The agent-platform definition reads the version holds back from the record:
 // a component's versionRange from the configmap patch, the meta chart's from
 // the OCIRepository patch of the extras kustomization, found by its target
-// whatever its place among the patches, comments and all.
+// whatever its place among the patches — and each hold's reason, the comment
+// a person wrote above it, line by line; the generic comment the definition
+// writes on a hold without one reads back as no reason.
 func TestAgentPlatformReadsBackVersionHolds(t *testing.T) {
 	def, _ := FindCapability(AgentPlatform)
-	patch := "components:\n  agent-manager:\n    enabled: true\n    # Held on the running release.\n    versionRange: \"1.9.2\"\n  klaus-gateway:\n    enabled: true\n    versionRange: \"4.0.0\"\n"
+	patch := "components:\n  agent-manager:\n    enabled: true\n    # Held on the running release.\n    versionRange: \"1.9.2\"\n  klaus-gateway:\n    enabled: true\n    # Held by the input versions.components.klaus-gateway: a reconcile keeps it; --input versions.components.klaus-gateway=<version> moves it, an empty value lifts it.\n    versionRange: \"4.0.0\"\n"
+	const heldPatch = "      # Held on the running release until the next line lands here as one window\n      # (acme/platform#12); back to the range in that PR.\n      - op: replace\n        path: /spec/ref/semver\n        value: \"4.114.1\"\n"
 	kustomization := "patches:\n  - patch: |-\n      apiVersion: v1\n      kind: Secret\n    target:\n      kind: Secret\n      name: muster-credentials-revision\n" +
-		"  - patch: |-\n      # Held on the running release.\n      - op: replace\n        path: /spec/ref/semver\n        value: \"4.114.1\"\n    target:\n      kind: OCIRepository\n      name: agent-platform\n"
+		"  - patch: |-\n" + heldPatch + "    target:\n      kind: OCIRepository\n      name: agent-platform\n"
 	read := files(map[string]string{
 		"acme/configs:" + def.EnabledMarker("rowan"):                                  patch,
 		"acme/mcs:management-clusters/rowan/extras/agent-platform/kustomization.yaml": kustomization,
@@ -491,14 +534,17 @@ func TestAgentPlatformReadsBackVersionHolds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]any{"versions.chart": "4.114.1", "versions.components.agent-manager": "1.9.2", "versions.components.klaus-gateway": "4.0.0"}
+	want := map[string]any{"versions.chart": "4.114.1", "versions.components.agent-manager": "1.9.2", "versions.components.klaus-gateway": "4.0.0",
+		"versions.reasons.chart":                    "Held on the running release until the next line lands here as one window\n(acme/platform#12); back to the range in that PR.",
+		"versions.reasons.components.agent-manager": "Held on the running release."}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("read back %v, want %v", got, want)
 	}
 
 	// The chart line's own range, release candidates or not, is no hold.
 	for _, line := range []string{">=4.0.0 <5.0.0", ">=4.0.0-0 <5.0.0-0"} {
-		read = files(map[string]string{"acme/mcs:management-clusters/rowan/extras/agent-platform/kustomization.yaml": strings.ReplaceAll(kustomization, "4.114.1", line)})
+		linePatch := "      - op: replace\n        path: /spec/ref/semver\n        value: \"" + line + "\"\n"
+		read = files(map[string]string{"acme/mcs:management-clusters/rowan/extras/agent-platform/kustomization.yaml": strings.ReplaceAll(kustomization, heldPatch, linePatch)})
 		got, err = def.ReadBack(context.Background(), read, readBackInstallation, nil)
 		if err != nil {
 			t.Fatal(err)

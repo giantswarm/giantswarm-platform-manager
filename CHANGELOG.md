@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- agent-platform: a reconcile keeps the reason a person wrote above a version hold. The comment above a held `versionRange` in the configmap patch, or above the meta chart's OCIRepository patch in the extras kustomization, is read back as the hold's reason (`versions.reasons.chart`, `versions.reasons.components.<component>`, a new read-back kind `comment`) and written back line by line; the generic comment naming the input is written only on a hold without one. Before, every reconcile replaced the hand-written reason with the generic comment, so the rendered file no longer said why the hold exists. A reason can be typed too (`--input versions.reasons.<key>=<text>`).
+
 ### Added
 
 - dry run and commit: a shared file's entries that the definition does not render and the plan keeps (Secrets listed by hand in the agent-platform `secrets/kustomization.yaml`, another owner's kustomization entries) are named: the dry run prints `<file> keeps what other owners added and the definition does not render: resources[<entry>]`, the action's pull request lists them. A committed reconcile keeps them; an end-to-end test holds a hand-added Secret entry through it.

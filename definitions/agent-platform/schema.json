@@ -422,7 +422,7 @@
     "versions": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Version holds: a chart kept on a version, or a range, other than the definition's. A hold is set on record and read back from it, so a reconcile keeps it; only a typed input (--input versions.<key>=<version>, or empty to lift it) moves it. The rendered value carries a comment naming its input.",
+      "description": "Version holds: a chart kept on a version, or a range, other than the definition's. A hold is set on record and read back from it, so a reconcile keeps it; only a typed input (--input versions.<key>=<version>, or empty to lift it) moves it. The rendered value carries a comment: the hold's reason (versions.reasons.<key>) where one is on record or typed, else the generic one naming its input.",
       "properties": {
         "chart": {
           "type": "string",
@@ -500,6 +500,92 @@
               "x-feature": "runtime",
               "x-renders": ["configmap:components.model-manager.versionRange"],
               "description": "A hold on the model-manager chart: the version or range its HelmRelease follows (components.model-manager.versionRange), in place of the meta chart's. Empty, the meta chart's stands. Read back from the configmap patch on record, so a reconcile keeps it; typed, it moves or lifts it."
+            }
+          }
+        },
+        "reasons": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The holds' reasons, by the hold's key: the comment written above the hold in the file, as a person wrote it on record or typed it, read back so a reconcile keeps it. Empty, the hold carries the generic comment naming its input; a hold that is not set carries nothing.",
+          "properties": {
+            "chart": {
+              "type": "string",
+              "default": "",
+              "x-source": "person",
+              "x-readback": {"file": "extras:agent-platform/kustomization", "key": "patches.[target.kind=OCIRepository].patch.[path=/spec/ref/semver]", "kind": "comment", "skip": "^Held by the input versions\\."},
+              "x-feature": "runtime",
+              "x-renders": ["extras:agent-platform/kustomization.yaml patches[*]"],
+              "description": "The reason of the hold on the meta chart (versions.chart): the comment above its OCIRepository patch in the extras kustomization, as a person wrote it on record or typed it (--input versions.reasons.chart=<text>, a line per line), read back so a reconcile keeps it; the generic comment naming the input reads back as none. Empty, the hold carries the generic comment."
+            },
+            "components": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "The reasons of the holds on the meta chart's components, by component: the comment above each one's versionRange in the configmap patch.",
+              "properties": {
+                "muster": {
+                  "type": "string",
+                  "default": "",
+                  "x-source": "person",
+                  "x-readback": {"file": "configmap", "key": "components.muster.versionRange", "kind": "comment", "skip": "^Held by the input versions\\."},
+                  "x-feature": "runtime",
+                  "x-renders": ["configmap:components.muster.versionRange"],
+                  "description": "The reason of the hold on the muster chart (versions.components.muster): the comment above its versionRange, as a person wrote it on record or typed it, read back so a reconcile keeps it. Empty, the hold carries the generic comment naming its input."
+                },
+                "valkey": {
+                  "type": "string",
+                  "default": "",
+                  "x-source": "person",
+                  "x-readback": {"file": "configmap", "key": "components.valkey.versionRange", "kind": "comment", "skip": "^Held by the input versions\\."},
+                  "x-feature": "runtime",
+                  "x-renders": ["configmap:components.valkey.versionRange"],
+                  "description": "The reason of the hold on the valkey chart (versions.components.valkey): the comment above its versionRange, as a person wrote it on record or typed it, read back so a reconcile keeps it. Empty, the hold carries the generic comment naming its input."
+                },
+                "kagent": {
+                  "type": "string",
+                  "default": "",
+                  "x-source": "person",
+                  "x-readback": {"file": "configmap", "key": "components.kagent.versionRange", "kind": "comment", "skip": "^Held by the input versions\\."},
+                  "x-feature": "runtime",
+                  "x-renders": ["configmap:components.kagent.versionRange"],
+                  "description": "The reason of the hold on the kagent chart (versions.components.kagent): the comment above its versionRange, as a person wrote it on record or typed it, read back so a reconcile keeps it. Empty, the hold carries the generic comment naming its input."
+                },
+                "agent-manager": {
+                  "type": "string",
+                  "default": "",
+                  "x-source": "person",
+                  "x-readback": {"file": "configmap", "key": "components.agent-manager.versionRange", "kind": "comment", "skip": "^Held by the input versions\\."},
+                  "x-feature": "runtime",
+                  "x-renders": ["configmap:components.agent-manager.versionRange"],
+                  "description": "The reason of the hold on the agent-manager chart (versions.components.agent-manager): the comment above its versionRange, as a person wrote it on record or typed it, read back so a reconcile keeps it. Empty, the hold carries the generic comment naming its input."
+                },
+                "klaus-gateway": {
+                  "type": "string",
+                  "default": "",
+                  "x-source": "person",
+                  "x-readback": {"file": "configmap", "key": "components.klaus-gateway.versionRange", "kind": "comment", "skip": "^Held by the input versions\\."},
+                  "x-feature": "runtime",
+                  "x-renders": ["configmap:components.klaus-gateway.versionRange"],
+                  "description": "The reason of the hold on the klaus-gateway chart (versions.components.klaus-gateway): the comment above its versionRange, as a person wrote it on record or typed it, read back so a reconcile keeps it. Empty, the hold carries the generic comment naming its input."
+                },
+                "cluster-manager": {
+                  "type": "string",
+                  "default": "",
+                  "x-source": "person",
+                  "x-readback": {"file": "configmap", "key": "components.cluster-manager.versionRange", "kind": "comment", "skip": "^Held by the input versions\\."},
+                  "x-feature": "runtime",
+                  "x-renders": ["configmap:components.cluster-manager.versionRange"],
+                  "description": "The reason of the hold on the cluster-manager chart (versions.components.cluster-manager): the comment above its versionRange, as a person wrote it on record or typed it, read back so a reconcile keeps it. Empty, the hold carries the generic comment naming its input."
+                },
+                "model-manager": {
+                  "type": "string",
+                  "default": "",
+                  "x-source": "person",
+                  "x-readback": {"file": "configmap", "key": "components.model-manager.versionRange", "kind": "comment", "skip": "^Held by the input versions\\."},
+                  "x-feature": "runtime",
+                  "x-renders": ["configmap:components.model-manager.versionRange"],
+                  "description": "The reason of the hold on the model-manager chart (versions.components.model-manager): the comment above its versionRange, as a person wrote it on record or typed it, read back so a reconcile keeps it. Empty, the hold carries the generic comment naming its input."
+                }
+              }
             }
           }
         }

@@ -311,6 +311,45 @@ func TestReconcileKeepsTheEncryptedFilesOnRecord(t *testing.T) {
 	}
 }
 
+// A hold's reason on record — the comment a person wrote above a held
+// versionRange in the platform patch — is the comment the reconcile renders,
+// line by line, and a hold without one gets the generic comment naming its
+// input: the first dry run adds that comment, and the rendered file is the
+// fixed point of the next, the reason kept as written.
+func TestReconcileKeepsAHoldsReason(t *testing.T) {
+	st := newStack(t)
+	c := enabledOnRecord(t, st)
+	repo, path, content := onRecord(t, st, "/"+rowan+"/apps/agent-platform/configmap-values.yaml.patch")
+	const reason = "    # Held on the running release until the next line lands here as one\n    # window (acme/platform#12); back to the range in that PR.\n"
+	held := strings.Replace(content, "  agent-manager:\n    enabled: true\n", "  agent-manager:\n    enabled: true\n"+reason+"    versionRange: \"1.9.2\"\n", 1)
+	held = strings.Replace(held, "  kagent:\n    enabled: true\n", "  kagent:\n    enabled: true\n    versionRange: \"1.2.3\"\n", 1)
+	if strings.Count(held, "versionRange") != 2 {
+		t.Fatalf("the patch on record lacks the agent-manager or the kagent toggle:\n%s", content)
+	}
+	st.ghs.addFile(repo, path, held)
+
+	p := reconcileDryRun(t, c)
+	rendered := fileOf(t, p, repo+":"+path)
+	if rendered.Change != plan.ChangeUpdate || !strings.Contains(rendered.Content, reason+"    versionRange: \"1.9.2\"\n") {
+		t.Errorf("the reconcile drops the hold's reason (%s):\n%s", rendered.Change, rendered.Content)
+	}
+	if !strings.Contains(rendered.Content, "    # Held by the input versions.components.kagent: a reconcile keeps it; --input versions.components.kagent=<version> moves it, an empty value lifts it.\n    versionRange: \"1.2.3\"\n") {
+		t.Errorf("the hold without a reason lacks the generic comment:\n%s", rendered.Content)
+	}
+	versions, _ := p.Inputs["versions"].(map[string]any)
+	reasons, _ := versions["reasons"].(map[string]any)
+	components, _ := reasons["components"].(map[string]any)
+	if components["agent-manager"] != "Held on the running release until the next line lands here as one\nwindow (acme/platform#12); back to the range in that PR." || components["kagent"] != "" {
+		t.Errorf("the reasons among the inputs: %v", reasons)
+	}
+
+	st.ghs.addFile(repo, path, rendered.Content)
+	p = reconcileDryRun(t, c)
+	if again := fileOf(t, p, repo+":"+path); again.Change != plan.ChangeUnchanged || again.Content != rendered.Content {
+		t.Errorf("the rendered file is not the fixed point (%s):\n%s", again.Change, again.Content)
+	}
+}
+
 // The secrets kustomization on record lists Secrets added by hand beside the
 // rendered ones, and lacks one rendered entry: the dry run names the hand
 // entries as kept, and the committed reconcile writes the rendered entry back

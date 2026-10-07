@@ -27,7 +27,8 @@ patches:
       kind: Secret
       name: kagent-credentials-revision
   - patch: |-
-      # Held by the input versions.chart: a reconcile keeps it; --input versions.chart=<version> moves it, an empty value lifts it.
+      # Held on the running release until the next line lands here as one window
+      # (acme/platform#12); back to the range in that PR.
       - op: replace
         path: /spec/ref/semver
         value: "4.114.1"
