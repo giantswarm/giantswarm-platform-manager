@@ -66,6 +66,8 @@ spec:
   appName: agentgateway-burrow
   port: 8080
   tokenName: agentgateway-burrow-bot-token
+  probe:
+    path: /healthz
 ---
 apiVersion: access.giantswarm.io/v1alpha1
 kind: RemoteApp

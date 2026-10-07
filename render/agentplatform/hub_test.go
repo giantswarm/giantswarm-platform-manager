@@ -41,7 +41,8 @@ func TestHubBrokerGrantTarget(t *testing.T) {
 }
 
 // A private target whose agent platform the hub's portal proxies is also
-// tunnelled to its kagent (probed at /ping) and its agentgateway: a RemoteApp
+// tunnelled to its kagent (probed at /ping) and its agentgateway (probed at
+// /healthz, since its gRPC listener gives GET / no HTTP answer): a RemoteApp
 // each on the hub and a tunnel each among the hub's tunnelport entries; a
 // public target and a private one the portal does not proxy get neither.
 func TestPrivatePlatformTargetTunnels(t *testing.T) {
@@ -55,7 +56,7 @@ func TestPrivatePlatformTargetTunnels(t *testing.T) {
 	tunnels := string(tree["giantswarm/teleport-fleet/kubernetes/envs/prod/values.yaml"])
 	for _, want := range []string{
 		"  name: kagent-burrow\n", "  appName: kagent-burrow\n  port: 4180\n  tokenName: kagent-burrow-bot-token\n  probe:\n    path: /ping\n",
-		"  name: agentgateway-burrow\n", "  appName: agentgateway-burrow\n  port: 8080\n  tokenName: agentgateway-burrow-bot-token\n",
+		"  name: agentgateway-burrow\n", "  appName: agentgateway-burrow\n  port: 8080\n  tokenName: agentgateway-burrow-bot-token\n  probe:\n    path: /healthz\n",
 	} {
 		if !strings.Contains(remoteapps, want) {
 			t.Errorf("remoteapps.yaml lacks %q:\n%s", want, remoteapps)
