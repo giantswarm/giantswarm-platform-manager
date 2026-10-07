@@ -62,6 +62,7 @@ const (
 	keyEnabled         = "enabled"
 	keyGitHub          = "github"
 	keyRepositories    = "repositories"
+	boardRoadmap       = "roadmap"
 	keySkills          = "skills"
 	keyProvider        = "provider"
 	inputChatEnabled   = "chat.enabled"
@@ -242,7 +243,7 @@ func TestDefaults(t *testing.T) {
 	want := map[string]any{"modelServing": map[string]any{keyEnabled: false}, "aiChat": map[string]any{keyEnabled: false, "model": "claude-opus-5", keyProvider: "anthropic"},
 		"scheduling": map[string]any{"singletonsCapacity": "any"}, keySkills: map[string]any{keyRepositories: []any{}},
 		"hive": map[string]any{keyEnabled: false, "plans": map[string]any{keyRepositories: []any{}}, "magazine": map[string]any{"repository": ""},
-			"roadmap": map[string]any{"board": "roadmap", "teams": []any{}}},
+			boardRoadmap: map[string]any{"board": boardRoadmap, "teams": []any{}}},
 		"clusterManager": map[string]any{keyGitHub: map[string]any{keyEnabled: false}},
 		"modelManager":   map[string]any{keyGitHub: map[string]any{keyEnabled: false}},
 		"agentManager":   map[string]any{keyGitHub: map[string]any{keyEnabled: false}, keySkills: map[string]any{keyRepositories: []any{}, "appSecretName": "", "gitAuthSecretName": "", "mintGitAuthSecret": false}},
@@ -332,7 +333,7 @@ func TestAgentPlatformReadsBackTheHive(t *testing.T) {
 		want  map[string]any
 	}{
 		{"a hand-kept portal's app-config", map[string]string{dir + "backstage/app-config.yaml": appConfig},
-			map[string]any{inputAIChatEnabled: false, inputHiveEnabled: true, "hive.plans.repositories": []any{"acme/plans"}, "hive.magazine.repository": "acme/magazine", "hive.roadmap.board": "roadmap", "hive.roadmap.teams": []any{"Hive"}}},
+			map[string]any{inputAIChatEnabled: false, inputHiveEnabled: true, "hive.plans.repositories": []any{"acme/plans"}, "hive.magazine.repository": "acme/magazine", "hive.roadmap.board": boardRoadmap, "hive.roadmap.teams": []any{"Hive"}}},
 		{"the fragment first", map[string]string{dir + "agent-platform/app-config.yaml": fragment, dir + "backstage/app-config.yaml": appConfig},
 			map[string]any{inputAIChatEnabled: false, inputHiveEnabled: true, "hive.plans.repositories": []any{"acme/other-plans"}, "hive.magazine.repository": "acme/magazine", "hive.roadmap.board": "customer", "hive.roadmap.teams": []any{"Hive"}}},
 		{"neither carries it", map[string]string{dir + "agent-platform/app-config.yaml": "data:\n  app-config.agent-platform.yaml: |\n    agentPlatform: {}\n"}, map[string]any{inputAIChatEnabled: false, inputHiveEnabled: false}},

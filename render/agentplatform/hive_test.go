@@ -36,7 +36,7 @@ func TestHiveRefusals(t *testing.T) {
 			inst["mcpServers"] = inst["mcpServers"].([]any)[:1]
 		}, "mcp-pro"},
 		{"no plan repository", func(input map[string]any) {
-			input["hive"].(map[string]any)["plans"] = map[string]any{"repositories": []any{}}
+			input["hive"].(map[string]any)["plans"] = map[string]any{keyRepositories: []any{}}
 		}, "hive.plans.repositories"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

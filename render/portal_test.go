@@ -2,6 +2,9 @@ package render
 
 import "testing"
 
+// baseExtensions is the baseline list's include.
+const baseExtensions = "shared-config.yaml#extensions"
+
 // The portal's extension list is one anchor of the fleet's shared config per
 // combination: the baseline, with the platform's section, with the AI chat
 // on it, with the Hive pages on it, with the Grafana dashboards card, and
@@ -14,10 +17,10 @@ func TestPortalExtensionsInclude(t *testing.T) {
 		agentPlatform, aiChat, hive, grafanaWired bool
 		want                                      string
 	}{
-		{false, false, false, false, "shared-config.yaml#extensions"},
+		{false, false, false, false, baseExtensions},
 		{false, false, false, true, "shared-config.yaml#extensionsGrafanaDashboards"},
-		{false, true, false, false, "shared-config.yaml#extensions"},
-		{false, false, true, false, "shared-config.yaml#extensions"},
+		{false, true, false, false, baseExtensions},
+		{false, false, true, false, baseExtensions},
 		{true, false, false, false, "shared-config.yaml#extensionsAgentPlatform"},
 		{true, false, false, true, "shared-config.yaml#extensionsAgentPlatformGrafanaDashboards"},
 		{true, true, false, false, "shared-config.yaml#extensionsAgentPlatformAiChat"},

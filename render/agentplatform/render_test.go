@@ -41,6 +41,8 @@ const (
 	keyEnabled = "enabled"
 	keyGitHub  = "github"
 	keySkills  = "skills"
+	// keyRepositories is the repositories list of a skills or plans choice.
+	keyRepositories = "repositories"
 	// keyApp, keyToken and keyMint are the agent-manager skills inputs naming
 	// the skills GitHub App's Secret, the boot Secret and the minted boot
 	// Secret's choice; skillsApp and skillsTok the Secrets the cases name.
@@ -705,8 +707,8 @@ func TestManagersCommitMode(t *testing.T) {
 func TestAgentManagerSkills(t *testing.T) {
 	input, secrets := loadInput(t, shapeHubPrivateTarget)
 	input["agentManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: true}, keySkills: map[string]any{ //nolint:gosec // Secret names in a fixture, no credential
-		"repositories": []any{"https://github.com/acme/skills", "https://github.com/acme/skills-internal"},
-		keyApp:         skillsApp, keyToken: skillsTok}}
+		keyRepositories: []any{"https://github.com/acme/skills", "https://github.com/acme/skills-internal"},
+		keyApp:          skillsApp, keyToken: skillsTok}}
 	result, err := Render(input, secrets, render.ModeCommit)
 	if err != nil {
 		t.Fatal(err)
@@ -726,7 +728,7 @@ func TestAgentManagerSkills(t *testing.T) {
 	}
 
 	input, secrets = loadInput(t, shapeHubPrivateTarget)
-	input["agentManager"] = map[string]any{keySkills: map[string]any{"repositories": []any{"https://github.com/acme/skills"}}}
+	input["agentManager"] = map[string]any{keySkills: map[string]any{keyRepositories: []any{"https://github.com/acme/skills"}}}
 	result, err = Render(input, secrets, render.ModeCommit)
 	if err != nil {
 		t.Fatal(err)
