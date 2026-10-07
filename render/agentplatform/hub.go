@@ -49,9 +49,10 @@ const (
 // tunnelledApp is one app reached through the tunnel on a private target. port is
 // the tunnel's loopback port on the hub (the ghostunnel target), distinct from
 // tunnelPort; the upstream port is the Teleport app's, advertised by the target.
-// probe is the upstream's health path where GET / would not answer 2xx without
-// a token; empty for no HTTP probe. replicas is the proxy's pod count, 0 for
-// tunnelport's default of one.
+// probe is the path of tunnelport's end-to-end probe through the tunnel where
+// the upstream would not answer GET / over HTTP (a gRPC listener, a route that
+// needs a token); empty for tunnelport's default, GET /. replicas is the proxy's
+// pod count, 0 for tunnelport's default of one.
 type tunnelledApp struct {
 	name     string
 	port     int
@@ -63,9 +64,10 @@ type tunnelledApp struct {
 // group's MCP server, on a target whose agent platform the hub's portal
 // proxies its kagent (the UI and API v1 behind oauth2-proxy, whose health route
 // is /ping) and its agentgateway (the kagent API v2 controller's gRPC listener,
-// no HTTP probe) — the portal reaches both through the tunnel — and the API
-// server the broker's tokens are for. A browse-only target has no federated
-// group and no proxied platform: its Dex and its API server alone.
+// whose health route is /healthz: GET / gets no HTTP answer there) — the portal
+// reaches both through the tunnel — and the API server the broker's tokens are
+// for. A browse-only target has no federated group and no proxied platform: its
+// Dex and its API server alone.
 func (t Target) tunnelledApps() []tunnelledApp {
 	// Dex runs two proxy pods: every token refresh of a user of the target
 	// passes it, and tunnelport's disruption budget keeps one of them serving
@@ -75,7 +77,7 @@ func (t Target) tunnelledApps() []tunnelledApp {
 		apps = append(apps, tunnelledApp{name: "mcp-" + g, port: 8080})
 	}
 	if t.PlatformProxied {
-		apps = append(apps, tunnelledApp{name: "kagent", port: 4180, probe: "/ping"}, tunnelledApp{name: "agentgateway", port: 8080})
+		apps = append(apps, tunnelledApp{name: "kagent", port: 4180, probe: "/ping"}, tunnelledApp{name: "agentgateway", port: 8080, probe: "/healthz"})
 	}
 	return append(apps, tunnelledApp{name: "kubernetes", port: 6443})
 }
