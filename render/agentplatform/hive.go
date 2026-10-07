@@ -67,13 +67,13 @@ func (in *Input) checkHive() error {
 		return nil
 	}
 	if p := in.hostedPortal(); p == nil || p.Installation != in.Installation.Name {
-		return refuse(describe("hive.enabled") + " asks for the Hive pages in the developer portal hosted on this installation, and the record lists no portal hosted on it; the pages read GitHub and the board through this installation's muster with its Dex's ID tokens")
+		return refuse(describe("hive.enabled") + " ask for a place in the developer portal hosted on this installation, and the record lists no portal hosted on it; the pages read GitHub and the board through this installation's muster with its Dex's ID tokens")
 	}
 	if in.grantServer() == nil {
-		return refuse(describe("hive.enabled") + " reads the plan repositories as the signed-in person through a registered server that holds the person's GitHub grant, and installation.mcpServers lists none with githubGrant; register a GitHub MCPServer at GitHub's authorization server with grantScope subject under management-clusters/" + in.Installation.Name + "/extras/agent-platform/mcpservers/")
+		return refuse(describe("hive.enabled") + " read the plan repositories as the signed-in person through a registered server that holds the person's GitHub grant, and installation.mcpServers lists none with githubGrant; register a GitHub MCPServer at GitHub's authorization server with grantScope subject under management-clusters/" + in.Installation.Name + "/extras/agent-platform/mcpservers/")
 	}
 	if in.boardServer() == nil {
-		return refuse(describe("hive.enabled") + " reads the roadmap board as the signed-in person through pro, and installation.mcpServers lists no server labelled muster.giantswarm.io/type: mcp-pro; register pro's MCPServer under management-clusters/" + in.Installation.Name + "/extras/agent-platform/mcpservers/")
+		return refuse(describe("hive.enabled") + " read the roadmap board as the signed-in person through pro, and installation.mcpServers lists no server labelled muster.giantswarm.io/type: mcp-pro; register pro's MCPServer under management-clusters/" + in.Installation.Name + "/extras/agent-platform/mcpservers/")
 	}
 	if len(in.Hive.Plans.Repositories) == 0 {
 		return refuse(describe("hive.plans.repositories") + " is empty, and the plans backend serves nothing without a plan repository; name at least one as owner/repo")
