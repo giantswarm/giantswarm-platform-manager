@@ -45,10 +45,8 @@ const (
 // githubGrantServer is the registered server that holds the person's own
 // GitHub grant, the first on record; "" without one.
 func (in *Input) githubGrantServer() string {
-	for _, s := range in.Installation.MCPServers {
-		if s.GitHubGrant {
-			return s.Name
-		}
+	if s := in.grantServer(); s != nil {
+		return s.Name
 	}
 	return ""
 }

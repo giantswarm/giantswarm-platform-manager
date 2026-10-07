@@ -1,0 +1,50 @@
+# The portal-github-grant installation with the portal's Hive section on: invented names, placeholder
+# values. Its muster registers pro besides the GitHub grant server (labelled as the board's server, its
+# tools under the prefix pro), so the Component's fragment carries the plans block (two plan
+# repositories, the magazine, GitHub through the grant server) and the roadmap block (the board, a
+# default team, pro), and includes the shared extension list with the Hive's pages.
+input:
+  installation:
+    name: otter
+    baseDomain: otter.riverbend.example
+    customer: riverbend
+    provider: capa
+    private: false
+    chartLine: "3"
+    musterClientId: 00000000-0000-4000-8000-000000000002
+    podCertificateRequest: false
+    portalClientSecret: true
+    portals:
+      - installation: otter
+        customer: riverbend
+        domain: portal.otter.riverbend.example
+        clientId: backstage
+        chartLine: ">=2.1.0 <3.0.0"
+      - installation: gopher
+        customer: giantswarm
+        domain: portal.example.io
+        clientId: Yx7hub0portal0client0id0on0record0
+        chartLine: ">=2.1.0 <3.0.0"
+    federation:
+      hubs: [gopher]
+      registryHub: gopher
+      targets: []
+    mcpServers:
+      - name: github
+        url: https://api.githubcopilot.com/mcp/
+        auth: oauth
+        githubGrant: true
+      - name: otter-mcp-pro
+        url: http://pro.mcp-pro.svc.cluster.local:8080/mcp
+        auth: oauth
+        toolPrefix: pro
+        board: true
+  hive:
+    enabled: true
+    plans:
+      repositories: [riverbend/team-plans, riverbend/platform-plans]
+    magazine:
+      repository: riverbend/team-magazine
+    roadmap:
+      board: roadmap
+      teams: [Otters]

@@ -33,9 +33,9 @@ var sharedExtensions = func() map[string][]any {
 	platform := append(slices.Clone(base), "page:agent-platform", "nav-item:agent-platform")
 	chat := append(slices.Clone(platform), "page:ai-chat", "api:ai-chat/service", "api:ai-chat/drawer", "app-root-element:ai-chat/drawer")
 	return map[string][]any{
-		render.PortalExtensionsInclude(false, false, false): base,
-		render.PortalExtensionsInclude(true, false, false):  platform,
-		render.PortalExtensionsInclude(true, true, false):   chat,
+		render.PortalExtensionsInclude(false, false, false, false): base,
+		render.PortalExtensionsInclude(true, false, false, false):  platform,
+		render.PortalExtensionsInclude(true, true, false, false):   chat,
 	}
 }()
 
@@ -52,7 +52,7 @@ var handKeptSkills = []any{"https://github.com/example/agent-skills", "https://g
 // repositories, the chat's blocks.
 func handKeptPortal() string {
 	var extensions strings.Builder
-	for _, x := range sharedExtensions[render.PortalExtensionsInclude(true, true, false)] {
+	for _, x := range sharedExtensions[render.PortalExtensionsInclude(true, true, false, false)] {
 		extensions.WriteString("            - " + x.(string) + "\n")
 	}
 	var skills strings.Builder
@@ -319,7 +319,7 @@ func TestHandKeptPortalMigrationKeepsThePlatformSection(t *testing.T) {
 	} else {
 		t.Fatalf("the Component's fragment does not carry the skill repositories read back from the portal:\n%s", onRecord)
 	}
-	record := sharedExtensions[render.PortalExtensionsInclude(true, true, false)]
+	record := sharedExtensions[render.PortalExtensionsInclude(true, true, false, false)]
 	holds := func(step string) {
 		t.Helper()
 		extensions, skills := effective(t, st)
@@ -348,7 +348,7 @@ func TestHandKeptPortalMigrationKeepsThePlatformSection(t *testing.T) {
 		}
 	}
 	appConfig, _ = portalDocs(t, st)
-	if got := appConfig["app"].(map[string]any)["extensions"]; !mapEqual(got, render.PortalExtensionsInclude(true, true, false)) {
+	if got := appConfig["app"].(map[string]any)["extensions"]; !mapEqual(got, render.PortalExtensionsInclude(true, true, false, false)) {
 		t.Errorf("the app-config includes %v, want the list with the platform's section and the chat", got)
 	}
 	for _, key := range keptSection {
@@ -361,7 +361,7 @@ func TestHandKeptPortalMigrationKeepsThePlatformSection(t *testing.T) {
 	holds("after the agent-platform reconcile")
 	keyHeld("after the agent-platform reconcile", rowanUserSecretsPath)
 	asks("the agent-platform reconcile", takeOver, false, false)
-	if _, fragment = portalDocs(t, st); !mapEqual(fragment["app"].(map[string]any)["extensions"], render.PortalExtensionsInclude(true, true, false)) || fragment[keptSection[0]] == nil {
+	if _, fragment = portalDocs(t, st); !mapEqual(fragment["app"].(map[string]any)["extensions"], render.PortalExtensionsInclude(true, true, false, false)) || fragment[keptSection[0]] == nil {
 		t.Errorf("the Component did not take the portal's lists over: %v", fragment)
 	}
 
@@ -384,7 +384,7 @@ func TestHandKeptPortalMigrationKeepsThePlatformSection(t *testing.T) {
 	keyHeld("after the customer-portal reconcile", rowanUserSecretsPath)
 	asks("the customer-portal reconcile", handOver, false, true)
 	appConfig, _ = portalDocs(t, st)
-	if got := appConfig["app"].(map[string]any)["extensions"]; !mapEqual(got, render.PortalExtensionsInclude(false, false, false)) {
+	if got := appConfig["app"].(map[string]any)["extensions"]; !mapEqual(got, render.PortalExtensionsInclude(false, false, false, false)) {
 		t.Errorf("the app-config includes %v, want the list without the platform's section", got)
 	}
 	for _, key := range keptSection {

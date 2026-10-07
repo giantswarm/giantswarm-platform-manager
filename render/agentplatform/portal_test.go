@@ -127,7 +127,7 @@ func TestPortalFragmentSkills(t *testing.T) {
 			Components: map[string]bool{componentKagent: tc.kagent}, SkillRepositories: tc.repositories}
 		platform, _ := fragmentValue(in.portalAppConfig(), "agentPlatform").(render.Map)
 		skills, _ := fragmentValue(platform, "skills").(render.Map)
-		if got, _ := fragmentValue(skills, "repositories").([]string); !slices.Equal(got, tc.want) {
+		if got, _ := fragmentValue(skills, keyRepositories).([]string); !slices.Equal(got, tc.want) {
 			t.Errorf("%s: agentPlatform.skills.repositories %v, want %v", tc.name, got, tc.want)
 		}
 		if kagent := fragmentValue(platform, "kagent") != nil; kagent != tc.kagent {

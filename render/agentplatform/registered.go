@@ -26,6 +26,12 @@ type RegisteredServer struct {
 	// GitHub grant: GitHub's authorization server, grants scoped to the
 	// person (github.go).
 	GitHubGrant bool `json:"githubGrant,omitempty"`
+	// ToolPrefix is the prefix muster exposes the server's tools under
+	// (spec.toolPrefix); empty, the server's name.
+	ToolPrefix string `json:"toolPrefix,omitempty"`
+	// Board says the server serves the roadmap board: pro, by muster's type
+	// label (hive.go).
+	Board bool `json:"board,omitempty"`
 }
 
 // RegisteredClient is an MCP client registered on the installation with a

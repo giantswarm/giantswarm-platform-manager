@@ -106,6 +106,9 @@ type Input struct {
 	// section: the person's third choice, read back from the portal's files
 	// on record.
 	SkillRepositories []string
+	// Hive is the person's choice of the portal's Hive section (hive.*), in
+	// the platform's portal section (hive.go).
+	Hive Hive
 	// ClusterManagerCommit is the person's choice: the cluster-manager's
 	// commit mode through its GitHub App (clusterManager.github.enabled), read
 	// back from the configmap patch on record.
@@ -504,6 +507,7 @@ type document struct {
 	Skills struct {
 		Repositories []string `json:"repositories"`
 	} `json:"skills"`
+	Hive           Hive         `json:"hive"`
 	ClusterManager commitChoice `json:"clusterManager"`
 	ModelManager   commitChoice `json:"modelManager"`
 	AgentManager   struct {
@@ -556,7 +560,7 @@ type commitChoice struct {
 // the cluster does not serve PodCertificateRequest, the chat or skill
 // repositories on an installation whose organisation hosts no portal for
 // them, the chat without a model, or on Vertex without its Google project or
-// location, the cluster-manager's commit mode where no cluster-manager runs)
+// location, the Hive where the installation cannot serve it, the cluster-manager's commit mode where no cluster-manager runs)
 // is ErrInput too.
 func Parse(raw any) (*Input, error) {
 	schemaBytes, err := definitions.FS.ReadFile("agent-platform/schema.json")
@@ -598,7 +602,7 @@ func Parse(raw any) (*Input, error) {
 	if err != nil {
 		return nil, err
 	}
-	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories,
+	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories, Hive: d.Hive,
 		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, Versions: d.Versions, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
 		ReleaseCandidates: pol.releaseCandidates(d.Installation)}
 	if in.Components, err = pol.components(in.Installation); err != nil {
@@ -717,6 +721,9 @@ func (in *Input) checkRecord() error {
 	}
 	if len(in.SkillRepositories) > 0 && in.hostedPortal() == nil {
 		return refuse(describe("skills.repositories") + " lists the skill repositories of the developer portal's agent-platform section, and no portal carries one for this installation: the record lists no portal hosted on it, nor its organisation's on a sibling that is not hand-kept")
+	}
+	if err := in.checkHive(); err != nil {
+		return err
 	}
 	if in.ClusterManagerCommit && !in.clusterManager() {
 		return refuse(fmt.Sprintf("%s asks for the cluster-manager's commit mode, and the fleet policy runs no cluster-manager on %s's installations", describe("clusterManager.github.enabled"), in.Installation.Customer))

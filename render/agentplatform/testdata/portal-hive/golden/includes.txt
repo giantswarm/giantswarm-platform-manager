@@ -1,0 +1,5 @@
+giantswarm/riverbend-management-clusters:management-clusters/otter/extras/backstage/kustomization.yaml components ./agent-platform/
+giantswarm/riverbend-management-clusters:management-clusters/otter/extras/kustomization.yaml resources ./agent-platform/
+giantswarm/riverbend-management-clusters:management-clusters/otter/extras/kustomization.yaml resources ./mcp-capi/
+giantswarm/riverbend-management-clusters:management-clusters/otter/extras/kustomization.yaml resources ./mcp-kubernetes/
+giantswarm/riverbend-management-clusters:management-clusters/otter/extras/kustomization.yaml resources ./mcp-prometheus/

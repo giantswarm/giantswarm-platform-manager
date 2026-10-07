@@ -103,7 +103,9 @@
               "url": {"type": "string", "minLength": 1, "description": "spec.url: where muster reaches the server."},
               "auth": {"type": "string", "enum": ["none", "forward", "exchange", "oauth"], "description": "How muster authenticates to the server, in the agent-platform-mcps chart's words: none; forward, the person's own ID token (auth.forwardToken); exchange, a token exchanged at another Dex (auth.tokenExchange); oauth, a grant at the server's own authorization server (auth.authorizationServer)."},
               "dexTokenEndpoint": {"type": "string", "description": "For exchange: the token endpoint of the Dex the exchange runs at (auth.tokenExchange.dexTokenEndpoint)."},
-              "githubGrant": {"type": "boolean", "default": false, "description": "For oauth: the server holds the person's own GitHub grant (auth.authorizationServer.issuer https://github.com/login/oauth with grantScope subject). On an installation that is neither the registry's hub nor a broker for targets and that hosts its own portal, the broker releases the grant to that portal: muster's broker gets the github grant target and the portal's broker client (backstage), muster trusts this installation's Dex as the issuer of the portal's subject tokens (an issuer on record stays as it is), and the portal's Component gets gs.github on this server, gs.clusterTokenBroker on this muster and the broker client's credentials, their secret drawn once for both Secrets. People connect GitHub on this installation, and the portal holds no GitHub App."}
+              "githubGrant": {"type": "boolean", "default": false, "description": "For oauth: the server holds the person's own GitHub grant (auth.authorizationServer.issuer https://github.com/login/oauth with grantScope subject). On an installation that is neither the registry's hub nor a broker for targets and that hosts its own portal, the broker releases the grant to that portal: muster's broker gets the github grant target and the portal's broker client (backstage), muster trusts this installation's Dex as the issuer of the portal's subject tokens (an issuer on record stays as it is), and the portal's Component gets gs.github on this server, gs.clusterTokenBroker on this muster and the broker client's credentials, their secret drawn once for both Secrets. People connect GitHub on this installation, and the portal holds no GitHub App. The Hive's plans backend reads GitHub through the same server (hive.enabled)."},
+              "toolPrefix": {"type": "string", "description": "spec.toolPrefix: the prefix muster exposes the server's tools under (x_<prefix>_<tool>); empty, the server's name. The Hive's blocks name it where it differs from the name."},
+              "board": {"type": "boolean", "default": false, "description": "The server serves the roadmap board: pro, by muster's type label (metadata.labels muster.giantswarm.io/type: mcp-pro). The Hive's roadmap backend runs its board tools as the signed-in person (hive.enabled)."}
             }
           }
         },
@@ -231,6 +233,80 @@
           "x-feature": "portal",
           "x-renders": ["backstage:app-config:agentPlatform.skills.repositories"],
           "description": "The GitHub repositories the portal's agent creation discovers skills in (agentPlatform.skills.repositories): every SKILL.md in one is a skill the create flow offers. The Component's fragment carries the list, on a hand-kept portal too, since the list is read back from the portal's own files; none, the key is not written and the catalog is empty, the plugin's default. Read back from the fragment on record, else from the portal's own app-config — a hand-kept portal lists the repositories there, and the list moves into the fragment at the next reconcile."
+        }
+      }
+    },
+    "hive": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The portal's Hive section (Plans, Roadmap and the product magazine at /hive), in the platform's portal section: the plans and roadmap backends read GitHub and the board as the signed-in person through this installation's muster, so the section needs the portal hosted on this installation and two registered servers there, one holding the person's GitHub grant (installation.mcpServers[*].githubGrant) and pro serving the board (installation.mcpServers[*].board). No credential: muster holds the person's grants.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "x-source": "person",
+          "x-readback": {"file": ["backstage:agent-platform/app-config", "backstage:app-config"], "key": "plans", "kind": "present"},
+          "x-feature": "portal",
+          "x-renders": ["backstage:app-config:plans", "backstage:app-config:roadmap", "backstage:app-config:app.extensions.$include"],
+          "description": "The Hive pages: the plans block (the plan repositories, the magazine, GitHub through the grant server on this muster) and the roadmap block (the board, its default teams, pro on this muster) in the Component's fragment, and on a rendered portal the shared extension list with the Hive's pages (shared-config.yaml#extensionsAgentPlatformHive, with AiChat before Hive where the chat is on and GrafanaDashboards after it where the portal's plugin is wired); a hand-kept portal keeps its own list, which carries the pages already. Refused where the portal is not hosted on this installation or its muster registers no grant server or no board server. Read back from the plans block's presence, in the fragment on record, else in the portal's own app-config, so a portal that carries the section by hand keeps it."
+        },
+        "plans": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repositories": {
+              "type": "array",
+              "items": {"type": "string", "pattern": "^[^/\\s]+/[^/\\s]+$"},
+              "default": [],
+              "x-source": "person",
+              "x-readback": {"file": ["backstage:agent-platform/app-config", "backstage:app-config"], "key": "plans.repositories"},
+              "x-feature": "portal",
+              "x-renders": ["backstage:app-config:plans.repositories"],
+              "description": "The plan repositories the Plans page offers, as owner/repo (plans.repositories); a person sees one only where their own GitHub account reads it. Refused empty with hive.enabled: the plans backend serves nothing without one. Read back from the block on record."
+            }
+          }
+        },
+        "magazine": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": {
+              "type": "string",
+              "pattern": "^([^/\\s]+/[^/\\s]+)?$",
+              "default": "",
+              "x-source": "person",
+              "x-readback": {"file": ["backstage:agent-platform/app-config", "backstage:app-config"], "key": "plans.magazine.repository"},
+              "x-feature": "portal",
+              "x-renders": ["backstage:app-config:plans.magazine"],
+              "description": "The product magazine's repository, as owner/repo (plans.magazine.repository): its generated data on the data branch and its knowledge documents on main, the plugin's defaults. Empty, no magazine block, and the Magazine page says it is not configured. Read back from the block on record."
+            }
+          }
+        },
+        "roadmap": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "board": {
+              "type": "string",
+              "enum": ["roadmap", "customer"],
+              "default": "roadmap",
+              "x-source": "person",
+              "x-readback": {"file": ["backstage:agent-platform/app-config", "backstage:app-config"], "key": "roadmap.board"},
+              "x-feature": "portal",
+              "x-renders": ["backstage:app-config:roadmap.board"],
+              "description": "The board the Roadmap page serves, as pro names it (roadmap.board). Read back from the block on record."
+            },
+            "teams": {
+              "type": "array",
+              "items": {"type": "string", "minLength": 1},
+              "default": [],
+              "x-source": "person",
+              "x-readback": {"file": ["backstage:agent-platform/app-config", "backstage:app-config"], "key": "roadmap.teams"},
+              "x-feature": "portal",
+              "x-renders": ["backstage:app-config:roadmap.teams"],
+              "description": "The teams the Roadmap page's filter shows by default, as the board names them (roadmap.teams); none, the key is not written and the filter starts empty. Read back from the block on record."
+            }
+          }
         }
       }
     },
