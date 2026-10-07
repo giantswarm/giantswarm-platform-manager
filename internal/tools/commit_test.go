@@ -75,3 +75,24 @@ func TestPRBodyNamesTheEncryptedValuesTheCommitLoses(t *testing.T) {
 		t.Errorf("a commit that loses nothing names a loss:\n%s", body)
 	}
 }
+
+// The pull request names the entries a written shared file keeps beside the
+// render — Secrets listed by hand in the secrets kustomization — so the person
+// approving reads that they stay; an unchanged file's are not named.
+func TestPRBodyNamesTheEntriesAWrittenFileKeeps(t *testing.T) {
+	a := &actions.Action{}
+	a.Name = "reconcile-rowan-k3x9ab"
+	a.Spec = actions.Spec{Kind: actions.KindReconcile, Capability: installations.AgentPlatform}
+	const kust = "management-clusters/rowan/extras/agent-platform/secrets/kustomization.yaml"
+	hand := []plan.Kept{{List: plan.ListResources, Entry: "github-oauth-client.yaml"}, {List: plan.ListResources, Entry: "slack-oauth-client.yaml"}}
+	p := plan.Installation{Name: rowan, Files: []plan.File{{Path: kust, Change: plan.ChangeUpdate, Kept: hand}}}
+	body := prBody(a, p, nil)
+	want := "Entries on record the definition does not render, kept beside it:\n- " + kust + ": resources[github-oauth-client.yaml], resources[slack-oauth-client.yaml]\n"
+	if !strings.Contains(body, want) {
+		t.Errorf("the body lacks %q:\n%s", want, body)
+	}
+	p.Files[0].Change = plan.ChangeUnchanged
+	if body := prBody(a, p, nil); strings.Contains(body, "kept beside it") {
+		t.Errorf("an unchanged file's kept entries are named:\n%s", body)
+	}
+}

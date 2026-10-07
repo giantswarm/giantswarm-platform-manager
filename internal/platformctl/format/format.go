@@ -167,6 +167,9 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 			if len(f.Replaced) > 0 {
 				p.f("    %s replaces the encrypted values on record whole (%s): a key they hold that the definition does not render is lost — supply it at commit where the plan asks for it, or keep the file by hand\n", f.Path, strings.Join(f.Replaced, ", "))
 			}
+			if len(f.Kept) > 0 {
+				p.f("    %s keeps what other owners added and the definition does not render: %s\n", f.Path, kept(f.Kept))
+			}
 		}
 	}
 	for _, inc := range inst.Includes {
@@ -224,6 +227,15 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 			p.f("\n")
 		}
 	}
+}
+
+// kept names each entry a shared file keeps beside the render.
+func kept(entries []plan.Kept) string {
+	out := make([]string, 0, len(entries))
+	for _, k := range entries {
+		out = append(out, k.String())
+	}
+	return strings.Join(out, ", ")
 }
 
 func dexClient(c plan.DexClient) string {

@@ -311,6 +311,45 @@ func TestReconcileKeepsTheEncryptedFilesOnRecord(t *testing.T) {
 	}
 }
 
+// The secrets kustomization on record lists Secrets added by hand beside the
+// rendered ones, and lacks one rendered entry: the dry run names the hand
+// entries as kept, and the committed reconcile writes the rendered entry back
+// with the hand entries after it, so a hand-kept Secret survives every
+// reconcile.
+func TestReconcileKeepsTheHandAddedSecretsOfTheSecretsKustomization(t *testing.T) {
+	st := newStack(t)
+	c := enabledOnRecord(t, st)
+	repo, path, content := onRecord(t, st, "/extras/agent-platform/secrets/kustomization.yaml")
+	rendered, write := kustomizationResources(t, content)
+	hand := []string{"github-oauth-client.yaml", "slack-oauth-client.yaml"}
+	st.ghs.addFile(repo, path, write(append(slices.Clone(rendered[1:]), hand...)))
+
+	p := reconcileDryRun(t, c)
+	var f plan.File
+	for _, pf := range p.Files {
+		if pf.Path == path {
+			f = pf
+		}
+	}
+	want := []plan.Kept{{List: plan.ListResources, Entry: hand[0]}, {List: plan.ListResources, Entry: hand[1]}}
+	if f.Change != plan.ChangeUpdate || !slices.Equal(f.Kept, want) {
+		t.Fatalf("the secrets kustomization in the dry run: %s, kept %+v, want %+v", f.Change, f.Kept, want)
+	}
+	out, written := commitReconcile(t, st, c, p, repo)
+	if !slices.Equal(written, []string{path}) {
+		t.Fatalf("the pull request writes %v, want %s alone", written, path)
+	}
+	got, _ := kustomizationResources(t, string(st.remote.Files(repoOf(t, repo), branchPrefix+out.Action.Name+"/"+rowan)[path]))
+	if !slices.Equal(got, append(slices.Clone(rendered), hand...)) {
+		t.Fatalf("the committed secrets kustomization lists %v, want the render's %v and then %v", got, rendered, hand)
+	}
+	for _, pr := range st.remote.PullRequests() {
+		if pr.Repository.String() == repo && strings.Contains(pr.Body, out.Action.Name) && !strings.Contains(pr.Body, path+": resources["+hand[0]+"], resources["+hand[1]+"]") {
+			t.Fatalf("the pull request body does not name the kept entries:\n%s", pr.Body)
+		}
+	}
+}
+
 // The render adds a field to an encrypted file's template — on record the
 // server's credentials file lacks it: the file has to be written, so every
 // name it holds would rotate, forced by that file. Nobody asked, so the

@@ -705,6 +705,7 @@ func prBody(a *actions.Action, p plan.Installation, prs []plan.PullRequest) stri
 		fmt.Fprintf(&b, "\nSupplied values on record, kept: %s — their files stand, nothing of them is written.\n", strings.Join(p.SuppliedOnRecord, ", "))
 	}
 	writeLost(&b, p.Files)
+	writeKept(&b, p.Files)
 	b.WriteString("\nThe action waits for the team's approval; merge follows it in this order.\n")
 	return b.String()
 }
@@ -730,6 +731,27 @@ func writeLost(b *strings.Builder, files []plan.File) {
 			fmt.Fprintf(b, " replaces %s whole, so a key it holds that the definition does not render is lost;", strings.Join(f.Replaced, ", "))
 		}
 		b.WriteString("\n")
+	}
+}
+
+// writeKept names, for every shared file the commit writes, the entries other
+// owners added that it keeps beside the render (plan.File's Kept): an entry
+// added by hand stays; nothing where a written file keeps none.
+func writeKept(b *strings.Builder, files []plan.File) {
+	header := false
+	for _, f := range files {
+		if f.Change == plan.ChangeUnchanged || len(f.Kept) == 0 {
+			continue
+		}
+		if !header {
+			b.WriteString("\nEntries on record the definition does not render, kept beside it:\n")
+			header = true
+		}
+		entries := make([]string, 0, len(f.Kept))
+		for _, k := range f.Kept {
+			entries = append(entries, k.String())
+		}
+		fmt.Fprintf(b, "- %s: %s\n", f.Path, strings.Join(entries, ", "))
 	}
 }
 
