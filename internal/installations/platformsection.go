@@ -70,13 +70,13 @@ func portalPlatformSection(ctx context.Context, r Report, read Reader) (map[stri
 	if err != nil {
 		return nil, err
 	}
-	docs := map[string]map[string]any{}
+	files := newReadBackFiles(ctx, read, r.Installation)
 	doc := func(file string) (map[string]any, error) {
 		spec, ok := s.Files[file]
 		if !ok {
 			return nil, fmt.Errorf("%s: schema: x-files does not declare %q", c.Name, file)
 		}
-		return readBackDoc(ctx, read, r.Installation, file, spec, docs)
+		return files.doc(file, spec)
 	}
 	appConfig, err := doc(portalAppConfigFile)
 	if err != nil {

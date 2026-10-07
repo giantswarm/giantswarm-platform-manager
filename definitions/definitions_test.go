@@ -221,7 +221,7 @@ func TestEveryReadBackNamesADeclaredFile(t *testing.T) {
 					keys := names("key")
 					named := len(keys) > 0 && !slices.Contains(keys, "")
 					switch kind {
-					case "", "value", "present", "host":
+					case "", "value", "present", "host", "comment":
 						if !named {
 							t.Errorf("%s: x-readback names no key", path)
 						}

@@ -517,10 +517,19 @@ type document struct {
 	Versions Versions `json:"versions"`
 }
 
-// Versions are the version holds on record: the meta chart's version or range
-// in place of the chart line's, and a component's in place of the meta
-// chart's, by component. Empty is no hold.
+// Versions are the version holds on record — the meta chart's version or
+// range in place of the chart line's, and a component's in place of the meta
+// chart's, by component; empty is no hold — and each hold's reason, the
+// comment a person wrote above it, by the same keys; empty, the hold
+// carries the generic comment naming its input.
 type Versions struct {
+	Holds
+	Reasons Holds `json:"reasons"`
+}
+
+// Holds is one value per hold: the meta chart's and the components', by
+// component.
+type Holds struct {
 	Chart      string            `json:"chart"`
 	Components map[string]string `json:"components"`
 }
@@ -841,10 +850,23 @@ func (in *Input) chartSemver() string {
 	return ">=4.0.0 <5.0.0"
 }
 
-// holdComment is the comment a held version carries in the file: the input
-// that keeps it and how it moves.
-func holdComment(input string) string {
+// holdComment is the comment a held version carries in the file: the reason
+// on record or typed for it (versions.reasons.*), else the generic one naming
+// the input that keeps it and how it moves.
+func holdComment(input, reason string) string {
+	if reason != "" {
+		return reason
+	}
 	return "Held by the input versions." + input + ": a reconcile keeps it; --input versions." + input + "=<version> moves it, an empty value lifts it."
+}
+
+// commentLines is text as YAML comment lines, one per line of text.
+func commentLines(text string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(text, "\n") {
+		b.WriteString(strings.TrimRight("# "+line, " ") + "\n")
+	}
+	return b.String()
 }
 
 // check applies the rules the schema cannot express to the supplied secret

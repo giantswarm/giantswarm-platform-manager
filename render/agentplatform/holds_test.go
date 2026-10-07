@@ -31,11 +31,11 @@ func TestVersionHolds(t *testing.T) {
 				t.Fatal(err)
 			}
 			kustomization := string(r.Files["giantswarm/giantswarm-management-clusters"]["management-clusters/graveler/extras/agent-platform/kustomization.yaml"].Content)
-			if !strings.Contains(kustomization, c.wantChart) || strings.Contains(kustomization, holdComment("chart")) != (c.chart != "") {
+			if !strings.Contains(kustomization, c.wantChart) || strings.Contains(kustomization, holdComment("chart", "")) != (c.chart != "") {
 				t.Errorf("kustomization without %s or its hold comment:\n%s", c.wantChart, kustomization)
 			}
 			patch := string(render.MustYAML(in.configmapPatch()))
-			held := "  agent-manager:\n    enabled: true\n    # " + holdComment("components.agent-manager") + "\n    versionRange: \"" + c.agentManager + "\"\n"
+			held := "  agent-manager:\n    enabled: true\n    # " + holdComment("components.agent-manager", "") + "\n    versionRange: \"" + c.agentManager + "\"\n"
 			if c.agentManager != "" && !strings.Contains(patch, held) {
 				t.Errorf("configmap patch without the hold after the toggle:\n%s", patch)
 			}
@@ -43,5 +43,42 @@ func TestVersionHolds(t *testing.T) {
 				t.Errorf("configmap patch with a hold none was given:\n%s", patch)
 			}
 		})
+	}
+}
+
+// TestVersionHoldReasons renders a hold's reason as the comment above it, line
+// by line, where the inputs carry one (read back from the record, or typed);
+// a hold without one carries the generic comment naming its input, and a
+// reason without a hold writes nothing.
+func TestVersionHoldReasons(t *testing.T) {
+	const chartReason = "Held on the running release until the next line lands\n(acme/platform#12); back to the range in that PR."
+	const agentManagerReason = "Held on the running release:\n  the next release renders what the running line does not serve."
+	input, secrets := loadInput(t, shapeGiantswarmSlackAppPub)
+	input["versions"] = map[string]any{
+		"chart":      "4.114.1",
+		"components": map[string]any{componentAgentManager: "1.9.2", componentKlausGateway: "4.0.0"},
+		"reasons":    map[string]any{"chart": chartReason, "components": map[string]any{componentAgentManager: agentManagerReason, componentMuster: "Held, yet no hold is set."}},
+	}
+	in, err := Parse(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := Render(input, secrets, render.ModeCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kustomization := string(r.Files["giantswarm/giantswarm-management-clusters"]["management-clusters/graveler/extras/agent-platform/kustomization.yaml"].Content)
+	if want := "      # Held on the running release until the next line lands\n      # (acme/platform#12); back to the range in that PR.\n      - op: replace\n        path: /spec/ref/semver\n        value: \"4.114.1\"\n"; !strings.Contains(kustomization, want) || strings.Contains(kustomization, "Held by the input") {
+		t.Errorf("kustomization without the chart hold's reason as its comment:\n%s", kustomization)
+	}
+	patch := string(render.MustYAML(in.configmapPatch()))
+	if want := "  agent-manager:\n    enabled: true\n    # Held on the running release:\n    #   the next release renders what the running line does not serve.\n    versionRange: \"1.9.2\"\n"; !strings.Contains(patch, want) {
+		t.Errorf("configmap patch without the agent-manager hold's reason as its comment:\n%s", patch)
+	}
+	if want := "  klaus-gateway:\n    enabled: true\n    # " + holdComment("components.klaus-gateway", "") + "\n    versionRange: \"4.0.0\"\n"; !strings.Contains(patch, want) {
+		t.Errorf("configmap patch without the generic comment on the hold without a reason:\n%s", patch)
+	}
+	if strings.Contains(patch, "yet no hold") {
+		t.Errorf("configmap patch with a reason for a hold that is not set:\n%s", patch)
 	}
 }

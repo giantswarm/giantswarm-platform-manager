@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -42,6 +43,9 @@ const (
 	ReadBackInstallation = "installation"
 	// ReadBackFile is whether the file itself is on record; it names no key.
 	ReadBackFile = "file"
+	// ReadBackComment is the comment written above the key: its lines, the
+	// comment markers stripped; a key without one yields nothing.
+	ReadBackComment = "comment"
 )
 
 // schemaNode is the part of a schema node the read-back reads: the
@@ -66,7 +70,8 @@ type schemaNode struct {
 // in brackets ([app-config.agent-platform.yaml]); a step into YAML text (a
 // ConfigMap's values, a kustomization's patch) decodes it. Skip is a regular
 // expression a value read back is matched against: a match yields nothing —
-// the value the definition renders itself where the person chose nothing.
+// the value the definition renders itself where the person chose nothing —
+// of a comment kind, the comment the definition writes itself.
 type readBackSpec struct {
 	Files  names  `json:"file"`
 	Keys   names  `json:"key"`
@@ -210,8 +215,8 @@ func (c Capability) Unset(values map[string]any) ([]string, error) {
 // ReadBack reads every input the schema marks x-readback from the files on
 // record of inst, as the person read reads as, and answers what it found by
 // dotted input key: the leaf's value, whether the key is present, the host
-// of the URL it holds, the installation whose host it is, or whether the
-// file is on record. registry is every installation on record, the ones an
+// of the URL it holds, the installation whose host it is, the comment above
+// the key, or whether the file is on record. registry is every installation on record, the ones an
 // installation kind resolves a host to; inst is resolved whether or not it
 // is among them. A file that is not on record, or a key not in it, yields
 // nothing — the default stands; a read-back naming several files reads the
@@ -227,7 +232,7 @@ func (c Capability) ReadBack(ctx context.Context, read Reader, inst Installation
 }
 
 func readBack(ctx context.Context, read Reader, inst Installation, registry []Installation, s *inputSchema) (map[string]any, error) {
-	docs := map[string]map[string]any{}
+	files := newReadBackFiles(ctx, read, inst)
 	out := map[string]any{}
 	return out, s.leaves(func(input string, leaf schemaNode) error {
 		rb := leaf.ReadBack
@@ -245,18 +250,26 @@ func readBack(ctx context.Context, read Reader, inst Installation, registry []In
 			if !ok {
 				return fmt.Errorf("schema: %s: x-readback names the file %q, which x-files does not declare", input, file)
 			}
-			doc, err := readBackDoc(ctx, read, inst, file, spec, docs)
+			text, err := files.text(file, spec)
 			if err != nil {
 				return err
 			}
-			if doc == nil {
+			if text == nil {
 				continue
 			}
 			onRecord = true
 			if kind == ReadBackFile {
 				break
 			}
-			if v, found = lookupFirst(doc, rb.Keys); found {
+			if kind == ReadBackComment {
+				v, found, err = files.comment(file, spec, rb.Keys)
+			} else {
+				v, found, err = files.value(file, spec, rb.Keys)
+			}
+			if err != nil {
+				return err
+			}
+			if found {
 				break
 			}
 		}
@@ -284,7 +297,7 @@ func readBack(ctx context.Context, read Reader, inst Installation, registry []In
 			found = !skip.MatchString(fmt.Sprint(v))
 		}
 		switch kind {
-		case ReadBackValue, ReadBackHost:
+		case ReadBackValue, ReadBackHost, ReadBackComment:
 			if found {
 				out[input] = v
 			}
@@ -297,7 +310,7 @@ func readBack(ctx context.Context, read Reader, inst Installation, registry []In
 				}
 			}
 		default:
-			return fmt.Errorf("schema: %s: x-readback kind %q is not %s, %s, %s, %s or %s", input, kind, ReadBackValue, ReadBackPresent, ReadBackHost, ReadBackInstallation, ReadBackFile)
+			return fmt.Errorf("schema: %s: x-readback kind %q is not %s, %s, %s, %s, %s or %s", input, kind, ReadBackValue, ReadBackPresent, ReadBackHost, ReadBackInstallation, ReadBackComment, ReadBackFile)
 		}
 		return nil
 	})
@@ -322,28 +335,81 @@ func installationOf(domain string, inst Installation, registry []Installation) (
 	return name, name != ""
 }
 
-// readBackDoc is the decoded file of fileset key file for inst, read once
-// per read-back, at the document spec names in it; nil when the file is not
-// on record, empty when the document is not in it.
-func readBackDoc(ctx context.Context, read Reader, inst Installation, file string, spec fileSpec, docs map[string]map[string]any) (map[string]any, error) {
-	if doc, ok := docs[file]; ok {
-		return doc, nil
-	}
-	repo := inst.Repositories.Configs
+// readBackFiles are the files on record one read-back reads for an
+// installation, each read once and decoded once in each form a kind needs:
+// as the document its x-files entry names, for a value; as the node tree,
+// the comments in place, for a comment.
+type readBackFiles struct {
+	ctx   context.Context
+	read  Reader
+	inst  Installation
+	texts map[string]*string
+	docs  map[string]map[string]any
+	nodes map[string]*yaml.Node
+}
+
+func newReadBackFiles(ctx context.Context, read Reader, inst Installation) *readBackFiles {
+	return &readBackFiles{ctx: ctx, read: read, inst: inst, texts: map[string]*string{}, docs: map[string]map[string]any{}, nodes: map[string]*yaml.Node{}}
+}
+
+// location is the repository and path of the file spec declares for the
+// installation.
+func (f *readBackFiles) location(spec fileSpec) (repo, path string) {
+	repo = f.inst.Repositories.Configs
 	if spec.Repository == ManagementClustersRepository {
-		repo = inst.Repositories.ManagementClusters
+		repo = f.inst.Repositories.ManagementClusters
 	}
-	path := strings.ReplaceAll(spec.Path, "<name>", inst.Name)
-	content, err := read(ctx, repo, path)
+	return repo, strings.ReplaceAll(spec.Path, "<name>", f.inst.Name)
+}
+
+// text is the content of the file of fileset key file, read once; nil when
+// the file is not on record.
+func (f *readBackFiles) text(file string, spec fileSpec) (*string, error) {
+	if text, ok := f.texts[file]; ok {
+		return text, nil
+	}
+	repo, path := f.location(spec)
+	content, err := f.read(f.ctx, repo, path)
 	if errors.Is(err, gh.ErrNotFound) {
-		docs[file] = nil
+		f.texts[file] = nil
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("reading back %s in %s: %w", path, repo, err)
 	}
+	f.texts[file] = &content
+	return &content, nil
+}
+
+// value is the value at the first of the dotted paths the file holds, below
+// the document spec names in it; nothing where the file is not on record or
+// no path is in it.
+func (f *readBackFiles) value(file string, spec fileSpec, paths []string) (any, bool, error) {
+	doc, err := f.doc(file, spec)
+	if err != nil || doc == nil {
+		return nil, false, err
+	}
+	for _, p := range paths {
+		if v, ok := lookup(doc, splitKey(p)); ok {
+			return v, true, nil
+		}
+	}
+	return nil, false, nil
+}
+
+// doc is the decoded file at the document spec names in it, decoded once;
+// nil when the file is not on record, empty when the document is not in it.
+func (f *readBackFiles) doc(file string, spec fileSpec) (map[string]any, error) {
+	if doc, ok := f.docs[file]; ok {
+		return doc, nil
+	}
+	text, err := f.text(file, spec)
+	if err != nil || text == nil {
+		return nil, err
+	}
 	doc := map[string]any{}
-	if err := yaml.Unmarshal([]byte(content), &doc); err != nil {
+	if err := yaml.Unmarshal([]byte(*text), &doc); err != nil {
+		repo, path := f.location(spec)
 		return nil, fmt.Errorf("reading back %s in %s: %w", path, repo, err)
 	}
 	if spec.Document != "" {
@@ -353,19 +419,129 @@ func readBackDoc(ctx context.Context, read Reader, inst Installation, file strin
 	if doc == nil {
 		doc = map[string]any{}
 	}
-	docs[file] = doc
+	f.docs[file] = doc
 	return doc, nil
 }
 
-// lookupFirst is the value at the first of the dotted paths that doc
-// holds.
-func lookupFirst(doc map[string]any, paths []string) (any, bool) {
+// comment is the comment above the first of the dotted paths the file holds
+// a comment at, below the document spec names in it, its lines' comment
+// markers stripped; nothing where the file is not on record, no path is in
+// it or the key carries none.
+func (f *readBackFiles) comment(file string, spec fileSpec, paths []string) (any, bool, error) {
+	node, err := f.node(file, spec)
+	if err != nil || node == nil {
+		return nil, false, err
+	}
+	var document []string
+	if spec.Document != "" {
+		document = splitKey(spec.Document)
+	}
 	for _, p := range paths {
-		if v, ok := lookup(doc, splitKey(p)); ok {
-			return v, true
+		if c, ok := commentAt(node, append(slices.Clone(document), splitKey(p)...)); ok {
+			return c, true, nil
 		}
 	}
-	return nil, false
+	return nil, false, nil
+}
+
+// node is the file as its YAML node tree, comments in place, decoded once;
+// nil when the file is not on record.
+func (f *readBackFiles) node(file string, spec fileSpec) (*yaml.Node, error) {
+	if node, ok := f.nodes[file]; ok {
+		return node, nil
+	}
+	text, err := f.text(file, spec)
+	if err != nil || text == nil {
+		return nil, err
+	}
+	node := &yaml.Node{}
+	if err := yaml.Unmarshal([]byte(*text), node); err != nil {
+		repo, path := f.location(spec)
+		return nil, fmt.Errorf("reading back %s in %s: %w", path, repo, err)
+	}
+	f.nodes[file] = node
+	return node, nil
+}
+
+// commentAt is the comment above the node at path in n, walked as lookup
+// walks a document — a mapping by key, a list by index or by a [key=value]
+// selector, YAML text by what it decodes to — as the person wrote it: the
+// marker and the space after it stripped from every line, the empty lines
+// at either end dropped. A mapping key's is the comment above the key, a
+// list entry's the comment above the entry. Nothing where the path is not
+// in n or the node carries no comment.
+func commentAt(n *yaml.Node, path []string) (string, bool) {
+	cur, comment := n, ""
+	for _, k := range path {
+		var ok bool
+		if cur, comment, ok = stepNode(cur, k); !ok {
+			return "", false
+		}
+	}
+	lines := strings.Split(comment, "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(line), "#"), " ")
+	}
+	for len(lines) > 0 && lines[0] == "" {
+		lines = lines[1:]
+	}
+	for len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return strings.Join(lines, "\n"), len(lines) > 0
+}
+
+// stepNode is one step of commentAt into cur: the node the step reaches and
+// the comment above it.
+func stepNode(cur *yaml.Node, k string) (*yaml.Node, string, bool) {
+	switch cur.Kind {
+	case yaml.DocumentNode:
+		if len(cur.Content) == 0 {
+			return nil, "", false
+		}
+		return stepNode(cur.Content[0], k)
+	case yaml.MappingNode:
+		if literal, ok := bracketed(k); ok {
+			k = literal
+		}
+		for i := 0; i+1 < len(cur.Content); i += 2 {
+			if cur.Content[i].Value == k {
+				return cur.Content[i+1], cur.Content[i].HeadComment, true
+			}
+		}
+	case yaml.SequenceNode:
+		if key, value, isSelector := selector(k); isSelector {
+			for _, entry := range cur.Content {
+				if v, ok := nodeAt(entry, strings.Split(key, ".")); ok && v.Kind == yaml.ScalarNode && v.Value == value {
+					return entry, entry.HeadComment, true
+				}
+			}
+			return nil, "", false
+		}
+		if i, err := strconv.Atoi(k); err == nil && i >= 0 && i < len(cur.Content) {
+			return cur.Content[i], cur.Content[i].HeadComment, true
+		}
+	case yaml.ScalarNode:
+		// YAML text: a step into what it decodes to, where that is a mapping
+		// or a list; text that holds a scalar is the end of the walk.
+		text := &yaml.Node{}
+		if err := yaml.Unmarshal([]byte(cur.Value), text); err != nil || len(text.Content) == 0 || text.Content[0].Kind == yaml.ScalarNode {
+			return nil, "", false
+		}
+		return stepNode(text.Content[0], k)
+	}
+	return nil, "", false
+}
+
+// nodeAt is the node at path in n.
+func nodeAt(n *yaml.Node, path []string) (*yaml.Node, bool) {
+	for _, k := range path {
+		var ok bool
+		if n, _, ok = stepNode(n, k); !ok {
+			return nil, false
+		}
+	}
+	return n, true
 }
 
 // splitKey splits a dotted path into its steps, a [key=value] selector
