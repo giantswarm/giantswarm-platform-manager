@@ -49,6 +49,7 @@ const (
 	portalExtensions                  = "extensions"
 	portalExtensionsAgentPlatform     = "AgentPlatform"
 	portalExtensionsAiChat            = "AiChat"
+	portalExtensionsHive              = "Hive"
 	portalExtensionsGrafanaDashboards = "GrafanaDashboards"
 )
 
@@ -63,18 +64,24 @@ func PortalSharedInclude(anchor string) string { return portalSharedConfig + anc
 // agent platform's section where the platform runs, the AI chat's page and
 // drawer where the platform's section carries the chat (the chat is the
 // platform's, and the fleet carries no list with the chat without the
-// platform's section, so the suffix follows the platform's), the Grafana
+// platform's section, so the suffix follows the platform's), the Hive pages
+// (Plans, Roadmap and the product magazine) where the platform's section
+// carries them (they read GitHub and the board through the platform's
+// muster, so their suffix follows the platform's too), the Grafana
 // dashboards card where the portal's Grafana plugin is wired (the card reads
 // through PortalGrafanaProxy and is disabled in the app until switched on).
 // The customer-portal definition includes the list without the platform in
 // the portal's app-config; the agent-platform definition's Component includes
 // the one with it in its fragment, which wins.
-func PortalExtensionsInclude(agentPlatform, aiChat, grafanaWired bool) string {
+func PortalExtensionsInclude(agentPlatform, aiChat, hive, grafanaWired bool) string {
 	anchor := portalExtensions
 	if agentPlatform {
 		anchor += portalExtensionsAgentPlatform
 		if aiChat {
 			anchor += portalExtensionsAiChat
+		}
+		if hive {
+			anchor += portalExtensionsHive
 		}
 	}
 	if grafanaWired {

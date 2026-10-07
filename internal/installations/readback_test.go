@@ -67,6 +67,7 @@ const (
 	inputChatEnabled   = "chat.enabled"
 	inputChatModel     = "chat.model"
 	inputAIChatEnabled = "aiChat.enabled"
+	inputHiveEnabled   = "hive.enabled"
 	inputAIChatModel   = "aiChat.model"
 	inputTunnelEnabled = "tunnel.enabled"
 	inputSupportURL    = "portal.supportUrl"
@@ -240,6 +241,8 @@ func TestDefaults(t *testing.T) {
 	}
 	want := map[string]any{"modelServing": map[string]any{keyEnabled: false}, "aiChat": map[string]any{keyEnabled: false, "model": "claude-opus-5", keyProvider: "anthropic"},
 		"scheduling": map[string]any{"singletonsCapacity": "any"}, keySkills: map[string]any{keyRepositories: []any{}},
+		"hive": map[string]any{keyEnabled: false, "plans": map[string]any{keyRepositories: []any{}}, "magazine": map[string]any{"repository": ""},
+			"roadmap": map[string]any{"board": "roadmap", "teams": []any{}}},
 		"clusterManager": map[string]any{keyGitHub: map[string]any{keyEnabled: false}},
 		"modelManager":   map[string]any{keyGitHub: map[string]any{keyEnabled: false}},
 		"agentManager":   map[string]any{keyGitHub: map[string]any{keyEnabled: false}, keySkills: map[string]any{keyRepositories: []any{}, "appSecretName": "", "gitAuthSecretName": "", "mintGitAuthSecret": false}},
@@ -296,12 +299,43 @@ func TestAgentPlatformReadsBackTheChat(t *testing.T) {
 		files map[string]string
 		want  map[string]any
 	}{
-		{"the fragment first", map[string]string{dir + "agent-platform/app-config.yaml": fragment, dir + "backstage/app-config.yaml": appConfig}, map[string]any{inputAIChatEnabled: true, inputAIChatModel: "claude-opus-5"}},
-		{"a hand-kept portal's app-config", map[string]string{dir + "backstage/app-config.yaml": appConfig}, map[string]any{inputAIChatEnabled: true, inputAIChatModel: "claude-opus-4-8"}},
+		{"the fragment first", map[string]string{dir + "agent-platform/app-config.yaml": fragment, dir + "backstage/app-config.yaml": appConfig}, map[string]any{inputAIChatEnabled: true, inputAIChatModel: "claude-opus-5", inputHiveEnabled: false}},
+		{"a hand-kept portal's app-config", map[string]string{dir + "backstage/app-config.yaml": appConfig}, map[string]any{inputAIChatEnabled: true, inputAIChatModel: "claude-opus-4-8", inputHiveEnabled: false}},
 		{"a chat on Vertex by hand", map[string]string{dir + "backstage/app-config.yaml": "data:\n  values: |\n    backstage:\n      appConfig: |\n        aiChat:\n          model: claude-sonnet-5\n          anthropic:\n            provider: vertex\n          google:\n            project: example-project\n            location: eu\n            keyFilename: /app/google/credentials.json\n"},
-			map[string]any{inputAIChatEnabled: true, inputAIChatModel: "claude-sonnet-5", "aiChat.provider": "vertex", "aiChat.google.project": "example-project", "aiChat.google.location": "eu"}},
-		{"a fragment without the chat, no app-config", map[string]string{dir + "agent-platform/app-config.yaml": "data:\n  app-config.agent-platform.yaml: |\n    agentPlatform: {}\n"}, map[string]any{inputAIChatEnabled: false}},
+			map[string]any{inputAIChatEnabled: true, inputAIChatModel: "claude-sonnet-5", "aiChat.provider": "vertex", "aiChat.google.project": "example-project", "aiChat.google.location": "eu", inputHiveEnabled: false}},
+		{"a fragment without the chat, no app-config", map[string]string{dir + "agent-platform/app-config.yaml": "data:\n  app-config.agent-platform.yaml: |\n    agentPlatform: {}\n"}, map[string]any{inputAIChatEnabled: false, inputHiveEnabled: false}},
 		{"nothing on record", map[string]string{}, map[string]any{}},
+	} {
+		got, err := def.ReadBack(context.Background(), files(tc.files), readBackInstallation, nil)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: read back %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// The agent-platform definition reads the Hive back from the plans block's
+// presence, in the Component's fragment on record, else in the portal's own
+// app-config, where the hub's hand-kept portal carries it; the repositories,
+// the magazine and the board with it.
+func TestAgentPlatformReadsBackTheHive(t *testing.T) {
+	def, _ := FindCapability(AgentPlatform)
+	const dir = "acme/mcs:management-clusters/rowan/extras/backstage/"
+	appConfig := "data:\n  values: |\n    backstage:\n      appConfig: |\n        plans:\n          repositories:\n            - acme/plans\n          magazine:\n            repository: acme/magazine\n            ref: data\n" +
+		"          muster:\n            installation: rowan\n            server: github\n        roadmap:\n          board: roadmap\n          teams:\n            - Hive\n          muster:\n            installation: rowan\n            server: rowan-mcp-pro\n            toolPrefix: pro\n"
+	fragment := "data:\n  app-config.agent-platform.yaml: |\n    plans:\n      repositories:\n        - acme/other-plans\n    roadmap:\n      board: customer\n"
+	for _, tc := range []struct {
+		name  string
+		files map[string]string
+		want  map[string]any
+	}{
+		{"a hand-kept portal's app-config", map[string]string{dir + "backstage/app-config.yaml": appConfig},
+			map[string]any{inputAIChatEnabled: false, inputHiveEnabled: true, "hive.plans.repositories": []any{"acme/plans"}, "hive.magazine.repository": "acme/magazine", "hive.roadmap.board": "roadmap", "hive.roadmap.teams": []any{"Hive"}}},
+		{"the fragment first", map[string]string{dir + "agent-platform/app-config.yaml": fragment, dir + "backstage/app-config.yaml": appConfig},
+			map[string]any{inputAIChatEnabled: false, inputHiveEnabled: true, "hive.plans.repositories": []any{"acme/other-plans"}, "hive.magazine.repository": "acme/magazine", "hive.roadmap.board": "customer", "hive.roadmap.teams": []any{"Hive"}}},
+		{"neither carries it", map[string]string{dir + "agent-platform/app-config.yaml": "data:\n  app-config.agent-platform.yaml: |\n    agentPlatform: {}\n"}, map[string]any{inputAIChatEnabled: false, inputHiveEnabled: false}},
 	} {
 		got, err := def.ReadBack(context.Background(), files(tc.files), readBackInstallation, nil)
 		if err != nil {

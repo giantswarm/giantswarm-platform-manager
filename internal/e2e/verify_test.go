@@ -854,7 +854,7 @@ func TestVerifyCapabilityReadsBackTheChat(t *testing.T) {
 		files[f.Path] = f.Content
 	}
 	rendered := files[fragment+"app-config.yaml"]
-	for _, want := range []string{"$include: " + render.PortalExtensionsInclude(true, true, false) + "\n", "    aiChat:\n", "      model: " + model + "\n", "          url: https://portal.rowan.acme.test/api/mcp-actions/v1\n", "          url: https://muster.rowan.acme.test/mcp\n", "    mcpActions:\n", "    backend:\n      actions:\n"} {
+	for _, want := range []string{"$include: " + render.PortalExtensionsInclude(true, true, false, false) + "\n", "    aiChat:\n", "      model: " + model + "\n", "          url: https://portal.rowan.acme.test/api/mcp-actions/v1\n", "          url: https://muster.rowan.acme.test/mcp\n", "    mcpActions:\n", "    backend:\n      actions:\n"} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("the fragment does not carry %q:\n%s", want, rendered)
 		}
@@ -1264,7 +1264,7 @@ func TestVerifyCapabilityGrafanaIsTheInstallationsOwn(t *testing.T) {
 	}
 	var include bool
 	for _, diff := range dimension(t, feature(t, res, "portal"), "plugins").Differences {
-		include = include || strings.HasSuffix(diff.Path, ":app.extensions.$include") && diff.Rendered == render.PortalExtensionsInclude(false, false, true) && diff.Current == render.PortalExtensionsInclude(false, false, false)
+		include = include || strings.HasSuffix(diff.Path, ":app.extensions.$include") && diff.Rendered == render.PortalExtensionsInclude(false, false, false, true) && diff.Current == render.PortalExtensionsInclude(false, false, false, false)
 	}
 	if !include {
 		t.Errorf("wired, the render does not include the list with the dashboards card over the record's baseline: %+v", dimension(t, feature(t, res, "portal"), "plugins").Differences)
@@ -1299,7 +1299,7 @@ func TestVerifyCapabilityGrafanaIsTheInstallationsOwn(t *testing.T) {
 			rendered = f.Content
 		}
 	}
-	if want := "$include: " + render.PortalExtensionsInclude(true, false, true) + "\n"; !strings.Contains(rendered, want) {
+	if want := "$include: " + render.PortalExtensionsInclude(true, false, false, true) + "\n"; !strings.Contains(rendered, want) {
 		t.Errorf("the platform's fragment %s for the wired portal does not include %q:\n%s\nthe plan's files: %v", fragment, want, rendered, paths)
 	}
 }

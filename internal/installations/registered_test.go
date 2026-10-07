@@ -125,7 +125,10 @@ spec:
 	// sharedGrantServer is GitHub's authorization server with one grant for
 	// everyone: no person's own grant.
 	sharedGrantServer = "apiVersion: muster.giantswarm.io/v1alpha1\nkind: MCPServer\nmetadata:\n  name: github-shared\nspec:\n  url: https://api.githubcopilot.com/mcp/\n  auth:\n    type: oauth\n    authorizationServer:\n      issuer: https://github.com/login/oauth\n"
-	plainServer       = "apiVersion: muster.giantswarm.io/v1alpha1\nkind: MCPServer\nmetadata:\n  name: gazelle-mcp-runbooks\nspec:\n  url: http://mcp-runbooks.mcp-runbooks.svc:8080/mcp\n  auth:\n    type: none\n"
+	// boardServer is pro, which serves the roadmap board, by muster's type
+	// label, its tools under a prefix other than its name.
+	boardServer = "apiVersion: muster.giantswarm.io/v1alpha1\nkind: MCPServer\nmetadata:\n  name: reeds-mcp-pro\n  labels:\n    muster.giantswarm.io/type: mcp-pro\nspec:\n  url: http://pro.mcp-pro.svc.cluster.local:8080/mcp\n  toolPrefix: pro\n  auth:\n    type: oauth\n    authorizationServer:\n      issuer: https://github.com/apps/acme-pro\n      grantScope: subject\n"
+	plainServer = "apiVersion: muster.giantswarm.io/v1alpha1\nkind: MCPServer\nmetadata:\n  name: gazelle-mcp-runbooks\nspec:\n  url: http://mcp-runbooks.mcp-runbooks.svc:8080/mcp\n  auth:\n    type: none\n"
 
 	hostedClient = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: hosted-agent-runtime\n  namespace: agent-platform\ndata:\n  redirectURIs: |\n    https://agents.runtime.example/identities/oauth2/callback/a\n\n    https://agents.runtime.example/identities/oauth2/callback/b\n"
 )
@@ -136,7 +139,7 @@ spec:
 // redirect URIs; a document of another kind among them is skipped.
 func TestReadRegistered(t *testing.T) {
 	files := registrationFiles(treeWithRegistrations,
-		map[string]string{"a-exchange.yaml": exchangeServer, "b-forward.yaml": forwardServer, "c-oauth.yaml": oauthServer, "d-plain.yaml": plainServer + "---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: beside\n", "e-shared.yaml": sharedGrantServer},
+		map[string]string{"a-exchange.yaml": exchangeServer, "b-forward.yaml": forwardServer, "c-oauth.yaml": oauthServer, "d-plain.yaml": plainServer + "---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: beside\n", "e-shared.yaml": sharedGrantServer, "f-board.yaml": boardServer},
 		map[string]string{"runtime.yaml": hostedClient})
 	reg, err := readRegistered(context.Background(), treeOf(files), registeringInstallation)
 	if err != nil {
@@ -148,6 +151,7 @@ func TestReadRegistered(t *testing.T) {
 		{Name: keyGitHub, URL: "https://api.githubcopilot.com/mcp/", Auth: authOAuth, GitHubGrant: true},
 		{Name: "gazelle-mcp-runbooks", URL: "http://mcp-runbooks.mcp-runbooks.svc:8080/mcp", Auth: authNone},
 		{Name: "github-shared", URL: "https://api.githubcopilot.com/mcp/", Auth: authOAuth},
+		{Name: "reeds-mcp-pro", URL: "http://pro.mcp-pro.svc.cluster.local:8080/mcp", Auth: authOAuth, ToolPrefix: "pro", Board: true},
 	}
 	if len(reg.Servers) != len(want) {
 		t.Fatalf("servers: %+v", reg.Servers)

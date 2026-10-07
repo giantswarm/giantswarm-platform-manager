@@ -247,15 +247,17 @@ func chatActions() render.Map {
 // installations; the skill repositories the agent creation discovers skills
 // in, where there are any); where the Component owns the portal's lists, the
 // platform's extensions through the shared include (with the chat's
-// entries where the chat is on, with the Grafana dashboards card where the
+// entries where the chat is on, with the Hive's pages where it is on, with the Grafana dashboards card where the
 // portal's plugin is wired) and the installation's muster; and, with the
 // chat on, the aiChat block, the actions server's tool naming and the
 // actions the service lists for it; where the portal reads GitHub through
-// this installation's muster, the gs block for it (github.go).
+// this installation's muster, the gs block for it (github.go); with the Hive
+// on, its plans and roadmap blocks (hive.go), and its pages in the shared
+// list.
 func (in *Input) portalAppConfig() render.Map {
 	m := render.Map{}
 	if in.portalOwnsLists() {
-		m = append(m, e("app", render.Map{e("extensions", render.Map{e("$include", render.PortalExtensionsInclude(true, in.aiChat(), in.hostedPortal().GrafanaWired))})}))
+		m = append(m, e("app", render.Map{e("extensions", render.Map{e("$include", render.PortalExtensionsInclude(true, in.aiChat(), in.hive(), in.hostedPortal().GrafanaWired))})}))
 	}
 	platform := render.Map{}
 	if in.kagent() {
@@ -275,6 +277,9 @@ func (in *Input) portalAppConfig() render.Map {
 	}
 	if in.portalGitHub() {
 		m = append(m, e("gs", in.portalGitHubConfig()))
+	}
+	if in.hive() {
+		m = append(m, in.hiveSection()...)
 	}
 	if in.aiChat() {
 		m = append(m, e("aiChat", in.aiChatSection()),

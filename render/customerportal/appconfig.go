@@ -161,10 +161,11 @@ func (in *Input) grafanaSection() render.Map {
 // until a portal that carries the proxy entry opts in. While the app-config
 // keeps the platform's section (keepsPlatformSection) the list is the one
 // with it, with the chat's entries where the portal runs the chat: the
-// fragment carries none yet.
+// fragment carries none yet. The Hive pages are the fragment's alone: they
+// come with the list the fragment carries.
 func (in *Input) appSection() render.Map {
 	keep := in.keepsPlatformSection()
-	extensions := render.PortalExtensionsInclude(keep, keep && in.PlatformSection.AIChat, in.Plugins.Grafana.Enabled)
+	extensions := render.PortalExtensionsInclude(keep, keep && in.PlatformSection.AIChat, false, in.Plugins.Grafana.Enabled)
 	app := render.Map{
 		e("title", in.Portal.Title), e("baseUrl", in.portalURL()),
 		e("extensions", render.Map{e("$include", extensions)}), e("routes", include("routes")),

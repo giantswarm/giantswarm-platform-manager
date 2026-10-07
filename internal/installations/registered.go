@@ -49,14 +49,18 @@ func AgentPlatformExtrasPath(name string) string {
 // the platform's own three, as the definitions' installation.mcpServers[*]
 // names it: the object's name, where muster reaches it, how muster
 // authenticates to it (none, forward, exchange, oauth), for exchange the
-// Dex the exchange runs at, and for oauth whether it holds the person's own
-// GitHub grant: GitHub's authorization server, each person's grant their own.
+// Dex the exchange runs at, for oauth whether it holds the person's own
+// GitHub grant: GitHub's authorization server, each person's grant their own,
+// the prefix muster exposes its tools under, and whether it serves the
+// roadmap board: pro, by the type label muster's servers carry.
 type RegisteredServer struct {
 	Name             string `json:"name"`
 	URL              string `json:"url"`
 	Auth             string `json:"auth"`
 	DexTokenEndpoint string `json:"dexTokenEndpoint,omitempty"`
 	GitHubGrant      bool   `json:"githubGrant,omitempty"`
+	ToolPrefix       string `json:"toolPrefix,omitempty"`
+	Board            bool   `json:"board,omitempty"`
 }
 
 // RegisteredClient is an MCP client registered on the installation with a
@@ -80,6 +84,12 @@ type Registered struct {
 const (
 	githubIssuer      = "https://github.com/login/oauth"
 	grantScopeSubject = "subject"
+)
+
+// A server serves the roadmap board where muster's type label names pro.
+const (
+	serverTypeLabel = "muster.giantswarm.io/type"
+	serverTypeBoard = "mcp-pro"
 )
 
 // The ways muster authenticates to a registered server, in the
@@ -232,16 +242,19 @@ func documents(data string, fn func(doc *yaml.Node) error) error {
 // a URL. The auth mode follows muster's spec: a token exchange enabled is
 // exchange, an authorization server named is oauth, forwardToken is forward,
 // anything else none. An oauth server at GitHub's authorization server with
-// subject-scoped grants holds the person's GitHub grant.
+// subject-scoped grants holds the person's GitHub grant; a server labelled
+// muster.giantswarm.io/type: mcp-pro serves the roadmap board.
 func registeredServer(doc *yaml.Node) (RegisteredServer, bool, error) {
 	var o struct {
 		Kind     string `yaml:"kind"`
 		Metadata struct {
-			Name string `yaml:"name"`
+			Name   string            `yaml:"name"`
+			Labels map[string]string `yaml:"labels"`
 		} `yaml:"metadata"`
 		Spec struct {
-			URL  string `yaml:"url"`
-			Auth struct {
+			URL        string `yaml:"url"`
+			ToolPrefix string `yaml:"toolPrefix"`
+			Auth       struct {
 				ForwardToken  bool `yaml:"forwardToken"`
 				TokenExchange struct {
 					Enabled          bool   `yaml:"enabled"`
@@ -263,7 +276,8 @@ func registeredServer(doc *yaml.Node) (RegisteredServer, bool, error) {
 	if o.Metadata.Name == "" || o.Spec.URL == "" {
 		return RegisteredServer{}, false, fmt.Errorf("MCPServer %q: metadata.name and spec.url are required", o.Metadata.Name)
 	}
-	s := RegisteredServer{Name: o.Metadata.Name, URL: o.Spec.URL, Auth: authNone}
+	s := RegisteredServer{Name: o.Metadata.Name, URL: o.Spec.URL, Auth: authNone, ToolPrefix: o.Spec.ToolPrefix,
+		Board: o.Metadata.Labels[serverTypeLabel] == serverTypeBoard}
 	switch {
 	case o.Spec.Auth.TokenExchange.Enabled:
 		s.Auth, s.DexTokenEndpoint = authExchange, o.Spec.Auth.TokenExchange.DexTokenEndpoint
