@@ -550,24 +550,39 @@ func Secret(name, namespace string, labels map[string]string, keys ...SecretKey)
 // keys in the order a person would write them.
 type Map []Entry
 
-// Entry is one key of a Map.
+// Entry is one key of a Map; Comment, when set, is written above the key.
 type Entry struct {
-	Key   string
-	Value any
+	Key     string
+	Value   any
+	Comment string
 }
 
 // MarshalYAML renders the Map as a mapping node in order.
 func (m Map) MarshalYAML() (any, error) {
 	node := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 	for _, e := range m {
-		key := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: e.Key}
-		value := &yaml.Node{}
-		if err := value.Encode(e.Value); err != nil {
+		key := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: e.Key, HeadComment: e.Comment}
+		value, err := encodeNode(e.Value)
+		if err != nil {
 			return nil, err
 		}
 		node.Content = append(node.Content, key, value)
 	}
 	return node, nil
+}
+
+// encodeNode is v as a YAML node; a nested Map is built directly, since
+// yaml.v3 drops the comments of a node a nested Marshaler returns.
+func encodeNode(v any) (*yaml.Node, error) {
+	if m, ok := v.(Map); ok {
+		n, err := m.MarshalYAML()
+		if err != nil {
+			return nil, err
+		}
+		return n.(*yaml.Node), nil
+	}
+	value := &yaml.Node{}
+	return value, value.Encode(v)
 }
 
 // LineComment appends "# comment" to the first line of doc whose key is key

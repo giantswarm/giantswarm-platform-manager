@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
@@ -241,7 +242,8 @@ func TestDefaults(t *testing.T) {
 		"scheduling": map[string]any{"singletonsCapacity": "any"}, keySkills: map[string]any{keyRepositories: []any{}},
 		"clusterManager": map[string]any{keyGitHub: map[string]any{keyEnabled: false}},
 		"modelManager":   map[string]any{keyGitHub: map[string]any{keyEnabled: false}},
-		"agentManager":   map[string]any{keyGitHub: map[string]any{keyEnabled: false}, keySkills: map[string]any{keyRepositories: []any{}, "appSecretName": "", "gitAuthSecretName": "", "mintGitAuthSecret": false}}}
+		"agentManager":   map[string]any{keyGitHub: map[string]any{keyEnabled: false}, keySkills: map[string]any{keyRepositories: []any{}, "appSecretName": "", "gitAuthSecretName": "", "mintGitAuthSecret": false}},
+		"versions":       map[string]any{"chart": "", "components": map[string]any{"muster": "", "valkey": "", "kagent": "", "agent-manager": "", "klaus-gateway": "", "cluster-manager": "", "model-manager": ""}}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("defaults %v, want %v", got, want)
 	}
@@ -434,5 +436,40 @@ func TestCustomerPortalReadsBackThePortal(t *testing.T) {
 	}
 	if got[inputTokenBroker] != readBackName || got[inputGrafanaDomain] != readBackGrafana {
 		t.Errorf("read back %v, want the own broker and the deprecated grafana domain", got)
+	}
+}
+
+// The agent-platform definition reads the version holds back from the record:
+// a component's versionRange from the configmap patch, the meta chart's from
+// the OCIRepository patch of the extras kustomization, found by its target
+// whatever its place among the patches, comments and all.
+func TestAgentPlatformReadsBackVersionHolds(t *testing.T) {
+	def, _ := FindCapability(AgentPlatform)
+	patch := "components:\n  agent-manager:\n    enabled: true\n    # Held on the running release.\n    versionRange: \"1.9.2\"\n  klaus-gateway:\n    enabled: true\n    versionRange: \"4.0.0\"\n"
+	kustomization := "patches:\n  - patch: |-\n      apiVersion: v1\n      kind: Secret\n    target:\n      kind: Secret\n      name: muster-credentials-revision\n" +
+		"  - patch: |-\n      # Held on the running release.\n      - op: replace\n        path: /spec/ref/semver\n        value: \"4.114.1\"\n    target:\n      kind: OCIRepository\n      name: agent-platform\n"
+	read := files(map[string]string{
+		"acme/configs:" + def.EnabledMarker("rowan"):                                  patch,
+		"acme/mcs:management-clusters/rowan/extras/agent-platform/kustomization.yaml": kustomization,
+	})
+	got, err := def.ReadBack(context.Background(), read, readBackInstallation, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{"versions.chart": "4.114.1", "versions.components.agent-manager": "1.9.2", "versions.components.klaus-gateway": "4.0.0"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("read back %v, want %v", got, want)
+	}
+
+	// The chart line's own range, release candidates or not, is no hold.
+	for _, line := range []string{">=4.0.0 <5.0.0", ">=4.0.0-0 <5.0.0-0"} {
+		read = files(map[string]string{"acme/mcs:management-clusters/rowan/extras/agent-platform/kustomization.yaml": strings.ReplaceAll(kustomization, "4.114.1", line)})
+		got, err = def.ReadBack(context.Background(), read, readBackInstallation, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 0 {
+			t.Errorf("read back %v from the line's range %s, want nothing", got, line)
+		}
 	}
 }

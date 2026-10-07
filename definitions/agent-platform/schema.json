@@ -10,7 +10,8 @@
     "configmap": {"repository": "configs", "path": "installations/<name>/apps/agent-platform/configmap-values.yaml.patch"},
     "dex-configmap": {"repository": "configs", "path": "installations/<name>/apps/dex-app/configmap-values.yaml.patch"},
     "backstage:agent-platform/app-config": {"repository": "management-clusters", "path": "management-clusters/<name>/extras/backstage/agent-platform/app-config.yaml", "document": "data.[app-config.agent-platform.yaml]"},
-    "backstage:app-config": {"repository": "management-clusters", "path": "management-clusters/<name>/extras/backstage/backstage/app-config.yaml", "document": "data.values.backstage.appConfig"}
+    "backstage:app-config": {"repository": "management-clusters", "path": "management-clusters/<name>/extras/backstage/backstage/app-config.yaml", "document": "data.values.backstage.appConfig"},
+    "extras:agent-platform/kustomization": {"repository": "management-clusters", "path": "management-clusters/<name>/extras/agent-platform/kustomization.yaml"}
   },
   "properties": {
     "installation": {
@@ -337,6 +338,92 @@
               "x-feature": "runtime",
               "x-renders": ["configmap:cluster-manager.github.enabled", "configmap:clusterManager.networkPolicy.egress.fqdns"],
               "description": "The cluster-manager's commit mode through its GitHub App (cluster-manager.github.enabled): the chart registers with muster pinned to the App and create_node_pool and delete_node_pool take mode: commit, the pull request opened as the person; its egress adds api.github.com (GET /user, the pull request). The App's OAuth client is the installation's own Secret, giantswarm-cluster-manager-oauth-client in agent-platform, not rendered. Where the fleet policy runs the cluster-manager only; read back from the configmap patch on record."
+            }
+          }
+        }
+      }
+    },
+    "versions": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Version holds: a chart kept on a version, or a range, other than the definition's. A hold is set on record and read back from it, so a reconcile keeps it; only a typed input (--input versions.<key>=<version>, or empty to lift it) moves it. The rendered value carries a comment naming its input.",
+      "properties": {
+        "chart": {
+          "type": "string",
+          "default": "",
+          "x-source": "person",
+          "x-readback": {"file": "extras:agent-platform/kustomization", "key": "patches.[target.kind=OCIRepository].patch.[path=/spec/ref/semver].value", "skip": "^>=\\d+\\.0\\.0(-0)? <\\d+\\.0\\.0(-0)?$"},
+          "x-feature": "runtime",
+          "x-renders": ["extras:agent-platform/kustomization.yaml patches[*]"],
+          "description": "A hold on the agent-platform meta chart: the version or range its OCIRepository follows, in place of the chart line's range (installation.chartLine). Empty, the line's range stands. Read back from the OCIRepository patch of the extras kustomization on record; a whole major line's range there (>=4.0.0 <5.0.0, its release candidates' >=4.0.0-0 <5.0.0-0) is the line's own and reads back as no hold."
+        },
+        "components": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Holds on the meta chart's components, by component: each one's versionRange in the configmap patch.",
+          "properties": {
+            "muster": {
+              "type": "string",
+              "default": "",
+              "x-source": "person",
+              "x-readback": {"file": "configmap", "key": "components.muster.versionRange"},
+              "x-feature": "runtime",
+              "x-renders": ["configmap:components.muster.versionRange"],
+              "description": "A hold on the muster chart: the version or range its HelmRelease follows (components.muster.versionRange), in place of the meta chart's. Empty, the meta chart's stands. Read back from the configmap patch on record, so a reconcile keeps it; typed, it moves or lifts it."
+            },
+            "valkey": {
+              "type": "string",
+              "default": "",
+              "x-source": "person",
+              "x-readback": {"file": "configmap", "key": "components.valkey.versionRange"},
+              "x-feature": "runtime",
+              "x-renders": ["configmap:components.valkey.versionRange"],
+              "description": "A hold on the valkey chart: the version or range its HelmRelease follows (components.valkey.versionRange), in place of the meta chart's. Empty, the meta chart's stands. Read back from the configmap patch on record, so a reconcile keeps it; typed, it moves or lifts it."
+            },
+            "kagent": {
+              "type": "string",
+              "default": "",
+              "x-source": "person",
+              "x-readback": {"file": "configmap", "key": "components.kagent.versionRange"},
+              "x-feature": "runtime",
+              "x-renders": ["configmap:components.kagent.versionRange"],
+              "description": "A hold on the kagent chart: the version or range its HelmRelease follows (components.kagent.versionRange), in place of the meta chart's. Empty, the meta chart's stands. Read back from the configmap patch on record, so a reconcile keeps it; typed, it moves or lifts it."
+            },
+            "agent-manager": {
+              "type": "string",
+              "default": "",
+              "x-source": "person",
+              "x-readback": {"file": "configmap", "key": "components.agent-manager.versionRange"},
+              "x-feature": "runtime",
+              "x-renders": ["configmap:components.agent-manager.versionRange"],
+              "description": "A hold on the agent-manager chart: the version or range its HelmRelease follows (components.agent-manager.versionRange), in place of the meta chart's. Empty, the meta chart's stands. Read back from the configmap patch on record, so a reconcile keeps it; typed, it moves or lifts it."
+            },
+            "klaus-gateway": {
+              "type": "string",
+              "default": "",
+              "x-source": "person",
+              "x-readback": {"file": "configmap", "key": "components.klaus-gateway.versionRange"},
+              "x-feature": "runtime",
+              "x-renders": ["configmap:components.klaus-gateway.versionRange"],
+              "description": "A hold on the klaus-gateway chart: the version or range its HelmRelease follows (components.klaus-gateway.versionRange), in place of the meta chart's. Empty, the meta chart's stands. Read back from the configmap patch on record, so a reconcile keeps it; typed, it moves or lifts it."
+            },
+            "cluster-manager": {
+              "type": "string",
+              "default": "",
+              "x-source": "person",
+              "x-readback": {"file": "configmap", "key": "components.cluster-manager.versionRange"},
+              "x-feature": "runtime",
+              "x-renders": ["configmap:components.cluster-manager.versionRange"],
+              "description": "A hold on the cluster-manager chart: the version or range its HelmRelease follows (components.cluster-manager.versionRange), in place of the meta chart's. Empty, the meta chart's stands. Read back from the configmap patch on record, so a reconcile keeps it; typed, it moves or lifts it."
+            },
+            "model-manager": {
+              "type": "string",
+              "default": "",
+              "x-source": "person",
+              "x-readback": {"file": "configmap", "key": "components.model-manager.versionRange"},
+              "x-feature": "runtime",
+              "x-renders": ["configmap:components.model-manager.versionRange"],
+              "description": "A hold on the model-manager chart: the version or range its HelmRelease follows (components.model-manager.versionRange), in place of the meta chart's. Empty, the meta chart's stands. Read back from the configmap patch on record, so a reconcile keeps it; typed, it moves or lifts it."
             }
           }
         }

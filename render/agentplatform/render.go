@@ -18,8 +18,11 @@ package agentplatform
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
@@ -178,6 +181,7 @@ func (in *Input) configmapPatch() render.Map {
 			components = kagentRevisionRefs(components)
 		}
 	}
+	components = in.componentHolds(components)
 	m = append(m, e("components", components))
 
 	if in.kagent() {
@@ -540,6 +544,34 @@ func withValuesFromRefs(components render.Map, component string, refs []render.M
 	return components
 }
 
+// componentHolds sets every held component's versionRange in components, after
+// its toggle where the patch carries one, in a new entry otherwise, with the
+// comment naming the input that keeps it.
+func (in *Input) componentHolds(components render.Map) render.Map {
+	names := slices.Sorted(maps.Keys(in.Versions.Components))
+	for _, component := range names {
+		hold := in.Versions.Components[component]
+		if hold == "" {
+			continue
+		}
+		// Quoted, as a hold is written by hand: a version never reads as a number.
+		value := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: hold, Style: yaml.DoubleQuotedStyle}
+		entry := render.Entry{Key: "versionRange", Value: value, Comment: holdComment("components." + component)}
+		i := slices.IndexFunc(components, func(en render.Entry) bool { return en.Key == component })
+		if i < 0 {
+			components = append(components, e(component, render.Map{entry}))
+			continue
+		}
+		body := slices.Clone(components[i].Value.(render.Map))
+		at := 0
+		if len(body) > 0 && body[0].Key == "enabled" {
+			at = 1
+		}
+		components[i].Value = slices.Insert(body, at, entry)
+	}
+	return components
+}
+
 // revisionRefs are the Flux valuesFrom entries the meta chart renders into a
 // child HelmRelease (components.<name>.valuesFromRefs): the revision Secret's
 // key into each of the chart's checksum values.
@@ -592,8 +624,12 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 			})
 		}
 	}
-	if semver := in.chartSemver(); semver != "" {
-		ops := "- op: replace\n  path: /spec/ref/semver\n  value: " + fmt.Sprintf("%q", semver)
+	semver, comment := in.chartSemver(), ""
+	if hold := in.Versions.Chart; hold != "" {
+		semver, comment = hold, "# "+holdComment("chart")+"\n"
+	}
+	if semver != "" {
+		ops := comment + "- op: replace\n  path: /spec/ref/semver\n  value: " + fmt.Sprintf("%q", semver)
 		if in.ReleaseCandidates {
 			ops += "\n- op: add\n  path: /spec/ref/semverFilter\n  value: " + fmt.Sprintf("%q", releaseTagFilter)
 		}

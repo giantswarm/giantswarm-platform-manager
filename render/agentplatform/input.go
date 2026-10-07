@@ -120,6 +120,9 @@ type Input struct {
 	// and the Secrets private ones are read and booted with, read back from
 	// the configmap patch on record.
 	AgentManagerSkills AgentManagerSkills
+	// Versions are the person's version holds (versions.*), read back from
+	// the record so a reconcile keeps them.
+	Versions Versions
 	// Components are the components the policy gives the installation, by
 	// name: its organisation's list and, where the policy names a Slack app
 	// for the installation, the chat gateway.
@@ -507,6 +510,15 @@ type document struct {
 		commitChoice
 		Skills AgentManagerSkills `json:"skills"`
 	} `json:"agentManager"`
+	Versions Versions `json:"versions"`
+}
+
+// Versions are the version holds on record: the meta chart's version or range
+// in place of the chart line's, and a component's in place of the meta
+// chart's, by component. Empty is no hold.
+type Versions struct {
+	Chart      string            `json:"chart"`
+	Components map[string]string `json:"components"`
 }
 
 // AgentManagerSkills is agent-manager's skill catalog: the repositories
@@ -587,7 +599,7 @@ func Parse(raw any) (*Input, error) {
 		return nil, err
 	}
 	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories,
-		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
+		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, Versions: d.Versions, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
 		ReleaseCandidates: pol.releaseCandidates(d.Installation)}
 	if in.Components, err = pol.components(in.Installation); err != nil {
 		return nil, err
@@ -820,6 +832,12 @@ func (in *Input) chartSemver() string {
 		return ">=4.0.0-0 <5.0.0-0"
 	}
 	return ">=4.0.0 <5.0.0"
+}
+
+// holdComment is the comment a held version carries in the file: the input
+// that keeps it and how it moves.
+func holdComment(input string) string {
+	return "Held by the input versions." + input + ": a reconcile keeps it; --input versions." + input + "=<version> moves it, an empty value lifts it."
 }
 
 // check applies the rules the schema cannot express to the supplied secret
