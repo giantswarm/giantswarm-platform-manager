@@ -5,8 +5,9 @@
 # 4 chart line, signed into from the hub's portal ("gopher") alone, whose token-exchange client is in
 # its Dex; the hub's hand-kept Dev Portal carries its own section for the installations it proxies,
 # so no portal Component renders. Its app collection follows the testing stage, so it runs the
-# platform's release candidates. The codename is the policy's; the domain and every value are
-# invented.
+# platform's release candidates. Its meta chart, agent-manager and chat gateway are held on
+# versions of their own (versions.*), which the render keeps with a comment naming the input. The
+# codename is the policy's; the domain and every value are invented.
 input:
   installation:
     name: graveler
@@ -31,6 +32,11 @@ input:
       targets: []
   modelServing:
     enabled: false
+  versions:
+    chart: "4.114.1"
+    components:
+      agent-manager: "1.9.2"
+      klaus-gateway: "4.0.0"
 secrets:
   klausGateway.slack.bot-token: PLACEHOLDER-SLACK-BOT-TOKEN
   klausGateway.slack.signing-secret: PLACEHOLDER-SLACK-SIGNING-SECRET

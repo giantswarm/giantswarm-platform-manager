@@ -27,9 +27,10 @@ patches:
       kind: Secret
       name: kagent-credentials-revision
   - patch: |-
+      # Held by the input versions.chart: a reconcile keeps it; --input versions.chart=<version> moves it, an empty value lifts it.
       - op: replace
         path: /spec/ref/semver
-        value: ">=4.0.0-0 <5.0.0-0"
+        value: "4.114.1"
       - op: add
         path: /spec/ref/semverFilter
         value: "^v?[0-9]+\\.[0-9]+\\.[0-9]+(-rc\\.[0-9]+)?$"

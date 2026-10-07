@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -60,14 +61,18 @@ type schemaNode struct {
 // the file, stripped from the value read back (a value without it yields
 // nothing; of a host kind it is the host's leading label). A step of the
 // path into a list is its index or a [key=value] selector, the entry whose
-// key has the value; a step into a mapping whose key carries dots is the key
+// key — a dotted path into the entry ([target.kind=OCIRepository]) — has the
+// value; a step into a mapping whose key carries dots is the key
 // in brackets ([app-config.agent-platform.yaml]); a step into YAML text (a
-// ConfigMap's values, a kustomization's patch) decodes it.
+// ConfigMap's values, a kustomization's patch) decodes it. Skip is a regular
+// expression a value read back is matched against: a match yields nothing —
+// the value the definition renders itself where the person chose nothing.
 type readBackSpec struct {
 	Files  names  `json:"file"`
 	Keys   names  `json:"key"`
 	Kind   string `json:"kind"`
 	Prefix string `json:"prefix"`
+	Skip   string `json:"skip"`
 }
 
 // names is x-readback's file or key: one, or a list.
@@ -271,6 +276,13 @@ func readBack(ctx context.Context, read Reader, inst Installation, registry []In
 				v = strings.TrimPrefix(raw, rb.Prefix)
 			}
 		}
+		if found && rb.Skip != "" {
+			skip, err := regexp.Compile(rb.Skip)
+			if err != nil {
+				return fmt.Errorf("schema: %s: x-readback skip: %w", input, err)
+			}
+			found = !skip.MatchString(fmt.Sprint(v))
+		}
 		switch kind {
 		case ReadBackValue, ReadBackHost:
 			if found {
@@ -401,7 +413,11 @@ func step(cur any, k string) (any, bool) {
 	case []any:
 		if key, value, isSelector := selector(k); isSelector {
 			for _, entry := range c {
-				if m, ok := entry.(map[string]any); ok && m[key] != nil && fmt.Sprint(m[key]) == value {
+				m, ok := entry.(map[string]any)
+				if !ok {
+					continue
+				}
+				if v, ok := lookup(m, strings.Split(key, ".")); ok && v != nil && fmt.Sprint(v) == value {
 					return entry, true
 				}
 			}
@@ -418,8 +434,8 @@ func step(cur any, k string) (any, bool) {
 	return nil, false
 }
 
-// selector reads a [key=value] step: the key and the value an entry of a
-// list must carry.
+// selector reads a [key=value] step: the key, a dotted path into the entry,
+// and the value an entry of a list must carry there.
 func selector(k string) (key, value string, ok bool) {
 	inner, isBracketed := bracketed(k)
 	if !isBracketed {

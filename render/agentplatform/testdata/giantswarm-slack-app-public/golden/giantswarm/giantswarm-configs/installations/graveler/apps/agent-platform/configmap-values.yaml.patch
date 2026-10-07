@@ -14,6 +14,8 @@ components:
         targetPath: oauth2-proxy.podAnnotations.kagent-credentials-revision
   agent-manager:
     enabled: true
+    # Held by the input versions.components.agent-manager: a reconcile keeps it; --input versions.components.agent-manager=<version> moves it, an empty value lifts it.
+    versionRange: "1.9.2"
     valuesFromRefs:
       - kind: Secret
         name: muster-credentials-revision
@@ -21,6 +23,8 @@ components:
         targetPath: podAnnotations.muster-credentials-revision
   klaus-gateway:
     enabled: true
+    # Held by the input versions.components.klaus-gateway: a reconcile keeps it; --input versions.components.klaus-gateway=<version> moves it, an empty value lifts it.
+    versionRange: "4.0.0"
     valuesFromRefs:
       - kind: Secret
         name: muster-credentials-revision
