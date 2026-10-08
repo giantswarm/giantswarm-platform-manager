@@ -154,6 +154,11 @@ removals:
       carries it where the chat is on, and the main app-config is the customer-portal capability's to clean up · M18
 
   # --- agent-platform configmap-values.yaml.patch ---
+  - key: configmap:muster.muster.oauth.server.allowPrivateIPClientMetadata
+    kind: migration
+    reason: >-
+      Removed: allowPrivateIPClientMetadata lifts muster's SSRF guard for a client's metadata document on every host; the host-scoped
+      allowPrivateIPClientMetadataHosts replaces it with agentgateway's hostname alone, where the chat gateway serves its client_id · M40
   - key: configmap:gitops.forbidInlineSecrets
     kind: template
     reason: "Removed: gitops.forbidInlineSecrets is set here; the shared defaults set it to the same value for every installation."

@@ -146,14 +146,11 @@ func Load(ctx context.Context, c *gh.Client, s Sources) (*Registry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("registry: catalog %s: %w", s.Catalog, err)
 	}
-	byName := make(map[string]*Installation, len(entries))
-	for i := range entries {
-		byName[entries[i].Name] = &entries[i]
-	}
-	hub, ok := byName[s.Hub]
-	if !ok {
+	h := slices.IndexFunc(entries, func(inst Installation) bool { return inst.Name == s.Hub })
+	if h < 0 {
 		return nil, fmt.Errorf("registry: the hub %q is not in the catalog %s", s.Hub, s.Catalog)
 	}
+	hub := &entries[h]
 	if hub.Repositories.ManagementClusters == "" {
 		return nil, fmt.Errorf("registry: the catalog names no management-clusters repository for the hub %q", s.Hub)
 	}
@@ -171,13 +168,33 @@ func Load(ctx context.Context, c *gh.Client, s Sources) (*Registry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("registry: portal config %s: %w", portal, err)
 	}
-	for name, p := range portalConfig.Installations {
-		inst, ok := byName[name]
-		if !ok {
+	entries = merge(entries, s.Hub, portalConfig.Installations)
+	return &Registry{Hub: s.Hub, Catalog: s.Catalog, Portal: portal, Installations: entries}, nil
+}
+
+// merge lays the portal's installations over the catalog's entries, which
+// name the hub: an installation only the portal lists becomes an entry of its
+// own, the portal's facts fill what the catalog leaves empty. The entries come
+// back sorted by name, each marked whether it is a test installation. The
+// portal-only entries are appended before any pointer into the slice is
+// taken: an append that grows the slice would leave such pointers on the old
+// array, and the facts written through them would be lost.
+func merge(entries []Installation, hub string, portal map[string]portalEntry) []Installation {
+	catalog := make(map[string]bool, len(entries))
+	for _, inst := range entries {
+		catalog[inst.Name] = true
+	}
+	for name := range portal {
+		if !catalog[name] {
 			entries = append(entries, Installation{Name: name})
-			inst = &entries[len(entries)-1]
-			byName[name] = inst
 		}
+	}
+	byName := make(map[string]*Installation, len(entries))
+	for i := range entries {
+		byName[entries[i].Name] = &entries[i]
+	}
+	for name, p := range portal {
+		inst := byName[name]
 		inst.Sources = append(inst.Sources, SourcePortal)
 		inst.AuthProvider = p.AuthProvider
 		if inst.BaseDomain == "" {
@@ -193,11 +210,12 @@ func Load(ctx context.Context, c *gh.Client, s Sources) (*Registry, error) {
 			inst.Region = p.Region
 		}
 	}
+	h := *byName[hub]
 	for i := range entries {
-		entries[i].Test = TestInstallation(entries[i].Name, entries[i].Customer, *hub)
+		entries[i].Test = TestInstallation(entries[i].Name, entries[i].Customer, h)
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
-	return &Registry{Hub: s.Hub, Catalog: s.Catalog, Portal: portal, Installations: entries}, nil
+	return entries
 }
 
 // The catalog's shape: Backstage entities, one document each.
