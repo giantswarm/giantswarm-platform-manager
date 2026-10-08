@@ -3,6 +3,7 @@ package installations
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -165,42 +166,53 @@ func TestParsePortalWithoutTheBlockIsAnError(t *testing.T) {
 // The portal is a map, so the order differs between runs; enough runs and
 // portal-only installations make the order that loses facts certain.
 func TestMergeKeepsTheFactsWhenThePortalOnlyInstallationsGrowTheEntries(t *testing.T) {
+	fixture, err := parseCatalog(catalogFixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	full, sparse := fixture[0], fixture[1]
 	portal := map[string]portalEntry{
-		"alder":  {AuthProvider: "oidc", BaseDomain: "alder.portal.test", Pipeline: "testing", Providers: []string{"capa"}, Region: "eu-west-1"},
-		"willow": {AuthProvider: "gs", BaseDomain: "willow.umbrella.test", Pipeline: "stable", Providers: []string{"capz"}, Region: "westeurope"},
+		full.Name:   {AuthProvider: "portal-auth-full", BaseDomain: "full.portal.test", Pipeline: "portal-pipeline", Providers: []string{"portal-provider"}, Region: "portal-region"},
+		sparse.Name: {AuthProvider: "portal-auth-sparse", BaseDomain: "sparse.portal.test", Pipeline: "portal-pipeline", Providers: []string{"portal-provider"}, Region: "portal-region"},
 	}
-	for i := range 8 {
-		portal[fmt.Sprintf("portal-only-%d", i)] = portalEntry{AuthProvider: "gs", BaseDomain: "portal-only.test"}
+	const portalOnly = 8
+	for i := range portalOnly {
+		portal[fmt.Sprintf("portal-only-%d", i)] = portalEntry{AuthProvider: "portal-auth-only"}
 	}
+	// The catalog's own facts stand; the portal adds its source and auth
+	// provider and fills only what the catalog leaves empty.
+	wantFull := full
+	wantFull.Sources = []string{SourceCatalog, SourcePortal}
+	wantFull.AuthProvider = portal[full.Name].AuthProvider
+	wantSparse := sparse
+	wantSparse.Sources = []string{SourceCatalog, SourcePortal}
+	wantSparse.AuthProvider = portal[sparse.Name].AuthProvider
+	wantSparse.BaseDomain = portal[sparse.Name].BaseDomain
+	wantSparse.Pipeline = portal[sparse.Name].Pipeline
+	wantSparse.Region = portal[sparse.Name].Region
 	for range 10 {
 		catalog, err := parseCatalog(catalogFixture)
 		if err != nil {
 			t.Fatal(err)
 		}
-		got := merge(slices.Clip(catalog), "willow", portal)
-		if len(got) != 2+8 {
-			t.Fatalf("installations: %d, want 10", len(got))
+		got := merge(slices.Clip(catalog), sparse.Name, portal)
+		if len(got) != len(fixture)+portalOnly {
+			t.Fatalf("installations: %d, want %d", len(got), len(fixture)+portalOnly)
+		}
+		if !slices.IsSortedFunc(got, func(a, b Installation) int { return strings.Compare(a.Name, b.Name) }) {
+			t.Fatalf("entries not sorted by name: %+v", got)
 		}
 		byName := map[string]Installation{}
 		for _, inst := range got {
 			byName[inst.Name] = inst
 		}
-		alder := byName["alder"]
-		if !slices.Equal(alder.Sources, []string{SourceCatalog, SourcePortal}) || alder.AuthProvider != "oidc" ||
-			alder.BaseDomain != "alder.acme.test" || alder.Pipeline != "stable" || alder.Region != "eu-central-1" || alder.Provider != "capa" {
-			t.Fatalf("alder lost facts: %+v", alder)
+		for _, want := range []Installation{wantFull, wantSparse} {
+			if got := byName[want.Name]; !reflect.DeepEqual(got, want) {
+				t.Fatalf("%s lost facts:\n got %+v\nwant %+v", want.Name, got, want)
+			}
 		}
-		willow := byName["willow"]
-		if !slices.Equal(willow.Sources, []string{SourceCatalog, SourcePortal}) || willow.AuthProvider != "gs" ||
-			willow.BaseDomain != "willow.umbrella.test" || willow.Pipeline != "stable" || willow.Region != "westeurope" || willow.Provider != "capz" {
-			t.Fatalf("willow lost facts: %+v", willow)
-		}
-		only := byName["portal-only-3"]
-		if !slices.Equal(only.Sources, []string{SourcePortal}) || only.AuthProvider != "gs" || only.BaseDomain != "portal-only.test" {
+		if only := byName["portal-only-3"]; !slices.Equal(only.Sources, []string{SourcePortal}) || only.AuthProvider != "portal-auth-only" {
 			t.Fatalf("portal-only-3: %+v", only)
-		}
-		if !slices.IsSortedFunc(got, func(a, b Installation) int { return strings.Compare(a.Name, b.Name) }) {
-			t.Fatalf("entries not sorted by name: %+v", got)
 		}
 	}
 }
