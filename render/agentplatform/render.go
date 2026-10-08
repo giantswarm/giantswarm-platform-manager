@@ -323,8 +323,15 @@ func (in *Input) musterValues() render.Map {
 		e("existingSecret", musterOAuthSecret),
 		e("storage", render.Map{e("valkey", render.Map{e("existingSecret", musterValkeySecret)})}),
 	}
+	// The chat gateway's client_id is a metadata document served on
+	// agentgateway's hostname, which resolves to the internal load balancer on
+	// a private installation: muster's SSRF guard is lifted for that host
+	// alone (allowPrivateIPClientMetadataHosts, muster 5.35.0), every other
+	// private host keeps it.
 	if in.Installation.Private {
-		server = append(server, e("allowPrivateIPClientMetadata", true), e("allowPrivateIPRedirectURIs", true))
+		server = append(server,
+			e("allowPrivateIPClientMetadataHosts", []string{in.host("agentgateway")}),
+			e("allowPrivateIPRedirectURIs", true))
 	}
 	server = append(server, e("trustedAudiences", in.audiences()))
 	if in.portalGitHub() {

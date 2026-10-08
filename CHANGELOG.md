@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- agent-platform: on a private installation muster lifts its SSRF guard for a client's metadata document for agentgateway's hostname alone (`muster.muster.oauth.server.allowPrivateIPClientMetadataHosts`, muster 5.35.0 or later), where the chat gateway serves its client_id, instead of for every host (`allowPrivateIPClientMetadata: true`). The host list is a migration (M40): the bool on record is a planned removal, the list a planned addition, and an installation that already carries the list reads as defined. `allowPrivateIPRedirectURIs` is unchanged.
+
 ### Fixed
 
 - The installations registry keeps every fact of a catalog installation however many installations only the portal lists ([#452](https://github.com/giantswarm/giantswarm-platform-manager/issues/452)). The merge held pointers into the entries while appending the portal-only ones; once an append grew the slice, the portal's facts written afterwards (its source, auth provider, and the base domain, pipeline, provider and region the catalog leaves empty) landed on the old array and were missing from the registry. The portal-only entries are now appended before the index is built.
