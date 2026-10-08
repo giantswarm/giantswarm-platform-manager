@@ -2,6 +2,9 @@ package installations
 
 import (
 	"context"
+	"fmt"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -153,6 +156,63 @@ func TestParsePortalWithoutTheBlockIsAnError(t *testing.T) {
 	} {
 		if _, err := parsePortalConfig(data); err == nil {
 			t.Fatalf("parsed without gs.installations: %q", data)
+		}
+	}
+}
+
+// The portal's facts reach a catalog installation however many installations
+// only the portal lists: those grow the entries past their capacity, and a
+// catalog installation the merge reaches after that growth keeps every fact.
+// The portal is a map, so the order differs between runs; enough runs and
+// portal-only installations make the order that loses facts certain.
+func TestMergeKeepsTheFactsWhenThePortalOnlyInstallationsGrowTheEntries(t *testing.T) {
+	fixture, err := parseCatalog(catalogFixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	full, sparse := fixture[0], fixture[1]
+	portal := map[string]portalEntry{
+		full.Name:   {AuthProvider: "portal-auth-full", BaseDomain: "full.portal.test", Pipeline: "portal-pipeline", Providers: []string{"portal-provider"}, Region: "portal-region"},
+		sparse.Name: {AuthProvider: "portal-auth-sparse", BaseDomain: "sparse.portal.test", Pipeline: "portal-pipeline", Providers: []string{"portal-provider"}, Region: "portal-region"},
+	}
+	const portalOnly = 8
+	for i := range portalOnly {
+		portal[fmt.Sprintf("portal-only-%d", i)] = portalEntry{AuthProvider: "portal-auth-only"}
+	}
+	// The catalog's own facts stand; the portal adds its source and auth
+	// provider and fills only what the catalog leaves empty.
+	wantFull := full
+	wantFull.Sources = []string{SourceCatalog, SourcePortal}
+	wantFull.AuthProvider = portal[full.Name].AuthProvider
+	wantSparse := sparse
+	wantSparse.Sources = []string{SourceCatalog, SourcePortal}
+	wantSparse.AuthProvider = portal[sparse.Name].AuthProvider
+	wantSparse.BaseDomain = portal[sparse.Name].BaseDomain
+	wantSparse.Pipeline = portal[sparse.Name].Pipeline
+	wantSparse.Region = portal[sparse.Name].Region
+	for range 10 {
+		catalog, err := parseCatalog(catalogFixture)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := merge(slices.Clip(catalog), sparse.Name, portal)
+		if len(got) != len(fixture)+portalOnly {
+			t.Fatalf("installations: %d, want %d", len(got), len(fixture)+portalOnly)
+		}
+		if !slices.IsSortedFunc(got, func(a, b Installation) int { return strings.Compare(a.Name, b.Name) }) {
+			t.Fatalf("entries not sorted by name: %+v", got)
+		}
+		byName := map[string]Installation{}
+		for _, inst := range got {
+			byName[inst.Name] = inst
+		}
+		for _, want := range []Installation{wantFull, wantSparse} {
+			if got := byName[want.Name]; !reflect.DeepEqual(got, want) {
+				t.Fatalf("%s lost facts:\n got %+v\nwant %+v", want.Name, got, want)
+			}
+		}
+		if only := byName["portal-only-3"]; !slices.Equal(only.Sources, []string{SourcePortal}) || only.AuthProvider != "portal-auth-only" {
+			t.Fatalf("portal-only-3: %+v", only)
 		}
 	}
 }
