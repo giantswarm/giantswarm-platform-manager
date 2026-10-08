@@ -187,7 +187,8 @@ key is one, on every installation that runs kagent — the definition renders no
 it at commit: `WaitingForCustomer` until the Secret `kagent-anthropic-key` (key `ANTHROPIC_API_KEY`) exists in
 namespace `kagent` or a ModelConfig is added in the portal; the same step is the plan's customer action. The action names
 the live dimension it holds up (`live-model-configs`): the ModelConfig probe expects `Accepted=True` either
-way, and while the customer's move is pending the verify reads the installation as *waiting for the
+way, read in the group the record's chart line serves (`ModelConfig.api.kagent.dev` on the 4 line,
+`ModelConfig.kagent.dev` on the 3 line), which the action names too, and while the customer's move is pending the verify reads the installation as *waiting for the
 customer* rather than *drifted*.
 
 The goldens carry both as `probes.yaml` and `actions.yaml` per shape; `TestProbesAreLiveDimensions` holds every
