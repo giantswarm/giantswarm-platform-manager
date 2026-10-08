@@ -630,7 +630,9 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 	}
 	if semver != "" {
 		ops := comment + "- op: replace\n  path: /spec/ref/semver\n  value: " + fmt.Sprintf("%q", semver)
-		if in.ReleaseCandidates {
+		// The filter goes beside a range or a held release; a held development
+		// build is a tag the filter excludes, and the pin stands alone.
+		if in.ReleaseCandidates && releaseFilterAdmits(semver) {
 			ops += "\n- op: add\n  path: /spec/ref/semverFilter\n  value: " + fmt.Sprintf("%q", releaseTagFilter)
 		}
 		k.Patches = append(k.Patches, patch{

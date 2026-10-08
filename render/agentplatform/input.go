@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
 	"text/template"
 	"time"
 
+	semverlib "github.com/Masterminds/semver/v3"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"gopkg.in/yaml.v3"
 
@@ -848,6 +850,21 @@ func (in *Input) chartSemver() string {
 		return ">=4.0.0-0 <5.0.0-0"
 	}
 	return ">=4.0.0 <5.0.0"
+}
+
+// releaseTag is releaseTagFilter compiled: the tags the filter admits.
+var releaseTag = regexp.MustCompile(releaseTagFilter)
+
+// releaseFilterAdmits says whether the release tag filter has anything to
+// select beside the OCIRepository's semver: a range, or an exact version the
+// filter admits (a stable release or a candidate). An exact hold on a
+// development build (X.Y.Z-r<hash>t<time>h<sha>) is one the filter would
+// exclude, so Flux would resolve no tag at all: the pin is written alone.
+func releaseFilterAdmits(semver string) bool {
+	if _, err := semverlib.StrictNewVersion(strings.TrimPrefix(semver, "v")); err != nil {
+		return true
+	}
+	return releaseTag.MatchString(semver)
 }
 
 // holdComment is the comment a held version carries in the file: the reason

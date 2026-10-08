@@ -105,8 +105,10 @@ func PlatformExtrasKustomizationPath(name string) string {
 // readPrereleasesOnRecord says whether the installation follows the
 // platform's release candidates now: its extras kustomization on record
 // patches a semverFilter onto the agent-platform OCIRepository, which the
-// definition renders together with gitops.prereleases. No kustomization is
-// false, no error.
+// definition renders together with gitops.prereleases beside a range or a
+// held release. A hold on a development build carries no filter and reads
+// false: pinned exactly, nothing a dropped gitops.prereleases could move.
+// No kustomization is false, no error.
 func readPrereleasesOnRecord(ctx context.Context, read Reader, inst Installation) (bool, error) {
 	path := PlatformExtrasKustomizationPath(inst.Name)
 	data, err := read(ctx, inst.Repositories.ManagementClusters, path)
