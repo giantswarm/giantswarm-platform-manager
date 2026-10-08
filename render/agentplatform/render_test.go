@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"flag"
+	"fmt"
 	"io/fs"
 	"maps"
 	"os"
@@ -877,6 +878,49 @@ releaseCandidates:
 	var none policy
 	if none.releaseCandidates(Installation{CollectionsStage: "", Customer: giantswarm}) {
 		t.Error("a policy that names no stage runs release candidates on an installation with none on record")
+	}
+}
+
+// TestDevBuildHoldRendersNoReleaseFilter: where an installation runs the
+// platform's release candidates, the agent-platform OCIRepository carries the
+// release tag filter beside the range and beside a held range, release or
+// candidate; a hold on a development build gets the pin alone, since the
+// filter would exclude the pinned tag and the source would resolve nothing.
+func TestDevBuildHoldRendersNoReleaseFilter(t *testing.T) {
+	const kustomization = "management-clusters/graveler/extras/agent-platform/kustomization.yaml"
+	for _, c := range []struct {
+		name, hold string
+		filter     bool
+	}{
+		{"no hold: the candidates' range", "", true},
+		{"a held range", ">=4.100.0-0 <5.0.0-0", true},
+		{"a held stable release", "4.120.0", true},
+		{"a held candidate", "4.120.1-rc.1", true},
+		{"a held development build", "4.114.2-r7fb489f8t20261006104534h51a7470", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// The fixture holds the chart on a release; each case sets its own hold or none.
+			input, secrets := loadInput(t, shapeGiantswarmSlackAppPub)
+			delete(input, "versions")
+			if c.hold != "" {
+				input["versions"] = map[string]any{"chart": c.hold}
+			}
+			result, err := Render(input, secrets, render.ModeCommit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := string(result.Files[render.Repository("giantswarm/giantswarm-management-clusters")][kustomization].Content)
+			want := c.hold
+			if want == "" {
+				want = ">=4.0.0-0 <5.0.0-0"
+			}
+			if !strings.Contains(got, fmt.Sprintf("value: %q", want)) {
+				t.Fatalf("the OCIRepository patch does not pin %q:\n%s", want, got)
+			}
+			if has := strings.Contains(got, "/spec/ref/semverFilter"); has != c.filter {
+				t.Fatalf("release tag filter rendered %v, want %v:\n%s", has, c.filter, got)
+			}
+		})
 	}
 }
 
