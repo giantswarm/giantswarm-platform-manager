@@ -448,4 +448,43 @@ Installing it and keeping it current:
 - `make build-platformctl` — the CLI for this machine; CI cross-compiles it and attaches the binaries to
   the release (`go-build-platformctl` and `upload-platformctl` in `.circleci/custom.yml`).
 
+## Proving a release candidate
+
+A merge to `main` is tagged as a release candidate (`vX.Y.Z-rc.N`, a GitHub pre-release with the image,
+the chart and `platformctl-<os>-<arch>`) and promoted to the stable `vX.Y.Z`. The hub's manager follows
+stable releases only (its OCIRepository's semver `>=0.17.0 <1.0.0`), so no running manager dry-runs a
+candidate before its promote. The candidate's proof is offline:
+
+1. **The candidate's own CLI.** Build it at the tag (`git checkout vX.Y.Z-rc.N && make build-platformctl`),
+   or download `platformctl-<os>-<arch>` from the pre-release. `go install …@<tag>` does not build: the
+   module's `replace` directives refuse it.
+2. **The offline render of the management-clusters declarations.** Every agent-platform golden fileset is
+   rendered with that CLI and compared with the golden tree, byte for byte — no token, no network:
+
+   ```sh
+   for d in render/agentplatform/testdata/*/; do
+     [ -f "$d/input.yaml" ] || continue
+     ./platformctl template agent-platform --inputs "$d/input.yaml" --out "out/$(basename "$d")"
+     diff -r "out/$(basename "$d")" "$d/golden"
+   done
+   ```
+
+3. **The unit and golden tests** at the tag: `make test` (the render goldens of every definition among
+   them; `go test ./render/... -update` is never part of a proof), and `make test-chart` where `helm` is on
+   `PATH`.
+4. **The live dry run, where a manager follows candidates.** Where a manager serves the candidate (a
+   manager pinned to the RC's chart, a local lab), `platformctl installation reconcile <installation>
+   <capability> --dry-run` against it answers with no `commitRefused` and only the changes the candidate
+   intends.
+
+Proven means: every diff in step 2 is empty, `make test` passes, and a dry run of step 4, where one ran,
+shows only the intended changes. Once that proof is green, the promote runs as routine
+(`devctl release promote giantswarm/giantswarm-platform-manager`); no one is asked for it.
+
+No test installation's manager follows candidates today: the test installations' managers follow the same
+stable range as the hub and are claimed by other proving windows, so pointing one at the RC line would take
+those windows' manager from under them. An RC lane is a GitOps change of its own (an OCIRepository with a
+prerelease semver on one test installation's manager) and gets its own issue when it is wanted; until
+then the offline proof above is this repository's RC proof.
+
 Public repository: every fixture uses invented installation names and placeholder values.
