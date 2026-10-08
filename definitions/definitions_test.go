@@ -259,7 +259,7 @@ func TestInputSummary(t *testing.T) {
 		{customerPortal, "portal.domain", "the portal's hostname"},
 		{customerPortal, "portal.organization", "the organisation's name as the portal shows it"},
 		{customerPortal, "plugins.github.appId", "the GitHub App's id"},
-		{customerPortal, "chart.line", "the semver range the portal's OCIRepository follows"},
+		{customerPortal, "chart.line", "the chart line the portal's OCIRepository follows"},
 		{customerPortal, "portal.supportUrl", "where the home page's support link goes"},
 		{customerPortal, "federation.tokenBroker", ""},
 		{agentPlatform, "installation.federation.brokerClientId", "dex client id of the hub's token-exchange broker client"},

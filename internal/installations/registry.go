@@ -75,12 +75,25 @@ type Installation struct {
 	AuthProvider string `json:"authProvider,omitempty"`
 	// Hub marks the installation the manager runs on.
 	Hub bool `json:"hub"`
+	// Test marks one of Giant Swarm's own test installations
+	// (TestInstallation): the hub's organisation's, not the hub.
+	Test bool `json:"test"`
 	// Repositories are the installation's two GitOps repositories, from the
 	// catalog's links (types CCR and CMC). Empty when the catalog does not
 	// name them: the installation is then listed, but nothing of it is read.
 	Repositories Repositories `json:"repositories"`
 	// Sources names the registry sources the entry came from.
 	Sources []string `json:"sources"`
+}
+
+// TestInstallation says whether the installation name of customer is one of
+// Giant Swarm's own test installations: the hub's organisation's, not the
+// hub. The hub and every customer's installation are production. A wave
+// rolls the test installations first, an action on them alone needs no Team
+// review, and the customer-portal definition admits an exact chart version
+// on them alone.
+func TestInstallation(name, customer string, hub Installation) bool {
+	return name != hub.Name && customer == hub.Customer
 }
 
 // Repositories are the installation's GitOps repositories, owner/repo.
@@ -179,6 +192,9 @@ func Load(ctx context.Context, c *gh.Client, s Sources) (*Registry, error) {
 		if inst.Region == "" {
 			inst.Region = p.Region
 		}
+	}
+	for i := range entries {
+		entries[i].Test = TestInstallation(entries[i].Name, entries[i].Customer, *hub)
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
 	return &Registry{Hub: s.Hub, Catalog: s.Catalog, Portal: portal, Installations: entries}, nil

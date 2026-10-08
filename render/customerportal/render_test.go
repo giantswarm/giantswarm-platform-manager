@@ -551,7 +551,7 @@ func TestMissingChoicesCompareNeverRefuses(t *testing.T) {
 		refused string
 	}{
 		{"a portal not on record", notOnRecord, []string{"chart.line", "portal.domain", "portal.organization"},
-			"the semver range the portal's OCIRepository follows (chart.line), the portal's hostname (portal.domain) and the organisation's name as the portal shows it (portal.organization) are not on record; supply them under Apply changes"},
+			"the chart line the portal's OCIRepository follows (chart.line), the portal's hostname (portal.domain) and the organisation's name as the portal shows it (portal.organization) are not on record; supply them under Apply changes"},
 		{"one choice not on record", oneChoice, []string{"portal.organization"},
 			"the organisation's name as the portal shows it (portal.organization) is not on record; supply it under Apply changes"},
 	} {
@@ -727,7 +727,8 @@ func TestRefusals(t *testing.T) {
 		{"unknown top-level key", clone(func(m map[string]any) { m["colourScheme"] = "dark" }), secrets, ErrInput, "colourScheme"},
 		{"unknown nested key", clone(func(m map[string]any) { m["portal"].(map[string]any)["replicas"] = 3 }), secrets, ErrInput, "replicas"},
 		{"unknown plugin", clone(func(m map[string]any) { m["plugins"].(map[string]any)["jenkins"] = map[string]any{enabledKey: true} }), secrets, ErrInput, "jenkins"},
-		{"chart line not a range", clone(func(m map[string]any) { m["chart"].(map[string]any)["line"] = "2.1.0" }), secrets, ErrInput, "line"},
+		{"chart line of neither form", clone(func(m map[string]any) { m["chart"].(map[string]any)["line"] = "latest" }), secrets, ErrInput, "line"},
+		{"exact version on a production installation", clone(func(m map[string]any) { m["chart"].(map[string]any)["line"] = devBuildTag }), secrets, ErrInput, inputChartLine},
 		{"github with the app id as an input", clone(func(m map[string]any) { m["plugins"].(map[string]any)["github"].(map[string]any)["appId"] = 123456 }), secrets, ErrInput, fieldGitHubAppID},
 		{"github without its app id", base, without(secrets, fieldGitHubAppID), ErrEmptySecret, fieldGitHubAppID},
 		{"app id not a number", base, with(secrets, fieldGitHubAppID, "one"), ErrInput, fieldGitHubAppID},
@@ -753,6 +754,7 @@ func TestRefusals(t *testing.T) {
 	// Every refusal reads as one sentence: what the input is, its key, what
 	// is wrong and what supplies it.
 	reasons := map[string]string{
+		inputChartLine:             exactLineRefusal,
 		inputGrafanaDomain:         "the installation's own Grafana (plugins.grafana.domain) is no input; it is derived from installation.baseDomain",
 		"installation.providers":   "the providers the installation's entry lists (installation.providers) do not include the installation's own provider capz; the installations registry supplies them",
 		"federation.installations": "the other installations the portal shows (federation.installations) name maple, the portal's own installation or one listed twice; list each other installation once under Apply changes",
@@ -768,6 +770,65 @@ func TestRefusals(t *testing.T) {
 			}
 			if want := reasons[c.names]; want != "" && render.Reason(err) != want {
 				t.Errorf("reads %q, want %q", render.Reason(err), want)
+			}
+		})
+	}
+}
+
+// The chart line's forms: the release range every installation follows, and
+// the exact version a test installation pins (a development tag); both are
+// written as the OCIRepository's semver.
+const (
+	releaseRange = ">=0.244.7 <1.0.0"
+	devBuildTag  = "2.92.0-r0123abcdt20261001000000h0abc1234"
+	// exactLineRefusal is the refusal of the exact form off a test
+	// installation: it names both forms and where each applies.
+	exactLineRefusal = "the chart line the portal's OCIRepository follows (chart.line) is " + devBuildTag + ", an exact version, and maple is no test installation; write a release range (>=A <B): an exact version or development tag (A.B.C-<build>) pins the portal on one of Giant Swarm's test installations alone"
+)
+
+// A portal's chart line is a release range on every installation; on one of
+// Giant Swarm's test installations (installation.test) it may also be an
+// exact version — the development tag a test window pins — written as the
+// OCIRepository's semver as the range is. The exact form off a test
+// installation is refused naming both forms.
+func TestChartLineFormsPerInstallation(t *testing.T) {
+	base, secrets := loadInput(t, "customer-portal")
+	for _, tc := range []struct {
+		name    string
+		test    bool
+		line    string
+		refused string
+	}{
+		{"a release range on a production installation", false, releaseRange, ""},
+		{"a release range on a test installation", true, releaseRange, ""},
+		{"a development tag on a test installation", true, devBuildTag, ""},
+		{"an exact release on a test installation", true, "0.244.7", ""},
+		{"a development tag on a production installation", false, devBuildTag, exactLineRefusal},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var input map[string]any
+			b, _ := yaml.Marshal(base)
+			_ = yaml.Unmarshal(b, &input)
+			input["installation"].(map[string]any)["test"] = tc.test
+			input["chart"].(map[string]any)["line"] = tc.line
+			result, err := Render(input, secrets, render.ModeCommit)
+			if tc.refused != "" {
+				if !errors.Is(err, ErrInput) || render.Reason(err) != tc.refused {
+					t.Fatalf("got %v, want %q", err, tc.refused)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			var kustomization string
+			for name, content := range result.Tree() {
+				if strings.HasSuffix(filepath.ToSlash(name), "/extras/backstage/backstage/kustomization.yaml") {
+					kustomization = string(content)
+				}
+			}
+			if !strings.Contains(kustomization, "path: /spec/ref/semver") || !strings.Contains(kustomization, tc.line) {
+				t.Fatalf("the OCIRepository patch does not carry %q as the semver:\n%s", tc.line, kustomization)
 			}
 		})
 	}

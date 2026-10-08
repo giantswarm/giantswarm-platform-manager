@@ -121,7 +121,7 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	}
 	spec := actions.Spec{Actor: actions.Actor{Login: id.Login, ID: id.ID, Email: id.Email}, Capability: out.Capability, Installations: []string{one}, Inputs: inputs, Kind: kind,
 		InputsByInstallation: map[string]map[string]any{one: inputs}, Customer: env.byName[one].Customer != env.hub.Customer, AccountEngineers: accountEngineers(env, one), AccountEngineerOf: accountEngineerOf(env, one), Reason: reason, Markers: markersOf(def, env, one), Rotate: rotateArg(args)}
-	test := testInstallation(one, env.byName[one].Customer, env.hub)
+	test := installations.TestInstallation(one, env.byName[one].Customer, env.hub)
 	if err := t.standupRefusal(tool, test); err != nil {
 		return nil, err
 	}

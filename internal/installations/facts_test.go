@@ -20,7 +20,7 @@ func TestFactsPerDefinition(t *testing.T) {
 		Record:       &Record{Name: fixtureInstallation, BaseDomain: "maple.acme.example.test", Customer: "acme", Provider: "capz", ChartLine: "4", MusterClientID: "muster-maple", DexAppVersion: pinnedDexApp},
 		Capabilities: []CapabilityState{{Name: AgentPlatform, Enabled: true}, {Name: CustomerPortal, Enabled: false}}}
 	all := r.Facts()
-	if all[agentPlatformFact] != true || all["customerPortal"] != false || all["region"] != "example-region-1" || all["chartLine"] != "4" || all["hub"] != true {
+	if all[agentPlatformFact] != true || all["customerPortal"] != false || all["region"] != "example-region-1" || all["chartLine"] != "4" || all["hub"] != true || all["test"] != false {
 		t.Fatalf("all facts: %v", all)
 	}
 	// Every definition takes these; each adds its own.
@@ -30,7 +30,7 @@ func TestFactsPerDefinition(t *testing.T) {
 	}
 	want := map[string][]string{
 		AgentPlatform:     facts("chartLine", "dexAppVersion", "hub", "musterClientId", "podCertificateRequest", "portalClientSecret", "private", "provider"),
-		CustomerPortal:    facts("pipeline", "provider", "region"),
+		CustomerPortal:    facts("pipeline", "provider", "region", "test"),
 		ClusterMCPServers: facts("dexAppVersion"),
 	}
 	for _, c := range Capabilities() {

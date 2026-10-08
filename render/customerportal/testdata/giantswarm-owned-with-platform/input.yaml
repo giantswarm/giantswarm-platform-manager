@@ -1,4 +1,6 @@
-# A Giant Swarm-owned portal on the 2.x chart line with the agent platform
+# A Giant Swarm-owned portal on one of its test installations, pinned to a
+# development build of the 2.x chart line for a test window (the exact form
+# of chart.line a test installation admits), with the agent platform
 # enabled (the platform's Component listed, the Dex client carried by the
 # agent-platform definition) and handed over: the Component's fragment on
 # record owns the portal's lists, so the app-config includes the shared list
@@ -15,6 +17,7 @@ input:
     region: example-region-2
     pipeline: testing
     agentPlatform: true
+    test: true
   portal:
     domain: portal.hazel.example.test
     title: Example Portal
@@ -22,7 +25,7 @@ input:
     supportUrl: https://support.example.test/
     telemetrydeckAppId: 00000000-0000-4000-8000-000000000001
   chart:
-    line: ">=2.1.0 <3.0.0"
+    line: "2.92.0-r0123abcdt20261001000000h0abc1234"
   plugins:
     github:
       enabled: true
