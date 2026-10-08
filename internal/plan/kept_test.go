@@ -53,7 +53,18 @@ const currentPlatformPatchKept = `kagent:
   controller:
     nodeSelector:
       karpenter.sh/capacity-type: on-demand
+    volumes:
+      - name: cnpg-dsn
+        secret:
+          secretName: kagent-pg-kagent-v3-app
+  harnesses:
+    - name: claude
+      runtime: claude
 postgres:
+  databases:
+    # the controller refuses the kagent_v2 schema
+    kagent-v3:
+      name: kagent_v3
   affinity:
     podAntiAffinityType: preferred
     nodeSelector:
@@ -101,7 +112,10 @@ func TestKeepAudiencesCarriesTheKeptKeysFromTheRecord(t *testing.T) {
 		"kagent.modelConfigs",
 		"kagent.oauth2ProxyIngress.additionalPeers",
 		"kagent.controller.nodeSelector",
+		"kagent.controller.volumes",
+		"kagent.harnesses",
 		"postgres.affinity.nodeSelector",
+		"postgres.databases.kagent-v3.name",
 	} {
 		if at(ren, strings.Split(path, ".")...) == nil {
 			t.Errorf("%s: not carried into the render:\n%s", path, out)
@@ -116,8 +130,10 @@ func TestKeepAudiencesCarriesTheKeptKeysFromTheRecord(t *testing.T) {
 	if n := at(ren, "kagent", "providers", "anthropic", "apiKeySecretRef"); n == nil || n.Value != "kagent-anthropic-key" {
 		t.Errorf("the render's own leaf under a kept path's parent is untouched, got %v", n)
 	}
-	if !strings.Contains(string(out), "# the installation's own pick") {
-		t.Errorf("the record's comment goes with the kept key:\n%s", out)
+	for _, comment := range []string{"# the installation's own pick", "# the controller refuses the kagent_v2 schema"} {
+		if !strings.Contains(string(out), comment) {
+			t.Errorf("the record's comment goes with the kept key %q:\n%s", comment, out)
+		}
 	}
 	callers := at(ren, "klausGateway", "reviews", "allowedCallers")
 	if callers == nil || len(callers.Content) != 2 || callers.Content[1].Value != "system:serviceaccount:marge:marge-shield-sweep" {
@@ -135,6 +151,9 @@ func TestKeepAudiencesCarriesTheKeptKeysFromTheRecord(t *testing.T) {
 		{List: "muster.muster.oauth.server", Entry: "providerTokenRefreshThreshold"},
 		{List: "kagent.controller", Entry: "nodeSelector"},
 		{List: "postgres", Entry: "affinity"},
+		{List: "postgres", Entry: "databases"},
+		{List: "kagent.controller", Entry: "volumes"},
+		{List: kagentKey, Entry: "harnesses"},
 	}
 	for _, w := range want {
 		if !slices.Contains(kept, w) {
@@ -176,7 +195,7 @@ func TestKeepSubtreesLeavesTheRendersOwnKeyAndAPathThroughAScalar(t *testing.T) 
 }
 
 func TestKeptPlatformKeysReadTheDefinition(t *testing.T) {
-	for _, want := range []string{"muster.muster.oauth.server.trustedIssuers", "kagent.oauth2ProxyIngress", "muster.muster.oauth.server.dex.connectorId", "muster.muster.oauth.server.providerTokenRefreshThreshold", "kagent.controller.nodeSelector", "postgres.affinity", "kagent.providers.annotations"} {
+	for _, want := range []string{"muster.muster.oauth.server.trustedIssuers", "kagent.oauth2ProxyIngress", "muster.muster.oauth.server.dex.connectorId", "muster.muster.oauth.server.providerTokenRefreshThreshold", "kagent.controller.nodeSelector", "postgres.affinity", "kagent.providers.annotations", "postgres.databases", "kagent.controller.volumes", "kagent.harnesses"} {
 		if !slices.Contains(keptPlatformKeys, want) {
 			t.Errorf("the agent-platform definition keeps %s; kept keys: %v", want, keptPlatformKeys)
 		}
