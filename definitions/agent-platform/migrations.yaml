@@ -18,6 +18,11 @@
 #
 # The M numbers are the wave-1 migration list's (M1–M11) and continue removals.yaml's (M30…).
 migrations:
+  # --- M40 — muster's SSRF guard for a client's metadata document is lifted for agentgateway's host alone ---
+  # The chat gateway's client_id is a metadata document on agentgateway's hostname, which resolves to the
+  # internal load balancer on a private installation; the bool lifted the guard for every host.
+  - key: configmap:muster.muster.oauth.server.allowPrivateIPClientMetadataHosts
+    reason: "Added: on a private installation muster fetches a client's metadata document from a private address for agentgateway's hostname alone (allowPrivateIPClientMetadataHosts, muster 5.35.0 or later), where the chat gateway serves its client_id; every other private host keeps the SSRF guard that allowPrivateIPClientMetadata lifted for all of them · M40"
   # --- M39 — a rotated kagent client or cookie secret rolls kagent's oauth2-proxy ---
   # The oauth2-proxy reads both from kagent-oauth2-proxy-credentials once, at start; kagent's revision is one
   # generated value held by that Secret and the revision Secret in the Flux namespace, which the kagent

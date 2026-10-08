@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- agent-platform: on a private installation muster lifts its SSRF guard for a client's metadata document for agentgateway's hostname alone (`muster.muster.oauth.server.allowPrivateIPClientMetadataHosts`, muster 5.35.0 or later), where the chat gateway serves its client_id, instead of for every host (`allowPrivateIPClientMetadata: true`). The host list is a migration (M40): the bool on record is a planned removal, the list a planned addition, and an installation that already carries the list reads as defined. `allowPrivateIPRedirectURIs` is unchanged.
+
 ### Fixed
 
 - customer-portal: a portal on one of Giant Swarm's test installations may pin a development build. `chart.line` admits an exact version next to the release range `>=A <B` — the development tag a dev build publishes, `A.B.C-<build>`, written as the OCIRepository's `semver` like the range — on an installation the registry classes as a test installation (`installation.test`: the hub's organisation's, not the hub; a new fact of every installation). A production installation takes the range alone: the exact form is refused there naming both forms. Before, the schema refused the pinned tag everywhere, so a test window's portal could not be compared or reconciled.
