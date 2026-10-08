@@ -82,6 +82,21 @@ removals:
     reason: >-
       Kept: the platform Postgres instances are pinned to on-demand nodes here, since a spot reclaim evicts an instance and its failover restarts the
       kagent controller; it stays until the singletons' placement choice covers the Postgres instances
+  - key: configmap:postgres.databases
+    kind: kept
+    reason: >-
+      Kept: the platform Postgres carries the installation's own databases here, kagent's fresh one among them (kagent_v3, since the api.kagent.dev
+      controller refuses the kagent_v2 schema); they stay until the meta chart names the database kagent uses in one value and the definition renders it
+  - key: configmap:kagent.controller.volumes
+    kind: kept
+    reason: >-
+      Kept: the kagent controller mounts its database's connection string here (the Secret of the fresh database, kagent-pg-kagent-v3-app); without it
+      the controller falls back to kagent_v2 and refuses its schema, so the mount stays with the fresh database until the meta chart derives it
+  - key: configmap:kagent.harnesses
+    kind: kept
+    reason: >-
+      Kept: kagent's Harnesses (the runtimes an Agent names, Claude Code for the coding agents) are declared here; they stay until the definition
+      renders them from an input or the shared defaults carry them
   - key: configmap:muster.muster.oauth.server.dex.connectorId
     kind: kept
     reason: "Kept: muster's Dex login connector is pinned here; the shared defaults pick one connector for every Giant Swarm installation, which this installation's Dex may lack, so the pin stays until they choose per installation · M27"
