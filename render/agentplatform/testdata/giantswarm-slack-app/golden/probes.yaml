@@ -181,7 +181,7 @@
   feature: runtime
   kind: Condition
   namespace: kagent
-  resource: ModelConfig.kagent.dev
+  resource: ModelConfig.api.kagent.dev
   name: default-model-config
   expect:
     condition: Accepted

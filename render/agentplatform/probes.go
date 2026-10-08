@@ -124,9 +124,35 @@ const (
 	modelKeySecretKey = "ANTHROPIC_API_KEY"    // #nosec G101 -- a Secret key name, not a value
 	modelKeyActionID  = "model-key"
 	modelKeyDimension = "live-model-configs"
-	modelKeyNote      = "Create Secret " + modelKeySecret + " in namespace " + kagentNamespace + " with key " + modelKeySecretKey + ", or add a ModelConfig in the portal; until then default-model-config stays Accepted=False."
 	modelKeyWhy       = "the model key is the installation's own: the definition references the Secret and renders no value for it, and no value is supplied at commit; until the Secret exists the verify reads the runtime feature as waiting for the customer"
+	// defaultModelConfig is the ModelConfig kagent's chart renders from the
+	// provider values, the one the model key is wired to.
+	defaultModelConfig = "default-model-config"
 )
+
+// The ModelConfig resource each meta chart line's kagent serves: the 4 line's
+// chart renders its catalog at api.kagent.dev/v1alpha3, the 3 line's kagent
+// still serves the kagent.dev group.
+const (
+	modelConfigResourceFour  = "ModelConfig.api.kagent.dev"
+	modelConfigResourceThree = "ModelConfig.kagent.dev"
+)
+
+// modelConfigResource is the ModelConfig resource of the line the record
+// selects: the probe and the customer action name the group kagent serves
+// there, never one a hand-made object merely lingers in.
+func (in *Input) modelConfigResource() string {
+	if in.Installation.ChartLine == lineFour {
+		return modelConfigResourceFour
+	}
+	return modelConfigResourceThree
+}
+
+// modelKeyNote is the model key step, naming the default ModelConfig by the
+// resource the installation's line serves.
+func (in *Input) modelKeyNote() string {
+	return "Create Secret " + modelKeySecret + " in namespace " + kagentNamespace + " with key " + modelKeySecretKey + ", or add a ModelConfig in the portal; until then " + defaultModelConfig + " (" + in.modelConfigResource() + ") stays Accepted=False."
+}
 
 // actions are what a person outside the platform team still has to do for the
 // installation to work as rendered: the model key, wherever kagent runs.
@@ -134,7 +160,7 @@ func (in *Input) actions() []render.Action {
 	if !in.kagent() {
 		return nil
 	}
-	return []render.Action{{ID: modelKeyActionID, Feature: featureRuntime, State: render.WaitingForCustomer, Dimension: modelKeyDimension, Note: modelKeyNote}}
+	return []render.Action{{ID: modelKeyActionID, Feature: featureRuntime, State: render.WaitingForCustomer, Dimension: modelKeyDimension, Note: in.modelKeyNote()}}
 }
 
 // platformWorkloadsDimension is the live dimension of the Deployments that
@@ -156,12 +182,13 @@ func (in *Input) helmReleases() []string {
 	return names
 }
 
-// modelConfigProbe is the default ModelConfig's Accepted condition, True. The
-// note says whose move a False is, and the model-key action (actions) names
-// this dimension: until the person acts it reads waiting for the customer,
-// not drifted.
+// modelConfigProbe is the default ModelConfig's Accepted condition, True, in
+// the group the installation's line serves (modelConfigResource). The note
+// says whose move a False is, and the model-key action (actions) names this
+// dimension: until the person acts it reads waiting for the customer, not
+// drifted.
 func (in *Input) modelConfigProbe() render.Probe {
-	p := conditionProbe(modelKeyDimension, featureRuntime, kagentNamespace, "ModelConfig.kagent.dev", "default-model-config", "Accepted", conditionTrue)
+	p := conditionProbe(modelKeyDimension, featureRuntime, kagentNamespace, in.modelConfigResource(), defaultModelConfig, "Accepted", conditionTrue)
 	p.Expect.Note = "waiting for the customer's model key (Secret " + modelKeySecret + ", key " + modelKeySecretKey + ", or a ModelConfig in the portal)"
 	return p
 }

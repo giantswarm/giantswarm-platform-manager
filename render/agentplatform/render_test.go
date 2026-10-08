@@ -232,6 +232,54 @@ func TestGoldensCoverBothLines(t *testing.T) {
 	}
 }
 
+// The default ModelConfig is read in the group the installation's line
+// serves, and the model-key action and the plan's customer action name it:
+// the 4 line's kagent renders its catalog at api.kagent.dev, the 3 line's at
+// kagent.dev. A shape without kagent renders neither.
+func TestModelConfigProbeFollowsTheLine(t *testing.T) {
+	want := map[string]string{lineFour: "ModelConfig.api.kagent.dev", lineThree: "ModelConfig.kagent.dev"}
+	covered := map[string]bool{}
+	for _, shape := range shapes {
+		input, secrets := loadInput(t, shape)
+		in, err := Parse(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := Render(input, secrets, render.ModeCommit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resource := want[in.Installation.ChartLine]
+		var probed []string
+		for _, p := range result.Probes {
+			if p.ID == modelKeyDimension {
+				probed = append(probed, p.Resource)
+			}
+		}
+		if !in.kagent() {
+			if len(probed) > 0 || len(result.Actions) > 0 || len(in.CustomerActions()) > 0 {
+				t.Errorf("%s: no kagent, and probes %v, actions %v", shape, probed, result.Actions)
+			}
+			continue
+		}
+		covered[in.Installation.ChartLine] = true
+		if len(probed) != 1 || probed[0] != resource {
+			t.Errorf("%s (line %s): the %s probe reads %v, want %s", shape, in.Installation.ChartLine, modelKeyDimension, probed, resource)
+		}
+		if len(result.Actions) != 1 || !strings.Contains(result.Actions[0].Note, "("+resource+")") {
+			t.Errorf("%s (line %s): the actions %+v do not name %s", shape, in.Installation.ChartLine, result.Actions, resource)
+		}
+		if ca := in.CustomerActions(); len(ca) != 1 || !strings.Contains(ca[0].Action, "("+resource+")") {
+			t.Errorf("%s (line %s): the customer actions %+v do not name %s", shape, in.Installation.ChartLine, ca, resource)
+		}
+	}
+	for line := range want {
+		if !covered[line] {
+			t.Errorf("no golden shape runs kagent on the %s line", line)
+		}
+	}
+}
+
 // The probe of the API Agent Substrate needs renders where kagent runs on the
 // 4 line and nowhere else: a 4-line shape the plan lets through has the
 // record saying yes, and the probe reads the apiserver for it; a 3-line
