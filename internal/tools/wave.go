@@ -104,7 +104,7 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		if env.byName[p.Name].Customer != env.hub.Customer {
 			spec.Customer = true
 		}
-		test = test && testInstallation(p.Name, env.byName[p.Name].Customer, env.hub)
+		test = test && installations.TestInstallation(p.Name, env.byName[p.Name].Customer, env.hub)
 		changes = append(changes, p.Name+": "+changeSummary(p))
 		rollout.Installations = append(rollout.Installations, actions.InstallationRollout{Name: p.Name, State: actions.StatePendingApproval, Message: fmt.Sprintf("stage %d of %d", i+1, len(targets))})
 	}

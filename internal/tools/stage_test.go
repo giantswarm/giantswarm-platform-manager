@@ -13,23 +13,11 @@ const (
 	stAlice = "alice"
 )
 
-// A test installation is the hub's customer's and not the hub: the wave's
-// first stage. The hub and every customer's installation are production.
+// The wave's order puts the test installations (the hub's customer's, not
+// the hub: installations.TestInstallation) first, then the hub, then the
+// customers' installations.
 func TestTestInstallationIsTheWavesFirstStage(t *testing.T) {
 	hub := installations.Installation{Name: rtHub, Customer: rtOwnCustomer}
-	for _, tc := range []struct {
-		name, customer string
-		want           bool
-	}{
-		{rtGarm, rtOwnCustomer, true},
-		{rtHub, rtOwnCustomer, false},
-		{rowan, stAcme, false},
-	} {
-		if got := testInstallation(tc.name, tc.customer, hub); got != tc.want {
-			t.Errorf("testInstallation(%s of %s) = %v, want %v", tc.name, tc.customer, got, tc.want)
-		}
-	}
-	// The wave's order puts the test installations first, by the same rule.
 	order := waveOrder([]installations.Report{{Installation: installations.Installation{Name: rowan, Customer: stAcme}}, {Installation: installations.Installation{Name: rtHub, Customer: rtOwnCustomer}}, {Installation: installations.Installation{Name: rtGarm, Customer: rtOwnCustomer}}}, hub)
 	if order[0].Name != rtGarm || order[1].Name != rtHub || order[2].Name != rowan {
 		t.Fatalf("wave order: %s, %s, %s", order[0].Name, order[1].Name, order[2].Name)

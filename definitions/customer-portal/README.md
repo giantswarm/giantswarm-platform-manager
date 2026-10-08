@@ -32,10 +32,16 @@ Key paths in `x-renders`, `removals.yaml` and `migrations.yaml` are normalised: 
 ## Rules the inputs encode
 
 - The installation facts (`installation.*`) are read, never typed: the codename, base domain, provider, region,
-  pipeline and whether the agent platform is enabled come from the installations registry; a federated
+  pipeline, whether the agent platform is enabled and whether this is one of Giant Swarm's own test installations
+  (`installation.test`: the hub's organisation's, not the hub) come from the installations registry; a federated
   installation's entry (`federation.installations[*]`) carries the same kind of facts, whether it runs the agent
   platform among them. Every hostname of the fileset other than the portal's own derives from them; the
   portal's is `portal.domain`.
+- The chart line (`chart.line`) is the release range `>=A <B` the portal's OCIRepository follows, patched over the
+  fleet base's tag as its `semver`. On a test installation it may instead be an exact version — the development
+  tag a dev build publishes, `A.B.C-<build>` — pinning the portal to that build for a test window, written as the
+  OCIRepository's `semver` like the range. A production installation takes the range alone: the exact form is
+  refused there naming both forms, so a test window never reaches a customer's portal.
 - The dex-app configmap patch of an installation is one file with several owners: a definition owns the
   clients it renders and nothing else. Without the platform this definition renders the patch with the portal's
   client. With the platform enabled (`installation.agentPlatform`) the agent-platform definition renders it and

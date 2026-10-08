@@ -12,6 +12,25 @@ const (
 	acmeMCs     = "example/acme-management-clusters"
 )
 
+// A test installation is the hub's organisation's and not the hub; the hub
+// and every customer's installation are production.
+func TestTestInstallationIsTheHubsOrganisationsNotTheHub(t *testing.T) {
+	const hubName, own, theirs = "oak", "umbrella", "acme"
+	hub := Installation{Name: hubName, Customer: own}
+	for _, tc := range []struct {
+		name, customer string
+		want           bool
+	}{
+		{"garm", own, true},
+		{hubName, own, false},
+		{"birch", theirs, false},
+	} {
+		if got := TestInstallation(tc.name, tc.customer, hub); got != tc.want {
+			t.Errorf("TestInstallation(%s of %s) = %v, want %v", tc.name, tc.customer, got, tc.want)
+		}
+	}
+}
+
 // The catalog fixture: two installations of invented customers and a Group
 // the parser skips.
 const catalogFixture = `---

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -75,6 +76,15 @@ const chatProviderVertex = "vertex"
 // input the render derives, refused when the document sets it.
 const inputGrafanaDomain = "plugins.grafana.domain"
 
+// inputChartLine is the portal chart's line.
+const inputChartLine = "chart.line"
+
+// chartLineExact is the exact form of the chart line: a version, the
+// development tag a dev build publishes (A.B.C-<build>) among them, which
+// pins the portal on one of Giant Swarm's test installations. The range form
+// (>=A <B) is every installation's; the schema admits no other.
+var chartLineExact = regexp.MustCompile(`^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$`)
+
 // federationField is the supplied field of a federated installation's or the
 // broker's client credential.
 func federationField(name, suffix string) string { return "federation." + name + suffix }
@@ -111,6 +121,9 @@ type Installation struct {
 	Region        string   `json:"region"`
 	Pipeline      string   `json:"pipeline"`
 	AgentPlatform bool     `json:"agentPlatform"`
+	// Test says this is one of Giant Swarm's own test installations, where
+	// the chart line may pin an exact version.
+	Test bool `json:"test"`
 }
 
 // Portal is the portal as the person names it.
@@ -169,7 +182,8 @@ type PlatformSection struct {
 	AppConfig       map[string]any `json:"appConfig"`
 }
 
-// Chart is the portal chart's release range.
+// Chart is the portal chart's line: the release range it follows, or on a
+// test installation the exact version it is pinned to (checkChartLine).
 type Chart struct {
 	Line string `json:"line"`
 }
@@ -315,6 +329,9 @@ func (in *Input) check(secrets map[string]string, mode render.Mode) error {
 	if !slices.Contains(in.Installation.Providers, in.Installation.Provider) {
 		return refuse(ErrInput, describe("installation.providers")+" do not include the installation's own provider "+in.Installation.Provider+"; the installations registry supplies them")
 	}
+	if err := in.checkChartLine(); err != nil {
+		return err
+	}
 	if err := in.checkFederation(); err != nil {
 		return err
 	}
@@ -346,6 +363,17 @@ func appIDSupplied(value string) bool {
 	}
 	n, err := strconv.Atoi(value)
 	return err == nil && n > 0
+}
+
+// checkChartLine applies the chart line's rule per installation: the exact
+// form pins the portal on one of Giant Swarm's test installations alone, and
+// its refusal elsewhere names both forms. A line of neither form the schema
+// refused already; a missing line carries its marker and is no exact version.
+func (in *Input) checkChartLine() error {
+	if in.Installation.Test || !chartLineExact.MatchString(in.Chart.Line) {
+		return nil
+	}
+	return refuse(ErrInput, describe(inputChartLine)+" is "+in.Chart.Line+", an exact version, and "+in.Installation.Name+" is no test installation; write a release range (>=A <B): an exact version or development tag (A.B.C-<build>) pins the portal on one of Giant Swarm's test installations alone")
 }
 
 // checkFederation applies the federation's rules: every listed installation
