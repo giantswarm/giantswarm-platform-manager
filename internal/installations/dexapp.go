@@ -95,6 +95,22 @@ func readDexAppVersion(ctx context.Context, read refReader, inst Installation, c
 	return v, v.check()
 }
 
+// DexAppVersionIn reads the dex-app installation name runs from kustomization,
+// the content of its collections kustomization in the management-clusters
+// repository: the installation's own pin, or the fleet base's App read
+// through read where it pins none. A checkout's copy reads the same as the
+// record (platformctl installation dex-split reads one).
+func DexAppVersionIn(ctx context.Context, read func(ctx context.Context, repository, path, ref string) (string, error),
+	name, repository, kustomization string,
+) (DexAppVersion, error) {
+	var k collectionsKustomization
+	if err := yaml.Unmarshal([]byte(kustomization), &k); err != nil {
+		return DexAppVersion{}, fmt.Errorf("the dex-app on record: %s in %s: decode: %w", CollectionsKustomizationPath(name), repository, err)
+	}
+	inst := Installation{Name: name, Repositories: Repositories{ManagementClusters: repository}}
+	return readDexAppVersion(ctx, read, inst, collections{found: true, kustomization: k})
+}
+
 // check refuses a version that is no semantic version: the record says
 // nothing a prerequisite can be compared against.
 func (v DexAppVersion) check() error {

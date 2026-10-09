@@ -405,6 +405,41 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
   answer read out of the document `call_tool` returns. A manager you have not connected yet answers with
   its sign-in URL and exit code 3; `muster auth login --server giantswarm-platform-manager` is the same
   sign-in.
+- `platformctl installation dex-split <installation> --configs <checkout> --management-clusters <checkout>
+  [--vault sops|beekeeper] [--hub <mc> --hub-management-clusters <checkout>] [--write]` is the laptop
+  side of the encrypted-list gate (`DexSecretRefusal`), and it calls no muster. An installation whose encrypted
+  `installations/<mc>/apps/dex-app/secret-values.yaml.patch` carries `oidc.extraStaticClients`, the
+  authenticator's `trustedPeers` or a built-in client's inline `clientSecret` is moved into the shape the
+  definitions render, in two changes merged in order with Dex checked between them:
+  1. **management-clusters:** one SOPS Secret per inline secret (namespace `giantswarm`, key `secret`)
+     at the definitions' path, listed in its kustomization. The paths are
+     `extras/agent-platform/secrets/` for muster, kagent and `muster-*`, `extras/mcp-<x>/` for `mcp<X>`,
+     and the portal's `extras/backstage/backstage/dex-client-backstage-secret.enc.yaml`. Any other
+     client goes to `extras/dex/`, which the split lists in the extras kustomization.
+  2. **configs:** after `flux-extras` has applied those Secrets. The plaintext `configmap-values.yaml.patch`
+     lists every client with `clientSecretRef`/`secretRef` and the `trustedPeers`. The encrypted patch
+     loses the lists and the moved secrets and keeps the rest, such as the authenticator's own secret
+     and the login connectors.
+
+  Ids, names, redirect URIs, `public` flags, peers and values never change. Without `--write` the
+  command is a dry run, and it prints only key paths, files and the configuration fields the plaintext
+  patch carries anyway:
+  - per client: the source key path, the destination file and Secret, and the plaintext entry
+  - what the encrypted patch drops and keeps
+  - the token-exchange pairing
+  - the files per repository
+
+  A split installation reports nothing to do, and a re-run after `--write` changes nothing. A run
+  that stopped half-way is completed by the next: a Secret already present with the same value stays,
+  one with another value is refused. dex-app older than 3.2.2 is refused, naming the pin to add to the
+  collections kustomization. `--hub` and `--hub-management-clusters` compare the
+  `muster-token-exchange-<mc>` value with the hub's `<mc>-token-exchange-credentials`, which must stay
+  one value; `--write` refuses when they differ.
+
+  `--vault sops` (the default, a person) runs the local sops with the person's age identity.
+  `--vault beekeeper` (an agent) moves each value with `beekeeper secret copy` and compares with
+  `beekeeper secret compare`, so no value reaches the agent. Until beekeeper can reveal declared
+  configuration fields and unset keys, the agent's dry run is keys only and `--write` needs a person.
 
 Installing it and keeping it current:
 

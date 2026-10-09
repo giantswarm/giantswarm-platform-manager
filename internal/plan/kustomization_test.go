@@ -30,7 +30,7 @@ func TestListEntry(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, changed, err := listEntry([]byte(tc.current), tc.list, tc.entry)
+			got, changed, err := ListEntry([]byte(tc.current), tc.list, tc.entry)
 			if (err != nil) != tc.err {
 				t.Fatalf("error %v", err)
 			}
