@@ -72,7 +72,7 @@ func TestSOPSVaultUnsetAndReveal(t *testing.T) {
 		return []byte("oidc:\n  extraStaticClients:\n    - id: kagent\n      secret: the-value\n"), nil
 	})
 	v, _ := NewVault(VaultSOPS, run)
-	if err := v.Unset(context.Background(), "/r/p.yaml.patch", []string{"oidc.extraStaticClients", "oidc.staticClients.muster"}); err != nil {
+	if err := v.Unset(context.Background(), "/r/p.yaml.patch", []string{pathExtraClients, "oidc.staticClients.muster"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.Join((*calls)[1].argv, " "); got != `sops unset --input-type yaml --output-type yaml p.yaml.patch ["oidc"]["staticClients"]["muster"]` {
@@ -166,7 +166,7 @@ func TestBeekeeperVaultRevealRefused(t *testing.T) {
 func TestBeekeeperVaultUnset(t *testing.T) {
 	run, calls := recorder(func([]string) ([]byte, error) { return []byte("removed oidc.extraStaticClients\n"), nil })
 	v, _ := NewVault(VaultBeekeeper, run)
-	if err := v.Unset(context.Background(), "/c/p.yaml.patch", []string{"oidc.extraStaticClients", "oidc.staticClients.1"}); err != nil {
+	if err := v.Unset(context.Background(), "/c/p.yaml.patch", []string{pathExtraClients, "oidc.staticClients.1"}); err != nil {
 		t.Fatal(err)
 	}
 	c := (*calls)[0]

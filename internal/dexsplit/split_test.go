@@ -241,7 +241,7 @@ func TestReadShape(t *testing.T) {
 	if len(s.Extras) != 4 || s.Peers != 2 || s.Extras[2].RedirectURIs != 2 {
 		t.Errorf("extras %+v, peers %d", s.Extras, s.Peers)
 	}
-	wantDrop := []string{"oidc.staticClients.mcpKubernetes", "oidc.staticClients.dexK8SAuthenticator.trustedPeers", "oidc.staticClients.muster", "oidc.extraStaticClients"}
+	wantDrop := []string{"oidc.staticClients.mcpKubernetes", "oidc.staticClients.dexK8SAuthenticator.trustedPeers", "oidc.staticClients.muster", pathExtraClients}
 	if strings.Join(s.Drop, ",") != strings.Join(wantDrop, ",") {
 		t.Errorf("drop %v, want %v", s.Drop, wantDrop)
 	}
