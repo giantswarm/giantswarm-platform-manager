@@ -180,11 +180,6 @@ removals:
   - key: configmap:muster.muster.oauth.server.dex.clientId
     kind: template
     reason: "Removed: muster's Dex client id is written here; the shared defaults derive it from the installation's services.muster.clientId, which is where an installation-specific id belongs."
-  - key: configmap:muster.muster.oauth.server.dex.allowPrivateIPOIDC
-    kind: template
-    reason: >-
-      Removed: muster's allowPrivateIPOIDC flag is written here; the shared defaults derive it from the installation's managementCluster.private, which is
-      where a private installation is declared.
   - key: configmap:components.agent-platform-mcps.enabled
     kind: template
     reason: "Removed: components.agent-platform-mcps.enabled is set here; the shared defaults enable the component on every installation."

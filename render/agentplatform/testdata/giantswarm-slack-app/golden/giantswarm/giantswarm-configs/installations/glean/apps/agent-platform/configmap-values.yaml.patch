@@ -84,6 +84,8 @@ muster:
         storage:
           valkey:
             existingSecret: muster-valkey-credentials
+        dex:
+          allowPrivateIPOIDC: true
         allowPrivateIPClientMetadataHosts:
           - agentgateway.glean.example.io
         allowPrivateIPRedirectURIs: true

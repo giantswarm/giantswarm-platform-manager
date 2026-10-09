@@ -323,13 +323,18 @@ func (in *Input) musterValues() render.Map {
 		e("existingSecret", musterOAuthSecret),
 		e("storage", render.Map{e("valkey", render.Map{e("existingSecret", musterValkeySecret)})}),
 	}
-	// The chat gateway's client_id is a metadata document served on
-	// agentgateway's hostname, which resolves to the internal load balancer on
-	// a private installation: muster's SSRF guard is lifted for that host
-	// alone (allowPrivateIPClientMetadataHosts, muster 5.35.0), every other
-	// private host keeps it.
+	// Dex and the chat gateway's client_id (a metadata document served on
+	// agentgateway's hostname) both resolve to the internal load balancer on
+	// a private installation: muster's SSRF guard is lifted for Dex's OIDC
+	// discovery (dex.allowPrivateIPOIDC) and for agentgateway's host alone
+	// (allowPrivateIPClientMetadataHosts, muster 5.35.0), every other private
+	// host keeps it. The shared defaults derive allowPrivateIPOIDC from
+	// managementCluster.private, which is false on an installation whose
+	// ingress alone is private, so the record's private fact renders it here
+	// like its siblings.
 	if in.Installation.Private {
 		server = append(server,
+			e("dex", render.Map{e("allowPrivateIPOIDC", true)}),
 			e("allowPrivateIPClientMetadataHosts", []string{in.host("agentgateway")}),
 			e("allowPrivateIPRedirectURIs", true))
 	}
