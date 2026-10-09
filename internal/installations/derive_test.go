@@ -1,6 +1,8 @@
 package installations
 
 import (
+	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -62,6 +64,67 @@ func TestDeriveFromPortals(t *testing.T) {
 	}
 	if !proxied(portals, fixtureAggregator, fixtureSibling) || proxied(portals, fixtureHub, fixtureSibling) || proxied(portals, fixtureAggregator, fixtureHub) {
 		t.Fatalf("proxied: the portal %s brokers for lists %s under its agent-platform section; the hub's portal lists nobody", fixtureAggregator, fixtureSibling)
+	}
+}
+
+// A portal the customer-portal definition renders lists, on every
+// installation it shows, the installations it shows that run the agent
+// platform on record, the host among them, each with the registry's base
+// domain (the record's where the registry has none); the markers answer
+// from the reports where they were inspected. A hand-kept portal lists
+// none. A marker the caller cannot read reads as not enabled; a platform
+// installation without a base domain is an error naming it.
+func TestPortalRefsListThePlatformInstallations(t *testing.T) {
+	const lindenDomain, rowanberryDomain = "linden.umbra.test", "rowanberry.umbra.test"
+	repos := Repositories{Configs: "fleet/umbra-configs", ManagementClusters: "fleet/umbra-management-clusters"}
+	reg := &Registry{Installations: []Installation{
+		{Name: fixtureHub, Customer: fixtureFleet, BaseDomain: "aspen.fleet.test", Hub: true},
+		{Name: fixtureAggregator, Customer: fixtureCustomer, BaseDomain: lindenDomain, Repositories: repos},
+		{Name: fixtureSibling, Customer: fixtureCustomer, Repositories: repos},
+	}}
+	state := func(enabled bool) []CapabilityState {
+		return []CapabilityState{{Name: AgentPlatform, Enabled: enabled}}
+	}
+	portals := []Portal{
+		{Host: fixtureHub, Customer: fixtureFleet, Installations: []string{fixtureHub, fixtureAggregator, fixtureSibling}, HandKept: true},
+		{Host: fixtureAggregator, Customer: fixtureCustomer, Installations: []string{fixtureAggregator, fixtureSibling}, Entries: map[string]portalEntry{fixtureSibling: {BaseDomain: rowanberryDomain}}},
+	}
+	derive := func(siblingEnabled bool) (linden, rowanberry Report) {
+		reports := []Report{
+			{Installation: reg.Installations[0], Record: &Record{Name: fixtureHub}, Capabilities: state(false), Readable: true},
+			{Installation: reg.Installations[1], Record: &Record{Name: fixtureAggregator}, Capabilities: state(true), Readable: true},
+			{Installation: reg.Installations[2], Record: &Record{Name: fixtureSibling}, Capabilities: state(siblingEnabled), Readable: true},
+		}
+		reg.derive(context.Background(), nil, reports, portals)
+		return reports[1], reports[2]
+	}
+	linden, rowanberry := derive(false)
+	if !linden.Readable || !rowanberry.Readable {
+		t.Fatalf("readable: %v %v", linden.Errors, rowanberry.Errors)
+	}
+	host := []PortalInstallation{{Name: fixtureAggregator, BaseDomain: lindenDomain}}
+	for _, rep := range []Report{linden, rowanberry} {
+		if len(rep.Portals) != 2 || rep.Portals[0].Installations != nil || !slices.Equal(rep.Portals[1].Installations, host) {
+			t.Errorf("%s: the hand-kept portal lists none, the rendered one its host alone: %+v", rep.Name, rep.Portals)
+		}
+	}
+	linden, rowanberry = derive(true)
+	both := append(host, PortalInstallation{Name: fixtureSibling, BaseDomain: rowanberryDomain})
+	for _, rep := range []Report{linden, rowanberry} {
+		if len(rep.Portals) != 2 || !slices.Equal(rep.Portals[1].Installations, both) {
+			t.Errorf("%s: the rendered portal lists both, the sibling with the record's base domain: %+v", rep.Name, rep.Portals)
+		}
+	}
+	p := portals[1]
+	if list, err := reg.portalInstallations(p, map[string]*markerRead{fixtureAggregator: {enabled: true}, fixtureSibling: {enabled: true, err: errors.New("no answer")}}); err != nil || !slices.Equal(list, host) {
+		t.Errorf("a marker the caller cannot read reads as not enabled: %v, %v", list, err)
+	}
+	if _, err := reg.portalInstallations(p, map[string]*markerRead{fixtureAggregator: {enabled: true}}); err == nil || !strings.Contains(err.Error(), fixtureSibling) {
+		t.Errorf("a marker not read: %v", err)
+	}
+	p.Entries = nil
+	if _, err := reg.portalInstallations(p, map[string]*markerRead{fixtureAggregator: {enabled: true}, fixtureSibling: {enabled: true}}); err == nil || !strings.Contains(err.Error(), fixtureSibling) || !strings.Contains(err.Error(), "base domain") {
+		t.Errorf("a platform installation without a base domain: %v", err)
 	}
 }
 

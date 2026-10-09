@@ -14,12 +14,20 @@ data:
       fluxServiceAccountName: kagent-flux
       kagent:
         installations:
+          heron: {}
           kestrel: {}
+          plover: {}
     muster:
       installations:
+        - name: heron
+          url: https://muster.heron.oakridge.example/mcp
+          authProvider: oidc-heron
         - name: kestrel
           url: https://muster.kestrel.oakridge.example/mcp
           authProvider: oidc-kestrel
+        - name: plover
+          url: https://muster.plover.oakridge.example/mcp
+          authProvider: oidc-plover
     aiChat:
       anthropic:
         provider: vertex

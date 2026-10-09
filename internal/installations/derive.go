@@ -92,15 +92,29 @@ type FederatedInstallation struct {
 // Component includes is then the one with the dashboards card. HandKeptChat
 // says it carries the AI chat's block by hand: the portal's environment
 // supplies the chat's key and the Component renders no credentials Secret.
+// Installations are the installations the portal shows that run the agent
+// platform on record, the host among them, on a portal the customer-portal
+// definition renders: the Component lists every one of them, whichever
+// installation's plan renders it. A hand-kept portal carries its own section
+// for the installations it proxies, so its list is not read.
 type PortalRef struct {
-	Installation string `json:"installation"`
-	Customer     string `json:"customer"`
-	Domain       string `json:"domain"`
-	ClientID     string `json:"clientId,omitempty"`
-	HandKept     bool   `json:"handKept,omitempty"`
-	GrafanaWired bool   `json:"grafanaWired,omitempty"`
-	HandKeptChat bool   `json:"handKeptChat,omitempty"`
-	ChartLine    string `json:"chartLine,omitempty"`
+	Installation  string               `json:"installation"`
+	Customer      string               `json:"customer"`
+	Domain        string               `json:"domain"`
+	ClientID      string               `json:"clientId,omitempty"`
+	HandKept      bool                 `json:"handKept,omitempty"`
+	GrafanaWired  bool                 `json:"grafanaWired,omitempty"`
+	HandKeptChat  bool                 `json:"handKeptChat,omitempty"`
+	ChartLine     string               `json:"chartLine,omitempty"`
+	Installations []PortalInstallation `json:"installations,omitempty"`
+}
+
+// PortalInstallation is an installation a portal shows that runs the agent
+// platform on record, as the definitions' installation.portals[*].installations[*]
+// names it: its name and its base domain, which its muster's URL derives from.
+type PortalInstallation struct {
+	Name       string `json:"name"`
+	BaseDomain string `json:"baseDomain"`
 }
 
 // Federation is an installation's place in the fleet's token exchange, as the
@@ -397,7 +411,9 @@ func (r *Registry) Portals(ctx context.Context, c *gh.Client, insts []Installati
 // proxies the target's agent platform, its hubs the installations of this
 // organisation that broker into it; a target not among the reports has its
 // record read for its base domain. A hub's broker client id is read back from
-// its patch. What cannot be read is
+// its patch. A rendered portal that lists the installation gets the
+// installations it shows that run the agent platform (portalInstallations),
+// from their markers. What cannot be read is
 // an error of the report: the record is then incomplete and the installation
 // is not planned.
 func (r *Registry) derive(ctx context.Context, c *gh.Client, reports []Report, portals []Portal) {
@@ -414,14 +430,34 @@ func (r *Registry) derive(ctx context.Context, c *gh.Client, reports []Report, p
 		broker  string
 		brkErr  error
 		// hosted is the portal hosted on the installation; platform the
-		// agent-platform marker of each of its entries, read where the
-		// entry is not among the reports.
+		// agent-platform marker of each of its entries.
 		hosted   *HostedPortal
-		platform []markerRead
+		platform []*markerRead
 	}
 	platform, _ := FindCapability(AgentPlatform)
 	results := make([]derived, len(reports))
 	var wg sync.WaitGroup
+	// The agent-platform marker of every installation a portal's entries or
+	// section may name, read once per name whatever names it: answered from
+	// the installation's report where it was inspected, else read from its
+	// configs repository; an installation without repositories on record
+	// reads as not enabled.
+	markers := map[string]*markerRead{}
+	marker := func(name string) *markerRead {
+		if m, ok := markers[name]; ok {
+			return m
+		}
+		m := &markerRead{}
+		markers[name] = m
+		if inspected := byName[name]; inspected != nil && len(inspected.Capabilities) > 0 {
+			m.enabled = inspected.enabled(AgentPlatform)
+			return m
+		}
+		if inst, _ := r.Find(name); inst.Repositories.Known() {
+			wg.Go(func() { *m = readMarker(ctx, c, inst, platform) })
+		}
+		return m
+	}
 	for i := range reports {
 		rep := &reports[i]
 		if rep.Record == nil {
@@ -443,17 +479,17 @@ func (r *Registry) derive(ctx context.Context, c *gh.Client, reports []Report, p
 		}
 		res.hosted = r.hostedPortal(portals, rep.Name)
 		if res.hosted != nil {
-			res.platform = make([]markerRead, len(res.hosted.Installations))
+			res.platform = make([]*markerRead, len(res.hosted.Installations))
 			for j, entry := range res.hosted.Installations {
-				if sibling := byName[entry.Name]; sibling != nil && len(sibling.Capabilities) > 0 {
-					res.platform[j] = markerRead{enabled: sibling.enabled(AgentPlatform)}
-					continue
-				}
-				inst, _ := r.Find(entry.Name)
-				if !inst.Repositories.Known() {
-					continue
-				}
-				wg.Go(func() { res.platform[j] = readMarker(ctx, c, inst, platform) })
+				res.platform[j] = marker(entry.Name)
+			}
+		}
+		for _, p := range portals {
+			if p.HandKept || !slices.Contains(p.Installations, rep.Name) {
+				continue
+			}
+			for _, name := range p.Installations {
+				marker(name)
 			}
 		}
 	}
@@ -468,6 +504,19 @@ func (r *Registry) derive(ctx context.Context, c *gh.Client, reports []Report, p
 				res.hosted.Installations[j].AgentPlatform = res.platform[j].enabled && res.platform[j].err == nil
 			}
 			rep.Hosted = res.hosted
+		}
+		for j := range rep.Portals {
+			for _, p := range portals {
+				if p.Host != rep.Portals[j].Installation || p.HandKept {
+					continue
+				}
+				list, err := r.portalInstallations(p, markers)
+				if err != nil {
+					rep.fail(fmt.Sprintf("the portal on %s: %v", p.Host, err))
+					break
+				}
+				rep.Portals[j].Installations = list
+			}
 		}
 		for j, name := range res.targets {
 			if res.errs[j] != nil {
@@ -526,6 +575,38 @@ func (r *Registry) hostedPortal(portals []Portal, host string) *HostedPortal {
 		return hosted
 	}
 	return nil
+}
+
+// portalInstallations are the installations p shows that run the agent
+// platform on record (markers, read for every name p lists), in the
+// portal's order, each with its base domain: the registry's, the record's
+// where the registry has none. A marker the caller cannot read reads as not
+// enabled, as the hosted portal's entries do: an organisation's
+// installations share one configs repository, so a reader of one of them
+// reads them all. A platform installation without a base domain is an
+// error naming it: its muster entry could not be written, and a list
+// missing it would have the Component drop it from the portal.
+func (r *Registry) portalInstallations(p Portal, markers map[string]*markerRead) ([]PortalInstallation, error) {
+	var list []PortalInstallation
+	for _, name := range p.Installations {
+		m := markers[name]
+		if m == nil {
+			return nil, fmt.Errorf("%s's agent-platform marker was not read", name)
+		}
+		if !m.enabled || m.err != nil {
+			continue
+		}
+		inst, _ := r.Find(name)
+		domain := inst.BaseDomain
+		if domain == "" {
+			domain = p.Entries[name].BaseDomain
+		}
+		if domain == "" {
+			return nil, fmt.Errorf("%s runs the agent platform and has no base domain on record", name)
+		}
+		list = append(list, PortalInstallation{Name: name, BaseDomain: domain})
+	}
+	return list, nil
 }
 
 // enabled says whether the capability is on record in this report.
