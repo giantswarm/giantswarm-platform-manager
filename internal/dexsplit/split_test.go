@@ -110,6 +110,10 @@ func (v *fakeVault) Reveal(_ context.Context, file string, paths []string) (map[
 	}
 	out := map[string]string{}
 	for _, p := range paths {
+		// beekeeper's classifier refuses a leaf named like a secret.
+		if k := p[strings.LastIndex(p, ".")+1:]; k == keySecret || k == keyClientSecret {
+			return nil, errors.New("looks secret: " + p)
+		}
 		n := lookup(v.plain[file], p)
 		if n == nil {
 			return nil, errors.New("no " + p)
