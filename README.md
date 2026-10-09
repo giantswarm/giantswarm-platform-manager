@@ -80,15 +80,28 @@ this order, writing nothing before the gate:
    every value it holds anew, and the kustomization carries them instead (Flux's
    `reconcile.fluxcd.io/watch` on the credentials revision Secrets is a patch in the directory's
    kustomization). A reconcile of an installation the manager enabled therefore rewrites no secret and
-   rotates nothing. A name **rotates** only when a file
-   of the name has to be written — a file to create (a server's Dex client Secret next to its existing
-   credentials file), an existing file whose plaintext skeleton the render changes (a field added to its
-   template), or a plain file to write carrying a key pair's public half: one new value is drawn and written
+   rotates nothing. A value on record stays **kept** wherever the render puts it: a file of the name
+   that lacks it — a file to create (a server's Dex client Secret next to its existing credentials file, as
+   the 4 line renders it over a 3-line record), or a file on record the render adds the key to and changes
+   nothing else of (mcp-prometheus's credentials Secret taking the Valkey password its Valkey Secret holds)
+   — takes the value from the record by the caller's vault before the commit, since the manager decrypts
+   nothing: the dry run lists each **carry** (`generatedSecrets[].carries`, the record's file and key path
+   it comes from and the file and key path it goes to, with the `beekeeper secret copy` or sops step;
+   `platformctl installation dex-split` writes a Dex client's Secret this way and moves the client out of
+   the dex-app patch with it), and the commit is refused until the carry is on record (`commitRefused`).
+   A value no file on record holds that a file on record lacks is drawn there by the vault the same way
+   (`beekeeper secret set`, a carry without a `from`), and every other file to write takes it from there; a
+   credentials revision a file on record lacks waits instead (`pendingIn`): the file stands, the revision
+   joins it with the next rotation asked for. A file to create whose values no record holds is written at
+   commit. A name **rotates** only when a file of the name is written anew whole — an existing file whose
+   plaintext skeleton the render changes beyond the keys it lacks (a field of its template changed), or a
+   plain file to write carrying a key pair's public half: one new value is drawn and written
    into every file that holds it, the kept files rewritten and encrypted anew — and every other value a
    rewritten file holds rotates with it, down to the files sharing those (the server's Valkey password into
    its Valkey Secret). A name also rotates when the person asks for it by name ([Rotation on
    request](#rotation-on-request)). The dry run says so (`generatedSecrets[].frozenIn`, `kept`, `rotates`
-   with `forcedBy`, the file that forced it or `request`), the Action records the rotated names
+   with `forcedBy`, the file that forced it or `request`, and `cause`, why that file is written whole), the
+   Action records the rotated names
    (`status.rotated`), the pull request names them. For the running installation a rotation means both sides roll: the server and the Dex client take
    the new value with their Secrets, and the client is unusable between the two rollouts. The roll follows
    the commit: each MCP server's credentials carry a *credentials revision* (`<installation>-mcp-<name>-credentials-revision`,
@@ -162,8 +175,10 @@ decrypting: `dropped`, each value under a readable key the render carries no lea
 *Removed:* by name), and `replaced`, each encrypted text the render writes a document of its own in (a Secret's
 `stringData.values`), whose keys no one reads, so a value it holds that the render does not carry is lost unless the
 definition asks for it at commit —, the shared-kustomization includes, the generated secrets by name, kind and length — with `frozenIn`, the files
-on record that hold the value already, `kept` when the value on record stands and no file of the name is
-written, and `rotates` with `forcedBy`, the file that has to be written, when the commit draws a new value
+on record that hold the value already, `kept` when the value on record stands and the commit writes no
+file of the name, `carries` for the files that take the value from the record by the caller's vault before
+the commit, `pendingIn` for the files on record that stand without a credentials revision, and `rotates`
+with `forcedBy`, the file written anew whole, and `cause`, when the commit draws a new value
 into every file of the name (see [The commit](#the-commit)) — the secret values the person
 supplies at commit by field (rendered as `SUPPLIED(<field>)` markers — no secret value ever appears in a dry
 run), the Dex clients with their redirect URIs from the rendered dex patch, the customer actions (Secrets the

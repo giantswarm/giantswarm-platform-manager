@@ -30,7 +30,7 @@ func (in *Input) MissingInputs() []string { return nil }
 // CustomerActions names what the rollout needs from the person beyond the
 // pull requests: the model key Secret, wherever kagent runs — the step the
 // runtime feature's model-key action (actions) holds up live until the default
-// ModelConfig is Accepted.
+// ModelConfig reads its model key resolved (modelConfigCondition).
 func (in *Input) CustomerActions() []render.CustomerAction {
 	if !in.kagent() {
 		return nil

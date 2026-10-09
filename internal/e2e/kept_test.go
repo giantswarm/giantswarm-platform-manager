@@ -389,32 +389,24 @@ func TestReconcileKeepsTheHandAddedSecretsOfTheSecretsKustomization(t *testing.T
 	}
 }
 
-// The render adds a field to an encrypted file's template — on record the
-// server's credentials file lacks it: the file has to be written, so every
-// name it holds would rotate, forced by that file. Nobody asked, so the
-// reconcile refuses them and commits nothing. Asked for by name, they
-// rotate: the Dex client Secret, the Valkey Secret and the revision Secret
-// kept on record share three of them and are rewritten with the new values;
-// every other file stays, every other name is kept, and the commit writes
-// those four files and nothing else.
+// The server's credentials file on record changes in its plaintext skeleton
+// beyond the keys it lacks (its type): the commit would write it anew
+// whole, so every name it holds would rotate, forced by that file with the
+// cause. Nobody asked, so the reconcile refuses them and commits nothing.
+// Asked for by name, they rotate: the Dex client Secret, the Valkey Secret
+// and the revision Secret kept on record share three of them and are
+// rewritten with the new values; every other file stays, every other name
+// is kept, and the commit writes those four files and nothing else.
 func TestReconcileRotatesTheNamesOfAFileWhoseSkeletonChanges(t *testing.T) {
 	st := newStack(t)
 	c := enabledOnRecord(t, st)
 	s := serverOf(t, reconcileDryRun(t, c))
 	repository, path := splitID(t, s.credentials)
-	var without []string
-	dropped := false
-	for _, line := range strings.Split(st.ghs.repos()[repository][path], "\n") {
-		if !dropped && strings.Contains(line, ": ENC[") {
-			dropped = true
-			continue
-		}
-		without = append(without, line)
+	current := st.ghs.repos()[repository][path]
+	if !strings.Contains(current, "\ntype: Opaque\n") {
+		t.Fatalf("%s on record is not an Opaque Secret:\n%s", s.credentials, current)
 	}
-	if !dropped {
-		t.Fatalf("%s on record holds no encrypted value", s.credentials)
-	}
-	st.ghs.addFile(repository, path, strings.Join(without, "\n"))
+	st.ghs.addFile(repository, path, strings.Replace(current, "\ntype: Opaque\n", "\ntype: kubernetes.io/basic-auth\n", 1))
 
 	forcedBy := map[string]string{}
 	for _, n := range s.names {
@@ -441,9 +433,11 @@ func TestReconcileRotatesTheNamesOfAFileWhoseSkeletonChanges(t *testing.T) {
 
 // A new file shares a generated name with a file on record — the server's
 // Dex client Secret is absent, its credentials file kept: the client secret
-// would rotate, forced by the new file, and with it the three other names
-// the credentials file holds. Nobody asked, so the reconcile refuses. Asked
-// for the client secret alone, the rotation reaches the rest: the
+// is on record, so it is kept, and the new Secret takes it from the
+// credentials file by the caller's vault, at the key paths; nothing
+// rotates, every other name is kept, and the commit refuses until the carry
+// is on record, opening nothing. Asked for the client secret, the rotation
+// reaches the rest: the new Secret is written with the new value, the
 // credentials file is rewritten with it, so the three other names it holds
 // rotate too, forced by the credentials file, and the Valkey Secret sharing
 // the password and the revision and the revision Secret sharing the
@@ -458,19 +452,39 @@ func TestReconcileRotatesANameANewFileShares(t *testing.T) {
 	st.ghs.addRepo(repository, files)
 
 	p := reconcileDryRun(t, c)
+	clientSecrets := fileOf(t, p, s.dexClient).Generated
+	if fileOf(t, p, s.dexClient).Change != plan.ChangeCreate {
+		t.Fatalf("the Dex client Secret is on record: %+v", fileOf(t, p, s.dexClient))
+	}
+	for _, g := range p.GeneratedSecrets {
+		switch {
+		case g.Rotates || g.Refusal != "":
+			t.Errorf("%s rotates without a request: %+v", g.Name, g)
+		case slices.Contains(clientSecrets, g.Name):
+			if !g.Kept || !slices.Equal(g.FrozenIn, []string{s.credentials}) || len(g.Carries) != 1 || !g.Carries[0].Create ||
+				!strings.HasPrefix(g.Carries[0].From, s.credentials+"#stringData.") || g.Carries[0].To != s.dexClient+"#stringData."+render.DexSecretKey {
+				t.Errorf("%s: %+v, want kept on record in %s and carried into %s", g.Name, g, s.credentials, s.dexClient)
+			}
+		case len(g.Carries) != 0:
+			t.Errorf("%s is carried: %+v", g.Name, g)
+		}
+	}
+	const carry = "carry the value there with your vault before the commit"
+	if !strings.Contains(p.CommitRefused, carry) {
+		t.Fatalf("commitRefused %q", p.CommitRefused)
+	}
+	before := len(st.remote.PullRequests())
+	if _, text, isErr := commitCall(t, c, tools.ToolReconcileCapability, reconcileArgs(nil)); !isErr || !strings.Contains(text, carry) {
+		t.Fatalf("the commit without the carry: %v %s", isErr, text)
+	}
+	if opened := len(st.remote.PullRequests()) - before; opened != 0 {
+		t.Fatalf("a refused commit opened %d pull request(s)", opened)
+	}
+
 	forcedBy := map[string]string{}
 	for _, n := range s.names {
 		forcedBy[n] = s.credentials
 	}
-	clientSecrets := fileOf(t, p, s.dexClient).Generated
-	for _, g := range clientSecrets {
-		forcedBy[g] = s.dexClient
-	}
-	if fileOf(t, p, s.dexClient).Change != plan.ChangeCreate {
-		t.Fatalf("the Dex client Secret is on record: %+v", fileOf(t, p, s.dexClient))
-	}
-	assertUnrequestedRefused(t, st, c, p, forcedBy)
-
 	p = reconcileDryRun(t, c, clientSecrets...)
 	for _, g := range clientSecrets {
 		forcedBy[g] = plan.ForcedByRequest

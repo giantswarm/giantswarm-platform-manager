@@ -625,7 +625,7 @@ func customerActions(def installations.Capability, inputs map[string]any, res ve
 
 // sortActions sorts the customer's actions by what the live half read: an
 // action is done once the live dimension it holds up read as defined — the
-// model key's Secret in place and the ModelConfig Accepted — and open while
+// model key's Secret in place and the ModelConfig's key resolved — and open while
 // that dimension is red or could not be read; an action that holds up no
 // dimension stays open, nothing reads it done. The definition lists the
 // actions; the installation says which are done.
