@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
@@ -680,57 +681,62 @@ func (c *hangingCluster) Get(ctx context.Context, namespace, resource, name stri
 // did not answer and the bound; the checks that follow are read while the
 // budget lasts and left unread, naming the read that hung, once it is
 // spent — the call answers what it has, never the caller's deadline. Every
-// check is logged with its duration.
+// check is logged with its duration. The test runs on synctest's clock: a
+// read that hangs takes exactly its bound and one that answers takes none,
+// however loaded the machine is; a read left unbounded hangs the bubble and
+// fails the test.
 func TestLiveReadsAreBounded(t *testing.T) {
-	const hung, after, okRelease = "hung", "after", "answers"
-	ready := func(name string) map[string]any {
-		return map[string]any{keyStatus: map[string]any{keyConditions: []any{map[string]any{keyType: conditionReady, keyStatus: conditionTrue, keyMessage: "ok"}}}, keyMetadata: map[string]any{keyName: name}}
-	}
-	key := func(name string) string { return kindHelmRelease + "/" + testNamespace + "/" + name }
-	cluster := &hangingCluster{hang: key(hung), recordingCluster: recordingCluster{objects: map[string]map[string]any{
-		key(okRelease): ready(okRelease), key(hung): ready(hung), key(after): ready(after),
-	}}}
-	var logs strings.Builder
-	bounded := func() LiveOptions {
-		return LiveOptions{Cluster: cluster, Installation: "x", ReadTimeout: 30 * time.Millisecond, ReadBudget: 50 * time.Millisecond, Log: slog.New(slog.NewTextHandler(&logs, nil))}
-	}
-	probe := func(name string) render.Probe {
-		return render.Probe{ID: "live-" + name, Kind: render.HelmReleaseReady, Namespace: testNamespace, Resource: kindHelmRelease, Name: name}
-	}
-	x := &executor{opts: bounded()}
-	if c, _, _ := x.run(context.Background(), probe(okRelease)); c.Mark != AsDefined {
-		t.Fatalf("a read that answers: %+v", c)
-	}
-	c, _, _ := x.run(context.Background(), probe(hung))
-	if c.Mark != NotChecked || c.Message != "no answer within 30ms from "+kindHelmRelease+" "+testNamespace+"/"+hung {
-		t.Errorf("the read that hung: %+v", c)
-	}
-	// The budget has about 20 ms left: the next read is bounded by them and
-	// hangs them away; the one after is not started.
-	c, _, _ = x.run(context.Background(), probe(hung))
-	if c.Mark != NotChecked || !strings.HasPrefix(c.Message, "no answer within ") || strings.Contains(c.Message, "30ms") {
-		t.Errorf("the read bounded by the rest of the budget: %+v", c)
-	}
-	c, _, _ = x.run(context.Background(), probe(after))
-	if c.Mark != NotChecked || c.Message != "not read: the live verify's read budget of 50ms is spent; the last read that did not answer: "+kindHelmRelease+" "+testNamespace+"/"+hung {
-		t.Errorf("a read after the budget: %+v", c)
-	}
-	// A caller's own context ending is not a read that hung.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if c, _, _ := (&executor{opts: LiveOptions{Cluster: cluster, ReadTimeout: time.Second}}).run(ctx, probe(hung)); c.Mark != NotChecked || !strings.Contains(c.Message, "context canceled") {
-		t.Errorf("the caller's context: %+v", c)
-	}
-	// The whole dimension answers, and every check is logged with its duration.
-	x = &executor{opts: bounded(), lv: &liveRender{probes: []render.Probe{probe(okRelease), probe(hung), probe(after)}}}
-	logs.Reset()
-	dim := x.dimension(context.Background(), definitions.Dimension{ID: "live-" + hung, Kind: definitions.KindLive})
-	if dim.Mark != NotChecked || !strings.HasPrefix(dim.Reason, "no answer within 30ms from ") {
-		t.Errorf("the dimension: %+v", dim)
-	}
-	for _, want := range []string{"msg=live_check", "probe=live-" + hung, "duration_ms=", "mark=\"not checked\""} {
-		if !strings.Contains(logs.String(), want) {
-			t.Errorf("the log lacks %q:\n%s", want, logs.String())
+	synctest.Test(t, func(t *testing.T) {
+		const hung, after, okRelease = "hung", "after", "answers"
+		ready := func(name string) map[string]any {
+			return map[string]any{keyStatus: map[string]any{keyConditions: []any{map[string]any{keyType: conditionReady, keyStatus: conditionTrue, keyMessage: "ok"}}}, keyMetadata: map[string]any{keyName: name}}
 		}
-	}
+		key := func(name string) string { return kindHelmRelease + "/" + testNamespace + "/" + name }
+		cluster := &hangingCluster{hang: key(hung), recordingCluster: recordingCluster{objects: map[string]map[string]any{
+			key(okRelease): ready(okRelease), key(hung): ready(hung), key(after): ready(after),
+		}}}
+		var logs strings.Builder
+		bounded := func() LiveOptions {
+			return LiveOptions{Cluster: cluster, Installation: "x", ReadTimeout: 30 * time.Millisecond, ReadBudget: 50 * time.Millisecond, Log: slog.New(slog.NewTextHandler(&logs, nil))}
+		}
+		probe := func(name string) render.Probe {
+			return render.Probe{ID: "live-" + name, Kind: render.HelmReleaseReady, Namespace: testNamespace, Resource: kindHelmRelease, Name: name}
+		}
+		x := &executor{opts: bounded()}
+		if c, _, _ := x.run(context.Background(), probe(okRelease)); c.Mark != AsDefined {
+			t.Fatalf("a read that answers: %+v", c)
+		}
+		c, _, _ := x.run(context.Background(), probe(hung))
+		if c.Mark != NotChecked || c.Message != "no answer within 30ms from "+kindHelmRelease+" "+testNamespace+"/"+hung {
+			t.Errorf("the read that hung: %+v", c)
+		}
+		// The budget has 20 ms left: the next read is bounded by them and
+		// hangs them away; the one after is not started.
+		c, _, _ = x.run(context.Background(), probe(hung))
+		if c.Mark != NotChecked || c.Message != "no answer within 20ms from "+kindHelmRelease+" "+testNamespace+"/"+hung {
+			t.Errorf("the read bounded by the rest of the budget: %+v", c)
+		}
+		c, _, _ = x.run(context.Background(), probe(after))
+		if c.Mark != NotChecked || c.Message != "not read: the live verify's read budget of 50ms is spent; the last read that did not answer: "+kindHelmRelease+" "+testNamespace+"/"+hung {
+			t.Errorf("a read after the budget: %+v", c)
+		}
+		// A caller's own context ending is not a read that hung.
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if c, _, _ := (&executor{opts: LiveOptions{Cluster: cluster, ReadTimeout: time.Second}}).run(ctx, probe(hung)); c.Mark != NotChecked || !strings.Contains(c.Message, "context canceled") {
+			t.Errorf("the caller's context: %+v", c)
+		}
+		// The whole dimension answers, and every check is logged with its duration.
+		x = &executor{opts: bounded(), lv: &liveRender{probes: []render.Probe{probe(okRelease), probe(hung), probe(after)}}}
+		logs.Reset()
+		dim := x.dimension(context.Background(), definitions.Dimension{ID: "live-" + hung, Kind: definitions.KindLive})
+		if dim.Mark != NotChecked || !strings.HasPrefix(dim.Reason, "no answer within 30ms from ") {
+			t.Errorf("the dimension: %+v", dim)
+		}
+		for _, want := range []string{"msg=live_check", "probe=live-" + hung, "duration_ms=", "mark=\"not checked\""} {
+			if !strings.Contains(logs.String(), want) {
+				t.Errorf("the log lacks %q:\n%s", want, logs.String())
+			}
+		}
+	})
 }
