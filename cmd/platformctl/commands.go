@@ -186,6 +186,28 @@ func newCapabilityCmd(tool string, allowSet bool) *cobra.Command {
 				return format.Commit(stdout, r, content)
 			})
 		}
+		if !set && c.output != outputJSON {
+			// One installation: its customer actions are held against the
+			// live read, as verify does; a live read that fails leaves them
+			// as the definition lists them.
+			liveArgs := map[string]any{tools.ArgInstallation: pos[0], tools.ArgCapability: pos[1]}
+			return c.callBoth(tool, tools.ToolVerifyInstallation, toolArgs, func(json.RawMessage) map[string]any { return liveArgs }, stdout, stderr, func(repo, live json.RawMessage, liveErr error) error {
+				var r tools.CapabilityResult
+				if err := decode(repo, &r); err != nil {
+					return err
+				}
+				if liveErr == nil {
+					var l verify.Result
+					if err := decode(live, &l); err != nil {
+						return err
+					}
+					for i := range r.Installations {
+						r.Installations[i].CustomerActions = l.HoldCustomerActions(r.Installations[i].CustomerActions)
+					}
+				}
+				return format.Plan(stdout, r, content)
+			})
+		}
 		return c.call(tool, toolArgs, stdout, stderr, func(raw json.RawMessage) error {
 			var r tools.CapabilityResult
 			if err := decode(raw, &r); err != nil {
@@ -244,7 +266,7 @@ func newVerifyCmd() *cobra.Command {
 			return usageError(stderr, "installation verify <installation> <capability>")
 		}
 		toolArgs := map[string]any{tools.ArgInstallation: pos[0], tools.ArgCapability: pos[1]}
-		return c.callBoth(tools.ToolVerifyCapability, tools.ToolVerifyInstallation, toolArgs, stdout, stderr, func(repo, live json.RawMessage, liveErr error) error {
+		return c.callBoth(tools.ToolVerifyCapability, tools.ToolVerifyInstallation, toolArgs, func(repo json.RawMessage) map[string]any { return carryInputs(toolArgs, repo) }, stdout, stderr, func(repo, live json.RawMessage, liveErr error) error {
 			var r verify.Result
 			if err := decode(repo, &r); err != nil {
 				return err

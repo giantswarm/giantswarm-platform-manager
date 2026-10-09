@@ -423,15 +423,14 @@ func (c *conn) call(tool string, args map[string]any, stdout, stderr io.Writer, 
 }
 
 // callBoth is call over the two halves of a result, both tools of the one
-// registration: tool, then liveTool with the same arguments and the first
-// answer's inputs; the live answer, or why there is none, goes to show with
+// registration: tool, then liveTool with liveArgs of the first answer; the live answer, or why there is none, goes to show with
 // the first. A live tool that refuses — not served, no identity forwarded,
 // an installation not connected — is not a failure of the command: the
 // repository result stands and the live side says why. --output json prints the two documents as one
 // object, {"repository": …, "live": …|null, "liveError": …}, with "liveCut"
 // {layer, tool, timeout} when the live call ended without an answer. Each
 // call has its own --timeout.
-func (c *conn) callBoth(tool, liveTool string, args map[string]any, stdout, stderr io.Writer, show func(repo, live json.RawMessage, liveErr error) error) int {
+func (c *conn) callBoth(tool, liveTool string, args map[string]any, liveArgs func(repo json.RawMessage) map[string]any, stdout, stderr io.Writer, show func(repo, live json.RawMessage, liveErr error) error) int {
 	s, err := c.open(stderr)
 	if err != nil {
 		return fail(stderr, err)
@@ -454,7 +453,7 @@ func (c *conn) callBoth(tool, liveTool string, args map[string]any, stdout, stde
 	}
 	liveCtx, cancelLive := c.callCtx()
 	defer cancelLive()
-	live, liveErr := s.Call(liveCtx, liveTool, carryInputs(args, repo))
+	live, liveErr := s.Call(liveCtx, liveTool, liveArgs(repo))
 	if c.output == outputJSON {
 		doc := map[string]any{"repository": repo, "live": nil}
 		if liveErr != nil {

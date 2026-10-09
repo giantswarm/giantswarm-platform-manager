@@ -35,5 +35,5 @@ func (in *Input) CustomerActions() []render.CustomerAction {
 	if !in.kagent() {
 		return nil
 	}
-	return []render.CustomerAction{{Action: in.modelKeyNote(), Why: modelKeyWhy}}
+	return []render.CustomerAction{{Action: in.modelKeyNote(), Why: modelKeyWhy, Dimension: modelKeyDimension}}
 }

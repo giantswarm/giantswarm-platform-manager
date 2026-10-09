@@ -271,6 +271,8 @@ func TestModelConfigProbeFollowsTheLine(t *testing.T) {
 		}
 		if ca := in.CustomerActions(); len(ca) != 1 || !strings.Contains(ca[0].Action, "("+resource+")") {
 			t.Errorf("%s (line %s): the customer actions %+v do not name %s", shape, in.Installation.ChartLine, ca, resource)
+		} else if ca[0].Dimension == "" || ca[0].Dimension != result.Actions[0].Dimension {
+			t.Errorf("%s (line %s): the customer action holds up %q, the action %q: the live marks sort both alike", shape, in.Installation.ChartLine, ca[0].Dimension, result.Actions[0].Dimension)
 		}
 	}
 	for line := range want {

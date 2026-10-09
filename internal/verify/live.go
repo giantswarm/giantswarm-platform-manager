@@ -451,6 +451,7 @@ func Merge(repo, live Result) Result {
 	if out.Refused == "" {
 		out.Refused = live.Refused
 	}
+	out.CustomerActions = out.HoldCustomerActions(out.CustomerActions)
 	return out
 }
 

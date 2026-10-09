@@ -375,6 +375,37 @@ func Compare(ctx context.Context, opts Options) Result {
 	return r
 }
 
+// Settled is whether the live dimension read as defined: present, and
+// neither drifted nor unchecked. A dimension that is empty or absent is not
+// settled; nothing reads it.
+func (r Result) Settled(dimension string) bool {
+	if dimension == "" {
+		return false
+	}
+	for _, f := range r.Features {
+		for _, d := range f.Dimensions {
+			if d.ID == dimension {
+				return d.Mark != Drifted && d.Mark != NotChecked
+			}
+		}
+	}
+	return false
+}
+
+// HoldCustomerActions answers actions with Done set on each one whose
+// dimension r reads as defined (Settled): the one code path that sorts a
+// customer action by the live result, shared by the action watch, verify and
+// the dry run. The definition lists the actions; the installation says which
+// are done.
+func (r Result) HoldCustomerActions(actions []plan.CustomerAction) []plan.CustomerAction {
+	out := make([]plan.CustomerAction, len(actions))
+	for i, a := range actions {
+		a.Done = r.Settled(a.Dimension)
+		out[i] = a
+	}
+	return out
+}
+
 // addFeature rolls f up from its dimensions and counts their marks into
 // the summary.
 func (r *Result) addFeature(f Feature) {
