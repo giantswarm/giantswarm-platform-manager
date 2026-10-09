@@ -832,13 +832,6 @@ func (in *Input) hostedPortal() *PortalRef {
 	return nil
 }
 
-// releaseTagFilter is the tag filter patched onto the agent-platform
-// OCIRepository beside a range that admits release candidates: stable releases
-// and release candidates only. The chart's branch builds are pushed to the same
-// repository with a pre-release of their own (X.Y.Z-r<hash>t<time>h<sha>),
-// which the range alone would select.
-const releaseTagFilter = `^v?[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$`
-
 // chartSemver is the range patched onto the agent-platform OCIRepository: the 4
 // line pins itself, its release candidates included where the installation
 // runs them; the 3 line runs the base's range.
@@ -852,8 +845,8 @@ func (in *Input) chartSemver() string {
 	return ">=4.0.0 <5.0.0"
 }
 
-// releaseTag is releaseTagFilter compiled: the tags the filter admits.
-var releaseTag = regexp.MustCompile(releaseTagFilter)
+// releaseTag is render.ReleaseTagFilter compiled: the tags the filter admits.
+var releaseTag = regexp.MustCompile(render.ReleaseTagFilter)
 
 // releaseFilterAdmits says whether the release tag filter has anything to
 // select beside the OCIRepository's semver: a range, or an exact version the

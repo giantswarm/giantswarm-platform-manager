@@ -22,7 +22,7 @@ features:
     description: The portal released from the fleet's backstage bases on the chart's line, configured as rendered, serving its home page on its domain.
     dimensions:
       - {id: extras-kustomization, kind: backstage, key: kustomization.yaml resources (the two kustomizations list the fleet's bases and the fileset)}
-      - {id: chart-line, kind: backstage, key: "backstage/kustomization.yaml patches[0] (the OCIRepository patch: /spec/ref/semver)"}
+      - {id: chart-line, kind: backstage, key: "backstage/kustomization.yaml patches[0] (the OCIRepository patch: /spec/ref/semver, /spec/ref/semverFilter)"}
       - {id: values-sources, kind: backstage, key: "backstage/kustomization.yaml patches[1] (the HelmRelease patch: spec.valuesFrom)"}
       - {id: values-configmaps, kind: backstage, key: app-config.yaml user-values.yaml apiVersion / kind / metadata (the ConfigMaps the HelmRelease reads values from)}
       - {id: app-identity, kind: backstage, key: app-config.yaml app.title / app.baseUrl / organization}

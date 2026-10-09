@@ -196,6 +196,9 @@ func (in *Input) portalFiles(r *render.Result, repo render.Repository, dir strin
 	resources = append(resources, dexClientFile)
 
 	ociPatch := []render.Map{{e("op", "remove"), e("path", "/spec/ref/tag")}, {e("op", "add"), e("path", "/spec/ref/semver"), e("value", in.Chart.Line)}}
+	if in.followsCandidates() {
+		ociPatch = append(ociPatch, render.Map{e("op", "add"), e("path", "/spec/ref/semverFilter"), e("value", render.ReleaseTagFilter)})
+	}
 	releasePatch := render.Map{e("apiVersion", "helm.toolkit.fluxcd.io/v2"), e("kind", "HelmRelease"),
 		e("metadata", render.Map{e("name", releaseName), e("namespace", fluxNamespace)}),
 		e("spec", render.Map{e("valuesFrom", sources)})}

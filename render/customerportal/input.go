@@ -85,6 +85,12 @@ const inputChartLine = "chart.line"
 // (>=A <B) is every installation's; the schema admits no other.
 var chartLineExact = regexp.MustCompile(`^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$`)
 
+// chartLineCandidates is the release candidates' form of the chart line: a
+// range whose bounds carry the lowest pre-release (>=A-0 <B-0), so that it
+// admits the candidates between them, which the portal follows on one of
+// Giant Swarm's test installations.
+var chartLineCandidates = regexp.MustCompile(`^>=\d+\.\d+\.\d+-0 <\d+\.\d+\.\d+-0$`)
+
 // federationField is the supplied field of a federated installation's or the
 // broker's client credential.
 func federationField(name, suffix string) string { return "federation." + name + suffix }
@@ -183,7 +189,8 @@ type PlatformSection struct {
 }
 
 // Chart is the portal chart's line: the release range it follows, or on a
-// test installation the exact version it is pinned to (checkChartLine).
+// test installation the exact version it is pinned to or the range of
+// release candidates it follows (checkChartLine).
 type Chart struct {
 	Line string `json:"line"`
 }
@@ -366,14 +373,30 @@ func appIDSupplied(value string) bool {
 }
 
 // checkChartLine applies the chart line's rule per installation: the exact
-// form pins the portal on one of Giant Swarm's test installations alone, and
-// its refusal elsewhere names both forms. A line of neither form the schema
-// refused already; a missing line carries its marker and is no exact version.
+// form and the release candidates' range are one of Giant Swarm's test
+// installations' alone, and their refusal elsewhere names the forms. A line
+// of no form the schema refused already; a missing line carries its marker
+// and is of neither.
 func (in *Input) checkChartLine() error {
-	if in.Installation.Test || !chartLineExact.MatchString(in.Chart.Line) {
+	if in.Installation.Test {
 		return nil
 	}
-	return refuse(ErrInput, describe(inputChartLine)+" is "+in.Chart.Line+", an exact version, and "+in.Installation.Name+" is no test installation; write a release range (>=A <B): an exact version or development tag (A.B.C-<build>) pins the portal on one of Giant Swarm's test installations alone")
+	var form string
+	switch {
+	case chartLineExact.MatchString(in.Chart.Line):
+		form = "an exact version"
+	case in.followsCandidates():
+		form = "a range of release candidates"
+	default:
+		return nil
+	}
+	return refuse(ErrInput, describe(inputChartLine)+" is "+in.Chart.Line+", "+form+", and "+in.Installation.Name+" is no test installation; write a release range (>=A <B): an exact version or development tag (A.B.C-<build>) pins the portal, and a range of release candidates (>=A-0 <B-0) follows them, on one of Giant Swarm's test installations alone")
+}
+
+// followsCandidates says whether the chart line is the release candidates'
+// range, which the release tag filter goes beside.
+func (in *Input) followsCandidates() bool {
+	return chartLineCandidates.MatchString(in.Chart.Line)
 }
 
 // checkFederation applies the federation's rules: every listed installation

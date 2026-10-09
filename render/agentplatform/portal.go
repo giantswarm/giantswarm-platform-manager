@@ -323,7 +323,8 @@ func (in *Input) portalValues() render.Map {
 
 // portalChartFloor is the lowest chart version a portal's chart line admits:
 // the lower bound of a bounded range (>=A <B, the form the customer-portal
-// definition writes) or the tag itself. Another form is an error naming it.
+// definition writes, or its range of release candidates >=A-0 <B-0) or the
+// tag itself. Another form is an error naming it.
 func portalChartFloor(line string) (*semver.Version, error) {
 	fields := strings.Fields(line)
 	var floor string

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- customer-portal: a portal on one of Giant Swarm's test installations may follow the chart's release candidates. `chart.line` admits a range of release candidates `>=A-0 <B-0` next to the release range and the exact version, on an installation the registry classes as a test installation (`installation.test`). The OCIRepository patch writes it as the `semver` with a `semverFilter` beside it that admits only `A.B.C` and `A.B.C-rc.N` tags, the agent-platform definition's release tag filter, so the chart's branch builds pushed to the same repository stay out. A production installation takes the release range alone: the candidates' range is refused there like the exact version, the refusal naming the forms. Before, the schema refused a range with pre-releases everywhere, so a test installation could follow the candidates only through a hand-edited patch that the next reconcile dropped.
+
 ### Changed
 
 - agent-platform: on a private installation muster lifts its SSRF guard for a client's metadata document for agentgateway's hostname alone (`muster.muster.oauth.server.allowPrivateIPClientMetadataHosts`, muster 5.35.0 or later), where the chat gateway serves its client_id, instead of for every host (`allowPrivateIPClientMetadata: true`). The host list is a migration (M40): the bool on record is a planned removal, the list a planned addition, and an installation that already carries the list reads as defined. `allowPrivateIPRedirectURIs` is unchanged.
