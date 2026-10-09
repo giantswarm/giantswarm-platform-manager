@@ -23,6 +23,13 @@ func releaseClusterAppManifest(chart, release, values string) string {
 	return clusterAppManifestOf(chart, "", "global:\n  release:\n    version: "+release+"\n"+values)
 }
 
+// placeholderClusterAppManifest renders a release-based cluster App as a
+// bootstrap leaves it on record: the release in the values and a placeholder
+// chart version on the App that says nothing about the chart.
+func placeholderClusterAppManifest(chart, placeholder, release, values string) string {
+	return clusterAppManifestOf(chart, "  version: "+placeholder+"\n", "global:\n  release:\n    version: "+release+"\n"+values)
+}
+
 func clusterAppManifestOf(chart, versionLine, values string) string {
 	return "---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: maple-userconfig\n  namespace: org-fleet\ndata:\n  values: |\n" + indent(values, "    ") +
 		"---\napiVersion: application.giantswarm.io/v1alpha1\nkind: App\nmetadata:\n  name: maple\n  namespace: org-fleet\nspec:\n  catalog: cluster\n  name: " + chart + "\n" + versionLine + "  userConfig:\n    configMap:\n      name: maple-userconfig\n      namespace: org-fleet\n"
@@ -166,9 +173,10 @@ func TestPodCertificateRequestFromTheClusterApp(t *testing.T) {
 }
 
 // A release-based cluster App — every CAPA and CAPZ management cluster —
-// carries no chart version: the version is the one the release its values
-// name lists for the chart in giantswarm/releases, read as the person, and
-// the chart table answers for that version. A record that sets every
+// carries no chart version, or a placeholder the bootstrap left: the version
+// is the one the release its values name lists for the chart in
+// giantswarm/releases, read as the person, and the chart table answers for
+// that version, whatever the App's own says. A record that sets every
 // component's list is read without the release. A release that cannot be
 // read or lists no such chart is ErrRelease: the fact false, the reason to
 // report, the installation still readable.
@@ -176,6 +184,7 @@ func TestPodCertificateRequestThroughTheRelease(t *testing.T) {
 	all := gates(substrateGates, "")
 	releases := map[string]string{
 		releaseAtDefault:             releaseManifest("cluster-aws", "10.3.0"),
+		"capa/v35.1.1/release.yaml":  releaseManifest("cluster-aws", "10.3.1"),
 		"capa/v35.0.1/release.yaml":  releaseManifest("cluster-aws", "10.0.1"),
 		"azure/v35.0.1/release.yaml": releaseManifest("cluster-azure", "9.3.0"),
 		"capa/v36.0.0/release.yaml":  releaseManifest("cluster-eks", "7.1.0"),
@@ -192,6 +201,9 @@ func TestPodCertificateRequestThroughTheRelease(t *testing.T) {
 		{"another provider's directory", releaseClusterAppManifest("cluster-azure", "35.0.1", values("", "", "")), true, "azure/v35.0.1/release.yaml"},
 		{"the gates on every component: the release is not read", releaseClusterAppManifest("cluster-aws", "35.0.1", values(all, all, all)), true, ""},
 		{"a list without the gates on one component: no whatever the release", releaseClusterAppManifest("cluster-aws", "35.1.0", values(gates([]string{otherGate}, ""), "", "")), false, ""},
+		{"a placeholder App version below the default: the release decides", placeholderClusterAppManifest("cluster-aws", "1.0.0", "35.1.1", values("", "", "")), true, "capa/v35.1.1/release.yaml"},
+		{"a placeholder App version at the default: the release before it decides", placeholderClusterAppManifest("cluster-aws", "10.3.0", "35.0.1", values("", "", "")), false, "capa/v35.0.1/release.yaml"},
+		{"a placeholder App version, the gates on every component: the release is not read", placeholderClusterAppManifest("cluster-aws", "1.0.0", "35.0.1", values(all, all, all)), true, ""},
 	}
 	for _, c := range cases {
 		got, reads, err := readFact(t, c.manifest, releases)
@@ -222,6 +234,7 @@ func TestPodCertificateRequestThroughTheRelease(t *testing.T) {
 		{"a release not in the repository", releaseClusterAppManifest("cluster-aws", "34.9.9", values("", "", "")), "capa/v34.9.9/release.yaml is not in giantswarm/releases"},
 		{"a release that lists no such chart", releaseClusterAppManifest("cluster-aws", "36.0.0", values("", "", "")), "lists no component cluster-aws"},
 		{"a chart without a releases directory", releaseClusterAppManifest("cluster-mars", "35.1.0", values("", "", "")), "no releases directory is known for the chart cluster-mars"},
+		{"a placeholder App version does not stand in for a release not in the repository", placeholderClusterAppManifest("cluster-aws", "10.3.0", "34.9.9", values("", "", "")), "capa/v34.9.9/release.yaml is not in giantswarm/releases"},
 	} {
 		got, _, err := readFact(t, c.manifest, releases)
 		if !errors.Is(err, ErrRelease) || got {
