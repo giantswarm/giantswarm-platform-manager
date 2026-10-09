@@ -437,9 +437,10 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
   one value; `--write` refuses when they differ.
 
   `--vault sops` (the default, a person) runs the local sops with the person's age identity.
-  `--vault beekeeper` (an agent) moves each value with `beekeeper secret copy` and compares with
-  `beekeeper secret compare`, so no value reaches the agent. Until beekeeper can reveal declared
-  configuration fields and unset keys, the agent's dry run is keys only and `--write` needs a person.
+  `--vault beekeeper` (an agent, beekeeper 0.114.0 or newer) moves each value with `beekeeper secret
+  copy`, compares with `beekeeper secret compare` and drops the moved keys with `beekeeper secret
+  unset`, so no secret reaches the agent. The configuration fields come from `beekeeper secret
+  reveal`, which refuses the call when its classifier takes a leaf for a secret.
 
 Installing it and keeping it current:
 
