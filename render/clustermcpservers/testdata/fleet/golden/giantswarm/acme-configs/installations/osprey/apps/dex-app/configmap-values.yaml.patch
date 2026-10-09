@@ -14,3 +14,17 @@ oidc:
       clientSecretRef:
         name: dex-client-mcp-capi
         key: secret
+  customer:
+    connectors:
+      - id: acme-simple-oidc
+        connectorType: oidc
+        connectorName: harrier token exchange
+        connectorConfig: |
+          issuer: https://dex.harrier.acme.example.test
+          insecureEnableGroups: true
+      - id: acme-kite-oidc
+        connectorType: oidc
+        connectorName: kite token exchange
+        connectorConfig: |
+          issuer: https://dex.kite.acme.example.test
+          insecureEnableGroups: true

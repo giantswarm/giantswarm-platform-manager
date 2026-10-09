@@ -72,17 +72,25 @@ releaseCandidates:
   stage: testing
   customers: [giantswarm]
 
-# The hub side of federation: the connector a target's Dex registers for a hub, as Go templates over
-# the hub's record ({{ .Customer }}, {{ .Name }}), and the Teleport cluster a tunnel joins. A target's
-# Dex registers one connector per hub that brokers into it, and only one of an organisation's hubs can
+# Federation: the connector a target's Dex registers for a hub, as Go templates over the hub's
+# record ({{ .Customer }}, {{ .Name }}), and the Teleport cluster a tunnel joins. A target's Dex
+# registers one connector per hub that brokers into it, and only one of an organisation's hubs can
 # carry the organisation's plain name: the target's first hub of the organisation registers `first`
 # — the registry's hub where it is one, else the first by name; the target's only hub, mostly —,
 # every further hub of the same organisation `further`, named after the hub. Which hubs broker into
-# a target is the record's (installation.federation.targets[*].hubs, from the portals on record).
+# a target is the record's (installation.federation.targets[*].hubs on the hub,
+# installation.federation.connectors on the target, both from the portals on record). The hub names
+# the connector in its broker and identity providers; the target's own definition — agent-platform
+# where the platform runs there, cluster-mcp-servers otherwise — registers it on the target's Dex,
+# an oidc connector trusting the hub's Dex as the issuer, under oidc.customer.connectors next to the
+# target's own login connectors. The organisations under `fromBase` are the exception: the fleet's
+# Dex base registers their hubs' connectors on every installation (giantswarm-simple-oidc), so a
+# target renders none for them.
 federation:
   connector:
     first: "{{ .Customer }}-simple-oidc"
     further: "{{ .Customer }}-{{ .Name }}-oidc"
+    fromBase: [giantswarm]
   teleport:
     clusterName: teleport.giantswarm.io
     proxyAddr: teleport.giantswarm.io:443
