@@ -55,8 +55,8 @@ func TestFactsPerDefinition(t *testing.T) {
 // definition takes the federation's connectors and nothing else of it, the
 // agent-platform definition the whole federation.
 func TestFactsPruneObjectsBySchema(t *testing.T) {
-	r := Report{Installation: Installation{Name: fixtureInstallation}, Record: &Record{Name: fixtureInstallation, BaseDomain: "maple.acme.example.test", Customer: "acme"},
-		Federation: &Federation{Hubs: []string{"aspen"}, RegistryHub: "aspen", Targets: []FederatedTarget{}, Connectors: []render.HubConnector{{Hub: "aspen", Customer: "fleet", BaseDomain: "aspen.fleet.test", First: true}}}}
+	r := Report{Installation: Installation{Name: fixtureInstallation}, Record: &Record{Name: fixtureInstallation, BaseDomain: "maple.acme.example.test", Customer: fixtureCustomer},
+		Federation: &Federation{Hubs: []string{fixtureHub}, RegistryHub: fixtureHub, Targets: []FederatedTarget{}, Connectors: []render.HubConnector{{Hub: fixtureHub, Customer: fixtureFleet, BaseDomain: aspenDomain, First: true}}}}
 	all := r.Facts()
 	servers, _ := FindCapability(ClusterMCPServers)
 	facts, err := servers.Facts(all)
@@ -68,7 +68,7 @@ func TestFactsPruneObjectsBySchema(t *testing.T) {
 	if len(fed) != 1 || len(conns) != 1 {
 		t.Fatalf("cluster-mcp-servers takes the connectors alone: %v", facts["federation"])
 	}
-	if entry, _ := conns[0].(map[string]any); entry["hub"] != "aspen" || entry["customer"] != "fleet" || entry["baseDomain"] != "aspen.fleet.test" || entry["first"] != true {
+	if entry, _ := conns[0].(map[string]any); entry["hub"] != fixtureHub || entry["customer"] != fixtureFleet || entry["baseDomain"] != aspenDomain || entry["first"] != true {
 		t.Errorf("the connector's facts: %v", conns[0])
 	}
 	platform, _ := FindCapability(AgentPlatform)
@@ -76,7 +76,7 @@ func TestFactsPruneObjectsBySchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	fed, _ = facts["federation"].(map[string]any)
-	if fed["hubs"] == nil || fed["registryHub"] != "aspen" || fed["targets"] == nil || fed["connectors"] == nil {
+	if fed["hubs"] == nil || fed["registryHub"] != fixtureHub || fed["targets"] == nil || fed["connectors"] == nil {
 		t.Errorf("agent-platform takes the whole federation: %v", facts["federation"])
 	}
 }

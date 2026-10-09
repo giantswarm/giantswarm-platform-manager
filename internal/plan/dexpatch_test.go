@@ -19,6 +19,9 @@ var renderedDexPatches = map[string]string{
 		"giantswarm", "oakridge-configs", "installations", "kestrel", "apps", "dex-app", "configmap-values.yaml.patch"),
 }
 
+// keyIngress is the installation's own ingress tuning at the patch's top level.
+const keyIngress = "ingress"
+
 // currentDexPatch is an installation's patch as its owners left it: the
 // installation's ingress tuning and login connectors, a built-in client and
 // an extra static client no definition declares, and the two definitions'
@@ -74,12 +77,12 @@ func TestKeepDexPatchKeepsOtherOwnersPartsUnderEitherDefinition(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := []Kept{{"", "ingress"}, {keyOIDC, "customer"}, {listStaticClients, "argocd"}, {listExtraClients, "grafana"}}
+			want := []Kept{{"", keyIngress}, {keyOIDC, keyCustomer}, {listStaticClients, "argocd"}, {listExtraClients, "grafana"}}
 			if definition == "customer-portal" {
 				// The portal's definition renders no built-in client at all:
 				// the whole staticClients mapping is another owner's and
 				// stays as one key, the platform's stale client included.
-				want = []Kept{{"", "ingress"}, {keyOIDC, "customer"}, {keyOIDC, keyStaticClients}, {listExtraClients, "grafana"}}
+				want = []Kept{{"", keyIngress}, {keyOIDC, keyCustomer}, {keyOIDC, keyStaticClients}, {listExtraClients, "grafana"}}
 			}
 			if len(kept) != len(want) {
 				t.Fatalf("kept %v, want %v", kept, want)
@@ -174,7 +177,7 @@ func TestKeepDexPatchKeepsTheLoginConnectorBesideTheExchangeConnectors(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Kept{{"", "ingress"}, {mapCustomer, "enabled"}, {mapCustomer, "connectorType"}, {mapCustomer, "connectorName"}, {listConnectors, "customer-simple-oidc"}, {listStaticClients, "argocd"}, {keyOIDC, keyExtraStaticClients}}
+	want := []Kept{{"", keyIngress}, {mapCustomer, "enabled"}, {mapCustomer, "connectorType"}, {mapCustomer, "connectorName"}, {listConnectors, "customer-simple-oidc"}, {listStaticClients, "argocd"}, {keyOIDC, keyExtraStaticClients}}
 	if len(kept) != len(want) {
 		t.Fatalf("kept %v, want %v", kept, want)
 	}
