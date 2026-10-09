@@ -62,7 +62,7 @@ type Spec struct {
 	// verify that has no GitHub token to re-read the facts (the live
 	// registration) renders the same document. Keyed by installation.
 	InputsByInstallation map[string]map[string]any `json:"inputsByInstallation,omitempty"`
-	// Kind is "enable" or "reconcile".
+	// Kind is "enable", "reconcile" or "disable".
 	Kind string `json:"kind"`
 	// Customer marks a customer installation among the targets: the Account
 	// Engineers' channel is told once its change is applied.
@@ -144,7 +144,7 @@ type Status struct {
 	// record, never with one of the manager's.
 	SyncedAt *time.Time `json:"syncedAt,omitempty"`
 	SyncedBy string     `json:"syncedBy,omitempty"`
-	// Orphans are, on a removed action whose definition's Kustomization
+	// Orphans are, on a removed or disabled action whose definition's Kustomization
 	// does not prune, the objects the definition rendered on the
 	// installations that stay until a person deletes them; read from the
 	// render of the inputs on record, never from the cluster.
@@ -453,6 +453,9 @@ const (
 	StateReverted           = "reverted"
 	StateWithdrawn          = "withdrawn"
 	StateRemoved            = "removed"
+	// StateDisabled is a disable's own end: every pull request merged and the
+	// definition's marker gone from the default branch.
+	StateDisabled = "disabled"
 )
 
 // Terminal says whether state is one no read moves the action out of:
@@ -462,7 +465,7 @@ const (
 // merge can still be reverted — and neither is a reverted one: the actor
 // withdraws it, and its fileset gone whole removes it.
 func Terminal(state string) bool {
-	return state == StateRefused || state == StateDenied || state == StateWithdrawn || state == StateRemoved
+	return state == StateRefused || state == StateDenied || state == StateWithdrawn || state == StateRemoved || state == StateDisabled
 }
 
 // Settled says whether state is one no stage's read moves the action out
@@ -506,6 +509,10 @@ func (a Action) StagePullRequests(installation string) []int {
 const (
 	KindEnable    = "enable"
 	KindReconcile = "reconcile"
+	// KindDisable removes a capability from one installation: its fileset
+	// leaves the repositories, the objects the fleet's Kustomization does not
+	// prune are the checklist recorded as Orphans.
+	KindDisable = "disable"
 )
 
 // The states of a pull request the action opened: open until merged as the

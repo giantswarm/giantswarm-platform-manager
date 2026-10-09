@@ -844,3 +844,112 @@ func signsOut(name string) string {
 	}
 	return ""
 }
+
+// Disable is disable_capability's answer: the dry run — the files it deletes
+// and edits by pull request, the files that stay, the objects a person
+// deletes after the merge, what still depends on the capability, the check
+// after the merge — or the commit's action and pull requests.
+func Disable(w io.Writer, r tools.DisableResult, content bool) error {
+	p := &printer{w: w}
+	mode := "dry run"
+	if !r.DryRun {
+		mode = "commit"
+	}
+	p.f("%s %s: %s on %s (hub %s), as %s\n", r.Tool, mode, r.Capability, r.Installation, dash(r.Hub), dash(r.Caller))
+	p.f("State: %s\n", r.State)
+	if a := r.Action; a != nil {
+		p.f("Action: %s (%s)\n", a.Name, dash(a.Status.State))
+	}
+	if len(r.PullRequests) > 0 {
+		p.f("Pull requests, in order:\n")
+		for i, pr := range r.PullRequests {
+			p.f("  %d. %s#%d %s\n", i+1, pr.Repository, pr.Number, pr.URL)
+		}
+	}
+	d := r.Plan
+	if len(d.Directories) > 0 {
+		p.f("\nDirectories that leave whole: %s\n", strings.Join(d.Directories, ", "))
+	}
+	if len(d.PullRequests) > 0 {
+		p.f("\nPull requests, in order:\n")
+		for _, pr := range d.PullRequests {
+			p.f("  %d. %s: %s\n", pr.Order, pr.Repository, plural(pr.Changes, "change"))
+			for _, f := range d.Files {
+				if f.Repository != pr.Repository || (f.Change != plan.ChangeDelete && f.Change != plan.ChangeUpdate) {
+					continue
+				}
+				line := fmt.Sprintf("     %-6s %s", f.Change, f.Path)
+				if f.Unrendered {
+					line += "  (not rendered by the definition: leaves with its directory)"
+				}
+				if len(f.Pairings) > 0 {
+					line += "  (paired with " + strings.Join(f.Pairings, ", ") + ")"
+				}
+				p.f("%s\n", line)
+				if content && f.Change == plan.ChangeUpdate {
+					p.f("     --- as the commit writes it\n%s", indent(f.Content, "       "))
+				}
+			}
+		}
+	}
+	if unknown := d.Unknown(); len(unknown) > 0 {
+		p.f("\nNot readable as you:\n")
+		for _, u := range unknown {
+			p.f("  %s:%s: %s\n", u.Repository, u.Path, u.Error)
+		}
+	}
+	if len(d.Stays) > 0 {
+		p.f("\nStays on record:\n")
+		for _, s := range d.Stays {
+			p.f("  %s:%s (%s)\n", s.Repository, s.Path, s.Why)
+		}
+	}
+	switch {
+	case r.Prunes:
+		p.f("\nFlux prunes what the files applied: nothing to delete by hand.\n")
+	case len(d.Checklist) > 0:
+		p.f("\nAfter the merge, delete on %s in this order — the fleet's Kustomization over the tree does not prune:\n", r.Installation)
+		for _, o := range d.Checklist {
+			p.f("  [ ] %s\n", o)
+		}
+	}
+	for _, u := range r.Unread {
+		p.f("  (not read, its objects are missing above: %s)\n", u)
+	}
+	if len(r.References) > 0 {
+		p.f("\nStill depends on %s:\n", r.Capability)
+		for _, ref := range r.References {
+			p.f("  - %s\n", ref)
+		}
+	}
+	if r.State.OnRecord() {
+		p.f("\nAfter the merge, check:\n")
+		p.f("  platformctl installation list %s   (%s: not enabled)\n", r.Installation, r.Capability)
+		p.f("  platformctl installation verify %s %s\n", r.Installation, r.Capability)
+		for _, c := range r.Remaining {
+			p.f("  platformctl installation reconcile %s %s --dry-run\n", r.Installation, c)
+			p.f("  platformctl installation verify %s %s\n", r.Installation, c)
+		}
+		for _, o := range d.Others {
+			p.f("  platformctl installation reconcile %s %s --dry-run   (%s's files above stay; its reconcile aligns them)\n", o, r.Capability, o)
+		}
+	}
+	if r.CommitRefused != "" {
+		p.f("\nCommit refused: %s\n", r.CommitRefused)
+	} else if r.Commit != "" {
+		p.f("\nCommit: %s\n", r.Commit)
+	}
+	if r.Next != "" {
+		p.f("\nNext: %s\n", r.Next)
+	}
+	return p.err
+}
+
+// indent prefixes every line of text with prefix, ending in a newline.
+func indent(text, prefix string) string {
+	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	for i, l := range lines {
+		lines[i] = prefix + l
+	}
+	return strings.Join(lines, "\n") + "\n"
+}

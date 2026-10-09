@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `disable_capability` and `platformctl installation disable <installation> <capability> --dry-run|--commit`, the mirror of enable ([#496](https://github.com/giantswarm/giantswarm-platform-manager/issues/496)). The dry run names every record entry and GitOps file it removes, keeps what a capability that stays renders, and lists as a checklist the cluster objects Flux will not prune; it writes nothing. `--commit` removes them through the same action, approval and merge path as enable, the action ending *disabled* with its checklist on `status.orphans`; afterwards `list` and `verify` read the capability not enabled. A capability a sibling installation federates, a portal entry points at, or a peered token-exchange pairing still uses is refused with the reference named.
+
 ### Changed
 
 - agent-platform: on a private installation muster lifts its SSRF guard for a client's metadata document for agentgateway's hostname alone (`muster.muster.oauth.server.allowPrivateIPClientMetadataHosts`, muster 5.35.0 or later), where the chat gateway serves its client_id, instead of for every host (`allowPrivateIPClientMetadata: true`). The host list is a migration (M40): the bool on record is a planned removal, the list a planned addition, and an installation that already carries the list reads as defined. `allowPrivateIPRedirectURIs` is unchanged.

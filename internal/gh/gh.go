@@ -263,3 +263,10 @@ func PullRequest(ctx context.Context, c *Client, owner, repo string, number int)
 	}
 	return st, nil
 }
+
+// ListFiles are the files under dir on the default branch of owner/repo,
+// read as the person from the repository's tree, sorted; none for a dir that
+// is not there. It costs no request beyond the tree's.
+func ListFiles(ctx context.Context, c *Client, owner, repo, dir string) ([]string, error) {
+	return c.files.list(ctx, c, owner, repo, dir)
+}
