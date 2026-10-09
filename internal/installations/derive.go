@@ -117,6 +117,28 @@ type PortalInstallation struct {
 	BaseDomain string `json:"baseDomain"`
 }
 
+// PortalHost is the installation hosting the portal the agent platform's
+// portal section is written into, as the definition's render picks it among
+// the installation's portals: the portal hosted on the installation itself;
+// else the organisation's portal on a sibling that is not hand-kept (a
+// customer aggregator's); else none. A read-back of the section reads the
+// host's file, whichever installation's plan rendered it; a hand-kept
+// sibling portal and another organisation's take no section of this
+// installation's.
+func (r *Report) PortalHost() string {
+	for _, p := range r.Portals {
+		if p.Installation == r.Name {
+			return p.Installation
+		}
+	}
+	for _, p := range r.Portals {
+		if p.Customer == r.Customer && !p.HandKept {
+			return p.Installation
+		}
+	}
+	return ""
+}
+
 // Federation is an installation's place in the fleet's token exchange, as the
 // definitions' installation.federation names it.
 type Federation struct {

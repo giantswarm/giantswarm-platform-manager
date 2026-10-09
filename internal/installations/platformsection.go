@@ -70,7 +70,8 @@ func portalPlatformSection(ctx context.Context, r Report, read Reader) (map[stri
 	if err != nil {
 		return nil, err
 	}
-	files := newReadBackFiles(ctx, read, r.Installation)
+	// The customer portal's files are the installation's own: it hosts the portal.
+	files := newReadBackFiles(ctx, read, r.Installation, r.Name)
 	doc := func(file string) (map[string]any, error) {
 		spec, ok := s.Files[file]
 		if !ok {

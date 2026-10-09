@@ -10,14 +10,20 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
-// The fixture's names: the fleet's hub, an organisation and its aggregator and sibling.
+// The fixture's names: the fleet's hub, an organisation and its aggregator
+// and sibling, their base domains and the organisation's repositories.
 const (
 	fixtureHub        = "aspen"
 	fixtureFleet      = "fleet"
 	fixtureCustomer   = "umbra"
 	fixtureAggregator = "linden"
 	fixtureSibling    = "rowanberry"
+	aspenDomain       = "aspen.fleet.test"
+	lindenDomain      = "linden.umbra.test"
+	rowanberryDomain  = "rowanberry.umbra.test"
 )
+
+var fixtureRepos = Repositories{Configs: fixtureConfigs, ManagementClusters: "fleet/umbra-management-clusters"}
 
 // The portals on record derive an installation's portals, hubs and targets:
 // a portal lists the installations it signs into; its cluster-token broker
@@ -25,14 +31,14 @@ const (
 // installation a portal reaches through the tunnel on its host is private.
 func TestDeriveFromPortals(t *testing.T) {
 	reg := &Registry{Installations: []Installation{
-		{Name: fixtureHub, Customer: fixtureFleet, BaseDomain: "aspen.fleet.test", Hub: true},
-		{Name: fixtureAggregator, Customer: fixtureCustomer, BaseDomain: "linden.umbra.test", Repositories: Repositories{Configs: "fleet/umbra-configs", ManagementClusters: "fleet/umbra-management-clusters"}},
-		{Name: fixtureSibling, Customer: fixtureCustomer, BaseDomain: "rowanberry.umbra.test", Repositories: Repositories{Configs: "fleet/umbra-configs", ManagementClusters: "fleet/umbra-management-clusters"}},
+		{Name: fixtureHub, Customer: fixtureFleet, BaseDomain: aspenDomain, Hub: true},
+		{Name: fixtureAggregator, Customer: fixtureCustomer, BaseDomain: lindenDomain, Repositories: fixtureRepos},
+		{Name: fixtureSibling, Customer: fixtureCustomer, BaseDomain: rowanberryDomain, Repositories: fixtureRepos},
 	}}
 	reports := []Report{
-		{Installation: reg.Installations[0], Record: &Record{Name: fixtureHub, BaseDomain: "aspen.fleet.test"}, Readable: true},
-		{Installation: reg.Installations[1], Record: &Record{Name: fixtureAggregator, BaseDomain: "linden.umbra.test"}, Readable: true},
-		{Installation: reg.Installations[2], Record: &Record{Name: fixtureSibling, BaseDomain: "rowanberry.umbra.test", Private: true}, Readable: true},
+		{Installation: reg.Installations[0], Record: &Record{Name: fixtureHub, BaseDomain: aspenDomain}, Readable: true},
+		{Installation: reg.Installations[1], Record: &Record{Name: fixtureAggregator, BaseDomain: lindenDomain}, Readable: true},
+		{Installation: reg.Installations[2], Record: &Record{Name: fixtureSibling, BaseDomain: rowanberryDomain, Private: true}, Readable: true},
 	}
 	portals := []Portal{
 		{Host: fixtureHub, Customer: fixtureFleet, Domain: "portal.fleet.test", ClientID: fixtureHubClientID, Broker: "", Installations: []string{fixtureHub, fixtureAggregator, fixtureSibling}, Tunnelled: []string{fixtureSibling}, HandKept: true},
@@ -75,12 +81,10 @@ func TestDeriveFromPortals(t *testing.T) {
 // none. A marker the caller cannot read reads as not enabled; a platform
 // installation without a base domain is an error naming it.
 func TestPortalRefsListThePlatformInstallations(t *testing.T) {
-	const lindenDomain, rowanberryDomain = "linden.umbra.test", "rowanberry.umbra.test"
-	repos := Repositories{Configs: "fleet/umbra-configs", ManagementClusters: "fleet/umbra-management-clusters"}
 	reg := &Registry{Installations: []Installation{
-		{Name: fixtureHub, Customer: fixtureFleet, BaseDomain: "aspen.fleet.test", Hub: true},
-		{Name: fixtureAggregator, Customer: fixtureCustomer, BaseDomain: lindenDomain, Repositories: repos},
-		{Name: fixtureSibling, Customer: fixtureCustomer, Repositories: repos},
+		{Name: fixtureHub, Customer: fixtureFleet, BaseDomain: aspenDomain, Hub: true},
+		{Name: fixtureAggregator, Customer: fixtureCustomer, BaseDomain: lindenDomain, Repositories: fixtureRepos},
+		{Name: fixtureSibling, Customer: fixtureCustomer, Repositories: fixtureRepos},
 	}}
 	state := func(enabled bool) []CapabilityState {
 		return []CapabilityState{{Name: AgentPlatform, Enabled: enabled}}
@@ -128,6 +132,35 @@ func TestPortalRefsListThePlatformInstallations(t *testing.T) {
 	}
 }
 
+// The portal host an installation's agent platform section is written into,
+// and read back from: its own portal; else the organisation's portal on a
+// sibling that is not hand-kept; none where the only portals are a hand-kept
+// sibling's or another organisation's.
+func TestPortalHostIsTheSectionsPortal(t *testing.T) {
+	own := PortalRef{Installation: fixtureAggregator, Customer: fixtureCustomer}
+	sibling := PortalRef{Installation: fixtureSibling, Customer: fixtureCustomer}
+	handKept := PortalRef{Installation: fixtureSibling, Customer: fixtureCustomer, HandKept: true}
+	hub := PortalRef{Installation: fixtureHub, Customer: fixtureFleet, HandKept: true}
+	report := func(portals ...PortalRef) *Report {
+		return &Report{Installation: Installation{Name: fixtureAggregator, Customer: fixtureCustomer}, Portals: portals}
+	}
+	for _, tc := range []struct {
+		name string
+		rep  *Report
+		want string
+	}{
+		{"its own portal first", report(hub, sibling, own), fixtureAggregator},
+		{"else the organisation's sibling portal", report(hub, sibling), fixtureSibling},
+		{"never a hand-kept sibling's", report(hub, handKept), ""},
+		{"never another organisation's", report(hub), ""},
+		{"no portal", report(), ""},
+	} {
+		if got := tc.rep.PortalHost(); got != tc.want {
+			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
 // The portal hosted on an installation shows the installations its record
 // lists besides its own, by name: each with the registry's base domain,
 // region and pipeline (the record's where the registry has none) and the
@@ -135,10 +168,7 @@ func TestPortalRefsListThePlatformInstallations(t *testing.T) {
 // name the registry does not know is set apart; an installation without a
 // portal hosts none.
 func TestHostedPortalFollowsTheRecord(t *testing.T) {
-	const (
-		capa, capz, stable, euCentral, spruce       = "capa", "capz", "stable", "eu-central-1", "spruce"
-		aspenDomain, lindenDomain, rowanberryDomain = "aspen.fleet.test", "linden.umbra.test", "rowanberry.umbra.test"
-	)
+	const capa, capz, stable, euCentral, spruce = "capa", "capz", "stable", "eu-central-1", "spruce"
 	reg := &Registry{Installations: []Installation{
 		{Name: fixtureHub, Customer: fixtureFleet, BaseDomain: aspenDomain, Provider: capa, Region: "eu-west-1", Pipeline: stable, Hub: true},
 		{Name: fixtureAggregator, Customer: fixtureCustomer, BaseDomain: lindenDomain, Provider: capz, Pipeline: "testing"},
