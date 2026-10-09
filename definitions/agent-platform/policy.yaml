@@ -18,8 +18,6 @@ components:
     # cluster-manager is the meta chart's 4 line's: an installation on the 3 line is refused
     # until its record selects 4 (agentPlatform.kagentApiV2 in config.yaml.patch).
     giantswarm: [kagent, agent-manager, cluster-manager]
-    # Agents without the agent-manager's create/edit surface.
-    fleetio: [kagent]
     # Tool access only: muster and the MCP servers, no agents.
     boschpt: []
     dvag: []

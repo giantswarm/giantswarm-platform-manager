@@ -752,7 +752,7 @@ func TestManagersCommitMode(t *testing.T) {
 		})
 	}
 	input, secrets := loadInput(t, shapeHubPrivateTarget)
-	input["installation"].(map[string]any)["customer"] = "fleetio"
+	input["installation"].(map[string]any)["customer"] = "dvag"
 	input["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
 	input["agentManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: true}}
 	if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "agentManager.github.enabled") {
@@ -830,7 +830,7 @@ func TestAgentManagerSkills(t *testing.T) {
 	}
 
 	input, secrets = loadInput(t, shapeHubPrivateTarget)
-	input["installation"].(map[string]any)["customer"] = "fleetio"
+	input["installation"].(map[string]any)["customer"] = "dvag"
 	input["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
 	input["agentManager"] = map[string]any{keySkills: map[string]any{keyToken: skillsTok}} //nolint:gosec // a Secret's name in a fixture, no credential
 	if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "agentManager.skills") {

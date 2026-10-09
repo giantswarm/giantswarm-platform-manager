@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- agent-platform: every customer organisation that runs agents runs the agent-manager too, the default's `[kagent, agent-manager]`. The policy's one organisation with `[kagent]` read a decision the records have since left: its installation runs the agent-manager, and its portal creates agents through it. A reconcile rendered `components.agent-manager.enabled: false` there and removed the portal's create surface. Organisations listed with an empty list (tool access only) are unchanged.
 - agent-platform: on a private installation muster lifts its SSRF guard for a client's metadata document for agentgateway's hostname alone (`muster.muster.oauth.server.allowPrivateIPClientMetadataHosts`, muster 5.35.0 or later), where the chat gateway serves its client_id, instead of for every host (`allowPrivateIPClientMetadata: true`). The host list is a migration (M40): the bool on record is a planned removal, the list a planned addition, and an installation that already carries the list reads as defined. `allowPrivateIPRedirectURIs` is unchanged.
 
 ### Fixed
