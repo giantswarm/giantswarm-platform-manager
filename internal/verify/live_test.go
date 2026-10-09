@@ -117,16 +117,19 @@ func TestMergeTakesTheCheckedSide(t *testing.T) {
 // ModelConfig Accepted: verify and the dry run (both Merge and
 // HoldCustomerActions) sort it by the same marks the watch does.
 func TestMergeHoldsCustomerActionsAgainstTheLiveMarks(t *testing.T) {
-	const modelKey = "live-model-configs"
+	const (
+		modelKey       = "live-model-configs"
+		runtimeFeature = "runtime"
+	)
 	actions := []plan.CustomerAction{
 		{Installation: "rowan", Action: "create the model key Secret", Why: "theirs", Dimension: modelKey},
 		{Installation: "rowan", Action: "an action no dimension reads", Why: "theirs"},
 	}
-	repo := Result{CustomerActions: actions, Features: []Feature{{ID: "runtime", Dimensions: []Dimension{
+	repo := Result{CustomerActions: actions, Features: []Feature{{ID: runtimeFeature, Dimensions: []Dimension{
 		{ID: modelKey, Kind: definitions.KindLive, Mark: NotChecked, Reason: ReasonAuthority},
 	}}}}
 	liveWith := func(m Mark) Result {
-		return Result{Features: []Feature{{ID: "runtime", Dimensions: []Dimension{{ID: modelKey, Kind: definitions.KindLive, Mark: m}}}}}
+		return Result{Features: []Feature{{ID: runtimeFeature, Dimensions: []Dimension{{ID: modelKey, Kind: definitions.KindLive, Mark: m}}}}}
 	}
 	for _, c := range []struct {
 		mark Mark
