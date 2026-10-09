@@ -132,6 +132,23 @@ func TestBeekeeperVault(t *testing.T) {
 	}
 }
 
+func TestBeekeeperVaultCopyRelativeSource(t *testing.T) {
+	run, calls := recorder(func([]string) ([]byte, error) { return nil, nil })
+	v, _ := NewVault(VaultBeekeeper, run)
+	src := Ref{File: "configs/installations/x/apps/dex-app/secret-values.yaml.patch", Path: "oidc.extraStaticClients.0.secret"}
+	if err := v.CopySecret(context.Background(), src, "mcs/management-clusters/x/extras/dex/dex-client-kagent-secret.yaml", "dex-client-kagent", "giantswarm", "secret"); err != nil {
+		t.Fatal(err)
+	}
+	wd, _ := os.Getwd()
+	c := (*calls)[0]
+	if want := filepath.Join(wd, src.File) + "#" + src.Path + "=secret"; c.argv[3] != want {
+		t.Errorf("copy source %q, want %q", c.argv[3], want)
+	}
+	if want := filepath.Join(wd, "mcs/management-clusters/x/extras/dex"); c.dir != want {
+		t.Errorf("copy in %s, want %s", c.dir, want)
+	}
+}
+
 func TestBeekeeperVaultReveal(t *testing.T) {
 	run, calls := recorder(func([]string) ([]byte, error) {
 		return []byte(`[{"path":"oidc.extraStaticClients.0.id","value":"kagent"},{"path":"oidc.extraStaticClients.0.redirectURIs.0","value":"https://kagent.example/callback"}]`), nil
