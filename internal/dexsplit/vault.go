@@ -227,13 +227,38 @@ func secretManifest(name, namespace, key, value string) ([]byte, error) {
 
 // beekeeperVault asks beekeeper, which holds the identities and runs sops in
 // its own process; it answers key names, lengths and equality, never a
-// value.
+// secret. Reveal answers configuration alone: beekeeper's classifier refuses
+// the call when a leaf looks secret.
 type beekeeperVault struct{ run Runner }
 
 func (beekeeperVault) Name() string { return VaultBeekeeper }
 
-func (beekeeperVault) Reveal(context.Context, string, []string) (map[string]string, error) {
-	return nil, fmt.Errorf("beekeeper reveals no field yet (giantswarm/beekeeper#765): %w", ErrUnsupported)
+func (v beekeeperVault) Reveal(ctx context.Context, file string, paths []string) (map[string]string, error) {
+	out := make(map[string]string, len(paths))
+	if len(paths) == 0 {
+		return out, nil
+	}
+	abs, err := filepath.Abs(file)
+	if err != nil {
+		return nil, err
+	}
+	answer, err := v.run(ctx, filepath.Dir(abs), nil, "beekeeper", append([]string{"--json", "secret", "reveal", abs}, paths...)...)
+	if err != nil {
+		return nil, commandError("beekeeper secret reveal "+file, err)
+	}
+	var fields []struct{ Path, Value string }
+	if err := json.Unmarshal(answer, &fields); err != nil {
+		return nil, fmt.Errorf("beekeeper secret reveal %s: no JSON answer", file)
+	}
+	for _, f := range fields {
+		out[f.Path] = f.Value
+	}
+	for _, p := range paths {
+		if _, ok := out[p]; !ok {
+			return nil, fmt.Errorf("%s#%s: no scalar", file, p)
+		}
+	}
+	return out, nil
 }
 
 func (v beekeeperVault) CopySecret(ctx context.Context, src Ref, dst, name, namespace, key string) error {
@@ -245,8 +270,20 @@ func (v beekeeperVault) CopySecret(ctx context.Context, src Ref, dst, name, name
 	return commandError("beekeeper secret copy "+src.String(), err)
 }
 
-func (beekeeperVault) Unset(context.Context, string, []string) error {
-	return fmt.Errorf("beekeeper unsets no key yet (giantswarm/beekeeper#765): %w", ErrUnsupported)
+// Unset hands every path to one call: beekeeper removes a path under
+// another with its parent and a list's later items first, and answers a path
+// already gone as absent.
+func (v beekeeperVault) Unset(ctx context.Context, file string, paths []string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+	abs, err := filepath.Abs(file)
+	if err != nil {
+		return err
+	}
+	args := append(append([]string{"secret", "unset", abs}, paths...), "--write")
+	_, err = v.run(ctx, filepath.Dir(abs), nil, "beekeeper", args...)
+	return commandError("beekeeper secret unset "+file, err)
 }
 
 func (v beekeeperVault) Equal(ctx context.Context, a, b Ref) (bool, error) {
