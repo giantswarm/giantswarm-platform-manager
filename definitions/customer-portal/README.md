@@ -19,7 +19,8 @@ The definition renders the portal into the installation's management-clusters re
 portal's directory (the agent-platform definition lists its Component there itself, with the directory it
 renders, and the plan keeps the entry); the portal's
 directory over the fleet's main base with the chart's line (and the release tag filter beside a range of
-release candidates) and the HelmRelease's values sources patched in, the app-config and values ConfigMaps (the values carry the portal's route and its environment,
+release candidates) and the HelmRelease's values sources patched in, the app-config and values ConfigMaps
+(the values carry the portal's route and its environment,
 `backstage.extraEnvVars`), the Secrets `user-secrets-backstage`,
 `plugin-keys-backstage`, `github-app-credentials-backstage` (github on) and `dex-client-backstage`, and the
 tunnel's SPIFFE bundle reference (tunnel on). On an installation without the platform it also renders the

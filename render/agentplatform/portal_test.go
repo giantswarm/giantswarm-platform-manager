@@ -257,8 +257,9 @@ func TestPortalFragmentVertexChat(t *testing.T) {
 }
 
 // A portal's chart line admits versions from its floor: the lower bound of
-// the bounded range the customer-portal definition writes (its release
-// candidates' range among them), or the tag itself.
+// the bounded range the customer-portal definition writes, or the tag itself.
+// The floor of a range of release candidates reads without its -0: the
+// candidates of the removal's release carry the removal.
 // The fragment names the agents' Flux identity where that floor lies before
 // the plugin's removal of the key, and a line of another form is refused.
 func TestPortalChartFloor(t *testing.T) {
@@ -271,7 +272,9 @@ func TestPortalChartFloor(t *testing.T) {
 		{">=1.0.0 <2.0.0", "1.0.0", true},
 		{">=1.1.0 <2.0.0", "1.1.0", false},
 		{portal2x, "2.1.0", false},
-		{">=2.1.0-0 <3.0.0-0", "2.1.0-0", false},
+		{">=2.1.0-0 <3.0.0-0", "2.1.0", false},
+		{">=1.1.0-0 <2.0.0-0", "1.1.0", false},
+		{">=1.0.0-0 <2.0.0-0", "1.0.0", true},
 		{">=0.244.7 <3.0.0", "0.244.7", true},
 		{"0.120.0", "0.120.0", true},
 		{"2.53.2", "2.53.2", false},
