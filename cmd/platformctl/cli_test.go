@@ -149,7 +149,8 @@ func TestCompletion(t *testing.T) {
 		args, want []string
 	}{
 		{[]string{""}, []string{actionCmd, completionCmd, helpCmd, installationCmd, selfUpdateCmd, templateCmd, versionCmd}},
-		{[]string{installationCmd, ""}, []string{enableCmd, listCmd, reconcileCmd, verifyCmd}},
+		{[]string{installationCmd, ""}, []string{"dex-split", enableCmd, listCmd, reconcileCmd, verifyCmd}},
+		{[]string{installationCmd, "dex-split", hazel, "--vault", ""}, []string{"sops", "beekeeper"}},
 		{[]string{actionCmd, ""}, []string{"approve", denyCmd, getCmd, listCmd, "merge", "watch"}},
 		{[]string{templateCmd, ""}, caps},
 		{[]string{installationCmd, enableCmd, ""}, nil},

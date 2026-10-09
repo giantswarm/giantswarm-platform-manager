@@ -20,12 +20,12 @@ const (
 	tagNull = "!!null"
 )
 
-// listEntry answers current with entry listed under the top-level sequence
+// ListEntry answers current with entry listed under the top-level sequence
 // list of a kustomization.yaml (resources or components), and whether that
 // changed anything: an entry already listed leaves the file as it is. The
 // edit is made on the YAML nodes, so every comment and the order of
 // everything else stay; a missing list is appended, an empty one filled.
-func listEntry(current []byte, list, entry string) ([]byte, bool, error) {
+func ListEntry(current []byte, list, entry string) ([]byte, bool, error) {
 	doc, m, err := mapping(current)
 	if err != nil {
 		return nil, false, err
@@ -118,7 +118,7 @@ func keep(rendered, current []byte) ([]byte, []Kept, error) {
 				if item.Kind != yaml.ScalarNode {
 					continue
 				}
-				edited, changed, err := listEntry(rendered, list, item.Value)
+				edited, changed, err := ListEntry(rendered, list, item.Value)
 				if err != nil {
 					return nil, nil, err
 				}

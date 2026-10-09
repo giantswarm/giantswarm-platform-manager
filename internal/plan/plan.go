@@ -726,7 +726,7 @@ func (p *Installation) kustomization(ctx context.Context, opts Options, reposito
 		if f.Change == ChangeUnknown {
 			break
 		}
-		edited, changed, err := listEntry(content, p.Includes[i].List, p.Includes[i].Resource)
+		edited, changed, err := ListEntry(content, p.Includes[i].List, p.Includes[i].Resource)
 		switch {
 		case err != nil:
 			f.Change, f.Error = ChangeUnknown, err.Error()

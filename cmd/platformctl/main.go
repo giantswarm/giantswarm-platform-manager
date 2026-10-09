@@ -35,6 +35,10 @@ const usage = `platformctl — the laptop and CI surface of giantswarm-platform-
   platformctl installation enable <installation> <capability> --dry-run|--commit --reason <text> [--input k=v]... [--secret f=src]... [--rotate <name>]... [--content]
   platformctl installation reconcile <installation>...|--all <capability> --dry-run|--commit --reason <text> [--input k=v]... [--secret f=src]... [--rotate <name>]... [--content]
   platformctl installation verify <installation> <capability>
+  platformctl installation dex-split <installation> --configs <dir> --management-clusters <dir> [--vault sops|beekeeper] [--hub <mc> --hub-management-clusters <dir>] [--write]
+      Move an installation's Dex clients out of its encrypted dex-app values into referenced
+      Secrets and the plaintext patch, in local checkouts; the dry run without --write
+      (` + "`platformctl installation dex-split --help`" + `). No muster.
   platformctl action get <name>
   platformctl action list [--installation <name>] [--capability <name>]
   platformctl action approve <name>
@@ -166,11 +170,12 @@ func newRoot(u *update.Updater) *cobra.Command {
 	}
 	root.AddCommand(
 		newTemplateCmd(),
-		group("installation", "The capabilities of the installations: list, enable, reconcile, verify",
+		group("installation", "The capabilities of the installations: list, enable, reconcile, verify, dex-split",
 			newInstallationListCmd(),
 			newCapabilityCmd(tools.ToolEnableCapability, false),
 			newCapabilityCmd(tools.ToolReconcileCapability, true),
 			newVerifyCmd(),
+			newDexSplitCmd(),
 		),
 		group("action", "The actions: get, list, approve, deny, merge, watch",
 			newActionGetCmd(),
