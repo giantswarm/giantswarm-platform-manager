@@ -117,8 +117,8 @@ func (in *Input) probes() []render.Probe {
 // kagent is wired to the Secret by name, the definition renders no file for
 // it and nobody supplies a value at commit; the person creates the Secret
 // afterwards — the one step the platform leaves to them (CustomerActions),
-// held up live by the model-key action until the default ModelConfig is
-// Accepted.
+// held up live by the model-key action until the default ModelConfig reads
+// its model key resolved (modelConfigCondition).
 const (
 	modelKeySecret    = "kagent-anthropic-key" // #nosec G101 -- a Secret name, not a value
 	modelKeySecretKey = "ANTHROPIC_API_KEY"    // #nosec G101 -- a Secret key name, not a value
@@ -148,10 +148,29 @@ func (in *Input) modelConfigResource() string {
 	return modelConfigResourceThree
 }
 
+// The ModelConfig condition that says the model key resolves, by line: on the
+// 4 line's api.kagent.dev/v1alpha3 Accepted only says the spec is valid and
+// ResolvedRefs whether the referenced Secret and key exist; the 3 line's
+// kagent.dev ModelConfig carries Accepted alone, False while the Secret is
+// missing.
+const (
+	modelConfigConditionFour  = "ResolvedRefs"
+	modelConfigConditionThree = "Accepted"
+)
+
+// modelConfigCondition is the condition the model-key probe reads on the
+// installation's line.
+func (in *Input) modelConfigCondition() string {
+	if in.Installation.ChartLine == lineFour {
+		return modelConfigConditionFour
+	}
+	return modelConfigConditionThree
+}
+
 // modelKeyNote is the model key step, naming the default ModelConfig by the
-// resource the installation's line serves.
+// resource and the condition the installation's line serves.
 func (in *Input) modelKeyNote() string {
-	return "Create Secret " + modelKeySecret + " in namespace " + kagentNamespace + " with key " + modelKeySecretKey + ", or add a ModelConfig in the portal; until then " + defaultModelConfig + " (" + in.modelConfigResource() + ") stays Accepted=False."
+	return "Create Secret " + modelKeySecret + " in namespace " + kagentNamespace + " with key " + modelKeySecretKey + ", or add a ModelConfig in the portal; until then " + defaultModelConfig + " (" + in.modelConfigResource() + ") stays " + in.modelConfigCondition() + "=False."
 }
 
 // actions are what a person outside the platform team still has to do for the
@@ -182,13 +201,14 @@ func (in *Input) helmReleases() []string {
 	return names
 }
 
-// modelConfigProbe is the default ModelConfig's Accepted condition, True, in
-// the group the installation's line serves (modelConfigResource). The note
+// modelConfigProbe is the default ModelConfig's model key condition, True, in
+// the group and by the condition the installation's line serves
+// (modelConfigResource, modelConfigCondition). The note
 // says whose move a False is, and the model-key action (actions) names this
 // dimension: until the person acts it reads waiting for the customer, not
 // drifted.
 func (in *Input) modelConfigProbe() render.Probe {
-	p := conditionProbe(modelKeyDimension, featureRuntime, kagentNamespace, in.modelConfigResource(), defaultModelConfig, "Accepted", conditionTrue)
+	p := conditionProbe(modelKeyDimension, featureRuntime, kagentNamespace, in.modelConfigResource(), defaultModelConfig, in.modelConfigCondition(), conditionTrue)
 	p.Expect.Note = "waiting for the customer's model key (Secret " + modelKeySecret + ", key " + modelKeySecretKey + ", or a ModelConfig in the portal)"
 	return p
 }
