@@ -31,6 +31,9 @@ const (
 	configMap     = "configmap"
 	// dexClientKagent names the Secret a Dex client's secretRef points at.
 	dexClientKagent = "dex-client-kagent"
+	// The kinds of generated values.
+	alphanumeric = "alphanumeric"
+	base64Kind   = "base64"
 )
 
 func contains(t *testing.T, out string, wants ...string) {
@@ -82,9 +85,14 @@ func TestPlan(t *testing.T) {
 			},
 			Includes: []plan.Include{{Repository: acmeMCs, Path: "management-clusters/rowan/extras/kustomization.yaml", List: plan.ListResources, Resource: "./agent-platform/", Change: plan.ChangeUpdate}},
 			GeneratedSecrets: []plan.GeneratedSecret{
-				{Name: "muster-valkey-password", Kind: "alphanumeric", Length: 32, Files: []string{"x", "y"}, FrozenIn: []string{"x"}, Rotates: true, ForcedBy: "y"},
-				{Name: "muster-registration-token", Kind: "base64", Length: 32, Files: []string{"z"}, FrozenIn: []string{"z"}, Kept: true},
-				{Name: "muster-oauth-encryption-key", Kind: "base64", Length: 32, Files: []string{"w"}, FrozenIn: []string{"w"}, Rotates: true, ForcedBy: plan.ForcedByRequest},
+				{Name: "muster-valkey-password", Kind: alphanumeric, Length: 32, Files: []string{"x", "y"}, FrozenIn: []string{"x"}, Rotates: true, ForcedBy: "y"},
+				{Name: "muster-registration-token", Kind: base64Kind, Length: 32, Files: []string{"z"}, FrozenIn: []string{"z"}, Kept: true},
+				{Name: "muster-oauth-encryption-key", Kind: base64Kind, Length: 32, Files: []string{"w"}, FrozenIn: []string{"w"}, Rotates: true, ForcedBy: plan.ForcedByRequest},
+				{Name: "muster-dex-client-secret", Kind: base64Kind, Length: 32, Files: []string{"w", "secrets/dex-client-muster-secret.yaml"}, FrozenIn: []string{"w"}, Kept: true,
+					Carries: []plan.Carry{{From: "w#stringData.dex-client-secret", To: "secrets/dex-client-muster-secret.yaml#stringData.secret", Create: true}}},
+				{Name: "kagent-cookie-secret", Kind: alphanumeric, Length: 32, Files: []string{"v"}, Rotates: true, ForcedBy: "v", Cause: "the render changes it beyond the keys it lacks", FrozenIn: []string{"v"}},
+				{Name: "mcp-prometheus-credentials-revision", Kind: alphanumeric, Length: 32, Files: []string{"r", "x", "y"}, PendingIn: []string{"x", "y"}},
+				{Name: "mcp-prometheus-cookie", Kind: alphanumeric, Length: 32, Files: []string{"x"}, Carries: []plan.Carry{{To: "x#stringData.COOKIE"}}},
 			},
 			SuppliedSecrets: []string{"kagent.modelKey"},
 			DexClients:      []plan.DexClient{{ID: kagent, Client: kagent, SecretRef: dexClientKagent, RedirectURIs: []string{"https://kagent.rowan.example/callback"}}},
@@ -111,6 +119,10 @@ func TestPlan(t *testing.T) {
 		"muster-valkey-password (alphanumeric, 32): x, y", "rotates: muster-valkey-password (forced by y) — a new value replaces the one on record in x;",
 		"muster-registration-token (base64, 32): z", "kept: the value on record in z stands, nothing is written", "You supply at commit: kagent.modelKey",
 		"muster-oauth-encryption-key (base64, 32): w", "rotates on request: muster-oauth-encryption-key — a new value replaces the one on record in w;",
+		"kept: the value on record in w stands; secrets/dex-client-muster-secret.yaml#stringData.secret takes it (beekeeper secret copy w#stringData.dex-client-secret secrets/dex-client-muster-secret.yaml#stringData.secret, or sops), a Dex client's Secret platformctl installation dex-split writes with the client moved out of the dex-app patch — the manager decrypts nothing, and the commit is refused until it is on record",
+		"rotates: kagent-cookie-secret (forced by v: the render changes it beyond the keys it lacks) — a new value replaces the one on record in v;",
+		"generated at commit: no file on record holds it, a new value is drawn; x, y stand without it until a rotation asked for rewrites them",
+		"drawn by your vault: no file on record holds it; x#stringData.COOKIE takes a value drawn there (beekeeper secret set x#stringData.COOKIE, or sops; alphanumeric, 32) — the commit rewrites no encrypted file for one key, and is refused until it is on record",
 		"kagent: client kagent; secretRef dex-client-kagent; redirect URIs https://kagent.rowan.example/callback",
 		"rowan: create the apiKeySecret (the model key is theirs)", "muster-ready: muster ready",
 		"1. giantswarm/acme-configs: 1 change for rowan", "generated secrets: muster-valkey-password",

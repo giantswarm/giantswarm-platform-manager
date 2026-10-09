@@ -59,6 +59,12 @@ type File struct {
 	Current string `json:"current,omitempty"`
 	// Generated names the values the commit step generates into this file.
 	Generated []string `json:"generated,omitempty"`
+	// Rewritten: the commit writes this file on record anew whole, every
+	// generated value it holds drawn — the render changes its skeleton, or a
+	// value it holds rotates. A file to update that holds generated values
+	// and is not rewritten is one the caller's vault fills (GeneratedSecret's
+	// Carries): the commit writes nothing of it.
+	Rewritten bool `json:"rewritten,omitempty"`
 	// Kept is the part of the installation's current file that is not the
 	// platform's, kept in the file as the plan writes it.
 	Kept []Kept `json:"kept,omitempty"`
@@ -169,22 +175,35 @@ type GeneratedSecret struct {
 	Kind   string   `json:"kind"`
 	Length int      `json:"length"`
 	Files  []string `json:"files"`
-	// FrozenIn are the Files that exist encrypted on record: the value they
-	// hold cannot be read back (the manager decrypts nothing), so no other
-	// file can share it — the commit either keeps them or rotates.
+	// FrozenIn are the Files on record that hold the value, encrypted: it
+	// cannot be read back (the manager decrypts nothing), so the commit
+	// writes it into no other file — it keeps them, or rotates.
 	FrozenIn []string `json:"frozenIn,omitempty"`
-	// Kept: every file of the name is on record as the render has it outside
-	// the values, so the value on record stands and no file is written.
+	// Kept: a file on record holds the value, and it stands: the files on
+	// record that hold it are not written. A file of the name that lacks it
+	// (a file to create, a file on record the render adds the key to) takes
+	// it by the caller's vault before the commit: Carries.
 	Kept bool `json:"kept,omitempty"`
-	// Rotates: a file of the name has to be written — ForcedBy names it: a
-	// file to create, an existing file whose plaintext skeleton the render
-	// changes, or a file rewritten for another rotating name — or the person
-	// asked for the rotation by name, ForcedBy ForcedByRequest (so does the
-	// credentials revision of a value asked for) — so the commit draws a new
-	// value and writes it into every one of Files, the frozen ones
-	// rewritten; both sides roll on the installation.
+	// Carries are the files the caller's vault puts the value into before
+	// the commit, the manager decrypting nothing: each from the record's
+	// file that holds it, or drawn there where no file on record holds it
+	// and a file on record lacks it. The commit is refused while one is not
+	// on record (CarryRefusal).
+	Carries []Carry `json:"carries,omitempty"`
+	// PendingIn are the files on record that lack the value's key and stand
+	// as they are: a credentials revision joins them with the next rotation
+	// asked for, which rewrites them from the render.
+	PendingIn []string `json:"pendingIn,omitempty"`
+	// Rotates: a file of the name is written anew whole — ForcedBy names it,
+	// Cause why (the render changes its skeleton beyond the keys it lacks, or
+	// it is rewritten with another rotating value) — or the person asked for
+	// the rotation by name, ForcedBy ForcedByRequest (so does the credentials
+	// revision of a value asked for) — so the commit draws a new value and
+	// writes it into every one of Files, the frozen ones rewritten; both
+	// sides roll on the installation.
 	Rotates  bool   `json:"rotates,omitempty"`
 	ForcedBy string `json:"forcedBy,omitempty"`
+	Cause    string `json:"cause,omitempty"`
 	// Peer is the other side of a value two installations hold, each in its
 	// own plan, as "<repository>:<path>" (the path alone where the peer's
 	// repository is not on record): a value drawn here never reaches it.
@@ -544,12 +563,20 @@ func Build(ctx context.Context, opts Options) Installation {
 				}
 			}
 			pf.Change, pf.Error, pf.Unseen = change(current, err, content)
+			if len(f.Generated) > 0 {
+				h.paths = markerPaths(content)
+			}
 			if pf.Change == ChangeUpdate && !Shared(path) {
-				// A revision the record does not hold yet waits for a
-				// requested rotation: the file stands, and holds no revision.
-				if without, pending := pendingRevisions(content, current, revisions); len(pending) > 0 && sameSkeleton(without, current) {
-					pf.Change, pf.Unseen = ChangeUnchanged, unseen(without, current)
-					h.secret = slices.DeleteFunc(h.secret, func(n string) bool { return slices.Contains(pending, n) })
+				// A file on record the render adds keys to and changes
+				// nothing else of: the caller's vault fills them, the file's
+				// values stand. Where the keys are credentials revisions
+				// alone they wait for a requested rotation instead: the file
+				// stands, and holds no revision.
+				if without, lacks := lacking(content, current); len(lacks) > 0 && sameSkeleton(without, current) {
+					h.lacks, h.fillable = lacks, true
+					if !slices.ContainsFunc(lacks, func(n string) bool { return !revisions[n] }) {
+						pf.Change, pf.Unseen = ChangeUnchanged, unseen(without, current)
+					}
 				}
 			}
 			if pf.Change == ChangeUpdate && !Shared(path) && Encrypted(current) {
@@ -576,14 +603,16 @@ func Build(ctx context.Context, opts Options) Installation {
 			}
 		}
 	}
-	// A file kept as it is that holds a rotating name is rewritten with the
-	// new value: an update after all.
-	for file := range frozen(generated, holders, requestedRotations(opts.Rotate, generated, res.Revisions), p.markerOnRecord(opts)) {
-		if pf := &p.Files[held[file]]; pf.Change == ChangeUnchanged {
+	// A file on record the commit writes whole is rewritten: one kept as it
+	// is that holds a rotating name is an update after all.
+	for file := range frozen(generated, holders, requestedRotations(opts.Rotate, generated, res.Revisions), p.markerOnRecord(opts), revisions) {
+		pf := &p.Files[held[file]]
+		if pf.Change == ChangeUnchanged {
 			pf.Change = ChangeUpdate
 			p.Diff[ChangeUnchanged]--
 			p.Diff[ChangeUpdate]++
 		}
+		pf.Rewritten = pf.Change == ChangeUpdate
 	}
 	for name, pr := range peers {
 		pr.refuse(ctx, generated[name], opts.Read)
