@@ -775,22 +775,32 @@ func TestRefusals(t *testing.T) {
 	}
 }
 
-// The chart line's forms: the release range every installation follows, and
-// the exact version a test installation pins (a development tag); both are
-// written as the OCIRepository's semver.
+// The chart line's forms: the release range every installation follows, the
+// exact version a test installation pins (a development tag) and the range of
+// release candidates a test installation follows; each is written as the
+// OCIRepository's semver.
 const (
-	releaseRange = ">=0.244.7 <1.0.0"
-	devBuildTag  = "2.92.0-r0123abcdt20261001000000h0abc1234"
+	releaseRange    = ">=0.244.7 <1.0.0"
+	devBuildTag     = "2.92.0-r0123abcdt20261001000000h0abc1234"
+	candidatesRange = ">=2.1.0-0 <3.0.0-0"
+	// lineForms is how a refusal off a test installation ends: it names the
+	// forms and where each applies.
+	lineForms = ", and maple is no test installation; write a release range (>=A <B): an exact version or development tag (A.B.C-<build>) pins the portal, and a range of release candidates (>=A-0 <B-0) follows them, on one of Giant Swarm's test installations alone"
 	// exactLineRefusal is the refusal of the exact form off a test
-	// installation: it names both forms and where each applies.
-	exactLineRefusal = "the chart line the portal's OCIRepository follows (chart.line) is " + devBuildTag + ", an exact version, and maple is no test installation; write a release range (>=A <B): an exact version or development tag (A.B.C-<build>) pins the portal on one of Giant Swarm's test installations alone"
+	// installation.
+	exactLineRefusal = "the chart line the portal's OCIRepository follows (chart.line) is " + devBuildTag + ", an exact version" + lineForms
+	// candidatesLineRefusal is the refusal of the candidates' range off a
+	// test installation.
+	candidatesLineRefusal = "the chart line the portal's OCIRepository follows (chart.line) is " + candidatesRange + ", a range of release candidates" + lineForms
 )
 
 // A portal's chart line is a release range on every installation; on one of
 // Giant Swarm's test installations (installation.test) it may also be an
-// exact version — the development tag a test window pins — written as the
-// OCIRepository's semver as the range is. The exact form off a test
-// installation is refused naming both forms.
+// exact version — the development tag a test window pins — or a range of
+// release candidates, written as the OCIRepository's semver as the range is.
+// The candidates' range alone carries the release tag filter beside it, so
+// the chart's branch builds stay out. Either form off a test installation is
+// refused naming the forms.
 func TestChartLineFormsPerInstallation(t *testing.T) {
 	base, secrets := loadInput(t, "customer-portal")
 	for _, tc := range []struct {
@@ -803,7 +813,10 @@ func TestChartLineFormsPerInstallation(t *testing.T) {
 		{"a release range on a test installation", true, releaseRange, ""},
 		{"a development tag on a test installation", true, devBuildTag, ""},
 		{"an exact release on a test installation", true, "0.244.7", ""},
+		{"an exact release candidate on a test installation", true, "2.95.0-rc.1", ""},
+		{"a range of release candidates on a test installation", true, candidatesRange, ""},
 		{"a development tag on a production installation", false, devBuildTag, exactLineRefusal},
+		{"a range of release candidates on a production installation", false, candidatesRange, candidatesLineRefusal},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var input map[string]any
@@ -827,8 +840,24 @@ func TestChartLineFormsPerInstallation(t *testing.T) {
 					kustomization = string(content)
 				}
 			}
-			if !strings.Contains(kustomization, "path: /spec/ref/semver") || !strings.Contains(kustomization, tc.line) {
-				t.Fatalf("the OCIRepository patch does not carry %q as the semver:\n%s", tc.line, kustomization)
+			var k struct {
+				Patches []struct {
+					Patch string `yaml:"patch"`
+				} `yaml:"patches"`
+			}
+			if err := yaml.Unmarshal([]byte(kustomization), &k); err != nil || len(k.Patches) == 0 {
+				t.Fatalf("no patches (%v):\n%s", err, kustomization)
+			}
+			var ops []map[string]string
+			if err := yaml.Unmarshal([]byte(k.Patches[0].Patch), &ops); err != nil {
+				t.Fatal(err)
+			}
+			want := []map[string]string{{"op": "remove", "path": "/spec/ref/tag"}, {"op": "add", "path": "/spec/ref/semver", "value": tc.line}}
+			if tc.line == candidatesRange {
+				want = append(want, map[string]string{"op": "add", "path": "/spec/ref/semverFilter", "value": render.ReleaseTagFilter})
+			}
+			if !reflect.DeepEqual(ops, want) {
+				t.Fatalf("the OCIRepository patch is %v, want %v", ops, want)
 			}
 		})
 	}

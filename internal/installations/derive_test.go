@@ -305,6 +305,7 @@ func TestPortalChartLine(t *testing.T) {
 	release := "  - patch: |\n      apiVersion: helm.toolkit.fluxcd.io/v2\n      kind: HelmRelease\n      metadata:\n        name: backstage\n      spec:\n        valuesFrom:\n          - kind: ConfigMap\n            name: user-values-backstage\n    target:\n      kind: HelmRelease\n      name: backstage\n"
 	for _, tc := range []struct{ name, data, want string }{
 		{"a bounded range", base + ops("/spec/ref/semver", ">=0.244.7 <1.0.0") + release, ">=0.244.7 <1.0.0"},
+		{"a range of release candidates with the release tag filter", base + strings.Replace(ops("/spec/ref/semver", ">=2.1.0-0 <3.0.0-0"), "\n    target:", "\n      - op: add\n        path: /spec/ref/semverFilter\n        value: ^v?[0-9]+\\.[0-9]+\\.[0-9]+(-rc\\.[0-9]+)?$\n    target:", 1) + release, ">=2.1.0-0 <3.0.0-0"},
 		{"a tag", base + ops("/spec/ref/tag", "0.120.0") + release, "0.120.0"},
 		{"a strategic-merge patch", base + "patches:\n  - patch: |\n      apiVersion: source.toolkit.fluxcd.io/v1\n      kind: OCIRepository\n      metadata:\n        name: backstage\n      spec:\n        ref:\n          semver: '>=2.1.0 <3.0.0'\n    target:\n      kind: OCIRepository\n      name: backstage\n", ">=2.1.0 <3.0.0"},
 		{"no ref patched", base + "patches:\n" + release, ""},

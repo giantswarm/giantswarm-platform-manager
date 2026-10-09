@@ -323,13 +323,15 @@ func (in *Input) portalValues() render.Map {
 
 // portalChartFloor is the lowest chart version a portal's chart line admits:
 // the lower bound of a bounded range (>=A <B, the form the customer-portal
-// definition writes) or the tag itself. Another form is an error naming it.
+// definition writes) or the tag itself. The floor of the range of release
+// candidates (>=A-0 <B-0) reads as A: A's candidates carry A's changes.
+// Another form is an error naming it.
 func portalChartFloor(line string) (*semver.Version, error) {
 	fields := strings.Fields(line)
 	var floor string
 	switch {
 	case len(fields) == 2 && strings.HasPrefix(fields[0], ">=") && strings.HasPrefix(fields[1], "<"):
-		floor = strings.TrimPrefix(fields[0], ">=")
+		floor = strings.TrimSuffix(strings.TrimPrefix(fields[0], ">="), "-0")
 	case len(fields) == 1 && !strings.ContainsAny(fields[0], "<>=~^*xX|"):
 		floor = fields[0]
 	default:

@@ -18,8 +18,9 @@ The definition renders the portal into the installation's management-clusters re
 `backstage:user-values:`, `backstage:file:`): the kustomization over the fleet's backstage base with the
 portal's directory (the agent-platform definition lists its Component there itself, with the directory it
 renders, and the plan keeps the entry); the portal's
-directory over the fleet's main base with the chart's release range and the HelmRelease's values sources
-patched in, the app-config and values ConfigMaps (the values carry the portal's route and its environment,
+directory over the fleet's main base with the chart's line (and the release tag filter beside a range of
+release candidates) and the HelmRelease's values sources patched in, the app-config and values ConfigMaps
+(the values carry the portal's route and its environment,
 `backstage.extraEnvVars`), the Secrets `user-secrets-backstage`,
 `plugin-keys-backstage`, `github-app-credentials-backstage` (github on) and `dex-client-backstage`, and the
 tunnel's SPIFFE bundle reference (tunnel on). On an installation without the platform it also renders the
@@ -40,8 +41,11 @@ Key paths in `x-renders`, `removals.yaml` and `migrations.yaml` are normalised: 
 - The chart line (`chart.line`) is the release range `>=A <B` the portal's OCIRepository follows, patched over the
   fleet base's tag as its `semver`. On a test installation it may instead be an exact version — the development
   tag a dev build publishes, `A.B.C-<build>` — pinning the portal to that build for a test window, written as the
-  OCIRepository's `semver` like the range. A production installation takes the range alone: the exact form is
-  refused there naming both forms, so a test window never reaches a customer's portal.
+  OCIRepository's `semver` like the range — or a range of release candidates, `>=A-0 <B-0`, following the
+  chart's newest release candidate or release in it: written as the `semver` with a `semverFilter` beside it that
+  admits only `A.B.C` and `A.B.C-rc.N` tags, since the chart's branch builds are pushed to the same repository and
+  the range alone would select them. A production installation takes the release range alone: the exact form and
+  the candidates' range are refused there naming the forms, so a test window never reaches a customer's portal.
 - The dex-app configmap patch of an installation is one file with several owners: a definition owns the
   clients it renders and nothing else. Without the platform this definition renders the patch with the portal's
   client. With the platform enabled (`installation.agentPlatform`) the agent-platform definition renders it and

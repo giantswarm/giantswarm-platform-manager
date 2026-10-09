@@ -50,7 +50,7 @@
         },
         "test": {
           "type": "boolean", "default": false,
-          "description": "One of Giant Swarm's own test installations as the manager classes them: the hub's organisation's, not the hub. The hub and every customer's installation are production. Admits an exact version as chart.line; renders nothing.",
+          "description": "One of Giant Swarm's own test installations as the manager classes them: the hub's organisation's, not the hub. The hub and every customer's installation are production. Admits an exact version and a range of release candidates as chart.line; renders nothing.",
           "x-source": "registry", "x-feature": "portal", "x-renders": []
         }
       }
@@ -116,10 +116,10 @@
       "required": ["line"],
       "properties": {
         "line": {
-          "type": "string", "pattern": "^(>=\\d+\\.\\d+\\.\\d+ <\\d+\\.\\d+\\.\\d+|\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?)$",
-          "description": "The chart line the portal's OCIRepository follows, patched over the fleet base's tag as its semver: a release range >=A <B. On one of Giant Swarm's test installations (installation.test) also an exact version A.B.C or a development tag A.B.C-<build> (what a dev build publishes), pinning the portal to it for a test window; a production installation takes the range alone, and the refusal names both forms.",
+          "type": "string", "pattern": "^(>=\\d+\\.\\d+\\.\\d+ <\\d+\\.\\d+\\.\\d+|>=\\d+\\.\\d+\\.\\d+-0 <\\d+\\.\\d+\\.\\d+-0|\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?)$",
+          "description": "The chart line the portal's OCIRepository follows, patched over the fleet base's tag as its semver: a release range >=A <B. On one of Giant Swarm's test installations (installation.test) also an exact version A.B.C or a development tag A.B.C-<build> (what a dev build publishes), pinning the portal to it for a test window, or a range of release candidates >=A-0 <B-0, following the chart's newest release candidate or release in it, with a semverFilter beside it that admits only A.B.C and A.B.C-rc.N tags so that the chart's branch builds stay out; a production installation takes the release range alone, and the refusal names the forms.",
           "x-source": "person", "x-feature": "portal",
-          "x-readback": {"file": "backstage:kustomization", "key": "patches.0.patch.1.value"}, "x-renders": ["backstage:kustomization:patches[*] OCIRepository /spec/ref/semver"]
+          "x-readback": {"file": "backstage:kustomization", "key": "patches.0.patch.1.value"}, "x-renders": ["backstage:kustomization:patches[*] OCIRepository /spec/ref/semver", "backstage:kustomization:patches[*] OCIRepository /spec/ref/semverFilter"]
         }
       }
     },
