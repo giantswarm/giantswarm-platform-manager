@@ -15,8 +15,11 @@ import (
 // The invented installation puffin, its hub hubble. Every "value" is made
 // up; the encrypted fixture carries ENC[…] where sops would.
 const (
-	inst = "puffin"
-	hub  = "hubble"
+	inst   = "puffin"
+	hub    = "hubble"
+	kagent = "kagent"
+	muster = "muster"
+	mcpK8s = "mcpKubernetes"
 )
 
 const encryptedPatch = `oidc:
@@ -140,7 +143,7 @@ func (v *fakeVault) CopySecret(_ context.Context, src Ref, dst, name, namespace,
 }
 
 func (v *fakeVault) Unset(_ context.Context, file string, paths []string) error {
-	data, err := os.ReadFile(file)
+	data, err := os.ReadFile(filepath.Clean(file))
 	if err != nil {
 		return err
 	}
@@ -201,7 +204,7 @@ patches:
 		filepath.Join(hubMC, "management-clusters/hubble/extras/agent-platform/secrets/puffin-token-exchange-credentials.yaml"): "stringData:\n  client-secret: ENC[y]\n",
 	}
 	for path, content := range files {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
@@ -272,9 +275,9 @@ func TestDryRun(t *testing.T) {
 		t.Fatalf("the dry run wrote: %v %v", v.copies, v.unsets)
 	}
 	want := map[string]string{
-		"mcpKubernetes":                "management-clusters/puffin/extras/mcp-kubernetes/dex-client-mcp-kubernetes-secret.yaml",
-		"muster":                       "management-clusters/puffin/extras/agent-platform/secrets/dex-client-muster-secret.yaml",
-		"kagent":                       "management-clusters/puffin/extras/agent-platform/secrets/dex-client-kagent-secret.yaml",
+		mcpK8s:                         "management-clusters/puffin/extras/mcp-kubernetes/dex-client-mcp-kubernetes-secret.yaml",
+		muster:                         "management-clusters/puffin/extras/agent-platform/secrets/dex-client-muster-secret.yaml",
+		kagent:                         "management-clusters/puffin/extras/agent-platform/secrets/dex-client-kagent-secret.yaml",
 		"muster-token-exchange-puffin": "management-clusters/puffin/extras/agent-platform/secrets/dex-client-muster-token-exchange-puffin-secret.yaml",
 		"backstage":                    "management-clusters/puffin/extras/backstage/backstage/dex-client-backstage-secret.enc.yaml",
 		"Grafana":                      "management-clusters/puffin/extras/dex/dex-client-grafana-secret.yaml",
@@ -469,7 +472,7 @@ func TestOldDexAppRefused(t *testing.T) {
 func TestMergePlaintextKeepsOtherKeys(t *testing.T) {
 	current := "# kept comment\ningress:\n  enabled: true\noidc:\n  extraStaticClients:\n    - id: kagent\n      name: stale\n    - id: other\n      name: other\n"
 	public := true
-	out, err := MergePlaintext([]byte(current), []Client{{Source: "x", Entry: &Entry{ID: "kagent", Name: "kagent-ui", Public: &public, SecretRef: "dex-client-kagent"}}}, []string{"kagent"})
+	out, err := MergePlaintext([]byte(current), []Client{{Source: "x", Entry: &Entry{ID: kagent, Name: "kagent-ui", Public: &public, SecretRef: "dex-client-kagent"}}}, []string{kagent}) //nolint:gosec // a Secret name, no credential
 	if err != nil {
 		t.Fatal(err)
 	}

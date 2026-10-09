@@ -79,7 +79,7 @@ func TestSOPSVaultUnsetAndReveal(t *testing.T) {
 		t.Errorf("unset %s", got)
 	}
 	got, err := v.Reveal(context.Background(), "/r/p.yaml.patch", []string{"oidc.extraStaticClients.0.id"})
-	if err != nil || got["oidc.extraStaticClients.0.id"] != "kagent" || len(got) != 1 {
+	if err != nil || got["oidc.extraStaticClients.0.id"] != kagent || len(got) != 1 {
 		t.Errorf("reveal %v, %v", got, err)
 	}
 }

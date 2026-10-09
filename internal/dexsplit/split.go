@@ -20,7 +20,7 @@ import (
 // tokenExchangePrefix starts the id of the client a hub's muster exchanges
 // tokens with: muster-token-exchange-<installation>. Its value is one with
 // the hub's <installation>-token-exchange-credentials file.
-const tokenExchangePrefix = "muster-token-exchange-"
+const tokenExchangePrefix = "muster-token-exchange-" //nolint:gosec // a client id prefix, no credential
 
 // Options are one split.
 type Options struct {
@@ -147,7 +147,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		return r, err
 	}
 	encrypted := filepath.Join(o.Configs, installations.DexSecretPatchPath(o.Installation))
-	data, err := os.ReadFile(encrypted)
+	data, err := os.ReadFile(filepath.Clean(encrypted))
 	if errors.Is(err, os.ErrNotExist) {
 		r.Done = true
 		return r, nil
@@ -200,7 +200,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 // naming the pin to add.
 func dexAppGate(ctx context.Context, o Options, r *Report) error {
 	path := installations.CollectionsKustomizationPath(o.Installation)
-	data, err := os.ReadFile(filepath.Join(o.ManagementClusters, path))
+	data, err := os.ReadFile(filepath.Clean(filepath.Join(o.ManagementClusters, path)))
 	if err != nil {
 		return fmt.Errorf("the dex-app version: %w", err)
 	}

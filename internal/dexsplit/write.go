@@ -65,7 +65,7 @@ func write(ctx context.Context, o Options, encrypted string, r *Report) error {
 		r.ManagementClustersFiles = appendNew(r.ManagementClustersFiles, m.File)
 		if m.State == StateToWrite {
 			dst := filepath.Join(o.ManagementClusters, m.File)
-			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
 				return err
 			}
 			if err := o.Vault.CopySecret(ctx, Ref{File: encrypted, Path: m.From}, dst, m.Secret, render.DexNamespace, render.DexSecretKey); err != nil {
@@ -80,7 +80,7 @@ func write(ctx context.Context, o Options, encrypted string, r *Report) error {
 		r.ManagementClustersFiles = append(r.ManagementClustersFiles, changed...)
 	}
 	plain := filepath.Join(o.Configs, ConfigMapPatchPath(o.Installation))
-	current, err := os.ReadFile(plain)
+	current, err := os.ReadFile(filepath.Clean(plain))
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -104,11 +104,11 @@ func write(ctx context.Context, o Options, encrypted string, r *Report) error {
 func listResource(o Options, m *Move) ([]string, error) {
 	var changed []string
 	path := filepath.Join(o.ManagementClusters, m.Kustomization)
-	current, err := os.ReadFile(path)
+	current, err := os.ReadFile(filepath.Clean(path))
 	if errors.Is(err, os.ErrNotExist) {
 		current = []byte("apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\n")
 		extras := filepath.Join(o.ManagementClusters, extrasKustomization(o.Installation))
-		data, err := os.ReadFile(extras)
+		data, err := os.ReadFile(filepath.Clean(extras))
 		if err != nil {
 			return nil, fmt.Errorf("the extras kustomization: %w", err)
 		}
