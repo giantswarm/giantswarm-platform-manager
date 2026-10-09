@@ -115,4 +115,4 @@ charts:
   # observability.metrics with serviceMonitor (from 2.73.1).
   - name: backstage
     registry: gsoci.azurecr.io/charts/giantswarm/backstage
-    version: 2.92.1
+    version: 2.94.1
