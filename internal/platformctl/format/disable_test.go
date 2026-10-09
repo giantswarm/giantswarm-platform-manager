@@ -94,12 +94,12 @@ func TestDisableDryRunGolden(t *testing.T) {
 	if err := Disable(&buf, out, true); err != nil {
 		t.Fatal(err)
 	}
-	golden := filepath.Join("testdata", "disable-dry-run.golden")
+	const golden = "testdata/disable-dry-run.golden"
 	if *update {
-		if err := os.MkdirAll("testdata", 0o755); err != nil {
+		if err := os.MkdirAll("testdata", 0o750); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(golden, buf.Bytes(), 0o644); err != nil {
+		if err := os.WriteFile(golden, buf.Bytes(), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}

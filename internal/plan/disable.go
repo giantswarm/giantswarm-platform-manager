@@ -720,7 +720,7 @@ func ObjectsIn(content []byte) []Object {
 func Checklist(objects []Object) []Object {
 	namespaces := map[string]bool{}
 	for _, o := range objects {
-		if o.Kind == "Namespace" {
+		if o.Kind == namespaceKind {
 			namespaces[o.Name] = true
 		}
 	}
@@ -728,7 +728,7 @@ func Checklist(objects []Object) []Object {
 		switch o.Kind {
 		case helmReleaseKind:
 			return 0
-		case "Namespace":
+		case namespaceKind:
 			return 2
 		case "Secret", "ConfigMap":
 			return 3
@@ -737,7 +737,7 @@ func Checklist(objects []Object) []Object {
 	}
 	var out []Object
 	for _, o := range objects {
-		if o.Kind != "Namespace" && namespaces[o.Namespace] || slices.Contains(out, o) {
+		if o.Kind != namespaceKind && namespaces[o.Namespace] || slices.Contains(out, o) {
 			continue
 		}
 		out = append(out, o)

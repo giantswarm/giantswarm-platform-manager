@@ -11,9 +11,10 @@ import (
 
 // Invented installations of the disable's references.
 const (
-	dTarget = "kestrel"
-	dHubB   = "osprey"
-	dReg    = "gopher"
+	dTarget  = "kestrel"
+	dConfigs = "giantswarm/oak-configs"
+	dHubB    = "osprey"
+	dReg     = "gopher"
 )
 
 func disableReport(name string) installations.Report {
@@ -82,18 +83,18 @@ func TestDisableReferences(t *testing.T) {
 func TestDisableRefusal(t *testing.T) {
 	def, _ := installations.FindCapability(installations.AgentPlatform)
 	r := disableReport(dTarget)
-	r.Repositories = installations.Repositories{Configs: "giantswarm/oak-configs", ManagementClusters: "giantswarm/oak-management-clusters"}
+	r.Repositories = installations.Repositories{Configs: dConfigs, ManagementClusters: "giantswarm/oak-management-clusters"}
 	marker := def.EnabledMarker(dTarget)
-	deletesMarker := plan.Disablement{Files: []plan.Removal{{Repository: "giantswarm/oak-configs", Path: marker, Change: plan.ChangeDelete}}}
+	deletesMarker := plan.Disablement{Files: []plan.Removal{{Repository: dConfigs, Path: marker, Change: plan.ChangeDelete}}}
 	cases := []struct {
 		name string
 		out  DisableResult
 		want string
 	}{
 		{name: "goes ahead", out: DisableResult{Plan: deletesMarker}},
-		{name: "unreadable", out: DisableResult{Plan: plan.Disablement{Files: []plan.Removal{{Repository: "giantswarm/oak-configs", Path: "x", Change: plan.ChangeUnknown, Error: "refused"}}}}, want: "1 file(s) could not be read as you"},
+		{name: "unreadable", out: DisableResult{Plan: plan.Disablement{Files: []plan.Removal{{Repository: dConfigs, Path: "x", Change: plan.ChangeUnknown, Error: "refused"}}}}, want: "1 file(s) could not be read as you"},
 		{name: "a reference", out: DisableResult{Plan: deletesMarker, References: []string{"the portal on osprey proxies kestrel's agent platform"}}, want: "one reference still depends on agent-platform on kestrel"},
-		{name: "the marker stays", out: DisableResult{Plan: plan.Disablement{Stays: []plan.Stay{{Repository: "giantswarm/oak-configs", Path: marker, Why: "rendered by cluster-mcp-servers"}}}}, want: "the capability's marker " + marker + " stays (rendered by cluster-mcp-servers)"},
+		{name: "the marker stays", out: DisableResult{Plan: plan.Disablement{Stays: []plan.Stay{{Repository: dConfigs, Path: marker, Why: "rendered by cluster-mcp-servers"}}}}, want: "the capability's marker " + marker + " stays (rendered by cluster-mcp-servers)"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -115,7 +116,7 @@ func TestResyncDisablesWhenTheMarkerIsGone(t *testing.T) {
 	a := &actions.Action{Name: "disable-kestrel-abc123", Spec: actions.Spec{Kind: actions.KindDisable, Capability: def.Name, Installations: []string{dTarget}},
 		Status: actions.Status{State: actions.StateRollingOut, Orphans: checklist}}
 	status := a.Status
-	text := remove(&status, a, def, []revertedStage{{installation: dTarget, repository: "giantswarm/oak-configs", path: def.EnabledMarker(dTarget)}})
+	text := remove(&status, a, def, []revertedStage{{installation: dTarget, repository: dConfigs, path: def.EnabledMarker(dTarget)}})
 	if status.State != actions.StateDisabled || status.Rollout.Installations[0].State != actions.StateDisabled {
 		t.Fatalf("state %s, stage %s", status.State, status.Rollout.Installations[0].State)
 	}

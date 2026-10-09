@@ -76,7 +76,7 @@ func TestUnlistEntry(t *testing.T) {
 	cases := []struct{ name, current, list, entry, want string }{
 		{name: "the entry goes", current: extras, list: ListResources, entry: "./agent-platform",
 			want: "# The installation's extras.\nkind: Kustomization\nresources:\n  - ./monitoring/ # keep\ncomponents:\n  - ./agent-platform/\n"},
-		{name: "an emptied list goes", current: extras, list: ListComponents, entry: "./agent-platform/",
+		{name: "an emptied list goes", current: extras, list: ListComponents, entry: dDir,
 			want: "# The installation's extras.\nkind: Kustomization\nresources:\n  - ./monitoring/ # keep\n  - ./agent-platform/\n"},
 		{name: "not listed", current: extras, list: ListResources, entry: "./zot/", want: extras},
 	}
@@ -98,11 +98,15 @@ const (
 	dConfigs = "giantswarm/oak-configs"
 	dMC      = "giantswarm/oak-management-clusters"
 	dInst    = "kestrel"
+	dHubName = "gopher"
+	dStays   = "stays"
+	dDir     = "./agent-platform/"
+	kagentNS = "kagent"
 )
 
 var (
 	dInstallation = installations.Installation{Name: dInst, Customer: "oak", Repositories: installations.Repositories{Configs: dConfigs, ManagementClusters: dMC}}
-	dHub          = installations.Installation{Name: "gopher", Customer: "giantswarm", Hub: true, Repositories: installations.Repositories{Configs: "giantswarm/giantswarm-configs", ManagementClusters: "giantswarm/giantswarm-management-clusters"}}
+	dHub          = installations.Installation{Name: dHubName, Customer: "giantswarm", Hub: true, Repositories: installations.Repositories{Configs: "giantswarm/giantswarm-configs", ManagementClusters: "giantswarm/giantswarm-management-clusters"}}
 	dPlatform, _  = installations.FindCapability(installations.AgentPlatform)
 )
 
@@ -146,19 +150,19 @@ func disableFixture() (*render.Result, map[string]string) {
 				marker: {Content: []byte("muster:\n  enabled: true\n")},
 				"installations/" + dInst + "/apps/dex-app/configmap-values.yaml.patch": {Content: []byte("oidc:\n  staticClients:\n    muster:\n      clientSecretRef: {name: dex-client-muster}\n    mcpKubernetes:\n      clientSecretRef: {name: dex-client-mcp-kubernetes}\n")},
 			},
-			"giantswarm/oak-management-clusters": {
+			dMC: {
 				mc("extras/agent-platform/kustomization.yaml"):             {Content: []byte("apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - https://github.com/giantswarm/bases//extras/agent-platform?ref=main\n  - ./secrets\n")},
 				mc("extras/agent-platform/secrets/dex-client-muster.yaml"): {Content: []byte("apiVersion: v1\nkind: Secret\nmetadata:\n  name: dex-client-muster\n  namespace: giantswarm\n")},
 				mc("extras/agent-platform/secrets/exchange.yaml"): {Content: []byte("apiVersion: v1\nkind: Secret\nmetadata:\n  name: dex-client-exchange\n  namespace: giantswarm\n"),
-					Generated: []render.Generated{{Name: "exchange", Peer: &render.Peer{Installation: "gopher", Path: "management-clusters/gopher/extras/agent-platform/secrets/kestrel.yaml"}}}},
+					Generated: []render.Generated{{Name: "exchange", Peer: &render.Peer{Installation: dHubName, Path: "management-clusters/gopher/extras/agent-platform/secrets/kestrel.yaml"}}}},
 				mc("extras/mcp-kubernetes/kustomization.yaml"):                               {Content: []byte("kind: Kustomization\nresources:\n  - oauth.enc.yaml\n")},
 				"management-clusters/gopher/extras/backstage/agent-platform/app-config.yaml": {Content: []byte("agentPlatform: {}\n")},
 			},
 		},
 		Includes: []render.Include{
-			{Repository: "giantswarm/oak-management-clusters", Path: mc("extras/kustomization.yaml"), Resource: "./agent-platform/"},
-			{Repository: "giantswarm/oak-management-clusters", Path: mc("extras/kustomization.yaml"), Resource: "./mcp-kubernetes/"},
-			{Repository: "giantswarm/oak-management-clusters", Path: "management-clusters/gopher/extras/backstage/kustomization.yaml", Resource: "./agent-platform/", Component: true},
+			{Repository: dMC, Path: mc("extras/kustomization.yaml"), Resource: dDir},
+			{Repository: dMC, Path: mc("extras/kustomization.yaml"), Resource: "./mcp-kubernetes/"},
+			{Repository: dMC, Path: "management-clusters/gopher/extras/backstage/kustomization.yaml", Resource: dDir, Component: true},
 		},
 	}
 	files := map[string]string{
@@ -166,7 +170,7 @@ func disableFixture() (*render.Result, map[string]string) {
 		dConfigs + ":installations/" + dInst + "/apps/dex-app/configmap-values.yaml.patch":  "ingress: {}\noidc:\n  staticClients:\n    muster:\n      clientSecretRef: {name: dex-client-muster}\n    mcpKubernetes:\n      clientSecretRef: {name: dex-client-mcp-kubernetes}\n",
 		dConfigs + ":installations/" + dInst + "/config.yaml.patch":                         "baseDomain: kestrel.example\n",
 		dMC + ":" + mc("extras/kustomization.yaml"):                                         "kind: Kustomization\nresources:\n  - ./agent-platform/\n  - ./mcp-kubernetes/\n  - ./zot/\n",
-		dMC + ":" + mc("extras/agent-platform/kustomization.yaml"):                          string(res.Files["giantswarm/oak-management-clusters"][mc("extras/agent-platform/kustomization.yaml")].Content),
+		dMC + ":" + mc("extras/agent-platform/kustomization.yaml"):                          string(res.Files[dMC][mc("extras/agent-platform/kustomization.yaml")].Content),
 		dMC + ":" + mc("extras/agent-platform/secrets/dex-client-muster.yaml"):              "apiVersion: v1\nkind: Secret\nmetadata:\n  name: dex-client-muster\n  namespace: giantswarm\nsops: {}\n",
 		dMC + ":" + mc("extras/agent-platform/secrets/exchange.yaml"):                       "apiVersion: v1\nkind: Secret\nmetadata:\n  name: dex-client-exchange\n  namespace: giantswarm\nsops: {}\n",
 		dMC + ":" + mc("extras/agent-platform/mcpclients/gateway.yaml"):                     "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: gateway\n  namespace: agent-platform\n",
@@ -182,10 +186,10 @@ func disableFixture() (*render.Result, map[string]string) {
 func remainingServers() []Remaining {
 	return []Remaining{{Capability: "cluster-mcp-servers", Result: &render.Result{
 		Files: render.Fileset{
-			"giantswarm/oak-management-clusters": {mc("extras/mcp-kubernetes/kustomization.yaml"): {Content: []byte("kind: Kustomization\nresources:\n  - oauth.enc.yaml\n  - revision.enc.yaml\n")}},
-			"giantswarm/oak-configs":             {"installations/" + dInst + "/apps/dex-app/configmap-values.yaml.patch": {Content: []byte("oidc:\n  staticClients:\n    mcpKubernetes:\n      clientSecretRef: {name: dex-client-mcp-kubernetes}\n")}},
+			dMC:                      {mc("extras/mcp-kubernetes/kustomization.yaml"): {Content: []byte("kind: Kustomization\nresources:\n  - oauth.enc.yaml\n  - revision.enc.yaml\n")}},
+			"giantswarm/oak-configs": {"installations/" + dInst + "/apps/dex-app/configmap-values.yaml.patch": {Content: []byte("oidc:\n  staticClients:\n    mcpKubernetes:\n      clientSecretRef: {name: dex-client-mcp-kubernetes}\n")}},
 		},
-		Includes: []render.Include{{Repository: "giantswarm/oak-management-clusters", Path: mc("extras/kustomization.yaml"), Resource: "./mcp-kubernetes/"}},
+		Includes: []render.Include{{Repository: dMC, Path: mc("extras/kustomization.yaml"), Resource: "./mcp-kubernetes/"}},
 	}}}
 }
 
@@ -203,7 +207,7 @@ func changeOf(d Disablement, repository, p string) Change {
 	}
 	for _, s := range d.Stays {
 		if s.Repository == repository && s.Path == p {
-			return "stays"
+			return dStays
 		}
 	}
 	return ""
@@ -257,7 +261,7 @@ func TestDisable(t *testing.T) {
 		t.Fatal("dex patch not edited")
 	})
 	t.Run("a file a capability that stays renders stays, untouched", func(t *testing.T) {
-		if got := changeOf(d, dMC, mc("extras/mcp-kubernetes/kustomization.yaml")); got != "stays" && got != "" {
+		if got := changeOf(d, dMC, mc("extras/mcp-kubernetes/kustomization.yaml")); got != dStays && got != "" {
 			t.Fatalf("mcp-kubernetes: %q", got)
 		}
 		if slices.ContainsFunc(d.Files, func(r Removal) bool { return strings.Contains(r.Path, "mcp-kubernetes") }) {
@@ -266,11 +270,11 @@ func TestDisable(t *testing.T) {
 	})
 	t.Run("another installation's files stay, named", func(t *testing.T) {
 		for _, p := range []string{"management-clusters/gopher/extras/backstage/agent-platform/app-config.yaml", "management-clusters/gopher/extras/backstage/kustomization.yaml"} {
-			if got := changeOf(d, dMC, p); got != "stays" {
+			if got := changeOf(d, dMC, p); got != dStays {
 				t.Errorf("%s: %q", p, got)
 			}
 		}
-		if !slices.Equal(d.Others, []string{"gopher"}) {
+		if !slices.Equal(d.Others, []string{dHubName}) {
 			t.Errorf("others: %v", d.Others)
 		}
 	})
@@ -335,12 +339,12 @@ func TestDisableEmptiedSharedFile(t *testing.T) {
 func TestChecklist(t *testing.T) {
 	in := []Object{
 		{Kind: "Secret", Namespace: "giantswarm", Name: "dex-client-muster"},
-		{Kind: "Namespace", Name: "kagent"},
-		{Kind: "Secret", Namespace: "kagent", Name: "inside"},
-		{Kind: "Konfiguration", Namespace: "flux-giantswarm", Name: "agent-platform-konfiguration"},
-		{Kind: "HelmRelease", Namespace: "flux-giantswarm", Name: "agent-platform"},
-		{Kind: "OCIRepository", Namespace: "flux-giantswarm", Name: "agent-platform"},
-		{Kind: "HelmRelease", Namespace: "flux-giantswarm", Name: "agent-platform"},
+		{Kind: "Namespace", Name: kagentNS},
+		{Kind: "Secret", Namespace: kagentNS, Name: "inside"},
+		{Kind: "Konfiguration", Namespace: fluxNS, Name: "agent-platform-konfiguration"},
+		{Kind: "HelmRelease", Namespace: fluxNS, Name: installations.AgentPlatform},
+		{Kind: "OCIRepository", Namespace: fluxNS, Name: installations.AgentPlatform},
+		{Kind: "HelmRelease", Namespace: fluxNS, Name: installations.AgentPlatform},
 	}
 	var got []string
 	for _, o := range Checklist(in) {
