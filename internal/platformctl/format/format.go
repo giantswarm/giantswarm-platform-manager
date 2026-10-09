@@ -185,9 +185,15 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 			case g.Rotates && g.ForcedBy == plan.ForcedByRequest:
 				p.f("      rotates on request: %s — a new value replaces the one on record in %s; both sides roll, the client is unusable between the two rollouts%s\n", g.Name, strings.Join(g.FrozenIn, ", "), signsOut(g.Name))
 			case g.Rotates:
-				p.f("      rotates: %s (forced by %s) — a new value replaces the one on record in %s; both sides roll, the client is unusable between the two rollouts%s\n", g.Name, g.ForcedBy, strings.Join(g.FrozenIn, ", "), signsOut(g.Name))
+				p.f("      rotates: %s (forced by %s%s) — a new value replaces the one on record in %s; both sides roll, the client is unusable between the two rollouts%s\n", g.Name, g.ForcedBy, cause(g.Cause), strings.Join(g.FrozenIn, ", "), signsOut(g.Name))
+			case g.Kept && len(g.Carries) > 0:
+				p.f("      kept: the value on record in %s stands; %s — the manager decrypts nothing, and the commit is refused until it is on record\n", strings.Join(g.FrozenIn, ", "), carries(g))
 			case g.Kept:
 				p.f("      kept: the value on record in %s stands, nothing is written\n", strings.Join(g.FrozenIn, ", "))
+			case len(g.Carries) > 0:
+				p.f("      drawn by your vault: no file on record holds it; %s — the commit rewrites no encrypted file for one key, and is refused until it is on record%s\n", carries(g), pending(g))
+			default:
+				p.f("      generated at commit: no file on record holds it, a new value is drawn%s\n", pending(g))
 			}
 		}
 	}
@@ -222,6 +228,51 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 			p.f("\n")
 		}
 	}
+}
+
+// cause is why a file forces a rotation, after the file, or "".
+func cause(c string) string {
+	if c == "" {
+		return ""
+	}
+	return ": " + c
+}
+
+// carries says what the caller's vault does for a generated value before the
+// commit: each file that takes the value, with the command — beekeeper
+// secret copy from the record's path, or beekeeper secret set where the
+// vault draws it — and, for a Dex client's Secret to create, the dex-split
+// that writes it and moves the client out of the dex-app patch with it.
+func carries(g plan.GeneratedSecret) string {
+	parts := make([]string, 0, len(g.Carries))
+	for _, c := range g.Carries {
+		part := fmt.Sprintf("%s takes it (beekeeper secret copy %s %s, or sops)", c.To, c.From, c.To)
+		if c.From == "" {
+			part = fmt.Sprintf("%s takes a value drawn there (beekeeper secret set %s, or sops; %s, %d)", c.To, c.To, g.Kind, g.Length)
+		}
+		if c.Create && dexClientSecretFile(c.To) {
+			part += ", a Dex client's Secret platformctl installation dex-split writes with the client moved out of the dex-app patch"
+		}
+		parts = append(parts, part)
+	}
+	return strings.Join(parts, "; ")
+}
+
+// dexClientSecretFile says whether a carry's target is a Dex client's Secret
+// file as the definitions render it (dex-client-<component>-secret.yaml).
+func dexClientSecretFile(to string) bool {
+	file, _, _ := strings.Cut(to, "#")
+	base := file[strings.LastIndex(file, "/")+1:]
+	return strings.HasPrefix(base, "dex-client-") && strings.HasSuffix(base, "-secret.yaml")
+}
+
+// pending names the files on record that stand without the value until a
+// rotation asked for rewrites them, or "".
+func pending(g plan.GeneratedSecret) string {
+	if len(g.PendingIn) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("; %s stand without it until a rotation asked for rewrites them", strings.Join(g.PendingIn, ", "))
 }
 
 // kept names each entry a shared file keeps beside the render.

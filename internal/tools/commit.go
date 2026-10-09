@@ -498,11 +498,11 @@ func targetsOf(ctx context.Context, c *gh.Client, p plan.Installation, rendered 
 				}
 				content = []byte(pf.Content)
 			}
-			// A secret file the plan updates is written anew: its skeleton
-			// changed, or a rotation rewrites it. The guard stays for a
-			// generated value on record the plan does not rotate: never
-			// generated again.
-			tg.exists[path] = pf.Change == plan.ChangeUpdate && len(f.Generated) > 0 && !rotated[resolved+":"+path]
+			// A secret file the plan updates is written anew when the plan
+			// rewrites it: its skeleton changed, or a rotation rewrites it.
+			// The guard stays for a generated value on record the plan does
+			// not rotate: never generated again.
+			tg.exists[path] = pf.Change == plan.ChangeUpdate && len(f.Generated) > 0 && !pf.Rewritten && !rotated[resolved+":"+path]
 			sf := sopsenc.File{Path: path, Content: content}
 			for _, g := range f.Generated {
 				sf.Generated = append(sf.Generated, sopsenc.Generated{Name: g.Name, Placeholder: g.Placeholder, Kind: sopsenc.Kind(g.Kind), Length: g.Length, Half: sopsenc.Half(g.Half), Encoding: sopsenc.Encoding(g.Encoding)})

@@ -66,7 +66,7 @@ func (t *Tools) compare(ctx context.Context, env *planned, r installations.Repor
 // alike (TestCommitRefusalsAreOneList). Last, a fact the render needs that
 // the record leaves empty (FactsRefusal).
 func commitRefusal(p plan.Installation, rec *installations.Record) string {
-	for _, refusal := range []string{p.DexAppRefusal(rec), p.DexSecretRefusal(rec), p.ReleaseCandidateRefusal(rec), p.FrozenRefusal(), p.HubRefusal()} {
+	for _, refusal := range []string{p.DexAppRefusal(rec), p.DexSecretRefusal(rec), p.ReleaseCandidateRefusal(rec), p.FrozenRefusal(), p.CarryRefusal(), p.HubRefusal()} {
 		if refusal != "" {
 			return refusal
 		}
