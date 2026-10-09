@@ -249,6 +249,7 @@ const (
 	keyConditions     = "conditions"
 	keyType           = "type"
 	keyMessage        = "message"
+	keyReason         = "reason"
 	kindSecret        = "Secret"
 	conditionTrue     = "True"
 	proxyWorkload     = "proxy"
@@ -372,7 +373,7 @@ func TestChecksAskForWhatTheyRead(t *testing.T) {
 // Ready one are not failed.
 func TestHelmReleaseReadyNamesAFailedRelease(t *testing.T) {
 	condition := func(kind, status, reason, message string) any {
-		return map[string]any{keyType: kind, keyStatus: status, "reason": reason, keyMessage: message}
+		return map[string]any{keyType: kind, keyStatus: status, keyReason: reason, keyMessage: message}
 	}
 	const upgradeFailed = "Helm upgrade failed for release backstage/backstage with chart backstage@2.66.1: context deadline exceeded"
 	progressing := condition(conditionReady, "Unknown", "Progressing", "Running 'upgrade' action with timeout of 10m0s")
@@ -384,17 +385,17 @@ func TestHelmReleaseReadyNamesAFailedRelease(t *testing.T) {
 		message    string
 	}{
 		{"an upgrade in progress over a good release", []any{progressing, condition("Released", conditionTrue, "UpgradeSucceeded", "upgraded")},
-			Drifted, false, "Ready=Unknown: Running 'upgrade' action with timeout of 10m0s"},
+			Drifted, false, "Ready=Unknown (Progressing): Running 'upgrade' action with timeout of 10m0s"},
 		{"waiting on a dependency", []any{condition(conditionReady, "False", "DependencyNotReady", "dependency 'flux-giantswarm/cnpg' is not ready")},
-			Drifted, false, "Ready=False: dependency 'flux-giantswarm/cnpg' is not ready"},
+			Drifted, false, "Ready=False (DependencyNotReady): dependency 'flux-giantswarm/cnpg' is not ready"},
 		{"an upgrade rolled back", []any{condition(conditionReady, "False", "RollbackSucceeded", "Helm rollback to previous release backstage/backstage.v7 succeeded"),
 			condition("Released", "False", "UpgradeFailed", upgradeFailed), condition("Remediated", conditionTrue, "RollbackSucceeded", "rolled back")},
-			Drifted, true, "Ready=False: Helm rollback to previous release backstage/backstage.v7 succeeded; Released=False (UpgradeFailed): " + upgradeFailed},
+			Drifted, true, "Ready=False (RollbackSucceeded): Helm rollback to previous release backstage/backstage.v7 succeeded; Released=False (UpgradeFailed): " + upgradeFailed},
 		{"a retry in progress after a failed upgrade", []any{progressing, condition("Released", "False", "UpgradeFailed", upgradeFailed)},
-			Drifted, true, "Ready=Unknown: Running 'upgrade' action with timeout of 10m0s; Released=False (UpgradeFailed): " + upgradeFailed},
+			Drifted, true, "Ready=Unknown (Progressing): Running 'upgrade' action with timeout of 10m0s; Released=False (UpgradeFailed): " + upgradeFailed},
 		{"retries exhausted", []any{condition(conditionReady, "False", "UpgradeFailed", upgradeFailed), condition("Stalled", conditionTrue, "RetriesExceeded", "Failed to upgrade after 11 attempt(s)"),
 			condition("Released", "False", "UpgradeFailed", upgradeFailed)},
-			Drifted, true, "Ready=False: " + upgradeFailed + "; Stalled=True (RetriesExceeded): Failed to upgrade after 11 attempt(s)"},
+			Drifted, true, "Ready=False (UpgradeFailed): " + upgradeFailed + "; Stalled=True (RetriesExceeded): Failed to upgrade after 11 attempt(s)"},
 		{conditionReady, []any{condition(conditionReady, conditionTrue, "UpgradeSucceeded", "upgraded"), condition("Released", conditionTrue, "UpgradeSucceeded", "upgraded")},
 			AsDefined, false, "Ready=True"},
 	} {
@@ -405,6 +406,50 @@ func TestHelmReleaseReadyNamesAFailedRelease(t *testing.T) {
 		check, _, _ := x.run(context.Background(), render.Probe{Kind: render.HelmReleaseReady, Namespace: testNamespace, Resource: kindHelmRelease, Name: testRelease})
 		if check.Mark != c.mark || check.Failed != c.failed || check.Message != c.message {
 			t.Errorf("%s: %s failed=%v %q, want %s failed=%v %q", c.name, check.Mark, check.Failed, check.Message, c.mark, c.failed, c.message)
+		}
+	}
+}
+
+// A Condition probe reads the condition it names and no other: the 4 line's
+// ModelConfig is Accepted with its key Secret missing, so its ResolvedRefs
+// probe is drifted and names the controller's reason and message, Accepted
+// alone would read as defined; once the Secret resolves it is as defined.
+func TestConditionProbeReadsTheNamedCondition(t *testing.T) {
+	const (
+		modelConfig = "ModelConfig.api.kagent.dev"
+		missing     = "secret kagent-anthropic-key not found"
+		accepted    = "Accepted"
+		resolved    = "ResolvedRefs"
+	)
+	condition := func(kind, status, reason, message string) any {
+		return map[string]any{keyType: kind, keyStatus: status, keyReason: reason, keyMessage: message}
+	}
+	acceptedTrue := condition(accepted, conditionTrue, accepted, "ModelConfig configuration accepted")
+	for _, c := range []struct {
+		name, condition string
+		conditions      []any
+		mark            Mark
+		message         string
+	}{
+		{"ResolvedRefs False", resolved, []any{acceptedTrue, condition(resolved, "False", "APIKeySecretNotFound", missing)},
+			Drifted, "ResolvedRefs=False (APIKeySecretNotFound): " + missing},
+		{"Accepted beside ResolvedRefs False", accepted, []any{acceptedTrue, condition(resolved, "False", "APIKeySecretNotFound", missing)},
+			AsDefined, "Accepted=True"},
+		{"ResolvedRefs True", resolved, []any{acceptedTrue, condition(resolved, conditionTrue, resolved, "all references resolved")},
+			AsDefined, "ResolvedRefs=True"},
+		{"no ResolvedRefs", resolved, []any{acceptedTrue}, Drifted, "no ResolvedRefs condition"},
+		{"a False without a reason", accepted, []any{map[string]any{keyType: accepted, keyStatus: "False", keyMessage: missing}},
+			Drifted, "Accepted=False: " + missing},
+	} {
+		cluster := &recordingCluster{objects: map[string]map[string]any{
+			modelConfig + "/" + testNamespace + "/default-model-config": {keyStatus: map[string]any{keyConditions: c.conditions}},
+		}}
+		x := &executor{opts: LiveOptions{Cluster: cluster}}
+		probe := render.Probe{Kind: render.Condition, Namespace: testNamespace, Resource: modelConfig, Name: "default-model-config",
+			Expect: render.Expectation{Condition: c.condition, ConditionStatus: conditionTrue}}
+		check, _, _ := x.run(context.Background(), probe)
+		if check.Mark != c.mark || check.Message != c.message {
+			t.Errorf("%s: %s %q, want %s %q", c.name, check.Mark, check.Message, c.mark, c.message)
 		}
 	}
 }
@@ -444,7 +489,7 @@ func secretWrittenAt(at string, more ...map[string]any) map[string]any {
 // podStartedAt is a pod whose container of the name runs since at; an empty
 // at is a container that waits to start.
 func podStartedAt(pod, container, at string) map[string]any {
-	state := map[string]any{"waiting": map[string]any{"reason": "CrashLoopBackOff"}}
+	state := map[string]any{"waiting": map[string]any{keyReason: "CrashLoopBackOff"}}
 	if at != "" {
 		state = map[string]any{"running": map[string]any{"startedAt": at}}
 	}
