@@ -630,17 +630,11 @@ func customerActions(def installations.Capability, inputs map[string]any, res ve
 // dimension stays open, nothing reads it done. The definition lists the
 // actions; the installation says which are done.
 func sortActions(rendered []render.Action, res verify.Result) (open, done []render.Action) {
-	marks := map[string]verify.Mark{}
-	for _, f := range res.Features {
-		for _, d := range f.Dimensions {
-			marks[d.ID] = d.Mark
-		}
-	}
 	for _, a := range rendered {
 		if a.State != render.WaitingForCustomer {
 			continue
 		}
-		if m, ok := marks[a.Dimension]; ok && a.Dimension != "" && m != verify.Drifted && m != verify.NotChecked {
+		if res.Settled(a.Dimension) {
 			done = append(done, a)
 			continue
 		}

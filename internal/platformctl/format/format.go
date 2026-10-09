@@ -203,12 +203,7 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 			p.f("    %s%s\n", c.ID, dexClient(c))
 		}
 	}
-	if len(inst.CustomerActions) > 0 {
-		p.f("  Customer actions:\n")
-		for _, a := range inst.CustomerActions {
-			p.f("    %s: %s (%s)\n", a.Installation, a.Action, a.Why)
-		}
-	}
+	p.customerActions(inst.CustomerActions)
 	if len(inst.Probes) > 0 {
 		p.f("  Probes:\n")
 		for _, pr := range inst.Probes {
@@ -488,6 +483,7 @@ func Verify(w io.Writer, r verify.Result, liveErr error) error {
 		}
 		p.f("\n")
 	}
+	p.customerActions(r.CustomerActions)
 	for _, f := range r.Features {
 		p.f("\n%s: %s (%s)\n", f.Title, f.Mark, marks(f.Marks))
 		for _, d := range f.Dimensions {
@@ -495,6 +491,22 @@ func Verify(w io.Writer, r verify.Result, liveErr error) error {
 		}
 	}
 	return p.err
+}
+
+// customerActions lists the actions still the customer's with their reason,
+// and the ones the live read found done, named once.
+func (p *printer) customerActions(actions []plan.CustomerAction) {
+	if len(actions) == 0 {
+		return
+	}
+	p.f("  Customer actions:\n")
+	for _, a := range actions {
+		if a.Done {
+			p.f("    %s: done — %s\n", a.Installation, a.Action)
+			continue
+		}
+		p.f("    %s: %s (%s)\n", a.Installation, a.Action, a.Why)
+	}
 }
 
 func (p *printer) dimension(d verify.Dimension) {

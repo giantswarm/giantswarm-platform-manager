@@ -222,6 +222,10 @@ type CustomerAction struct {
 	Installation string `json:"installation"`
 	Action       string `json:"action"`
 	Why          string `json:"why"`
+	// Dimension is the live dimension the action holds up; Done is set once
+	// a live read of it came back as defined (verify.Result.HoldCustomerActions).
+	Dimension string `json:"dimension,omitempty"`
+	Done      bool   `json:"done,omitempty"`
 }
 
 // Probe is one live dimension of the definition: what the verify checks on
@@ -843,7 +847,7 @@ func keys(m map[string]bool) []string {
 func customerActions(installation string, in render.Input) []CustomerAction {
 	out := []CustomerAction{}
 	for _, a := range in.CustomerActions() {
-		out = append(out, CustomerAction{Installation: installation, Action: a.Action, Why: a.Why})
+		out = append(out, CustomerAction{Installation: installation, Action: a.Action, Why: a.Why, Dimension: a.Dimension})
 	}
 	return out
 }

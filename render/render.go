@@ -216,6 +216,10 @@ const (
 type CustomerAction struct {
 	Action string
 	Why    string
+	// Dimension is the live dimension of features.yaml the action holds up
+	// (Action.Dimension): the action is done once the live verify reads it
+	// as defined. Empty for an action no live dimension reads.
+	Dimension string
 }
 
 // Include is an entry a kustomization.yaml the definition does not own must

@@ -13,6 +13,7 @@ import (
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
@@ -109,6 +110,41 @@ func TestMergeTakesTheCheckedSide(t *testing.T) {
 	repo.State = installations.StateWaitingForCustomer
 	if out := Merge(repo, live); out.State != installations.StateDrifted {
 		t.Errorf("drifted wins over waiting: %q", out.State)
+	}
+}
+
+// The model-key action is done where the live read finds the default
+// ModelConfig Accepted: verify and the dry run (both Merge and
+// HoldCustomerActions) sort it by the same marks the watch does.
+func TestMergeHoldsCustomerActionsAgainstTheLiveMarks(t *testing.T) {
+	const modelKey = "live-model-configs"
+	actions := []plan.CustomerAction{
+		{Installation: "rowan", Action: "create the model key Secret", Why: "theirs", Dimension: modelKey},
+		{Installation: "rowan", Action: "an action no dimension reads", Why: "theirs"},
+	}
+	repo := Result{CustomerActions: actions, Features: []Feature{{ID: "runtime", Dimensions: []Dimension{
+		{ID: modelKey, Kind: definitions.KindLive, Mark: NotChecked, Reason: ReasonAuthority},
+	}}}}
+	liveWith := func(m Mark) Result {
+		return Result{Features: []Feature{{ID: "runtime", Dimensions: []Dimension{{ID: modelKey, Kind: definitions.KindLive, Mark: m}}}}}
+	}
+	for _, c := range []struct {
+		mark Mark
+		done bool
+	}{{AsDefined, true}, {Drifted, false}, {NotChecked, false}} {
+		out := Merge(repo, liveWith(c.mark))
+		if got := out.CustomerActions[0].Done; got != c.done {
+			t.Errorf("live %q: model-key action done %v, want %v", c.mark, got, c.done)
+		}
+		if out.CustomerActions[1].Done {
+			t.Errorf("live %q: an action no dimension reads is never done", c.mark)
+		}
+		if got := liveWith(c.mark).HoldCustomerActions(actions)[0].Done; got != c.done {
+			t.Errorf("live %q: HoldCustomerActions done %v, want %v", c.mark, got, c.done)
+		}
+	}
+	if repo.CustomerActions[0].Done {
+		t.Error("Merge leaves the repository result's actions as they were")
 	}
 }
 
