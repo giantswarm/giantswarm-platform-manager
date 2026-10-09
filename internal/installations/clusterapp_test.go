@@ -102,6 +102,8 @@ const (
 	testManifest = "management-clusters/maple/cluster-app-manifests.yaml"
 	// releaseAtDefault is the release that ships the chart at the gates' default.
 	releaseAtDefault = "capa/v35.1.0/release.yaml"
+	// releaseBeforeDefault is the release that ships the chart before it.
+	releaseBeforeDefault = "capa/v35.0.1/release.yaml"
 	// otherGate is a feature gate Agent Substrate does not need.
 	otherGate = "MutableCSINodeAllocatableCount"
 )
@@ -185,7 +187,7 @@ func TestPodCertificateRequestThroughTheRelease(t *testing.T) {
 	releases := map[string]string{
 		releaseAtDefault:             releaseManifest("cluster-aws", "10.3.0"),
 		"capa/v35.1.1/release.yaml":  releaseManifest("cluster-aws", "10.3.1"),
-		"capa/v35.0.1/release.yaml":  releaseManifest("cluster-aws", "10.0.1"),
+		releaseBeforeDefault:  releaseManifest("cluster-aws", "10.0.1"),
 		"azure/v35.0.1/release.yaml": releaseManifest("cluster-azure", "9.3.0"),
 		"capa/v36.0.0/release.yaml":  releaseManifest("cluster-eks", "7.1.0"),
 	}
@@ -197,12 +199,12 @@ func TestPodCertificateRequestThroughTheRelease(t *testing.T) {
 	}{
 		{"the release ships the chart at the default", releaseClusterAppManifest("cluster-aws", "35.1.0", values("", "", "")), true, releaseAtDefault},
 		{"a v-prefixed release", releaseClusterAppManifest("cluster-aws", "v35.1.0", values("", "", "")), true, releaseAtDefault},
-		{"the release ships the chart before the default", releaseClusterAppManifest("cluster-aws", "35.0.1", values("", "", "")), false, "capa/v35.0.1/release.yaml"},
+		{"the release ships the chart before the default", releaseClusterAppManifest("cluster-aws", "35.0.1", values("", "", "")), false, releaseBeforeDefault},
 		{"another provider's directory", releaseClusterAppManifest("cluster-azure", "35.0.1", values("", "", "")), true, "azure/v35.0.1/release.yaml"},
 		{"the gates on every component: the release is not read", releaseClusterAppManifest("cluster-aws", "35.0.1", values(all, all, all)), true, ""},
 		{"a list without the gates on one component: no whatever the release", releaseClusterAppManifest("cluster-aws", "35.1.0", values(gates([]string{otherGate}, ""), "", "")), false, ""},
 		{"a placeholder App version below the default: the release decides", placeholderClusterAppManifest("cluster-aws", "1.0.0", "35.1.1", values("", "", "")), true, "capa/v35.1.1/release.yaml"},
-		{"a placeholder App version at the default: the release before it decides", placeholderClusterAppManifest("cluster-aws", "10.3.0", "35.0.1", values("", "", "")), false, "capa/v35.0.1/release.yaml"},
+		{"a placeholder App version at the default: the release before it decides", placeholderClusterAppManifest("cluster-aws", "10.3.0", "35.0.1", values("", "", "")), false, releaseBeforeDefault},
 		{"a placeholder App version, the gates on every component: the release is not read", placeholderClusterAppManifest("cluster-aws", "1.0.0", "35.0.1", values(all, all, all)), true, ""},
 	}
 	for _, c := range cases {
