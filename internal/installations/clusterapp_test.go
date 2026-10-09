@@ -187,7 +187,7 @@ func TestPodCertificateRequestThroughTheRelease(t *testing.T) {
 	releases := map[string]string{
 		releaseAtDefault:             releaseManifest("cluster-aws", "10.3.0"),
 		"capa/v35.1.1/release.yaml":  releaseManifest("cluster-aws", "10.3.1"),
-		releaseBeforeDefault:  releaseManifest("cluster-aws", "10.0.1"),
+		releaseBeforeDefault:         releaseManifest("cluster-aws", "10.0.1"),
 		"azure/v35.0.1/release.yaml": releaseManifest("cluster-azure", "9.3.0"),
 		"capa/v36.0.0/release.yaml":  releaseManifest("cluster-eks", "7.1.0"),
 	}
