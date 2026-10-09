@@ -208,6 +208,16 @@ type GeneratedSecret struct {
 	// own plan, as "<repository>:<path>" (the path alone where the peer's
 	// repository is not on record): a value drawn here never reaches it.
 	Peer string `json:"peer,omitempty"`
+	// Supplied: the Peer's file is on record and this side's files are new,
+	// so the value is the person's to supply at commit, copied from the
+	// record with their vault — SuppliedSecrets lists the name — and the
+	// commit writes it in place of the placeholder: the manager decrypts
+	// nothing.
+	Supplied bool `json:"supplied,omitempty"`
+	// DrawnWith is the installation of the set whose plan creates the Peer's
+	// file: both sides are new in one wave, so the wave draws the value once
+	// and writes it to both, and neither side is drawn alone (ShareDraws).
+	DrawnWith string `json:"drawnWith,omitempty"`
 	// HeldBy is a holder of the value outside this plan (render.Generated's
 	// HeldBy): a rotation here never reaches it.
 	HeldBy string `json:"heldBy,omitempty"`
@@ -633,6 +643,13 @@ func Build(ctx context.Context, opts Options) Installation {
 		p.GeneratedSecrets = append(p.GeneratedSecrets, *gs)
 	}
 	sort.Slice(p.GeneratedSecrets, func(i, j int) bool { return p.GeneratedSecrets[i].Name < p.GeneratedSecrets[j].Name })
+	// A generated value the person supplies (its peer holds it on record)
+	// is asked for by its name, after the definition's own fields.
+	for _, gs := range p.GeneratedSecrets {
+		if gs.Supplied {
+			p.SuppliedSecrets = append(p.SuppliedSecrets, gs.Name)
+		}
+	}
 	return p
 }
 

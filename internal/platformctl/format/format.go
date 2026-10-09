@@ -192,6 +192,10 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 				p.f("      kept: the value on record in %s stands, nothing is written\n", strings.Join(g.FrozenIn, ", "))
 			case len(g.Carries) > 0:
 				p.f("      drawn by your vault: no file on record holds it; %s — the commit rewrites no encrypted file for one key, and is refused until it is on record%s\n", carries(g), pending(g))
+			case g.DrawnWith != "":
+				p.f("      drawn once for the wave: %s's plan creates %s with the same value — neither side is drawn alone\n", g.DrawnWith, g.Peer)
+			case g.Supplied:
+				p.f("      you supply it at commit (--secret %s=…): %s holds it on record, and the manager decrypts nothing — reveal it there with your vault\n", g.Name, g.Peer)
 			default:
 				p.f("      generated at commit: no file on record holds it, a new value is drawn%s\n", pending(g))
 			}

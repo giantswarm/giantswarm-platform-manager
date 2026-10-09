@@ -124,6 +124,12 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 	if err != nil {
 		return nil, t.fail(ctx, tool, a, nil, nil, err)
 	}
+	// A value two installations of the wave hold is drawn once, here, and
+	// written to both sides by their stages' pull requests.
+	values, err := drawShared(targets)
+	if err != nil {
+		return nil, t.fail(ctx, tool, a, remote, nil, err)
+	}
 	prs := []actions.PullRequest{}
 	var rotated []string
 	for i, p := range targets {
@@ -137,7 +143,7 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		}
 		planned := plan.PullRequests([]plan.Installation{p}, env.byName, env.hub)
 		title := prTitle(actions.KindReconcile, p.Name, out.Capability, a.Name, fmt.Sprintf("stage %d of %d", i+1, len(targets)))
-		opened, _, err := t.openPullRequests(ctx, env, a, p, planned, rendered.Files, remote, title, prBody(a, p, planned)+waveBody(res.Order, res.Skipped))
+		opened, _, err := t.openPullRequests(ctx, env, a, p, planned, rendered.Files, remote, title, prBody(a, p, planned)+waveBody(res.Order, res.Skipped), values)
 		prs = append(prs, opened...)
 		if err != nil {
 			return nil, t.fail(ctx, tool, a, remote, prs, err)
@@ -188,16 +194,23 @@ func waveRefusal(tool string, p plan.Installation, rec *installations.Record) er
 	return nil
 }
 
-// suppliedFilesToWrite names the files of p that carry a supplied value and
-// that the commit would write — not on record, or rewritten: a wave cannot
-// fill them. The placeholder names the file; whether it is encrypted is the
-// commit step's decision from the repository's rules.
+// suppliedFilesToWrite names the files of p that carry a supplied value — a
+// supplied field's marker, or the placeholder of a generated value the
+// person supplies — and that the commit would write — not on record, or
+// rewritten: a wave cannot fill them. The placeholder names the file;
+// whether it is encrypted is the commit step's decision from the
+// repository's rules.
 func suppliedFilesToWrite(p plan.Installation) string {
-	marker := strings.TrimSuffix(render.Supplied(""), ")")
 	var files []string
 	for _, f := range p.Files {
-		if f.Change != plan.ChangeUnchanged && strings.Contains(f.Content, marker) {
-			files = append(files, f.Repository+":"+f.Path)
+		if f.Change == plan.ChangeUnchanged {
+			continue
+		}
+		for _, field := range p.SuppliedSecrets {
+			if strings.Contains(f.Content, render.Supplied(field)) || strings.Contains(f.Content, render.Placeholder(field)) {
+				files = append(files, f.Repository+":"+f.Path)
+				break
+			}
 		}
 	}
 	if len(files) == 0 {
