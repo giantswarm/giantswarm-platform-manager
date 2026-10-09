@@ -249,6 +249,7 @@ const (
 	keyConditions     = "conditions"
 	keyType           = "type"
 	keyMessage        = "message"
+	keyReason         = "reason"
 	kindSecret        = "Secret"
 	conditionTrue     = "True"
 	proxyWorkload     = "proxy"
@@ -372,7 +373,7 @@ func TestChecksAskForWhatTheyRead(t *testing.T) {
 // Ready one are not failed.
 func TestHelmReleaseReadyNamesAFailedRelease(t *testing.T) {
 	condition := func(kind, status, reason, message string) any {
-		return map[string]any{keyType: kind, keyStatus: status, "reason": reason, keyMessage: message}
+		return map[string]any{keyType: kind, keyStatus: status, keyReason: reason, keyMessage: message}
 	}
 	const upgradeFailed = "Helm upgrade failed for release backstage/backstage with chart backstage@2.66.1: context deadline exceeded"
 	progressing := condition(conditionReady, "Unknown", "Progressing", "Running 'upgrade' action with timeout of 10m0s")
@@ -417,25 +418,27 @@ func TestConditionProbeReadsTheNamedCondition(t *testing.T) {
 	const (
 		modelConfig = "ModelConfig.api.kagent.dev"
 		missing     = "secret kagent-anthropic-key not found"
+		accepted    = "Accepted"
+		resolved    = "ResolvedRefs"
 	)
 	condition := func(kind, status, reason, message string) any {
-		return map[string]any{keyType: kind, keyStatus: status, "reason": reason, keyMessage: message}
+		return map[string]any{keyType: kind, keyStatus: status, keyReason: reason, keyMessage: message}
 	}
-	accepted := condition("Accepted", conditionTrue, "Accepted", "ModelConfig configuration accepted")
+	acceptedTrue := condition(accepted, conditionTrue, accepted, "ModelConfig configuration accepted")
 	for _, c := range []struct {
 		name, condition string
 		conditions      []any
 		mark            Mark
 		message         string
 	}{
-		{"ResolvedRefs False", "ResolvedRefs", []any{accepted, condition("ResolvedRefs", "False", "APIKeySecretNotFound", missing)},
+		{"ResolvedRefs False", resolved, []any{acceptedTrue, condition(resolved, "False", "APIKeySecretNotFound", missing)},
 			Drifted, "ResolvedRefs=False (APIKeySecretNotFound): " + missing},
-		{"Accepted beside ResolvedRefs False", "Accepted", []any{accepted, condition("ResolvedRefs", "False", "APIKeySecretNotFound", missing)},
+		{"Accepted beside ResolvedRefs False", accepted, []any{acceptedTrue, condition(resolved, "False", "APIKeySecretNotFound", missing)},
 			AsDefined, "Accepted=True"},
-		{"ResolvedRefs True", "ResolvedRefs", []any{accepted, condition("ResolvedRefs", conditionTrue, "ResolvedRefs", "all references resolved")},
+		{"ResolvedRefs True", resolved, []any{acceptedTrue, condition(resolved, conditionTrue, resolved, "all references resolved")},
 			AsDefined, "ResolvedRefs=True"},
-		{"no ResolvedRefs", "ResolvedRefs", []any{accepted}, Drifted, "no ResolvedRefs condition"},
-		{"a False without a reason", "Accepted", []any{map[string]any{keyType: "Accepted", keyStatus: "False", keyMessage: missing}},
+		{"no ResolvedRefs", resolved, []any{acceptedTrue}, Drifted, "no ResolvedRefs condition"},
+		{"a False without a reason", accepted, []any{map[string]any{keyType: accepted, keyStatus: "False", keyMessage: missing}},
 			Drifted, "Accepted=False: " + missing},
 	} {
 		cluster := &recordingCluster{objects: map[string]map[string]any{
@@ -486,7 +489,7 @@ func secretWrittenAt(at string, more ...map[string]any) map[string]any {
 // podStartedAt is a pod whose container of the name runs since at; an empty
 // at is a container that waits to start.
 func podStartedAt(pod, container, at string) map[string]any {
-	state := map[string]any{"waiting": map[string]any{"reason": "CrashLoopBackOff"}}
+	state := map[string]any{"waiting": map[string]any{keyReason: "CrashLoopBackOff"}}
 	if at != "" {
 		state = map[string]any{"running": map[string]any{"startedAt": at}}
 	}
