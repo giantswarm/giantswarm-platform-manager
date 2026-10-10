@@ -203,7 +203,7 @@ func TestReadBackEntriesKind(t *testing.T) {
 		want         any
 	}{
 		{"entries with and without a comment", "slack:\n  # Above the list.\n  bots:\n    - U1 # Alerting EU\n    - U2\n    - \"U3\"  #  Paging\n", []any{
-			map[string]any{"value": "U1", "comment": "Alerting EU"}, map[string]any{"value": "U2", "comment": ""}, map[string]any{"value": "U3", "comment": " Paging"}}},
+			map[string]any{EntryValue: "U1", EntryComment: "Alerting EU"}, map[string]any{EntryValue: "U2", EntryComment: ""}, map[string]any{EntryValue: "U3", EntryComment: " Paging"}}},
 		{"an empty list", "slack:\n  bots: []\n", []any{}},
 		{"no list", "slack:\n  bots: U1\n", nil},
 		{"an entry that is no scalar", "slack:\n  bots:\n    - id: U1\n", nil},
@@ -614,7 +614,7 @@ func TestAgentPlatformReadsBackContextBots(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := map[string]any{"klausGateway.slack.contextBotIDs": []any{
-				map[string]any{"value": "U0000000001", "comment": "Alerting EU"}, map[string]any{"value": "U0000000002", "comment": ""}}}
+				map[string]any{EntryValue: "U0000000001", EntryComment: "Alerting EU"}, map[string]any{EntryValue: "U0000000002", EntryComment: ""}}}
 			for k, v := range c.want {
 				want[k] = v
 			}

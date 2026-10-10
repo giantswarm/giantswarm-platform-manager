@@ -48,8 +48,16 @@ const (
 	ReadBackComment = "comment"
 	// ReadBackEntries is the list the key holds, each scalar entry as its
 	// value and the comment on its line, the marker stripped: a list of
-	// {value, comment}, comment empty where the entry carries none.
+	// {value, comment} (EntryValue, EntryComment), comment empty where the
+	// entry carries none.
 	ReadBackEntries = "entries"
+)
+
+// The fields of an entry an entries kind reads back: the scalar's value and
+// the comment on its line.
+const (
+	EntryValue   = "value"
+	EntryComment = "comment"
 )
 
 // schemaNode is the part of a schema node the read-back reads: the
@@ -500,7 +508,7 @@ func (f *readBackFiles) entries(file string, spec fileSpec, paths []string) (any
 				return nil, false, nil
 			}
 			comment := strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(entry.LineComment), "#"), " ")
-			out = append(out, map[string]any{"value": entry.Value, "comment": comment})
+			out = append(out, map[string]any{EntryValue: entry.Value, EntryComment: comment})
 		}
 		return out, true, nil
 	}
