@@ -451,3 +451,42 @@ func lookup(m render.Map, key string) any {
 	}
 	return nil
 }
+
+// The target side of the connector: a customer installation whose Dex the
+// organisation's hub exchanges tokens into registers, under
+// oidc.customer.connectors, the connector the hub names for it — the
+// organisation's plain name, the hub being the target's only hub of the
+// organisation — with the hub's Dex as the issuer; the fleet hub's connector
+// comes from the fleet's Dex base and is not rendered, so a target of the
+// fleet hub alone renders none. The hub of the same organisation names the
+// same id for the target. A connectors entry naming a hub that does not
+// broker into the installation is refused.
+func TestTargetRegistersTheConnectorTheHubNames(t *testing.T) {
+	file := func(shape, repo, name, app string) string {
+		input, secrets := loadInput(t, shape)
+		result, err := Render(input, secrets, render.ModeCommit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(result.Tree()["giantswarm/"+repo+"-configs/installations/"+name+"/apps/"+app+"/configmap-values.yaml.patch"])
+	}
+	sibling := file(shapeCustomerSibling, "oakridge", "plover", "dex-app")
+	want := "  customer:\n    connectors:\n      - id: oakridge-simple-oidc\n        connectorType: oidc\n        connectorName: heron token exchange\n        connectorConfig: |\n          issuer: https://dex.heron.oakridge.example\n          insecureEnableGroups: true\n"
+	if !strings.Contains(sibling, want) || strings.Contains(sibling, "giantswarm-simple-oidc") {
+		t.Errorf("the sibling's Dex registers the organisation's connector for heron and none for gopher:\n%s", sibling)
+	}
+	if public := file(shapePublicCustomer, "oakridge", "kestrel", "dex-app"); strings.Contains(public, "connectors:") {
+		t.Errorf("a target of the fleet hub alone renders no connector:\n%s", public)
+	}
+	hub := file(shapeMultiClusterAggregator, "oakridge", "heron", "agent-platform")
+	if !strings.Contains(hub, "            plover:\n              dexTokenEndpoint: https://dex.plover.oakridge.example/token\n              connectorId: oakridge-simple-oidc\n") {
+		t.Errorf("the hub names the connector the sibling registers:\n%s", hub)
+	}
+	input, _ := loadInput(t, shapeCustomerSibling)
+	fed := input["installation"].(map[string]any)["federation"].(map[string]any)
+	fed["connectors"] = []any{map[string]any{"hub": "kestrel", "customer": "oakridge", "baseDomain": "kestrel.oakridge.example"}}
+	_, err := Parse(input)
+	if err == nil || !strings.Contains(err.Error(), "connectors[0]") || !strings.Contains(err.Error(), "kestrel") || !strings.Contains(err.Error(), "gopher, heron") {
+		t.Errorf("a connector of a hub that does not broker into the installation: %v", err)
+	}
+}

@@ -26,6 +26,7 @@ func DexSecretPatchPath(name string) string {
 const (
 	DexExtraStaticClients = "oidc.extraStaticClients"
 	DexTrustedPeers       = "oidc.staticClients.dexK8SAuthenticator.trustedPeers"
+	DexCustomerConnectors = "oidc.customer.connectors"
 )
 
 // DexSecretList is one of those lists as the encrypted dex-app secret patch
@@ -68,6 +69,9 @@ func dexSecretLists(patch string) ([]DexSecretList, error) {
 				} `yaml:"dexK8SAuthenticator"`
 			} `yaml:"staticClients"`
 			ExtraStaticClients []yaml.Node `yaml:"extraStaticClients"`
+			Customer           struct {
+				Connectors []yaml.Node `yaml:"connectors"`
+			} `yaml:"customer"`
 		} `yaml:"oidc"`
 	}
 	if err := yaml.Unmarshal([]byte(patch), &doc); err != nil {
@@ -79,6 +83,9 @@ func dexSecretLists(patch string) ([]DexSecretList, error) {
 	}
 	if n := len(doc.OIDC.ExtraStaticClients); n > 0 {
 		out = append(out, DexSecretList{Path: DexExtraStaticClients, Entries: n})
+	}
+	if n := len(doc.OIDC.Customer.Connectors); n > 0 {
+		out = append(out, DexSecretList{Path: DexCustomerConnectors, Entries: n})
 	}
 	return out, nil
 }

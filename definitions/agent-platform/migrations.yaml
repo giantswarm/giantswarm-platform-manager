@@ -18,6 +18,12 @@
 #
 # The M numbers are the wave-1 migration list's (M1–M11) and continue removals.yaml's (M30…).
 migrations:
+  # --- M41 — Dex registers the token-exchange connector of every customer hub that brokers into the installation ---
+  # The hub names the connector in its broker targets and identity providers; the fleet's Dex base
+  # registers the Giant Swarm hubs' giantswarm-simple-oidc on every installation, a customer hub's was
+  # written by hand under another name or not at all.
+  - key: dex-configmap:oidc.customer.connectors[<connector>]
+    reason: "Added: Dex gets the connector <connector>, an oidc connector trusting a hub's Dex as the issuer, through which that hub's muster exchanges a person's token for one this installation accepts · M41"
   # --- M40 — muster's SSRF guard for a client's metadata document is lifted for agentgateway's host alone ---
   # The chat gateway's client_id is a metadata document on agentgateway's hostname, which resolves to the
   # internal load balancer on a private installation; the bool lifted the guard for every host.

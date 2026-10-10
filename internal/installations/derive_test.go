@@ -8,13 +8,16 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
-// The fixture's names: the fleet's hub, an organisation and its aggregator and sibling.
+// The fixture's names: the fleet's hub, an organisation and its aggregator and sibling, and their base domains.
 const (
 	fixtureHub        = "aspen"
 	fixtureFleet      = "fleet"
 	fixtureCustomer   = "umbra"
 	fixtureAggregator = "linden"
 	fixtureSibling    = "rowanberry"
+	aspenDomain       = "aspen.fleet.test"
+	lindenDomain      = "linden.umbra.test"
+	rowanberryDomain  = "rowanberry.umbra.test"
 )
 
 // The portals on record derive an installation's portals, hubs and targets:
@@ -23,14 +26,14 @@ const (
 // installation a portal reaches through the tunnel on its host is private.
 func TestDeriveFromPortals(t *testing.T) {
 	reg := &Registry{Installations: []Installation{
-		{Name: fixtureHub, Customer: fixtureFleet, BaseDomain: "aspen.fleet.test", Hub: true},
-		{Name: fixtureAggregator, Customer: fixtureCustomer, BaseDomain: "linden.umbra.test", Repositories: Repositories{Configs: "fleet/umbra-configs", ManagementClusters: "fleet/umbra-management-clusters"}},
-		{Name: fixtureSibling, Customer: fixtureCustomer, BaseDomain: "rowanberry.umbra.test", Repositories: Repositories{Configs: "fleet/umbra-configs", ManagementClusters: "fleet/umbra-management-clusters"}},
+		{Name: fixtureHub, Customer: fixtureFleet, BaseDomain: aspenDomain, Hub: true},
+		{Name: fixtureAggregator, Customer: fixtureCustomer, BaseDomain: lindenDomain, Repositories: Repositories{Configs: "fleet/umbra-configs", ManagementClusters: "fleet/umbra-management-clusters"}},
+		{Name: fixtureSibling, Customer: fixtureCustomer, BaseDomain: rowanberryDomain, Repositories: Repositories{Configs: "fleet/umbra-configs", ManagementClusters: "fleet/umbra-management-clusters"}},
 	}}
 	reports := []Report{
-		{Installation: reg.Installations[0], Record: &Record{Name: fixtureHub, BaseDomain: "aspen.fleet.test"}, Readable: true},
-		{Installation: reg.Installations[1], Record: &Record{Name: fixtureAggregator, BaseDomain: "linden.umbra.test"}, Readable: true},
-		{Installation: reg.Installations[2], Record: &Record{Name: fixtureSibling, BaseDomain: "rowanberry.umbra.test", Private: true}, Readable: true},
+		{Installation: reg.Installations[0], Record: &Record{Name: fixtureHub, BaseDomain: aspenDomain}, Readable: true},
+		{Installation: reg.Installations[1], Record: &Record{Name: fixtureAggregator, BaseDomain: lindenDomain}, Readable: true},
+		{Installation: reg.Installations[2], Record: &Record{Name: fixtureSibling, BaseDomain: rowanberryDomain, Private: true}, Readable: true},
 	}
 	portals := []Portal{
 		{Host: fixtureHub, Customer: fixtureFleet, Domain: "portal.fleet.test", ClientID: fixtureHubClientID, Broker: "", Installations: []string{fixtureHub, fixtureAggregator, fixtureSibling}, Tunnelled: []string{fixtureSibling}, HandKept: true},
@@ -73,8 +76,7 @@ func TestDeriveFromPortals(t *testing.T) {
 // portal hosts none.
 func TestHostedPortalFollowsTheRecord(t *testing.T) {
 	const (
-		capa, capz, stable, euCentral, spruce       = "capa", "capz", "stable", "eu-central-1", "spruce"
-		aspenDomain, lindenDomain, rowanberryDomain = "aspen.fleet.test", "linden.umbra.test", "rowanberry.umbra.test"
+		capa, capz, stable, euCentral, spruce = "capa", "capz", "stable", "eu-central-1", "spruce"
 	)
 	reg := &Registry{Installations: []Installation{
 		{Name: fixtureHub, Customer: fixtureFleet, BaseDomain: aspenDomain, Provider: capa, Region: "eu-west-1", Pipeline: stable, Hub: true},
@@ -328,4 +330,44 @@ func indent(s, prefix string) string {
 		}
 	}
 	return b.String()
+}
+
+// A hub's entry among an installation's connectors carries the facts the
+// connector the installation's Dex registers for it is rendered from: the
+// hub's organisation and its record's base domain — the inspected report's
+// — and whether it is the first of its organisation's hubs into the
+// installation, as organisationHubs orders them: the registry's hub first
+// where it is one, then by name. A hub the registry does not know, or one
+// not inspected without a configs repository on record, fails.
+func TestHubConnectorFacts(t *testing.T) {
+	const secondHub, otherHub = "zelkova", "linden"
+	reg := &Registry{Installations: []Installation{
+		{Name: fixtureHub, Customer: fixtureFleet, Hub: true},
+		{Name: secondHub, Customer: fixtureFleet},
+		{Name: otherHub, Customer: fixtureCustomer},
+	}}
+	const zelkovaDomain = "zelkova.fleet.test"
+	inspected := map[string]*Report{
+		fixtureHub: {Record: &Record{Name: fixtureHub, BaseDomain: aspenDomain}},
+		secondHub:  {Record: &Record{Name: secondHub, BaseDomain: zelkovaDomain}},
+		otherHub:   {Record: &Record{Name: otherHub, BaseDomain: lindenDomain}},
+	}
+	hubs := []string{secondHub, otherHub, fixtureHub}
+	want := []render.HubConnector{
+		{Hub: secondHub, Customer: fixtureFleet, BaseDomain: zelkovaDomain, First: false},
+		{Hub: otherHub, Customer: fixtureCustomer, BaseDomain: lindenDomain, First: true},
+		{Hub: fixtureHub, Customer: fixtureFleet, BaseDomain: aspenDomain, First: true},
+	}
+	for i, hub := range hubs {
+		got, err := reg.hubConnector(t.Context(), nil, hub, inspected[hub], hubs)
+		if err != nil || got != want[i] {
+			t.Errorf("%s: %+v %v, want %+v", hub, got, err, want[i])
+		}
+	}
+	if _, err := reg.hubConnector(t.Context(), nil, "spruce", nil, hubs); err == nil || !strings.Contains(err.Error(), "not in the registry") {
+		t.Errorf("a hub the registry does not know: %v", err)
+	}
+	if _, err := reg.hubConnector(t.Context(), nil, otherHub, nil, hubs); err == nil || !strings.Contains(err.Error(), "no configs repository") {
+		t.Errorf("a hub not inspected without a configs repository on record: %v", err)
+	}
 }

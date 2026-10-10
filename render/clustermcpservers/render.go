@@ -65,11 +65,20 @@ type Input struct {
 
 // Installation is the facts on record; see the schema for each field.
 type Installation struct {
-	Name          string `json:"name"`
-	BaseDomain    string `json:"baseDomain"`
-	Customer      string `json:"customer"`
-	DexAppVersion string `json:"dexAppVersion"`
-	AgentPlatform bool   `json:"agentPlatform"`
+	Name          string     `json:"name"`
+	BaseDomain    string     `json:"baseDomain"`
+	Customer      string     `json:"customer"`
+	DexAppVersion string     `json:"dexAppVersion"`
+	AgentPlatform bool       `json:"agentPlatform"`
+	Federation    Federation `json:"federation"`
+}
+
+// Federation is the installation's place in the fleet's token exchange, as
+// far as this definition renders it: the hubs whose muster exchanges tokens
+// into the installation, each with the facts the connector its Dex registers
+// for the hub is rendered from (render.HubConnector).
+type Federation struct {
+	Connectors []render.HubConnector `json:"connectors"`
 }
 
 // Servers are how the installation runs each of its MCP servers, by the
@@ -216,10 +225,36 @@ func Render(raw any, secrets map[string]string, _ render.Mode) (*render.Result, 
 			static = append(static, render.Entry{Key: s.DexClient, Value: s.DexClientRef()})
 		}
 	}
-	dex := render.Map{{Key: "oidc", Value: render.Map{{Key: "staticClients", Value: static}}}}
+	oidc := render.Map{{Key: "staticClients", Value: static}}
+	connectors, err := in.exchangeConnectors()
+	if err != nil {
+		return nil, err
+	}
+	if len(connectors) > 0 {
+		oidc = append(oidc, render.Entry{Key: "customer", Value: render.Map{{Key: "connectors", Value: connectors}}})
+	}
+	dex := render.Map{{Key: "oidc", Value: oidc}}
 	r.Add(configs, "installations/"+name+"/apps/dex-app/configmap-values.yaml.patch", render.File{Content: append([]byte(fileHeader), render.MustYAML(dex)...)})
 	r.Probes = in.probes()
 	return r, nil
+}
+
+// exchangeConnectors are the token-exchange connectors the installation's
+// Dex registers for the hubs that broker into it, under oidc.customer next
+// to the installation's own login connectors, which the plan keeps: the
+// agent-platform policy's names over each hub's record, the one rule the
+// hub names the connector by in its broker (render.ConnectorPolicy). A policy
+// that cannot name one is ErrPolicy.
+func (in *Input) exchangeConnectors() ([]render.Map, error) {
+	names, err := render.ConnectorPolicy()
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrPolicy, err)
+	}
+	list, err := render.ExchangeConnectors(names, in.Installation.Federation.Connectors)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrPolicy, err)
+	}
+	return list, nil
 }
 
 // probes are the live reads of the installation: every running server's and
