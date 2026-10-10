@@ -65,6 +65,55 @@ func canonicalPatches(content string) (string, bool) {
 	return out.String(), true
 }
 
+// sameValues reports whether the file on record is the render's but for the
+// order of a mapping's keys and the file's layout (indentation, a trailing
+// newline): document by document, each mapping compared by its keys whatever
+// their order, each sequence entry by entry, every scalar by its value, tag
+// and style, every comment where it hangs. A record that holds the keys the
+// definition keeps in its own order is the render, and writing it would
+// change nothing. A file that does not parse, or has no document, is not such
+// a file, and change compares it by its bytes.
+func sameValues(rendered, current string) bool {
+	r, err := documents(rendered)
+	if err != nil || len(r) == 0 {
+		return false
+	}
+	c, err := documents(current)
+	if err != nil || len(r) != len(c) {
+		return false
+	}
+	for i := range r {
+		if !sameTree(r[i], c[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// sameTree compares two nodes as sameValues does.
+func sameTree(r, c *yaml.Node) bool {
+	if r.Kind != c.Kind || r.Tag != c.Tag || r.Value != c.Value || r.Style != c.Style || r.Anchor != c.Anchor ||
+		r.HeadComment != c.HeadComment || r.LineComment != c.LineComment || r.FootComment != c.FootComment ||
+		len(r.Content) != len(c.Content) {
+		return false
+	}
+	if r.Kind != yaml.MappingNode {
+		for i := range r.Content {
+			if !sameTree(r.Content[i], c.Content[i]) {
+				return false
+			}
+		}
+		return true
+	}
+	for i := 0; i+1 < len(r.Content); i += 2 {
+		j := keyIndex(c, r.Content[i].Value)
+		if j < 0 || !sameTree(r.Content[i], c.Content[j]) || !sameTree(r.Content[i+1], c.Content[j+1]) {
+			return false
+		}
+	}
+	return true
+}
+
 // CanonicalYAML is text, YAML or JSON, in the one spelling its value encodes
 // to — quoting, flow or block style, indentation and a mapping's key order
 // set aside; false for text that is not YAML.

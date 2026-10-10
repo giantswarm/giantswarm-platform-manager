@@ -732,10 +732,12 @@ func withSelected(inputs, selected map[string]any) map[string]any {
 // file's public half of a key pair — is unchanged: the values stand, and the
 // literals the render puts under an encrypted field are named as unseen. So
 // is a kustomization that differs only in how its patch texts spell their
-// YAML (samePatches): writing it would change nothing.
+// YAML (samePatches), and any file that is the render's but for the order of
+// a mapping's keys and its layout (sameValues): writing it would change
+// nothing.
 func change(current string, err error, rendered string) (Change, string, []Unseen) {
 	switch {
-	case err == nil && current == rendered:
+	case err == nil && (current == rendered || sameValues(rendered, current)):
 		return ChangeUnchanged, "", nil
 	case err == nil && sameSkeleton(rendered, current):
 		return ChangeUnchanged, "", unseen(rendered, current)

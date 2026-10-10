@@ -67,3 +67,27 @@ func TestChangeReadsAPatchTextByItsValue(t *testing.T) {
 		t.Errorf("a file without patch texts is compared by its bytes: %s", c)
 	}
 }
+
+func TestChangeReadsAMappingsKeysInAnyOrder(t *testing.T) {
+	const rendered = "# Rendered.\nkagent:\n  controller:\n    resources:\n      limits:\n        memory: 1Gi\n    volumes:\n      - name: cnpg-dsn # the DSN\n"
+	for name, current := range map[string]string{
+		"keys in another order": "# Rendered.\nkagent:\n  controller:\n    volumes:\n      - name: cnpg-dsn # the DSN\n    resources:\n      limits:\n        memory: 1Gi\n",
+		"a trailing newline":    rendered + "\n",
+		"another indentation":   strings.ReplaceAll(rendered, "  ", "    "),
+	} {
+		if c, _, _ := change(current, nil, rendered); c != ChangeUnchanged {
+			t.Errorf("%s: %s, want unchanged:\n%s", name, c, current)
+		}
+	}
+	for name, current := range map[string]string{
+		"another value":   strings.Replace(rendered, "1Gi", "2Gi", 1),
+		"a key less":      "# Rendered.\nkagent:\n  controller:\n    volumes:\n      - name: cnpg-dsn # the DSN\n",
+		"another comment": strings.Replace(rendered, "# the DSN", "# a DSN", 1),
+		"a quoting style": strings.Replace(rendered, "memory: 1Gi", "memory: '1Gi'", 1),
+		"entries swapped": strings.Replace(rendered, "      - name: cnpg-dsn # the DSN\n", "      - name: b\n      - name: cnpg-dsn # the DSN\n", 1),
+	} {
+		if c, _, _ := change(current, nil, rendered); c != ChangeUpdate {
+			t.Errorf("%s: %s, want update", name, c)
+		}
+	}
+}
