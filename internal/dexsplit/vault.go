@@ -261,12 +261,17 @@ func (v beekeeperVault) Reveal(ctx context.Context, file string, paths []string)
 	return out, nil
 }
 
+// CopySecret runs in dst's directory, so the source is made absolute first.
 func (v beekeeperVault) CopySecret(ctx context.Context, src Ref, dst, name, namespace, key string) error {
 	abs, err := filepath.Abs(dst)
 	if err != nil {
 		return err
 	}
-	_, err = v.run(ctx, filepath.Dir(abs), nil, "beekeeper", "secret", "copy", src.String()+"="+key, abs, "--name", name, "--namespace", namespace)
+	from := src
+	if from.File, err = filepath.Abs(src.File); err != nil {
+		return err
+	}
+	_, err = v.run(ctx, filepath.Dir(abs), nil, "beekeeper", "secret", "copy", from.String()+"="+key, abs, "--name", name, "--namespace", namespace)
 	return commandError("beekeeper secret copy "+src.String(), err)
 }
 
