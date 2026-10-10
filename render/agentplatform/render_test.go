@@ -36,6 +36,7 @@ const (
 	shapePortalGitHubGrant      = "portal-github-grant"
 	shapePortalHive             = "portal-hive"
 	shapeCustomerSibling        = "customer-sibling"
+	shapeWorkspaces             = "workspaces"
 )
 
 // The keys of the choices' documents the refusal cases build.
@@ -62,7 +63,7 @@ const (
 )
 
 // shapes are the installation shapes, in the order the goldens are rendered.
-var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned, shapeGiantswarmSlackApp, shapeGiantswarmSlackAppPub, shapeHubPrivateTarget, shapeMultiClusterAggregator, shapeSecondHub, shapeHandKeptPortal, shapeRegisteredServers, shapePortalGitHubGrant, shapePortalHive, shapeCustomerSibling}
+var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned, shapeGiantswarmSlackApp, shapeGiantswarmSlackAppPub, shapeHubPrivateTarget, shapeMultiClusterAggregator, shapeSecondHub, shapeHandKeptPortal, shapeRegisteredServers, shapePortalGitHubGrant, shapePortalHive, shapeCustomerSibling, shapeWorkspaces}
 
 func loadInput(t *testing.T, shape string) (map[string]any, map[string]string) {
 	t.Helper()

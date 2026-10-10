@@ -245,6 +245,9 @@ func (in *Input) dexRedirectClients() []dexRedirectClient {
 	// installation's musterClientId; the MCP servers' ids are the shared template's
 	// and no input here, so their clients are not probed.
 	clients := []dexRedirectClient{{id: in.Installation.MusterClientID, redirectURI: "https://" + in.host("muster") + "/oauth/callback"}}
+	if uri := in.workspaceSigninURI(); uri != "" {
+		clients = append(clients, dexRedirectClient{id: in.Installation.MusterClientID, redirectURI: uri})
+	}
 	if in.kagent() {
 		clients = append(clients, dexRedirectClient{id: "kagent", redirectURI: in.kagentRedirectURI()})
 	}

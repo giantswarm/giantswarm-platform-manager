@@ -407,3 +407,14 @@ removals:
   - key: "backstage:file:plugin-keys-secret.enc.yaml"
     kind: other-definition
     reason: "Kept: plugin-keys-secret.enc.yaml holds the portal's own plugin key store, written by the customer-portal capability; the Agent Platform writes only its Component."
+  # --- the workspace-manager: the installation's own switch and values ---
+  - key: configmap:workspaces
+    kind: kept
+    reason: >-
+      Kept: workspaces turns the workspace-manager on here with this installation's own workspace storage; the switch stays until the
+      definition takes workspaces as a choice, and while it is on the platform's Dex client carries the manager's sign-in redirect URI
+  - key: configmap:workspace-manager
+    kind: kept
+    reason: >-
+      Kept: workspace-manager carries this installation's own provider instances, sign-in keys and base URL; the block stays with the
+      workspaces switch until the definition takes them as a choice
