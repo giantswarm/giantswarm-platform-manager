@@ -238,6 +238,7 @@ spec:
                       kind: {type: string}
                       namespace: {type: string}
                       name: {type: string}
+                      takes: {type: string}
                 withdrawal:
                   description: The actor's withdrawal of a merged action that failed or was reverted — who, why and when; the review's thread carries the same.
                   type: object

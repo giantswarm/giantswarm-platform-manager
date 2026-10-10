@@ -58,6 +58,14 @@ func TestDisableCommitsTheRemovalAndReadsNotEnabled(t *testing.T) {
 	}
 	st.ghs.addFile(acmeMCs, installations.CollectionsKustomizationPath(rowan), collectionsKustomization(clustermcpservers.DexAppRotation))
 
+	// The capability's kustomization pulls the platform from the fleet's
+	// remote base: while it cannot be read, the dry run refuses naming it,
+	// and the checklist is never silently short of its objects.
+	if _, text, isErr := disableCall(t, aliceC, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.AgentPlatform, tools.ArgDryRun: true}); !isErr || !strings.Contains(text, platformBase) || !strings.Contains(text, "nothing is removed blind") {
+		t.Fatalf("a dry run without the remote base: %v %s", isErr, text)
+	}
+	st.ghs.addRepo(fleetBasesRepo, platformBaseFiles)
+
 	dry, text, isErr := disableCall(t, aliceC, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.AgentPlatform, tools.ArgDryRun: true})
 	if isErr || !dry.DryRun || dry.State != installations.StateEnabled || dry.CommitRefused != "" || len(dry.References) != 0 {
 		t.Fatalf("dry run: %s", text)
@@ -83,9 +91,10 @@ func TestDisableCommitsTheRemovalAndReadsNotEnabled(t *testing.T) {
 	if !slices.Contains(edited, acmeMCs+":"+extrasKustomizationPath(rowan)) {
 		t.Fatalf("edits: %v", edited)
 	}
-	if len(dry.Plan.Checklist) == 0 || len(dry.Plan.PullRequests) != 2 {
-		t.Fatalf("checklist %v, pull requests %+v", dry.Plan.Checklist, dry.Plan.PullRequests)
+	if len(dry.Plan.PullRequests) != 2 {
+		t.Fatalf("pull requests %+v", dry.Plan.PullRequests)
 	}
+	assertBaseChecklist(t, dry.Plan.Checklist)
 
 	if _, text, isErr := disableCall(t, aliceC, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.AgentPlatform, tools.ArgMode: string(tools.ModeCommit)}); !isErr || !strings.Contains(text, tools.ArgReason) {
 		t.Fatalf("a commit without a reason: %v %s", isErr, text)
@@ -126,8 +135,16 @@ func TestDisableCommitsTheRemovalAndReadsNotEnabled(t *testing.T) {
 	}
 
 	got := getAction(t, aliceC, name)
-	if got.Status.State != actions.StateDisabled || stageOf(&got, rowan).State != actions.StateDisabled || len(got.Status.Orphans) == 0 {
+	if got.Status.State != actions.StateDisabled || stageOf(&got, rowan).State != actions.StateDisabled {
 		t.Fatalf("after the merge: %+v", got.Status)
+	}
+	if len(got.Status.Orphans) != len(dry.Plan.Checklist) {
+		t.Fatalf("orphans %+v, checklist %+v", got.Status.Orphans, dry.Plan.Checklist)
+	}
+	for i, o := range got.Status.Orphans {
+		if c := dry.Plan.Checklist[i]; o != (actions.Orphan{Installation: rowan, Kind: c.Kind, Namespace: c.Namespace, Name: c.Name, Takes: c.Takes}) {
+			t.Fatalf("orphan %d: %+v, the checklist has %+v", i, o, c)
+		}
 	}
 	li, _, _ := listInstallations(t, aliceC, map[string]any{tools.ArgInstallations: []any{rowan}})
 	if r := find(t, li, rowan); r.Capabilities[0].State != installations.StateNotEnabled {
@@ -141,4 +158,46 @@ func TestDisableCommitsTheRemovalAndReadsNotEnabled(t *testing.T) {
 	}
 	_ = enabled
 	assertNoLeak(t, "the server's log", st.logs.String())
+}
+
+// fleetBasesRepo is the fleet's bases repository the definition's
+// kustomizations pull the platform from; platformBase the remote base the
+// agent platform's kustomization lists, platformBaseFiles what it carries.
+const (
+	fleetBasesRepo = "giantswarm/management-cluster-bases"
+	platformBase   = "https://github.com/" + fleetBasesRepo + "//extras/agent-platform?ref=main"
+)
+
+var platformBaseFiles = map[string]string{
+	"extras/agent-platform/kustomization.yaml":  "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./namespace.yaml\n  - ./oci-repository.yaml\n  - ./helm-release.yaml\n  - ./konfiguration.yaml\n",
+	"extras/agent-platform/namespace.yaml":      "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: agent-platform\n---\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: kagent\n",
+	"extras/agent-platform/oci-repository.yaml": "apiVersion: source.toolkit.fluxcd.io/v1\nkind: OCIRepository\nmetadata:\n  name: agent-platform\n  namespace: flux-giantswarm\n",
+	"extras/agent-platform/helm-release.yaml":   "apiVersion: helm.toolkit.fluxcd.io/v2\nkind: HelmRelease\nmetadata:\n  name: agent-platform\n  namespace: flux-giantswarm\nspec:\n  targetNamespace: agent-platform\n",
+	"extras/agent-platform/konfiguration.yaml":  "apiVersion: konfigure.giantswarm.io/v1alpha1\nkind: Konfiguration\nmetadata:\n  name: agent-platform-konfiguration\n  namespace: flux-giantswarm\n",
+}
+
+// assertBaseChecklist holds a checklist to the remote base's objects in
+// deletion order ahead of the Secrets and ConfigMaps: the umbrella
+// HelmRelease, its source and the Konfiguration, the namespaces, each line
+// saying what its deletion takes with it.
+func assertBaseChecklist(t *testing.T, checklist []plan.Object) {
+	t.Helper()
+	want := []string{"HelmRelease flux-giantswarm/agent-platform", "OCIRepository flux-giantswarm/agent-platform", "Konfiguration flux-giantswarm/agent-platform-konfiguration", "Namespace agent-platform", "Namespace kagent"}
+	if len(checklist) <= len(want) {
+		t.Fatalf("checklist %v", checklist)
+	}
+	for i, w := range want {
+		if checklist[i].String() != w || checklist[i].Takes == "" {
+			t.Fatalf("checklist line %d: %q, want %q with what it takes", i+1, checklist[i].Line(), w)
+		}
+	}
+	ahead := map[string]bool{}
+	for _, w := range want {
+		ahead[strings.Fields(w)[0]] = true
+	}
+	for _, o := range checklist[len(want):] {
+		if ahead[o.Kind] {
+			t.Fatalf("after the namespaces: %s", o)
+		}
+	}
 }

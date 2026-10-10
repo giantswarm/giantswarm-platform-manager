@@ -337,6 +337,9 @@ func disabled(status *actions.Status, a *actions.Action, def installations.Capab
 		text += fmt.Sprintf("\n%d object(s) stay until a person deletes them, in this order — the Kustomization over the tree does not prune:", len(status.Orphans))
 		for _, o := range status.Orphans {
 			text += fmt.Sprintf("\n• %s: %s %s", o.Installation, o.Kind, objectName(o.Namespace, o.Name))
+			if o.Takes != "" {
+				text += " — " + o.Takes
+			}
 		}
 	}
 	status.State = actions.StateDisabled
