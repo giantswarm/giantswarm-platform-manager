@@ -5,11 +5,11 @@ go 1.26.5
 require (
 	filippo.io/age v1.3.2
 	github.com/Masterminds/semver/v3 v3.5.0
-	github.com/creativeprojects/go-selfupdate v1.6.0
 	github.com/getsops/sops/v3 v3.13.3
 	github.com/giantswarm/gitops-commit v0.11.1
+	github.com/giantswarm/go-selfupdate v1.6.1
 	github.com/giantswarm/mcp-oauth v1.7.0
-	github.com/giantswarm/selfupdate-cosign v0.3.2
+	github.com/giantswarm/selfupdate-cosign v0.3.4
 	github.com/go-jose/go-jose/v4 v4.1.5
 	github.com/google/go-containerregistry v0.22.1
 	github.com/google/go-github/v92 v92.0.0

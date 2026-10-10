@@ -1,0 +1,17 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand.
+kagent:
+  providers:
+    anthropic:
+      apiKeySecretRef: kagent-anthropic-key
+  oauth2-proxy:
+    config:
+      existingSecret: kagent-oauth2-proxy-credentials
+postgres:
+  enabled: true
+muster:
+  muster:
+    oauth:
+      server:
+        existingSecret: muster-oauth
+        trustedAudiences:
+          - dex-k8s-authenticator
