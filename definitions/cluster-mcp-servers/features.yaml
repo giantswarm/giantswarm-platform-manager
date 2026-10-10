@@ -29,7 +29,7 @@ features:
     dimensions:
       - {id: dex-static-clients, kind: dex-configmap, key: oidc.staticClients}
       - {id: dex-exchange-connectors, kind: dex-configmap, key: oidc.customer.connectors (the connectors Dex registers for the hubs that broker into the installation)}
-      - {id: dex-token-exchange-clients, kind: dex-configmap, key: oidc.extraStaticClients / oidc.staticClients.dexK8SAuthenticator.trustedPeers (the hubs' token-exchange clients, each a trusted peer of the authenticator)}
+      - {id: dex-token-exchange-clients, kind: dex-configmap, key: "oidc.extraStaticClients / oidc.staticClients.dexK8SAuthenticator.trustedPeers (the hubs' token-exchange clients, each a trusted peer of the authenticator)"}
       - {id: dex-other-keys, kind: dex-configmap, catchAll: true, key: every other key of the patch (the installation's own and the other definitions')}
       - {id: token-exchange-secrets, kind: extras, key: "agent-platform/ (the hubs' token-exchange Dex client Secrets and the kustomizations that apply them, the files the agent-platform definition renders for the same pairing)"}
       - {id: live-dex-client-secrets-loaded, kind: live, key: "Dex started after every server's and every hub's token-exchange client Secret last changed its data"}
