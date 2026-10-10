@@ -98,7 +98,7 @@ func capabilityOptions() []mcp.ToolOption {
 		mcp.WithString(ArgCapability, mcp.Description(capabilityArgDescription), mcp.Enum(installations.CapabilityNames()...)),
 		mcp.WithObject(ArgInputs, mcp.Description(inputsArgDescription)),
 		mcp.WithBoolean(ArgContent, mcp.Description("Include the rendered content of every file and the file on record (default: true for one installation, false for a set); false answers paths and changes only. An answer above 1 MiB is refused with its size: ask for less.")),
-		mcp.WithObject(ArgSecrets, mcp.Description("mode commit only: the secret values the plan's suppliedSecrets name, by field. They land inside the encrypted files and nowhere else — not in the Action, not in a log, not in an answer.")),
+		mcp.WithObject(ArgSecrets, mcp.Description("mode commit only: the secret values the plan's suppliedSecrets name, by field; over a set (the wave) <field> goes to every installation that asks for it and <installation>/<field> to that one alone. They land inside the encrypted files and nowhere else — not in the Action, not in a log, not in an answer.")),
 		mcp.WithArray(ArgRotate, mcp.Description(rotateArgDescription), mcp.Items(stringItems())),
 		mcp.WithBoolean(ArgForceJoin, mcp.Description(forceJoinArgDescription)),
 		mcp.WithString(ArgReason, mcp.Description(reasonArgDescription)),

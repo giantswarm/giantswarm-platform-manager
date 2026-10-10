@@ -74,8 +74,7 @@ import (
 // hand (installation.portals[*].handKeptChat, read from the record) its
 // environment supplies the credential already, so the Component renders the
 // blocks and no Secret and asks for no value — as it sets no list on a
-// hand-kept portal — and a wave, which carries no supplied value, reconciles
-// such a portal. The credential becomes the Component's when the hand-kept
+// hand-kept portal — and a wave reconciles such a portal without one. The credential becomes the Component's when the hand-kept
 // block goes (the customer-portal definition's planned move), through an
 // enable of that installation alone with it supplied; until the Secret is on
 // record the customer-portal definition keeps the credential in the portal's

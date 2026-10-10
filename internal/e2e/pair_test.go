@@ -66,8 +66,8 @@ func TestSetWaveDrawsATokenExchangePairOnce(t *testing.T) {
 		}
 	}
 
-	// The wave: a supplied value's file goes on record first (a wave carries
-	// none), then the commit draws the pair once and opens both stages.
+	// The wave: a supplied value's file goes on record first (this wave
+	// supplies none), then the commit draws the pair once and opens both stages.
 	for _, p := range dry.Installations {
 		for _, f := range p.Files {
 			if isSecretFile(f.Path) && strings.Contains(f.Content, "SUPPLIED(") {
