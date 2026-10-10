@@ -36,7 +36,7 @@ func TestWaveSuppliedDryRunGolden(t *testing.T) {
 		}}
 	}
 	r := tools.CapabilityResult{
-		Caller: "jane", Hub: "gopher", Tool: tools.ToolReconcileCapability, Capability: "agent-platform", DryRun: true,
+		Caller: "wren", Hub: "heron", Tool: tools.ToolReconcileCapability, Capability: "agent-platform", DryRun: true,
 		Order:         []string{oak, hazel},
 		Installations: []tools.DryRun{target(oak, hazel), target(hazel, oak)},
 		PullRequests:  []plan.PullRequest{{Order: 1, Repository: acmeMCs, Installations: []string{oak, hazel}, Changes: 4}},
