@@ -75,10 +75,12 @@ func (t *Tools) verifyInstallation(ctx context.Context, token, name string, def 
 		byName[inst.Name] = inst
 	}
 	env := &planned{c: c, hub: hub, byName: byName, reports: map[string]installations.Report{r.Name: r}, inputs: map[string]map[string]any{}}
-	out, err := t.compare(ctx, env, r, def, typed, content, nil)
+	out, err := t.compare(ctx, env, r, def, typed, content, nil, false)
 	if err != nil {
 		return nil, err
 	}
+	// A registration URI the patch puts on moves from a plan of a set alone.
+	out.Join = out.Join.Pruned()
 	t.d.Log.Info(ToolVerifyCapability, identity.LogAttr(ctx), "installation", name, "inputs", out.Inputs.Source, "state", out.State, "summary", out.Summary, "reads", c.Requests(), "charged", c.Charged(), "duration_ms", time.Since(start).Milliseconds())
 	return out, nil
 }
