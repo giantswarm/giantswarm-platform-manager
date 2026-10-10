@@ -8,8 +8,9 @@
 # platform's release candidates. Its meta chart, agent-manager and chat gateway are held on
 # versions of their own (versions.*), which the render keeps with a comment: the reason a person
 # wrote above the hold (versions.reasons.*, the chart's and agent-manager's here), else the one
-# naming the input (the gateway's). The codename is the policy's; the domain and every value are
-# invented.
+# naming the input (the gateway's). The posts of two alerting bots reach an agent's thread context
+# (klausGateway.slack.contextBotIDs), each with the comment on its line, under the comment a person
+# wrote above the list. The codename is the policy's; the domain and every value are invented.
 input:
   installation:
     name: graveler
@@ -34,6 +35,16 @@ input:
       targets: []
   modelServing:
     enabled: false
+  klausGateway:
+    slack:
+      contextBotIDs:
+        - value: U0000000001
+          comment: Alerting EU
+        - value: U0000000002
+      contextBotIDsComment: |-
+        contextBotIDs: the alerting bots whose posts reach an agent's thread
+        context (klaus-gateway 4.2.0 or later), from the one alert channel the
+        gateway's bot is in.
   versions:
     chart: "4.114.1"
     components:

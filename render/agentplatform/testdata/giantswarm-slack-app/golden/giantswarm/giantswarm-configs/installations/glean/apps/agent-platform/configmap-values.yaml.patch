@@ -135,6 +135,10 @@ klausGateway:
     secretName: klaus-gateway-slack-credentials
     dmMode: serve
     channelMode: all
+    # The bots whose posts reach an agent's thread context: the input
+    # klausGateway.slack.contextBotIDs, read back so a reconcile keeps them.
+    contextBotIDs:
+      - U0000000003 # Alerting EU
   obo:
     enabled: true
     connectors:

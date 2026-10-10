@@ -136,6 +136,12 @@ klausGateway:
     secretName: klaus-gateway-slack-credentials
     dmMode: serve
     channelMode: all
+    # contextBotIDs: the alerting bots whose posts reach an agent's thread
+    # context (klaus-gateway 4.2.0 or later), from the one alert channel the
+    # gateway's bot is in.
+    contextBotIDs:
+      - U0000000001 # Alerting EU
+      - U0000000002
   obo:
     enabled: true
     connectors:
