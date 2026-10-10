@@ -10,6 +10,9 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
 )
 
+// namespaceKey is an MCP backend's namespace, and its peer's.
+const namespaceKey = "namespace"
+
 // The MCP backends the platform's network policy fences are a choice the
 // configmap patch carries whole: typed once, the hub's patch plans the map
 // under networkPolicy.mcpBackends in the chart's shape; put on record, a
@@ -35,9 +38,9 @@ func TestReconcileKeepsTheMCPBackendsOnRecord(t *testing.T) {
 		return plan.File{}
 	}
 	backends := map[string]any{
-		"tickets": map[string]any{"namespace": "mcp-tickets", "ports": []any{8080},
-			"additionalPeers": []any{map[string]any{"namespace": "envoy-gateway-system", "matchLabels": map[string]any{"app.kubernetes.io/name": "envoy"}}}},
-		"runbooks": map[string]any{"namespace": "mcp-runbooks", "ports": []any{8080}, "metrics": true},
+		"tickets": map[string]any{namespaceKey: "mcp-tickets", "ports": []any{8080},
+			"additionalPeers": []any{map[string]any{namespaceKey: "envoy-gateway-system", "matchLabels": map[string]any{"app.kubernetes.io/name": "envoy"}}}},
+		"runbooks": map[string]any{namespaceKey: "mcp-runbooks", "ports": []any{8080}, "metrics": true},
 	}
 	const want = "networkPolicy:\n  mcpBackends:\n    runbooks:\n      namespace: mcp-runbooks\n      ports:\n        - 8080\n      metrics: true\n" +
 		"    tickets:\n      namespace: mcp-tickets\n      ports:\n        - 8080\n      additionalPeers:\n        - namespace: envoy-gateway-system\n          matchLabels:\n            app.kubernetes.io/name: envoy\n"
