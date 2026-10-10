@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/giantswarm/giantswarm-platform-manager/main/definitions/cluster-mcp-servers/schema.json",
   "title": "cluster-mcp-servers definition inputs",
-  "description": "The closed input set of the cluster-mcp-servers capability: a management cluster's own MCP servers (mcp-kubernetes, mcp-prometheus, mcp-capi) on an installation without the agent platform, released from the fleet's bases into extras/mcp-<name> of its management-clusters repository, and the token-exchange clients of the hubs whose muster exchanges tokens into the installation to reach them. The renderer turns these inputs into each server's directory — the kustomization over the fleet base, the OAuth credentials and valkey-auth Secrets, the Dex client's Secret, the credentials revision Secret the server's and its Valkey's HelmReleases read into their charts' checksum values so a rotation restarts both, and the user values where Dex is private — each server's Dex client as a referenced Secret in the installation's dex-app configmap patch, and, per hub, its token-exchange client in that patch with its Secret under extras/agent-platform/secrets, the files the agent-platform definition renders for the same pairing. Where the agent platform is enabled, the agent-platform definition renders the same servers and this one refuses. Annotations: x-source says where a value comes from (registry: read from the installations registry, never typed; person: typed by the person enabling or reconciling). x-feature names the consistency feature of features.yaml the input's dimensions roll up to. x-files names the repository file a fileset key is read back from (<name> the installation). servers.<server>.enabled is read from the record (Capability.RecordInputs). x-readback on a person input names the file and key its value is read back from on record and lays the value over the record (kind value, present — whether the key exists — or file — whether the file is on record). x-renders lists the key paths the input produces, prefixed by the file: extras (a file under the installation's extras/), dex-configmap (the dex-app configmap patch).",
+  "description": "The closed input set of the cluster-mcp-servers capability: a management cluster's own MCP servers (mcp-kubernetes, mcp-prometheus, mcp-capi) on an installation without the agent platform, released from the fleet's bases into extras/mcp-<name> of its management-clusters repository. The renderer turns these inputs into each server's directory — the kustomization over the fleet base, the OAuth credentials and valkey-auth Secrets, the Dex client's Secret, the credentials revision Secret the server's and its Valkey's HelmReleases read into their charts' checksum values so a rotation restarts both, and the user values where Dex is private — and each server's Dex client as a referenced Secret in the installation's dex-app configmap patch. Where the agent platform is enabled, the agent-platform definition renders the same servers and this one refuses. Annotations: x-source says where a value comes from (registry: read from the installations registry, never typed; person: typed by the person enabling or reconciling). x-feature names the consistency feature of features.yaml the input's dimensions roll up to. x-files names the repository file a fileset key is read back from (<name> the installation). servers.<server>.enabled is read from the record (Capability.RecordInputs). x-readback on a person input names the file and key its value is read back from on record and lays the value over the record (kind value, present — whether the key exists — or file — whether the file is on record). x-renders lists the key paths the input produces, prefixed by the file: extras (a file under the installation's extras/), dex-configmap (the dex-app configmap patch).",
   "x-files": {
     "dex-configmap": {
       "repository": "configs",
@@ -101,10 +101,31 @@
         "federation": {
           "type": "object",
           "additionalProperties": false,
-          "description": "The installation's place in the fleet's token exchange, as far as this definition renders it: the hubs whose muster exchanges tokens into the installation to reach its MCP servers, from the portals on record, and the registry's hub by name.",
+          "description": "The installation's place in the fleet's token exchange, as far as this definition renders it: the hubs whose muster exchanges tokens into the installation, from the portals on record.",
           "x-source": "registry",
           "x-feature": "identity",
           "properties": {
+            "connectors": {
+              "type": "array",
+              "default": [],
+              "x-source": "registry",
+              "x-feature": "identity",
+              "x-renders": [
+                "dex-configmap:oidc.customer.connectors[*] (<customer>-simple-oidc, <customer>-<hub>-oidc)"
+              ],
+              "description": "The hubs that broker into this installation, each with the facts the token-exchange connector its Dex registers for the hub is rendered from: the hub's name, its owning organisation, its base domain — the hub's Dex, https://dex.<baseDomain>, is the connector's issuer — and whether it is the first of its organisation's hubs into this installation. The connector is an oidc connector trusting that issuer, under oidc.customer.connectors next to the installation's own login connectors, which the plan keeps; its name is the agent-platform policy's federation.connector.first (<customer>-simple-oidc) for the first hub and federation.connector.further (<customer>-<hub>-oidc) for every further one — the name the hub renders into its broker target and identity provider for this installation, so the two sides agree. A hub of an organisation under that policy's federation.connector.fromBase renders none: the fleet's Dex base registers its connector on every installation.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["hub", "customer", "baseDomain"],
+                "properties": {
+                  "hub": {"type": "string", "minLength": 1, "description": "The hub's name."},
+                  "customer": {"type": "string", "minLength": 1, "description": "The hub's owning organisation as the registry names it: the connector's prefix, and what the policy's fromBase is matched against."},
+                  "baseDomain": {"type": "string", "minLength": 1, "description": "The hub's base domain from its record: its Dex, https://dex.<baseDomain>, is the connector's issuer."},
+                  "first": {"type": "boolean", "default": false, "description": "The hub is the first of its organisation's hubs that broker into this installation, so its connector carries the organisation's plain name; a further hub's carries the hub's own."}
+                }
+              }
+            },
             "hubs": {
               "type": "array",
               "default": [],

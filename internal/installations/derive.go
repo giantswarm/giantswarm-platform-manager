@@ -112,6 +112,11 @@ type Federation struct {
 	// client in the installation's Dex carries the fleet's plain id.
 	RegistryHub    string `json:"registryHub"`
 	BrokerClientID string `json:"brokerClientId,omitempty"`
+	// Connectors are the hubs among Hubs with the facts the token-exchange
+	// connector the installation's Dex registers for each is rendered from:
+	// the hub's organisation, its record's base domain and whether it is the
+	// first of its organisation's hubs into the installation (hubConnector).
+	Connectors []render.HubConnector `json:"connectors"`
 }
 
 // FederatedTarget is an installation a hub brokers for.
@@ -402,7 +407,9 @@ func (r *Registry) Portals(ctx context.Context, c *gh.Client, insts []Installati
 // proxies the target's agent platform, its hubs the installations of this
 // organisation that broker into it; a target not among the reports has its
 // record read for its base domain. A hub's broker client id is read back from
-// its patch. What cannot be read is
+// its patch. The installation's own hubs are derived alike, each with the
+// facts the connector its Dex registers for the hub is rendered from
+// (hubConnector). What cannot be read is
 // an error of the report: the record is then incomplete and the installation
 // is not planned.
 func (r *Registry) derive(ctx context.Context, c *gh.Client, reports []Report, portals []Portal) {
@@ -418,6 +425,10 @@ func (r *Registry) derive(ctx context.Context, c *gh.Client, reports []Report, p
 		errs    []error
 		broker  string
 		brkErr  error
+		// connectors are the installation's hubs with their facts, in the
+		// hubs' order; connErrs what could not be read of each.
+		connectors []render.HubConnector
+		connErrs   []error
 		// hosted is the portal hosted on the installation; platform the
 		// agent-platform marker of each of its entries, read where the
 		// entry is not among the reports.
@@ -441,6 +452,13 @@ func (r *Registry) derive(ctx context.Context, c *gh.Client, reports []Report, p
 			hubs := r.organisationHubs(hubsOf(portals, name), rep.Customer)
 			wg.Go(func() {
 				res.found[j], res.errs[j] = r.target(ctx, c, name, byName[name], tunnelled(portals, name), proxied(portals, rep.Name, name), hubs)
+			})
+		}
+		hubs := rep.Federation.Hubs
+		res.connectors, res.connErrs = make([]render.HubConnector, len(hubs)), make([]error, len(hubs))
+		for j, hub := range hubs {
+			wg.Go(func() {
+				res.connectors[j], res.connErrs[j] = r.hubConnector(ctx, c, hub, byName[hub], hubs)
 			})
 		}
 		if len(targets) > 0 {
@@ -480,6 +498,13 @@ func (r *Registry) derive(ctx context.Context, c *gh.Client, reports []Report, p
 				continue
 			}
 			rep.Federation.Targets = append(rep.Federation.Targets, res.found[j])
+		}
+		for j, hub := range rep.Federation.Hubs {
+			if res.connErrs[j] != nil {
+				rep.fail(fmt.Sprintf("federation hub %s: %v", hub, res.connErrs[j]))
+				continue
+			}
+			rep.Federation.Connectors = append(rep.Federation.Connectors, res.connectors[j])
 		}
 		if len(res.targets) > 0 {
 			if res.brkErr != nil {
@@ -547,7 +572,7 @@ func (r *Report) enabled(capability string) bool {
 // and answers the names of the installations its own muster brokers for, in
 // the portals' order, each once.
 func (r *Report) derivePortals(portals []Portal) []string {
-	r.Portals, r.Federation = []PortalRef{}, &Federation{Hubs: hubsOf(portals, r.Name), Targets: []FederatedTarget{}}
+	r.Portals, r.Federation = []PortalRef{}, &Federation{Hubs: hubsOf(portals, r.Name), Targets: []FederatedTarget{}, Connectors: []render.HubConnector{}}
 	var targets []string
 	for _, p := range portals {
 		if slices.Contains(p.Installations, r.Name) {
@@ -624,21 +649,9 @@ func (r *Registry) target(ctx context.Context, c *gh.Client, name string, inspec
 	if !ok {
 		return FederatedTarget{}, errors.New("not in the registry")
 	}
-	if inst.Repositories.Configs == "" {
-		return FederatedTarget{}, errors.New("no configs repository on record")
-	}
-	rec := (*Record)(nil)
-	if inspected != nil {
-		rec = inspected.Record
-	}
-	if rec == nil {
-		owner, repo, err := gh.SplitRepo(inst.Repositories.Configs)
-		if err != nil {
-			return FederatedTarget{}, err
-		}
-		if rec, err = r.readRecord(ctx, c, owner, repo, inst); err != nil {
-			return FederatedTarget{}, err
-		}
+	rec, err := r.recordOf(ctx, c, inst, inspected)
+	if err != nil {
+		return FederatedTarget{}, err
 	}
 	servers, err := targetServers(ctx, c, inst)
 	if err != nil {
@@ -664,6 +677,43 @@ func runsClusterMCPServers(servers []string) bool {
 		}
 	}
 	return false
+}
+
+// hubConnector is the entry of hub among an installation's
+// federation.connectors — the facts the token-exchange connector the
+// installation's Dex registers for the hub is rendered from: the hub's
+// organisation, its record's base domain (the inspected report's, read where
+// the hub was not inspected) and whether it is the first of its
+// organisation's hubs into the installation, among hubs — the
+// installation's — in the order organisationHubs gives them, the one the hub
+// side names its connector by.
+func (r *Registry) hubConnector(ctx context.Context, c *gh.Client, hub string, inspected *Report, hubs []string) (render.HubConnector, error) {
+	inst, ok := r.Find(hub)
+	if !ok {
+		return render.HubConnector{}, errors.New("not in the registry")
+	}
+	rec, err := r.recordOf(ctx, c, inst, inspected)
+	if err != nil {
+		return render.HubConnector{}, err
+	}
+	own := r.organisationHubs(hubs, inst.Customer)
+	return render.HubConnector{Hub: hub, Customer: inst.Customer, BaseDomain: rec.BaseDomain, First: len(own) > 0 && own[0] == hub}, nil
+}
+
+// recordOf is an installation's record: the inspected report's where the
+// inspection read it, else read from the installation's configs repository.
+func (r *Registry) recordOf(ctx context.Context, c *gh.Client, inst Installation, inspected *Report) (*Record, error) {
+	if inspected != nil && inspected.Record != nil {
+		return inspected.Record, nil
+	}
+	if inst.Repositories.Configs == "" {
+		return nil, errors.New("no configs repository on record")
+	}
+	owner, repo, err := gh.SplitRepo(inst.Repositories.Configs)
+	if err != nil {
+		return nil, err
+	}
+	return r.readRecord(ctx, c, owner, repo, inst)
 }
 
 // targetServers are the groups of the MCP servers a target runs: every server

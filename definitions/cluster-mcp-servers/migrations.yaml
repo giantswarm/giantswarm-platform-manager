@@ -19,6 +19,8 @@ migrations:
     reason: "Added: the mcp-<name> server's Valkey Secret carries the credentials revision, so a rewrite of it draws the revision anew"
   - key: dex-configmap:oidc.staticClients.<name>.clientSecretRef
     reason: "Added: the <name> Dex client reads its secret from the Secret in the cluster the server shares, instead of the encrypted Dex values"
+  - key: dex-configmap:oidc.customer.connectors[<connector>]
+    reason: "Added: Dex gets the connector <connector>, an oidc connector trusting a hub's Dex as the issuer, through which that hub's muster exchanges a person's token for one this installation accepts"
   # The hubs' token-exchange clients: an installation whose hubs' clients were registered by hand, or whose
   # agent platform rendered them and was disabled before this definition rendered them.
   - key: extras:agent-platform/kustomization.yaml

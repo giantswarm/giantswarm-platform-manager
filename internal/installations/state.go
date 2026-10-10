@@ -97,9 +97,12 @@ func (c Capability) Schema() (json.RawMessage, error) {
 }
 
 // Facts picks from all — every fact on record (Report.Facts) — the ones the
-// definition's schema names under installation. The schema is the contract:
-// a fact it does not name is not an input of this definition, and one it
-// requires and the record lacks is the definition's refusal to name.
+// definition's schema names under installation, an object pruned to the
+// properties the schema names at every depth (the cluster-mcp-servers
+// definition takes the federation's connectors and nothing else of it). The
+// schema is the contract: a fact it does not name is not an input of this
+// definition, and one it requires and the record lacks is the definition's
+// refusal to name.
 func (c Capability) Facts(all map[string]any) (map[string]any, error) {
 	raw, err := c.Schema()
 	if err != nil {
@@ -107,21 +110,80 @@ func (c Capability) Facts(all map[string]any) (map[string]any, error) {
 	}
 	var schema struct {
 		Properties struct {
-			Installation struct {
-				Properties map[string]json.RawMessage `json:"properties"`
-			} `json:"installation"`
+			Installation schemaShape `json:"installation"`
 		} `json:"properties"`
 	}
 	if err := json.Unmarshal(raw, &schema); err != nil {
 		return nil, fmt.Errorf("%s: schema: %w", c.Name, err)
 	}
 	out := make(map[string]any, len(schema.Properties.Installation.Properties))
-	for k := range schema.Properties.Installation.Properties {
-		if v, ok := all[k]; ok {
-			out[k] = v
+	for k, shape := range schema.Properties.Installation.Properties {
+		v, ok := all[k]
+		if !ok {
+			continue
+		}
+		if out[k], err = shape.prune(v); err != nil {
+			return nil, fmt.Errorf("%s: installation.%s: %w", c.Name, k, err)
 		}
 	}
 	return out, nil
+}
+
+// schemaShape is what the pruning reads of a schema node: the properties of
+// an object, the items of an array.
+type schemaShape struct {
+	Properties map[string]schemaShape `json:"properties"`
+	Items      *schemaShape           `json:"items"`
+}
+
+// names says whether the shape names properties at any depth: only then is
+// there anything to prune.
+func (s schemaShape) names() bool {
+	return len(s.Properties) > 0 || (s.Items != nil && s.Items.names())
+}
+
+// prune answers v — a record's struct, or a decoded document — with every
+// object pruned to the properties the shape names, at every depth; a shape
+// naming none takes v as it is.
+func (s schemaShape) prune(v any) (any, error) {
+	if !s.names() {
+		return v, nil
+	}
+	encoded, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	var decoded any
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		return nil, err
+	}
+	return s.pruneDecoded(decoded), nil
+}
+
+// pruneDecoded prunes a decoded JSON value by the shape.
+func (s schemaShape) pruneDecoded(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		if len(s.Properties) == 0 {
+			return t
+		}
+		out := make(map[string]any, len(t))
+		for k, child := range s.Properties {
+			if cv, ok := t[k]; ok {
+				out[k] = child.pruneDecoded(cv)
+			}
+		}
+		return out
+	case []any:
+		if s.Items == nil {
+			return t
+		}
+		for i := range t {
+			t[i] = s.Items.pruneDecoded(t[i])
+		}
+		return t
+	}
+	return v
 }
 
 // MarkerRepository names one of an installation's two GitOps repositories.

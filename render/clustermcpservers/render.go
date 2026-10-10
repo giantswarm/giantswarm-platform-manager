@@ -86,12 +86,14 @@ type Installation struct {
 
 // Federation is the installation's place in the fleet's token exchange, as
 // far as this definition renders it: the hubs whose muster exchanges tokens
-// into the installation, each with a token-exchange client in its Dex, and
-// the registry's hub by name, whose client carries the fleet's plain id
-// (render.ExchangeTarget).
+// into the installation, each with a token-exchange client in its Dex and
+// with the facts the connector its Dex registers for the hub is rendered
+// from (render.ExchangeTarget, render.HubConnector), and the registry's hub
+// by name, whose client carries the fleet's plain id.
 type Federation struct {
-	Hubs        []string `json:"hubs"`
-	RegistryHub string   `json:"registryHub"`
+	Hubs        []string              `json:"hubs"`
+	RegistryHub string                `json:"registryHub"`
+	Connectors  []render.HubConnector `json:"connectors"`
 }
 
 // Servers are how the installation runs each of its MCP servers, by the
@@ -255,10 +257,35 @@ func Render(raw any, secrets map[string]string, _ render.Mode) (*render.Result, 
 		static = append(static, render.Entry{Key: "dexK8SAuthenticator", Value: render.Map{{Key: "trustedPeers", Value: in.exchange().TrustedPeers()}}})
 		oidc = render.Map{{Key: "staticClients", Value: static}, {Key: "extraStaticClients", Value: in.exchange().DexClients()}}
 	}
+	connectors, err := in.exchangeConnectors()
+	if err != nil {
+		return nil, err
+	}
+	if len(connectors) > 0 {
+		oidc = append(oidc, render.Entry{Key: "customer", Value: render.Map{{Key: "connectors", Value: connectors}}})
+	}
 	dex := render.Map{{Key: "oidc", Value: oidc}}
 	r.Add(configs, "installations/"+name+"/apps/dex-app/configmap-values.yaml.patch", render.File{Content: append([]byte(fileHeader), render.MustYAML(dex)...)})
 	r.Probes = in.probes()
 	return r, nil
+}
+
+// exchangeConnectors are the token-exchange connectors the installation's
+// Dex registers for the hubs that broker into it, under oidc.customer next
+// to the installation's own login connectors, which the plan keeps: the
+// agent-platform policy's names over each hub's record, the one rule the
+// hub names the connector by in its broker (render.ConnectorPolicy). A policy
+// that cannot name one is ErrPolicy.
+func (in *Input) exchangeConnectors() ([]render.Map, error) {
+	names, err := render.ConnectorPolicy()
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrPolicy, err)
+	}
+	list, err := render.ExchangeConnectors(names, in.Installation.Federation.Connectors)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrPolicy, err)
+	}
+	return list, nil
 }
 
 // exchangeExtras is management-clusters/<name>/extras/agent-platform/ on an
