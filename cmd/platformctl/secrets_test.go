@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,7 +32,7 @@ func TestSecretsComeFromFileEnvAndStdin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := readSecrets(srcs, strings.NewReader(placeholder+"-stdin\n"), env)
+	got, err := readSecrets(context.Background(), srcs, strings.NewReader(placeholder+"-stdin\n"), env, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +94,7 @@ func TestReadSecretsRefusesEmptyAndMissingSources(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = readSecrets(srcs, strings.NewReader(""), unset)
+		_, err = readSecrets(context.Background(), srcs, strings.NewReader(""), unset, nil)
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: error %v lacks %q", c.pair, err, c.want)
 		}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -162,7 +163,7 @@ func newCapabilityCmd(tool string, allowSet bool) *cobra.Command {
 			if err != nil {
 				return usageError(stderr, err.Error())
 			}
-			values, err := readSecrets(srcs, os.Stdin, os.LookupEnv)
+			values, err := readSecrets(context.Background(), srcs, os.Stdin, os.LookupEnv, beekeeperStore{bin: "beekeeper"})
 			if err != nil {
 				return fail(stderr, err)
 			}
@@ -222,7 +223,7 @@ func newCapabilityCmd(tool string, allowSet bool) *cobra.Command {
 	fs.BoolVar(&commit, "commit", false, "start the action: the manager's mode commit, the pull requests opened as you")
 	fs.BoolVar(&content, "content", false, "print the rendered files, not only their paths and changes")
 	fs.Var(&inputs, "input", "a typed input of the definition as key=value, repeatable (kagent.enabled=true)")
-	fs.Var(&secretFlags, "secret", "with --commit: a secret the plan's suppliedSecrets name, as <field>=@<file>, <field>=env:<NAME> or <field>=- (stdin); repeatable")
+	fs.Var(&secretFlags, "secret", "with --commit: a secret the plan's suppliedSecrets name, as <field>=beekeeper:<ref> (resolved by beekeeper secret copy), <field>=@<file>, <field>=env:<NAME> or <field>=- (stdin, one field); repeatable; over a set <field> goes to every installation that asks for it, <installation>/<field> to that one alone")
 	fs.StringArrayVar(&rotate, "rotate", nil, "a generated value to rotate on request, by its `name` in the dry run (<installation>-muster-valkey-password), repeatable: a new value in every file that holds it, its credentials revision rolling every workload that reads it")
 	completeFlag(cmd, "input", cobra.NoFileCompletions)
 	completeFlag(cmd, "secret", cobra.NoFileCompletions)

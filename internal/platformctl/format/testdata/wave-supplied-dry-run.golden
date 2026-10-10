@@ -1,0 +1,44 @@
+reconcile_capability dry run: agent-platform on hub gopher, as jane
+Order: oak, hazel
+
+oak: enabled
+  Files (2 create):
+    CHANGE  REPOSITORY                           PATH
+    create  giantswarm/acme-management-clusters  management-clusters/oak/extras/agent-platform/secrets/kagent-model-key.enc.yaml
+    create  giantswarm/acme-management-clusters  management-clusters/oak/extras/agent-platform/secrets/muster-token-exchange.enc.yaml
+  Generated at commit:
+    muster-token-exchange-oak-hazel-client-secret (base64, 32): management-clusters/oak/extras/agent-platform/secrets/muster-token-exchange.enc.yaml
+      you supply it at commit (--secret muster-token-exchange-oak-hazel-client-secret=…): giantswarm/acme-management-clusters:management-clusters/hazel/extras/agent-platform/secrets/muster-token-exchange.enc.yaml holds it on record, and the manager decrypts nothing — reveal it there with your vault
+  You supply at commit: kagent.modelKey, muster-token-exchange-oak-hazel-client-secret
+
+--- giantswarm/acme-management-clusters/management-clusters/oak/extras/agent-platform/secrets/kagent-model-key.enc.yaml (create)
+stringData:
+  apiKey: SUPPLIED(kagent.modelKey)
+
+--- giantswarm/acme-management-clusters/management-clusters/oak/extras/agent-platform/secrets/muster-token-exchange.enc.yaml (create)
+stringData:
+  clientSecret: GENERATED(muster-token-exchange-oak-hazel-client-secret)
+
+hazel: enabled
+  Files (2 create):
+    CHANGE  REPOSITORY                           PATH
+    create  giantswarm/acme-management-clusters  management-clusters/hazel/extras/agent-platform/secrets/kagent-model-key.enc.yaml
+    create  giantswarm/acme-management-clusters  management-clusters/hazel/extras/agent-platform/secrets/muster-token-exchange.enc.yaml
+  Generated at commit:
+    muster-token-exchange-oak-hazel-client-secret (base64, 32): management-clusters/hazel/extras/agent-platform/secrets/muster-token-exchange.enc.yaml
+      you supply it at commit (--secret muster-token-exchange-oak-hazel-client-secret=…): giantswarm/acme-management-clusters:management-clusters/oak/extras/agent-platform/secrets/muster-token-exchange.enc.yaml holds it on record, and the manager decrypts nothing — reveal it there with your vault
+  You supply at commit: kagent.modelKey, muster-token-exchange-oak-hazel-client-secret
+
+--- giantswarm/acme-management-clusters/management-clusters/hazel/extras/agent-platform/secrets/kagent-model-key.enc.yaml (create)
+stringData:
+  apiKey: SUPPLIED(kagent.modelKey)
+
+--- giantswarm/acme-management-clusters/management-clusters/hazel/extras/agent-platform/secrets/muster-token-exchange.enc.yaml (create)
+stringData:
+  clientSecret: GENERATED(muster-token-exchange-oak-hazel-client-secret)
+
+Supplied at commit, in one run for the set: --secret <field>=<source> for every installation that asks for the field,
+  --secret <installation>/<field>=<source> for that installation alone; <source> is beekeeper:<ref>, @<file>, env:<NAME> or - (one field)
+
+Pull requests, in order:
+  1. giantswarm/acme-management-clusters: 4 changes for oak, hazel

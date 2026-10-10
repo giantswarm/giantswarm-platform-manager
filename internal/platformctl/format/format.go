@@ -108,6 +108,10 @@ func Plan(w io.Writer, r tools.CapabilityResult, content bool) error {
 			p.f("  Comparison: %s\n", marks(inst.Summary))
 		}
 	}
+	if len(r.Installations) > 1 && suppliesAny(r.Installations) {
+		p.f("\nSupplied at commit, in one run for the set: --secret <field>=<source> for every installation that asks for the field,\n" +
+			"  --secret <installation>/<field>=<source> for that installation alone; <source> is beekeeper:<ref>, @<file>, env:<NAME> or - (one field)\n")
+	}
 	if len(r.PullRequests) > 0 {
 		p.f("\nPull requests, in order:\n")
 		for _, pr := range r.PullRequests {
@@ -133,6 +137,16 @@ func Plan(w io.Writer, r tools.CapabilityResult, content bool) error {
 		p.f("\nCommit: %s\n", r.Commit)
 	}
 	return p.err
+}
+
+// suppliesAny says whether a plan of the set asks for a value at commit.
+func suppliesAny(dry []tools.DryRun) bool {
+	for _, d := range dry {
+		if len(d.SuppliedSecrets) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *printer) installation(inst plan.Installation, content bool) {

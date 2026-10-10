@@ -203,8 +203,13 @@ once green; `watch_action` (anyone's, as the person) carries the installation ro
 *enabled*; only then does the next `merge_action` take the next installation's pull requests — and a red
 probe stops it: that installation *failed*, the stages after it not started, their pull requests open, the
 result naming where and why. A stage *waiting for the customer* holds the wave too: `merge_action` says
-so, and the customer's action done flips the stage on the next watch. A wave carries no supplied secret
-values; an installation whose secret files are not on record is enabled alone.
+so, and the customer's action done flips the stage on the next watch. A wave takes the supplied secret
+values its targets' plans ask for in `secrets`, in the same call: a key `<field>` goes to every target
+that asks for the field (the two sides of a pairing hold one value), `<installation>/<field>` to that
+target alone; a value missing or one no target asks for refuses the wave whole, by field, before
+anything is written. `platformctl installation reconcile <installation>... --commit --secret
+<field>=beekeeper:<ref>` (repeatable) resolves each reference through `beekeeper secret copy <ref> --
+<consumer>`, so every value of a wave is passed in one run and never printed.
 
 ### Rotation on request
 

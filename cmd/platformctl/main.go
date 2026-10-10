@@ -64,9 +64,13 @@ JSON is that value (true, 3, ["hazel"]), anything else is a string.
 --dry-run renders the change and writes nothing; --commit is the manager's mode commit: the pull
 requests opened as you, the Team review asked — for one installation the action, for a reconcile over
 a set (two or more installations named, or --all for every installation of the registry) the wave
-over the set, one action rolled out a stage per merge. --secret <field>=@<file>, <field>=env:<NAME>
-or <field>=- (stdin, one field) supplies a secret the plan's suppliedSecrets name; the value is sent
-once, never printed, and never taken from the command line. --rotate <name> (repeatable) rotates a
+over the set, one action rolled out a stage per merge. --secret (repeatable) supplies a secret the
+plan's suppliedSecrets name: <field>=beekeeper:<ref> resolves a reference of the secret store through
+beekeeper secret copy <ref> -- <consumer>, <field>=@<file> and <field>=env:<NAME> read it, and
+<field>=- reads stdin (one field). The values are sent once, never printed, and never taken from the
+command line. Over a set <field> goes to every installation whose plan asks for it and
+<installation>/<field> to that installation alone, so the wave renders and commits in one action.
+--rotate <name> (repeatable) rotates a
 generated value on request, named as the dry run's generated secrets list it
 (<installation>-muster-valkey-password): the dry run shows it "rotates on request" with the files that
 hold it, the commit writes a new value into them and draws its component's credentials revision, so
@@ -194,6 +198,7 @@ func newRoot(u *update.Updater) *cobra.Command {
 		),
 		newVersionCmd(),
 		newSelfUpdateCmd(u),
+		newReceiveSecretCmd(),
 	)
 	// platformctl's help is the usage above; a subcommand's is cobra's, with
 	// its flags.

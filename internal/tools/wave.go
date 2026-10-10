@@ -3,7 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
-	"sort"
+	"maps"
 	"strings"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
@@ -50,9 +50,11 @@ const stageQueued = "queued: its pull requests are merged once the installation 
 func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string]any) (any, error) {
 	id, _ := identity.FromContext(ctx)
 	token, _ := identity.TokenFromContext(ctx)
-	if args[ArgSecrets] != nil {
-		return nil, fmt.Errorf("%s: a wave carries no supplied secret values (%s): a reconcile over a set leaves every secret file on record alone; an installation whose secret files are not on record yet is enabled alone, with %s and %s", tool, ArgSecrets, ArgInstallation, ArgSecrets)
+	secrets, err := secretValues(args[ArgSecrets])
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", tool, err)
 	}
+	delete(args, ArgSecrets)
 	reason, err := reasonArg(tool, args)
 	if err != nil {
 		return nil, err
@@ -80,6 +82,10 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		}
 		targets = append(targets, p)
 		res.Order = append(res.Order, p.Name)
+	}
+	supplied, err := suppliedByTarget(secrets, targets)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w; nothing is committed", tool, err)
 	}
 	if len(targets) == 0 {
 		res.Next = "no installation of the set has a change to commit: nothing to merge, no action recorded"
@@ -134,16 +140,19 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 	var rotated []string
 	for i, p := range targets {
 		rotated = append(rotated, p.Rotating()...)
-		// The supplied fields render as markers: their files are on record
-		// (checked above) and never generated again, so no marker leaves.
-		markers := withMarkers(nil, p.SuppliedOnRecord)
-		rendered, err := def.Render(env.inputs[p.Name], markers, render.ModeCommit)
+		// The installation's supplied values, as one commit takes them; the
+		// fields whose files are on record render as markers and are never
+		// generated again, so no marker leaves.
+		own := supplied[p.Name]
+		held := suppliedGenerated(p, own)
+		maps.Copy(held, values)
+		rendered, err := def.Render(env.inputs[p.Name], withMarkers(own, p.SuppliedOnRecord), render.ModeCommit)
 		if err != nil {
 			return nil, t.fail(ctx, tool, a, remote, prs, fmt.Errorf("%s: render: %w", p.Name, err))
 		}
 		planned := plan.PullRequests([]plan.Installation{p}, env.byName, env.hub)
 		title := prTitle(actions.KindReconcile, p.Name, out.Capability, a.Name, fmt.Sprintf("stage %d of %d", i+1, len(targets)))
-		opened, _, err := t.openPullRequests(ctx, env, a, p, planned, rendered.Files, remote, title, prBody(a, p, planned)+waveBody(res.Order, res.Skipped), values)
+		opened, _, err := t.openPullRequests(ctx, env, a, p, planned, rendered.Files, remote, title, prBody(a, p, planned)+waveBody(res.Order, res.Skipped), held)
 		prs = append(prs, opened...)
 		if err != nil {
 			return nil, t.fail(ctx, tool, a, remote, prs, err)
@@ -174,8 +183,8 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 // anything is written, or nil: the definition's refusal of the inputs on
 // record, a choice not on record, a file not comparable as the caller, the
 // plan's own refusals (commitRefusal, the single commit's and the
-// comparison's list), or a supplied value a file to write needs — a wave
-// carries none. Each names the installation and the way out.
+// comparison's list). Each names the installation and the way out; the
+// supplied values the targets need are suppliedByTarget's check.
 func waveRefusal(tool string, p plan.Installation, rec *installations.Record) error {
 	switch {
 	case p.Refused != "":
@@ -188,36 +197,7 @@ func waveRefusal(tool string, p plan.Installation, rec *installations.Record) er
 	if refusal := commitRefusal(p, rec); refusal != "" {
 		return fmt.Errorf("%s: %s: %s; nothing is committed", tool, p.Name, refusal)
 	}
-	if len(p.SuppliedSecrets) > 0 && len(p.Files)-p.Diff[plan.ChangeUnchanged] > 0 {
-		return fmt.Errorf("%s: %s needs the supplied value(s) of %s — %s; enable %s alone with %s and %s, or narrow the set; nothing is committed", tool, p.Name, strings.Join(p.SuppliedSecrets, ", "), suppliedFilesToWrite(p), p.Name, ArgInstallation, ArgSecrets)
-	}
 	return nil
-}
-
-// suppliedFilesToWrite names the files of p that carry a supplied value — a
-// supplied field's marker, or the placeholder of a generated value the
-// person supplies — and that the commit would write — not on record, or
-// rewritten: a wave cannot fill them. The placeholder names the file;
-// whether it is encrypted is the commit step's decision from the
-// repository's rules.
-func suppliedFilesToWrite(p plan.Installation) string {
-	var files []string
-	for _, f := range p.Files {
-		if f.Change == plan.ChangeUnchanged {
-			continue
-		}
-		for _, field := range p.SuppliedSecrets {
-			if strings.Contains(f.Content, render.Supplied(field)) || strings.Contains(f.Content, render.Placeholder(field)) {
-				files = append(files, f.Repository+":"+f.Path)
-				break
-			}
-		}
-	}
-	if len(files) == 0 {
-		return "no file on record holds them"
-	}
-	sort.Strings(files)
-	return strings.Join(files, ", ") + " not on record as rendered"
 }
 
 func waveBody(order []string, skipped []actions.Skipped) string {

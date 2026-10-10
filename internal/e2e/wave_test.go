@@ -60,9 +60,9 @@ func waveStage1(t *testing.T, st *stack) (actions.Action, *client.Client, *fakeI
 		t.Fatal("an order leaving a target out was accepted")
 	}
 
-	// A wave carries no supplied values: a target whose supplied secret files
-	// are not on record would refuse the wave whole; a customer's installations
-	// ask for none.
+	// This wave supplies no values: a target's supplied secret files go on
+	// record first, so no target asks for one (TestWaveCommitsSuppliedValuesPerInstallation
+	// supplies them).
 	for _, p := range dry.Installations {
 		for _, f := range p.Files {
 			if isSecretFile(f.Path) && strings.Contains(f.Content, "SUPPLIED(") {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -22,7 +21,8 @@ import (
 )
 
 // ArgSecrets is the commit's own argument: the supplied secret values by
-// field. They exist inside the encrypted files and nowhere else.
+// field, or by <installation>/<field> for one installation of a wave
+// (suppliedByTarget). They exist inside the encrypted files and nowhere else.
 const ArgSecrets = "secrets"
 
 // SopsConfig is the file of a repository that names the recipients its secret
@@ -155,9 +155,11 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	if refusal := commitRefusal(p, env.reports[one].Record); refusal != "" {
 		return nil, fmt.Errorf("%s: %s: %s; nothing is committed", tool, one, refusal)
 	}
-	if err := checkSupplied(p.SuppliedSecrets, secrets); err != nil {
+	supplied, err := suppliedByTarget(secrets, []plan.Installation{p})
+	if err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
 	}
+	secrets = supplied[one]
 	values := suppliedGenerated(p, secrets)
 	rendered, err := def.Render(inputs, withMarkers(secrets, p.SuppliedOnRecord), render.ModeCommit)
 	if err != nil {
@@ -616,29 +618,54 @@ func withMarkers(secrets map[string]string, onRecord []string) map[string]string
 	return out
 }
 
-// checkSupplied refuses a commit whose supplied values do not match the
-// fields the plan names: one missing, or one the plan does not ask for — a
-// field whose files stand on record is not asked for.
-func checkSupplied(needed []string, secrets map[string]string) error {
-	var missing, unknown []string
-	for _, f := range needed {
-		if secrets[f] == "" {
-			missing = append(missing, f)
+// ScopeSeparator joins an installation and a field in a secrets key that
+// supplies the value to that installation alone: <installation>/<field>.
+const ScopeSeparator = "/"
+
+// suppliedByTarget hands each target the values its plan's suppliedSecrets
+// name: the key <installation>/<field> for that installation alone, else
+// the key <field> for every target that asks for it — the two sides of a
+// pairing hold one value. It refuses a field a target misses and a key no
+// target asks for — a field whose files stand on record is not asked for.
+// Nothing here names a value.
+func suppliedByTarget(secrets map[string]string, targets []plan.Installation) (map[string]map[string]string, error) {
+	out := make(map[string]map[string]string, len(targets))
+	used := map[string]bool{}
+	var missing []string
+	for _, p := range targets {
+		own := make(map[string]string, len(p.SuppliedSecrets))
+		var lacks []string
+		for _, f := range p.SuppliedSecrets {
+			key := p.Name + ScopeSeparator + f
+			if _, ok := secrets[key]; !ok {
+				key = f
+			}
+			if v := secrets[key]; v != "" {
+				own[f] = v
+				used[key] = true
+				continue
+			}
+			lacks = append(lacks, f)
 		}
+		if len(lacks) > 0 {
+			missing = append(missing, p.Name+": "+strings.Join(lacks, ", "))
+		}
+		out[p.Name] = own
 	}
-	for f := range secrets {
-		if !slices.Contains(needed, f) {
-			unknown = append(unknown, f)
+	var unknown []string
+	for key := range secrets {
+		if !used[key] {
+			unknown = append(unknown, key)
 		}
 	}
 	sort.Strings(unknown)
 	switch {
 	case len(missing) > 0:
-		return fmt.Errorf("%s misses the value(s) of %s: the plan's suppliedSecrets name every field", ArgSecrets, strings.Join(missing, ", "))
+		return nil, fmt.Errorf("%s misses the value(s) of %s: the plan's suppliedSecrets name every field, as <field> or <installation>%s<field>", ArgSecrets, strings.Join(missing, "; "), ScopeSeparator)
 	case len(unknown) > 0:
-		return fmt.Errorf("%s names %s, which the plan does not ask for", ArgSecrets, strings.Join(unknown, ", "))
+		return nil, fmt.Errorf("%s names %s, which the plan does not ask for", ArgSecrets, strings.Join(unknown, ", "))
 	}
-	return nil
+	return out, nil
 }
 
 // remoteError says what GitHub refused and what the person can do about it.
