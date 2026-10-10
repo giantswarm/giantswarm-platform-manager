@@ -27,7 +27,8 @@ func ClusterAppManifestPath(name string) string {
 // release ships, the provider's cluster chart among them. A release-based
 // cluster App — every CAPA and CAPZ management cluster — names its release in
 // its values (global.release.version) and carries no chart version of its
-// own; the chart's version is the release's.
+// own, or a placeholder the bootstrap left; the chart's version is the
+// release's.
 const ReleasesRepository = "giantswarm/releases"
 
 // releaseDirectories is, per provider cluster chart, the directory of
@@ -73,10 +74,12 @@ func readAs(c *gh.Client) Reader {
 // certificates.k8s.io/v1beta1 PodCertificateRequest, from the cluster App on
 // record as the person: false for an installation without the manifest (the
 // record says nothing, so nothing says yes); a manifest that cannot be read
-// or parsed is an error of the report. Where the App carries no chart version
-// and the chart's default decides, the version is the one the release the
-// values name lists for the chart (ReleasesRepository); a release that cannot
-// be read or does not list the chart is ErrRelease, the fact false.
+// or parsed is an error of the report. Where the chart's default decides and
+// the values name a release, the version is the one the release lists for the
+// chart (ReleasesRepository), whatever version the App carries (a release-based
+// App's is empty or a placeholder); the App's own version decides only without
+// a release. A release that cannot be read or does not list the chart is
+// ErrRelease, the fact false.
 func readPodCertificateRequest(ctx context.Context, read Reader, inst Installation) (bool, error) {
 	path := ClusterAppManifestPath(inst.Name)
 	data, err := read(ctx, inst.Repositories.ManagementClusters, path)
@@ -97,7 +100,7 @@ func readPodCertificateRequest(ctx context.Context, read Reader, inst Installati
 		return true, nil
 	}
 	version := app.version
-	if version == "" && app.release != "" {
+	if app.release != "" {
 		if version, err = releaseChartVersion(ctx, read, app.chart, app.release); err != nil {
 			return false, fmt.Errorf("%w: %s in %s names release %s: %w", ErrRelease, path, inst.Repositories.ManagementClusters, app.release, err)
 		}
@@ -212,8 +215,9 @@ func (v clusterValues) components() []gated {
 }
 
 // clusterApp is what the record says about the cluster: the chart, the
-// version the App carries (empty for a release-based App), the release the
-// values name (empty for an App pinned to a chart version) and the values.
+// version the App carries (empty or a placeholder for a release-based App),
+// the release the values name (empty for an App pinned to a chart version)
+// and the values.
 type clusterApp struct {
 	chart, version, release string
 	values                  clusterValues
