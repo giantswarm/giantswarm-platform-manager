@@ -96,6 +96,35 @@ func (in *Input) kagentRedirectURI() string {
 	return "https://" + in.host("kagent") + "/oauth2/callback"
 }
 
+// The workspace-manager's hostname on the installation's domain (the chart's
+// fullnameOverride, where it derives its base URL) and the path the manager
+// signs the person's browser in to Dex at.
+const (
+	workspaceManagerHost = "workspace-manager"
+	workspaceSigninPath  = "/signin"
+)
+
+// workspaceSigninURI is the redirect URI the workspace-manager signs the
+// person's browser in to Dex with before it completes a provider connect:
+// <baseURL>/signin, the base URL workspace-manager.oauth.baseURL where the
+// installation's values set one, else https://workspace-manager.<domain> as
+// the chart derives it. The client is the platform's (muster's, the chart's
+// global.identity.clientId) unless the values name another
+// (workspace-manager.oauth.dex.clientID): that client is the installation's
+// own, whose redirect URIs it registers. Empty where workspaces are off or
+// the manager signs in with a client of its own.
+func (in *Input) workspaceSigninURI() string {
+	ws := in.Installation.Workspaces
+	if !ws.Enabled || (ws.ClientID != "" && ws.ClientID != in.Installation.MusterClientID) {
+		return ""
+	}
+	base := strings.TrimSuffix(ws.BaseURL, "/")
+	if base == "" {
+		base = "https://" + in.host(workspaceManagerHost)
+	}
+	return base + workspaceSigninPath
+}
+
 // hasPortal says whether a developer portal signs people in on this installation.
 func (in *Input) hasPortal() bool { return len(in.Installation.Portals) > 0 }
 
@@ -422,9 +451,16 @@ func (in *Input) portalDexClient() render.Map {
 // one owner: on an installation with the platform enabled this definition
 // owns it, so the portals' client is carried here, the entry the
 // customer-portal definition renders on an installation without the
-// platform, with every portal's redirect URI.
+// platform, with every portal's redirect URI. The platform's client, the
+// chart's built-in muster, carries the workspace-manager's sign-in redirect
+// URI beside the one the template sets (extraRedirectURIs, dex-app
+// DexAppExtraRedirectURIs or later) while workspaces are on.
 func (in *Input) dexPatch() render.Map {
-	static := render.Map{e("muster", render.Map{e("clientSecretRef", dexClientRef("muster"))})}
+	muster := render.Map{e("clientSecretRef", dexClientRef("muster"))}
+	if uri := in.workspaceSigninURI(); uri != "" {
+		muster = append(muster, e("extraRedirectURIs", []string{uri}))
+	}
+	static := render.Map{e("muster", muster)}
 	for _, s := range servers {
 		if s.DexSecretRef {
 			static = append(static, e(s.DexClient, s.DexClientRef()))

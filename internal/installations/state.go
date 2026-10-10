@@ -223,8 +223,9 @@ func Capabilities() []Capability {
 		EnabledMarker: func(installation string) string {
 			return "installations/" + installation + "/apps/agent-platform/configmap-values.yaml.patch"
 		},
-		Parse:  func(raw any) (render.Input, error) { return agentplatform.Parse(raw) },
-		Render: agentplatform.Render,
+		Parse:        func(raw any) (render.Input, error) { return agentplatform.Parse(raw) },
+		Render:       agentplatform.Render,
+		RecordInputs: platformRecordInputs,
 		// The extras tree, under the fleet's non-pruning Kustomization.
 		Prunes: false,
 	}, {
