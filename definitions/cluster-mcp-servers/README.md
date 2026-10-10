@@ -22,8 +22,12 @@ its Valkey's HelmReleases read into their charts' checksum values (a rotation of
 restarts both, a reconcile without one restarts nothing), and the user values where Dex is reached on private
 addresses or served with a certificate from the installation's private CA (the installation's own Secret
 `mcp-<server>-dex-ca`, listed, never rendered). In the configs repository, each running server's Dex client
-as `clientSecretRef` in `installations/<name>/apps/dex-app/configmap-values.yaml.patch`, a file whose other
-clients and keys stay their owners'.
+as `clientSecretRef`, and the token-exchange connector of every customer hub that brokers into the
+installation under `oidc.customer.connectors` (an `oidc` connector trusting the hub's Dex as the issuer,
+named by the agent-platform policy's `federation.connector` over the hub's record as the hub names it in its
+broker; none for a hub of an organisation under that policy's `fromBase`, whose connector the fleet's Dex
+base registers), in `installations/<name>/apps/dex-app/configmap-values.yaml.patch`, a file whose other
+clients, connectors and keys stay their owners'.
 
 ## Refusals
 

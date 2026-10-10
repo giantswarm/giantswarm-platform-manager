@@ -249,7 +249,7 @@ removals:
   # --- dex-app configmap-values.yaml.patch ---
   - key: dex-configmap:oidc.customer
     kind: not-platform
-    reason: "Kept: oidc.customer holds this installation's own login connectors; the platform reads nothing of them and leaves them on the Dex values as they are."
+    reason: "Kept: oidc.customer holds this installation's own login connectors; the platform leaves them on the Dex values as they are and registers the token-exchange connector of every customer hub that brokers into this installation beside them."
   - key: dex-configmap:ingress
     kind: not-platform
     reason: "Kept: the ingress block tunes this installation's own Dex ingress; the platform reads nothing of it and leaves it on the Dex values as it is."

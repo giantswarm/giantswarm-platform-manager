@@ -324,10 +324,14 @@ type Installation struct {
 	// gitops.prereleases that the patch on record sets: the installation
 	// stops following the platform's release candidates
 	// (ReleaseCandidateRefusal).
-	DropsPrereleases bool             `json:"dropsPrereleases,omitempty"`
-	DexClients       []DexClient      `json:"dexClients"`
-	CustomerActions  []CustomerAction `json:"customerActions"`
-	Probes           []Probe          `json:"probes"`
+	DropsPrereleases bool        `json:"dropsPrereleases,omitempty"`
+	DexClients       []DexClient `json:"dexClients"`
+	// DexConnectors are the ids of the token-exchange connectors the
+	// rendered Dex patch declares under oidc.customer.connectors
+	// (DexSecretRefusal).
+	DexConnectors   []string         `json:"dexConnectors,omitempty"`
+	CustomerActions []CustomerAction `json:"customerActions"`
+	Probes          []Probe          `json:"probes"`
 	// Diff counts the files by change; an empty diff is every file unchanged.
 	Diff map[Change]int `json:"diff"`
 }
@@ -596,7 +600,7 @@ func Build(ctx context.Context, opts Options) Installation {
 			}
 			p.Files = append(p.Files, pf)
 			if strings.HasSuffix(path, dexPatchFile) {
-				p.DexClients = DexClients(f.Content, in)
+				p.DexClients, p.DexConnectors = DexClients(f.Content, in), DexConnectors(f.Content)
 			}
 			if strings.HasSuffix(path, platformPatchFile) && pf.Change == ChangeUpdate {
 				p.DropsPrereleases = dropsPrereleases(current, content)
@@ -879,6 +883,31 @@ func customerActions(installation string, in render.Input) []CustomerAction {
 		out = append(out, CustomerAction{Installation: installation, Action: a.Action, Why: a.Why, Dimension: a.Dimension})
 	}
 	return out
+}
+
+// DexConnectors reads the ids of the token-exchange connectors the rendered
+// dex patch declares under oidc.customer.connectors; nil where it declares
+// none or does not parse.
+func DexConnectors(patch []byte) []string {
+	var doc struct {
+		OIDC struct {
+			Customer struct {
+				Connectors []struct {
+					ID string `yaml:"id"`
+				} `yaml:"connectors"`
+			} `yaml:"customer"`
+		} `yaml:"oidc"`
+	}
+	if err := yaml.Unmarshal(patch, &doc); err != nil {
+		return nil
+	}
+	var ids []string
+	for _, c := range doc.OIDC.Customer.Connectors {
+		if c.ID != "" {
+			ids = append(ids, c.ID)
+		}
+	}
+	return ids
 }
 
 // DexClients reads the clients of the rendered dex patch: the built-in

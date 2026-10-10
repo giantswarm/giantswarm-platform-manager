@@ -78,8 +78,8 @@ type Shape struct {
 // ExtraShape is one extra static client as the encrypted list shows it.
 type ExtraShape struct {
 	Index int
-	// Fields are the client's keys, as listed; Inline whether one is
-	// secret (the value moves to a Secret).
+	// Fields are the client's configuration keys, as listed; Inline
+	// whether it carries a secret (the value moves to a Secret).
 	Fields []string
 	Inline bool
 	// RedirectURIs and Peers count the entries of those lists.
@@ -162,6 +162,7 @@ func readExtra(i int, item *yaml.Node) (ExtraShape, error) {
 		switch {
 		case key == keySecret:
 			e.Inline = true
+			continue
 		case !slices.Contains(clientFields, key):
 			return e, fmt.Errorf("%s.%s: a field the split does not know as configuration or secret; move this client by hand", e.Path(), key)
 		case key == keyRedirectURIs && value.Kind == yaml.SequenceNode:

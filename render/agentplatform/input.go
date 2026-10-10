@@ -9,7 +9,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"text/template"
 	"time"
 
 	semverlib "github.com/Masterminds/semver/v3"
@@ -139,6 +138,12 @@ type Input struct {
 	// for this hub, rendered from the policy's templates over the record;
 	// which one a target carries is connector's.
 	Connectors Connectors
+	// HubConnectors are the connectors this installation's Dex registers for
+	// the hubs that broker into it (installation.federation.connectors), the
+	// policy's names over each hub's record, in the dex-app values' shape
+	// (render.ExchangeConnectors); none for a hub whose connector the
+	// fleet's Dex base registers.
+	HubConnectors []render.Map
 	// Teleport is the Teleport cluster a tunnel joins.
 	Teleport Teleport
 	// SourceInterval is the poll interval of every OCIRepository the
@@ -174,18 +179,18 @@ type GoogleVertex struct {
 	Location string `json:"location"`
 }
 
-// Connectors are policy.yaml's federation.connector: the names of the
-// connector a target's Dex registers for a hub, as Go templates over the
-// hub's record. A target's Dex registers one connector per hub that brokers
-// into it, and only one of an organisation's hubs can carry the
-// organisation's plain name.
+// Connectors are the names of the connector a target's Dex registers for
+// this hub, policy.yaml's federation.connector templates rendered over the
+// hub's record (render.ConnectorNames). A target's Dex registers one
+// connector per hub that brokers into it, and only one of an organisation's
+// hubs can carry the organisation's plain name.
 type Connectors struct {
 	// First is the connector of the target's first hub of the organisation
 	// — the target's only hub, mostly.
-	First string `yaml:"first"`
+	First string
 	// Further is the connector of every further hub of the same
 	// organisation, named after the hub.
-	Further string `yaml:"further"`
+	Further string
 }
 
 // Installation is the record; see the schema for each field.
@@ -268,6 +273,11 @@ type PortalRef struct {
 type Federation struct {
 	Hubs    []string `json:"hubs"`
 	Targets []Target `json:"targets"`
+	// Connectors are the hubs among Hubs with the facts the connector this
+	// installation's Dex registers for each is rendered from: the hub's
+	// organisation and base domain, and whether it is the first of its
+	// organisation's hubs into this installation (render.HubConnector).
+	Connectors []render.HubConnector `json:"connectors"`
 	// RegistryHub is the registry's hub by name (the installation with
 	// installation.hub), among Hubs or not: its token-exchange client in this
 	// installation's Dex carries the fleet's plain id, every other hub's the
@@ -387,9 +397,9 @@ type policy struct {
 		Customers []string `yaml:"customers"`
 	} `yaml:"releaseCandidates"`
 	Federation struct {
-		Connector  Connectors `yaml:"connector"`
-		Teleport   Teleport   `yaml:"teleport"`
-		BrowseOnly []string   `yaml:"browseOnly"`
+		Connector  render.ConnectorNames `yaml:"connector"`
+		Teleport   Teleport              `yaml:"teleport"`
+		BrowseOnly []string              `yaml:"browseOnly"`
 	} `yaml:"federation"`
 	Flux struct {
 		SourceInterval string `yaml:"sourceInterval"`
@@ -465,35 +475,30 @@ func (p *policy) browseOnly(targets []Target) {
 	}
 }
 
-// connectors renders the hub's connector names from the record.
+// connectors renders the hub's connector names from the record: what a
+// target's Dex registers for this hub as its first, and as a further, hub of
+// the organisation. A template that cannot name one is ErrPolicy.
 func (p *policy) connectors(inst Installation) (Connectors, error) {
-	first, err := renderPolicyTemplate("federation.connector.first", p.Federation.Connector.First, inst)
+	first, err := p.Federation.Connector.Name(true, inst.Customer, inst.Name)
 	if err != nil {
-		return Connectors{}, err
+		return Connectors{}, fmt.Errorf("%w: %w", ErrPolicy, err)
 	}
-	further, err := renderPolicyTemplate("federation.connector.further", p.Federation.Connector.Further, inst)
+	further, err := p.Federation.Connector.Name(false, inst.Customer, inst.Name)
 	if err != nil {
-		return Connectors{}, err
+		return Connectors{}, fmt.Errorf("%w: %w", ErrPolicy, err)
 	}
 	return Connectors{First: first, Further: further}, nil
 }
 
-// renderPolicyTemplate renders one of the policy's Go templates over the
-// record; a template that does not parse, names a field the record lacks or
-// renders empty is ErrPolicy naming the key.
-func renderPolicyTemplate(key, text string, inst Installation) (string, error) {
-	tpl, err := template.New(key).Option("missingkey=error").Parse(text)
+// hubConnectors renders the connectors this installation's Dex registers
+// for the hubs that broker into it, the policy's names over each hub's
+// record. A template that cannot name one is ErrPolicy.
+func (p *policy) hubConnectors(inst Installation) ([]render.Map, error) {
+	list, err := render.ExchangeConnectors(p.Federation.Connector, inst.Federation.Connectors)
 	if err != nil {
-		return "", fmt.Errorf("%w: %s: %w", ErrPolicy, key, err)
+		return nil, fmt.Errorf("%w: %w", ErrPolicy, err)
 	}
-	var b strings.Builder
-	if err := tpl.Execute(&b, inst); err != nil {
-		return "", fmt.Errorf("%w: %s: %w", ErrPolicy, key, err)
-	}
-	if b.Len() == 0 {
-		return "", fmt.Errorf("%w: %s: renders empty", ErrPolicy, key)
-	}
-	return b.String(), nil
+	return list, nil
 }
 
 // document is the input document as the schema shapes it.
@@ -622,6 +627,9 @@ func Parse(raw any) (*Input, error) {
 	if in.Connectors, err = pol.connectors(in.Installation); err != nil {
 		return nil, err
 	}
+	if in.HubConnectors, err = pol.hubConnectors(in.Installation); err != nil {
+		return nil, err
+	}
 	pol.browseOnly(in.Installation.Federation.Targets)
 	in.selectLine()
 	if err := in.checkRecord(); err != nil {
@@ -700,6 +708,11 @@ func (in *Input) checkRecord() error {
 	for i, t := range fed.Targets {
 		if len(t.Hubs) > 0 && !slices.Contains(t.Hubs, in.Installation.Name) {
 			return refuse(fmt.Sprintf("installation.federation.targets[%d].hubs names the hubs of this organisation that broker into %s as %s, and %s is not among them; the record supplies them", i, t.Installation, strings.Join(t.Hubs, ", "), in.Installation.Name))
+		}
+	}
+	for i, c := range fed.Connectors {
+		if !slices.Contains(fed.Hubs, c.Hub) {
+			return refuse(fmt.Sprintf("installation.federation.connectors[%d] names %s, which is not among the hubs that broker into %s (installation.federation.hubs: %s); the record supplies both", i, c.Hub, in.Installation.Name, strings.Join(fed.Hubs, ", ")))
 		}
 	}
 	if in.ModelServing && in.Installation.ChartLine != lineFour {

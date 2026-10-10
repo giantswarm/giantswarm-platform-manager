@@ -35,6 +35,7 @@ const (
 	shapeRegisteredServers      = "registered-servers"
 	shapePortalGitHubGrant      = "portal-github-grant"
 	shapePortalHive             = "portal-hive"
+	shapeCustomerSibling        = "customer-sibling"
 )
 
 // The keys of the choices' documents the refusal cases build.
@@ -61,7 +62,7 @@ const (
 )
 
 // shapes are the installation shapes, in the order the goldens are rendered.
-var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned, shapeGiantswarmSlackApp, shapeGiantswarmSlackAppPub, shapeHubPrivateTarget, shapeMultiClusterAggregator, shapeSecondHub, shapeHandKeptPortal, shapeRegisteredServers, shapePortalGitHubGrant, shapePortalHive}
+var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned, shapeGiantswarmSlackApp, shapeGiantswarmSlackAppPub, shapeHubPrivateTarget, shapeMultiClusterAggregator, shapeSecondHub, shapeHandKeptPortal, shapeRegisteredServers, shapePortalGitHubGrant, shapePortalHive, shapeCustomerSibling}
 
 func loadInput(t *testing.T, shape string) (map[string]any, map[string]string) {
 	t.Helper()
@@ -752,7 +753,7 @@ func TestManagersCommitMode(t *testing.T) {
 		})
 	}
 	input, secrets := loadInput(t, shapeHubPrivateTarget)
-	input["installation"].(map[string]any)["customer"] = "fleetio"
+	input["installation"].(map[string]any)["customer"] = "dvag"
 	input["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
 	input["agentManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: true}}
 	if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "agentManager.github.enabled") {
@@ -830,7 +831,7 @@ func TestAgentManagerSkills(t *testing.T) {
 	}
 
 	input, secrets = loadInput(t, shapeHubPrivateTarget)
-	input["installation"].(map[string]any)["customer"] = "fleetio"
+	input["installation"].(map[string]any)["customer"] = "dvag"
 	input["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
 	input["agentManager"] = map[string]any{keySkills: map[string]any{keyToken: skillsTok}} //nolint:gosec // a Secret's name in a fixture, no credential
 	if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "agentManager.skills") {

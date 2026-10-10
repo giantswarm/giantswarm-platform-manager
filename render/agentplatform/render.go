@@ -409,10 +409,13 @@ func (in *Input) portalDexClient() render.Map {
 
 // dexPatch is installations/<name>/apps/dex-app/configmap-values.yaml.patch:
 // the platform's clients in plaintext, every secret a reference to a Secret
-// in Dex's namespace. It never touches the encrypted secret patch. The patch
-// is one file with one owner: on an installation with the platform enabled
-// this definition owns it, so the portals' client is carried here, the entry
-// the customer-portal definition renders on an installation without the
+// in Dex's namespace, and the token-exchange connectors of the hubs that
+// broker into the installation (render.ExchangeConnectors), among the
+// installation's own connectors under oidc.customer, which the plan keeps.
+// It never touches the encrypted secret patch. The patch is one file with
+// one owner: on an installation with the platform enabled this definition
+// owns it, so the portals' client is carried here, the entry the
+// customer-portal definition renders on an installation without the
 // platform, with every portal's redirect URI.
 func (in *Input) dexPatch() render.Map {
 	static := render.Map{e("muster", render.Map{e("clientSecretRef", dexClientRef("muster"))})}
@@ -447,6 +450,9 @@ func (in *Input) dexPatch() render.Map {
 	oidc := render.Map{e("staticClients", static)}
 	if len(extra) > 0 {
 		oidc = append(oidc, e("extraStaticClients", extra))
+	}
+	if len(in.HubConnectors) > 0 {
+		oidc = append(oidc, e("customer", render.Map{e("connectors", in.HubConnectors)}))
 	}
 	return render.Map{e("oidc", oidc)}
 }
