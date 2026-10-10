@@ -1,6 +1,6 @@
 // Package update keeps platformctl current. `platformctl self-update`
 // installs the newest GitHub release of this repository over the running
-// executable (creativeprojects/go-selfupdate against the releases; a
+// executable (giantswarm/go-selfupdate against the releases; a
 // development build is refused), and only after the binary's cosign Sigstore
 // bundle verifies: the architect orb signs every binary it attaches to a
 // release in CircleCI, keyless, and the shared validator
@@ -36,7 +36,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
-	"github.com/creativeprojects/go-selfupdate"
+	"github.com/giantswarm/go-selfupdate"
 	selfupdatecosign "github.com/giantswarm/selfupdate-cosign"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/version"

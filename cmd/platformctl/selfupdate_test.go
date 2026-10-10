@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/creativeprojects/go-selfupdate"
+	"github.com/giantswarm/go-selfupdate"
 	selfupdatecosign "github.com/giantswarm/selfupdate-cosign"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/platformctl/update"
