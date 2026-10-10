@@ -715,13 +715,15 @@ func ObjectsIn(content []byte) []Object {
 // Checklist orders the objects a person deletes after the disable merged:
 // the HelmReleases first (deleting one uninstalls its chart and what the
 // chart made), their sources and every other object, the Namespaces — each
-// takes what is left inside it —, then the objects outside them. An object
-// inside a Namespace of the list goes with it and is left out.
+// takes what is left inside it —, then the Secrets and ConfigMaps outside
+// them. An object inside a Namespace of the list goes with it: it is left
+// out and named on the Namespace's line. Every object carries what its
+// deletion takes with it (Takes).
 func Checklist(objects []Object) []Object {
-	namespaces := map[string]bool{}
+	inside := map[string][]string{}
 	for _, o := range objects {
 		if o.Kind == namespaceKind {
-			namespaces[o.Name] = true
+			inside[o.Name] = []string{}
 		}
 	}
 	rank := func(o Object) int {
@@ -737,21 +739,119 @@ func Checklist(objects []Object) []Object {
 	}
 	var out []Object
 	for _, o := range objects {
-		if o.Kind != namespaceKind && namespaces[o.Namespace] || slices.Contains(out, o) {
+		o.Takes = ""
+		if names, ok := inside[o.Namespace]; ok && o.Kind != namespaceKind {
+			if n := o.Kind + " " + o.Name; !slices.Contains(names, n) {
+				inside[o.Namespace] = append(names, n)
+			}
 			continue
 		}
-		out = append(out, o)
+		if !slices.Contains(out, o) {
+			out = append(out, o)
+		}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return rank(out[i]) < rank(out[j]) })
+	for i := range out {
+		out[i].Takes = takes(out[i], inside[out[i].Name])
+	}
 	return out
 }
 
-// String is the object as a checklist line names it: Kind namespace/name.
+// takes is what deleting o takes with it besides itself; inside are the
+// objects of the checklist in o when o is a Namespace.
+func takes(o Object, inside []string) string {
+	switch o.Kind {
+	case helmReleaseKind:
+		return "Helm uninstalls its chart and every workload it rendered, an umbrella chart's component HelmReleases too; volumes stay with their Namespace"
+	case "OCIRepository", "HelmRepository", "GitRepository", "Bucket":
+		return "the chart's source: nothing runs from it once its HelmRelease is gone"
+	case "Konfiguration":
+		return "the values it renders for the HelmRelease from the shared configuration"
+	case namespaceKind:
+		s := "everything left inside it: the PersistentVolumeClaims and the data on their volumes (a component's database), the Secrets and ConfigMaps"
+		if len(inside) > 0 {
+			s += "; of this disable " + strings.Join(inside, ", ")
+		}
+		return s
+	}
+	return ""
+}
+
+// String is the object as a checklist names it: Kind namespace/name.
 func (o Object) String() string {
 	if o.Namespace == "" {
 		return o.Kind + " " + o.Name
 	}
 	return fmt.Sprintf("%s %s/%s", o.Kind, o.Namespace, o.Name)
+}
+
+// Line is the object as a checklist line names it: the object and what its
+// deletion takes with it.
+func (o Object) Line() string {
+	if o.Takes == "" {
+		return o.String()
+	}
+	return o.String() + " — " + o.Takes
+}
+
+// basesDepth bounds how deep BaseObjects follows kustomizations into a
+// remote base.
+const basesDepth = 3
+
+// BaseObjects are the objects the remote bases render, read at their ref
+// through readAt: every manifest a base's kustomization lists, a directory
+// or a further remote base followed into its own kustomization, basesDepth
+// deep, in the order listed. A base that cannot be read is an error naming
+// its URL: a checklist without its objects would be silently short.
+func BaseObjects(ctx context.Context, readAt func(ref string) Reader, bases []string) ([]Object, error) {
+	var objects []Object
+	var walk func(repository, dir, ref string, depth int) error
+	walk = func(repository, dir, ref string, depth int) error {
+		if depth > basesDepth {
+			return fmt.Errorf("%s:%s is deeper than %d kustomizations", repository, dir, basesDepth)
+		}
+		at := readAt(ref)
+		k, err := at(ctx, repository, path.Join(dir, kustomizationFile))
+		if err != nil {
+			return err
+		}
+		for _, res := range KustomizationResources([]byte(k)) {
+			if repo, sub, subRef, ok := RemoteBase(res); ok {
+				if err := walk(repo, sub, subRef, depth+1); err != nil {
+					return err
+				}
+				continue
+			}
+			p := path.Join(dir, res)
+			if !strings.HasSuffix(p, ".yaml") && !strings.HasSuffix(p, ".yml") {
+				if err := walk(repository, p, ref, depth+1); err != nil {
+					return err
+				}
+				continue
+			}
+			content, err := at(ctx, repository, p)
+			if err != nil {
+				return err
+			}
+			objects = append(objects, ObjectsIn([]byte(content))...)
+		}
+		return nil
+	}
+	var unread []string
+	for _, b := range bases {
+		repo, dir, ref, ok := RemoteBase(b)
+		if !ok {
+			unread = append(unread, b+" (not a GitHub base)")
+			continue
+		}
+		if err := walk(repo, dir, ref, 1); err != nil {
+			unread = append(unread, fmt.Sprintf("%s (%v)", b, err))
+		}
+	}
+	if len(unread) > 0 {
+		return nil, fmt.Errorf("the remote base(s) %s could not be read as you", strings.Join(unread, "; "))
+	}
+	return objects, nil
 }
 
 // RemoteBase splits a kustomize remote base the way the fleet writes it,

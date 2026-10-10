@@ -60,10 +60,29 @@ Pull requests, in order:
      delete management-clusters/kestrel/extras/mcp-prometheus/valkey-credentials.enc.yaml
 
 After the merge, delete on kestrel in this order — the fleet's Kustomization over the tree does not prune:
-  [ ] HelmRelease flux-giantswarm/agent-platform
-  [ ] OCIRepository flux-giantswarm/agent-platform
-  [ ] Namespace agent-platform
-  [ ] Namespace kagent
+  [ ] HelmRelease flux-giantswarm/agent-platform — Helm uninstalls its chart and every workload it rendered, an umbrella chart's component HelmReleases too; volumes stay with their Namespace
+  [ ] HelmRelease flux-giantswarm/mcp-capi — Helm uninstalls its chart and every workload it rendered, an umbrella chart's component HelmReleases too; volumes stay with their Namespace
+  [ ] HelmRelease flux-giantswarm/mcp-capi-valkey — Helm uninstalls its chart and every workload it rendered, an umbrella chart's component HelmReleases too; volumes stay with their Namespace
+  [ ] HelmRelease flux-giantswarm/mcp-kubernetes — Helm uninstalls its chart and every workload it rendered, an umbrella chart's component HelmReleases too; volumes stay with their Namespace
+  [ ] HelmRelease flux-giantswarm/mcp-kubernetes-valkey — Helm uninstalls its chart and every workload it rendered, an umbrella chart's component HelmReleases too; volumes stay with their Namespace
+  [ ] HelmRelease flux-giantswarm/mcp-prometheus — Helm uninstalls its chart and every workload it rendered, an umbrella chart's component HelmReleases too; volumes stay with their Namespace
+  [ ] HelmRelease flux-giantswarm/mcp-prometheus-valkey — Helm uninstalls its chart and every workload it rendered, an umbrella chart's component HelmReleases too; volumes stay with their Namespace
+  [ ] OCIRepository flux-giantswarm/agent-platform — the chart's source: nothing runs from it once its HelmRelease is gone
+  [ ] Konfiguration flux-giantswarm/agent-platform-konfiguration — the values it renders for the HelmRelease from the shared configuration
+  [ ] OCIRepository flux-giantswarm/mcp-capi — the chart's source: nothing runs from it once its HelmRelease is gone
+  [ ] OCIRepository flux-giantswarm/mcp-capi-valkey — the chart's source: nothing runs from it once its HelmRelease is gone
+  [ ] Konfiguration flux-giantswarm/mcp-capi-konfiguration — the values it renders for the HelmRelease from the shared configuration
+  [ ] OCIRepository flux-giantswarm/mcp-kubernetes — the chart's source: nothing runs from it once its HelmRelease is gone
+  [ ] OCIRepository flux-giantswarm/mcp-kubernetes-valkey — the chart's source: nothing runs from it once its HelmRelease is gone
+  [ ] Konfiguration flux-giantswarm/mcp-kubernetes-konfiguration — the values it renders for the HelmRelease from the shared configuration
+  [ ] OCIRepository flux-giantswarm/mcp-prometheus — the chart's source: nothing runs from it once its HelmRelease is gone
+  [ ] OCIRepository flux-giantswarm/mcp-prometheus-valkey — the chart's source: nothing runs from it once its HelmRelease is gone
+  [ ] Konfiguration flux-giantswarm/mcp-prometheus-konfiguration — the values it renders for the HelmRelease from the shared configuration
+  [ ] Namespace agent-platform — everything left inside it: the PersistentVolumeClaims and the data on their volumes (a component's database), the Secrets and ConfigMaps; of this disable ConfigMap gateway-callbacks, Secret muster-oauth-credentials, Secret muster-valkey-credentials
+  [ ] Namespace kagent — everything left inside it: the PersistentVolumeClaims and the data on their volumes (a component's database), the Secrets and ConfigMaps; of this disable Secret kagent-oauth2-proxy-credentials
+  [ ] Namespace mcp-capi — everything left inside it: the PersistentVolumeClaims and the data on their volumes (a component's database), the Secrets and ConfigMaps; of this disable Secret mcp-capi-oauth-credentials, Secret mcp-capi-valkey-auth
+  [ ] Namespace mcp-kubernetes — everything left inside it: the PersistentVolumeClaims and the data on their volumes (a component's database), the Secrets and ConfigMaps; of this disable Secret mcp-kubernetes-oauth-credentials, Secret mcp-kubernetes-valkey-auth
+  [ ] Namespace mcp-prometheus — everything left inside it: the PersistentVolumeClaims and the data on their volumes (a component's database), the Secrets and ConfigMaps; of this disable Secret mcp-prometheus-oauth-credentials, Secret mcp-prometheus-valkey-auth
   [ ] Secret giantswarm/dex-client-kagent
   [ ] Secret giantswarm/dex-client-muster
   [ ] Secret giantswarm/dex-client-muster-token-exchange-kestrel
@@ -72,16 +91,10 @@ After the merge, delete on kestrel in this order — the fleet's Kustomization o
   [ ] ConfigMap flux-giantswarm/agent-platform-values-backstage
   [ ] Secret flux-giantswarm/mcp-capi-credentials-revision
   [ ] Secret giantswarm/dex-client-mcp-capi
-  [ ] Secret mcp-capi/mcp-capi-oauth-credentials
-  [ ] Secret mcp-capi/mcp-capi-valkey-auth
   [ ] Secret flux-giantswarm/mcp-kubernetes-credentials-revision
   [ ] Secret giantswarm/dex-client-mcp-kubernetes
-  [ ] Secret mcp-kubernetes/mcp-kubernetes-oauth-credentials
-  [ ] Secret mcp-kubernetes/mcp-kubernetes-valkey-auth
   [ ] Secret flux-giantswarm/mcp-prometheus-credentials-revision
   [ ] Secret giantswarm/dex-client-mcp-prometheus
-  [ ] Secret mcp-prometheus/mcp-prometheus-oauth-credentials
-  [ ] Secret mcp-prometheus/mcp-prometheus-valkey-auth
 
 Still depends on agent-platform:
   - kestrel shares a value with gopher, which holds the other side in management-clusters/gopher/extras/agent-platform/secrets/kestrel-token-exchange-credentials.yaml

@@ -375,7 +375,7 @@ func Action(w io.Writer, a actions.Action) error {
 			if o.Namespace != "" {
 				name = o.Namespace + "/" + name
 			}
-			p.f("  %s: %s %s\n", o.Installation, o.Kind, name)
+			p.f("  %s: %s %s%s\n", o.Installation, o.Kind, name, takesClause(o.Takes))
 		}
 	}
 	if len(a.Spec.Inputs) > 0 {
@@ -787,6 +787,14 @@ func dash(s string) string {
 	return s
 }
 
+// takesClause is what deleting an orphan takes with it, as its line ends.
+func takesClause(takes string) string {
+	if takes == "" {
+		return ""
+	}
+	return " — " + takes
+}
+
 func yesNo(b bool) string {
 	if b {
 		return "yes"
@@ -914,11 +922,8 @@ func Disable(w io.Writer, r tools.DisableResult, content bool) error {
 	case len(d.Checklist) > 0:
 		p.f("\nAfter the merge, delete on %s in this order — the fleet's Kustomization over the tree does not prune:\n", r.Installation)
 		for _, o := range d.Checklist {
-			p.f("  [ ] %s\n", o)
+			p.f("  [ ] %s\n", o.Line())
 		}
-	}
-	for _, u := range r.Unread {
-		p.f("  (not read, its objects are missing above: %s)\n", u)
 	}
 	if len(r.References) > 0 {
 		p.f("\nStill depends on %s:\n", r.Capability)

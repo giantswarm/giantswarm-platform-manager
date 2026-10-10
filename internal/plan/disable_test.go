@@ -334,8 +334,9 @@ func TestDisableEmptiedSharedFile(t *testing.T) {
 }
 
 // The checklist deletes the HelmReleases first, then their sources and the
-// rest, the Namespaces — what is inside one goes with it —, the Secrets
-// and ConfigMaps outside them last.
+// rest, the Namespaces — what is inside one goes with it and is named on its
+// line —, the Secrets and ConfigMaps outside them last; each line says what
+// the deletion takes with it.
 func TestChecklist(t *testing.T) {
 	in := []Object{
 		{Kind: "Secret", Namespace: "giantswarm", Name: "dex-client-muster"},
@@ -344,15 +345,70 @@ func TestChecklist(t *testing.T) {
 		{Kind: "Konfiguration", Namespace: fluxNS, Name: "agent-platform-konfiguration"},
 		{Kind: "HelmRelease", Namespace: fluxNS, Name: installations.AgentPlatform},
 		{Kind: "OCIRepository", Namespace: fluxNS, Name: installations.AgentPlatform},
-		{Kind: "HelmRelease", Namespace: fluxNS, Name: installations.AgentPlatform},
+		{Kind: "HelmRelease", Namespace: fluxNS, Name: installations.AgentPlatform, Takes: "an earlier checklist's"},
 	}
-	var got []string
-	for _, o := range Checklist(in) {
-		got = append(got, o.String())
+	got := Checklist(in)
+	var names []string
+	for _, o := range got {
+		names = append(names, o.String())
 	}
 	want := []string{"HelmRelease flux-giantswarm/agent-platform", "Konfiguration flux-giantswarm/agent-platform-konfiguration", "OCIRepository flux-giantswarm/agent-platform", "Namespace kagent", "Secret giantswarm/dex-client-muster"}
-	if !slices.Equal(got, want) {
-		t.Fatalf("got %v", got)
+	if !slices.Equal(names, want) {
+		t.Fatalf("got %v", names)
+	}
+	for i, prefix := range []string{"Helm uninstalls its chart", "the values it renders", "the chart's source", "everything left inside it"} {
+		if !strings.HasPrefix(got[i].Takes, prefix) {
+			t.Errorf("%s takes %q, want it to start %q", got[i], got[i].Takes, prefix)
+		}
+	}
+	if !strings.HasSuffix(got[3].Takes, "; of this disable Secret inside") || got[4].Takes != "" {
+		t.Errorf("namespace %q, secret %q", got[3].Takes, got[4].Takes)
+	}
+	if line := got[4].Line(); line != got[4].String() {
+		t.Errorf("line %q", line)
+	}
+}
+
+// BaseObjects reads every remote base at its ref, a directory and a nested
+// base followed, the manifests in the order listed; a base that cannot be
+// read, or is no GitHub base, is an error naming its URL.
+func TestBaseObjects(t *testing.T) {
+	const (
+		bases  = "giantswarm/management-cluster-bases"
+		shared = "giantswarm/shared-bases"
+		url    = "https://github.com/" + bases + "//extras/agent-platform?ref=v1"
+	)
+	files := map[string]string{
+		bases + "@v1:extras/agent-platform/kustomization.yaml":      "resources:\n  - ./namespace.yaml\n  - ./flux\n  - https://github.com/" + shared + "//crds?ref=main\n",
+		bases + "@v1:extras/agent-platform/namespace.yaml":          "kind: Namespace\nmetadata:\n  name: kagent\n",
+		bases + "@v1:extras/agent-platform/flux/kustomization.yaml": "resources:\n  - helm-release.yaml\n",
+		bases + "@v1:extras/agent-platform/flux/helm-release.yaml":  "kind: HelmRelease\nmetadata:\n  name: agent-platform\n  namespace: flux-giantswarm\n",
+		shared + "@main:crds/kustomization.yaml":                    "resources:\n  - konfiguration.yaml\n",
+		shared + "@main:crds/konfiguration.yaml":                    "kind: Konfiguration\nmetadata:\n  name: agent-platform-konfiguration\n  namespace: flux-giantswarm\n",
+	}
+	readAt := func(ref string) Reader {
+		return func(_ context.Context, repository, p string) (string, error) {
+			if c, ok := files[repository+"@"+ref+":"+p]; ok {
+				return c, nil
+			}
+			return "", fmt.Errorf("%s@%s:%s: %w", repository, ref, p, gh.ErrNotFound)
+		}
+	}
+	got, err := BaseObjects(context.Background(), readAt, []string{url})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, o := range got {
+		names = append(names, o.String())
+	}
+	if want := []string{"Namespace kagent", "HelmRelease flux-giantswarm/agent-platform", "Konfiguration flux-giantswarm/agent-platform-konfiguration"}; !slices.Equal(names, want) {
+		t.Fatalf("got %v", names)
+	}
+	for _, unread := range []string{"https://github.com/" + bases + "//extras/agent-platform?ref=v2", "https://example.com/x//y"} {
+		if _, err := BaseObjects(context.Background(), readAt, []string{url, unread}); err == nil || !strings.Contains(err.Error(), unread) || strings.Contains(err.Error(), url+" ") {
+			t.Errorf("%s: %v", unread, err)
+		}
 	}
 }
 

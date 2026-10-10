@@ -27,8 +27,35 @@ var update = flag.Bool("update", false, "rewrite the golden dry runs from the cu
 // agent-platform definition's public-customer shape on record as rendered,
 // beside it a client of the installation's own in the shared Dex patch, a
 // file another owner put into the definition's directory and the extras'
-// own entries, the remote base's objects read for the checklist. The hub
+// own entries, the remote base's objects read at its ref for the checklist,
+// each line saying what its deletion takes with it. The hub
 // brokers into the installation, so the commit is refused on the pairing.
+// baseFiles are the remote base of one extra as the fleet's bases
+// repository carries it, by path: its namespaces, its chart sources and
+// HelmReleases — an MCP server's with its valkey's — and its Konfiguration.
+func baseFiles(extra string) map[string]string {
+	namespaces, releases := []string{extra}, []string{extra}
+	if extra == installations.AgentPlatform {
+		namespaces = append(namespaces, "kagent")
+	} else {
+		releases = append(releases, extra+"-valkey")
+	}
+	files := map[string]string{"konfiguration.yaml": "apiVersion: konfigure.giantswarm.io/v1alpha1\nkind: Konfiguration\nmetadata:\n  name: " + extra + "-konfiguration\n  namespace: flux-giantswarm\n"}
+	resources := []string{"namespace.yaml"}
+	var ns []string
+	for _, n := range namespaces {
+		ns = append(ns, "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: "+n+"\n")
+	}
+	files["namespace.yaml"] = strings.Join(ns, "---\n")
+	for _, r := range releases {
+		files[r+"-oci-repository.yaml"] = "apiVersion: source.toolkit.fluxcd.io/v1\nkind: OCIRepository\nmetadata:\n  name: " + r + "\n  namespace: flux-giantswarm\n"
+		files[r+"-helm-release.yaml"] = "apiVersion: helm.toolkit.fluxcd.io/v2\nkind: HelmRelease\nmetadata:\n  name: " + r + "\n  namespace: flux-giantswarm\nspec:\n  targetNamespace: " + extra + "\n"
+		resources = append(resources, "./"+r+"-oci-repository.yaml", "./"+r+"-helm-release.yaml")
+	}
+	files["kustomization.yaml"] = "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - " + strings.Join(append(resources, "./konfiguration.yaml"), "\n  - ") + "\n"
+	return files
+}
+
 func TestDisableDryRunGolden(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "render", "agentplatform", "testdata", "public-customer", "input.yaml"))
 	if err != nil {
@@ -63,6 +90,11 @@ func TestDisableDryRunGolden(t *testing.T) {
 	files[mc+"kustomization.yaml"] = "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./zot/\n  - ./agent-platform/\n  - ./mcp-kubernetes/\n  - ./mcp-prometheus/\n  - ./mcp-capi/\n"
 	files[mc+"backstage/kustomization.yaml"] = "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./backstage/\ncomponents:\n  - ./agent-platform/\n"
 	files[mc+"agent-platform/mcpclients/gateway.yaml"] = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: gateway-callbacks\n  namespace: agent-platform\n"
+	for _, extra := range []string{installations.AgentPlatform, "mcp-kubernetes", "mcp-prometheus", "mcp-capi"} {
+		for p, content := range baseFiles(extra) {
+			files["giantswarm/management-cluster-bases:extras/"+extra+"/"+p] = content
+		}
+	}
 	read := func(_ context.Context, repository, p string) (string, error) {
 		if c, ok := files[repository+":"+p]; ok {
 			return c, nil
@@ -81,7 +113,18 @@ func TestDisableDryRunGolden(t *testing.T) {
 	}
 	def, _ := installations.FindCapability(installations.AgentPlatform)
 	d := plan.Disable(context.Background(), plan.DisableOptions{Definition: def, Installation: inst, Hub: hub, Result: res, Read: read, List: list})
-	base := plan.ObjectsIn([]byte("apiVersion: v1\nkind: Namespace\nmetadata:\n  name: agent-platform\n---\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: kagent\n---\nkind: OCIRepository\nmetadata:\n  name: agent-platform\n  namespace: flux-giantswarm\n---\nkind: HelmRelease\nmetadata:\n  name: agent-platform\n  namespace: flux-giantswarm\n"))
+	if len(d.Bases) != 4 {
+		t.Fatalf("bases %v", d.Bases)
+	}
+	base, err := plan.BaseObjects(context.Background(), func(ref string) plan.Reader {
+		if ref != "main" {
+			t.Errorf("the base is read at %q, its kustomization names main", ref)
+		}
+		return read
+	}, d.Bases)
+	if err != nil {
+		t.Fatal(err)
+	}
 	d.Checklist = plan.Checklist(append(base, d.Checklist...))
 	out := tools.DisableResult{Caller: "jane", Tool: tools.ToolDisableCapability, Capability: def.Name, Hub: hub.Name, Installation: name, DryRun: true, State: installations.StateEnabled, Plan: d, Remaining: []string{}}
 	for _, p := range d.Pairings() {

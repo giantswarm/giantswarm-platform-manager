@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path"
 	"slices"
 	"strings"
 
@@ -51,9 +50,6 @@ type DisableResult struct {
 	// References name what still depends on the capability, each a sentence
 	// naming the reference: a commit is refused while one stands.
 	References []string `json:"references"`
-	// Unread are the remote bases whose objects could not be read for the
-	// checklist; the checklist misses theirs.
-	Unread []string `json:"unread,omitempty"`
 	// CommitRefused says why mode commit would be refused; empty when it
 	// could go ahead.
 	CommitRefused string                `json:"commitRefused,omitempty"`
@@ -67,10 +63,6 @@ type DisableResult struct {
 
 const disableCommitNext = `mode "commit" opens the pull requests above as you, one per repository in this order, and records the Action on the hub in pending approval (ready to merge when the installation is a test installation: no Team review); merge_action merges them, and the action is disabled once the definition's marker is gone from the default branch. ` +
 	`The objects of the checklist stay on the cluster until a person deletes them, in its order: the fleet's Kustomization over the tree does not prune`
-
-// basesDepth bounds how deep the checklist follows kustomizations into a
-// remote base.
-const basesDepth = 3
 
 func (t *Tools) disableCapabilityTool() WriteTool {
 	return WriteTool{Name: ToolDisableCapability,
@@ -165,8 +157,10 @@ func (t *Tools) disablePlan(ctx context.Context, args map[string]any) (*DisableR
 	}
 	out.Plan = plan.Disable(ctx, plan.DisableOptions{Definition: def, Installation: r.Installation, Hub: hub, Result: res, Remaining: remaining, Read: read, List: listAs(c)})
 	if !def.Prunes {
-		objects, unread := baseObjects(ctx, readAtAs(c), out.Plan.Bases)
-		out.Unread = unread
+		objects, err := plan.BaseObjects(ctx, readAtAs(c), out.Plan.Bases)
+		if err != nil {
+			return nil, nil, fmt.Errorf("%s: %w: the checklist would miss the objects they render, which stay on the cluster after the merge; nothing is removed blind", tool, err)
+		}
 		out.Plan.Checklist = plan.Checklist(append(objects, out.Plan.Checklist...))
 	} else {
 		out.Plan.Checklist = []plan.Object{}
@@ -224,56 +218,6 @@ func listAs(c *gh.Client) func(ctx context.Context, repository, dir string) ([]s
 		}
 		return gh.ListFiles(ctx, c, owner, repo, dir)
 	}
-}
-
-// baseObjects are the objects the remote bases declare, read as the caller
-// at their ref: every manifest a base's kustomization lists, a directory
-// followed into its own kustomization, basesDepth deep. A base that could not
-// be read is answered in unread.
-func baseObjects(ctx context.Context, readAt func(ref string) plan.Reader, bases []string) (objects []plan.Object, unread []string) {
-	var walk func(repository, dir, ref string, depth int) error
-	walk = func(repository, dir, ref string, depth int) error {
-		if depth > basesDepth {
-			return fmt.Errorf("%s:%s: deeper than %d kustomizations", repository, dir, basesDepth)
-		}
-		at := readAt(ref)
-		k, err := at(ctx, repository, path.Join(dir, "kustomization.yaml"))
-		if err != nil {
-			return err
-		}
-		for _, res := range plan.KustomizationResources([]byte(k)) {
-			if repo, sub, subRef, ok := plan.RemoteBase(res); ok {
-				if err := walk(repo, sub, subRef, depth+1); err != nil {
-					return err
-				}
-				continue
-			}
-			p := path.Join(dir, res)
-			if !strings.HasSuffix(p, ".yaml") && !strings.HasSuffix(p, ".yml") {
-				if err := walk(repository, p, ref, depth+1); err != nil {
-					return err
-				}
-				continue
-			}
-			content, err := at(ctx, repository, p)
-			if err != nil {
-				return err
-			}
-			objects = append(objects, plan.ObjectsIn([]byte(content))...)
-		}
-		return nil
-	}
-	for _, b := range bases {
-		repo, dir, ref, ok := plan.RemoteBase(b)
-		if !ok {
-			unread = append(unread, b+": not a GitHub base")
-			continue
-		}
-		if err := walk(repo, dir, ref, 1); err != nil {
-			unread = append(unread, fmt.Sprintf("%s: %v", b, err))
-		}
-	}
-	return objects, unread
 }
 
 // readAtAs reads a repository file at ref as the caller c stands for; the
@@ -540,7 +484,7 @@ func (t *Tools) openRemovals(ctx context.Context, c *gh.Client, a *actions.Actio
 func orphansFrom(installation string, checklist []plan.Object) []actions.Orphan {
 	out := make([]actions.Orphan, 0, len(checklist))
 	for _, o := range checklist {
-		out = append(out, actions.Orphan{Installation: installation, Kind: o.Kind, Namespace: o.Namespace, Name: o.Name})
+		out = append(out, actions.Orphan{Installation: installation, Kind: o.Kind, Namespace: o.Namespace, Name: o.Name, Takes: o.Takes})
 	}
 	return out
 }
@@ -576,7 +520,7 @@ func disableBody(a *actions.Action, out *DisableResult) string {
 	if len(out.Plan.Checklist) > 0 {
 		b.WriteString("\nThe fleet's Kustomization over the tree does not prune: once merged, these objects stay on the cluster until a person deletes them, in this order:\n")
 		for _, o := range out.Plan.Checklist {
-			fmt.Fprintf(&b, "- [ ] %s\n", o)
+			fmt.Fprintf(&b, "- [ ] %s\n", o.Line())
 		}
 	}
 	b.WriteString("\nThe action waits for the team's approval; merge follows it in this order.\n")

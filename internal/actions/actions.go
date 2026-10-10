@@ -170,6 +170,9 @@ type Orphan struct {
 	Kind         string `json:"kind"`
 	Namespace    string `json:"namespace,omitempty"`
 	Name         string `json:"name"`
+	// Takes is what deleting the object takes with it, on a disable's
+	// checklist.
+	Takes string `json:"takes,omitempty"`
 }
 
 // PullRequest is one PR the action opened.
