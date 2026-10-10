@@ -18,6 +18,12 @@
 #
 # The M numbers are the wave-1 migration list's (M1–M11) and continue removals.yaml's (M30…).
 migrations:
+  # --- M42 — muster's OIDC discovery against Dex is allowed a private address on a private installation ---
+  # Dex resolves to the internal load balancer on a private installation; the shared defaults derive the flag
+  # from managementCluster.private, which is false where the ingress alone is private, so the definition
+  # renders it from the record's private fact like the sibling flags.
+  - key: configmap:muster.muster.oauth.server.dex.allowPrivateIPOIDC
+    reason: "Added: on a private installation muster reads Dex's OIDC discovery document from a private address (dex.allowPrivateIPOIDC), rendered from the installation's record like allowPrivateIPRedirectURIs; the shared default derives it from managementCluster.private, which is false on an installation whose ingress alone sits on private addresses · M42"
   # --- M41 — Dex registers the token-exchange connector of every customer hub that brokers into the installation ---
   # The hub names the connector in its broker targets and identity providers; the fleet's Dex base
   # registers the Giant Swarm hubs' giantswarm-simple-oidc on every installation, a customer hub's was
