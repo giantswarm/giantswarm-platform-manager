@@ -27,6 +27,8 @@ const (
 	// ArgForceJoin lets a commit proceed over what the plan takes off an
 	// installation's muster.
 	ArgForceJoin = "forceJoin"
+	// ArgKeep names the files a disable keeps.
+	ArgKeep = "keep"
 )
 
 // CapabilityResult is the dry run of enable_capability and

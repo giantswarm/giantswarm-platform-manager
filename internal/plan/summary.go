@@ -169,7 +169,7 @@ func fileChanges(f File) []string {
 			items = append(items, "adds "+id)
 			continue
 		}
-		items = append(items, docChanges(id, old, d, secret || kindOf(d) == "Secret")...)
+		items = append(items, docChanges(id, old, d, secret || kindOf(d) == kindSecret)...)
 	}
 	for _, d := range current {
 		if id := docID(d); !seen[id] {

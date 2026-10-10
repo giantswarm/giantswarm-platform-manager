@@ -22,8 +22,12 @@ import (
 // for the installation names its files; what the installation keeps on
 // record of every other capability's render (Remaining) stays. A directory
 // the definition's include lists in a kustomization other owners write
-// (extras/agent-platform/) leaves whole, every file under it on record with
-// it — the definition's render, and what was put there beside it. A file
+// (extras/agent-platform/) is the capability's: one no remaining capability
+// lists leaves whole, every file under it on record with it — the
+// definition's render, and what was put there beside it; under one a
+// remaining capability lists too, every file it does not render goes, with
+// the kustomization entries that name it (leftovers.go). A file a person
+// keeps (Keep) stays, its entries and directory listed with it. A file
 // the definition writes whole goes; the definition's marker goes whatever
 // else it carries, so the capability reads not enabled after the merge. A
 // file with several owners — a kustomization the includes land in, the
@@ -49,6 +53,15 @@ type Removal struct {
 	// because its directory leaves whole — another owner's file, or one an
 	// earlier shape of the definition wrote.
 	Unrendered bool `json:"unrendered,omitempty"`
+	// Why says why a file the definition does not render goes.
+	Why string `json:"why,omitempty"`
+	// ListedIn are the kustomization entries that name a deleted file, as
+	// "<kustomization> <list>[<entry>]": the disable unlists each.
+	ListedIn []string `json:"listedIn,omitempty"`
+	// Drops are the entries an update takes out beside the definition's
+	// render — a Dex client of the capability's, its trusted-peer id —
+	// each with why.
+	Drops []string `json:"drops,omitempty"`
 	// Pairings are the values this file holds that another installation
 	// holds too (render.Peer), as "<installation>:<path>": removed here, the
 	// other side's copy pairs with nothing.
@@ -69,10 +82,15 @@ type Stay struct {
 // objects the fleet's Kustomization leaves on the cluster (Checklist) and
 // the pull requests, one per repository.
 type Disablement struct {
-	Name        string    `json:"name"`
-	Files       []Removal `json:"files"`
-	Stays       []Stay    `json:"stays"`
-	Directories []string  `json:"directories"`
+	Name  string    `json:"name"`
+	Files []Removal `json:"files"`
+	Stays []Stay    `json:"stays"`
+	// Kept are the files a person kept (--keep), which stay as they are.
+	Kept []Stay `json:"kept"`
+	// LeftOnRecord are the entries of the files the disable edits that stay
+	// although nothing that stays renders them, each with why.
+	LeftOnRecord []Leftover `json:"leftOnRecord"`
+	Directories  []string   `json:"directories"`
 	// Others are the installations whose trees the definition's render names
 	// files in (a hub's side, a portal's section): the disable leaves them as
 	// they are, and each one's reconcile aligns them.
@@ -102,6 +120,10 @@ type DisableOptions struct {
 	Read      Reader
 	// List names the files on record under a directory of a repository.
 	List func(ctx context.Context, repository, dir string) ([]string, error)
+	// Keep names the files a person keeps, by path or repository:path: each
+	// stays as it is with the kustomization entries that name it, its
+	// directory listed where it is.
+	Keep []string
 }
 
 // Disable answers the disable of opts' capability on opts' installation,
@@ -109,11 +131,24 @@ type DisableOptions struct {
 // read is a Removal of change unknown naming the error: nothing is removed
 // blind.
 func Disable(ctx context.Context, opts DisableOptions) Disablement {
-	d := Disablement{Name: opts.Installation.Name, Files: []Removal{}, Stays: []Stay{}, Directories: []string{}, Others: []string{}, Checklist: []Object{}, PullRequests: []PullRequest{}}
+	d := Disablement{Name: opts.Installation.Name, Files: []Removal{}, Stays: []Stay{}, Kept: []Stay{}, LeftOnRecord: []Leftover{}, Directories: []string{}, Others: []string{}, Checklist: []Object{}, PullRequests: []PullRequest{}}
 	resolve := func(r render.Repository) string {
 		return ResolveRepository(string(r), opts.Installation, opts.Hub)
 	}
 	marker := opts.Definition.Repository(opts.Installation.Repositories) + ":" + opts.Definition.EnabledMarker(opts.Installation.Name)
+	kept := func(ref fileRef) bool {
+		return ref.key() != marker && slices.ContainsFunc(opts.Keep, func(k string) bool { return k == ref.key() || k == ref.path })
+	}
+	// holds says whether a kept file is under dir of repo.
+	holds := func(repo, dir string) bool {
+		return slices.ContainsFunc(opts.Keep, func(k string) bool {
+			r, p, ok := strings.Cut(k, ":")
+			if !ok {
+				r, p = repo, k
+			}
+			return r == repo && strings.HasPrefix(p, dir+"/")
+		})
+	}
 
 	// What the remaining capabilities render, by file, and the includes they list.
 	remaining := map[string][]remainingFile{}
@@ -130,35 +165,44 @@ func Disable(ctx context.Context, opts DisableOptions) Disablement {
 		}
 	}
 
-	// The directories that leave whole: each include of the definition the
-	// remaining capabilities do not list too.
-	var dirs []fileRef
+	// The capability's directories: each include of the definition into the
+	// installation's own trees. One the remaining capabilities do not list
+	// too, and that holds no kept file, leaves whole; under the others every
+	// file no capability that stays renders goes.
+	var dirs, whole []fileRef
 	unlist, foreign := map[string][]render.Include{}, map[string][]render.Include{}
 	for _, inc := range opts.Result.Includes {
 		repo := resolve(inc.Repository)
-		if remainingIncludes[includeKey(repo, inc.Path, inc)] {
+		k := fileRef{repo, inc.Path}.key()
+		dir := fileRef{repo, path.Clean(path.Join(path.Dir(inc.Path), inc.Resource))}
+		listed := remainingIncludes[includeKey(repo, inc.Path, inc)]
+		if owner(inc.Path) != d.Name {
+			if !listed {
+				foreign[k] = append(foreign[k], inc)
+			}
 			continue
 		}
-		k := fileRef{repo, inc.Path}.key()
-		if owner(inc.Path) != d.Name {
-			foreign[k] = append(foreign[k], inc)
+		if !slices.Contains(dirs, dir) {
+			dirs = append(dirs, dir)
+		}
+		if listed || holds(dir.repository, dir.path) {
 			continue
 		}
 		unlist[k] = append(unlist[k], inc)
-		dirs = append(dirs, fileRef{repo, path.Clean(path.Join(path.Dir(inc.Path), inc.Resource))})
+		whole = append(whole, dir)
 	}
-	inDir := func(repo, p string) bool {
-		return slices.ContainsFunc(dirs, func(dir fileRef) bool {
+	under := func(in []fileRef, repo, p string) bool {
+		return slices.ContainsFunc(in, func(dir fileRef) bool {
 			return dir.repository == repo && strings.HasPrefix(p, dir.path+"/")
 		})
 	}
-	for _, dir := range dirs {
+	for _, dir := range whole {
 		d.Directories = append(d.Directories, dir.key()+"/")
 	}
 
 	// Every file the disable may touch, read at once: the definition's,
-	// those on record under the directories that leave, the kustomizations
-	// the includes land in.
+	// those on record under the capability's directories, the
+	// kustomizations the includes land in.
 	rendered := map[string]render.File{}
 	var refs []fileRef
 	for repo, files := range opts.Result.Files {
@@ -187,8 +231,31 @@ func Disable(ctx context.Context, opts DisableOptions) Disablement {
 	}
 	got := fetch(ctx, opts.Read, refs)
 
-	seen := map[string]bool{}
+	// The files that go whole first; the files with several owners are
+	// edited once every deletion is known, the deepest first, so an edit
+	// unlists what goes and a kustomization it empties goes from its parent.
+	type pending struct {
+		ref     fileRef
+		current string
+	}
+	var edits []pending
+	g := gone{files: map[string]*Removal{}, secrets: map[string]bool{}, hosts: platformHosts(opts.Result, opts.Remaining),
+		keeps: func(repo, p string) bool { return kept(fileRef{repo, p}) || holds(repo, p) }}
 	var removed []render.File
+	// bases are the resources each kustomization that goes, or an edit
+	// shortens, no longer lists, by file.
+	bases := map[string][]string{}
+	remove := func(r Removal, current string) {
+		d.Files = append(d.Files, r)
+		removed = append(removed, render.File{Content: []byte(current)})
+		bases[fileRef{r.Repository, r.Path}.key()] = kustomizationResources([]byte(current))
+		for _, o := range manifests([]byte(current)) {
+			if o.Kind == kindSecret && o.Name != "" {
+				g.secrets[o.Name] = true
+			}
+		}
+	}
+	seen := map[string]bool{}
 	for _, ref := range sortedRefs(refs) {
 		k := ref.key()
 		if seen[k] {
@@ -214,28 +281,77 @@ func Disable(ctx context.Context, opts DisableOptions) Disablement {
 			}
 			continue
 		}
+		inDirs := under(dirs, ref.repository, ref.path)
 		switch {
 		case len(others) > 0 && (k == marker || !Shared(ref.path)):
 			d.Stays = append(d.Stays, Stay{Repository: ref.repository, Path: ref.path, Why: "rendered by " + capabilitiesOf(others)})
-		case k == marker || inDir(ref.repository, ref.path) || isRendered && !Shared(ref.path):
-			d.Files = append(d.Files, Removal{Repository: ref.repository, Path: ref.path, Change: ChangeDelete, Unrendered: !isRendered, Pairings: pairings(f)})
-			removed = append(removed, render.File{Content: []byte(current)})
+		case kept(ref):
+			d.Kept = append(d.Kept, Stay{Repository: ref.repository, Path: ref.path, Why: "kept by --keep, with the kustomization entries that name it"})
+		case k == marker || isRendered && !Shared(ref.path):
+			remove(Removal{Repository: ref.repository, Path: ref.path, Change: ChangeDelete, Pairings: pairings(f)}, current)
+		case path.Base(ref.path) == kustomizationFile && holds(ref.repository, path.Dir(ref.path)):
+			// A kustomization over a kept file stays, without what goes.
+			edits = append(edits, pending{ref, current})
+		case under(whole, ref.repository, ref.path):
+			remove(Removal{Repository: ref.repository, Path: ref.path, Change: ChangeDelete, Unrendered: !isRendered, Pairings: pairings(f), Why: unrenderedWhy(isRendered, "leaves with its directory")}, current)
+		case inDirs && !isRendered && len(others) == 0:
+			remove(Removal{Repository: ref.repository, Path: ref.path, Change: ChangeDelete, Unrendered: true, Why: unrenderedWhy(false, "nothing that stays renders it under the capability's directory")}, current)
 		default:
-			r := edit(ref, current, f, isRendered, unlist[k], others)
-			if r.Change == ChangeUnchanged {
-				continue
-			}
-			if r.Change == ChangeDelete {
-				removed = append(removed, render.File{Content: []byte(current)})
-			}
-			d.Files = append(d.Files, r)
+			edits = append(edits, pending{ref, current})
 		}
 	}
+	for i := range d.Files {
+		if d.Files[i].Change == ChangeDelete {
+			g.files[fileRef{d.Files[i].Repository, d.Files[i].Path}.key()] = &d.Files[i]
+		}
+	}
+	sort.SliceStable(edits, func(i, j int) bool {
+		return strings.Count(edits[i].ref.path, "/") > strings.Count(edits[j].ref.path, "/")
+	})
+	var edited []*Removal
+	for _, e := range edits {
+		k := e.ref.key()
+		f, isRendered := rendered[k]
+		r, left := edit(e.ref, e.current, f, isRendered, unlist[k], remaining[k], g)
+		for _, l := range left {
+			l.Repository, l.Path = e.ref.repository, e.ref.path
+			d.LeftOnRecord = append(d.LeftOnRecord, l)
+		}
+		if r.Change == ChangeUnchanged {
+			continue
+		}
+		switch r.Change {
+		case ChangeDelete:
+			removed = append(removed, render.File{Content: []byte(e.current)})
+			bases[k] = kustomizationResources([]byte(e.current))
+			// A later, shallower edit unlists the emptied kustomization.
+			g.files[k] = &r
+		case ChangeUpdate:
+			bases[k] = slices.DeleteFunc(KustomizationResources([]byte(e.current)), func(res string) bool {
+				return slices.Contains(KustomizationResources([]byte(r.Content)), res)
+			})
+		}
+		edited = append(edited, &r)
+	}
+	for _, r := range edited {
+		d.Files = append(d.Files, *r)
+	}
+	sort.SliceStable(d.Files, func(i, j int) bool {
+		return fileRef{d.Files[i].Repository, d.Files[i].Path}.key() < fileRef{d.Files[j].Repository, d.Files[j].Path}.key()
+	})
 	d.Files = append(d.Files, listErrs...)
 	d.Checklist = checklistOf(removed, opts.Remaining)
-	d.Bases = basesOf(removed)
+	d.Bases = basesOf(bases)
 	d.PullRequests = PullRequests([]Installation{d.asPlan()}, map[string]installations.Installation{opts.Installation.Name: opts.Installation}, opts.Hub)
 	return d
+}
+
+// unrenderedWhy is why a file the definition does not render goes.
+func unrenderedWhy(isRendered bool, why string) string {
+	if isRendered {
+		return ""
+	}
+	return "not rendered by the definition: " + why
 }
 
 // owner is the installation whose tree a path is in — installations/<name>/
@@ -340,20 +456,26 @@ func pairings(f render.File) []string {
 // edit takes the definition's part out of a file with several owners: its
 // rendered leaves and entries (rendered, when the definition renders the
 // file) that no remaining capability renders too (others), and the include
-// entries it lists there (unlist). Every other byte stays as it is. A
+// entries it lists there (unlist), the entries naming a file that goes and
+// the Dex clients that are the capability's (g). Every other byte stays as
+// it is; what of it the disable cannot attribute is named (Leftover). A
 // kustomization left listing nothing, or a file left with no key, is
 // deleted; the record never is.
-func edit(ref fileRef, current string, f render.File, isRendered bool, unlist []render.Include, others []remainingFile) Removal {
+func edit(ref fileRef, current string, f render.File, isRendered bool, unlist []render.Include, others []remainingFile, g gone) (Removal, []Leftover) {
 	r := Removal{Repository: ref.repository, Path: ref.path, Current: current}
+	var left []Leftover
 	out := []byte(current)
 	var err error
 	if isRendered {
-		keeps := make([][]byte, 0, len(others))
+		keeps := make([][]byte, 0, len(others)+1)
 		for _, o := range others {
 			keeps = append(keeps, o.file.Content)
 		}
+		if k := g.keptEntries(ref, out); k != nil {
+			keeps = append(keeps, k)
+		}
 		if out, err = strip(f.Content, out, keeps...); err != nil {
-			return r.failed(err)
+			return r.failed(err), nil
 		}
 	}
 	for _, inc := range unlist {
@@ -362,12 +484,24 @@ func edit(ref fileRef, current string, f render.File, isRendered bool, unlist []
 			list = ListComponents
 		}
 		if out, err = UnlistEntry(out, list, inc.Resource); err != nil {
-			return r.failed(err)
+			return r.failed(err), nil
+		}
+	}
+	if out, err = g.unlistRemoved(ref, out); err != nil {
+		return r.failed(err), nil
+	}
+	if strings.HasSuffix(ref.path, dexPatchFile) {
+		keeps := make([][]byte, 0, len(others))
+		for _, o := range others {
+			keeps = append(keeps, o.file.Content)
+		}
+		if out, r.Drops, left, err = g.dropClients(out, keeps); err != nil {
+			return r.failed(err), nil
 		}
 	}
 	empty, err := emptied(ref.path, out)
 	if err != nil {
-		return r.failed(err)
+		return r.failed(err), nil
 	}
 	switch {
 	case empty && !isRecord(ref.path):
@@ -377,7 +511,7 @@ func edit(ref fileRef, current string, f render.File, isRendered bool, unlist []
 	default:
 		r.Change, r.Content = ChangeUpdate, string(out)
 	}
-	return r
+	return r, left
 }
 
 func (r Removal) failed(err error) Removal {
@@ -677,27 +811,31 @@ func checklistOf(removed []render.File, remaining []Remaining) []Object {
 	return out
 }
 
-// basesOf are the remote bases the deleted kustomizations list: resources
-// by URL, each once, in order.
-func basesOf(removed []render.File) []string {
+// basesOf are the remote bases among the resources the kustomizations no
+// longer list (by file): resources by URL, each once, in the files' order.
+func basesOf(byFile map[string][]string) []string {
 	var out []string
-	for _, f := range removed {
-		_, m, err := mapping(f.Content)
-		if err != nil {
-			continue
-		}
-		if kind := entry(m, "kind"); kind == nil || kind.Value != kustomizationKind {
-			continue
-		}
-		if seq := entry(m, ListResources); seq != nil {
-			for _, e := range seq.Content {
-				if strings.Contains(e.Value, "://") && !slices.Contains(out, e.Value) {
-					out = append(out, e.Value)
-				}
+	for _, k := range sortedKeys(byFile, nil) {
+		for _, res := range byFile[k] {
+			if strings.Contains(res, "://") && !slices.Contains(out, res) {
+				out = append(out, res)
 			}
 		}
 	}
 	return out
+}
+
+// kustomizationResources are the resources a kustomization lists; nil for a
+// file of another kind.
+func kustomizationResources(content []byte) []string {
+	_, m, err := mapping(content)
+	if err != nil {
+		return nil
+	}
+	if kind := entry(m, "kind"); kind == nil || kind.Value != kustomizationKind {
+		return nil
+	}
+	return KustomizationResources(content)
 }
 
 // ObjectsIn are the Kubernetes objects of a manifest file: every YAML
@@ -732,7 +870,7 @@ func Checklist(objects []Object) []Object {
 			return 0
 		case namespaceKind:
 			return 2
-		case "Secret", "ConfigMap":
+		case kindSecret, "ConfigMap":
 			return 3
 		}
 		return 1

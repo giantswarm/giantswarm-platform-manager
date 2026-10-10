@@ -35,8 +35,9 @@ func disableCall(t *testing.T, c *client.Client, args map[string]any) (tools.Dis
 }
 
 // The dry run of the platform on rowan names the marker and every file of
-// the definition's directories as deletions, the extras' include as the
-// one edit, and the objects the Kustomization leaves as the checklist; it
+// the definition's directories as deletions — a hand-written one too, its
+// Dex client out of the patch, or kept on request —, the extras' include as
+// the one edit, and the objects the Kustomization leaves as the checklist; it
 // writes nothing. The commit opens one pull request per repository as
 // alice, the deletions removed from the branch's tree; once approved and
 // merged, the next read finds the marker gone and the action disabled, and
@@ -66,6 +67,20 @@ func TestDisableCommitsTheRemovalAndReadsNotEnabled(t *testing.T) {
 	}
 	st.ghs.addRepo(fleetBasesRepo, platformBaseFiles)
 
+	// What a person added under the capability's directory: an MCP client's
+	// ConfigMap and its Dex client's Secret in a hand-written kustomization,
+	// the client in the installation's Dex patch.
+	ap := "management-clusters/" + rowan + "/extras/agent-platform/"
+	dexPatch := "installations/" + rowan + "/apps/dex-app/configmap-values.yaml.patch"
+	addHandWritten(t, st, ap, dexPatch)
+	if _, text, isErr := disableCall(t, aliceC, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.AgentPlatform, tools.ArgDryRun: true, tools.ArgKeep: []any{ap + "mcpclients/absent.yaml"}}); !isErr || !strings.Contains(text, "nothing is removed") {
+		t.Fatalf("a dry run keeping a file not on record: %v %s", isErr, text)
+	}
+	kept, text, isErr := disableCall(t, aliceC, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.AgentPlatform, tools.ArgDryRun: true, tools.ArgKeep: []any{ap + "mcpclients/gateway.yaml"}})
+	if isErr || len(kept.Plan.Kept) != 1 || kept.Plan.Kept[0].Path != ap+"mcpclients/gateway.yaml" || kept.Plan.Removes(acmeMCs, ap+"mcpclients/gateway.yaml") || kept.Plan.Removes(acmeMCs, ap+"mcpclients/kustomization.yaml") {
+		t.Fatalf("a dry run keeping the ConfigMap: %s", text)
+	}
+
 	dry, text, isErr := disableCall(t, aliceC, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.AgentPlatform, tools.ArgDryRun: true})
 	if isErr || !dry.DryRun || dry.State != installations.StateEnabled || dry.CommitRefused != "" || len(dry.References) != 0 {
 		t.Fatalf("dry run: %s", text)
@@ -90,6 +105,14 @@ func TestDisableCommitsTheRemovalAndReadsNotEnabled(t *testing.T) {
 	}
 	if !slices.Contains(edited, acmeMCs+":"+extrasKustomizationPath(rowan)) {
 		t.Fatalf("edits: %v", edited)
+	}
+	for _, p := range []string{"mcpclients/kustomization.yaml", "mcpclients/gateway.yaml", "mcpclients/dex-client-gateway.yaml"} {
+		if !deleted[acmeMCs+":"+ap+p] {
+			t.Errorf("the hand-written %s stays: deletions %v", p, deleted)
+		}
+	}
+	if i := slices.IndexFunc(dry.Plan.Files, func(f plan.Removal) bool { return f.Path == dexPatch }); i < 0 || strings.Contains(dry.Plan.Files[i].Content, "dex-client-gateway") || !slices.ContainsFunc(dry.Plan.Files[i].Drops, func(d string) bool { return strings.HasPrefix(d, "extraStaticClients[gateway]") }) {
+		t.Fatalf("the hand-registered Dex client stays in the patch: %+v", dry.Plan.Files)
 	}
 	if len(dry.Plan.PullRequests) != 2 {
 		t.Fatalf("pull requests %+v", dry.Plan.PullRequests)
@@ -158,6 +181,27 @@ func TestDisableCommitsTheRemovalAndReadsNotEnabled(t *testing.T) {
 	}
 	_ = enabled
 	assertNoLeak(t, "the server's log", st.logs.String())
+}
+
+// addHandWritten puts what a person adds beside the agent platform into
+// rowan's trees: under the definition's directory ap a kustomization of an
+// MCP client's ConfigMap and its Dex client's Secret, listed in the
+// directory's kustomization, and the client in the Dex patch dexPatch.
+func addHandWritten(t *testing.T, st *stack, ap, dexPatch string) {
+	t.Helper()
+	k, ok := st.ghs.file(acmeMCs, ap+"kustomization.yaml")
+	if !ok {
+		t.Fatalf("%s is not on record", ap+"kustomization.yaml")
+	}
+	st.ghs.addFile(acmeMCs, ap+"kustomization.yaml", k+"  - ./mcpclients\n")
+	st.ghs.addFile(acmeMCs, ap+"mcpclients/kustomization.yaml", "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - gateway.yaml\n  - dex-client-gateway.yaml\n")
+	st.ghs.addFile(acmeMCs, ap+"mcpclients/gateway.yaml", "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: gateway-callbacks\n  namespace: giantswarm\n")
+	st.ghs.addFile(acmeMCs, ap+"mcpclients/dex-client-gateway.yaml", "apiVersion: v1\nkind: Secret\nmetadata:\n  name: dex-client-gateway\n  namespace: giantswarm\n")
+	dex, ok := st.ghs.file(acmeConfigs, dexPatch)
+	if !ok || !strings.Contains(dex, "  extraStaticClients:\n") {
+		t.Fatalf("rowan's Dex patch lists no extraStaticClients:\n%s", dex)
+	}
+	st.ghs.addFile(acmeConfigs, dexPatch, strings.Replace(dex, "  extraStaticClients:\n", "  extraStaticClients:\n    - id: gateway\n      name: MCP gateway\n      secretRef:\n        name: dex-client-gateway\n        key: secret\n", 1))
 }
 
 // fleetBasesRepo is the fleet's bases repository the definition's

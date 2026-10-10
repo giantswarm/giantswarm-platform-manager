@@ -892,13 +892,19 @@ func Disable(w io.Writer, r tools.DisableResult, content bool) error {
 					continue
 				}
 				line := fmt.Sprintf("     %-6s %s", f.Change, f.Path)
-				if f.Unrendered {
-					line += "  (not rendered by the definition: leaves with its directory)"
+				if f.Why != "" {
+					line += "  (" + f.Why + ")"
 				}
 				if len(f.Pairings) > 0 {
 					line += "  (paired with " + strings.Join(f.Pairings, ", ") + ")"
 				}
 				p.f("%s\n", line)
+				for _, l := range f.ListedIn {
+					p.f("       unlisted from %s\n", l)
+				}
+				for _, drop := range f.Drops {
+					p.f("       drops %s\n", drop)
+				}
 				if content && f.Change == plan.ChangeUpdate {
 					p.f("     --- as the commit writes it\n%s", indent(f.Content, "       "))
 				}
@@ -915,6 +921,18 @@ func Disable(w io.Writer, r tools.DisableResult, content bool) error {
 		p.f("\nStays on record:\n")
 		for _, s := range d.Stays {
 			p.f("  %s:%s (%s)\n", s.Repository, s.Path, s.Why)
+		}
+	}
+	if len(d.Kept) > 0 {
+		p.f("\nKept (--keep):\n")
+		for _, k := range d.Kept {
+			p.f("  %s:%s\n", k.Repository, k.Path)
+		}
+	}
+	if len(d.LeftOnRecord) > 0 {
+		p.f("\nLeft on record — the disable cannot tell these are %s's; remove them by hand if they are:\n", r.Capability)
+		for _, l := range d.LeftOnRecord {
+			p.f("  %s:%s %s (%s)\n", l.Repository, l.Path, l.Entry, l.Why)
 		}
 	}
 	switch {

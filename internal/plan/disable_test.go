@@ -146,7 +146,7 @@ func disableFixture() (*render.Result, map[string]string) {
 	marker := dPlatform.EnabledMarker(dInst)
 	res := &render.Result{
 		Files: render.Fileset{
-			"giantswarm/oak-configs": {
+			dConfigs: {
 				marker: {Content: []byte("muster:\n  enabled: true\n")},
 				"installations/" + dInst + "/apps/dex-app/configmap-values.yaml.patch": {Content: []byte("oidc:\n  staticClients:\n    muster:\n      clientSecretRef: {name: dex-client-muster}\n    mcpKubernetes:\n      clientSecretRef: {name: dex-client-mcp-kubernetes}\n")},
 			},
@@ -309,6 +309,123 @@ func TestDisable(t *testing.T) {
 		sort.Strings(repos)
 		if !slices.Equal(repos, []string{dConfigs, dMC}) {
 			t.Fatalf("pull requests %v", repos)
+		}
+	})
+}
+
+// Under a directory a capability that stays lists too, what a person added
+// goes with the disable: every file nothing that stays renders, with the
+// kustomization entries that name it, and the Dex clients whose Secret is in
+// one of them or whose redirect URIs are the platform's, their trusted-peer
+// ids with them. What stays renders stays; a client the disable cannot
+// attribute is left on record, named; --keep keeps a file and its entries.
+func TestDisableHandWrittenUnderAStayingDirectory(t *testing.T) {
+	res, files := disableFixture()
+	dex := "installations/" + dInst + "/apps/dex-app/configmap-values.yaml.patch"
+	ap := mc("extras/agent-platform/")
+	res.Probes = []render.Probe{{Kind: render.HTTP, URL: "https://kagent.kestrel.example/api/agents"}}
+	files[dConfigs+":"+dex] = "oidc:\n" +
+		"  staticClients:\n    muster:\n      clientSecretRef: {name: dex-client-muster}\n" +
+		"    dexK8SAuthenticator:\n      trustedPeers: [gateway, exchange, own]\n" +
+		"  extraStaticClients:\n" +
+		"    - id: gateway\n      secretRef: {name: dex-client-gateway, key: secret}\n" +
+		"    - id: kagent-old\n      redirectURIs: [https://kagent.kestrel.example/oauth2/callback]\n" +
+		"    - id: exchange\n      secretRef: {name: dex-client-exchange-hub, key: secret}\n" +
+		"    - id: own\n      secretRef: {name: dex-client-own, key: secret}\n"
+	files[dMC+":"+ap+"kustomization.yaml"] += "  - ./exchange.yaml\n  - ./mcpclients\n"
+	files[dMC+":"+ap+"exchange.yaml"] = "apiVersion: v1\nkind: Secret\nmetadata:\n  name: dex-client-exchange-hub\n  namespace: giantswarm\n"
+	files[dMC+":"+ap+"mcpclients/kustomization.yaml"] = "kind: Kustomization\nresources:\n  - gateway.yaml\n  - dex-client-gateway.yaml\n"
+	files[dMC+":"+ap+"mcpclients/dex-client-gateway.yaml"] = "apiVersion: v1\nkind: Secret\nmetadata:\n  name: dex-client-gateway\n  namespace: giantswarm\n"
+	stays := []Remaining{{Capability: "cluster-mcp-servers", Result: &render.Result{
+		Files: render.Fileset{
+			dMC: {
+				ap + "kustomization.yaml": {Content: []byte("kind: Kustomization\nresources:\n  - ./exchange.yaml\n")},
+				ap + "exchange.yaml":      {Content: []byte("apiVersion: v1\nkind: Secret\nmetadata:\n  name: dex-client-exchange-hub\n")},
+			},
+			"giantswarm/oak-configs": {dex: {Content: []byte("oidc:\n  staticClients:\n    dexK8SAuthenticator:\n      trustedPeers: [exchange]\n  extraStaticClients:\n    - id: exchange\n      secretRef: {name: dex-client-exchange-hub, key: secret}\n")}},
+		},
+		Includes: []render.Include{{Repository: dMC, Path: mc("extras/kustomization.yaml"), Resource: dDir}},
+	}}}
+
+	updated := func(t *testing.T, d Disablement, p string) Removal {
+		t.Helper()
+		for _, r := range d.Files {
+			if r.Path == p {
+				if r.Change != ChangeUpdate {
+					t.Fatalf("%s: %s %s", p, r.Change, r.Error)
+				}
+				return r
+			}
+		}
+		t.Fatalf("%s not edited", p)
+		return Removal{}
+	}
+
+	d := disableOf(t, res, files, "", stays)
+	t.Run("the directory stays listed, its hand-written files go with their entries", func(t *testing.T) {
+		if slices.Contains(d.Directories, dMC+":"+mc("extras/agent-platform")+"/") {
+			t.Fatalf("directories %v", d.Directories)
+		}
+		for _, p := range []string{"mcpclients/gateway.yaml", "mcpclients/dex-client-gateway.yaml", "mcpclients/kustomization.yaml", "secrets/dex-client-muster.yaml"} {
+			if got := changeOf(d, dMC, ap+p); got != ChangeDelete {
+				t.Errorf("%s: %q", p, got)
+			}
+		}
+		for _, r := range d.Files {
+			if r.Path == ap+"mcpclients/kustomization.yaml" && !slices.Equal(r.ListedIn, []string{ap + "kustomization.yaml resources[./mcpclients]"}) {
+				t.Errorf("listed in %v", r.ListedIn)
+			}
+			if r.Path == ap+"mcpclients/gateway.yaml" && (!r.Unrendered || r.Why == "") {
+				t.Errorf("gateway.yaml %+v", r)
+			}
+		}
+		if got := changeOf(d, dMC, ap+"exchange.yaml"); got != dStays {
+			t.Errorf("exchange.yaml: %q", got)
+		}
+		if r := updated(t, d, ap+"kustomization.yaml"); r.Content != "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./exchange.yaml\n" {
+			t.Errorf("kustomization %q", r.Content)
+		}
+	})
+	t.Run("the capability's Dex clients go with their trusted-peer ids, the staying and unattributable ones stay", func(t *testing.T) {
+		r := updated(t, d, dex)
+		want := "oidc:\n  staticClients:\n    dexK8SAuthenticator:\n      trustedPeers: [exchange, own]\n  extraStaticClients:\n    - id: exchange\n      secretRef: {name: dex-client-exchange-hub, key: secret}\n    - id: own\n      secretRef: {name: dex-client-own, key: secret}\n"
+		if r.Content != want {
+			t.Fatalf("got:\n%s\nwant:\n%s", r.Content, want)
+		}
+		if len(r.Drops) != 3 || !strings.Contains(strings.Join(r.Drops, "\n"), "trustedPeers[gateway]") || !strings.Contains(strings.Join(r.Drops, "\n"), "kagent.kestrel.example") {
+			t.Fatalf("drops %v", r.Drops)
+		}
+		if len(d.LeftOnRecord) != 1 || d.LeftOnRecord[0].Entry != "extraStaticClients[own]" || d.LeftOnRecord[0].Path != dex {
+			t.Fatalf("left on record %+v", d.LeftOnRecord)
+		}
+	})
+	t.Run("the hand-written files' objects join the checklist", func(t *testing.T) {
+		var got []string
+		for _, o := range d.Checklist {
+			got = append(got, o.String())
+		}
+		for _, w := range []string{"ConfigMap agent-platform/gateway", "Secret giantswarm/dex-client-gateway"} {
+			if !slices.Contains(got, w) {
+				t.Errorf("checklist %v lacks %s", got, w)
+			}
+		}
+	})
+
+	read, list := repoReader(files, "")
+	k := Disable(context.Background(), DisableOptions{Definition: dPlatform, Installation: dInstallation, Hub: dHub, Result: res, Remaining: stays, Read: read, List: list,
+		Keep: []string{ap + "mcpclients/gateway.yaml", dConfigs + ":" + dPlatform.EnabledMarker(dInst)}})
+	t.Run("--keep keeps a file and its entries, never the marker", func(t *testing.T) {
+		if len(k.Kept) != 1 || k.Kept[0].Path != ap+"mcpclients/gateway.yaml" {
+			t.Fatalf("kept %+v", k.Kept)
+		}
+		if got := changeOf(k, dConfigs, dPlatform.EnabledMarker(dInst)); got != ChangeDelete {
+			t.Fatalf("marker %q", got)
+		}
+		if r := updated(t, k, ap+"mcpclients/kustomization.yaml"); r.Content != "kind: Kustomization\nresources:\n  - gateway.yaml\n" {
+			t.Errorf("mcpclients kustomization %q", r.Content)
+		}
+		if r := updated(t, k, ap+"kustomization.yaml"); !strings.Contains(r.Content, "./mcpclients") {
+			t.Errorf("kustomization %q", r.Content)
 		}
 	})
 }
