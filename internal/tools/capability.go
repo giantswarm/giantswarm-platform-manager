@@ -24,6 +24,8 @@ const (
 	ArgContent      = "content"
 	// ArgRotate names the generated values to rotate on request.
 	ArgRotate = "rotate"
+	// ArgKeep names the files a disable keeps.
+	ArgKeep = "keep"
 )
 
 // CapabilityResult is the dry run of enable_capability and

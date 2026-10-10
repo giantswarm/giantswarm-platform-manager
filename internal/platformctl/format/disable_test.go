@@ -23,13 +23,6 @@ import (
 
 var update = flag.Bool("update", false, "rewrite the golden dry runs from the current output")
 
-// The disable's dry run as platformctl prints it, held to a golden: the
-// agent-platform definition's public-customer shape on record as rendered,
-// beside it a client of the installation's own in the shared Dex patch, a
-// file another owner put into the definition's directory and the extras'
-// own entries, the remote base's objects read at its ref for the checklist,
-// each line saying what its deletion takes with it. The hub
-// brokers into the installation, so the commit is refused on the pairing.
 // baseFiles are the remote base of one extra as the fleet's bases
 // repository carries it, by path: its namespaces, its chart sources and
 // HelmReleases — an MCP server's with its valkey's — and its Konfiguration.
@@ -56,6 +49,17 @@ func baseFiles(extra string) map[string]string {
 	return files
 }
 
+// The disable's dry run as platformctl prints it, held to a golden: the
+// agent-platform definition's public-customer shape on record as rendered,
+// beside it what a person added — in the shared Dex patch a client of the
+// installation's own, a client whose Secret is a hand-written file of the
+// definition's directory with its trusted-peer id, a former portal login
+// client on the platform's host; in the directory that Secret, a broker's
+// Secret, an MCP client's ConfigMap and a ConfigMap kept with --keep, all
+// listed in a hand-written kustomization —, the extras' own entries, the remote base's
+// objects read at its ref for the checklist, each line saying what its
+// deletion takes with it. The hub brokers into the installation, so the
+// commit is refused on the pairing.
 func TestDisableDryRunGolden(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "render", "agentplatform", "testdata", "public-customer", "input.yaml"))
 	if err != nil {
@@ -86,7 +90,16 @@ func TestDisableDryRunGolden(t *testing.T) {
 	}
 	mc := "giantswarm/oakridge-management-clusters:management-clusters/" + name + "/extras/"
 	dex := "giantswarm/oakridge-configs:installations/" + name + "/apps/dex-app/configmap-values.yaml.patch"
-	files[dex] = "ingress:\n  largeHeaderBuffers: true\n" + strings.Replace(files[dex], "  extraStaticClients:\n", "  extraStaticClients:\n    - id: own-tool\n      name: own-tool\n      secretRef:\n        name: dex-client-own-tool\n        key: secret\n", 1)
+	files[dex] = "ingress:\n  largeHeaderBuffers: true\n" + strings.Replace(strings.Replace(files[dex], "  extraStaticClients:\n", "  extraStaticClients:\n"+
+		"    - id: own-tool\n      name: own-tool\n      secretRef:\n        name: dex-client-own-tool\n        key: secret\n"+
+		"    - id: gateway\n      name: MCP gateway\n      secretRef:\n        name: dex-client-gateway\n        key: secret\n"+
+		"    - id: portal-login\n      name: Former portal login\n      redirectURIs:\n        - https://portal.kestrel.oakridge.example/api/auth/oidc/handler/frame\n", 1),
+		"        - muster-token-exchange-kestrel\n", "        - muster-token-exchange-kestrel\n        - gateway\n", 1)
+	files[mc+"agent-platform/kustomization.yaml"] += "  - ./mcpclients\n"
+	files[mc+"agent-platform/mcpclients/kustomization.yaml"] = "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - gateway.yaml\n  - dex-client-gateway.yaml\n  - shared-ca.yaml\n"
+	files[mc+"agent-platform/mcpclients/shared-ca.yaml"] = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: shared-ca\n  namespace: giantswarm\n"
+	files[mc+"agent-platform/mcpclients/dex-client-gateway.yaml"] = "apiVersion: v1\nkind: Secret\nmetadata:\n  name: dex-client-gateway\n  namespace: giantswarm\n"
+	files[mc+"agent-platform/broker-clients.yaml"] = "apiVersion: v1\nkind: Secret\nmetadata:\n  name: broker-clients\n  namespace: agent-platform\n"
 	files[mc+"kustomization.yaml"] = "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./zot/\n  - ./agent-platform/\n  - ./mcp-kubernetes/\n  - ./mcp-prometheus/\n  - ./mcp-capi/\n"
 	files[mc+"backstage/kustomization.yaml"] = "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./backstage/\ncomponents:\n  - ./agent-platform/\n"
 	files[mc+"agent-platform/mcpclients/gateway.yaml"] = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: gateway-callbacks\n  namespace: agent-platform\n"
@@ -112,7 +125,8 @@ func TestDisableDryRunGolden(t *testing.T) {
 		return out, nil
 	}
 	def, _ := installations.FindCapability(installations.AgentPlatform)
-	d := plan.Disable(context.Background(), plan.DisableOptions{Definition: def, Installation: inst, Hub: hub, Result: res, Read: read, List: list})
+	keep := "management-clusters/" + name + "/extras/agent-platform/mcpclients/shared-ca.yaml"
+	d := plan.Disable(context.Background(), plan.DisableOptions{Definition: def, Installation: inst, Hub: hub, Result: res, Read: read, List: list, Keep: []string{keep}})
 	if len(d.Bases) != 4 {
 		t.Fatalf("bases %v", d.Bases)
 	}

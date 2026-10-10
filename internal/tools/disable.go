@@ -21,8 +21,10 @@ import (
 
 // The disable: disable_capability takes a capability off one installation,
 // the mirror of enable_capability. Its dry run names every file it deletes
-// or edits (plan.Disable), the files of the definition that stay because
-// another capability on record renders them, the objects the fleet's
+// or edits (plan.Disable) — the definition's render and what a person added
+// under its directories, the Dex clients that are the capability's — the
+// files of the definition that stay because another capability on record
+// renders them, the files kept by request, what it cannot attribute, the objects the fleet's
 // non-pruning Kustomization leaves on the cluster as a checklist, and what
 // still depends on the capability — a commit is refused while one stands.
 // Mode commit opens the pull requests as the caller through the action,
@@ -72,6 +74,7 @@ func (t *Tools) disableCapabilityTool() WriteTool {
 			mcp.WithString(ArgCapability, mcp.Description(capabilityArgDescription), mcp.Enum(installations.CapabilityNames()...)),
 			mcp.WithBoolean(ArgContent, mcp.Description("Include each edited file as the commit writes it and as it is on record (default: true).")),
 			mcp.WithString(ArgReason, mcp.Description(reasonArgDescription)),
+			mcp.WithArray(ArgKeep, mcp.Description("Files the disable keeps, by path or repository:path, each as it is with the kustomization entries that name it: a file under the capability's directories a person wants to stay. The definition's marker always goes."), mcp.Items(stringItems())),
 		},
 		DryRun: func(ctx context.Context, args map[string]any) (any, error) {
 			out, _, err := t.disablePlan(ctx, args)
@@ -131,7 +134,7 @@ func (t *Tools) disablePlan(ctx context.Context, args map[string]any) (*DisableR
 	}
 	out := &DisableResult{Caller: identity.Caller(ctx), Tool: tool, Capability: def.Name, Hub: reg.Hub, Installation: one, DryRun: true,
 		State: capabilityState(r, def.Name), Prunes: def.Prunes, Remaining: []string{}, References: []string{}, Commit: disableCommitNext,
-		Plan: plan.Disablement{Name: one, Files: []plan.Removal{}, Stays: []plan.Stay{}, Directories: []string{}, Others: []string{}, Checklist: []plan.Object{}, PullRequests: []plan.PullRequest{}}}
+		Plan: plan.Disablement{Name: one, Files: []plan.Removal{}, Stays: []plan.Stay{}, Kept: []plan.Stay{}, LeftOnRecord: []plan.Leftover{}, Directories: []string{}, Others: []string{}, Checklist: []plan.Object{}, PullRequests: []plan.PullRequest{}}}
 	if !out.State.OnRecord() {
 		out.CommitRefused = fmt.Sprintf("%s is %s on %s: nothing to disable", def.Name, out.State, one)
 		return out, env, nil
@@ -155,7 +158,13 @@ func (t *Tools) disablePlan(ctx context.Context, args map[string]any) (*DisableR
 		remaining = append(remaining, plan.Remaining{Capability: other.Name, Result: rres})
 		out.Remaining = append(out.Remaining, other.Name)
 	}
-	out.Plan = plan.Disable(ctx, plan.DisableOptions{Definition: def, Installation: r.Installation, Hub: hub, Result: res, Remaining: remaining, Read: read, List: listAs(c)})
+	keep := stringSlice(args[ArgKeep])
+	out.Plan = plan.Disable(ctx, plan.DisableOptions{Definition: def, Installation: r.Installation, Hub: hub, Result: res, Remaining: remaining, Read: read, List: listAs(c), Keep: keep})
+	for _, k := range keep {
+		if !slices.ContainsFunc(out.Plan.Kept, func(s plan.Stay) bool { return k == s.Path || k == s.Repository+":"+s.Path }) {
+			return nil, nil, fmt.Errorf("%s: %s names %s, which is no file the disable removes from %s's own trees (the definition's marker always goes): nothing is removed", tool, ArgKeep, k, one)
+		}
+	}
 	if !def.Prunes {
 		objects, err := plan.BaseObjects(ctx, readAtAs(c), out.Plan.Bases)
 		if err != nil {
