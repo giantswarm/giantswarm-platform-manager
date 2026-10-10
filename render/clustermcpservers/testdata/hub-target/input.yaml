@@ -1,0 +1,18 @@
+# A management cluster without the agent platform whose MCP servers two hubs reach through the token
+# exchange: the registry's hub, whose client in this Dex carries the fleet's plain id, and a second
+# hub of its own organisation, whose client carries the hub's name too. Each client's Secret is one
+# value with the hub's credentials Secret for this installation, peered with it. Invented names.
+input:
+  installation:
+    name: osprey
+    baseDomain: osprey.acme.example.test
+    customer: acme
+    dexAppVersion: 3.2.5
+    agentPlatform: false
+    federation:
+      hubs: [gopher, warren]
+      registryHub: gopher
+  servers:
+    mcpKubernetes: {enabled: true}
+    mcpPrometheus: {enabled: true}
+    mcpCapi: {enabled: true}

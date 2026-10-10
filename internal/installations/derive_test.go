@@ -422,3 +422,43 @@ func indent(s, prefix string) string {
 	}
 	return b.String()
 }
+
+// A hub's entry among an installation's connectors carries the facts the
+// connector the installation's Dex registers for it is rendered from: the
+// hub's organisation and its record's base domain — the inspected report's
+// — and whether it is the first of its organisation's hubs into the
+// installation, as organisationHubs orders them: the registry's hub first
+// where it is one, then by name. A hub the registry does not know, or one
+// not inspected without a configs repository on record, fails.
+func TestHubConnectorFacts(t *testing.T) {
+	const secondHub, otherHub = "zelkova", "linden"
+	reg := &Registry{Installations: []Installation{
+		{Name: fixtureHub, Customer: fixtureFleet, Hub: true},
+		{Name: secondHub, Customer: fixtureFleet},
+		{Name: otherHub, Customer: fixtureCustomer},
+	}}
+	const zelkovaDomain = "zelkova.fleet.test"
+	inspected := map[string]*Report{
+		fixtureHub: {Record: &Record{Name: fixtureHub, BaseDomain: aspenDomain}},
+		secondHub:  {Record: &Record{Name: secondHub, BaseDomain: zelkovaDomain}},
+		otherHub:   {Record: &Record{Name: otherHub, BaseDomain: lindenDomain}},
+	}
+	hubs := []string{secondHub, otherHub, fixtureHub}
+	want := []render.HubConnector{
+		{Hub: secondHub, Customer: fixtureFleet, BaseDomain: zelkovaDomain, First: false},
+		{Hub: otherHub, Customer: fixtureCustomer, BaseDomain: lindenDomain, First: true},
+		{Hub: fixtureHub, Customer: fixtureFleet, BaseDomain: aspenDomain, First: true},
+	}
+	for i, hub := range hubs {
+		got, err := reg.hubConnector(t.Context(), nil, hub, inspected[hub], hubs)
+		if err != nil || got != want[i] {
+			t.Errorf("%s: %+v %v, want %+v", hub, got, err, want[i])
+		}
+	}
+	if _, err := reg.hubConnector(t.Context(), nil, "spruce", nil, hubs); err == nil || !strings.Contains(err.Error(), "not in the registry") {
+		t.Errorf("a hub the registry does not know: %v", err)
+	}
+	if _, err := reg.hubConnector(t.Context(), nil, otherHub, nil, hubs); err == nil || !strings.Contains(err.Error(), "no configs repository") {
+		t.Errorf("a hub not inspected without a configs repository on record: %v", err)
+	}
+}

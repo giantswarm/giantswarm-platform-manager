@@ -413,3 +413,49 @@ func actionByName(name, short, tool string, withReason bool, show func(stdout io
 	}
 	return cmd
 }
+
+// newDisableCmd is disable: the mirror of enable on one installation.
+// --dry-run is the tool's dryRun, --commit its mode commit with the reason.
+func newDisableCmd() *cobra.Command {
+	var c conn
+	var dryRun, commit, content bool
+	var reason string
+	syntax := "installation disable <installation> <capability> --dry-run|--commit --reason <text>"
+	cmd := leaf(strings.TrimPrefix(syntax, "installation "), "Disable a capability on one installation: a dry run, or the action", func(pos []string, stdout, stderr io.Writer) int {
+		if err := c.valid(); err != nil {
+			return usageError(stderr, err.Error())
+		}
+		if len(pos) != 2 {
+			return usageError(stderr, syntax)
+		}
+		if dryRun == commit {
+			return usageError(stderr, "one of --dry-run and --commit: "+syntax)
+		}
+		if commit && strings.TrimSpace(reason) == "" {
+			return usageError(stderr, "--commit needs --reason: why you make the change, for the team's review")
+		}
+		toolArgs := map[string]any{tools.ArgInstallation: pos[0], tools.ArgCapability: pos[1], tools.ArgContent: content}
+		if commit {
+			toolArgs[tools.ArgMode] = string(tools.ModeCommit)
+			toolArgs[tools.ArgReason] = reason
+		} else {
+			toolArgs[tools.ArgDryRun] = true
+		}
+		return c.call(tools.ToolDisableCapability, toolArgs, stdout, stderr, func(raw json.RawMessage) error {
+			var r tools.DisableResult
+			if err := decode(raw, &r); err != nil {
+				return err
+			}
+			return format.Disable(stdout, r, content)
+		})
+	})
+	c.flags(cmd)
+	fs := cmd.Flags()
+	fs.BoolVar(&dryRun, "dry-run", false, "list what the disable removes and write nothing")
+	fs.BoolVar(&commit, "commit", false, "start the action: the manager's mode commit, the pull requests opened as you")
+	fs.BoolVar(&content, "content", false, "print each edited file as the commit writes it")
+	fs.StringVar(&reason, tools.ArgReason, "", "with --commit (required): why you make the change, in a sentence the team's review and the notices show")
+	completeFlag(cmd, tools.ArgReason, cobra.NoFileCompletions)
+	cmd.ValidArgsFunction = capabilityAt(func(_ *cobra.Command, pos []string) bool { return len(pos) == 1 })
+	return cmd
+}

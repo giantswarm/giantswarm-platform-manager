@@ -38,6 +38,9 @@ input:
       hubs: [gopher]
       registryHub: gopher
       targets: []
+      # The fleet hub's connector comes from the fleet's Dex base: none is rendered.
+      connectors:
+        - {hub: gopher, customer: giantswarm, baseDomain: gopher.example.io, first: true}
   aiChat:
     enabled: true
     model: claude-sonnet-5

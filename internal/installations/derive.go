@@ -148,6 +148,11 @@ type Federation struct {
 	// client in the installation's Dex carries the fleet's plain id.
 	RegistryHub    string `json:"registryHub"`
 	BrokerClientID string `json:"brokerClientId,omitempty"`
+	// Connectors are the hubs among Hubs with the facts the token-exchange
+	// connector the installation's Dex registers for each is rendered from:
+	// the hub's organisation, its record's base domain and whether it is the
+	// first of its organisation's hubs into the installation (hubConnector).
+	Connectors []render.HubConnector `json:"connectors"`
 }
 
 // FederatedTarget is an installation a hub brokers for.
@@ -175,7 +180,12 @@ type FederatedTarget struct {
 	// AgentPlatform says the target runs the agent platform: its enabled
 	// marker is on record. Its render holds the Dex side of the hub's
 	// token-exchange client, one value with the hub's credentials Secret.
-	AgentPlatform bool `json:"agentPlatform"`
+	// ClusterMCPServers says the target runs its MCP servers under
+	// cluster-mcp-servers without the platform: that capability's marker,
+	// mcp-kubernetes's kustomization, is on record among Servers. Its render
+	// holds the Dex side in the same file.
+	AgentPlatform     bool `json:"agentPlatform"`
+	ClusterMCPServers bool `json:"clusterMcpServers"`
 }
 
 // AgentPlatformPatchPath is where the installation's configs repository keeps
@@ -435,7 +445,9 @@ func (r *Registry) Portals(ctx context.Context, c *gh.Client, insts []Installati
 // record read for its base domain. A hub's broker client id is read back from
 // its patch. A rendered portal that lists the installation gets the
 // installations it shows that run the agent platform (portalInstallations),
-// from their markers. What cannot be read is
+// from their markers. The installation's own hubs are derived alike, each
+// with the facts the connector its Dex registers for the hub is rendered
+// from (hubConnector). What cannot be read is
 // an error of the report: the record is then incomplete and the installation
 // is not planned.
 func (r *Registry) derive(ctx context.Context, c *gh.Client, reports []Report, portals []Portal) {
@@ -451,6 +463,10 @@ func (r *Registry) derive(ctx context.Context, c *gh.Client, reports []Report, p
 		errs    []error
 		broker  string
 		brkErr  error
+		// connectors are the installation's hubs with their facts, in the
+		// hubs' order; connErrs what could not be read of each.
+		connectors []render.HubConnector
+		connErrs   []error
 		// hosted is the portal hosted on the installation; platform the
 		// agent-platform marker of each of its entries.
 		hosted   *HostedPortal
@@ -494,6 +510,13 @@ func (r *Registry) derive(ctx context.Context, c *gh.Client, reports []Report, p
 			hubs := r.organisationHubs(hubsOf(portals, name), rep.Customer)
 			wg.Go(func() {
 				res.found[j], res.errs[j] = r.target(ctx, c, name, byName[name], tunnelled(portals, name), proxied(portals, rep.Name, name), hubs)
+			})
+		}
+		hubs := rep.Federation.Hubs
+		res.connectors, res.connErrs = make([]render.HubConnector, len(hubs)), make([]error, len(hubs))
+		for j, hub := range hubs {
+			wg.Go(func() {
+				res.connectors[j], res.connErrs[j] = r.hubConnector(ctx, c, hub, byName[hub], hubs)
 			})
 		}
 		if len(targets) > 0 {
@@ -546,6 +569,13 @@ func (r *Registry) derive(ctx context.Context, c *gh.Client, reports []Report, p
 				continue
 			}
 			rep.Federation.Targets = append(rep.Federation.Targets, res.found[j])
+		}
+		for j, hub := range rep.Federation.Hubs {
+			if res.connErrs[j] != nil {
+				rep.fail(fmt.Sprintf("federation hub %s: %v", hub, res.connErrs[j]))
+				continue
+			}
+			rep.Federation.Connectors = append(rep.Federation.Connectors, res.connectors[j])
 		}
 		if len(res.targets) > 0 {
 			if res.brkErr != nil {
@@ -645,7 +675,7 @@ func (r *Report) enabled(capability string) bool {
 // and answers the names of the installations its own muster brokers for, in
 // the portals' order, each once.
 func (r *Report) derivePortals(portals []Portal) []string {
-	r.Portals, r.Federation = []PortalRef{}, &Federation{Hubs: hubsOf(portals, r.Name), Targets: []FederatedTarget{}}
+	r.Portals, r.Federation = []PortalRef{}, &Federation{Hubs: hubsOf(portals, r.Name), Targets: []FederatedTarget{}, Connectors: []render.HubConnector{}}
 	var targets []string
 	for _, p := range portals {
 		if slices.Contains(p.Installations, r.Name) {
@@ -722,21 +752,9 @@ func (r *Registry) target(ctx context.Context, c *gh.Client, name string, inspec
 	if !ok {
 		return FederatedTarget{}, errors.New("not in the registry")
 	}
-	if inst.Repositories.Configs == "" {
-		return FederatedTarget{}, errors.New("no configs repository on record")
-	}
-	rec := (*Record)(nil)
-	if inspected != nil {
-		rec = inspected.Record
-	}
-	if rec == nil {
-		owner, repo, err := gh.SplitRepo(inst.Repositories.Configs)
-		if err != nil {
-			return FederatedTarget{}, err
-		}
-		if rec, err = r.readRecord(ctx, c, owner, repo, inst); err != nil {
-			return FederatedTarget{}, err
-		}
+	rec, err := r.recordOf(ctx, c, inst, inspected)
+	if err != nil {
+		return FederatedTarget{}, err
 	}
 	servers, err := targetServers(ctx, c, inst)
 	if err != nil {
@@ -747,7 +765,58 @@ func (r *Registry) target(ctx context.Context, c *gh.Client, name string, inspec
 	if marker.err != nil {
 		return FederatedTarget{}, fmt.Errorf("%s: %w", platform.EnabledMarker(name), marker.err)
 	}
-	return FederatedTarget{Installation: name, BaseDomain: rec.BaseDomain, Private: private, PlatformProxied: proxied, Hubs: hubs, Servers: servers, AgentPlatform: marker.enabled}, nil
+	return FederatedTarget{Installation: name, BaseDomain: rec.BaseDomain, Private: private, PlatformProxied: proxied, Hubs: hubs, Servers: servers,
+		AgentPlatform: marker.enabled, ClusterMCPServers: !marker.enabled && runsClusterMCPServers(servers)}, nil
+}
+
+// runsClusterMCPServers says whether an installation running the MCP server
+// groups servers has the cluster-mcp-servers capability on record: its
+// marker is mcp-kubernetes's kustomization (ClusterMCPServersMarker), the
+// one targetServers read for the kubernetes group.
+func runsClusterMCPServers(servers []string) bool {
+	for _, s := range mcpservers.Servers {
+		if s.Name == clusterMCPServersMarkerServer {
+			return slices.Contains(servers, s.Group)
+		}
+	}
+	return false
+}
+
+// hubConnector is the entry of hub among an installation's
+// federation.connectors — the facts the token-exchange connector the
+// installation's Dex registers for the hub is rendered from: the hub's
+// organisation, its record's base domain (the inspected report's, read where
+// the hub was not inspected) and whether it is the first of its
+// organisation's hubs into the installation, among hubs — the
+// installation's — in the order organisationHubs gives them, the one the hub
+// side names its connector by.
+func (r *Registry) hubConnector(ctx context.Context, c *gh.Client, hub string, inspected *Report, hubs []string) (render.HubConnector, error) {
+	inst, ok := r.Find(hub)
+	if !ok {
+		return render.HubConnector{}, errors.New("not in the registry")
+	}
+	rec, err := r.recordOf(ctx, c, inst, inspected)
+	if err != nil {
+		return render.HubConnector{}, err
+	}
+	own := r.organisationHubs(hubs, inst.Customer)
+	return render.HubConnector{Hub: hub, Customer: inst.Customer, BaseDomain: rec.BaseDomain, First: len(own) > 0 && own[0] == hub}, nil
+}
+
+// recordOf is an installation's record: the inspected report's where the
+// inspection read it, else read from the installation's configs repository.
+func (r *Registry) recordOf(ctx context.Context, c *gh.Client, inst Installation, inspected *Report) (*Record, error) {
+	if inspected != nil && inspected.Record != nil {
+		return inspected.Record, nil
+	}
+	if inst.Repositories.Configs == "" {
+		return nil, errors.New("no configs repository on record")
+	}
+	owner, repo, err := gh.SplitRepo(inst.Repositories.Configs)
+	if err != nil {
+		return nil, err
+	}
+	return r.readRecord(ctx, c, owner, repo, inst)
 }
 
 // targetServers are the groups of the MCP servers a target runs: every server

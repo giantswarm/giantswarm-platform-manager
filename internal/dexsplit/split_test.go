@@ -110,6 +110,10 @@ func (v *fakeVault) Reveal(_ context.Context, file string, paths []string) (map[
 	}
 	out := map[string]string{}
 	for _, p := range paths {
+		// beekeeper's classifier refuses a leaf named like a secret.
+		if k := p[strings.LastIndex(p, ".")+1:]; k == keySecret || k == keyClientSecret {
+			return nil, errors.New("looks secret: " + p)
+		}
 		n := lookup(v.plain[file], p)
 		if n == nil {
 			return nil, errors.New("no " + p)
@@ -241,7 +245,7 @@ func TestReadShape(t *testing.T) {
 	if len(s.Extras) != 4 || s.Peers != 2 || s.Extras[2].RedirectURIs != 2 {
 		t.Errorf("extras %+v, peers %d", s.Extras, s.Peers)
 	}
-	wantDrop := []string{"oidc.staticClients.mcpKubernetes", "oidc.staticClients.dexK8SAuthenticator.trustedPeers", "oidc.staticClients.muster", "oidc.extraStaticClients"}
+	wantDrop := []string{"oidc.staticClients.mcpKubernetes", "oidc.staticClients.dexK8SAuthenticator.trustedPeers", "oidc.staticClients.muster", pathExtraClients}
 	if strings.Join(s.Drop, ",") != strings.Join(wantDrop, ",") {
 		t.Errorf("drop %v, want %v", s.Drop, wantDrop)
 	}

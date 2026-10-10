@@ -27,6 +27,7 @@ type Object struct {
 const (
 	kustomizationKind = "Kustomization"
 	helmReleaseKind   = "HelmRelease"
+	namespaceKind     = "Namespace"
 )
 
 // Objects are the objects res renders on the installation, the HelmReleases

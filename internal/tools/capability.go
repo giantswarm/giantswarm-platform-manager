@@ -210,6 +210,19 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 	if err := applyOrder(&out, stringSlice(args[ArgOrder])); err != nil {
 		return nil, nil, fmt.Errorf("%s: %w", tool, err)
 	}
+	// A value two installations of the set create both sides of is drawn
+	// once for the wave: the plans are settled against each other, and the
+	// commit refusal of each plan that changed is read again.
+	ps := make([]*plan.Installation, len(out.Installations))
+	for i := range out.Installations {
+		ps[i] = &out.Installations[i].Installation
+	}
+	changed := plan.ShareDraws(ps)
+	for i := range out.Installations {
+		if e := &out.Installations[i]; slices.Contains(changed, e.Name) && e.Refused == "" && len(e.MissingInputs) == 0 {
+			e.CommitRefused = commitRefusal(e.Installation, env.reports[e.Name].Record)
+		}
+	}
 	if unknown := unknownRotations(rotate, out.Installations); len(unknown) > 0 {
 		where := "no plan of the set lists"
 		if whole {

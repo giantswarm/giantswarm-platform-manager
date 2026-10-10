@@ -277,6 +277,9 @@ func markerOf(a *actions.Action, def installations.Capability, installation stri
 // prune, records the objects it rendered on those installations that stay
 // until a person deletes them. It answers the text for the review's thread.
 func remove(status *actions.Status, a *actions.Action, def installations.Capability, gone []revertedStage) string {
+	if a.Spec.Kind == actions.KindDisable {
+		return disabled(status, a, def, gone)
+	}
 	status.Rollout = stagesOf(a)
 	var where []string
 	status.Orphans = nil
@@ -305,6 +308,39 @@ func remove(status *actions.Status, a *actions.Action, def installations.Capabil
 	}
 	status.State = actions.StateRemoved
 	status.Result = &actions.Result{State: actions.StateRemoved, Message: msg, At: now()}
+	if status.Rollout.FinishedAt == nil {
+		status.Rollout.FinishedAt = now()
+	}
+	if len(text) > reportLimit {
+		text = text[:reportLimit] + "…"
+	}
+	return text
+}
+
+// disabled is remove for a disable: its marker gone from the default branch
+// is the disable done. The stages and the action move to disabled; the
+// orphans stay as the commit recorded them, the checklist of its dry run.
+func disabled(status *actions.Status, a *actions.Action, def installations.Capability, gone []revertedStage) string {
+	status.Rollout = stagesOf(a)
+	var where []string
+	for _, g := range gone {
+		if i := stageIndex(status.Rollout, g.installation); i >= 0 {
+			st := &status.Rollout.Installations[i]
+			st.State, st.Message = actions.StateDisabled, fmt.Sprintf("%s is gone from the default branch of %s: %s is not enabled", g.path, g.repository, def.Name)
+		}
+		where = append(where, g.installation)
+	}
+	msg := fmt.Sprintf("%s is disabled on %s: its fileset is gone from the default branch", def.Name, strings.Join(where, ", "))
+	text := fmt.Sprintf("*%s* is disabled on *%s*: its fileset is gone from the default branch.", def.Name, strings.Join(where, "*, *"))
+	if len(status.Orphans) > 0 {
+		msg += fmt.Sprintf("; %d object(s) stay on the cluster until a person deletes them — the Kustomization over the tree does not prune (orphans, in deletion order)", len(status.Orphans))
+		text += fmt.Sprintf("\n%d object(s) stay until a person deletes them, in this order — the Kustomization over the tree does not prune:", len(status.Orphans))
+		for _, o := range status.Orphans {
+			text += fmt.Sprintf("\n• %s: %s %s", o.Installation, o.Kind, objectName(o.Namespace, o.Name))
+		}
+	}
+	status.State = actions.StateDisabled
+	status.Result = &actions.Result{State: actions.StateDisabled, Message: msg, At: now()}
 	if status.Rollout.FinishedAt == nil {
 		status.Rollout.FinishedAt = now()
 	}
