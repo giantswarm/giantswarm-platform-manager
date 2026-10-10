@@ -16,8 +16,8 @@ docker-build: build-linux-amd64 ## Build a local dev image (TAG=giantswarm-platf
 	docker build --build-arg TARGETOS=linux --build-arg TARGETARCH=amd64 -t $(or $(TAG),$(BINARY):dev) .
 
 .PHONY: test-e2e
-test-e2e: ## The identity-chain proofs against the fake GitHub (internal/e2e).
-	go test -count=1 -v ./internal/e2e/...
+test-e2e: ## The identity-chain proofs against the fake GitHub (internal/e2e); the suite runs about ten minutes, past go test's default timeout.
+	go test -count=1 -v -timeout 30m ./internal/e2e/...
 
 MUSTER_TEST_FLAGS ?= --base-port 18000 --parallel 1 --readiness-timeout 60s --fail-fast
 
