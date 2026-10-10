@@ -127,12 +127,16 @@ func PortalRedirectURI(domain, installation string) string {
 // domain and a reference to the Secret the customer-portal definition renders
 // in Dex's namespace.
 func PortalDexClient(domain, installation string) Map {
-	return Map{
-		{Key: "id", Value: PortalDexClientID},
-		{Key: "name", Value: PortalDexClientName},
-		{Key: "redirectURIs", Value: []string{PortalRedirectURI(domain, installation)}},
-		{Key: "secretRef", Value: DexClientSecretRef(PortalDexClientID)},
-	}
+	return ExtraStaticClient(PortalDexClientID, PortalDexClientName,
+		Entry{Key: "redirectURIs", Value: []string{PortalRedirectURI(domain, installation)}},
+		Entry{Key: "secretRef", Value: DexClientSecretRef(PortalDexClientID)})
+}
+
+// ExtraStaticClient is an entry of the dex-app configmap patch's
+// oidc.extraStaticClients: the client's id and name, then what the client
+// carries beside them (its redirect URIs, its secret reference).
+func ExtraStaticClient(id, name string, rest ...Entry) Map {
+	return append(Map{{Key: "id", Value: id}, {Key: "name", Value: name}}, rest...)
 }
 
 // PortalPlatformComponent is the entry the portal's extras/backstage/kustomization.yaml
