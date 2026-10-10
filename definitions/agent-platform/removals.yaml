@@ -180,11 +180,6 @@ removals:
   - key: configmap:muster.muster.oauth.server.dex.clientId
     kind: template
     reason: "Removed: muster's Dex client id is written here; the shared defaults derive it from the installation's services.muster.clientId, which is where an installation-specific id belongs."
-  - key: configmap:muster.muster.oauth.server.dex.allowPrivateIPOIDC
-    kind: template
-    reason: >-
-      Removed: muster's allowPrivateIPOIDC flag is written here; the shared defaults derive it from the installation's managementCluster.private, which is
-      where a private installation is declared.
   - key: configmap:components.agent-platform-mcps.enabled
     kind: template
     reason: "Removed: components.agent-platform-mcps.enabled is set here; the shared defaults enable the component on every installation."
@@ -254,7 +249,7 @@ removals:
   # --- dex-app configmap-values.yaml.patch ---
   - key: dex-configmap:oidc.customer
     kind: not-platform
-    reason: "Kept: oidc.customer holds this installation's own login connectors; the platform reads nothing of them and leaves them on the Dex values as they are."
+    reason: "Kept: oidc.customer holds this installation's own login connectors; the platform leaves them on the Dex values as they are and registers the token-exchange connector of every customer hub that brokers into this installation beside them."
   - key: dex-configmap:ingress
     kind: not-platform
     reason: "Kept: the ingress block tunes this installation's own Dex ingress; the platform reads nothing of it and leaves it on the Dex values as it is."

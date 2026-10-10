@@ -19,6 +19,9 @@ var renderedDexPatches = map[string]string{
 		"giantswarm", "oakridge-configs", "installations", "kestrel", "apps", "dex-app", "configmap-values.yaml.patch"),
 }
 
+// keyIngress is the installation's own ingress tuning at the patch's top level.
+const keyIngress = "ingress"
+
 // currentDexPatch is an installation's patch as its owners left it: the
 // installation's ingress tuning and login connectors, a built-in client and
 // an extra static client no definition declares, and the two definitions'
@@ -74,12 +77,12 @@ func TestKeepDexPatchKeepsOtherOwnersPartsUnderEitherDefinition(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := []Kept{{"", "ingress"}, {keyOIDC, "customer"}, {listStaticClients, "argocd"}, {listExtraClients, "grafana"}}
+			want := []Kept{{"", keyIngress}, {keyOIDC, keyCustomer}, {listStaticClients, "argocd"}, {listExtraClients, "grafana"}}
 			if definition == "customer-portal" {
 				// The portal's definition renders no built-in client at all:
 				// the whole staticClients mapping is another owner's and
 				// stays as one key, the platform's stale client included.
-				want = []Kept{{"", "ingress"}, {keyOIDC, "customer"}, {keyOIDC, keyStaticClients}, {listExtraClients, "grafana"}}
+				want = []Kept{{"", keyIngress}, {keyOIDC, keyCustomer}, {keyOIDC, keyStaticClients}, {listExtraClients, "grafana"}}
 			}
 			if len(kept) != len(want) {
 				t.Fatalf("kept %v, want %v", kept, want)
@@ -159,5 +162,44 @@ func TestKeepDexPatchWritesIntoAnEmptyFile(t *testing.T) {
 		if string(got) != rendered || kept != nil {
 			t.Errorf("%q: got %q kept %v, want the render and nothing kept", current, got, kept)
 		}
+	}
+}
+
+// The token-exchange connectors a definition renders under
+// oidc.customer.connectors are its own by id: a rendered one replaces the
+// current entry whole, one of another id stays, and every other key of
+// oidc.customer — the installation's login connector — stays with its
+// comments, after the definition's part.
+func TestKeepDexPatchKeepsTheLoginConnectorBesideTheExchangeConnectors(t *testing.T) {
+	const rendered = "oidc:\n  staticClients:\n    muster:\n      clientSecretRef:\n        name: dex-client-muster\n        key: secret\n  customer:\n    connectors:\n      - id: oakridge-simple-oidc\n        connectorType: oidc\n        connectorName: heron token exchange\n        connectorConfig: |\n          issuer: https://dex.heron.oakridge.example\n          insecureEnableGroups: true\n"
+	current := strings.Replace(currentDexPatch, "    connectors:\n", "    connectors:\n      - id: oakridge-simple-oidc\n        connectorType: oidc\n        connectorName: stale\n        connectorConfig: |\n          issuer: https://dex.stale.example.test\n", 1)
+	got, kept, err := keepDexPatch([]byte(rendered), []byte(current))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Kept{{"", keyIngress}, {mapCustomer, "enabled"}, {mapCustomer, "connectorType"}, {mapCustomer, "connectorName"}, {listConnectors, "customer-simple-oidc"}, {listStaticClients, "argocd"}, {keyOIDC, keyExtraStaticClients}}
+	if len(kept) != len(want) {
+		t.Fatalf("kept %v, want %v", kept, want)
+	}
+	for i := range want {
+		if kept[i] != want[i] {
+			t.Errorf("kept[%d] = %v, want %v", i, kept[i], want[i])
+		}
+	}
+	s := string(got)
+	for _, frag := range []string{"# the organisation's directory", "connectorName: Example Directory", "issuer: https://dex.other.example.test", "issuer: https://dex.heron.oakridge.example", "connectorName: heron token exchange", "name: dex-client-argocd", "- id: grafana"} {
+		if !strings.Contains(s, frag) {
+			t.Errorf("merged patch lacks %q:\n%s", frag, s)
+		}
+	}
+	if strings.Contains(s, "dex.stale.example.test") || strings.Contains(s, "connectorName: stale") || strings.Count(s, "id: oakridge-simple-oidc") != 1 {
+		t.Errorf("the definition's connector carries the current entry's stale values, or appears twice:\n%s", s)
+	}
+	again, keptAgain, err := keepDexPatch([]byte(rendered), got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(again) != s || len(keptAgain) != len(kept) {
+		t.Errorf("a second keep over the merged patch is not stable:\n%s", again)
 	}
 }

@@ -33,7 +33,7 @@ features:
       - {id: edge-oauth-mode, kind: configmap, key: agent-platform-mcps.agentgateway.oauthMode}
       - {id: dex-extra-static-clients, kind: dex-configmap, key: oidc.extraStaticClients}
       - {id: dex-static-client-keys, kind: dex-configmap, key: oidc.staticClients}
-      - {id: dex-other-oidc-keys, kind: dex-configmap, catchAll: true, key: every other key of the patch (oidc.* but staticClients and extraStaticClients)}
+      - {id: dex-other-oidc-keys, kind: dex-configmap, catchAll: true, key: every other key of the patch (oidc.* but staticClients and extraStaticClients and customer.connectors)}
       - {id: live-oauth2-proxy-extra-audience, kind: live, key: oauth2-proxy --oidc-extra-audience argument}
       - {id: live-muster-trusted-audiences, kind: live, key: muster ConfigMap trustedAudiences}
       - {id: live-muster-connector-and-client-id, kind: live, key: "muster ConfigMap dex connectorId, where the definition renders one"}
@@ -104,6 +104,7 @@ features:
       - {id: token-exchange-broker, kind: configmap, key: muster.muster.oauth.server.tokenExchangeBroker}
       - {id: extra-ca-file, kind: configmap, key: muster.muster.extraCaFile}
       - {id: identity-providers, kind: configmap, key: agent-platform-mcps.identityProviders}
+      - {id: dex-exchange-connectors, kind: dex-configmap, key: oidc.customer.connectors (the connectors this installation's Dex registers for the hubs that broker into it)}
       - {id: federated-mcp-servers, kind: configmap, key: "agent-platform-mcps.mcpServers[https://<host>] (other installations', through the tunnel or on their domain)"}
       - {id: tunnel-files, kind: extras, key: agent-platform/tunnelport/ / kubernetes/envs/prod/values.yaml tunnelport (the tunnel's objects and the fleet's tunnelport values)}
       - {id: portal-cluster-token-broker, kind: backstage, key: agent-platform/app-config.yaml gs.clusterTokenBroker}

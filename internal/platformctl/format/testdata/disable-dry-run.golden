@@ -1,0 +1,93 @@
+disable_capability dry run: agent-platform on kestrel (hub gopher), as jane
+State: enabled
+
+Directories that leave whole: giantswarm/oakridge-management-clusters:management-clusters/kestrel/extras/agent-platform/, giantswarm/oakridge-management-clusters:management-clusters/kestrel/extras/mcp-kubernetes/, giantswarm/oakridge-management-clusters:management-clusters/kestrel/extras/mcp-prometheus/, giantswarm/oakridge-management-clusters:management-clusters/kestrel/extras/mcp-capi/, giantswarm/oakridge-management-clusters:management-clusters/kestrel/extras/backstage/agent-platform/
+
+Pull requests, in order:
+  1. giantswarm/oakridge-configs: 2 changes
+     delete installations/kestrel/apps/agent-platform/configmap-values.yaml.patch
+     update installations/kestrel/apps/dex-app/configmap-values.yaml.patch
+     --- as the commit writes it
+       ingress:
+         largeHeaderBuffers: true
+       oidc:
+         extraStaticClients:
+           - id: own-tool
+             name: own-tool
+             secretRef:
+               name: dex-client-own-tool
+               key: secret
+  2. giantswarm/oakridge-management-clusters: 30 changes
+     delete management-clusters/kestrel/extras/agent-platform/kustomization.yaml
+     delete management-clusters/kestrel/extras/agent-platform/mcpclients/gateway.yaml  (not rendered by the definition: leaves with its directory)
+     delete management-clusters/kestrel/extras/agent-platform/secrets/dex-client-kagent-secret.yaml
+     delete management-clusters/kestrel/extras/agent-platform/secrets/dex-client-muster-secret.yaml
+     delete management-clusters/kestrel/extras/agent-platform/secrets/dex-client-muster-token-exchange-kestrel-secret.yaml  (paired with gopher:management-clusters/gopher/extras/agent-platform/secrets/kestrel-token-exchange-credentials.yaml)
+     delete management-clusters/kestrel/extras/agent-platform/secrets/kagent-oauth2-proxy-credentials.yaml
+     delete management-clusters/kestrel/extras/agent-platform/secrets/kustomization.yaml
+     delete management-clusters/kestrel/extras/agent-platform/secrets/muster-oauth-credentials.yaml
+     delete management-clusters/kestrel/extras/agent-platform/secrets/muster-valkey-credentials.yaml
+     delete management-clusters/kestrel/extras/backstage/agent-platform/ai-chat-credentials.enc.yaml
+     delete management-clusters/kestrel/extras/backstage/agent-platform/app-config.yaml
+     delete management-clusters/kestrel/extras/backstage/agent-platform/kustomization.yaml
+     delete management-clusters/kestrel/extras/backstage/agent-platform/values.yaml
+     update management-clusters/kestrel/extras/backstage/kustomization.yaml
+     --- as the commit writes it
+       apiVersion: kustomize.config.k8s.io/v1beta1
+       kind: Kustomization
+       resources:
+         - ./backstage/
+     update management-clusters/kestrel/extras/kustomization.yaml
+     --- as the commit writes it
+       apiVersion: kustomize.config.k8s.io/v1beta1
+       kind: Kustomization
+       resources:
+         - ./zot/
+     delete management-clusters/kestrel/extras/mcp-capi/credentials-revision.enc.yaml
+     delete management-clusters/kestrel/extras/mcp-capi/dex-client-mcp-capi-secret.yaml
+     delete management-clusters/kestrel/extras/mcp-capi/kustomization.yaml
+     delete management-clusters/kestrel/extras/mcp-capi/oauth-credentials.enc.yaml
+     delete management-clusters/kestrel/extras/mcp-capi/valkey-credentials.enc.yaml
+     delete management-clusters/kestrel/extras/mcp-kubernetes/credentials-revision.enc.yaml
+     delete management-clusters/kestrel/extras/mcp-kubernetes/dex-client-mcp-kubernetes-secret.yaml
+     delete management-clusters/kestrel/extras/mcp-kubernetes/kustomization.yaml
+     delete management-clusters/kestrel/extras/mcp-kubernetes/oauth-credentials.enc.yaml
+     delete management-clusters/kestrel/extras/mcp-kubernetes/valkey-credentials.enc.yaml
+     delete management-clusters/kestrel/extras/mcp-prometheus/credentials-revision.enc.yaml
+     delete management-clusters/kestrel/extras/mcp-prometheus/dex-client-mcp-prometheus-secret.yaml
+     delete management-clusters/kestrel/extras/mcp-prometheus/kustomization.yaml
+     delete management-clusters/kestrel/extras/mcp-prometheus/oauth-credentials.enc.yaml
+     delete management-clusters/kestrel/extras/mcp-prometheus/valkey-credentials.enc.yaml
+
+After the merge, delete on kestrel in this order — the fleet's Kustomization over the tree does not prune:
+  [ ] HelmRelease flux-giantswarm/agent-platform
+  [ ] OCIRepository flux-giantswarm/agent-platform
+  [ ] Namespace agent-platform
+  [ ] Namespace kagent
+  [ ] Secret giantswarm/dex-client-kagent
+  [ ] Secret giantswarm/dex-client-muster
+  [ ] Secret giantswarm/dex-client-muster-token-exchange-kestrel
+  [ ] Secret flux-giantswarm/agent-platform-ai-chat-credentials-backstage
+  [ ] ConfigMap backstage/agent-platform-app-config-backstage
+  [ ] ConfigMap flux-giantswarm/agent-platform-values-backstage
+  [ ] Secret flux-giantswarm/mcp-capi-credentials-revision
+  [ ] Secret giantswarm/dex-client-mcp-capi
+  [ ] Secret mcp-capi/mcp-capi-oauth-credentials
+  [ ] Secret mcp-capi/mcp-capi-valkey-auth
+  [ ] Secret flux-giantswarm/mcp-kubernetes-credentials-revision
+  [ ] Secret giantswarm/dex-client-mcp-kubernetes
+  [ ] Secret mcp-kubernetes/mcp-kubernetes-oauth-credentials
+  [ ] Secret mcp-kubernetes/mcp-kubernetes-valkey-auth
+  [ ] Secret flux-giantswarm/mcp-prometheus-credentials-revision
+  [ ] Secret giantswarm/dex-client-mcp-prometheus
+  [ ] Secret mcp-prometheus/mcp-prometheus-oauth-credentials
+  [ ] Secret mcp-prometheus/mcp-prometheus-valkey-auth
+
+Still depends on agent-platform:
+  - kestrel shares a value with gopher, which holds the other side in management-clusters/gopher/extras/agent-platform/secrets/kestrel-token-exchange-credentials.yaml
+
+After the merge, check:
+  platformctl installation list kestrel   (agent-platform: not enabled)
+  platformctl installation verify kestrel agent-platform
+
+Commit refused: 1 reference(s) still depend on agent-platform on kestrel

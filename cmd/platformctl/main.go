@@ -34,6 +34,7 @@ const usage = `platformctl — the laptop and CI surface of giantswarm-platform-
   platformctl installation list [<installation>...] [--customer <name>]
   platformctl installation enable <installation> <capability> --dry-run|--commit --reason <text> [--input k=v]... [--secret f=src]... [--rotate <name>]... [--content]
   platformctl installation reconcile <installation>...|--all <capability> --dry-run|--commit --reason <text> [--input k=v]... [--secret f=src]... [--rotate <name>]... [--content]
+  platformctl installation disable <installation> <capability> --dry-run|--commit --reason <text> [--content]
   platformctl installation verify <installation> <capability>
   platformctl installation dex-split <installation> --configs <dir> --management-clusters <dir> [--vault sops|beekeeper] [--hub <mc> --hub-management-clusters <dir>] [--write]
       Move an installation's Dex clients out of its encrypted dex-app values into referenced
@@ -71,6 +72,11 @@ generated value on request, named as the dry run's generated secrets list it
 hold it, the commit writes a new value into them and draws its component's credentials revision, so
 every workload that reads it restarts. Over a set a name applies where an installation's plan lists
 it; a name no plan lists is refused.
+disable is enable's mirror on one installation: the dry run lists every file it deletes or edits by
+pull request, the files that stay because another capability on record renders them, the objects
+the fleet's Kustomization leaves on the cluster as a checklist in deletion order, what still
+depends on the capability (a refusal names it) and the commands that check the result after the
+merge; --commit opens the pull requests through the action and its review, like enable.
 verify prints the features of the definition with their marks and dimensions. approve, deny and
 merge are the review's tools called as you; the manager's answer says what follows. deny on a
 merged action that failed or was reverted is its actor's withdrawal: the action moves to
@@ -170,10 +176,11 @@ func newRoot(u *update.Updater) *cobra.Command {
 	}
 	root.AddCommand(
 		newTemplateCmd(),
-		group("installation", "The capabilities of the installations: list, enable, reconcile, verify, dex-split",
+		group("installation", "The capabilities of the installations: list, enable, reconcile, disable, verify, dex-split",
 			newInstallationListCmd(),
 			newCapabilityCmd(tools.ToolEnableCapability, false),
 			newCapabilityCmd(tools.ToolReconcileCapability, true),
+			newDisableCmd(),
 			newVerifyCmd(),
 			newDexSplitCmd(),
 		),

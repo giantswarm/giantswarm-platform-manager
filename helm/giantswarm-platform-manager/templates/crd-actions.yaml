@@ -59,9 +59,9 @@ spec:
                   description: The capability acted on.
                   type: string
                 kind:
-                  description: enable or reconcile.
+                  description: enable, reconcile or disable.
                   type: string
-                  enum: [enable, reconcile]
+                  enum: [enable, reconcile, disable]
                 customer:
                   description: A customer installation is among the targets; the notice channel is told once its change is applied.
                   type: boolean
@@ -128,9 +128,9 @@ spec:
               type: object
               properties:
                 state:
-                  description: The action's state, one of the installations' states an action produces, or the action's own — refused (the gate refused it before any write — the installation unreadable as the person, or without repositories on record), denied (a member withdrew it before its merge), reverted (a merged pull request of it was reverted on the default branch), withdrawn (its actor withdrew it after the merge, with the reason), removed (the fileset it wrote left the default branch again).
+                  description: The action's state, one of the installations' states an action produces, or the action's own — refused (the gate refused it before any write — the installation unreadable as the person, or without repositories on record), denied (a member withdrew it before its merge), reverted (a merged pull request of it was reverted on the default branch), withdrawn (its actor withdrew it after the merge, with the reason), removed (the fileset it wrote left the default branch again), disabled (a disable merged and the capability's marker left the default branch).
                   type: string
-                  enum: ["pending approval", "ready to merge", "rolling out", "waiting for the customer", enabled, drifted, failed, refused, denied, reverted, withdrawn, removed]
+                  enum: ["pending approval", "ready to merge", "rolling out", "waiting for the customer", enabled, drifted, failed, refused, denied, reverted, withdrawn, removed, disabled]
                 pullRequests:
                   type: array
                   items:

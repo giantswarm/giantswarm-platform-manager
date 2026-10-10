@@ -323,13 +323,18 @@ func (in *Input) musterValues() render.Map {
 		e("existingSecret", musterOAuthSecret),
 		e("storage", render.Map{e("valkey", render.Map{e("existingSecret", musterValkeySecret)})}),
 	}
-	// The chat gateway's client_id is a metadata document served on
-	// agentgateway's hostname, which resolves to the internal load balancer on
-	// a private installation: muster's SSRF guard is lifted for that host
-	// alone (allowPrivateIPClientMetadataHosts, muster 5.35.0), every other
-	// private host keeps it.
+	// Dex and the chat gateway's client_id (a metadata document served on
+	// agentgateway's hostname) both resolve to the internal load balancer on
+	// a private installation: muster's SSRF guard is lifted for Dex's OIDC
+	// discovery (dex.allowPrivateIPOIDC) and for agentgateway's host alone
+	// (allowPrivateIPClientMetadataHosts, muster 5.35.0), every other private
+	// host keeps it. The shared defaults derive allowPrivateIPOIDC from
+	// managementCluster.private, which is false on an installation whose
+	// ingress alone is private, so the record's private fact renders it here
+	// like its siblings.
 	if in.Installation.Private {
 		server = append(server,
+			e("dex", render.Map{e("allowPrivateIPOIDC", true)}),
 			e("allowPrivateIPClientMetadataHosts", []string{in.host("agentgateway")}),
 			e("allowPrivateIPRedirectURIs", true))
 	}
@@ -363,9 +368,7 @@ func (in *Input) musterValues() render.Map {
 }
 
 // dexClientRef is the referenced-Secret form of a Dex client secret.
-func dexClientRef(component string) render.Map {
-	return render.Map{e("name", dexClientSecretName(component)), e("key", dexSecretKey)}
-}
+func dexClientRef(component string) render.Map { return render.DexClientSecretRef(component) }
 
 // generated is a SecretKey whose value the commit step generates for this
 // installation alone: the name carries the installation, because the commit
@@ -379,13 +382,21 @@ func (in *Input) generated(key, base string, kind render.GeneratedKind, length i
 // generatedName names a generated value of this installation.
 func (in *Input) generatedName(base string) string { return in.Installation.Name + "-" + base }
 
+// exchange is the Dex side of the token exchange on this installation: the
+// hubs that broker into it and the registry's hub by name
+// (installation.federation.registryHub), the same shape the
+// cluster-mcp-servers definition renders it from on an installation without
+// the platform (render.ExchangeTarget).
+func (in *Input) exchange() render.ExchangeTarget {
+	fed := in.Installation.Federation
+	return render.ExchangeTarget{Installation: in.Installation.Name, Hubs: fed.Hubs, RegistryHub: fed.RegistryHub}
+}
+
 // targetClient is the id of the token-exchange client hub uses in this
 // installation's Dex (tokenExchangeClient): the fleet's plain id for the
 // registry's hub, installation.federation.registryHub, the hub's name in it
 // for every other hub.
-func (in *Input) targetClient(hub string) string {
-	return tokenExchangeClient(in.Installation.Name, hub, hub == in.Installation.Federation.RegistryHub)
-}
+func (in *Input) targetClient(hub string) string { return in.exchange().Client(hub) }
 
 // portalDexClient is the one Dex client every portal signs in through: the
 // customer-portal definition's client, with a redirect URI per portal. Its
@@ -404,10 +415,13 @@ func (in *Input) portalDexClient() render.Map {
 
 // dexPatch is installations/<name>/apps/dex-app/configmap-values.yaml.patch:
 // the platform's clients in plaintext, every secret a reference to a Secret
-// in Dex's namespace. It never touches the encrypted secret patch. The patch
-// is one file with one owner: on an installation with the platform enabled
-// this definition owns it, so the portals' client is carried here, the entry
-// the customer-portal definition renders on an installation without the
+// in Dex's namespace, and the token-exchange connectors of the hubs that
+// broker into the installation (render.ExchangeConnectors), among the
+// installation's own connectors under oidc.customer, which the plan keeps.
+// It never touches the encrypted secret patch. The patch is one file with
+// one owner: on an installation with the platform enabled this definition
+// owns it, so the portals' client is carried here, the entry the
+// customer-portal definition renders on an installation without the
 // platform, with every portal's redirect URI.
 func (in *Input) dexPatch() render.Map {
 	static := render.Map{e("muster", render.Map{e("clientSecretRef", dexClientRef("muster"))})}
@@ -419,10 +433,7 @@ func (in *Input) dexPatch() render.Map {
 	// The portals' clients are trusted peers of the authenticator: a portal
 	// asks Dex for the cluster tokens (audience:server:client_id) through the
 	// client it signed in with, so the peer is that client's id.
-	peers := in.portalAudiences()
-	for _, hub := range in.Installation.Federation.Hubs {
-		peers = append(peers, in.targetClient(hub))
-	}
+	peers := append(in.portalAudiences(), in.exchange().TrustedPeers()...)
 	if len(peers) > 0 {
 		static = append(static, e("dexK8SAuthenticator", render.Map{e("trustedPeers", peers)}))
 	}
@@ -435,13 +446,13 @@ func (in *Input) dexPatch() render.Map {
 	if in.portalClient() {
 		extra = append(extra, in.portalDexClient())
 	}
-	for _, hub := range in.Installation.Federation.Hubs {
-		extra = append(extra, render.Map{e("id", in.targetClient(hub)), e("name", hub+" token exchange"),
-			e("secretRef", dexClientRef(in.targetClient(hub)))})
-	}
+	extra = append(extra, in.exchange().DexClients()...)
 	oidc := render.Map{e("staticClients", static)}
 	if len(extra) > 0 {
 		oidc = append(oidc, e("extraStaticClients", extra))
+	}
+	if len(in.HubConnectors) > 0 {
+		oidc = append(oidc, e("customer", render.Map{e("connectors", in.HubConnectors)}))
 	}
 	return render.Map{e("oidc", oidc)}
 }
@@ -696,9 +707,8 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 		add(dexClientSecretFile("kagent"), dexClientSecret("kagent", in.generatedName("kagent-dex-client-secret")))
 	}
 	for _, hub := range in.Installation.Federation.Hubs {
-		client := in.targetClient(hub)
-		add(dexClientSecretFile(client), dexClientSecret(client, exchangeSecretName(client)).
-			Peered(exchangeSecretName(client), render.Peer{Installation: hub, Path: secretsPath(hub, credentialsSecretName(in.Installation.Name)+".yaml")}))
+		// The hub's client in this Dex, peered with the hub's credentials Secret for this installation.
+		add(in.exchange().Secret(hub))
 	}
 	if in.brokers() {
 		in.hubSecrets(add)

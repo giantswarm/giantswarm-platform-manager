@@ -35,6 +35,7 @@ const (
 	shapeRegisteredServers      = "registered-servers"
 	shapePortalGitHubGrant      = "portal-github-grant"
 	shapePortalHive             = "portal-hive"
+	shapeCustomerSibling        = "customer-sibling"
 )
 
 // The keys of the choices' documents the refusal cases build.
@@ -61,7 +62,7 @@ const (
 )
 
 // shapes are the installation shapes, in the order the goldens are rendered.
-var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned, shapeGiantswarmSlackApp, shapeGiantswarmSlackAppPub, shapeHubPrivateTarget, shapeMultiClusterAggregator, shapeSecondHub, shapeHandKeptPortal, shapeRegisteredServers, shapePortalGitHubGrant, shapePortalHive}
+var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned, shapeGiantswarmSlackApp, shapeGiantswarmSlackAppPub, shapeHubPrivateTarget, shapeMultiClusterAggregator, shapeSecondHub, shapeHandKeptPortal, shapeRegisteredServers, shapePortalGitHubGrant, shapePortalHive, shapeCustomerSibling}
 
 func loadInput(t *testing.T, shape string) (map[string]any, map[string]string) {
 	t.Helper()
@@ -752,7 +753,7 @@ func TestManagersCommitMode(t *testing.T) {
 		})
 	}
 	input, secrets := loadInput(t, shapeHubPrivateTarget)
-	input["installation"].(map[string]any)["customer"] = "fleetio"
+	input["installation"].(map[string]any)["customer"] = "dvag"
 	input["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
 	input["agentManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: true}}
 	if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "agentManager.github.enabled") {
@@ -830,7 +831,7 @@ func TestAgentManagerSkills(t *testing.T) {
 	}
 
 	input, secrets = loadInput(t, shapeHubPrivateTarget)
-	input["installation"].(map[string]any)["customer"] = "fleetio"
+	input["installation"].(map[string]any)["customer"] = "dvag"
 	input["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
 	input["agentManager"] = map[string]any{keySkills: map[string]any{keyToken: skillsTok}} //nolint:gosec // a Secret's name in a fixture, no credential
 	if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "agentManager.skills") {
@@ -1173,4 +1174,50 @@ func TestFactsAreTheProvidersOnTheFourLine(t *testing.T) {
 	if got := in.Facts(); got != nil {
 		t.Errorf("without kagent: %v", got)
 	}
+}
+
+// TestPrivateInstallationLiftsMusterGuards renders muster's three
+// private-address flags together from the record's private fact — Dex's OIDC
+// discovery (dex.allowPrivateIPOIDC), the chat gateway's client_id on
+// agentgateway's host and private redirect URIs — and none of them on a
+// public installation. The shared default derives allowPrivateIPOIDC from
+// managementCluster.private, which is false where the ingress alone is
+// private, so the definition's own fact decides it and a reconcile keeps it.
+func TestPrivateInstallationLiftsMusterGuards(t *testing.T) {
+	flags := []string{"dex:\n          allowPrivateIPOIDC: true", "allowPrivateIPClientMetadataHosts:\n          - agentgateway.", "allowPrivateIPRedirectURIs: true"}
+	for shape, private := range map[string]bool{shapeGiantswarmSlackApp: true, shapeGiantswarmSlackAppPub: false} {
+		t.Run(shape, func(t *testing.T) {
+			input, secrets := loadInput(t, shape)
+			in, err := Parse(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if in.Installation.Private != private {
+				t.Fatalf("private %v, want %v", in.Installation.Private, private)
+			}
+			result, err := Render(input, secrets, render.ModeCommit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			patch := platformPatch(t, result)
+			for _, flag := range flags {
+				if strings.Contains(patch, flag) != private {
+					t.Errorf("%q rendered: %v, want %v:\n%s", flag, !private, private, patch)
+				}
+			}
+		})
+	}
+}
+
+// platformPatch is the rendered agent-platform configmap patch of the
+// installation.
+func platformPatch(t *testing.T, result *render.Result) string {
+	t.Helper()
+	for name, content := range result.Tree() {
+		if strings.HasSuffix(filepath.ToSlash(name), "/apps/agent-platform/configmap-values.yaml.patch") {
+			return string(content)
+		}
+	}
+	t.Fatal("no agent-platform configmap patch rendered")
+	return ""
 }

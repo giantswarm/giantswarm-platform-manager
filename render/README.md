@@ -139,9 +139,15 @@ diffed on every pull request; `go test ./render/... -update` rewrites them after
 A management cluster's own MCP servers without the agent platform (`render/clustermcpservers`): per running
 server the extras directory `render/mcpservers` renders — the one the agent-platform definition renders for its
 installation's servers — with the user values the record says the server needs (Dex on private addresses, the
-clients' too, the installation's Dex CA Secret listed), and each server's Dex client as a `clientSecretRef` in the
-dex-app configmap patch, a file the plan merges keeping every other owner's clients and keys. It refuses where the
-agent platform is on record and below dex-app 3.2.3 (2.4.0 on the 2.x line); see `definitions/cluster-mcp-servers/README.md`.
+clients' too, the installation's Dex CA Secret listed), each server's Dex client as a `clientSecretRef` in the
+dex-app configmap patch, a file the plan merges keeping every other owner's clients and keys, and the
+token-exchange client of every hub whose muster exchanges tokens into the installation to reach the servers
+(`installation.federation.hubs`): its entry in the patch, as a trusted peer of the authenticator, and its Secret
+under `extras/agent-platform/secrets` with the kustomizations that apply it — `render.ExchangeTarget`, the same
+files the agent-platform definition renders for the same pairing, so a pair's Dex side stays in one file with its
+value whichever definition renders it, and a disable of the platform keeps it as this definition's. It refuses
+where the agent platform is on record and below dex-app 3.2.3 (2.4.0 on the 2.x line); see
+`definitions/cluster-mcp-servers/README.md`.
 
 ## Probes and customer actions
 

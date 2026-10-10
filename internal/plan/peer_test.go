@@ -3,6 +3,7 @@ package plan
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -46,10 +47,12 @@ func pairDefinition(peer *render.Peer) installations.Capability {
 }
 
 // A value with a peer is drawn by neither side alone: kept on both sides it
-// stands; created here — the peer absent or on record — or rotated here,
-// forced or asked for, the commit is refused before any write, naming the
-// pair and the peer's file; a peer that cannot be read or resolved refuses
-// alike. A value without a peer (a target that keeps its Dex client by hand)
+// stands; created here while the peer's file is on record, the person
+// supplies it (the plan asks for it by name); created here while the peer's
+// file is absent, the commit is refused before any write, naming the pair,
+// the peer's file and the wave as the way out; rotated here, forced or
+// asked for, refused alike; a peer that cannot be read or resolved refuses
+// too. A value without a peer (a target that keeps its Dex client by hand)
 // is created here as any other.
 func TestBuildRefusesADrawOfOneSideOfAPair(t *testing.T) {
 	peer := &render.Peer{Installation: oak.Name, Path: pairPeerSide}
@@ -65,10 +68,11 @@ func TestBuildRefusesADrawOfOneSideOfAPair(t *testing.T) {
 		rotate   []string
 		want     string // a part of the refusal; empty: none
 		kept     bool
+		supplied bool
 	}{
 		{name: "both sides kept", peer: peer, onRecord: both, registry: byName, kept: true},
-		{name: "creating this side, the peer absent", peer: peer, onRecord: map[string]string{}, registry: byName, want: "oak's file is not on record, so each side would draw its own value"},
-		{name: "creating this side, the peer on record", peer: peer, onRecord: map[string]string{peerKey: both[peerKey]}, registry: byName, want: "would not reach oak's file, which keeps its own"},
+		{name: "creating this side, the peer absent", peer: peer, onRecord: map[string]string{}, registry: byName, want: "oak's file is not on record, so each side would draw its own value and the token exchange would fail with invalid_client — the manager decrypts nothing, so reconcile oak in the same wave, which draws the value once for both sides, or a person puts the one value on both sides"},
+		{name: "creating this side, the peer on record", peer: peer, onRecord: map[string]string{peerKey: both[peerKey]}, registry: byName, supplied: true},
 		{name: "rotating this side on request", peer: peer, onRecord: both, registry: byName, rotate: []string{pairName}, want: "would not reach oak's file, which keeps its own"},
 		{name: "the peer unreadable", peer: peer, onRecord: map[string]string{}, readErr: errors.New("403 forbidden"), registry: byName, want: "oak's file could not be read (403 forbidden)"},
 		{name: "the peer not in the registry", peer: peer, onRecord: map[string]string{}, registry: map[string]installations.Installation{hazel.Name: hazel}, want: "could not be read (not in the registry)"},
@@ -103,8 +107,86 @@ func TestBuildRefusesADrawOfOneSideOfAPair(t *testing.T) {
 			if g.Kept != tc.kept {
 				t.Errorf("kept %v, want %v", g.Kept, tc.kept)
 			}
+			if g.Supplied != tc.supplied || slices.Contains(p.SuppliedSecrets, pairName) != tc.supplied || g.DrawnWith != "" {
+				t.Errorf("supplied %v, suppliedSecrets %v, drawn with %q; want supplied %v", g.Supplied, p.SuppliedSecrets, g.DrawnWith, tc.supplied)
+			}
 		})
 	}
+}
+
+// peerDefinition renders oak's side of the pair, the Dex-side copy, naming
+// peer as the other.
+func peerDefinition(peer *render.Peer) installations.Capability {
+	return installations.Capability{
+		Name:  "pair",
+		Parse: func(any) (render.Input, error) { return fakeInput{}, nil },
+		Render: func(any, map[string]string, render.Mode) (*render.Result, error) {
+			return &render.Result{Files: render.Fileset{renderedMCs: {pairPeerSide: render.File{
+				Content:   []byte(pairManifest("dex-client-muster-token-exchange-oak", render.Placeholder(pairName))),
+				Generated: []render.Generated{{Name: pairName, Placeholder: render.Placeholder(pairName), Kind: render.Base64, Length: 32, Peer: peer}},
+			}}}}, nil
+		},
+	}
+}
+
+// A pair both of whose sides one set creates — hazel's credentials Secret
+// for oak in hazel's plan, oak's Dex-side copy in oak's — is drawn once for
+// the wave: each plan alone refuses its side; paired, each names the other's
+// installation and refuses nothing. With one side on record that side is
+// kept and the other supplied, and nothing is paired; a side whose peer's
+// plan is not in the set stays refused, naming the wave.
+func TestShareDrawsAPairBothSidesOfWhichTheSetCreates(t *testing.T) {
+	hubFile, peerFile := hubMCs+":"+pairHubSide, oakMCs+":"+pairPeerSide
+	hubDef := pairDefinition(&render.Peer{Installation: oak.Name, Path: pairPeerSide})
+	peerDef := peerDefinition(&render.Peer{Installation: hazel.Name, Path: pairHubSide})
+	build := func(def installations.Capability, inst installations.Installation, onRecord map[string]string) *Installation {
+		read := func(_ context.Context, repository, path string) (string, error) {
+			if c, ok := onRecord[repository+":"+path]; ok {
+				return c, nil
+			}
+			return "", gh.ErrNotFound
+		}
+		p := Build(context.Background(), Options{Definition: def, Installation: inst, Hub: hazel, Inputs: map[string]any{}, Read: read, Installations: byName})
+		if p.Refused != "" || len(p.GeneratedSecrets) != 1 {
+			t.Fatalf("%s: refused %q, generated %+v", inst.Name, p.Refused, p.GeneratedSecrets)
+		}
+		return &p
+	}
+	generated := func(p *Installation) GeneratedSecret { return p.GeneratedSecrets[0] }
+	t.Run("both sides created", func(t *testing.T) {
+		h, o := build(hubDef, hazel, nil), build(peerDef, oak, nil)
+		if h.FrozenRefusal() == "" || o.FrozenRefusal() == "" {
+			t.Fatalf("alone, each side is refused: %q, %q", h.FrozenRefusal(), o.FrozenRefusal())
+		}
+		if changed := ShareDraws([]*Installation{h, o}); !slices.Equal(changed, []string{hazel.Name, oak.Name}) {
+			t.Fatalf("changed %v", changed)
+		}
+		if g := generated(h); g.DrawnWith != oak.Name || g.Peer != peerFile || g.Supplied || h.FrozenRefusal() != "" {
+			t.Errorf("hazel's side %+v", g)
+		}
+		if g := generated(o); g.DrawnWith != hazel.Name || g.Peer != hubFile || g.Supplied || o.FrozenRefusal() != "" {
+			t.Errorf("oak's side %+v", g)
+		}
+	})
+	t.Run("the hub's side on record", func(t *testing.T) {
+		onRecord := map[string]string{hubFile: pairOnRecord("oak-token-exchange-credentials")}
+		h, o := build(hubDef, hazel, onRecord), build(peerDef, oak, onRecord)
+		if changed := ShareDraws([]*Installation{h, o}); len(changed) != 0 {
+			t.Fatalf("changed %v", changed)
+		}
+		if g := generated(h); !g.Kept || g.DrawnWith != "" || g.Supplied || h.FrozenRefusal() != "" {
+			t.Errorf("hazel's side %+v", g)
+		}
+		if g := generated(o); !g.Supplied || g.DrawnWith != "" || o.FrozenRefusal() != "" || !slices.Equal(o.SuppliedSecrets, []string{pairName}) {
+			t.Errorf("oak's side %+v, supplied %v", g, o.SuppliedSecrets)
+		}
+	})
+	t.Run("the peer's plan not in the set", func(t *testing.T) {
+		h := build(hubDef, hazel, nil)
+		if changed := ShareDraws([]*Installation{h}); len(changed) != 0 || generated(h).DrawnWith != "" || !strings.Contains(h.FrozenRefusal(), "reconcile oak in the same wave") {
+			t.Errorf("changed %v, %+v", changed, generated(h))
+		}
+	})
 }
 
 // A value another capability holds (render.Generated's HeldBy) is created

@@ -45,22 +45,23 @@ func (p Installation) referencesDexSecrets() bool {
 
 // DexSecretRefusal says why a commit of p is refused for the encrypted Dex
 // values on record: p's Dex patch renders a list — oidc.extraStaticClients,
-// the authenticator's trustedPeers — that rec's encrypted dex-app secret
-// patch carries as well. app-operator merges the config ConfigMap with the
-// config Secret, and helm-controller its valuesFrom, by replacing a list,
-// never by appending, so the encrypted list would stand and the rendered
-// clients or peers never reach Dex. The engine never edits an encrypted
-// file: the entries are carried over by hand first — every client to its own
-// Secret and a plaintext entry, every peer to the plaintext list — and the
-// lists dropped from the encrypted values. Empty where nothing refuses — no
-// record, no list in common, a plan without a Dex patch. The comparison runs
-// either way; only the commit is held.
+// the authenticator's trustedPeers, the customer's connectors — that rec's
+// encrypted dex-app secret patch carries as well. app-operator merges the
+// config ConfigMap with the config Secret, and helm-controller its
+// valuesFrom, by replacing a list, never by appending, so the encrypted list
+// would stand and the rendered clients, peers or connectors never reach Dex.
+// The engine never edits an encrypted file: the entries are carried over by
+// hand first — every client to its own Secret and a plaintext entry, every
+// peer and every connector to the plaintext list — and the lists dropped
+// from the encrypted values. Empty where nothing refuses — no record, no
+// list in common, a plan without a Dex patch. The comparison runs either
+// way; only the commit is held.
 func (p Installation) DexSecretRefusal(rec *installations.Record) string {
 	if rec == nil || len(rec.DexSecretLists) == 0 {
 		return ""
 	}
 	var lists []installations.DexSecretList
-	var clients, peers []string
+	var clients, peers, connectors []string
 	for _, l := range rec.DexSecretLists {
 		switch l.Path {
 		case installations.DexExtraStaticClients:
@@ -71,18 +72,22 @@ func (p Installation) DexSecretRefusal(rec *installations.Record) string {
 			if ids := p.renderedTrustedPeers(); len(ids) > 0 {
 				lists, peers = append(lists, l), ids
 			}
+		case installations.DexCustomerConnectors:
+			if len(p.DexConnectors) > 0 {
+				lists, connectors = append(lists, l), p.DexConnectors
+			}
 		}
 	}
 	if len(lists) == 0 {
 		return ""
 	}
-	return DexSecretHold(rec.DexSecretSource, lists, clients, peers)
+	return DexSecretHold(rec.DexSecretSource, lists, clients, peers, connectors)
 }
 
 // DexSecretHold is the sentence the commit is held with: the encrypted file,
-// the lists it carries with their entries, and the rendered clients and
-// trusted peers those lists would shadow.
-func DexSecretHold(source string, lists []installations.DexSecretList, clients, peers []string) string {
+// the lists it carries with their entries, and the rendered clients, trusted
+// peers and connectors those lists would shadow.
+func DexSecretHold(source string, lists []installations.DexSecretList, clients, peers, connectors []string) string {
 	named := make([]string, len(lists))
 	for i, l := range lists {
 		named[i] = fmt.Sprintf("%s (%d entries)", l.Path, l.Entries)
@@ -94,7 +99,10 @@ func DexSecretHold(source string, lists []installations.DexSecretList, clients, 
 	if len(peers) > 0 {
 		shadowed = append(shadowed, "trusted peers "+strings.Join(peers, ", "))
 	}
-	return fmt.Sprintf("the encrypted Dex values on record (%s) carry %s, which the values merge takes whole over the plaintext patch, so the rendered %s would never reach Dex; carry every entry over by hand first — each client to its own Secret and a plaintext entry, each peer to the plaintext list — then drop the lists from the encrypted values",
+	if len(connectors) > 0 {
+		shadowed = append(shadowed, "connectors "+strings.Join(connectors, ", "))
+	}
+	return fmt.Sprintf("the encrypted Dex values on record (%s) carry %s, which the values merge takes whole over the plaintext patch, so the rendered %s would never reach Dex; carry every entry over by hand first — each client to its own Secret and a plaintext entry, each peer and each connector to the plaintext list — then drop the lists from the encrypted values",
 		source, strings.Join(named, " and "), strings.Join(shadowed, " and "))
 }
 
