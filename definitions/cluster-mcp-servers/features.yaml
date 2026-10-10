@@ -25,13 +25,10 @@ features:
       - {id: live-server-workloads, kind: live, key: "the Deployments mcp-<name> Available"}
   identity:
     title: Identity
-    description: Every server's Dex client reading its secret from a Secret in the cluster, Dex holding the current one, and the connectors the hubs exchange tokens through.
+    description: Every server's Dex client and every hub's token-exchange client reading its secret from a Secret in the cluster, Dex holding the current one, and the connectors the hubs exchange tokens through.
     dimensions:
       - {id: dex-static-clients, kind: dex-configmap, key: oidc.staticClients}
       - {id: dex-exchange-connectors, kind: dex-configmap, key: oidc.customer.connectors (the connectors Dex registers for the hubs that broker into the installation)}
-    description: Every server's Dex client and every hub's token-exchange client reading its secret from a Secret in the cluster, and Dex holding the current one.
-    dimensions:
-      - {id: dex-static-clients, kind: dex-configmap, key: oidc.staticClients}
       - {id: dex-token-exchange-clients, kind: dex-configmap, key: oidc.extraStaticClients / oidc.staticClients.dexK8SAuthenticator.trustedPeers (the hubs' token-exchange clients, each a trusted peer of the authenticator)}
       - {id: dex-other-keys, kind: dex-configmap, catchAll: true, key: every other key of the patch (the installation's own and the other definitions')}
       - {id: token-exchange-secrets, kind: extras, key: "agent-platform/ (the hubs' token-exchange Dex client Secrets and the kustomizations that apply them, the files the agent-platform definition renders for the same pairing)"}
