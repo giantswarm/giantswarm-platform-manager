@@ -234,7 +234,14 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 	// moves between the two: both sides say so.
 	plan.MoveRedirectURIs(ps)
 	for i := range out.Installations {
-		if e := &out.Installations[i]; slices.Contains(changed, e.Name) && e.Refused == "" && len(e.MissingInputs) == 0 {
+		e := &out.Installations[i]
+		// A set is the wave's shape: a plan that moves a side of a pair
+		// carries the wave's vault copy, the pair's values only, and its
+		// commit refusal is read with it.
+		if one == "" {
+			e.VaultCopies = e.WaveVaultCopies()
+		}
+		if (slices.Contains(changed, e.Name) || len(e.VaultCopies) > 0) && e.Refused == "" && len(e.MissingInputs) == 0 {
 			e.CommitRefused = commitRefusal(e.Installation, env.reports[e.Name].Record)
 		}
 	}

@@ -201,6 +201,8 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 				p.f("      rotates on request: %s — a new value replaces the one on record in %s; both sides roll, the client is unusable between the two rollouts%s\n", g.Name, strings.Join(g.FrozenIn, ", "), signsOut(g.Name))
 			case g.Rotates:
 				p.f("      rotates: %s (forced by %s%s) — a new value replaces the one on record in %s; both sides roll, the client is unusable between the two rollouts%s\n", g.Name, g.ForcedBy, cause(g.Cause), strings.Join(g.FrozenIn, ", "), signsOut(g.Name))
+			case g.Kept && len(g.Carries) > 0 && len(inst.VaultCopies) > 0 && g.Peer == "":
+				p.f("      kept: the value on record in %s stands; %s takes it, outside the pair this wave moves — not copied by the wave, the installation's own reconcile carries it\n", strings.Join(g.FrozenIn, ", "), carriesTo(g))
 			case g.Kept && len(g.Carries) > 0:
 				p.f("      kept: the value on record in %s stands; %s — the manager decrypts nothing, and the commit is refused until it is on record\n", strings.Join(g.FrozenIn, ", "), carries(g))
 			case g.Kept:
@@ -222,6 +224,7 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 	if len(inst.SuppliedOnRecord) > 0 {
 		p.f("  Supplied values on record: %s — their files stand, nothing to supply\n", strings.Join(inst.SuppliedOnRecord, ", "))
 	}
+	p.vaultCopies(inst.VaultCopies)
 	if len(inst.DexClients) > 0 {
 		p.f("  Dex clients:\n")
 		for _, c := range inst.DexClients {
@@ -245,6 +248,36 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 		p.f("\n--- %s/%s (%s)\n%s", f.Repository, f.Path, f.Change, f.Content)
 		if !strings.HasSuffix(f.Content, "\n") {
 			p.f("\n")
+		}
+	}
+}
+
+// vaultCopies lists the wave's vault copy by key: the pair's values the
+// caller's vault copies for the wave, each from where it is read to where
+// it goes, then the carries outside the pair the wave does not copy.
+func (p *printer) vaultCopies(copies []plan.VaultCopy) {
+	if len(copies) == 0 {
+		return
+	}
+	var selected, outside []plan.VaultCopy
+	for _, c := range copies {
+		if c.Outside {
+			outside = append(outside, c)
+		} else {
+			selected = append(selected, c)
+		}
+	}
+	p.f("  Vault copies for the wave, the pair's values only:\n")
+	if len(selected) == 0 {
+		p.f("    none: the pair is drawn once for the wave, nothing to copy\n")
+	}
+	for _, c := range selected {
+		p.f("    %s: %s → %s\n", c.Name, c.From, c.To)
+	}
+	if len(outside) > 0 {
+		p.f("  Outside the pair, not copied by the wave (the installation's own reconcile carries them):\n")
+		for _, c := range outside {
+			p.f("    %s: %s → %s\n", c.Name, c.From, c.To)
 		}
 	}
 }
@@ -275,6 +308,15 @@ func carries(g plan.GeneratedSecret) string {
 		parts = append(parts, part)
 	}
 	return strings.Join(parts, "; ")
+}
+
+// carriesTo names the files that take a generated value, the carries' To.
+func carriesTo(g plan.GeneratedSecret) string {
+	to := make([]string, 0, len(g.Carries))
+	for _, c := range g.Carries {
+		to = append(to, c.To)
+	}
+	return strings.Join(to, ", ")
 }
 
 // dexClientSecretFile says whether a carry's target is a Dex client's Secret

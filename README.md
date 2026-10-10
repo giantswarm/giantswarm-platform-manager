@@ -91,6 +91,12 @@ this order, writing nothing before the gate:
    it comes from and the file and key path it goes to, with the `beekeeper secret copy` or sops step;
    `platformctl installation dex-split` writes a Dex client's Secret this way and moves the client out of
    the dex-app patch with it), and the commit is refused until the carry is on record (`commitRefused`).
+   Over a set, a plan that moves a side of a token-exchange pair carries the wave's **vault copy**
+   (`vaultCopies`): the pair's values only, by key — supplied from the peer's file, or carried into a file
+   that lacks them; a pair both sides of which the wave creates is drawn once and copies nothing. A carry
+   of any other generated value the record holds is listed outside it and the wave refuses it by name:
+   the installation's own reconcile carries it, so a cut-over commit never carries a credential its author
+   did not mean to move.
    A value no file on record holds that a file on record lacks is drawn there by the vault the same way
    (`beekeeper secret set`, a carry without a `from`), and every other file to write takes it from there; a
    credentials revision a file on record lacks waits instead (`pendingIn`): the file stands, the revision
