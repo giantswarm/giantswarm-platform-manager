@@ -186,6 +186,7 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 			}
 		}
 	}
+	p.join(inst.Name, inst.Join)
 	for _, inc := range inst.Includes {
 		p.f("  Includes: %s:%s %s %s (%s)\n", inc.Repository, inc.Path, inc.List, inc.Resource, inc.Change)
 	}

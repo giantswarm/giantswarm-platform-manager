@@ -99,13 +99,13 @@ func keepAudiences(rendered, current []byte) ([]byte, []Kept, error) {
 		return nil, nil, err
 	}
 	var kept []Kept
-	trusted := []string{"muster", "muster", "oauth", "server", "trustedAudiences"}
+	trusted := append(slices.Clone(musterServerPath), "trustedAudiences")
 	keepList(at(ren, trusted...), at(cur, trusted...), ListTrustedAudiences, &kept)
 	for _, list := range joinedLists {
 		keys := strings.Split(list, ".")
 		keepJoined(at(ren, keys...), at(cur, keys...), list, &kept)
 	}
-	providers := []string{"agent-platform-mcps", "agentgateway", "jwt", "extraProviders"}
+	providers := []string{mcpsValuesKey, "agentgateway", "jwt", "extraProviders"}
 	keepProviders(at(ren, providers...), at(cur, providers...), &kept)
 	callers := strings.Split(ListAllowedCallers, ".")
 	keepList(at(ren, callers...), at(cur, callers...), ListAllowedCallers, &kept)

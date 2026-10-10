@@ -337,8 +337,14 @@ type Installation struct {
 	// gitops.prereleases that the patch on record sets: the installation
 	// stops following the platform's release candidates
 	// (ReleaseCandidateRefusal).
-	DropsPrereleases bool        `json:"dropsPrereleases,omitempty"`
-	DexClients       []DexClient `json:"dexClients"`
+	DropsPrereleases bool `json:"dropsPrereleases,omitempty"`
+	// Join is what the plan's agent-platform values patch takes off the
+	// installation's muster beyond the shared defaults — the broker's
+	// targets, the identity providers, the MCP servers, the registration
+	// URIs it moves —, the warning a join as a target prints apart from the
+	// drift lines; nil where it takes nothing (JoinRefusal).
+	Join       *Join       `json:"join,omitempty"`
+	DexClients []DexClient `json:"dexClients"`
 	// DexConnectors are the ids of the token-exchange connectors the
 	// rendered Dex patch declares under oidc.customer.connectors
 	// (DexSecretRefusal).
@@ -452,6 +458,10 @@ type Options struct {
 	// lists rotates, forced by the request, and draws its credentials
 	// revision with it; a name the plan does not list takes no part.
 	Rotate []string
+	// ForceJoin: the person asked for the join with its warning known, so
+	// what the patch takes off the installation's muster holds no commit
+	// (Join.Forced).
+	ForceJoin bool
 	// Installations are the registry's installations by name: where a
 	// generated value's peer (render.Peer) is on record.
 	Installations map[string]installations.Installation
@@ -617,6 +627,7 @@ func Build(ctx context.Context, opts Options) Installation {
 			}
 			if strings.HasSuffix(path, platformPatchFile) && pf.Change == ChangeUpdate {
 				p.DropsPrereleases = dropsPrereleases(current, content)
+				p.join(current, content, opts.ForceJoin)
 			}
 		}
 	}
