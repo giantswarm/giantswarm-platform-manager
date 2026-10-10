@@ -51,7 +51,7 @@ with the `giantswarm` tenant header; an earlier chart's schema refuses the key),
 where the line resolves to 2.73.1 or later (`observability.metrics.enabled` and a `serviceMonitor` labelled
 `observability.giantswarm.io/tenant: giantswarm`; an earlier chart's schema refuses both keys), and a patch appending those sources to the portal HelmRelease's `valuesFrom` — last, so the
 platform's values win. The fragment carries the platform's section, and on a portal the customer-portal
-definition renders the shared extension list with the platform's section and the installation's muster entry;
+definition renders the shared extension list with the platform's section and one muster entry per installation the portal shows that runs the platform (the record's `installation.portals[*].installations` with the installation itself, by name, so every installation's plan renders the same fragment);
 Backstage and Helm replace lists wholesale, so on a hand-kept portal (a literal `app.extensions` on record) the
 Component writes its object-shaped keys alone and the portal's own lists stand — and the skill repositories
 (`skills.repositories`, the person's third choice, read back from the fragment, else from the portal's own

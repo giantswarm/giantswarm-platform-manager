@@ -3,6 +3,7 @@ package agentplatform
 import (
 	"crypto/sha256"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
@@ -25,17 +26,24 @@ import (
 // Component therefore sets a list only where it is the portal's sole source of
 // it. A portal the customer-portal definition renders includes the shared
 // extension list, so there the Component names the platform's extensions and
-// the installation's muster: the shared list with the platform's section,
-// with the AI chat where the chat is on, and with the Grafana dashboards
-// card where the portal's Grafana plugin is wired
+// the musters of the installations the portal shows: the shared list with the
+// platform's section, with the AI chat where the chat is on, and with the
+// Grafana dashboards card where the portal's Grafana plugin is wired
 // (installation.portals[*].grafanaWired, read from the record: the proxy
 // endpoint the customer-portal definition renders for it), since the
-// fragment's list is the one Backstage keeps. A hand-kept portal — one whose
+// fragment's list is the one Backstage keeps. Such a portal shows every
+// installation of its organisation that runs the platform, and its fragment
+// is one file whichever installation's plan renders it: the kagent
+// installations and the muster entries are the union of this installation
+// and the ones the record lists for the portal
+// (installation.portals[*].installations, read from the portal's
+// gs.installations and the installations' markers), by name, so a plan never
+// drops what another wrote. A hand-kept portal — one whose
 // app-config on record carries a literal extension list of its own, the
 // hub's Dev Portal among them (installation.portals[*].handKept, read from
 // the record) — owns its extensions and its muster registry; there the
-// Component writes only object-shaped keys (the kagent installation, the
-// fragment's mount, the chat's blocks), which merge, and the skill
+// Component writes only object-shaped keys (this installation's kagent
+// entry, the fragment's mount, the chat's blocks), which merge, and the skill
 // repositories, a list it reads back from the portal's own app-config, so the
 // list it sets is the portal's own. The day the customer-portal definition
 // renders such a portal the fact reads false and the Component takes the
@@ -158,10 +166,6 @@ var (
 	chatActionExcludes = []string{"gs:get-pagerduty-ids-for-entity"}
 )
 
-// portalAuthProvider is the portal's sign-in provider on this installation's
-// Dex, named as every installation-hosted portal names it.
-func (in *Input) portalAuthProvider() string { return render.PortalAuthProvider(in.Installation.Name) }
-
 // aiChat says whether the portal section carries the AI chat: the person's
 // choice; checkRecord has refused it without a hosted portal.
 func (in *Input) aiChat() bool { return in.AIChat.Enabled }
@@ -198,19 +202,45 @@ func (in *Input) portalOwnsLists() bool {
 	return p != nil && !p.HandKept
 }
 
-// musterEntry is the installation's muster as the portal reaches it, under
+// musterEntry is an installation's muster as the portal reaches it, under
 // the given name: the installation's in the muster plugin's list, "muster"
 // in the chat's server list. Its authProvider is the portal's sign-in
-// provider on this installation's Dex, oidc-<installation>: the muster
-// plugin and the chat send that provider's ID token on the home installation
-// and the token the cluster token broker mints from that Dex elsewhere, and
-// muster trusts the portal's Dex client as an audience. The portal builds a
-// dedicated OAuth provider only for an auth.providers key with the mcp-
-// prefix and the platform declares none, so an mcp-* name here would promise
-// a login that is not there and switch the picker to a token muster rejects
-// the day someone declares one.
-func (in *Input) musterEntry(name string) render.Map {
-	return render.Map{e("name", name), e("url", "https://"+in.host("muster")+"/mcp"), e("authProvider", in.portalAuthProvider())}
+// provider on that installation's Dex, oidc-<installation>, as every portal
+// on record names it: the muster plugin and the chat send that provider's ID
+// token on the portal's own installation and the token the cluster token
+// broker mints from that Dex elsewhere, and muster trusts the portal's Dex
+// client as an audience. The portal builds a dedicated OAuth provider only
+// for an auth.providers key with the mcp- prefix and the platform declares
+// none, so an mcp-* name here would promise a login that is not there and
+// switch the picker to a token muster rejects the day someone declares one.
+func musterEntry(name string, installation PortalInstallation) render.Map {
+	return render.Map{e("name", name), e("url", "https://muster."+installation.BaseDomain+"/mcp"), e("authProvider", render.PortalAuthProvider(installation.Name))}
+}
+
+// own is this installation as a portal lists it.
+func (in *Input) own() PortalInstallation {
+	return PortalInstallation{Name: in.Installation.Name, BaseDomain: in.Installation.BaseDomain}
+}
+
+// portalInstallations are the installations the platform's portal section
+// lists: this installation and, on a portal the customer-portal definition
+// renders, every installation the record lists for it as running the
+// platform (installation.portals[*].installations), by name, each once —
+// the same list whichever installation's plan renders the section, so a
+// plan never drops what another wrote. A hand-kept portal carries its own
+// section for the installations it proxies: there the list is this
+// installation alone.
+func (in *Input) portalInstallations() []PortalInstallation {
+	list := []PortalInstallation{in.own()}
+	if p := in.hostedPortal(); p != nil && !p.HandKept {
+		for _, i := range p.Installations {
+			if i.Name != in.Installation.Name {
+				list = append(list, i)
+			}
+		}
+	}
+	slices.SortFunc(list, func(a, b PortalInstallation) int { return strings.Compare(a.Name, b.Name) })
+	return list
 }
 
 // aiChatSection is the chat's aiChat block: the provider — Anthropic's API
@@ -228,7 +258,23 @@ func (in *Input) aiChatSection() render.Map {
 		m = render.Map{e("anthropic", render.Map{e("apiKey", anthropicKeyEnv)})}
 	}
 	actions := render.Map{e("name", chatActionsServer), e("url", "https://"+in.hostedPortal().Domain+chatActionsPath), e("useBackstageUserToken", true)}
-	return append(m, e("model", in.AIChat.Model), e("mcp", []render.Map{actions, in.musterEntry(chatMusterServer)}))
+	return append(m, e("model", in.AIChat.Model), e("mcp", []render.Map{actions, musterEntry(chatMusterServer, in.chatMuster())}))
+}
+
+// chatMuster is the muster the chat's server list names: the portal host's,
+// which federates the servers of every installation the portal shows,
+// where the host runs the platform (this installation, or among the
+// portal's installations on record); else this installation's. So the
+// entry is the same whichever installation's plan renders the fragment, as
+// long as the host runs the platform.
+func (in *Input) chatMuster() PortalInstallation {
+	host := in.portalHost()
+	for _, i := range in.portalInstallations() {
+		if i.Name == host {
+			return i
+		}
+	}
+	return in.own()
 }
 
 // chatActions is backend.actions: the plugins whose actions the actions
@@ -243,28 +289,34 @@ func chatActions() render.Map {
 
 // portalAppConfig is the platform's app-config fragment: the agent-platform
 // plugin's section (where kagent runs, the agents' Flux identity where the
-// portal's plugin reads it and the installation among the kagent
-// installations; the skill repositories the agent creation discovers skills
-// in, where there are any); where the Component owns the portal's lists, the
-// platform's extensions through the shared include (with the chat's
-// entries where the chat is on, with the Hive's pages where it is on, with the Grafana dashboards card where the
-// portal's plugin is wired) and the installation's muster; and, with the
-// chat on, the aiChat block, the actions server's tool naming and the
-// actions the service lists for it; where the portal reads GitHub through
-// this installation's muster, the gs block for it (github.go); with the Hive
-// on, its plans and roadmap blocks (hive.go), and its pages in the shared
-// list.
+// portal's plugin reads it and the portal's installations
+// (portalInstallations) among the kagent installations; the skill
+// repositories the agent creation discovers skills in, where there are
+// any); where the Component owns the portal's lists, the platform's
+// extensions through the shared include (with the chat's entries where the
+// chat is on, with the Hive's pages where it is on, with the Grafana
+// dashboards card where the portal's plugin is wired) and the portal's
+// installations' musters; and, with the chat on, the aiChat block, the
+// actions server's tool naming and the actions the service lists for it;
+// where the portal reads GitHub through this installation's muster, the gs
+// block for it (github.go); with the Hive on, its plans and roadmap blocks
+// (hive.go), and its pages in the shared list.
 func (in *Input) portalAppConfig() render.Map {
 	m := render.Map{}
 	if in.portalOwnsLists() {
 		m = append(m, e("app", render.Map{e("extensions", render.Map{e("$include", render.PortalExtensionsInclude(true, in.aiChat(), in.hive(), in.hostedPortal().GrafanaWired))})}))
 	}
+	installations := in.portalInstallations()
 	platform := render.Map{}
 	if in.kagent() {
 		if in.portalReadsFluxServiceAccount() {
 			platform = append(platform, e("fluxServiceAccountName", fluxServiceAccount))
 		}
-		platform = append(platform, e("kagent", render.Map{e("installations", render.Map{e(in.Installation.Name, render.Map{})})}))
+		kagent := render.Map{}
+		for _, i := range installations {
+			kagent = append(kagent, e(i.Name, render.Map{}))
+		}
+		platform = append(platform, e("kagent", render.Map{e("installations", kagent)}))
 	}
 	if len(in.SkillRepositories) > 0 {
 		platform = append(platform, e("skills", render.Map{e("repositories", in.SkillRepositories)}))
@@ -273,7 +325,11 @@ func (in *Input) portalAppConfig() render.Map {
 		m = append(m, e("agentPlatform", platform))
 	}
 	if in.portalOwnsLists() {
-		m = append(m, e("muster", render.Map{e("installations", []render.Map{in.musterEntry(in.Installation.Name)})}))
+		musters := make([]render.Map, 0, len(installations))
+		for _, i := range installations {
+			musters = append(musters, musterEntry(i.Name, i))
+		}
+		m = append(m, e("muster", render.Map{e("installations", musters)}))
 	}
 	if in.portalGitHub() {
 		m = append(m, e("gs", in.portalGitHubConfig()))

@@ -1,6 +1,7 @@
 package agentplatform
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
@@ -140,6 +141,88 @@ func TestPortalFragmentSkills(t *testing.T) {
 	in := &Input{Installation: Installation{Name: testPortalHost, Customer: testOrganisation}, SkillRepositories: repositories}
 	if err := in.checkRecord(); err == nil || !strings.Contains(err.Error(), "skills.repositories") || !errors.Is(err, ErrInput) {
 		t.Errorf("skill repositories without a portal: %v", err)
+	}
+}
+
+// The fragment of a portal the customer-portal definition renders lists the
+// installations the record lists for the portal as running the platform
+// with this installation, by name, each once: one kagent entry each and one
+// muster entry each at its own muster with its own sign-in provider. The
+// chat's muster is the portal host's. So the host's plan and a sibling's
+// plan — the sibling not yet on the record's list, as at its enable —
+// render the same file byte for byte, and neither drops what the other
+// wrote. A hand-kept portal keeps this installation's entry alone.
+func TestPortalFragmentListsThePortalsInstallations(t *testing.T) {
+	const host, sibling, third = testPortalHost, "rowan", "cedar"
+	listed := func(names ...string) []PortalInstallation {
+		var list []PortalInstallation
+		for _, n := range names {
+			list = append(list, PortalInstallation{Name: n, BaseDomain: n + ".example"})
+		}
+		return list
+	}
+	input := func(name string, record []PortalInstallation, handKept bool) *Input {
+		portal := PortalRef{Installation: host, Customer: testOrganisation, Domain: "portal." + host + ".example", ChartLine: portal2x, HandKept: handKept, Installations: record}
+		return &Input{Installation: Installation{Name: name, BaseDomain: name + ".example", Customer: testOrganisation, Portals: []PortalRef{portal}},
+			Components: map[string]bool{componentKagent: true}, AIChat: AIChat{Enabled: true, Model: testChatModel}}
+	}
+	want := []string{third, host, sibling}
+	var files [][]byte
+	for _, tc := range []struct {
+		name string
+		in   *Input
+	}{
+		{"the host's plan, every installation on record", input(host, listed(third, host, sibling), false)},
+		{"the sibling's plan, itself not on record yet", input(sibling, listed(host, third), false)},
+	} {
+		m := tc.in.portalAppConfig()
+		platform, _ := fragmentValue(m, "agentPlatform").(render.Map)
+		kagent, _ := fragmentValue(platform, "kagent").(render.Map)
+		entries, _ := fragmentValue(kagent, "installations").(render.Map)
+		var names []string
+		for _, entry := range entries {
+			names = append(names, entry.Key)
+		}
+		if !slices.Equal(names, want) {
+			t.Errorf("%s: agentPlatform.kagent.installations %v, want %v", tc.name, names, want)
+		}
+		muster, _ := fragmentValue(m, "muster").(render.Map)
+		servers, _ := fragmentValue(muster, "installations").([]render.Map)
+		if len(servers) != len(want) {
+			t.Fatalf("%s: muster.installations %v, want one per installation", tc.name, servers)
+		}
+		for i, server := range servers {
+			if n := want[i]; fragmentValue(server, "name") != n || fragmentValue(server, "url") != "https://muster."+n+".example/mcp" || fragmentValue(server, "authProvider") != "oidc-"+n {
+				t.Errorf("%s: muster.installations[%d] %v, want %s at its own muster with its own provider", tc.name, i, server, n)
+			}
+		}
+		chat, _ := fragmentValue(m, "aiChat").(render.Map)
+		chatServers, _ := fragmentValue(chat, "mcp").([]render.Map)
+		if len(chatServers) != 2 || fragmentValue(chatServers[1], "url") != "https://muster."+host+".example/mcp" || fragmentValue(chatServers[1], "authProvider") != "oidc-"+host {
+			t.Errorf("%s: the chat's servers %v, want the portal host's muster", tc.name, chatServers)
+		}
+		files = append(files, render.MustYAML(m))
+	}
+	if !bytes.Equal(files[0], files[1]) {
+		t.Errorf("the two plans render different fragments:\n%s---\n%s", files[0], files[1])
+	}
+	// The host alone on record, or none: the sibling's plan still lists itself, the chat on its own muster where the host runs no platform.
+	m := input(sibling, nil, false).portalAppConfig()
+	platform, _ := fragmentValue(m, "agentPlatform").(render.Map)
+	kagent, _ := fragmentValue(platform, "kagent").(render.Map)
+	entries, _ := fragmentValue(kagent, "installations").(render.Map)
+	chat, _ := fragmentValue(m, "aiChat").(render.Map)
+	chatServers, _ := fragmentValue(chat, "mcp").([]render.Map)
+	if len(entries) != 1 || entries[0].Key != sibling || len(chatServers) != 2 || fragmentValue(chatServers[1], "url") != "https://muster."+sibling+".example/mcp" {
+		t.Errorf("none on record: %v, the chat's servers %v", entries, chatServers)
+	}
+	// A hand-kept portal: this installation's kagent entry alone, no muster list.
+	m = input(host, listed(third, host, sibling), true).portalAppConfig()
+	platform, _ = fragmentValue(m, "agentPlatform").(render.Map)
+	kagent, _ = fragmentValue(platform, "kagent").(render.Map)
+	entries, _ = fragmentValue(kagent, "installations").(render.Map)
+	if len(entries) != 1 || entries[0].Key != host || fragmentValue(m, "muster") != nil {
+		t.Errorf("hand-kept: agentPlatform.kagent.installations %v, muster %v", entries, fragmentValue(m, "muster"))
 	}
 }
 

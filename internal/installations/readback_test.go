@@ -133,7 +133,7 @@ func TestReadBackKinds(t *testing.T) {
 		readBackValues: "components:\n  serving:\n    # Serving on, by hand:\n    #   the GPU pool is in (acme/platform#7).\n    enabled: true\ntunnel:\n  port: 8443\napp:\n  baseUrl: https://portal.rowan.acme.test/\n" +
 			"broker:\n  tokenUrl: https://muster.rowan.acme.test/oauth/token\nresources:\n  - $include: shared.yaml#docs\n  - label: Support\n    icon: LiveHelp\n    url: https://support.acme.test/\ngrafana:\n  domain: https://grafana.acme.test\n",
 	})
-	got, err := readBack(context.Background(), read, readBackInstallation, readBackRegistry, readBackFixture(t))
+	got, err := readBack(context.Background(), read, readBackInstallation, "", readBackRegistry, readBackFixture(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +157,7 @@ func TestReadBackCommentKind(t *testing.T) {
 		{"a comment with blank marker lines", "components:\n  serving:\n    #\n    # Serving on.\n    #\n    enabled: true\n", "Serving on."},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := readBack(context.Background(), files(map[string]string{readBackValues: c.values}), readBackInstallation, readBackRegistry, readBackFixture(t))
+			got, err := readBack(context.Background(), files(map[string]string{readBackValues: c.values}), readBackInstallation, "", readBackRegistry, readBackFixture(t))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -189,7 +189,7 @@ func TestReadBackCommentKind(t *testing.T) {
 func TestReadBackInstallationAndKeyList(t *testing.T) {
 	values := readBackValues
 	read := files(map[string]string{values: "broker:\n  tokenUrl: https://muster.birch.acme.test/oauth/token\ngrafana:\n  domain: https://grafana.old.test\n  hosts:\n    - id: grafana-net\n      domain: https://grafana.acme.test\nresources:\n  - $include: shared.yaml#docs\n"})
-	got, err := readBack(context.Background(), read, readBackInstallation, readBackRegistry, readBackFixture(t))
+	got, err := readBack(context.Background(), read, readBackInstallation, "", readBackRegistry, readBackFixture(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestReadBackInstallationAndKeyList(t *testing.T) {
 	}
 	for _, tokenURL := range []string{"https://muster.cedar.acme.test/oauth/token", "https://dex.birch.acme.test/oauth/token", "not a url"} {
 		read = files(map[string]string{values: "broker:\n  tokenUrl: " + tokenURL + "\n"})
-		got, err = readBack(context.Background(), read, readBackInstallation, readBackRegistry, readBackFixture(t))
+		got, err = readBack(context.Background(), read, readBackInstallation, "", readBackRegistry, readBackFixture(t))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -212,7 +212,7 @@ func TestReadBackInstallationAndKeyList(t *testing.T) {
 // Without the file on record nothing is read back but a present kind, which
 // says the key is absent; the defaults stand.
 func TestReadBackWithoutTheFile(t *testing.T) {
-	got, err := readBack(context.Background(), files(nil), readBackInstallation, readBackRegistry, readBackFixture(t))
+	got, err := readBack(context.Background(), files(nil), readBackInstallation, "", readBackRegistry, readBackFixture(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestReadBackWithoutTheFile(t *testing.T) {
 		t.Errorf("read back %v from no file", got)
 	}
 	read := files(map[string]string{readBackValues: "components: {}\napp:\n  baseUrl: not a url\n"})
-	got, err = readBack(context.Background(), read, readBackInstallation, readBackRegistry, readBackFixture(t))
+	got, err = readBack(context.Background(), read, readBackInstallation, "", readBackRegistry, readBackFixture(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +232,7 @@ func TestReadBackWithoutTheFile(t *testing.T) {
 // A file the person cannot read is the error, not a default.
 func TestReadBackForbidden(t *testing.T) {
 	read := func(context.Context, string, string) (string, error) { return "", gh.ErrForbidden }
-	if _, err := readBack(context.Background(), read, readBackInstallation, readBackRegistry, readBackFixture(t)); !errors.Is(err, gh.ErrForbidden) {
+	if _, err := readBack(context.Background(), read, readBackInstallation, "", readBackRegistry, readBackFixture(t)); !errors.Is(err, gh.ErrForbidden) {
 		t.Errorf("err %v", err)
 	}
 }
@@ -315,7 +315,7 @@ func TestReadBackFromTheFirstFileHoldingTheKey(t *testing.T) {
 		{"only the second file on record", map[string]string{readBackValues: "aiChat: {model: m}\n"}, map[string]any{inputChatEnabled: true, inputChatModel: "m"}},
 		{"neither file on record", map[string]string{}, map[string]any{}},
 	} {
-		got, err := readBack(context.Background(), files(tc.files), readBackInstallation, nil, &s)
+		got, err := readBack(context.Background(), files(tc.files), readBackInstallation, "", nil, &s)
 		if err != nil {
 			t.Fatalf("%s: %v", tc.name, err)
 		}
@@ -347,7 +347,7 @@ func TestAgentPlatformReadsBackTheChat(t *testing.T) {
 		{"a fragment without the chat, no app-config", map[string]string{dir + "agent-platform/app-config.yaml": "data:\n  app-config.agent-platform.yaml: |\n    agentPlatform: {}\n"}, map[string]any{inputAIChatEnabled: false, inputHiveEnabled: false}},
 		{"nothing on record", map[string]string{}, map[string]any{}},
 	} {
-		got, err := def.ReadBack(context.Background(), files(tc.files), readBackInstallation, nil)
+		got, err := def.ReadBack(context.Background(), files(tc.files), readBackInstallation, readBackName, nil)
 		if err != nil {
 			t.Fatalf("%s: %v", tc.name, err)
 		}
@@ -378,7 +378,40 @@ func TestAgentPlatformReadsBackTheHive(t *testing.T) {
 			map[string]any{inputAIChatEnabled: false, inputHiveEnabled: true, "hive.plans.repositories": []any{"acme/other-plans"}, "hive.magazine.repository": "acme/magazine", "hive.roadmap.board": "customer", "hive.roadmap.teams": []any{"Hive"}}},
 		{"neither carries it", map[string]string{dir + "agent-platform/app-config.yaml": "data:\n  app-config.agent-platform.yaml: |\n    agentPlatform: {}\n"}, map[string]any{inputAIChatEnabled: false, inputHiveEnabled: false}},
 	} {
-		got, err := def.ReadBack(context.Background(), files(tc.files), readBackInstallation, nil)
+		got, err := def.ReadBack(context.Background(), files(tc.files), readBackInstallation, readBackName, nil)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: read back %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// The agent-platform definition reads the portal files back at the portal's
+// host: the installation's own where it hosts the portal, else the
+// organisation's sibling the section is written into, so a sibling's plan
+// reads what the host's plan rendered; a file under the installation's own
+// name is not the section's. Where no portal hosts the section, the portal
+// files are not on record and nothing is read back from them.
+func TestAgentPlatformReadsBackThePortalFilesAtTheHost(t *testing.T) {
+	def, _ := FindCapability(AgentPlatform)
+	fragment := "data:\n  app-config.agent-platform.yaml: |\n    agentPlatform:\n      skills:\n        repositories:\n          - acme/skills\n"
+	own := "acme/mcs:management-clusters/" + readBackName + "/extras/backstage/agent-platform/app-config.yaml"
+	sibling := "acme/mcs:management-clusters/" + readBackSibling + "/extras/backstage/agent-platform/app-config.yaml"
+	skills := map[string]any{inputAIChatEnabled: false, inputHiveEnabled: false, "skills.repositories": []any{"acme/skills"}}
+	for _, tc := range []struct {
+		name  string
+		host  string
+		files map[string]string
+		want  map[string]any
+	}{
+		{"its own portal", readBackName, map[string]string{own: fragment}, skills},
+		{"the sibling's portal", readBackSibling, map[string]string{sibling: fragment}, skills},
+		{"the sibling's portal, a file under its own name", readBackSibling, map[string]string{own: fragment}, map[string]any{}},
+		{"no portal", "", map[string]string{own: fragment, sibling: fragment}, map[string]any{}},
+	} {
+		got, err := def.ReadBack(context.Background(), files(tc.files), readBackInstallation, tc.host, nil)
 		if err != nil {
 			t.Fatalf("%s: %v", tc.name, err)
 		}
@@ -397,7 +430,7 @@ const dollar = "$"
 func TestAgentPlatformReadsBackModelServing(t *testing.T) {
 	def, _ := FindCapability(AgentPlatform)
 	read := files(map[string]string{"acme/configs:" + def.EnabledMarker("rowan"): "components:\n  modelServing:\n    enabled: true\n"})
-	got, err := def.ReadBack(context.Background(), read, readBackInstallation, nil)
+	got, err := def.ReadBack(context.Background(), read, readBackInstallation, readBackName, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +444,7 @@ func TestAgentPlatformReadsBackModelServing(t *testing.T) {
 func TestAgentPlatformReadsBackSingletonsCapacity(t *testing.T) {
 	def, _ := FindCapability(AgentPlatform)
 	read := files(map[string]string{"acme/configs:" + def.EnabledMarker("rowan"): "scheduling:\n  singletons:\n    nodeSelector:\n      karpenter.sh/capacity-type: on-demand\n"})
-	got, err := def.ReadBack(context.Background(), read, readBackInstallation, nil)
+	got, err := def.ReadBack(context.Background(), read, readBackInstallation, readBackName, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -437,7 +470,7 @@ func TestAgentPlatformReadsBackClusterManagerCommit(t *testing.T) {
 		{"agent-manager skill catalog with private repositories", "agent-manager:\n  skills:\n    repositories:\n      - https://github.com/acme/skills\n    github:\n      app:\n        secretName: acme-skills-app\n    gitAuthSecretName: acme-skills-token\n", map[string]any{"agentManager.skills.repositories": []any{"https://github.com/acme/skills"}, "agentManager.skills.appSecretName": "acme-skills-app", "agentManager.skills.gitAuthSecretName": "acme-skills-token"}}, //nolint:gosec // a Secret's name in a fixture, no credential
 	} {
 		read := files(map[string]string{"acme/configs:" + def.EnabledMarker("rowan"): tc.patch})
-		got, err := def.ReadBack(context.Background(), read, readBackInstallation, nil)
+		got, err := def.ReadBack(context.Background(), read, readBackInstallation, readBackName, nil)
 		if err != nil {
 			t.Fatalf("%s: %v", tc.name, err)
 		}
@@ -469,7 +502,7 @@ func TestCustomerPortalReadsBackThePortal(t *testing.T) {
 		"acme/mcs:" + dir + "tunnelport-spiffe-bundle.yaml":   "apiVersion: v1\nkind: ServiceAccount\n---\napiVersion: v1\nkind: Secret\n",
 		"acme/mcs:" + dir + "github-app-credentials.enc.yaml": "stringData:\n  values: ENC[AES256_GCM,data:abc,type:str]\n",
 	})
-	got, err := def.ReadBack(context.Background(), read, readBackInstallation, readBackRegistry)
+	got, err := def.ReadBack(context.Background(), read, readBackInstallation, "", readBackRegistry)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -490,7 +523,7 @@ func TestCustomerPortalReadsBackThePortal(t *testing.T) {
 	}
 
 	// Without the tree: the tunnel is the one answer, its file not on record.
-	got, err = def.ReadBack(context.Background(), files(nil), readBackInstallation, readBackRegistry)
+	got, err = def.ReadBack(context.Background(), files(nil), readBackInstallation, "", readBackRegistry)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -502,7 +535,7 @@ func TestCustomerPortalReadsBackThePortal(t *testing.T) {
 	// portal that brokers on its own muster reads back its own
 	// installation; the deprecated grafana.domain still answers.
 	read = files(map[string]string{"acme/mcs:" + dir + "app-config.yaml": "data:\n  values: |\n    backstage:\n      appConfig: |\n        gs:\n          authProvider: github\n          clusterTokenBroker:\n            tokenUrl: https://muster.rowan.acme.test/oauth/token\n        grafana:\n          domain: https://grafana.acme.test\n"})
-	got, err = def.ReadBack(context.Background(), read, readBackInstallation, readBackRegistry)
+	got, err = def.ReadBack(context.Background(), read, readBackInstallation, "", readBackRegistry)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -530,7 +563,7 @@ func TestAgentPlatformReadsBackVersionHolds(t *testing.T) {
 		"acme/configs:" + def.EnabledMarker("rowan"):                                  patch,
 		"acme/mcs:management-clusters/rowan/extras/agent-platform/kustomization.yaml": kustomization,
 	})
-	got, err := def.ReadBack(context.Background(), read, readBackInstallation, nil)
+	got, err := def.ReadBack(context.Background(), read, readBackInstallation, readBackName, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -545,7 +578,7 @@ func TestAgentPlatformReadsBackVersionHolds(t *testing.T) {
 	for _, line := range []string{">=4.0.0 <5.0.0", ">=4.0.0-0 <5.0.0-0"} {
 		linePatch := "      - op: replace\n        path: /spec/ref/semver\n        value: \"" + line + "\"\n"
 		read = files(map[string]string{"acme/mcs:management-clusters/rowan/extras/agent-platform/kustomization.yaml": strings.ReplaceAll(kustomization, heldPatch, linePatch)})
-		got, err = def.ReadBack(context.Background(), read, readBackInstallation, nil)
+		got, err = def.ReadBack(context.Background(), read, readBackInstallation, readBackName, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

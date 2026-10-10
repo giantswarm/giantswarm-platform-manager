@@ -340,7 +340,8 @@ func skipped(r installations.Report, capability string, named bool) (Skipped, bo
 // defaults, the facts on record the schema names under installation and the
 // inputs the definition derives from the record beyond them (RecordInputs),
 // what the definition reads back from the files on record (read as the caller,
-// an installation a read-back names resolved among the registry's), and
+// a portal file at the portal host's, an installation a read-back names
+// resolved among the registry's), and
 // the person's typed inputs over it all. A read-back lays over the record
 // only for a person input; a registry input's read-back is answered next
 // to the fact and never laid over — the fact on record stands. The second
@@ -367,7 +368,7 @@ func mergeInputs(ctx context.Context, def installations.Capability, r installati
 	for _, inst := range registry {
 		known = append(known, inst)
 	}
-	back, err := def.ReadBack(ctx, read, r.Installation, known)
+	back, err := def.ReadBack(ctx, read, r.Installation, r.PortalHost(), known)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -257,16 +257,28 @@ type Installation struct {
 // by hand, so its environment supplies the chat's key and the Component
 // renders the chat's blocks without a credentials Secret — and the chart
 // line it follows: the ref its directory kustomization patches onto the
-// fleet base's backstage OCIRepository, empty when it patches none.
+// fleet base's backstage OCIRepository, empty when it patches none — and,
+// on a portal the customer-portal definition renders, the installations it
+// shows that run the platform on record, which the platform's portal
+// section lists with this installation (portalInstallations).
 type PortalRef struct {
-	Installation string `json:"installation"`
-	Customer     string `json:"customer"`
-	Domain       string `json:"domain"`
-	ClientID     string `json:"clientId,omitempty"`
-	ChartLine    string `json:"chartLine,omitempty"`
-	HandKept     bool   `json:"handKept,omitempty"`
-	GrafanaWired bool   `json:"grafanaWired,omitempty"`
-	HandKeptChat bool   `json:"handKeptChat,omitempty"`
+	Installation  string               `json:"installation"`
+	Customer      string               `json:"customer"`
+	Domain        string               `json:"domain"`
+	ClientID      string               `json:"clientId,omitempty"`
+	ChartLine     string               `json:"chartLine,omitempty"`
+	HandKept      bool                 `json:"handKept,omitempty"`
+	GrafanaWired  bool                 `json:"grafanaWired,omitempty"`
+	HandKeptChat  bool                 `json:"handKeptChat,omitempty"`
+	Installations []PortalInstallation `json:"installations,omitempty"`
+}
+
+// PortalInstallation is an installation a portal shows that runs the agent
+// platform on record: its name and its base domain, which its muster's URL
+// derives from.
+type PortalInstallation struct {
+	Name       string `json:"name"`
+	BaseDomain string `json:"baseDomain"`
 }
 
 // Federation is the installation's place in the fleet's token exchange.

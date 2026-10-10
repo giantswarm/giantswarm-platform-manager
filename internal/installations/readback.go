@@ -97,10 +97,19 @@ func (n *names) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
+// The placeholders a fileSpec's path carries: the installation, and the
+// installation hosting the portal the definition's portal section is
+// written into.
+const (
+	namePlaceholder       = "<name>"
+	portalHostPlaceholder = "<portalHost>"
+)
+
 // fileSpec is one entry of the schema's x-files: the repository file the
-// definition renders a fileset key to, <name> standing for the installation,
-// and the path in the file the keys are read under — the document a
-// ConfigMap carries as text; the file itself when empty.
+// definition renders a fileset key to, <name> standing for the installation
+// and <portalHost> for the portal's host, and the path in the file the keys
+// are read under — the document a ConfigMap carries as text; the file
+// itself when empty.
 type fileSpec struct {
 	Repository MarkerRepository `json:"repository"`
 	Path       string           `json:"path"`
@@ -216,23 +225,28 @@ func (c Capability) Unset(values map[string]any) ([]string, error) {
 // record of inst, as the person read reads as, and answers what it found by
 // dotted input key: the leaf's value, whether the key is present, the host
 // of the URL it holds, the installation whose host it is, the comment above
-// the key, or whether the file is on record. registry is every installation on record, the ones an
-// installation kind resolves a host to; inst is resolved whether or not it
-// is among them. A file that is not on record, or a key not in it, yields
-// nothing — the default stands; a read-back naming several files reads the
-// first on record that holds the key, and the key is present when one of
-// them holds it. A file the person cannot read, or a read-back naming a
-// file the schema's x-files does not, is the error.
-func (c Capability) ReadBack(ctx context.Context, read Reader, inst Installation, registry []Installation) (map[string]any, error) {
+// the key, or whether the file is on record. portalHost is the installation
+// hosting the portal the definition's portal section is written into
+// (Report.PortalHost), which a file path's <portalHost> stands for: such a
+// file is read where the section is rendered, whichever installation's
+// plan renders it, and is not on record where no portal hosts the section.
+// registry is every installation on record, the ones an installation kind
+// resolves a host to; inst is resolved whether or not it is among them. A
+// file that is not on record, or a key not in it, yields nothing — the
+// default stands; a read-back naming several files reads the first on
+// record that holds the key, and the key is present when one of them holds
+// it. A file the person cannot read, or a read-back naming a file the
+// schema's x-files does not, is the error.
+func (c Capability) ReadBack(ctx context.Context, read Reader, inst Installation, portalHost string, registry []Installation) (map[string]any, error) {
 	s, err := c.inputSchema()
 	if err != nil {
 		return nil, err
 	}
-	return readBack(ctx, read, inst, registry, s)
+	return readBack(ctx, read, inst, portalHost, registry, s)
 }
 
-func readBack(ctx context.Context, read Reader, inst Installation, registry []Installation, s *inputSchema) (map[string]any, error) {
-	files := newReadBackFiles(ctx, read, inst)
+func readBack(ctx context.Context, read Reader, inst Installation, portalHost string, registry []Installation, s *inputSchema) (map[string]any, error) {
+	files := newReadBackFiles(ctx, read, inst, portalHost)
 	out := map[string]any{}
 	return out, s.leaves(func(input string, leaf schemaNode) error {
 		rb := leaf.ReadBack
@@ -340,33 +354,43 @@ func installationOf(domain string, inst Installation, registry []Installation) (
 // as the document its x-files entry names, for a value; as the node tree,
 // the comments in place, for a comment.
 type readBackFiles struct {
-	ctx   context.Context
-	read  Reader
-	inst  Installation
-	texts map[string]*string
-	docs  map[string]map[string]any
-	nodes map[string]*yaml.Node
+	ctx  context.Context
+	read Reader
+	inst Installation
+	// portalHost is the installation hosting the portal the definition's
+	// portal section is written into; empty where none hosts it.
+	portalHost string
+	texts      map[string]*string
+	docs       map[string]map[string]any
+	nodes      map[string]*yaml.Node
 }
 
-func newReadBackFiles(ctx context.Context, read Reader, inst Installation) *readBackFiles {
-	return &readBackFiles{ctx: ctx, read: read, inst: inst, texts: map[string]*string{}, docs: map[string]map[string]any{}, nodes: map[string]*yaml.Node{}}
+func newReadBackFiles(ctx context.Context, read Reader, inst Installation, portalHost string) *readBackFiles {
+	return &readBackFiles{ctx: ctx, read: read, inst: inst, portalHost: portalHost, texts: map[string]*string{}, docs: map[string]map[string]any{}, nodes: map[string]*yaml.Node{}}
 }
 
 // location is the repository and path of the file spec declares for the
-// installation.
+// installation: a portal file's at the portal's host, which shares the
+// organisation's repositories.
 func (f *readBackFiles) location(spec fileSpec) (repo, path string) {
 	repo = f.inst.Repositories.Configs
 	if spec.Repository == ManagementClustersRepository {
 		repo = f.inst.Repositories.ManagementClusters
 	}
-	return repo, strings.ReplaceAll(spec.Path, "<name>", f.inst.Name)
+	path = strings.ReplaceAll(spec.Path, namePlaceholder, f.inst.Name)
+	return repo, strings.ReplaceAll(path, portalHostPlaceholder, f.portalHost)
 }
 
 // text is the content of the file of fileset key file, read once; nil when
-// the file is not on record.
+// the file is not on record — a portal file where no portal hosts the
+// definition's section among them.
 func (f *readBackFiles) text(file string, spec fileSpec) (*string, error) {
 	if text, ok := f.texts[file]; ok {
 		return text, nil
+	}
+	if f.portalHost == "" && strings.Contains(spec.Path, portalHostPlaceholder) {
+		f.texts[file] = nil
+		return nil, nil
 	}
 	repo, path := f.location(spec)
 	content, err := f.read(f.ctx, repo, path)
