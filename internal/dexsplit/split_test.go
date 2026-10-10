@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -487,6 +488,229 @@ func TestMergePlaintextKeepsOtherKeys(t *testing.T) {
 	}
 	if strings.Contains(string(out), "stale") {
 		t.Errorf("the shadowed entry stayed:\n%s", out)
+	}
+}
+
+// withoutPlatform takes the platform's directory off the checkout: an
+// installation that runs its MCP servers without the agent platform.
+func withoutPlatform(t *testing.T, o Options) {
+	t.Helper()
+	if err := os.RemoveAll(filepath.Join(o.ManagementClusters, "management-clusters/puffin/extras/agent-platform")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(o.ManagementClusters, "management-clusters/puffin/extras/kustomization.yaml"), "resources:\n  - ./mcp-kubernetes/\n")
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+// The split's files of the pairing on puffin: the token-exchange client's
+// Secret under the platform's secrets and the chain above it.
+const (
+	exchangeClient    = "muster-token-exchange-puffin"
+	exchangeFile      = "dex-client-muster-token-exchange-puffin-secret.yaml"
+	platformDir       = "management-clusters/puffin/extras/agent-platform/"
+	secretsDir        = platformDir + "secrets/"
+	extrasFile        = "management-clusters/puffin/extras/kustomization.yaml"
+	dexDirOfPuffin    = "management-clusters/puffin/extras/dex/"
+	dexKustomization  = dexDirOfPuffin + kustomizationFile
+	earlierSplitPatch = "oidc:\n    customer:\n        connectors:\n            - connectorConfig: ENC[a]\n              id: ENC[b]\n    staticClients:\n        dexK8SAuthenticator:\n            clientSecret: ENC[d]\nsops:\n    mac: ENC[x]\n    unencrypted_suffix: _unencrypted\n"
+	exchangeSecret    = "apiVersion: v1\nkind: Secret\nmetadata:\n  name: dex-client-muster-token-exchange-puffin\n  namespace: giantswarm\ntype: Opaque\nstringData:\n  secret: ENC[fake]\n" // #nosec G101 -- a fixture with no value
+)
+
+// assertChain holds the three kustomizations to the chain cluster-mcp-servers
+// renders: the secrets kustomization listing the Secret once, the platform's
+// listing ./secrets, the extras' listing ./agent-platform/.
+func assertChain(t *testing.T, o Options) {
+	t.Helper()
+	secrets := readFile(t, filepath.Join(o.ManagementClusters, secretsDir+kustomizationFile))
+	if strings.Count(secrets, "- "+exchangeFile+"\n") != 1 || !strings.HasPrefix(secrets, "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\n") {
+		t.Errorf("the secrets kustomization:\n%s", secrets)
+	}
+	if platform := readFile(t, filepath.Join(o.ManagementClusters, platformDir+kustomizationFile)); !strings.Contains(platform, "- ./secrets\n") || strings.Contains(platform, "./secrets/") {
+		t.Errorf("the platform's kustomization:\n%s", platform)
+	}
+	if extras := readFile(t, filepath.Join(o.ManagementClusters, extrasFile)); !strings.Contains(extras, "- ./agent-platform/\n") || !strings.Contains(extras, "- ./mcp-kubernetes/\n") {
+		t.Errorf("the extras kustomization:\n%s", extras)
+	}
+	if !exists(filepath.Join(o.ManagementClusters, secretsDir+exchangeFile)) {
+		t.Errorf("no %s", secretsDir+exchangeFile)
+	}
+}
+
+// On an installation without the platform's directory the hub's
+// token-exchange client goes under extras/agent-platform/secrets, where
+// cluster-mcp-servers renders the pair's Dex side, and the split writes the
+// chain to it: the dry run plans the Secret and the three kustomizations,
+// --write writes them, and the platform's own clients keep going to
+// extras/dex there.
+func TestTokenExchangeClientGoesUnderThePlatformSecretsWithoutThePlatform(t *testing.T) {
+	o, _ := checkouts(t, "3.2.5")
+	withoutPlatform(t, o)
+	r, err := Run(context.Background(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		exchangeClient: secretsDir + exchangeFile,
+		muster:         dexDirOfPuffin + "dex-client-muster-secret.yaml",
+		kagent:         dexDirOfPuffin + "dex-client-kagent-secret.yaml",
+	}
+	for _, c := range r.Clients {
+		if w, ok := want[c.ID()]; ok && (c.Secret == nil || c.Secret.File != w || c.Secret.State != StateToWrite) {
+			t.Errorf("%s: %+v, want %s to write", c.ID(), c.Secret, w)
+		}
+	}
+	for _, f := range []string{secretsDir + exchangeFile, secretsDir + kustomizationFile, platformDir + kustomizationFile, extrasFile} {
+		if !slices.Contains(r.ManagementClustersFiles, f) {
+			t.Errorf("the dry run does not plan %s: %v", f, r.ManagementClustersFiles)
+		}
+	}
+	o.Write = true
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	assertChain(t, o)
+	if extras := readFile(t, filepath.Join(o.ManagementClusters, extrasFile)); !strings.Contains(extras, "- ./dex/\n") {
+		t.Errorf("the extras kustomization lost the dex directory:\n%s", extras)
+	}
+	if again, err := Run(context.Background(), o); err != nil || !again.Done {
+		t.Fatalf("second run: %+v, %v", again, err)
+	}
+}
+
+// A token-exchange client an earlier split put under extras/dex moves on
+// to the platform's secrets on the next split, unchanged and listed once:
+// the split patch has nothing to reveal, so the client is read from its
+// file's name; the dry run plans the move and the chain, the pairing is
+// checked against the hub from the file, and the configs are not touched.
+// The write renames the file, unlists it from extras/dex and lists it
+// through the chain, copying no value; a run after that has nothing to do.
+func TestAnEarlierSplitsTokenExchangeClientMovesOn(t *testing.T) {
+	o, v := checkouts(t, "3.2.5")
+	withoutPlatform(t, o)
+	writeFile(t, filepath.Join(o.Configs, "installations/puffin/apps/dex-app/secret-values.yaml.patch"), earlierSplitPatch)
+	old := filepath.Join(o.ManagementClusters, dexDirOfPuffin+exchangeFile)
+	writeFile(t, old, exchangeSecret)
+	var doc yaml.Node
+	_ = yaml.Unmarshal([]byte("stringData:\n  secret: exchange-value\n"), &doc)
+	v.plain[old] = doc.Content[0]
+	writeFile(t, filepath.Join(o.ManagementClusters, dexKustomization), "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - dex-client-grafana-secret.yaml\n  - "+exchangeFile+"\n")
+	writeFile(t, filepath.Join(o.ManagementClusters, extrasFile), "resources:\n  - ./mcp-kubernetes/\n  - ./dex/\n")
+
+	r, err := Run(context.Background(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Done || len(r.Clients) != 1 || r.Clients[0].ID() != exchangeClient {
+		t.Fatalf("report %+v", r)
+	}
+	m := r.Clients[0].Secret
+	if m == nil || m.MovesFrom != dexDirOfPuffin+exchangeFile || m.File != secretsDir+exchangeFile || m.State != StateToMove || m.From != "" {
+		t.Fatalf("move %+v", m)
+	}
+	if r.Pairing == nil || r.Pairing.State != StateEqual {
+		t.Errorf("pairing %+v, want equal, read from the file", r.Pairing)
+	}
+	if len(r.ConfigsFiles) != 0 {
+		t.Errorf("a split patch plans configs files: %v", r.ConfigsFiles)
+	}
+	for _, f := range []string{dexDirOfPuffin + exchangeFile, dexKustomization, secretsDir + exchangeFile, secretsDir + kustomizationFile, platformDir + kustomizationFile, extrasFile} {
+		if !slices.Contains(r.ManagementClustersFiles, f) {
+			t.Errorf("the dry run does not plan %s: %v", f, r.ManagementClustersFiles)
+		}
+	}
+	var out bytes.Buffer
+	r.Print(&out)
+	if !strings.Contains(out.String(), "moves from   "+dexDirOfPuffin+exchangeFile) || strings.Contains(out.String(), "exchange-value") {
+		t.Errorf("the report:\n%s", out.String())
+	}
+
+	o.Write = true
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	if len(v.copies) != 0 || len(v.unsets) != 0 {
+		t.Errorf("the move copied or unset: %v %v", v.copies, v.unsets)
+	}
+	assertChain(t, o)
+	if exists(old) {
+		t.Errorf("%s stays", old)
+	}
+	if moved := readFile(t, filepath.Join(o.ManagementClusters, secretsDir+exchangeFile)); moved != exchangeSecret {
+		t.Errorf("the Secret changed on the move:\n%s", moved)
+	}
+	if dex := readFile(t, filepath.Join(o.ManagementClusters, dexKustomization)); strings.Contains(dex, exchangeFile) || !strings.Contains(dex, "dex-client-grafana-secret.yaml") {
+		t.Errorf("the dex kustomization:\n%s", dex)
+	}
+	if exists(filepath.Join(o.Configs, ConfigMapPatchPath(inst))) {
+		t.Error("the move wrote the plaintext patch")
+	}
+	if again, err := Run(context.Background(), o); err != nil || !again.Done {
+		t.Fatalf("second run: %+v, %v", again, err)
+	}
+}
+
+// A split that stopped half-way, the patch still carrying the client and an
+// earlier release's run having put its Secret under extras/dex: the file
+// moves on where it carries the inline value, and the split is refused
+// where it carries another.
+func TestAHalfWaySplitMovesTheEarlierFileOn(t *testing.T) {
+	o, v := checkouts(t, "3.2.5")
+	withoutPlatform(t, o)
+	old := filepath.Join(o.ManagementClusters, dexDirOfPuffin+exchangeFile)
+	writeFile(t, old, exchangeSecret)
+	writeFile(t, filepath.Join(o.ManagementClusters, dexKustomization), "resources:\n  - "+exchangeFile+"\n")
+	var doc yaml.Node
+	_ = yaml.Unmarshal([]byte("stringData:\n  secret: another-value\n"), &doc)
+	v.plain[old] = doc.Content[0]
+	if _, err := Run(context.Background(), o); !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), dexDirOfPuffin+exchangeFile) {
+		t.Fatalf("err %v, want the earlier file refused for its other value", err)
+	}
+	var same yaml.Node
+	_ = yaml.Unmarshal([]byte("stringData:\n  secret: exchange-value\n"), &same)
+	v.plain[old] = same.Content[0]
+	o.Write = true
+	r, err := Run(context.Background(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(v.copies) != 5 {
+		t.Errorf("copies %v, want the five other clients'", v.copies)
+	}
+	for _, c := range r.Clients {
+		if c.ID() == exchangeClient && (c.Secret.State != StateMoved || c.Secret.From == "") {
+			t.Errorf("%s: %+v, want moved from the inline value's path", c.ID(), c.Secret)
+		}
+	}
+	assertChain(t, o)
+	if exists(old) {
+		t.Errorf("%s stays", old)
+	}
+}
+
+func TestClientOfFile(t *testing.T) {
+	for name, want := range map[string]string{"dex-client-muster-token-exchange-puffin-secret.yaml": exchangeClient, "dex-client-grafana-secret.yaml": "Grafana", "kustomization.yaml": "", "dex-client--secret.yaml": ""} {
+		got, ok := clientOfFile(name)
+		if want == "" && ok || want != "" && (!ok || !strings.EqualFold(got, want)) {
+			t.Errorf("clientOfFile(%s) = %q, %v; want %q", name, got, ok, want)
+		}
 	}
 }
 

@@ -103,26 +103,50 @@ type Entry struct {
 
 // Move is one inline secret moving to its Secret.
 type Move struct {
-	From string `json:"from"`
+	// From is the secret's key path in the encrypted patch; empty for a
+	// Secret an earlier split wrote already, which moves on from MovesFrom.
+	From string `json:"from,omitempty"`
 	// File is the Secret's file in the management-clusters repository,
 	// Kustomization the kustomization.yaml that lists it.
 	File          string `json:"file"`
 	Secret        string `json:"secret"`
 	Kustomization string `json:"kustomization"`
-	// State is to-write, present (the file carries the same value) or
-	// differs (refused).
+	// MovesFrom is the file an earlier split put the Secret in under
+	// extras/dex, before the definitions' path was its destination: the
+	// file moves on to File unchanged and is unlisted there.
+	MovesFrom string `json:"movesFrom,omitempty"`
+	// State is to-write, to-move (MovesFrom moves on), present (the file
+	// carries the same value) or differs (refused); written and moved after
+	// a write.
 	State string `json:"state"`
 }
 
 // The states of a Move and a Pairing.
 const (
 	StateToWrite   = "to-write"
+	StateToMove    = "to-move"
 	StateWritten   = "written"
+	StateMoved     = "moved"
 	StatePresent   = "present"
 	StateDiffers   = "differs"
 	StateEqual     = "equal"
 	StateUnchecked = "unchecked"
 )
+
+// source is where the secret's value is read from: the encrypted patch at
+// From, or the file an earlier split wrote (earlier) once the patch no
+// longer carries it.
+func (m Move) source(o Options, encrypted string) Ref {
+	if m.From == "" {
+		return m.earlier(o)
+	}
+	return Ref{File: encrypted, Path: m.From}
+}
+
+// earlier is the value in the file an earlier split wrote (MovesFrom).
+func (m Move) earlier(o Options) Ref {
+	return Ref{File: filepath.Join(o.ManagementClusters, m.MovesFrom), Path: "stringData." + render.DexSecretKey}
+}
 
 // Pairing is the token-exchange client's value and the hub's copy.
 type Pairing struct {
@@ -160,26 +184,34 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		return r, fmt.Errorf("%s: %w", installations.DexSecretPatchPath(o.Installation), err)
 	}
 	r.Keep = shape.Keep
-	if shape.Split() {
-		r.Done = true
-		return r, nil
-	}
-	r.Drop, r.PeerCount = shape.Drop, shape.Peers
-	revealed, err := o.Vault.Reveal(ctx, encrypted, revealPaths(shape))
-	switch {
-	case errors.Is(err, ErrUnsupported) && !o.Write:
-		r.Unrevealed = err.Error()
-	case err != nil:
-		return r, err
-	default:
+	split := shape.Split()
+	if split {
+		// The patch is split; a token-exchange client an earlier split put
+		// under extras/dex still moves on, its id read from its file.
+		r.Clients = movedOn(o)
+		if len(r.Clients) == 0 {
+			r.Done = true
+			return r, nil
+		}
 		r.Revealed = true
-	}
-	if r.Clients, err = clients(o, shape, revealed); err != nil {
-		return r, err
-	}
-	for i := range shape.Peers {
-		if v, ok := revealed[pathPeers+"."+strconv.Itoa(i)]; ok {
-			r.Peers = append(r.Peers, v)
+	} else {
+		r.Drop, r.PeerCount = shape.Drop, shape.Peers
+		revealed, err := o.Vault.Reveal(ctx, encrypted, revealPaths(shape))
+		switch {
+		case errors.Is(err, ErrUnsupported) && !o.Write:
+			r.Unrevealed = err.Error()
+		case err != nil:
+			return r, err
+		default:
+			r.Revealed = true
+		}
+		if r.Clients, err = clients(o, shape, revealed); err != nil {
+			return r, err
+		}
+		for i := range shape.Peers {
+			if v, ok := revealed[pathPeers+"."+strconv.Itoa(i)]; ok {
+				r.Peers = append(r.Peers, v)
+			}
 		}
 	}
 	if err := checkMoves(ctx, o, encrypted, &r); err != nil {
@@ -190,10 +222,16 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		return r, refused("%s differs from the hub's %s: the two must stay one value; settle it first", r.Pairing.Client, r.Pairing.HubRef)
 	}
 	if !o.Write {
-		r.ManagementClustersFiles, r.ConfigsFiles = plannedFiles(o, r)
+		r.ManagementClustersFiles, r.ConfigsFiles = plannedFiles(o, r, !split)
 		return r, nil
 	}
-	return r, write(ctx, o, encrypted, &r)
+	if err := writeSecrets(ctx, o, encrypted, &r); err != nil {
+		return r, err
+	}
+	if split {
+		return r, nil
+	}
+	return r, writeConfigs(ctx, o, encrypted, &r)
 }
 
 // dexAppGate refuses a dex-app that cannot read a referenced client Secret,
@@ -333,15 +371,26 @@ func extraEntry(e ExtraShape, revealed map[string]string) (Entry, error) {
 // destination is where a client's secret goes: the file the definitions
 // render for it, in its component's directory where that directory's
 // kustomization exists, else in the extras' dex directory the split keeps
-// for the installation's own clients.
+// for the installation's own clients. A hub's token-exchange client goes
+// under the platform's secrets whether or not the platform's directory is
+// on the installation: cluster-mcp-servers renders the pair's Dex side
+// there, the file the agent-platform definition renders for the same
+// pairing, and the split writes the kustomization chain to it. Its Secret
+// an earlier split put under extras/dex moves on from there.
 func destination(o Options, client, from string) *Move {
 	extras := "management-clusters/" + o.Installation + "/extras/"
 	secret := render.DexClientSecretName(client)
 	file := render.DexClientSecretFile(client)
 	var dir string
 	switch {
+	case strings.HasPrefix(client, tokenExchangePrefix):
+		m := &Move{From: from, File: extras + PlatformSecretsDir + "/" + file, Secret: secret, Kustomization: extras + PlatformSecretsDir + "/" + kustomizationFile, State: StateToWrite}
+		if earlier := extras + DexDir + "/" + file; exists(filepath.Join(o.ManagementClusters, earlier)) {
+			m.MovesFrom, m.State = earlier, StateToMove
+		}
+		return m
 	case client == "muster" || client == "kagent" || strings.HasPrefix(client, "muster-"):
-		dir = extras + "agent-platform/secrets"
+		dir = extras + PlatformSecretsDir
 	case strings.HasPrefix(client, "mcp-"):
 		dir = extras + client
 	case client == render.PortalDexClientID:
@@ -353,10 +402,46 @@ func destination(o Options, client, from string) *Move {
 	return &Move{From: from, File: dir + "/" + file, Secret: secret, Kustomization: dir + "/" + kustomizationFile, State: StateToWrite}
 }
 
+// movedOn are the token-exchange clients whose Secrets an earlier split put
+// under extras/dex, each moving on to the platform's secrets: a split patch
+// reveals nothing, so the client's id is read from its file's name.
+func movedOn(o Options) []Client {
+	dir := filepath.Join(o.ManagementClusters, "management-clusters", o.Installation, "extras", DexDir)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []Client
+	for _, e := range entries {
+		client, ok := clientOfFile(e.Name())
+		if !ok || !strings.HasPrefix(client, tokenExchangePrefix) {
+			continue
+		}
+		m := destination(o, client, "")
+		out = append(out, Client{Source: m.MovesFrom, Entry: &Entry{ID: client, SecretRef: m.Secret}, Secret: m})
+	}
+	return out
+}
+
+// clientOfFile is the client whose Secret a file of the split's naming is
+// (render.DexClientSecretFile), or false.
+func clientOfFile(name string) (string, bool) {
+	prefix, suffix := render.DexClientSecretName(""), strings.TrimPrefix(render.DexClientSecretFile(""), render.DexClientSecretName(""))
+	if !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, suffix) || len(name) <= len(prefix)+len(suffix) {
+		return "", false
+	}
+	return name[len(prefix) : len(name)-len(suffix)], true
+}
+
 // DexDir is the extras directory the split keeps the installation's own
 // clients' Secrets in: listed by the extras' kustomization, applied by
 // flux-extras, owned by no definition.
 const DexDir = "dex"
+
+// PlatformSecretsDir is the extras directory the definitions render the
+// platform's Secrets in: muster's and kagent's Dex clients, and the hubs'
+// token-exchange clients whichever definition renders the Dex side.
+const PlatformSecretsDir = "agent-platform/secrets"
 
 const kustomizationFile = "kustomization.yaml"
 
@@ -377,7 +462,10 @@ func kebab(key string) string {
 }
 
 // checkMoves marks each move whose Secret file exists: present when it
-// carries the inline value, refused when it carries another.
+// carries the inline value, refused when it carries another. A Secret that
+// moves on from an earlier split's file is checked against the inline value
+// while the patch still carries it, and refused where its destination exists
+// as well: two files of one client are a person's to settle.
 func checkMoves(ctx context.Context, o Options, encrypted string, r *Report) error {
 	for _, c := range r.Clients {
 		m := c.Secret
@@ -385,6 +473,24 @@ func checkMoves(ctx context.Context, o Options, encrypted string, r *Report) err
 			continue
 		}
 		dst := filepath.Join(o.ManagementClusters, m.File)
+		if m.MovesFrom != "" {
+			if exists(dst) {
+				m.State = StateDiffers
+				return refused("%s and %s both exist for %s; keep one by hand", m.MovesFrom, m.File, c.ID())
+			}
+			if m.From == "" {
+				continue
+			}
+			equal, err := o.Vault.Equal(ctx, Ref{File: encrypted, Path: m.From}, m.earlier(o))
+			if err != nil {
+				return err
+			}
+			if !equal {
+				m.State = StateDiffers
+				return refused("%s exists with another value than %s: Dex would change the client's secret; settle it by hand", m.MovesFrom, m.From)
+			}
+			continue
+		}
 		if !exists(dst) {
 			continue
 		}
@@ -417,7 +523,7 @@ func pairing(ctx context.Context, o Options, encrypted string, r *Report) {
 		}
 		file := "management-clusters/" + o.Hub + "/extras/agent-platform/secrets/" + target + "-token-exchange-credentials.yaml"
 		p.HubRef = file + "#stringData.client-secret"
-		equal, err := o.Vault.Equal(ctx, Ref{File: encrypted, Path: c.Secret.From}, Ref{File: filepath.Join(o.HubManagementClusters, file), Path: "stringData.client-secret"})
+		equal, err := o.Vault.Equal(ctx, c.Secret.source(o, encrypted), Ref{File: filepath.Join(o.HubManagementClusters, file), Path: "stringData.client-secret"})
 		switch {
 		case err != nil:
 			p.Reason = err.Error()
