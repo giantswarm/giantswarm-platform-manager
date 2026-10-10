@@ -386,10 +386,17 @@ func (p Installation) FrozenRefusal() string {
 // record, or "": the manager decrypts nothing, so a value a file to write
 // takes from the record, or one the vault draws into a file on record, is
 // put there by the caller's vault before the commit — one clause per name.
+// On a plan of a wave that moves a pair (VaultCopies), the wave's vault copy
+// takes the pair's values only: a carry of any other generated value is
+// refused as outside it, by name, with the installation's own reconcile as
+// the way out, and the pair's carries are the clauses above.
 func (p Installation) CarryRefusal() string {
 	var parts []string
+	if outside := p.outsideRefusal(); outside != "" {
+		parts = append(parts, outside)
+	}
 	for _, g := range p.GeneratedSecrets {
-		if len(g.Carries) == 0 {
+		if len(g.Carries) == 0 || len(p.VaultCopies) > 0 && g.Peer == "" {
 			continue
 		}
 		to := make([]string, 0, len(g.Carries))

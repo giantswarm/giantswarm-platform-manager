@@ -57,6 +57,11 @@ func TestSetWaveDrawsATokenExchangePairOnce(t *testing.T) {
 	sides := []struct{ inst, with, repo, path, key string }{{hub, birch, hubMCs, hubPath, "client-secret"}, {birch, hub, acmeMCs, peerPath, render.DexSecretKey}}
 	for _, s := range sides {
 		p := findPlan(t, dry, s.inst)
+		// Drawn once for the wave, the pair's value is copied by nobody, and
+		// neither side holds a carry outside it: the wave's vault copy is empty.
+		if len(p.VaultCopies) != 0 {
+			t.Errorf("%s: vault copies %+v, want none for a pair drawn once", s.inst, p.VaultCopies)
+		}
 		i := slices.IndexFunc(p.GeneratedSecrets, func(g plan.GeneratedSecret) bool { return g.Name == name })
 		if i < 0 {
 			t.Fatalf("%s: no %s among %+v", s.inst, name, p.GeneratedSecrets)

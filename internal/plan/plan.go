@@ -325,6 +325,11 @@ type Installation struct {
 	// again, so the value on record stands, the commit renders the field's
 	// marker, writes none of its files and asks for no value.
 	SuppliedOnRecord []string `json:"suppliedOnRecord,omitempty"`
+	// VaultCopies is the wave's vault copy, on a plan of a set that moves a
+	// side of a pair (WaveVaultCopies): the values the caller's vault copies
+	// for the wave, by key, selected by the pair it moves; a carry of any
+	// other generated value is listed outside and refused by name.
+	VaultCopies []VaultCopy `json:"vaultCopies,omitempty"`
 	// MissingFacts are the facts of the record the render needs that the
 	// record leaves empty: a commit is held while one is (FactsRefusal).
 	MissingFacts *MissingFacts `json:"missingFacts,omitempty"`
