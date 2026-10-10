@@ -94,7 +94,7 @@ func newInstallationListCmd() *cobra.Command {
 func newCapabilityCmd(tool string, allowSet bool) *cobra.Command {
 	name := strings.TrimSuffix(tool, "_capability")
 	var c conn
-	var dryRun, commit, content, all bool
+	var dryRun, commit, content, all, forceJoin bool
 	var inputs kvFlag
 	var secretFlags secretFlag
 	var rotate []string
@@ -146,6 +146,9 @@ func newCapabilityCmd(tool string, allowSet bool) *cobra.Command {
 		}
 		if len(rotate) > 0 {
 			toolArgs[tools.ArgRotate] = rotate
+		}
+		if forceJoin {
+			toolArgs[tools.ArgForceJoin] = true
 		}
 		if commit {
 			toolArgs[tools.ArgReason] = reason
@@ -226,6 +229,7 @@ func newCapabilityCmd(tool string, allowSet bool) *cobra.Command {
 	fs.StringArrayVar(&rotate, "rotate", nil, "a generated value to rotate on request, by its `name` in the dry run (<installation>-muster-valkey-password), repeatable: a new value in every file that holds it, its credentials revision rolling every workload that reads it")
 	completeFlag(cmd, "input", cobra.NoFileCompletions)
 	completeFlag(cmd, "secret", cobra.NoFileCompletions)
+	fs.BoolVar(&forceJoin, "force-join", false, "proceed with a reconcile that takes off the installation's muster what it serves beyond the shared defaults (the dry run's join warning: the broker's exchange targets, the identity providers, the MCP servers, a registration URI that moves to another installation): the commit is refused without it while the muster still serves in-cluster servers of its own")
 	fs.StringVar(&reason, tools.ArgReason, "", "with --commit (required): why you make the change, in a sentence the team's review and the notices show")
 	completeFlag(cmd, "rotate", cobra.NoFileCompletions)
 	completeFlag(cmd, tools.ArgReason, cobra.NoFileCompletions)

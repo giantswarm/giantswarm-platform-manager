@@ -24,6 +24,9 @@ const (
 	ArgContent      = "content"
 	// ArgRotate names the generated values to rotate on request.
 	ArgRotate = "rotate"
+	// ArgForceJoin lets a commit proceed over what the plan takes off an
+	// installation's muster.
+	ArgForceJoin = "forceJoin"
 	// ArgKeep names the files a disable keeps.
 	ArgKeep = "keep"
 )
@@ -97,9 +100,15 @@ func capabilityOptions() []mcp.ToolOption {
 		mcp.WithBoolean(ArgContent, mcp.Description("Include the rendered content of every file and the file on record (default: true for one installation, false for a set); false answers paths and changes only. An answer above 1 MiB is refused with its size: ask for less.")),
 		mcp.WithObject(ArgSecrets, mcp.Description("mode commit only: the secret values the plan's suppliedSecrets name, by field. They land inside the encrypted files and nowhere else — not in the Action, not in a log, not in an answer.")),
 		mcp.WithArray(ArgRotate, mcp.Description(rotateArgDescription), mcp.Items(stringItems())),
+		mcp.WithBoolean(ArgForceJoin, mcp.Description(forceJoinArgDescription)),
 		mcp.WithString(ArgReason, mcp.Description(reasonArgDescription)),
 	}
 }
+
+// forceJoinArgDescription describes the forceJoin argument of the write
+// tools: the way past the join refusal.
+const forceJoinArgDescription = `Proceed with a reconcile that takes off an installation's muster what it serves beyond the shared defaults (the plan's join: the broker's exchange targets, the identity providers and the MCP servers its agent-platform values list, the public-registration redirect URIs that move to another installation of the set). ` +
+	`A reconcile of an installation as a target of a hub drops those, and a commit is refused (commitRefused) while the installation's muster still serves in-cluster servers of its own — a registry of its own, which the join takes from everyone reaching it there. With forceJoin true the dry run carries the warning (join.forced) and the commit proceeds.`
 
 // reasonArgDescription describes the reason argument of the write tools.
 const reasonArgDescription = `mode commit only, required: why you make the change, in a sentence a teammate judges it by — the team's review shows it above what changes, and so do the notices once it is applied. Recorded on the Action and in the pull requests.`
@@ -167,6 +176,7 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 	}
 	inputs, _ := args[ArgInputs].(map[string]any)
 	rotate := rotateArg(args)
+	forceJoin, _ := args[ArgForceJoin].(bool)
 	whole := wholeArg(args)
 	content := contentArg(args, whole)
 
@@ -202,7 +212,7 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 			out.Skipped = append(out.Skipped, skip)
 			continue
 		}
-		res, err := t.compare(ctx, env, r, def, inputs, content, rotate)
+		res, err := t.compare(ctx, env, r, def, inputs, content, rotate, forceJoin)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -220,6 +230,9 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 		ps[i] = &out.Installations[i].Installation
 	}
 	changed := plan.ShareDraws(ps)
+	// A registration URI one plan's patch takes off and another's puts on
+	// moves between the two: both sides say so.
+	plan.MoveRedirectURIs(ps)
 	for i := range out.Installations {
 		if e := &out.Installations[i]; slices.Contains(changed, e.Name) && e.Refused == "" && len(e.MissingInputs) == 0 {
 			e.CommitRefused = commitRefusal(e.Installation, env.reports[e.Name].Record)
