@@ -305,9 +305,12 @@ type Target struct {
 	Servers []string `json:"servers"`
 	// AgentPlatform says the target runs the agent platform, which renders
 	// the Dex side of this hub's client there: the pair's two files name each
-	// other (exchangeSecretName). Without it the target keeps the client by
-	// hand.
-	AgentPlatform bool `json:"agentPlatform"`
+	// other (exchangeSecretName). ClusterMCPServers says the target runs its
+	// MCP servers under cluster-mcp-servers without the platform, whose
+	// render holds the Dex side in the same file (Target.rendersDexSide).
+	// With neither the target keeps the client by hand.
+	AgentPlatform     bool `json:"agentPlatform"`
+	ClusterMCPServers bool `json:"clusterMcpServers"`
 	// BrowseOnly says the policy keeps the target to browsing
 	// (federation.browseOnly): the hub's portal still lists its clusters
 	// through the broker, and the hub federates none of its MCP servers,

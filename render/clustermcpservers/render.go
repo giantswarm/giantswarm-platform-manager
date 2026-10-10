@@ -3,9 +3,15 @@
 // platform — each server's extras directory over the fleet base, with its
 // credentials, its Dex client's Secret and the credentials revision a
 // rotation restarts the server and its Valkey on (render/mcpservers, the files
-// the agent-platform definition renders for the same servers), and each
+// the agent-platform definition renders for the same servers), each
 // server's Dex client as a referenced Secret in the dex-app configmap patch,
-// a file whose other clients and keys stay their owners'.
+// a file whose other clients and keys stay their owners', and the
+// token-exchange client of every hub whose muster exchanges tokens into the
+// installation to reach those servers: the client in the patch, as a trusted
+// peer of the authenticator and with its secret in a referenced Secret, and
+// that Secret under extras/agent-platform/secrets, the file the agent-platform
+// definition renders for the same pairing (render.ExchangeTarget), so the
+// pair keeps its value when the platform is disabled and the servers stay.
 package clustermcpservers
 
 import (
@@ -47,6 +53,11 @@ const DexAppRotation = "3.2.3"
 const (
 	// fluxNamespace is where the servers' HelmReleases live.
 	fluxNamespace = "flux-giantswarm"
+	// platformDir is the extras directory the hubs' token-exchange Secrets
+	// live in: the agent platform's, where its definition renders the same
+	// files for the same pairing, so a pair's Dex side stays in one file
+	// whichever definition renders it.
+	platformDir = "agent-platform"
 	// fileHeader opens every rendered YAML file.
 	fileHeader = "# Rendered by giantswarm-platform-manager, cluster-mcp-servers definition. Do not edit by hand:\n# the next reconcile writes it again from the installation's inputs.\n"
 )
@@ -75,10 +86,14 @@ type Installation struct {
 
 // Federation is the installation's place in the fleet's token exchange, as
 // far as this definition renders it: the hubs whose muster exchanges tokens
-// into the installation, each with the facts the connector its Dex registers
-// for the hub is rendered from (render.HubConnector).
+// into the installation, each with a token-exchange client in its Dex and
+// with the facts the connector its Dex registers for the hub is rendered
+// from (render.ExchangeTarget, render.HubConnector), and the registry's hub
+// by name, whose client carries the fleet's plain id.
 type Federation struct {
-	Connectors []render.HubConnector `json:"connectors"`
+	Hubs        []string              `json:"hubs"`
+	RegistryHub string                `json:"registryHub"`
+	Connectors  []render.HubConnector `json:"connectors"`
 }
 
 // Servers are how the installation runs each of its MCP servers, by the
@@ -195,9 +210,18 @@ func (in *Input) runsAny() bool {
 	return false
 }
 
-// Render renders the fileset of the installation's MCP servers. Every
-// credential is a placeholder the commit step generates; the definition asks
-// for no supplied value, and the mode takes no part.
+// exchange is the Dex side of the token exchange on this installation: the
+// hubs that broker into it and the registry's hub by name, the same shape
+// the agent-platform definition renders it from where the platform runs.
+func (in *Input) exchange() render.ExchangeTarget {
+	fed := in.Installation.Federation
+	return render.ExchangeTarget{Installation: in.Installation.Name, Hubs: fed.Hubs, RegistryHub: fed.RegistryHub}
+}
+
+// Render renders the fileset of the installation's MCP servers and of the
+// hubs' token-exchange clients into them. Every credential is a placeholder
+// the commit step generates; the definition asks for no supplied value, and
+// the mode takes no part.
 func Render(raw any, secrets map[string]string, _ render.Mode) (*render.Result, error) {
 	in, err := Parse(raw)
 	if err != nil {
@@ -226,6 +250,13 @@ func Render(raw any, secrets map[string]string, _ render.Mode) (*render.Result, 
 		}
 	}
 	oidc := render.Map{{Key: "staticClients", Value: static}}
+	if hubs := in.Installation.Federation.Hubs; len(hubs) > 0 {
+		in.exchangeExtras(r, clusters, extras+platformDir)
+		r.Include(clusters, extras+"kustomization.yaml", "./"+platformDir+"/")
+		// The hubs' brokers ask Dex for the cluster tokens through their clients.
+		static = append(static, render.Entry{Key: "dexK8SAuthenticator", Value: render.Map{{Key: "trustedPeers", Value: in.exchange().TrustedPeers()}}})
+		oidc = render.Map{{Key: "staticClients", Value: static}, {Key: "extraStaticClients", Value: in.exchange().DexClients()}}
+	}
 	connectors, err := in.exchangeConnectors()
 	if err != nil {
 		return nil, err
@@ -257,10 +288,45 @@ func (in *Input) exchangeConnectors() ([]render.Map, error) {
 	return list, nil
 }
 
+// exchangeExtras is management-clusters/<name>/extras/agent-platform/ on an
+// installation without the platform: the kustomization listing its secrets
+// directory, that directory's kustomization, and the Dex-side Secret of
+// every hub's token-exchange client, each peered with the hub's credentials
+// Secret for this installation (render.ExchangeTarget.Secret). The files
+// and their paths are the agent-platform definition's for the same pairing:
+// a disable of the platform keeps them as this definition's, with the
+// value the hub holds the other side of, and an enable finds them on record.
+func (in *Input) exchangeExtras(r *render.Result, repo render.Repository, dir string) {
+	r.Add(repo, dir+"/kustomization.yaml", render.File{Content: kustomization("./secrets")})
+	x := in.exchange()
+	files := make([]string, 0, len(x.Hubs))
+	for _, hub := range x.Hubs {
+		file, f := x.Secret(hub)
+		files = append(files, file)
+		r.Add(repo, dir+"/secrets/"+file, f)
+	}
+	r.Add(repo, dir+"/secrets/kustomization.yaml", render.File{Content: kustomization(files...)})
+}
+
+// kustomizationDoc is a kustomize Kustomization listing resources.
+type kustomizationDoc struct {
+	APIVersion string   `yaml:"apiVersion"`
+	Kind       string   `yaml:"kind"`
+	Resources  []string `yaml:"resources"`
+}
+
+// kustomization renders a kustomize Kustomization listing resources.
+func kustomization(resources ...string) []byte {
+	return append([]byte(fileHeader), render.MustYAML(kustomizationDoc{
+		APIVersion: mcpservers.KustomizationAPIVersion, Kind: mcpservers.KustomizationKind, Resources: resources,
+	})...)
+}
+
 // probes are the live reads of the installation: every running server's and
 // its Valkey's HelmRelease Ready, the server's Deployment Available (a
 // HelmRelease stays Ready when its pods turn unready on rotated-away
-// credentials), and Dex started after every server's client Secret changed.
+// credentials), and Dex started after every server's and every hub's
+// token-exchange client's Secret changed.
 func (in *Input) probes() []render.Probe {
 	var p []render.Probe
 	for _, s := range mcpservers.Servers {
@@ -275,6 +341,9 @@ func (in *Input) probes() []render.Probe {
 		if s.DexSecretRef {
 			p = append(p, render.DexSecretLoadedProbe("live-dex-client-secrets-loaded", featureIdentity, render.DexNamespace, render.DexClientSecretName(s.Name), s.DexClient))
 		}
+	}
+	for _, client := range in.exchange().TrustedPeers() {
+		p = append(p, render.DexSecretLoadedProbe("live-dex-client-secrets-loaded", featureIdentity, render.DexNamespace, render.DexClientSecretName(client), client))
 	}
 	return p
 }

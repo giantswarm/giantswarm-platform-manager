@@ -52,8 +52,9 @@ func TestFactsPerDefinition(t *testing.T) {
 
 // A fact the schema shapes as an object reaches a definition pruned to the
 // properties the schema names, at every depth: the cluster-mcp-servers
-// definition takes the federation's connectors and nothing else of it, the
-// agent-platform definition the whole federation.
+// definition takes the federation's hubs, the registry's hub and the
+// connectors and nothing else of it (not the targets), the agent-platform
+// definition the whole federation.
 func TestFactsPruneObjectsBySchema(t *testing.T) {
 	r := Report{Installation: Installation{Name: fixtureInstallation}, Record: &Record{Name: fixtureInstallation, BaseDomain: "maple.acme.example.test", Customer: fixtureCustomer},
 		Federation: &Federation{Hubs: []string{fixtureHub}, RegistryHub: fixtureHub, Targets: []FederatedTarget{}, Connectors: []render.HubConnector{{Hub: fixtureHub, Customer: fixtureFleet, BaseDomain: aspenDomain, First: true}}}}
@@ -65,8 +66,9 @@ func TestFactsPruneObjectsBySchema(t *testing.T) {
 	}
 	fed, _ := facts["federation"].(map[string]any)
 	conns, _ := fed["connectors"].([]any)
-	if len(fed) != 1 || len(conns) != 1 {
-		t.Fatalf("cluster-mcp-servers takes the connectors alone: %v", facts["federation"])
+	hubs, _ := fed["hubs"].([]any)
+	if len(fed) != 3 || len(conns) != 1 || len(hubs) != 1 || hubs[0] != fixtureHub || fed["registryHub"] != fixtureHub {
+		t.Fatalf("cluster-mcp-servers takes the hubs, the registry's hub and the connectors alone: %v", facts["federation"])
 	}
 	if entry, _ := conns[0].(map[string]any); entry["hub"] != fixtureHub || entry["customer"] != fixtureFleet || entry["baseDomain"] != aspenDomain || entry["first"] != true {
 		t.Errorf("the connector's facts: %v", conns[0])

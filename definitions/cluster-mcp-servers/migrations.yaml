@@ -21,3 +21,15 @@ migrations:
     reason: "Added: the <name> Dex client reads its secret from the Secret in the cluster the server shares, instead of the encrypted Dex values"
   - key: dex-configmap:oidc.customer.connectors[<connector>]
     reason: "Added: Dex gets the connector <connector>, an oidc connector trusting a hub's Dex as the issuer, through which that hub's muster exchanges a person's token for one this installation accepts"
+  # The hubs' token-exchange clients: an installation whose hubs' clients were registered by hand, or whose
+  # agent platform rendered them and was disabled before this definition rendered them.
+  - key: extras:agent-platform/kustomization.yaml
+    reason: "Added: the agent-platform extras directory lists its secrets directory, where the hubs' token-exchange Dex client Secrets are, so they are applied with the servers"
+  - key: extras:agent-platform/secrets/kustomization.yaml
+    reason: "Added: the secrets kustomization lists every hub's token-exchange Dex client Secret, so each is applied with the rest"
+  - key: extras:agent-platform/secrets/dex-client-muster-token-exchange-<name>-secret.yaml
+    reason: "Added: the hub's token-exchange client muster-token-exchange-<name> reads its secret from a Secret in Dex's namespace, one value with the hub's credentials Secret for this installation, so the hub's exchange into the installation's MCP servers is on record on both sides"
+  - key: dex-configmap:oidc.extraStaticClients[*]
+    reason: "Added: the hub's token-exchange client is registered in Dex with its secret read from the Secret in the cluster, instead of the encrypted Dex values"
+  - key: dex-configmap:oidc.staticClients.dexK8SAuthenticator.trustedPeers
+    reason: "Added: the hubs' token-exchange clients are trusted peers of the authenticator, so a hub's broker gets the cluster tokens it exchanges for through its client"

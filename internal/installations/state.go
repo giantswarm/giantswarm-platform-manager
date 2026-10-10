@@ -250,11 +250,15 @@ func Capabilities() []Capability {
 	}}
 }
 
+// clusterMCPServersMarkerServer is the server whose extras kustomization is
+// the cluster-mcp-servers capability's marker.
+const clusterMCPServersMarkerServer = "mcp-kubernetes"
+
 // ClusterMCPServersMarker is the cluster-mcp-servers capability's marker: the
 // mcp-kubernetes extras' kustomization, which every management cluster that
 // runs its own MCP servers carries.
 func ClusterMCPServersMarker(installation string) string {
-	return clusterMCPServerKustomization(installation, "mcp-kubernetes")
+	return clusterMCPServerKustomization(installation, clusterMCPServersMarkerServer)
 }
 
 // clusterMCPServerKustomization is the kustomization of a server's extras directory.
