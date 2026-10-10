@@ -647,6 +647,9 @@ func TestRefusals(t *testing.T) {
 		{"commit mode where no cluster-manager runs", clone(func(m map[string]any) {
 			m["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: true}}
 		}), secrets, ErrInput, "clusterManager.github.enabled"},
+		{"context bots where no chat gateway runs", clone(func(m map[string]any) {
+			m["klausGateway"] = map[string]any{"slack": map[string]any{"contextBotIDs": []any{map[string]any{"value": "U0000000001"}}}}
+		}), secrets, ErrInput, "klausGateway.slack.contextBotIDs"},
 		{"model-manager commit mode on the 3 line", clone(func(m map[string]any) {
 			m["installation"].(map[string]any)["chartLine"] = lineThree
 			m["modelManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: true}}

@@ -180,6 +180,47 @@ func TestReadBackCommentKind(t *testing.T) {
 	}
 }
 
+// An entries kind reads the list at the key, each scalar entry with the
+// comment on its line: an entry without one carries an empty comment; a key
+// that holds no list, or a list with an entry that is no scalar, yields
+// nothing.
+func TestReadBackEntriesKind(t *testing.T) {
+	const entriesSchema = `{
+  "type": "object",
+  "x-files": {"values": {"repository": "management-clusters", "path": "management-clusters/<name>/values.yaml"}},
+  "properties": {
+    "slack": {"type": "object", "properties": {
+      "bots": {"type": "array", "default": [], "x-readback": {"file": "values", "key": "slack.bots", "kind": "entries"}}
+    }}
+  }
+}`
+	var s inputSchema
+	if err := json.Unmarshal([]byte(entriesSchema), &s); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name, values string
+		want         any
+	}{
+		{"entries with and without a comment", "slack:\n  # Above the list.\n  bots:\n    - U1 # Alerting EU\n    - U2\n    - \"U3\"  #  Paging\n", []any{
+			map[string]any{EntryValue: "U1", EntryComment: "Alerting EU"}, map[string]any{EntryValue: "U2", EntryComment: ""}, map[string]any{EntryValue: "U3", EntryComment: " Paging"}}},
+		{"an empty list", "slack:\n  bots: []\n", []any{}},
+		{"no list", "slack:\n  bots: U1\n", nil},
+		{"an entry that is no scalar", "slack:\n  bots:\n    - id: U1\n", nil},
+		{"no key", "slack: {}\n", nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := readBack(context.Background(), files(map[string]string{readBackValues: c.values}), readBackInstallation, "", readBackRegistry, &s)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if v, ok := got["slack.bots"]; !reflect.DeepEqual(v, c.want) || ok != (c.want != nil) {
+				t.Errorf("read back %#v (%v), want %#v", v, ok, c.want)
+			}
+		})
+	}
+}
+
 // An installation kind resolves the host among the registry's
 // installations: another installation's muster is that installation; a
 // host that is no installation's, or not under the service label, yields
@@ -286,6 +327,7 @@ func TestDefaults(t *testing.T) {
 			boardRoadmap: map[string]any{"board": boardRoadmap, "teams": []any{}}},
 		"clusterManager": map[string]any{keyGitHub: map[string]any{keyEnabled: false}},
 		"modelManager":   map[string]any{keyGitHub: map[string]any{keyEnabled: false}},
+		"klausGateway":   map[string]any{"slack": map[string]any{"contextBotIDs": []any{}, "contextBotIDsComment": ""}},
 		"agentManager":   map[string]any{keyGitHub: map[string]any{keyEnabled: false}, keySkills: map[string]any{keyRepositories: []any{}, "appSecretName": "", "gitAuthSecretName": "", "mintGitAuthSecret": false}},
 		"versions":       map[string]any{"chart": "", "components": holds, "reasons": map[string]any{"chart": "", "components": holds}}}
 	if !reflect.DeepEqual(got, want) {
@@ -553,6 +595,41 @@ func TestCustomerPortalReadsBackThePortal(t *testing.T) {
 // whatever its place among the patches — and each hold's reason, the comment
 // a person wrote above it, line by line; the generic comment the definition
 // writes on a hold without one reads back as no reason.
+// The agent-platform definition reads the context bots back from the
+// configmap patch on record, each entry with its comment, and the comment a
+// person wrote above the list; the generic comment reads back as none.
+func TestAgentPlatformReadsBackContextBots(t *testing.T) {
+	def, _ := FindCapability(AgentPlatform)
+	for _, c := range []struct {
+		name, comment string
+		want          map[string]any
+	}{
+		{"a person's comment", "    # The alerting bots of the alert channel.\n", map[string]any{"klausGateway.slack.contextBotIDsComment": "The alerting bots of the alert channel."}},
+		{"the generic comment", "    # The bots whose posts reach an agent's thread context: the input\n    # klausGateway.slack.contextBotIDs, read back so a reconcile keeps them.\n", map[string]any{}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			patch := "klausGateway:\n  slack:\n    enabled: true\n" + c.comment + "    contextBotIDs:\n      - U0000000001 # Alerting EU\n      - U0000000002\n"
+			got, err := def.ReadBack(context.Background(), files(map[string]string{"acme/configs:" + def.EnabledMarker("rowan"): patch}), readBackInstallation, readBackName, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := map[string]any{"klausGateway.slack.contextBotIDs": []any{
+				map[string]any{EntryValue: "U0000000001", EntryComment: "Alerting EU"}, map[string]any{EntryValue: "U0000000002", EntryComment: ""}}}
+			for k, v := range c.want {
+				want[k] = v
+			}
+			for k := range got {
+				if !strings.HasPrefix(k, "klausGateway.") {
+					delete(got, k)
+				}
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("read back %v, want %v", got, want)
+			}
+		})
+	}
+}
+
 func TestAgentPlatformReadsBackVersionHolds(t *testing.T) {
 	def, _ := FindCapability(AgentPlatform)
 	patch := "components:\n  agent-manager:\n    enabled: true\n    # Held on the running release.\n    versionRange: \"1.9.2\"\n  klaus-gateway:\n    enabled: true\n    # Held by the input versions.components.klaus-gateway: a reconcile keeps it; --input versions.components.klaus-gateway=<version> moves it, an empty value lifts it.\n    versionRange: \"4.0.0\"\n"

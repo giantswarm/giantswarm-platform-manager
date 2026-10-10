@@ -127,6 +127,12 @@ type Input struct {
 	// Versions are the person's version holds (versions.*), read back from
 	// the record so a reconcile keeps them.
 	Versions Versions
+	// ContextBots are the person's choice of the bots whose posts reach an
+	// agent's thread context (klausGateway.slack.contextBotIDs), each with the
+	// comment on its line, and ContextBotsComment the comment above the list,
+	// read back from the configmap patch on record so a reconcile keeps them.
+	ContextBots        []ContextBot
+	ContextBotsComment string
 	// Components are the components the policy gives the installation, by
 	// name: its organisation's list and, where the policy names a Slack app
 	// for the installation, the chat gateway.
@@ -554,7 +560,20 @@ type document struct {
 		commitChoice
 		Skills AgentManagerSkills `json:"skills"`
 	} `json:"agentManager"`
+	KlausGateway struct {
+		Slack struct {
+			ContextBotIDs        []ContextBot `json:"contextBotIDs"`
+			ContextBotIDsComment string       `json:"contextBotIDsComment"`
+		} `json:"slack"`
+	} `json:"klausGateway"`
 	Versions Versions `json:"versions"`
+}
+
+// ContextBot is one bot whose posts reach an agent's thread context: its
+// Slack user ID and the comment on its entry's line.
+type ContextBot struct {
+	Value   string `json:"value"`
+	Comment string `json:"comment"`
 }
 
 // Versions are the version holds on record — the meta chart's version or
@@ -609,7 +628,7 @@ type commitChoice struct {
 // the cluster does not serve PodCertificateRequest, the chat or skill
 // repositories on an installation whose organisation hosts no portal for
 // them, the chat without a model, or on Vertex without its Google project or
-// location, the Hive where the installation cannot serve it, the cluster-manager's commit mode where no cluster-manager runs)
+// location, the Hive where the installation cannot serve it, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
 // is ErrInput too.
 func Parse(raw any) (*Input, error) {
 	schemaBytes, err := definitions.FS.ReadFile("agent-platform/schema.json")
@@ -652,7 +671,7 @@ func Parse(raw any) (*Input, error) {
 		return nil, err
 	}
 	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories, Hive: d.Hive,
-		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, Versions: d.Versions, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
+		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
 		ReleaseCandidates: pol.releaseCandidates(d.Installation)}
 	if in.Components, err = pol.components(in.Installation); err != nil {
 		return nil, err
@@ -787,6 +806,9 @@ func (in *Input) checkRecord() error {
 	}
 	if in.AgentManagerCommit && !in.agentManager() {
 		return refuse(fmt.Sprintf("%s asks for the agent-manager's commit mode, and the fleet policy runs no agent-manager on %s's installations", describe("agentManager.github.enabled"), in.Installation.Customer))
+	}
+	if len(in.ContextBots) > 0 && !in.klausGateway() {
+		return refuse(fmt.Sprintf("%s names the bots whose posts reach the chat gateway's thread context, and the fleet policy names no Slack app for %s, so no gateway runs there", describe("klausGateway.slack.contextBotIDs"), in.Installation.Name))
 	}
 	if in.AgentManagerSkills.set() && !in.agentManager() {
 		return refuse(fmt.Sprintf("%s asks for the agent-manager's skill catalog, and the fleet policy runs no agent-manager on %s's installations", describe("agentManager.skills"), in.Installation.Customer))

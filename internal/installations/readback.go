@@ -46,6 +46,18 @@ const (
 	// ReadBackComment is the comment written above the key: its lines, the
 	// comment markers stripped; a key without one yields nothing.
 	ReadBackComment = "comment"
+	// ReadBackEntries is the list the key holds, each scalar entry as its
+	// value and the comment on its line, the marker stripped: a list of
+	// {value, comment} (EntryValue, EntryComment), comment empty where the
+	// entry carries none.
+	ReadBackEntries = "entries"
+)
+
+// The fields of an entry an entries kind reads back: the scalar's value and
+// the comment on its line.
+const (
+	EntryValue   = "value"
+	EntryComment = "comment"
 )
 
 // schemaNode is the part of a schema node the read-back reads: the
@@ -275,9 +287,12 @@ func readBack(ctx context.Context, read Reader, inst Installation, portalHost st
 			if kind == ReadBackFile {
 				break
 			}
-			if kind == ReadBackComment {
+			switch kind {
+			case ReadBackComment:
 				v, found, err = files.comment(file, spec, rb.Keys)
-			} else {
+			case ReadBackEntries:
+				v, found, err = files.entries(file, spec, rb.Keys)
+			default:
 				v, found, err = files.value(file, spec, rb.Keys)
 			}
 			if err != nil {
@@ -311,7 +326,7 @@ func readBack(ctx context.Context, read Reader, inst Installation, portalHost st
 			found = !skip.MatchString(fmt.Sprint(v))
 		}
 		switch kind {
-		case ReadBackValue, ReadBackHost, ReadBackComment:
+		case ReadBackValue, ReadBackHost, ReadBackComment, ReadBackEntries:
 			if found {
 				out[input] = v
 			}
@@ -324,7 +339,7 @@ func readBack(ctx context.Context, read Reader, inst Installation, portalHost st
 				}
 			}
 		default:
-			return fmt.Errorf("schema: %s: x-readback kind %q is not %s, %s, %s, %s, %s or %s", input, kind, ReadBackValue, ReadBackPresent, ReadBackHost, ReadBackInstallation, ReadBackComment, ReadBackFile)
+			return fmt.Errorf("schema: %s: x-readback kind %q is not %s, %s, %s, %s, %s, %s or %s", input, kind, ReadBackValue, ReadBackPresent, ReadBackHost, ReadBackInstallation, ReadBackComment, ReadBackEntries, ReadBackFile)
 		}
 		return nil
 	})
@@ -464,6 +479,38 @@ func (f *readBackFiles) comment(file string, spec fileSpec, paths []string) (any
 		if c, ok := commentAt(node, append(slices.Clone(document), splitKey(p)...)); ok {
 			return c, true, nil
 		}
+	}
+	return nil, false, nil
+}
+
+// entries is the list at the first of the dotted paths the file holds a
+// list at, below the document spec names in it: each scalar entry's value
+// and the comment on its line, the marker and the space after it stripped;
+// nothing where the file is not on record, no path holds a list or an entry
+// is not a scalar.
+func (f *readBackFiles) entries(file string, spec fileSpec, paths []string) (any, bool, error) {
+	node, err := f.node(file, spec)
+	if err != nil || node == nil {
+		return nil, false, err
+	}
+	var document []string
+	if spec.Document != "" {
+		document = splitKey(spec.Document)
+	}
+	for _, p := range paths {
+		list, ok := nodeAt(node, append(slices.Clone(document), splitKey(p)...))
+		if !ok || list.Kind != yaml.SequenceNode {
+			continue
+		}
+		out := make([]any, 0, len(list.Content))
+		for _, entry := range list.Content {
+			if entry.Kind != yaml.ScalarNode {
+				return nil, false, nil
+			}
+			comment := strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(entry.LineComment), "#"), " ")
+			out = append(out, map[string]any{EntryValue: entry.Value, EntryComment: comment})
+		}
+		return out, true, nil
 	}
 	return nil, false, nil
 }

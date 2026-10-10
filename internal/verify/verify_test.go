@@ -659,14 +659,15 @@ func TestDrivenInputsAreThePersonsAndTheTyped(t *testing.T) {
 	agentInputs := []string{agentCommitInput, "agentManager.skills.appSecretName", "agentManager.skills.gitAuthSecretName", "agentManager.skills.mintGitAuthSecret", "agentManager.skills.repositories"}
 	chatInputs := []string{"aiChat.enabled", "aiChat.google.location", "aiChat.google.project", "aiChat.model", "aiChat.provider"}
 	hiveInputs := []string{"hive.enabled", "hive.magazine.repository", "hive.plans.repositories", "hive.roadmap.board", "hive.roadmap.teams"}
+	gatewayInputs := []string{"klausGateway.slack.contextBotIDs", "klausGateway.slack.contextBotIDsComment"}
 	versionInputs := []string{"versions.chart", "versions.components.agent-manager", "versions.components.cluster-manager", "versions.components.kagent", "versions.components.klaus-gateway", "versions.components.model-manager", "versions.components.muster", "versions.components.valkey",
 		"versions.reasons.chart", "versions.reasons.components.agent-manager", "versions.reasons.components.cluster-manager", "versions.reasons.components.kagent", "versions.reasons.components.klaus-gateway", "versions.reasons.components.model-manager", "versions.reasons.components.muster", "versions.reasons.components.valkey"}
 	got, err := drivenInputs(def, Inputs{Values: doc("a.test", "acme", true)})
-	if err != nil || !reflect.DeepEqual(got, slices.Concat(agentInputs, chatInputs, []string{commitInput}, hiveInputs, []string{modelCommitInput, servingInput, "scheduling.singletonsCapacity", skillsInput}, versionInputs)) {
+	if err != nil || !reflect.DeepEqual(got, slices.Concat(agentInputs, chatInputs, []string{commitInput}, hiveInputs, gatewayInputs, []string{modelCommitInput, servingInput, "scheduling.singletonsCapacity", skillsInput}, versionInputs)) {
 		t.Errorf("from the record: %v %v", got, err)
 	}
 	got, err = drivenInputs(def, Inputs{Values: doc("a.test", "acme", true), Typed: doc("b.test", "acme", false)})
-	if err != nil || !reflect.DeepEqual(got, slices.Concat(agentInputs, chatInputs, []string{commitInput}, hiveInputs, []string{baseDomainInput, customerInput, modelCommitInput, servingInput, "scheduling.singletonsCapacity", skillsInput}, versionInputs)) {
+	if err != nil || !reflect.DeepEqual(got, slices.Concat(agentInputs, chatInputs, []string{commitInput}, hiveInputs, []string{baseDomainInput, customerInput}, gatewayInputs, []string{modelCommitInput, servingInput, "scheduling.singletonsCapacity", skillsInput}, versionInputs)) {
 		t.Errorf("with facts typed: %v %v", got, err)
 	}
 }

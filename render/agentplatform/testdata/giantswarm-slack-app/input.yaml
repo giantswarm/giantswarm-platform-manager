@@ -6,7 +6,8 @@
 # the hub's token-exchange client in its Dex; the platform's portal section lands in its own
 # portal's tree, never in the hub's hand-kept one. The codename is the policy's; the domain and
 # every value are invented. Its app collection follows the testing stage, so it runs the platform's
-# release candidates.
+# release candidates. One alerting bot's posts reach an agent's thread context, the list under the
+# generic comment naming its input, since no person wrote one.
 input:
   installation:
     name: glean
@@ -37,6 +38,11 @@ input:
       targets: []
   modelServing:
     enabled: false
+  klausGateway:
+    slack:
+      contextBotIDs:
+        - value: U0000000003
+          comment: Alerting EU
 secrets:
   klausGateway.slack.bot-token: PLACEHOLDER-SLACK-BOT-TOKEN
   klausGateway.slack.signing-secret: PLACEHOLDER-SLACK-SIGNING-SECRET

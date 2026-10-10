@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/giantswarm/giantswarm-platform-manager/main/definitions/agent-platform/schema.json",
   "title": "agent-platform definition inputs",
-  "description": "The input set of the agent-platform capability: the installation's record and the person's choices. Everything the fileset carries derives from the record (installation.*: the registry and the installation's config.yaml.patch, read, never typed), from the fleet policy (policy.yaml: which components an owning organisation's installations run, the installations with a Slack app — where the chat gateway runs — and the gateway's shape, the connector names a target's Dex registers for a hub and the Teleport cluster) and from the shared template; a person decides whether the installation serves models, where its stateful singletons run, whether its developer portal runs the AI chat, and with what model, which repositories the portal's agent creation discovers skills in, whether the cluster-manager, the model-manager and the agent-manager commit through their GitHub Apps, and the agent-manager's skill catalog. Annotations: x-source says where a value comes from (registry: read from the installations registry or the repositories, never typed; generated: created once and read back from the checkout; person: a choice). x-feature names the consistency feature of features.yaml. x-files names the repository file each fileset key is rendered to (<name> the installation; <portalHost> the installation hosting the portal the platform's portal section is written into — its own portal, else the organisation's portal on a sibling that is not hand-kept — so a portal file is read back where the section is rendered, whichever installation's plan renders it; document the path in the file of the YAML text its keys sit in, a key with dots in it bracketed); x-readback on a person input names the file — one, or several, the first on record holding the key answering — and key its value is read back from on record (kind value, present or host). x-renders lists the key paths the input produces, prefixed by the file: configmap (agent-platform configmap-values.yaml.patch), dex-configmap (the dex-app patch), extras (extras/agent-platform/ and the MCP servers' extras), backstage:* (the portal's agent-platform Component), teleport (teleport-fleet). List indices are written [*], per-installation map keys <name>.",
+  "description": "The input set of the agent-platform capability: the installation's record and the person's choices. Everything the fileset carries derives from the record (installation.*: the registry and the installation's config.yaml.patch, read, never typed), from the fleet policy (policy.yaml: which components an owning organisation's installations run, the installations with a Slack app — where the chat gateway runs — and the gateway's shape, the connector names a target's Dex registers for a hub and the Teleport cluster) and from the shared template; a person decides whether the installation serves models, where its stateful singletons run, whether its developer portal runs the AI chat, and with what model, which repositories the portal's agent creation discovers skills in, whether the cluster-manager, the model-manager and the agent-manager commit through their GitHub Apps, the agent-manager's skill catalog, and the bots whose posts reach the chat gateway's thread context. Annotations: x-source says where a value comes from (registry: read from the installations registry or the repositories, never typed; generated: created once and read back from the checkout; person: a choice). x-feature names the consistency feature of features.yaml. x-files names the repository file each fileset key is rendered to (<name> the installation; <portalHost> the installation hosting the portal the platform's portal section is written into — its own portal, else the organisation's portal on a sibling that is not hand-kept — so a portal file is read back where the section is rendered, whichever installation's plan renders it; document the path in the file of the YAML text its keys sit in, a key with dots in it bracketed); x-readback on a person input names the file — one, or several, the first on record holding the key answering — and key its value is read back from on record (kind value, present, host, installation, comment — the comment above the key — entries — a list's entries each with the comment on its line — or file). x-renders lists the key paths the input produces, prefixed by the file: configmap (agent-platform configmap-values.yaml.patch), dex-configmap (the dex-app patch), extras (extras/agent-platform/ and the MCP servers' extras), backstage:* (the portal's agent-platform Component), teleport (teleport-fleet). List indices are written [*], per-installation map keys <name>.",
   "type": "object",
   "additionalProperties": false,
   "required": ["installation"],
@@ -443,6 +443,46 @@
               "x-feature": "runtime",
               "x-renders": ["configmap:cluster-manager.github.enabled", "configmap:clusterManager.networkPolicy.egress.fqdns"],
               "description": "The cluster-manager's commit mode through its GitHub App (cluster-manager.github.enabled): the chart registers with muster pinned to the App and create_node_pool and delete_node_pool take mode: commit, the pull request opened as the person; its egress adds api.github.com (GET /user, the pull request). The App's OAuth client is the installation's own Secret, giantswarm-cluster-manager-oauth-client in agent-platform, not rendered. Where the fleet policy runs the cluster-manager only; read back from the configmap patch on record."
+            }
+          }
+        }
+      }
+    },
+    "klausGateway": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One choice of the chat gateway's, where the fleet policy runs it: the bots whose posts reach an agent's thread context.",
+      "properties": {
+        "slack": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contextBotIDs": {
+              "type": "array",
+              "default": [],
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["value"],
+                "properties": {
+                  "value": {"type": "string", "minLength": 1, "description": "The bot's Slack user ID."},
+                  "comment": {"type": "string", "default": "", "description": "The comment on the entry's line: who the bot is."}
+                }
+              },
+              "x-source": "person",
+              "x-readback": {"file": "configmap", "key": "klausGateway.slack.contextBotIDs", "kind": "entries"},
+              "x-feature": "runtime",
+              "x-renders": ["configmap:klausGateway.slack.contextBotIDs"],
+              "description": "The bots whose posts reach an agent's thread context (klausGateway.slack.contextBotIDs, klaus-gateway 4.2.0 or later): the alerting integrations of the channels the gateway's bot is in, each entry its Slack user ID and the comment on its line, in the order given. None, the key is not written and the gateway reads no bot's posts. Where the fleet policy runs the gateway only; read back from the configmap patch on record with each entry's comment, so a reconcile keeps the list; typed (--input 'klausGateway.slack.contextBotIDs=[{\"value\": \"<id>\", \"comment\": \"<bot>\"}]'), it replaces it."
+            },
+            "contextBotIDsComment": {
+              "type": "string",
+              "default": "",
+              "x-source": "person",
+              "x-readback": {"file": "configmap", "key": "klausGateway.slack.contextBotIDs", "kind": "comment", "skip": "^The bots whose posts reach an agent's thread context: the input\\s+klausGateway\\.slack\\.contextBotIDs,"},
+              "x-feature": "runtime",
+              "x-renders": ["configmap:klausGateway.slack.contextBotIDs"],
+              "description": "The comment above the context bots (klausGateway.slack.contextBotIDs), as a person wrote it on record or typed it (a line per line), read back so a reconcile keeps it; the generic comment naming the input reads back as none. Empty, the list carries the generic comment; no list carries none."
             }
           }
         }
