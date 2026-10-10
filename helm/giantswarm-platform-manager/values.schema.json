@@ -405,7 +405,7 @@
         },
         "resources": {
             "type": "object",
-            "description": "Container resources.",
+            "description": "Container resources. `ephemeral-storage` bounds the `/tmp` emptyDir the read-only root filesystem leaves writable: the server keeps nothing there beyond the Go runtime's incidental temporary files (every write goes to GitHub's API), and policies require both fields on an emptyDir's container.",
             "additionalProperties": false,
             "properties": {
                 "limits": {
@@ -413,6 +413,9 @@
                     "additionalProperties": false,
                     "properties": {
                         "cpu": {
+                            "type": "string"
+                        },
+                        "ephemeral-storage": {
                             "type": "string"
                         },
                         "memory": {
@@ -425,6 +428,9 @@
                     "additionalProperties": false,
                     "properties": {
                         "cpu": {
+                            "type": "string"
+                        },
+                        "ephemeral-storage": {
                             "type": "string"
                         },
                         "memory": {

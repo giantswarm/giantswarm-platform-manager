@@ -86,7 +86,7 @@ header; every other tool answers with the user token alone.
 | securityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true,"runAsGroup":1000,"runAsNonRoot":true,"runAsUser":1000,"seccompProfile":{"type":"RuntimeDefault"}}` | Container security context. |
 | service.type | string | `"ClusterIP"` | Service type. |
 | service.port | int | `8080` | Service port (the container listens on 8080). |
-| resources | object | `{"limits":{"cpu":"500m","memory":"256Mi"},"requests":{"cpu":"50m","memory":"64Mi"}}` | Container resources. |
+| resources | object | `{"limits":{"cpu":"500m","ephemeral-storage":"128Mi","memory":"256Mi"},"requests":{"cpu":"50m","ephemeral-storage":"32Mi","memory":"64Mi"}}` | Container resources. `ephemeral-storage` bounds the `/tmp` emptyDir the read-only root filesystem leaves writable: the server keeps nothing there beyond the Go runtime's incidental temporary files (every write goes to GitHub's API), and policies require both fields on an emptyDir's container. |
 | extraArgs | list | `[]` | Extra container arguments. |
 | extraEnv | list | `[]` | Extra environment variables. |
 | nodeSelector | object | `{}` | Node selector. |
