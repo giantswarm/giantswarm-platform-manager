@@ -187,6 +187,41 @@ const (
 
 var servingComponents = []string{"kserve-llmisvc-crd", "kserve-llmisvc-resources", "kserve-runtime-configs", "modelServing"}
 
+// mcpBackends is the person's networkPolicy.mcpBackends in the chart's
+// shape, by key and each map's labels in key order, so a render with the
+// choice unchanged reproduces the patch on record.
+func (in *Input) mcpBackends() render.Map {
+	var m render.Map
+	for _, key := range slices.Sorted(maps.Keys(in.MCPBackends)) {
+		b := in.MCPBackends[key]
+		entry := render.Map{e("namespace", b.Namespace), e("ports", b.Ports)}
+		if len(b.PodSelector) > 0 {
+			entry = append(entry, e("podSelector", labels(b.PodSelector)))
+		}
+		if b.Metrics != nil {
+			entry = append(entry, e("metrics", *b.Metrics))
+		}
+		if len(b.AdditionalPeers) > 0 {
+			peers := make([]render.Map, 0, len(b.AdditionalPeers))
+			for _, p := range b.AdditionalPeers {
+				peers = append(peers, render.Map{e("namespace", p.Namespace), e("matchLabels", labels(p.MatchLabels))})
+			}
+			entry = append(entry, e("additionalPeers", peers))
+		}
+		m = append(m, e(key, entry))
+	}
+	return m
+}
+
+// labels is a label map in key order.
+func labels(l map[string]string) render.Map {
+	var m render.Map
+	for _, k := range slices.Sorted(maps.Keys(l)) {
+		m = append(m, e(k, l[k]))
+	}
+	return m
+}
+
 // configmapPatch is installations/<name>/apps/agent-platform/configmap-values.yaml.patch,
 // merged by konfigure over the shared template: only what deviates per installation.
 func (in *Input) configmapPatch() render.Map {
@@ -246,6 +281,9 @@ func (in *Input) configmapPatch() render.Map {
 		m = append(m, e("agent-platform-mcps", mcps))
 	}
 	m = in.componentValues(m)
+	if len(in.MCPBackends) > 0 {
+		m = append(m, e("networkPolicy", render.Map{e("mcpBackends", in.mcpBackends())}))
+	}
 	if in.singletonsOnDemand() {
 		m = append(m, e("scheduling", render.Map{e("singletons", render.Map{
 			e("nodeSelector", render.Map{e(karpenterCapacityType, capacityOnDemand)}),

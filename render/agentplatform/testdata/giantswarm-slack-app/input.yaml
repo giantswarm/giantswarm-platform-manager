@@ -7,7 +7,9 @@
 # portal's tree, never in the hub's hand-kept one. The codename is the policy's; the domain and
 # every value are invented. Its app collection follows the testing stage, so it runs the platform's
 # release candidates. One alerting bot's posts reach an agent's thread context, the list under the
-# generic comment naming its input, since no person wrote one.
+# generic comment naming its input, since no person wrote one. Two in-cluster MCP backends sit behind
+# the platform's network policy: one muster alone reaches, one also served through the gateway in front
+# of it, a peer on its ports.
 input:
   installation:
     name: glean
@@ -38,6 +40,21 @@ input:
       targets: []
   modelServing:
     enabled: false
+  networkPolicy:
+    mcpBackends:
+      tickets:
+        namespace: mcp-tickets
+        ports: [8080]
+        podSelector:
+          app.kubernetes.io/name: mcp-tickets
+        additionalPeers:
+          - namespace: envoy-gateway-system
+            matchLabels:
+              app.kubernetes.io/name: envoy
+      runbooks:
+        namespace: mcp-runbooks
+        ports: [8080]
+        metrics: true
   klausGateway:
     slack:
       contextBotIDs:
