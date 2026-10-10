@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/giantswarm/giantswarm-platform-manager/main/definitions/cluster-mcp-servers/schema.json",
   "title": "cluster-mcp-servers definition inputs",
-  "description": "The closed input set of the cluster-mcp-servers capability: a management cluster's own MCP servers (mcp-kubernetes, mcp-prometheus, mcp-capi) on an installation without the agent platform, released from the fleet's bases into extras/mcp-<name> of its management-clusters repository. The renderer turns these inputs into each server's directory — the kustomization over the fleet base, the OAuth credentials and valkey-auth Secrets, the Dex client's Secret, the credentials revision Secret the server's and its Valkey's HelmReleases read into their charts' checksum values so a rotation restarts both, and the user values where Dex is private — and each server's Dex client as a referenced Secret in the installation's dex-app configmap patch. Where the agent platform is enabled, the agent-platform definition renders the same servers and this one refuses. Annotations: x-source says where a value comes from (registry: read from the installations registry, never typed; person: typed by the person enabling or reconciling). x-feature names the consistency feature of features.yaml the input's dimensions roll up to. x-files names the repository file a fileset key is read back from (<name> the installation). servers.<server>.enabled is read from the record (Capability.RecordInputs). x-readback on a person input names the file and key its value is read back from on record and lays the value over the record (kind value, present — whether the key exists — or file — whether the file is on record). x-renders lists the key paths the input produces, prefixed by the file: extras (a file under the installation's extras/), dex-configmap (the dex-app configmap patch).",
+  "description": "The closed input set of the cluster-mcp-servers capability: a management cluster's own MCP servers (mcp-kubernetes, mcp-prometheus, mcp-capi) on an installation without the agent platform, released from the fleet's bases into extras/mcp-<name> of its management-clusters repository, and the token-exchange clients of the hubs whose muster exchanges tokens into the installation to reach them. The renderer turns these inputs into each server's directory — the kustomization over the fleet base, the OAuth credentials and valkey-auth Secrets, the Dex client's Secret, the credentials revision Secret the server's and its Valkey's HelmReleases read into their charts' checksum values so a rotation restarts both, and the user values where Dex is private — each server's Dex client as a referenced Secret in the installation's dex-app configmap patch, and, per hub, its token-exchange client in that patch with its Secret under extras/agent-platform/secrets, the files the agent-platform definition renders for the same pairing. Where the agent platform is enabled, the agent-platform definition renders the same servers and this one refuses. Annotations: x-source says where a value comes from (registry: read from the installations registry, never typed; person: typed by the person enabling or reconciling). x-feature names the consistency feature of features.yaml the input's dimensions roll up to. x-files names the repository file a fileset key is read back from (<name> the installation). servers.<server>.enabled is read from the record (Capability.RecordInputs). x-readback on a person input names the file and key its value is read back from on record and lays the value over the record (kind value, present — whether the key exists — or file — whether the file is on record). x-renders lists the key paths the input produces, prefixed by the file: extras (a file under the installation's extras/), dex-configmap (the dex-app configmap patch).",
   "x-files": {
     "dex-configmap": {
       "repository": "configs",
@@ -31,6 +31,14 @@
     "mcp-capi:user-values": {
       "repository": "management-clusters",
       "path": "management-clusters/<name>/extras/mcp-capi/user-values.yaml"
+    },
+    "agent-platform:kustomization": {
+      "repository": "management-clusters",
+      "path": "management-clusters/<name>/extras/agent-platform/kustomization.yaml"
+    },
+    "agent-platform:secrets-kustomization": {
+      "repository": "management-clusters",
+      "path": "management-clusters/<name>/extras/agent-platform/secrets/kustomization.yaml"
     }
   },
   "type": "object",
@@ -89,6 +97,43 @@
           "x-source": "registry",
           "x-feature": "servers",
           "x-renders": []
+        },
+        "federation": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The installation's place in the fleet's token exchange, as far as this definition renders it: the hubs whose muster exchanges tokens into the installation to reach its MCP servers, from the portals on record, and the registry's hub by name.",
+          "x-source": "registry",
+          "x-feature": "identity",
+          "properties": {
+            "hubs": {
+              "type": "array",
+              "default": [],
+              "items": {"type": "string", "minLength": 1},
+              "x-source": "registry",
+              "x-feature": "identity",
+              "x-renders": [
+                "dex-configmap:oidc.extraStaticClients[*] (muster-token-exchange-<name>, muster-token-exchange-<name>-<hub>)",
+                "dex-configmap:oidc.staticClients.dexK8SAuthenticator.trustedPeers",
+                "extras:agent-platform/kustomization.yaml",
+                "extras:agent-platform/secrets/kustomization.yaml",
+                "extras:agent-platform/secrets/dex-client-muster-token-exchange-<name>-secret.yaml",
+                "extras:agent-platform/secrets/dex-client-muster-token-exchange-<name>-<hub>-secret.yaml"
+              ],
+              "description": "Installations whose muster is the cluster-token broker of a portal that lists this one: each renders a token-exchange client in this installation's Dex, the id the hub's credentials Secret for this installation presents — the fleet's muster-token-exchange-<name> for the registry's hub (registryHub), muster-token-exchange-<name>-<hub> for every other hub — as a trusted peer of the authenticator and with its secret in a referenced Secret under extras/agent-platform/secrets, the file the agent-platform definition renders for the same pairing, listed by the kustomizations this definition renders there. The secret is one generated value with the hub's credentials Secret for this installation, in the hub's plan: a plan that would draw it here alone — creating the file, or rotating it — is refused, naming the hub's file. Empty, no hub exchanges tokens into the installation and nothing of this is rendered."
+            },
+            "registryHub": {
+              "type": "string",
+              "default": "",
+              "x-source": "registry",
+              "x-feature": "identity",
+              "x-renders": [
+                "dex-configmap:oidc.extraStaticClients[*] (muster-token-exchange-<name>)",
+                "dex-configmap:oidc.staticClients.dexK8SAuthenticator.trustedPeers",
+                "extras:agent-platform/secrets/dex-client-muster-token-exchange-<name>-secret.yaml"
+              ],
+              "description": "The registry's hub by name (the installation with installation.hub), among hubs or not: its token-exchange client in this installation's Dex carries the fleet's plain id, muster-token-exchange-<name>; every other hub's carries the hub's name too. The hub renders the same id into its credentials Secret for this installation from its own installation.hub, so the two sides agree."
+            }
+          }
         }
       }
     },

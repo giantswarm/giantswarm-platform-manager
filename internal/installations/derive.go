@@ -139,7 +139,12 @@ type FederatedTarget struct {
 	// AgentPlatform says the target runs the agent platform: its enabled
 	// marker is on record. Its render holds the Dex side of the hub's
 	// token-exchange client, one value with the hub's credentials Secret.
-	AgentPlatform bool `json:"agentPlatform"`
+	// ClusterMCPServers says the target runs its MCP servers under
+	// cluster-mcp-servers without the platform: that capability's marker,
+	// mcp-kubernetes's kustomization, is on record among Servers. Its render
+	// holds the Dex side in the same file.
+	AgentPlatform     bool `json:"agentPlatform"`
+	ClusterMCPServers bool `json:"clusterMcpServers"`
 }
 
 // AgentPlatformPatchPath is where the installation's configs repository keeps
@@ -644,7 +649,21 @@ func (r *Registry) target(ctx context.Context, c *gh.Client, name string, inspec
 	if marker.err != nil {
 		return FederatedTarget{}, fmt.Errorf("%s: %w", platform.EnabledMarker(name), marker.err)
 	}
-	return FederatedTarget{Installation: name, BaseDomain: rec.BaseDomain, Private: private, PlatformProxied: proxied, Hubs: hubs, Servers: servers, AgentPlatform: marker.enabled}, nil
+	return FederatedTarget{Installation: name, BaseDomain: rec.BaseDomain, Private: private, PlatformProxied: proxied, Hubs: hubs, Servers: servers,
+		AgentPlatform: marker.enabled, ClusterMCPServers: !marker.enabled && runsClusterMCPServers(servers)}, nil
+}
+
+// runsClusterMCPServers says whether an installation running the MCP server
+// groups servers has the cluster-mcp-servers capability on record: its
+// marker is mcp-kubernetes's kustomization (ClusterMCPServersMarker), the
+// one targetServers read for the kubernetes group.
+func runsClusterMCPServers(servers []string) bool {
+	for _, s := range mcpservers.Servers {
+		if s.Name == clusterMCPServersMarkerServer {
+			return slices.Contains(servers, s.Group)
+		}
+	}
+	return false
 }
 
 // targetServers are the groups of the MCP servers a target runs: every server

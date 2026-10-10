@@ -106,6 +106,12 @@ func DexClientSecret(component, valueName string) File {
 	return Secret(DexClientSecretName(component), DexNamespace, nil, GeneratedKey(DexSecretKey, valueName, Base64, 32))
 }
 
+// DexClientSecretRef is a client's secret reference in the dex-app configmap
+// patch: the Secret in Dex's namespace that carries it and the key.
+func DexClientSecretRef(component string) Map {
+	return Map{{Key: "name", Value: DexClientSecretName(component)}, {Key: "key", Value: DexSecretKey}}
+}
+
 // PortalAuthProvider is the portal's sign-in provider on an installation's
 // Dex, named as every installation-hosted portal names it.
 func PortalAuthProvider(installation string) string { return "oidc-" + installation }
@@ -125,7 +131,7 @@ func PortalDexClient(domain, installation string) Map {
 		{Key: "id", Value: PortalDexClientID},
 		{Key: "name", Value: PortalDexClientName},
 		{Key: "redirectURIs", Value: []string{PortalRedirectURI(domain, installation)}},
-		{Key: "secretRef", Value: Map{{Key: "name", Value: DexClientSecretName(PortalDexClientID)}, {Key: "key", Value: DexSecretKey}}},
+		{Key: "secretRef", Value: DexClientSecretRef(PortalDexClientID)},
 	}
 }
 

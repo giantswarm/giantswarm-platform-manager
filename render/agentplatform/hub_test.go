@@ -402,6 +402,12 @@ func TestExchangePairNamesItsPeer(t *testing.T) {
 	if got := peerOf(hub, hubSecrets, secrets("gopher", "marmot-token-exchange-credentials.yaml")); got != nil {
 		t.Errorf("the hub's credentials for marmot, which keeps its client by hand: peer %+v", got)
 	}
+	// A target running its servers under cluster-mcp-servers renders the Dex side in the same file.
+	marmot["clusterMcpServers"] = true
+	want = render.Peer{Installation: "marmot", Path: secrets("marmot", "dex-client-muster-token-exchange-marmot-secret.yaml")}
+	if got := peerOf(hub, hubSecrets, secrets("gopher", "marmot-token-exchange-credentials.yaml")); got == nil || *got != want {
+		t.Errorf("the hub's credentials for marmot under cluster-mcp-servers: peer %+v, want %+v", got, want)
+	}
 	target, targetSecrets := loadInput(t, shapeGiantswarmSlackApp)
 	want = render.Peer{Installation: "gopher", Path: secrets("gopher", "glean-token-exchange-credentials.yaml")}
 	if got := peerOf(target, targetSecrets, secrets("glean", "dex-client-muster-token-exchange-glean-secret.yaml")); got == nil || *got != want {

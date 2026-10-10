@@ -2,14 +2,16 @@
 
 The content of the `cluster-mcp-servers` capability definition: a management cluster's own MCP servers
 (mcp-kubernetes, mcp-prometheus, mcp-capi) with their Valkeys on an installation without the agent
-platform. Data only; the render library (`render/clustermcpservers`, the servers' files from
-`render/mcpservers`, which the agent-platform definition renders for the same servers) reads it.
+platform, and the token-exchange clients of the hubs that reach them. Data only; the render library
+(`render/clustermcpservers`, the servers' files from `render/mcpservers` and the hubs' clients from
+`render.ExchangeTarget`, both of which the agent-platform definition renders for the same servers and the
+same pairing) reads it.
 
 | File | What it is |
 |---|---|
-| `schema.json` | JSON Schema (draft 2020-12, `additionalProperties: false`) of the inputs: the facts on record under `installation` and, per server, whether it runs and how it reaches Dex (`privateURLs`, `privateIPs`, `dexCA`). Whether a server runs is read from the record — its extras directory's kustomization — where the capability is on record; a fresh enable runs all three. The Dex settings are read back from the server's user values. |
+| `schema.json` | JSON Schema (draft 2020-12, `additionalProperties: false`) of the inputs: the facts on record under `installation` — the hubs whose muster exchanges tokens into the installation and the registry's hub among them (`federation`) — and, per server, whether it runs and how it reaches Dex (`privateURLs`, `privateIPs`, `dexCA`). Whether a server runs is read from the record — its extras directory's kustomization — where the capability is on record; a fresh enable runs all three. The Dex settings are read back from the server's user values. |
 | `removals.yaml` | The servers' inline Dex client secrets in the encrypted Dex values: the client reads a referenced Secret instead, dex-app ignores the inline value next to it, and a person deletes it (the definition decrypts nothing). |
-| `migrations.yaml` | What an installation whose servers were set up by hand lacks and the first reconcile adds: the credentials revision, the Dex client Secret, the kustomization's entries and patches, the reference in the Dex patch. |
+| `migrations.yaml` | What an installation whose servers were set up by hand lacks and the first reconcile adds: the credentials revision, the Dex client Secret, the kustomization's entries and patches, the reference in the Dex patch; and the hubs' token-exchange clients where they were registered by hand or the platform rendered them before it was disabled. |
 | `features.yaml` | The consistency features (servers, identity) and their dimensions. |
 | `probes.yaml` | The anonymous probe: Dex's discovery document. |
 
@@ -24,6 +26,19 @@ addresses or served with a certificate from the installation's private CA (the i
 `mcp-<server>-dex-ca`, listed, never rendered). In the configs repository, each running server's Dex client
 as `clientSecretRef` in `installations/<name>/apps/dex-app/configmap-values.yaml.patch`, a file whose other
 clients and keys stay their owners'.
+
+Per hub that exchanges tokens into the installation (`installation.federation.hubs`), its token-exchange
+client in that patch — `muster-token-exchange-<name>` for the registry's hub, `muster-token-exchange-<name>-<hub>`
+for every other, under `oidc.extraStaticClients` with its secret in a referenced Secret, and as a trusted
+peer of the authenticator, so the hub's broker gets the cluster tokens it exchanges for — and that Secret
+in `management-clusters/<name>/extras/agent-platform/secrets/`, with the kustomization of that directory and
+of `extras/agent-platform/` listing it and the include of `./agent-platform/` in the extras kustomization.
+These are the files, paths and entries the agent-platform definition renders for the same pairing: the
+secret is one generated value with the hub's credentials Secret for the installation, in the hub's plan,
+and each side names the other, so a plan that would draw it on one side alone is refused. Keeping the
+Dex side in the platform's file is what lets the pair keep its value: a disable of the platform leaves
+the Secret on record as this definition's (the manager decrypts nothing, so a value cannot move to
+another file), and an enable finds it there.
 
 ## Refusals
 
