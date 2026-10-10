@@ -169,6 +169,23 @@ clusterManager:
       fqdns:
         - matchName: gsoci.azurecr.io
         - matchPattern: '*.blob.core.windows.net'
+networkPolicy:
+  mcpBackends:
+    runbooks:
+      namespace: mcp-runbooks
+      ports:
+        - 8080
+      metrics: true
+    tickets:
+      namespace: mcp-tickets
+      ports:
+        - 8080
+      podSelector:
+        app.kubernetes.io/name: mcp-tickets
+      additionalPeers:
+        - namespace: envoy-gateway-system
+          matchLabels:
+            app.kubernetes.io/name: envoy
 valkey:
   valkey:
     auth:

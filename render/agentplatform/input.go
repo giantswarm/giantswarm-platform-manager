@@ -99,6 +99,10 @@ type Input struct {
 	// SingletonsCapacity is the person's choice: the Karpenter capacity the
 	// stateful singletons run on (scheduling.singletons), any or on-demand.
 	SingletonsCapacity string
+	// MCPBackends is the person's choice of the in-cluster MCP backends the
+	// platform's network policy fences (networkPolicy.mcpBackends), by key,
+	// read back from the configmap patch on record.
+	MCPBackends map[string]MCPBackend
 	// AIChat is the person's other choice: the portal's AI chat, in the
 	// platform's portal section (portal.go).
 	AIChat AIChat
@@ -549,6 +553,9 @@ type document struct {
 	Scheduling struct {
 		SingletonsCapacity string `json:"singletonsCapacity"`
 	} `json:"scheduling"`
+	NetworkPolicy struct {
+		MCPBackends map[string]MCPBackend `json:"mcpBackends"`
+	} `json:"networkPolicy"`
 	AIChat AIChat `json:"aiChat"`
 	Skills struct {
 		Repositories []string `json:"repositories"`
@@ -567,6 +574,22 @@ type document struct {
 		} `json:"slack"`
 	} `json:"klausGateway"`
 	Versions Versions `json:"versions"`
+}
+
+// MCPBackend is one in-cluster MCP backend the meta chart's network policy
+// fences, in the chart's shape (networkPolicy.mcpBackends.<key>).
+type MCPBackend struct {
+	Namespace       string            `json:"namespace"`
+	Ports           []int             `json:"ports"`
+	PodSelector     map[string]string `json:"podSelector,omitempty"`
+	Metrics         *bool             `json:"metrics,omitempty"`
+	AdditionalPeers []MCPBackendPeer  `json:"additionalPeers,omitempty"`
+}
+
+// MCPBackendPeer is a peer an MCP backend admits on its ports besides muster.
+type MCPBackendPeer struct {
+	Namespace   string            `json:"namespace"`
+	MatchLabels map[string]string `json:"matchLabels"`
 }
 
 // ContextBot is one bot whose posts reach an agent's thread context: its
@@ -628,7 +651,7 @@ type commitChoice struct {
 // the cluster does not serve PodCertificateRequest, the chat or skill
 // repositories on an installation whose organisation hosts no portal for
 // them, the chat without a model, or on Vertex without its Google project or
-// location, the Hive where the installation cannot serve it, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
+// location, the Hive where the installation cannot serve it, the MCP backends' network policy on the 3 line, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
 // is ErrInput too.
 func Parse(raw any) (*Input, error) {
 	schemaBytes, err := definitions.FS.ReadFile("agent-platform/schema.json")
@@ -670,7 +693,7 @@ func Parse(raw any) (*Input, error) {
 	if err != nil {
 		return nil, err
 	}
-	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories, Hive: d.Hive,
+	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, MCPBackends: d.NetworkPolicy.MCPBackends, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories, Hive: d.Hive,
 		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
 		ReleaseCandidates: pol.releaseCandidates(d.Installation)}
 	if in.Components, err = pol.components(in.Installation); err != nil {
@@ -783,6 +806,9 @@ func (in *Input) checkRecord() error {
 		if in.Components[c] && in.Installation.ChartLine != lineFour {
 			return refuse(fmt.Sprintf("%s selects the %s line, and %s needs the platform's 4 chart line; agentPlatform.kagentApiV2: true in installations/%s/config.yaml.patch selects 4", describe("installation.chartLine"), in.Installation.ChartLine, c, in.Installation.Name))
 		}
+	}
+	if len(in.MCPBackends) > 0 && in.Installation.ChartLine != lineFour {
+		return refuse(fmt.Sprintf("%s is the 4 chart line's network policy, and this installation runs the %s line; the record's chart line decides", describe("networkPolicy.mcpBackends"), in.Installation.ChartLine))
 	}
 	if p := in.hostedPortal(); p != nil && in.kagent() {
 		if p.ChartLine == "" {

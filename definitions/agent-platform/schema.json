@@ -190,6 +190,47 @@
         }
       }
     },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One choice: the in-cluster MCP backends the platform's network policy fences.",
+      "properties": {
+        "mcpBackends": {
+          "type": "object",
+          "default": {},
+          "propertyNames": {"pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"},
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["namespace", "ports"],
+            "properties": {
+              "namespace": {"type": "string", "minLength": 1, "description": "The backend's namespace, where its policy is rendered."},
+              "ports": {"type": "array", "minItems": 1, "items": {"type": "integer", "minimum": 1, "maximum": 65535}, "description": "The backend's MCP ports muster (and the additional peers) reach."},
+              "podSelector": {"type": "object", "additionalProperties": {"type": "string"}, "description": "The matchLabels narrowing the policy to the backend's pods; without it the policy selects every pod in the namespace."},
+              "metrics": {"type": "boolean", "description": "The backend serves /metrics on its MCP port: the metrics collectors (networkPolicy.mcpBackendScrapers) are admitted on its ports."},
+              "additionalPeers": {
+                "type": "array",
+                "description": "Other peers admitted on the backend's ports, such as the gateway in front of a backend with a public route.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["namespace", "matchLabels"],
+                  "properties": {
+                    "namespace": {"type": "string", "minLength": 1},
+                    "matchLabels": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "string"}}
+                  }
+                }
+              }
+            }
+          },
+          "x-source": "person",
+          "x-readback": {"file": "configmap", "key": "networkPolicy.mcpBackends"},
+          "x-feature": "runtime",
+          "x-renders": ["configmap:networkPolicy.mcpBackends"],
+          "description": "The in-cluster MCP backends the installation registers with muster (networkPolicy.mcpBackends, the meta chart 4.119.0 and later), keyed by a name the policy carries (<release>-mcp-backend-<key>): each its namespace, its MCP ports, optionally a podSelector, metrics and additionalPeers. Each entry renders an ingress policy in the backend's namespace admitting muster on its ports, the namespace's own pods and the kubelet's probes, so a direct call cannot skip muster's sign-in, audit trail and toolset scoping. The 4 chart line only. Rendered as a whole map and read back from the configmap patch on record, so a reconcile keeps it; typed (--input 'networkPolicy.mcpBackends={\"<key>\": {\"namespace\": \"<ns>\", \"ports\": [8080]}}'), it replaces it. None, the key is not written."
+        }
+      }
+    },
     "aiChat": {
       "type": "object",
       "additionalProperties": false,

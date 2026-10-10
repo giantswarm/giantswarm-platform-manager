@@ -654,6 +654,15 @@ func TestRefusals(t *testing.T) {
 			m["installation"].(map[string]any)["chartLine"] = lineThree
 			m["modelManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: true}}
 		}), secrets, ErrInput, "modelManager.github.enabled"},
+		{"an MCP backend without its namespace", clone(func(m map[string]any) {
+			m["networkPolicy"] = map[string]any{"mcpBackends": map[string]any{"tickets": map[string]any{"ports": []any{8080}}}}
+		}), secrets, ErrInput, "networkPolicy/mcpBackends/tickets"},
+		{"an MCP backend's port that is no integer", clone(func(m map[string]any) {
+			m["networkPolicy"] = map[string]any{"mcpBackends": map[string]any{"tickets": map[string]any{"namespace": "mcp-tickets", "ports": []any{"http"}}}}
+		}), secrets, ErrInput, "networkPolicy/mcpBackends/tickets/ports/0"},
+		{"MCP backends on the 3 line", clone(func(m map[string]any) {
+			m["networkPolicy"] = map[string]any{"mcpBackends": map[string]any{"tickets": map[string]any{"namespace": "mcp-tickets", "ports": []any{8080}}}}
+		}), secrets, ErrInput, "networkPolicy.mcpBackends"},
 		{"targets without a broker client", clone(func(m map[string]any) {
 			federation(m)["targets"] = []any{target(false)}
 		}), secrets, ErrInput, "federation.brokerClientId"},
