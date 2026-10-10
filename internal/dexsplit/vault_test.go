@@ -10,6 +10,9 @@ import (
 	"testing"
 )
 
+// extraSecret is the first extra client's inline secret.
+const extraSecret = pathExtraClients + ".0." + keySecret
+
 // call is one command a fake Runner saw.
 type call struct {
 	dir, stdin string
@@ -47,7 +50,7 @@ func TestSOPSVaultCopySecret(t *testing.T) {
 		return nil, nil
 	})
 	v, _ := NewVault(VaultSOPS, run)
-	src := Ref{File: filepath.Join(repo, "installations/x/apps/dex-app/secret-values.yaml.patch"), Path: "oidc.extraStaticClients.0.secret"}
+	src := Ref{File: filepath.Join(repo, "installations/x/apps/dex-app/secret-values.yaml.patch"), Path: extraSecret}
 	dst := filepath.Join(repo, "management-clusters/x/extras/dex/dex-client-kagent-secret.yaml")
 	if err := v.CopySecret(context.Background(), src, dst, "dex-client-kagent", "giantswarm", "secret"); err != nil {
 		t.Fatal(err)
@@ -135,7 +138,7 @@ func TestBeekeeperVault(t *testing.T) {
 func TestBeekeeperVaultCopyRelativeSource(t *testing.T) {
 	run, calls := recorder(func([]string) ([]byte, error) { return nil, nil })
 	v, _ := NewVault(VaultBeekeeper, run)
-	src := Ref{File: "configs/installations/x/apps/dex-app/secret-values.yaml.patch", Path: "oidc.extraStaticClients.0.secret"}
+	src := Ref{File: "configs/installations/x/apps/dex-app/secret-values.yaml.patch", Path: extraSecret}
 	if err := v.CopySecret(context.Background(), src, "mcs/management-clusters/x/extras/dex/dex-client-kagent-secret.yaml", "dex-client-kagent", "giantswarm", "secret"); err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +177,7 @@ func TestBeekeeperVaultRevealRefused(t *testing.T) {
 		return nil, exitError(t, "beekeeper: looks secret: /c/p.yaml.patch#oidc.extraStaticClients.0.secret: a key named like a secret")
 	})
 	v, _ := NewVault(VaultBeekeeper, run)
-	_, err := v.Reveal(context.Background(), "/c/p.yaml.patch", []string{"oidc.extraStaticClients.0.secret"})
+	_, err := v.Reveal(context.Background(), "/c/p.yaml.patch", []string{extraSecret})
 	if err == nil || errors.Is(err, ErrUnsupported) || !strings.HasSuffix(err.Error(), "a key named like a secret") {
 		t.Fatalf("err %v", err)
 	}
