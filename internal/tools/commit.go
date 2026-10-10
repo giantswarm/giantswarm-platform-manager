@@ -158,11 +158,12 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	if err := checkSupplied(p.SuppliedSecrets, secrets); err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
 	}
+	values := suppliedGenerated(p, secrets)
 	rendered, err := def.Render(inputs, withMarkers(secrets, p.SuppliedOnRecord), render.ModeCommit)
 	if err != nil {
 		return nil, fmt.Errorf("%s: render with the supplied values: %w", tool, err)
 	}
-	if _, err := targetsOf(ctx, env.c, p, rendered.Files, env.byName[one], env.hub); err != nil {
+	if _, err := targetsOf(ctx, env.c, p, rendered.Files, env.byName[one], env.hub, values); err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
 	}
 	res := CommitResult{Caller: identity.Caller(ctx), Tool: tool, Capability: out.Capability, Hub: out.Hub, Installation: one, Plan: p, PullRequests: []actions.PullRequest{}}
@@ -180,7 +181,7 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 		return nil, t.fail(ctx, tool, a, nil, nil, err)
 	}
 	title := prTitle(kind, one, out.Capability, a.Name, "")
-	prs, unchanged, err := t.openPullRequests(ctx, env, a, p, out.PullRequests, rendered.Files, remote, title, prBody(a, p, out.PullRequests))
+	prs, unchanged, err := t.openPullRequests(ctx, env, a, p, out.PullRequests, rendered.Files, remote, title, prBody(a, p, out.PullRequests), values)
 	res.UnchangedRepositories = unchanged
 	if err != nil {
 		return nil, t.fail(ctx, tool, a, remote, prs, err)
@@ -206,11 +207,13 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 
 // openPullRequests opens one installation's pull requests as the caller, one
 // per repository in planned's order on platform/<action>/<installation>: the
-// secret files encrypted for the repository's recipients, a plain file
-// byte-equal to the plan. It answers the pull requests opened (also on
-// error, for the record) and the repositories left with nothing to commit.
-func (t *Tools) openPullRequests(ctx context.Context, env *planned, a *actions.Action, p plan.Installation, planned []plan.PullRequest, rendered render.Fileset, remote commit.Remote, title, body string) ([]actions.PullRequest, []string, error) {
-	targets, err := targetsOf(ctx, env.c, p, rendered, env.byName[p.Name], env.hub)
+// secret files encrypted for the repository's recipients, the values the
+// commit holds (values, by generated name) written in place of their
+// placeholders, a plain file byte-equal to the plan. It answers the pull
+// requests opened (also on error, for the record) and the repositories left
+// with nothing to commit.
+func (t *Tools) openPullRequests(ctx context.Context, env *planned, a *actions.Action, p plan.Installation, planned []plan.PullRequest, rendered render.Fileset, remote commit.Remote, title, body string, values map[string]string) ([]actions.PullRequest, []string, error) {
+	targets, err := targetsOf(ctx, env.c, p, rendered, env.byName[p.Name], env.hub, values)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -467,7 +470,10 @@ func encrypter(ctx context.Context, c *gh.Client, repository string) (*sopsenc.E
 // in it or the entries of other owners kept, the dex patch with their keys
 // kept, the platform patch with the installation's own audiences kept, the
 // tunnelport values with the hub's entries edited in, read as the caller now.
-func targetsOf(ctx context.Context, c *gh.Client, p plan.Installation, rendered render.Fileset, inst, hub installations.Installation) (map[string]*target, error) {
+// values are the generated values the commit holds already, by name — a
+// wave's shared draws, the person's supplied ones — written in place of
+// their placeholders in the secret files, and drawn by nothing else.
+func targetsOf(ctx context.Context, c *gh.Client, p plan.Installation, rendered render.Fileset, inst, hub installations.Installation, values map[string]string) (map[string]*target, error) {
 	planned := map[string]plan.File{}
 	for _, f := range p.Files {
 		planned[f.Repository+":"+f.Path] = f
@@ -503,11 +509,11 @@ func targetsOf(ctx context.Context, c *gh.Client, p plan.Installation, rendered 
 			// The guard stays for a generated value on record the plan does
 			// not rotate: never generated again.
 			tg.exists[path] = pf.Change == plan.ChangeUpdate && len(f.Generated) > 0 && !pf.Rewritten && !rotated[resolved+":"+path]
-			sf := sopsenc.File{Path: path, Content: content}
-			for _, g := range f.Generated {
-				sf.Generated = append(sf.Generated, sopsenc.Generated{Name: g.Name, Placeholder: g.Placeholder, Kind: sopsenc.Kind(g.Kind), Length: g.Length, Half: sopsenc.Half(g.Half), Encoding: sopsenc.Encoding(g.Encoding)})
+			content, generated := withValues(content, f.Generated, values)
+			if len(generated) < len(f.Generated) && !tg.isSecretFile(path) {
+				return nil, fmt.Errorf("%s:%s is a plain file and a value the commit holds would land in it; nothing is committed", resolved, path)
 			}
-			tg.files = append(tg.files, sf)
+			tg.files = append(tg.files, sopsenc.File{Path: path, Content: content, Generated: generated})
 		}
 	}
 	for _, inc := range p.Includes {
@@ -694,6 +700,10 @@ func prBody(a *actions.Action, p plan.Installation, prs []plan.PullRequest) stri
 				fmt.Fprintf(&b, " — rotated: a new value replaces the one on record in %s (forced by %s)", strings.Join(g.FrozenIn, ", "), g.ForcedBy)
 			case g.Kept:
 				fmt.Fprintf(&b, " — kept: the value on record in %s stands, nothing written", strings.Join(g.FrozenIn, ", "))
+			case g.DrawnWith != "":
+				fmt.Fprintf(&b, " — drawn once for the wave with %s: %s takes the same value", g.DrawnWith, g.Peer)
+			case g.Supplied:
+				fmt.Fprintf(&b, " — supplied by the actor: the value on record in %s", g.Peer)
 			}
 			b.WriteString("\n")
 		}
