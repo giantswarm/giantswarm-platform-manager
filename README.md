@@ -438,7 +438,14 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
      at the definitions' path, listed in its kustomization. The paths are
      `extras/agent-platform/secrets/` for muster, kagent and `muster-*`, `extras/mcp-<x>/` for `mcp<X>`,
      and the portal's `extras/backstage/backstage/dex-client-backstage-secret.enc.yaml`. Any other
-     client goes to `extras/dex/`, which the split lists in the extras kustomization.
+     client goes to `extras/dex/`, which the split lists in the extras kustomization. A hub's
+     token-exchange client (`muster-token-exchange-<mc>[-<hub>]`) goes under
+     `extras/agent-platform/secrets/` whether or not the platform's directory is on the installation:
+     cluster-mcp-servers renders the pair's Dex side there, the file the agent-platform definition
+     renders for the same pairing, and the split writes the kustomization chain to it (the secrets
+     kustomization listing the Secret, the directory's listing `./secrets`, the extras' listing
+     `./agent-platform/`), so a reconcile after the split reads the pair's value as kept. A client
+     an earlier split put under `extras/dex/` moves on to that path, unchanged, and is unlisted there.
   2. **configs:** after `flux-extras` has applied those Secrets. The plaintext `configmap-values.yaml.patch`
      lists every client with `clientSecretRef`/`secretRef` and the `trustedPeers`. The encrypted patch
      loses the lists and the moved secrets and keeps the rest, such as the authenticator's own secret

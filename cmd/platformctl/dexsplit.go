@@ -26,7 +26,11 @@ manager refuses the commit. The split writes:
   management-clusters (merge first): one SOPS Secret per inline client secret, namespace giantswarm,
     key secret, at the path the definitions render (extras/agent-platform/secrets/ for muster, kagent
     and muster-*, extras/mcp-<x>/ for mcp<X>, the portal's dex-client-backstage-secret.enc.yaml,
-    extras/dex/ for any other client), listed in its kustomization
+    extras/dex/ for any other client), listed in its kustomization. A hub's token-exchange client
+    (muster-token-exchange-<mc>[-<hub>]) goes under extras/agent-platform/secrets/ whether or not the
+    platform's directory is on the installation, where cluster-mcp-servers renders the pair's Dex
+    side, with the kustomization chain to it; one an earlier split put under extras/dex/ moves on
+    there unchanged
   configs (merge after flux-extras applied the Secrets): the plaintext configmap-values.yaml.patch
     lists every client with clientSecretRef or secretRef and the trustedPeers; the encrypted patch
     drops the lists and the moved secrets and keeps the rest (the authenticator's own secret, the

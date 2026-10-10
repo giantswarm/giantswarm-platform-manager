@@ -40,7 +40,11 @@ func (r Report) Print(w io.Writer) {
 		}
 		p("  %s (%s, %s)\n", c.ID(), kind, c.Source)
 		if m := c.Secret; m != nil {
-			p("    secret from  %s\n", m.From)
+			if m.MovesFrom != "" {
+				p("    moves from   %s (an earlier split's file, unchanged)\n", m.MovesFrom)
+			} else {
+				p("    secret from  %s\n", m.From)
+			}
 			p("    to           %s (Secret giantswarm/%s, key secret)", m.File, m.Secret)
 			if m.State != "" {
 				p(" [%s]", m.State)
