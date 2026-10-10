@@ -421,7 +421,8 @@ func newDisableCmd() *cobra.Command {
 	var c conn
 	var dryRun, commit, content bool
 	var reason string
-	syntax := "installation disable <installation> <capability> --dry-run|--commit --reason <text>"
+	var keep []string
+	syntax := "installation disable <installation> <capability> --dry-run|--commit --reason <text> [--keep <path>]..."
 	cmd := leaf(strings.TrimPrefix(syntax, "installation "), "Disable a capability on one installation: a dry run, or the action", func(pos []string, stdout, stderr io.Writer) int {
 		if err := c.valid(); err != nil {
 			return usageError(stderr, err.Error())
@@ -436,6 +437,9 @@ func newDisableCmd() *cobra.Command {
 			return usageError(stderr, "--commit needs --reason: why you make the change, for the team's review")
 		}
 		toolArgs := map[string]any{tools.ArgInstallation: pos[0], tools.ArgCapability: pos[1], tools.ArgContent: content}
+		if len(keep) > 0 {
+			toolArgs[tools.ArgKeep] = keep
+		}
 		if commit {
 			toolArgs[tools.ArgMode] = string(tools.ModeCommit)
 			toolArgs[tools.ArgReason] = reason
@@ -456,7 +460,9 @@ func newDisableCmd() *cobra.Command {
 	fs.BoolVar(&commit, "commit", false, "start the action: the manager's mode commit, the pull requests opened as you")
 	fs.BoolVar(&content, "content", false, "print each edited file as the commit writes it")
 	fs.StringVar(&reason, tools.ArgReason, "", "with --commit (required): why you make the change, in a sentence the team's review and the notices show")
+	fs.StringArrayVar(&keep, tools.ArgKeep, nil, "a file under the capability's directories to keep, by `path` (or repository:path) as the dry run names it, with the kustomization entries that name it; repeatable")
 	completeFlag(cmd, tools.ArgReason, cobra.NoFileCompletions)
+	completeFlag(cmd, tools.ArgKeep, cobra.NoFileCompletions)
 	cmd.ValidArgsFunction = capabilityAt(func(_ *cobra.Command, pos []string) bool { return len(pos) == 1 })
 	return cmd
 }
