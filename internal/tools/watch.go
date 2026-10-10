@@ -109,6 +109,9 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 	if a, note = t.resyncBeforeWatch(ctx, a); note != "" {
 		t.d.Log.Info("action_resync_skipped", identity.LogAttr(ctx), "action", a.Name, "note", note)
 	}
+	if a.Spec.Kind == actions.KindDisable {
+		return watchDisable(a, note)
+	}
 	if a.Status.State == actions.StateReverted {
 		return nil, fmt.Errorf("%s: action %s is reverted (%s) — the watch reads no stage whose pull requests left the default branch; its actor (%s) withdraws it with %s and the reason%s", ToolWatchAction, a.Name, resultMessage(a), a.Spec.Actor.Login, ToolDenyAction, noteClause(note))
 	}
@@ -185,6 +188,32 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 	out.Action, out.State = a, st.State
 	t.d.Log.Info("action_watch", identity.LogAttr(ctx), "action", a.Name, "installation", st.Name, "ready", ready, "state", st.State, "actionState", a.Status.State, "red", len(out.Red), "reported", st.ReportedAt != nil, "duration_ms", time.Since(start).Milliseconds())
 	out.Message = fmt.Sprintf("%s is %s (action %s, %s): %s.", st.Name, st.State, a.Name, a.Status.State, st.Message)
+	if note != "" {
+		out.Message += " " + note
+	}
+	return out, nil
+}
+
+// watchDisable is the watch of a disable: nothing rolls out — the fleet's
+// Kustomization does not prune — so the record the resync just read is the
+// answer: disabled once the marker is gone from the default branch, with the
+// objects a person deletes; else what the action still waits for.
+func watchDisable(a *actions.Action, note string) (any, error) {
+	installation := ""
+	if len(a.Spec.Installations) > 0 {
+		installation = a.Spec.Installations[0]
+	}
+	if a.Status.State != actions.StateDisabled {
+		return nil, fmt.Errorf("%s: action %s disables %s on %s and is %s%s — a disable rolls nothing out: once its pull requests are merged (%s) the read after finds the marker gone from the default branch and the action disabled%s", ToolWatchAction, a.Name, a.Spec.Capability, installation, a.Status.State, decidedBy(a), ToolMergeAction, noteClause(note))
+	}
+	out := WatchResult{Action: a, Installation: installation, State: a.Status.State, Objects: []actions.RolloutObject{}, Message: fmt.Sprintf("%s is disabled (action %s): %s.", installation, a.Name, resultMessage(a))}
+	if len(a.Status.Orphans) > 0 {
+		names := make([]string, 0, len(a.Status.Orphans))
+		for _, o := range a.Status.Orphans {
+			names = append(names, o.Kind+" "+objectName(o.Namespace, o.Name))
+		}
+		out.Next = "delete on " + installation + ", in this order: " + strings.Join(names, ", ")
+	}
 	if note != "" {
 		out.Message += " " + note
 	}

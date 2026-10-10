@@ -296,7 +296,7 @@ func TestGetInfoNamesTheCaller(t *testing.T) {
 		t.Fatalf("caller: %+v", info.Caller)
 	case info.Auth.Mode != tools.AuthModeBearer || info.Auth.AuthorizationServer != server.DefaultAuthorizationServer:
 		t.Fatalf("auth: %+v", info.Auth)
-	case !info.Capabilities.Commit || info.Capabilities.Apply || !info.Capabilities.ApplyRefused || strings.Join(info.Capabilities.WriteTools, ",") != strings.Join([]string{tools.ToolEnableCapability, tools.ToolReconcileCapability, testWrite}, ","):
+	case !info.Capabilities.Commit || info.Capabilities.Apply || !info.Capabilities.ApplyRefused || strings.Join(info.Capabilities.WriteTools, ",") != strings.Join([]string{tools.ToolEnableCapability, tools.ToolReconcileCapability, tools.ToolDisableCapability, testWrite}, ","):
 		t.Fatalf("capabilities: %+v", info.Capabilities)
 	case len(info.Definitions) == 0:
 		t.Fatal("definitions: empty; the registry's definitions are missing from get_info")

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `disable_capability` and `platformctl installation disable <installation> <capability> --dry-run|--commit`, the mirror of enable ([#496](https://github.com/giantswarm/giantswarm-platform-manager/issues/496)). The dry run names every record entry and GitOps file it removes, keeps what a capability that stays renders, and lists as a checklist the cluster objects Flux will not prune; it writes nothing. `--commit` removes them through the same action, approval and merge path as enable, the action ending *disabled* with its checklist on `status.orphans`; afterwards `list` and `verify` read the capability not enabled. A capability a sibling installation federates, a portal entry points at, or a peered token-exchange pairing still uses is refused with the reference named.
+
 ### Changed
 
 - agent-platform: every customer organisation that runs agents runs the agent-manager too, the default's `[kagent, agent-manager]`. The policy's one organisation with `[kagent]` read a decision the records have since left: its installation runs the agent-manager, and its portal creates agents through it. A reconcile rendered `components.agent-manager.enabled: false` there and removed the portal's create surface. Organisations listed with an empty list (tool access only) are unchanged.
