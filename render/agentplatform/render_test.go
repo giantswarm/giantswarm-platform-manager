@@ -600,8 +600,13 @@ func TestRefusals(t *testing.T) {
 		return out
 	}
 	chatOff := clone(func(m map[string]any) { delete(m, "aiChat") })
-	// The base with one MCP backend, tickets, of the given shape.
-	mcpBackends := func(backend map[string]any) map[string]any {
+	// The base with one MCP backend, tickets, on the ports given, in its
+	// namespace where one is given.
+	mcpBackends := func(namespace string, ports ...any) map[string]any {
+		backend := map[string]any{"ports": ports}
+		if namespace != "" {
+			backend["namespace"] = namespace
+		}
 		return clone(func(m map[string]any) {
 			m["networkPolicy"] = map[string]any{"mcpBackends": map[string]any{"tickets": backend}}
 		})
@@ -660,9 +665,9 @@ func TestRefusals(t *testing.T) {
 			m["installation"].(map[string]any)["chartLine"] = lineThree
 			m["modelManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: true}}
 		}), secrets, ErrInput, "modelManager.github.enabled"},
-		{"an MCP backend without its namespace", mcpBackends(map[string]any{"ports": []any{8080}}), secrets, ErrInput, "networkPolicy/mcpBackends/tickets"},
-		{"an MCP backend's port that is no integer", mcpBackends(map[string]any{"namespace": "mcp-tickets", "ports": []any{"http"}}), secrets, ErrInput, "networkPolicy/mcpBackends/tickets/ports/0"},
-		{"MCP backends on the 3 line", mcpBackends(map[string]any{"namespace": "mcp-tickets", "ports": []any{8080}}), secrets, ErrInput, "networkPolicy.mcpBackends"},
+		{"an MCP backend without its namespace", mcpBackends("", 8080), secrets, ErrInput, "networkPolicy/mcpBackends/tickets"},
+		{"an MCP backend's port that is no integer", mcpBackends("mcp-tickets", "http"), secrets, ErrInput, "networkPolicy/mcpBackends/tickets/ports/0"},
+		{"MCP backends on the 3 line", mcpBackends("mcp-tickets", 8080), secrets, ErrInput, "networkPolicy.mcpBackends"},
 		{"targets without a broker client", clone(func(m map[string]any) {
 			federation(m)["targets"] = []any{target(false)}
 		}), secrets, ErrInput, "federation.brokerClientId"},
