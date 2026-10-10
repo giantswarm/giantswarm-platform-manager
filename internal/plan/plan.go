@@ -242,7 +242,10 @@ type DexClient struct {
 	Public       bool     `json:"public,omitempty"`
 	SecretRef    string   `json:"secretRef,omitempty"`
 	RedirectURIs []string `json:"redirectURIs,omitempty"`
-	TrustedPeers []string `json:"trustedPeers,omitempty"`
+	// ExtraRedirectURIs are the redirect URIs a built-in client carries
+	// beside the one the template sets (dex-app DexAppExtraRedirectURIs).
+	ExtraRedirectURIs []string `json:"extraRedirectURIs,omitempty"`
+	TrustedPeers      []string `json:"trustedPeers,omitempty"`
 }
 
 // CustomerAction is something the rollout needs from the customer that no
@@ -955,12 +958,13 @@ func DexClients(patch []byte, in render.Input) []DexClient {
 			ClientSecretRef struct {
 				Name string `yaml:"name"`
 			} `yaml:"clientSecretRef"`
-			RedirectURIs []string `yaml:"redirectURIs"`
-			TrustedPeers []string `yaml:"trustedPeers"`
+			RedirectURIs      []string `yaml:"redirectURIs"`
+			ExtraRedirectURIs []string `yaml:"extraRedirectURIs"`
+			TrustedPeers      []string `yaml:"trustedPeers"`
 		}
 		_ = doc.OIDC.StaticClients.Content[i+1].Decode(&body)
 		key := doc.OIDC.StaticClients.Content[i].Value
-		out = append(out, DexClient{ID: in.BuiltInDexClientID(key), Client: key, SecretRef: body.ClientSecretRef.Name, RedirectURIs: body.RedirectURIs, TrustedPeers: body.TrustedPeers})
+		out = append(out, DexClient{ID: in.BuiltInDexClientID(key), Client: key, SecretRef: body.ClientSecretRef.Name, RedirectURIs: body.RedirectURIs, ExtraRedirectURIs: body.ExtraRedirectURIs, TrustedPeers: body.TrustedPeers})
 	}
 	for _, c := range doc.OIDC.ExtraStaticClients {
 		out = append(out, DexClient{ID: c.ID, Name: c.Name, Public: c.Public, SecretRef: c.SecretRef.Name, RedirectURIs: c.RedirectURIs, TrustedPeers: c.TrustedPeers})

@@ -243,6 +243,24 @@ type Installation struct {
 	// stable callback: the ConfigMaps under extras/agent-platform/mcpclients/
 	// on record (registered.go).
 	MCPClients []RegisteredClient `json:"mcpClients"`
+	// Workspaces is what the installation's agent-platform values on record
+	// say about the workspace-manager: the definition renders none of those
+	// keys and registers the manager's sign-in redirect URI from them.
+	Workspaces Workspaces `json:"workspaces"`
+}
+
+// Workspaces is the workspace-manager as the installation's own
+// agent-platform values turn it on (installation.workspaces): whether
+// workspaces are on (workspaces.enabled), the manager's public base URL where
+// the values set one (workspace-manager.oauth.baseURL) and the Dex client it
+// signs the person's browser in with where they name one
+// (workspace-manager.oauth.dex.clientID). The keys are the installation's own,
+// kept; from them the definition registers <baseURL>/signin as a redirect URI
+// of the platform client (workspaceSigninURI).
+type Workspaces struct {
+	Enabled  bool   `json:"enabled"`
+	BaseURL  string `json:"baseUrl,omitempty"`
+	ClientID string `json:"clientId,omitempty"`
 }
 
 // PortalRef is a developer portal that signs people in on the installation:
