@@ -12,6 +12,7 @@ const (
 	burrow       = "burrow"
 	gopher       = "gopher"
 	warren       = "warren"
+	gopherClient = "muster-token-exchange-burrow"
 	warrenClient = "muster-token-exchange-burrow-warren"
 )
 
@@ -24,7 +25,7 @@ func TestTokenExchangeClient(t *testing.T) {
 		registryHub bool
 		want        string
 	}{
-		{burrow, gopher, true, "muster-token-exchange-burrow"},
+		{burrow, gopher, true, gopherClient},
 		{burrow, warren, false, warrenClient},
 	}
 	for _, tc := range cases {
@@ -43,11 +44,11 @@ func TestTokenExchangeClient(t *testing.T) {
 // value of the pair, peered with the hub's credentials Secret for the target.
 func TestExchangeTarget(t *testing.T) {
 	x := ExchangeTarget{Installation: burrow, Hubs: []string{gopher, warren}, RegistryHub: gopher}
-	if peers := x.TrustedPeers(); !slices.Equal(peers, []string{"muster-token-exchange-burrow", warrenClient}) {
+	if peers := x.TrustedPeers(); !slices.Equal(peers, []string{gopherClient, warrenClient}) {
 		t.Errorf("trusted peers: %v", peers)
 	}
 	clients := x.DexClients()
-	if len(clients) != 2 || clients[0][0].Value != "muster-token-exchange-burrow" || clients[1][0].Value != warrenClient ||
+	if len(clients) != 2 || clients[0][0].Value != gopherClient || clients[1][0].Value != warrenClient ||
 		clients[1][1].Value != "warren token exchange" || clients[1][2].Value.(Map)[0].Value != "dex-client-muster-token-exchange-burrow-warren" {
 		t.Errorf("dex clients: %v", clients)
 	}
