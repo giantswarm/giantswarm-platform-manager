@@ -403,11 +403,6 @@
             "type": "integer",
             "description": "Number of replicas. The server holds no state; more than one is fine."
         },
-        "revisionHistoryLimit": {
-            "type": "integer",
-            "description": "Old ReplicaSets the Deployment keeps (Kubernetes' default is 10). Superseded pod templates leave no stale policy findings behind.",
-            "minimum": 0
-        },
         "resources": {
             "type": "object",
             "description": "Container resources. `ephemeral-storage` bounds the `/tmp` emptyDir the read-only root filesystem leaves writable: the server keeps nothing there beyond the Go runtime's incidental temporary files (every write goes to GitHub's API), and policies require both fields on an emptyDir's container.",
@@ -444,6 +439,10 @@
                     }
                 }
             }
+        },
+        "revisionHistoryLimit": {
+            "type": "integer",
+            "description": "Old ReplicaSets the Deployment keeps (Kubernetes' default is 10). Superseded pod templates leave no stale policy findings behind."
         },
         "securityContext": {
             "type": "object",
