@@ -97,13 +97,15 @@ workflows:
             only: /^v.*/
 
     # platformctl: the orb's go-build once more, for the second binary of the
-    # module. No test_target: the generated go-build runs `make test` already.
-    # Six architectures cold after every go.sum bump, so concurrently on a
+    # module. test-unit: the unit tests under the Makefile's per-package
+    # timeout, without internal/e2e, which the generated go-build's `make
+    # test` and scenario-test already run. Six architectures cold after every go.sum bump, so concurrently on a
     # larger box (see agentlab's go-build for the same reasoning).
     - architect/go-build:
         name: go-build-platformctl
         binary: platformctl
         path: ./cmd/platformctl
+        test_target: test-unit
         context: architect
         # yamllint disable-line rule:line-length
         architectures: "linux/amd64,linux/arm64,darwin/amd64,darwin/arm64,windows/amd64,windows/arm64"

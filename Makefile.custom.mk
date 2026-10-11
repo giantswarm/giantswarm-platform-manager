@@ -15,9 +15,24 @@ build-platformctl: ## Build platformctl for this machine (CI cross-compiles it a
 docker-build: build-linux-amd64 ## Build a local dev image (TAG=giantswarm-platform-manager:dev).
 	docker build --build-arg TARGETOS=linux --build-arg TARGETARCH=amd64 -t $(or $(TAG),$(BINARY):dev) .
 
+# CI's no-output limit is 10 minutes. The generated test recipe's `go test ./...`
+# takes its per-package timeout from GOFLAGS: a hung test ends with go test's
+# dump naming it before CI kills the step silently. internal/e2e runs for
+# minutes and only with E2E=1, so test-e2e runs it on its own, verbose and with
+# a timeout of its own; its command-line -timeout wins over GOFLAGS.
+UNIT_TEST_TIMEOUT ?= 5m
+E2E_TEST_TIMEOUT ?= 20m
+
+test: export GOFLAGS += -timeout=$(UNIT_TEST_TIMEOUT)
+test: test-e2e
+
+.PHONY: test-unit
+test-unit: ## The unit tests alone, as `make test` runs them: for a CI job whose binary another job's `make test` already proves with internal/e2e.
+	go test -ldflags "$(LDFLAGS)" $(RACE) -timeout $(UNIT_TEST_TIMEOUT) ./...
+
 .PHONY: test-e2e
-test-e2e: ## The identity-chain proofs against the fake GitHub (internal/e2e); the suite runs about ten minutes, past go test's default timeout.
-	go test -count=1 -v -timeout 30m ./internal/e2e/...
+test-e2e: ## The identity-chain proofs against the fake GitHub (internal/e2e); minutes long, so outside the unit tests' timeout. `make test` runs it.
+	E2E=1 go test -count=1 -v -timeout $(E2E_TEST_TIMEOUT) ./internal/e2e/...
 
 MUSTER_TEST_FLAGS ?= --base-port 18000 --parallel 1 --readiness-timeout 60s --fail-fast
 
