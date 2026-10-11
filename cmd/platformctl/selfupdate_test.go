@@ -139,7 +139,7 @@ func TestSelfUpdateRefusesADevelopmentBuild(t *testing.T) {
 	if code != exitError {
 		t.Fatalf("exit %d, want %d\n%s%s", code, exitError, out, errs)
 	}
-	for _, want := range []string{"development build", "go install github.com/giantswarm/giantswarm-platform-manager/cmd/platformctl@latest", "releases"} {
+	for _, want := range []string{"development build", "github.com/giantswarm/giantswarm-platform-manager/releases", "make build-platformctl"} {
 		if !strings.Contains(errs, want) {
 			t.Errorf("stderr lacks %q:\n%s", want, errs)
 		}

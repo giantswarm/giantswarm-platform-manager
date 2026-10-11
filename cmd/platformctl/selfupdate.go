@@ -51,7 +51,8 @@ without a bundle, or a download that does not match its signature, is refused
 and the installed binary stays as it is.
 
 A binary without a release version (` + "`platformctl version`" + ` says dev) is refused:
-install it from a release or with ` + "`go install " + update.Module + "@latest`" + `.
+install it from a release (https://github.com/` + update.Repository + `/releases) or build
+it at its tag with ` + "`make build-platformctl`" + `.
 Every other command prints a one-line hint on stderr while a newer release is
 out; ` + update.OptOutEnv + `=1 silences it.`
 	cmd.Flags().BoolVar(&check, "check", false, "report the running and the latest release without installing anything; exit code 125 when a newer one exists")
