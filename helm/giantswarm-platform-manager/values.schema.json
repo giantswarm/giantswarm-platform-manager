@@ -440,6 +440,10 @@
                 }
             }
         },
+        "revisionHistoryLimit": {
+            "type": "integer",
+            "description": "Old ReplicaSets the Deployment keeps (Kubernetes' default is 10). Superseded pod templates leave no stale policy findings behind."
+        },
         "securityContext": {
             "type": "object",
             "description": "Container security context.",
