@@ -47,8 +47,7 @@ const (
 	Repository = "giantswarm/giantswarm-platform-manager"
 	// Binary is the command's name and the prefix of its release assets.
 	Binary = "platformctl"
-	// Module is the package `go install Module@latest` builds the newest
-	// release from.
+	// Module is the package CI builds the release binaries from.
 	Module = "github.com/giantswarm/giantswarm-platform-manager/cmd/platformctl"
 	// OptOutEnv silences the newer-release hint when set to any value.
 	// self-update ignores it.
@@ -164,7 +163,7 @@ func (u *Updater) Remind(ctx context.Context, w io.Writer) {
 // bundle, since self-update would install nothing from it.
 func (u *Updater) Run(ctx context.Context, w io.Writer, checkOnly bool) error {
 	if !isRelease(u.Version) {
-		return fmt.Errorf("cannot self-update a development build (version %s): install a release with `go install %s@latest` or from https://github.com/%s/releases", u.Version, Module, Repository)
+		return fmt.Errorf("cannot self-update a development build (version %s): install a release from https://github.com/%s/releases, or build one at its tag with `make build-platformctl`", u.Version, Repository)
 	}
 	_, _ = fmt.Fprintf(w, "Current version: %s\n", u.Version)
 	_, _ = fmt.Fprintf(w, "Looking up the latest release of %s...\n", Repository)

@@ -480,14 +480,17 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
 
 Installing it and keeping it current:
 
-- Download `platformctl-<os>-<arch>` from a [release](https://github.com/giantswarm/giantswarm-platform-manager/releases),
-  or `go install github.com/giantswarm/giantswarm-platform-manager/cmd/platformctl@latest`.
+- Download `platformctl-<os>-<arch>` and its `.bundle` from a [release](https://github.com/giantswarm/giantswarm-platform-manager/releases)
+  and verify the one against the other with `cosign verify-blob` as under
+  [Proving a release candidate](#proving-a-release-candidate), or build it from a checkout at the tag
+  (`git checkout vX.Y.Z && make build-platformctl`). `go install …@<tag>` does not build: the module's
+  `replace` directives refuse it.
 - `platformctl self-update` installs the latest release over the running binary once its cosign bundle
   verifies as a CircleCI build of this repository (the Sigstore public-good trust root, the CircleCI
   issuer, this repository as the source). A release without a bundle, or a download that does not match
   its signature, is refused and the binary stays as it is. `--check` only reports both versions and exits
   with 125 when a newer release is out. A build without a release version (`platformctl version` says
-  `dev`) is refused: install a release or use `go install`.
+  `dev`) is refused: install a release.
 - Every command but `version`, `self-update`, `help` and `completion` prints one line on stderr while a
   newer release is out. GitHub's answer is cached for an hour under the user's cache directory; the
   look-up gives up after 2 s and never fails the command. `PLATFORMCTL_NO_UPDATE_CHECK=1` silences it.
