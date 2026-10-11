@@ -7,7 +7,7 @@ require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/getsops/sops/v3 v3.13.3
 	github.com/giantswarm/gitops-commit v0.11.1
-	github.com/giantswarm/go-selfupdate v1.6.1
+	github.com/giantswarm/go-selfupdate v1.6.2
 	github.com/giantswarm/mcp-oauth v1.7.0
 	github.com/giantswarm/selfupdate-cosign v0.3.4
 	github.com/go-jose/go-jose/v4 v4.1.5
