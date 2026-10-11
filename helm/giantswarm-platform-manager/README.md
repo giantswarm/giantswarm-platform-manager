@@ -29,6 +29,7 @@ header; every other tool answers with the user token alone.
 |-----|------|---------|-------------|
 | global | object | `{}` | Platform-wide values an umbrella chart shares with every component and Helm forwards here; this chart reads none of them. |
 | replicaCount | int | `1` | Number of replicas. The server holds no state; more than one is fine. |
+| revisionHistoryLimit | int | `3` | Old ReplicaSets the Deployment keeps (Kubernetes' default is 10). Superseded pod templates leave no stale policy findings behind. |
 | image.registry | string | `"gsoci.azurecr.io"` | Image registry. |
 | image.repository | string | `"giantswarm/giantswarm-platform-manager"` | Image repository. |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
