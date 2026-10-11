@@ -529,7 +529,19 @@ candidate before its promote. The candidate's proof is offline:
 
 1. **The candidate's own CLI.** Build it at the tag (`git checkout vX.Y.Z-rc.N && make build-platformctl`),
    or download `platformctl-<os>-<arch>` from the pre-release. `go install …@<tag>` does not build: the
-   module's `replace` directives refuse it.
+   module's `replace` directives refuse it. A download is used only once its cosign bundle verifies as a
+   CircleCI build of this repository's project (issuer `https://oidc.circleci.com`, the certificate's SAN
+   under this project's `circleci.com/api/v2/projects/…`); `cosign verify-blob` prints `Verified OK`:
+
+   ```sh
+   gh release download vX.Y.Z-rc.N --repo giantswarm/giantswarm-platform-manager \
+     -p platformctl-linux-amd64 -p platformctl-linux-amd64.bundle
+   cosign verify-blob --bundle platformctl-linux-amd64.bundle \
+     --certificate-oidc-issuer https://oidc.circleci.com \
+     --certificate-identity-regexp '^https://circleci\.com/api/v2/projects/142db090-0808-466a-ae4c-829cb1075ea2/pipeline-definitions/' \
+     platformctl-linux-amd64
+   ```
+
 2. **The offline render of the management-clusters declarations.** Every agent-platform golden fileset is
    rendered with that CLI and compared with the golden tree, byte for byte — no token, no network:
 
