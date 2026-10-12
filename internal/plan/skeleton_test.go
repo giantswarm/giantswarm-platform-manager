@@ -163,7 +163,7 @@ func TestRetiredKeysTakeNoPart(t *testing.T) {
 	onRecord := func(extra string) string {
 		return "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\n  namespace: ns\ntype: Opaque\nstringData:\n  DEX_CLIENT_SECRET: " + enc + "\n" + extra + "  CREDENTIALS_REVISION: " + enc + "\nsops:\n  version: 3.9.0\n"
 	}
-	retired := []string{"stringData.VALKEY_PASSWORD"}
+	retired := []string{valkeyPassword}
 	for _, tc := range []struct {
 		name, current string
 		want          Change
