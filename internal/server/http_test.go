@@ -3,6 +3,7 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -34,5 +35,30 @@ func TestProbesAreOpen(t *testing.T) {
 func TestOAuthConfigIsValidatedAtStart(t *testing.T) {
 	if _, err := New(Config{OAuth: &OAuthConfig{AuthorizationServer: DefaultAuthorizationServer}}, mcpserver.NewMCPServer("test", "0"), nil); err == nil {
 		t.Fatal("a missing base URL was accepted")
+	}
+}
+
+// A body beyond the bound is refused, and the endpoint keeps answering.
+func TestMCPBodyIsBounded(t *testing.T) {
+	s, err := New(Config{}, mcpserver.NewMCPServer("test", "0"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	post := func(body string) int {
+		req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	big := `{"jsonrpc":"2.0","id":1,"method":"ping","params":{"pad":"` + strings.Repeat("x", maxMCPBodyBytes) + `"}}`
+	if code := post(big); code < 400 {
+		t.Errorf("MCP body over the bound: %d, want a refusal", code)
+	}
+	initialize := `{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}`
+	if code := post(initialize); code != http.StatusOK {
+		t.Errorf("MCP initialize after a refusal: %d, want 200", code)
 	}
 }

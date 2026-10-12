@@ -61,7 +61,10 @@ func New(cfg Config, mcpSrv *mcpserver.MCPServer, log *slog.Logger) (*Server, er
 		g.register(mux)
 		s.guard = g
 	}
-	mux.Handle(cfg.MCPPath, s.protect(carryForwardedIdentity(mcpserver.NewStreamableHTTPServer(mcpSrv, mcpserver.WithEndpointPath(cfg.MCPPath)))))
+	// mcp-go reads a POST body whole before validating it (CVE-2026-108859):
+	// the bound keeps that read small.
+	mcpHandler := mcpserver.NewStreamableHTTPServer(mcpSrv, mcpserver.WithEndpointPath(cfg.MCPPath))
+	mux.Handle(cfg.MCPPath, http.MaxBytesHandler(s.protect(carryForwardedIdentity(mcpHandler)), maxMCPBodyBytes))
 
 	s.http = &http.Server{
 		Addr:              cfg.Addr,
@@ -72,6 +75,9 @@ func New(cfg Config, mcpSrv *mcpserver.MCPServer, log *slog.Logger) (*Server, er
 	}
 	return s, nil
 }
+
+// maxMCPBodyBytes bounds an MCP request body.
+const maxMCPBodyBytes = 1 << 20
 
 func ok(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
