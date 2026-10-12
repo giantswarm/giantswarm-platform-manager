@@ -848,13 +848,18 @@ func TestChartLineFormsPerInstallation(t *testing.T) {
 			if err := yaml.Unmarshal([]byte(kustomization), &k); err != nil || len(k.Patches) == 0 {
 				t.Fatalf("no patches (%v):\n%s", err, kustomization)
 			}
-			var ops []map[string]string
+			type operation struct {
+				Op    string `yaml:"op"`
+				Path  string `yaml:"path"`
+				Value string `yaml:"value"`
+			}
+			var ops []operation
 			if err := yaml.Unmarshal([]byte(k.Patches[0].Patch), &ops); err != nil {
 				t.Fatal(err)
 			}
-			want := []map[string]string{{"op": "remove", "path": "/spec/ref/tag"}, {"op": "add", "path": "/spec/ref/semver", "value": tc.line}}
+			want := []operation{{"remove", "/spec/ref/tag", ""}, {"add", "/spec/ref/semver", tc.line}}
 			if tc.line == candidatesRange {
-				want = append(want, map[string]string{"op": "add", "path": "/spec/ref/semverFilter", "value": render.ReleaseTagFilter})
+				want = append(want, operation{"add", "/spec/ref/semverFilter", render.ReleaseTagFilter})
 			}
 			if !reflect.DeepEqual(ops, want) {
 				t.Fatalf("the OCIRepository patch is %v, want %v", ops, want)
