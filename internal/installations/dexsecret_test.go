@@ -34,9 +34,10 @@ func encryptedDexPatch(peers, extras int, tail string) string {
 }
 
 // The record reads which lists the encrypted dex-app secret patch carries,
-// with their entries, without decrypting anything: both lists, one of them,
-// none where the lists are empty or absent, none where the patch does not
-// exist; the login connectors under oidc.customer are no list of the plan's.
+// with their entries, without decrypting anything: the three lists, one of
+// them, none where the lists are empty or absent, none where the patch does
+// not exist; the login connector's own keys under oidc.customer are no list
+// of the plan's, its connectors list is.
 func TestDexSecretListsFromTheRecord(t *testing.T) {
 	inst := Installation{Name: fixtureInstallation, Repositories: Repositories{Configs: fixtureConfigs}}
 	key := fixtureConfigs + ":" + DexSecretPatchPath(fixtureInstallation)
@@ -49,7 +50,8 @@ func TestDexSecretListsFromTheRecord(t *testing.T) {
 		{"the extra clients alone", encryptedDexPatch(0, 1, ""), []DexSecretList{{Path: DexExtraStaticClients, Entries: 1}}},
 		{"the peers alone", encryptedDexPatch(4, 0, ""), []DexSecretList{{Path: DexTrustedPeers, Entries: 4}}},
 		{"empty and absent lists", encryptedDexPatch(0, 0, ""), nil},
-		{"the login connectors are no list of the plan's", encryptedDexPatch(0, 0, "    customer:\n        connectors:\n            - id: ENC[AES256_GCM,data:x,iv:x,tag:x,type:str]\n"), nil},
+		{"the connectors list", encryptedDexPatch(1, 0, "    customer:\n        connectorConfig: ENC[AES256_GCM,data:x,iv:x,tag:x,type:str]\n        connectors:\n            - id: ENC[AES256_GCM,data:x,iv:x,tag:x,type:str]\n"), []DexSecretList{{Path: DexTrustedPeers, Entries: 1}, {Path: DexCustomerConnectors, Entries: 1}}},
+		{"the login connector's own keys are no list", encryptedDexPatch(0, 0, "    customer:\n        connectorConfig: ENC[AES256_GCM,data:x,iv:x,tag:x,type:str]\n"), nil},
 		{"inline secrets alone", "oidc:\n    staticClients:\n        muster:\n            clientSecret: ENC[AES256_GCM,data:x,iv:x,tag:x,type:str]\nsops:\n    version: 3.11.0\n", nil},
 	}
 	for _, c := range cases {

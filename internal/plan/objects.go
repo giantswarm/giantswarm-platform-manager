@@ -20,6 +20,9 @@ type Object struct {
 	Kind      string `json:"kind"`
 	Namespace string `json:"namespace,omitempty"`
 	Name      string `json:"name"`
+	// Takes is what deleting the object takes with it besides itself, on a
+	// checklist line (Checklist); empty for an object that takes nothing.
+	Takes string `json:"takes,omitempty"`
 }
 
 // kustomizationKind is kustomize's own document: it lists objects and is
@@ -27,6 +30,7 @@ type Object struct {
 const (
 	kustomizationKind = "Kustomization"
 	helmReleaseKind   = "HelmRelease"
+	namespaceKind     = "Namespace"
 )
 
 // Objects are the objects res renders on the installation, the HelmReleases

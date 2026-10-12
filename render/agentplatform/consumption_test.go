@@ -370,7 +370,35 @@ func consume(t *testing.T, shape consumptionShape, charts *chartStore) {
 	if c.platform != nil {
 		c.assertMusterConsumers()
 		c.assertKagentConsumers()
+		c.assertMCPBackends()
 	}
+}
+
+// assertMCPBackends holds the person's networkPolicy.mcpBackends to the
+// rendered connectivity chart: the meta chart hands it the map, which its
+// values schema validated in helm template, and each entry yields the
+// chart's <release>-mcp-backend-<key> policy in the backend's namespace. A
+// shape the chart renamed or stopped reading fails here, not as a backend
+// left open to every pod of the cluster.
+func (c *consumption) assertMCPBackends() {
+	if len(c.platform.MCPBackends) == 0 {
+		return
+	}
+	for _, rel := range c.rendered {
+		if rel.chart.Name != "agent-platform-connectivity" {
+			continue
+		}
+		for _, key := range sortedKeys(c.platform.MCPBackends) {
+			ns := c.platform.MCPBackends[key].Namespace
+			if !slices.ContainsFunc(rel.objects, func(o object) bool {
+				return strings.HasSuffix(o.kind(), "NetworkPolicy") && o.name() == rel.name+"-mcp-backend-"+key && o.namespace(rel.ns) == ns
+			}) {
+				c.t.Errorf("%s: networkPolicy.mcpBackends.%s renders no policy %s-mcp-backend-%s in namespace %s", rel, key, rel.name, key, ns)
+			}
+		}
+		return
+	}
+	c.t.Errorf("networkPolicy.mcpBackends is set, and no connectivity chart was rendered to take it")
 }
 
 // renderPortal renders the customer-portal definition from its input under

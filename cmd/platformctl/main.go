@@ -34,6 +34,7 @@ const usage = `platformctl — the laptop and CI surface of giantswarm-platform-
   platformctl installation list [<installation>...] [--customer <name>]
   platformctl installation enable <installation> <capability> --dry-run|--commit --reason <text> [--input k=v]... [--secret f=src]... [--rotate <name>]... [--content]
   platformctl installation reconcile <installation>...|--all <capability> --dry-run|--commit --reason <text> [--input k=v]... [--secret f=src]... [--rotate <name>]... [--content]
+  platformctl installation disable <installation> <capability> --dry-run|--commit --reason <text> [--content]
   platformctl installation verify <installation> <capability>
   platformctl installation dex-split <installation> --configs <dir> --management-clusters <dir> [--vault sops|beekeeper] [--hub <mc> --hub-management-clusters <dir>] [--write]
       Move an installation's Dex clients out of its encrypted dex-app values into referenced
@@ -63,14 +64,23 @@ JSON is that value (true, 3, ["hazel"]), anything else is a string.
 --dry-run renders the change and writes nothing; --commit is the manager's mode commit: the pull
 requests opened as you, the Team review asked — for one installation the action, for a reconcile over
 a set (two or more installations named, or --all for every installation of the registry) the wave
-over the set, one action rolled out a stage per merge. --secret <field>=@<file>, <field>=env:<NAME>
-or <field>=- (stdin, one field) supplies a secret the plan's suppliedSecrets name; the value is sent
-once, never printed, and never taken from the command line. --rotate <name> (repeatable) rotates a
+over the set, one action rolled out a stage per merge. --secret (repeatable) supplies a secret the
+plan's suppliedSecrets name: <field>=beekeeper:<ref> resolves a reference of the secret store through
+beekeeper secret copy <ref> -- <consumer>, <field>=@<file> and <field>=env:<NAME> read it, and
+<field>=- reads stdin (one field). The values are sent once, never printed, and never taken from the
+command line. Over a set <field> goes to every installation whose plan asks for it and
+<installation>/<field> to that installation alone, so the wave renders and commits in one action.
+--rotate <name> (repeatable) rotates a
 generated value on request, named as the dry run's generated secrets list it
 (<installation>-muster-valkey-password): the dry run shows it "rotates on request" with the files that
 hold it, the commit writes a new value into them and draws its component's credentials revision, so
 every workload that reads it restarts. Over a set a name applies where an installation's plan lists
 it; a name no plan lists is refused.
+disable is enable's mirror on one installation: the dry run lists every file it deletes or edits by
+pull request, the files that stay because another capability on record renders them, the objects
+the fleet's Kustomization leaves on the cluster as a checklist in deletion order, what still
+depends on the capability (a refusal names it) and the commands that check the result after the
+merge; --commit opens the pull requests through the action and its review, like enable.
 verify prints the features of the definition with their marks and dimensions. approve, deny and
 merge are the review's tools called as you; the manager's answer says what follows. deny on a
 merged action that failed or was reverted is its actor's withdrawal: the action moves to
@@ -170,10 +180,11 @@ func newRoot(u *update.Updater) *cobra.Command {
 	}
 	root.AddCommand(
 		newTemplateCmd(),
-		group("installation", "The capabilities of the installations: list, enable, reconcile, verify, dex-split",
+		group("installation", "The capabilities of the installations: list, enable, reconcile, disable, verify, dex-split",
 			newInstallationListCmd(),
 			newCapabilityCmd(tools.ToolEnableCapability, false),
 			newCapabilityCmd(tools.ToolReconcileCapability, true),
+			newDisableCmd(),
 			newVerifyCmd(),
 			newDexSplitCmd(),
 		),
@@ -187,6 +198,7 @@ func newRoot(u *update.Updater) *cobra.Command {
 		),
 		newVersionCmd(),
 		newSelfUpdateCmd(u),
+		newReceiveSecretCmd(),
 	)
 	// platformctl's help is the usage above; a subcommand's is cobra's, with
 	// its flags.

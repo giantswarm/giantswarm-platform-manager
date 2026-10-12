@@ -8,19 +8,21 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/giantswarm-platform-manager/render"
+	"github.com/giantswarm/giantswarm-platform-manager/render/agentplatform"
 	"github.com/giantswarm/giantswarm-platform-manager/render/mcpservers"
 )
 
 var update = flag.Bool("update", false, "rewrite the goldens from the render")
 
 // shapes are the testdata directories, each an input.yaml and its golden tree.
-var shapes = []string{"fleet", "private-dex-ca", "single-server"}
+var shapes = []string{"fleet", "private-dex-ca", "single-server", "hub-target"}
 
 func loadInput(t *testing.T, shape string) map[string]any {
 	t.Helper()
@@ -239,4 +241,106 @@ func TestFreshEnableRunsEveryServer(t *testing.T) {
 			t.Errorf("%s not rendered", path)
 		}
 	}
+}
+
+// A hub's pairing with a target is the same files whichever definition
+// renders the target's Dex side: for one installation with one hub, the
+// agent-platform render and this one carry the hub's token-exchange client
+// Secret at one path with one content and one peer, list it from the same
+// kustomizations, include the same directory and register the client in the
+// dex-app patch alike, so a disable of the platform keeps the pairing as this
+// definition's and an enable finds it on record.
+func TestTokenExchangePairingMatchesThePlatform(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "agentplatform", "testdata", "public-customer", "input.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Input   map[string]any    `yaml:"input"`
+		Secrets map[string]string `yaml:"secrets"`
+	}
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	platform, err := agentplatform.Render(doc.Input, doc.Secrets, render.ModeCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst := doc.Input["installation"].(map[string]any)
+	fed := inst["federation"].(map[string]any)
+	servers, err := Render(map[string]any{"installation": map[string]any{
+		"name": inst["name"], "baseDomain": inst["baseDomain"], "customer": inst["customer"],
+		"federation": map[string]any{"hubs": fed["hubs"], "registryHub": fed["registryHub"]},
+	}}, nil, render.ModeCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	name, hub := inst["name"].(string), fed["hubs"].([]any)[0].(string)
+	clusters := render.Repository("giantswarm/" + inst["customer"].(string) + "-management-clusters")
+	client := render.TokenExchangeClient(name, hub, hub == fed["registryHub"])
+	secret := render.PlatformSecretsPath(name, render.DexClientSecretFile(client))
+	a, b := platform.Files[clusters][secret], servers.Files[clusters][secret]
+	if len(a.Content) == 0 || !bytes.Equal(a.Content, b.Content) {
+		t.Errorf("%s differs:\n--- agent-platform\n%s\n--- cluster-mcp-servers\n%s", secret, a.Content, b.Content)
+	}
+	if len(a.Generated) != 1 || len(b.Generated) != 1 || a.Generated[0].Name != b.Generated[0].Name || a.Generated[0].Peer == nil || b.Generated[0].Peer == nil || *a.Generated[0].Peer != *b.Generated[0].Peer {
+		t.Errorf("%s is generated as %+v by agent-platform and %+v here", secret, a.Generated, b.Generated)
+	}
+	for _, k := range []string{"extras/agent-platform/kustomization.yaml", "extras/agent-platform/secrets/kustomization.yaml"} {
+		path := "management-clusters/" + name + "/" + k
+		for _, res := range kustomizationResources(t, servers.Files[clusters][path].Content) {
+			if !slices.Contains(kustomizationResources(t, platform.Files[clusters][path].Content), res) {
+				t.Errorf("%s lists %s here and not in the agent-platform render", path, res)
+			}
+		}
+	}
+	include := render.Include{Repository: clusters, Path: "management-clusters/" + name + "/extras/kustomization.yaml", Resource: "./agent-platform/"}
+	if !slices.Contains(platform.Includes, include) || !slices.Contains(servers.Includes, include) {
+		t.Errorf("the agent-platform include is not in both renders: %v / %v", platform.Includes, servers.Includes)
+	}
+	configs := render.Repository("giantswarm/" + inst["customer"].(string) + "-configs")
+	patch := "installations/" + name + "/apps/dex-app/configmap-values.yaml.patch"
+	pa, pb := dexExchange(t, platform.Files[configs][patch].Content, client), dexExchange(t, servers.Files[configs][patch].Content, client)
+	if pa == "" || pa != pb {
+		t.Errorf("the client %s in the dex patch:\n--- agent-platform\n%s\n--- cluster-mcp-servers\n%s", client, pa, pb)
+	}
+}
+
+// kustomizationResources are the resources a kustomization lists.
+func kustomizationResources(t *testing.T, content []byte) []string {
+	t.Helper()
+	var k struct {
+		Resources []string `yaml:"resources"`
+	}
+	if err := yaml.Unmarshal(content, &k); err != nil {
+		t.Fatal(err)
+	}
+	return k.Resources
+}
+
+// dexExchange is what a dex patch carries of the token-exchange client
+// client: its extra static client entry and whether it is a trusted peer of
+// the authenticator, as one string to compare.
+func dexExchange(t *testing.T, content []byte, client string) string {
+	t.Helper()
+	var patch struct {
+		OIDC struct {
+			StaticClients struct {
+				Authenticator struct {
+					TrustedPeers []string `yaml:"trustedPeers"`
+				} `yaml:"dexK8SAuthenticator"`
+			} `yaml:"staticClients"`
+			Extra []map[string]any `yaml:"extraStaticClients"`
+		} `yaml:"oidc"`
+	}
+	if err := yaml.Unmarshal(content, &patch); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range patch.OIDC.Extra {
+		if c["id"] == client {
+			entry, _ := yaml.Marshal(c)
+			return string(entry) + "trustedPeer: " + strconv.FormatBool(slices.Contains(patch.OIDC.StaticClients.Authenticator.TrustedPeers, client)) + "\n"
+		}
+	}
+	return ""
 }

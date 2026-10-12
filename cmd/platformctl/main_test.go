@@ -18,7 +18,14 @@ import (
 // --mcp-server`: "connected" with the manager reachable, "sign-in" without.
 const bridgeEnv = "PLATFORMCTL_TEST_BRIDGE"
 
+// consumerEnv, when set, makes this test binary platformctl itself: the
+// consumer the fake beekeeper (fakeBeekeeper) runs.
+const consumerEnv = "PLATFORMCTL_TEST_CONSUMER"
+
 func TestMain(m *testing.M) {
+	if os.Getenv(consumerEnv) != "" {
+		os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	}
 	switch os.Getenv(bridgeEnv) {
 	case "":
 		os.Exit(m.Run())

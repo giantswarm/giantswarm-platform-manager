@@ -39,17 +39,23 @@ func DexSecretLoadedProbe(id, feature, namespace, secret, client string) Probe {
 }
 
 // DexAppLine2 is the first dex-app of the 2.x line that carries the 3.x Dex
-// features up to 3.2.5 — the referenced client Secrets, the roll on a
-// configuration change and the restart on a rotated Secret — without 3.0.0's
-// code-flow-only responseTypes default.
+// features up to DexAppLine2Carries — the referenced client Secrets, the roll
+// on a configuration change and the restart on a rotated Secret — without
+// 3.0.0's code-flow-only responseTypes default.
 const DexAppLine2 = "2.4.0"
+
+// DexAppLine2Carries is the last 3.x release whose Dex features the 2.x line
+// carries from DexAppLine2: a feature a later 3.x release introduced is the
+// 3.x line's alone until a 2.x release takes it.
+const DexAppLine2Carries = "3.2.5"
 
 // DexAppTakes says whether dex-app version carries the Dex feature 3.x
 // introduced in release since: since or later, or DexAppLine2 or later on the
-// 2.x line. A pre-release of either takes nothing.
+// 2.x line where since is no later than DexAppLine2Carries. A pre-release of
+// either takes nothing.
 func DexAppTakes(version *semver.Version, since string) bool {
 	if version.Major() == 2 {
-		return !version.LessThan(semver.MustParse(DexAppLine2))
+		return line2Carries(since) && !version.LessThan(semver.MustParse(DexAppLine2))
 	}
 	return !version.LessThan(semver.MustParse(since))
 }
@@ -57,5 +63,14 @@ func DexAppTakes(version *semver.Version, since string) bool {
 // DexAppNeeds names the dex-app versions that carry the Dex feature 3.x
 // introduced in release since, for a refusal.
 func DexAppNeeds(since string) string {
+	if !line2Carries(since) {
+		return "dex-app " + since + " or later"
+	}
 	return "dex-app " + since + " or later (" + DexAppLine2 + " or later on the 2.x line)"
+}
+
+// line2Carries says whether the 2.x line carries the feature 3.x introduced
+// in release since.
+func line2Carries(since string) bool {
+	return !semver.MustParse(since).GreaterThan(semver.MustParse(DexAppLine2Carries))
 }

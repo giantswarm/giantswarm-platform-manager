@@ -10,6 +10,9 @@ import (
 	"testing"
 )
 
+// extraSecret is the first extra client's inline secret.
+const extraSecret = pathExtraClients + ".0." + keySecret
+
 // call is one command a fake Runner saw.
 type call struct {
 	dir, stdin string
@@ -47,7 +50,7 @@ func TestSOPSVaultCopySecret(t *testing.T) {
 		return nil, nil
 	})
 	v, _ := NewVault(VaultSOPS, run)
-	src := Ref{File: filepath.Join(repo, "installations/x/apps/dex-app/secret-values.yaml.patch"), Path: "oidc.extraStaticClients.0.secret"}
+	src := Ref{File: filepath.Join(repo, "installations/x/apps/dex-app/secret-values.yaml.patch"), Path: extraSecret}
 	dst := filepath.Join(repo, "management-clusters/x/extras/dex/dex-client-kagent-secret.yaml")
 	if err := v.CopySecret(context.Background(), src, dst, "dex-client-kagent", "giantswarm", "secret"); err != nil {
 		t.Fatal(err)
@@ -72,7 +75,7 @@ func TestSOPSVaultUnsetAndReveal(t *testing.T) {
 		return []byte("oidc:\n  extraStaticClients:\n    - id: kagent\n      secret: the-value\n"), nil
 	})
 	v, _ := NewVault(VaultSOPS, run)
-	if err := v.Unset(context.Background(), "/r/p.yaml.patch", []string{"oidc.extraStaticClients", "oidc.staticClients.muster"}); err != nil {
+	if err := v.Unset(context.Background(), "/r/p.yaml.patch", []string{pathExtraClients, "oidc.staticClients.muster"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.Join((*calls)[1].argv, " "); got != `sops unset --input-type yaml --output-type yaml p.yaml.patch ["oidc"]["staticClients"]["muster"]` {
@@ -121,10 +124,74 @@ func TestBeekeeperVault(t *testing.T) {
 	if eq, err := v.Equal(context.Background(), src, src); eq || err != nil {
 		t.Errorf("different %v %v", eq, err)
 	}
-	if _, err := v.Reveal(context.Background(), "f", nil); !errors.Is(err, ErrUnsupported) {
-		t.Errorf("reveal %v", err)
+	if got, err := v.Reveal(context.Background(), "/c/p.yaml.patch", nil); err != nil || len(got) != 0 {
+		t.Errorf("reveal of no path %v, %v", got, err)
 	}
-	if err := v.Unset(context.Background(), "f", nil); !errors.Is(err, ErrUnsupported) {
-		t.Errorf("unset %v", err)
+	if err := v.Unset(context.Background(), "/c/p.yaml.patch", nil); err != nil {
+		t.Errorf("unset of no path %v", err)
+	}
+	if len(*calls) != 3 {
+		t.Errorf("%d calls, want no call for no path", len(*calls))
+	}
+}
+
+func TestBeekeeperVaultCopyRelativeSource(t *testing.T) {
+	run, calls := recorder(func([]string) ([]byte, error) { return nil, nil })
+	v, _ := NewVault(VaultBeekeeper, run)
+	src := Ref{File: "configs/installations/x/apps/dex-app/secret-values.yaml.patch", Path: extraSecret}
+	if err := v.CopySecret(context.Background(), src, "mcs/management-clusters/x/extras/dex/dex-client-kagent-secret.yaml", "dex-client-kagent", "giantswarm", "secret"); err != nil {
+		t.Fatal(err)
+	}
+	wd, _ := os.Getwd()
+	c := (*calls)[0]
+	if want := filepath.Join(wd, src.File) + "#" + src.Path + "=secret"; c.argv[3] != want {
+		t.Errorf("copy source %q, want %q", c.argv[3], want)
+	}
+	if want := filepath.Join(wd, "mcs/management-clusters/x/extras/dex"); c.dir != want {
+		t.Errorf("copy in %s, want %s", c.dir, want)
+	}
+}
+
+func TestBeekeeperVaultReveal(t *testing.T) {
+	run, calls := recorder(func([]string) ([]byte, error) {
+		return []byte(`[{"path":"oidc.extraStaticClients.0.id","value":"kagent"},{"path":"oidc.extraStaticClients.0.redirectURIs.0","value":"https://kagent.example/callback"}]`), nil
+	})
+	v, _ := NewVault(VaultBeekeeper, run)
+	paths := []string{"oidc.extraStaticClients.0.id", "oidc.extraStaticClients.0.redirectURIs.0"}
+	got, err := v.Reveal(context.Background(), "/c/p.yaml.patch", paths)
+	if err != nil || len(got) != 2 || got[paths[0]] != kagent || got[paths[1]] != "https://kagent.example/callback" {
+		t.Fatalf("reveal %v, %v", got, err)
+	}
+	c := (*calls)[0]
+	want := "beekeeper --json secret reveal /c/p.yaml.patch oidc.extraStaticClients.0.id oidc.extraStaticClients.0.redirectURIs.0"
+	if got := strings.Join(c.argv, " "); got != want || c.dir != "/c" {
+		t.Errorf("reveal %q in %s, want %q in /c", got, c.dir, want)
+	}
+	if _, err := v.Reveal(context.Background(), "/c/p.yaml.patch", append(paths, "oidc.extraStaticClients.0.name")); err == nil || !strings.Contains(err.Error(), "oidc.extraStaticClients.0.name: no scalar") {
+		t.Errorf("a path beekeeper did not answer: %v", err)
+	}
+}
+
+func TestBeekeeperVaultRevealRefused(t *testing.T) {
+	run, _ := recorder(func([]string) ([]byte, error) {
+		return nil, exitError(t, "beekeeper: looks secret: /c/p.yaml.patch#oidc.extraStaticClients.0.secret: a key named like a secret")
+	})
+	v, _ := NewVault(VaultBeekeeper, run)
+	_, err := v.Reveal(context.Background(), "/c/p.yaml.patch", []string{extraSecret})
+	if err == nil || errors.Is(err, ErrUnsupported) || !strings.HasSuffix(err.Error(), "a key named like a secret") {
+		t.Fatalf("err %v", err)
+	}
+}
+
+func TestBeekeeperVaultUnset(t *testing.T) {
+	run, calls := recorder(func([]string) ([]byte, error) { return []byte("removed oidc.extraStaticClients\n"), nil })
+	v, _ := NewVault(VaultBeekeeper, run)
+	if err := v.Unset(context.Background(), "/c/p.yaml.patch", []string{pathExtraClients, "oidc.staticClients.1"}); err != nil {
+		t.Fatal(err)
+	}
+	c := (*calls)[0]
+	want := "beekeeper secret unset /c/p.yaml.patch oidc.extraStaticClients oidc.staticClients.1 --write"
+	if got := strings.Join(c.argv, " "); got != want || c.dir != "/c" || len(*calls) != 1 {
+		t.Errorf("unset %q in %s (%d calls), want %q in /c", got, c.dir, len(*calls), want)
 	}
 }

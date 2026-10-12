@@ -57,6 +57,46 @@ func TestDexAppRefusal(t *testing.T) {
 	}
 }
 
+// A plan whose Dex patch gives a built-in client redirect URIs beside the
+// template's (the workspace-manager's sign-in on muster) is held where the
+// dex-app on record is older than 3.3.0, on the 2.x line too, naming the URI,
+// the client's key and the kustomization to pin it in; 3.3.0 and later
+// commit, so does a plan without such a client. A referenced client secret
+// on a dex-app too old for either is refused for the secrets first.
+func TestDexAppRefusalExtraRedirectURIs(t *testing.T) {
+	// The fixture's clients: the chart's muster key with its Secret's name
+	// (a name, not a value) and the kagent UI's; the last dex-app before the
+	// key.
+	const name, uri, musterKey, kagentClient, lastBefore = "maple", "https://workspace-manager.maple.example/signin", "muster", "kagent", "3.2.5"
+	const musterSecret = "dex-client-muster" // #nosec G101 -- a Secret name, not a value
+	withSignin := Installation{Name: name, DexClients: []DexClient{{ID: "platform", Client: musterKey, SecretRef: musterSecret, ExtraRedirectURIs: []string{uri}}}}
+	source := "fleet/management-cluster-bases:" + installations.DexAppBasePath
+	want := func(version string) string {
+		return "dex-app " + version + " on record (" + source + "): the redirect URI " + uri + " beside the " + musterKey + " client's (oidc.staticClients." + musterKey + ".extraRedirectURIs) needs dex-app 3.3.0 or later; pin it in management-clusters/" + name + "/collections/kustomization.yaml first"
+	}
+	cases := []struct {
+		name    string
+		plan    Installation
+		version string
+		want    string
+	}{
+		{"the last release before the key", withSignin, lastBefore, want(lastBefore)},
+		{"a pre-release of the version that takes it", withSignin, "3.3.0-rc.1", want("3.3.0-rc.1")},
+		{"the version that takes it", withSignin, "3.3.0", ""},
+		{"a later version", withSignin, "v3.4.0", ""},
+		{"the 2.x line, which does not carry it", withSignin, "2.4.0", want("2.4.0")},
+		{"a referenced secret on a dex-app too old for either: the secrets first", withSignin, "2.3.0",
+			"dex-app 2.3.0 on record (" + source + "): the referenced Dex client secrets need dex-app 3.2.2 or later (2.4.0 or later on the 2.x line); pin it in management-clusters/" + name + "/collections/kustomization.yaml first"},
+		{"no such client in the plan", Installation{Name: name, DexClients: []DexClient{{ID: "platform", Client: musterKey, SecretRef: musterSecret}}}, lastBefore, ""},
+		{"an extra static client's redirect URIs are its own", Installation{Name: name, DexClients: []DexClient{{ID: kagentClient, Public: true, RedirectURIs: []string{uri}}}}, lastBefore, ""},
+	}
+	for _, c := range cases {
+		if got := c.plan.DexAppRefusal(&installations.Record{DexAppVersion: c.version, DexAppSource: source}); got != c.want {
+			t.Errorf("%s:\n got %q\nwant %q", c.name, got, c.want)
+		}
+	}
+}
+
 // A plan whose Dex patch renders a list the encrypted dex-app secret patch
 // on record carries as well is held, naming the file, the lists with their
 // entries and the rendered clients and peers they would shadow; a list on
@@ -86,11 +126,15 @@ func TestDexSecretRefusal(t *testing.T) {
 		want   string
 	}{
 		{"both lists on both sides", clients, both,
-			"the encrypted Dex values on record (" + source + ") carry oidc.staticClients.dexK8SAuthenticator.trustedPeers (6 entries) and oidc.extraStaticClients (9 entries), which the values merge takes whole over the plaintext patch, so the rendered clients kagent, backstage and trusted peers backstage, hazel-token-exchange would never reach Dex; carry every entry over by hand first — each client to its own Secret and a plaintext entry, each peer to the plaintext list — then drop the lists from the encrypted values"},
+			"the encrypted Dex values on record (" + source + ") carry oidc.staticClients.dexK8SAuthenticator.trustedPeers (6 entries) and oidc.extraStaticClients (9 entries), which the values merge takes whole over the plaintext patch, so the rendered clients kagent, backstage and trusted peers backstage, hazel-token-exchange would never reach Dex; carry every entry over by hand first — each client to its own Secret and a plaintext entry, each peer and each connector to the plaintext list — then drop the lists from the encrypted values"},
 		{"the encrypted patch carries the extra clients alone", clients, &installations.Record{DexSecretLists: []installations.DexSecretList{extras}, DexSecretSource: source},
-			"the encrypted Dex values on record (" + source + ") carry oidc.extraStaticClients (9 entries), which the values merge takes whole over the plaintext patch, so the rendered clients kagent, backstage would never reach Dex; carry every entry over by hand first — each client to its own Secret and a plaintext entry, each peer to the plaintext list — then drop the lists from the encrypted values"},
+			"the encrypted Dex values on record (" + source + ") carry oidc.extraStaticClients (9 entries), which the values merge takes whole over the plaintext patch, so the rendered clients kagent, backstage would never reach Dex; carry every entry over by hand first — each client to its own Secret and a plaintext entry, each peer and each connector to the plaintext list — then drop the lists from the encrypted values"},
 		{"the plan renders the peers alone", peersOnly, both,
-			"the encrypted Dex values on record (" + source + ") carry oidc.staticClients.dexK8SAuthenticator.trustedPeers (6 entries), which the values merge takes whole over the plaintext patch, so the rendered trusted peers backstage would never reach Dex; carry every entry over by hand first — each client to its own Secret and a plaintext entry, each peer to the plaintext list — then drop the lists from the encrypted values"},
+			"the encrypted Dex values on record (" + source + ") carry oidc.staticClients.dexK8SAuthenticator.trustedPeers (6 entries), which the values merge takes whole over the plaintext patch, so the rendered trusted peers backstage would never reach Dex; carry every entry over by hand first — each client to its own Secret and a plaintext entry, each peer and each connector to the plaintext list — then drop the lists from the encrypted values"},
+		{"the encrypted patch carries the connectors the plan renders", Installation{Name: name, DexClients: []DexClient{musterClient}, DexConnectors: []string{"umbra-simple-oidc"}},
+			&installations.Record{DexSecretLists: []installations.DexSecretList{{Path: installations.DexCustomerConnectors, Entries: 2}}, DexSecretSource: source},
+			"the encrypted Dex values on record (" + source + ") carry oidc.customer.connectors (2 entries), which the values merge takes whole over the plaintext patch, so the rendered connectors umbra-simple-oidc would never reach Dex; carry every entry over by hand first — each client to its own Secret and a plaintext entry, each peer and each connector to the plaintext list — then drop the lists from the encrypted values"},
+		{"the encrypted patch carries connectors the plan does not render", builtInOnly, &installations.Record{DexSecretLists: []installations.DexSecretList{{Path: installations.DexCustomerConnectors, Entries: 2}}, DexSecretSource: source}, ""},
 		{"built-in clients merge by key", builtInOnly, both, ""},
 		{"no list in the encrypted patch", clients, &installations.Record{DexAppVersion: "3.2.2"}, ""},
 		{"no record", clients, nil, ""},

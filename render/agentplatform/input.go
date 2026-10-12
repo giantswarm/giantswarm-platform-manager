@@ -9,7 +9,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"text/template"
 	"time"
 
 	semverlib "github.com/Masterminds/semver/v3"
@@ -100,6 +99,10 @@ type Input struct {
 	// SingletonsCapacity is the person's choice: the Karpenter capacity the
 	// stateful singletons run on (scheduling.singletons), any or on-demand.
 	SingletonsCapacity string
+	// MCPBackends is the person's choice of the in-cluster MCP backends the
+	// platform's network policy fences (networkPolicy.mcpBackends), by key,
+	// read back from the configmap patch on record.
+	MCPBackends map[string]MCPBackend
 	// AIChat is the person's other choice: the portal's AI chat, in the
 	// platform's portal section (portal.go).
 	AIChat AIChat
@@ -128,6 +131,12 @@ type Input struct {
 	// Versions are the person's version holds (versions.*), read back from
 	// the record so a reconcile keeps them.
 	Versions Versions
+	// ContextBots are the person's choice of the bots whose posts reach an
+	// agent's thread context (klausGateway.slack.contextBotIDs), each with the
+	// comment on its line, and ContextBotsComment the comment above the list,
+	// read back from the configmap patch on record so a reconcile keeps them.
+	ContextBots        []ContextBot
+	ContextBotsComment string
 	// Components are the components the policy gives the installation, by
 	// name: its organisation's list and, where the policy names a Slack app
 	// for the installation, the chat gateway.
@@ -139,6 +148,12 @@ type Input struct {
 	// for this hub, rendered from the policy's templates over the record;
 	// which one a target carries is connector's.
 	Connectors Connectors
+	// HubConnectors are the connectors this installation's Dex registers for
+	// the hubs that broker into it (installation.federation.connectors), the
+	// policy's names over each hub's record, in the dex-app values' shape
+	// (render.ExchangeConnectors); none for a hub whose connector the
+	// fleet's Dex base registers.
+	HubConnectors []render.Map
 	// Teleport is the Teleport cluster a tunnel joins.
 	Teleport Teleport
 	// SourceInterval is the poll interval of every OCIRepository the
@@ -174,18 +189,18 @@ type GoogleVertex struct {
 	Location string `json:"location"`
 }
 
-// Connectors are policy.yaml's federation.connector: the names of the
-// connector a target's Dex registers for a hub, as Go templates over the
-// hub's record. A target's Dex registers one connector per hub that brokers
-// into it, and only one of an organisation's hubs can carry the
-// organisation's plain name.
+// Connectors are the names of the connector a target's Dex registers for
+// this hub, policy.yaml's federation.connector templates rendered over the
+// hub's record (render.ConnectorNames). A target's Dex registers one
+// connector per hub that brokers into it, and only one of an organisation's
+// hubs can carry the organisation's plain name.
 type Connectors struct {
 	// First is the connector of the target's first hub of the organisation
 	// — the target's only hub, mostly.
-	First string `yaml:"first"`
+	First string
 	// Further is the connector of every further hub of the same
 	// organisation, named after the hub.
-	Further string `yaml:"further"`
+	Further string
 }
 
 // Installation is the record; see the schema for each field.
@@ -238,6 +253,24 @@ type Installation struct {
 	// stable callback: the ConfigMaps under extras/agent-platform/mcpclients/
 	// on record (registered.go).
 	MCPClients []RegisteredClient `json:"mcpClients"`
+	// Workspaces is what the installation's agent-platform values on record
+	// say about the workspace-manager: the definition renders none of those
+	// keys and registers the manager's sign-in redirect URI from them.
+	Workspaces Workspaces `json:"workspaces"`
+}
+
+// Workspaces is the workspace-manager as the installation's own
+// agent-platform values turn it on (installation.workspaces): whether
+// workspaces are on (workspaces.enabled), the manager's public base URL where
+// the values set one (workspace-manager.oauth.baseURL) and the Dex client it
+// signs the person's browser in with where they name one
+// (workspace-manager.oauth.dex.clientID). The keys are the installation's own,
+// kept; from them the definition registers <baseURL>/signin as a redirect URI
+// of the platform client (workspaceSigninURI).
+type Workspaces struct {
+	Enabled  bool   `json:"enabled"`
+	BaseURL  string `json:"baseUrl,omitempty"`
+	ClientID string `json:"clientId,omitempty"`
 }
 
 // PortalRef is a developer portal that signs people in on the installation:
@@ -252,22 +285,39 @@ type Installation struct {
 // by hand, so its environment supplies the chat's key and the Component
 // renders the chat's blocks without a credentials Secret — and the chart
 // line it follows: the ref its directory kustomization patches onto the
-// fleet base's backstage OCIRepository, empty when it patches none.
+// fleet base's backstage OCIRepository, empty when it patches none — and,
+// on a portal the customer-portal definition renders, the installations it
+// shows that run the platform on record, which the platform's portal
+// section lists with this installation (portalInstallations).
 type PortalRef struct {
-	Installation string `json:"installation"`
-	Customer     string `json:"customer"`
-	Domain       string `json:"domain"`
-	ClientID     string `json:"clientId,omitempty"`
-	ChartLine    string `json:"chartLine,omitempty"`
-	HandKept     bool   `json:"handKept,omitempty"`
-	GrafanaWired bool   `json:"grafanaWired,omitempty"`
-	HandKeptChat bool   `json:"handKeptChat,omitempty"`
+	Installation  string               `json:"installation"`
+	Customer      string               `json:"customer"`
+	Domain        string               `json:"domain"`
+	ClientID      string               `json:"clientId,omitempty"`
+	ChartLine     string               `json:"chartLine,omitempty"`
+	HandKept      bool                 `json:"handKept,omitempty"`
+	GrafanaWired  bool                 `json:"grafanaWired,omitempty"`
+	HandKeptChat  bool                 `json:"handKeptChat,omitempty"`
+	Installations []PortalInstallation `json:"installations,omitempty"`
+}
+
+// PortalInstallation is an installation a portal shows that runs the agent
+// platform on record: its name and its base domain, which its muster's URL
+// derives from.
+type PortalInstallation struct {
+	Name       string `json:"name"`
+	BaseDomain string `json:"baseDomain"`
 }
 
 // Federation is the installation's place in the fleet's token exchange.
 type Federation struct {
 	Hubs    []string `json:"hubs"`
 	Targets []Target `json:"targets"`
+	// Connectors are the hubs among Hubs with the facts the connector this
+	// installation's Dex registers for each is rendered from: the hub's
+	// organisation and base domain, and whether it is the first of its
+	// organisation's hubs into this installation (render.HubConnector).
+	Connectors []render.HubConnector `json:"connectors"`
 	// RegistryHub is the registry's hub by name (the installation with
 	// installation.hub), among Hubs or not: its token-exchange client in this
 	// installation's Dex carries the fleet's plain id, every other hub's the
@@ -295,9 +345,12 @@ type Target struct {
 	Servers []string `json:"servers"`
 	// AgentPlatform says the target runs the agent platform, which renders
 	// the Dex side of this hub's client there: the pair's two files name each
-	// other (exchangeSecretName). Without it the target keeps the client by
-	// hand.
-	AgentPlatform bool `json:"agentPlatform"`
+	// other (exchangeSecretName). ClusterMCPServers says the target runs its
+	// MCP servers under cluster-mcp-servers without the platform, whose
+	// render holds the Dex side in the same file (Target.rendersDexSide).
+	// With neither the target keeps the client by hand.
+	AgentPlatform     bool `json:"agentPlatform"`
+	ClusterMCPServers bool `json:"clusterMcpServers"`
 	// BrowseOnly says the policy keeps the target to browsing
 	// (federation.browseOnly): the hub's portal still lists its clusters
 	// through the broker, and the hub federates none of its MCP servers,
@@ -387,9 +440,9 @@ type policy struct {
 		Customers []string `yaml:"customers"`
 	} `yaml:"releaseCandidates"`
 	Federation struct {
-		Connector  Connectors `yaml:"connector"`
-		Teleport   Teleport   `yaml:"teleport"`
-		BrowseOnly []string   `yaml:"browseOnly"`
+		Connector  render.ConnectorNames `yaml:"connector"`
+		Teleport   Teleport              `yaml:"teleport"`
+		BrowseOnly []string              `yaml:"browseOnly"`
 	} `yaml:"federation"`
 	Flux struct {
 		SourceInterval string `yaml:"sourceInterval"`
@@ -465,35 +518,30 @@ func (p *policy) browseOnly(targets []Target) {
 	}
 }
 
-// connectors renders the hub's connector names from the record.
+// connectors renders the hub's connector names from the record: what a
+// target's Dex registers for this hub as its first, and as a further, hub of
+// the organisation. A template that cannot name one is ErrPolicy.
 func (p *policy) connectors(inst Installation) (Connectors, error) {
-	first, err := renderPolicyTemplate("federation.connector.first", p.Federation.Connector.First, inst)
+	first, err := p.Federation.Connector.Name(true, inst.Customer, inst.Name)
 	if err != nil {
-		return Connectors{}, err
+		return Connectors{}, fmt.Errorf("%w: %w", ErrPolicy, err)
 	}
-	further, err := renderPolicyTemplate("federation.connector.further", p.Federation.Connector.Further, inst)
+	further, err := p.Federation.Connector.Name(false, inst.Customer, inst.Name)
 	if err != nil {
-		return Connectors{}, err
+		return Connectors{}, fmt.Errorf("%w: %w", ErrPolicy, err)
 	}
 	return Connectors{First: first, Further: further}, nil
 }
 
-// renderPolicyTemplate renders one of the policy's Go templates over the
-// record; a template that does not parse, names a field the record lacks or
-// renders empty is ErrPolicy naming the key.
-func renderPolicyTemplate(key, text string, inst Installation) (string, error) {
-	tpl, err := template.New(key).Option("missingkey=error").Parse(text)
+// hubConnectors renders the connectors this installation's Dex registers
+// for the hubs that broker into it, the policy's names over each hub's
+// record. A template that cannot name one is ErrPolicy.
+func (p *policy) hubConnectors(inst Installation) ([]render.Map, error) {
+	list, err := render.ExchangeConnectors(p.Federation.Connector, inst.Federation.Connectors)
 	if err != nil {
-		return "", fmt.Errorf("%w: %s: %w", ErrPolicy, key, err)
+		return nil, fmt.Errorf("%w: %w", ErrPolicy, err)
 	}
-	var b strings.Builder
-	if err := tpl.Execute(&b, inst); err != nil {
-		return "", fmt.Errorf("%w: %s: %w", ErrPolicy, key, err)
-	}
-	if b.Len() == 0 {
-		return "", fmt.Errorf("%w: %s: renders empty", ErrPolicy, key)
-	}
-	return b.String(), nil
+	return list, nil
 }
 
 // document is the input document as the schema shapes it.
@@ -505,6 +553,9 @@ type document struct {
 	Scheduling struct {
 		SingletonsCapacity string `json:"singletonsCapacity"`
 	} `json:"scheduling"`
+	NetworkPolicy struct {
+		MCPBackends map[string]MCPBackend `json:"mcpBackends"`
+	} `json:"networkPolicy"`
 	AIChat AIChat `json:"aiChat"`
 	Skills struct {
 		Repositories []string `json:"repositories"`
@@ -516,7 +567,36 @@ type document struct {
 		commitChoice
 		Skills AgentManagerSkills `json:"skills"`
 	} `json:"agentManager"`
+	KlausGateway struct {
+		Slack struct {
+			ContextBotIDs        []ContextBot `json:"contextBotIDs"`
+			ContextBotIDsComment string       `json:"contextBotIDsComment"`
+		} `json:"slack"`
+	} `json:"klausGateway"`
 	Versions Versions `json:"versions"`
+}
+
+// MCPBackend is one in-cluster MCP backend the meta chart's network policy
+// fences, in the chart's shape (networkPolicy.mcpBackends.<key>).
+type MCPBackend struct {
+	Namespace       string            `json:"namespace"`
+	Ports           []int             `json:"ports"`
+	PodSelector     map[string]string `json:"podSelector,omitempty"`
+	Metrics         *bool             `json:"metrics,omitempty"`
+	AdditionalPeers []MCPBackendPeer  `json:"additionalPeers,omitempty"`
+}
+
+// MCPBackendPeer is a peer an MCP backend admits on its ports besides muster.
+type MCPBackendPeer struct {
+	Namespace   string            `json:"namespace"`
+	MatchLabels map[string]string `json:"matchLabels"`
+}
+
+// ContextBot is one bot whose posts reach an agent's thread context: its
+// Slack user ID and the comment on its entry's line.
+type ContextBot struct {
+	Value   string `json:"value"`
+	Comment string `json:"comment"`
 }
 
 // Versions are the version holds on record — the meta chart's version or
@@ -571,7 +651,7 @@ type commitChoice struct {
 // the cluster does not serve PodCertificateRequest, the chat or skill
 // repositories on an installation whose organisation hosts no portal for
 // them, the chat without a model, or on Vertex without its Google project or
-// location, the Hive where the installation cannot serve it, the cluster-manager's commit mode where no cluster-manager runs)
+// location, the Hive where the installation cannot serve it, the MCP backends' network policy on the 3 line, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
 // is ErrInput too.
 func Parse(raw any) (*Input, error) {
 	schemaBytes, err := definitions.FS.ReadFile("agent-platform/schema.json")
@@ -613,13 +693,16 @@ func Parse(raw any) (*Input, error) {
 	if err != nil {
 		return nil, err
 	}
-	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories, Hive: d.Hive,
-		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, Versions: d.Versions, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
+	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, MCPBackends: d.NetworkPolicy.MCPBackends, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories, Hive: d.Hive,
+		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
 		ReleaseCandidates: pol.releaseCandidates(d.Installation)}
 	if in.Components, err = pol.components(in.Installation); err != nil {
 		return nil, err
 	}
 	if in.Connectors, err = pol.connectors(in.Installation); err != nil {
+		return nil, err
+	}
+	if in.HubConnectors, err = pol.hubConnectors(in.Installation); err != nil {
 		return nil, err
 	}
 	pol.browseOnly(in.Installation.Federation.Targets)
@@ -702,6 +785,11 @@ func (in *Input) checkRecord() error {
 			return refuse(fmt.Sprintf("installation.federation.targets[%d].hubs names the hubs of this organisation that broker into %s as %s, and %s is not among them; the record supplies them", i, t.Installation, strings.Join(t.Hubs, ", "), in.Installation.Name))
 		}
 	}
+	for i, c := range fed.Connectors {
+		if !slices.Contains(fed.Hubs, c.Hub) {
+			return refuse(fmt.Sprintf("installation.federation.connectors[%d] names %s, which is not among the hubs that broker into %s (installation.federation.hubs: %s); the record supplies both", i, c.Hub, in.Installation.Name, strings.Join(fed.Hubs, ", ")))
+		}
+	}
 	if in.ModelServing && in.Installation.ChartLine != lineFour {
 		return refuse(fmt.Sprintf("%s is the 4 chart line's serving slice, and this installation runs the %s line; the record's chart line decides", describe("modelServing.enabled"), in.Installation.ChartLine))
 	}
@@ -718,6 +806,9 @@ func (in *Input) checkRecord() error {
 		if in.Components[c] && in.Installation.ChartLine != lineFour {
 			return refuse(fmt.Sprintf("%s selects the %s line, and %s needs the platform's 4 chart line; agentPlatform.kagentApiV2: true in installations/%s/config.yaml.patch selects 4", describe("installation.chartLine"), in.Installation.ChartLine, c, in.Installation.Name))
 		}
+	}
+	if len(in.MCPBackends) > 0 && in.Installation.ChartLine != lineFour {
+		return refuse(fmt.Sprintf("%s is the 4 chart line's network policy, and this installation runs the %s line; the record's chart line decides", describe("networkPolicy.mcpBackends"), in.Installation.ChartLine))
 	}
 	if p := in.hostedPortal(); p != nil && in.kagent() {
 		if p.ChartLine == "" {
@@ -741,6 +832,9 @@ func (in *Input) checkRecord() error {
 	}
 	if in.AgentManagerCommit && !in.agentManager() {
 		return refuse(fmt.Sprintf("%s asks for the agent-manager's commit mode, and the fleet policy runs no agent-manager on %s's installations", describe("agentManager.github.enabled"), in.Installation.Customer))
+	}
+	if len(in.ContextBots) > 0 && !in.klausGateway() {
+		return refuse(fmt.Sprintf("%s names the bots whose posts reach the chat gateway's thread context, and the fleet policy names no Slack app for %s, so no gateway runs there", describe("klausGateway.slack.contextBotIDs"), in.Installation.Name))
 	}
 	if in.AgentManagerSkills.set() && !in.agentManager() {
 		return refuse(fmt.Sprintf("%s asks for the agent-manager's skill catalog, and the fleet policy runs no agent-manager on %s's installations", describe("agentManager.skills"), in.Installation.Customer))

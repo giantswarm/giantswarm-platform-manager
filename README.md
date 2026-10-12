@@ -42,7 +42,8 @@ Behind muster the tools appear as `x_giantswarm-platform-manager_<tool>`.
 | `get_info` | read | The version, the caller (login and id), the pinned authorization server, the capability definitions with their input schemas, the write modes, the write tools, the approval channel configuration and the tools still to come. Call first. |
 | `list_installations` | read | Every installation of the registry with, per capability, its state, the inputs on record and the last action, every read as you at call time. `installations` (names) and `customer` narrow the answer; `summary: true` answers the states and the last actions alone, without the record, the portals and the federation facts — the overview's call. Every read of a call runs at once, 32 in flight at most. |
 | `enable_capability` | write | Enable a capability on one installation (`installation`) or a set (`installations`): with `dryRun: true` the plan — files per repository with the change each one is against the repository now, pull requests in dependency order, generated secrets by name, Dex clients and redirect URIs, the secrets the person supplies at commit (by field), customer actions, probes. `inputs` are the definition's typed inputs over the facts on record. With `mode: "commit"` and one `installation`: the gate, the Action in *pending approval*, the pull requests as the person (see [The commit](#the-commit)); `secrets` carries the supplied values by field. |
-| `reconcile_capability` | write | The same render over a set (empty: every installation of the registry), every file compared with the repository: all *unchanged* is an empty diff. Installations without the capability on record are listed as *skipped*: a wave reconciles what is on record; a fresh enable is `enable_capability` with one installation. `rotate` names generated values to rotate on request (see [Rotation on request](#rotation-on-request)). |
+| `reconcile_capability` | write | The same render over a set (empty: every installation of the registry), every file compared with the repository: all *unchanged* is an empty diff. Installations without the capability on record are listed as *skipped*: a wave reconciles what is on record; a fresh enable is `enable_capability` with one installation. `rotate` names generated values to rotate on request (see [Rotation on request](#rotation-on-request)). A plan whose agent-platform values patch takes off the installation's muster what it serves beyond the shared defaults — the broker's exchange targets, the identity providers, the MCP servers it lists, a public-registration redirect URI that moves to another installation of the set — carries it as `join`, naming each entry, the warning of a hub join; the commit is refused (`commitRefused`) while the muster still serves in-cluster servers of its own, until `forceJoin: true` (`platformctl --force-join`) proceeds with the warning. |
+| `disable_capability` | write | The mirror of `enable_capability` on one `installation`: with `dryRun: true` the removal — the marker and every file of the definition's directories as deletions — what a person wrote there beside the render too, unless a capability that stays renders it, with the kustomization entries that name it —, the files a capability that stays keeps edited down to its own entries, the kustomizations that list them, the Dex clients of the installation's patch whose Secret is in a removed file or whose redirect URIs name the platform's hosts with their trusted-peer ids, under `leftOnRecord` every client it cannot attribute and why, the files `keep` names kept with their entries (`kept`), and, where the definition's Kustomization does not prune, a checklist of the cluster objects a person deletes afterwards, the remote bases' objects included, in deletion order, each line naming what its deletion takes with it (a base that cannot be read refuses the dry run). A capability another installation federates, a portal entry points at, or a peered pairing still uses is refused with the reference named (`commitRefused`). With `mode: "commit"` the same Action, approval and merge path as an enable; once merged the action is *disabled*, its checklist on `status.orphans`, and `list_installations` and `verify_capability` read the capability *not enabled*. |
 | `get_action`, `list_actions` | read | The Action records on the hub: one per enablement or reconcile a person commits — actor, installations, capability, inputs, pull requests, approval, rollout, probes, result. The record follows GitHub on every read, as you (at most once a minute per action): a pull request merged outside `merge_action` is recorded *merged* with its commit, time and `mergedBy`, and the action rolls out as after the merge; one closed unmerged fails it; a fileset gone from the default branch again moves it to *removed*, naming the objects left on the installation. See [The Action record](#the-action-record). |
 | `verify_capability` | read | One installation against a capability's definition, grouped into the definition's features with one mark each — *as defined*, *planned*, *differs by input*, *drifted* — and expanded to its dimensions: the owning repositories' files, read as the person, against the render from the inputs on record (every difference names the file, the path and the person's input that drives it — a choice the schema names, or one typed for the call, so the file expresses another choice than the one on record — the planned change it is — a key the capability's `removals.yaml` or `migrations.yaml` names — or drift: a leaf no choice drives, the ones the installation's facts derive included, which only a reconcile resolves), and the definition's anonymous HTTP probes. The live dimensions read *not checked* here: they are `verify_installation`'s. |
 | `verify_installation` | read, **live** | The same installation's running objects against the definition's probes — HelmReleases Ready, workloads Available, Secrets and MCPServer objects present, conditions, logs, Dex started since every client Secret it reads last changed, the live values against the render — read through muster's kubernetes tools **as the person**, with the platform ID token muster forwards next to the App user token (`X-Muster-Id-Token`, the `MCPServer`'s `auth.forwardIdentity` with `live.enabled`, muster ≥ 5.31.0); a call without a valid one is refused, naming the header. What the person may read decides what is checked: an object they may not read is *not checked, forbidden for them*, an installation they are not connected to answers with muster's own sign-in. Handed `verify_capability`'s `inputs`, a missing object the plan creates and the record lacks yet (`inputs.planned`: a migration's Secret, a Dex client the dex patch on record lacks) reads *planned*, naming the migration. The result is recorded on the installation's newest action and feeds `list_installations`: *drifted*, or *waiting for the customer* when the only red dimension is the one the customer's action holds up. A portal or `platformctl` shows the two verifies as one result. |
@@ -62,7 +63,8 @@ this order, writing nothing before the gate:
    record that a `customer-portal` plan would remove (`hubSections`), a `rotate` name the plan does not list,
    or a supplied secret left out of `secrets` (or one the plan does not ask for) refuses the commit before any
    write. The plan's own refusals — the dex-app on record, the release candidates dropped while one is ahead of
-   the stable release, the frozen values, the hub's portal — are one list
+   the stable release, the frozen values, the hub's portal, the registry the installation's muster still serves
+   that a join as a target would drop (`join`, unless `forceJoin`) — are one list
    the commit, the wave's pre-check and the dry run's `commitRefused` share. Every file on record
    already: nothing to commit, no Action.
 3. **The Action** — created in *pending approval* with the actor, the capability, the installation and the
@@ -80,15 +82,34 @@ this order, writing nothing before the gate:
    every value it holds anew, and the kustomization carries them instead (Flux's
    `reconcile.fluxcd.io/watch` on the credentials revision Secrets is a patch in the directory's
    kustomization). A reconcile of an installation the manager enabled therefore rewrites no secret and
-   rotates nothing. A name **rotates** only when a file
-   of the name has to be written — a file to create (a server's Dex client Secret next to its existing
-   credentials file), an existing file whose plaintext skeleton the render changes (a field added to its
-   template), or a plain file to write carrying a key pair's public half: one new value is drawn and written
+   rotates nothing. A value on record stays **kept** wherever the render puts it: a file of the name
+   that lacks it — a file to create (a server's Dex client Secret next to its existing credentials file, as
+   the 4 line renders it over a 3-line record), or a file on record the render adds the key to and changes
+   nothing else of (mcp-prometheus's credentials Secret taking the Valkey password its Valkey Secret holds)
+   — takes the value from the record by the caller's vault before the commit, since the manager decrypts
+   nothing: the dry run lists each **carry** (`generatedSecrets[].carries`, the record's file and key path
+   it comes from and the file and key path it goes to, with the `beekeeper secret copy` or sops step;
+   `platformctl installation dex-split` writes a Dex client's Secret this way and moves the client out of
+   the dex-app patch with it), and the commit is refused until the carry is on record (`commitRefused`).
+   Over a set, a plan that moves a side of a token-exchange pair carries the wave's **vault copy**
+   (`vaultCopies`): the pair's values only, by key — supplied from the peer's file, or carried into a file
+   that lacks them; a pair both sides of which the wave creates is drawn once and copies nothing. A carry
+   of any other generated value the record holds is listed outside it and the wave refuses it by name:
+   the installation's own reconcile carries it, so a cut-over commit never carries a credential its author
+   did not mean to move.
+   A value no file on record holds that a file on record lacks is drawn there by the vault the same way
+   (`beekeeper secret set`, a carry without a `from`), and every other file to write takes it from there; a
+   credentials revision a file on record lacks waits instead (`pendingIn`): the file stands, the revision
+   joins it with the next rotation asked for. A file to create whose values no record holds is written at
+   commit. A name **rotates** only when a file of the name is written anew whole — an existing file whose
+   plaintext skeleton the render changes beyond the keys it lacks (a field of its template changed), or a
+   plain file to write carrying a key pair's public half: one new value is drawn and written
    into every file that holds it, the kept files rewritten and encrypted anew — and every other value a
    rewritten file holds rotates with it, down to the files sharing those (the server's Valkey password into
    its Valkey Secret). A name also rotates when the person asks for it by name ([Rotation on
    request](#rotation-on-request)). The dry run says so (`generatedSecrets[].frozenIn`, `kept`, `rotates`
-   with `forcedBy`, the file that forced it or `request`), the Action records the rotated names
+   with `forcedBy`, the file that forced it or `request`, and `cause`, why that file is written whole), the
+   Action records the rotated names
    (`status.rotated`), the pull request names them. For the running installation a rotation means both sides roll: the server and the Dex client take
    the new value with their Secrets, and the client is unusable between the two rollouts. The roll follows
    the commit: each MCP server's credentials carry a *credentials revision* (`<installation>-mcp-<name>-credentials-revision`,
@@ -162,8 +183,10 @@ decrypting: `dropped`, each value under a readable key the render carries no lea
 *Removed:* by name), and `replaced`, each encrypted text the render writes a document of its own in (a Secret's
 `stringData.values`), whose keys no one reads, so a value it holds that the render does not carry is lost unless the
 definition asks for it at commit —, the shared-kustomization includes, the generated secrets by name, kind and length — with `frozenIn`, the files
-on record that hold the value already, `kept` when the value on record stands and no file of the name is
-written, and `rotates` with `forcedBy`, the file that has to be written, when the commit draws a new value
+on record that hold the value already, `kept` when the value on record stands and the commit writes no
+file of the name, `carries` for the files that take the value from the record by the caller's vault before
+the commit, `pendingIn` for the files on record that stand without a credentials revision, and `rotates`
+with `forcedBy`, the file written anew whole, and `cause`, when the commit draws a new value
 into every file of the name (see [The commit](#the-commit)) — the secret values the person
 supplies at commit by field (rendered as `SUPPLIED(<field>)` markers — no secret value ever appears in a dry
 run), the Dex clients with their redirect URIs from the rendered dex patch, the customer actions (Secrets the
@@ -187,8 +210,13 @@ once green; `watch_action` (anyone's, as the person) carries the installation ro
 *enabled*; only then does the next `merge_action` take the next installation's pull requests — and a red
 probe stops it: that installation *failed*, the stages after it not started, their pull requests open, the
 result naming where and why. A stage *waiting for the customer* holds the wave too: `merge_action` says
-so, and the customer's action done flips the stage on the next watch. A wave carries no supplied secret
-values; an installation whose secret files are not on record is enabled alone.
+so, and the customer's action done flips the stage on the next watch. A wave takes the supplied secret
+values its targets' plans ask for in `secrets`, in the same call: a key `<field>` goes to every target
+that asks for the field (the two sides of a pairing hold one value), `<installation>/<field>` to that
+target alone; a value missing or one no target asks for refuses the wave whole, by field, before
+anything is written. `platformctl installation reconcile <installation>... --commit --secret
+<field>=beekeeper:<ref>` (repeatable) resolves each reference through `beekeeper secret copy <ref> --
+<consumer>`, so every value of a wave is passed in one run and never printed.
 
 ### Rotation on request
 
@@ -376,6 +404,7 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
 - `platformctl installation list [<installation>…] [--customer <name>]`,
   `platformctl installation enable <installation> <capability> --dry-run|--commit --reason <text> [--input k=v]… [--secret f=src]… [--rotate <name>]… [--content]`,
   `platformctl installation reconcile <installation>…|--all <capability> --dry-run|--commit --reason <text> [--input k=v]… [--secret f=src]… [--rotate <name>]… [--content]`,
+  `platformctl installation disable <installation> <capability> --dry-run|--commit --reason <text> [--keep <path>]… [--content]`,
   `platformctl installation verify <installation> <capability>`,
   `platformctl action get <name>`, `platformctl action list [--installation <name>] [--capability <name>]`,
   `platformctl action approve <name>`, `platformctl action deny <name> --reason <text>`,
@@ -415,7 +444,14 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
      at the definitions' path, listed in its kustomization. The paths are
      `extras/agent-platform/secrets/` for muster, kagent and `muster-*`, `extras/mcp-<x>/` for `mcp<X>`,
      and the portal's `extras/backstage/backstage/dex-client-backstage-secret.enc.yaml`. Any other
-     client goes to `extras/dex/`, which the split lists in the extras kustomization.
+     client goes to `extras/dex/`, which the split lists in the extras kustomization. A hub's
+     token-exchange client (`muster-token-exchange-<mc>[-<hub>]`) goes under
+     `extras/agent-platform/secrets/` whether or not the platform's directory is on the installation:
+     cluster-mcp-servers renders the pair's Dex side there, the file the agent-platform definition
+     renders for the same pairing, and the split writes the kustomization chain to it (the secrets
+     kustomization listing the Secret, the directory's listing `./secrets`, the extras' listing
+     `./agent-platform/`), so a reconcile after the split reads the pair's value as kept. A client
+     an earlier split put under `extras/dex/` moves on to that path, unchanged, and is unlisted there.
   2. **configs:** after `flux-extras` has applied those Secrets. The plaintext `configmap-values.yaml.patch`
      lists every client with `clientSecretRef`/`secretRef` and the `trustedPeers`. The encrypted patch
      loses the lists and the moved secrets and keeps the rest, such as the authenticator's own secret
@@ -437,20 +473,24 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
   one value; `--write` refuses when they differ.
 
   `--vault sops` (the default, a person) runs the local sops with the person's age identity.
-  `--vault beekeeper` (an agent) moves each value with `beekeeper secret copy` and compares with
-  `beekeeper secret compare`, so no value reaches the agent. Until beekeeper can reveal declared
-  configuration fields and unset keys, the agent's dry run is keys only and `--write` needs a person.
+  `--vault beekeeper` (an agent, beekeeper 0.114.0 or newer) moves each value with `beekeeper secret
+  copy`, compares with `beekeeper secret compare` and drops the moved keys with `beekeeper secret
+  unset`, so no secret reaches the agent. The configuration fields come from `beekeeper secret
+  reveal`, which refuses the call when its classifier takes a leaf for a secret.
 
 Installing it and keeping it current:
 
-- Download `platformctl-<os>-<arch>` from a [release](https://github.com/giantswarm/giantswarm-platform-manager/releases),
-  or `go install github.com/giantswarm/giantswarm-platform-manager/cmd/platformctl@latest`.
+- Download `platformctl-<os>-<arch>` and its `.bundle` from a [release](https://github.com/giantswarm/giantswarm-platform-manager/releases)
+  and verify the one against the other with `cosign verify-blob` as under
+  [Proving a release candidate](#proving-a-release-candidate), or build it from a checkout at the tag
+  (`git checkout vX.Y.Z && make build-platformctl`). `go install …@<tag>` does not build: the module's
+  `replace` directives refuse it.
 - `platformctl self-update` installs the latest release over the running binary once its cosign bundle
   verifies as a CircleCI build of this repository (the Sigstore public-good trust root, the CircleCI
   issuer, this repository as the source). A release without a bundle, or a download that does not match
   its signature, is refused and the binary stays as it is. `--check` only reports both versions and exits
   with 125 when a newer release is out. A build without a release version (`platformctl version` says
-  `dev`) is refused: install a release or use `go install`.
+  `dev`) is refused: install a release.
 - Every command but `version`, `self-update`, `help` and `completion` prints one line on stderr while a
   newer release is out. GitHub's answer is cached for an hour under the user's cache directory; the
   look-up gives up after 2 s and never fails the command. `PLATFORMCTL_NO_UPDATE_CHECK=1` silences it.
@@ -492,7 +532,19 @@ candidate before its promote. The candidate's proof is offline:
 
 1. **The candidate's own CLI.** Build it at the tag (`git checkout vX.Y.Z-rc.N && make build-platformctl`),
    or download `platformctl-<os>-<arch>` from the pre-release. `go install …@<tag>` does not build: the
-   module's `replace` directives refuse it.
+   module's `replace` directives refuse it. A download is used only once its cosign bundle verifies as a
+   CircleCI build of this repository's project (issuer `https://oidc.circleci.com`, the certificate's SAN
+   under this project's `circleci.com/api/v2/projects/…`); `cosign verify-blob` prints `Verified OK`:
+
+   ```sh
+   gh release download vX.Y.Z-rc.N --repo giantswarm/giantswarm-platform-manager \
+     -p platformctl-linux-amd64 -p platformctl-linux-amd64.bundle
+   cosign verify-blob --bundle platformctl-linux-amd64.bundle \
+     --certificate-oidc-issuer https://oidc.circleci.com \
+     --certificate-identity-regexp '^https://circleci\.com/api/v2/projects/142db090-0808-466a-ae4c-829cb1075ea2/pipeline-definitions/' \
+     platformctl-linux-amd64
+   ```
+
 2. **The offline render of the management-clusters declarations.** Every agent-platform golden fileset is
    rendered with that CLI and compared with the golden tree, byte for byte — no token, no network:
 

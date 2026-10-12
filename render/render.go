@@ -576,8 +576,12 @@ func (m Map) MarshalYAML() (any, error) {
 }
 
 // encodeNode is v as a YAML node; a nested Map is built directly, since
-// yaml.v3 drops the comments of a node a nested Marshaler returns.
+// yaml.v3 drops the comments of a node a nested Marshaler returns, and a node
+// is taken as it is, its comments with it.
 func encodeNode(v any) (*yaml.Node, error) {
+	if n, ok := v.(*yaml.Node); ok {
+		return n, nil
+	}
 	if m, ok := v.(Map); ok {
 		n, err := m.MarshalYAML()
 		if err != nil {

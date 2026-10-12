@@ -16,6 +16,8 @@ const (
 	kagentEnabled   = "kagent.enabled=true"
 	agentPlatform   = installations.AgentPlatform
 	publicInput     = "../../render/agentplatform/testdata/public-customer/input.yaml"
+	oneMode         = "one of --dry-run and --commit"
+	needsReason     = "--commit needs --reason"
 )
 
 func TestNest(t *testing.T) {
@@ -75,8 +77,8 @@ func TestUsage(t *testing.T) {
 		{nil, exitUsage, "platformctl template <shape>"},
 		{[]string{"nonsense"}, exitUsage, `"nonsense" is not a command`},
 		{[]string{installationCmd}, exitUsage, "needs one of its subcommands"},
-		{installation("enable", "hazel", agentPlatform), exitUsage, "one of --dry-run and --commit"},
-		{installation("enable", "hazel", agentPlatform, "--dry-run", "--commit"), exitUsage, "one of --dry-run and --commit"},
+		{installation("enable", "hazel", agentPlatform), exitUsage, oneMode},
+		{installation("enable", "hazel", agentPlatform, "--dry-run", "--commit"), exitUsage, oneMode},
 		{installation("enable", "hazel"), exitUsage, "installation enable <installation> <capability> --dry-run|--commit"},
 		{installation("reconcile", "--all", "hazel", agentPlatform, "--dry-run"), exitUsage, "<installation>...|--all <capability>"},
 		{installation("reconcile", agentPlatform, "--dry-run"), exitUsage, "<installation>...|--all <capability>"},
@@ -85,8 +87,11 @@ func TestUsage(t *testing.T) {
 		{installation("enable", "hazel", agentPlatform, "--dry-run", "--secret", "kagent.modelKey=env:KEY"), exitUsage, "--secret goes with --commit"},
 		{installation("enable", "hazel", agentPlatform, "--commit", "--reason", "r", "--secret", "kagent.modelKey=PLACEHOLDER-TYPED-VALUE"), exitUsage, "--secret kagent.modelKey: " + secretSyntax},
 		{installation("enable", "hazel", agentPlatform, "--commit", "--reason", "r", "--secret", "kagent.modelKey=env:UNSET_FOR_THIS_TEST"), exitError, "UNSET_FOR_THIS_TEST is not set"},
-		{installation("enable", "hazel", agentPlatform, "--commit"), exitUsage, "--commit needs --reason"},
-		{installation("reconcile", "hazel", agentPlatform, "--commit", "--reason", " "), exitUsage, "--commit needs --reason"},
+		{installation("enable", "hazel", agentPlatform, "--commit"), exitUsage, needsReason},
+		{installation("reconcile", "hazel", agentPlatform, "--commit", "--reason", " "), exitUsage, needsReason},
+		{installation("disable", "hazel", agentPlatform), exitUsage, oneMode},
+		{installation("disable", "hazel"), exitUsage, "installation disable <installation> <capability> --dry-run|--commit"},
+		{installation("disable", "hazel", agentPlatform, "--commit"), exitUsage, needsReason},
 		{installation("verify", "hazel"), exitUsage, "installation verify <installation> <capability>"},
 		{installation("list", "--output", "yaml"), exitUsage, "--output is text or json"},
 		{[]string{actionCmd, "get"}, exitUsage, "action get <name>"},

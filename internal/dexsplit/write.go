@@ -22,27 +22,34 @@ func ConfigMapPatchPath(installation string) string {
 	return "installations/" + installation + "/apps/dex-app/configmap-values.yaml.patch"
 }
 
-// extrasKustomization is the installation's extras kustomization, which
-// lists DexDir where the split creates it.
+// extrasKustomization is the installation's extras kustomization, the top of
+// every chain the split creates a kustomization in.
 func extrasKustomization(installation string) string {
 	return "management-clusters/" + installation + "/extras/" + kustomizationFile
 }
 
 // plannedFiles are the files a write changes, per repository; a client
-// still unrevealed has no file yet.
-func plannedFiles(o Options, r Report) (mc, configs []string) {
+// still unrevealed has no file yet, and a split patch (configs false) takes
+// no configs change.
+func plannedFiles(o Options, r Report, configs bool) (mc, cfg []string) {
 	for _, c := range r.Clients {
 		m := c.Secret
 		if m == nil || m.Kustomization == "" || m.State == StatePresent {
 			continue
 		}
 		mc = appendNew(mc, m.File)
-		mc = appendNew(mc, m.Kustomization)
-		if filepath.Base(filepath.Dir(m.Kustomization)) == DexDir && !exists(filepath.Join(o.ManagementClusters, m.Kustomization)) {
-			mc = appendNew(mc, extrasKustomization(o.Installation))
+		for _, k := range chain(o, m) {
+			mc = appendNew(mc, k.file)
+		}
+		if m.MovesFrom != "" {
+			mc = appendNew(mc, m.MovesFrom)
+			mc = appendNew(mc, filepath.ToSlash(filepath.Join(filepath.Dir(m.MovesFrom), kustomizationFile)))
 		}
 	}
-	return mc, []string{ConfigMapPatchPath(o.Installation), installations.DexSecretPatchPath(o.Installation)}
+	if configs {
+		cfg = []string{ConfigMapPatchPath(o.Installation), installations.DexSecretPatchPath(o.Installation)}
+	}
+	return mc, cfg
 }
 
 func appendNew(list []string, s string) []string {
@@ -52,19 +59,20 @@ func appendNew(list []string, s string) []string {
 	return append(list, s)
 }
 
-// write writes the split: the Secrets and their kustomization entries into
-// the management-clusters checkout, then the plaintext patch and the cut
-// encrypted patch into the configs checkout. Each step is idempotent, so a
-// run that stopped half-way is completed by the next.
-func write(ctx context.Context, o Options, encrypted string, r *Report) error {
+// writeSecrets writes the split's management-clusters side: each Secret
+// copied from the encrypted patch, or moved on from an earlier split's
+// file, and listed in its kustomization with the chain above it. Each step
+// is idempotent, so a run that stopped half-way is completed by the next.
+func writeSecrets(ctx context.Context, o Options, encrypted string, r *Report) error {
 	for _, c := range r.Clients {
 		m := c.Secret
 		if m == nil {
 			continue
 		}
 		r.ManagementClustersFiles = appendNew(r.ManagementClustersFiles, m.File)
-		if m.State == StateToWrite {
-			dst := filepath.Join(o.ManagementClusters, m.File)
+		dst := filepath.Join(o.ManagementClusters, m.File)
+		switch m.State {
+		case StateToWrite:
 			if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
 				return err
 			}
@@ -72,6 +80,13 @@ func write(ctx context.Context, o Options, encrypted string, r *Report) error {
 				return err
 			}
 			m.State = StateWritten
+		case StateToMove:
+			changed, err := moveOn(o, m)
+			if err != nil {
+				return err
+			}
+			r.ManagementClustersFiles = append(r.ManagementClustersFiles, changed...)
+			m.State = StateMoved
 		}
 		changed, err := listResource(o, m)
 		if err != nil {
@@ -79,6 +94,46 @@ func write(ctx context.Context, o Options, encrypted string, r *Report) error {
 		}
 		r.ManagementClustersFiles = append(r.ManagementClustersFiles, changed...)
 	}
+	return nil
+}
+
+// moveOn moves m's Secret from the earlier split's file to its destination,
+// unchanged, and unlists it there; it answers the files it changed.
+func moveOn(o Options, m *Move) ([]string, error) {
+	dst := filepath.Join(o.ManagementClusters, m.File)
+	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
+		return nil, err
+	}
+	if err := os.Rename(filepath.Join(o.ManagementClusters, m.MovesFrom), dst); err != nil {
+		return nil, err
+	}
+	changed := []string{m.MovesFrom}
+	listed := filepath.ToSlash(filepath.Join(filepath.Dir(m.MovesFrom), kustomizationFile))
+	path := filepath.Join(o.ManagementClusters, listed)
+	current, err := os.ReadFile(filepath.Clean(path))
+	if errors.Is(err, os.ErrNotExist) {
+		return changed, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	edited, err := plan.UnlistEntry(current, plan.ListResources, filepath.Base(m.MovesFrom))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", listed, err)
+	}
+	if !bytes.Equal(edited, current) {
+		if err := os.WriteFile(path, edited, 0o644); err != nil { //nolint:gosec // a kustomization of the repository
+			return nil, err
+		}
+		changed = append(changed, listed)
+	}
+	return changed, nil
+}
+
+// writeConfigs writes the split's configs side: the plaintext patch with
+// every client and the peers, and the encrypted patch without the moved
+// keys.
+func writeConfigs(ctx context.Context, o Options, encrypted string, r *Report) error {
 	plain := filepath.Join(o.Configs, ConfigMapPatchPath(o.Installation))
 	current, err := os.ReadFile(filepath.Clean(plain))
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -98,42 +153,64 @@ func write(ctx context.Context, o Options, encrypted string, r *Report) error {
 	return nil
 }
 
-// listResource lists m's file in its kustomization, creating the dex
-// directory's kustomization and listing it in the extras' where needed. It
-// answers the files it changed.
+// listing is one kustomization of a chain and the entry it lists.
+type listing struct {
+	file, entry string
+}
+
+// chain are the kustomizations m's file is listed through, innermost first:
+// m's own kustomization listing the file and, while a kustomization does not
+// exist on the installation, its parent's listing the directory, up to the
+// extras kustomization, which every installation carries. The entries are
+// the definitions': a directory as ./<name>/ in the extras kustomization
+// (its includes), as ./<name> below it (the platform's secrets directory).
+func chain(o Options, m *Move) []listing {
+	out := []listing{{file: m.Kustomization, entry: filepath.Base(m.File)}}
+	extras := extrasKustomization(o.Installation)
+	for k := m.Kustomization; k != extras && !exists(filepath.Join(o.ManagementClusters, k)); {
+		dir := filepath.Dir(k)
+		parent := filepath.ToSlash(filepath.Join(filepath.Dir(dir), kustomizationFile))
+		entry := "./" + filepath.Base(dir)
+		if parent == extras {
+			entry += "/"
+		}
+		out = append(out, listing{file: parent, entry: entry})
+		k = parent
+	}
+	return out
+}
+
+// listResource lists m's file in its kustomization and, where that or a
+// kustomization above it does not exist yet, creates it and lists it in its
+// parent's, up to the extras kustomization (chain). It answers the files it
+// changed.
 func listResource(o Options, m *Move) ([]string, error) {
 	var changed []string
-	path := filepath.Join(o.ManagementClusters, m.Kustomization)
-	current, err := os.ReadFile(filepath.Clean(path))
-	if errors.Is(err, os.ErrNotExist) {
-		current = []byte("apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\n")
-		extras := filepath.Join(o.ManagementClusters, extrasKustomization(o.Installation))
-		data, err := os.ReadFile(filepath.Clean(extras))
-		if err != nil {
+	for _, l := range chain(o, m) {
+		path := filepath.Join(o.ManagementClusters, l.file)
+		current, err := os.ReadFile(filepath.Clean(path))
+		switch {
+		case errors.Is(err, os.ErrNotExist) && l.file == extrasKustomization(o.Installation):
 			return nil, fmt.Errorf("the extras kustomization: %w", err)
+		case errors.Is(err, os.ErrNotExist):
+			current = []byte("apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\n")
+		case err != nil:
+			return nil, err
 		}
-		edited, ok, err := plan.ListEntry(data, plan.ListResources, "./"+DexDir+"/")
+		edited, ok, err := plan.ListEntry(current, plan.ListResources, l.entry)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", extrasKustomization(o.Installation), err)
+			return nil, fmt.Errorf("%s: %w", l.file, err)
 		}
-		if ok {
-			if err := os.WriteFile(extras, edited, 0o644); err != nil { //nolint:gosec // a kustomization of the repository
-				return nil, err
-			}
-			changed = append(changed, extrasKustomization(o.Installation))
+		if !ok {
+			continue
 		}
-	} else if err != nil {
-		return nil, err
-	}
-	edited, ok, err := plan.ListEntry(current, plan.ListResources, filepath.Base(m.File))
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", m.Kustomization, err)
-	}
-	if ok {
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			return nil, err
+		}
 		if err := os.WriteFile(path, edited, 0o644); err != nil { //nolint:gosec // a kustomization of the repository
 			return nil, err
 		}
-		changed = append(changed, m.Kustomization)
+		changed = append(changed, l.file)
 	}
 	return changed, nil
 }

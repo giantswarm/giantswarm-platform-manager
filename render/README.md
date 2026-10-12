@@ -51,7 +51,7 @@ with the `giantswarm` tenant header; an earlier chart's schema refuses the key),
 where the line resolves to 2.73.1 or later (`observability.metrics.enabled` and a `serviceMonitor` labelled
 `observability.giantswarm.io/tenant: giantswarm`; an earlier chart's schema refuses both keys), and a patch appending those sources to the portal HelmRelease's `valuesFrom` — last, so the
 platform's values win. The fragment carries the platform's section, and on a portal the customer-portal
-definition renders the shared extension list with the platform's section and the installation's muster entry;
+definition renders the shared extension list with the platform's section and one muster entry per installation the portal shows that runs the platform (the record's `installation.portals[*].installations` with the installation itself, by name, so every installation's plan renders the same fragment);
 Backstage and Helm replace lists wholesale, so on a hand-kept portal (a literal `app.extensions` on record) the
 Component writes its object-shaped keys alone and the portal's own lists stand — and the skill repositories
 (`skills.repositories`, the person's third choice, read back from the fragment, else from the portal's own
@@ -139,9 +139,15 @@ diffed on every pull request; `go test ./render/... -update` rewrites them after
 A management cluster's own MCP servers without the agent platform (`render/clustermcpservers`): per running
 server the extras directory `render/mcpservers` renders — the one the agent-platform definition renders for its
 installation's servers — with the user values the record says the server needs (Dex on private addresses, the
-clients' too, the installation's Dex CA Secret listed), and each server's Dex client as a `clientSecretRef` in the
-dex-app configmap patch, a file the plan merges keeping every other owner's clients and keys. It refuses where the
-agent platform is on record and below dex-app 3.2.3 (2.4.0 on the 2.x line); see `definitions/cluster-mcp-servers/README.md`.
+clients' too, the installation's Dex CA Secret listed), each server's Dex client as a `clientSecretRef` in the
+dex-app configmap patch, a file the plan merges keeping every other owner's clients and keys, and the
+token-exchange client of every hub whose muster exchanges tokens into the installation to reach the servers
+(`installation.federation.hubs`): its entry in the patch, as a trusted peer of the authenticator, and its Secret
+under `extras/agent-platform/secrets` with the kustomizations that apply it — `render.ExchangeTarget`, the same
+files the agent-platform definition renders for the same pairing, so a pair's Dex side stays in one file with its
+value whichever definition renders it, and a disable of the platform keeps it as this definition's. It refuses
+where the agent platform is on record and below dex-app 3.2.3 (2.4.0 on the 2.x line); see
+`definitions/cluster-mcp-servers/README.md`.
 
 ## Probes and customer actions
 

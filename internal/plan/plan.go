@@ -59,6 +59,12 @@ type File struct {
 	Current string `json:"current,omitempty"`
 	// Generated names the values the commit step generates into this file.
 	Generated []string `json:"generated,omitempty"`
+	// Rewritten: the commit writes this file on record anew whole, every
+	// generated value it holds drawn — the render changes its skeleton, or a
+	// value it holds rotates. A file to update that holds generated values
+	// and is not rewritten is one the caller's vault fills (GeneratedSecret's
+	// Carries): the commit writes nothing of it.
+	Rewritten bool `json:"rewritten,omitempty"`
 	// Kept is the part of the installation's current file that is not the
 	// platform's, kept in the file as the plan writes it.
 	Kept []Kept `json:"kept,omitempty"`
@@ -169,26 +175,49 @@ type GeneratedSecret struct {
 	Kind   string   `json:"kind"`
 	Length int      `json:"length"`
 	Files  []string `json:"files"`
-	// FrozenIn are the Files that exist encrypted on record: the value they
-	// hold cannot be read back (the manager decrypts nothing), so no other
-	// file can share it — the commit either keeps them or rotates.
+	// FrozenIn are the Files on record that hold the value, encrypted: it
+	// cannot be read back (the manager decrypts nothing), so the commit
+	// writes it into no other file — it keeps them, or rotates.
 	FrozenIn []string `json:"frozenIn,omitempty"`
-	// Kept: every file of the name is on record as the render has it outside
-	// the values, so the value on record stands and no file is written.
+	// Kept: a file on record holds the value, and it stands: the files on
+	// record that hold it are not written. A file of the name that lacks it
+	// (a file to create, a file on record the render adds the key to) takes
+	// it by the caller's vault before the commit: Carries.
 	Kept bool `json:"kept,omitempty"`
-	// Rotates: a file of the name has to be written — ForcedBy names it: a
-	// file to create, an existing file whose plaintext skeleton the render
-	// changes, or a file rewritten for another rotating name — or the person
-	// asked for the rotation by name, ForcedBy ForcedByRequest (so does the
-	// credentials revision of a value asked for) — so the commit draws a new
-	// value and writes it into every one of Files, the frozen ones
-	// rewritten; both sides roll on the installation.
+	// Carries are the files the caller's vault puts the value into before
+	// the commit, the manager decrypting nothing: each from the record's
+	// file that holds it, or drawn there where no file on record holds it
+	// and a file on record lacks it. The commit is refused while one is not
+	// on record (CarryRefusal).
+	Carries []Carry `json:"carries,omitempty"`
+	// PendingIn are the files on record that lack the value's key and stand
+	// as they are: a credentials revision joins them with the next rotation
+	// asked for, which rewrites them from the render.
+	PendingIn []string `json:"pendingIn,omitempty"`
+	// Rotates: a file of the name is written anew whole — ForcedBy names it,
+	// Cause why (the render changes its skeleton beyond the keys it lacks, or
+	// it is rewritten with another rotating value) — or the person asked for
+	// the rotation by name, ForcedBy ForcedByRequest (so does the credentials
+	// revision of a value asked for) — so the commit draws a new value and
+	// writes it into every one of Files, the frozen ones rewritten; both
+	// sides roll on the installation.
 	Rotates  bool   `json:"rotates,omitempty"`
 	ForcedBy string `json:"forcedBy,omitempty"`
+	Cause    string `json:"cause,omitempty"`
 	// Peer is the other side of a value two installations hold, each in its
 	// own plan, as "<repository>:<path>" (the path alone where the peer's
 	// repository is not on record): a value drawn here never reaches it.
 	Peer string `json:"peer,omitempty"`
+	// Supplied: the Peer's file is on record and this side's files are new,
+	// so the value is the person's to supply at commit, copied from the
+	// record with their vault — SuppliedSecrets lists the name — and the
+	// commit writes it in place of the placeholder: the manager decrypts
+	// nothing.
+	Supplied bool `json:"supplied,omitempty"`
+	// DrawnWith is the installation of the set whose plan creates the Peer's
+	// file: both sides are new in one wave, so the wave draws the value once
+	// and writes it to both, and neither side is drawn alone (ShareDraws).
+	DrawnWith string `json:"drawnWith,omitempty"`
 	// HeldBy is a holder of the value outside this plan (render.Generated's
 	// HeldBy): a rotation here never reaches it.
 	HeldBy string `json:"heldBy,omitempty"`
@@ -213,7 +242,10 @@ type DexClient struct {
 	Public       bool     `json:"public,omitempty"`
 	SecretRef    string   `json:"secretRef,omitempty"`
 	RedirectURIs []string `json:"redirectURIs,omitempty"`
-	TrustedPeers []string `json:"trustedPeers,omitempty"`
+	// ExtraRedirectURIs are the redirect URIs a built-in client carries
+	// beside the one the template sets (dex-app DexAppExtraRedirectURIs).
+	ExtraRedirectURIs []string `json:"extraRedirectURIs,omitempty"`
+	TrustedPeers      []string `json:"trustedPeers,omitempty"`
 }
 
 // CustomerAction is something the rollout needs from the customer that no
@@ -293,6 +325,11 @@ type Installation struct {
 	// again, so the value on record stands, the commit renders the field's
 	// marker, writes none of its files and asks for no value.
 	SuppliedOnRecord []string `json:"suppliedOnRecord,omitempty"`
+	// VaultCopies is the wave's vault copy, on a plan of a set that moves a
+	// side of a pair (WaveVaultCopies): the values the caller's vault copies
+	// for the wave, by key, selected by the pair it moves; a carry of any
+	// other generated value is listed outside and refused by name.
+	VaultCopies []VaultCopy `json:"vaultCopies,omitempty"`
 	// MissingFacts are the facts of the record the render needs that the
 	// record leaves empty: a commit is held while one is (FactsRefusal).
 	MissingFacts *MissingFacts `json:"missingFacts,omitempty"`
@@ -305,10 +342,20 @@ type Installation struct {
 	// gitops.prereleases that the patch on record sets: the installation
 	// stops following the platform's release candidates
 	// (ReleaseCandidateRefusal).
-	DropsPrereleases bool             `json:"dropsPrereleases,omitempty"`
-	DexClients       []DexClient      `json:"dexClients"`
-	CustomerActions  []CustomerAction `json:"customerActions"`
-	Probes           []Probe          `json:"probes"`
+	DropsPrereleases bool `json:"dropsPrereleases,omitempty"`
+	// Join is what the plan's agent-platform values patch takes off the
+	// installation's muster beyond the shared defaults — the broker's
+	// targets, the identity providers, the MCP servers, the registration
+	// URIs it moves —, the warning a join as a target prints apart from the
+	// drift lines; nil where it takes nothing (JoinRefusal).
+	Join       *Join       `json:"join,omitempty"`
+	DexClients []DexClient `json:"dexClients"`
+	// DexConnectors are the ids of the token-exchange connectors the
+	// rendered Dex patch declares under oidc.customer.connectors
+	// (DexSecretRefusal).
+	DexConnectors   []string         `json:"dexConnectors,omitempty"`
+	CustomerActions []CustomerAction `json:"customerActions"`
+	Probes          []Probe          `json:"probes"`
 	// Diff counts the files by change; an empty diff is every file unchanged.
 	Diff map[Change]int `json:"diff"`
 }
@@ -416,6 +463,10 @@ type Options struct {
 	// lists rotates, forced by the request, and draws its credentials
 	// revision with it; a name the plan does not list takes no part.
 	Rotate []string
+	// ForceJoin: the person asked for the join with its warning known, so
+	// what the patch takes off the installation's muster holds no commit
+	// (Join.Forced).
+	ForceJoin bool
 	// Installations are the registry's installations by name: where a
 	// generated value's peer (render.Peer) is on record.
 	Installations map[string]installations.Installation
@@ -544,12 +595,20 @@ func Build(ctx context.Context, opts Options) Installation {
 				}
 			}
 			pf.Change, pf.Error, pf.Unseen = change(current, err, content)
+			if len(f.Generated) > 0 {
+				h.paths = markerPaths(content)
+			}
 			if pf.Change == ChangeUpdate && !Shared(path) {
-				// A revision the record does not hold yet waits for a
-				// requested rotation: the file stands, and holds no revision.
-				if without, pending := pendingRevisions(content, current, revisions); len(pending) > 0 && sameSkeleton(without, current) {
-					pf.Change, pf.Unseen = ChangeUnchanged, unseen(without, current)
-					h.secret = slices.DeleteFunc(h.secret, func(n string) bool { return slices.Contains(pending, n) })
+				// A file on record the render adds keys to and changes
+				// nothing else of: the caller's vault fills them, the file's
+				// values stand. Where the keys are credentials revisions
+				// alone they wait for a requested rotation instead: the file
+				// stands, and holds no revision.
+				if without, lacks := lacking(content, current); len(lacks) > 0 && sameSkeleton(without, current) {
+					h.lacks, h.fillable = lacks, true
+					if !slices.ContainsFunc(lacks, func(n string) bool { return !revisions[n] }) {
+						pf.Change, pf.Unseen = ChangeUnchanged, unseen(without, current)
+					}
 				}
 			}
 			if pf.Change == ChangeUpdate && !Shared(path) && Encrypted(current) {
@@ -569,21 +628,24 @@ func Build(ctx context.Context, opts Options) Installation {
 			}
 			p.Files = append(p.Files, pf)
 			if strings.HasSuffix(path, dexPatchFile) {
-				p.DexClients = DexClients(f.Content, in)
+				p.DexClients, p.DexConnectors = DexClients(f.Content, in), DexConnectors(f.Content)
 			}
 			if strings.HasSuffix(path, platformPatchFile) && pf.Change == ChangeUpdate {
 				p.DropsPrereleases = dropsPrereleases(current, content)
+				p.join(current, content, opts.ForceJoin)
 			}
 		}
 	}
-	// A file kept as it is that holds a rotating name is rewritten with the
-	// new value: an update after all.
-	for file := range frozen(generated, holders, requestedRotations(opts.Rotate, generated, res.Revisions), p.markerOnRecord(opts)) {
-		if pf := &p.Files[held[file]]; pf.Change == ChangeUnchanged {
+	// A file on record the commit writes whole is rewritten: one kept as it
+	// is that holds a rotating name is an update after all.
+	for file := range frozen(generated, holders, requestedRotations(opts.Rotate, generated, res.Revisions), p.markerOnRecord(opts), revisions) {
+		pf := &p.Files[held[file]]
+		if pf.Change == ChangeUnchanged {
 			pf.Change = ChangeUpdate
 			p.Diff[ChangeUnchanged]--
 			p.Diff[ChangeUpdate]++
 		}
+		pf.Rewritten = pf.Change == ChangeUpdate
 	}
 	for name, pr := range peers {
 		pr.refuse(ctx, generated[name], opts.Read)
@@ -604,6 +666,13 @@ func Build(ctx context.Context, opts Options) Installation {
 		p.GeneratedSecrets = append(p.GeneratedSecrets, *gs)
 	}
 	sort.Slice(p.GeneratedSecrets, func(i, j int) bool { return p.GeneratedSecrets[i].Name < p.GeneratedSecrets[j].Name })
+	// A generated value the person supplies (its peer holds it on record)
+	// is asked for by its name, after the definition's own fields.
+	for _, gs := range p.GeneratedSecrets {
+		if gs.Supplied {
+			p.SuppliedSecrets = append(p.SuppliedSecrets, gs.Name)
+		}
+	}
 	return p
 }
 
@@ -663,10 +732,12 @@ func withSelected(inputs, selected map[string]any) map[string]any {
 // file's public half of a key pair — is unchanged: the values stand, and the
 // literals the render puts under an encrypted field are named as unseen. So
 // is a kustomization that differs only in how its patch texts spell their
-// YAML (samePatches): writing it would change nothing.
+// YAML (samePatches), and any file that is the render's but for the order of
+// a mapping's keys and its layout (sameValues): writing it would change
+// nothing.
 func change(current string, err error, rendered string) (Change, string, []Unseen) {
 	switch {
-	case err == nil && current == rendered:
+	case err == nil && (current == rendered || sameValues(rendered, current)):
 		return ChangeUnchanged, "", nil
 	case err == nil && sameSkeleton(rendered, current):
 		return ChangeUnchanged, "", unseen(rendered, current)
@@ -852,6 +923,31 @@ func customerActions(installation string, in render.Input) []CustomerAction {
 	return out
 }
 
+// DexConnectors reads the ids of the token-exchange connectors the rendered
+// dex patch declares under oidc.customer.connectors; nil where it declares
+// none or does not parse.
+func DexConnectors(patch []byte) []string {
+	var doc struct {
+		OIDC struct {
+			Customer struct {
+				Connectors []struct {
+					ID string `yaml:"id"`
+				} `yaml:"connectors"`
+			} `yaml:"customer"`
+		} `yaml:"oidc"`
+	}
+	if err := yaml.Unmarshal(patch, &doc); err != nil {
+		return nil
+	}
+	var ids []string
+	for _, c := range doc.OIDC.Customer.Connectors {
+		if c.ID != "" {
+			ids = append(ids, c.ID)
+		}
+	}
+	return ids
+}
+
 // DexClients reads the clients of the rendered dex patch: the built-in
 // clients by the chart's key, with the id the input knows, and the extra
 // static clients as declared.
@@ -880,12 +976,13 @@ func DexClients(patch []byte, in render.Input) []DexClient {
 			ClientSecretRef struct {
 				Name string `yaml:"name"`
 			} `yaml:"clientSecretRef"`
-			RedirectURIs []string `yaml:"redirectURIs"`
-			TrustedPeers []string `yaml:"trustedPeers"`
+			RedirectURIs      []string `yaml:"redirectURIs"`
+			ExtraRedirectURIs []string `yaml:"extraRedirectURIs"`
+			TrustedPeers      []string `yaml:"trustedPeers"`
 		}
 		_ = doc.OIDC.StaticClients.Content[i+1].Decode(&body)
 		key := doc.OIDC.StaticClients.Content[i].Value
-		out = append(out, DexClient{ID: in.BuiltInDexClientID(key), Client: key, SecretRef: body.ClientSecretRef.Name, RedirectURIs: body.RedirectURIs, TrustedPeers: body.TrustedPeers})
+		out = append(out, DexClient{ID: in.BuiltInDexClientID(key), Client: key, SecretRef: body.ClientSecretRef.Name, RedirectURIs: body.RedirectURIs, ExtraRedirectURIs: body.ExtraRedirectURIs, TrustedPeers: body.TrustedPeers})
 	}
 	for _, c := range doc.OIDC.ExtraStaticClients {
 		out = append(out, DexClient{ID: c.ID, Name: c.Name, Public: c.Public, SecretRef: c.SecretRef.Name, RedirectURIs: c.RedirectURIs, TrustedPeers: c.TrustedPeers})

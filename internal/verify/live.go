@@ -828,15 +828,16 @@ func (x *executor) condition(ctx context.Context, c *Check, p render.Probe, cond
 	if err != nil {
 		return err
 	}
-	got, message, found := conditionOf(obj, condition)
+	m := conditionEntry(obj, condition)
+	got, _ := m["status"].(string)
 	c.Revision = revisionOf(obj)
 	switch {
-	case !found:
+	case m == nil:
 		c.Mark, c.Message = Drifted, "no "+condition+" condition"
 	case got == status:
 		c.Mark, c.Message = AsDefined, condition+"="+got
 	default:
-		c.Mark, c.Message = Drifted, condition+"="+got+": "+message
+		c.Mark, c.Message = Drifted, conditionVerdict(condition, m)
 	}
 	if kind, _, _ := strings.Cut(p.Resource, "."); c.Mark == Drifted && kind == helmReleaseKind {
 		if failure := releaseFailure(obj); failure != "" {
@@ -866,6 +867,20 @@ func releaseFailure(obj map[string]any) string {
 		return fmt.Sprintf("%s=%s (%s): %s", verdict.condition, verdict.status, reason, firstLine(message))
 	}
 	return ""
+}
+
+// conditionVerdict is a condition off its expected status as
+// "<type>=<status> (<reason>): <message>", the reason left out where the
+// object gives none: the reason is the controller's word on why, e.g. a
+// ModelConfig's ResolvedRefs=False (APIKeySecretNotFound).
+func conditionVerdict(condition string, m map[string]any) string {
+	status, _ := m["status"].(string)
+	reason, _ := m["reason"].(string)
+	message, _ := m["message"].(string)
+	if reason == "" {
+		return condition + "=" + status + ": " + message
+	}
+	return condition + "=" + status + " (" + reason + "): " + message
 }
 
 // present marks the object as existing, a Secret as carrying the keys, and

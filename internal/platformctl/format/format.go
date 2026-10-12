@@ -108,6 +108,10 @@ func Plan(w io.Writer, r tools.CapabilityResult, content bool) error {
 			p.f("  Comparison: %s\n", marks(inst.Summary))
 		}
 	}
+	if len(r.Installations) > 1 && suppliesAny(r.Installations) {
+		p.f("\nSupplied at commit, in one run for the set: --secret <field>=<source> for every installation that asks for the field,\n" +
+			"  --secret <installation>/<field>=<source> for that installation alone; <source> is beekeeper:<ref>, @<file>, env:<NAME> or - (one field)\n")
+	}
 	if len(r.PullRequests) > 0 {
 		p.f("\nPull requests, in order:\n")
 		for _, pr := range r.PullRequests {
@@ -133,6 +137,16 @@ func Plan(w io.Writer, r tools.CapabilityResult, content bool) error {
 		p.f("\nCommit: %s\n", r.Commit)
 	}
 	return p.err
+}
+
+// suppliesAny says whether a plan of the set asks for a value at commit.
+func suppliesAny(dry []tools.DryRun) bool {
+	for _, d := range dry {
+		if len(d.SuppliedSecrets) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *printer) installation(inst plan.Installation, content bool) {
@@ -172,6 +186,7 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 			}
 		}
 	}
+	p.join(inst.Name, inst.Join)
 	for _, inc := range inst.Includes {
 		p.f("  Includes: %s:%s %s %s (%s)\n", inc.Repository, inc.Path, inc.List, inc.Resource, inc.Change)
 	}
@@ -185,9 +200,21 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 			case g.Rotates && g.ForcedBy == plan.ForcedByRequest:
 				p.f("      rotates on request: %s — a new value replaces the one on record in %s; both sides roll, the client is unusable between the two rollouts%s\n", g.Name, strings.Join(g.FrozenIn, ", "), signsOut(g.Name))
 			case g.Rotates:
-				p.f("      rotates: %s (forced by %s) — a new value replaces the one on record in %s; both sides roll, the client is unusable between the two rollouts%s\n", g.Name, g.ForcedBy, strings.Join(g.FrozenIn, ", "), signsOut(g.Name))
+				p.f("      rotates: %s (forced by %s%s) — a new value replaces the one on record in %s; both sides roll, the client is unusable between the two rollouts%s\n", g.Name, g.ForcedBy, cause(g.Cause), strings.Join(g.FrozenIn, ", "), signsOut(g.Name))
+			case g.Kept && len(g.Carries) > 0 && len(inst.VaultCopies) > 0 && g.Peer == "":
+				p.f("      kept: the value on record in %s stands; %s takes it, outside the pair this wave moves — not copied by the wave, the installation's own reconcile carries it\n", strings.Join(g.FrozenIn, ", "), carriesTo(g))
+			case g.Kept && len(g.Carries) > 0:
+				p.f("      kept: the value on record in %s stands; %s — the manager decrypts nothing, and the commit is refused until it is on record\n", strings.Join(g.FrozenIn, ", "), carries(g))
 			case g.Kept:
 				p.f("      kept: the value on record in %s stands, nothing is written\n", strings.Join(g.FrozenIn, ", "))
+			case len(g.Carries) > 0:
+				p.f("      drawn by your vault: no file on record holds it; %s — the commit rewrites no encrypted file for one key, and is refused until it is on record%s\n", carries(g), pending(g))
+			case g.DrawnWith != "":
+				p.f("      drawn once for the wave: %s's plan creates %s with the same value — neither side is drawn alone\n", g.DrawnWith, g.Peer)
+			case g.Supplied:
+				p.f("      you supply it at commit (--secret %s=…): %s holds it on record, and the manager decrypts nothing — reveal it there with your vault\n", g.Name, g.Peer)
+			default:
+				p.f("      generated at commit: no file on record holds it, a new value is drawn%s\n", pending(g))
 			}
 		}
 	}
@@ -197,6 +224,7 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 	if len(inst.SuppliedOnRecord) > 0 {
 		p.f("  Supplied values on record: %s — their files stand, nothing to supply\n", strings.Join(inst.SuppliedOnRecord, ", "))
 	}
+	p.vaultCopies(inst.VaultCopies)
 	if len(inst.DexClients) > 0 {
 		p.f("  Dex clients:\n")
 		for _, c := range inst.DexClients {
@@ -222,6 +250,90 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 			p.f("\n")
 		}
 	}
+}
+
+// vaultCopies lists the wave's vault copy by key: the pair's values the
+// caller's vault copies for the wave, each from where it is read to where
+// it goes, then the carries outside the pair the wave does not copy.
+func (p *printer) vaultCopies(copies []plan.VaultCopy) {
+	if len(copies) == 0 {
+		return
+	}
+	var selected, outside []plan.VaultCopy
+	for _, c := range copies {
+		if c.Outside {
+			outside = append(outside, c)
+		} else {
+			selected = append(selected, c)
+		}
+	}
+	p.f("  Vault copies for the wave, the pair's values only:\n")
+	if len(selected) == 0 {
+		p.f("    none: the pair is drawn once for the wave, nothing to copy\n")
+	}
+	for _, c := range selected {
+		p.f("    %s: %s → %s\n", c.Name, c.From, c.To)
+	}
+	if len(outside) > 0 {
+		p.f("  Outside the pair, not copied by the wave (the installation's own reconcile carries them):\n")
+		for _, c := range outside {
+			p.f("    %s: %s → %s\n", c.Name, c.From, c.To)
+		}
+	}
+}
+
+// cause is why a file forces a rotation, after the file, or "".
+func cause(c string) string {
+	if c == "" {
+		return ""
+	}
+	return ": " + c
+}
+
+// carries says what the caller's vault does for a generated value before the
+// commit: each file that takes the value, with the command — beekeeper
+// secret copy from the record's path, or beekeeper secret set where the
+// vault draws it — and, for a Dex client's Secret to create, the dex-split
+// that writes it and moves the client out of the dex-app patch with it.
+func carries(g plan.GeneratedSecret) string {
+	parts := make([]string, 0, len(g.Carries))
+	for _, c := range g.Carries {
+		part := fmt.Sprintf("%s takes it (beekeeper secret copy %s %s, or sops)", c.To, c.From, c.To)
+		if c.From == "" {
+			part = fmt.Sprintf("%s takes a value drawn there (beekeeper secret set %s, or sops; %s, %d)", c.To, c.To, g.Kind, g.Length)
+		}
+		if c.Create && dexClientSecretFile(c.To) {
+			part += ", a Dex client's Secret platformctl installation dex-split writes with the client moved out of the dex-app patch"
+		}
+		parts = append(parts, part)
+	}
+	return strings.Join(parts, "; ")
+}
+
+// carriesTo names the files that take a generated value, the carries' To.
+func carriesTo(g plan.GeneratedSecret) string {
+	to := make([]string, 0, len(g.Carries))
+	for _, c := range g.Carries {
+		to = append(to, c.To)
+	}
+	return strings.Join(to, ", ")
+}
+
+// dexClientSecretFile says whether a carry's target is a Dex client's Secret
+// file as the definitions render it (dex-client-<component>-secret.yaml).
+func dexClientSecretFile(to string) bool {
+	file, _, _ := strings.Cut(to, "#")
+	base := file[strings.LastIndex(file, "/")+1:]
+	return strings.HasPrefix(base, "dex-client-") && strings.HasSuffix(base, "-secret.yaml")
+}
+
+// pending names the files on record that stand without the value until a
+// rotation asked for rewrites them, or "".
+func pending(g plan.GeneratedSecret) string {
+	if len(g.PendingIn) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("; %s stand without it until a rotation asked for rewrites them", strings.Join(g.PendingIn, ", "))
 }
 
 // kept names each entry a shared file keeps beside the render.
@@ -320,7 +432,7 @@ func Action(w io.Writer, a actions.Action) error {
 			if o.Namespace != "" {
 				name = o.Namespace + "/" + name
 			}
-			p.f("  %s: %s %s\n", o.Installation, o.Kind, name)
+			p.f("  %s: %s %s%s\n", o.Installation, o.Kind, name, takesClause(o.Takes))
 		}
 	}
 	if len(a.Spec.Inputs) > 0 {
@@ -732,6 +844,14 @@ func dash(s string) string {
 	return s
 }
 
+// takesClause is what deleting an orphan takes with it, as its line ends.
+func takesClause(takes string) string {
+	if takes == "" {
+		return ""
+	}
+	return " — " + takes
+}
+
 func yesNo(b bool) string {
 	if b {
 		return "yes"
@@ -792,4 +912,128 @@ func signsOut(name string) string {
 		return "; every session the server holds ends, so everyone who uses it signs in again"
 	}
 	return ""
+}
+
+// Disable is disable_capability's answer: the dry run — the files it deletes
+// and edits by pull request, the files that stay, the objects a person
+// deletes after the merge, what still depends on the capability, the check
+// after the merge — or the commit's action and pull requests.
+func Disable(w io.Writer, r tools.DisableResult, content bool) error {
+	p := &printer{w: w}
+	mode := "dry run"
+	if !r.DryRun {
+		mode = "commit"
+	}
+	p.f("%s %s: %s on %s (hub %s), as %s\n", r.Tool, mode, r.Capability, r.Installation, dash(r.Hub), dash(r.Caller))
+	p.f("State: %s\n", r.State)
+	if a := r.Action; a != nil {
+		p.f("Action: %s (%s)\n", a.Name, dash(a.Status.State))
+	}
+	if len(r.PullRequests) > 0 {
+		p.f("Pull requests, in order:\n")
+		for i, pr := range r.PullRequests {
+			p.f("  %d. %s#%d %s\n", i+1, pr.Repository, pr.Number, pr.URL)
+		}
+	}
+	d := r.Plan
+	if len(d.Directories) > 0 {
+		p.f("\nDirectories that leave whole: %s\n", strings.Join(d.Directories, ", "))
+	}
+	if len(d.PullRequests) > 0 {
+		p.f("\nPull requests, in order:\n")
+		for _, pr := range d.PullRequests {
+			p.f("  %d. %s: %s\n", pr.Order, pr.Repository, plural(pr.Changes, "change"))
+			for _, f := range d.Files {
+				if f.Repository != pr.Repository || (f.Change != plan.ChangeDelete && f.Change != plan.ChangeUpdate) {
+					continue
+				}
+				line := fmt.Sprintf("     %-6s %s", f.Change, f.Path)
+				if f.Why != "" {
+					line += "  (" + f.Why + ")"
+				}
+				if len(f.Pairings) > 0 {
+					line += "  (paired with " + strings.Join(f.Pairings, ", ") + ")"
+				}
+				p.f("%s\n", line)
+				for _, l := range f.ListedIn {
+					p.f("       unlisted from %s\n", l)
+				}
+				for _, drop := range f.Drops {
+					p.f("       drops %s\n", drop)
+				}
+				if content && f.Change == plan.ChangeUpdate {
+					p.f("     --- as the commit writes it\n%s", indent(f.Content, "       "))
+				}
+			}
+		}
+	}
+	if unknown := d.Unknown(); len(unknown) > 0 {
+		p.f("\nNot readable as you:\n")
+		for _, u := range unknown {
+			p.f("  %s:%s: %s\n", u.Repository, u.Path, u.Error)
+		}
+	}
+	if len(d.Stays) > 0 {
+		p.f("\nStays on record:\n")
+		for _, s := range d.Stays {
+			p.f("  %s:%s (%s)\n", s.Repository, s.Path, s.Why)
+		}
+	}
+	if len(d.Kept) > 0 {
+		p.f("\nKept (--keep):\n")
+		for _, k := range d.Kept {
+			p.f("  %s:%s\n", k.Repository, k.Path)
+		}
+	}
+	if len(d.LeftOnRecord) > 0 {
+		p.f("\nLeft on record — the disable cannot tell these are %s's; remove them by hand if they are:\n", r.Capability)
+		for _, l := range d.LeftOnRecord {
+			p.f("  %s:%s %s (%s)\n", l.Repository, l.Path, l.Entry, l.Why)
+		}
+	}
+	switch {
+	case r.Prunes:
+		p.f("\nFlux prunes what the files applied: nothing to delete by hand.\n")
+	case len(d.Checklist) > 0:
+		p.f("\nAfter the merge, delete on %s in this order — the fleet's Kustomization over the tree does not prune:\n", r.Installation)
+		for _, o := range d.Checklist {
+			p.f("  [ ] %s\n", o.Line())
+		}
+	}
+	if len(r.References) > 0 {
+		p.f("\nStill depends on %s:\n", r.Capability)
+		for _, ref := range r.References {
+			p.f("  - %s\n", ref)
+		}
+	}
+	if r.State.OnRecord() {
+		p.f("\nAfter the merge, check:\n")
+		p.f("  platformctl installation list %s   (%s: not enabled)\n", r.Installation, r.Capability)
+		p.f("  platformctl installation verify %s %s\n", r.Installation, r.Capability)
+		for _, c := range r.Remaining {
+			p.f("  platformctl installation reconcile %s %s --dry-run\n", r.Installation, c)
+			p.f("  platformctl installation verify %s %s\n", r.Installation, c)
+		}
+		for _, o := range d.Others {
+			p.f("  platformctl installation reconcile %s %s --dry-run   (%s's files above stay; its reconcile aligns them)\n", o, r.Capability, o)
+		}
+	}
+	if r.CommitRefused != "" {
+		p.f("\nCommit refused: %s\n", r.CommitRefused)
+	} else if r.Commit != "" {
+		p.f("\nCommit: %s\n", r.Commit)
+	}
+	if r.Next != "" {
+		p.f("\nNext: %s\n", r.Next)
+	}
+	return p.err
+}
+
+// indent prefixes every line of text with prefix, ending in a newline.
+func indent(text, prefix string) string {
+	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	for i, l := range lines {
+		lines[i] = prefix + l
+	}
+	return strings.Join(lines, "\n") + "\n"
 }

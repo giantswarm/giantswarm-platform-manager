@@ -1,0 +1,31 @@
+reconcile_capability dry run: agent-platform on hub hazel, as wren
+Order: hazel, oak
+
+hazel: enabled
+
+oak: enabled
+  A commit would be refused: the wave's vault copy selects the pair it moves (muster-token-exchange-oak-hazel-client-secret) and oak-mcp-capi-dex-client-secret (giantswarm/acme-management-clusters:management-clusters/oak/extras/mcp-capi/dex-client-mcp-capi-secret.yaml#stringData.secret takes it from giantswarm/acme-management-clusters:management-clusters/oak/extras/mcp-capi/oauth-credentials.enc.yaml#stringData.dex-client-secret); oak-mcp-prometheus-valkey-password (giantswarm/acme-management-clusters:management-clusters/oak/extras/mcp-prometheus/oauth-credentials.enc.yaml#stringData.VALKEY_PASSWORD takes it from giantswarm/acme-management-clusters:management-clusters/oak/extras/mcp-prometheus/valkey-credentials.enc.yaml#stringData.default) is outside it: not copied by the wave — reconcile oak alone first, whose plan carries it, or narrow the set
+  Files (2 create, 1 update):
+    CHANGE  REPOSITORY                           PATH
+    create  giantswarm/acme-management-clusters  management-clusters/oak/extras/agent-platform/secrets/dex-client-muster-token-exchange-oak-hazel-secret.yaml
+    create  giantswarm/acme-management-clusters  management-clusters/oak/extras/mcp-capi/dex-client-mcp-capi-secret.yaml
+    update  giantswarm/acme-management-clusters  management-clusters/oak/extras/mcp-prometheus/oauth-credentials.enc.yaml
+  Generated at commit:
+    muster-token-exchange-oak-hazel-client-secret (base64, 32): giantswarm/acme-management-clusters:management-clusters/oak/extras/agent-platform/secrets/dex-client-muster-token-exchange-oak-hazel-secret.yaml
+      you supply it at commit (--secret muster-token-exchange-oak-hazel-client-secret=…): giantswarm/acme-management-clusters:management-clusters/hazel/extras/agent-platform/secrets/oak-token-exchange-credentials.yaml holds it on record, and the manager decrypts nothing — reveal it there with your vault
+    oak-mcp-capi-dex-client-secret (base64, 32): giantswarm/acme-management-clusters:management-clusters/oak/extras/mcp-capi/dex-client-mcp-capi-secret.yaml, giantswarm/acme-management-clusters:management-clusters/oak/extras/mcp-capi/oauth-credentials.enc.yaml
+      kept: the value on record in giantswarm/acme-management-clusters:management-clusters/oak/extras/mcp-capi/oauth-credentials.enc.yaml stands; giantswarm/acme-management-clusters:management-clusters/oak/extras/mcp-capi/dex-client-mcp-capi-secret.yaml#stringData.secret takes it, outside the pair this wave moves — not copied by the wave, the installation's own reconcile carries it
+    oak-mcp-prometheus-valkey-password (alphanumeric, 32): giantswarm/acme-management-clusters:management-clusters/oak/extras/mcp-prometheus/oauth-credentials.enc.yaml, giantswarm/acme-management-clusters:management-clusters/oak/extras/mcp-prometheus/valkey-credentials.enc.yaml
+      kept: the value on record in giantswarm/acme-management-clusters:management-clusters/oak/extras/mcp-prometheus/valkey-credentials.enc.yaml stands; giantswarm/acme-management-clusters:management-clusters/oak/extras/mcp-prometheus/oauth-credentials.enc.yaml#stringData.VALKEY_PASSWORD takes it, outside the pair this wave moves — not copied by the wave, the installation's own reconcile carries it
+  You supply at commit: muster-token-exchange-oak-hazel-client-secret
+  Vault copies for the wave, the pair's values only:
+    muster-token-exchange-oak-hazel-client-secret: giantswarm/acme-management-clusters:management-clusters/hazel/extras/agent-platform/secrets/oak-token-exchange-credentials.yaml → --secret muster-token-exchange-oak-hazel-client-secret=… at commit
+  Outside the pair, not copied by the wave (the installation's own reconcile carries them):
+    oak-mcp-capi-dex-client-secret: giantswarm/acme-management-clusters:management-clusters/oak/extras/mcp-capi/oauth-credentials.enc.yaml#stringData.dex-client-secret → giantswarm/acme-management-clusters:management-clusters/oak/extras/mcp-capi/dex-client-mcp-capi-secret.yaml#stringData.secret
+    oak-mcp-prometheus-valkey-password: giantswarm/acme-management-clusters:management-clusters/oak/extras/mcp-prometheus/valkey-credentials.enc.yaml#stringData.default → giantswarm/acme-management-clusters:management-clusters/oak/extras/mcp-prometheus/oauth-credentials.enc.yaml#stringData.VALKEY_PASSWORD
+
+Supplied at commit, in one run for the set: --secret <field>=<source> for every installation that asks for the field,
+  --secret <installation>/<field>=<source> for that installation alone; <source> is beekeeper:<ref>, @<file>, env:<NAME> or - (one field)
+
+Pull requests, in order:
+  1. giantswarm/acme-management-clusters: 3 changes for oak

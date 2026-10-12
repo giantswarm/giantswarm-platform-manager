@@ -14,7 +14,7 @@ import (
 const (
 	credentials  = "acme/mcs:extras/server/oauth-credentials.enc.yaml"  // #nosec G101 -- a file path, not a value
 	valkey       = "acme/mcs:extras/server/valkey-credentials.enc.yaml" // #nosec G101 -- a file path, not a value
-	dexClient    = "acme/mcs:extras/server/dex-client-server.yaml"
+	dexClient    = "acme/mcs:extras/server/dex-client-server-secret.yaml"
 	revisionFile = "acme/mcs:extras/server/credentials-revision.enc.yaml" // #nosec G101 -- a file path, not a value
 	patch        = "acme/configs:installations/x/apps/dex-app/configmap-values.yaml.patch"
 	client       = "client"
@@ -22,7 +22,16 @@ const (
 	password     = "valkey"
 	revision     = "revision"
 	pair         = "pair"
+	// The key paths of a client secret in a credentials Secret and in a Dex client Secret.
+	clientKey = "stringData.client-secret"
+	secretKey = "stringData.secret" // #nosec G101 -- a key path, not a value
+	// The key paths of the Valkey password and the revision in a Valkey Secret.
+	defaultKey  = "stringData.default"
+	revisionKey = "stringData.revision"
 )
+
+// revisions names the server's credentials revision as one.
+var revisions = map[string]bool{revision: true}
 
 func generatedOf(names ...string) map[string]*GeneratedSecret {
 	out := map[string]*GeneratedSecret{}
@@ -34,43 +43,145 @@ func generatedOf(names ...string) map[string]*GeneratedSecret {
 
 func rotating(t *testing.T, g map[string]*GeneratedSecret, name, forcedBy string, frozenIn ...string) {
 	t.Helper()
-	if gs := g[name]; !gs.Rotates || gs.Kept || gs.Refusal != "" || gs.ForcedBy != forcedBy || !slices.Equal(gs.FrozenIn, frozenIn) {
+	if gs := g[name]; !gs.Rotates || gs.Kept || gs.Refusal != "" || gs.ForcedBy != forcedBy || !slices.Equal(gs.FrozenIn, frozenIn) || len(gs.Carries) != 0 {
 		t.Fatalf("%s: %+v, want rotating, forced by %s, frozen in %v", name, gs, forcedBy, frozenIn)
 	}
 }
 
 func kept(t *testing.T, g map[string]*GeneratedSecret, name string, frozenIn ...string) {
 	t.Helper()
-	if gs := g[name]; gs.Rotates || !gs.Kept || gs.Refusal != "" || gs.ForcedBy != "" || !slices.Equal(gs.FrozenIn, frozenIn) {
+	if gs := g[name]; gs.Rotates || !gs.Kept || gs.Refusal != "" || gs.ForcedBy != "" || !slices.Equal(gs.FrozenIn, frozenIn) || len(gs.Carries) != 0 {
 		t.Fatalf("%s: %+v, want kept, frozen in %v", name, gs, frozenIn)
 	}
 }
 
-// The server's credentials file and its Valkey Secret are on record as the
-// render has them and the Dex client Secret is new: the client secret
-// rotates into both, forced by the new file; the credentials file being
-// rewritten, the encryption key it alone holds rotates too, and so does the
-// valkey password it shares with the Valkey Secret — that file is rewritten
-// as well, both forced by the credentials file. Nothing is refused.
-func TestFrozenRotatesThroughTheRewrittenFiles(t *testing.T) {
+// carried holds name to kept on record in frozenIn and carried as carries.
+func carried(t *testing.T, g map[string]*GeneratedSecret, name string, frozenIn []string, carries ...Carry) {
+	t.Helper()
+	if gs := g[name]; gs.Rotates || !gs.Kept || gs.Refusal != "" || gs.ForcedBy != "" || !slices.Equal(gs.FrozenIn, frozenIn) || !slices.Equal(gs.Carries, carries) {
+		t.Fatalf("%s: %+v, want kept, frozen in %v, carried %v", name, gs, frozenIn, carries)
+	}
+}
+
+// fresh holds name to a value no file on record holds: drawn by the vault
+// as carries, or by the commit without any; pending in pendingIn.
+func fresh(t *testing.T, g map[string]*GeneratedSecret, name string, pendingIn []string, carries ...Carry) {
+	t.Helper()
+	if gs := g[name]; gs.Rotates || gs.Kept || gs.Refusal != "" || gs.ForcedBy != "" || len(gs.FrozenIn) != 0 || !slices.Equal(gs.PendingIn, pendingIn) || !slices.Equal(gs.Carries, carries) {
+		t.Fatalf("%s: %+v, want fresh, pending in %v, carried %v", name, gs, pendingIn, carries)
+	}
+}
+
+// keyPath is the key path of a server Secret's entry.
+func keyPath(file, k string) string { return file + "#stringData." + k }
+
+// A record from before a Dex client had a Secret of its own — kagent's
+// oauth2-proxy credentials holding the client secret and the cookie secret,
+// muster's OAuth credentials holding the client secret, the encryption key
+// and the registration token, a server's credentials holding the client
+// secret and the key beside the Valkey password its Valkey Secret shares —
+// and the render adds the Dex client Secret. The client secret is on record,
+// so it is kept and the new file takes it from the record by the caller's
+// vault, at the key paths; nothing rotates: the credentials file is not
+// rewritten, so the names it holds alone stay kept, the Valkey Secret alike.
+// The commit refuses until the carry is on record, naming the value and the
+// file, and rewrites no file.
+func TestFrozenCarriesANameANewFileShares(t *testing.T) {
 	g := generatedOf(client, key, password)
-	rewrite := frozen(g, []holder{
-		{file: credentials, change: ChangeUnchanged, secret: []string{client, key, password}},
-		{file: valkey, change: ChangeUnchanged, secret: []string{password}},
-		{file: dexClient, change: ChangeCreate, secret: []string{client}},
-	}, nil, false)
-	rotating(t, g, client, dexClient, credentials)
-	rotating(t, g, key, credentials, credentials)
-	rotating(t, g, password, credentials, credentials, valkey)
-	if len(rewrite) != 2 || !rewrite[credentials] || !rewrite[valkey] {
-		t.Fatalf("rewritten files %v", rewrite)
+	paths := map[string]string{client: clientKey, key: "stringData.key", password: "stringData.password"}
+	whole := frozen(g, []holder{
+		{file: credentials, change: ChangeUnchanged, secret: []string{client, key, password}, paths: paths},
+		{file: valkey, change: ChangeUnchanged, secret: []string{password}, paths: map[string]string{password: defaultKey}},
+		{file: dexClient, change: ChangeCreate, secret: []string{client}, paths: map[string]string{client: secretKey}},
+	}, nil, true, nil)
+	carried(t, g, client, []string{credentials}, Carry{From: keyPath(credentials, "client-secret"), To: keyPath(dexClient, "secret"), Create: true})
+	kept(t, g, key, credentials)
+	kept(t, g, password, credentials, valkey)
+	if len(whole) != 0 {
+		t.Fatalf("files written whole %v", whole)
 	}
 	p := Installation{GeneratedSecrets: []GeneratedSecret{*g[client], *g[key], *g[password]}}
-	if rotated := p.Rotated(); len(rotated) != 2 || !rotated[credentials] || !rotated[valkey] {
-		t.Fatalf("rotated files %v", rotated)
+	if len(p.Rotated()) != 0 || len(p.Rotating()) != 0 || p.FrozenRefusal() != "" {
+		t.Fatalf("rotation: %v %v, refusal %q", p.Rotated(), p.Rotating(), p.FrozenRefusal())
 	}
-	if got := p.Rotating(); !slices.Equal(got, []string{client, key, password}) || p.FrozenRefusal() != "" {
-		t.Fatalf("rotating %v, refusal %q", got, p.FrozenRefusal())
+	if r := p.CarryRefusal(); !strings.Contains(r, client+" is on record in "+credentials+" and "+keyPath(dexClient, "secret")+" takes it") || strings.Contains(r, key) {
+		t.Fatalf("carry refusal %q", r)
+	}
+}
+
+// A new file whose values no record holds is written by the commit, not by
+// the vault: the server's revision Secret on a record that predates the
+// revision, its credentials file and Valkey Secret lacking the key and
+// standing without it (pending), and the Dex client Secret new as well,
+// taking the client secret from the record. The revision gets its verdict:
+// no file on record holds it, drawn at commit, pending in the two files.
+func TestFrozenDrawsANewFilesValuesAtCommit(t *testing.T) {
+	g := generatedOf(client, key, password, revision)
+	whole := frozen(g, []holder{
+		{file: credentials, change: ChangeUnchanged, secret: []string{client, key, revision}, lacks: []string{revision}, paths: map[string]string{client: clientKey}},
+		{file: valkey, change: ChangeUnchanged, secret: []string{password, revision}, lacks: []string{revision}},
+		{file: revisionFile, change: ChangeCreate, secret: []string{revision}},
+		{file: dexClient, change: ChangeCreate, secret: []string{client}, paths: map[string]string{client: secretKey}},
+	}, nil, true, revisions)
+	fresh(t, g, revision, []string{credentials, valkey})
+	carried(t, g, client, []string{credentials}, Carry{From: keyPath(credentials, "client-secret"), To: keyPath(dexClient, "secret"), Create: true})
+	kept(t, g, key, credentials)
+	kept(t, g, password, valkey)
+	if len(whole) != 1 || !whole[revisionFile] {
+		t.Fatalf("files written whole %v", whole)
+	}
+}
+
+// mcp-prometheus's credentials Secret on a 3-line record holds the client
+// secret and the key; the 4 line adds the Valkey password, on record in the
+// Valkey Secret, and the revision. The file's only differences are the keys
+// it lacks, so the vault fills it: the password is kept and carried from the
+// Valkey Secret into the credentials file at its key path, the revision
+// waits in both files, and the client secret and the key stand — no file is
+// rewritten. The Dex client Secret new as well takes the client secret.
+func TestFrozenCarriesAKeyAFileOnRecordLacks(t *testing.T) {
+	g := generatedOf(client, key, password, revision)
+	whole := frozen(g, []holder{
+		{file: credentials, change: ChangeUpdate, secret: []string{client, key, password, revision}, lacks: []string{password, revision}, fillable: true,
+			paths: map[string]string{client: "stringData.DEX_CLIENT_SECRET", key: "stringData.MCP_OAUTH_ENCRYPTION_KEY", password: "stringData.VALKEY_PASSWORD", revision: "stringData.CREDENTIALS_REVISION"}}, // #nosec G101 -- key paths, not values
+		{file: valkey, change: ChangeUnchanged, secret: []string{password, revision}, lacks: []string{revision}, paths: map[string]string{password: defaultKey, revision: revisionKey}},
+		{file: revisionFile, change: ChangeCreate, secret: []string{revision}},
+		{file: dexClient, change: ChangeCreate, secret: []string{client}, paths: map[string]string{client: secretKey}},
+	}, nil, true, revisions)
+	carried(t, g, password, []string{valkey}, Carry{From: keyPath(valkey, "default"), To: keyPath(credentials, "VALKEY_PASSWORD")})
+	carried(t, g, client, []string{credentials}, Carry{From: keyPath(credentials, "DEX_CLIENT_SECRET"), To: keyPath(dexClient, "secret"), Create: true})
+	kept(t, g, key, credentials)
+	fresh(t, g, revision, []string{credentials, valkey})
+	if len(whole) != 1 || !whole[revisionFile] {
+		t.Fatalf("files written whole %v", whole)
+	}
+	p := Installation{GeneratedSecrets: []GeneratedSecret{*g[client], *g[key], *g[password], *g[revision]}}
+	if r := p.CarryRefusal(); !strings.Contains(r, password+" is on record in "+valkey) || !strings.Contains(r, client+" is on record in "+credentials) || strings.Contains(r, revision+" is") {
+		t.Fatalf("carry refusal %q", r)
+	}
+}
+
+// A file on record lacks a value no file holds (the render adds a new key):
+// the vault draws it there, and a new file sharing it takes it from there
+// rather than having the commit draw a second one. The file's other values
+// stand. A credentials revision is not drawn this way: it waits.
+func TestFrozenDrawsAFreshKeyAFileOnRecordLacks(t *testing.T) {
+	const cookie, cookieFile = "cookie", "acme/mcs:extras/server/cookie-secret.enc.yaml" // #nosec G101 -- a name and a file path, not values
+	g := generatedOf(client, cookie, revision)
+	whole := frozen(g, []holder{
+		{file: credentials, change: ChangeUpdate, secret: []string{client, cookie, revision}, lacks: []string{cookie, revision}, fillable: true,
+			paths: map[string]string{client: clientKey, cookie: "stringData.cookie-secret", revision: "stringData.credentials-revision"}},
+		{file: cookieFile, change: ChangeCreate, secret: []string{cookie}, paths: map[string]string{cookie: "stringData.cookie"}},
+	}, nil, true, revisions)
+	fresh(t, g, cookie, nil, Carry{To: keyPath(credentials, "cookie-secret")}, Carry{From: keyPath(credentials, "cookie-secret"), To: keyPath(cookieFile, "cookie"), Create: true})
+	kept(t, g, client, credentials)
+	fresh(t, g, revision, []string{credentials})
+	if len(whole) != 0 {
+		t.Fatalf("files written whole %v", whole)
+	}
+	p := Installation{GeneratedSecrets: []GeneratedSecret{*g[client], *g[cookie], *g[revision]}}
+	if r := p.CarryRefusal(); !strings.Contains(r, cookie+" is drawn by your vault into "+keyPath(credentials, "cookie-secret")+", "+keyPath(cookieFile, "cookie")) {
+		t.Fatalf("carry refusal %q", r)
 	}
 }
 
@@ -84,33 +195,36 @@ func TestFrozenKeepsTheValuesWhenNoFileIsWritten(t *testing.T) {
 		{file: dexClient, change: ChangeUnchanged, secret: []string{client}},
 		{file: valkey, change: ChangeUnchanged, secret: []string{password}},
 		{file: "acme/mcs:extras/other.yaml", change: ChangeUnknown, secret: []string{"other"}},
-	}, nil, false)
+	}, nil, false, nil)
 	kept(t, g, client, dexClient, credentials)
 	kept(t, g, password, credentials, valkey)
-	if gs := g["other"]; gs.Rotates || gs.Kept || len(gs.FrozenIn) != 0 {
+	if gs := g["other"]; gs.Rotates || gs.Kept || len(gs.FrozenIn) != 0 || len(gs.Carries) != 0 {
 		t.Fatalf("other: %+v", gs)
 	}
 	p := Installation{GeneratedSecrets: []GeneratedSecret{*g[client], *g[password]}}
-	if len(rewrite) != 0 || len(p.Rotated()) != 0 || len(p.Rotating()) != 0 {
+	if len(rewrite) != 0 || len(p.Rotated()) != 0 || len(p.Rotating()) != 0 || p.CarryRefusal() != "" {
 		t.Fatalf("rotation without a file to write: %v %v %v", rewrite, p.Rotated(), p.Rotating())
 	}
 }
 
-// The render changes the credentials file's plaintext skeleton (a field
-// added): the file is written anew, so every name it holds rotates, forced
-// by the file itself; the Dex client Secret kept on record shares the client
-// secret and is rewritten with it. The Valkey Secret shares nothing with it
-// and keeps its password.
+// The render changes the credentials file's plaintext skeleton beyond the
+// keys it lacks (a field changed): the file is written anew, so every name
+// it holds rotates, forced by the file itself with the cause; the Dex client
+// Secret kept on record shares the client secret and is rewritten with it.
+// The Valkey Secret shares nothing with it and keeps its password.
 func TestFrozenARewrittenSkeletonForcesItsNames(t *testing.T) {
 	g := generatedOf(client, key, password)
 	rewrite := frozen(g, []holder{
 		{file: credentials, change: ChangeUpdate, secret: []string{client, key}},
 		{file: dexClient, change: ChangeUnchanged, secret: []string{client}},
 		{file: valkey, change: ChangeUnchanged, secret: []string{password}},
-	}, nil, false)
+	}, nil, false, nil)
 	rotating(t, g, client, credentials, dexClient, credentials)
 	rotating(t, g, key, credentials, credentials)
 	kept(t, g, password, valkey)
+	if g[client].Cause != causeSkeleton || g[key].Cause != causeSkeleton {
+		t.Fatalf("cause %q, %q", g[client].Cause, g[key].Cause)
+	}
 	if len(rewrite) != 2 || !rewrite[credentials] || !rewrite[dexClient] {
 		t.Fatalf("rewritten files %v", rewrite)
 	}
@@ -126,7 +240,7 @@ func TestFrozenPublicHalfNeedsThePair(t *testing.T) {
 	rewrite := frozen(g, []holder{
 		{file: keys, change: ChangeUnchanged, secret: []string{pair}},
 		{file: configmap, change: ChangeUpdate, public: []string{pair}},
-	}, nil, false)
+	}, nil, false, nil)
 	rotating(t, g, pair, configmap, keys)
 	if len(rewrite) != 2 || !rewrite[keys] || !rewrite[configmap] {
 		t.Fatalf("rewritten files %v", rewrite)
@@ -135,7 +249,7 @@ func TestFrozenPublicHalfNeedsThePair(t *testing.T) {
 	rewrite = frozen(g, []holder{
 		{file: keys, change: ChangeUpdate, secret: []string{pair}},
 		{file: configmap, change: ChangeUnchanged, public: []string{pair}},
-	}, nil, false)
+	}, nil, false, nil)
 	rotating(t, g, pair, keys, keys)
 	if len(rewrite) != 2 || !rewrite[configmap] {
 		t.Fatalf("the plain file kept with the public half is not rewritten: %v", rewrite)
@@ -157,11 +271,14 @@ func TestFrozenRevisionCouplesTheFilesOfAServer(t *testing.T) {
 		{file: valkey, change: ChangeUpdate, secret: []string{password, revision}},
 		{file: revisionFile, change: ChangeUnchanged, secret: []string{revision}},
 		{file: dexClient, change: ChangeUnchanged, secret: []string{client}},
-	}, nil, false)
+	}, nil, false, revisions)
 	rotating(t, g, password, valkey, valkey)
 	rotating(t, g, revision, valkey, revisionFile, credentials, valkey)
 	rotating(t, g, client, credentials, dexClient, credentials)
 	rotating(t, g, key, credentials, credentials)
+	if g[client].Cause != "rewritten with "+revision {
+		t.Fatalf("cause %q", g[client].Cause)
+	}
 	if len(rewrite) != 4 || !rewrite[valkey] || !rewrite[credentials] || !rewrite[revisionFile] || !rewrite[dexClient] {
 		t.Fatalf("rewritten files %v", rewrite)
 	}
@@ -173,7 +290,7 @@ func TestFrozenRevisionCouplesTheFilesOfAServer(t *testing.T) {
 		{file: valkey, change: ChangeUnchanged, secret: []string{password, revision}},
 		{file: revisionFile, change: ChangeUnchanged, secret: []string{revision}},
 		{file: dexClient, change: ChangeUnchanged, secret: []string{client}},
-	}, nil, false)
+	}, nil, false, revisions)
 	kept(t, g, revision, revisionFile, credentials, valkey)
 	kept(t, g, password, valkey)
 	if len(rewrite) != 0 {
@@ -182,13 +299,21 @@ func TestFrozenRevisionCouplesTheFilesOfAServer(t *testing.T) {
 }
 
 // A name frozen in a file with several owners cannot rotate: rewriting it
-// would write over their values. The refusal names the name and the file.
+// would write over their values. The refusal names the name and the file. A
+// new file that shares the name takes it from that file by the vault, no
+// rotation needed; a file rewritten whole that holds it forces one, refused.
 func TestFrozenInASharedFileIsRefused(t *testing.T) {
 	g := generatedOf(client)
 	frozen(g, []holder{
+		{file: patch, change: ChangeUnchanged, shared: true, secret: []string{client}, paths: map[string]string{client: "oidc.extraStaticClients.0.secret"}},
+		{file: dexClient, change: ChangeCreate, secret: []string{client}, paths: map[string]string{client: secretKey}},
+	}, nil, false, nil)
+	carried(t, g, client, []string{patch}, Carry{From: patch + "#oidc.extraStaticClients.0.secret", To: keyPath(dexClient, "secret"), Create: true})
+	g = generatedOf(client)
+	frozen(g, []holder{
 		{file: patch, change: ChangeUnchanged, shared: true, secret: []string{client}},
-		{file: dexClient, change: ChangeCreate, secret: []string{client}},
-	}, nil, false)
+		{file: dexClient, change: ChangeUpdate, secret: []string{client}},
+	}, nil, false, nil)
 	gs := g[client]
 	if gs.Rotates || gs.Kept || gs.ForcedBy != "" || !strings.Contains(gs.Refusal, client) || !strings.Contains(gs.Refusal, patch) {
 		t.Fatalf("client: %+v", gs)
@@ -214,7 +339,7 @@ func TestFrozenRotatesOnRequest(t *testing.T) {
 		{file: revisionFile, change: ChangeUnchanged, secret: []string{revision}},
 		{file: dexClient, change: ChangeUnchanged, secret: []string{client}},
 		{file: otherFile, change: ChangeUnchanged, secret: []string{other}},
-	}, []string{password, revision}, false)
+	}, []string{password, revision}, false, revisions)
 	rotating(t, g, password, ForcedByRequest, valkey)
 	rotating(t, g, revision, ForcedByRequest, revisionFile, credentials, valkey)
 	rotating(t, g, client, credentials, dexClient, credentials)
@@ -230,6 +355,22 @@ func TestFrozenRotatesOnRequest(t *testing.T) {
 	}
 }
 
+// A rotation asked for reaches a new file that shares the name: the commit
+// writes the new file with the new value, no carry, and the credentials file
+// on record is rewritten with it, its other values forced.
+func TestFrozenARequestWritesTheNewFileItReaches(t *testing.T) {
+	g := generatedOf(client, key)
+	whole := frozen(g, []holder{
+		{file: credentials, change: ChangeUnchanged, secret: []string{client, key}},
+		{file: dexClient, change: ChangeCreate, secret: []string{client}},
+	}, []string{client}, true, nil)
+	rotating(t, g, client, ForcedByRequest, credentials)
+	rotating(t, g, key, credentials, credentials)
+	if len(whole) != 2 || !whole[credentials] || !whole[dexClient] {
+		t.Fatalf("files written whole %v", whole)
+	}
+}
+
 // A value asked for that is frozen in a file with several owners cannot
 // rotate, the request alike: the refusal names the value and the file.
 func TestFrozenOnRequestInASharedFileIsRefused(t *testing.T) {
@@ -237,7 +378,7 @@ func TestFrozenOnRequestInASharedFileIsRefused(t *testing.T) {
 	frozen(g, []holder{
 		{file: patch, change: ChangeUnchanged, shared: true, secret: []string{client}},
 		{file: dexClient, change: ChangeUnchanged, secret: []string{client}},
-	}, []string{client}, false)
+	}, []string{client}, false, nil)
 	gs := g[client]
 	if gs.Rotates || gs.Kept || gs.ForcedBy != "" || !strings.Contains(gs.Refusal, client) || !strings.Contains(gs.Refusal, patch) {
 		t.Fatalf("client: %+v", gs)
@@ -334,8 +475,8 @@ func TestBuildRotatesOnRequest(t *testing.T) {
 		if f.Path == "other/oauth-credentials.enc.yaml" {
 			want = ChangeUnchanged
 		}
-		if f.Change != want {
-			t.Errorf("%s: %s, want %s", f.Path, f.Change, want)
+		if f.Change != want || f.Rewritten != (want == ChangeUpdate) {
+			t.Errorf("%s: %s (rewritten %v), want %s", f.Path, f.Change, f.Rewritten, want)
 		}
 	}
 	if p.Diff[ChangeUpdate] != 4 || p.Diff[ChangeUnchanged] != 1 || p.FrozenRefusal() != "" {
@@ -344,10 +485,11 @@ func TestBuildRotatesOnRequest(t *testing.T) {
 }
 
 // A server enabled as gazelle's are: its revision Secret's skeleton changes
-// (the render adds a key) while its credentials file and Valkey Secret hold
-// the revision beside their values. Where the capability is on record,
-// nobody asked for a rotation, so none happens: every name the change would
-// rotate is refused, naming the file that forces it, and the commit refuses.
+// (a field changed) while its credentials file and Valkey Secret hold the
+// revision beside their values. Where the capability is on record, nobody
+// asked for a rotation, so none happens: every name the change would rotate
+// is refused, naming the file that forces it and the cause, and the commit
+// refuses.
 func TestFrozenRefusesAnUnrequestedRotationOnRecord(t *testing.T) {
 	g := generatedOf(client, key, password, revision)
 	frozen(g, []holder{
@@ -355,14 +497,14 @@ func TestFrozenRefusesAnUnrequestedRotationOnRecord(t *testing.T) {
 		{file: valkey, change: ChangeUnchanged, secret: []string{password, revision}},
 		{file: dexClient, change: ChangeUnchanged, secret: []string{client}},
 		{file: revisionFile, change: ChangeUpdate, secret: []string{revision}},
-	}, nil, true)
+	}, nil, true, revisions)
 	for _, n := range []string{client, key, password, revision} {
 		if gs := g[n]; gs.Rotates || gs.Kept || !strings.Contains(gs.Refusal, n+" would rotate") || !strings.Contains(gs.Refusal, "rotate "+n) {
 			t.Fatalf("%s: %+v, want refused", n, gs)
 		}
 	}
-	if !strings.Contains(g[revision].Refusal, "forced by "+revisionFile) {
-		t.Fatalf("the refusal does not name the file: %q", g[revision].Refusal)
+	if !strings.Contains(g[revision].Refusal, "forced by "+revisionFile+" ("+causeSkeleton+")") || !strings.Contains(g[client].Refusal, "forced by "+credentials+" (rewritten with "+revision+")") {
+		t.Fatalf("the refusals do not name the file and the cause: %q, %q", g[revision].Refusal, g[client].Refusal)
 	}
 	p := Installation{GeneratedSecrets: []GeneratedSecret{*g[client], *g[key], *g[password], *g[revision]}}
 	if len(p.Rotating()) != 0 || p.FrozenRefusal() == "" {
@@ -382,12 +524,37 @@ func TestFrozenRotatesWhatARequestReachesOnRecord(t *testing.T) {
 		{file: valkey, change: ChangeUnchanged, secret: []string{password, revision}},
 		{file: dexClient, change: ChangeUnchanged, secret: []string{client}},
 		{file: keys, change: ChangeUpdate, secret: []string{pair}},
-	}, []string{password, revision}, true)
+	}, []string{password, revision}, true, revisions)
 	rotating(t, g, password, ForcedByRequest, valkey)
 	rotating(t, g, revision, ForcedByRequest, credentials, valkey)
 	rotating(t, g, client, credentials, dexClient, credentials)
 	rotating(t, g, key, credentials, credentials)
 	if gs := g[pair]; gs.Rotates || !strings.Contains(gs.Refusal, "forced by "+keys) {
 		t.Fatalf("the unrequested rotation: %+v", gs)
+	}
+}
+
+// The server's credentials file on record lacks the Valkey password and the
+// revision, the revision Secret and the Valkey Secret holding the revision:
+// the password is carried into the credentials file, the revision is not —
+// it is kept on record and the credentials file stands without it, pending,
+// until a rotation asked for rewrites the file from the render.
+func TestFrozenCarriesNoPendingRevision(t *testing.T) {
+	g := generatedOf(client, key, password, revision)
+	whole := frozen(g, []holder{
+		{file: credentials, change: ChangeUpdate, secret: []string{client, key, password, revision}, lacks: []string{password, revision}, fillable: true,
+			paths: map[string]string{password: "stringData.VALKEY_PASSWORD", revision: "stringData.CREDENTIALS_REVISION"}}, // #nosec G101 -- key paths, not values
+		{file: valkey, change: ChangeUnchanged, secret: []string{password, revision}, paths: map[string]string{password: defaultKey, revision: revisionKey}},
+		{file: revisionFile, change: ChangeUnchanged, secret: []string{revision}, paths: map[string]string{revision: revisionKey}},
+		{file: dexClient, change: ChangeUnchanged, secret: []string{client}},
+	}, nil, true, revisions)
+	carried(t, g, password, []string{valkey}, Carry{From: keyPath(valkey, "default"), To: keyPath(credentials, "VALKEY_PASSWORD")})
+	if gs := g[revision]; !gs.Kept || !slices.Equal(gs.FrozenIn, []string{revisionFile, valkey}) || len(gs.Carries) != 0 || !slices.Equal(gs.PendingIn, []string{credentials}) {
+		t.Fatalf("the revision: %+v", gs)
+	}
+	kept(t, g, client, dexClient, credentials)
+	kept(t, g, key, credentials)
+	if len(whole) != 0 {
+		t.Fatalf("files written whole %v", whole)
 	}
 }

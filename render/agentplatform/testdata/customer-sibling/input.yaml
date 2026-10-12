@@ -1,0 +1,37 @@
+# A public customer installation on the 3 chart line running the agent platform as a sibling of
+# the organisation's aggregator ("heron", the multi-cluster-aggregator shape): the organisation's
+# portal on "kestrel" and the fleet hub's ("gopher") sign people in on it, and the musters of
+# gopher and heron broker tokens into it. Its Dex registers a token-exchange client for each hub
+# and, under oidc.customer.connectors, the connector heron's exchange names — the organisation's
+# plain name, heron being its only hub of the organisation — with heron's Dex as the issuer;
+# gopher's connector comes from the fleet's Dex base and is not rendered. Invented names,
+# placeholder values.
+input:
+  installation:
+    name: plover
+    baseDomain: plover.oakridge.example
+    customer: oakridge
+    provider: capa
+    private: false
+    chartLine: "3"
+    musterClientId: 00000000-0000-4000-8000-000000000004
+    podCertificateRequest: false
+    portalClientSecret: true
+    portals:
+      - installation: kestrel
+        customer: oakridge
+        domain: portal.kestrel.oakridge.example
+        chartLine: ">=0.244.7 <1.0.0"
+      - installation: gopher
+        customer: giantswarm
+        domain: portal.example.io
+        clientId: Yx7hub0portal0client0id0on0record0
+        chartLine: ">=2.1.0 <3.0.0"
+    federation:
+      hubs: [gopher, heron]
+      registryHub: gopher
+      targets: []
+      connectors:
+        - {hub: gopher, customer: giantswarm, baseDomain: gopher.example.io, first: true}
+        - {hub: heron, customer: oakridge, baseDomain: heron.oakridge.example, first: true}
+secrets: {}

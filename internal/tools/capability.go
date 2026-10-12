@@ -24,6 +24,11 @@ const (
 	ArgContent      = "content"
 	// ArgRotate names the generated values to rotate on request.
 	ArgRotate = "rotate"
+	// ArgForceJoin lets a commit proceed over what the plan takes off an
+	// installation's muster.
+	ArgForceJoin = "forceJoin"
+	// ArgKeep names the files a disable keeps.
+	ArgKeep = "keep"
 )
 
 // CapabilityResult is the dry run of enable_capability and
@@ -93,11 +98,17 @@ func capabilityOptions() []mcp.ToolOption {
 		mcp.WithString(ArgCapability, mcp.Description(capabilityArgDescription), mcp.Enum(installations.CapabilityNames()...)),
 		mcp.WithObject(ArgInputs, mcp.Description(inputsArgDescription)),
 		mcp.WithBoolean(ArgContent, mcp.Description("Include the rendered content of every file and the file on record (default: true for one installation, false for a set); false answers paths and changes only. An answer above 1 MiB is refused with its size: ask for less.")),
-		mcp.WithObject(ArgSecrets, mcp.Description("mode commit only: the secret values the plan's suppliedSecrets name, by field. They land inside the encrypted files and nowhere else — not in the Action, not in a log, not in an answer.")),
+		mcp.WithObject(ArgSecrets, mcp.Description("mode commit only: the secret values the plan's suppliedSecrets name, by field; over a set (the wave) <field> goes to every installation that asks for it and <installation>/<field> to that one alone. They land inside the encrypted files and nowhere else — not in the Action, not in a log, not in an answer.")),
 		mcp.WithArray(ArgRotate, mcp.Description(rotateArgDescription), mcp.Items(stringItems())),
+		mcp.WithBoolean(ArgForceJoin, mcp.Description(forceJoinArgDescription)),
 		mcp.WithString(ArgReason, mcp.Description(reasonArgDescription)),
 	}
 }
+
+// forceJoinArgDescription describes the forceJoin argument of the write
+// tools: the way past the join refusal.
+const forceJoinArgDescription = `Proceed with a reconcile that takes off an installation's muster what it serves beyond the shared defaults (the plan's join: the broker's exchange targets, the identity providers and the MCP servers its agent-platform values list, the public-registration redirect URIs that move to another installation of the set). ` +
+	`A reconcile of an installation as a target of a hub drops those, and a commit is refused (commitRefused) while the installation's muster still serves in-cluster servers of its own — a registry of its own, which the join takes from everyone reaching it there. With forceJoin true the dry run carries the warning (join.forced) and the commit proceeds.`
 
 // reasonArgDescription describes the reason argument of the write tools.
 const reasonArgDescription = `mode commit only, required: why you make the change, in a sentence a teammate judges it by — the team's review shows it above what changes, and so do the notices once it is applied. Recorded on the Action and in the pull requests.`
@@ -165,6 +176,7 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 	}
 	inputs, _ := args[ArgInputs].(map[string]any)
 	rotate := rotateArg(args)
+	forceJoin, _ := args[ArgForceJoin].(bool)
 	whole := wholeArg(args)
 	content := contentArg(args, whole)
 
@@ -200,7 +212,7 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 			out.Skipped = append(out.Skipped, skip)
 			continue
 		}
-		res, err := t.compare(ctx, env, r, def, inputs, content, rotate)
+		res, err := t.compare(ctx, env, r, def, inputs, content, rotate, forceJoin)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -209,6 +221,29 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 	}
 	if err := applyOrder(&out, stringSlice(args[ArgOrder])); err != nil {
 		return nil, nil, fmt.Errorf("%s: %w", tool, err)
+	}
+	// A value two installations of the set create both sides of is drawn
+	// once for the wave: the plans are settled against each other, and the
+	// commit refusal of each plan that changed is read again.
+	ps := make([]*plan.Installation, len(out.Installations))
+	for i := range out.Installations {
+		ps[i] = &out.Installations[i].Installation
+	}
+	changed := plan.ShareDraws(ps)
+	// A registration URI one plan's patch takes off and another's puts on
+	// moves between the two: both sides say so.
+	plan.MoveRedirectURIs(ps)
+	for i := range out.Installations {
+		e := &out.Installations[i]
+		// A set is the wave's shape: a plan that moves a side of a pair
+		// carries the wave's vault copy, the pair's values only, and its
+		// commit refusal is read with it.
+		if one == "" {
+			e.VaultCopies = e.WaveVaultCopies()
+		}
+		if (slices.Contains(changed, e.Name) || len(e.VaultCopies) > 0) && e.Refused == "" && len(e.MissingInputs) == 0 {
+			e.CommitRefused = commitRefusal(e.Installation, env.reports[e.Name].Record)
+		}
 	}
 	if unknown := unknownRotations(rotate, out.Installations); len(unknown) > 0 {
 		where := "no plan of the set lists"
@@ -327,7 +362,8 @@ func skipped(r installations.Report, capability string, named bool) (Skipped, bo
 // defaults, the facts on record the schema names under installation and the
 // inputs the definition derives from the record beyond them (RecordInputs),
 // what the definition reads back from the files on record (read as the caller,
-// an installation a read-back names resolved among the registry's), and
+// a portal file at the portal host's, an installation a read-back names
+// resolved among the registry's), and
 // the person's typed inputs over it all. A read-back lays over the record
 // only for a person input; a registry input's read-back is answered next
 // to the fact and never laid over — the fact on record stands. The second
@@ -354,7 +390,7 @@ func mergeInputs(ctx context.Context, def installations.Capability, r installati
 	for _, inst := range registry {
 		known = append(known, inst)
 	}
-	back, err := def.ReadBack(ctx, read, r.Installation, known)
+	back, err := def.ReadBack(ctx, read, r.Installation, r.PortalHost(), known)
 	if err != nil {
 		return nil, nil, err
 	}

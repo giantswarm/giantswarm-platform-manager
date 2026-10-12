@@ -1,0 +1,29 @@
+# A public customer installation on the 4 chart line whose own agent-platform values turn workspaces on
+# (workspaces.enabled: true, a kept key with the workspace-manager block): the platform's Dex client
+# carries the workspace-manager's browser sign-in, https://workspace-manager.<domain>/signin, beside the
+# template's redirect URI, and the live probe asks Dex for it. The organisation's own portal signs people
+# in. Invented names, placeholder values.
+input:
+  installation:
+    name: osprey
+    baseDomain: osprey.lakeside.example
+    customer: lakeside
+    provider: capa
+    private: false
+    chartLine: "4"
+    musterClientId: 00000000-0000-4000-8000-000000000004
+    podCertificateRequest: true
+    portalClientSecret: true
+    portals:
+      - installation: osprey
+        customer: lakeside
+        domain: portal.osprey.lakeside.example
+        clientId: backstage
+        chartLine: ">=2.1.0 <3.0.0"
+    federation:
+      hubs: []
+      registryHub: gopher
+      targets: []
+    workspaces:
+      enabled: true
+secrets: {}

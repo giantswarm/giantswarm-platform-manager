@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -22,7 +21,8 @@ import (
 )
 
 // ArgSecrets is the commit's own argument: the supplied secret values by
-// field. They exist inside the encrypted files and nowhere else.
+// field, or by <installation>/<field> for one installation of a wave
+// (suppliedByTarget). They exist inside the encrypted files and nowhere else.
 const ArgSecrets = "secrets"
 
 // SopsConfig is the file of a repository that names the recipients its secret
@@ -155,14 +155,17 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	if refusal := commitRefusal(p, env.reports[one].Record); refusal != "" {
 		return nil, fmt.Errorf("%s: %s: %s; nothing is committed", tool, one, refusal)
 	}
-	if err := checkSupplied(p.SuppliedSecrets, secrets); err != nil {
+	supplied, err := suppliedByTarget(secrets, []plan.Installation{p})
+	if err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
 	}
+	secrets = supplied[one]
+	values := suppliedGenerated(p, secrets)
 	rendered, err := def.Render(inputs, withMarkers(secrets, p.SuppliedOnRecord), render.ModeCommit)
 	if err != nil {
 		return nil, fmt.Errorf("%s: render with the supplied values: %w", tool, err)
 	}
-	if _, err := targetsOf(ctx, env.c, p, rendered.Files, env.byName[one], env.hub); err != nil {
+	if _, err := targetsOf(ctx, env.c, p, rendered.Files, env.byName[one], env.hub, values); err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
 	}
 	res := CommitResult{Caller: identity.Caller(ctx), Tool: tool, Capability: out.Capability, Hub: out.Hub, Installation: one, Plan: p, PullRequests: []actions.PullRequest{}}
@@ -180,7 +183,7 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 		return nil, t.fail(ctx, tool, a, nil, nil, err)
 	}
 	title := prTitle(kind, one, out.Capability, a.Name, "")
-	prs, unchanged, err := t.openPullRequests(ctx, env, a, p, out.PullRequests, rendered.Files, remote, title, prBody(a, p, out.PullRequests))
+	prs, unchanged, err := t.openPullRequests(ctx, env, a, p, out.PullRequests, rendered.Files, remote, title, prBody(a, p, out.PullRequests), values)
 	res.UnchangedRepositories = unchanged
 	if err != nil {
 		return nil, t.fail(ctx, tool, a, remote, prs, err)
@@ -206,11 +209,13 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 
 // openPullRequests opens one installation's pull requests as the caller, one
 // per repository in planned's order on platform/<action>/<installation>: the
-// secret files encrypted for the repository's recipients, a plain file
-// byte-equal to the plan. It answers the pull requests opened (also on
-// error, for the record) and the repositories left with nothing to commit.
-func (t *Tools) openPullRequests(ctx context.Context, env *planned, a *actions.Action, p plan.Installation, planned []plan.PullRequest, rendered render.Fileset, remote commit.Remote, title, body string) ([]actions.PullRequest, []string, error) {
-	targets, err := targetsOf(ctx, env.c, p, rendered, env.byName[p.Name], env.hub)
+// secret files encrypted for the repository's recipients, the values the
+// commit holds (values, by generated name) written in place of their
+// placeholders, a plain file byte-equal to the plan. It answers the pull
+// requests opened (also on error, for the record) and the repositories left
+// with nothing to commit.
+func (t *Tools) openPullRequests(ctx context.Context, env *planned, a *actions.Action, p plan.Installation, planned []plan.PullRequest, rendered render.Fileset, remote commit.Remote, title, body string, values map[string]string) ([]actions.PullRequest, []string, error) {
+	targets, err := targetsOf(ctx, env.c, p, rendered, env.byName[p.Name], env.hub, values)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -467,7 +472,10 @@ func encrypter(ctx context.Context, c *gh.Client, repository string) (*sopsenc.E
 // in it or the entries of other owners kept, the dex patch with their keys
 // kept, the platform patch with the installation's own audiences kept, the
 // tunnelport values with the hub's entries edited in, read as the caller now.
-func targetsOf(ctx context.Context, c *gh.Client, p plan.Installation, rendered render.Fileset, inst, hub installations.Installation) (map[string]*target, error) {
+// values are the generated values the commit holds already, by name — a
+// wave's shared draws, the person's supplied ones — written in place of
+// their placeholders in the secret files, and drawn by nothing else.
+func targetsOf(ctx context.Context, c *gh.Client, p plan.Installation, rendered render.Fileset, inst, hub installations.Installation, values map[string]string) (map[string]*target, error) {
 	planned := map[string]plan.File{}
 	for _, f := range p.Files {
 		planned[f.Repository+":"+f.Path] = f
@@ -498,16 +506,16 @@ func targetsOf(ctx context.Context, c *gh.Client, p plan.Installation, rendered 
 				}
 				content = []byte(pf.Content)
 			}
-			// A secret file the plan updates is written anew: its skeleton
-			// changed, or a rotation rewrites it. The guard stays for a
-			// generated value on record the plan does not rotate: never
-			// generated again.
-			tg.exists[path] = pf.Change == plan.ChangeUpdate && len(f.Generated) > 0 && !rotated[resolved+":"+path]
-			sf := sopsenc.File{Path: path, Content: content}
-			for _, g := range f.Generated {
-				sf.Generated = append(sf.Generated, sopsenc.Generated{Name: g.Name, Placeholder: g.Placeholder, Kind: sopsenc.Kind(g.Kind), Length: g.Length, Half: sopsenc.Half(g.Half), Encoding: sopsenc.Encoding(g.Encoding)})
+			// A secret file the plan updates is written anew when the plan
+			// rewrites it: its skeleton changed, or a rotation rewrites it.
+			// The guard stays for a generated value on record the plan does
+			// not rotate: never generated again.
+			tg.exists[path] = pf.Change == plan.ChangeUpdate && len(f.Generated) > 0 && !pf.Rewritten && !rotated[resolved+":"+path]
+			content, generated := withValues(content, f.Generated, values)
+			if len(generated) < len(f.Generated) && !tg.isSecretFile(path) {
+				return nil, fmt.Errorf("%s:%s is a plain file and a value the commit holds would land in it; nothing is committed", resolved, path)
 			}
-			tg.files = append(tg.files, sf)
+			tg.files = append(tg.files, sopsenc.File{Path: path, Content: content, Generated: generated})
 		}
 	}
 	for _, inc := range p.Includes {
@@ -610,29 +618,54 @@ func withMarkers(secrets map[string]string, onRecord []string) map[string]string
 	return out
 }
 
-// checkSupplied refuses a commit whose supplied values do not match the
-// fields the plan names: one missing, or one the plan does not ask for — a
-// field whose files stand on record is not asked for.
-func checkSupplied(needed []string, secrets map[string]string) error {
-	var missing, unknown []string
-	for _, f := range needed {
-		if secrets[f] == "" {
-			missing = append(missing, f)
+// ScopeSeparator joins an installation and a field in a secrets key that
+// supplies the value to that installation alone: <installation>/<field>.
+const ScopeSeparator = "/"
+
+// suppliedByTarget hands each target the values its plan's suppliedSecrets
+// name: the key <installation>/<field> for that installation alone, else
+// the key <field> for every target that asks for it — the two sides of a
+// pairing hold one value. It refuses a field a target misses and a key no
+// target asks for — a field whose files stand on record is not asked for.
+// Nothing here names a value.
+func suppliedByTarget(secrets map[string]string, targets []plan.Installation) (map[string]map[string]string, error) {
+	out := make(map[string]map[string]string, len(targets))
+	used := map[string]bool{}
+	var missing []string
+	for _, p := range targets {
+		own := make(map[string]string, len(p.SuppliedSecrets))
+		var lacks []string
+		for _, f := range p.SuppliedSecrets {
+			key := p.Name + ScopeSeparator + f
+			if _, ok := secrets[key]; !ok {
+				key = f
+			}
+			if v := secrets[key]; v != "" {
+				own[f] = v
+				used[key] = true
+				continue
+			}
+			lacks = append(lacks, f)
 		}
+		if len(lacks) > 0 {
+			missing = append(missing, p.Name+": "+strings.Join(lacks, ", "))
+		}
+		out[p.Name] = own
 	}
-	for f := range secrets {
-		if !slices.Contains(needed, f) {
-			unknown = append(unknown, f)
+	var unknown []string
+	for key := range secrets {
+		if !used[key] {
+			unknown = append(unknown, key)
 		}
 	}
 	sort.Strings(unknown)
 	switch {
 	case len(missing) > 0:
-		return fmt.Errorf("%s misses the value(s) of %s: the plan's suppliedSecrets name every field", ArgSecrets, strings.Join(missing, ", "))
+		return nil, fmt.Errorf("%s misses the value(s) of %s: the plan's suppliedSecrets name every field, as <field> or <installation>%s<field>", ArgSecrets, strings.Join(missing, "; "), ScopeSeparator)
 	case len(unknown) > 0:
-		return fmt.Errorf("%s names %s, which the plan does not ask for", ArgSecrets, strings.Join(unknown, ", "))
+		return nil, fmt.Errorf("%s names %s, which the plan does not ask for", ArgSecrets, strings.Join(unknown, ", "))
 	}
-	return nil
+	return out, nil
 }
 
 // remoteError says what GitHub refused and what the person can do about it.
@@ -694,6 +727,10 @@ func prBody(a *actions.Action, p plan.Installation, prs []plan.PullRequest) stri
 				fmt.Fprintf(&b, " — rotated: a new value replaces the one on record in %s (forced by %s)", strings.Join(g.FrozenIn, ", "), g.ForcedBy)
 			case g.Kept:
 				fmt.Fprintf(&b, " — kept: the value on record in %s stands, nothing written", strings.Join(g.FrozenIn, ", "))
+			case g.DrawnWith != "":
+				fmt.Fprintf(&b, " — drawn once for the wave with %s: %s takes the same value", g.DrawnWith, g.Peer)
+			case g.Supplied:
+				fmt.Fprintf(&b, " — supplied by the actor: the value on record in %s", g.Peer)
 			}
 			b.WriteString("\n")
 		}

@@ -1,0 +1,132 @@
+disable_capability dry run: agent-platform on kestrel (hub gopher), as jane
+State: enabled
+
+Directories that leave whole: giantswarm/oakridge-management-clusters:management-clusters/kestrel/extras/mcp-kubernetes/, giantswarm/oakridge-management-clusters:management-clusters/kestrel/extras/mcp-prometheus/, giantswarm/oakridge-management-clusters:management-clusters/kestrel/extras/mcp-capi/, giantswarm/oakridge-management-clusters:management-clusters/kestrel/extras/backstage/agent-platform/
+
+Pull requests, in order:
+  1. giantswarm/oakridge-configs: 2 changes
+     delete installations/kestrel/apps/agent-platform/configmap-values.yaml.patch
+     update installations/kestrel/apps/dex-app/configmap-values.yaml.patch
+       drops extraStaticClients[gateway]: its Secret dex-client-gateway is in a removed file
+       drops extraStaticClients[portal-login]: its redirect URI https://portal.kestrel.oakridge.example/api/auth/oidc/handler/frame names portal.kestrel.oakridge.example, a host of the removed platform
+       drops trustedPeers[gateway]: the client it names leaves the patch
+     --- as the commit writes it
+       ingress:
+         largeHeaderBuffers: true
+       oidc:
+         extraStaticClients:
+           - id: own-tool
+             name: own-tool
+             secretRef:
+               name: dex-client-own-tool
+               key: secret
+  2. giantswarm/oakridge-management-clusters: 33 changes
+     delete management-clusters/kestrel/extras/agent-platform/broker-clients.yaml  (not rendered by the definition: nothing that stays renders it under the capability's directory)
+     update management-clusters/kestrel/extras/agent-platform/kustomization.yaml
+     --- as the commit writes it
+       apiVersion: kustomize.config.k8s.io/v1beta1
+       kind: Kustomization
+       resources:
+         - ./mcpclients
+     delete management-clusters/kestrel/extras/agent-platform/mcpclients/dex-client-gateway.yaml  (not rendered by the definition: nothing that stays renders it under the capability's directory)
+       unlisted from management-clusters/kestrel/extras/agent-platform/mcpclients/kustomization.yaml resources[dex-client-gateway.yaml]
+     delete management-clusters/kestrel/extras/agent-platform/mcpclients/gateway.yaml  (not rendered by the definition: nothing that stays renders it under the capability's directory)
+       unlisted from management-clusters/kestrel/extras/agent-platform/mcpclients/kustomization.yaml resources[gateway.yaml]
+     update management-clusters/kestrel/extras/agent-platform/mcpclients/kustomization.yaml
+     --- as the commit writes it
+       apiVersion: kustomize.config.k8s.io/v1beta1
+       kind: Kustomization
+       resources:
+         - shared-ca.yaml
+     delete management-clusters/kestrel/extras/agent-platform/secrets/dex-client-kagent-secret.yaml
+     delete management-clusters/kestrel/extras/agent-platform/secrets/dex-client-muster-secret.yaml
+     delete management-clusters/kestrel/extras/agent-platform/secrets/dex-client-muster-token-exchange-kestrel-secret.yaml  (paired with gopher:management-clusters/gopher/extras/agent-platform/secrets/kestrel-token-exchange-credentials.yaml)
+     delete management-clusters/kestrel/extras/agent-platform/secrets/kagent-oauth2-proxy-credentials.yaml
+     delete management-clusters/kestrel/extras/agent-platform/secrets/kustomization.yaml
+     delete management-clusters/kestrel/extras/agent-platform/secrets/muster-oauth-credentials.yaml
+     delete management-clusters/kestrel/extras/agent-platform/secrets/muster-valkey-credentials.yaml
+     delete management-clusters/kestrel/extras/backstage/agent-platform/ai-chat-credentials.enc.yaml
+     delete management-clusters/kestrel/extras/backstage/agent-platform/app-config.yaml
+     delete management-clusters/kestrel/extras/backstage/agent-platform/kustomization.yaml
+     delete management-clusters/kestrel/extras/backstage/agent-platform/values.yaml
+     update management-clusters/kestrel/extras/backstage/kustomization.yaml
+     --- as the commit writes it
+       apiVersion: kustomize.config.k8s.io/v1beta1
+       kind: Kustomization
+       resources:
+         - ./backstage/
+     update management-clusters/kestrel/extras/kustomization.yaml
+     --- as the commit writes it
+       apiVersion: kustomize.config.k8s.io/v1beta1
+       kind: Kustomization
+       resources:
+         - ./zot/
+         - ./agent-platform/
+     delete management-clusters/kestrel/extras/mcp-capi/credentials-revision.enc.yaml
+     delete management-clusters/kestrel/extras/mcp-capi/dex-client-mcp-capi-secret.yaml
+     delete management-clusters/kestrel/extras/mcp-capi/kustomization.yaml
+     delete management-clusters/kestrel/extras/mcp-capi/oauth-credentials.enc.yaml
+     delete management-clusters/kestrel/extras/mcp-capi/valkey-credentials.enc.yaml
+     delete management-clusters/kestrel/extras/mcp-kubernetes/credentials-revision.enc.yaml
+     delete management-clusters/kestrel/extras/mcp-kubernetes/dex-client-mcp-kubernetes-secret.yaml
+     delete management-clusters/kestrel/extras/mcp-kubernetes/kustomization.yaml
+     delete management-clusters/kestrel/extras/mcp-kubernetes/oauth-credentials.enc.yaml
+     delete management-clusters/kestrel/extras/mcp-kubernetes/valkey-credentials.enc.yaml
+     delete management-clusters/kestrel/extras/mcp-prometheus/credentials-revision.enc.yaml
+     delete management-clusters/kestrel/extras/mcp-prometheus/dex-client-mcp-prometheus-secret.yaml
+     delete management-clusters/kestrel/extras/mcp-prometheus/kustomization.yaml
+     delete management-clusters/kestrel/extras/mcp-prometheus/oauth-credentials.enc.yaml
+     delete management-clusters/kestrel/extras/mcp-prometheus/valkey-credentials.enc.yaml
+
+Kept (--keep):
+  giantswarm/oakridge-management-clusters:management-clusters/kestrel/extras/agent-platform/mcpclients/shared-ca.yaml
+
+Left on record — the disable cannot tell these are agent-platform's; remove them by hand if they are:
+  giantswarm/oakridge-configs:installations/kestrel/apps/dex-app/configmap-values.yaml.patch extraStaticClients[own-tool] (no capability that stays renders it, its Secret dex-client-own-tool is in no file the disable removes)
+
+After the merge, delete on kestrel in this order — the fleet's Kustomization over the tree does not prune:
+  [ ] HelmRelease flux-giantswarm/agent-platform — Helm uninstalls its chart and every workload it rendered, an umbrella chart's component HelmReleases too; volumes stay with their Namespace
+  [ ] HelmRelease flux-giantswarm/mcp-capi — Helm uninstalls its chart and every workload it rendered, an umbrella chart's component HelmReleases too; volumes stay with their Namespace
+  [ ] HelmRelease flux-giantswarm/mcp-capi-valkey — Helm uninstalls its chart and every workload it rendered, an umbrella chart's component HelmReleases too; volumes stay with their Namespace
+  [ ] HelmRelease flux-giantswarm/mcp-kubernetes — Helm uninstalls its chart and every workload it rendered, an umbrella chart's component HelmReleases too; volumes stay with their Namespace
+  [ ] HelmRelease flux-giantswarm/mcp-kubernetes-valkey — Helm uninstalls its chart and every workload it rendered, an umbrella chart's component HelmReleases too; volumes stay with their Namespace
+  [ ] HelmRelease flux-giantswarm/mcp-prometheus — Helm uninstalls its chart and every workload it rendered, an umbrella chart's component HelmReleases too; volumes stay with their Namespace
+  [ ] HelmRelease flux-giantswarm/mcp-prometheus-valkey — Helm uninstalls its chart and every workload it rendered, an umbrella chart's component HelmReleases too; volumes stay with their Namespace
+  [ ] OCIRepository flux-giantswarm/agent-platform — the chart's source: nothing runs from it once its HelmRelease is gone
+  [ ] Konfiguration flux-giantswarm/agent-platform-konfiguration — the values it renders for the HelmRelease from the shared configuration
+  [ ] OCIRepository flux-giantswarm/mcp-capi — the chart's source: nothing runs from it once its HelmRelease is gone
+  [ ] OCIRepository flux-giantswarm/mcp-capi-valkey — the chart's source: nothing runs from it once its HelmRelease is gone
+  [ ] Konfiguration flux-giantswarm/mcp-capi-konfiguration — the values it renders for the HelmRelease from the shared configuration
+  [ ] OCIRepository flux-giantswarm/mcp-kubernetes — the chart's source: nothing runs from it once its HelmRelease is gone
+  [ ] OCIRepository flux-giantswarm/mcp-kubernetes-valkey — the chart's source: nothing runs from it once its HelmRelease is gone
+  [ ] Konfiguration flux-giantswarm/mcp-kubernetes-konfiguration — the values it renders for the HelmRelease from the shared configuration
+  [ ] OCIRepository flux-giantswarm/mcp-prometheus — the chart's source: nothing runs from it once its HelmRelease is gone
+  [ ] OCIRepository flux-giantswarm/mcp-prometheus-valkey — the chart's source: nothing runs from it once its HelmRelease is gone
+  [ ] Konfiguration flux-giantswarm/mcp-prometheus-konfiguration — the values it renders for the HelmRelease from the shared configuration
+  [ ] Namespace agent-platform — everything left inside it: the PersistentVolumeClaims and the data on their volumes (a component's database), the Secrets and ConfigMaps; of this disable Secret broker-clients, ConfigMap gateway-callbacks, Secret muster-oauth-credentials, Secret muster-valkey-credentials
+  [ ] Namespace kagent — everything left inside it: the PersistentVolumeClaims and the data on their volumes (a component's database), the Secrets and ConfigMaps; of this disable Secret kagent-oauth2-proxy-credentials
+  [ ] Namespace mcp-capi — everything left inside it: the PersistentVolumeClaims and the data on their volumes (a component's database), the Secrets and ConfigMaps; of this disable Secret mcp-capi-oauth-credentials, Secret mcp-capi-valkey-auth
+  [ ] Namespace mcp-kubernetes — everything left inside it: the PersistentVolumeClaims and the data on their volumes (a component's database), the Secrets and ConfigMaps; of this disable Secret mcp-kubernetes-oauth-credentials, Secret mcp-kubernetes-valkey-auth
+  [ ] Namespace mcp-prometheus — everything left inside it: the PersistentVolumeClaims and the data on their volumes (a component's database), the Secrets and ConfigMaps; of this disable Secret mcp-prometheus-oauth-credentials, Secret mcp-prometheus-valkey-auth
+  [ ] Secret giantswarm/dex-client-gateway
+  [ ] Secret giantswarm/dex-client-kagent
+  [ ] Secret giantswarm/dex-client-muster
+  [ ] Secret giantswarm/dex-client-muster-token-exchange-kestrel
+  [ ] Secret flux-giantswarm/agent-platform-ai-chat-credentials-backstage
+  [ ] ConfigMap backstage/agent-platform-app-config-backstage
+  [ ] ConfigMap flux-giantswarm/agent-platform-values-backstage
+  [ ] Secret flux-giantswarm/mcp-capi-credentials-revision
+  [ ] Secret giantswarm/dex-client-mcp-capi
+  [ ] Secret flux-giantswarm/mcp-kubernetes-credentials-revision
+  [ ] Secret giantswarm/dex-client-mcp-kubernetes
+  [ ] Secret flux-giantswarm/mcp-prometheus-credentials-revision
+  [ ] Secret giantswarm/dex-client-mcp-prometheus
+
+Still depends on agent-platform:
+  - kestrel shares a value with gopher, which holds the other side in management-clusters/gopher/extras/agent-platform/secrets/kestrel-token-exchange-credentials.yaml
+
+After the merge, check:
+  platformctl installation list kestrel   (agent-platform: not enabled)
+  platformctl installation verify kestrel agent-platform
+
+Commit refused: 1 reference(s) still depend on agent-platform on kestrel

@@ -294,17 +294,18 @@ func filledIn(value string) bool {
 	return false
 }
 
-// pendingRevisions reads an encrypted file on record against the render
-// where the render adds a credentials revision the record does not hold yet
-// (an entry whose value is the marker of one of revisions, under a mapping
-// the record carries without that key): it answers the render without those
-// entries and the revisions they name, or rendered and none. The caller keeps
-// the file as recorded when the rest is its skeleton: the manager decrypts
-// nothing, so writing the key in would draw every value the file holds anew,
-// ending the sessions and clients that hold them, only to add a mark. The
+// lacking reads an encrypted file on record against the render where the
+// render adds a generated value the record does not hold (an entry whose
+// value is the marker of a generated name, under a mapping the record carries
+// without that key): it answers the render without those entries and the
+// names they carry, in the render's order, or rendered and none. The caller
+// keeps the file's values when the rest is its skeleton: the manager
+// decrypts nothing, so writing the key in with a commit would draw every
+// value the file holds anew, ending the sessions and clients that hold them;
+// the caller's vault puts the value under the key instead, and a credentials
 // revision joins the file with the next rotation a person asks for, which
 // rewrites it from the render.
-func pendingRevisions(rendered, current string, revisions map[string]bool) (string, []string) {
+func lacking(rendered, current string) (string, []string) {
 	r, err := documents(rendered)
 	if err != nil {
 		return rendered, nil
@@ -315,7 +316,7 @@ func pendingRevisions(rendered, current string, revisions map[string]bool) (stri
 	}
 	var names []string
 	for i := range r {
-		names = dropPending(root(r[i]), root(c[i]), revisions, names)
+		names = dropLacking(root(r[i]), root(c[i]), names)
 	}
 	if len(names) == 0 {
 		return rendered, nil
@@ -333,10 +334,10 @@ func pendingRevisions(rendered, current string, revisions map[string]bool) (stri
 	return buf.String(), names
 }
 
-// dropPending removes from the render's mapping r every entry the record's
-// mapping c lacks whose value is the marker of a revision, down the mappings
-// both carry, appending the revisions removed to names.
-func dropPending(r, c *yaml.Node, revisions map[string]bool, names []string) []string {
+// dropLacking removes from the render's mapping r every entry the record's
+// mapping c lacks whose value is a generated marker, down the mappings both
+// carry, appending the names removed to names.
+func dropLacking(r, c *yaml.Node, names []string) []string {
 	if r.Kind != yaml.MappingNode || c.Kind != yaml.MappingNode {
 		return names
 	}
@@ -345,12 +346,12 @@ func dropPending(r, c *yaml.Node, revisions map[string]bool, names []string) []s
 	for i := 0; i+1 < len(r.Content); i += 2 {
 		key, value := r.Content[i], r.Content[i+1]
 		cv, onRecord := ck[key.Value]
-		if name, ok := revisionMarker(value, revisions); ok && !onRecord {
+		if name, ok := generatedMarker(value); ok && !onRecord {
 			names = append(names, name)
 			continue
 		}
 		if onRecord {
-			names = dropPending(value, cv, revisions, names)
+			names = dropLacking(value, cv, names)
 		}
 		kept = append(kept, key, value)
 	}
@@ -358,8 +359,8 @@ func dropPending(r, c *yaml.Node, revisions map[string]bool, names []string) []s
 	return names
 }
 
-// revisionMarker is the revision whose marker the scalar is.
-func revisionMarker(n *yaml.Node, revisions map[string]bool) (string, bool) {
+// generatedMarker is the generated name whose marker the scalar is, whole.
+func generatedMarker(n *yaml.Node) (string, bool) {
 	if n.Kind != yaml.ScalarNode {
 		return "", false
 	}
@@ -367,6 +368,44 @@ func revisionMarker(n *yaml.Node, revisions map[string]bool) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	name, ok = strings.CutSuffix(name, ")")
-	return name, ok && revisions[name]
+	return strings.CutSuffix(name, ")")
+}
+
+// markerPaths are the key paths of the render's generated markers by name,
+// dotted, a numeric segment indexing a list (stringData.secret): where the
+// caller's vault reads a value from the file on record, or puts one. A name
+// a file carries at two places keeps the first. A file of several documents
+// answers none: a vault addresses a path in one document.
+func markerPaths(rendered string) map[string]string {
+	docs, err := documents(rendered)
+	if err != nil || len(docs) != 1 {
+		return nil
+	}
+	out := map[string]string{}
+	markerPathsOf(root(docs[0]), "", out)
+	return out
+}
+
+// markerPathsOf walks the render's node, recording the path of each
+// generated marker under the path so far.
+func markerPathsOf(n *yaml.Node, path string, out map[string]string) {
+	if n.Kind == yaml.AliasNode {
+		n = n.Alias
+	}
+	switch n.Kind {
+	case yaml.ScalarNode:
+		if name, ok := generatedMarker(n); ok {
+			if _, seen := out[name]; !seen {
+				out[name] = path
+			}
+		}
+	case yaml.SequenceNode:
+		for i, entry := range n.Content {
+			markerPathsOf(entry, join(path, strconv.Itoa(i)), out)
+		}
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			markerPathsOf(n.Content[i+1], join(path, n.Content[i].Value), out)
+		}
+	}
 }

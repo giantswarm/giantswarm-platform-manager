@@ -1,0 +1,41 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand.
+kagent:
+  # Coding agents run on Claude Code by naming this Harness.
+  harnesses:
+    - name: claude
+      runtime: claude
+  providers:
+    anthropic:
+      apiKeySecretRef: kagent-anthropic-key
+  oauth2-proxy:
+    config:
+      existingSecret: kagent-oauth2-proxy-credentials
+  controller:
+    volumes:
+      - name: cnpg-dsn
+        secret:
+          secretName: kagent-pg-kagent-v3-app
+    nodeSelector:
+      karpenter.sh/capacity-type: on-demand
+    resources:
+      requests:
+        cpu: 100m
+      limits:
+        memory: 1Gi
+postgres:
+  databases:
+    kagent-v3:
+      name: kagent_v3
+  enabled: true
+  affinity:
+    podAntiAffinityType: preferred
+muster:
+  muster:
+    oauth:
+      server:
+        existingSecret: muster-oauth
+        trustedAudiences:
+          - dex-k8s-authenticator
+  resources:
+    limits:
+      memory: 1Gi

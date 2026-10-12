@@ -1,0 +1,59 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+oidc:
+  staticClients:
+    muster:
+      clientSecretRef:
+        name: dex-client-muster
+        key: secret
+    mcpKubernetes:
+      clientSecretRef:
+        name: dex-client-mcp-kubernetes
+        key: secret
+    mcpPrometheus:
+      clientSecretRef:
+        name: dex-client-mcp-prometheus
+        key: secret
+    mcpCapi:
+      clientSecretRef:
+        name: dex-client-mcp-capi
+        key: secret
+    dexK8SAuthenticator:
+      trustedPeers:
+        - backstage
+        - muster-token-exchange-plover
+        - muster-token-exchange-plover-heron
+  extraStaticClients:
+    - id: kagent
+      name: kagent-ui
+      secretRef:
+        name: dex-client-kagent
+        key: secret
+      redirectURIs:
+        - https://kagent.plover.oakridge.example/oauth2/callback
+    - id: backstage
+      name: Dev Portal
+      redirectURIs:
+        - https://portal.kestrel.oakridge.example/api/auth/oidc-plover/handler/frame
+        - https://portal.example.io/api/auth/oidc-plover/handler/frame
+      secretRef:
+        name: dex-client-backstage
+        key: secret
+    - id: muster-token-exchange-plover
+      name: gopher token exchange
+      secretRef:
+        name: dex-client-muster-token-exchange-plover
+        key: secret
+    - id: muster-token-exchange-plover-heron
+      name: heron token exchange
+      secretRef:
+        name: dex-client-muster-token-exchange-plover-heron
+        key: secret
+  customer:
+    connectors:
+      - id: oakridge-simple-oidc
+        connectorType: oidc
+        connectorName: heron token exchange
+        connectorConfig: |
+          issuer: https://dex.heron.oakridge.example
+          insecureEnableGroups: true

@@ -1,5 +1,9 @@
 # A management cluster without the agent platform running all three servers
-# on public addresses, its capability on record. Invented names.
+# on public addresses, its capability on record. Three hubs broker tokens
+# into it: the fleet's ("gopher"), whose connector the fleet's Dex base
+# registers, and two of its own organisation, the first ("harrier") with the
+# organisation's plain connector, the further one ("kite") with its own.
+# Invented names.
 input:
   installation:
     name: osprey
@@ -7,6 +11,11 @@ input:
     customer: acme
     dexAppVersion: 3.2.5
     agentPlatform: false
+    federation:
+      connectors:
+        - {hub: gopher, customer: giantswarm, baseDomain: gopher.example.io, first: true}
+        - {hub: harrier, customer: acme, baseDomain: harrier.acme.example.test, first: true}
+        - {hub: kite, customer: acme, baseDomain: kite.acme.example.test, first: false}
   servers:
     mcpKubernetes: {enabled: true}
     mcpPrometheus: {enabled: true}

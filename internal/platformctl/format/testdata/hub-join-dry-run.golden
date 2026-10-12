@@ -1,0 +1,96 @@
+reconcile_capability dry run: agent-platform on hub gopher, as jane
+Order: heron, kestrel
+
+heron: enabled
+  Files (1 update, 27 unchanged):
+    CHANGE  REPOSITORY                   PATH
+    update  giantswarm/oakridge-configs  installations/heron/apps/agent-platform/configmap-values.yaml.patch
+  Warning: this reconcile changes what heron's muster serves beyond the shared defaults:
+    public-registration redirect URIs added: https://gateway.oakridge.example/oauth/callback (moved from kestrel)
+  Includes: giantswarm/oakridge-management-clusters:management-clusters/heron/extras/kustomization.yaml resources ./agent-platform/ (unchanged)
+  Includes: giantswarm/oakridge-management-clusters:management-clusters/heron/extras/kustomization.yaml resources ./mcp-kubernetes/ (unchanged)
+  Includes: giantswarm/oakridge-management-clusters:management-clusters/heron/extras/kustomization.yaml resources ./mcp-prometheus/ (unchanged)
+  Includes: giantswarm/oakridge-management-clusters:management-clusters/heron/extras/kustomization.yaml resources ./mcp-capi/ (unchanged)
+  Dex clients:
+    00000000-0000-4000-8000-000000000003: client muster; secretRef dex-client-muster
+    : client mcpKubernetes; secretRef dex-client-mcp-kubernetes
+    : client mcpPrometheus; secretRef dex-client-mcp-prometheus
+    : client mcpCapi; secretRef dex-client-mcp-capi
+    kagent: kagent-ui; secretRef dex-client-kagent; redirect URIs https://kagent.heron.oakridge.example/oauth2/callback
+  Customer actions:
+    heron: Create Secret kagent-anthropic-key in namespace kagent with key ANTHROPIC_API_KEY, or add a ModelConfig in the portal; until then default-model-config (ModelConfig.kagent.dev) stays Accepted=False. (the model key is the installation's own: the definition references the Secret and renders no value for it, and no value is supplied at commit; until the Secret exists the verify reads the runtime feature as waiting for the customer)
+  Probes:
+    live-oauth2-proxy-extra-audience: identity oauth2-proxy --oidc-extra-audience argument
+    live-muster-trusted-audiences: identity muster ConfigMap trustedAudiences
+    live-muster-connector-and-client-id: identity muster ConfigMap dex connectorId, where the definition renders one
+    live-kagent-api-protected: identity /api/agents answered 403 by oauth2-proxy
+    live-kagent-login-redirect: identity /oauth2/start 302 to Dex with client_id=kagent
+    live-dex-auth-per-client: identity Dex knows every rendered client and its redirect URI: the connector its /auth answer names answers 302 or its login form
+    live-dex-client-secrets-loaded: identity Dex started after every referenced client Secret last changed its data, for every client of the dex patch with a secret reference
+    live-oauth2-proxy-audience: identity no audience mismatch in oauth2-proxy's log
+    live-oauth2-proxy-secret-and-flux-sa: secrets Secret kagent-oauth2-proxy-credentials and ServiceAccount kagent-flux
+    live-model-configs: runtime ModelConfigs in the kagent namespace
+    live-kagent-provider-values: runtime kagent HelmRelease .spec.values.providers
+    live-konfiguration-source: runtime Konfiguration agent-platform-konfiguration on its GitRepository's revision: behind within its reconciliation interval reads rolling, longer drifted
+    live-helmreleases-ready: runtime HelmReleases agent-platform, kagent, connectivity, muster, mcps Ready
+    live-platform-workloads: runtime the Deployments that read muster's credentials Available: muster, its Valkey, and klaus-gateway, agent-manager, cluster-manager and model-manager where each runs
+    live-kagent-workloads: runtime kagent pods Running and the CNPG cluster healthy
+    live-pod-certificate-request: runtime certificates.k8s.io/v1beta1 podcertificaterequests served by the apiserver (Agent Substrate's feature gates, the 4 line)
+    live-drift: runtime live values equal the rendered manifests
+    live-own-mcp-servers: tool-access MCPServer objects of the installation itself
+    live-registered-mcp-servers: tool-access MCPServer objects registered under extras/agent-platform/mcpservers, present and none Failed
+    live-muster-protected-resource: tool-access muster's OAuth protected-resource metadata
+
+kestrel: enabled
+  A commit would be refused: kestrel's muster serves a registry of its own: its agent-platform values list in-cluster servers of its own (http://mcp-kubernetes.mcp-kubernetes.svc:8080/mcp, http://mcp-prometheus.mcp-prometheus.svc:8080/mcp, http://mcp-capi.mcp-capi.svc:8080/mcp), and this reconcile drops the list whole — 4 server entries, 1 exchange target and 1 identity provider go, muster registers the shared defaults' servers alone, and everyone who reaches the others through kestrel's muster loses them. Move the registry to the hub first, register a server of its own as an MCPServer object under extras/agent-platform/mcpservers/, which a reconcile keeps, or force the join (forceJoin; platformctl --force-join), which proceeds with the warning
+  Files (1 update, 30 unchanged):
+    CHANGE  REPOSITORY                   PATH
+    update  giantswarm/oakridge-configs  installations/kestrel/apps/agent-platform/configmap-values.yaml.patch
+  Warning: this reconcile changes what kestrel's muster serves beyond the shared defaults:
+    exchange targets removed: plover
+    identity providers removed: plover
+    MCP servers removed: kestrel/kubernetes http://mcp-kubernetes.mcp-kubernetes.svc:8080/mcp (its own); kestrel/prometheus http://mcp-prometheus.mcp-prometheus.svc:8080/mcp (its own); kestrel/capi http://mcp-capi.mcp-capi.svc:8080/mcp (its own); plover/kubernetes https://mcp-kubernetes.plover.oakridge.example/mcp
+    public-registration redirect URIs removed: https://gateway.oakridge.example/oauth/callback (moved to heron)
+  Includes: giantswarm/oakridge-management-clusters:management-clusters/kestrel/extras/kustomization.yaml resources ./agent-platform/ (unchanged)
+  Includes: giantswarm/oakridge-management-clusters:management-clusters/kestrel/extras/kustomization.yaml resources ./mcp-kubernetes/ (unchanged)
+  Includes: giantswarm/oakridge-management-clusters:management-clusters/kestrel/extras/kustomization.yaml resources ./mcp-prometheus/ (unchanged)
+  Includes: giantswarm/oakridge-management-clusters:management-clusters/kestrel/extras/kustomization.yaml resources ./mcp-capi/ (unchanged)
+  Includes: giantswarm/oakridge-management-clusters:management-clusters/kestrel/extras/backstage/kustomization.yaml components ./agent-platform/ (unchanged)
+  Supplied values on record: aiChat.google.credentialsJson — their files stand, nothing to supply
+  Dex clients:
+    00000000-0000-4000-8000-000000000001: client muster; secretRef dex-client-muster
+    : client mcpKubernetes; secretRef dex-client-mcp-kubernetes
+    : client mcpPrometheus; secretRef dex-client-mcp-prometheus
+    : client mcpCapi; secretRef dex-client-mcp-capi
+    dex-k8s-authenticator: client dexK8SAuthenticator; trusted peers backstage muster-token-exchange-kestrel
+    kagent: kagent-ui; secretRef dex-client-kagent; redirect URIs https://kagent.kestrel.oakridge.example/oauth2/callback
+    backstage: Dev Portal; secretRef dex-client-backstage; redirect URIs https://portal.kestrel.oakridge.example/api/auth/oidc-kestrel/handler/frame https://portal.example.io/api/auth/oidc-kestrel/handler/frame
+    muster-token-exchange-kestrel: gopher token exchange; secretRef dex-client-muster-token-exchange-kestrel
+  Customer actions:
+    kestrel: Create Secret kagent-anthropic-key in namespace kagent with key ANTHROPIC_API_KEY, or add a ModelConfig in the portal; until then default-model-config (ModelConfig.kagent.dev) stays Accepted=False. (the model key is the installation's own: the definition references the Secret and renders no value for it, and no value is supplied at commit; until the Secret exists the verify reads the runtime feature as waiting for the customer)
+  Probes:
+    live-oauth2-proxy-extra-audience: identity oauth2-proxy --oidc-extra-audience argument
+    live-muster-trusted-audiences: identity muster ConfigMap trustedAudiences
+    live-muster-connector-and-client-id: identity muster ConfigMap dex connectorId, where the definition renders one
+    live-kagent-api-protected: identity /api/agents answered 403 by oauth2-proxy
+    live-kagent-login-redirect: identity /oauth2/start 302 to Dex with client_id=kagent
+    live-dex-auth-per-client: identity Dex knows every rendered client and its redirect URI: the connector its /auth answer names answers 302 or its login form
+    live-dex-client-secrets-loaded: identity Dex started after every referenced client Secret last changed its data, for every client of the dex patch with a secret reference
+    live-oauth2-proxy-audience: identity no audience mismatch in oauth2-proxy's log
+    live-oauth2-proxy-secret-and-flux-sa: secrets Secret kagent-oauth2-proxy-credentials and ServiceAccount kagent-flux
+    live-model-configs: runtime ModelConfigs in the kagent namespace
+    live-kagent-provider-values: runtime kagent HelmRelease .spec.values.providers
+    live-konfiguration-source: runtime Konfiguration agent-platform-konfiguration on its GitRepository's revision: behind within its reconciliation interval reads rolling, longer drifted
+    live-helmreleases-ready: runtime HelmReleases agent-platform, kagent, connectivity, muster, mcps Ready
+    live-platform-workloads: runtime the Deployments that read muster's credentials Available: muster, its Valkey, and klaus-gateway, agent-manager, cluster-manager and model-manager where each runs
+    live-kagent-workloads: runtime kagent pods Running and the CNPG cluster healthy
+    live-pod-certificate-request: runtime certificates.k8s.io/v1beta1 podcertificaterequests served by the apiserver (Agent Substrate's feature gates, the 4 line)
+    live-drift: runtime live values equal the rendered manifests
+    live-own-mcp-servers: tool-access MCPServer objects of the installation itself
+    live-registered-mcp-servers: tool-access MCPServer objects registered under extras/agent-platform/mcpservers, present and none Failed
+    live-muster-protected-resource: tool-access muster's OAuth protected-resource metadata
+
+Pull requests, in order:
+  1. giantswarm/oakridge-configs: 2 changes for heron, kestrel
+
+Commit: the wave

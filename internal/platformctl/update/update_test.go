@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/creativeprojects/go-selfupdate"
+	"github.com/giantswarm/go-selfupdate"
 	selfupdatecosign "github.com/giantswarm/selfupdate-cosign"
 	"gopkg.in/yaml.v3"
 
@@ -411,7 +411,7 @@ func TestRunRefusesADevelopmentBuild(t *testing.T) {
 		t.Run(current, func(t *testing.T) {
 			f := setup(t, current, releases(updatetest.Signed(latestV)))
 			_, err := f.run(false)
-			if err == nil || !strings.Contains(err.Error(), "development build") || !strings.Contains(err.Error(), "go install "+Module+"@latest") || !strings.Contains(err.Error(), "/releases") {
+			if err == nil || !strings.Contains(err.Error(), "development build") || !strings.Contains(err.Error(), "/releases") || !strings.Contains(err.Error(), "make build-platformctl") {
 				t.Errorf("Run() = %v, want a refusal that says how to install a release", err)
 			}
 			if got := f.src.Calls(); got != 0 {

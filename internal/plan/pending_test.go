@@ -145,9 +145,61 @@ func TestBuildKeepsAFileOnRecordThatHoldsItsRevision(t *testing.T) {
 	}
 }
 
-// Only a revision waits: a render that adds any other value to the file on
-// record rewrites it, and the rotation that forces is refused.
-func TestBuildRewritesAFileOnRecordMissingAValue(t *testing.T) {
+// generatedIn is the plan's generated value by name.
+func generatedIn(t *testing.T, p Installation, name string) GeneratedSecret {
+	t.Helper()
+	for _, g := range p.GeneratedSecrets {
+		if g.Name == name {
+			return g
+		}
+	}
+	t.Fatalf("%s is not among the plan's generated values: %+v", name, p.GeneratedSecrets)
+	return GeneratedSecret{}
+}
+
+// A record from before kagent's Dex client had a Secret of its own and its
+// revision: the proxy's Secret holds the client secret and the cookie secret
+// and nothing else of the render is on record. The client secret is on
+// record, so it is kept, and the Dex client Secret takes it from the proxy's
+// at the key paths by the caller's vault; the cookie secret stands with it,
+// no file on record being rewritten; the revision gets its verdict — no
+// file on record holds it, the revision Secret is written at commit, the
+// proxy's Secret stands without it. Nothing rotates and nothing is refused
+// as a rotation; the commit refuses until the carry is on record.
+func TestBuildCarriesTheClientSecretIntoTheNewDexClientSecret(t *testing.T) {
+	_, rendered := kagentDefinition()
+	old := kagentSecret("kagent-oauth2-proxy-credentials", "client-id: kagent", "client-secret: x", "cookie-secret: x")
+	p := buildKagent(t, map[string]string{
+		proxyFile:   encryptedOnRecord(old),
+		proxyMarker: rendered[proxyMarker],
+	})
+	if r := p.FrozenRefusal(); r != "" || len(p.Rotating()) != 0 {
+		t.Fatalf("refused: %q, rotating %v", r, p.Rotating())
+	}
+	proxy, dex := acmeConfigs+":"+proxyFile, acmeConfigs+":"+proxyDexFile
+	if g := generatedIn(t, p, proxyDex); !g.Kept || !slices.Equal(g.FrozenIn, []string{proxy}) || !slices.Equal(g.Carries, []Carry{{From: proxy + "#stringData.client-secret", To: dex + "#stringData.secret", Create: true}}) {
+		t.Fatalf("the client secret: %+v", g)
+	}
+	if g := generatedIn(t, p, proxyCookie); !g.Kept || !slices.Equal(g.FrozenIn, []string{proxy}) || len(g.Carries) != 0 {
+		t.Fatalf("the cookie secret: %+v", g)
+	}
+	if g := generatedIn(t, p, proxyRevision); g.Kept || len(g.FrozenIn) != 0 || len(g.Carries) != 0 || !slices.Equal(g.PendingIn, []string{proxy}) {
+		t.Fatalf("the revision: %+v", g)
+	}
+	want := map[string]Change{proxyFile: ChangeUnchanged, proxyRevFile: ChangeCreate, proxyDexFile: ChangeCreate, proxyMarker: ChangeUnchanged}
+	if got := changes(p); !maps.Equal(got, want) {
+		t.Fatalf("changes %v, want %v", got, want)
+	}
+	if r := p.CarryRefusal(); !strings.Contains(r, proxyDex+" is on record in "+proxy+" and "+dex+"#stringData.secret takes it") {
+		t.Fatalf("carry refusal %q", r)
+	}
+}
+
+// The render adds a value to the file on record that no file holds (the
+// cookie secret): the caller's vault draws it under the key, the file's
+// other values stand, and the file is to update without being rewritten by
+// the commit. Only a revision waits instead.
+func TestBuildDrawsAValueAFileOnRecordLacks(t *testing.T) {
 	_, rendered := kagentDefinition()
 	noCookie := kagentSecret("kagent-oauth2-proxy-credentials", "client-id: kagent", "client-secret: x", "credentials-revision: x")
 	p := buildKagent(t, map[string]string{
@@ -156,26 +208,65 @@ func TestBuildRewritesAFileOnRecordMissingAValue(t *testing.T) {
 		proxyDexFile: encryptedOnRecord(rendered[proxyDexFile]),
 		proxyMarker:  rendered[proxyMarker],
 	})
-	if r := p.FrozenRefusal(); !strings.Contains(r, proxyDex+" would rotate") {
+	if r := p.FrozenRefusal(); r != "" || len(p.Rotating()) != 0 {
+		t.Fatalf("refused: %q, rotating %v", r, p.Rotating())
+	}
+	proxy := acmeConfigs + ":" + proxyFile
+	if g := generatedIn(t, p, proxyCookie); g.Kept || len(g.FrozenIn) != 0 || !slices.Equal(g.Carries, []Carry{{To: proxy + "#stringData.cookie-secret"}}) {
+		t.Fatalf("the cookie secret: %+v", g)
+	}
+	for _, name := range []string{proxyDex, proxyRevision} {
+		if g := generatedIn(t, p, name); !g.Kept || len(g.Carries) != 0 {
+			t.Fatalf("%s: %+v, want kept", name, g)
+		}
+	}
+	for _, f := range p.Files {
+		if f.Path == proxyFile && (f.Change != ChangeUpdate || f.Rewritten) || f.Path != proxyFile && f.Change != ChangeUnchanged {
+			t.Fatalf("%s: %s (rewritten %v)", f.Path, f.Change, f.Rewritten)
+		}
+	}
+	if r := p.CarryRefusal(); !strings.Contains(r, proxyCookie+" is drawn by your vault into "+proxy+"#stringData.cookie-secret") {
+		t.Fatalf("carry refusal %q", r)
+	}
+}
+
+// A file on record whose skeleton the render changes beyond the keys it
+// lacks is rewritten whole: every value it holds rotates, forced by the
+// file with the cause, and the rotation nobody asked for is refused.
+func TestBuildRewritesAFileOnRecordWhoseSkeletonChanges(t *testing.T) {
+	_, rendered := kagentDefinition()
+	retyped := strings.Replace(rendered[proxyFile], "type: Opaque", "type: kubernetes.io/basic-auth", 1)
+	p := buildKagent(t, map[string]string{
+		proxyFile:    encryptedOnRecord(retyped),
+		proxyRevFile: encryptedOnRecord(rendered[proxyRevFile]),
+		proxyDexFile: encryptedOnRecord(rendered[proxyDexFile]),
+		proxyMarker:  rendered[proxyMarker],
+	})
+	if r := p.FrozenRefusal(); !strings.Contains(r, proxyDex+" would rotate, forced by "+acmeConfigs+":"+proxyFile+" ("+causeSkeleton+")") {
 		t.Fatalf("refusal %q", r)
 	}
 }
 
-func TestPendingRevisions(t *testing.T) {
-	revisions := map[string]bool{"rev": true}
+func TestLacking(t *testing.T) {
 	rendered := kagentSecret("s", "a: "+render.Placeholder("a"), "revision: "+render.Placeholder("rev"))
 	old := encryptedOnRecord(kagentSecret("s", "a: x"))
-	without, names := pendingRevisions(rendered, old, revisions)
+	without, names := lacking(rendered, old)
 	if !slices.Equal(names, []string{"rev"}) || !sameSkeleton(without, old) {
 		t.Fatalf("names %v, without %q", names, without)
 	}
-	if _, names := pendingRevisions(rendered, encryptedOnRecord(rendered), revisions); names != nil {
-		t.Fatalf("a revision on record is pending: %v", names)
+	if _, names := lacking(rendered, encryptedOnRecord(rendered)); names != nil {
+		t.Fatalf("a value on record is lacking: %v", names)
 	}
-	if _, names := pendingRevisions(rendered, old, map[string]bool{"a": true}); names != nil {
-		t.Fatalf("a value on record is pending: %v", names)
+	if _, names := lacking(rendered, encryptedOnRecord(kagentSecret("s", "b: x"))); !slices.Equal(names, []string{"a", "rev"}) {
+		t.Fatalf("every value lacking, in the render's order: %v", names)
 	}
-	if _, names := pendingRevisions(rendered, kagentSecret("s", "a: x"), revisions); names != nil {
+	if _, names := lacking(rendered, kagentSecret("s", "a: x")); names != nil {
 		t.Fatalf("a plain file: %v", names)
+	}
+	if got := markerPaths(rendered); got["a"] != "stringData.a" || got["rev"] != revisionKey {
+		t.Fatalf("marker paths %v", got)
+	}
+	if got := markerPaths(rendered + "---\n" + rendered); got != nil {
+		t.Fatalf("a file of several documents has paths: %v", got)
 	}
 }

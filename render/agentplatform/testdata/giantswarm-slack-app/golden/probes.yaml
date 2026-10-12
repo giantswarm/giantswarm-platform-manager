@@ -184,7 +184,7 @@
   resource: ModelConfig.api.kagent.dev
   name: default-model-config
   expect:
-    condition: Accepted
+    condition: ResolvedRefs
     conditionStatus: "True"
     note: waiting for the customer's model key (Secret kagent-anthropic-key, key ANTHROPIC_API_KEY, or a ModelConfig in the portal)
 - id: live-kagent-api-protected

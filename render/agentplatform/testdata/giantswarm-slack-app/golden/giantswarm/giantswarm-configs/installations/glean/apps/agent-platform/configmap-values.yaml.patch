@@ -84,6 +84,8 @@ muster:
         storage:
           valkey:
             existingSecret: muster-valkey-credentials
+        dex:
+          allowPrivateIPOIDC: true
         allowPrivateIPClientMetadataHosts:
           - agentgateway.glean.example.io
         allowPrivateIPRedirectURIs: true
@@ -133,6 +135,10 @@ klausGateway:
     secretName: klaus-gateway-slack-credentials
     dmMode: serve
     channelMode: all
+    # The bots whose posts reach an agent's thread context: the input
+    # klausGateway.slack.contextBotIDs, read back so a reconcile keeps them.
+    contextBotIDs:
+      - U0000000003 # Alerting EU
   obo:
     enabled: true
     connectors:
@@ -163,6 +169,23 @@ clusterManager:
       fqdns:
         - matchName: gsoci.azurecr.io
         - matchPattern: '*.blob.core.windows.net'
+networkPolicy:
+  mcpBackends:
+    runbooks:
+      namespace: mcp-runbooks
+      ports:
+        - 8080
+      metrics: true
+    tickets:
+      namespace: mcp-tickets
+      ports:
+        - 8080
+      podSelector:
+        app.kubernetes.io/name: mcp-tickets
+      additionalPeers:
+        - namespace: envoy-gateway-system
+          matchLabels:
+            app.kubernetes.io/name: envoy
 valkey:
   valkey:
     auth:

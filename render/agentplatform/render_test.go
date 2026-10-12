@@ -35,6 +35,8 @@ const (
 	shapeRegisteredServers      = "registered-servers"
 	shapePortalGitHubGrant      = "portal-github-grant"
 	shapePortalHive             = "portal-hive"
+	shapeCustomerSibling        = "customer-sibling"
+	shapeWorkspaces             = "workspaces"
 )
 
 // The keys of the choices' documents the refusal cases build.
@@ -61,7 +63,7 @@ const (
 )
 
 // shapes are the installation shapes, in the order the goldens are rendered.
-var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned, shapeGiantswarmSlackApp, shapeGiantswarmSlackAppPub, shapeHubPrivateTarget, shapeMultiClusterAggregator, shapeSecondHub, shapeHandKeptPortal, shapeRegisteredServers, shapePortalGitHubGrant, shapePortalHive}
+var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned, shapeGiantswarmSlackApp, shapeGiantswarmSlackAppPub, shapeHubPrivateTarget, shapeMultiClusterAggregator, shapeSecondHub, shapeHandKeptPortal, shapeRegisteredServers, shapePortalGitHubGrant, shapePortalHive, shapeCustomerSibling, shapeWorkspaces}
 
 func loadInput(t *testing.T, shape string) (map[string]any, map[string]string) {
 	t.Helper()
@@ -235,9 +237,13 @@ func TestGoldensCoverBothLines(t *testing.T) {
 // The default ModelConfig is read in the group the installation's line
 // serves, and the model-key action and the plan's customer action name it:
 // the 4 line's kagent renders its catalog at api.kagent.dev, the 3 line's at
-// kagent.dev. A shape without kagent renders neither.
+// kagent.dev. The 4 line's probe reads ResolvedRefs, which is False while the
+// key Secret is missing although the ModelConfig is Accepted; the 3 line's
+// reads Accepted, the one condition its ModelConfig carries. A shape without
+// kagent renders neither.
 func TestModelConfigProbeFollowsTheLine(t *testing.T) {
 	want := map[string]string{lineFour: "ModelConfig.api.kagent.dev", lineThree: "ModelConfig.kagent.dev"}
+	wantCondition := map[string]string{lineFour: "ResolvedRefs", lineThree: "Accepted"}
 	covered := map[string]bool{}
 	for _, shape := range shapes {
 		input, secrets := loadInput(t, shape)
@@ -250,10 +256,14 @@ func TestModelConfigProbeFollowsTheLine(t *testing.T) {
 			t.Fatal(err)
 		}
 		resource := want[in.Installation.ChartLine]
+		condition := wantCondition[in.Installation.ChartLine]
 		var probed []string
 		for _, p := range result.Probes {
 			if p.ID == modelKeyDimension {
 				probed = append(probed, p.Resource)
+				if p.Expect.Condition != condition || p.Expect.ConditionStatus != conditionTrue {
+					t.Errorf("%s (line %s): the %s probe reads %s=%s, want %s=True", shape, in.Installation.ChartLine, modelKeyDimension, p.Expect.Condition, p.Expect.ConditionStatus, condition)
+				}
 			}
 		}
 		if !in.kagent() {
@@ -266,7 +276,7 @@ func TestModelConfigProbeFollowsTheLine(t *testing.T) {
 		if len(probed) != 1 || probed[0] != resource {
 			t.Errorf("%s (line %s): the %s probe reads %v, want %s", shape, in.Installation.ChartLine, modelKeyDimension, probed, resource)
 		}
-		if len(result.Actions) != 1 || !strings.Contains(result.Actions[0].Note, "("+resource+")") {
+		if len(result.Actions) != 1 || !strings.Contains(result.Actions[0].Note, "("+resource+") stays "+condition+"=False") {
 			t.Errorf("%s (line %s): the actions %+v do not name %s", shape, in.Installation.ChartLine, result.Actions, resource)
 		}
 		if ca := in.CustomerActions(); len(ca) != 1 || !strings.Contains(ca[0].Action, "("+resource+")") {
@@ -590,6 +600,17 @@ func TestRefusals(t *testing.T) {
 		return out
 	}
 	chatOff := clone(func(m map[string]any) { delete(m, "aiChat") })
+	// The base with one MCP backend, tickets, on the ports given, in its
+	// namespace where one is given.
+	mcpBackends := func(namespace string, ports ...any) map[string]any {
+		backend := map[string]any{"ports": ports}
+		if namespace != "" {
+			backend["namespace"] = namespace
+		}
+		return clone(func(m map[string]any) {
+			m["networkPolicy"] = map[string]any{"mcpBackends": map[string]any{"tickets": backend}}
+		})
+	}
 	cases := []struct {
 		name    string
 		input   map[string]any
@@ -637,10 +658,16 @@ func TestRefusals(t *testing.T) {
 		{"commit mode where no cluster-manager runs", clone(func(m map[string]any) {
 			m["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: true}}
 		}), secrets, ErrInput, "clusterManager.github.enabled"},
+		{"context bots where no chat gateway runs", clone(func(m map[string]any) {
+			m["klausGateway"] = map[string]any{"slack": map[string]any{"contextBotIDs": []any{map[string]any{"value": "U0000000001"}}}}
+		}), secrets, ErrInput, "klausGateway.slack.contextBotIDs"},
 		{"model-manager commit mode on the 3 line", clone(func(m map[string]any) {
 			m["installation"].(map[string]any)["chartLine"] = lineThree
 			m["modelManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: true}}
 		}), secrets, ErrInput, "modelManager.github.enabled"},
+		{"an MCP backend without its namespace", mcpBackends("", 8080), secrets, ErrInput, "networkPolicy/mcpBackends/tickets"},
+		{"an MCP backend's port that is no integer", mcpBackends("mcp-tickets", "http"), secrets, ErrInput, "networkPolicy/mcpBackends/tickets/ports/0"},
+		{"MCP backends on the 3 line", mcpBackends("mcp-tickets", 8080), secrets, ErrInput, "networkPolicy.mcpBackends"},
 		{"targets without a broker client", clone(func(m map[string]any) {
 			federation(m)["targets"] = []any{target(false)}
 		}), secrets, ErrInput, "federation.brokerClientId"},
@@ -744,7 +771,7 @@ func TestManagersCommitMode(t *testing.T) {
 		})
 	}
 	input, secrets := loadInput(t, shapeHubPrivateTarget)
-	input["installation"].(map[string]any)["customer"] = "fleetio"
+	input["installation"].(map[string]any)["customer"] = "dvag"
 	input["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
 	input["agentManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: true}}
 	if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "agentManager.github.enabled") {
@@ -822,7 +849,7 @@ func TestAgentManagerSkills(t *testing.T) {
 	}
 
 	input, secrets = loadInput(t, shapeHubPrivateTarget)
-	input["installation"].(map[string]any)["customer"] = "fleetio"
+	input["installation"].(map[string]any)["customer"] = "dvag"
 	input["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
 	input["agentManager"] = map[string]any{keySkills: map[string]any{keyToken: skillsTok}} //nolint:gosec // a Secret's name in a fixture, no credential
 	if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "agentManager.skills") {
@@ -1165,4 +1192,50 @@ func TestFactsAreTheProvidersOnTheFourLine(t *testing.T) {
 	if got := in.Facts(); got != nil {
 		t.Errorf("without kagent: %v", got)
 	}
+}
+
+// TestPrivateInstallationLiftsMusterGuards renders muster's three
+// private-address flags together from the record's private fact — Dex's OIDC
+// discovery (dex.allowPrivateIPOIDC), the chat gateway's client_id on
+// agentgateway's host and private redirect URIs — and none of them on a
+// public installation. The shared default derives allowPrivateIPOIDC from
+// managementCluster.private, which is false where the ingress alone is
+// private, so the definition's own fact decides it and a reconcile keeps it.
+func TestPrivateInstallationLiftsMusterGuards(t *testing.T) {
+	flags := []string{"dex:\n          allowPrivateIPOIDC: true", "allowPrivateIPClientMetadataHosts:\n          - agentgateway.", "allowPrivateIPRedirectURIs: true"}
+	for shape, private := range map[string]bool{shapeGiantswarmSlackApp: true, shapeGiantswarmSlackAppPub: false} {
+		t.Run(shape, func(t *testing.T) {
+			input, secrets := loadInput(t, shape)
+			in, err := Parse(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if in.Installation.Private != private {
+				t.Fatalf("private %v, want %v", in.Installation.Private, private)
+			}
+			result, err := Render(input, secrets, render.ModeCommit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			patch := platformPatch(t, result)
+			for _, flag := range flags {
+				if strings.Contains(patch, flag) != private {
+					t.Errorf("%q rendered: %v, want %v:\n%s", flag, !private, private, patch)
+				}
+			}
+		})
+	}
+}
+
+// platformPatch is the rendered agent-platform configmap patch of the
+// installation.
+func platformPatch(t *testing.T, result *render.Result) string {
+	t.Helper()
+	for name, content := range result.Tree() {
+		if strings.HasSuffix(filepath.ToSlash(name), "/apps/agent-platform/configmap-values.yaml.patch") {
+			return string(content)
+		}
+	}
+	t.Fatal("no agent-platform configmap patch rendered")
+	return ""
 }

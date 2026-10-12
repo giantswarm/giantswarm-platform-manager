@@ -22,6 +22,13 @@ input:
         clientId: backstage
         grafanaWired: true
         chartLine: ">=0.244.7 <1.0.0"
+        installations:
+          - name: heron
+            baseDomain: heron.oakridge.example
+          - name: kestrel
+            baseDomain: kestrel.oakridge.example
+          - name: plover
+            baseDomain: plover.oakridge.example
       - installation: gopher
         customer: giantswarm
         domain: portal.example.io
@@ -31,6 +38,9 @@ input:
       hubs: [gopher]
       registryHub: gopher
       targets: []
+      # The fleet hub's connector comes from the fleet's Dex base: none is rendered.
+      connectors:
+        - {hub: gopher, customer: giantswarm, baseDomain: gopher.example.io, first: true}
   aiChat:
     enabled: true
     model: claude-sonnet-5

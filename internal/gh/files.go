@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -295,4 +297,22 @@ func (f *Files) store(sha, content string) {
 		delete(f.blobs, b.sha)
 		f.bytes -= len(b.content)
 	}
+}
+
+// list answers the files under dir of owner/repo at HEAD as the person c acts
+// as, sorted.
+func (f *Files) list(ctx context.Context, c *Client, owner, repo, dir string) ([]string, error) {
+	t, err := f.snapshot(ctx, c, owner, repo, "")
+	if err != nil {
+		return nil, fmt.Errorf("github: %s/%s:%s: %w", owner, repo, dir, err)
+	}
+	prefix := strings.TrimSuffix(dir, "/") + "/"
+	var out []string
+	for p, e := range t.entries {
+		if !e.dir && strings.HasPrefix(p, prefix) {
+			out = append(out, p)
+		}
+	}
+	sort.Strings(out)
+	return out, nil
 }

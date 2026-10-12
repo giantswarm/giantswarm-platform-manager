@@ -46,6 +46,18 @@ const (
 	// ReadBackComment is the comment written above the key: its lines, the
 	// comment markers stripped; a key without one yields nothing.
 	ReadBackComment = "comment"
+	// ReadBackEntries is the list the key holds, each scalar entry as its
+	// value and the comment on its line, the marker stripped: a list of
+	// {value, comment} (EntryValue, EntryComment), comment empty where the
+	// entry carries none.
+	ReadBackEntries = "entries"
+)
+
+// The fields of an entry an entries kind reads back: the scalar's value and
+// the comment on its line.
+const (
+	EntryValue   = "value"
+	EntryComment = "comment"
 )
 
 // schemaNode is the part of a schema node the read-back reads: the
@@ -97,10 +109,19 @@ func (n *names) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
+// The placeholders a fileSpec's path carries: the installation, and the
+// installation hosting the portal the definition's portal section is
+// written into.
+const (
+	namePlaceholder       = "<name>"
+	portalHostPlaceholder = "<portalHost>"
+)
+
 // fileSpec is one entry of the schema's x-files: the repository file the
-// definition renders a fileset key to, <name> standing for the installation,
-// and the path in the file the keys are read under — the document a
-// ConfigMap carries as text; the file itself when empty.
+// definition renders a fileset key to, <name> standing for the installation
+// and <portalHost> for the portal's host, and the path in the file the keys
+// are read under — the document a ConfigMap carries as text; the file
+// itself when empty.
 type fileSpec struct {
 	Repository MarkerRepository `json:"repository"`
 	Path       string           `json:"path"`
@@ -216,23 +237,28 @@ func (c Capability) Unset(values map[string]any) ([]string, error) {
 // record of inst, as the person read reads as, and answers what it found by
 // dotted input key: the leaf's value, whether the key is present, the host
 // of the URL it holds, the installation whose host it is, the comment above
-// the key, or whether the file is on record. registry is every installation on record, the ones an
-// installation kind resolves a host to; inst is resolved whether or not it
-// is among them. A file that is not on record, or a key not in it, yields
-// nothing — the default stands; a read-back naming several files reads the
-// first on record that holds the key, and the key is present when one of
-// them holds it. A file the person cannot read, or a read-back naming a
-// file the schema's x-files does not, is the error.
-func (c Capability) ReadBack(ctx context.Context, read Reader, inst Installation, registry []Installation) (map[string]any, error) {
+// the key, or whether the file is on record. portalHost is the installation
+// hosting the portal the definition's portal section is written into
+// (Report.PortalHost), which a file path's <portalHost> stands for: such a
+// file is read where the section is rendered, whichever installation's
+// plan renders it, and is not on record where no portal hosts the section.
+// registry is every installation on record, the ones an installation kind
+// resolves a host to; inst is resolved whether or not it is among them. A
+// file that is not on record, or a key not in it, yields nothing — the
+// default stands; a read-back naming several files reads the first on
+// record that holds the key, and the key is present when one of them holds
+// it. A file the person cannot read, or a read-back naming a file the
+// schema's x-files does not, is the error.
+func (c Capability) ReadBack(ctx context.Context, read Reader, inst Installation, portalHost string, registry []Installation) (map[string]any, error) {
 	s, err := c.inputSchema()
 	if err != nil {
 		return nil, err
 	}
-	return readBack(ctx, read, inst, registry, s)
+	return readBack(ctx, read, inst, portalHost, registry, s)
 }
 
-func readBack(ctx context.Context, read Reader, inst Installation, registry []Installation, s *inputSchema) (map[string]any, error) {
-	files := newReadBackFiles(ctx, read, inst)
+func readBack(ctx context.Context, read Reader, inst Installation, portalHost string, registry []Installation, s *inputSchema) (map[string]any, error) {
+	files := newReadBackFiles(ctx, read, inst, portalHost)
 	out := map[string]any{}
 	return out, s.leaves(func(input string, leaf schemaNode) error {
 		rb := leaf.ReadBack
@@ -261,9 +287,12 @@ func readBack(ctx context.Context, read Reader, inst Installation, registry []In
 			if kind == ReadBackFile {
 				break
 			}
-			if kind == ReadBackComment {
+			switch kind {
+			case ReadBackComment:
 				v, found, err = files.comment(file, spec, rb.Keys)
-			} else {
+			case ReadBackEntries:
+				v, found, err = files.entries(file, spec, rb.Keys)
+			default:
 				v, found, err = files.value(file, spec, rb.Keys)
 			}
 			if err != nil {
@@ -297,7 +326,7 @@ func readBack(ctx context.Context, read Reader, inst Installation, registry []In
 			found = !skip.MatchString(fmt.Sprint(v))
 		}
 		switch kind {
-		case ReadBackValue, ReadBackHost, ReadBackComment:
+		case ReadBackValue, ReadBackHost, ReadBackComment, ReadBackEntries:
 			if found {
 				out[input] = v
 			}
@@ -310,7 +339,7 @@ func readBack(ctx context.Context, read Reader, inst Installation, registry []In
 				}
 			}
 		default:
-			return fmt.Errorf("schema: %s: x-readback kind %q is not %s, %s, %s, %s, %s or %s", input, kind, ReadBackValue, ReadBackPresent, ReadBackHost, ReadBackInstallation, ReadBackComment, ReadBackFile)
+			return fmt.Errorf("schema: %s: x-readback kind %q is not %s, %s, %s, %s, %s, %s or %s", input, kind, ReadBackValue, ReadBackPresent, ReadBackHost, ReadBackInstallation, ReadBackComment, ReadBackEntries, ReadBackFile)
 		}
 		return nil
 	})
@@ -340,33 +369,43 @@ func installationOf(domain string, inst Installation, registry []Installation) (
 // as the document its x-files entry names, for a value; as the node tree,
 // the comments in place, for a comment.
 type readBackFiles struct {
-	ctx   context.Context
-	read  Reader
-	inst  Installation
-	texts map[string]*string
-	docs  map[string]map[string]any
-	nodes map[string]*yaml.Node
+	ctx  context.Context
+	read Reader
+	inst Installation
+	// portalHost is the installation hosting the portal the definition's
+	// portal section is written into; empty where none hosts it.
+	portalHost string
+	texts      map[string]*string
+	docs       map[string]map[string]any
+	nodes      map[string]*yaml.Node
 }
 
-func newReadBackFiles(ctx context.Context, read Reader, inst Installation) *readBackFiles {
-	return &readBackFiles{ctx: ctx, read: read, inst: inst, texts: map[string]*string{}, docs: map[string]map[string]any{}, nodes: map[string]*yaml.Node{}}
+func newReadBackFiles(ctx context.Context, read Reader, inst Installation, portalHost string) *readBackFiles {
+	return &readBackFiles{ctx: ctx, read: read, inst: inst, portalHost: portalHost, texts: map[string]*string{}, docs: map[string]map[string]any{}, nodes: map[string]*yaml.Node{}}
 }
 
 // location is the repository and path of the file spec declares for the
-// installation.
+// installation: a portal file's at the portal's host, which shares the
+// organisation's repositories.
 func (f *readBackFiles) location(spec fileSpec) (repo, path string) {
 	repo = f.inst.Repositories.Configs
 	if spec.Repository == ManagementClustersRepository {
 		repo = f.inst.Repositories.ManagementClusters
 	}
-	return repo, strings.ReplaceAll(spec.Path, "<name>", f.inst.Name)
+	path = strings.ReplaceAll(spec.Path, namePlaceholder, f.inst.Name)
+	return repo, strings.ReplaceAll(path, portalHostPlaceholder, f.portalHost)
 }
 
 // text is the content of the file of fileset key file, read once; nil when
-// the file is not on record.
+// the file is not on record — a portal file where no portal hosts the
+// definition's section among them.
 func (f *readBackFiles) text(file string, spec fileSpec) (*string, error) {
 	if text, ok := f.texts[file]; ok {
 		return text, nil
+	}
+	if f.portalHost == "" && strings.Contains(spec.Path, portalHostPlaceholder) {
+		f.texts[file] = nil
+		return nil, nil
 	}
 	repo, path := f.location(spec)
 	content, err := f.read(f.ctx, repo, path)
@@ -440,6 +479,38 @@ func (f *readBackFiles) comment(file string, spec fileSpec, paths []string) (any
 		if c, ok := commentAt(node, append(slices.Clone(document), splitKey(p)...)); ok {
 			return c, true, nil
 		}
+	}
+	return nil, false, nil
+}
+
+// entries is the list at the first of the dotted paths the file holds a
+// list at, below the document spec names in it: each scalar entry's value
+// and the comment on its line, the marker and the space after it stripped;
+// nothing where the file is not on record, no path holds a list or an entry
+// is not a scalar.
+func (f *readBackFiles) entries(file string, spec fileSpec, paths []string) (any, bool, error) {
+	node, err := f.node(file, spec)
+	if err != nil || node == nil {
+		return nil, false, err
+	}
+	var document []string
+	if spec.Document != "" {
+		document = splitKey(spec.Document)
+	}
+	for _, p := range paths {
+		list, ok := nodeAt(node, append(slices.Clone(document), splitKey(p)...))
+		if !ok || list.Kind != yaml.SequenceNode {
+			continue
+		}
+		out := make([]any, 0, len(list.Content))
+		for _, entry := range list.Content {
+			if entry.Kind != yaml.ScalarNode {
+				return nil, false, nil
+			}
+			comment := strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(entry.LineComment), "#"), " ")
+			out = append(out, map[string]any{EntryValue: entry.Value, EntryComment: comment})
+		}
+		return out, true, nil
 	}
 	return nil, false, nil
 }

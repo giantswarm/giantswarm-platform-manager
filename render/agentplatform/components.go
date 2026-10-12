@@ -3,6 +3,8 @@ package agentplatform
 import (
 	"slices"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
@@ -169,8 +171,12 @@ func (in *Input) klausGatewayValues() render.Map {
 	if mode == slackEventsMode {
 		m = append(m, e("agentgatewayRoute", render.Map{e("enabled", true), e("hostname", in.host("agentgateway"))}))
 	}
-	m = append(m, e("slack", render.Map{e("enabled", true), e("mode", mode), e("secretName", klausGatewaySlackSecret),
-		e("dmMode", slackDMMode), e("channelMode", g.Slack.ChannelMode)}))
+	slack := render.Map{e("enabled", true), e("mode", mode), e("secretName", klausGatewaySlackSecret),
+		e("dmMode", slackDMMode), e("channelMode", g.Slack.ChannelMode)}
+	if bots := in.contextBots(); bots != nil {
+		slack = append(slack, render.Entry{Key: "contextBotIDs", Value: bots, Comment: in.contextBotsComment()})
+	}
+	m = append(m, e("slack", slack))
 	m = append(m, e("obo", render.Map{e("enabled", true),
 		e("connectors", render.Map{e("enabled", g.OBO.Connectors)}),
 		e("existingSecret", klausGatewayOBOSecret),
@@ -187,6 +193,33 @@ func (in *Input) klausGatewayValues() render.Map {
 		reviews = append(reviews, e("allowedCallers", g.Reviews.AllowedCallers))
 	}
 	return append(m, e("reviews", reviews))
+}
+
+// contextBots is the list of the bots whose posts reach an agent's thread
+// context, each entry with the comment on its line; nil where the person
+// chose none.
+func (in *Input) contextBots() *yaml.Node {
+	if len(in.ContextBots) == 0 {
+		return nil
+	}
+	list := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+	for _, b := range in.ContextBots {
+		entry := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: b.Value}
+		if b.Comment != "" {
+			entry.LineComment = "# " + b.Comment
+		}
+		list.Content = append(list.Content, entry)
+	}
+	return list
+}
+
+// contextBotsComment is the comment above the context bots: the person's on
+// record or typed, else the generic one naming the input.
+func (in *Input) contextBotsComment() string {
+	if in.ContextBotsComment != "" {
+		return in.ContextBotsComment
+	}
+	return "The bots whose posts reach an agent's thread context: the input\nklausGateway.slack.contextBotIDs, read back so a reconcile keeps them."
 }
 
 // managerOAuth is a manager's OAuth section on the 3 chart line, where the

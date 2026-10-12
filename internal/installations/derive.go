@@ -92,15 +92,51 @@ type FederatedInstallation struct {
 // Component includes is then the one with the dashboards card. HandKeptChat
 // says it carries the AI chat's block by hand: the portal's environment
 // supplies the chat's key and the Component renders no credentials Secret.
+// Installations are the installations the portal shows that run the agent
+// platform on record, the host among them, on a portal the customer-portal
+// definition renders: the Component lists every one of them, whichever
+// installation's plan renders it. A hand-kept portal carries its own section
+// for the installations it proxies, so its list is not read.
 type PortalRef struct {
-	Installation string `json:"installation"`
-	Customer     string `json:"customer"`
-	Domain       string `json:"domain"`
-	ClientID     string `json:"clientId,omitempty"`
-	HandKept     bool   `json:"handKept,omitempty"`
-	GrafanaWired bool   `json:"grafanaWired,omitempty"`
-	HandKeptChat bool   `json:"handKeptChat,omitempty"`
-	ChartLine    string `json:"chartLine,omitempty"`
+	Installation  string               `json:"installation"`
+	Customer      string               `json:"customer"`
+	Domain        string               `json:"domain"`
+	ClientID      string               `json:"clientId,omitempty"`
+	HandKept      bool                 `json:"handKept,omitempty"`
+	GrafanaWired  bool                 `json:"grafanaWired,omitempty"`
+	HandKeptChat  bool                 `json:"handKeptChat,omitempty"`
+	ChartLine     string               `json:"chartLine,omitempty"`
+	Installations []PortalInstallation `json:"installations,omitempty"`
+}
+
+// PortalInstallation is an installation a portal shows that runs the agent
+// platform on record, as the definitions' installation.portals[*].installations[*]
+// names it: its name and its base domain, which its muster's URL derives from.
+type PortalInstallation struct {
+	Name       string `json:"name"`
+	BaseDomain string `json:"baseDomain"`
+}
+
+// PortalHost is the installation hosting the portal the agent platform's
+// portal section is written into, as the definition's render picks it among
+// the installation's portals: the portal hosted on the installation itself;
+// else the organisation's portal on a sibling that is not hand-kept (a
+// customer aggregator's); else none. A read-back of the section reads the
+// host's file, whichever installation's plan rendered it; a hand-kept
+// sibling portal and another organisation's take no section of this
+// installation's.
+func (r *Report) PortalHost() string {
+	for _, p := range r.Portals {
+		if p.Installation == r.Name {
+			return p.Installation
+		}
+	}
+	for _, p := range r.Portals {
+		if p.Customer == r.Customer && !p.HandKept {
+			return p.Installation
+		}
+	}
+	return ""
 }
 
 // Federation is an installation's place in the fleet's token exchange, as the
@@ -112,6 +148,11 @@ type Federation struct {
 	// client in the installation's Dex carries the fleet's plain id.
 	RegistryHub    string `json:"registryHub"`
 	BrokerClientID string `json:"brokerClientId,omitempty"`
+	// Connectors are the hubs among Hubs with the facts the token-exchange
+	// connector the installation's Dex registers for each is rendered from:
+	// the hub's organisation, its record's base domain and whether it is the
+	// first of its organisation's hubs into the installation (hubConnector).
+	Connectors []render.HubConnector `json:"connectors"`
 }
 
 // FederatedTarget is an installation a hub brokers for.
@@ -139,7 +180,12 @@ type FederatedTarget struct {
 	// AgentPlatform says the target runs the agent platform: its enabled
 	// marker is on record. Its render holds the Dex side of the hub's
 	// token-exchange client, one value with the hub's credentials Secret.
-	AgentPlatform bool `json:"agentPlatform"`
+	// ClusterMCPServers says the target runs its MCP servers under
+	// cluster-mcp-servers without the platform: that capability's marker,
+	// mcp-kubernetes's kustomization, is on record among Servers. Its render
+	// holds the Dex side in the same file.
+	AgentPlatform     bool `json:"agentPlatform"`
+	ClusterMCPServers bool `json:"clusterMcpServers"`
 }
 
 // AgentPlatformPatchPath is where the installation's configs repository keeps
@@ -397,7 +443,11 @@ func (r *Registry) Portals(ctx context.Context, c *gh.Client, insts []Installati
 // proxies the target's agent platform, its hubs the installations of this
 // organisation that broker into it; a target not among the reports has its
 // record read for its base domain. A hub's broker client id is read back from
-// its patch. What cannot be read is
+// its patch. A rendered portal that lists the installation gets the
+// installations it shows that run the agent platform (portalInstallations),
+// from their markers. The installation's own hubs are derived alike, each
+// with the facts the connector its Dex registers for the hub is rendered
+// from (hubConnector). What cannot be read is
 // an error of the report: the record is then incomplete and the installation
 // is not planned.
 func (r *Registry) derive(ctx context.Context, c *gh.Client, reports []Report, portals []Portal) {
@@ -413,15 +463,39 @@ func (r *Registry) derive(ctx context.Context, c *gh.Client, reports []Report, p
 		errs    []error
 		broker  string
 		brkErr  error
+		// connectors are the installation's hubs with their facts, in the
+		// hubs' order; connErrs what could not be read of each.
+		connectors []render.HubConnector
+		connErrs   []error
 		// hosted is the portal hosted on the installation; platform the
-		// agent-platform marker of each of its entries, read where the
-		// entry is not among the reports.
+		// agent-platform marker of each of its entries.
 		hosted   *HostedPortal
-		platform []markerRead
+		platform []*markerRead
 	}
 	platform, _ := FindCapability(AgentPlatform)
 	results := make([]derived, len(reports))
 	var wg sync.WaitGroup
+	// The agent-platform marker of every installation a portal's entries or
+	// section may name, read once per name whatever names it: answered from
+	// the installation's report where it was inspected, else read from its
+	// configs repository; an installation without repositories on record
+	// reads as not enabled.
+	markers := map[string]*markerRead{}
+	marker := func(name string) *markerRead {
+		if m, ok := markers[name]; ok {
+			return m
+		}
+		m := &markerRead{}
+		markers[name] = m
+		if inspected := byName[name]; inspected != nil && len(inspected.Capabilities) > 0 {
+			m.enabled = inspected.enabled(AgentPlatform)
+			return m
+		}
+		if inst, _ := r.Find(name); inst.Repositories.Known() {
+			wg.Go(func() { *m = readMarker(ctx, c, inst, platform) })
+		}
+		return m
+	}
 	for i := range reports {
 		rep := &reports[i]
 		if rep.Record == nil {
@@ -438,22 +512,29 @@ func (r *Registry) derive(ctx context.Context, c *gh.Client, reports []Report, p
 				res.found[j], res.errs[j] = r.target(ctx, c, name, byName[name], tunnelled(portals, name), proxied(portals, rep.Name, name), hubs)
 			})
 		}
+		hubs := rep.Federation.Hubs
+		res.connectors, res.connErrs = make([]render.HubConnector, len(hubs)), make([]error, len(hubs))
+		for j, hub := range hubs {
+			wg.Go(func() {
+				res.connectors[j], res.connErrs[j] = r.hubConnector(ctx, c, hub, byName[hub], hubs)
+			})
+		}
 		if len(targets) > 0 {
 			wg.Go(func() { res.broker, res.brkErr = brokerClientID(ctx, c, *rep) })
 		}
 		res.hosted = r.hostedPortal(portals, rep.Name)
 		if res.hosted != nil {
-			res.platform = make([]markerRead, len(res.hosted.Installations))
+			res.platform = make([]*markerRead, len(res.hosted.Installations))
 			for j, entry := range res.hosted.Installations {
-				if sibling := byName[entry.Name]; sibling != nil && len(sibling.Capabilities) > 0 {
-					res.platform[j] = markerRead{enabled: sibling.enabled(AgentPlatform)}
-					continue
-				}
-				inst, _ := r.Find(entry.Name)
-				if !inst.Repositories.Known() {
-					continue
-				}
-				wg.Go(func() { res.platform[j] = readMarker(ctx, c, inst, platform) })
+				res.platform[j] = marker(entry.Name)
+			}
+		}
+		for _, p := range portals {
+			if p.HandKept || !slices.Contains(p.Installations, rep.Name) {
+				continue
+			}
+			for _, name := range p.Installations {
+				marker(name)
 			}
 		}
 	}
@@ -469,12 +550,32 @@ func (r *Registry) derive(ctx context.Context, c *gh.Client, reports []Report, p
 			}
 			rep.Hosted = res.hosted
 		}
+		for j := range rep.Portals {
+			for _, p := range portals {
+				if p.Host != rep.Portals[j].Installation || p.HandKept {
+					continue
+				}
+				list, err := r.portalInstallations(p, markers)
+				if err != nil {
+					rep.fail(fmt.Sprintf("the portal on %s: %v", p.Host, err))
+					break
+				}
+				rep.Portals[j].Installations = list
+			}
+		}
 		for j, name := range res.targets {
 			if res.errs[j] != nil {
 				rep.fail(fmt.Sprintf("federation target %s: %v", name, res.errs[j]))
 				continue
 			}
 			rep.Federation.Targets = append(rep.Federation.Targets, res.found[j])
+		}
+		for j, hub := range rep.Federation.Hubs {
+			if res.connErrs[j] != nil {
+				rep.fail(fmt.Sprintf("federation hub %s: %v", hub, res.connErrs[j]))
+				continue
+			}
+			rep.Federation.Connectors = append(rep.Federation.Connectors, res.connectors[j])
 		}
 		if len(res.targets) > 0 {
 			if res.brkErr != nil {
@@ -528,6 +629,38 @@ func (r *Registry) hostedPortal(portals []Portal, host string) *HostedPortal {
 	return nil
 }
 
+// portalInstallations are the installations p shows that run the agent
+// platform on record (markers, read for every name p lists), in the
+// portal's order, each with its base domain: the registry's, the record's
+// where the registry has none. A marker the caller cannot read reads as not
+// enabled, as the hosted portal's entries do: an organisation's
+// installations share one configs repository, so a reader of one of them
+// reads them all. A platform installation without a base domain is an
+// error naming it: its muster entry could not be written, and a list
+// missing it would have the Component drop it from the portal.
+func (r *Registry) portalInstallations(p Portal, markers map[string]*markerRead) ([]PortalInstallation, error) {
+	var list []PortalInstallation
+	for _, name := range p.Installations {
+		m := markers[name]
+		if m == nil {
+			return nil, fmt.Errorf("%s's agent-platform marker was not read", name)
+		}
+		if !m.enabled || m.err != nil {
+			continue
+		}
+		inst, _ := r.Find(name)
+		domain := inst.BaseDomain
+		if domain == "" {
+			domain = p.Entries[name].BaseDomain
+		}
+		if domain == "" {
+			return nil, fmt.Errorf("%s runs the agent platform and has no base domain on record", name)
+		}
+		list = append(list, PortalInstallation{Name: name, BaseDomain: domain})
+	}
+	return list, nil
+}
+
 // enabled says whether the capability is on record in this report.
 func (r *Report) enabled(capability string) bool {
 	for _, cs := range r.Capabilities {
@@ -542,7 +675,7 @@ func (r *Report) enabled(capability string) bool {
 // and answers the names of the installations its own muster brokers for, in
 // the portals' order, each once.
 func (r *Report) derivePortals(portals []Portal) []string {
-	r.Portals, r.Federation = []PortalRef{}, &Federation{Hubs: hubsOf(portals, r.Name), Targets: []FederatedTarget{}}
+	r.Portals, r.Federation = []PortalRef{}, &Federation{Hubs: hubsOf(portals, r.Name), Targets: []FederatedTarget{}, Connectors: []render.HubConnector{}}
 	var targets []string
 	for _, p := range portals {
 		if slices.Contains(p.Installations, r.Name) {
@@ -619,21 +752,9 @@ func (r *Registry) target(ctx context.Context, c *gh.Client, name string, inspec
 	if !ok {
 		return FederatedTarget{}, errors.New("not in the registry")
 	}
-	if inst.Repositories.Configs == "" {
-		return FederatedTarget{}, errors.New("no configs repository on record")
-	}
-	rec := (*Record)(nil)
-	if inspected != nil {
-		rec = inspected.Record
-	}
-	if rec == nil {
-		owner, repo, err := gh.SplitRepo(inst.Repositories.Configs)
-		if err != nil {
-			return FederatedTarget{}, err
-		}
-		if rec, err = r.readRecord(ctx, c, owner, repo, inst); err != nil {
-			return FederatedTarget{}, err
-		}
+	rec, err := r.recordOf(ctx, c, inst, inspected)
+	if err != nil {
+		return FederatedTarget{}, err
 	}
 	servers, err := targetServers(ctx, c, inst)
 	if err != nil {
@@ -644,7 +765,58 @@ func (r *Registry) target(ctx context.Context, c *gh.Client, name string, inspec
 	if marker.err != nil {
 		return FederatedTarget{}, fmt.Errorf("%s: %w", platform.EnabledMarker(name), marker.err)
 	}
-	return FederatedTarget{Installation: name, BaseDomain: rec.BaseDomain, Private: private, PlatformProxied: proxied, Hubs: hubs, Servers: servers, AgentPlatform: marker.enabled}, nil
+	return FederatedTarget{Installation: name, BaseDomain: rec.BaseDomain, Private: private, PlatformProxied: proxied, Hubs: hubs, Servers: servers,
+		AgentPlatform: marker.enabled, ClusterMCPServers: !marker.enabled && runsClusterMCPServers(servers)}, nil
+}
+
+// runsClusterMCPServers says whether an installation running the MCP server
+// groups servers has the cluster-mcp-servers capability on record: its
+// marker is mcp-kubernetes's kustomization (ClusterMCPServersMarker), the
+// one targetServers read for the kubernetes group.
+func runsClusterMCPServers(servers []string) bool {
+	for _, s := range mcpservers.Servers {
+		if s.Name == clusterMCPServersMarkerServer {
+			return slices.Contains(servers, s.Group)
+		}
+	}
+	return false
+}
+
+// hubConnector is the entry of hub among an installation's
+// federation.connectors — the facts the token-exchange connector the
+// installation's Dex registers for the hub is rendered from: the hub's
+// organisation, its record's base domain (the inspected report's, read where
+// the hub was not inspected) and whether it is the first of its
+// organisation's hubs into the installation, among hubs — the
+// installation's — in the order organisationHubs gives them, the one the hub
+// side names its connector by.
+func (r *Registry) hubConnector(ctx context.Context, c *gh.Client, hub string, inspected *Report, hubs []string) (render.HubConnector, error) {
+	inst, ok := r.Find(hub)
+	if !ok {
+		return render.HubConnector{}, errors.New("not in the registry")
+	}
+	rec, err := r.recordOf(ctx, c, inst, inspected)
+	if err != nil {
+		return render.HubConnector{}, err
+	}
+	own := r.organisationHubs(hubs, inst.Customer)
+	return render.HubConnector{Hub: hub, Customer: inst.Customer, BaseDomain: rec.BaseDomain, First: len(own) > 0 && own[0] == hub}, nil
+}
+
+// recordOf is an installation's record: the inspected report's where the
+// inspection read it, else read from the installation's configs repository.
+func (r *Registry) recordOf(ctx context.Context, c *gh.Client, inst Installation, inspected *Report) (*Record, error) {
+	if inspected != nil && inspected.Record != nil {
+		return inspected.Record, nil
+	}
+	if inst.Repositories.Configs == "" {
+		return nil, errors.New("no configs repository on record")
+	}
+	owner, repo, err := gh.SplitRepo(inst.Repositories.Configs)
+	if err != nil {
+		return nil, err
+	}
+	return r.readRecord(ctx, c, owner, repo, inst)
 }
 
 // targetServers are the groups of the MCP servers a target runs: every server

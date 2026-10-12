@@ -1,6 +1,8 @@
 package plan
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -162,6 +164,35 @@ func TestKeepAudiencesCarriesTheKeptKeysFromTheRecord(t *testing.T) {
 	}
 	if slices.Contains(kept, Kept{List: "agent-platform-mcps", Entry: "defaults"}) {
 		t.Errorf("agent-platform-mcps.defaults is nobody's kept key; kept: %+v", kept)
+	}
+}
+
+// A record whose kept keys stand in another order than the definition lists
+// them (the controller's volumes before its resources, Postgres' databases
+// before the render's own key, a kept key ahead of the render's first): the
+// render with the record's kept keys carried in is the record, byte for byte,
+// and the plan reads it unchanged.
+func TestKeepAudiencesCarriesKeptKeysInTheRecordsOrder(t *testing.T) {
+	rendered, err := os.ReadFile(filepath.Join("testdata", "kept-order", "rendered.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := os.ReadFile(filepath.Join("testdata", "kept-order", "record.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, kept, err := keepAudiences(rendered, record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(kept) == 0 {
+		t.Fatal("the record's kept keys are carried in, got none")
+	}
+	if string(out) != string(record) {
+		t.Errorf("the render with the kept keys carried in is the record byte for byte:\n--- got\n%s\n--- want\n%s", out, record)
+	}
+	if c, _, _ := change(string(record), nil, string(out)); c != ChangeUnchanged {
+		t.Errorf("a record the render equals reads %s, want %s", c, ChangeUnchanged)
 	}
 }
 

@@ -1,0 +1,109 @@
+# Rendered by giantswarm-platform-manager, agent-platform definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+global:
+  domain: osprey.lakeside.example
+components:
+  kagent:
+    enabled: true
+    valuesFromRefs:
+      - kind: Secret
+        name: kagent-credentials-revision
+        valuesKey: revision
+        targetPath: oauth2-proxy.podAnnotations.kagent-credentials-revision
+  agent-manager:
+    enabled: true
+    valuesFromRefs:
+      - kind: Secret
+        name: muster-credentials-revision
+        valuesKey: revision
+        targetPath: podAnnotations.muster-credentials-revision
+  muster:
+    valuesFromRefs:
+      - kind: Secret
+        name: muster-credentials-revision
+        valuesKey: revision
+        targetPath: muster.oauth.server.existingSecretChecksum
+      - kind: Secret
+        name: muster-credentials-revision
+        valuesKey: revision
+        targetPath: muster.oauth.server.storage.valkey.existingSecretChecksum
+  valkey:
+    valuesFromRefs:
+      - kind: Secret
+        name: muster-credentials-revision
+        valuesKey: revision
+        targetPath: valkey.auth.usersExistingSecretChecksum
+  model-manager:
+    valuesFromRefs:
+      - kind: Secret
+        name: muster-credentials-revision
+        valuesKey: revision
+        targetPath: podAnnotations.muster-credentials-revision
+postgres:
+  enabled: true
+llmRouting:
+  enabled: true
+kagent:
+  providers:
+    anthropic:
+      apiKeySecretRef: kagent-anthropic-key
+      config:
+        baseUrl: http://agentgateway.agent-platform.svc:8081
+        maxTokens: 32000
+  oauth2-proxy:
+    config:
+      existingSecret: kagent-oauth2-proxy-credentials
+    extraArgs:
+      oidc-extra-audience: dex-k8s-authenticator,kagent,backstage # gitleaks:allow
+muster:
+  muster:
+    oauth:
+      server:
+        existingSecret: muster-oauth-credentials
+        storage:
+          valkey:
+            existingSecret: muster-valkey-credentials
+        trustedAudiences:
+          - dex-k8s-authenticator
+          - kagent
+          - backstage
+gateway:
+  jwksEgress:
+    enabled: true
+extraObjects:
+  - apiVersion: gateway.networking.k8s.io/v1beta1
+    kind: ReferenceGrant
+    metadata:
+      name: agentgateway-jwks-dex
+      namespace: giantswarm
+    spec:
+      from:
+        - group: agentgateway.dev
+          kind: AgentgatewayPolicy
+          namespace: agent-platform
+      to:
+        - group: ""
+          kind: Service
+          name: dex
+agent-platform-mcps:
+  agentgateway:
+    jwt:
+      extraProviders:
+        - issuer: https://dex.osprey.lakeside.example
+          audiences:
+            - backstage
+          jwks:
+            remote:
+              backendRef:
+                name: dex
+                namespace: giantswarm
+                port: 5556
+              jwksPath: /keys
+              cacheDuration: 5m
+valkey:
+  valkey:
+    auth:
+      usersExistingSecret: muster-valkey-credentials
+      aclUsers:
+        default:
+          passwordKey: valkey-password

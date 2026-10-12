@@ -3,3 +3,6 @@ CVE-2026-41889 until=2026-10-30 # github.com/jackc/pgx/v5@v5.8.0
 CVE-2026-33815 until=2026-10-30 # github.com/jackc/pgx/v5@v5.8.0
 CVE-2026-33816 until=2026-10-30 # github.com/jackc/pgx/v5@v5.8.0
 CVE-2021-43668 until=2026-10-30 # github.com/syndtr/goleveldb@v1.0.1-0.20220721030215-126854af5e6d
+# CVE-2026-107325 (GHSA-frr6-8pf7-f9r2): mongo-driver v1.17.10 via sops/v3 → huaweicloud-sdk-go-v3; the fix (v2.9.2) is on the v2 module path only, no v1 release carries it.
+# Tracked in https://github.com/giantswarm/giantswarm-platform-manager/issues/546; remove by 2026-11-09.
+CVE-2026-107325 until=2026-11-09 # go.mongodb.org/mongo-driver@v1.17.10

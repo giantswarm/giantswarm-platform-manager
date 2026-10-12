@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +14,10 @@ const (
 	secretFromFile  = "@"
 	secretFromEnv   = "env:"
 	secretFromStdin = "-"
+	// secretFromStore names a reference the operator's secret store
+	// resolves: beekeeper:<ref>, any reference beekeeper secret copy takes
+	// (op://…, k8s://…, a SOPS file#path).
+	secretFromStore = "beekeeper:"
 )
 
 // secretFlag collects repeated --secret field=source flags. Set accepts every
@@ -35,12 +40,13 @@ func (s *secretFlag) Set(v string) error {
 // suppliedSecrets name it and where its value is read from.
 type secretSource struct {
 	field string
-	// kind is secretFromFile, secretFromEnv or secretFromStdin; ref the path
-	// or the variable's name.
+	// kind is secretFromFile, secretFromEnv, secretFromStdin or
+	// secretFromStore; ref the path, the variable's name or the store's
+	// reference.
 	kind, ref string
 }
 
-const secretSyntax = "--secret takes <field>=@<file>, <field>=env:<NAME> or <field>=- (stdin), never the value itself"
+const secretSyntax = "--secret takes <field>=beekeeper:<ref>, <field>=@<file>, <field>=env:<NAME> or <field>=- (stdin, one field), never the value itself"
 
 // sources parses the --secret flags; every refusal is a usage error and names
 // no value.
@@ -69,6 +75,8 @@ func sources(pairs []string) ([]secretSource, error) {
 			s.kind, s.ref = secretFromFile, src[len(secretFromFile):]
 		case strings.HasPrefix(src, secretFromEnv) && len(src) > len(secretFromEnv):
 			s.kind, s.ref = secretFromEnv, src[len(secretFromEnv):]
+		case strings.HasPrefix(src, secretFromStore) && len(src) > len(secretFromStore):
+			s.kind, s.ref = secretFromStore, src[len(secretFromStore):]
 		default:
 			return nil, fmt.Errorf("--secret %s: %s", field, secretSyntax)
 		}
@@ -81,7 +89,7 @@ func sources(pairs []string) ([]secretSource, error) {
 // value, with one trailing line break dropped (a file written by an editor
 // or `echo` ends in one; the value does not). This is the only place a value
 // is held before the call, and nothing here prints one.
-func readSecrets(srcs []secretSource, stdin io.Reader, getenv func(string) (string, bool)) (map[string]any, error) {
+func readSecrets(ctx context.Context, srcs []secretSource, stdin io.Reader, getenv func(string) (string, bool), store secretStore) (map[string]any, error) {
 	out := make(map[string]any, len(srcs))
 	for _, s := range srcs {
 		var value string
@@ -102,6 +110,12 @@ func readSecrets(srcs []secretSource, stdin io.Reader, getenv func(string) (stri
 			v, ok := getenv(s.ref)
 			if !ok {
 				return nil, fmt.Errorf("--secret %s: %s is not set in the environment", s.field, s.ref)
+			}
+			value = v
+		case secretFromStore:
+			v, err := store.Resolve(ctx, s.field, s.ref)
+			if err != nil {
+				return nil, fmt.Errorf("--secret %s: %w", s.field, err)
 			}
 			value = v
 		}

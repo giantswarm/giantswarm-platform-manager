@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -94,7 +95,7 @@ func newInstallationListCmd() *cobra.Command {
 func newCapabilityCmd(tool string, allowSet bool) *cobra.Command {
 	name := strings.TrimSuffix(tool, "_capability")
 	var c conn
-	var dryRun, commit, content, all bool
+	var dryRun, commit, content, all, forceJoin bool
 	var inputs kvFlag
 	var secretFlags secretFlag
 	var rotate []string
@@ -147,6 +148,9 @@ func newCapabilityCmd(tool string, allowSet bool) *cobra.Command {
 		if len(rotate) > 0 {
 			toolArgs[tools.ArgRotate] = rotate
 		}
+		if forceJoin {
+			toolArgs[tools.ArgForceJoin] = true
+		}
 		if commit {
 			toolArgs[tools.ArgReason] = reason
 		}
@@ -162,7 +166,7 @@ func newCapabilityCmd(tool string, allowSet bool) *cobra.Command {
 			if err != nil {
 				return usageError(stderr, err.Error())
 			}
-			values, err := readSecrets(srcs, os.Stdin, os.LookupEnv)
+			values, err := readSecrets(context.Background(), srcs, os.Stdin, os.LookupEnv, beekeeperStore{bin: "beekeeper"})
 			if err != nil {
 				return fail(stderr, err)
 			}
@@ -222,10 +226,11 @@ func newCapabilityCmd(tool string, allowSet bool) *cobra.Command {
 	fs.BoolVar(&commit, "commit", false, "start the action: the manager's mode commit, the pull requests opened as you")
 	fs.BoolVar(&content, "content", false, "print the rendered files, not only their paths and changes")
 	fs.Var(&inputs, "input", "a typed input of the definition as key=value, repeatable (kagent.enabled=true)")
-	fs.Var(&secretFlags, "secret", "with --commit: a secret the plan's suppliedSecrets name, as <field>=@<file>, <field>=env:<NAME> or <field>=- (stdin); repeatable")
+	fs.Var(&secretFlags, "secret", "with --commit: a secret the plan's suppliedSecrets name, as <field>=beekeeper:<ref> (resolved by beekeeper secret copy), <field>=@<file>, <field>=env:<NAME> or <field>=- (stdin, one field); repeatable; over a set <field> goes to every installation that asks for it, <installation>/<field> to that one alone")
 	fs.StringArrayVar(&rotate, "rotate", nil, "a generated value to rotate on request, by its `name` in the dry run (<installation>-muster-valkey-password), repeatable: a new value in every file that holds it, its credentials revision rolling every workload that reads it")
 	completeFlag(cmd, "input", cobra.NoFileCompletions)
 	completeFlag(cmd, "secret", cobra.NoFileCompletions)
+	fs.BoolVar(&forceJoin, "force-join", false, "proceed with a reconcile that takes off the installation's muster what it serves beyond the shared defaults (the dry run's join warning: the broker's exchange targets, the identity providers, the MCP servers, a registration URI that moves to another installation): the commit is refused without it while the muster still serves in-cluster servers of its own")
 	fs.StringVar(&reason, tools.ArgReason, "", "with --commit (required): why you make the change, in a sentence the team's review and the notices show")
 	completeFlag(cmd, "rotate", cobra.NoFileCompletions)
 	completeFlag(cmd, tools.ArgReason, cobra.NoFileCompletions)
@@ -411,5 +416,57 @@ func actionByName(name, short, tool string, withReason bool, show func(stdout io
 		cmd.Flags().StringVar(&reason, tools.ArgReason, "", "why the action is denied or withdrawn (required)")
 		completeFlag(cmd, tools.ArgReason, cobra.NoFileCompletions)
 	}
+	return cmd
+}
+
+// newDisableCmd is disable: the mirror of enable on one installation.
+// --dry-run is the tool's dryRun, --commit its mode commit with the reason.
+func newDisableCmd() *cobra.Command {
+	var c conn
+	var dryRun, commit, content bool
+	var reason string
+	var keep []string
+	syntax := "installation disable <installation> <capability> --dry-run|--commit --reason <text> [--keep <path>]..."
+	cmd := leaf(strings.TrimPrefix(syntax, "installation "), "Disable a capability on one installation: a dry run, or the action", func(pos []string, stdout, stderr io.Writer) int {
+		if err := c.valid(); err != nil {
+			return usageError(stderr, err.Error())
+		}
+		if len(pos) != 2 {
+			return usageError(stderr, syntax)
+		}
+		if dryRun == commit {
+			return usageError(stderr, "one of --dry-run and --commit: "+syntax)
+		}
+		if commit && strings.TrimSpace(reason) == "" {
+			return usageError(stderr, "--commit needs --reason: why you make the change, for the team's review")
+		}
+		toolArgs := map[string]any{tools.ArgInstallation: pos[0], tools.ArgCapability: pos[1], tools.ArgContent: content}
+		if len(keep) > 0 {
+			toolArgs[tools.ArgKeep] = keep
+		}
+		if commit {
+			toolArgs[tools.ArgMode] = string(tools.ModeCommit)
+			toolArgs[tools.ArgReason] = reason
+		} else {
+			toolArgs[tools.ArgDryRun] = true
+		}
+		return c.call(tools.ToolDisableCapability, toolArgs, stdout, stderr, func(raw json.RawMessage) error {
+			var r tools.DisableResult
+			if err := decode(raw, &r); err != nil {
+				return err
+			}
+			return format.Disable(stdout, r, content)
+		})
+	})
+	c.flags(cmd)
+	fs := cmd.Flags()
+	fs.BoolVar(&dryRun, "dry-run", false, "list what the disable removes and write nothing")
+	fs.BoolVar(&commit, "commit", false, "start the action: the manager's mode commit, the pull requests opened as you")
+	fs.BoolVar(&content, "content", false, "print each edited file as the commit writes it")
+	fs.StringVar(&reason, tools.ArgReason, "", "with --commit (required): why you make the change, in a sentence the team's review and the notices show")
+	fs.StringArrayVar(&keep, tools.ArgKeep, nil, "a file under the capability's directories to keep, by `path` (or repository:path) as the dry run names it, with the kustomization entries that name it; repeatable")
+	completeFlag(cmd, tools.ArgReason, cobra.NoFileCompletions)
+	completeFlag(cmd, tools.ArgKeep, cobra.NoFileCompletions)
+	cmd.ValidArgsFunction = capabilityAt(func(_ *cobra.Command, pos []string) bool { return len(pos) == 1 })
 	return cmd
 }

@@ -70,13 +70,22 @@ func commitCall(t *testing.T, c *client.Client, tool string, args map[string]any
 // encrypted, the rest of the manifest in plaintext.
 func sopsFixtures(t *testing.T, g *fakeGitHub) {
 	t.Helper()
+	sopsFor(t, g, acmeConfigs, acmeMCs)
+}
+
+// sopsFor gives repos a .sops.yaml with one fresh age recipient, the
+// fixtures' rule, and answers the identity: what decrypts the files the
+// commit encrypts for them.
+func sopsFor(t *testing.T, g *fakeGitHub, repos ...string) *age.X25519Identity {
+	t.Helper()
 	id, err := age.GenerateX25519Identity()
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, repo := range []string{acmeConfigs, acmeMCs} {
+	for _, repo := range repos {
 		g.addFile(repo, tools.SopsConfig, "creation_rules:\n  - path_regex: "+sopsPathRegex+"\n    encrypted_regex: ^(data|stringData)$\n    age: "+id.Recipient().String()+"\n")
 	}
+	return id
 }
 
 // sopsPathRegex is the fixture repositories' .sops.yaml rule: the fleet's

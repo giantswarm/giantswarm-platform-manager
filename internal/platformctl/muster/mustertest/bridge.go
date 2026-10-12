@@ -10,7 +10,9 @@ package mustertest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path"
+	"sort"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -196,7 +198,7 @@ func Manager(connected bool) map[string]Tool {
 			return document(tools.CapabilityResult{Caller: Caller, Hub: Hub, Tool: tools.ToolReconcileCapability, Capability: capability, DryRun: true, Order: order, Installations: entries(order, content(args, !set), rotate)})
 		}
 		if set {
-			return document(tools.WaveResult{Caller: Caller, Hub: Hub, Tool: tools.ToolReconcileCapability, Capability: capability, Order: order})
+			return document(tools.WaveResult{Caller: Caller, Hub: Hub, Tool: tools.ToolReconcileCapability, Capability: capability, Order: order, Next: suppliedLengths(args[tools.ArgSecrets])})
 		}
 		return document(tools.CommitResult{Caller: Caller, Hub: Hub, Tool: tools.ToolReconcileCapability, Capability: capability, Installation: order[0], Plan: entries(order[:1], false, rotate)[0].Installation})
 	}
@@ -215,6 +217,25 @@ func Manager(connected bool) map[string]Tool {
 		})
 	}
 	return m
+}
+
+// suppliedLengths is the fake wave's account of the secrets it was sent:
+// each key with its value's length, never the value.
+func suppliedLengths(v any) string {
+	secrets, _ := v.(map[string]any)
+	if len(secrets) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(secrets))
+	for k := range secrets {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, fmt.Sprintf("%s (%d bytes)", k, len(str(secrets[k]))))
+	}
+	return "secrets: " + strings.Join(parts, ", ")
 }
 
 // content says whether a dry run answers the files' content: as asked, else

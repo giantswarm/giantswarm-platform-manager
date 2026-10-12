@@ -31,6 +31,14 @@
     "mcp-capi:user-values": {
       "repository": "management-clusters",
       "path": "management-clusters/<name>/extras/mcp-capi/user-values.yaml"
+    },
+    "agent-platform:kustomization": {
+      "repository": "management-clusters",
+      "path": "management-clusters/<name>/extras/agent-platform/kustomization.yaml"
+    },
+    "agent-platform:secrets-kustomization": {
+      "repository": "management-clusters",
+      "path": "management-clusters/<name>/extras/agent-platform/secrets/kustomization.yaml"
     }
   },
   "type": "object",
@@ -89,6 +97,64 @@
           "x-source": "registry",
           "x-feature": "servers",
           "x-renders": []
+        },
+        "federation": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The installation's place in the fleet's token exchange, as far as this definition renders it: the hubs whose muster exchanges tokens into the installation, from the portals on record.",
+          "x-source": "registry",
+          "x-feature": "identity",
+          "properties": {
+            "connectors": {
+              "type": "array",
+              "default": [],
+              "x-source": "registry",
+              "x-feature": "identity",
+              "x-renders": [
+                "dex-configmap:oidc.customer.connectors[*] (<customer>-simple-oidc, <customer>-<hub>-oidc)"
+              ],
+              "description": "The hubs that broker into this installation, each with the facts the token-exchange connector its Dex registers for the hub is rendered from: the hub's name, its owning organisation, its base domain — the hub's Dex, https://dex.<baseDomain>, is the connector's issuer — and whether it is the first of its organisation's hubs into this installation. The connector is an oidc connector trusting that issuer, under oidc.customer.connectors next to the installation's own login connectors, which the plan keeps; its name is the agent-platform policy's federation.connector.first (<customer>-simple-oidc) for the first hub and federation.connector.further (<customer>-<hub>-oidc) for every further one — the name the hub renders into its broker target and identity provider for this installation, so the two sides agree. A hub of an organisation under that policy's federation.connector.fromBase renders none: the fleet's Dex base registers its connector on every installation.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["hub", "customer", "baseDomain"],
+                "properties": {
+                  "hub": {"type": "string", "minLength": 1, "description": "The hub's name."},
+                  "customer": {"type": "string", "minLength": 1, "description": "The hub's owning organisation as the registry names it: the connector's prefix, and what the policy's fromBase is matched against."},
+                  "baseDomain": {"type": "string", "minLength": 1, "description": "The hub's base domain from its record: its Dex, https://dex.<baseDomain>, is the connector's issuer."},
+                  "first": {"type": "boolean", "default": false, "description": "The hub is the first of its organisation's hubs that broker into this installation, so its connector carries the organisation's plain name; a further hub's carries the hub's own."}
+                }
+              }
+            },
+            "hubs": {
+              "type": "array",
+              "default": [],
+              "items": {"type": "string", "minLength": 1},
+              "x-source": "registry",
+              "x-feature": "identity",
+              "x-renders": [
+                "dex-configmap:oidc.extraStaticClients[*] (muster-token-exchange-<name>, muster-token-exchange-<name>-<hub>)",
+                "dex-configmap:oidc.staticClients.dexK8SAuthenticator.trustedPeers",
+                "extras:agent-platform/kustomization.yaml",
+                "extras:agent-platform/secrets/kustomization.yaml",
+                "extras:agent-platform/secrets/dex-client-muster-token-exchange-<name>-secret.yaml",
+                "extras:agent-platform/secrets/dex-client-muster-token-exchange-<name>-<hub>-secret.yaml"
+              ],
+              "description": "Installations whose muster is the cluster-token broker of a portal that lists this one: each renders a token-exchange client in this installation's Dex, the id the hub's credentials Secret for this installation presents — the fleet's muster-token-exchange-<name> for the registry's hub (registryHub), muster-token-exchange-<name>-<hub> for every other hub — as a trusted peer of the authenticator and with its secret in a referenced Secret under extras/agent-platform/secrets, the file the agent-platform definition renders for the same pairing, listed by the kustomizations this definition renders there. The secret is one generated value with the hub's credentials Secret for this installation, in the hub's plan: a plan that would draw it here alone — creating the file, or rotating it — is refused, naming the hub's file. Empty, no hub exchanges tokens into the installation and nothing of this is rendered."
+            },
+            "registryHub": {
+              "type": "string",
+              "default": "",
+              "x-source": "registry",
+              "x-feature": "identity",
+              "x-renders": [
+                "dex-configmap:oidc.extraStaticClients[*] (muster-token-exchange-<name>)",
+                "dex-configmap:oidc.staticClients.dexK8SAuthenticator.trustedPeers",
+                "extras:agent-platform/secrets/dex-client-muster-token-exchange-<name>-secret.yaml"
+              ],
+              "description": "The registry's hub by name (the installation with installation.hub), among hubs or not: its token-exchange client in this installation's Dex carries the fleet's plain id, muster-token-exchange-<name>; every other hub's carries the hub's name too. The hub renders the same id into its credentials Secret for this installation from its own installation.hub, so the two sides agree."
+            }
+          }
         }
       }
     },
