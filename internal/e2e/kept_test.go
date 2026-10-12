@@ -103,12 +103,14 @@ func changedFiles(t *testing.T, st *stack, repository, branch string) []string {
 }
 
 // server are one MCP server's files on record, as "<repository>:<path>":
-// its credentials file holding four names, the Dex client Secret sharing
-// the client secret with it, the Valkey Secret sharing the password and the
-// credentials revision, the revision Secret sharing the revision.
+// its credentials file holding three names, the Dex client Secret sharing
+// the client secret with it, the Valkey Secret sharing the credentials
+// revision and holding the password alone, the revision Secret sharing the
+// revision.
 type mcpServer struct {
 	credentials, dexClient, valkey, revision string
 	names                                    []string // held by the credentials file
+	password                                 string   // held by the Valkey Secret alone
 }
 
 func serverOf(t *testing.T, p plan.Installation) mcpServer {
@@ -128,28 +130,29 @@ func serverOf(t *testing.T, p plan.Installation) mcpServer {
 		}
 		s.names = fileOf(t, p, s.credentials).Generated
 		for _, other := range p.GeneratedSecrets {
-			if other.Name == g.Name || !slices.Contains(s.names, other.Name) {
+			if other.Name == g.Name || !slices.Contains(s.names, other.Name) || len(other.Files) != 3 {
 				continue
 			}
-			switch len(other.Files) {
-			case 2: // the password: the credentials file and the Valkey Secret
-				s.valkey = other.Files[0]
-				if s.valkey == s.credentials {
-					s.valkey = other.Files[1]
-				}
-			case 3: // the revision: both of those and the revision Secret
-				for _, f := range other.Files {
-					if f != s.credentials && !strings.HasSuffix(f, "/valkey-credentials.enc.yaml") {
-						s.revision = f
-					}
+			// the revision: the credentials file, the Valkey Secret and the revision Secret
+			for _, f := range other.Files {
+				switch {
+				case strings.HasSuffix(f, "/valkey-credentials.enc.yaml"):
+					s.valkey = f
+				case f != s.credentials:
+					s.revision = f
 				}
 			}
 		}
-		if len(s.names) == 4 && s.valkey != "" && s.revision != "" {
+		for _, other := range p.GeneratedSecrets {
+			if strings.HasSuffix(other.Name, "-valkey-password") && slices.Equal(other.Files, []string{s.valkey}) {
+				s.password = other.Name
+			}
+		}
+		if len(s.names) == 3 && s.valkey != "" && s.revision != "" && s.password != "" {
 			return s
 		}
 	}
-	t.Fatalf("no server holds four names in a %s, two shared with its Valkey Secret and one with its revision Secret: %+v", credentialsFile, p.GeneratedSecrets)
+	t.Fatalf("no server holds three names in a %s, one shared with its Valkey Secret and its revision Secret: %+v", credentialsFile, p.GeneratedSecrets)
 	return mcpServer{}
 }
 
@@ -392,11 +395,13 @@ func TestReconcileKeepsTheHandAddedSecretsOfTheSecretsKustomization(t *testing.T
 // The server's credentials file on record changes in its plaintext skeleton
 // beyond the keys it lacks (its type): the commit would write it anew
 // whole, so every name it holds would rotate, forced by that file with the
-// cause. Nobody asked, so the reconcile refuses them and commits nothing.
-// Asked for by name, they rotate: the Dex client Secret, the Valkey Secret
-// and the revision Secret kept on record share three of them and are
-// rewritten with the new values; every other file stays, every other name
-// is kept, and the commit writes those four files and nothing else.
+// cause, and the Valkey Secret rewritten with the revision would draw its
+// password anew. Nobody asked, so the reconcile refuses them and commits
+// nothing. Asked for by name, they rotate: the Dex client Secret, the
+// Valkey Secret and the revision Secret kept on record share two of them and
+// are rewritten with the new values, the Valkey password with them; every
+// other file stays, every other name is kept, and the commit writes those
+// four files and nothing else.
 func TestReconcileRotatesTheNamesOfAFileWhoseSkeletonChanges(t *testing.T) {
 	st := newStack(t)
 	c := enabledOnRecord(t, st)
@@ -408,7 +413,7 @@ func TestReconcileRotatesTheNamesOfAFileWhoseSkeletonChanges(t *testing.T) {
 	}
 	st.ghs.addFile(repository, path, strings.Replace(current, "\ntype: Opaque\n", "\ntype: kubernetes.io/basic-auth\n", 1))
 
-	forcedBy := map[string]string{}
+	forcedBy := map[string]string{s.password: s.valkey}
 	for _, n := range s.names {
 		forcedBy[n] = s.credentials
 	}
@@ -438,10 +443,10 @@ func TestReconcileRotatesTheNamesOfAFileWhoseSkeletonChanges(t *testing.T) {
 // rotates, every other name is kept, and the commit refuses until the carry
 // is on record, opening nothing. Asked for the client secret, the rotation
 // reaches the rest: the new Secret is written with the new value, the
-// credentials file is rewritten with it, so the three other names it holds
-// rotate too, forced by the credentials file, and the Valkey Secret sharing
-// the password and the revision and the revision Secret sharing the
-// revision are rewritten as well.
+// credentials file is rewritten with it, so the two other names it holds
+// rotate too, forced by the credentials file, and the Valkey Secret and the
+// revision Secret sharing the revision are rewritten as well, the Valkey
+// password with them.
 func TestReconcileRotatesANameANewFileShares(t *testing.T) {
 	st := newStack(t)
 	c := enabledOnRecord(t, st)
@@ -481,7 +486,7 @@ func TestReconcileRotatesANameANewFileShares(t *testing.T) {
 		t.Fatalf("a refused commit opened %d pull request(s)", opened)
 	}
 
-	forcedBy := map[string]string{}
+	forcedBy := map[string]string{s.password: s.valkey}
 	for _, n := range s.names {
 		forcedBy[n] = s.credentials
 	}
