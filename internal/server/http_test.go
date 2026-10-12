@@ -40,7 +40,7 @@ func TestOAuthConfigIsValidatedAtStart(t *testing.T) {
 
 // A body beyond the bound is refused, and the endpoint keeps answering.
 func TestMCPBodyIsBounded(t *testing.T) {
-	s, err := New(Config{Addr: "127.0.0.1:0"}, mcpserver.NewMCPServer("test", "0"), nil)
+	s, err := New(Config{}, mcpserver.NewMCPServer("test", "0"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
