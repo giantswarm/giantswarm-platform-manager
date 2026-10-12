@@ -67,25 +67,30 @@ type oauthSecretKeys struct {
 	dexClientSecret string
 	// encryptionKey carries the OAuth token-encryption key.
 	encryptionKey string
-	// valkeyPassword carries the Valkey password for a chart that takes it from
-	// this Secret rather than from the valkey-auth Secret; empty for a chart
-	// that reads the valkey-auth Secret's key directly.
-	valkeyPassword string
 	// revision carries the server's credentials revision (the revision
 	// Secret): a key no chart reads, held here so a rewrite of this Secret
 	// draws the revision anew.
 	revision string
+	// valkeyChecksum says the chart takes the valkey-auth Secret's mark
+	// (oauth.storage.valkey.existingSecretChecksum) beside the OAuth Secret's.
+	valkeyChecksum bool
+	// retired are keys the contract once wrote that nothing reads: an
+	// installation's Secret on record keeps them until its next rotation
+	// (render.File.Retired).
+	retired []string
 }
 
 // keyedOAuthKeys is the contract of the charts that read the Secret key by key
-// (mcp-kubernetes, mcp-capi); they take the Valkey password from the
-// valkey-auth Secret.
-var keyedOAuthKeys = oauthSecretKeys{dexClientSecret: "dex-client-secret", encryptionKey: "oauth-encryption-key", revision: "credentials-revision"} // #nosec G101 -- Secret key names, not values
+// (mcp-kubernetes, mcp-capi).
+var keyedOAuthKeys = oauthSecretKeys{dexClientSecret: "dex-client-secret", encryptionKey: "oauth-encryption-key", revision: "credentials-revision", valkeyChecksum: true} // #nosec G101 -- Secret key names, not values
 
 // envOAuthKeys is the contract of a chart that loads the Secret with envFrom
-// (mcp-prometheus): the keys are the variables its process reads, the Valkey
-// password included.
-var envOAuthKeys = oauthSecretKeys{dexClientSecret: "DEX_CLIENT_SECRET", encryptionKey: "MCP_OAUTH_ENCRYPTION_KEY", valkeyPassword: "VALKEY_PASSWORD", revision: "CREDENTIALS_REVISION"} // #nosec G101 -- Secret key names, not values
+// (mcp-prometheus): the keys are the variables its process reads. Its
+// VALKEY_PASSWORD env entry reads the valkey-auth Secret and overrides the
+// copy this Secret once carried, which is retired; the chart takes no mark
+// for the valkey-auth Secret, so the revision reaches the server through the
+// OAuth Secret's mark alone.
+var envOAuthKeys = oauthSecretKeys{dexClientSecret: "DEX_CLIENT_SECRET", encryptionKey: "MCP_OAUTH_ENCRYPTION_KEY", revision: "CREDENTIALS_REVISION", retired: []string{"VALKEY_PASSWORD"}} // #nosec G101 -- Secret key names, not values
 
 // Servers are the management cluster's own MCP servers, the set the shared
 // template registers with muster on every installation.
@@ -150,9 +155,8 @@ func (s Server) RevisionSecretName() string { return s.Name + "-credentials-revi
 func (s Server) dexCASecretName() string { return s.Name + "-dex-ca" }
 
 // ChecksumValues are the chart values the server's HelmRelease takes the
-// revision into: the OAuth credentials Secret's mark and, for a chart that
-// reads the Valkey password from the valkey-auth Secret rather than from the
-// OAuth Secret, that Secret's mark; each renders as a pod-template checksum
+// revision into: the OAuth credentials Secret's mark and, where the chart
+// takes it, the valkey-auth Secret's; each renders as a pod-template checksum
 // annotation.
 func (s Server) ChecksumValues() []string {
 	prefix := "oauth."
@@ -160,7 +164,7 @@ func (s Server) ChecksumValues() []string {
 		prefix = s.valuesKey + ".oauth."
 	}
 	values := []string{prefix + "existingSecretChecksum"}
-	if s.oauthKeys.valkeyPassword == "" {
+	if s.oauthKeys.valkeyChecksum {
 		values = append(values, prefix+"storage.valkey.existingSecretChecksum")
 	}
 	return values
@@ -228,12 +232,11 @@ func (s Server) userValues(o Options) render.Map {
 
 // Extras renders the server's extras directory: the kustomization over the
 // fleet base and the Secrets its chart reads — the OAuth credentials under the
-// server's key contract (the Dex client secret shared with the Dex client, the
-// encryption key, and the Valkey password where the chart takes it from this
-// Secret) and the valkey-auth Secret the fleet base's Valkey reads — plus,
-// where the dex-app chart reads a reference for the client, the Dex-side copy
-// of the client secret. The Valkey password is one generated value, so the
-// server and its Valkey agree wherever each reads it. Both Secrets carry the
+// server's key contract (the Dex client secret shared with the Dex client and
+// the encryption key) and the valkey-auth Secret that the fleet base's Valkey
+// and the server both read the Valkey password from — plus, where the dex-app
+// chart reads a reference for the client, the Dex-side copy of the client
+// secret. Both Secrets carry the
 // server's credentials revision, and a third Secret in the Flux namespace
 // carries it for the HelmReleases, which the kustomization patches to read it
 // into their charts' checksum values, so a rotation rolls the server and its
@@ -271,15 +274,16 @@ func (s Server) Extras(result *render.Result, repo render.Repository, dir string
 		render.GeneratedKey(s.oauthKeys.dexClientSecret, valueName, render.Base64, 32),
 		render.GeneratedKey(s.oauthKeys.encryptionKey, generatedName("oauth-encryption-key"), render.Base64, 32),
 	}
-	if s.oauthKeys.valkeyPassword != "" {
-		oauth = append(oauth, render.GeneratedKey(s.oauthKeys.valkeyPassword, valkeyValue, render.Alphanumeric, 32))
-	}
 	oauth = append(oauth, render.GeneratedKey(s.oauthKeys.revision, revision, render.Alphanumeric, RevisionLength))
 	valkey := []render.SecretKey{
 		render.GeneratedKey(valkeyAuthKey, valkeyValue, render.Alphanumeric, 32),
 		render.GeneratedKey(RevisionKey, revision, render.Alphanumeric, RevisionLength),
 	}
-	result.Add(repo, dir+"/oauth-credentials.enc.yaml", render.Secret(s.Name+"-oauth-credentials", s.Name, nil, oauth...))
+	oauthFile := render.Secret(s.Name+"-oauth-credentials", s.Name, nil, oauth...)
+	for _, k := range s.oauthKeys.retired {
+		oauthFile.Retired = append(oauthFile.Retired, "stringData."+k)
+	}
+	result.Add(repo, dir+"/oauth-credentials.enc.yaml", oauthFile)
 	result.Add(repo, dir+"/valkey-credentials.enc.yaml", render.Secret(s.Name+"-valkey-auth", s.Name, nil, valkey...))
 	// Every value of the two Secrets rolls the server and its Valkey with the revision.
 	result.Revision(revision, oauth...)

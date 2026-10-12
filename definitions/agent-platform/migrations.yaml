@@ -167,10 +167,8 @@ migrations:
     reason: "Added: the mcp-<name> server's Valkey reads its password from a generated Secret (valkey-credentials) in the server's extras directory · M9"
   - key: extras:mcp-<name>/kustomization.yaml resources[valkey-credentials.enc.yaml]
     reason: "Added: the mcp-<name> server's kustomization lists valkey-credentials.enc.yaml, so the Valkey Secret is applied with the server · M9"
-  - key: extras:mcp-<name>/oauth-credentials.enc.yaml stringData.VALKEY_PASSWORD
-    reason: "Added: the mcp-<name> server gets the same generated Valkey password in its credentials (VALKEY_PASSWORD), so the server and its Valkey agree · M9"
   - key: extras:mcp-<name>/oauth-credentials.enc.yaml type
-    reason: "Added: the mcp-<name> server's credentials Secret states its type (Opaque), written together with the Valkey password · M9"
+    reason: "Added: the mcp-<name> server's credentials Secret states its type (Opaque) · M9"
 
   # --- M11 — the edge validates the portals' tokens on the 4 line ---
   - key: configmap:agent-platform-mcps.agentgateway.jwt.extraProviders

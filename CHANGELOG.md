@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- agent-platform, cluster-mcp-servers: mcp-prometheus's OAuth credentials Secret no longer carries a `VALKEY_PASSWORD` key ([#429](https://github.com/giantswarm/giantswarm-platform-manager/issues/429)). The chart's explicit `VALKEY_PASSWORD` env entry reads the valkey-auth Secret and overrides the copy `envFrom` loaded, so nothing read it. A Secret on record that still holds the key keeps it: the plan compares it without the retired key, since dropping it alone would rewrite the Secret and draw every value anew, and the next requested rotation of the server's credentials leaves it out. The comparison plans the leftover key as a removal (kind `retired`). A Valkey password rotation still rolls the server through the shared credentials revision.
 - The MCP endpoint refuses a request body larger than 1 MiB before mcp-go reads it whole (CVE-2026-108859, no fixed mcp-go release yet; the scan ignores it until 2026-11-12). ([#593](https://github.com/giantswarm/giantswarm-platform-manager/issues/593))
 
 ### Added

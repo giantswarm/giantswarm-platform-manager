@@ -30,6 +30,9 @@
 #                       it from the record into the render, comments included, so a reconcile never removes
 #                       it and the comparison finds it as defined; the reason says what has to land before
 #                       the key goes, and the entry becomes a migration then
+#   retired             a key of a generated Secret the definition no longer writes and nothing reads; the plan
+#                       leaves it on record, since dropping it alone would rewrite the Secret and draw every value
+#                       it holds anew, and it goes with the Secret's next rotation
 removals:
   # --- former inputs: migrations ---
   - key: configmap:components.agent-sandbox
@@ -268,6 +271,13 @@ removals:
     reason: >-
       Kept: extras/agent-platform/mcpclients holds the MCP clients registered on this installation with a stable callback; they are the installation's
       own registrations, from which the platform renders muster's allowlist and which it neither writes nor removes.
+
+  # --- management-clusters extras/mcp-<name>/ ---
+  - key: extras:mcp-<name>/oauth-credentials.enc.yaml stringData.VALKEY_PASSWORD
+    kind: retired
+    reason: >-
+      Removed: the mcp-<name> server's credentials carry a copy of its Valkey password (VALKEY_PASSWORD) that nothing reads, since the
+      server takes the password from its Valkey's Secret; it stays until the next rotation of the server's credentials rewrites them without it.
 
   # --- Backstage app-config.yaml (portal keys outside the agent-platform section) ---
   - key: "backstage:app-config:app.title"

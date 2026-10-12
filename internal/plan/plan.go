@@ -594,7 +594,13 @@ func Build(ctx context.Context, opts Options) Installation {
 					pf.Current = current
 				}
 			}
-			pf.Change, pf.Error, pf.Unseen = change(current, err, content)
+			// The keys the definition retired take no part: they alone
+			// never rewrite the file, and they go with its next rewrite.
+			compared := current
+			if err == nil {
+				compared = withoutRetired(current, f.Retired)
+			}
+			pf.Change, pf.Error, pf.Unseen = change(compared, err, content)
 			if len(f.Generated) > 0 {
 				h.paths = markerPaths(content)
 			}
@@ -604,10 +610,10 @@ func Build(ctx context.Context, opts Options) Installation {
 				// values stand. Where the keys are credentials revisions
 				// alone they wait for a requested rotation instead: the file
 				// stands, and holds no revision.
-				if without, lacks := lacking(content, current); len(lacks) > 0 && sameSkeleton(without, current) {
+				if without, lacks := lacking(content, compared); len(lacks) > 0 && sameSkeleton(without, compared) {
 					h.lacks, h.fillable = lacks, true
 					if !slices.ContainsFunc(lacks, func(n string) bool { return !revisions[n] }) {
-						pf.Change, pf.Unseen = ChangeUnchanged, unseen(without, current)
+						pf.Change, pf.Unseen = ChangeUnchanged, unseen(without, compared)
 					}
 				}
 			}

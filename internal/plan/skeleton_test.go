@@ -3,6 +3,8 @@ package plan
 import (
 	"strings"
 	"testing"
+
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // The render of a Secret and the file on record as SOPS wrote it: the values
@@ -147,5 +149,35 @@ func TestSameSkeletonLeavesAnEncryptedFilesLabelsOut(t *testing.T) {
 	}
 	if !MetadataMark("metadata.labels.reconcile.fluxcd.io/watch") || !MetadataMark("metadata.annotations") || MetadataMark("metadata.name") || MetadataMark("stringData.labels") {
 		t.Fatal("MetadataMark")
+	}
+}
+
+// A key the definition retired that the file on record still holds
+// encrypted takes no part in the comparison: alone it leaves the file
+// unchanged — a rewrite would draw every value anew — and the file's next
+// rewrite leaves it out. A retired key the record holds in plaintext, and
+// any other key the render lacks, still differ.
+func TestRetiredKeysTakeNoPart(t *testing.T) {
+	const enc = "ENC[AES256_GCM,data:dg==,iv:x,tag:y,type:str]"
+	rendered := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\n  namespace: ns\ntype: Opaque\nstringData:\n  DEX_CLIENT_SECRET: " + render.Placeholder("client") + "\n  CREDENTIALS_REVISION: " + render.Placeholder("revision") + "\n"
+	onRecord := func(extra string) string {
+		return "apiVersion: v1\nkind: Secret\nmetadata:\n  name: s\n  namespace: ns\ntype: Opaque\nstringData:\n  DEX_CLIENT_SECRET: " + enc + "\n" + extra + "  CREDENTIALS_REVISION: " + enc + "\nsops:\n  version: 3.9.0\n"
+	}
+	retired := []string{"stringData.VALKEY_PASSWORD"}
+	for _, tc := range []struct {
+		name, current string
+		want          Change
+	}{
+		{"the retired key on record", onRecord("  VALKEY_PASSWORD: " + enc + "\n"), ChangeUnchanged},
+		{"the file without it", onRecord(""), ChangeUnchanged},
+		{"another key the render lacks", onRecord("  OTHER: " + enc + "\n"), ChangeUpdate},
+		{"the retired key in plaintext", onRecord("  VALKEY_PASSWORD: plain\n"), ChangeUpdate},
+	} {
+		if got, _, _ := change(withoutRetired(tc.current, retired), nil, rendered); got != tc.want {
+			t.Errorf("%s: %s, want %s", tc.name, got, tc.want)
+		}
+	}
+	if got, _, _ := change(onRecord("  VALKEY_PASSWORD: "+enc+"\n"), nil, rendered); got != ChangeUpdate {
+		t.Errorf("the retired key compared as any other: %s, want %s", got, ChangeUpdate)
 	}
 }
