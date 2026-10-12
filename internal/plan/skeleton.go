@@ -334,6 +334,52 @@ func lacking(rendered, current string) (string, []string) {
 	return buf.String(), names
 }
 
+// withoutRetired answers the file on record without the retired keys (the
+// YAML paths render.File.Retired names) it holds encrypted, or current as it
+// is where it holds none or SOPS did not encrypt it: the definition no longer
+// writes them, and dropping one alone would rewrite the file and draw every
+// value it holds anew.
+func withoutRetired(current string, retired []string) string {
+	if len(retired) == 0 {
+		return current
+	}
+	docs, err := documents(current)
+	if err != nil || !encrypted(docs) {
+		return current
+	}
+	removed := false
+	for _, doc := range docs {
+		for _, p := range retired {
+			keys := strings.Split(p, ".")
+			parent := at(root(doc), keys[:len(keys)-1]...)
+			if parent == nil || parent.Kind != yaml.MappingNode {
+				continue
+			}
+			for i := 0; i+1 < len(parent.Content); i += 2 {
+				if v := parent.Content[i+1]; parent.Content[i].Value == keys[len(keys)-1] && v.Kind == yaml.ScalarNode && strings.HasPrefix(v.Value, encPrefix) {
+					parent.Content = slices.Delete(parent.Content, i, i+2)
+					removed = true
+					break
+				}
+			}
+		}
+	}
+	if !removed {
+		return current
+	}
+	var buf strings.Builder
+	enc := yaml.NewEncoder(&buf)
+	for _, doc := range docs {
+		if err := enc.Encode(doc); err != nil {
+			return current
+		}
+	}
+	if err := enc.Close(); err != nil {
+		return current
+	}
+	return buf.String()
+}
+
 // dropLacking removes from the render's mapping r every entry the record's
 // mapping c lacks whose value is a generated marker, down the mappings both
 // carry, appending the names removed to names.

@@ -34,6 +34,12 @@ type Fileset map[Repository]map[string]File
 type File struct {
 	Content   []byte
 	Generated []Generated
+	// Retired are the YAML paths of keys the definition no longer writes
+	// that the file on record may still hold encrypted. The plan compares
+	// the file on record without them: dropping one alone would rewrite the
+	// file and draw every value it holds anew, so it stays on record until
+	// the file's next rewrite (a rotation) leaves it out.
+	Retired []string
 }
 
 // Generated describes one placeholder in a File. Two files that carry the same

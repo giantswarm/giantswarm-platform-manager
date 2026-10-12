@@ -1,7 +1,7 @@
 # Stands in for the mcp-prometheus Konfiguration ConfigMap (the shared template in
 # the fleet's config repository, not in this repository): the values that select
-# the Secret the chart reads — with envFrom, so the Secret's keys are the
-# environment variable names — and the environment the chart requires with OAuth
+# the Secrets the chart reads — the OAuth one with envFrom, so its keys are the
+# environment variable names, the Valkey password by key — and the environment the chart requires with OAuth
 # on. Invented hostnames; nothing here is asserted, only what the chart reads.
 app:
   oauth:
@@ -11,6 +11,10 @@ app:
       type: valkey
       valkey:
         url: mcp-prometheus-valkey.mcp-prometheus.svc:6379
+        # The Valkey password: the valkey-auth Secret its Valkey reads, by its
+        # key (VALKEY_PASSWORD with secretKeyRef, which wins over envFrom).
+        existingSecret: mcp-prometheus-valkey-auth
+        secretKeyPassword: default
   env:
     - name: DEX_ISSUER_URL
       value: https://dex.example.test

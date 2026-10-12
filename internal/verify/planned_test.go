@@ -171,7 +171,7 @@ func leafPaths(filePath, yamlPath, value string) []string {
 // keeps it as well; the scalar the record lacks is the scalar's own key's.
 // A file the migrations name as a whole — the mcp-* Valkey Secret — is
 // planned at every leaf, the kustomization entry and the oauth Secret's
-// password with it.
+// type with it.
 func TestJoinedScalarsAndTheValkeySecretArePlanned(t *testing.T) {
 	const m5, m5auth, m9, m30 = "M5 — kagent", "M5 — authenticator", "M9 — valkey", "M30 — backstage"
 	const list = plan.ListExtraAudience
@@ -182,7 +182,6 @@ func TestJoinedScalarsAndTheValkeySecretArePlanned(t *testing.T) {
 		{Key: "configmap:" + list + "[backstage]", Reason: m30},
 		{Key: "extras:mcp-<name>/valkey-credentials.enc.yaml", Reason: m9},
 		{Key: "extras:mcp-<name>/kustomization.yaml resources[valkey-credentials.enc.yaml]", Reason: m9},
-		{Key: "extras:mcp-<name>/oauth-credentials.enc.yaml stringData.VALKEY_PASSWORD", Reason: m9},
 		{Key: "extras:mcp-<name>/oauth-credentials.enc.yaml type", Reason: m9},
 	}, nil)
 	patch := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
@@ -213,8 +212,7 @@ func TestJoinedScalarsAndTheValkeySecretArePlanned(t *testing.T) {
 		{"every leaf of the Valkey Secret", valkey, absent("type"), m9},
 		{"its password", valkey, absent("stringData.default"), m9},
 		{"its kustomization entry", kust, absent("resources[valkey-credentials.enc.yaml]"), m9},
-		{"the oauth Secret's password", oauth, absent("stringData.VALKEY_PASSWORD"), m9},
-		{"the oauth Secret's type, added with the password", oauth, &Difference{Path: "type", Rendered: "Opaque", absent: true}, m9},
+		{"the oauth Secret's type", oauth, &Difference{Path: "type", Rendered: "Opaque", absent: true}, m9},
 		{"the oauth Secret's other leaves", oauth, absent("stringData.DEX_CLIENT_SECRET"), ""},
 	} {
 		if got := planned(tc.fd, tc.d, nil, migs); got != tc.want {
@@ -585,6 +583,25 @@ func TestCredentialsConsumersRevisionIsPlanned(t *testing.T) {
 			t.Errorf("%s: planned %q, want none", d.Path, got)
 		case tc.tag != "" && (!strings.Contains(got, "the "+tc.component+" HelmRelease") || !strings.HasSuffix(got, "· "+tc.tag)):
 			t.Errorf("%s: planned %q, want it to name the %s HelmRelease and carry %s", d.Path, got, tc.component, tc.tag)
+		}
+	}
+}
+
+// The VALKEY_PASSWORD copy in mcp-prometheus's credentials Secret is a key
+// both definitions retired: on an installation whose Secret still holds it,
+// it is a planned removal naming the server and the rotation it waits for,
+// never drift.
+func TestRetiredValkeyPasswordIsPlanned(t *testing.T) {
+	oauth := &fileDiff{path: "management-clusters/x/extras/mcp-prometheus/oauth-credentials.enc.yaml", kind: definitions.KindExtras}
+	d := &Difference{Path: "stringData.VALKEY_PASSWORD", Current: Redacted, dropped: true}
+	for _, capability := range []string{installations.AgentPlatform, "cluster-mcp-servers"} {
+		rs, err := definitions.Removals(capability)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := planned(oauth, d, readRemovals(rs, nil), nil)
+		if !strings.HasPrefix(got, "Removed: the mcp-prometheus server's credentials") || !strings.Contains(got, "next rotation") {
+			t.Errorf("%s: the retired key planned %q", capability, got)
 		}
 	}
 }

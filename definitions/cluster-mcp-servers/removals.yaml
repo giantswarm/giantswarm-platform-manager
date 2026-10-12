@@ -10,6 +10,9 @@
 #   referenced-secret   an inline credential in the encrypted Dex values that a Secret in the cluster replaces;
 #                       dex-app reads the reference and ignores the inline value next to it, which a person
 #                       deletes from the encrypted values (the definition decrypts nothing)
+#   retired             a key of a generated Secret the definition no longer writes and nothing reads; the plan
+#                       leaves it on record, since dropping it alone would rewrite the Secret and draw every value
+#                       it holds anew, and it goes with the Secret's next rotation
 removals:
   - key: dex-secret:oidc.staticClients.mcpKubernetes.clientSecret
     kind: referenced-secret
@@ -26,3 +29,8 @@ removals:
     reason: >-
       Removed: mcp-capi's Dex client secret is inline in the encrypted Dex values; the client reads it from the Secret
       dex-client-mcp-capi-secret under extras/mcp-capi instead, and Dex ignores the inline value next to it.
+  - key: extras:mcp-<name>/oauth-credentials.enc.yaml stringData.VALKEY_PASSWORD
+    kind: retired
+    reason: >-
+      Removed: the mcp-<name> server's credentials carry a copy of its Valkey password (VALKEY_PASSWORD) that nothing reads, since the
+      server takes the password from its Valkey's Secret; it stays until the next rotation of the server's credentials rewrites them without it.
