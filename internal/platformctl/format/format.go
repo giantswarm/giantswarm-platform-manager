@@ -103,7 +103,7 @@ func Plan(w io.Writer, r tools.CapabilityResult, content bool) error {
 		p.f("Order: %s\n", strings.Join(r.Order, ", "))
 	}
 	for _, inst := range r.Installations {
-		p.installation(inst.Installation, content)
+		p.installation(inst.Installation, inst.Features, content)
 		if len(inst.Summary) > 0 {
 			p.f("  Comparison: %s\n", marks(inst.Summary))
 		}
@@ -149,7 +149,10 @@ func suppliesAny(dry []tools.DryRun) bool {
 	return false
 }
 
-func (p *printer) installation(inst plan.Installation, content bool) {
+// installation prints one installation's plan; features are a dry run's
+// comparison, whose differences list under the files what each changed file
+// differs in (none for a commit's plan).
+func (p *printer) installation(inst plan.Installation, features []verify.Feature, content bool) {
 	p.f("\n%s: %s\n", inst.Name, inst.State)
 	if inst.Refused != "" {
 		p.f("  Refused: %s\n", inst.Refused)
@@ -185,6 +188,7 @@ func (p *printer) installation(inst plan.Installation, content bool) {
 				p.f("    %s keeps what other owners added and the definition does not render: %s\n", f.Path, kept(f.Kept))
 			}
 		}
+		p.differences(inst.Files, features)
 	}
 	p.join(inst.Name, inst.Join)
 	for _, inc := range inst.Includes {
@@ -519,7 +523,7 @@ func Commit(w io.Writer, r tools.CommitResult, content bool) error {
 	if len(r.UnchangedRepositories) > 0 {
 		p.f("Nothing to commit in: %s\n", strings.Join(r.UnchangedRepositories, ", "))
 	}
-	p.installation(r.Plan, content)
+	p.installation(r.Plan, nil, content)
 	if r.Next != "" {
 		p.f("\nNext: %s\n", r.Next)
 	}

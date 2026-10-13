@@ -1,0 +1,149 @@
+{
+  "caller": "someone",
+  "tool": "reconcile_capability",
+  "capability": "agent-platform",
+  "hub": "hazel",
+  "dryRun": true,
+  "order": [
+    "rowan"
+  ],
+  "installations": [
+    {
+      "name": "rowan",
+      "state": "enabled",
+      "inputs": null,
+      "files": [
+        {
+          "repository": "giantswarm/acme-configs",
+          "path": "installations/rowan/apps/agent-platform/configmap-values.yaml.patch",
+          "change": "update"
+        },
+        {
+          "repository": "giantswarm/acme-configs",
+          "path": "installations/rowan/apps/agent-platform/secret-values.yaml.patch",
+          "change": "update"
+        },
+        {
+          "repository": "giantswarm/acme-management-clusters",
+          "path": "management-clusters/rowan/extras/agent-platform/kustomization.yaml",
+          "change": "unchanged"
+        }
+      ],
+      "includes": null,
+      "generatedSecrets": null,
+      "suppliedSecrets": null,
+      "dexClients": null,
+      "customerActions": null,
+      "probes": null,
+      "diff": {
+        "unchanged": 1,
+        "update": 2
+      },
+      "features": [
+        {
+          "id": "gateway",
+          "title": "Gateway",
+          "mark": "differs by input",
+          "marks": {
+            "differs by input": 1
+          },
+          "dimensions": [
+            {
+              "id": "gateway-host",
+              "kind": "configmap",
+              "key": "gateway.host",
+              "mark": "differs by input",
+              "files": [
+                "giantswarm/acme-configs:installations/rowan/apps/agent-platform/configmap-values.yaml.patch"
+              ],
+              "differences": [
+                {
+                  "file": "giantswarm/acme-configs:installations/rowan/apps/agent-platform/configmap-values.yaml.patch",
+                  "path": "data.values.gateway.host",
+                  "input": "gateway.host",
+                  "rendered": "kagent.acme.example-never-printed",
+                  "current": "old.kagent.acme.example-never-printed",
+                  "line": 4,
+                  "currentLine": 4
+                },
+                {
+                  "file": "giantswarm/acme-configs:installations/rowan/apps/agent-platform/configmap-values.yaml.patch",
+                  "path": "data.values.gateway.replicas",
+                  "rendered": "2",
+                  "line": 5
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kagent",
+          "title": "kagent",
+          "mark": "drifted",
+          "marks": {
+            "as defined": 1,
+            "drifted": 1
+          },
+          "dimensions": [
+            {
+              "id": "kagent-legacy",
+              "kind": "configmap",
+              "key": "kagent.legacy",
+              "mark": "drifted",
+              "differences": [
+                {
+                  "file": "giantswarm/acme-configs:installations/rowan/apps/agent-platform/configmap-values.yaml.patch",
+                  "path": "data.values.kagent.legacy",
+                  "current": "true",
+                  "currentLine": 9
+                },
+                {
+                  "file": "giantswarm/acme-configs:installations/rowan/apps/agent-platform/configmap-values.yaml.patch",
+                  "path": "data.values.gateway.host",
+                  "input": "gateway.host",
+                  "rendered": "kagent.acme.example-never-printed",
+                  "current": "old.kagent.acme.example-never-printed",
+                  "line": 4,
+                  "currentLine": 4
+                }
+              ]
+            },
+            {
+              "id": "kagent-secret",
+              "kind": "secret",
+              "key": "kagent.secret",
+              "mark": "drifted",
+              "differences": [
+                {
+                  "file": "giantswarm/acme-configs:installations/rowan/apps/agent-platform/secret-values.yaml.patch",
+                  "path": "stringData.values.kagent.clientSecret",
+                  "rendered": "\u003cencrypted\u003e",
+                  "current": "\u003cencrypted\u003e",
+                  "line": 6,
+                  "currentLine": 6
+                }
+              ]
+            },
+            {
+              "id": "kagent-kustomization",
+              "kind": "kustomization",
+              "key": "resources",
+              "mark": "as defined",
+              "files": [
+                "giantswarm/acme-management-clusters:management-clusters/rowan/extras/agent-platform/kustomization.yaml"
+              ]
+            }
+          ]
+        }
+      ],
+      "summary": {
+        "as defined": 1,
+        "differs by input": 1,
+        "drifted": 1
+      }
+    }
+  ],
+  "pullRequests": null,
+  "skipped": null,
+  "commit": ""
+}

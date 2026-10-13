@@ -1,0 +1,16 @@
+reconcile_capability dry run: agent-platform on hub hazel, as someone
+Order: rowan
+
+rowan: enabled
+  Files (2 update, 1 unchanged):
+    CHANGE     REPOSITORY                           PATH
+    update     giantswarm/acme-configs              installations/rowan/apps/agent-platform/configmap-values.yaml.patch
+    update     giantswarm/acme-configs              installations/rowan/apps/agent-platform/secret-values.yaml.patch
+    unchanged  giantswarm/acme-management-clusters  management-clusters/rowan/extras/agent-platform/kustomization.yaml
+    Differs in giantswarm/acme-configs:installations/rowan/apps/agent-platform/configmap-values.yaml.patch:
+      changed  data.values.gateway.host
+      added    data.values.gateway.replicas
+      removed  data.values.kagent.legacy
+    Differs in giantswarm/acme-configs:installations/rowan/apps/agent-platform/secret-values.yaml.patch:
+      changed  stringData.values.kagent.clientSecret  (secret)
+  Comparison: 1 drifted, 1 differs by input, 1 as defined
