@@ -153,6 +153,11 @@ type Report struct {
 	// Registered is what the record registers with muster beyond the
 	// platform's own (registered.go); nil until a full inspection read it.
 	Registered *Registered `json:"registered,omitempty"`
+	// Workspaces says whether the agent platform's workspaces are on here, as
+	// the agent-platform values on record turn them on — the source the
+	// definition renders them from (readWorkspaces): off where the platform is
+	// not on record; nil where the installation or the values could not be read.
+	Workspaces *Workspaces `json:"workspaces,omitempty"`
 }
 
 // Detail is how much of an installation list_installations reads.
@@ -162,8 +167,9 @@ const (
 	// Full reads everything a plan needs: the record with the cluster App,
 	// the markers, the portals and the federation facts.
 	Full Detail = iota
-	// Summary reads the markers alone: the state per capability for an
-	// overview, without the record, the portals or the federation facts.
+	// Summary reads the markers and the workspaces alone: the state per
+	// capability for an overview, without the record, the portals or the
+	// federation facts.
 	Summary
 )
 
@@ -311,7 +317,30 @@ func (r *Registry) inspect(ctx context.Context, c *gh.Client, inst Installation,
 		}
 		rep.Capabilities = append(rep.Capabilities, cs)
 	}
+	if rep.Readable {
+		rep.readWorkspaces(ctx, readAs(c))
+	}
 	return rep
+}
+
+// readWorkspaces fills the report's workspaces from the agent-platform values
+// on record where the platform is on record, off where it is not. The values
+// are a fact, not a condition of reading the installation: unreadable, the
+// workspaces stay unknown and the report says why.
+func (r *Report) readWorkspaces(ctx context.Context, read Reader) {
+	if !r.enabled(AgentPlatform) {
+		r.Workspaces = &Workspaces{}
+		return
+	}
+	ws, err := readWorkspaces(ctx, read, r.Installation)
+	switch {
+	case err != nil:
+		r.Errors = append(r.Errors, err.Error())
+	case ws == nil:
+		r.Workspaces = &Workspaces{}
+	default:
+		r.Workspaces = ws
+	}
 }
 
 // markerRead is whether a capability's marker is in the installation's

@@ -475,11 +475,51 @@ func TestListInstallationsReadsTheMarkersEveryCall(t *testing.T) {
 	if a := find(t, out, alder).Capabilities[0]; a.State != installations.StateEnabled || !a.Enabled {
 		t.Fatal("the fileset that landed was not read")
 	}
-	if n := st.ghs.reads(acmeConfigs, marker); n != 0 {
-		t.Fatalf("the marker was read by content %d times; its presence in the tree is the answer", n)
+	if n := st.ghs.reads(acmeConfigs, marker); n != 1 {
+		t.Fatalf("the marker was read by content %d times; its presence in the tree is the state, one read of it the workspaces", n)
 	}
 	if listed, checked := st.ghs.trees(acmeConfigs); listed != 2 || checked != 2 {
 		t.Fatalf("the repository's tree was listed %d times and checked %d times for two calls around a change", listed, checked)
+	}
+}
+
+// list_installations says per installation whether the agent platform's
+// workspaces are on, read every call from the agent-platform values on record
+// — what the definition renders them from: off before the platform is on
+// record and while the values leave the switch off, on with the manager's
+// base URL once they turn it on; in the summary too.
+func TestListInstallationsReadsTheWorkspacesEveryCall(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	marker := installations.AgentPlatformPatchPath(alder)
+	workspaces := func(args map[string]any) installations.Workspaces {
+		t.Helper()
+		out, text, isErr := listInstallations(t, c, args)
+		if isErr {
+			t.Fatal(text)
+		}
+		ws := find(t, out, alder).Workspaces
+		if ws == nil {
+			t.Fatalf("alder's workspaces unknown: %s", text)
+		}
+		return *ws
+	}
+	only := map[string]any{tools.ArgInstallations: []string{alder}}
+	if ws := workspaces(only); ws.Enabled {
+		t.Fatalf("alder's workspaces on before the platform landed: %+v", ws)
+	}
+	st.ghs.addFile(acmeConfigs, marker, "muster: {}\n")
+	if ws := workspaces(only); ws.Enabled {
+		t.Fatalf("workspaces on while the values leave them off: %+v", ws)
+	}
+	const baseURL = "https://workspaces.alder.example"
+	st.ghs.addFile(acmeConfigs, marker, "muster: {}\nworkspaces:\n  enabled: true\nworkspace-manager:\n  oauth:\n    baseURL: "+baseURL+"\n")
+	if ws := workspaces(only); !ws.Enabled || ws.BaseURL != baseURL {
+		t.Fatalf("the values that turned workspaces on were not read: %+v", ws)
+	}
+	if ws := workspaces(map[string]any{tools.ArgInstallations: []string{alder}, tools.ArgSummary: true}); !ws.Enabled {
+		t.Fatalf("summary: %+v", ws)
 	}
 }
 
@@ -514,9 +554,9 @@ func TestListInstallationsCostsNothingWhenNothingChanged(t *testing.T) {
 	}
 }
 
-// summary answers the states and the last actions alone: the record, the
-// cluster App, the portals and the federation facts are neither read nor
-// answered, and the answer says so.
+// summary answers the states, the workspaces and the last actions alone:
+// the record, the cluster App, the portals and the federation facts are
+// neither read nor answered, and the answer says so.
 func TestListInstallationsSummary(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
@@ -545,8 +585,8 @@ func TestListInstallationsSummary(t *testing.T) {
 			t.Errorf("summary read %s:%s %d times", read.repo, read.path, n)
 		}
 	}
-	if n := st.ghs.reads(acmeConfigs, installations.Capabilities()[0].EnabledMarker(birch)); n != 0 {
-		t.Errorf("the marker was read by content %d times", n)
+	if n := st.ghs.reads(acmeConfigs, installations.Capabilities()[0].EnabledMarker(birch)); n != 1 {
+		t.Errorf("the marker was read by content %d times; once, for the workspaces", n)
 	}
 	if listed, _ := st.ghs.trees(acmeConfigs); listed != 1 {
 		t.Errorf("acme's configs tree was listed %d times", listed)
