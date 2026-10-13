@@ -371,6 +371,7 @@ func consume(t *testing.T, shape consumptionShape, charts *chartStore) {
 		c.assertMusterConsumers()
 		c.assertKagentConsumers()
 		c.assertMCPBackends()
+		c.assertLLMRateLimits()
 	}
 }
 
@@ -399,6 +400,35 @@ func (c *consumption) assertMCPBackends() {
 		return
 	}
 	c.t.Errorf("networkPolicy.mcpBackends is set, and no connectivity chart was rendered to take it")
+}
+
+// assertLLMRateLimits holds the person's llmRouting.rateLimits to the
+// rendered connectivity chart: the meta chart hands it the list, which its
+// values schema validated in helm template, and the list yields the chart's
+// <release>-llm-rate-limit AgentgatewayPolicy with one local bucket per
+// entry. A shape the chart renamed or stopped reading fails here, not as a
+// listener without its runaway guards.
+func (c *consumption) assertLLMRateLimits() {
+	if len(c.platform.LLMRateLimits) == 0 {
+		return
+	}
+	for _, rel := range c.rendered {
+		if rel.chart.Name != "agent-platform-connectivity" {
+			continue
+		}
+		for _, o := range rel.objects {
+			if o.kind() != "AgentgatewayPolicy" || o.name() != rel.name+"-llm-rate-limit" {
+				continue
+			}
+			if local, _ := get(o, "spec", "traffic", "rateLimit", "local").([]any); len(local) != len(c.platform.LLMRateLimits) {
+				c.t.Errorf("%s: %s carries %d local buckets, llmRouting.rateLimits %d", rel, o.name(), len(local), len(c.platform.LLMRateLimits))
+			}
+			return
+		}
+		c.t.Errorf("%s: llmRouting.rateLimits renders no AgentgatewayPolicy %s-llm-rate-limit", rel, rel.name)
+		return
+	}
+	c.t.Errorf("llmRouting.rateLimits is set, and no connectivity chart was rendered to take it")
 }
 
 // renderPortal renders the customer-portal definition from its input under

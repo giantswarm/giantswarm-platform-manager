@@ -58,8 +58,15 @@ const (
 	gitHubOn    = "github:\n  enabled: true\n"
 	keyModel    = "model"
 	keyProvider = "provider"
-	keyGoogle   = "google"
-	keyCapacity = "singletonsCapacity"
+	// customerWithoutKagent is an organisation whose policy runs no kagent.
+	customerWithoutKagent = "dvag"
+	keyRateLimits         = "rateLimits"
+	unitMinutes           = "Minutes"
+	keyTokens             = "tokens"
+	keyUnit               = "unit"
+	firstLimitPath        = "llmRouting/rateLimits/0"
+	keyGoogle             = "google"
+	keyCapacity           = "singletonsCapacity"
 )
 
 // shapes are the installation shapes, in the order the goldens are rendered.
@@ -771,7 +778,7 @@ func TestManagersCommitMode(t *testing.T) {
 		})
 	}
 	input, secrets := loadInput(t, shapeHubPrivateTarget)
-	input["installation"].(map[string]any)["customer"] = "dvag"
+	input["installation"].(map[string]any)["customer"] = customerWithoutKagent
 	input["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
 	input["agentManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: true}}
 	if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "agentManager.github.enabled") {
@@ -849,7 +856,7 @@ func TestAgentManagerSkills(t *testing.T) {
 	}
 
 	input, secrets = loadInput(t, shapeHubPrivateTarget)
-	input["installation"].(map[string]any)["customer"] = "dvag"
+	input["installation"].(map[string]any)["customer"] = customerWithoutKagent
 	input["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
 	input["agentManager"] = map[string]any{keySkills: map[string]any{keyToken: skillsTok}} //nolint:gosec // a Secret's name in a fixture, no credential
 	if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "agentManager.skills") {
@@ -1238,4 +1245,87 @@ func platformPatch(t *testing.T, result *render.Result) string {
 	}
 	t.Fatal("no agent-platform configmap patch rendered")
 	return ""
+}
+
+// TestLLMRateLimits renders the LLM listener's rate limits under
+// llmRouting in the chart's shape and the order given, under the person's
+// comment or the generic one naming the input; none chosen, the listener is
+// on alone. Refused outside the shape, on the 3 line and where the policy
+// runs no kagent.
+func TestLLMRateLimits(t *testing.T) {
+	limits := []any{
+		map[string]any{keyTokens: 8000000, keyUnit: unitMinutes},
+		map[string]any{"requests": 600, keyUnit: unitMinutes, "burst": 60, "key": `source.unverifiedWorkload.namespace + "/" + source.unverifiedWorkload.serviceAccount`},
+	}
+	patchOf := func(t *testing.T, llm map[string]any) string {
+		t.Helper()
+		input, secrets := loadInput(t, shapeHubPrivateTarget)
+		if llm != nil {
+			input["llmRouting"] = llm
+		}
+		result, err := Render(input, secrets, render.ModeCommit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, content := range result.Tree() {
+			if strings.HasSuffix(name, "apps/agent-platform/configmap-values.yaml.patch") {
+				return string(content)
+			}
+		}
+		t.Fatal("no configmap patch rendered")
+		return ""
+	}
+	const entries = "  rateLimits:\n    - tokens: 8000000\n      unit: Minutes\n    - requests: 600\n      unit: Minutes\n      burst: 60\n" +
+		"      key: source.unverifiedWorkload.namespace + \"/\" + source.unverifiedWorkload.serviceAccount\n"
+	for _, c := range []struct {
+		name string
+		llm  map[string]any
+		want string
+	}{
+		{"no limits", nil, "llmRouting:\n  enabled: true\nkagent:"},
+		{"the generic comment", map[string]any{keyRateLimits: limits},
+			"llmRouting:\n  enabled: true\n  # The LLM listener's rate limits: the input\n  # llmRouting.rateLimits, read back so a reconcile keeps them.\n" + entries},
+		{"the person's comment", map[string]any{keyRateLimits: limits, "rateLimitsComment": "Runaway guards, sized from\ngazelle's 30-day peak."},
+			"llmRouting:\n  enabled: true\n  # Runaway guards, sized from\n  # gazelle's 30-day peak.\n" + entries},
+		{"a comment without limits", map[string]any{"rateLimitsComment": "Runaway guards."}, "llmRouting:\n  enabled: true\nkagent:"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := patchOf(t, c.llm); !strings.Contains(got, c.want) {
+				t.Errorf("the patch carries no\n%s\n%s", c.want, got)
+			}
+		})
+	}
+
+	noKagent, secrets := loadInput(t, shapeHubPrivateTarget)
+	noKagent["installation"].(map[string]any)["customer"] = customerWithoutKagent
+	noKagent["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
+	noKagent["llmRouting"] = map[string]any{keyRateLimits: limits[:1]}
+	lineThreeInput, lineThreeSecrets := loadInput(t, shapePublicCustomer)
+	lineThreeInput["llmRouting"] = map[string]any{keyRateLimits: limits[:1]}
+	withLimit := func(limit map[string]any) map[string]any {
+		input, _ := loadInput(t, shapeHubPrivateTarget)
+		input["llmRouting"] = map[string]any{keyRateLimits: []any{limit}}
+		return input
+	}
+	_, hubSecrets := loadInput(t, shapeHubPrivateTarget)
+	for _, c := range []struct {
+		name    string
+		input   map[string]any
+		secrets map[string]string
+		names   string
+	}{
+		{"an entry without its unit", withLimit(map[string]any{keyTokens: 1000}), hubSecrets, firstLimitPath},
+		{"an entry with tokens and requests", withLimit(map[string]any{keyTokens: 1000, "requests": 10, keyUnit: unitMinutes}), hubSecrets, firstLimitPath},
+		{"an entry with neither tokens nor requests", withLimit(map[string]any{keyUnit: unitMinutes}), hubSecrets, firstLimitPath},
+		{"an unknown unit", withLimit(map[string]any{keyTokens: 1000, keyUnit: "Days"}), hubSecrets, "llmRouting/rateLimits/0/unit"},
+		{"rate limits on the 3 line", lineThreeInput, lineThreeSecrets, "llmRouting.rateLimits"},
+		{"rate limits where no kagent runs", noKagent, secrets, "llmRouting.rateLimits"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := Render(c.input, c.secrets, render.ModeCommit)
+			if !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), c.names) {
+				t.Fatalf("got %v, want ErrInput naming %q", err, c.names)
+			}
+		})
+	}
 }

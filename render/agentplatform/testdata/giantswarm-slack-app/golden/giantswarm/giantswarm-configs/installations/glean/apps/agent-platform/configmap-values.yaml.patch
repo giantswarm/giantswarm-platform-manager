@@ -59,6 +59,14 @@ postgres:
   enabled: true
 llmRouting:
   enabled: true
+  # Runaway guards, per data-plane replica and per minute. The second bucket is
+  # per agent: the kagent identity headers count only from the Substrate egress.
+  rateLimits:
+    - tokens: 8000000
+      unit: Minutes
+    - tokens: 5000000
+      unit: Minutes
+      key: '(source.unverifiedWorkload.namespace == "ate-system" && source.unverifiedWorkload.serviceAccount == "atenet-egress") ? request.headers["x-kagent-agent-namespace"] + "/" + request.headers["x-kagent-agent"] : source.unverifiedWorkload.namespace + "/" + source.unverifiedWorkload.serviceAccount'
 kagent:
   providers:
     anthropic:
