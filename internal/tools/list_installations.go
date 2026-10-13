@@ -26,8 +26,9 @@ type ListInstallationsResult struct {
 	// Caller is the person the registry and the repositories were read as.
 	Caller string `json:"caller"`
 	Hub    string `json:"hub"`
-	// Summary says the answer stops at the states and the last actions: no
-	// record, inputs on record, portals or federation facts were read.
+	// Summary says the answer stops at the states, the workspaces and the
+	// last actions: no record, inputs on record, portals or federation facts
+	// were read.
 	Summary bool `json:"summary"`
 	// Registry names the two sources as read.
 	Registry RegistryInfo `json:"registry"`
@@ -65,12 +66,12 @@ func statesInfo() StatesInfo {
 // listInstallationsTool is the tool as registered.
 func listInstallationsTool() mcp.Tool {
 	return mcp.NewTool(ToolListInstallations,
-		mcp.WithDescription("Read-only, as you. Every installation of the registry — the installations catalog and the Dev Portal's app-config, read with your GitHub token now — with, per capability, its state: 'enabled' (the capability's fileset is on record — its marker in the installation's repository, whoever put it there: the manager, or the installation's people by hand) or 'not enabled'; 'pending approval', 'ready to merge' (no Team review needed: the actor merges), 'rolling out', 'waiting for the customer', 'drifted' and 'failed' once the Action record exists — with the inputs on record (the installation facts from the registry and its config.yaml.patch) and the last action. Every repository is read as you at call time — its listing validated with GitHub on every call, its files by content from a shared cache — so a change on a default branch is in the next call's answer. An installation whose repositories you cannot read is listed as unreadable with the reason. Narrow with installations (names) or customer to read less; summary: true answers the states and the last actions alone, without the record, the inputs on record, the portals and the federation facts — a fraction of the reads, for an overview."),
+		mcp.WithDescription("Read-only, as you. Every installation of the registry — the installations catalog and the Dev Portal's app-config, read with your GitHub token now — with, per capability, its state: 'enabled' (the capability's fileset is on record — its marker in the installation's repository, whoever put it there: the manager, or the installation's people by hand) or 'not enabled'; 'pending approval', 'ready to merge' (no Team review needed: the actor merges), 'rolling out', 'waiting for the customer', 'drifted' and 'failed' once the Action record exists — with the inputs on record (the installation facts from the registry and its config.yaml.patch) and the last action; per installation whether the agent platform's workspaces are on (workspaces.enabled, with the workspace-manager's baseUrl and clientId where the agent-platform values on record name them; off where the platform is not on record). Every repository is read as you at call time — its listing validated with GitHub on every call, its files by content from a shared cache — so a change on a default branch is in the next call's answer. An installation whose repositories you cannot read is listed as unreadable with the reason. Narrow with installations (names) or customer to read less; summary: true answers the states, the workspaces and the last actions alone, without the record, the inputs on record, the portals and the federation facts — a fraction of the reads, for an overview."),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithIdempotentHintAnnotation(true),
 		mcp.WithArray(ArgInstallations, mcp.Description("Installation names to answer for; empty is every installation of the registry."), mcp.Items(stringItems())),
 		mcp.WithString(ArgCustomer, mcp.Description("Answer only for this customer's installations, as the catalog names the customer.")),
-		mcp.WithBoolean(ArgSummary, mcp.Description("The states and the last actions alone: no record, inputs on record, portals or federation facts. For an overview; the default answer carries them all.")),
+		mcp.WithBoolean(ArgSummary, mcp.Description("The states, the workspaces and the last actions alone: no record, inputs on record, portals or federation facts. For an overview; the default answer carries them all.")),
 	)
 }
 

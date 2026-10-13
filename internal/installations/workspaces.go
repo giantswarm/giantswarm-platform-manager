@@ -40,15 +40,21 @@ func (w Workspaces) Input() map[string]any {
 // platformRecordInputs are the agent-platform definition's inputs from the
 // record beyond the registry's facts: installation.workspaces, read from the
 // installation's agent-platform values as the caller where the capability is
-// enabled (the values are its marker, whose presence alone the registry
-// reads); nothing where it is not or the values leave workspaces off.
+// enabled (the values are its marker), as the report read them where it did;
+// nothing where it is not or the values leave workspaces off.
 func platformRecordInputs(ctx context.Context, r Report, read Reader) (map[string]any, error) {
 	if !r.enabled(AgentPlatform) {
 		return nil, nil
 	}
-	ws, err := readWorkspaces(ctx, read, r.Installation)
-	if err != nil || ws == nil {
-		return nil, err
+	ws := r.Workspaces
+	if ws == nil {
+		var err error
+		if ws, err = readWorkspaces(ctx, read, r.Installation); err != nil || ws == nil {
+			return nil, err
+		}
+	}
+	if !ws.Enabled {
+		return nil, nil
 	}
 	return map[string]any{InputsInstallation: map[string]any{"workspaces": ws.Input()}}, nil
 }

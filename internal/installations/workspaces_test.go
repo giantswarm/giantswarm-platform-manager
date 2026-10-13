@@ -96,3 +96,60 @@ func TestPlatformRecordInputs(t *testing.T) {
 		t.Errorf("not enabled: %v, %v after %d reads", got, err, reads)
 	}
 }
+
+// A report's workspaces are the agent-platform values on record where the
+// platform is on record: on with what the values name, off where they leave
+// the switch off; off without a read where the platform is not on record;
+// unknown, with the error on the report, where the values cannot be read.
+// The definition's record inputs take what the report read, no second read.
+func TestReportReadWorkspaces(t *testing.T) {
+	const configs, baseURL = "fleet/umbra-configs", "https://ws.maple.example"
+	inst := Installation{Name: fixtureInstallation, Repositories: Repositories{Configs: configs}}
+	broken := errors.New("the token expired")
+	cases := []struct {
+		name      string
+		platform  bool
+		patch     string
+		readErr   error
+		want      *Workspaces
+		wantReads int
+	}{
+		{"the platform not on record", false, "", nil, &Workspaces{}, 0},
+		{"the switch on", true, "workspaces:\n  enabled: true\nworkspace-manager:\n  oauth:\n    baseURL: " + baseURL + "\n", nil, &Workspaces{Enabled: true, BaseURL: baseURL}, 1},
+		{"no switch", true, "muster: {}\n", nil, &Workspaces{}, 1},
+		{"the switch off", true, "workspaces:\n  enabled: false\n", nil, &Workspaces{}, 1},
+		{"a read that fails", true, "", broken, nil, 1},
+	}
+	for _, c := range cases {
+		reads := 0
+		read := func(_ context.Context, _, _ string) (string, error) {
+			reads++
+			return c.patch, c.readErr
+		}
+		r := Report{Installation: inst, Capabilities: []CapabilityState{{Name: AgentPlatform, Enabled: c.platform}}}
+		r.readWorkspaces(t.Context(), read)
+		switch {
+		case reads != c.wantReads:
+			t.Errorf("%s: %d reads, want %d", c.name, reads, c.wantReads)
+		case (r.Workspaces == nil) != (c.want == nil) || r.Workspaces != nil && *r.Workspaces != *c.want:
+			t.Errorf("%s: %+v, want %+v", c.name, r.Workspaces, c.want)
+		case (c.readErr != nil) != (len(r.Errors) == 1):
+			t.Errorf("%s: errors %v", c.name, r.Errors)
+		}
+	}
+
+	platform, _ := FindCapability(AgentPlatform)
+	unread := func(context.Context, string, string) (string, error) {
+		t.Error("the values were read again")
+		return "", nil
+	}
+	r := Report{Installation: inst, Capabilities: []CapabilityState{{Name: AgentPlatform, Enabled: true}}, Workspaces: &Workspaces{Enabled: true, BaseURL: baseURL}}
+	got, err := platform.RecordInputs(t.Context(), r, unread)
+	if ws, _ := got[InputsInstallation].(map[string]any)["workspaces"].(map[string]any); err != nil || ws[keyEnabled] != true || ws["baseUrl"] != baseURL {
+		t.Errorf("on, as read: %v, %v", got, err)
+	}
+	r.Workspaces = &Workspaces{}
+	if got, err := platform.RecordInputs(t.Context(), r, unread); err != nil || got != nil {
+		t.Errorf("off, as read: %v, %v", got, err)
+	}
+}
