@@ -58,8 +58,15 @@ const (
 	gitHubOn    = "github:\n  enabled: true\n"
 	keyModel    = "model"
 	keyProvider = "provider"
-	keyGoogle   = "google"
-	keyCapacity = "singletonsCapacity"
+	// customerWithoutKagent is an organisation whose policy runs no kagent.
+	customerWithoutKagent = "dvag"
+	keyRateLimits         = "rateLimits"
+	unitMinutes           = "Minutes"
+	keyTokens             = "tokens"
+	keyUnit               = "unit"
+	firstLimitPath        = "llmRouting/rateLimits/0"
+	keyGoogle             = "google"
+	keyCapacity           = "singletonsCapacity"
 )
 
 // shapes are the installation shapes, in the order the goldens are rendered.
@@ -771,7 +778,7 @@ func TestManagersCommitMode(t *testing.T) {
 		})
 	}
 	input, secrets := loadInput(t, shapeHubPrivateTarget)
-	input["installation"].(map[string]any)["customer"] = "dvag"
+	input["installation"].(map[string]any)["customer"] = customerWithoutKagent
 	input["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
 	input["agentManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: true}}
 	if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "agentManager.github.enabled") {
@@ -849,7 +856,7 @@ func TestAgentManagerSkills(t *testing.T) {
 	}
 
 	input, secrets = loadInput(t, shapeHubPrivateTarget)
-	input["installation"].(map[string]any)["customer"] = "dvag"
+	input["installation"].(map[string]any)["customer"] = customerWithoutKagent
 	input["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
 	input["agentManager"] = map[string]any{keySkills: map[string]any{keyToken: skillsTok}} //nolint:gosec // a Secret's name in a fixture, no credential
 	if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "agentManager.skills") {
@@ -1247,8 +1254,8 @@ func platformPatch(t *testing.T, result *render.Result) string {
 // runs no kagent.
 func TestLLMRateLimits(t *testing.T) {
 	limits := []any{
-		map[string]any{"tokens": 8000000, "unit": "Minutes"},
-		map[string]any{"requests": 600, "unit": "Minutes", "burst": 60, "key": `source.unverifiedWorkload.namespace + "/" + source.unverifiedWorkload.serviceAccount`},
+		map[string]any{keyTokens: 8000000, keyUnit: unitMinutes},
+		map[string]any{"requests": 600, keyUnit: unitMinutes, "burst": 60, "key": `source.unverifiedWorkload.namespace + "/" + source.unverifiedWorkload.serviceAccount`},
 	}
 	patchOf := func(t *testing.T, llm map[string]any) string {
 		t.Helper()
@@ -1275,10 +1282,10 @@ func TestLLMRateLimits(t *testing.T) {
 		llm  map[string]any
 		want string
 	}{
-		{"none", nil, "llmRouting:\n  enabled: true\nkagent:"},
-		{"the generic comment", map[string]any{"rateLimits": limits},
+		{"no limits", nil, "llmRouting:\n  enabled: true\nkagent:"},
+		{"the generic comment", map[string]any{keyRateLimits: limits},
 			"llmRouting:\n  enabled: true\n  # The LLM listener's rate limits: the input\n  # llmRouting.rateLimits, read back so a reconcile keeps them.\n" + entries},
-		{"the person's comment", map[string]any{"rateLimits": limits, "rateLimitsComment": "Runaway guards, sized from\ngazelle's 30-day peak."},
+		{"the person's comment", map[string]any{keyRateLimits: limits, "rateLimitsComment": "Runaway guards, sized from\ngazelle's 30-day peak."},
 			"llmRouting:\n  enabled: true\n  # Runaway guards, sized from\n  # gazelle's 30-day peak.\n" + entries},
 		{"a comment without limits", map[string]any{"rateLimitsComment": "Runaway guards."}, "llmRouting:\n  enabled: true\nkagent:"},
 	} {
@@ -1290,14 +1297,14 @@ func TestLLMRateLimits(t *testing.T) {
 	}
 
 	noKagent, secrets := loadInput(t, shapeHubPrivateTarget)
-	noKagent["installation"].(map[string]any)["customer"] = "dvag"
+	noKagent["installation"].(map[string]any)["customer"] = customerWithoutKagent
 	noKagent["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
-	noKagent["llmRouting"] = map[string]any{"rateLimits": limits[:1]}
+	noKagent["llmRouting"] = map[string]any{keyRateLimits: limits[:1]}
 	lineThreeInput, lineThreeSecrets := loadInput(t, shapePublicCustomer)
-	lineThreeInput["llmRouting"] = map[string]any{"rateLimits": limits[:1]}
+	lineThreeInput["llmRouting"] = map[string]any{keyRateLimits: limits[:1]}
 	withLimit := func(limit map[string]any) map[string]any {
 		input, _ := loadInput(t, shapeHubPrivateTarget)
-		input["llmRouting"] = map[string]any{"rateLimits": []any{limit}}
+		input["llmRouting"] = map[string]any{keyRateLimits: []any{limit}}
 		return input
 	}
 	_, hubSecrets := loadInput(t, shapeHubPrivateTarget)
@@ -1307,10 +1314,10 @@ func TestLLMRateLimits(t *testing.T) {
 		secrets map[string]string
 		names   string
 	}{
-		{"an entry without its unit", withLimit(map[string]any{"tokens": 1000}), hubSecrets, "llmRouting/rateLimits/0"},
-		{"an entry with tokens and requests", withLimit(map[string]any{"tokens": 1000, "requests": 10, "unit": "Minutes"}), hubSecrets, "llmRouting/rateLimits/0"},
-		{"an entry with neither tokens nor requests", withLimit(map[string]any{"unit": "Minutes"}), hubSecrets, "llmRouting/rateLimits/0"},
-		{"an unknown unit", withLimit(map[string]any{"tokens": 1000, "unit": "Days"}), hubSecrets, "llmRouting/rateLimits/0/unit"},
+		{"an entry without its unit", withLimit(map[string]any{keyTokens: 1000}), hubSecrets, firstLimitPath},
+		{"an entry with tokens and requests", withLimit(map[string]any{keyTokens: 1000, "requests": 10, keyUnit: unitMinutes}), hubSecrets, firstLimitPath},
+		{"an entry with neither tokens nor requests", withLimit(map[string]any{keyUnit: unitMinutes}), hubSecrets, firstLimitPath},
+		{"an unknown unit", withLimit(map[string]any{keyTokens: 1000, keyUnit: "Days"}), hubSecrets, "llmRouting/rateLimits/0/unit"},
 		{"rate limits on the 3 line", lineThreeInput, lineThreeSecrets, "llmRouting.rateLimits"},
 		{"rate limits where no kagent runs", noKagent, secrets, "llmRouting.rateLimits"},
 	} {

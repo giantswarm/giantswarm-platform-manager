@@ -257,7 +257,7 @@
           "x-readback": {"file": "configmap", "key": "llmRouting.rateLimits"},
           "x-feature": "runtime",
           "x-renders": ["configmap:llmRouting.rateLimits"],
-          "description": "The LLM listener's rate limits (llmRouting.rateLimits, giantswarm/agent-platform#893): runaway guards per data-plane replica, each entry tokens or requests per unit, optionally a burst and a CEL key, in the chart's shape and in the order given. Each entry is one item of the listener's AgentgatewayPolicy traffic.rateLimit.local; a call over a bucket is answered 429. The 4 chart line only, where the fleet policy runs kagent, which turns the listener on. Rendered as a whole list and read back from the configmap patch on record, so a reconcile keeps it; typed (--input 'llmRouting.rateLimits=[{\"tokens\": 8000000, \"unit\": \"Minutes\"}]'), it replaces it. None, the key is not written."
+          "description": "The LLM listener's rate limits (llmRouting.rateLimits, the meta chart 4.130.0 and later): runaway guards per data-plane replica, each entry tokens or requests per unit, optionally a burst and a CEL key, in the chart's shape and in the order given. Each entry is one item of the listener's AgentgatewayPolicy traffic.rateLimit.local; a call over a bucket is answered 429. The 4 chart line only, where the fleet policy runs kagent, which turns the listener on. Rendered as a whole list and read back from the configmap patch on record, so a reconcile keeps it; typed (--input 'llmRouting.rateLimits=[{\"tokens\": 8000000, \"unit\": \"Minutes\"}]'), it replaces it. None, the key is not written."
         },
         "rateLimitsComment": {
           "type": "string",
