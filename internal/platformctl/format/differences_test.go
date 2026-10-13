@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -22,6 +23,10 @@ const (
 	// secretValue stands for a value no output may print.
 	secretValue = "hunter2-never-printed"
 	plainValue  = "kagent.acme.example-never-printed"
+	// gatewayHost is the input, and the key under the values, that drives the host.
+	gatewayHost = "gateway.host"
+	// liveDimension is a dimension of the live side.
+	liveDimension = "live-values"
 )
 
 // plannedChange is a reconcile's dry run of rowan: the values patch differs
@@ -44,8 +49,8 @@ func plannedChange() tools.CapabilityResult {
 			},
 			Features: []verify.Feature{
 				{ID: "gateway", Title: "Gateway", Mark: verify.DiffersByInput, Marks: map[verify.Mark]int{verify.DiffersByInput: 1}, Dimensions: []verify.Dimension{
-					{ID: "gateway-host", Kind: configMap, Key: "gateway.host", Mark: verify.DiffersByInput, Files: []string{acmeConfigs + ":" + valuesPatch}, Differences: []verify.Difference{
-						{File: acmeConfigs + ":" + valuesPatch, Path: "data.values.gateway.host", Input: "gateway.host", Rendered: plainValue, Current: "old." + plainValue, Line: 4, CurrentLine: 4},
+					{ID: "gateway-host", Kind: configMap, Key: gatewayHost, Mark: verify.DiffersByInput, Files: []string{acmeConfigs + ":" + valuesPatch}, Differences: []verify.Difference{
+						{File: acmeConfigs + ":" + valuesPatch, Path: "data.values.gateway.host", Input: gatewayHost, Rendered: plainValue, Current: "old." + plainValue, Line: 4, CurrentLine: 4},
 						{File: acmeConfigs + ":" + valuesPatch, Path: "data.values.gateway.replicas", Rendered: "2", Line: 5},
 					}},
 				}},
@@ -53,7 +58,7 @@ func plannedChange() tools.CapabilityResult {
 					{ID: "kagent-legacy", Kind: configMap, Key: "kagent.legacy", Mark: verify.Drifted, Differences: []verify.Difference{
 						{File: acmeConfigs + ":" + valuesPatch, Path: "data.values.kagent.legacy", Current: "true", CurrentLine: 9},
 						// The same key under a second dimension is listed once.
-						{File: acmeConfigs + ":" + valuesPatch, Path: "data.values.gateway.host", Input: "gateway.host", Rendered: plainValue, Current: "old." + plainValue, Line: 4, CurrentLine: 4},
+						{File: acmeConfigs + ":" + valuesPatch, Path: "data.values.gateway.host", Input: gatewayHost, Rendered: plainValue, Current: "old." + plainValue, Line: 4, CurrentLine: 4},
 					}},
 					{ID: "kagent-secret", Kind: "secret", Key: "kagent.secret", Mark: verify.Drifted, Differences: []verify.Difference{
 						{File: acmeConfigs + ":" + secretFile, Path: "stringData.values.kagent.clientSecret", Rendered: verify.Redacted, Current: verify.Redacted, Line: 6, CurrentLine: 6},
@@ -108,7 +113,7 @@ func TestPlanDifferences(t *testing.T) {
 		{
 			name: "a live difference names an object, no file: none of the files'",
 			edit: func(d *tools.DryRun) {
-				d.Features = []verify.Feature{{ID: "live", Dimensions: []verify.Dimension{{ID: "live", Differences: []verify.Difference{
+				d.Features = []verify.Feature{{ID: liveDimension, Dimensions: []verify.Dimension{{ID: liveDimension, Differences: []verify.Difference{
 					{Object: "ConfigMap platform-manager/values", Path: "data.host", Rendered: plainValue, Current: "x"},
 				}}}}}
 			},
@@ -175,7 +180,7 @@ func golden(t *testing.T, path string, got []byte) {
 			t.Fatal(err)
 		}
 	}
-	want, err := os.ReadFile(path)
+	want, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		t.Fatal(err)
 	}
