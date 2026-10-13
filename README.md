@@ -185,7 +185,7 @@ decrypting: `dropped`, each value under a readable key the render carries no lea
 definition asks for it at commit —, the shared-kustomization includes, the generated secrets by name, kind and length — with `frozenIn`, the files
 on record that hold the value already, `kept` when the value on record stands and the commit writes no
 file of the name, `carries` for the files that take the value from the record by the caller's vault before
-the commit, `pendingIn` for the files on record that stand without a credentials revision, and `rotates`
+the commit, `pendingIn` for the files on record that lack a credentials revision's key (the text names each with what the commit does to it: `no write` for a file planned unchanged or one the vault fills, `written with <revision>` for a file the commit rewrites whole — the revision joins a file that stands with the next rotation asked for), and `rotates`
 with `forcedBy`, the file written anew whole, and `cause`, when the commit draws a new value
 into every file of the name (see [The commit](#the-commit)) — the secret values the person
 supplies at commit by field (rendered as `SUPPLIED(<field>)` markers — no secret value ever appears in a dry
