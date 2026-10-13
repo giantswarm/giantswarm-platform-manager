@@ -9,7 +9,8 @@
 # release candidates. One alerting bot's posts reach an agent's thread context, the list under the
 # generic comment naming its input, since no person wrote one. Two in-cluster MCP backends sit behind
 # the platform's network policy: one muster alone reaches, one also served through the gateway in front
-# of it, a peer on its ports.
+# of it, a peer on its ports. The LLM listener carries two token buckets, one shared and one per
+# agent behind the Substrate egress, under a comment a person wrote.
 input:
   installation:
     name: glean
@@ -55,6 +56,19 @@ input:
         namespace: mcp-runbooks
         ports: [8080]
         metrics: true
+  llmRouting:
+    rateLimits:
+      - tokens: 8000000
+        unit: Minutes
+      - tokens: 5000000
+        unit: Minutes
+        key: >-
+          (source.unverifiedWorkload.namespace == "ate-system" && source.unverifiedWorkload.serviceAccount == "atenet-egress")
+          ? request.headers["x-kagent-agent-namespace"] + "/" + request.headers["x-kagent-agent"]
+          : source.unverifiedWorkload.namespace + "/" + source.unverifiedWorkload.serviceAccount
+    rateLimitsComment: |-
+      Runaway guards, per data-plane replica and per minute. The second bucket is
+      per agent: the kagent identity headers count only from the Substrate egress.
   klausGateway:
     slack:
       contextBotIDs:

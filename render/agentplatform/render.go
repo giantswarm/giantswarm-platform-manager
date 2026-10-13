@@ -213,6 +213,43 @@ func (in *Input) mcpBackends() render.Map {
 	return m
 }
 
+// llmRouting is the meta chart's llmRouting block: the listener on, and the
+// person's rate limits under the comment above them where any are chosen.
+func (in *Input) llmRouting() render.Map {
+	m := render.Map{e("enabled", true)}
+	if len(in.LLMRateLimits) == 0 {
+		return m
+	}
+	limits := make([]render.Map, 0, len(in.LLMRateLimits))
+	for _, l := range in.LLMRateLimits {
+		var entry render.Map
+		if l.Tokens != nil {
+			entry = append(entry, e("tokens", *l.Tokens))
+		}
+		if l.Requests != nil {
+			entry = append(entry, e("requests", *l.Requests))
+		}
+		entry = append(entry, e("unit", l.Unit))
+		if l.Burst != nil {
+			entry = append(entry, e("burst", *l.Burst))
+		}
+		if l.Key != "" {
+			entry = append(entry, e("key", l.Key))
+		}
+		limits = append(limits, entry)
+	}
+	return append(m, render.Entry{Key: "rateLimits", Value: limits, Comment: in.llmRateLimitsComment()})
+}
+
+// llmRateLimitsComment is the comment above the LLM listener's rate limits:
+// the person's on record or typed, else the generic one naming the input.
+func (in *Input) llmRateLimitsComment() string {
+	if in.LLMRateLimitsComment != "" {
+		return in.LLMRateLimitsComment
+	}
+	return "The LLM listener's rate limits: the input\nllmRouting.rateLimits, read back so a reconcile keeps them."
+}
+
 // labels is a label map in key order.
 func labels(l map[string]string) render.Map {
 	var m render.Map
@@ -249,7 +286,7 @@ func (in *Input) configmapPatch() render.Map {
 	m = append(m, e("components", components))
 
 	if in.kagent() {
-		m = append(m, e("postgres", render.Map{e("enabled", true)}), e("llmRouting", render.Map{e("enabled", true)}), e("kagent", in.kagentValues()))
+		m = append(m, e("postgres", render.Map{e("enabled", true)}), e("llmRouting", in.llmRouting()), e("kagent", in.kagentValues()))
 	}
 	if in.ModelServing {
 		m = append(m, e("modelServing", render.Map{

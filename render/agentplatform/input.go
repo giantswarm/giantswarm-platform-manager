@@ -103,6 +103,11 @@ type Input struct {
 	// platform's network policy fences (networkPolicy.mcpBackends), by key,
 	// read back from the configmap patch on record.
 	MCPBackends map[string]MCPBackend
+	// LLMRateLimits are the person's choice of the LLM listener's rate limits
+	// (llmRouting.rateLimits), in order, and LLMRateLimitsComment the comment
+	// above the list, read back from the configmap patch on record.
+	LLMRateLimits        []LLMRateLimit
+	LLMRateLimitsComment string
 	// AIChat is the person's other choice: the portal's AI chat, in the
 	// platform's portal section (portal.go).
 	AIChat AIChat
@@ -556,6 +561,10 @@ type document struct {
 	NetworkPolicy struct {
 		MCPBackends map[string]MCPBackend `json:"mcpBackends"`
 	} `json:"networkPolicy"`
+	LLMRouting struct {
+		RateLimits        []LLMRateLimit `json:"rateLimits"`
+		RateLimitsComment string         `json:"rateLimitsComment"`
+	} `json:"llmRouting"`
 	AIChat AIChat `json:"aiChat"`
 	Skills struct {
 		Repositories []string `json:"repositories"`
@@ -590,6 +599,16 @@ type MCPBackend struct {
 type MCPBackendPeer struct {
 	Namespace   string            `json:"namespace"`
 	MatchLabels map[string]string `json:"matchLabels"`
+}
+
+// LLMRateLimit is one bucket of the LLM listener's rate limits, in the
+// chart's shape (llmRouting.rateLimits[*]): tokens or requests per unit.
+type LLMRateLimit struct {
+	Tokens   *int   `json:"tokens,omitempty"`
+	Requests *int   `json:"requests,omitempty"`
+	Unit     string `json:"unit"`
+	Burst    *int   `json:"burst,omitempty"`
+	Key      string `json:"key,omitempty"`
 }
 
 // ContextBot is one bot whose posts reach an agent's thread context: its
@@ -651,7 +670,7 @@ type commitChoice struct {
 // the cluster does not serve PodCertificateRequest, the chat or skill
 // repositories on an installation whose organisation hosts no portal for
 // them, the chat without a model, or on Vertex without its Google project or
-// location, the Hive where the installation cannot serve it, the MCP backends' network policy on the 3 line, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
+// location, the Hive where the installation cannot serve it, the MCP backends' network policy or the LLM listener's rate limits on the 3 line, the rate limits where no kagent runs, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
 // is ErrInput too.
 func Parse(raw any) (*Input, error) {
 	schemaBytes, err := definitions.FS.ReadFile("agent-platform/schema.json")
@@ -693,7 +712,7 @@ func Parse(raw any) (*Input, error) {
 	if err != nil {
 		return nil, err
 	}
-	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, MCPBackends: d.NetworkPolicy.MCPBackends, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories, Hive: d.Hive,
+	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, MCPBackends: d.NetworkPolicy.MCPBackends, LLMRateLimits: d.LLMRouting.RateLimits, LLMRateLimitsComment: d.LLMRouting.RateLimitsComment, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories, Hive: d.Hive,
 		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
 		ReleaseCandidates: pol.releaseCandidates(d.Installation)}
 	if in.Components, err = pol.components(in.Installation); err != nil {
@@ -810,6 +829,9 @@ func (in *Input) checkRecord() error {
 	if len(in.MCPBackends) > 0 && in.Installation.ChartLine != lineFour {
 		return refuse(fmt.Sprintf("%s is the 4 chart line's network policy, and this installation runs the %s line; the record's chart line decides", describe("networkPolicy.mcpBackends"), in.Installation.ChartLine))
 	}
+	if len(in.LLMRateLimits) > 0 && in.Installation.ChartLine != lineFour {
+		return refuse(fmt.Sprintf("%s are the 4 chart line's, and this installation runs the %s line; the record's chart line decides", describe("llmRouting.rateLimits"), in.Installation.ChartLine))
+	}
 	if p := in.hostedPortal(); p != nil && in.kagent() {
 		if p.ChartLine == "" {
 			return refuse(fmt.Sprintf("the hosted portal's chart line (installation.portals[%s].chartLine) is not on record: management-clusters/%s/extras/backstage/backstage/kustomization.yaml patches no ref onto the fleet base's backstage OCIRepository, and the portal section names the agents' Flux identity for a portal before backstage %s only", p.Installation, p.Installation, portalPluginRemoval))
@@ -832,6 +854,9 @@ func (in *Input) checkRecord() error {
 	}
 	if in.AgentManagerCommit && !in.agentManager() {
 		return refuse(fmt.Sprintf("%s asks for the agent-manager's commit mode, and the fleet policy runs no agent-manager on %s's installations", describe("agentManager.github.enabled"), in.Installation.Customer))
+	}
+	if len(in.LLMRateLimits) > 0 && !in.kagent() {
+		return refuse(fmt.Sprintf("%s bound the LLM listener, and the fleet policy runs no kagent on %s's installations, so no listener is rendered", describe("llmRouting.rateLimits"), in.Installation.Customer))
 	}
 	if len(in.ContextBots) > 0 && !in.klausGateway() {
 		return refuse(fmt.Sprintf("%s names the bots whose posts reach the chat gateway's thread context, and the fleet policy names no Slack app for %s, so no gateway runs there", describe("klausGateway.slack.contextBotIDs"), in.Installation.Name))
