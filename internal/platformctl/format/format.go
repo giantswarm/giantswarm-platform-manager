@@ -212,13 +212,13 @@ func (p *printer) installation(inst plan.Installation, features []verify.Feature
 			case g.Kept:
 				p.f("      kept: the value on record in %s stands, nothing is written\n", strings.Join(g.FrozenIn, ", "))
 			case len(g.Carries) > 0:
-				p.f("      drawn by your vault: no file on record holds it; %s — the commit rewrites no encrypted file for one key, and is refused until it is on record%s\n", carries(g), pending(g))
+				p.f("      drawn by your vault: no file on record holds it; %s — the commit rewrites no encrypted file for one key, and is refused until it is on record%s\n", carries(g), pending(g, inst.Files))
 			case g.DrawnWith != "":
 				p.f("      drawn once for the wave: %s's plan creates %s with the same value — neither side is drawn alone\n", g.DrawnWith, g.Peer)
 			case g.Supplied:
 				p.f("      you supply it at commit (--secret %s=…): %s holds it on record, and the manager decrypts nothing — reveal it there with your vault\n", g.Name, g.Peer)
 			default:
-				p.f("      generated at commit: no file on record holds it, a new value is drawn%s\n", pending(g))
+				p.f("      generated at commit: no file on record holds it, a new value is drawn%s\n", pending(g, inst.Files))
 			}
 		}
 	}
@@ -331,13 +331,27 @@ func dexClientSecretFile(to string) bool {
 	return strings.HasPrefix(base, "dex-client-") && strings.HasSuffix(base, "-secret.yaml")
 }
 
-// pending names the files on record that stand without the value until a
-// rotation asked for rewrites them, or "".
-func pending(g plan.GeneratedSecret) string {
+// pending names, for each file on record that lacks the value's key, what
+// the commit does to it: nothing ("no write": the file stands, a plan that
+// leaves it unchanged or a vault that fills it), or "written with" the value
+// where the commit rewrites it whole from the render; "" when none lacks it.
+func pending(g plan.GeneratedSecret, files []plan.File) string {
 	if len(g.PendingIn) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("; %s stand without it until a rotation asked for rewrites them", strings.Join(g.PendingIn, ", "))
+	rewritten := map[string]bool{}
+	for _, f := range files {
+		rewritten[f.Repository+":"+f.Path] = f.Rewritten
+	}
+	parts := make([]string, 0, len(g.PendingIn))
+	for _, f := range g.PendingIn {
+		effect := "no write"
+		if rewritten[f] {
+			effect = "written with " + g.Name
+		}
+		parts = append(parts, f+": "+effect)
+	}
+	return "; pendingIn, the files on record without its key: " + strings.Join(parts, ", ")
 }
 
 // kept names each entry a shared file keeps beside the render.

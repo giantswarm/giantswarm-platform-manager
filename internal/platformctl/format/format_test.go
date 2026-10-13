@@ -68,6 +68,51 @@ func TestInstallationsTable(t *testing.T) {
 		"Unreadable as you: oak", "  oak: 403 as you")
 }
 
+// A pendingIn line says what the commit does to each file: nothing for a file
+// planned unchanged or filled by the vault, written with the value for a file
+// rewritten whole, and no wording of a pending write for either.
+func TestPending(t *testing.T) {
+	const rev = "rowan-kagent-credentials-revision"
+	file := func(path string, change plan.Change, rewritten bool) plan.File {
+		return plan.File{Repository: acmeConfigs, Path: path, Change: change, Rewritten: rewritten}
+	}
+	g := func(files ...string) plan.GeneratedSecret {
+		in := make([]string, 0, len(files))
+		for _, f := range files {
+			in = append(in, acmeConfigs+":"+f)
+		}
+		return plan.GeneratedSecret{Name: rev, PendingIn: in}
+	}
+	for _, tt := range []struct {
+		name  string
+		g     plan.GeneratedSecret
+		files []plan.File
+		want  string
+	}{
+		{"none", g(), nil, ""},
+		{"a file planned unchanged", g("a.yaml"), []plan.File{file("a.yaml", plan.ChangeUnchanged, false)},
+			"; pendingIn, the files on record without its key: " + acmeConfigs + ":a.yaml: no write"},
+		{"a file the vault fills", g("a.yaml"), []plan.File{file("a.yaml", plan.ChangeUpdate, false)},
+			"; pendingIn, the files on record without its key: " + acmeConfigs + ":a.yaml: no write"},
+		{"a file rewritten whole", g("a.yaml"), []plan.File{file("a.yaml", plan.ChangeUpdate, true)},
+			"; pendingIn, the files on record without its key: " + acmeConfigs + ":a.yaml: written with " + rev},
+		{"a file the plan does not list", g("a.yaml"), nil,
+			"; pendingIn, the files on record without its key: " + acmeConfigs + ":a.yaml: no write"},
+		{"each file by its own effect", g("a.yaml", "b.yaml"), []plan.File{file("a.yaml", plan.ChangeUnchanged, false), file("b.yaml", plan.ChangeUpdate, true)},
+			"; pendingIn, the files on record without its key: " + acmeConfigs + ":a.yaml: no write, " + acmeConfigs + ":b.yaml: written with " + rev},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := pending(tt.g, tt.files)
+			if got != tt.want {
+				t.Errorf("pending = %q, want %q", got, tt.want)
+			}
+			if strings.Contains(got, "stand without it") || strings.Contains(got, "until a rotation") {
+				t.Errorf("a pending-write wording in %q", got)
+			}
+		})
+	}
+}
+
 func TestPlan(t *testing.T) {
 	r := tools.CapabilityResult{
 		Caller: someone, Tool: tools.ToolEnableCapability, Capability: agentPlatform, Hub: hazel, DryRun: true,
@@ -123,7 +168,7 @@ func TestPlan(t *testing.T) {
 		"muster-oauth-encryption-key (base64, 32): w", "rotates on request: muster-oauth-encryption-key — a new value replaces the one on record in w;",
 		"kept: the value on record in w stands; secrets/dex-client-muster-secret.yaml#stringData.secret takes it (beekeeper secret copy w#stringData.dex-client-secret secrets/dex-client-muster-secret.yaml#stringData.secret, or sops), a Dex client's Secret platformctl installation dex-split writes with the client moved out of the dex-app patch — the manager decrypts nothing, and the commit is refused until it is on record",
 		"rotates: kagent-cookie-secret (forced by v: the render changes it beyond the keys it lacks) — a new value replaces the one on record in v;",
-		"generated at commit: no file on record holds it, a new value is drawn; x, y stand without it until a rotation asked for rewrites them",
+		"generated at commit: no file on record holds it, a new value is drawn; pendingIn, the files on record without its key: x: no write, y: no write",
 		"drawn by your vault: no file on record holds it; x#stringData.COOKIE takes a value drawn there (beekeeper secret set x#stringData.COOKIE, or sops; alphanumeric, 32) — the commit rewrites no encrypted file for one key, and is refused until it is on record",
 		"drawn once for the wave: oak's plan creates acme/management-clusters:q with the same value — neither side is drawn alone",
 		"you supply it at commit (--secret muster-token-exchange-oak-hazel-client-secret=…): acme/management-clusters:u holds it on record, and the manager decrypts nothing",
