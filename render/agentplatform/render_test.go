@@ -1329,3 +1329,72 @@ func TestLLMRateLimits(t *testing.T) {
 		})
 	}
 }
+
+// TestSessionIdleTTL renders the person's session idle TTL as the kagent
+// controller's sessionIdleTTL; none chosen, the key is not written and the
+// chart's default applies. Refused when it is no Go duration, on the 3 line
+// and where the policy runs no kagent.
+func TestSessionIdleTTL(t *testing.T) {
+	withTTL := func(shape, ttl string) (map[string]any, map[string]string) {
+		input, secrets := loadInput(t, shape)
+		if ttl != "" {
+			input["sessions"] = map[string]any{"idleTTL": ttl}
+		}
+		return input, secrets
+	}
+	patchOf := func(t *testing.T, ttl string) string {
+		t.Helper()
+		input, secrets := withTTL(shapeHubPrivateTarget, ttl)
+		result, err := Render(input, secrets, render.ModeCommit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, content := range result.Tree() {
+			if strings.HasSuffix(name, "apps/agent-platform/configmap-values.yaml.patch") {
+				return string(content)
+			}
+		}
+		t.Fatal("no configmap patch rendered")
+		return ""
+	}
+	if got := patchOf(t, ""); strings.Contains(got, "sessionIdleTTL") {
+		t.Errorf("no choice, and the patch carries a sessionIdleTTL:\n%s", got)
+	}
+	for _, ttl := range []string{"336h", "1h30m", "0"} {
+		if got := patchOf(t, ttl); !strings.Contains(got, "\n  controller:\n    sessionIdleTTL: "+yamlScalar(ttl)+"\n") {
+			t.Errorf("sessions.idleTTL %s: the patch carries no kagent.controller.sessionIdleTTL %s:\n%s", ttl, ttl, got)
+		}
+	}
+
+	noKagent, secrets := withTTL(shapeHubPrivateTarget, "336h")
+	noKagent["installation"].(map[string]any)["customer"] = customerWithoutKagent
+	noKagent["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
+	lineThree, lineThreeSecrets := withTTL(shapePublicCustomer, "336h")
+	notDuration, hubSecrets := withTTL(shapeHubPrivateTarget, "14d")
+	for _, c := range []struct {
+		name    string
+		input   map[string]any
+		secrets map[string]string
+		names   string
+	}{
+		{"not a Go duration", notDuration, hubSecrets, "sessions/idleTTL"},
+		{"the 3 line", lineThree, lineThreeSecrets, "sessions.idleTTL"},
+		{"no kagent", noKagent, secrets, "sessions.idleTTL"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := Render(c.input, c.secrets, render.ModeCommit)
+			if !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), c.names) {
+				t.Fatalf("got %v, want ErrInput naming %q", err, c.names)
+			}
+		})
+	}
+}
+
+// yamlScalar is a TTL as the patch writes it: 0 quoted, since a bare 0 is an
+// integer and the chart's TTL a string.
+func yamlScalar(ttl string) string {
+	if ttl == "0" {
+		return `"0"`
+	}
+	return ttl
+}

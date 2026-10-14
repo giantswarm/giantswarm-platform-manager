@@ -108,6 +108,11 @@ type Input struct {
 	// above the list, read back from the configmap patch on record.
 	LLMRateLimits        []LLMRateLimit
 	LLMRateLimitsComment string
+	// SessionIdleTTL is the person's choice of how long an idle agent Session
+	// and its workspace directory live (sessions.idleTTL, the meta chart's
+	// kagent.controller.sessionIdleTTL), a Go duration; empty, the chart's
+	// default.
+	SessionIdleTTL string
 	// AIChat is the person's other choice: the portal's AI chat, in the
 	// platform's portal section (portal.go).
 	AIChat AIChat
@@ -565,6 +570,9 @@ type document struct {
 		RateLimits        []LLMRateLimit `json:"rateLimits"`
 		RateLimitsComment string         `json:"rateLimitsComment"`
 	} `json:"llmRouting"`
+	Sessions struct {
+		IdleTTL string `json:"idleTTL"`
+	} `json:"sessions"`
 	AIChat AIChat `json:"aiChat"`
 	Skills struct {
 		Repositories []string `json:"repositories"`
@@ -670,7 +678,7 @@ type commitChoice struct {
 // the cluster does not serve PodCertificateRequest, the chat or skill
 // repositories on an installation whose organisation hosts no portal for
 // them, the chat without a model, or on Vertex without its Google project or
-// location, the Hive where the installation cannot serve it, the MCP backends' network policy or the LLM listener's rate limits on the 3 line, the rate limits where no kagent runs, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
+// location, the Hive where the installation cannot serve it, the MCP backends' network policy or the LLM listener's rate limits on the 3 line, the rate limits or the session idle TTL where no kagent runs, the session idle TTL on the 3 line, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
 // is ErrInput too.
 func Parse(raw any) (*Input, error) {
 	schemaBytes, err := definitions.FS.ReadFile("agent-platform/schema.json")
@@ -712,7 +720,7 @@ func Parse(raw any) (*Input, error) {
 	if err != nil {
 		return nil, err
 	}
-	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, MCPBackends: d.NetworkPolicy.MCPBackends, LLMRateLimits: d.LLMRouting.RateLimits, LLMRateLimitsComment: d.LLMRouting.RateLimitsComment, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories, Hive: d.Hive,
+	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, MCPBackends: d.NetworkPolicy.MCPBackends, LLMRateLimits: d.LLMRouting.RateLimits, LLMRateLimitsComment: d.LLMRouting.RateLimitsComment, SessionIdleTTL: d.Sessions.IdleTTL, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories, Hive: d.Hive,
 		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
 		ReleaseCandidates: pol.releaseCandidates(d.Installation)}
 	if in.Components, err = pol.components(in.Installation); err != nil {
@@ -854,6 +862,12 @@ func (in *Input) checkRecord() error {
 	}
 	if in.AgentManagerCommit && !in.agentManager() {
 		return refuse(fmt.Sprintf("%s asks for the agent-manager's commit mode, and the fleet policy runs no agent-manager on %s's installations", describe("agentManager.github.enabled"), in.Installation.Customer))
+	}
+	if in.SessionIdleTTL != "" && in.Installation.ChartLine != lineFour {
+		return refuse(fmt.Sprintf("%s is the 4 chart line's, and this installation runs the %s line; the record's chart line decides", describe("sessions.idleTTL"), in.Installation.ChartLine))
+	}
+	if in.SessionIdleTTL != "" && !in.kagent() {
+		return refuse(fmt.Sprintf("%s bounds how long kagent keeps an idle Session, and the fleet policy runs no kagent on %s's installations", describe("sessions.idleTTL"), in.Installation.Customer))
 	}
 	if len(in.LLMRateLimits) > 0 && !in.kagent() {
 		return refuse(fmt.Sprintf("%s bound the LLM listener, and the fleet policy runs no kagent on %s's installations, so no listener is rendered", describe("llmRouting.rateLimits"), in.Installation.Customer))
