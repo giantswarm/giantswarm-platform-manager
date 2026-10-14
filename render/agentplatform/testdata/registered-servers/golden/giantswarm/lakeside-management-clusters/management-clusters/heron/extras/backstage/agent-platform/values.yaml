@@ -11,7 +11,7 @@ data:
       extraAppConfig:
         - filename: app-config.agent-platform.yaml
           configMapRef: agent-platform-app-config-backstage
-          checksum: 19e2d997fbe7f7c89e61fe045ebd26866458dcf878fce34b1849ee2074cc9330
+          checksum: bc3260870d2934158a8748590365cd230617cfad1334a43f9de66fefe859f0ef
     observability:
       otel:
         endpoint: http://otlp-gateway.kube-system.svc.cluster.local:4317

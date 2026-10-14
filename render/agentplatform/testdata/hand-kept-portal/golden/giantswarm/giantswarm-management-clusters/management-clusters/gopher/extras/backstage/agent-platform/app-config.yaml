@@ -7,6 +7,9 @@ metadata:
   namespace: backstage
 data:
   app-config.agent-platform.yaml: |
+    app:
+      portals:
+        agentPlatform: true
     agentPlatform:
       kagent:
         installations:

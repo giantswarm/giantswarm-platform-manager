@@ -62,6 +62,9 @@ removals:
   - key: "backstage:app-config:backend.actions"
     kind: other-definition
     reason: "Moved: backend.actions (the actions the portal lists for the chat's MCP actions server: the plugin sources and the filter) moves from the main app-config into the Agent Platform Component's app-config fragment, which carries it where the chat is on · M18"
+  - key: "backstage:app-config:app.portals"
+    kind: other-definition
+    reason: "Moved: app.portals (the Agent Platform shell beside the classic portal) moves from the main app-config into the Agent Platform Component's app-config fragment, which switches the shell on wherever the portal shows the platform."
   - key: "backstage:app-config:app.extensions.$include"
     kind: other-definition
     reason: >-

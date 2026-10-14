@@ -115,6 +115,7 @@ features:
       - {id: portal-component-files, kind: backstage, key: "agent-platform/ (the Component's kustomization, and its ConfigMaps' apiVersion, kind and metadata)"}
       - {id: portal-extensions, kind: backstage, key: agent-platform/app-config.yaml app.extensions}
       - {id: portal-base-url, kind: backstage, key: agent-platform/app-config.yaml app.baseUrl}
+      - {id: portal-shell, kind: backstage, key: "agent-platform/app-config.yaml app.portals (the Agent Platform shell, where backstage 3.x routes the platform's pages)"}
       - {id: portal-muster-installations, kind: backstage, key: agent-platform/app-config.yaml muster.installations}
       - {id: portal-flux-service-account, kind: backstage, key: agent-platform/app-config.yaml agentPlatform.fluxServiceAccountName (a portal before backstage 1.1.0)}
       - {id: portal-skills-repositories, kind: backstage, key: agent-platform/app-config.yaml agentPlatform.skills.repositories}

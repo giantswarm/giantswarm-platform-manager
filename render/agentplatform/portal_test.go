@@ -267,8 +267,12 @@ func TestPortalFragmentChat(t *testing.T) {
 		if fragmentValue(tools, "namespacedToolNames") != false || fragmentValue(actions, "pluginSources") == nil || fragmentValue(actions, "filter") == nil {
 			t.Errorf("hand-kept %v: the actions server's configuration: %v %v", handKept, tools, backend)
 		}
-		if hasList := fragmentValue(m, "app") != nil; hasList == handKept {
+		app, _ := fragmentValue(m, "app").(render.Map)
+		if hasList := fragmentValue(app, "extensions") != nil; hasList == handKept {
 			t.Errorf("hand-kept %v: the fragment sets the extension list: %v", handKept, hasList)
+		}
+		if shell, _ := fragmentValue(app, "portals").(render.Map); fragmentValue(shell, "agentPlatform") != true {
+			t.Errorf("hand-kept %v: the fragment switches the Agent Platform shell on: %v", handKept, app)
 		}
 		if fields := in.suppliedSecretFields(); len(fields) != 1 || fields[0] != fieldAnthropicKey {
 			t.Errorf("hand-kept %v: the supplied fields %v, want the key alone", handKept, fields)
