@@ -332,18 +332,18 @@ func (s State) FromAction() bool {
 }
 
 // portalRecordInputs are the customer portal's inputs from the portal on
-// record: its federation (portalFederation) and its agent-platform section
-// (portalPlatformSection).
+// record: its federation (portalFederation), its agent-platform section and
+// whether it is the hub's Dev Portal kept by hand (portalPlatformSection).
 func portalRecordInputs(ctx context.Context, r Report, read Reader) (map[string]any, error) {
 	federation, err := portalFederation(r)
 	if err != nil {
 		return nil, err
 	}
-	section, err := portalPlatformSection(ctx, r, read)
+	section, hub, err := portalPlatformSection(ctx, r, read)
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]any{"platformSection": section}
+	out := map[string]any{"platformSection": section, "hubPortal": hub}
 	if federation != nil {
 		out["federation"] = federation
 	}

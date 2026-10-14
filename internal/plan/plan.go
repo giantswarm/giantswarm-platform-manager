@@ -575,7 +575,14 @@ func Build(ctx context.Context, opts Options) Installation {
 			}
 			content := string(f.Content)
 			current, err := opts.Read(ctx, target, path)
-			if s := sharedFile(path); s != nil {
+			// A file the definition edits is the record with its change: the
+			// other owners' entries stand in it already.
+			s := sharedFile(path)
+			if f.Edit != nil {
+				content, err = edited(f.Edit, current, err)
+				s = nil
+			}
+			if s != nil {
 				switch {
 				case err == nil:
 					edited, kept, kerr := s.edit(f.Content, []byte(current))
@@ -680,6 +687,25 @@ func Build(ctx context.Context, opts Options) Installation {
 		}
 	}
 	return p
+}
+
+// edited is the file on record (current, read with err) with the
+// definition's edit applied: the content the plan writes. A file the
+// definition edits is never created — absent, it is the file's error, as is
+// a record the edit cannot change; the plan is then unknown for it and no
+// commit goes ahead.
+func edited(edit func([]byte) ([]byte, error), current string, err error) (string, error) {
+	switch {
+	case errors.Is(err, gh.ErrNotFound):
+		return "", errors.New("absent: the definition changes this file as the record holds it and creates none")
+	case err != nil:
+		return "", err
+	}
+	out, err := edit([]byte(current))
+	if err != nil {
+		return "", fmt.Errorf("on record, but the definition cannot change it: %w", err)
+	}
+	return string(out), nil
 }
 
 // splitSupplied divides the supplied fields into the ones the commit needs a

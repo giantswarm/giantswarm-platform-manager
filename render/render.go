@@ -41,6 +41,12 @@ type File struct {
 	// file and draw every value it holds anew, so it stays on record until
 	// the file's next rewrite (a rotation) leaves it out.
 	Retired []string
+	// Edit, where set, renders the file as the record holds it with the
+	// definition's change applied: the plan reads the file on record and
+	// writes Edit's answer, Content takes no part. A file kept by hand that the
+	// definition changes a key of and owns nothing else of. The file on record
+	// is required; Edit's error says what in it the definition cannot change.
+	Edit func(current []byte) ([]byte, error)
 }
 
 // Generated describes one placeholder in a File. Two files that carry the same

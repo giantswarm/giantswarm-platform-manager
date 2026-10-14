@@ -16,7 +16,7 @@ func TestHubRefusal(t *testing.T) {
 		"backstage:user-values:database",
 	}}
 	got := hubShaped.HubRefusal()
-	want := "the portal on record carries sections of the hub's Dev Portal that this definition does not render (app-config: pagerDuty, proxy.endpoints./circleci/api, backend.database; user-values: database), and a commit would remove them; the hub's shape has to become an input of the definition first — until then keep this portal by hand"
+	want := "the portal on record carries sections of the hub's Dev Portal that this definition renders for no shared portal (app-config: pagerDuty, proxy.endpoints./circleci/api, backend.database; user-values: database), and a commit would remove them; the hub's shape keeps them where the portal is kept by hand, listing app.extensions literally"
 	if got != want {
 		t.Errorf("the hub's portal:\n got %s\nwant %s", got, want)
 	}

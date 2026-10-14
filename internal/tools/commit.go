@@ -501,7 +501,9 @@ func targetsOf(ctx context.Context, c *gh.Client, p plan.Installation, rendered 
 				return nil, fmt.Errorf("%s:%s carries a generated value: %w", resolved, path, tg.noSops)
 			}
 			if !tg.isSecretFile(path) {
-				if !plan.Shared(path) && string(f.Content) != pf.Content {
+				// A shared file and a file the definition edits on record
+				// are written as the plan has them, not as rendered.
+				if !plan.Shared(path) && f.Edit == nil && string(f.Content) != pf.Content {
 					return nil, fmt.Errorf("%s:%s is a plain file and a supplied value would land in it; nothing is committed", resolved, path)
 				}
 				content = []byte(pf.Content)

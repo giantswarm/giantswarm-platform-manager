@@ -3,6 +3,7 @@ package installations
 import (
 	"context"
 	"errors"
+	"maps"
 	"reflect"
 	"testing"
 )
@@ -56,13 +57,43 @@ func TestPortalPlatformSection(t *testing.T) {
 		{"the fragment's chat on Vertex over the app-config's", map[string]string{appConfigPath: appConfig, fragmentPath: vertex}, withChat(section(false, true, kept), "vertex", false)},
 		{"no portal on record", map[string]string{}, section(false, false, map[string]any{})},
 	} {
-		got, err := portalPlatformSection(context.Background(), report, files(tc.files))
-		if err != nil || !reflect.DeepEqual(got, tc.want) {
+		got, hub, err := portalPlatformSection(context.Background(), report, files(tc.files))
+		if err != nil || hub || !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s: %v %v, want %v", tc.name, got, err, tc.want)
 		}
 	}
 	unreadable := errors.New("forbidden")
-	if _, err := portalPlatformSection(context.Background(), report, func(context.Context, string, string) (string, error) { return "", unreadable }); !errors.Is(err, unreadable) {
+	if _, _, err := portalPlatformSection(context.Background(), report, func(context.Context, string, string) (string, error) { return "", unreadable }); !errors.Is(err, unreadable) {
 		t.Errorf("an unreadable portal refuses the comparison: %v", err)
+	}
+}
+
+// The portal on record is the hub's Dev Portal kept by hand where its
+// app-config lists the extensions literally and carries a section of the
+// hub's Dev Portal with a value; an include, or a section without a value,
+// is no hub portal.
+func TestIsHubPortal(t *testing.T) {
+	portal := func(extensions any, sections map[string]any) map[string]any {
+		doc := map[string]any{"app": map[string]any{"extensions": extensions}}
+		maps.Copy(doc, sections)
+		return doc
+	}
+	literal := []any{"page:catalog"}
+	pagerDuty := map[string]any{"pagerDuty": map[string]any{"apiBaseUrl": "https://api.example.test"}}
+	for _, tc := range []struct {
+		name      string
+		appConfig map[string]any
+		want      bool
+	}{
+		{"literal list and the PagerDuty block", portal(literal, pagerDuty), true},
+		{"literal list and the hub's database", portal(literal, map[string]any{"backend": map[string]any{"database": map[string]any{"client": "pg"}}}), true},
+		{"the shared include and the PagerDuty block", portal(map[string]any{"$include": "shared-config.yaml#extensions"}, pagerDuty), false},
+		{"literal list, sections without a value", portal(literal, map[string]any{"scaffolder": nil, "plans": map[string]any{}}), false},
+		{"literal list alone", portal(literal, nil), false},
+		{"no portal on record", nil, false},
+	} {
+		if got := isHubPortal(tc.appConfig); got != tc.want {
+			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }

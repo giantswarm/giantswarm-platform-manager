@@ -145,14 +145,21 @@ Key paths in `x-renders`, `removals.yaml` and `migrations.yaml` are normalised: 
   through that variable alone; without it the mount is inert), no list without either so the shared base's
   `'self'` stands — and the Component sets none.
 - The hub's Dev Portal — the pages it serves over muster, its incident links, CircleCI proxy and scaffolder, its
-  GitHub and container registry access, its Postgres database — is out of the definition until a hub shape exists:
-  those sections are `hub` removals. The comparison plans their removal like any other's, but a commit whose plan
-  removes one the record carries with a value is refused for the installation — `commitRefused` names the sections
-  by file (`hubSections` lists their keys), and a wave over a set with that installation is refused whole — so a
-  customer-portal commit never strips the hub's portal. A section on record without a value (`scaffolder: null`)
-  goes without a refusal. The way out is the hub's shape as an input of the definition, or the portal kept by hand.
-  An entry of the hub's registry of installations (`gs.installations.<name>`) that a portal neither is nor
-  federates is an ordinary `not-rendered` removal.
+  GitHub and container registry access, its Postgres database — is kept by hand, and the definition renders its
+  hub shape: where the portal's app-config on record lists `app.extensions` literally and carries one of those
+  sections with a value (`hubPortal`, read on every comparison, never typed), every file of the portal stands as
+  the record holds it and the chart line alone is written, the value of the OCIRepository patch's
+  `/spec/ref/semver` operation in the portal's kustomization on record, every other byte of it kept. No secret
+  is drawn or asked for, no list replaced, no include and no Dex patch written: a reconcile of the hub's portal
+  moves its release range and nothing else. A portal kustomization whose patch the shape cannot change in place
+  (no such operation, a flow-style patch, a comment on the value's line) leaves the plan unknown for the file and
+  no commit goes ahead. Elsewhere those sections are `hub` removals: the comparison plans their removal like any
+  other's, but a commit whose plan removes one the record carries with a value is refused for the installation —
+  `commitRefused` names the sections by file (`hubSections` lists their keys), and a wave over a set with that
+  installation is refused whole — so a customer-portal commit never strips them from a portal. A section on
+  record without a value (`scaffolder: null`) goes without a refusal. An entry of the hub's registry of
+  installations (`gs.installations.<name>`) that a portal neither is nor federates is an ordinary `not-rendered`
+  removal.
 - `get_info` lists the definition with its schema and features, `list_installations` answers its state (marker:
   the portal's app-config in the management-clusters repository), `platformctl template` renders it, and
   `enable_capability`, `reconcile_capability` (one installation or the wave) and `verify_capability` take
