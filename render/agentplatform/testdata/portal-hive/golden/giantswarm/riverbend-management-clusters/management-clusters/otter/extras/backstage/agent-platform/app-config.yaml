@@ -10,6 +10,8 @@ data:
     app:
       extensions:
         $include: shared-config.yaml#extensionsAgentPlatformHive
+      portals:
+        agentPlatform: true
     agentPlatform:
       kagent:
         installations:

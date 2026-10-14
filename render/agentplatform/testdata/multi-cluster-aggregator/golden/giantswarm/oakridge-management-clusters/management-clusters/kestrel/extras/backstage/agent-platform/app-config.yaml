@@ -10,6 +10,8 @@ data:
     app:
       extensions:
         $include: shared-config.yaml#extensionsAgentPlatform
+      portals:
+        agentPlatform: true
     agentPlatform:
       fluxServiceAccountName: kagent-flux
       kagent:

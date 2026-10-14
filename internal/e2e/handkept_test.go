@@ -328,7 +328,7 @@ func TestHandKeptPortalMigrationKeepsThePlatformSection(t *testing.T) {
 		}
 	}
 	appConfig, fragment := portalDocs(t, st)
-	if _, lists := fragment["app"]; lists || fragment[keptSection[2]] == nil || fragment[keptSection[1]].(map[string]any)["skills"] != nil {
+	if _, lists := fragment["app"].(map[string]any)["extensions"]; lists || fragment[keptSection[2]] == nil || fragment[keptSection[1]].(map[string]any)["skills"] != nil {
 		t.Fatalf("the Component's fragment on record is not in the hand-kept shape without skills: %v", fragment)
 	}
 	if _, literal := appConfig["app"].(map[string]any)["extensions"].([]any); !literal {

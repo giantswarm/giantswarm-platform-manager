@@ -165,6 +165,13 @@ var (
 	chatActionExcludes = []string{"gs:get-pagerduty-ids-for-entity"}
 )
 
+// portalShell is app.portals: the Agent Platform shell beside the classic
+// portal. From backstage 3.0.0 the platform's pages are routed in the shell
+// alone, which is off by default, so a portal showing the platform switches
+// it on; the classic portal keeps its default. An earlier portal ignores the
+// key.
+var portalShell = render.Map{e("agentPlatform", true)}
+
 // aiChat says whether the portal section carries the AI chat: the person's
 // choice; checkRecord has refused it without a hosted portal.
 func (in *Input) aiChat() bool { return in.AIChat.Enabled }
@@ -291,7 +298,8 @@ func chatActions() render.Map {
 // portal's plugin reads it and the portal's installations
 // (portalInstallations) among the kagent installations; the skill
 // repositories the agent creation discovers skills in, where there are
-// any); where the Component owns the portal's lists, the platform's
+// any); the Agent Platform shell (portalShell); where the Component owns the
+// portal's lists, the platform's
 // extensions through the shared include (with the chat's entries where the
 // chat is on, with the Hive's pages where it is on, with the Grafana
 // dashboards card where the portal's plugin is wired) and the portal's
@@ -301,10 +309,11 @@ func chatActions() render.Map {
 // block for it (github.go); with the Hive on, its plans and roadmap blocks
 // (hive.go), and its pages in the shared list.
 func (in *Input) portalAppConfig() render.Map {
-	m := render.Map{}
+	app := render.Map{}
 	if in.portalOwnsLists() {
-		m = append(m, e("app", render.Map{e("extensions", render.Map{e("$include", render.PortalExtensionsInclude(true, in.aiChat(), in.hive(), in.hostedPortal().GrafanaWired))})}))
+		app = append(app, e("extensions", render.Map{e("$include", render.PortalExtensionsInclude(true, in.aiChat(), in.hive(), in.hostedPortal().GrafanaWired))}))
 	}
+	m := render.Map{e("app", append(app, e("portals", portalShell)))}
 	installations := in.portalInstallations()
 	platform := render.Map{}
 	if in.kagent() {
