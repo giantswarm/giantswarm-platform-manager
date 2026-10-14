@@ -14,7 +14,7 @@ import (
 
 	"filippo.io/age"
 	"github.com/giantswarm/gitops-commit/provenance"
-	"github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/v2/client"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"

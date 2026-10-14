@@ -16,7 +16,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/v2/client"
 	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"

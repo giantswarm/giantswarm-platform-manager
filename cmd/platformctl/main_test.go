@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	mcpserver "github.com/mark3labs/mcp-go/server"
+	mcpserver "github.com/mark3labs/mcp-go/v2/server"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/platformctl/muster/mustertest"
 )

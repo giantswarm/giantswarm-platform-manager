@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	mcpserver "github.com/mark3labs/mcp-go/server"
+	mcpserver "github.com/mark3labs/mcp-go/v2/server"
 )
 
 // The probes answer 200 without OAuth and with it; the guard covers the MCP

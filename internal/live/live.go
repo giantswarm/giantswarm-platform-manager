@@ -31,7 +31,7 @@ import (
 	"time"
 
 	"github.com/giantswarm/mcp-oauth/providers/oidc"
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/v2/mcp"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/aggregator"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"

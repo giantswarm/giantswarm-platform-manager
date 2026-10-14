@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/v2/client"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
