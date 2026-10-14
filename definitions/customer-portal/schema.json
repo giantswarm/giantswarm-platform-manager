@@ -190,6 +190,16 @@
         "enabled": {"type": "boolean", "description": "Render the tunnel's SPIFFE trust bundle reference: the ExternalSecret that copies the bundle from the platform namespace into the portal's, with its store and reader, the volume and mount that put it under /app/tunnelport-spiffe-bundle in the portal's container, and NODE_EXTRA_CA_CERTS on its svid_bundle.pem in backstage.extraEnvVars of the user values — the one variable Node reads extra CA certificates through, so the backend trusts the SVIDs the tunnel Services present; without it the mount is inert.", "x-source": "person", "x-feature": "portal", "x-readback": {"file": "backstage:file:tunnelport-spiffe-bundle.yaml", "kind": "file"}, "x-renders": ["backstage:file:tunnelport-spiffe-bundle.yaml", "backstage:kustomization:resources[*]", "backstage:user-values:backstage.extraEnvVars[*]", "backstage:user-values:backstage.extraVolumes[*]", "backstage:user-values:backstage.extraVolumeMounts[*]"]}
       }
     },
+    "hubPortal": {
+      "type": "boolean",
+      "default": false,
+      "description": "The portal on record is the hub's Dev Portal kept by hand, read on every comparison and never typed: its app-config lists app.extensions literally rather than including the shared list, and carries a section of the hub's Dev Portal with a value (removals.yaml, kind hub). The definition renders the hub's shape then: every file of the portal stands as the record holds it, and the chart line alone is written, as the semver of the OCIRepository patch in the portal's kustomization on record. No secret is drawn or asked for, no list replaced, no other file written.",
+      "x-source": "registry",
+      "x-feature": "portal",
+      "x-renders": [
+        "backstage:kustomization:patches[*] OCIRepository /spec/ref/semver"
+      ]
+    },
     "platformSection": {
       "type": "object",
       "description": "The portal's agent-platform section as the record carries it, read on every comparison and never typed: the part of the main app-config this definition hands to the agent-platform definition's Component (removals.yaml, kind other-definition), read against the Component's app-config fragment on record (backstage:agent-platform/app-config). The section leaves the main app-config only once the fragment owns the portal's lists. Until then — a hand-kept portal, whose Component writes its object-shaped keys alone, or a Component not rendered yet — the main app-config keeps the section as the record carries it and includes the extension list with the platform's section, so no step of a migration (this definition's commit, then the agent-platform reconcile that takes the lists over, then this definition's next reconcile) takes a part of it from the running portal.",

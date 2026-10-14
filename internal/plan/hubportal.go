@@ -11,15 +11,15 @@ import (
 // record: the plan removes sections of it that the record carries with a
 // value (HubSections) — the pages the hub serves over muster, its incident,
 // CircleCI and scaffolder configuration, its Postgres database — which the
-// definition does not render, so the commit would turn the hub's portal
-// into a customer's. Empty where the plan removes none: a customer's portal,
-// a section on record without a value. The comparison runs either way; only
-// the commit is held.
+// definition renders for no portal but the hub's kept by hand (its hub
+// shape), so the commit would strip them. Empty where the plan removes none:
+// the hub shape, a customer's portal, a section on record without a value.
+// The comparison runs either way; only the commit is held.
 func (p Installation) HubRefusal() string {
 	if len(p.HubSections) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("the portal on record carries sections of the hub's Dev Portal that this definition does not render (%s), and a commit would remove them; the hub's shape has to become an input of the definition first — until then keep this portal by hand",
+	return fmt.Sprintf("the portal on record carries sections of the hub's Dev Portal that this definition renders for no shared portal (%s), and a commit would remove them; the hub's shape keeps them where the portal is kept by hand, listing app.extensions literally",
 		byFile(p.HubSections))
 }
 

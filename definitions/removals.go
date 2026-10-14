@@ -55,6 +55,13 @@ func HandedKeys(capability, prefix string) ([]string, error) {
 	return keysOfKind(capability, prefix, RemovalOtherDefinition)
 }
 
+// HubKeys are the key paths of a capability's removals of kind hub under the
+// file prefix (backstage:app-config, …), the prefix cut off, in file order:
+// the sections of the hub's Dev Portal.
+func HubKeys(capability, prefix string) ([]string, error) {
+	return keysOfKind(capability, prefix, RemovalHub)
+}
+
 // keysOfKind are the key paths of a capability's removals of kind under the
 // file prefix, the prefix cut off, in file order.
 func keysOfKind(capability, prefix, kind string) ([]string, error) {

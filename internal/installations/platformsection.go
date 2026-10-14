@@ -54,6 +54,54 @@ var handedPortalKeys = func() []string {
 	return keys
 }()
 
+// hubPortalKeys are the key paths of the portal's app-config that are
+// sections of the hub's Dev Portal: the customer-portal definition's
+// removals of kind hub in the app-config.
+var hubPortalKeys = func() []string {
+	keys, err := definitions.HubKeys(CustomerPortal, definitions.KindBackstage+":app-config")
+	if err != nil {
+		panic(err)
+	}
+	return keys
+}()
+
+// isHubPortal says whether appConfig, a portal's app-config on record, is
+// the hub's Dev Portal kept by hand: its extension list is a literal list of
+// its own, not the shared include, and it carries a section of the hub's Dev
+// Portal with a value (one that is neither null nor empty).
+func isHubPortal(appConfig map[string]any) bool {
+	if list, _ := lookup(appConfig, splitKey(portalExtensions)); !isList(list) {
+		return false
+	}
+	for _, key := range hubPortalKeys {
+		if v, ok := lookup(appConfig, splitKey(key)); ok && hasValue(v) {
+			return true
+		}
+	}
+	return false
+}
+
+func isList(v any) bool {
+	_, ok := v.([]any)
+	return ok
+}
+
+// hasValue says whether v carries a value: not null, not an empty mapping,
+// list or string.
+func hasValue(v any) bool {
+	switch v := v.(type) {
+	case nil:
+		return false
+	case map[string]any:
+		return len(v) > 0
+	case []any:
+		return len(v) > 0
+	case string:
+		return v != ""
+	}
+	return true
+}
+
 // portalPlatformSection is the customer portal's platformSection from the
 // portal's files on record, read as the caller: whether the Component's
 // fragment carries the extension list (componentLists: it owns the portal's
@@ -64,11 +112,13 @@ var handedPortalKeys = func() []string {
 // chat is on record (chatCredentials: its presence, nothing decrypted), and
 // every handed key the main app-config carries but the extension list, at
 // its path with its value (appConfig). A file not on record carries nothing.
-func portalPlatformSection(ctx context.Context, r Report, read Reader) (map[string]any, error) {
+// The same read answers whether the portal on record is the hub's Dev Portal
+// kept by hand (isHubPortal).
+func portalPlatformSection(ctx context.Context, r Report, read Reader) (section map[string]any, hubPortal bool, err error) {
 	c, _ := FindCapability(CustomerPortal)
 	s, err := c.inputSchema()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	// The customer portal's files are the installation's own: it hosts the portal.
 	files := newReadBackFiles(ctx, read, r.Installation, r.Name)
@@ -81,15 +131,15 @@ func portalPlatformSection(ctx context.Context, r Report, read Reader) (map[stri
 	}
 	appConfig, err := doc(portalAppConfigFile)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	fragment, err := doc(portalFragmentFile)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	credentials, err := doc(portalChatCredentialsFile)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	_, lists := lookup(fragment, splitKey(portalExtensions))
 	_, fragmentChat := lookup(fragment, splitKey(sectionAIChat))
@@ -111,5 +161,5 @@ func portalPlatformSection(ctx context.Context, r Report, read Reader) (map[stri
 		}
 	}
 	return map[string]any{sectionComponentLists: lists, sectionAIChat: fragmentChat || ownChat, sectionChatProvider: provider,
-		sectionChatCredentials: credentials != nil, sectionAppConfig: kept}, nil
+		sectionChatCredentials: credentials != nil, sectionAppConfig: kept}, isHubPortal(appConfig), nil
 }

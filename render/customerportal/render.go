@@ -116,6 +116,11 @@ func Render(raw any, secrets map[string]string, mode render.Mode) (*render.Resul
 	dir := extras + portalDir + "/"
 
 	r := &render.Result{}
+	r.Probes = in.probes()
+	if in.HubPortal {
+		in.hubShape(r, clusters, dir+portalDir+"/")
+		return r, nil
+	}
 	r.Add(clusters, dir+"kustomization.yaml", in.extrasKustomization())
 	in.portalFiles(r, clusters, dir+portalDir+"/", secrets)
 	r.Include(clusters, extras+"kustomization.yaml", "./"+portalDir+"/")
@@ -123,7 +128,6 @@ func Render(raw any, secrets map[string]string, mode render.Mode) (*render.Resul
 		configs := render.Repository("giantswarm/" + in.Installation.Customer + "-configs")
 		r.Add(configs, "installations/"+name+"/apps/dex-app/configmap-values.yaml.patch", yamlFile(in.dexPatch()))
 	}
-	r.Probes = in.probes()
 	return r, nil
 }
 

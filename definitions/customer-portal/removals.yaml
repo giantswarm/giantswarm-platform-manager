@@ -19,10 +19,12 @@
 #                       record carries it (platformSection.appConfig) and includes the extension list with the
 #                       platform's section, so the removal is planned only once the fragment carries the key
 #   hub                 a section of the hub's Dev Portal (pages the hub serves over muster, the hub's incident,
-#                       CircleCI proxy and scaffolder configuration, its Postgres database); out of the definition
-#                       until a hub shape exists. The comparison plans the removal; a commit whose plan removes one
-#                       the record carries with a value (not null, not empty) is refused for the installation,
-#                       naming the sections, so a customer-portal commit never strips the hub's portal
+#                       CircleCI proxy and scaffolder configuration, its Postgres database). The hub's portal kept
+#                       by hand (its own extension list, one of these with a value: schema.json's hubPortal) is
+#                       the hub shape, which keeps every file as on record. Elsewhere the comparison plans the
+#                       removal; a commit whose plan removes one the record carries with a value (not null, not
+#                       empty) is refused for the installation, naming the sections, so a customer-portal commit
+#                       never strips them from a portal
 #   not-rendered        an entry of the hub's registry of installations (gs.installations) that a customer portal
 #                       does not list: the definition renders the portal's own installation and the ones it
 #                       federates, and an entry beyond them goes with an ordinary removal
