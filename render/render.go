@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -618,3 +619,19 @@ func LineComment(doc []byte, key, comment string) []byte {
 	}
 	return bytes.Join(lines, []byte("\n"))
 }
+
+// ReleaseTagFilter is the tag filter patched onto an OCIRepository beside a
+// range that admits release candidates: stable releases and release candidates
+// only. A chart's branch builds are pushed to the same repository with a
+// pre-release of their own (X.Y.Z-r<hash>t<time>h<sha>), which the range alone
+// would select.
+const ReleaseTagFilter = `^v?[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$`
+
+// releaseCandidatesLine is the release-candidate form of a portal's chart
+// line, >=A.B.C-0: open above, so Flux resolves it to the newest release or
+// release candidate from A.B.C on, whatever its major.
+var releaseCandidatesLine = regexp.MustCompile(`^>=\d+\.\d+\.\d+-0$`)
+
+// ReleaseCandidates says a portal's chart line is the release-candidate form,
+// which the customer-portal definition renders with ReleaseTagFilter beside it.
+func ReleaseCandidates(line string) bool { return releaseCandidatesLine.MatchString(line) }

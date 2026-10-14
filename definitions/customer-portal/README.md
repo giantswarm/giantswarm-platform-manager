@@ -40,8 +40,11 @@ Key paths in `x-renders`, `removals.yaml` and `migrations.yaml` are normalised: 
 - The chart line (`chart.line`) is the release range `>=A <B` the portal's OCIRepository follows, patched over the
   fleet base's tag as its `semver`. On a test installation it may instead be an exact version — the development
   tag a dev build publishes, `A.B.C-<build>` — pinning the portal to that build for a test window, written as the
-  OCIRepository's `semver` like the range. A production installation takes the range alone: the exact form is
-  refused there naming both forms, so a test window never reaches a customer's portal.
+  OCIRepository's `semver` like the range — or the release candidates, `>=A.B.C-0`: open above, so the portal
+  follows every release and release candidate from `A.B.C` on whatever its major, with `render.ReleaseTagFilter`
+  patched beside it as the `semverFilter` so the chart's branch builds stay out. A production installation takes
+  the range alone: the other forms are refused there naming every form, so neither a test window nor a release
+  candidate reaches a customer's portal.
 - The dex-app configmap patch of an installation is one file with several owners: a definition owns the
   clients it renders and nothing else. Without the platform this definition renders the patch with the portal's
   client. With the platform enabled (`installation.agentPlatform`) the agent-platform definition renders it and

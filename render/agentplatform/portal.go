@@ -387,17 +387,20 @@ func (in *Input) portalValues() render.Map {
 
 // portalChartFloor is the lowest chart version a portal's chart line admits:
 // the lower bound of a bounded range (>=A <B, the form the customer-portal
-// definition writes) or the tag itself. Another form is an error naming it.
+// definition writes) or of the release candidates (>=A.B.C-0, open above), or
+// the tag itself. Another form is an error naming it.
 func portalChartFloor(line string) (*semver.Version, error) {
 	fields := strings.Fields(line)
 	var floor string
 	switch {
 	case len(fields) == 2 && strings.HasPrefix(fields[0], ">=") && strings.HasPrefix(fields[1], "<"):
 		floor = strings.TrimPrefix(fields[0], ">=")
+	case render.ReleaseCandidates(line):
+		floor = strings.TrimPrefix(line, ">=")
 	case len(fields) == 1 && !strings.ContainsAny(fields[0], "<>=~^*xX|"):
 		floor = fields[0]
 	default:
-		return nil, fmt.Errorf("the chart line %q is neither a bounded range >=A <B nor a tag", line)
+		return nil, fmt.Errorf("the chart line %q is neither a bounded range >=A <B, the release candidates >=A.B.C-0 nor a tag", line)
 	}
 	v, err := semver.NewVersion(floor)
 	if err != nil {
@@ -408,8 +411,12 @@ func portalChartFloor(line string) (*semver.Version, error) {
 
 // portalChartAdmits says whether a portal's chart line admits a chart at or
 // above v, the chart Flux resolves the line to once v is released: the upper
-// bound of a bounded range lies above v, or the tag is v or later.
+// bound of a bounded range lies above v, the line follows the release
+// candidates, or the tag is v or later.
 func portalChartAdmits(line string, v *semver.Version) bool {
+	if render.ReleaseCandidates(line) {
+		return true
+	}
 	floor, err := portalChartFloor(line)
 	if err != nil {
 		return false
@@ -451,12 +458,14 @@ func (in *Input) portalServesMetrics() bool {
 // chart before portalPluginRemoval and so reads the agents' Flux identity
 // from the fragment: its chart line's floor lies below the removal. The key
 // is inert on a later chart, so a line that straddles the removal names it.
+// The release candidates are open above and resolve to the newest chart,
+// whatever their floor, so they name it never.
 // checkRecord has refused a record whose line is missing or of another form
 // where kagent runs, so an error here is a portal the fragment carries no
 // agentPlatform section for anyway.
 func (in *Input) portalReadsFluxServiceAccount() bool {
 	p := in.hostedPortal()
-	if p == nil {
+	if p == nil || render.ReleaseCandidates(p.ChartLine) {
 		return false
 	}
 	floor, err := portalChartFloor(p.ChartLine)
