@@ -3,6 +3,7 @@ package agentplatform
 import (
 	"crypto/sha256"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -387,17 +388,20 @@ func (in *Input) portalValues() render.Map {
 
 // portalChartFloor is the lowest chart version a portal's chart line admits:
 // the lower bound of a bounded range (>=A <B, the form the customer-portal
-// definition writes) or the tag itself. Another form is an error naming it.
+// definition writes) or of the release candidates (>=A.B.C-0, open above), or
+// the tag itself. Another form is an error naming it.
 func portalChartFloor(line string) (*semver.Version, error) {
 	fields := strings.Fields(line)
 	var floor string
 	switch {
 	case len(fields) == 2 && strings.HasPrefix(fields[0], ">=") && strings.HasPrefix(fields[1], "<"):
 		floor = strings.TrimPrefix(fields[0], ">=")
+	case portalCandidates(line):
+		floor = strings.TrimPrefix(line, ">=")
 	case len(fields) == 1 && !strings.ContainsAny(fields[0], "<>=~^*xX|"):
 		floor = fields[0]
 	default:
-		return nil, fmt.Errorf("the chart line %q is neither a bounded range >=A <B nor a tag", line)
+		return nil, fmt.Errorf("the chart line %q is neither a bounded range >=A <B, the release candidates >=A.B.C-0 nor a tag", line)
 	}
 	v, err := semver.NewVersion(floor)
 	if err != nil {
@@ -406,13 +410,24 @@ func portalChartFloor(line string) (*semver.Version, error) {
 	return v, nil
 }
 
+// portalCandidatesLine is the release-candidate form of a portal's chart line.
+var portalCandidatesLine = regexp.MustCompile(`^>=\d+\.\d+\.\d+-0$`)
+
+// portalCandidates says a portal's chart line follows the release candidates:
+// every release and release candidate from its floor on, whatever the major.
+func portalCandidates(line string) bool { return portalCandidatesLine.MatchString(line) }
+
 // portalChartAdmits says whether a portal's chart line admits a chart at or
 // above v, the chart Flux resolves the line to once v is released: the upper
-// bound of a bounded range lies above v, or the tag is v or later.
+// bound of a bounded range lies above v, the line follows the release
+// candidates, or the tag is v or later.
 func portalChartAdmits(line string, v *semver.Version) bool {
 	floor, err := portalChartFloor(line)
 	if err != nil {
 		return false
+	}
+	if portalCandidates(line) {
+		return true
 	}
 	if fields := strings.Fields(line); len(fields) == 2 {
 		ceiling, err := semver.NewVersion(strings.TrimPrefix(fields[1], "<"))

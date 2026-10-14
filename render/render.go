@@ -612,3 +612,10 @@ func LineComment(doc []byte, key, comment string) []byte {
 	}
 	return bytes.Join(lines, []byte("\n"))
 }
+
+// ReleaseTagFilter is the tag filter patched onto an OCIRepository beside a
+// range that admits release candidates: stable releases and release candidates
+// only. A chart's branch builds are pushed to the same repository with a
+// pre-release of their own (X.Y.Z-r<hash>t<time>h<sha>), which the range alone
+// would select.
+const ReleaseTagFilter = `^v?[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$`

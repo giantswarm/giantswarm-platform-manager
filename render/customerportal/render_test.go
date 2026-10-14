@@ -775,22 +775,35 @@ func TestRefusals(t *testing.T) {
 	}
 }
 
-// The chart line's forms: the release range every installation follows, and
-// the exact version a test installation pins (a development tag); both are
-// written as the OCIRepository's semver.
+// The chart line's forms: the release range every installation follows, the
+// exact version a test installation pins (a development tag) and the release
+// candidates a test installation follows; each is written as the
+// OCIRepository's semver.
 const (
 	releaseRange = ">=0.244.7 <1.0.0"
 	devBuildTag  = "2.92.0-r0123abcdt20261001000000h0abc1234"
+	candidates   = ">=2.1.0-0"
+	// lineForms is the end of a chart line's refusal off a test
+	// installation: it names every form and where each applies.
+	lineForms = ", and maple is no test installation; write a release range (>=A <B): an exact version or development tag (A.B.C-<build>) pins the portal, and >=A.B.C-0 follows its release candidates, on one of Giant Swarm's test installations alone"
 	// exactLineRefusal is the refusal of the exact form off a test
-	// installation: it names both forms and where each applies.
-	exactLineRefusal = "the chart line the portal's OCIRepository follows (chart.line) is " + devBuildTag + ", an exact version, and maple is no test installation; write a release range (>=A <B): an exact version or development tag (A.B.C-<build>) pins the portal on one of Giant Swarm's test installations alone"
+	// installation.
+	exactLineRefusal = "the chart line the portal's OCIRepository follows (chart.line) is " + devBuildTag + ", an exact version" + lineForms
+	// candidatesLineRefusal is the refusal of the release candidates off a
+	// test installation.
+	candidatesLineRefusal = "the chart line the portal's OCIRepository follows (chart.line) is " + candidates + ", the release candidates" + lineForms
+	// semverFilter is the release tag filter's op as the kustomization
+	// carries it.
+	semverFilter = "path: /spec/ref/semverFilter\n        value: ^v?[0-9]+\\.[0-9]+\\.[0-9]+(-rc\\.[0-9]+)?$\n"
 )
 
 // A portal's chart line is a release range on every installation; on one of
 // Giant Swarm's test installations (installation.test) it may also be an
-// exact version — the development tag a test window pins — written as the
-// OCIRepository's semver as the range is. The exact form off a test
-// installation is refused naming both forms.
+// exact version — the development tag a test window pins — or the release
+// candidates, written as the OCIRepository's semver as the range is. The
+// release candidates carry the release tag filter beside the semver, so the
+// chart's branch builds stay out; no other form does. The exact form and the
+// release candidates off a test installation are refused naming every form.
 func TestChartLineFormsPerInstallation(t *testing.T) {
 	base, secrets := loadInput(t, "customer-portal")
 	for _, tc := range []struct {
@@ -804,6 +817,8 @@ func TestChartLineFormsPerInstallation(t *testing.T) {
 		{"a development tag on a test installation", true, devBuildTag, ""},
 		{"an exact release on a test installation", true, "0.244.7", ""},
 		{"a development tag on a production installation", false, devBuildTag, exactLineRefusal},
+		{"the release candidates on a test installation", true, candidates, ""},
+		{"the release candidates on a production installation", false, candidates, candidatesLineRefusal},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var input map[string]any
@@ -829,6 +844,9 @@ func TestChartLineFormsPerInstallation(t *testing.T) {
 			}
 			if !strings.Contains(kustomization, "path: /spec/ref/semver") || !strings.Contains(kustomization, tc.line) {
 				t.Fatalf("the OCIRepository patch does not carry %q as the semver:\n%s", tc.line, kustomization)
+			}
+			if filtered := strings.Contains(kustomization, semverFilter); filtered != (tc.line == candidates) {
+				t.Fatalf("the OCIRepository patch carries the release tag filter: %v, want %v:\n%s", filtered, tc.line == candidates, kustomization)
 			}
 		})
 	}

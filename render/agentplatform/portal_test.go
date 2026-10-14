@@ -360,6 +360,8 @@ func TestPortalChartFloor(t *testing.T) {
 		{">=0.244.7 <3.0.0", "0.244.7", true},
 		{"0.120.0", "0.120.0", true},
 		{"2.53.2", "2.53.2", false},
+		{">=2.1.0-0", "2.1.0-0", false},
+		{">=1.0.0-0", "1.0.0-0", true},
 	} {
 		floor, err := portalChartFloor(tc.line)
 		if err != nil || floor.String() != tc.floor {
@@ -371,7 +373,7 @@ func TestPortalChartFloor(t *testing.T) {
 			t.Errorf("%q: reads the Flux identity %v, want %v", tc.line, got, tc.reads)
 		}
 	}
-	for _, line := range []string{"", "x.x.x", "^0.244.7", ">=0.244.7", "<1.0.0", ">=0.244.7 <1.0.0 || >=2.0.0", "latest", ">=a.b.c <1.0.0"} {
+	for _, line := range []string{"", "x.x.x", "^0.244.7", ">=0.244.7", ">=2.1.0-rc.1", "<1.0.0", ">=0.244.7 <1.0.0 || >=2.0.0", "latest", ">=a.b.c <1.0.0"} {
 		if _, err := portalChartFloor(line); err == nil {
 			t.Errorf("%q: a line of another form is an error", line)
 		}
@@ -384,8 +386,9 @@ func TestPortalChartFloor(t *testing.T) {
 // The Component's values carry the fragment's checksum, the sha256 of the
 // file its ConfigMap holds, where the hosted portal's chart line resolves to
 // a chart that rolls the pod on it; a changed fragment changes the checksum.
-// A line whose charts all precede portalFragmentChecksum, and a portal whose
-// line is not on record, get none: their chart's schema refuses the key.
+// The release candidates, open above, admit it whatever their floor. A line
+// whose charts all precede portalFragmentChecksum, and a portal whose line is
+// not on record, get none: their chart's schema refuses the key.
 func TestPortalFragmentChecksum(t *testing.T) {
 	for _, tc := range []struct {
 		line     string
@@ -396,6 +399,7 @@ func TestPortalFragmentChecksum(t *testing.T) {
 		{">=2.1.0 <" + portalFragmentChecksum, false},
 		{portalFragmentChecksum, true},
 		{"2.60.1", false},
+		{">=1.0.0-0", true},
 		{"", false},
 	} {
 		portal := PortalRef{Installation: testPortalHost, Customer: testOrganisation, ChartLine: tc.line}
