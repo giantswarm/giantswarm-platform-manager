@@ -394,9 +394,10 @@ const kagentModelMaxTokens = 32000
 // kagentValues is the kagent section: the model provider wired through the
 // edge to the key Secret the installation creates (modelKeySecret; no file is
 // rendered for it) with the output cap of a call, and the UI's oauth2-proxy
-// with its credentials Secret and the audiences it accepts.
+// with its credentials Secret and the audiences it accepts, and the
+// controller's session idle TTL where the person chose one (sessions.idleTTL).
 func (in *Input) kagentValues() render.Map {
-	return render.Map{
+	m := render.Map{
 		e("providers", render.Map{e("anthropic", render.Map{
 			e("apiKeySecretRef", modelKeySecret),
 			e("config", render.Map{
@@ -409,6 +410,10 @@ func (in *Input) kagentValues() render.Map {
 			e("extraArgs", render.Map{e("oidc-extra-audience", strings.Join(in.audiences(), ","))}),
 		}),
 	}
+	if in.SessionIdleTTL != "" {
+		m = append(m, e("controller", render.Map{e("sessionIdleTTL", in.SessionIdleTTL)}))
+	}
+	return m
 }
 
 // postLoginRedirectAllowlist is where muster may send the browser after a
