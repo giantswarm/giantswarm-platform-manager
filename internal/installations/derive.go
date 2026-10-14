@@ -277,10 +277,11 @@ func (r *Registry) readPortal(ctx context.Context, c *gh.Client, host Installati
 
 // portalChartLine is the chart line a portal directory's kustomization sets:
 // the ref a patch targeting the OCIRepository puts under spec.ref — the semver
-// range the customer-portal definition writes, or a tag — as a JSON patch's
-// add operation on /spec/ref/semver or /spec/ref/tag, or a strategic-merge
-// patch's spec.ref.semver or spec.ref.tag. Empty when no patch sets one: the
-// portal then runs the base's placeholder tag and resolves nothing.
+// range or release candidates the customer-portal definition writes, or a
+// tag — as a JSON patch's add operation on /spec/ref/semver or /spec/ref/tag,
+// or a strategic-merge patch's spec.ref.semver or spec.ref.tag. Empty when no
+// patch sets one: the portal then runs the base's placeholder tag and
+// resolves nothing.
 func portalChartLine(data string) (string, error) {
 	var k struct {
 		Patches []struct {

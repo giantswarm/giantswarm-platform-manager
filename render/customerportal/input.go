@@ -82,18 +82,14 @@ const inputChartLine = "chart.line"
 // chartLineExact is the exact form of the chart line: a version, the
 // development tag a dev build publishes (A.B.C-<build>) among them, which
 // pins the portal on one of Giant Swarm's test installations. The range form
-// (>=A <B) is every installation's; the schema admits no other but
-// chartLineCandidates.
+// (>=A <B) is every installation's; the schema admits no other but the
+// release candidates (candidates).
 var chartLineExact = regexp.MustCompile(`^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$`)
 
-// chartLineCandidates is the release-candidate form of the chart line,
-// >=A.B.C-0: open above, so the portal follows every release and release
-// candidate from A.B.C on whatever its major, on one of Giant Swarm's test
-// installations alone. The render patches render.ReleaseTagFilter beside it.
-var chartLineCandidates = regexp.MustCompile(`^>=\d+\.\d+\.\d+-0$`)
-
-// candidates says the chart line follows the release candidates.
-func (c Chart) candidates() bool { return chartLineCandidates.MatchString(c.Line) }
+// candidates says the chart line follows the release candidates
+// (render.ReleaseCandidates), on one of Giant Swarm's test installations
+// alone. The render patches render.ReleaseTagFilter beside it.
+func (c Chart) candidates() bool { return render.ReleaseCandidates(c.Line) }
 
 // federationField is the supplied field of a federated installation's or the
 // broker's client credential.

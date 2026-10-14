@@ -361,7 +361,7 @@ func TestPortalChartFloor(t *testing.T) {
 		{"0.120.0", "0.120.0", true},
 		{"2.53.2", "2.53.2", false},
 		{">=2.1.0-0", "2.1.0-0", false},
-		{">=1.0.0-0", "1.0.0-0", true},
+		{">=1.0.0-0", "1.0.0-0", false},
 	} {
 		floor, err := portalChartFloor(tc.line)
 		if err != nil || floor.String() != tc.floor {
