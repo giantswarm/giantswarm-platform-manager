@@ -1033,6 +1033,11 @@ const (
 	chartLineDim   = "chart-line"
 )
 
+// chartInputs are the typed inputs that move a portal's chart line alone.
+func chartInputs(line string) map[string]any {
+	return map[string]any{"chart": map[string]any{"line": line}}
+}
+
 // rowanPortalInputs are the typed inputs of rowan's portal, with the grafana
 // plugin as given.
 func rowanPortalInputs(grafana map[string]any) map[string]any {
@@ -1631,7 +1636,7 @@ func TestVerifyCapabilityReadsTheChartLinesPatchByValue(t *testing.T) {
 	}
 
 	const newer = ">=2.2.0 <3.0.0"
-	res = verifyPortal(t, c, rowan, map[string]any{"chart": map[string]any{"line": newer}})
+	res = verifyPortal(t, c, rowan, chartInputs(newer))
 	d := dimension(t, feature(t, res, "portal"), chartLineDim)
 	const canonical = "- op: remove\n  path: /spec/ref/tag\n- op: add\n  path: /spec/ref/semver\n  value: '%s'\n"
 	if want := []verify.Difference{{File: key, Path: "patches[0].patch", Input: chartLineInput, Rendered: fmt.Sprintf(canonical, newer), Current: fmt.Sprintf(canonical, chartLine), Line: 11, CurrentLine: 11}}; d.Mark != verify.DiffersByInput || !reflect.DeepEqual(d.Differences, want) {

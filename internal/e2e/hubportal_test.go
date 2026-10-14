@@ -112,7 +112,7 @@ func TestHandKeptHubPortalMovesItsChartLineAlone(t *testing.T) {
 	moved := strings.Replace(hubPortalKustomization, "'>=2.1.0 <3.0.0'", "'>=2.1.0 <4.0.0'", 1)
 
 	args := func(line string) map[string]any {
-		return map[string]any{tools.ArgInstallation: hub, tools.ArgCapability: installations.CustomerPortal, tools.ArgInputs: map[string]any{"chart": map[string]any{"line": line}}}
+		return map[string]any{tools.ArgInstallation: hub, tools.ArgCapability: installations.CustomerPortal, tools.ArgInputs: chartInputs(line)}
 	}
 	dry, text, isErr := dryRun(t, c, tools.ToolReconcileCapability, args(">=2.1.0 <4.0.0"))
 	if isErr {
