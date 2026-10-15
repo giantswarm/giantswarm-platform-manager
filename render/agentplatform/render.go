@@ -279,6 +279,9 @@ func (in *Input) configmapPatch() render.Map {
 	if in.kagent() {
 		m = append(m, e("postgres", render.Map{e("enabled", true)}), e("llmRouting", in.llmRouting()), e("kagent", in.kagentValues()))
 	}
+	if in.VertexAI {
+		m = append(m, e("modelProviders", render.Map{e("vertexAI", render.Map{e("enabled", true)})}))
+	}
 	if in.ModelServing {
 		m = append(m, e("modelServing", render.Map{
 			e("serving", render.Map{e("runtimeClassName", servingRuntimeClass)}),

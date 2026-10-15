@@ -270,6 +270,28 @@
         }
       }
     },
+    "modelProviders": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One choice: the model providers agents reach directly, not through the LLM listener.",
+      "properties": {
+        "vertexAI": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "x-source": "person",
+              "x-readback": {"file": "configmap", "key": "modelProviders.vertexAI.enabled"},
+              "x-feature": "runtime",
+              "x-renders": ["configmap:modelProviders.vertexAI.enabled"],
+              "description": "Vertex AI with a Google service account key (modelProviders.vertexAI.enabled, the meta chart from the release carrying giantswarm/agent-platform#1045): opens oauth2.googleapis.com:443 from Substrate's credential provider, which exchanges a Vertex AI ModelConfig's key for an access token; without it every Vertex AI call fails under Cilium enforcement. Creates no ModelConfig, and the traffic bypasses the LLM listener. The 4 chart line only, where the fleet policy runs kagent. Off, the key is not written. Read back from the configmap patch on record, so a reconcile keeps it; typed (--input modelProviders.vertexAI.enabled=true), it replaces it."
+            }
+          }
+        }
+      }
+    },
     "sessions": {
       "type": "object",
       "additionalProperties": false,

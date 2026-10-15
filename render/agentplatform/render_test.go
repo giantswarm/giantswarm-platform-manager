@@ -1391,6 +1391,59 @@ func TestLLMRateLimits(t *testing.T) {
 	}
 }
 
+// TestVertexAI renders the person's Vertex AI choice as the meta chart's
+// modelProviders.vertexAI.enabled; off, the key is not written. Refused on the
+// 3 line and where the policy runs no kagent.
+func TestVertexAI(t *testing.T) {
+	withVertexAI := func(shape string) (map[string]any, map[string]string) {
+		input, secrets := loadInput(t, shape)
+		input["modelProviders"] = map[string]any{"vertexAI": map[string]any{keyEnabled: true}}
+		return input, secrets
+	}
+	patchOf := func(t *testing.T, input map[string]any, secrets map[string]string) string {
+		t.Helper()
+		result, err := Render(input, secrets, render.ModeCommit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, content := range result.Tree() {
+			if strings.HasSuffix(name, "apps/agent-platform/configmap-values.yaml.patch") {
+				return string(content)
+			}
+		}
+		t.Fatal("no configmap patch rendered")
+		return ""
+	}
+	off, offSecrets := loadInput(t, shapeHubPrivateTarget)
+	if got := patchOf(t, off, offSecrets); strings.Contains(got, "modelProviders") {
+		t.Errorf("no choice, and the patch carries modelProviders:\n%s", got)
+	}
+	on, onSecrets := withVertexAI(shapeHubPrivateTarget)
+	if got := patchOf(t, on, onSecrets); !strings.Contains(got, "\nmodelProviders:\n  vertexAI:\n    enabled: true\n") {
+		t.Errorf("modelProviders.vertexAI.enabled true: the patch carries no modelProviders.vertexAI.enabled:\n%s", got)
+	}
+
+	noKagent, secrets := withVertexAI(shapeHubPrivateTarget)
+	noKagent["installation"].(map[string]any)["customer"] = customerWithoutKagent
+	noKagent["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
+	lineThree, lineThreeSecrets := withVertexAI(shapePublicCustomer)
+	for _, c := range []struct {
+		name    string
+		input   map[string]any
+		secrets map[string]string
+	}{
+		{"the 3 line", lineThree, lineThreeSecrets},
+		{"no kagent", noKagent, secrets},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := Render(c.input, c.secrets, render.ModeCommit)
+			if !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "modelProviders.vertexAI.enabled") {
+				t.Fatalf("got %v, want ErrInput naming modelProviders.vertexAI.enabled", err)
+			}
+		})
+	}
+}
+
 // TestSessionIdleTTL renders the person's session idle TTL as the kagent
 // controller's sessionIdleTTL; none chosen, the key is not written and the
 // chart's default applies. Refused when it is no Go duration, on the 3 line

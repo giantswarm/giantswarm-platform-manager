@@ -113,6 +113,10 @@ type Input struct {
 	// kagent.controller.sessionIdleTTL), a Go duration; empty, the chart's
 	// default.
 	SessionIdleTTL string
+	// VertexAI is the person's choice of Vertex AI with a service account key
+	// (modelProviders.vertexAI.enabled): the meta chart opens the token
+	// endpoint Substrate's credential provider exchanges the key at.
+	VertexAI bool
 	// AIChat is the person's other choice: the portal's AI chat, in the
 	// platform's portal section (portal.go).
 	AIChat AIChat
@@ -616,6 +620,11 @@ type document struct {
 	Sessions struct {
 		IdleTTL string `json:"idleTTL"`
 	} `json:"sessions"`
+	ModelProviders struct {
+		VertexAI struct {
+			Enabled bool `json:"enabled"`
+		} `json:"vertexAI"`
+	} `json:"modelProviders"`
 	AIChat AIChat `json:"aiChat"`
 	Skills struct {
 		Repositories []string `json:"repositories"`
@@ -766,7 +775,7 @@ func Parse(raw any) (*Input, error) {
 	if err != nil {
 		return nil, err
 	}
-	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, MCPBackends: d.NetworkPolicy.MCPBackends, LLMRateLimits: d.LLMRouting.RateLimits, LLMRateLimitsComment: d.LLMRouting.RateLimitsComment, SessionIdleTTL: d.Sessions.IdleTTL, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories, Hive: d.Hive,
+	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, MCPBackends: d.NetworkPolicy.MCPBackends, LLMRateLimits: d.LLMRouting.RateLimits, LLMRateLimitsComment: d.LLMRouting.RateLimitsComment, SessionIdleTTL: d.Sessions.IdleTTL, VertexAI: d.ModelProviders.VertexAI.Enabled, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories, Hive: d.Hive,
 		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, ContextBotNames: d.KlausGateway.Slack.ContextBotNames, ContextBotNamesComment: d.KlausGateway.Slack.ContextBotNamesComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
 		ReleaseCandidates: pol.releaseCandidates(d.Installation)}
 	if in.Components, err = pol.components(in.Installation); err != nil {
@@ -917,6 +926,12 @@ func (in *Input) checkRecord() error {
 	}
 	if in.SessionIdleTTL != "" && !in.kagent() {
 		return refuse(fmt.Sprintf("%s bounds how long kagent keeps an idle Session, and the fleet policy runs no kagent on %s's installations", describe("sessions.idleTTL"), in.Installation.Customer))
+	}
+	if in.VertexAI && in.Installation.ChartLine != lineFour {
+		return refuse(fmt.Sprintf("%s is the 4 chart line's, and this installation runs the %s line; the record's chart line decides", describe("modelProviders.vertexAI.enabled"), in.Installation.ChartLine))
+	}
+	if in.VertexAI && !in.kagent() {
+		return refuse(fmt.Sprintf("%s opens Vertex AI to kagent's agents, and the fleet policy runs no kagent on %s's installations", describe("modelProviders.vertexAI.enabled"), in.Installation.Customer))
 	}
 	if len(in.LLMRateLimits) > 0 && !in.kagent() {
 		return refuse(fmt.Sprintf("%s bound the LLM listener, and the fleet policy runs no kagent on %s's installations, so no listener is rendered", describe("llmRouting.rateLimits"), in.Installation.Customer))
