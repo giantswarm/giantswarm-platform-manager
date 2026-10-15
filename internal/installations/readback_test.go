@@ -327,7 +327,7 @@ func TestDefaults(t *testing.T) {
 			boardRoadmap: map[string]any{"board": boardRoadmap, "teams": []any{}}},
 		"clusterManager": map[string]any{keyGitHub: map[string]any{keyEnabled: false}},
 		"modelManager":   map[string]any{keyGitHub: map[string]any{keyEnabled: false}},
-		"klausGateway":   map[string]any{"slack": map[string]any{"contextBotIDs": []any{}, "contextBotIDsComment": ""}},
+		"klausGateway":   map[string]any{"slack": map[string]any{"contextBotIDs": []any{}, "contextBotIDsComment": "", "contextBotNames": []any{}, "contextBotNamesComment": ""}},
 		"agentManager":   map[string]any{keyGitHub: map[string]any{keyEnabled: false}, keySkills: map[string]any{keyRepositories: []any{}, "appSecretName": "", "gitAuthSecretName": "", "mintGitAuthSecret": false}},
 		"versions":       map[string]any{"chart": "", "components": holds, "reasons": map[string]any{"chart": "", "components": holds}}}
 	if !reflect.DeepEqual(got, want) {
@@ -596,25 +596,33 @@ func TestCustomerPortalReadsBackThePortal(t *testing.T) {
 // a person wrote above it, line by line; the generic comment the definition
 // writes on a hold without one reads back as no reason.
 // The agent-platform definition reads the context bots back from the
-// configmap patch on record, each entry with its comment, and the comment a
-// person wrote above the list; the generic comment reads back as none.
+// configmap patch on record, by ID and by Slack profile name, each entry with
+// its comment, and the comment a person wrote above each list; the generic
+// comments read back as none.
 func TestAgentPlatformReadsBackContextBots(t *testing.T) {
 	def, _ := FindCapability(AgentPlatform)
 	for _, c := range []struct {
-		name, comment string
-		want          map[string]any
+		name, comment, namesComment string
+		want                        map[string]any
 	}{
-		{"a person's comment", "    # The alerting bots of the alert channel.\n", map[string]any{"klausGateway.slack.contextBotIDsComment": "The alerting bots of the alert channel."}},
-		{"the generic comment", "    # The bots whose posts reach an agent's thread context: the input\n    # klausGateway.slack.contextBotIDs, read back so a reconcile keeps them.\n", map[string]any{}},
+		{"a person's comment", "    # The alerting bots of the alert channel.\n", "    # Every installation's Alertmanager.\n", map[string]any{
+			"klausGateway.slack.contextBotIDsComment":   "The alerting bots of the alert channel.",
+			"klausGateway.slack.contextBotNamesComment": "Every installation's Alertmanager."}},
+		{"the generic comment", "    # The bots whose posts reach an agent's thread context: the input\n    # klausGateway.slack.contextBotIDs, read back so a reconcile keeps them.\n",
+			"    # The bot names whose posts reach an agent's thread context: the input\n    # klausGateway.slack.contextBotNames, read back so a reconcile keeps them.\n", map[string]any{}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			patch := "klausGateway:\n  slack:\n    enabled: true\n" + c.comment + "    contextBotIDs:\n      - U0000000001 # Alerting EU\n      - U0000000002\n"
+			patch := "klausGateway:\n  slack:\n    enabled: true\n" + c.comment + "    contextBotIDs:\n      - U0000000001 # Alerting EU\n      - U0000000002\n" +
+				c.namesComment + "    contextBotNames:\n      - \"*-alertmanager\" # Alertmanager\n      - grafana\n"
 			got, err := def.ReadBack(context.Background(), files(map[string]string{"acme/configs:" + def.EnabledMarker("rowan"): patch}), readBackInstallation, readBackName, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := map[string]any{"klausGateway.slack.contextBotIDs": []any{
-				map[string]any{EntryValue: "U0000000001", EntryComment: "Alerting EU"}, map[string]any{EntryValue: "U0000000002", EntryComment: ""}}}
+			want := map[string]any{
+				"klausGateway.slack.contextBotIDs": []any{
+					map[string]any{EntryValue: "U0000000001", EntryComment: "Alerting EU"}, map[string]any{EntryValue: "U0000000002", EntryComment: ""}},
+				"klausGateway.slack.contextBotNames": []any{
+					map[string]any{EntryValue: "*-alertmanager", EntryComment: "Alertmanager"}, map[string]any{EntryValue: "grafana", EntryComment: ""}}}
 			for k, v := range c.want {
 				want[k] = v
 			}

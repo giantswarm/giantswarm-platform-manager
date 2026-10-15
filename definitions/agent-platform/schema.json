@@ -548,7 +548,7 @@
     "klausGateway": {
       "type": "object",
       "additionalProperties": false,
-      "description": "One choice of the chat gateway's, where the fleet policy runs it: the bots whose posts reach an agent's thread context.",
+      "description": "The chat gateway's choices, where the fleet policy runs it: the bots whose posts reach an agent's thread context, by ID and by Slack profile name.",
       "properties": {
         "slack": {
           "type": "object",
@@ -580,6 +580,33 @@
               "x-feature": "runtime",
               "x-renders": ["configmap:klausGateway.slack.contextBotIDs"],
               "description": "The comment above the context bots (klausGateway.slack.contextBotIDs), as a person wrote it on record or typed it (a line per line), read back so a reconcile keeps it; the generic comment naming the input reads back as none. Empty, the list carries the generic comment; no list carries none."
+            },
+            "contextBotNames": {
+              "type": "array",
+              "default": [],
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["value"],
+                "properties": {
+                  "value": {"type": "string", "minLength": 1, "description": "The pattern matched against a bot post's Slack profile name (path.Match, case-insensitive), such as *-alertmanager."},
+                  "comment": {"type": "string", "default": "", "description": "The comment on the entry's line: which bots the pattern admits."}
+                }
+              },
+              "x-source": "person",
+              "x-readback": {"file": "configmap", "key": "klausGateway.slack.contextBotNames", "kind": "entries"},
+              "x-feature": "runtime",
+              "x-renders": ["configmap:klausGateway.slack.contextBotNames"],
+              "description": "The bot names whose posts reach an agent's thread context (klausGateway.slack.contextBotNames, klaus-gateway 4.8.1 or later): patterns matched against a bot post's Slack profile name (path.Match, case-insensitive), so one entry such as *-alertmanager admits every installation's Alertmanager app, each entry with the comment on its line, in the order given; beside klausGateway.slack.contextBotIDs, not in place of it. None, the key is not written and the gateway admits bots by ID only. Where the fleet policy runs the gateway only; read back from the configmap patch on record with each entry's comment, so a reconcile keeps the list; typed (--input 'klausGateway.slack.contextBotNames=[{\"value\": \"<pattern>\", \"comment\": \"<bots>\"}]'), it replaces it."
+            },
+            "contextBotNamesComment": {
+              "type": "string",
+              "default": "",
+              "x-source": "person",
+              "x-readback": {"file": "configmap", "key": "klausGateway.slack.contextBotNames", "kind": "comment", "skip": "^The bot names whose posts reach an agent's thread context: the input\\s+klausGateway\\.slack\\.contextBotNames,"},
+              "x-feature": "runtime",
+              "x-renders": ["configmap:klausGateway.slack.contextBotNames"],
+              "description": "The comment above the context bot names (klausGateway.slack.contextBotNames), as a person wrote it on record or typed it (a line per line), read back so a reconcile keeps it; the generic comment naming the input reads back as none. Empty, the list carries the generic comment; no list carries none."
             }
           }
         }

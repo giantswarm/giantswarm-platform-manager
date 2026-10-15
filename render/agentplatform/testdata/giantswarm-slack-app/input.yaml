@@ -6,8 +6,9 @@
 # the hub's token-exchange client in its Dex; the platform's portal section lands in its own
 # portal's tree, never in the hub's hand-kept one. The codename is the policy's; the domain and
 # every value are invented. Its app collection follows the testing stage, so it runs the platform's
-# release candidates. One alerting bot's posts reach an agent's thread context, the list under the
-# generic comment naming its input, since no person wrote one. Two in-cluster MCP backends sit behind
+# release candidates. One alerting bot's posts reach an agent's thread context, and every installation's Alertmanager
+# by its Slack profile name, each list under the generic comment naming its input, since no person
+# wrote one. Two in-cluster MCP backends sit behind
 # the platform's network policy: one muster alone reaches, one also served through the gateway in front
 # of it, a peer on its ports. The LLM listener carries two token buckets, one shared and one per
 # agent behind the Substrate egress, under a comment a person wrote.
@@ -74,6 +75,9 @@ input:
       contextBotIDs:
         - value: U0000000003
           comment: Alerting EU
+      contextBotNames:
+        - value: "*-alertmanager"
+          comment: every installation's Alertmanager
 secrets:
   klausGateway.slack.bot-token: PLACEHOLDER-SLACK-BOT-TOKEN
   klausGateway.slack.signing-secret: PLACEHOLDER-SLACK-SIGNING-SECRET
