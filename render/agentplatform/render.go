@@ -238,16 +238,7 @@ func (in *Input) llmRouting() render.Map {
 		}
 		limits = append(limits, entry)
 	}
-	return append(m, render.Entry{Key: "rateLimits", Value: limits, Comment: in.llmRateLimitsComment()})
-}
-
-// llmRateLimitsComment is the comment above the LLM listener's rate limits:
-// the person's on record or typed, else the generic one naming the input.
-func (in *Input) llmRateLimitsComment() string {
-	if in.LLMRateLimitsComment != "" {
-		return in.LLMRateLimitsComment
-	}
-	return "The LLM listener's rate limits: the input\nllmRouting.rateLimits, read back so a reconcile keeps them."
+	return append(m, render.Entry{Key: "rateLimits", Value: limits, Comment: orGeneric(in.LLMRateLimitsComment, "The LLM listener's rate limits: the input\nllmRouting.rateLimits, read back so a reconcile keeps them.")})
 }
 
 // labels is a label map in key order.

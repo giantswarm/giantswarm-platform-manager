@@ -650,6 +650,9 @@ func TestRefusals(t *testing.T) {
 		{"context bots where no chat gateway runs", clone(func(m map[string]any) {
 			m["klausGateway"] = map[string]any{"slack": map[string]any{"contextBotIDs": []any{map[string]any{"value": "U0000000001"}}}}
 		}), secrets, ErrInput, "klausGateway.slack.contextBotIDs"},
+		{"context bot names where no chat gateway runs", clone(func(m map[string]any) {
+			m["klausGateway"] = map[string]any{"slack": map[string]any{"contextBotNames": []any{map[string]any{"value": "*-alertmanager"}}}}
+		}), secrets, ErrInput, "klausGateway.slack.contextBotNames"},
 		{"model-manager commit mode on the 3 line", clone(func(m map[string]any) {
 			m["installation"].(map[string]any)["chartLine"] = lineThree
 			m["modelManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: true}}

@@ -147,6 +147,13 @@ type Input struct {
 	// read back from the configmap patch on record so a reconcile keeps them.
 	ContextBots        []ContextBot
 	ContextBotsComment string
+	// ContextBotNames are the person's choice of the Slack profile name
+	// patterns whose bots' posts reach an agent's thread context
+	// (klausGateway.slack.contextBotNames), each with the comment on its line,
+	// and ContextBotNamesComment the comment above the list, read back from
+	// the configmap patch on record so a reconcile keeps them.
+	ContextBotNames        []ContextBot
+	ContextBotNamesComment string
 	// Components are the components the policy gives the installation, by
 	// name: its organisation's list and, where the policy names a Slack app
 	// for the installation, the chat gateway.
@@ -622,8 +629,10 @@ type document struct {
 	} `json:"agentManager"`
 	KlausGateway struct {
 		Slack struct {
-			ContextBotIDs        []ContextBot `json:"contextBotIDs"`
-			ContextBotIDsComment string       `json:"contextBotIDsComment"`
+			ContextBotIDs          []ContextBot `json:"contextBotIDs"`
+			ContextBotIDsComment   string       `json:"contextBotIDsComment"`
+			ContextBotNames        []ContextBot `json:"contextBotNames"`
+			ContextBotNamesComment string       `json:"contextBotNamesComment"`
 		} `json:"slack"`
 	} `json:"klausGateway"`
 	Versions Versions `json:"versions"`
@@ -655,8 +664,9 @@ type LLMRateLimit struct {
 	Key      string `json:"key,omitempty"`
 }
 
-// ContextBot is one bot whose posts reach an agent's thread context: its
-// Slack user ID and the comment on its entry's line.
+// ContextBot is one entry of the bots whose posts reach an agent's thread
+// context: a bot's Slack user ID (contextBotIDs) or a pattern of bots' Slack
+// profile names (contextBotNames), and the comment on its entry's line.
 type ContextBot struct {
 	Value   string `json:"value"`
 	Comment string `json:"comment"`
@@ -757,7 +767,7 @@ func Parse(raw any) (*Input, error) {
 		return nil, err
 	}
 	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, MCPBackends: d.NetworkPolicy.MCPBackends, LLMRateLimits: d.LLMRouting.RateLimits, LLMRateLimitsComment: d.LLMRouting.RateLimitsComment, SessionIdleTTL: d.Sessions.IdleTTL, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories, Hive: d.Hive,
-		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
+		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, ContextBotNames: d.KlausGateway.Slack.ContextBotNames, ContextBotNamesComment: d.KlausGateway.Slack.ContextBotNamesComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
 		ReleaseCandidates: pol.releaseCandidates(d.Installation)}
 	if in.Components, err = pol.components(in.Installation); err != nil {
 		return nil, err
@@ -913,6 +923,9 @@ func (in *Input) checkRecord() error {
 	}
 	if len(in.ContextBots) > 0 && !in.klausGateway() {
 		return refuse(fmt.Sprintf("%s names the bots whose posts reach the chat gateway's thread context, and the fleet policy names no Slack app for %s, so no gateway runs there", describe("klausGateway.slack.contextBotIDs"), in.Installation.Name))
+	}
+	if len(in.ContextBotNames) > 0 && !in.klausGateway() {
+		return refuse(fmt.Sprintf("%s names the bots whose posts reach the chat gateway's thread context, and the fleet policy names no Slack app for %s, so no gateway runs there", describe("klausGateway.slack.contextBotNames"), in.Installation.Name))
 	}
 	if in.AgentManagerSkills.set() && !in.agentManager() {
 		return refuse(fmt.Sprintf("%s asks for the agent-manager's skill catalog, and the fleet policy runs no agent-manager on %s's installations", describe("agentManager.skills"), in.Installation.Customer))

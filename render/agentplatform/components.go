@@ -173,8 +173,11 @@ func (in *Input) klausGatewayValues() render.Map {
 	}
 	slack := render.Map{e("enabled", true), e("mode", mode), e("secretName", klausGatewaySlackSecret),
 		e("dmMode", slackDMMode), e("channelMode", g.Slack.ChannelMode)}
-	if bots := in.contextBots(); bots != nil {
-		slack = append(slack, render.Entry{Key: "contextBotIDs", Value: bots, Comment: in.contextBotsComment()})
+	if bots := commentedList(in.ContextBots); bots != nil {
+		slack = append(slack, render.Entry{Key: "contextBotIDs", Value: bots, Comment: orGeneric(in.ContextBotsComment, "The bots whose posts reach an agent's thread context: the input\nklausGateway.slack.contextBotIDs, read back so a reconcile keeps them.")})
+	}
+	if names := commentedList(in.ContextBotNames); names != nil {
+		slack = append(slack, render.Entry{Key: "contextBotNames", Value: names, Comment: orGeneric(in.ContextBotNamesComment, "The bot names whose posts reach an agent's thread context: the input\nklausGateway.slack.contextBotNames, read back so a reconcile keeps them.")})
 	}
 	m = append(m, e("slack", slack))
 	m = append(m, e("obo", render.Map{e("enabled", true),
@@ -195,15 +198,14 @@ func (in *Input) klausGatewayValues() render.Map {
 	return append(m, e("reviews", reviews))
 }
 
-// contextBots is the list of the bots whose posts reach an agent's thread
-// context, each entry with the comment on its line; nil where the person
-// chose none.
-func (in *Input) contextBots() *yaml.Node {
-	if len(in.ContextBots) == 0 {
+// commentedList is a list of the person's entries, each with the comment on
+// its line; nil where the person chose none.
+func commentedList(entries []ContextBot) *yaml.Node {
+	if len(entries) == 0 {
 		return nil
 	}
 	list := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
-	for _, b := range in.ContextBots {
+	for _, b := range entries {
 		entry := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: b.Value}
 		if b.Comment != "" {
 			entry.LineComment = "# " + b.Comment
@@ -213,13 +215,13 @@ func (in *Input) contextBots() *yaml.Node {
 	return list
 }
 
-// contextBotsComment is the comment above the context bots: the person's on
-// record or typed, else the generic one naming the input.
-func (in *Input) contextBotsComment() string {
-	if in.ContextBotsComment != "" {
-		return in.ContextBotsComment
+// orGeneric is the comment above a list: the person's on record or typed,
+// else the generic one naming the input.
+func orGeneric(person, generic string) string {
+	if person != "" {
+		return person
 	}
-	return "The bots whose posts reach an agent's thread context: the input\nklausGateway.slack.contextBotIDs, read back so a reconcile keeps them."
+	return generic
 }
 
 // managerOAuth is a manager's OAuth section on the 3 chart line, where the
