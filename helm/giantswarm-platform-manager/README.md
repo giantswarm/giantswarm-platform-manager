@@ -64,6 +64,7 @@ header; every other tool answers with the user token alone.
 | oauth.baseURL | string | `""` | URL muster reaches this server at, without the MCP path: the resource of its OAuth protected-resource metadata. Empty derives the in-cluster Service URL, `http://<fullname>.<namespace>.svc.cluster.local:<service.port>`. |
 | muster.mcpServer.enabled | bool | `false` | Register this server with muster by rendering an `mcpservers.muster.giantswarm.io` CR in the release namespace. Tools then appear as `x_<name>_<tool>`. |
 | muster.mcpServer.name | string | `"giantswarm-platform-manager"` | MCPServer CR name (drives the tool prefix). |
+| muster.mcpServer.displayName | string | `"Platform Manager"` | Name the Dev Portal shows for this server, rendered as the MCPServer's `ui.giantswarm.io/display-name` annotation. Empty renders no annotation. |
 | muster.mcpServer.autoStart | bool | `true` | Start the server connection when muster initializes. |
 | muster.mcpServer.timeout | int | `180` | Seconds muster waits for one call before it cancels it (the CR's `spec.timeout`; muster's own default is 30, the CRD allows 1–300). 180 for the longest call: a verify reads every object of the definition's probes through muster and the installation's mcp-kubernetes within the one call, and a write in `mode: commit` renders the change and opens the pull request within it. |
 | muster.mcpServer.description | string | `"Giant Swarm's platform manager — platform capabilities on the registry's installations, every write as the person"` | Human-readable description shown by muster. |

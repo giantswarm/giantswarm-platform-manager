@@ -207,3 +207,40 @@ func TestLiveRefusesAPlainHTTPKeySet(t *testing.T) {
 		}
 	}
 }
+
+// The registration carries the name the Dev Portal shows for the server as
+// its ui.giantswarm.io/display-name annotation: muster.mcpServer.displayName,
+// "Platform Manager" by default; an empty one renders no annotation.
+func TestRegistrationDisplayName(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		set  string
+		want any
+	}{
+		{name: "default", want: "Platform Manager"},
+		{name: "set", set: "muster.mcpServer.displayName=Platforms", want: "Platforms"},
+		{name: "empty", set: "muster.mcpServer.displayName="},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			args := []string{"--set", "muster.mcpServer.enabled=true"}
+			if tc.set != "" {
+				args = append(args, "--set", tc.set)
+			}
+			objects, msg := render(t, args...)
+			if msg != "" {
+				t.Fatal(msg)
+			}
+			annotations := at(registration(t, objects), "metadata.annotations")
+			if tc.want == nil {
+				if annotations != nil {
+					t.Errorf("metadata.annotations rendered: %v", annotations)
+				}
+				return
+			}
+			got, _ := annotations.(map[string]any)
+			if got["ui.giantswarm.io/display-name"] != tc.want {
+				t.Errorf("metadata.annotations: %v, want ui.giantswarm.io/display-name %v", annotations, tc.want)
+			}
+		})
+	}
+}
