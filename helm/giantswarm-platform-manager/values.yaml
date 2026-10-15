@@ -183,6 +183,9 @@ muster:
     enabled: false
     # -- MCPServer CR name (drives the tool prefix).
     name: giantswarm-platform-manager
+    # -- Name the Dev Portal shows for this server, rendered as the MCPServer's
+    # `ui.giantswarm.io/display-name` annotation. Empty renders no annotation.
+    displayName: Platform Manager
     # -- Start the server connection when muster initializes.
     autoStart: true
     # -- Seconds muster waits for one call before it cancels it (the CR's
