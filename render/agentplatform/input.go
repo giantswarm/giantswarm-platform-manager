@@ -173,8 +173,8 @@ type Input struct {
 	// candidates: its collection follows the policy's releaseCandidates.stage
 	// and its organisation is among releaseCandidates.customers.
 	ReleaseCandidates bool
-	// selectsLine says the enable selected the 4 chart line over the
-	// record's 3: the render writes the selection into the record
+	// selectsLine says the policy selected the 4 chart line over the
+	// record's 3 (selectLine): the render writes the selection into the record
 	// (recordSelection) and Selected answers it.
 	selectsLine bool
 }
@@ -230,9 +230,8 @@ type Installation struct {
 	// GitHub grant to the Dev Portal (hub.go).
 	Hub bool `json:"hub"`
 	// AgentPlatform says the capability is on record for the installation:
-	// its marker file exists, whoever put it there. False is a fresh enable,
-	// which selects the chart line the policy needs where the record
-	// selects none it can run on (selectLine).
+	// its marker file exists, whoever put it there. False is a fresh enable;
+	// either moves to the chart line the policy declares (selectLine).
 	AgentPlatform bool `json:"agentPlatform"`
 	// PodCertificateRequest says the cluster serves certificates.k8s.io/v1beta1
 	// PodCertificateRequest, which Agent Substrate needs on the 4 line: the
@@ -457,6 +456,10 @@ type policy struct {
 	Flux struct {
 		SourceInterval string `yaml:"sourceInterval"`
 	} `yaml:"flux"`
+	ChartLine struct {
+		Default   string            `yaml:"default"`
+		Customers map[string]string `yaml:"customers"`
+	} `yaml:"chartLine"`
 }
 
 func loadPolicy() (*policy, error) {
@@ -464,6 +467,14 @@ func loadPolicy() (*policy, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parsePolicy(raw)
+}
+
+// parsePolicy decodes policy.yaml and refuses a policy the definition cannot
+// apply: an interval Flux does not read, a line the meta chart has not, an
+// organisation running release candidates — the 4 line's
+// (gitops.prereleases) — whose installations the policy does not run on 4.
+func parsePolicy(raw []byte) (*policy, error) {
 	var pol policy
 	if err := yaml.Unmarshal(raw, &pol); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrPolicy, err)
@@ -471,7 +482,32 @@ func loadPolicy() (*policy, error) {
 	if _, err := time.ParseDuration(pol.Flux.SourceInterval); err != nil {
 		return nil, fmt.Errorf("%w: flux.sourceInterval: %w", ErrPolicy, err)
 	}
+	if t := pol.ChartLine.Default; t != "" && !metaChartLine(t) {
+		return nil, fmt.Errorf("%w: chartLine.default: %q is not a line of the meta chart (%s or %s)", ErrPolicy, t, lineThree, lineFour)
+	}
+	for customer, t := range pol.ChartLine.Customers {
+		if !metaChartLine(t) {
+			return nil, fmt.Errorf("%w: chartLine.customers.%s: %q is not a line of the meta chart (%s or %s)", ErrPolicy, customer, t, lineThree, lineFour)
+		}
+	}
+	for _, customer := range pol.ReleaseCandidates.Customers {
+		if pol.targetLine(Installation{Customer: customer}) != lineFour {
+			return nil, fmt.Errorf("%w: releaseCandidates.customers: %s runs release candidates, which are the 4 chart line's (gitops.prereleases), and chartLine runs its installations on the %q line", ErrPolicy, customer, pol.targetLine(Installation{Customer: customer}))
+		}
+	}
 	return &pol, nil
+}
+
+func metaChartLine(line string) bool { return line == lineThree || line == lineFour }
+
+// targetLine is the meta chart line the policy declares for an installation:
+// its organisation's under chartLine.customers, else chartLine.default; none
+// where neither says, and the record's line stands.
+func (p *policy) targetLine(inst Installation) string {
+	if line, listed := p.ChartLine.Customers[inst.Customer]; listed {
+		return line
+	}
+	return p.ChartLine.Default
 }
 
 // releaseCandidates says the policy runs the platform's release candidates on
@@ -733,40 +769,49 @@ func Parse(raw any) (*Input, error) {
 		return nil, err
 	}
 	pol.browseOnly(in.Installation.Federation.Targets)
-	in.selectLine()
+	in.selectLine(pol.targetLine(in.Installation))
 	if err := in.checkRecord(); err != nil {
 		return nil, err
 	}
 	return in, nil
 }
 
-// selectLine picks the meta chart line of a fresh enable. The record selects
-// the line (installation.chartLine: agentPlatform.kagentApiV2 in
-// config.yaml.patch selects 4, its absence 3), and a fresh record never
-// carries the key; an organisation the policy grants a component the 4 line
-// alone carries (lineFourComponents) has no line to run on but 4. So where
-// the capability is not on record (installation.agentPlatform false) and the
-// record selects 3, the enable selects 4 and writes the selection into the
-// record as one more file of the configs pull request (recordSelection). An
-// installation with the capability on record keeps the line its record
-// selects, and checkRecord refuses as before: adoption is an Apply, never a
-// line change; an organisation without a line-4 component stays on the line
-// its record selects.
-func (in *Input) selectLine() {
-	if in.Installation.AgentPlatform || in.Installation.ChartLine == lineFour {
+// selectLine moves the installation to the meta chart line it runs. The
+// record selects the line (installation.chartLine: agentPlatform.kagentApiV2
+// in config.yaml.patch selects 4, its absence 3); the fleet policy declares
+// the line an organisation's installations run (targetLine), and an organisation the
+// policy grants a component the 4 line alone carries (lineFourComponents) has
+// no line to run on but 4. Where the record selects 3 and either asks for 4,
+// the input runs the 4 line and the render writes the selection into the
+// record as one more file of the configs pull request (recordSelection) — a
+// fresh enable and a reconcile of an installation on record alike, so the dry
+// run shows the move, the commit applies it, and verify compares the record
+// against it (the chart-line-on-record dimension). A line never moves down: a
+// record on the 4 line keeps it.
+func (in *Input) selectLine(target string) {
+	if in.Installation.ChartLine == lineFour {
 		return
 	}
-	for _, c := range lineFourComponents {
-		if in.Components[c] {
-			in.Installation.ChartLine = lineFour
-			in.selectsLine = true
-			return
-		}
+	if target == lineFour || len(in.lineFourGrants()) > 0 {
+		in.Installation.ChartLine = lineFour
+		in.selectsLine = true
 	}
 }
 
-// Selected is the chart line a fresh enable selected over the record's, in
-// the document's shape; nil where the record's line stands.
+// lineFourGrants are the components the policy grants the installation that
+// the 4 line alone carries.
+func (in *Input) lineFourGrants() []string {
+	var granted []string
+	for _, c := range lineFourComponents {
+		if in.Components[c] {
+			granted = append(granted, c)
+		}
+	}
+	return granted
+}
+
+// Selected is the chart line the policy selected over the record's, in the
+// document's shape; nil where the record's line stands.
 func (in *Input) Selected() map[string]any {
 	if !in.selectsLine {
 		return nil
@@ -774,19 +819,21 @@ func (in *Input) Selected() map[string]any {
 	return map[string]any{"installation": map[string]any{"chartLine": lineFour}}
 }
 
-// recordSelection is the fragment of the record a fresh enable writes: the
+// recordSelection is the fragment of the record the line's move writes: the
 // key that selects the 4 line, with why. The plan edits it into
 // installations/<name>/config.yaml.patch and keeps every other key.
 func (in *Input) recordSelection() string {
-	granted := make([]string, 0, len(lineFourComponents))
-	for _, c := range lineFourComponents {
-		if in.Components[c] {
-			granted = append(granted, c)
-		}
+	why := "the fleet policy runs " + in.Installation.Customer + "'s installations on the 4 line (chartLine)"
+	if granted := in.lineFourGrants(); len(granted) > 0 {
+		why = "the fleet policy grants " + in.Installation.Customer + "'s installations the " + strings.Join(granted, " and the ") +
+			", which the 4 line alone carries"
 	}
-	return "# The agent-platform meta chart line, selected by the enable through giantswarm-platform-manager:\n" +
-		"# the fleet policy grants " + in.Installation.Customer + "'s installations the " + strings.Join(granted, " and the ") +
-		", which the 4 line alone carries.\n" +
+	by := "the reconcile"
+	if !in.Installation.AgentPlatform {
+		by = "the enable"
+	}
+	return "# The agent-platform meta chart line, selected by " + by + " through giantswarm-platform-manager:\n" +
+		"# " + why + ".\n" +
 		"agentPlatform:\n  kagentApiV2: true\n"
 }
 
@@ -825,14 +872,6 @@ func (in *Input) checkRecord() error {
 	}
 	if in.singletonsOnDemand() && in.Installation.Provider != providerCAPA {
 		return refuse(fmt.Sprintf("%s is on-demand, Karpenter's capacity type, and a %s installation runs no Karpenter the definition knows; the pods would stay Pending", describe("scheduling.singletonsCapacity"), in.Installation.Provider))
-	}
-	if in.ReleaseCandidates && in.Installation.ChartLine != lineFour {
-		return refuse(fmt.Sprintf("%s is %s, whose installations of %s run release candidates (the fleet policy's releaseCandidates), and release candidates are the 4 chart line's (gitops.prereleases); %s selects the %s line, and agentPlatform.kagentApiV2: true in installations/%s/config.yaml.patch selects 4", describe("installation.collectionsStage"), in.Installation.CollectionsStage, in.Installation.Customer, describe("installation.chartLine"), in.Installation.ChartLine, in.Installation.Name))
-	}
-	for _, c := range lineFourComponents {
-		if in.Components[c] && in.Installation.ChartLine != lineFour {
-			return refuse(fmt.Sprintf("%s selects the %s line, and %s needs the platform's 4 chart line; agentPlatform.kagentApiV2: true in installations/%s/config.yaml.patch selects 4", describe("installation.chartLine"), in.Installation.ChartLine, c, in.Installation.Name))
-		}
 	}
 	if len(in.MCPBackends) > 0 && in.Installation.ChartLine != lineFour {
 		return refuse(fmt.Sprintf("%s is the 4 chart line's network policy, and this installation runs the %s line; the record's chart line decides", describe("networkPolicy.mcpBackends"), in.Installation.ChartLine))

@@ -52,12 +52,14 @@ policy decides once, and what the definition drops. The render library reads it.
 ## The 4 chart line's prerequisites
 
 The 4 line is selected by the record (`agentPlatform.kagentApiV2: true` in `installations/<name>/config.yaml.patch`).
-A fresh enable — the capability not on record, `installation.agentPlatform` false — of an organisation the policy
-grants a component the 4 line alone carries (the cluster-manager) selects the 4 line itself and writes the key into
-the record as one more file of the configs pull request, keeping every other key and comment: the record is the
-installation's own file, edited and never written whole, so the first enable of a Giant Swarm installation needs no
-record pull request by hand. An installation with the capability on record keeps the line its record selects, and a
-record on the 3 line granted such a component is refused as before: adoption is an Apply, never a line change. The
+The fleet policy declares the line an organisation's installations run (`chartLine`: `customers` by organisation,
+else `default`; none declared leaves the record's line), and the policy grants some organisations a component the 4
+line alone carries (the cluster-manager). Where the record selects 3 and either asks for 4, the definition selects the
+4 line itself and writes the key into the record as one more file of the configs pull request, keeping every other key
+and comment: the record is the installation's own file, edited and never written whole. A fresh enable and a reconcile
+of an installation on record alike: the dry run shows the move, the commit applies it, and verify names an installation
+whose record is off its line on the runtime feature's `chart-line-on-record` dimension. A line never moves down. An
+organisation with an installation that must stay on the 3 line meanwhile is not listed. The
 4 line needs, beyond the 3 line's, a cluster that serves `certificates.k8s.io/v1beta1 PodCertificateRequest`: kagent's
 Agent Substrate (meta chart 4.49.0 and later) issues each agent's pod certificates through it and distributes its
 CA through `ClusterTrustBundle` projected volumes, and the meta chart refuses its install at render time where the
