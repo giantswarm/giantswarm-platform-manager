@@ -650,9 +650,9 @@ func TestEnableCapabilityRefusesTheFourLineWithoutPodCertificateRequest(t *testi
 // selects the 3 line (no agentPlatform.kagentApiV2): the enable selects the 4
 // line, answers it as the effective input, renders the 4 line and writes the
 // selection into the record as one more file of the configs pull request, an
-// update that keeps every other key and comment. The marker's absence is the
-// fact: the same record typed as on record is refused as before (adoption is
-// an Apply, never a line change), and a wave still skips it as not enabled.
+// update that keeps every other key and comment. Typed as on record it moves
+// alike (TestReconcileMovesAnInstallationOnRecordToThePolicysLine), and a wave
+// still skips it as not enabled.
 func TestEnableCapabilitySelectsTheFourLineForAFreshEnable(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
@@ -714,13 +714,8 @@ func TestEnableCapabilitySelectsTheFourLineForAFreshEnable(t *testing.T) {
 		t.Fatal(text)
 	}
 	p = findPlan(t, out, cedar)
-	for _, want := range []string{"installation.chartLine", "cluster-manager needs the platform's 4 chart line", "agentPlatform.kagentApiV2: true in installations/cedar/config.yaml.patch selects 4"} {
-		if !strings.Contains(p.Refused, want) {
-			t.Errorf("on record, the line is the record's: refused %q does not name %q", p.Refused, want)
-		}
-	}
-	if p.CommitRefused == "" || len(p.Files) != 0 {
-		t.Fatalf("a refused render commits nothing: commitRefused %q, files %d", p.CommitRefused, len(p.Files))
+	if p.Refused != "" || p.Inputs["installation"].(map[string]any)["chartLine"] != "4" {
+		t.Fatalf("typed as on record, the line moves as well: refused %q, inputs %v", p.Refused, p.Inputs["installation"])
 	}
 	out, text, isErr = dryRun(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallations: []string{cedar}})
 	if isErr {
@@ -728,5 +723,87 @@ func TestEnableCapabilitySelectsTheFourLineForAFreshEnable(t *testing.T) {
 	}
 	if len(out.Skipped) != 1 || out.Skipped[0].Name != cedar || out.Skipped[0].Reason != tools.SkippedNotEnabled || len(out.Installations) != 0 {
 		t.Fatalf("a wave never enables: %+v / %d planned", out.Skipped, len(out.Installations))
+	}
+}
+
+// An installation with the platform on record whose record selects the 3 line
+// while the fleet policy runs its organisation on the 4 line: verify names the
+// mismatch on the runtime feature's chart-line-on-record dimension, the
+// reconcile's dry run shows the move — the effective chartLine 4, the record
+// as an update carrying agentPlatform.kagentApiV2 and keeping the rest — and
+// its commit applies it: the configs pull request writes the key into the
+// record.
+func TestReconcileMovesAnInstallationOnRecordToThePolicysLine(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	const cedar, cedarMCs, cedarConfigs = "cedar", "example/giantswarm-management-clusters", "example/giantswarm-configs"
+	record := "# cedar's record\ncodename: cedar\nbase: gs.test\ncustomer: giantswarm\nservices:\n  muster:\n    clientId: muster-cedar\n"
+	st.ghs.addFile(registryRepo, registryPath, st.ghs.files[registryRepo][registryPath]+resource(cedar, "giantswarm", "capa", "gs.test"))
+	st.ghs.addRepo(cedarMCs, map[string]string{
+		installations.ClusterAppManifestPath(cedar):       clusterAppManifest(cedar, "cluster-aws", "10.3.0", true),
+		installations.CollectionsKustomizationPath(cedar): collectionsKustomization(platformDexApp),
+		extrasKustomizationPath(cedar):                    extrasKustomization,
+	})
+	st.ghs.addRepo(cedarConfigs, map[string]string{installations.ConfigPatchPath(cedar): record})
+	sopsFor(t, st.ghs, cedarConfigs, cedarMCs)
+	seedRemote(t, st)
+	c := st.mcpClient(t, aliceToken)
+
+	// The platform on record as an enable leaves it, the record still on the
+	// 3 line: what an installation enabled before the line was the policy's
+	// carries.
+	enabled, text, isErr := commitCall(t, c, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: cedar})
+	if isErr || enabled.Action == nil {
+		t.Fatal(text)
+	}
+	for _, pr := range enabled.PullRequests {
+		for path, content := range st.remote.Files(repoOf(t, pr.Repository), branchPrefix+enabled.Action.Name+"/"+cedar) {
+			st.ghs.addFile(pr.Repository, path, string(content))
+		}
+	}
+	st.ghs.addFile(cedarConfigs, installations.ConfigPatchPath(cedar), record)
+
+	res := verifyRowan(t, c, cedar)
+	line := anyDimension(t, res, "chart-line-on-record")
+	if line.Mark != verify.Drifted || len(line.Differences) == 0 || line.Differences[0].File != cedarConfigs+":"+installations.ConfigPatchPath(cedar) || !strings.Contains(line.Differences[0].Path, "kagentApiV2") {
+		t.Fatalf("verify names the record off the policy's line: %+v", line)
+	}
+	if res.State != installations.StateDrifted {
+		t.Errorf("state %q", res.State)
+	}
+
+	out, text, isErr := dryRun(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: cedar})
+	if isErr {
+		t.Fatal(text)
+	}
+	p := findPlan(t, out, cedar)
+	if p.Refused != "" || p.CommitRefused != "" || p.Inputs["installation"].(map[string]any)["chartLine"] != "4" {
+		t.Fatalf("the reconcile moves the line: refused %q, commitRefused %q, inputs %v", p.Refused, p.CommitRefused, p.Inputs["installation"])
+	}
+	var recordFile plan.File
+	for _, f := range p.Files {
+		if f.Path == installations.ConfigPatchPath(cedar) {
+			recordFile = f
+		}
+	}
+	if recordFile.Repository != cedarConfigs || recordFile.Change != plan.ChangeUpdate {
+		t.Fatalf("the record is an update of the configs repository: %+v", recordFile)
+	}
+	for _, want := range []string{"codename: cedar\n", "clientId: muster-cedar\n", "agentPlatform:\n  kagentApiV2: true\n", "selected by the reconcile"} {
+		if !strings.Contains(recordFile.Content, want) {
+			t.Errorf("the dry run's record lacks %q:\n%s", want, recordFile.Content)
+		}
+	}
+
+	committed, text, isErr := commitCall(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: cedar})
+	if isErr || committed.Action == nil {
+		t.Fatal(text)
+	}
+	branch := branchPrefix + committed.Action.Name + "/" + cedar
+	if !slices.Contains(changedFiles(t, st, cedarConfigs, branch), installations.ConfigPatchPath(cedar)) {
+		t.Fatalf("the configs pull request writes the record: %v", changedFiles(t, st, cedarConfigs, branch))
+	}
+	if got := string(st.remote.Files(repoOf(t, cedarConfigs), branch)[installations.ConfigPatchPath(cedar)]); !strings.Contains(got, "agentPlatform:\n  kagentApiV2: true\n") || !strings.Contains(got, "codename: cedar\n") {
+		t.Fatalf("the committed record:\n%s", got)
 	}
 }

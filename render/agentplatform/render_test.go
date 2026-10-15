@@ -562,22 +562,6 @@ func TestRefusals(t *testing.T) {
 	}
 	slackAppPublic, slackPublicSecrets := loadInput(t, shapeGiantswarmSlackAppPub)
 	slackPublicSecrets[fieldSlack+"app-token"] = "x"
-	// A Giant Swarm-owned installation — the policy grants it the cluster-manager —
-	// with the capability on record whose record has no agentPlatform.kagentApiV2
-	// and so selects the 3 line: adoption keeps the record's line, so the line-4
-	// component is refused (a fresh enable selects 4 instead: TestFreshEnableSelectsTheFourLine).
-	lineThreeOwned, _ := loadInput(t, shapeGiantswarmOwned)
-	lineThreeOwned["installation"].(map[string]any)["chartLine"] = lineThree
-	lineThreeOwned["installation"].(map[string]any)["agentPlatform"] = true
-	delete(lineThreeOwned, "modelServing")
-	// An installation the policy runs release candidates on (glean: Giant
-	// Swarm's, its collection on the testing stage) with the capability on
-	// record, its record on the 3 line: adoption keeps the line, and the
-	// chart's gitops.prereleases is the 4 line's.
-	lineThreeCandidates, lineThreeCandidatesSecrets := loadInput(t, shapeGiantswarmSlackApp)
-	lineThreeCandidates["installation"].(map[string]any)["chartLine"] = lineThree
-	lineThreeCandidates["installation"].(map[string]any)["agentPlatform"] = true
-	delete(lineThreeCandidates, "modelServing")
 	// The serving slice on a record that names no cluster issuer: the models
 	// Gateway's certificate would have no source.
 	servingWithoutIssuer, servingWithoutIssuerSecrets := loadInput(t, shapeGiantswarmOwned)
@@ -630,7 +614,6 @@ func TestRefusals(t *testing.T) {
 		{"unknown record key", clone(func(m map[string]any) { m["installation"].(map[string]any)["replicas"] = 3 }), secrets, ErrInput, "replicas"},
 		{"empty Slack credential where the gateway runs", slackAppPublic, nil, ErrEmptySecret, fieldSlack + "bot-token"},
 		{"no app-level token on a private installation", slackApp, withoutAppToken, ErrEmptySecret, fieldSlack + "app-token"},
-		{"release candidates on the 3 line", lineThreeCandidates, lineThreeCandidatesSecrets, ErrInput, "installation.collectionsStage"},
 		{"an app-level token on a public installation", slackAppPublic, slackPublicSecrets, ErrUnknownSecret, fieldSlack + "app-token"},
 		{"a Slack credential where no gateway runs", base, with(fieldSlack+"bot-token", "x"), ErrUnknownSecret, fieldSlack + "bot-token"},
 		{"the model key is never supplied", base, with("kagent.modelKey", "x"), ErrUnknownSecret, "kagent.modelKey"},
@@ -660,7 +643,6 @@ func TestRefusals(t *testing.T) {
 		{"a provider the chat does not run on", clone(func(m map[string]any) {
 			m["aiChat"] = map[string]any{keyEnabled: true, keyModel: "x", keyProvider: "openai"}
 		}), secrets, ErrInput, "provider"},
-		{"a component of the 4 line on a record that selects the 3 line", lineThreeOwned, nil, ErrInput, "installation.chartLine selects the 3 line, and cluster-manager needs the platform's 4 chart line; agentPlatform.kagentApiV2: true in installations/gopher/config.yaml.patch selects 4"},
 		{"kagent on the 4 line where the record does not say the cluster serves PodCertificateRequest", noPodCertificateRequest, secrets, ErrInput, "installation.podCertificateRequest does not say this cluster serves certificates.k8s.io/v1beta1 podcertificaterequests, which kagent's Agent Substrate on the 4 chart line needs; enable the feature gates PodCertificateRequest, ClusterTrustBundle, ClusterTrustBundleProjection under cluster.internal.advancedConfiguration.{controlPlane.apiServer,controlPlane.controllerManager,kubelet}.featureGates in the cluster App's values (management-clusters/" + noPodCertificateRequest["installation"].(map[string]any)["name"].(string) + "/cluster-app-manifests.yaml), or run a cluster App chart that enables them by default (cluster-aws 10.3.0, cluster-azure 9.3.0, cluster-cloud-director 7.3.0 and later)"},
 		{"commit mode where no cluster-manager runs", clone(func(m map[string]any) {
 			m["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: true}}
@@ -1048,8 +1030,9 @@ func TestPortalAudiences(t *testing.T) {
 // the record selects 3: the parsed input runs the 4 line, Selected answers the
 // line for the plan's effective inputs, and the render writes the selection
 // into the record as one more file of the configs repository. An organisation
-// without such a component keeps its record's line and writes no record; an
-// installation on record keeps its line (TestRefusals).
+// without such a component and without a line in the policy keeps its
+// record's line and writes no record; an installation on record moves alike
+// (TestReconcileMovesARecordToThePolicysLine).
 func TestFreshEnableSelectsTheFourLine(t *testing.T) {
 	input, secrets := loadInput(t, shapeGiantswarmOwned)
 	in, err := Parse(input)
@@ -1097,6 +1080,81 @@ func TestFreshEnableSelectsTheFourLine(t *testing.T) {
 			if strings.HasSuffix(path, "/"+render.RecordFile) {
 				t.Errorf("%s: %s written for an organisation without a line-4 component", repo, path)
 			}
+		}
+	}
+}
+
+// An installation with the capability on record whose record selects the 3
+// line moves to the line the policy declares for its organisation, as a fresh
+// enable does: the input runs the 4 line, Selected answers it, and the render
+// writes the key into the record, saying the reconcile selected it — the dry
+// run shows the move and the commit applies it. An organisation the policy
+// declares no line for keeps the record's line and writes no record.
+func TestReconcileMovesARecordToThePolicysLine(t *testing.T) {
+	onRecord, secrets := loadInput(t, shapeGiantswarmOwned)
+	onRecord["installation"].(map[string]any)["agentPlatform"] = true
+	in, err := Parse(onRecord)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in.Installation.ChartLine != lineFour || !in.selectsLine || in.Selected() == nil {
+		t.Fatalf("an installation on record on the 3 line moves to the policy's 4: %s, selected %v", in.Installation.ChartLine, in.selectsLine)
+	}
+	result, err := Render(onRecord, secrets, render.ModeCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := string(result.Files[render.Repository("giantswarm/giantswarm-configs")][render.RecordPath("gopher")].Content)
+	for _, want := range []string{"selected by the reconcile", "agentPlatform:\n  kagentApiV2: true\n"} {
+		if !strings.Contains(record, want) {
+			t.Errorf("the record fragment lacks %q: %q", want, record)
+		}
+	}
+	customer, customerSecrets := loadInput(t, shapePublicCustomer)
+	customer["installation"].(map[string]any)["agentPlatform"] = true
+	in, err = Parse(customer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in.Installation.ChartLine != lineThree || in.selectsLine {
+		t.Fatalf("an organisation without a line in the policy keeps its record's: %s, selected %v", in.Installation.ChartLine, in.selectsLine)
+	}
+	result, err = Render(customer, customerSecrets, render.ModeCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, written := result.Files[render.Repository("giantswarm/oakridge-configs")][render.RecordPath("kestrel")]; written {
+		t.Error("a record written for an organisation the policy declares no line for")
+	}
+}
+
+// The policy's chart lines: an organisation's own over the default, none
+// where neither says; a line the meta chart has not, or release candidates
+// for an organisation not on the 4 line, refuse the policy.
+func TestPolicyChartLine(t *testing.T) {
+	const base = "flux: {sourceInterval: 1m}\n"
+	pol, err := parsePolicy([]byte(base + "chartLine: {default: \"3\", customers: {acme: \"4\"}}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := pol.targetLine(Installation{Customer: "acme"}); got != lineFour {
+		t.Errorf("acme: %q", got)
+	}
+	if got := pol.targetLine(Installation{Customer: "other"}); got != lineThree {
+		t.Errorf("the default: %q", got)
+	}
+	pol, err = parsePolicy([]byte(base))
+	if err != nil || pol.targetLine(Installation{Customer: "acme"}) != "" {
+		t.Fatalf("no line declared: %v", err)
+	}
+	for name, doc := range map[string]string{
+		"a default the chart has not":    "chartLine: {default: \"5\"}\n",
+		"a customer's the chart has not": "chartLine: {customers: {acme: \"2\"}}\n",
+		"release candidates on 3":        "chartLine: {customers: {acme: \"3\"}}\nreleaseCandidates: {stage: testing, customers: [acme]}\n",
+		"release candidates on no line":  "releaseCandidates: {stage: testing, customers: [acme]}\n",
+	} {
+		if _, err := parsePolicy([]byte(base + doc)); !errors.Is(err, ErrPolicy) {
+			t.Errorf("%s: %v", name, err)
 		}
 	}
 }

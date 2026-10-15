@@ -97,7 +97,7 @@ var providerFacts = map[string][]render.Fact{
 }
 
 // Facts are the provider's facts where kagent runs on the 4 chart line — the
-// line a fresh enable selects counts —: the line whose runtime is the
+// line the policy selects counts —: the line whose runtime is the
 // Substrate.
 func (in *Input) Facts() []render.Fact {
 	if in.Installation.ChartLine != lineFour || !in.kagent() {

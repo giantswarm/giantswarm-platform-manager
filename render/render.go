@@ -176,7 +176,7 @@ type Input interface {
 	CustomerActions() []CustomerAction
 	// Selected are the inputs the definition chose beyond the document, in
 	// the document's shape, for the plan to answer as the effective inputs:
-	// the chart line a fresh enable selects. Nil where the document stands.
+	// the chart line the fleet policy selects. Nil where the document stands.
 	Selected() map[string]any
 	// Facts are the keys of the installation's record (RecordFile) that the
 	// rendered files need set beyond the definition's inputs: the

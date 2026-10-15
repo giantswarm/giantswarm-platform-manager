@@ -8,7 +8,7 @@ import (
 // configs repository, the file konfigure overlays on the shared default for
 // every app of the installation — is the installation's own file. The
 // agent-platform definition writes one key into it, agentPlatform.kagentApiV2,
-// the meta chart line a fresh enable selects (render/agentplatform), and never
+// the meta chart line the fleet policy selects (render/agentplatform), and never
 // the file whole: the plan edits the rendered keys into the record and keeps
 // everything else, comments included. The record is never created here: an
 // installation without one is not on record at all.
