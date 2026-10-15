@@ -40,10 +40,10 @@
       // The 4 line's children are pinned at the newest versions inside the
       // ranges the meta chart's 4 line pin declares for them, so a bump of the
       // meta chart that moves a range and a bump of a child alone can each fail
-      // the test: they are one group with the meta chart, majors included (a
-      // range moves across a child's major), and one pull request moves them
-      // together. Where a child's newest release is outside the new range, the
-      // test's failure names the version to pin.
+      // the test: they are one group with the meta chart and one pull request moves
+      // them together. Where a child's newest release is outside the new range, the
+      // test's failure names the version to pin. A child's major is the exception
+      // (the rule after the agent-manager one): it leaves the group.
       matchDatasources: [
         'docker',
       ],
@@ -82,6 +82,31 @@
       matchCurrentVersion: '!/^0\\./',
       groupName: 'agent-platform 4 line',
       separateMajorMinor: false,
+    },
+    {
+      // A child's new major lies outside the range the meta chart's 4 line pin
+      // declares (agent-manager 2.x against >=1.13.0 <2.0.0), so it fails the
+      // test on every bump until pinned by hand and would hold the whole group
+      // with it. It takes its own pull request, to be paired with a meta chart
+      // release that moves the range; the group keeps bumping within range.
+      matchDatasources: [
+        'docker',
+      ],
+      matchPackageNames: [
+        'gsoci.azurecr.io/giantswarm/kagent/helm/kagent',
+        'gsoci.azurecr.io/charts/giantswarm/klaus-gateway',
+        'gsoci.azurecr.io/charts/giantswarm/model-manager',
+        'gsoci.azurecr.io/charts/giantswarm/agentgateway',
+        'gsoci.azurecr.io/charts/giantswarm/cluster-manager',
+        'gsoci.azurecr.io/charts/giantswarm/kserve-llmisvc-crd',
+        'gsoci.azurecr.io/charts/giantswarm/kserve-llmisvc-resources',
+        'gsoci.azurecr.io/charts/giantswarm/kserve-runtime-configs',
+        'gsoci.azurecr.io/charts/giantswarm/agent-manager',
+      ],
+      matchUpdateTypes: [
+        'major',
+      ],
+      groupName: null,
     },
     {
       // The developer portal pin follows the major the fleet base's backstage
