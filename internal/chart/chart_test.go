@@ -230,16 +230,9 @@ func TestRegistrationDisplayName(t *testing.T) {
 			if msg != "" {
 				t.Fatal(msg)
 			}
-			annotations := at(registration(t, objects), "metadata.annotations")
-			if tc.want == nil {
-				if annotations != nil {
-					t.Errorf("metadata.annotations rendered: %v", annotations)
-				}
-				return
-			}
-			got, _ := annotations.(map[string]any)
-			if got["ui.giantswarm.io/display-name"] != tc.want {
-				t.Errorf("metadata.annotations: %v, want ui.giantswarm.io/display-name %v", annotations, tc.want)
+			annotations, _ := at(registration(t, objects), "metadata.annotations").(map[string]any)
+			if got := annotations["ui.giantswarm.io/display-name"]; got != tc.want {
+				t.Errorf("ui.giantswarm.io/display-name: %v, want %v (metadata.annotations: %v)", got, tc.want, annotations)
 			}
 		})
 	}
