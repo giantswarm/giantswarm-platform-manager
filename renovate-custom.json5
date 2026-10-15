@@ -84,6 +84,18 @@
       separateMajorMinor: false,
     },
     {
+      // The developer portal pin follows the major the fleet base's backstage
+      // range and the portal shapes' line (testdata/consumption/*.portal.yaml)
+      // follow; a pin past it fails the test. It moves with them.
+      matchDatasources: [
+        'docker',
+      ],
+      matchPackageNames: [
+        'gsoci.azurecr.io/charts/giantswarm/backstage',
+      ],
+      allowedVersions: '/^2\\./',
+    },
+    {
       // The testdata pins are fixtures of the render-consumption test, not what
       // ships: their bumps go in as test(deps), which cuts no release.
       matchFileNames: [
