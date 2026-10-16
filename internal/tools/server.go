@@ -172,7 +172,7 @@ func (t *Tools) person(token string) (*gh.Client, error) {
 func (t *Tools) MCPServer() *mcpserver.MCPServer {
 	s := mcpserver.NewMCPServer(ToolPrefix, t.d.Version,
 		mcpserver.WithToolCapabilities(false),
-		mcpserver.WithInstructions("Giant Swarm's platform manager: enables, reconciles, disables and verifies platform capabilities on installations as the person calling. Call get_info first. list_installations shows each capability's state per installation. enable_capability, reconcile_capability and disable_capability with dryRun: true answer the plan; mode commit opens pull requests to the installation's GitOps repositories as you, through an Action: the capability-owning team approves it in a Slack Team review (approve_action, deny_action), the actor merges it (merge_action) and watch_action follows the rollout. verify_capability compares an installation's repositories with a definition, verify_installation the running installation through muster. get_action and list_actions read the Action records."),
+		mcpserver.WithInstructions("Giant Swarm's platform manager: enables, reconciles, disables and verifies platform capabilities on installations as the person calling. Call "+ToolGetInfo+" first. "+ToolListInstallations+" shows each capability's state per installation. "+ToolEnableCapability+", "+ToolReconcileCapability+" and "+ToolDisableCapability+" with dryRun: true answer the plan; mode commit opens pull requests to the installation's GitOps repositories as you, through an Action: the capability-owning team approves it in a Slack Team review ("+ToolApproveAction+", "+ToolDenyAction+"), the actor merges it ("+ToolMergeAction+") and "+ToolWatchAction+" follows the rollout. "+ToolVerifyCapability+" compares an installation's repositories with a definition, "+ToolVerifyInstallation+" the running installation through muster. "+ToolGetAction+" and "+ToolListActions+" read the Action records."),
 	)
 	s.AddTool(mcp.NewTool(ToolGetInfo,
 		tooldesc.Describe("Who you are to this server, the capability definitions with their input schemas, and how writes are approved.",
@@ -190,8 +190,8 @@ func (t *Tools) MCPServer() *mcpserver.MCPServer {
 	return s
 }
 
-// readOnly annotates a tool that writes nothing. Without the destructive and
-// idempotent hints mcp-go reports a read as destructive.
+// readOnly annotates a tool that writes nothing: read-only, idempotent, and
+// not destructive, which mcp-go's default would report it as.
 func readOnly() mcp.ToolOption {
 	return func(t *mcp.Tool) {
 		mcp.WithReadOnlyHintAnnotation(true)(t)

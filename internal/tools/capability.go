@@ -98,7 +98,7 @@ func capabilityOptions() []mcp.ToolOption {
 		mcp.WithString(ArgCapability, mcp.Description(capabilityArgDescription), mcp.Enum(installations.CapabilityNames()...)),
 		mcp.WithObject(ArgInputs, mcp.Description(inputsArgDescription)),
 		mcp.WithBoolean(ArgContent, mcp.Description("Include each file's rendered and recorded content (default: true for one installation, false for a set). Above 1 MiB is refused.")),
-		mcp.WithObject(ArgSecrets, mcp.Description("mode commit only: the values the plan's suppliedSecrets name, by field (<installation>/<field> for one of a set). Never recorded or answered.")),
+		mcp.WithObject(ArgSecrets, mcp.Description("mode commit only: the values the plan's suppliedSecrets name: <field> for every installation of a set, <installation>/<field> for one.")),
 		mcp.WithArray(ArgRotate, mcp.Description(rotateArgDescription), mcp.Items(stringItems())),
 		mcp.WithBoolean(ArgForceJoin, mcp.Description(forceJoinArgDescription)),
 		mcp.WithString(ArgReason, mcp.Description(reasonArgDescription)),
@@ -107,18 +107,18 @@ func capabilityOptions() []mcp.ToolOption {
 
 // forceJoinArgDescription describes the forceJoin argument of the write
 // tools: the way past the join refusal.
-const forceJoinArgDescription = `Proceed although the reconcile takes MCP servers, identity providers or redirects off an installation's muster (the plan's join).`
+const forceJoinArgDescription = `Only after a commit refused for the join: proceed although the reconcile takes servers, providers or redirects off an installation's muster.`
 
 // reasonArgDescription describes the reason argument of the write tools.
 const reasonArgDescription = `mode commit only, required: why, in a sentence a teammate judges the change by; the team's review and the pull requests show it.`
 
 // rotateArgDescription describes the rotate argument of the write tools.
-const rotateArgDescription = `Generated values to rotate, by name as the plan lists them (generatedSecrets[].name); each file holding one is rewritten, its workloads restart.`
+const rotateArgDescription = `Generated values to rotate, by name as the plan lists them. Every other value of a rewritten file rotates with it; their workloads restart.`
 
 func (t *Tools) enableCapabilityTool() WriteTool {
 	return WriteTool{Name: ToolEnableCapability,
 		Summary: "Enable a platform capability on an installation: the plan of files, pull requests and secrets a commit writes.",
-		Details: "Dry-run first: the plan names the files with their change, the pull requests in order, the generated secrets by name, the Dex clients, the secrets you supply and the customer's actions. No secret value ever appears in a dry run. Over installations that have it: reconcile_capability; to take it off: disable_capability.",
+		Details: "A set renders only the installations that have it on record, as " + ToolReconcileCapability + " does. Dry-run first: the plan names the files, the pull requests in order, the generated secrets, the Dex clients, the secrets you supply and the customer's actions. No secret value ever appears in a dry run.",
 		Options: capabilityOptions(),
 		DryRun: func(ctx context.Context, args map[string]any) (any, error) {
 			return t.capabilityDryRun(ctx, ToolEnableCapability, args)
@@ -130,8 +130,8 @@ func (t *Tools) enableCapabilityTool() WriteTool {
 
 func (t *Tools) reconcileCapabilityTool() WriteTool {
 	return WriteTool{Name: ToolReconcileCapability,
-		Summary: "Reconcile a capability over the installations that have it (empty: all): enable_capability's plan, per installation.",
-		Details: "A plan whose files are all unchanged means the installation matches the definition. Installations without the capability are skipped and listed; a fresh enable is enable_capability.",
+		Summary: "Reconcile a capability over the installations that have it (empty: all): " + ToolEnableCapability + "'s plan, per installation.",
+		Details: "A plan whose files are all unchanged means the installation matches the definition. Installations without the capability are skipped and listed; a fresh enable is " + ToolEnableCapability + ".",
 		Options: capabilityOptions(),
 		DryRun: func(ctx context.Context, args map[string]any) (any, error) {
 			return t.capabilityDryRun(ctx, ToolReconcileCapability, args)

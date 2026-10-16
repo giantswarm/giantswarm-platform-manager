@@ -69,7 +69,7 @@ const disableCommitNext = `mode "commit" opens the pull requests above as you, o
 func (t *Tools) disableCapabilityTool() WriteTool {
 	return WriteTool{Name: ToolDisableCapability,
 		Summary:     "Disable a platform capability on one installation: removes its files through an Action, approved like an enable.",
-		Details:     "Dry-run first: it names every file a commit deletes or edits, the files another capability keeps, and the cluster objects Flux does not prune, as a checklist in deletion order for a person. A commit is refused while something depends on the capability (a federation, a portal entry, a paired value).",
+		Details:     "Dry-run first: it names every file a commit deletes or edits, the files another capability keeps, and the cluster objects Flux does not prune, as a checklist in deletion order. A commit is refused while something depends on the capability (a federation, a portal entry, a paired value).",
 		Destructive: true,
 		Options: []mcp.ToolOption{
 			mcp.WithString(ArgInstallation, mcp.Required(), mcp.Description("The one installation to take the capability off, by name.")),

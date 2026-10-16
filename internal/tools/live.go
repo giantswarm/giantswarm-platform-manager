@@ -98,11 +98,11 @@ func (t *Tools) registerLiveTools(s *mcpserver.MCPServer) {
 	t.registerWatchTool(s)
 	s.AddTool(mcp.NewTool(ToolVerifyInstallation,
 		tooldesc.Describe("Verify the running installation against a capability's definition through muster, as you: its probes and objects.",
-			"What you may read decides what is checked: an object you may not read is not checked, never a failure; not connected in muster, it answers muster's sign-in. Reads are bounded (2 minutes in all), and what did not answer is not checked. The result is recorded on the installation's newest action and feeds list_installations. The repositories are verify_capability's."),
+			"What you may read decides what is checked: an object you may not read is not checked, never a failure; not connected in muster, it answers muster's sign-in. Reads are bounded (2 minutes in all), and what did not answer is not checked. The result is recorded on the installation's newest action and feeds "+ToolListInstallations+". The repositories are "+ToolVerifyCapability+"'s."),
 		mcp.WithIdempotentHintAnnotation(true), mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithString(ArgInstallation, mcp.Required(), mcp.Description("The installation to verify, by name: the management cluster muster reads for you.")),
 		mcp.WithString(ArgCapability, mcp.Description(capabilityArgDescription), mcp.Enum(installations.CapabilityNames()...)),
-		mcp.WithObject(ArgInputs, mcp.Description("The inputs object of "+ToolVerifyCapability+"'s answer, so both render from the same inputs; default: the newest action's on record.")),
+		mcp.WithObject(ArgInputs, mcp.Description("The inputs object of "+ToolVerifyCapability+"'s answer; default: the newest action's on record. Without either, live dimensions read not checked.")),
 	), t.verifyInstallationLive)
 }
 

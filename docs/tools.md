@@ -1,6 +1,6 @@
 # The tools
 
-Generated from the registered tools (`make tools-doc`); through muster every tool is `x_giantswarm-platform-manager_<name>`.
+Generated from the registered tools (`make tools-doc`); through muster every tool is `x_giantswarm-platform-manager_<name>`. `verify_installation` and `watch_action` are registered only with the live tools on (`live.enabled`).
 
 | Tool | Kind |
 |---|---|
@@ -12,7 +12,7 @@ Generated from the registered tools (`make tools-doc`); through muster every too
 | `get_info` | read-only |
 | `list_actions` | read-only |
 | `list_installations` | read-only |
-| `merge_action` | write |
+| `merge_action` | write, destructive |
 | `reconcile_capability` | write |
 | `verify_capability` | read-only |
 | `verify_installation` | write |
@@ -46,7 +46,7 @@ Submits an approving review on every pull request of the action as you and recor
 ```text
 Deny a pending action, or withdraw your own merged one: closes its open pull requests and records the reason.
 
-The Deny button of the Team review; any member may deny, the actor included. A merged action is withdrawn by its actor alone, once it failed or was reverted, or a revert is found now on the default branch; with nothing taken back it is refused. The review's thread is told.
+The Deny button of the Team review; any member may deny, the actor included, and a failed action whose approval is undecided is denied the same way. A merged action is withdrawn by its actor alone, once it failed or was reverted, or a revert is found now on the default branch; with nothing taken back it is refused. The review's thread is told.
 ```
 
 ```json
@@ -74,7 +74,7 @@ The Deny button of the Team review; any member may deny, the actor included. A m
 ```text
 Disable a platform capability on one installation: removes its files through an Action, approved like an enable.
 
-Dry-run first: it names every file a commit deletes or edits, the files another capability keeps, and the cluster objects Flux does not prune, as a checklist in deletion order for a person. A commit is refused while something depends on the capability (a federation, a portal entry, a paired value). Writes as you: dryRun: true answers the plan and writes nothing; mode: "commit" opens the pull requests through an Action and its approval — wait for the answer.
+Dry-run first: it names every file a commit deletes or edits, the files another capability keeps, and the cluster objects Flux does not prune, as a checklist in deletion order. A commit is refused while something depends on the capability (a federation, a portal entry, a paired value). Writes as you (your rights ∩ the App's): dryRun: true answers the plan and writes nothing; mode: "commit" opens the pull requests through an Action and its approval — wait for the answer.
 ```
 
 ```json
@@ -132,7 +132,7 @@ Dry-run first: it names every file a commit deletes or edits, the files another 
 ```text
 Enable a platform capability on an installation: the plan of files, pull requests and secrets a commit writes.
 
-Dry-run first: the plan names the files with their change, the pull requests in order, the generated secrets by name, the Dex clients, the secrets you supply and the customer's actions. No secret value ever appears in a dry run. Over installations that have it: reconcile_capability; to take it off: disable_capability. Writes as you: dryRun: true answers the plan and writes nothing; mode: "commit" opens the pull requests through an Action and its approval — wait for the answer.
+A set renders only the installations that have it on record, as reconcile_capability does. Dry-run first: the plan names the files, the pull requests in order, the generated secrets, the Dex clients, the secrets you supply and the customer's actions. No secret value ever appears in a dry run. Writes as you (your rights ∩ the App's): dryRun: true answers the plan and writes nothing; mode: "commit" opens the pull requests through an Action and its approval — wait for the answer.
 ```
 
 ```json
@@ -156,7 +156,7 @@ Dry-run first: the plan names the files with their change, the pull requests in 
       "type": "boolean"
     },
     "forceJoin": {
-      "description": "Proceed although the reconcile takes MCP servers, identity providers or redirects off an installation's muster (the plan's join).",
+      "description": "Only after a commit refused for the join: proceed although the reconcile takes servers, providers or redirects off an installation's muster.",
       "type": "boolean"
     },
     "inputs": {
@@ -194,14 +194,14 @@ Dry-run first: the plan names the files with their change, the pull requests in 
       "type": "string"
     },
     "rotate": {
-      "description": "Generated values to rotate, by name as the plan lists them (generatedSecrets[].name); each file holding one is rewritten, its workloads restart.",
+      "description": "Generated values to rotate, by name as the plan lists them. Every other value of a rewritten file rotates with it; their workloads restart.",
       "items": {
         "type": "string"
       },
       "type": "array"
     },
     "secrets": {
-      "description": "mode commit only: the values the plan's suppliedSecrets name, by field (<installation>/<field> for one of a set). Never recorded or answered.",
+      "description": "mode commit only: the values the plan's suppliedSecrets name: <field> for every installation of a set, <installation>/<field> for one.",
       "properties": {},
       "type": "object"
     }
@@ -340,7 +340,7 @@ The Action moves to rolling out and the review's thread is told; follow it with 
 ```text
 Reconcile a capability over the installations that have it (empty: all): enable_capability's plan, per installation.
 
-A plan whose files are all unchanged means the installation matches the definition. Installations without the capability are skipped and listed; a fresh enable is enable_capability. Writes as you: dryRun: true answers the plan and writes nothing; mode: "commit" opens the pull requests through an Action and its approval — wait for the answer.
+A plan whose files are all unchanged means the installation matches the definition. Installations without the capability are skipped and listed; a fresh enable is enable_capability. Writes as you (your rights ∩ the App's): dryRun: true answers the plan and writes nothing; mode: "commit" opens the pull requests through an Action and its approval — wait for the answer.
 ```
 
 ```json
@@ -364,7 +364,7 @@ A plan whose files are all unchanged means the installation matches the definiti
       "type": "boolean"
     },
     "forceJoin": {
-      "description": "Proceed although the reconcile takes MCP servers, identity providers or redirects off an installation's muster (the plan's join).",
+      "description": "Only after a commit refused for the join: proceed although the reconcile takes servers, providers or redirects off an installation's muster.",
       "type": "boolean"
     },
     "inputs": {
@@ -402,14 +402,14 @@ A plan whose files are all unchanged means the installation matches the definiti
       "type": "string"
     },
     "rotate": {
-      "description": "Generated values to rotate, by name as the plan lists them (generatedSecrets[].name); each file holding one is rewritten, its workloads restart.",
+      "description": "Generated values to rotate, by name as the plan lists them. Every other value of a rewritten file rotates with it; their workloads restart.",
       "items": {
         "type": "string"
       },
       "type": "array"
     },
     "secrets": {
-      "description": "mode commit only: the values the plan's suppliedSecrets name, by field (<installation>/<field> for one of a set). Never recorded or answered.",
+      "description": "mode commit only: the values the plan's suppliedSecrets name: <field> for every installation of a set, <installation>/<field> for one.",
       "properties": {},
       "type": "object"
     }
@@ -481,7 +481,7 @@ What you may read decides what is checked: an object you may not read is not che
       "type": "string"
     },
     "inputs": {
-      "description": "The inputs object of verify_capability's answer, so both render from the same inputs; default: the newest action's on record.",
+      "description": "The inputs object of verify_capability's answer; default: the newest action's on record. Without either, live dimensions read not checked.",
       "properties": {},
       "type": "object"
     },
@@ -502,7 +502,7 @@ What you may read decides what is checked: an object you may not read is not che
 ```text
 Follow a merged action's rollout on the installation, as you. Call again while it is rolling out.
 
-Reads the HelmReleases through muster, then runs the probes: the stage moves to enabled, waiting for the customer, or failed with the red probe named; a failed one is re-read once the cause is fixed. On a wave the actor merges the next stage with merge_action once one is enabled. A reverted stage moves the action to reverted; its actor withdraws it with deny_action. The report goes into the review's thread.
+Reads the HelmReleases through muster, then runs the probes: the stage moves to enabled, waiting for the customer, or failed with the red probe named; a failed one is re-read once the cause is fixed. On a wave the actor merges the next stage with merge_action once one is enabled. A reverted stage moves the action to reverted; its actor withdraws it with deny_action. The report goes into the review's thread. Anyone signed in may watch.
 ```
 
 ```json

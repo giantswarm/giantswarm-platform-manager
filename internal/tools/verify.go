@@ -18,7 +18,7 @@ import (
 func verifyCapabilityTool() mcp.Tool {
 	return mcp.NewTool(ToolVerifyCapability,
 		tooldesc.Describe("Compare an installation's repositories with a capability's definition, each feature as defined, planned or drifted.",
-			"Names every difference by file and path and the input that drives it, a planned change a newer definition removes, or drift, and the plan a commit would write. The running installation is verify_installation's."),
+			"Names every difference by file and path and the input that drives it, a planned change a newer definition removes, or drift, and the plan a commit would write. The running installation is "+ToolVerifyInstallation+"'s."),
 		readOnly(),
 		mcp.WithString(ArgInstallation, mcp.Required(), mcp.Description("The installation to verify, by name.")),
 		mcp.WithString(ArgCapability, mcp.Description(capabilityArgDescription), mcp.Enum(installations.CapabilityNames()...)),

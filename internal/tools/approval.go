@@ -56,21 +56,21 @@ type MergeResult struct {
 func (t *Tools) registerApprovalTools(s *mcpserver.MCPServer) {
 	s.AddTool(mcp.NewTool(ToolApproveAction,
 		tooldesc.Describe("Approve an action's pull requests as a member of the owning team: the Team review's Approve button. Not your own.",
-			"Submits an approving review on every pull request of the action as you and records the decision on the Action. The actor then merges with merge_action."),
+			"Submits an approving review on every pull request of the action as you and records the decision on the Action. The actor then merges with "+ToolMergeAction+"."),
 		mcp.WithIdempotentHintAnnotation(true), mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithString(ArgAction, mcp.Required(), mcp.Description("The Action's name (the action id of the review).")),
 	), t.approveAction)
 	s.AddTool(mcp.NewTool(ToolDenyAction,
 		tooldesc.Describe("Deny a pending action, or withdraw your own merged one: closes its open pull requests and records the reason.",
-			"The Deny button of the Team review; any member may deny, the actor included. A merged action is withdrawn by its actor alone, once it failed or was reverted, or a revert is found now on the default branch; with nothing taken back it is refused. The review's thread is told."),
+			"The Deny button of the Team review; any member may deny, the actor included, and a failed action whose approval is undecided is denied the same way. A merged action is withdrawn by its actor alone, once it failed or was reverted, or a revert is found now on the default branch; with nothing taken back it is refused. The review's thread is told."),
 		mcp.WithIdempotentHintAnnotation(true), mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithString(ArgAction, mcp.Required(), mcp.Description("The Action's name.")),
 		mcp.WithString(ArgReason, mcp.Required(), mcp.Description("Why the action is denied or withdrawn; recorded on the Action and, for a withdrawal, in the review's thread.")),
 	), t.denyAction)
 	s.AddTool(mcp.NewTool(ToolMergeAction,
 		tooldesc.Describe("Merge an approved action's pull requests as its actor, in dependency order, each once its checks are green.",
-			"The Action moves to rolling out and the review's thread is told; follow it with watch_action. Before the approval it answers what the action waits for and posts the review if none is up. Pending checks stop the call: call again."),
-		mcp.WithIdempotentHintAnnotation(true), mcp.WithDestructiveHintAnnotation(false),
+			"The Action moves to rolling out and the review's thread is told; follow it with "+ToolWatchAction+". Before the approval it answers what the action waits for and posts the review if none is up. Pending checks stop the call: call again."),
+		mcp.WithIdempotentHintAnnotation(true), mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithString(ArgAction, mcp.Required(), mcp.Description("The Action's name.")),
 	), t.mergeAction)
 }

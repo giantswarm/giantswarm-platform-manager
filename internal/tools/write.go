@@ -39,7 +39,7 @@ const ApplyRefusal = `mode "apply" is refused: every target of this manager is G
 	`Use mode "commit" (a pull request opened as you) or dryRun: true for the rendered change`
 
 // writeSuffix closes every write tool's description.
-const writeSuffix = ` Writes as you: dryRun: true answers the plan and writes nothing; mode: "commit" opens the pull requests through an Action and its approval — wait for the answer.`
+const writeSuffix = ` Writes as you (your rights ∩ the App's): dryRun: true answers the plan and writes nothing; mode: "commit" opens the pull requests through an Action and its approval — wait for the answer.`
 
 // ErrNotImplemented marks a commit path a later slice delivers.
 var ErrNotImplemented = errors.New("not implemented yet")

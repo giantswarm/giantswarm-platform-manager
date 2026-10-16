@@ -53,7 +53,7 @@ func (t *Tools) registerActionTools(s *mcpserver.MCPServer) {
 	), t.getAction)
 	s.AddTool(mcp.NewTool(ToolListActions,
 		tooldesc.Describe("List the Action records on the hub, newest first; narrow with installation and capability.",
-			"Each follows GitHub as get_action does."),
+			"Each follows GitHub as "+ToolGetAction+" does."),
 		readOnly(),
 		mcp.WithString(ArgInstallation, mcp.Description("Only actions that include this installation.")),
 		mcp.WithString(ArgCapability, mcp.Description("Only actions of this capability."), mcp.Enum(installations.CapabilityNames()...)),
