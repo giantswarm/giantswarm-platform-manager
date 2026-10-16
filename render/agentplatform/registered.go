@@ -118,7 +118,7 @@ func (in *Input) clientRedirectURIs() []string {
 // client the definition renders for the platform: the registration would
 // take over that client's entry, its Secret and its generated value.
 func (in *Input) checkConfidentialClients() error {
-	platform := []string{in.Installation.MusterClientID, "muster", authenticatorClient, "kagent", render.PortalDexClientID}
+	platform := []string{in.Installation.MusterClientID, componentMuster, authenticatorClient, componentKagent, render.PortalDexClientID}
 	for _, hub := range in.Installation.Federation.Hubs {
 		platform = append(platform, in.targetClient(hub))
 	}

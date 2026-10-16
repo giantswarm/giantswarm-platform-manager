@@ -137,7 +137,7 @@ func TestConfidentialClientProbes(t *testing.T) {
 // A confidential client under an id the platform renders a Dex client for
 // itself is refused, naming the registration.
 func TestConfidentialClientUnderAPlatformIDIsRefused(t *testing.T) {
-	for _, id := range []string{"kagent", "muster", authenticatorClient, render.PortalDexClientID, "00000000-0000-4000-8000-000000000003"} {
+	for _, id := range []string{componentKagent, componentMuster, authenticatorClient, render.PortalDexClientID, "00000000-0000-4000-8000-000000000003"} {
 		_, err := renderConfidential(t, func(inst map[string]any) {
 			clients := inst["mcpClients"].([]any)
 			clients[1].(map[string]any)["clientId"] = id
