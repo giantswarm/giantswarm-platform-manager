@@ -62,7 +62,7 @@
     },
     {
       // agent-manager is pinned per line too: the 3 line's meta chart follows
-      // 0.x, the 4 line's 1.x, which moves with the 4 line's group.
+      // 0.x, the 4 line's 1.x and newer, which moves with the 4 line's group.
       matchDatasources: [
         'docker',
       ],
@@ -85,7 +85,7 @@
     },
     {
       // A child's new major lies outside the range the meta chart's 4 line pin
-      // declares (agent-manager 2.x against >=1.13.0 <2.0.0), so it fails the
+      // declares (agent-manager 3.x against >=2.3.0 <3.0.0), so it fails the
       // test on every bump until pinned by hand and would hold the whole group
       // with it. It takes its own pull request, to be paired with a meta chart
       // release that moves the range; the group keeps bumping within range.
