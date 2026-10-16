@@ -484,8 +484,11 @@ Installing it and keeping it current:
 - Download `platformctl-<os>-<arch>` and its `.bundle` from a [release](https://github.com/giantswarm/giantswarm-platform-manager/releases)
   and verify the one against the other with `cosign verify-blob` as under
   [Proving a release candidate](#proving-a-release-candidate), or build it from a checkout at the tag
-  (`git checkout vX.Y.Z && make build-platformctl`). `go install …@<tag>` does not build: the module's
-  `replace` directives refuse it.
+  (`git checkout vX.Y.Z && make build-platformctl`), or with
+  `go install github.com/giantswarm/giantswarm-platform-manager/cmd/platformctl@vX.Y.Z` (`@latest` for the
+  newest release). The module carries no `replace` directive, so a remediation pins a fixed version with a
+  `require`, never a `replace`, and `go install` keeps working. A `go install` build is unsigned: the
+  release download is the one to verify.
 - `platformctl self-update` installs the latest release over the running binary once its cosign bundle
   verifies as a CircleCI build of this repository (the Sigstore public-good trust root, the CircleCI
   issuer, this repository as the source). A release without a bundle, or a download that does not match
@@ -532,8 +535,8 @@ stable releases only (its OCIRepository's semver `>=0.17.0 <1.0.0`), so no runni
 candidate before its promote. The candidate's proof is offline:
 
 1. **The candidate's own CLI.** Build it at the tag (`git checkout vX.Y.Z-rc.N && make build-platformctl`),
-   or download `platformctl-<os>-<arch>` from the pre-release. `go install …@<tag>` does not build: the
-   module's `replace` directives refuse it. A download is used only once its cosign bundle verifies as a
+   `go install github.com/giantswarm/giantswarm-platform-manager/cmd/platformctl@vX.Y.Z-rc.N`, or download
+   `platformctl-<os>-<arch>` from the pre-release. A download is used only once its cosign bundle verifies as a
    CircleCI build of this repository's project (issuer `https://oidc.circleci.com`, the certificate's SAN
    under this project's `circleci.com/api/v2/projects/…`); `cosign verify-blob` prints `Verified OK`:
 
