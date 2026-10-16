@@ -150,6 +150,19 @@ func (in *Input) audiences() []string {
 	return a
 }
 
+// musterAudiences are the Dex client ids whose tokens muster accepts: the
+// platform's (audiences), then every registered confidential client's, each
+// once — the client signs a person in at Dex and calls muster with the token.
+func (in *Input) musterAudiences() []string {
+	a := in.audiences()
+	for _, c := range in.confidentialClients() {
+		if !slices.Contains(a, c.ClientID) {
+			a = append(a, c.ClientID)
+		}
+	}
+	return a
+}
+
 // portalAudiences are the Dex client ids the platform trusts for the
 // portals, each once — the same set wherever a portal's token is accepted:
 // the id of the installation's own portal's client where its Dex patch
@@ -438,7 +451,7 @@ func (in *Input) musterValues() render.Map {
 			e("allowPrivateIPClientMetadataHosts", []string{in.host("agentgateway")}),
 			e("allowPrivateIPRedirectURIs", true))
 	}
-	server = append(server, e("trustedAudiences", in.audiences()))
+	server = append(server, e("trustedAudiences", in.musterAudiences()))
 	if in.portalGitHub() {
 		server = append(server, e("trustedIssuers", in.trustedIssuers()))
 	}
@@ -554,6 +567,9 @@ func (in *Input) dexPatch() render.Map {
 		extra = append(extra, in.portalDexClient())
 	}
 	extra = append(extra, in.exchange().DexClients()...)
+	for _, c := range in.confidentialClients() {
+		extra = append(extra, confidentialDexClient(c))
+	}
 	oidc := render.Map{e("staticClients", static)}
 	if len(extra) > 0 {
 		oidc = append(oidc, e("extraStaticClients", extra))
@@ -816,6 +832,15 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 	for _, hub := range in.Installation.Federation.Hubs {
 		// The hub's client in this Dex, peered with the hub's credentials Secret for this installation.
 		add(in.exchange().Secret(hub))
+	}
+	for _, c := range in.confidentialClients() {
+		f := dexClientSecret(c.ClientID, in.generatedName(confidentialSecretName(c)))
+		if c.SecretFile != "" {
+			// Registered by hand: the Secret stays in its file, which its own kustomization lists, so its value stands.
+			r.Add(repo, dir+"/"+c.SecretFile, f)
+			continue
+		}
+		add(dexClientSecretFile(c.ClientID), f)
 	}
 	if in.brokers() {
 		in.hubSecrets(add)

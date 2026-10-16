@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // What an installation registers with muster beyond the platform's own is
@@ -19,7 +21,9 @@ import (
 // installation.mcpClients): the MCPServer objects under
 // extras/agent-platform/mcpservers/ and the MCP clients with a stable callback
 // under extras/agent-platform/mcpclients/, each a ConfigMap naming the
-// consumer's redirect URIs. A directory counts where the tree's kustomization
+// consumer's redirect URIs — a public client muster registers by dynamic
+// registration, or a confidential Dex client the definition renders, whose
+// Secret a person may have listed beside it already. A directory counts where the tree's kustomization
 // lists it, and a file where the directory's kustomization lists it — what
 // Flux applies, and nothing else.
 
@@ -33,11 +37,26 @@ const (
 const (
 	mcpServerKind = "MCPServer"
 	configMapKind = "ConfigMap"
+	secretKind    = "Secret"
 )
 
-// redirectURIsKey is the ConfigMap key a client registration names its
-// redirect URIs under, one per line.
-const redirectURIsKey = "redirectURIs"
+// The ConfigMap keys a client registration names its redirect URIs under,
+// one per line, and a confidential client's Dex client id under.
+const (
+	redirectURIsKey = "redirectURIs"
+	clientIDKey     = "clientId"
+)
+
+// A client registration labelled confidential is a Dex client of its own,
+// its id the ConfigMap's name unless data.clientId names one.
+const (
+	clientTypeLabel    = "muster.giantswarm.io/client"
+	clientConfidential = "confidential"
+)
+
+// dexClientIDPattern is a confidential client's id: it names the client's
+// Secret (dex-client-<id>), a DNS-1123 name.
+var dexClientIDPattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
 // AgentPlatformExtrasPath is the platform's tree in the installation's
 // management-clusters repository.
@@ -65,10 +84,15 @@ type RegisteredServer struct {
 
 // RegisteredClient is an MCP client registered on the installation with a
 // stable callback, as installation.mcpClients[*] names it: the consumer and
-// its redirect URIs.
+// its redirect URIs; for a confidential client its Dex client id and, where a
+// person listed the client's Secret (dex-client-<id>) under mcpclients/
+// already, that file's path under extras/agent-platform/, which the
+// definition adopts in place.
 type RegisteredClient struct {
 	Name         string   `json:"name"`
 	RedirectURIs []string `json:"redirectURIs"`
+	ClientID     string   `json:"clientId,omitempty"`
+	SecretFile   string   `json:"secretFile,omitempty"`
 }
 
 // Registered is what an installation's record registers with muster beyond
@@ -118,6 +142,7 @@ func readRegistered(ctx context.Context, read Reader, inst Installation) (Regist
 	if err != nil {
 		return reg, err
 	}
+	secretFiles := map[string]string{} // a Secret listed under mcpclients/ → its file under tree
 	for _, dir := range dirs {
 		var parse func(path string, doc *yaml.Node) error
 		switch dir {
@@ -134,6 +159,10 @@ func readRegistered(ctx context.Context, read Reader, inst Installation) (Regist
 			}
 		case mcpClientsDir:
 			parse = func(path string, doc *yaml.Node) error {
+				if name, ok := secretName(doc); ok {
+					secretFiles[name] = strings.TrimPrefix(path, tree+"/")
+					return nil
+				}
 				c, ok, err := registeredClient(doc)
 				if err != nil {
 					return fmt.Errorf("%s: %w", path, err)
@@ -161,7 +190,39 @@ func readRegistered(ctx context.Context, read Reader, inst Installation) (Regist
 			}
 		}
 	}
-	return reg, nil
+	return reg, adoptSecrets(reg.Clients, secretFiles)
+}
+
+// adoptSecrets gives every confidential client the file of its Secret where
+// a person listed it under mcpclients/ (a client registered by hand), and
+// refuses two registrations of one client id.
+func adoptSecrets(clients []RegisteredClient, secretFiles map[string]string) error {
+	seen := map[string]string{}
+	for i, c := range clients {
+		if c.ClientID == "" {
+			continue
+		}
+		if other, ok := seen[c.ClientID]; ok {
+			return fmt.Errorf("the registrations on record: ConfigMaps %q and %q both register the Dex client %q", other, c.Name, c.ClientID)
+		}
+		seen[c.ClientID] = c.Name
+		clients[i].SecretFile = secretFiles[render.DexClientSecretName(c.ClientID)]
+	}
+	return nil
+}
+
+// secretName is the name of a document that is a Secret.
+func secretName(doc *yaml.Node) (string, bool) {
+	var o struct {
+		Kind     string `yaml:"kind"`
+		Metadata struct {
+			Name string `yaml:"name"`
+		} `yaml:"metadata"`
+	}
+	if err := doc.Decode(&o); err != nil || o.Kind != secretKind {
+		return "", false
+	}
+	return o.Metadata.Name, true
 }
 
 // kustomizationDirectories are the local directories a kustomization's
@@ -292,12 +353,16 @@ func registeredServer(doc *yaml.Node) (RegisteredServer, bool, error) {
 
 // registeredClient reads one document as an MCP client registration: false
 // for a document of another kind, an error for a ConfigMap without a name or
-// without redirect URIs (data.redirectURIs, one per line, HTTPS).
+// without redirect URIs (data.redirectURIs, one per line, HTTPS). A ConfigMap
+// with data.clientId, or labelled muster.giantswarm.io/client: confidential,
+// is a confidential Dex client, its id data.clientId or else the ConfigMap's
+// name; an id that cannot name its Secret is an error.
 func registeredClient(doc *yaml.Node) (RegisteredClient, bool, error) {
 	var o struct {
 		Kind     string `yaml:"kind"`
 		Metadata struct {
-			Name string `yaml:"name"`
+			Name   string            `yaml:"name"`
+			Labels map[string]string `yaml:"labels"`
 		} `yaml:"metadata"`
 		Data map[string]string `yaml:"data"`
 	}
@@ -321,5 +386,13 @@ func registeredClient(doc *yaml.Node) (RegisteredClient, bool, error) {
 			return RegisteredClient{}, false, fmt.Errorf("ConfigMap %q: redirect URI %q is not HTTPS", c.Name, uri)
 		}
 	}
+	id := strings.TrimSpace(o.Data[clientIDKey])
+	if id == "" && o.Metadata.Labels[clientTypeLabel] == clientConfidential {
+		id = c.Name
+	}
+	if id != "" && !dexClientIDPattern.MatchString(id) {
+		return RegisteredClient{}, false, fmt.Errorf("ConfigMap %q: client id %q is not a DNS-1123 name; it names the client's Secret %s", c.Name, id, render.DexClientSecretName(id))
+	}
+	c.ClientID = id
 	return c, true, nil
 }

@@ -224,3 +224,62 @@ func TestReadRegisteredRefusals(t *testing.T) {
 		})
 	}
 }
+
+// Confidential client registrations: one naming its Dex client id, one
+// labelled confidential whose id is its name, and the Secret of the latter,
+// registered by hand, listed beside them under mcpclients/.
+const (
+	gatewayClient  = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: production-gateway\n  namespace: agent-platform\ndata:\n  clientId: prod-gateway\n  redirectURIs: |\n    https://gateway.runtime.example/oauth2/callback/a\n"
+	labelledClient = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: staging-gateway\n  namespace: agent-platform\n  labels:\n    muster.giantswarm.io/client: confidential\ndata:\n  redirectURIs: |\n    https://gateway.runtime.example/oauth2/callback/b\n"
+	handSecret     = "apiVersion: v1\nkind: Secret\nmetadata:\n  name: dex-client-staging-gateway\n  namespace: giantswarm\ntype: Opaque\nstringData:\n  secret: ENC[AES256_GCM,data:placeholder]\n" // #nosec G101 -- an encrypted placeholder, not a credential
+)
+
+// A ConfigMap with data.clientId, or labelled confidential, reads as a
+// confidential client with its id; the one whose Secret dex-client-<id> is
+// listed under mcpclients/ carries that file, which the definition adopts;
+// a public client and the Secret itself are no confidential registration.
+func TestReadRegisteredConfidentialClients(t *testing.T) {
+	files := registrationFiles(treeWithRegistrations, map[string]string{},
+		map[string]string{"a-runtime.yaml": hostedClient, "b-gateway.yaml": gatewayClient, "c-staging.yaml": labelledClient, "d-staging-secret.yaml": handSecret})
+	reg, err := readRegistered(context.Background(), treeOf(files), registeringInstallation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []RegisteredClient{
+		{Name: "hosted-agent-runtime", RedirectURIs: []string{"https://agents.runtime.example/identities/oauth2/callback/a", "https://agents.runtime.example/identities/oauth2/callback/b"}},
+		{Name: "production-gateway", RedirectURIs: []string{"https://gateway.runtime.example/oauth2/callback/a"}, ClientID: "prod-gateway"},
+		{Name: "staging-gateway", RedirectURIs: []string{"https://gateway.runtime.example/oauth2/callback/b"}, ClientID: "staging-gateway", SecretFile: mcpClientsDir + "/d-staging-secret.yaml"},
+	}
+	if len(reg.Clients) != len(want) {
+		t.Fatalf("clients: %+v", reg.Clients)
+	}
+	for i, c := range want {
+		got := reg.Clients[i]
+		if got.Name != c.Name || got.ClientID != c.ClientID || got.SecretFile != c.SecretFile || strings.Join(got.RedirectURIs, " ") != strings.Join(c.RedirectURIs, " ") {
+			t.Errorf("client %d: %+v, want %+v", i, got, c)
+		}
+	}
+}
+
+// A confidential client id that cannot name its Secret, and two
+// registrations of one id, are errors naming them.
+func TestReadRegisteredConfidentialRefusals(t *testing.T) {
+	badID := strings.Replace(gatewayClient, "clientId: prod-gateway", "clientId: Prod_Gateway", 1)
+	twice := strings.Replace(labelledClient, "  labels:\n    muster.giantswarm.io/client: confidential\n", "", 1)
+	twice = strings.Replace(twice, "\ndata:\n", "\ndata:\n  clientId: prod-gateway\n", 1)
+	for _, tc := range []struct {
+		name  string
+		files map[string]string
+		want  string
+	}{
+		{"an id that is no DNS-1123 name", registrationFiles(treeWithRegistrations, map[string]string{}, map[string]string{fileC: badID}), `client id "Prod_Gateway" is not a DNS-1123 name`},
+		{"one id registered twice", registrationFiles(treeWithRegistrations, map[string]string{}, map[string]string{fileA: gatewayClient, fileC: twice}), `both register the Dex client "prod-gateway"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := readRegistered(context.Background(), treeOf(tc.files), registeringInstallation)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %v, want it to name %q", err, tc.want)
+			}
+		})
+	}
+}

@@ -58,6 +58,7 @@ features:
       - {id: secrets-kustomization-list, kind: extras, key: agent-platform/secrets/kustomization.yaml}
       - {id: oauth2-proxy-credentials-secret, kind: extras, key: agent-platform/secrets/kagent-oauth2-proxy-credentials.yaml}
       - {id: other-secret-shapes, kind: extras, key: "agent-platform/secrets/ (every other Secret: name, namespace, labels, keys)"}
+      - {id: adopted-client-secrets, kind: extras, key: "agent-platform/mcpclients/ (a confidential MCP client's Secret registered by hand, adopted in its file: name, namespace, keys)"}
       - {id: live-oauth2-proxy-secret-and-flux-sa, kind: live, key: Secret kagent-oauth2-proxy-credentials and ServiceAccount kagent-flux}
   runtime:
     title: Runtime
