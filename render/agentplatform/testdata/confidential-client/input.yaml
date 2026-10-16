@@ -1,0 +1,38 @@
+# A public customer installation on the 4 chart line whose hosted MCP gateway signs people in through
+# confidential Dex clients of its own: the gateway's OAuth credential provider is configured with a client
+# id and secret, Dex its authorization server, and calls muster with the tokens Dex issues for the client.
+# One client is registered anew (its Secret rendered under extras/agent-platform/secrets), one was
+# registered by hand and is adopted (its Secret rendered in its file under mcpclients, where it is on
+# record); a public client with a stable callback stays a public registration with muster. Invented
+# names, placeholder values.
+input:
+  installation:
+    name: heron
+    baseDomain: heron.lakeside.example
+    customer: lakeside
+    provider: capa
+    private: false
+    chartLine: "4"
+    musterClientId: 00000000-0000-4000-8000-000000000003
+    podCertificateRequest: true
+    portalClientSecret: false
+    portals: []
+    federation:
+      hubs: []
+      registryHub: gopher
+      targets: []
+    mcpServers: []
+    mcpClients:
+      - name: hosted-agent-runtime
+        redirectURIs:
+          - https://agents.runtime.example/identities/oauth2/callback/00000000-0000-4000-8000-00000000000a
+      - name: production-gateway
+        clientId: production-gateway
+        redirectURIs:
+          - https://gateway.runtime.example/oauth2/callback/00000000-0000-4000-8000-00000000000b
+      - name: staging-gateway
+        clientId: staging-gateway
+        secretFile: mcpclients/dex-client-staging-gateway.yaml
+        redirectURIs:
+          - https://gateway.runtime.example/oauth2/callback/00000000-0000-4000-8000-00000000000c
+secrets: {}

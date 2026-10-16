@@ -883,6 +883,9 @@ func (in *Input) checkRecord() error {
 	if in.singletonsOnDemand() && in.Installation.Provider != providerCAPA {
 		return refuse(fmt.Sprintf("%s is on-demand, Karpenter's capacity type, and a %s installation runs no Karpenter the definition knows; the pods would stay Pending", describe("scheduling.singletonsCapacity"), in.Installation.Provider))
 	}
+	if err := in.checkConfidentialClients(); err != nil {
+		return err
+	}
 	if len(in.MCPBackends) > 0 && in.Installation.ChartLine != lineFour {
 		return refuse(fmt.Sprintf("%s is the 4 chart line's network policy, and this installation runs the %s line; the record's chart line decides", describe("networkPolicy.mcpBackends"), in.Installation.ChartLine))
 	}
