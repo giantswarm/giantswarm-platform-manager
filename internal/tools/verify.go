@@ -8,6 +8,8 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 
+	"github.com/giantswarm/mcp-toolkit/tooldesc"
+
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
@@ -15,8 +17,9 @@ import (
 
 func verifyCapabilityTool() mcp.Tool {
 	return mcp.NewTool(ToolVerifyCapability,
-		mcp.WithDescription("Read-only. Answers how one installation compares with a capability's definition: its features with one mark each (as defined, planned, differs by input, drifted), every difference named by file, path and the person's input that drives it (a choice the schema names, or one typed for this call) — or the planned change it is: a key the fleet still carries that the definition does not render, named by the capability's removals — or drift, a leaf the installation's facts derive included — and the plan a commit would write. The inputs are the installation's record, what the definition reads back from its files and your typed inputs; the live dimensions are verify_installation's."),
-		mcp.WithReadOnlyHintAnnotation(true),
+		tooldesc.Describe("Compare an installation's repositories with a capability's definition, each feature as defined, planned or drifted.",
+			"Names every difference by file and path and the input that drives it, a planned change a newer definition removes, or drift, and the plan a commit would write. The running installation is verify_installation's."),
+		readOnly(),
 		mcp.WithString(ArgInstallation, mcp.Required(), mcp.Description("The installation to verify, by name.")),
 		mcp.WithString(ArgCapability, mcp.Description(capabilityArgDescription), mcp.Enum(installations.CapabilityNames()...)),
 		mcp.WithObject(ArgInputs, mcp.Description(inputsArgDescription)),

@@ -9,6 +9,8 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
+	"github.com/giantswarm/mcp-toolkit/tooldesc"
+
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 )
 
@@ -36,6 +38,9 @@ const (
 const ApplyRefusal = `mode "apply" is refused: every target of this manager is GitOps-owned, and a change applied without its commit is drift the next reconcile reverts. ` +
 	`Use mode "commit" (a pull request opened as you) or dryRun: true for the rendered change`
 
+// writeSuffix closes every write tool's description.
+const writeSuffix = ` Writes as you: dryRun: true answers the plan and writes nothing; mode: "commit" opens the pull requests through an Action and its approval — wait for the answer.`
+
 // ErrNotImplemented marks a commit path a later slice delivers.
 var ErrNotImplemented = errors.New("not implemented yet")
 
@@ -43,8 +48,12 @@ var ErrNotImplemented = errors.New("not implemented yet")
 // dryRun and mode, refuses apply before the tool runs, and dispatches to
 // DryRun or Commit.
 type WriteTool struct {
-	Name        string
-	Description string
+	Name string
+	// Summary and Details are the tool's description (tooldesc.Describe);
+	// Details gets writeSuffix appended.
+	Summary, Details string
+	// Destructive marks a write that removes what an installation runs.
+	Destructive bool
 	// Options are the tool's own arguments (mcp.WithString and friends).
 	Options []mcp.ToolOption
 	// DryRun renders the change and writes nothing.
@@ -56,13 +65,10 @@ type WriteTool struct {
 // registerWrite adds wt to s with the framework's arguments and guard.
 func registerWrite(s *mcpserver.MCPServer, wt WriteTool) {
 	opts := []mcp.ToolOption{
-		mcp.WithDescription("WRITES (as you, with your own GitHub token through the App giantswarm-platform-manager; your effective rights are your own ∩ the App's). " + wt.Description +
-			" Every write takes dryRun and mode: dryRun: true returns the rendered change and writes nothing; " +
-			`mode: "commit" opens the pull request as you — wait for the one answer. ` +
-			`mode: "apply" is refused for every write tool (every target is GitOps-owned), and mode is required unless dryRun is true.`),
-		mcp.WithBoolean(ArgDryRun, mcp.Description("Render the change and write nothing (default false).")),
-		mcp.WithString(ArgMode, mcp.Description(`How the change lands: "commit" (a pull request as you). "apply" is refused.`), mcp.Enum(string(ModeCommit))),
-		mcp.WithDestructiveHintAnnotation(false),
+		tooldesc.Describe(wt.Summary, wt.Details+writeSuffix),
+		mcp.WithBoolean(ArgDryRun, mcp.Description("Answer the plan and write nothing (default false).")),
+		mcp.WithString(ArgMode, mcp.Description(`"commit": open the pull requests as you through an Action. Required unless dryRun.`), mcp.Enum(string(ModeCommit))),
+		mcp.WithDestructiveHintAnnotation(wt.Destructive),
 		mcp.WithIdempotentHintAnnotation(true),
 	}
 	opts = append(opts, wt.Options...)

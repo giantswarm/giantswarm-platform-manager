@@ -9,6 +9,8 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
+	"github.com/giantswarm/mcp-toolkit/tooldesc"
+
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 )
@@ -44,13 +46,15 @@ func (t *Tools) actionsInfo() ActionsInfo {
 
 func (t *Tools) registerActionTools(s *mcpserver.MCPServer) {
 	s.AddTool(mcp.NewTool(ToolGetAction,
-		mcp.WithDescription("Read-only. One Action record by name — an enablement or reconcile a person committed: the actor, the installations, the capability, the inputs, the pull requests, the approval, the rollout, the probes and the result. The record is a custom resource on the hub ("+actions.Group+"/"+actions.Version+" "+actions.Kind+"), read with the manager's own ServiceAccount. The record follows GitHub, read as you (at most once a minute per action): a pull request merged outside "+ToolMergeAction+" is recorded merged with its commit, time and mergedBy and the action rolls out as after the merge (the approval recorded as merged without approval by whom), one closed unmerged fails the action naming it, and a fileset gone from the default branch again moves the action to removed, naming the objects left on the installation (orphans) for a person to delete."),
-		mcp.WithReadOnlyHintAnnotation(true), mcp.WithIdempotentHintAnnotation(true),
+		tooldesc.Describe("One Action record by name: actor, installations, capability, inputs, pull requests, approval, rollout and result.",
+			"The record follows GitHub, read as you: a pull request merged or closed outside this manager is recorded, and a fileset gone from the default branch moves the action to removed, naming the objects left for a person to delete."),
+		readOnly(),
 		mcp.WithString(ArgName, mcp.Required(), mcp.Description("The Action's name.")),
 	), t.getAction)
 	s.AddTool(mcp.NewTool(ToolListActions,
-		mcp.WithDescription("Read-only. The Action records on the hub, newest first, each following GitHub as "+ToolGetAction+" does; narrow with installation and capability."),
-		mcp.WithReadOnlyHintAnnotation(true), mcp.WithIdempotentHintAnnotation(true),
+		tooldesc.Describe("List the Action records on the hub, newest first; narrow with installation and capability.",
+			"Each follows GitHub as get_action does."),
+		readOnly(),
 		mcp.WithString(ArgInstallation, mcp.Description("Only actions that include this installation.")),
 		mcp.WithString(ArgCapability, mcp.Description("Only actions of this capability."), mcp.Enum(installations.CapabilityNames()...)),
 	), t.listActions)

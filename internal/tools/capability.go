@@ -81,24 +81,24 @@ const (
 
 // capabilityArgDescription describes the capability argument of the write
 // tools and the verify: every registered definition.
-const capabilityArgDescription = `The capability (default agent-platform): one of the definitions get_info lists, rendered from its own schema and compared against its own files.`
+const capabilityArgDescription = `The capability (default agent-platform); get_info lists the definitions and their input schemas.`
 
 // inputsArgDescription describes the inputs argument of the write tools and
 // the verify: the person's layer over the record and the read-back.
-const inputsArgDescription = `Your typed inputs of the definition (get_info lists the schema), laid over the schema's defaults, the facts on record (installation.*) and what the definition reads back from the files on record. An unknown key, and a required choice no layer holds, refuse with its name. Never a secret value.`
+const inputsArgDescription = `Your typed inputs of the definition (get_info lists the schema), laid over its defaults and what is on record. An unknown key is refused. No secrets.`
 
 // stringItems is the schema of an array-of-strings argument.
 func stringItems() map[string]any { return map[string]any{"type": "string"} }
 
 func capabilityOptions() []mcp.ToolOption {
 	return []mcp.ToolOption{
-		mcp.WithString(ArgInstallation, mcp.Description("The one installation to render, by name: a capability not on record renders as a fresh enable, one on record as the changes to it; either selects the 4 chart line and writes agentPlatform.kagentApiV2 into the record (installations/<name>/config.yaml.patch, one more file of the configs pull request) where the record selects 3 and the fleet policy runs the organisation on the 4 line or grants it a component the 4 line alone carries; the answer says why a commit would be refused.")),
-		mcp.WithArray(ArgInstallations, mcp.Description("The set to render; empty with no installation is every installation of the registry. A set answers each installation's plan rolled up to what differs — the files that change or carry a finding, the generated values a commit writes, rotates or refuses, each feature's dimensions that differ with their mark and reason, none of the evidence; the diff and the comparison's counts cover the rest — and no file content unless content is true; one installation's dry run (installation, alone) carries it all. Installations without the capability on record are skipped, listed with the reason: a fresh enable is enable_capability with installation, alone."), mcp.Items(stringItems())),
-		mcp.WithArray(ArgOrder, mcp.Description("The rollout order of the set when the default (Giant Swarm's test installations, the hub, the customers) is not the one wanted: every rendered installation of the set exactly once."), mcp.Items(stringItems())),
+		mcp.WithString(ArgInstallation, mcp.Description("The one installation to render, by name: a fresh enable, or the changes to one on record. The answer says why a commit would be refused.")),
+		mcp.WithArray(ArgInstallations, mcp.Description("The set to render (empty, with no installation: every one): each plan rolled up to what differs. Without the capability: skipped."), mcp.Items(stringItems())),
+		mcp.WithArray(ArgOrder, mcp.Description("The set's rollout order when not the default (test installations, the hub, the customers): every installation exactly once."), mcp.Items(stringItems())),
 		mcp.WithString(ArgCapability, mcp.Description(capabilityArgDescription), mcp.Enum(installations.CapabilityNames()...)),
 		mcp.WithObject(ArgInputs, mcp.Description(inputsArgDescription)),
-		mcp.WithBoolean(ArgContent, mcp.Description("Include the rendered content of every file and the file on record (default: true for one installation, false for a set); false answers paths and changes only. An answer above 1 MiB is refused with its size: ask for less.")),
-		mcp.WithObject(ArgSecrets, mcp.Description("mode commit only: the secret values the plan's suppliedSecrets name, by field; over a set (the wave) <field> goes to every installation that asks for it and <installation>/<field> to that one alone. They land inside the encrypted files and nowhere else — not in the Action, not in a log, not in an answer.")),
+		mcp.WithBoolean(ArgContent, mcp.Description("Include each file's rendered and recorded content (default: true for one installation, false for a set). Above 1 MiB is refused.")),
+		mcp.WithObject(ArgSecrets, mcp.Description("mode commit only: the values the plan's suppliedSecrets name, by field (<installation>/<field> for one of a set). Never recorded or answered.")),
 		mcp.WithArray(ArgRotate, mcp.Description(rotateArgDescription), mcp.Items(stringItems())),
 		mcp.WithBoolean(ArgForceJoin, mcp.Description(forceJoinArgDescription)),
 		mcp.WithString(ArgReason, mcp.Description(reasonArgDescription)),
@@ -107,21 +107,19 @@ func capabilityOptions() []mcp.ToolOption {
 
 // forceJoinArgDescription describes the forceJoin argument of the write
 // tools: the way past the join refusal.
-const forceJoinArgDescription = `Proceed with a reconcile that takes off an installation's muster what it serves beyond the shared defaults (the plan's join: the broker's exchange targets, the identity providers and the MCP servers its agent-platform values list, the public-registration redirect URIs that move to another installation of the set). ` +
-	`A reconcile of an installation as a target of a hub drops those, and a commit is refused (commitRefused) while the installation's muster still serves in-cluster servers of its own — a registry of its own, which the join takes from everyone reaching it there. With forceJoin true the dry run carries the warning (join.forced) and the commit proceeds.`
+const forceJoinArgDescription = `Proceed although the reconcile takes MCP servers, identity providers or redirects off an installation's muster (the plan's join).`
 
 // reasonArgDescription describes the reason argument of the write tools.
-const reasonArgDescription = `mode commit only, required: why you make the change, in a sentence a teammate judges it by — the team's review shows it above what changes, and so do the notices once it is applied. Recorded on the Action and in the pull requests.`
+const reasonArgDescription = `mode commit only, required: why, in a sentence a teammate judges the change by; the team's review and the pull requests show it.`
 
 // rotateArgDescription describes the rotate argument of the write tools.
-const rotateArgDescription = `Generated values to rotate on request, by name as the plan lists them (generatedSecrets[].name, e.g. <installation>-muster-valkey-password). ` +
-	`The dry run lists each with rotates and forcedBy "request", frozenIn the files on record that hold it, and those files as update; the commit draws a new value, rewrites every file that holds it — the other values of a rewritten file rotate with it — and draws the credentials revision of the component that owns it (forcedBy "request" as well), so every workload that reads it restarts. ` +
-	`A name applies to each installation of the set whose plan lists it (the names carry the installation); a name no plan of the set lists is refused, and so is one frozen in a file with other owners, before anything is written.`
+const rotateArgDescription = `Generated values to rotate, by name as the plan lists them (generatedSecrets[].name); each file holding one is rewritten, its workloads restart.`
 
 func (t *Tools) enableCapabilityTool() WriteTool {
 	return WriteTool{Name: ToolEnableCapability,
-		Description: "Enable a platform capability on an installation, or a set: answers the plan a commit would write — the files with their change, the pull requests in order, the secrets by name, the Dex clients, the customer's actions, the probes — with the comparison's marks. The inputs are the record, what the definition reads back and your typed inputs. No secret value ever appears in a dry run.",
-		Options:     capabilityOptions(),
+		Summary: "Enable a platform capability on an installation: the plan of files, pull requests and secrets a commit writes.",
+		Details: "Dry-run first: the plan names the files with their change, the pull requests in order, the generated secrets by name, the Dex clients, the secrets you supply and the customer's actions. No secret value ever appears in a dry run. Over installations that have it: reconcile_capability; to take it off: disable_capability.",
+		Options: capabilityOptions(),
 		DryRun: func(ctx context.Context, args map[string]any) (any, error) {
 			return t.capabilityDryRun(ctx, ToolEnableCapability, args)
 		},
@@ -132,8 +130,9 @@ func (t *Tools) enableCapabilityTool() WriteTool {
 
 func (t *Tools) reconcileCapabilityTool() WriteTool {
 	return WriteTool{Name: ToolReconcileCapability,
-		Description: "Reconcile a platform capability over a set of installations (empty: every one of the registry): the same plan as enable_capability per installation, every file compared with the repository as it is. A plan whose files are all unchanged is the definition matching the installation. Installations without the capability on record are skipped and listed: a wave reconciles what is on record, a fresh enable is enable_capability alone.",
-		Options:     capabilityOptions(),
+		Summary: "Reconcile a capability over the installations that have it (empty: all): enable_capability's plan, per installation.",
+		Details: "A plan whose files are all unchanged means the installation matches the definition. Installations without the capability are skipped and listed; a fresh enable is enable_capability.",
+		Options: capabilityOptions(),
 		DryRun: func(ctx context.Context, args map[string]any) (any, error) {
 			return t.capabilityDryRun(ctx, ToolReconcileCapability, args)
 		},

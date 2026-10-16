@@ -15,6 +15,8 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
+	"github.com/giantswarm/mcp-toolkit/tooldesc"
+
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/approvals"
@@ -170,11 +172,12 @@ func (t *Tools) person(token string) (*gh.Client, error) {
 func (t *Tools) MCPServer() *mcpserver.MCPServer {
 	s := mcpserver.NewMCPServer(ToolPrefix, t.d.Version,
 		mcpserver.WithToolCapabilities(false),
-		mcpserver.WithInstructions("Giant Swarm's platform manager: enables, reconciles and verifies platform capabilities on installations as the person calling. Call get_info first: it reports who you are to this server (the GitHub login of the token muster put on the call — your own authorization of the App giantswarm-platform-manager), the capability definitions and their input schemas, the write modes and the approval channel. list_installations reads the installations registry and every installation's repositories with your token, now, and answers the state of each capability per installation. enable_capability and reconcile_capability with dryRun: true render an installation (or a set) through the capability's definition and answer the plan: files, pull requests in dependency order, generated secrets by name, Dex clients, the secrets you supply, customer actions and probes. disable_capability is enable's mirror on one installation: with dryRun: true it names every record entry and GitOps file it removes, what stays for the capabilities that remain, the references that refuse the removal (a sibling's federation, a portal entry, a peered pairing) and, as a checklist, the cluster objects Flux will not prune; mode commit removes them through the same Action, approval and merge as an enable. get_action and list_actions read the Action records on the hub. An action in mode commit asks the capability-owning team's approval through a Team review in Slack: approve_action and deny_action are its buttons (called as the clicking member; the actor cannot approve their own action), merge_action merges the approved pull requests as the actor once their checks are green and moves the action to rolling out. verify_capability compares one installation against the definition — the repositories' files against the render from the inputs on record, the anonymous probes — grouped into features with one mark each; its live dimensions are verify_installation's, which reads the installation through muster as you, with the platform identity muster forwards next to your GitHub token (auth.forwardIdentity); watch_action follows a merged action's rollout the same way. Every write tool takes dryRun and mode; the only write mode is commit — a pull request to the installation's GitOps repository opened as you — and apply is refused: every target of this manager is GitOps-owned."),
+		mcpserver.WithInstructions("Giant Swarm's platform manager: enables, reconciles, disables and verifies platform capabilities on installations as the person calling. Call get_info first. list_installations shows each capability's state per installation. enable_capability, reconcile_capability and disable_capability with dryRun: true answer the plan; mode commit opens pull requests to the installation's GitOps repositories as you, through an Action: the capability-owning team approves it in a Slack Team review (approve_action, deny_action), the actor merges it (merge_action) and watch_action follows the rollout. verify_capability compares an installation's repositories with a definition, verify_installation the running installation through muster. get_action and list_actions read the Action records."),
 	)
 	s.AddTool(mcp.NewTool(ToolGetInfo,
-		mcp.WithDescription("Read-only. Answers who you are to this server, the capability definitions with their input schemas, the write modes and tools, the approval channel, where the Action records live, and the live tools with the identity forwarding this call carried. Call first."),
-		mcp.WithReadOnlyHintAnnotation(true),
+		tooldesc.Describe("Who you are to this server, the capability definitions with their input schemas, and how writes are approved.",
+			"Call it first. Also the write tools, where the Action records live, and the identity forwarding this call carried for the live tools."),
+		readOnly(),
 	), t.getInfo)
 	s.AddTool(listInstallationsTool(), t.listInstallations)
 	s.AddTool(verifyCapabilityTool(), t.verifyCapability)
@@ -185,6 +188,16 @@ func (t *Tools) MCPServer() *mcpserver.MCPServer {
 		registerWrite(s, wt)
 	}
 	return s
+}
+
+// readOnly annotates a tool that writes nothing. Without the destructive and
+// idempotent hints mcp-go reports a read as destructive.
+func readOnly() mcp.ToolOption {
+	return func(t *mcp.Tool) {
+		mcp.WithReadOnlyHintAnnotation(true)(t)
+		mcp.WithDestructiveHintAnnotation(false)(t)
+		mcp.WithIdempotentHintAnnotation(true)(t)
+	}
 }
 
 // Info is get_info's result.

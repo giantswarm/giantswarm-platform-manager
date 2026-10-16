@@ -9,6 +9,8 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
+	"github.com/giantswarm/mcp-toolkit/tooldesc"
+
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
@@ -95,11 +97,12 @@ func (t *Tools) registerLiveTools(s *mcpserver.MCPServer) {
 	}
 	t.registerWatchTool(s)
 	s.AddTool(mcp.NewTool(ToolVerifyInstallation,
-		mcp.WithDescription("Verify the running installation against a capability's definition, as you: the definition's probes — HelmReleases Ready, workloads Available, the Secrets and MCPServer objects present, conditions, logs, the live values against the render from the inputs on record — read through muster's kubernetes tools with the platform ID token muster forwards for you (auth.forwardIdentity), so what you may read decides what is checked: an object you may not read is reported as not checked, forbidden for you, never as a failure of the installation; an installation you are not connected to in muster answers with muster's own sign-in. Every read is bounded (20 s each, 2 minutes in all): a read that does not answer is reported as not checked naming what did not answer, and the rest is marked, so the call answers what it has. Grouped into the definition's features with one mark each — as defined, differs by input, drifted — and expanded to its dimensions; the repository dimensions read not checked here (verify_capability). The result is recorded on the newest action of the installation and feeds list_installations: drifted, or waiting for the customer when the only red dimension is the one the customer's action holds up."),
-		mcp.WithIdempotentHintAnnotation(true),
+		tooldesc.Describe("Verify the running installation against a capability's definition through muster, as you: its probes and objects.",
+			"What you may read decides what is checked: an object you may not read is not checked, never a failure; not connected in muster, it answers muster's sign-in. Reads are bounded (2 minutes in all), and what did not answer is not checked. The result is recorded on the installation's newest action and feeds list_installations. The repositories are verify_capability's."),
+		mcp.WithIdempotentHintAnnotation(true), mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithString(ArgInstallation, mcp.Required(), mcp.Description("The installation to verify, by name: the management cluster muster reads for you.")),
 		mcp.WithString(ArgCapability, mcp.Description(capabilityArgDescription), mcp.Enum(installations.CapabilityNames()...)),
-		mcp.WithObject(ArgInputs, mcp.Description("The inputs object of "+ToolVerifyCapability+"'s answer (source, values, readBack, kept), so both halves render from the same inputs and hold the live objects against the entries the files on record keep; left out, the newest action's inputs on record; without either the live dimensions read not checked.")),
+		mcp.WithObject(ArgInputs, mcp.Description("The inputs object of "+ToolVerifyCapability+"'s answer, so both render from the same inputs; default: the newest action's on record.")),
 	), t.verifyInstallationLive)
 }
 

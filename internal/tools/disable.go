@@ -68,13 +68,15 @@ const disableCommitNext = `mode "commit" opens the pull requests above as you, o
 
 func (t *Tools) disableCapabilityTool() WriteTool {
 	return WriteTool{Name: ToolDisableCapability,
-		Description: "Disable a platform capability on one installation, the mirror of enable_capability: answers every file a commit deletes or edits, the files that stay because another capability on record renders them, the objects the fleet's Kustomization does not prune as a checklist in deletion order, and what still depends on the capability (a federation, a portal, a value paired with another installation) — a commit is refused while one stands. Mode commit opens the pull requests as you through the action and its approval, like enable_capability.",
+		Summary:     "Disable a platform capability on one installation: removes its files through an Action, approved like an enable.",
+		Details:     "Dry-run first: it names every file a commit deletes or edits, the files another capability keeps, and the cluster objects Flux does not prune, as a checklist in deletion order for a person. A commit is refused while something depends on the capability (a federation, a portal entry, a paired value).",
+		Destructive: true,
 		Options: []mcp.ToolOption{
 			mcp.WithString(ArgInstallation, mcp.Required(), mcp.Description("The one installation to take the capability off, by name.")),
 			mcp.WithString(ArgCapability, mcp.Description(capabilityArgDescription), mcp.Enum(installations.CapabilityNames()...)),
 			mcp.WithBoolean(ArgContent, mcp.Description("Include each edited file as the commit writes it and as it is on record (default: true).")),
 			mcp.WithString(ArgReason, mcp.Description(reasonArgDescription)),
-			mcp.WithArray(ArgKeep, mcp.Description("Files the disable keeps, by path or repository:path, each as it is with the kustomization entries that name it: a file under the capability's directories a person wants to stay. The definition's marker always goes."), mcp.Items(stringItems())),
+			mcp.WithArray(ArgKeep, mcp.Description("Files the disable keeps, by path or repository:path, with the kustomization entries naming them; the definition's marker always goes."), mcp.Items(stringItems())),
 		},
 		DryRun: func(ctx context.Context, args map[string]any) (any, error) {
 			out, _, err := t.disablePlan(ctx, args)
