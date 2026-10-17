@@ -8,6 +8,8 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 
+	"github.com/giantswarm/mcp-toolkit/tooldesc"
+
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 )
@@ -66,12 +68,12 @@ func statesInfo() StatesInfo {
 // listInstallationsTool is the tool as registered.
 func listInstallationsTool() mcp.Tool {
 	return mcp.NewTool(ToolListInstallations,
-		mcp.WithDescription("Read-only, as you. Every installation of the registry — the installations catalog and the Dev Portal's app-config, read with your GitHub token now — with, per capability, its state: 'enabled' (the capability's fileset is on record — its marker in the installation's repository, whoever put it there: the manager, or the installation's people by hand) or 'not enabled'; 'pending approval', 'ready to merge' (no Team review needed: the actor merges), 'rolling out', 'waiting for the customer', 'drifted' and 'failed' once the Action record exists — with the inputs on record (the installation facts from the registry and its config.yaml.patch) and the last action; per installation whether the agent platform's workspaces are on (workspaces.enabled, with the workspace-manager's baseUrl and clientId where the agent-platform values on record name them; off where the platform is not on record). Every repository is read as you at call time — its listing validated with GitHub on every call, its files by content from a shared cache — so a change on a default branch is in the next call's answer. An installation whose repositories you cannot read is listed as unreadable with the reason. Narrow with installations (names) or customer to read less; summary: true answers the states, the workspaces and the last actions alone, without the record, the inputs on record, the portals and the federation facts — a fraction of the reads, for an overview."),
-		mcp.WithReadOnlyHintAnnotation(true),
-		mcp.WithIdempotentHintAnnotation(true),
+		tooldesc.Describe("List every installation with each capability's state: enabled, pending approval, rolling out, drifted, failed, …",
+			"Read with your GitHub token now: an installation whose repositories you cannot read is listed as unreadable with the reason. Also each installation's inputs on record, last action and whether agent-platform workspaces are on. Narrow with installations or customer; summary: true answers states, workspaces and last actions alone, a fraction of the reads."),
+		readOnly(),
 		mcp.WithArray(ArgInstallations, mcp.Description("Installation names to answer for; empty is every installation of the registry."), mcp.Items(stringItems())),
 		mcp.WithString(ArgCustomer, mcp.Description("Answer only for this customer's installations, as the catalog names the customer.")),
-		mcp.WithBoolean(ArgSummary, mcp.Description("The states, the workspaces and the last actions alone: no record, inputs on record, portals or federation facts. For an overview; the default answer carries them all.")),
+		mcp.WithBoolean(ArgSummary, mcp.Description("Answer states, workspaces and last actions alone, without the record and inputs: an overview (default false).")),
 	)
 }
 

@@ -37,6 +37,7 @@ const (
 	shapePortalHive             = "portal-hive"
 	shapeCustomerSibling        = "customer-sibling"
 	shapeWorkspaces             = "workspaces"
+	shapeConfidentialClient     = "confidential-client"
 )
 
 // The keys of the choices' documents the refusal cases build.
@@ -70,7 +71,7 @@ const (
 )
 
 // shapes are the installation shapes, in the order the goldens are rendered.
-var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned, shapeGiantswarmSlackApp, shapeGiantswarmSlackAppPub, shapeHubPrivateTarget, shapeMultiClusterAggregator, shapeSecondHub, shapeHandKeptPortal, shapeRegisteredServers, shapePortalGitHubGrant, shapePortalHive, shapeCustomerSibling, shapeWorkspaces}
+var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned, shapeGiantswarmSlackApp, shapeGiantswarmSlackAppPub, shapeHubPrivateTarget, shapeMultiClusterAggregator, shapeSecondHub, shapeHandKeptPortal, shapeRegisteredServers, shapePortalGitHubGrant, shapePortalHive, shapeCustomerSibling, shapeWorkspaces, shapeConfidentialClient}
 
 func loadInput(t *testing.T, shape string) (map[string]any, map[string]string) {
 	t.Helper()
@@ -358,7 +359,9 @@ func TestSecretFilesCarryNoValues(t *testing.T) {
 		}
 		for repo, files := range result.Files {
 			for path, f := range files {
-				if !strings.Contains(path, "secret") && !strings.Contains(path, "credential") {
+				// A hand-registered confidential client's Secret is adopted in the file the person named.
+				adopted := strings.Contains(path, "/extras/agent-platform/mcpclients/") && bytes.Contains(f.Content, []byte("kind: Secret"))
+				if !strings.Contains(path, "secret") && !strings.Contains(path, "credential") && !adopted {
 					if len(f.Generated) > 0 {
 						t.Errorf("%s: %s carries generated placeholders but is not named as a secret file", repo, path)
 					}

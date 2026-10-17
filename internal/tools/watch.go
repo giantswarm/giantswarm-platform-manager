@@ -11,6 +11,8 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
+	"github.com/giantswarm/mcp-toolkit/tooldesc"
+
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
@@ -62,8 +64,9 @@ type WatchResult struct {
 
 func (t *Tools) registerWatchTool(s *mcpserver.MCPServer) {
 	s.AddTool(mcp.NewTool(ToolWatchAction,
-		mcp.WithDescription("The rollout watch of an action whose pull requests are merged, as you — an action rolling out, and one that failed on a red probe, which the watch re-reads once the cause is fixed: green, the stage is enabled and the wave goes on from it; still red, it stays failed, the probe named. It reads the Flux objects the definition names on the installation rolling out — the HelmReleases with their Ready condition and revision — through muster's kubernetes tools with the token muster forwarded, and answers the picture. Once every one is Ready it runs the definition's probes (the live dimensions as you, the anonymous HTTP probes direct) and the stage moves to enabled (all green), waiting for the customer (the customer's own action is the only thing open) or failed (a probe is red, named); a HelmRelease whose last release Flux reports failed (Released=False after a failed install or upgrade, or Stalled=True) never becomes Ready on its own, so the stage is failed on its probe with Flux's verdict named, not rolling out; a value a definition released since the commit renders and the installation lacks is a planned change of that newer definition, listed, never red. The report — pull requests, rollout per object, each probe, the customer actions still open and the ones the installation reads done — goes into the review's thread and onto the Action. Nothing is waited for or hurried: call again while it is rolling out. On a wave the stage in flight is watched; the next stage's pull requests are merged by the actor's "+ToolMergeAction+" once it is enabled. An action waiting for the customer or enabled is re-read: the customer's action done flips it to enabled. Before it reads the installation, the watch reads with your GitHub token whether the stage's pull requests are still on the default branch — every file a merge changed back to its content before the merge is a revert (healthy objects on the previous values read as defined, so the probes cannot tell): the action moves to reverted, naming the reverting commit and its pull request, never enabled, the thread told; its actor withdraws it with "+ToolDenyAction+". A read that fails decides nothing. Anyone signed in may watch; the reads are yours."),
-		mcp.WithIdempotentHintAnnotation(true),
+		tooldesc.Describe("Follow a merged action's rollout on the installation, as you. Call again while it is rolling out.",
+			"Reads the HelmReleases through muster, then runs the probes: the stage moves to enabled, waiting for the customer, or failed with the red probe named; a failed one is re-read once the cause is fixed. On a wave the actor merges the next stage with "+ToolMergeAction+" once one is enabled. A reverted stage moves the action to reverted; its actor withdraws it with "+ToolDenyAction+". The report goes into the review's thread. Anyone signed in may watch."),
+		mcp.WithIdempotentHintAnnotation(true), mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithString(ArgAction, mcp.Required(), mcp.Description("The Action's name.")),
 	), t.watchActionLive)
 }

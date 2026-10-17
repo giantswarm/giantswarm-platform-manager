@@ -9,6 +9,7 @@ import (
 
 	"github.com/giantswarm/gitops-commit/commit"
 	"github.com/giantswarm/gitops-commit/provenance"
+	"github.com/giantswarm/mcp-toolkit/tooldesc"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
@@ -54,19 +55,22 @@ type MergeResult struct {
 
 func (t *Tools) registerApprovalTools(s *mcpserver.MCPServer) {
 	s.AddTool(mcp.NewTool(ToolApproveAction,
-		mcp.WithDescription("The Approve button of an action's Team review, called as the clicking member: submits an approving review on every pull request of the action with your own GitHub token through the App "+ToolPrefix+" and records the decision on the Action. The actor of the action is refused — a second person decides. The merge follows as the actor ("+ToolMergeAction+")."),
+		tooldesc.Describe("Approve an action's pull requests as a member of the owning team: the Team review's Approve button. Not your own.",
+			"Submits an approving review on every pull request of the action as you and records the decision on the Action. The actor then merges with "+ToolMergeAction+"."),
 		mcp.WithIdempotentHintAnnotation(true), mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithString(ArgAction, mcp.Required(), mcp.Description("The Action's name (the action id of the review).")),
 	), t.approveAction)
 	s.AddTool(mcp.NewTool(ToolDenyAction,
-		mcp.WithDescription("The Deny button of an action's Team review, called as the clicking member (the actor included: a denial withdraws the action): records the reason on the Action, closes every pull request of the action as you and moves the Action to denied. A failed action whose approval is not decided is denied the same way and stays failed. A merged action is withdrawn by its actor alone, with the reason: one failed after its approval (a stage failed and rolled back, a wave stopped on a red probe) or reverted (the watch read a merged pull request reverted on the default branch) — and one that still reads rolling out, waiting for the customer, enabled or drifted, once the revert is read now with your GitHub token (none found: nothing was taken back, refused). Any pull request still open is closed, the Action moves to withdrawn with the reason, the approval as decided, and the review's thread is told."),
+		tooldesc.Describe("Deny a pending action, or withdraw your own merged one: closes its open pull requests and records the reason.",
+			"The Deny button of the Team review; any member may deny, the actor included, and a failed action whose approval is undecided is denied the same way. A merged action is withdrawn by its actor alone, once it failed or was reverted, or a revert is found now on the default branch; with nothing taken back it is refused. The review's thread is told."),
 		mcp.WithIdempotentHintAnnotation(true), mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithString(ArgAction, mcp.Required(), mcp.Description("The Action's name.")),
 		mcp.WithString(ArgReason, mcp.Required(), mcp.Description("Why the action is denied or withdrawn; recorded on the Action and, for a withdrawal, in the review's thread.")),
 	), t.denyAction)
 	s.AddTool(mcp.NewTool(ToolMergeAction,
-		mcp.WithDescription("Merge the pull requests of an approved action as its actor, in dependency order, each once its checks are green (WRITES as you, with your own GitHub token through the App "+ToolPrefix+"); the Action moves to rolling out and the outcome is posted into the review's thread. Only the actor merges; a call before the approval answers what the action waits for, posts the review when none is up, and re-posts it when the gateway no longer holds it. A pull request whose checks are pending stops the call: call again."),
-		mcp.WithIdempotentHintAnnotation(true), mcp.WithDestructiveHintAnnotation(false),
+		tooldesc.Describe("Merge an approved action's pull requests as its actor, in dependency order, each once its checks are green.",
+			"The Action moves to rolling out and the review's thread is told; follow it with "+ToolWatchAction+". Before the approval it answers what the action waits for and posts the review if none is up. Pending checks stop the call: call again."),
+		mcp.WithIdempotentHintAnnotation(true), mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithString(ArgAction, mcp.Required(), mcp.Description("The Action's name.")),
 	), t.mergeAction)
 }

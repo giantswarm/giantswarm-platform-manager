@@ -147,7 +147,7 @@ func newStack(t *testing.T) *stack {
 		},
 		Approvals: approvals.Config{GatewayURL: st.gateway.URL, Team: reviewTeam, Channel: reviewChannel, NoticeChannel: noticeChannel, StandupChannel: standupChannel, TokenFile: tokenFile},
 		Registry:  registrySources})
-	ts.AddWrite(tools.WriteTool{Name: testWrite, Description: "A fixture write.",
+	ts.AddWrite(tools.WriteTool{Name: testWrite, Summary: "A fixture write.",
 		DryRun: func(_ context.Context, args map[string]any) (any, error) {
 			return map[string]any{"rendered": true, "args": args}, nil
 		},

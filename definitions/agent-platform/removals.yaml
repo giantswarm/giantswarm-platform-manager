@@ -270,7 +270,8 @@ removals:
     kind: not-platform
     reason: >-
       Kept: extras/agent-platform/mcpclients holds the MCP clients registered on this installation with a stable callback; they are the installation's
-      own registrations, from which the platform renders muster's allowlist and which it neither writes nor removes.
+      own registrations, from which the platform renders muster's allowlist and each confidential client's Dex client, Secret and audience. It
+      writes nothing there but a hand-registered confidential client's Secret, which it adopts in its file.
 
   # --- management-clusters extras/mcp-<name>/ ---
   - key: extras:mcp-<name>/oauth-credentials.enc.yaml stringData.VALKEY_PASSWORD
