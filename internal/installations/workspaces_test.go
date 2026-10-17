@@ -59,41 +59,13 @@ func TestReadWorkspaces(t *testing.T) {
 			t.Errorf("%s: %+v, want %+v", c.name, got, c.want)
 		}
 	}
-	on := Workspaces{Enabled: true, BaseURL: baseURL}
-	if in := on.Input(); in[keyEnabled] != true || in["baseUrl"] != on.BaseURL || len(in) != 2 {
-		t.Errorf("Input: %v", in)
-	}
 }
 
-// The agent-platform definition's record inputs carry installation.workspaces
-// where the capability is enabled and the values on record turn workspaces
-// on, read as the caller; an installation without the capability reads
-// nothing, its marker never read by content.
+// The workspaces on record are reported, never an input: the agent-platform
+// definition derives nothing from the record beyond the registry's facts.
 func TestPlatformRecordInputs(t *testing.T) {
-	const configs = "fleet/umbra-configs"
-	inst := Installation{Name: fixtureInstallation, Repositories: Repositories{Configs: configs}}
-	platform, _ := FindCapability(AgentPlatform)
-	enabled := func(on bool) Report {
-		r := Report{Installation: inst}
-		r.Capabilities = []CapabilityState{{Name: AgentPlatform, Enabled: on}}
-		return r
-	}
-	const baseURL = "https://ws.maple.example"
-	reads := 0
-	read := func(_ context.Context, _, _ string) (string, error) {
-		reads++
-		return "workspaces:\n  enabled: true\nworkspace-manager:\n  oauth:\n    baseURL: " + baseURL + "\n", nil
-	}
-	got, err := platform.RecordInputs(t.Context(), enabled(true), read)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ws, _ := got[InputsInstallation].(map[string]any)["workspaces"].(map[string]any)
-	if ws[keyEnabled] != true || ws["baseUrl"] != baseURL || reads != 1 {
-		t.Errorf("enabled: %v after %d reads", got, reads)
-	}
-	if got, err := platform.RecordInputs(t.Context(), enabled(false), read); err != nil || got != nil || reads != 1 {
-		t.Errorf("not enabled: %v, %v after %d reads", got, err, reads)
+	if platform, _ := FindCapability(AgentPlatform); platform.RecordInputs != nil {
+		t.Error("the agent-platform definition derives inputs from the record")
 	}
 }
 
@@ -101,7 +73,6 @@ func TestPlatformRecordInputs(t *testing.T) {
 // platform is on record: on with what the values name, off where they leave
 // the switch off; off without a read where the platform is not on record;
 // unknown, with the error on the report, where the values cannot be read.
-// The definition's record inputs take what the report read, no second read.
 func TestReportReadWorkspaces(t *testing.T) {
 	const configs, baseURL = "fleet/umbra-configs", "https://ws.maple.example"
 	inst := Installation{Name: fixtureInstallation, Repositories: Repositories{Configs: configs}}
@@ -136,20 +107,5 @@ func TestReportReadWorkspaces(t *testing.T) {
 		case (c.readErr != nil) != (len(r.Errors) == 1):
 			t.Errorf("%s: errors %v", c.name, r.Errors)
 		}
-	}
-
-	platform, _ := FindCapability(AgentPlatform)
-	unread := func(context.Context, string, string) (string, error) {
-		t.Error("the values were read again")
-		return "", nil
-	}
-	r := Report{Installation: inst, Capabilities: []CapabilityState{{Name: AgentPlatform, Enabled: true}}, Workspaces: &Workspaces{Enabled: true, BaseURL: baseURL}}
-	got, err := platform.RecordInputs(t.Context(), r, unread)
-	if ws, _ := got[InputsInstallation].(map[string]any)["workspaces"].(map[string]any); err != nil || ws[keyEnabled] != true || ws["baseUrl"] != baseURL {
-		t.Errorf("on, as read: %v, %v", got, err)
-	}
-	r.Workspaces = &Workspaces{}
-	if got, err := platform.RecordInputs(t.Context(), r, unread); err != nil || got != nil {
-		t.Errorf("off, as read: %v, %v", got, err)
 	}
 }

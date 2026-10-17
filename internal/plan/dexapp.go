@@ -19,20 +19,11 @@ import (
 // break Dex. The 2.x line carries it from render.DexAppLine2.
 const DexAppReferencedSecrets = "3.2.2"
 
-// DexAppExtraRedirectURIs is the first dex-app whose built-in confidential
-// clients take redirect URIs beside the one the template sets
-// (oidc.staticClients.<client>.extraRedirectURIs): the workspace-manager's
-// sign-in on the platform client renders as one. The 2.x line does not carry
-// it (render.DexAppLine2Carries).
-const DexAppExtraRedirectURIs = "3.3.0"
-
 // DexAppRefusal says why a commit of p is refused for the dex-app on record:
 // p's Dex patch declares a client with a referenced Secret and rec's dex-app
-// is older than DexAppReferencedSecrets, or a built-in client with redirect
-// URIs beside the template's and rec's dex-app is older than
-// DexAppExtraRedirectURIs. Empty where nothing refuses — no such client, no
-// version on record (the report carries why it could not be read), or a
-// dex-app that takes them (render.DexAppTakes). The comparison runs either
+// is older than DexAppReferencedSecrets. Empty where nothing refuses — no
+// such client, no version on record (the report carries why it could not be
+// read), or a dex-app that takes them (render.DexAppTakes). The comparison runs either
 // way; only the commit is held.
 func (p Installation) DexAppRefusal(rec *installations.Record) string {
 	if rec == nil || rec.DexAppVersion == "" {
@@ -46,10 +37,6 @@ func (p Installation) DexAppRefusal(rec *installations.Record) string {
 		return fmt.Sprintf("dex-app %s on record (%s): the referenced Dex client secrets need %s; pin it in %s first",
 			rec.DexAppVersion, rec.DexAppSource, render.DexAppNeeds(DexAppReferencedSecrets), installations.CollectionsKustomizationPath(p.Name))
 	}
-	if c, ok := p.extraRedirectClient(); ok && !render.DexAppTakes(v, DexAppExtraRedirectURIs) {
-		return fmt.Sprintf("dex-app %s on record (%s): the redirect URI %s beside the %s client's (oidc.staticClients.%s.extraRedirectURIs) needs %s; pin it in %s first",
-			rec.DexAppVersion, rec.DexAppSource, strings.Join(c.ExtraRedirectURIs, ", "), c.Client, c.Client, render.DexAppNeeds(DexAppExtraRedirectURIs), installations.CollectionsKustomizationPath(p.Name))
-	}
 	return ""
 }
 
@@ -57,16 +44,6 @@ func (p Installation) DexAppRefusal(rec *installations.Record) string {
 // whose secret is a referenced Secret.
 func (p Installation) referencesDexSecrets() bool {
 	return slices.ContainsFunc(p.DexClients, func(c DexClient) bool { return c.SecretRef != "" })
-}
-
-// extraRedirectClient is the built-in client of the rendered Dex patch that
-// carries redirect URIs beside the template's, where one does.
-func (p Installation) extraRedirectClient() (DexClient, bool) {
-	i := slices.IndexFunc(p.DexClients, func(c DexClient) bool { return c.Client != "" && len(c.ExtraRedirectURIs) > 0 })
-	if i < 0 {
-		return DexClient{}, false
-	}
-	return p.DexClients[i], true
 }
 
 // DexSecretRefusal says why a commit of p is refused for the encrypted Dex

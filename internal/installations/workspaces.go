@@ -15,48 +15,11 @@ import (
 // the values set one (workspace-manager.oauth.baseURL) and the Dex client it
 // signs the person's browser in with where they name one
 // (workspace-manager.oauth.dex.clientID). The definition renders none of the
-// keys and registers the manager's sign-in redirect URI from them.
+// keys; list_installations reports them.
 type Workspaces struct {
 	Enabled  bool   `json:"enabled"`
 	BaseURL  string `json:"baseUrl,omitempty"`
 	ClientID string `json:"clientId,omitempty"`
-}
-
-// keyWorkspacesEnabled is the switch's key, in the values on record and in the input.
-const keyWorkspacesEnabled = "enabled"
-
-// Input is the fact in the shape of the definitions' installation.workspaces.
-func (w Workspaces) Input() map[string]any {
-	in := map[string]any{keyWorkspacesEnabled: w.Enabled}
-	if w.BaseURL != "" {
-		in["baseUrl"] = w.BaseURL
-	}
-	if w.ClientID != "" {
-		in["clientId"] = w.ClientID
-	}
-	return in
-}
-
-// platformRecordInputs are the agent-platform definition's inputs from the
-// record beyond the registry's facts: installation.workspaces, read from the
-// installation's agent-platform values as the caller where the capability is
-// enabled (the values are its marker), as the report read them where it did;
-// nothing where it is not or the values leave workspaces off.
-func platformRecordInputs(ctx context.Context, r Report, read Reader) (map[string]any, error) {
-	if !r.enabled(AgentPlatform) {
-		return nil, nil
-	}
-	ws := r.Workspaces
-	if ws == nil {
-		var err error
-		if ws, err = readWorkspaces(ctx, read, r.Installation); err != nil || ws == nil {
-			return nil, err
-		}
-	}
-	if !ws.Enabled {
-		return nil, nil
-	}
-	return map[string]any{InputsInstallation: map[string]any{"workspaces": ws.Input()}}, nil
 }
 
 // readWorkspaces reads whether inst's agent-platform values on record turn
