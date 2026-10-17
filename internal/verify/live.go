@@ -97,6 +97,10 @@ type AuthRequired struct {
 
 func (e *AuthRequired) Error() string { return e.Message }
 
+// NotConnected opens the message of a check muster's auth_required left
+// unread; the dimension's LiveResult carries muster's answer.
+const NotConnected = "not connected to the installation in muster"
+
 // ErrNotFound is an object the installation does not have.
 var ErrNotFound = errors.New("not found")
 
@@ -799,7 +803,7 @@ func (x *executor) run(ctx context.Context, p render.Probe) (Check, []Difference
 	var auth *AuthRequired
 	switch {
 	case errors.As(err, &auth):
-		c.Mark, c.Message = NotChecked, "not connected to the installation in muster: "+firstLine(auth.Message)
+		c.Mark, c.Message = NotChecked, NotConnected+": "+firstLine(auth.Message)
 		return c, nil, auth
 	case errors.As(err, &forbidden):
 		c.Mark, c.Message = NotChecked, forbidden.Error()

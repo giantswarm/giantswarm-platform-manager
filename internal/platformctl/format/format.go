@@ -775,6 +775,15 @@ func Merge(w io.Writer, r tools.MergeResult) error {
 func Watch(w io.Writer, r tools.WatchResult) error {
 	p := &printer{w: w}
 	p.f("%s\n", r.Message)
+	if r.Private != "" {
+		p.f("Private: %s\n", r.Private)
+	}
+	if len(r.NotRead) > 0 {
+		p.f("Not read:\n")
+		for _, n := range r.NotRead {
+			p.notRead(n)
+		}
+	}
 	if len(r.Objects) > 0 {
 		p.f("Rollout of %s (ready: %s):\n", dash(r.Installation), yesNo(r.Ready))
 		rows := make([][]string, 0, len(r.Objects))
@@ -805,6 +814,33 @@ func Watch(w io.Writer, r tools.WatchResult) error {
 		p.f("Next: %s\n", r.Next)
 	}
 	return p.action(r.Action)
+}
+
+// notRead is one cause of reads the watch could not make: the cause and
+// where, the checks it left unread, what was answered, and the fix — for
+// auth_required the muster server with its sign-in URL and the CLI way.
+func (p *printer) notRead(n tools.NotRead) {
+	where := ""
+	switch n.Cause {
+	case tools.CauseAuthRequired:
+		where = " — muster server " + dash(n.Server)
+	case tools.CauseUnreachable:
+		where = " — " + n.Host
+	}
+	p.f("  %s%s: %s of %s\n", n.Cause, where, plural(n.Checks, "check"), plural(len(n.Dimensions), "dimension"))
+	if n.Message != "" {
+		p.f("      answered: %s\n", n.Message)
+	}
+	if n.Cause == tools.CauseAuthRequired && n.Server != "" {
+		p.f("      sign in: muster auth login --server %s", n.Server)
+		if n.SignInURL != "" {
+			p.f(" (or open %s)", n.SignInURL)
+		}
+		p.f(", then watch again\n")
+	} else if n.Fix != "" {
+		p.f("      fix: %s\n", n.Fix)
+	}
+	p.f("      dimensions: %s\n", strings.Join(n.Dimensions, ", "))
 }
 
 // action appends the Action an answer carries, when it carries one.
