@@ -28,15 +28,15 @@ func notConnected() string {
 
 func privateResult() verify.Result {
 	auth := &verify.AuthRequired{Server: birchServer, URL: signInURL, Message: "auth_required: server '" + birchServer + "' requires authentication"}
-	releases := verify.Dimension{ID: "live-helmreleases-ready", Kind: definitions.KindLive, Mark: verify.NotChecked, Live: &verify.LiveResult{AuthRequired: auth, Checks: []verify.Check{
+	releases := verify.Dimension{ID: dimReleases, Kind: definitions.KindLive, Mark: verify.NotChecked, Live: &verify.LiveResult{AuthRequired: auth, Checks: []verify.Check{
 		{Kind: string(render.HelmReleaseReady), Namespace: fluxNS, Resource: helmRelease, Name: installations.AgentPlatform, Mark: verify.NotChecked, Message: notConnected()},
-		{Kind: string(render.HelmReleaseReady), Namespace: fluxNS, Resource: helmRelease, Name: "muster", Mark: verify.NotChecked, Message: notConnected()},
+		{Kind: string(render.HelmReleaseReady), Namespace: fluxNS, Resource: helmRelease, Name: musterName, Mark: verify.NotChecked, Message: notConnected()},
 	}}}
 	// A live dimension with an HTTP check the manager could not send and an
 	// object check muster refused.
-	kagent := verify.Dimension{ID: "live-kagent", Kind: definitions.KindLive, Mark: verify.NotChecked, Live: &verify.LiveResult{AuthRequired: auth, Checks: []verify.Check{
+	kagent := verify.Dimension{ID: dimKagent, Kind: definitions.KindLive, Mark: verify.NotChecked, Live: &verify.LiveResult{AuthRequired: auth, Checks: []verify.Check{
 		{Kind: string(render.HTTP), URL: "https://" + kagentHost + "/api/health", Mark: verify.NotChecked, Message: verify.ReasonUnreachable + ": " + kagentHost, Detail: dialError},
-		{Kind: string(render.PodsRunning), Namespace: "kagent", Resource: "Pod", Mark: verify.NotChecked, Message: notConnected()},
+		{Kind: string(render.PodsRunning), Namespace: kagentNS, Resource: "Pod", Mark: verify.NotChecked, Message: notConnected()},
 	}}}
 	probe := verify.Dimension{ID: "kagent-ui-reachable", Kind: definitions.KindProbe, Mark: verify.NotChecked, Reason: verify.ReasonUnreachable + ": " + kagentHost, Detail: dialError,
 		Probe: &verify.ProbeResult{Requests: []verify.Request{{URL: "https://" + kagentHost + "/?redirect_uri=secret", Error: dialError}}}}
@@ -54,8 +54,8 @@ func TestNotReadNamesAuthRequiredAndUnreachable(t *testing.T) {
 	got := notRead(privateResult(), birchServer)
 	want := []NotRead{
 		{Cause: CauseAuthRequired, Server: birchServer, SignInURL: signInURL, Message: "auth_required: server '" + birchServer + "' requires authentication before its tools can be called",
-			Fix: signIn(birchServer), Checks: 3, Dimensions: []string{"live-helmreleases-ready", "live-kagent"}},
-		{Cause: CauseUnreachable, Host: kagentHost, Message: dialError, Fix: noRoute, Checks: 2, Dimensions: []string{"live-kagent", "kagent-ui-reachable"}},
+			Fix: signIn(birchServer), Checks: 3, Dimensions: []string{dimReleases, dimKagent}},
+		{Cause: CauseUnreachable, Host: kagentHost, Message: dialError, Fix: noRoute, Checks: 2, Dimensions: []string{dimKagent, "kagent-ui-reachable"}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("not read:\n got %+v\nwant %+v", got, want)
@@ -78,7 +78,7 @@ func TestNotReadNamesAuthRequiredAndUnreachable(t *testing.T) {
 // watch names the server its reads go to; without one it still says what to
 // sign in to.
 func TestNotReadNamesTheServerTheReadsGoTo(t *testing.T) {
-	res := liveResult(installations.StateEnabled, verify.Dimension{ID: "live-helmreleases-ready", Kind: definitions.KindLive, Live: &verify.LiveResult{
+	res := liveResult(installations.StateEnabled, verify.Dimension{ID: dimReleases, Kind: definitions.KindLive, Live: &verify.LiveResult{
 		AuthRequired: &verify.AuthRequired{Message: "auth_required"}, Checks: []verify.Check{{Mark: verify.NotChecked, Message: verify.NotConnected + ": auth_required"}}}})
 	if got := notRead(res, birchServer); len(got) != 1 || got[0].Server != birchServer || !strings.Contains(got[0].Fix, "--server "+birchServer) {
 		t.Errorf("server from the watch: %+v", got)
@@ -117,7 +117,7 @@ func TestNotReadGroupsTheOtherCauses(t *testing.T) {
 func TestPrivateNoteSaysWhatRunsFromTheCaller(t *testing.T) {
 	res := privateResult()
 	reads := notRead(res, birchServer)
-	private := map[string]any{"installation": map[string]any{"name": birch, "private": true}}
+	private := map[string]any{inputInstallation: map[string]any{"name": birch, inputPrivate: true}}
 	note := privateNote(birch, private, reads, res, birchServer)
 	for _, s := range []string{birch + " is private", "does not reach its endpoints (" + kagentHost + ")", "2 endpoint checks are not read from the manager (live-kagent, kagent-ui-reachable)",
 		"run through your muster session to " + birchServer + " instead (live-helmreleases-ready, live-kagent, live-crds)"} {
@@ -125,7 +125,7 @@ func TestPrivateNoteSaysWhatRunsFromTheCaller(t *testing.T) {
 			t.Errorf("note %q lacks %q", note, s)
 		}
 	}
-	if note := privateNote(birch, map[string]any{"installation": map[string]any{"private": false}}, reads, res, birchServer); note != "" {
+	if note := privateNote(birch, map[string]any{inputInstallation: map[string]any{inputPrivate: false}}, reads, res, birchServer); note != "" {
 		t.Errorf("a public installation: %q", note)
 	}
 	if note := privateNote(birch, private, reads[:1], res, birchServer); note != "" {
@@ -138,7 +138,7 @@ func TestPrivateNoteSaysWhatRunsFromTheCaller(t *testing.T) {
 func TestReportNamesTheReadsNotMade(t *testing.T) {
 	res := privateResult()
 	reads := notRead(res, birchServer)
-	private := privateNote(birch, map[string]any{"installation": map[string]any{"private": true}}, reads, res, birchServer)
+	private := privateNote(birch, map[string]any{inputInstallation: map[string]any{inputPrivate: true}}, reads, res, birchServer)
 	a := &actions.Action{Spec: actions.Spec{Installations: []string{birch}}}
 	status := actions.Status{State: actions.StateEnabled, Rollout: &actions.Rollout{Installations: []actions.InstallationRollout{{Name: birch, State: actions.StateEnabled, WatchedBy: "someone"}}}}
 	report := (&Tools{}).report(a, status, 0, res, nil, nil, "", private, reads)

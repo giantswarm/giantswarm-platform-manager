@@ -193,7 +193,7 @@ func hostOf(u string) string {
 // muster session to server. "" for an installation not on record as private
 // or one whose endpoints answered.
 func privateNote(installation string, inputs map[string]any, reads []NotRead, res verify.Result, server string) string {
-	if private, _ := dig(inputs, "installation", "private").(bool); !private {
+	if private, _ := dig(inputs, inputInstallation, inputPrivate).(bool); !private {
 		return ""
 	}
 	var hosts, unread []string
@@ -240,6 +240,12 @@ func readsObjects(lv *verify.LiveResult) bool {
 	}
 	return false
 }
+
+// inputInstallation is the inputs' section of the installation's facts, inputPrivate its flag of an installation reached through the tunnel.
+const (
+	inputInstallation = "installation"
+	inputPrivate      = "private"
+)
 
 // dig reads the leaf of values at path.
 func dig(values map[string]any, path ...string) any {
