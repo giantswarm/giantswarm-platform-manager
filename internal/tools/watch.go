@@ -56,6 +56,14 @@ type WatchResult struct {
 	// action's commit renders and the migration list names — the next
 	// reconcile's business, never red.
 	Planned []string `json:"planned,omitempty"`
+	// Private says up front that the installation is private and the manager
+	// reaches none of the endpoints it probed, and which checks run through
+	// the caller's muster session instead; empty otherwise.
+	Private string `json:"private,omitempty"`
+	// NotRead names every read this call could not make, by cause, with the
+	// checks it left unread and what makes them work: the muster server to
+	// sign in to, the host the manager got no answer from.
+	NotRead []NotRead `json:"notRead,omitempty"`
 	// Report is the text this call posted into the review's thread, when the
 	// stage reached a state; Message says when it could not be posted.
 	Report string `json:"report,omitempty"`
@@ -65,7 +73,7 @@ type WatchResult struct {
 func (t *Tools) registerWatchTool(s *mcpserver.MCPServer) {
 	s.AddTool(mcp.NewTool(ToolWatchAction,
 		tooldesc.Describe("Follow a merged action's rollout on the installation, as you. Call again while it is rolling out.",
-			"Reads the HelmReleases through muster, then runs the probes: the stage moves to enabled, waiting for the customer, or failed with the red probe named; a failed one is re-read once the cause is fixed. On a wave the actor merges the next stage with "+ToolMergeAction+" once one is enabled. A reverted stage moves the action to reverted; its actor withdraws it with "+ToolDenyAction+". The report goes into the review's thread. Anyone signed in may watch."),
+			"Reads the HelmReleases through muster, then runs the probes: the stage moves to enabled, waiting for the customer, or failed with the red probe named; a failed one is re-read once the cause is fixed. A read it could not make is named with its fix. On a wave the actor merges the next stage with "+ToolMergeAction+" once one is enabled. A reverted stage moves the action to reverted; its actor withdraws it with "+ToolDenyAction+". The report goes into the review's thread. Anyone signed in may watch."),
 		mcp.WithIdempotentHintAnnotation(true), mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithString(ArgAction, mcp.Required(), mcp.Description("The Action's name.")),
 	), t.watchActionLive)
@@ -156,7 +164,9 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 	prev := st.State
 	st.Objects, st.WatchedAt, st.WatchedBy = objects, now(), id.String()
 	status.Probes = mergeProbes(status.Probes, st.Name, probesOf(st.Name, res))
-	out := WatchResult{Installation: st.Name, Objects: objects, Ready: ready, Verify: &res, Planned: plannedDimensions(res)}
+	server := t.d.Live.KubernetesServer(st.Name)
+	out := WatchResult{Installation: st.Name, Objects: objects, Ready: ready, Verify: &res, Planned: plannedDimensions(res), NotRead: notRead(res, server)}
+	out.Private = privateNote(st.Name, inputs, out.NotRead, res, server)
 	if prev == actions.StateRollingOut && !ready && !failed {
 		st.Message = rolloutMessage(objects)
 		out.Next = "call " + ToolWatchAction + " again once Flux has reconciled the installation; nothing is hurried"
@@ -175,7 +185,7 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 		t.tellApplied(ctx, a, &status, i)
 		if st.ReportedAt == nil {
 			open, done := customerActions(def, inputs, res)
-			out.Report = t.report(a, status, i, res, open, done, recovered)
+			out.Report = t.report(a, status, i, res, open, done, recovered, out.Private, out.NotRead)
 			if told := t.postResult(ctx, a, out.Report); told == "" {
 				st.ReportedAt = now()
 			} else {
@@ -191,6 +201,12 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 	out.Action, out.State = a, st.State
 	t.d.Log.Info("action_watch", identity.LogAttr(ctx), "action", a.Name, "installation", st.Name, "ready", ready, "state", st.State, "actionState", a.Status.State, "red", len(out.Red), "reported", st.ReportedAt != nil, "duration_ms", time.Since(start).Milliseconds())
 	out.Message = fmt.Sprintf("%s is %s (action %s, %s): %s.", st.Name, st.State, a.Name, a.Status.State, st.Message)
+	if out.Private != "" {
+		out.Message = out.Private + " " + out.Message
+	}
+	if len(out.NotRead) > 0 {
+		out.Message += " " + notReadClause(out.NotRead)
+	}
 	if note != "" {
 		out.Message += " " + note
 	}
@@ -357,9 +373,15 @@ func rolloutMessage(objects []actions.RolloutObject) string {
 	return fmt.Sprintf("rolling out: %d of %d Ready; not Ready: %s", len(objects)-len(notReady), len(objects), strings.Join(notReady, ", "))
 }
 
+// orNotRead is an object's message in the stage's line: "not read" for none,
+// and muster's auth_required by its cause alone — the watch's NotRead names
+// the server and the sign-in once, not per object.
 func orNotRead(message string) string {
-	if message == "" {
+	switch {
+	case message == "":
 		return "not read"
+	case strings.HasPrefix(message, verify.NotConnected):
+		return "not read: " + CauseAuthRequired
 	}
 	return message
 }
@@ -682,8 +704,10 @@ const reportLimit = 2900
 // requests, the rollout per object, each probe by mark, the customer actions
 // still open and the ones the installation reads done, and what follows;
 // recovered, when the stage had failed on a probe, is the stop it read
-// itself out of. Never a value.
-func (t *Tools) report(a *actions.Action, status actions.Status, i int, res verify.Result, open, done []render.Action, recovered string) string {
+// itself out of; private and notRead say up front that the manager does not
+// reach the installation's endpoints and name the reads not made, each with
+// what makes it work. Never a value.
+func (t *Tools) report(a *actions.Action, status actions.Status, i int, res verify.Result, open, done []render.Action, recovered, private string, notRead []NotRead) string {
 	stages := status.Rollout.Installations
 	st := stages[i]
 	var b strings.Builder
@@ -692,6 +716,9 @@ func (t *Tools) report(a *actions.Action, status actions.Status, i int, res veri
 		fmt.Fprintf(&b, " (stage %d of %d)", i+1, len(stages))
 	}
 	fmt.Fprintf(&b, " — watched as %s.", st.WatchedBy)
+	if private != "" {
+		b.WriteString("\n" + private)
+	}
 	if recovered != "" {
 		fmt.Fprintf(&b, "\nRecovered: the stage had failed (%s); the re-read finds it as it should be, and the wave goes on from here.", recovered)
 	}
@@ -748,6 +775,9 @@ func (t *Tools) report(a *actions.Action, status actions.Status, i int, res veri
 	if len(notChecked) > 0 {
 		sort.Strings(notChecked)
 		fmt.Fprintf(&b, "\n⚪ %d not checked: %s", len(notChecked), strings.Join(notChecked, ", "))
+	}
+	for _, n := range notRead {
+		b.WriteString("\n⚪ not read — " + n.Line())
 	}
 	if len(open) > 0 {
 		b.WriteString("\nOpen customer actions:")

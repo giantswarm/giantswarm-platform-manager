@@ -52,7 +52,7 @@ func TestASetsEntryCarriesWhatDiffers(t *testing.T) {
 			Differences: []verify.Difference{{Path: "kagent.providers.anthropic.config.maxTokens", Rendered: "32000", Current: "8192"}},
 			Probe:       &verify.ProbeResult{},
 		}, {ID: "kagent-image", Kind: configmap, Key: "kagent.image", Mark: verify.AsDefined},
-			{ID: "live-kagent", Kind: "live", Key: "kagent answers", Mark: verify.NotChecked, Reason: "needs your session on the installation"}},
+			{ID: dimKagent, Kind: "live", Key: "kagent answers", Mark: verify.NotChecked, Reason: "needs your session on the installation"}},
 	}}}
 	whole := dryRun(res)
 	whole.Files = []plan.File{

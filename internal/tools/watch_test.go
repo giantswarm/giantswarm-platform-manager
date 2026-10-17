@@ -22,6 +22,10 @@ const (
 	isReady     = "Ready=True"
 	birch       = "birch"
 	rowan       = "rowan"
+	dimReleases = "live-helmreleases-ready"
+	dimKagent   = "live-kagent"
+	musterName  = "muster"
+	kagentNS    = "kagent"
 )
 
 func liveResult(state installations.State, dims ...verify.Dimension) verify.Result {
@@ -33,22 +37,22 @@ func liveResult(state installations.State, dims ...verify.Dimension) verify.Resu
 // condition's status and message, one the person could not read claims
 // nothing — and only every one Ready is ready.
 func TestRolloutObjectsReadTheFluxChecks(t *testing.T) {
-	res := liveResult(installations.StateEnabled, verify.Dimension{ID: "live-helmreleases-ready", Kind: definitions.KindLive, Live: &verify.LiveResult{Checks: []verify.Check{
+	res := liveResult(installations.StateEnabled, verify.Dimension{ID: dimReleases, Kind: definitions.KindLive, Live: &verify.LiveResult{Checks: []verify.Check{
 		{Kind: string(render.HelmReleaseReady), Namespace: fluxNS, Resource: helmRelease, Name: installations.AgentPlatform, Mark: verify.AsDefined, Message: isReady, Revision: "4.44.1"},
-		{Kind: string(render.HelmReleaseReady), Namespace: fluxNS, Resource: helmRelease, Name: "muster", Mark: verify.Drifted, Message: notReady},
+		{Kind: string(render.HelmReleaseReady), Namespace: fluxNS, Resource: helmRelease, Name: musterName, Mark: verify.Drifted, Message: notReady},
 		{Kind: string(render.Condition), Namespace: fluxNS, Resource: "Kustomization.kustomize.toolkit.fluxcd.io", Name: "extras", Mark: verify.NotChecked, Message: "forbidden for viewer: kustomizations is forbidden", Revision: "main@sha1:abc"},
-		{Kind: string(render.Condition), Namespace: "kagent", Resource: "Deployment", Name: "kagent-ui", Mark: verify.AsDefined, Message: "Available=True"},
+		{Kind: string(render.Condition), Namespace: kagentNS, Resource: "Deployment", Name: "kagent-ui", Mark: verify.AsDefined, Message: "Available=True"},
 	}}})
 	objects, ready, failed := rolloutObjects(res)
 	want := []actions.RolloutObject{
 		{Kind: helmRelease, Namespace: fluxNS, Name: installations.AgentPlatform, Ready: "True", Revision: "4.44.1", Message: isReady},
-		{Kind: helmRelease, Namespace: fluxNS, Name: "muster", Ready: "False", Message: notReady},
+		{Kind: helmRelease, Namespace: fluxNS, Name: musterName, Ready: "False", Message: notReady},
 		{Kind: "Kustomization", Namespace: fluxNS, Name: "extras", Revision: "main@sha1:abc", Message: "forbidden for viewer: kustomizations is forbidden"},
 	}
 	if ready || failed || !reflect.DeepEqual(objects, want) {
 		t.Errorf("ready %v failed %v objects %+v", ready, failed, objects)
 	}
-	if _, ready, failed := rolloutObjects(liveResult(installations.StateEnabled, verify.Dimension{ID: "live-helmreleases-ready", Kind: definitions.KindLive, Live: &verify.LiveResult{Checks: []verify.Check{
+	if _, ready, failed := rolloutObjects(liveResult(installations.StateEnabled, verify.Dimension{ID: dimReleases, Kind: definitions.KindLive, Live: &verify.LiveResult{Checks: []verify.Check{
 		{Kind: string(render.HelmReleaseReady), Resource: helmRelease, Name: installations.AgentPlatform, Mark: verify.AsDefined, Message: isReady}}}})); !ready || failed {
 		t.Errorf("one HelmRelease Ready is ready, not failed: ready %v failed %v", ready, failed)
 	}

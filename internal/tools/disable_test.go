@@ -140,7 +140,7 @@ func TestWatchDisable(t *testing.T) {
 		t.Fatalf("pending: %v", err)
 	}
 	a.Status.State = actions.StateDisabled
-	a.Status.Orphans = []actions.Orphan{{Installation: dTarget, Kind: "Namespace", Name: "kagent"}}
+	a.Status.Orphans = []actions.Orphan{{Installation: dTarget, Kind: "Namespace", Name: kagentNS}}
 	out, err := watchDisable(a, "")
 	if err != nil {
 		t.Fatal(err)

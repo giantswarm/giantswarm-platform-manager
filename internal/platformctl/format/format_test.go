@@ -403,6 +403,28 @@ func TestWatchPrintsTheRolloutPictureAndTheReport(t *testing.T) {
 		"HelmRelease flux-giantswarm/muster", "Ready=False", "install retries exhausted", "Red:", "live-model-configs (runtime)", "Planned:", "  live-drift (runtime): newer definition, not this action's: Added: the cap · M34", "Probes: 1 drifted, 1 planned, 9 as defined", "Report:", "  Probes: ✅ 9 as defined", "Next: nothing: the action is enabled", "Action "+rowanAction)
 }
 
+// A watch that could not read prints the installation private up front and
+// every read not made: the muster server with the sign-in, the host the
+// manager got no answer from, each with the dimensions it left unread.
+func TestWatchPrintsTheReadsNotMade(t *testing.T) {
+	const server = "rowan-mcp-kubernetes"
+	r := tools.WatchResult{Message: "rowan is rolling out", Installation: rowan,
+		Private: "rowan is private: the manager does not reach its endpoints (kagent.rowan.example)",
+		NotRead: []tools.NotRead{
+			{Cause: tools.CauseAuthRequired, Server: server, SignInURL: "https://muster.example.test/oauth/proxy/start?state=x", Message: "auth_required: server '" + server + "' requires authentication", Checks: 11, Dimensions: []string{"live-helmreleases-ready"}},
+			{Cause: tools.CauseUnreachable, Host: "kagent.rowan.example", Message: "dial tcp: i/o timeout", Fix: "the manager has no answer from the host", Checks: 1, Dimensions: []string{"kagent-ui-reachable"}},
+		}}
+	var buf bytes.Buffer
+	if err := Watch(&buf, r); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, buf.String(), "Private: rowan is private", "Not read:",
+		"  auth_required — muster server "+server+": 11 checks of 1 dimension",
+		"      sign in: muster auth login --server "+server+" (or open https://muster.example.test/oauth/proxy/start?state=x), then watch again",
+		"      dimensions: live-helmreleases-ready",
+		"  unreachable — kagent.rowan.example: 1 check of 1 dimension", "      answered: dial tcp: i/o timeout", "      fix: the manager has no answer from the host")
+}
+
 func TestWaveNamesTheOrderTheSkippedAndTheStages(t *testing.T) {
 	r := tools.WaveResult{
 		Caller: someone, Tool: tools.ToolReconcileCapability, Capability: agentPlatform, Hub: hazel,

@@ -374,6 +374,21 @@ func (k *cluster) member() (string, error) {
 	return buf.String(), nil
 }
 
+// KubernetesServer is the muster server the reads of installation go to, by
+// muster's name — the one a person signs in to when muster answers
+// auth_required: the family's member for the installation, or the singleton
+// server; "" when the member's name cannot be rendered.
+func (c *Client) KubernetesServer(installation string) string {
+	if c.cfg.KubernetesInstanceArg == "" {
+		return c.cfg.KubernetesFamily
+	}
+	member, err := (&cluster{c: c, installation: installation}).member()
+	if err != nil {
+		return ""
+	}
+	return member
+}
+
 // call runs one kubernetes tool for the installation and answers its text,
 // the tool's refusal mapped to the verify's errors. A family's tool takes
 // the member's server name in the instance argument: muster routes by it.
@@ -402,7 +417,14 @@ func (k *cluster) call(ctx context.Context, op string, args map[string]any) (str
 	}
 	text := aggregator.TextOf(res)
 	if res.IsError {
-		return "", classify(text)
+		err := classify(text)
+		// An auth_required that names no server is the installation's own:
+		// the server the call went to is the one to sign in to.
+		var auth *verify.AuthRequired
+		if errors.As(err, &auth) && auth.Server == "" {
+			auth.Server = k.c.KubernetesServer(k.installation)
+		}
+		return "", err
 	}
 	return text, nil
 }

@@ -180,6 +180,13 @@ func TestWatchActionCarriesTheRolloutToEnabled(t *testing.T) {
 	if isErr || w.Ready || w.State != actions.StateRollingOut || len(w.Objects) == 0 || w.Objects[0].Ready != "" || !strings.Contains(w.Objects[0].Message, "not connected to the installation in muster") || strings.Contains(w.Message, "not re-read") {
 		t.Fatalf("the stranger's watch: %v %s", isErr, text)
 	}
+	// Named, not counted: muster's auth_required on the installation's
+	// kubernetes server, the sign-in that fixes it, the checks it left unread.
+	server := rowan + "-mcp-kubernetes"
+	if len(w.NotRead) == 0 || w.NotRead[0].Cause != tools.CauseAuthRequired || w.NotRead[0].Server != server || w.NotRead[0].SignInURL == "" || w.NotRead[0].Checks < len(w.Objects) ||
+		!strings.Contains(w.Message, "auth_required on muster server "+server) || !strings.Contains(w.Message, "muster auth login --server "+server) {
+		t.Fatalf("the stranger's watch names no sign-in: %+v %s", w.NotRead, w.Message)
+	}
 
 	setReady(st.inst, platformRelease, statusFalse, "install retries exhausted", "4.44.1")
 	w, text, isErr = watchCall(t, admin, a.Name)
