@@ -154,9 +154,9 @@ type Report struct {
 	// platform's own (registered.go); nil until a full inspection read it.
 	Registered *Registered `json:"registered,omitempty"`
 	// Workspaces says whether the agent platform's workspaces are on here, as
-	// the agent-platform values on record turn them on — the source the
-	// definition renders them from (readWorkspaces): off where the platform is
-	// not on record; nil where the installation or the values could not be read.
+	// the agent-platform values on record turn them on (readWorkspaces): off
+	// where the platform is not on record; nil where the installation or the
+	// values could not be read.
 	Workspaces *Workspaces `json:"workspaces,omitempty"`
 }
 

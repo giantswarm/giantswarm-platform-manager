@@ -253,6 +253,9 @@ removals:
   - key: dex-configmap:oidc.customer
     kind: not-platform
     reason: "Kept: oidc.customer holds this installation's own login connectors; the platform leaves them on the Dex values as they are and registers the token-exchange connector of every customer hub that brokers into this installation beside them."
+  - key: dex-configmap:oidc.staticClients.muster.extraRedirectURIs
+    kind: migration
+    reason: "Removed: the platform's Dex client no longer carries the workspace-manager's /signin redirect URI; workspace-manager 0.10.0 dropped that path and the person signs in through muster, so the URI points at nothing."
   - key: dex-configmap:ingress
     kind: not-platform
     reason: "Kept: the ingress block tunes this installation's own Dex ingress; the platform reads nothing of it and leaves it on the Dex values as it is."
@@ -426,7 +429,7 @@ removals:
     kind: kept
     reason: >-
       Kept: workspaces turns the workspace-manager on here with this installation's own workspace storage; the switch stays until the
-      definition takes workspaces as a choice, and while it is on the platform's Dex client carries the manager's sign-in redirect URI
+      definition takes workspaces as a choice
   - key: configmap:workspace-manager
     kind: kept
     reason: >-
