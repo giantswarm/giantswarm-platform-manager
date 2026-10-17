@@ -438,10 +438,11 @@ const rateLimitExceeded = "rate_limit_exceeded"
 
 // rateLimitBackoff is the first wait after a rate-limit refusal, the
 // limiter's Retry-After for a rate of 10 per second; each further refusal
-// doubles it, up to rateLimitMaxBackoff. A variable for the tests.
-var rateLimitBackoff = time.Second
-
-const rateLimitMaxBackoff = 4 * time.Second
+// doubles it, up to rateLimitMaxBackoff.
+const (
+	rateLimitBackoff    = time.Second
+	rateLimitMaxBackoff = 4 * time.Second
+)
 
 // rateLimited says whether a call's answer is a rate-limit refusal: as the
 // call's error, or as the tool result's error text.

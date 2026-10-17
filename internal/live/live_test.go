@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -175,46 +177,56 @@ func TestOutputOfShape(t *testing.T) {
 // text or as the call's error — is called again after a back-off and answers
 // the call that got through; one refused until the read's bound answers the
 // refusal before the bound, so the check names the limit, not a timeout.
+// The test runs on synctest's clock: each wait is exactly the back-off it
+// asks for, however loaded the machine is.
 func TestCallPacedRetriesARateLimitRefusal(t *testing.T) {
-	defer func(d time.Duration) { rateLimitBackoff = d }(rateLimitBackoff)
-	rateLimitBackoff = 10 * time.Millisecond
 	refused := mcp.NewToolResultError("failed to call tool: internal error: rate_limit_exceeded")
 	answer := mcp.NewToolResultText(`{"kind":"Secret"}`)
 
 	t.Run("refused, then answered", func(t *testing.T) {
-		calls := 0
-		res, err := callPaced(context.Background(), func() (*mcp.CallToolResult, error) {
-			calls++
-			switch calls {
-			case 1:
-				return refused, nil
-			case 2:
-				return nil, errors.New("failed to call tool: internal error: rate_limit_exceeded")
+		synctest.Test(t, func(t *testing.T) {
+			start, calls := time.Now(), []time.Duration{}
+			res, err := callPaced(context.Background(), func() (*mcp.CallToolResult, error) {
+				calls = append(calls, time.Since(start))
+				switch len(calls) {
+				case 1:
+					return refused, nil
+				case 2:
+					return nil, errors.New("failed to call tool: internal error: rate_limit_exceeded")
+				}
+				return answer, nil
+			})
+			if err != nil || res != answer {
+				t.Fatalf("callPaced = %v, %v; want the answer", res, err)
 			}
-			return answer, nil
+			if want := []time.Duration{0, time.Second, 3 * time.Second}; !slices.Equal(calls, want) {
+				t.Fatalf("calls at %v; want %v", calls, want)
+			}
 		})
-		if err != nil || res != answer || calls != 3 {
-			t.Fatalf("callPaced = %v, %v after %d calls; want the answer after 3", res, err, calls)
-		}
 	})
 
 	t.Run("refused until the bound", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-		defer cancel()
-		calls := 0
-		res, err := callPaced(ctx, func() (*mcp.CallToolResult, error) {
-			calls++
-			return refused, nil
+		synctest.Test(t, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			start, calls := time.Now(), []time.Duration{}
+			res, err := callPaced(ctx, func() (*mcp.CallToolResult, error) {
+				calls = append(calls, time.Since(start))
+				return refused, nil
+			})
+			if err != nil || res != refused {
+				t.Fatalf("callPaced = %v, %v; want the refusal", res, err)
+			}
+			// The back-off doubles up to its cap; at 19s the next wait of
+			// 4s would pass the bound, so the refusal answers there.
+			want := []time.Duration{0, time.Second, 3 * time.Second, 7 * time.Second, 11 * time.Second, 15 * time.Second, 19 * time.Second}
+			if !slices.Equal(calls, want) {
+				t.Fatalf("calls at %v; want %v", calls, want)
+			}
+			if ctx.Err() != nil {
+				t.Fatalf("callPaced answered after the bound; want the refusal before it")
+			}
 		})
-		if err != nil || res != refused {
-			t.Fatalf("callPaced = %v, %v; want the refusal", res, err)
-		}
-		if ctx.Err() != nil {
-			t.Fatalf("callPaced answered after the bound; want the refusal before it")
-		}
-		if calls < 2 {
-			t.Fatalf("callPaced called %d times; want a retry within the bound", calls)
-		}
 	})
 
 	t.Run("any other answer is not retried", func(t *testing.T) {
