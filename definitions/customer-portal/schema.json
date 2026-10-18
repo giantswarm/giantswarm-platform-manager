@@ -52,24 +52,6 @@
           "type": "boolean", "default": false,
           "description": "One of Giant Swarm's own test installations as the manager classes them: the hub's organisation's, not the hub. The hub and every customer's installation are production. Admits an exact version and the release candidates (>=A.B.C-0) as chart.line; renders nothing.",
           "x-source": "registry", "x-feature": "portal", "x-renders": []
-        },
-        "githubApps": {
-          "type": "object",
-          "description": "The installation's credential inventory of GitHub Apps: githubApps of its config.yaml.patch, by purpose. customerPortal is the portal's own App, giantswarm-portal-<installation>, with its id and the date the commit that supplied its credentials learned it; a commit writes the entry, the id from plugins.github.appId, and keeps the date while the id stands. Never typed; no credential: the id is configuration.",
-          "x-source": "registry", "x-feature": "secrets", "x-renders": ["record:githubApps.customerPortal"],
-          "additionalProperties": false,
-          "properties": {
-            "customerPortal": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["name"],
-              "properties": {
-                "name": {"type": "string", "minLength": 1},
-                "id": {"type": "integer", "minimum": 1},
-                "created": {"type": "string", "format": "date"}
-              }
-            }
-          }
         }
       }
     },
@@ -149,7 +131,7 @@
       "properties": {
         "github": {
           "type": "object",
-          "description": "The GitHub integration through a GitHub App. Its app id, client id, client secret, private key and webhook secret are supplied at commit (plugins.github.appId, clientId, clientSecret, privateKey, webhookSecret) and land in the Secret github-app-credentials-backstage, which the chart writes into github-app-credentials.yaml.",
+          "description": "The optional GitHub integration through the customer's own GitHub App, installed on the repositories every portal user may read: its installation token reads as the App, not the signed-in person. Its app id, client id, client secret, private key and webhook secret are supplied at commit (plugins.github.appId, clientId, clientSecret, privateKey, webhookSecret) and land in the Secret github-app-credentials-backstage, which the chart writes into github-app-credentials.yaml.",
           "additionalProperties": false,
           "required": ["enabled"],
           "properties": {

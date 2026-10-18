@@ -10,11 +10,6 @@ input:
     region: example-region-1
     pipeline: stable
     agentPlatform: false
-    githubApps:
-      customerPortal:
-        name: giantswarm-portal-maple
-        id: 123456
-        created: "2026-04-01"
   portal:
     domain: portal.maple.acme.example.test
     organization: ACME

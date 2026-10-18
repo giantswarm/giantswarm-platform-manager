@@ -182,7 +182,7 @@ func TestDexClientOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := result.Files["giantswarm/giantswarm-configs"]["installations/hazel/apps/dex-app/configmap-values.yaml.patch"]; ok {
+	if _, ok := result.Files["giantswarm/giantswarm-configs"]; ok {
 		t.Error("a dex patch rendered with the platform enabled; the agent-platform definition owns it")
 	}
 	// The agent-platform definition, given the portal's domain and the chart line this definition wrote, carries the same entry.
@@ -386,15 +386,7 @@ func TestNoFileOrObjectIsRenderedByTwoDefinitions(t *testing.T) {
 	var met bool
 	for repo, files := range portal.Files {
 		for path := range files {
-			if other, both := platform.Files[repo][path]; both && path == render.RecordPath(name) {
-				// The installation's record is the one file definitions
-				// edit keys into, never write whole: their keys stay apart.
-				for key := range topLevel(t, files[path].Content) {
-					if topLevel(t, other.Content)[key] {
-						t.Errorf("%s: %s: key %s is rendered by both definitions", repo, path, key)
-					}
-				}
-			} else if both {
+			if _, both := platform.Files[repo][path]; both {
 				t.Errorf("%s: %s is rendered by both definitions", repo, path)
 			}
 			met = met || strings.Contains(path, "/"+name+"/") && len(platform.Files[repo]) > 0
@@ -1383,18 +1375,4 @@ func carries(doc map[string]any, path string) bool {
 		}
 	}
 	return true
-}
-
-// topLevel is the set of a YAML mapping's top-level keys.
-func topLevel(t *testing.T, content []byte) map[string]bool {
-	t.Helper()
-	var m map[string]any
-	if err := yaml.Unmarshal(content, &m); err != nil {
-		t.Fatal(err)
-	}
-	keys := make(map[string]bool, len(m))
-	for k := range m {
-		keys[k] = true
-	}
-	return keys
 }

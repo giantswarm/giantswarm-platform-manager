@@ -9,9 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+### Changed
 
-- customer-portal: the portal runs on a GitHub App of the installation's own, `giantswarm-portal-<installation>` ([#569](https://github.com/giantswarm/giantswarm-platform-manager/issues/569)). The dry run names the App (`githubApps` of the plan) and, where its credentials are not on record, the secret tooling's step that creates it and the commit's `beekeeper:` references to its vault item. The commit records the App's name, id and creation date in the installation's credential inventory, `githubApps.customerPortal` of its `config.yaml.patch`, every other key kept; `installation list` prints the inventory. A plan whose App id another owning organisation's installation has on record, or another target of the same wave is supplied, is refused naming both. Six months after its creation the dry run raises the App's rotation: the successor step, which creates the App's next generation (`giantswarm-portal-<installation>-2`, …), and the commit that swaps the credentials, `--rotate <the App on record>` with the successor's vault item in its references, which asks for every field of the App again, rewrites its credentials file and records the successor's name, id and date. No credential value is read: the id is configuration.
+- customer-portal: GitHub is optional for a customer and never read with more rights than the signed-in person has ([#569](https://github.com/giantswarm/giantswarm-platform-manager/issues/569)). The customer's GitHub path is the person's own grant in muster (`gs.github`, rendered by the agent-platform definition where the muster holds a GitHub grant server); the App integration is the customer's own optional App, installed on the repositories every portal user may read. The manager no longer names a `giantswarm-portal-<installation>` App, its creation step or rotation, records no `githubApps` inventory and refuses no App id; `--rotate` takes generated values only. The definition README documents how a customer configures its own git repository access, GitLab, Bitbucket and Azure DevOps included.
 
 ### Fixed
 
