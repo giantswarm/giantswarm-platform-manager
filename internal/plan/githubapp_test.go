@@ -9,6 +9,14 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
+// The installation and App the tests name.
+const (
+	linden        = "linden"
+	lindenApp     = "giantswarm-portal-linden"
+	portalPurpose = "customerPortal"
+	appIDField    = "plugins.github.appId"
+)
+
 // appInput is an Input whose render runs on GitHub Apps.
 type appInput struct {
 	render.Input
@@ -18,7 +26,7 @@ type appInput struct {
 func (a appInput) GitHubApps() []render.AppSpec { return a.apps }
 
 func portalApp(installation string, onRecord render.GitHubApp) render.AppSpec {
-	return render.AppSpec{Purpose: "customerPortal", Name: "giantswarm-portal-" + installation, OnRecord: onRecord, IDField: "plugins.github.appId",
+	return render.AppSpec{Purpose: portalPurpose, Name: "giantswarm-portal-" + installation, OnRecord: onRecord, IDField: appIDField,
 		Create:  "beekeeper app create giantswarm-portal --installation " + installation + " --base-domain " + installation + ".example",
 		Replace: "beekeeper app create giantswarm-portal --installation " + installation + " --base-domain " + installation + ".example --replace",
 		Secrets: []string{"--secret plugins.github.appId=beekeeper:op://<vault>/giantswarm-portal-" + installation + "/app-id"}}
@@ -29,20 +37,20 @@ func portalApp(installation string, onRecord render.GitHubApp) render.AppSpec {
 // rotation: the successor step and the commit that swaps the credentials.
 func TestPlanNamesTheAppItsCreationAndItsRotation(t *testing.T) {
 	now := time.Date(2026, 10, 18, 0, 0, 0, 0, time.UTC)
-	fresh := githubApps(appInput{apps: []render.AppSpec{portalApp("maple", render.GitHubApp{})}}, Installation{Name: "maple", SuppliedSecrets: []string{"plugins.github.appId"}}, "customer-portal", now)
+	fresh := githubApps(appInput{apps: []render.AppSpec{portalApp(linden, render.GitHubApp{})}}, Installation{Name: linden, SuppliedSecrets: []string{appIDField}}, "customer-portal", now)
 	if len(fresh) != 1 || !fresh[0].NotOnRecord || fresh[0].RotationDue != "" || fresh[0].Rotation != "" {
 		t.Fatalf("a fresh App: %+v", fresh)
 	}
-	young := githubApps(appInput{apps: []render.AppSpec{portalApp("maple", render.GitHubApp{Name: "giantswarm-portal-maple", ID: 7, Created: "2026-06-01"})}}, Installation{Name: "maple"}, "customer-portal", now)
+	young := githubApps(appInput{apps: []render.AppSpec{portalApp(linden, render.GitHubApp{Name: lindenApp, ID: 7, Created: "2026-06-01"})}}, Installation{Name: linden}, "customer-portal", now)
 	if len(young) != 1 || young[0].NotOnRecord || young[0].RotationDue != "2026-12-01" || young[0].Rotation != "" {
 		t.Fatalf("an App of four months: %+v", young)
 	}
-	old := githubApps(appInput{apps: []render.AppSpec{portalApp("maple", render.GitHubApp{Name: "giantswarm-portal-maple", ID: 7, Created: "2026-03-01"})}}, Installation{Name: "maple"}, "customer-portal", now)
-	want := "beekeeper app create giantswarm-portal --installation maple --base-domain maple.example --replace; then platformctl installation reconcile maple customer-portal --rotate giantswarm-portal-maple --commit --secret plugins.github.appId=beekeeper:op://<vault>/giantswarm-portal-maple/app-id"
+	old := githubApps(appInput{apps: []render.AppSpec{portalApp(linden, render.GitHubApp{Name: lindenApp, ID: 7, Created: "2026-03-01"})}}, Installation{Name: linden}, "customer-portal", now)
+	want := "beekeeper app create giantswarm-portal --installation linden --base-domain linden.example --replace; then platformctl installation reconcile linden customer-portal --rotate giantswarm-portal-linden --commit --secret plugins.github.appId=beekeeper:op://<vault>/giantswarm-portal-linden/app-id"
 	if len(old) != 1 || old[0].RotationDue != "2026-09-01" || old[0].Rotation != want {
 		t.Fatalf("an App of seven months: %+v", old)
 	}
-	if apps := githubApps(appInput{}, Installation{Name: "maple"}, "customer-portal", now); len(apps) != 0 {
+	if apps := githubApps(appInput{}, Installation{Name: linden}, "customer-portal", now); len(apps) != 0 {
 		t.Fatalf("an input without Apps: %+v", apps)
 	}
 }
@@ -52,10 +60,10 @@ func TestPlanNamesTheAppItsCreationAndItsRotation(t *testing.T) {
 // not. The id supplied at commit wins over the one on record.
 func TestSharedAppRefusal(t *testing.T) {
 	holders := map[int][]installations.AppHolder{
-		7: {{Installation: "maple", Customer: "acme", Purpose: "customerPortal", App: render.GitHubApp{Name: "giantswarm-portal-maple", ID: 7}}},
-		9: {{Installation: "oak", Customer: "globex", Purpose: "customerPortal", App: render.GitHubApp{Name: "giantswarm-portal-oak", ID: 9}}},
+		7: {{Installation: linden, Customer: "acme", Purpose: portalPurpose, App: render.GitHubApp{Name: lindenApp, ID: 7}}},
+		9: {{Installation: "spruce", Customer: "globex", Purpose: portalPurpose, App: render.GitHubApp{Name: "giantswarm-portal-spruce", ID: 9}}},
 	}
-	own := Installation{Name: "maple", GitHubApps: []GitHubApp{{AppSpec: portalApp("maple", render.GitHubApp{ID: 7})}}}
+	own := Installation{Name: linden, GitHubApps: []GitHubApp{{AppSpec: portalApp(linden, render.GitHubApp{ID: 7})}}}
 	if r := SharedAppRefusal(own, "acme", holders, nil); r != "" {
 		t.Errorf("the installation's own App: %s", r)
 	}
@@ -65,15 +73,15 @@ func TestSharedAppRefusal(t *testing.T) {
 	}
 	other := Installation{Name: "pine", GitHubApps: []GitHubApp{{AppSpec: portalApp("pine", render.GitHubApp{ID: 7})}}}
 	r := SharedAppRefusal(other, "initech", holders, nil)
-	for _, want := range []string{"GitHub App id 7", "giantswarm-portal-pine on pine (initech)", "on record for maple (acme) as giantswarm-portal-maple", "beekeeper app create giantswarm-portal --installation pine"} {
+	for _, want := range []string{"GitHub App id 7", "giantswarm-portal-pine on pine (initech)", "on record for linden (acme) as giantswarm-portal-linden", "beekeeper app create giantswarm-portal --installation pine"} {
 		if !strings.Contains(r, want) {
 			t.Errorf("refusal %q lacks %q", r, want)
 		}
 	}
-	if r := SharedAppRefusal(own, "acme", holders, map[string]string{"plugins.github.appId": "9"}); !strings.Contains(r, "on record for oak (globex)") {
+	if r := SharedAppRefusal(own, "acme", holders, map[string]string{appIDField: "9"}); !strings.Contains(r, "on record for spruce (globex)") {
 		t.Errorf("a supplied id of another owner's App: %q", r)
 	}
-	if r := SharedAppRefusal(own, "acme", holders, map[string]string{"plugins.github.appId": render.Supplied("plugins.github.appId")}); r != "" {
+	if r := SharedAppRefusal(own, "acme", holders, map[string]string{appIDField: render.Supplied(appIDField)}); r != "" {
 		t.Errorf("a marker falls back to the id on record: %q", r)
 	}
 }

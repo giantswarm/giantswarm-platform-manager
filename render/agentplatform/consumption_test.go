@@ -466,7 +466,7 @@ func (c *consumption) write(result *render.Result) {
 	for repo, files := range result.Files {
 		for path, f := range files {
 			full := filepath.Join(c.dir, string(repo), path)
-			if current, err := os.ReadFile(full); err == nil {
+			if current, err := os.ReadFile(full); err == nil { // #nosec G304 -- a path of the test's own tree
 				if filepath.Base(path) != render.RecordFile {
 					c.t.Fatalf("%s:%s is rendered by both definitions", repo, path)
 				}

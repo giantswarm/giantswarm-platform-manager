@@ -15,7 +15,7 @@ import (
 // creates it and the vault references its commit takes the credentials by.
 func TestThePortalsGitHubAppIsTheInstallations(t *testing.T) {
 	defer func(f func() string) { today = f }(today)
-	today = func() string { return "2026-10-18" }
+	today = func() string { return commitDate }
 	const created = "2026-04-01"
 
 	entry := func(t *testing.T, input map[string]any, secrets map[string]string, mode render.Mode) map[string]any {
@@ -67,11 +67,11 @@ func TestThePortalsGitHubAppIsTheInstallations(t *testing.T) {
 		mode    render.Mode
 		want    map[string]any
 	}{
-		{"a first commit learns the id and the date", nil, supplied("123456"), render.ModeCommit, map[string]any{"name": "giantswarm-portal-maple", "id": 123456, "created": "2026-10-18"}},
-		{"the id on record keeps its date", map[string]any{"name": "giantswarm-portal-maple", "id": 123456, "created": created}, supplied("123456"), render.ModeCommit, map[string]any{"name": "giantswarm-portal-maple", "id": 123456, "created": created}},
-		{"a new id is a new App", map[string]any{"name": "giantswarm-portal-maple", "id": 123456, "created": created}, supplied("777"), render.ModeCommit, map[string]any{"name": "giantswarm-portal-maple", "id": 777, "created": "2026-10-18"}},
-		{"a dry run keeps the entry on record", map[string]any{"name": "giantswarm-portal-maple", "id": 123456, "created": created}, markers, render.ModeCompare, map[string]any{"name": "giantswarm-portal-maple", "id": 123456, "created": created}},
-		{"a dry run without an entry names the App alone", nil, markers, render.ModeCompare, map[string]any{"name": "giantswarm-portal-maple"}},
+		{"a first commit learns the id and the date", nil, supplied("123456"), render.ModeCommit, appEntry(123456, commitDate)},
+		{"the id on record keeps its date", appEntry(123456, created), supplied("123456"), render.ModeCommit, appEntry(123456, created)},
+		{"a new id is a new App", appEntry(123456, created), supplied("777"), render.ModeCommit, appEntry(777, commitDate)},
+		{"a dry run keeps the entry on record", appEntry(123456, created), markers, render.ModeCompare, appEntry(123456, created)},
+		{"a dry run without an entry names the App alone", nil, markers, render.ModeCompare, appEntry(0, "")},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			got := entry(t, withRecord(c.record), c.secrets, c.mode)
@@ -86,7 +86,7 @@ func TestThePortalsGitHubAppIsTheInstallations(t *testing.T) {
 		})
 	}
 
-	in, err := Parse(withRecord(map[string]any{"name": "giantswarm-portal-maple", "id": 123456, "created": created}))
+	in, err := Parse(withRecord(appEntry(123456, created)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,4 +135,23 @@ func TestAPortalWithoutGitHubRunsOnNoApp(t *testing.T) {
 	if apps := in.GitHubApps(); len(apps) != 0 {
 		t.Errorf("apps %+v", apps)
 	}
+}
+
+// nameKey is an App entry's name.
+const nameKey = "name"
+
+// commitDate is the date the tests' commits learn an App on.
+const commitDate = "2026-10-18"
+
+// appEntry is maple's App entry in the record: its name, and its id and
+// creation date where given.
+func appEntry(id int, created string) map[string]any {
+	entry := map[string]any{nameKey: GitHubAppName("maple")}
+	if id > 0 {
+		entry["id"] = id
+	}
+	if created != "" {
+		entry["created"] = created
+	}
+	return entry
 }
