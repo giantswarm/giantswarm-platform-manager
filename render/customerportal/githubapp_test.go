@@ -1,6 +1,7 @@
 package customerportal
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -69,7 +70,9 @@ func TestThePortalsGitHubAppIsTheInstallations(t *testing.T) {
 	}{
 		{"a first commit learns the id and the date", nil, supplied("123456"), render.ModeCommit, appEntry(123456, commitDate)},
 		{"the id on record keeps its date", appEntry(123456, created), supplied("123456"), render.ModeCommit, appEntry(123456, created)},
-		{"a new id is a new App", appEntry(123456, created), supplied("777"), render.ModeCommit, appEntry(777, commitDate)},
+		{"a new id over one on record is the successor", appEntry(123456, created), supplied("777"), render.ModeCommit, generationEntry(2, 777, commitDate)},
+		{"the successor's successor is the next generation", generationEntry(2, 777, created), supplied("888"), render.ModeCommit, generationEntry(3, 888, commitDate)},
+		{"a generation on record keeps its name", generationEntry(2, 777, created), markers, render.ModeCompare, generationEntry(2, 777, created)},
 		{"a dry run keeps the entry on record", appEntry(123456, created), markers, render.ModeCompare, appEntry(123456, created)},
 		{"a dry run without an entry names the App alone", nil, markers, render.ModeCompare, appEntry(0, "")},
 	} {
@@ -103,6 +106,9 @@ func TestThePortalsGitHubAppIsTheInstallations(t *testing.T) {
 	}
 	if len(a.Secrets) != len(appVaultFields) || a.Secrets[0] != "--secret plugins.github.appId=beekeeper:op://<vault>/giantswarm-portal-maple/app-id" {
 		t.Errorf("secrets %v", a.Secrets)
+	}
+	if a.Successor != "giantswarm-portal-maple-2" || len(a.SuccessorSecrets) != len(appVaultFields) || a.SuccessorSecrets[0] != "--secret plugins.github.appId=beekeeper:op://<vault>/giantswarm-portal-maple-2/app-id" {
+		t.Errorf("successor %q, its secrets %v", a.Successor, a.SuccessorSecrets)
 	}
 	for _, s := range a.Secrets {
 		if !strings.Contains(s, "=beekeeper:op://<vault>/giantswarm-portal-maple/") {
@@ -145,8 +151,15 @@ const commitDate = "2026-10-18"
 
 // appEntry is maple's App entry in the record: its name, and its id and
 // creation date where given.
-func appEntry(id int, created string) map[string]any {
-	entry := map[string]any{nameKey: GitHubAppName("maple")}
+func appEntry(id int, created string) map[string]any { return generationEntry(1, id, created) }
+
+// generationEntry is the entry of maple's App of that generation.
+func generationEntry(generation, id int, created string) map[string]any {
+	name := GitHubAppName("maple")
+	if generation > 1 {
+		name += "-" + strconv.Itoa(generation)
+	}
+	entry := map[string]any{nameKey: name}
 	if id > 0 {
 		entry["id"] = id
 	}

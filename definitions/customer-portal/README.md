@@ -94,10 +94,11 @@ Key paths in `x-renders`, `removals.yaml` and `migrations.yaml` are normalised: 
   no value is read, the id is configuration. `installation list` prints the inventory. A plan whose App id another
   installation of a different owning organisation has on record is refused, naming both, at the dry run (as the
   commit's refusal) and at the commit, a wave's targets checked against each other as well. Six months after its
-  creation the App is due a successor: the dry run raises the rotation, the successor step (`… --replace`) and the
-  commit that swaps the credentials, `platformctl installation reconcile <name> customer-portal --rotate
-  giantswarm-portal-<name> --commit --secret …`, which asks for every field of the App again, writes
-  `github-app-credentials.enc.yaml` anew and records the new id with its date; the portal restarts on the
+  creation the App is due a successor: the dry run raises the rotation, the successor step (`… --replace`, which
+  creates the next generation, `giantswarm-portal-<name>-2`, `-3`, …, in a vault item of its own beside the old one)
+  and the commit that swaps the credentials, `platformctl installation reconcile <name> customer-portal --rotate
+  <the App on record> --commit --secret …` with the successor's item in its references, which asks for every field of
+  the App again, writes `github-app-credentials.enc.yaml` anew and records the successor's name and id with its date; the portal restarts on the
   credentials revision it already renders. The hub's Dev Portal, kept by hand, runs on no App of the manager's.
 - The Grafana plugin links the installation's own Grafana, `https://grafana.<base domain>`. The `grafana:` section
   is always rendered with that one host under the installation's name: the plugin's config schema requires the

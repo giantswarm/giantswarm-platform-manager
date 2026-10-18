@@ -139,8 +139,9 @@ func TestThePortalRunsOnTheInstallationsOwnGitHubApp(t *testing.T) {
 // months ago with its credentials on record: the dry run raises the
 // rotation, the successor step and the commit that swaps the credentials.
 // That commit — the App named in rotate — asks for every field of the App
-// again, writes its credentials file anew, encrypted, and records the new
-// id with the commit's date; a rotate naming no App or generated value of
+// again — the successor's, giantswarm-portal-hazel-2, from its own vault
+// item —, writes its credentials file anew, encrypted, and records the
+// successor's name and id with the commit's date; a rotate naming no App or generated value of
 // the plan is refused by name.
 func TestTheRotationSwapsThePortalsAppCredentials(t *testing.T) {
 	st := newStack(t)
@@ -171,7 +172,7 @@ func TestTheRotationSwapsThePortalsAppCredentials(t *testing.T) {
 	p := findPlan(t, dry, hub)
 	if len(p.GitHubApps) != 1 || p.GitHubApps[0].Name != app || p.GitHubApps[0].NotOnRecord || p.GitHubApps[0].RotationDue != "2026-07-05" ||
 		!strings.HasPrefix(p.GitHubApps[0].Rotation, "beekeeper app create giantswarm-portal --installation "+hub+" --base-domain ") ||
-		!strings.Contains(p.GitHubApps[0].Rotation, " --replace; then platformctl installation reconcile "+hub+" customer-portal --rotate "+app+" --commit --secret plugins.github.appId=beekeeper:op://<vault>/"+app+"/app-id") {
+		!strings.Contains(p.GitHubApps[0].Rotation, " --replace; then platformctl installation reconcile "+hub+" customer-portal --rotate "+app+" --commit --secret plugins.github.appId=beekeeper:op://<vault>/"+app+"-2/app-id") {
 		t.Fatalf("apps %+v", p.GitHubApps)
 	}
 	if slices.Contains(p.SuppliedSecrets, githubAppIDField) {
@@ -214,7 +215,7 @@ func TestTheRotationSwapsThePortalsAppCredentials(t *testing.T) {
 	if err := yaml.Unmarshal(record, &doc); err != nil {
 		t.Fatal(err)
 	}
-	if doc.GitHubApps["customerPortal"] != (render.GitHubApp{Name: app, ID: 999, Created: time.Now().UTC().Format(time.DateOnly)}) || doc.Services == nil {
+	if doc.GitHubApps["customerPortal"] != (render.GitHubApp{Name: app + "-2", ID: 999, Created: time.Now().UTC().Format(time.DateOnly)}) || doc.Services == nil {
 		t.Fatalf("the record on the branch:\n%s", record)
 	}
 	for _, v := range values {

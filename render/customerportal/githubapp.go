@@ -1,6 +1,8 @@
 package customerportal
 
 import (
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/giantswarm/giantswarm-platform-manager/render"
@@ -35,8 +37,49 @@ var appVaultFields = []struct{ field, vault string }{
 var today = func() string { return time.Now().UTC().Format(time.DateOnly) }
 
 // GitHubAppName is the portal's GitHub App on an installation:
-// giantswarm-portal-<installation>.
+// giantswarm-portal-<installation>, its first generation. Each successor the
+// secret tooling creates carries the next generation's suffix, -2, -3, …, and
+// its credentials in a vault item of that name beside the old one.
 func GitHubAppName(installation string) string { return appManifest + "-" + installation }
+
+// appName is the App the portal runs on: the generation the record names,
+// else the first.
+func (in *Input) appName() string {
+	base := GitHubAppName(in.Installation.Name)
+	if name := in.appOnRecord().Name; name == base || generation(base, name) > 1 {
+		return name
+	}
+	return base
+}
+
+// successor is the App that replaces name: the next generation.
+func (in *Input) successor(name string) string {
+	base := GitHubAppName(in.Installation.Name)
+	return base + "-" + strconv.Itoa(max(generation(base, name), 1)+1)
+}
+
+// generation is name's generation of the App base: 1 for base itself, n for
+// base-<n>, 0 for a name of no generation of it.
+func generation(base, name string) int {
+	if name == base {
+		return 1
+	}
+	n, err := strconv.Atoi(strings.TrimPrefix(name, base+"-"))
+	if !strings.HasPrefix(name, base+"-") || err != nil || n < 2 {
+		return 0
+	}
+	return n
+}
+
+// appSecrets are the commit's --secret references to every credential of the
+// App name in its vault item.
+func appSecrets(name string) []string {
+	secrets := make([]string, 0, len(appVaultFields))
+	for _, f := range appVaultFields {
+		secrets = append(secrets, "--secret "+f.field+"=beekeeper:op://<vault>/"+name+"/"+f.vault)
+	}
+	return secrets
+}
 
 // ownsApp says whether the render runs the portal on a GitHub App of the
 // installation's own: the GitHub integration is on, and the portal is not
@@ -60,30 +103,35 @@ func (in *Input) GitHubApps() []render.AppSpec {
 	if !in.ownsApp() {
 		return nil
 	}
-	name := GitHubAppName(in.Installation.Name)
+	name := in.appName()
 	create := "beekeeper app create " + appManifest + " --installation " + in.Installation.Name + " --base-domain " + in.Installation.BaseDomain
 	fields := make([]string, 0, len(appVaultFields))
-	secrets := make([]string, 0, len(appVaultFields))
 	for _, f := range appVaultFields {
 		fields = append(fields, f.field)
-		secrets = append(secrets, "--secret "+f.field+"=beekeeper:op://<vault>/"+name+"/"+f.vault)
 	}
+	successor := in.successor(name)
 	return []render.AppSpec{{Purpose: appPurpose, Name: name, OnRecord: in.appOnRecord(), IDField: fieldGitHubAppID, Fields: fields,
-		Create: create, Replace: create + " --replace", Secrets: secrets}}
+		Create: create, Secrets: appSecrets(name), Replace: create + " --replace", Successor: successor, SuccessorSecrets: appSecrets(successor)}}
 }
 
 // appRecord is the record's entry of the portal's App as this render writes
 // it into installations/<name>/config.yaml.patch, every other key of the
 // record kept. The id is the one supplied at commit; the creation date the
-// one on record while that id stands, else the commit's. Where no id is
+// one on record while that id stands, else the commit's; a new id over one on
+// record is the App's successor, recorded under the next generation's name. Where no id is
 // supplied — a dry run's marker, or a commit whose App credentials stand on
 // record — the entry on record stands, and without one the entry names the
 // App alone: no commit learned its id, and the credentials file on record
 // says whether the commit asks for it.
 func (in *Input) appRecord(secrets map[string]string) render.File {
 	onRecord := in.appOnRecord()
-	entry := render.Map{e("name", GitHubAppName(in.Installation.Name))}
-	switch id := render.AppID(secrets[fieldGitHubAppID]); {
+	name := in.appName()
+	id := render.AppID(secrets[fieldGitHubAppID])
+	if id > 0 && onRecord.ID > 0 && id != onRecord.ID {
+		name = in.successor(name)
+	}
+	entry := render.Map{e("name", name)}
+	switch {
 	case id == 0 && onRecord.ID == 0:
 		// The App's name alone: no id was learned.
 	case id == 0:

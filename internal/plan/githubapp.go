@@ -57,7 +57,7 @@ func githubApps(in render.Input, p Installation, capability string, now time.Tim
 		if due, ok := spec.OnRecord.RotationDue(now); due != "" {
 			a.RotationDue = due
 			if ok {
-				a.Rotation = spec.Replace + "; then platformctl installation reconcile " + p.Name + " " + capability + " --rotate " + spec.Name + " --commit " + strings.Join(spec.Secrets, " ")
+				a.Rotation = spec.Replace + "; then platformctl installation reconcile " + p.Name + " " + capability + " --rotate " + spec.Name + " --commit " + strings.Join(spec.SuccessorSecrets, " ")
 			}
 		}
 		out = append(out, a)

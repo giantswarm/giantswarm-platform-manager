@@ -66,13 +66,17 @@ type AppSpec struct {
 	IDField string   `json:"idField"`
 	Fields  []string `json:"fields"`
 	// Create is the secret tooling's step that creates the App and writes
-	// its credentials into the vault item Name; Replace creates its
-	// successor in place.
-	Create  string `json:"create"`
-	Replace string `json:"replace"`
-	// Secrets are the commit's --secret arguments that take every
-	// credential of the App from that vault item, by field.
+	// its credentials into the vault item Name; Secrets are the commit's
+	// --secret arguments that take every credential of the App from that
+	// item, by field.
+	Create  string   `json:"create"`
 	Secrets []string `json:"secrets"`
+	// Replace is the step that creates the App's successor, Successor, the
+	// next generation of its name, with its credentials in a vault item of
+	// that name beside the old one; SuccessorSecrets take them from there.
+	Replace          string   `json:"replace"`
+	Successor        string   `json:"successor"`
+	SuccessorSecrets []string `json:"successorSecrets"`
 }
 
 // GitHubAppsInput is an Input whose render runs on GitHub Apps of the

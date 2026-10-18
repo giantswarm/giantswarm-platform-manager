@@ -27,9 +27,11 @@ func (a appInput) GitHubApps() []render.AppSpec { return a.apps }
 
 func portalApp(installation string, onRecord render.GitHubApp) render.AppSpec {
 	return render.AppSpec{Purpose: portalPurpose, Name: "giantswarm-portal-" + installation, OnRecord: onRecord, IDField: appIDField,
-		Create:  "beekeeper app create giantswarm-portal --installation " + installation + " --base-domain " + installation + ".example",
-		Replace: "beekeeper app create giantswarm-portal --installation " + installation + " --base-domain " + installation + ".example --replace",
-		Secrets: []string{"--secret plugins.github.appId=beekeeper:op://<vault>/giantswarm-portal-" + installation + "/app-id"}}
+		Create:           "beekeeper app create giantswarm-portal --installation " + installation + " --base-domain " + installation + ".example",
+		Replace:          "beekeeper app create giantswarm-portal --installation " + installation + " --base-domain " + installation + ".example --replace",
+		Secrets:          []string{"--secret plugins.github.appId=beekeeper:op://<vault>/giantswarm-portal-" + installation + "/app-id"},
+		Successor:        "giantswarm-portal-" + installation + "-2",
+		SuccessorSecrets: []string{"--secret plugins.github.appId=beekeeper:op://<vault>/giantswarm-portal-" + installation + "-2/app-id"}}
 }
 
 // The plan names the App, the step that creates one whose credentials are not
@@ -46,7 +48,7 @@ func TestPlanNamesTheAppItsCreationAndItsRotation(t *testing.T) {
 		t.Fatalf("an App of four months: %+v", young)
 	}
 	old := githubApps(appInput{apps: []render.AppSpec{portalApp(linden, render.GitHubApp{Name: lindenApp, ID: 7, Created: "2026-03-01"})}}, Installation{Name: linden}, "customer-portal", now)
-	want := "beekeeper app create giantswarm-portal --installation linden --base-domain linden.example --replace; then platformctl installation reconcile linden customer-portal --rotate giantswarm-portal-linden --commit --secret plugins.github.appId=beekeeper:op://<vault>/giantswarm-portal-linden/app-id"
+	want := "beekeeper app create giantswarm-portal --installation linden --base-domain linden.example --replace; then platformctl installation reconcile linden customer-portal --rotate giantswarm-portal-linden --commit --secret plugins.github.appId=beekeeper:op://<vault>/giantswarm-portal-linden-2/app-id"
 	if len(old) != 1 || old[0].RotationDue != "2026-09-01" || old[0].Rotation != want {
 		t.Fatalf("an App of seven months: %+v", old)
 	}
