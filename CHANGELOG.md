@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- customer-portal: GitHub is optional for a customer and never read with more rights than the signed-in person has ([#569](https://github.com/giantswarm/giantswarm-platform-manager/issues/569)). The customer's GitHub path is the person's own grant in muster (`gs.github`, rendered by the agent-platform definition where the muster holds a GitHub grant server); the App integration is the customer's own optional App, installed on the repositories every portal user may read. The manager no longer names a `giantswarm-portal-<installation>` App, its creation step or rotation, records no `githubApps` inventory and refuses no App id; `--rotate` takes generated values only. The definition README documents how a customer configures its own git repository access, GitLab, Bitbucket and Azure DevOps included.
+
 ### Fixed
 
 - agent-platform: the platform's Dex client no longer carries the workspace-manager's `/signin` redirect URI, and `live-dex-auth-per-client` no longer asks Dex for it ([#668](https://github.com/giantswarm/giantswarm-platform-manager/issues/668)). workspace-manager 0.10.0 removed `/signin`; the person signs in through muster. A reconcile of an installation with workspaces on drops `oidc.staticClients.muster.extraRedirectURIs` from its Dex values (planned as a removal), and the commit is no longer held for a dex-app older than 3.3.0 on its account. `installation.workspaces` is no longer an input of the definition; list_installations still reports whether workspaces are on. Installations with workspaces off render unchanged.

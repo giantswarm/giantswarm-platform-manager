@@ -131,7 +131,7 @@
       "properties": {
         "github": {
           "type": "object",
-          "description": "The GitHub integration through a GitHub App. Its app id, client id, client secret, private key and webhook secret are supplied at commit (plugins.github.appId, clientId, clientSecret, privateKey, webhookSecret) and land in the Secret github-app-credentials-backstage, which the chart writes into github-app-credentials.yaml.",
+          "description": "The optional GitHub integration through the customer's own GitHub App, installed on the repositories every portal user may read: its installation token reads as the App, not the signed-in person. Its app id, client id, client secret, private key and webhook secret are supplied at commit (plugins.github.appId, clientId, clientSecret, privateKey, webhookSecret) and land in the Secret github-app-credentials-backstage, which the chart writes into github-app-credentials.yaml.",
           "additionalProperties": false,
           "required": ["enabled"],
           "properties": {

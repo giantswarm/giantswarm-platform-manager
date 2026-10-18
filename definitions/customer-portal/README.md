@@ -83,6 +83,19 @@ Key paths in `x-renders`, `removals.yaml` and `migrations.yaml` are normalised: 
   inputs), Sentry's `plugins.sentry.appDsn`, `backendDsn` and `reportUri`, the service-account token of the
   installation's Grafana, `plugins.grafana.token`, where the Grafana plugin is wired, and the AI chat's credential
   while it is the portal's (below).
+- GitHub is optional for a customer, and the portal never reads it with more rights than the signed-in person has.
+  Its path is the person's own GitHub grant: on an installation with the agent platform whose muster holds a
+  GitHub grant server (the agent-platform definition's `installation.mcpServers[*].githubGrant`), that
+  definition renders `gs.github` into the portal's Component, people connect GitHub in muster, and the portal's
+  GitHub views read as the person; no App is involved. The App integration (`plugins.github`) is the customer's
+  own and optional beside it: a portal without it renders no `integrations.github`, no credentials file and no
+  values source. A customer that wants it creates and owns the GitHub App, installs it only on repositories every
+  person who signs in to the portal may read, and supplies its credentials at commit as above; the manager
+  creates, names, records and rotates no App for a customer. An App's installation token reads as the App, not as
+  the signed-in person, so every portal user sees what the installation reaches: an App of Giant Swarm's never goes
+  into a customer's portal. A customer whose repositories live on GitLab, Bitbucket or Azure DevOps leaves both off;
+  the Flux plugin's `gitRepositoryPatterns` map its GitRepository URLs to browsable file URLs on any host, and the
+  definition renders no other git integration yet.
 - The Grafana plugin links the installation's own Grafana, `https://grafana.<base domain>`. The `grafana:` section
   is always rendered with that one host under the installation's name: the plugin's config schema requires the
   section, and a portal without it does not start. `plugins.grafana.enabled` says whether the plugin is wired —
