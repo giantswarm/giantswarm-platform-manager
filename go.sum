@@ -202,8 +202,8 @@ github.com/getsops/gopgagent v0.0.0-20241224165529-7044f28e491e h1:y/1nzrdF+RPds
 github.com/getsops/gopgagent v0.0.0-20241224165529-7044f28e491e/go.mod h1:awFzISqLJoZLm+i9QQ4SgMNHDqljH6jWV0B36V5MrUM=
 github.com/getsops/sops/v3 v3.13.3 h1:saYczbT88kD1saNChe1cAbFQe5mrRhTIfEw3TaEcmK0=
 github.com/getsops/sops/v3 v3.13.3/go.mod h1:3mUuUtKnJ63IzIvU4LQoDXdp0ZvorY5s2hEc7UVNfx8=
-github.com/giantswarm/gitops-commit v0.11.2 h1:T21IskhXGMQUpBcjER/brIVmzmYO4nVjr9hOt/6DoXg=
-github.com/giantswarm/gitops-commit v0.11.2/go.mod h1:7wbz73+MY8iezNHc1ZDHiSqlhXX9I5qc84GyEkVCoq8=
+github.com/giantswarm/gitops-commit v0.11.3 h1:Q10rNkTZDOOVfdhopDogtOBff32hiqRPW/dcP0hPqIs=
+github.com/giantswarm/gitops-commit v0.11.3/go.mod h1:7wbz73+MY8iezNHc1ZDHiSqlhXX9I5qc84GyEkVCoq8=
 github.com/giantswarm/go-selfupdate v1.6.3 h1:IF9+CDIzx+p8lWrEqn+7+hznLUu8vooQ6XQWtjOGffs=
 github.com/giantswarm/go-selfupdate v1.6.3/go.mod h1:ZRK84xA7SPPJ+y9c988e8UZ0MuV/QNbWT4mjwBj963I=
 github.com/giantswarm/mcp-oauth v1.7.2 h1:Shze1fRCs45rlPd65B77eS3F6Cd/0SdFMFmXJ8lzgHs=
