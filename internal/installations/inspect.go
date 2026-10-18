@@ -11,6 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // ConfigPatchPath is where the installation's configs repository keeps the
@@ -85,6 +86,11 @@ type Record struct {
 	PlatformCandidate       string `json:"platformCandidate,omitempty"`
 	PlatformStable          string `json:"platformStable,omitempty"`
 	PlatformCandidateUnread bool   `json:"platformCandidateUnread,omitempty"`
+	// GitHubApps is the installation's credential inventory of GitHub Apps:
+	// config.yaml.patch githubApps, by purpose, each App's name, id and the
+	// date its commit learned it (render.GitHubApp); none where the record
+	// keeps none.
+	GitHubApps map[string]render.GitHubApp `json:"githubApps,omitempty"`
 }
 
 // configPatch is the part of config.yaml.patch the record reads.
@@ -106,6 +112,7 @@ type configPatch struct {
 	GatewayAPI struct {
 		ClusterIssuer string `yaml:"clusterIssuer"`
 	} `yaml:"gatewayApi"`
+	GitHubApps map[string]render.GitHubApp `yaml:"githubApps"`
 }
 
 // CapabilityState is one capability on one installation.
@@ -393,7 +400,7 @@ func (r *Registry) readRecord(ctx context.Context, c *gh.Client, owner, repo str
 		return nil, fmt.Errorf("the facts on record: %s in %s: %w", ConfigPatchPath(inst.Name), inst.Repositories.Configs, err)
 	}
 	rec := &Record{Name: inst.Name, BaseDomain: inst.BaseDomain, Customer: inst.Customer, Provider: inst.Provider,
-		ChartLine: "3", MusterClientID: p.Services.Muster.ClientID, ClusterIssuer: p.GatewayAPI.ClusterIssuer}
+		ChartLine: "3", MusterClientID: p.Services.Muster.ClientID, ClusterIssuer: p.GatewayAPI.ClusterIssuer, GitHubApps: p.GitHubApps}
 	if rec.MusterClientID == "" || rec.ClusterIssuer == "" {
 		// konfigure overlays the patch on the shared default: an installation
 		// without its own client id or issuer runs on the fleet's.
@@ -506,6 +513,9 @@ func (r *Record) Input() map[string]any {
 	}
 	if r.ClusterIssuer != "" {
 		in["clusterIssuer"] = r.ClusterIssuer
+	}
+	if len(r.GitHubApps) > 0 {
+		in["githubApps"] = r.GitHubApps
 	}
 	return in
 }

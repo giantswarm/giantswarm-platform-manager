@@ -194,7 +194,7 @@ A set renders only the installations that have it on record, as reconcile_capabi
       "type": "string"
     },
     "rotate": {
-      "description": "Generated values to rotate, by name as the plan lists them. Every other value of a rewritten file rotates with it; their workloads restart.",
+      "description": "Generated values to rotate, or GitHub Apps whose credentials to swap, by name as the plan lists them. Workloads restart.",
       "items": {
         "type": "string"
       },
@@ -402,7 +402,7 @@ A plan whose files are all unchanged means the installation matches the definiti
       "type": "string"
     },
     "rotate": {
-      "description": "Generated values to rotate, by name as the plan lists them. Every other value of a rewritten file rotates with it; their workloads restart.",
+      "description": "Generated values to rotate, or GitHub Apps whose credentials to swap, by name as the plan lists them. Workloads restart.",
       "items": {
         "type": "string"
       },

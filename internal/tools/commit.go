@@ -159,6 +159,9 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
 	}
+	if refusal := sharedAppRefusal(env, []plan.Installation{p}, supplied); refusal != "" {
+		return nil, fmt.Errorf("%s: %s: %s; nothing is committed", tool, one, refusal)
+	}
 	secrets = supplied[one]
 	values := suppliedGenerated(p, secrets)
 	rendered, err := def.Render(inputs, withMarkers(secrets, p.SuppliedOnRecord), render.ModeCommit)
@@ -507,6 +510,13 @@ func targetsOf(ctx context.Context, c *gh.Client, p plan.Installation, rendered 
 					return nil, fmt.Errorf("%s:%s is a plain file and a supplied value would land in it; nothing is committed", resolved, path)
 				}
 				content = []byte(pf.Content)
+				if path == render.RecordPath(inst.Name) && pf.Current != "" {
+					// The record takes what only the commit learns — an
+					// App's id and its date — over the record on record.
+					if content, err = plan.RecordWithKeys(f.Content, pf.Current); err != nil {
+						return nil, fmt.Errorf("%s:%s: %w", resolved, path, err)
+					}
+				}
 			}
 			// A secret file the plan updates is written anew when the plan
 			// rewrites it: its skeleton changed, or a rotation rewrites it.

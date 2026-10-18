@@ -347,6 +347,10 @@ type Installation struct {
 	// drift lines; nil where it takes nothing (JoinRefusal).
 	Join       *Join       `json:"join,omitempty"`
 	DexClients []DexClient `json:"dexClients"`
+	// GitHubApps are the GitHub Apps of the installation's own the render
+	// runs on, by name, with the step that creates one not on record and
+	// the rotation of one due a successor; none where it runs on none.
+	GitHubApps []GitHubApp `json:"githubApps,omitempty"`
 	// DexConnectors are the ids of the token-exchange connectors the
 	// rendered Dex patch declares under oidc.customer.connectors
 	// (DexSecretRefusal).
@@ -665,6 +669,8 @@ func Build(ctx context.Context, opts Options) Installation {
 	}
 	p.MissingFacts = missingFacts(ctx, opts.Read, recordRef(opts), facts)
 	p.SuppliedSecrets, p.SuppliedOnRecord = splitSupplied(supplied, suppliedIn, p.Files)
+	p.GitHubApps = githubApps(in, p, opts.Definition.Name, clock())
+	p.apps(opts.Rotate, suppliedIn, render.RecordPath(opts.Installation.Name))
 	p.includes(ctx, opts, res.Includes)
 	sort.SliceStable(p.Files, func(i, j int) bool {
 		if p.Files[i].Repository != p.Files[j].Repository {

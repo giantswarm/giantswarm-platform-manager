@@ -1,0 +1,5 @@
+githubApps:
+  customerPortal:
+    name: giantswarm-portal-maple
+    id: 123456
+    created: "2026-04-01"

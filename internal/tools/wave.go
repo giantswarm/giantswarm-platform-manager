@@ -87,6 +87,9 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w; nothing is committed", tool, err)
 	}
+	if refusal := sharedAppRefusal(env, targets, supplied); refusal != "" {
+		return nil, fmt.Errorf("%s: %s; nothing is committed", tool, refusal)
+	}
 	if len(targets) == 0 {
 		res.Next = "no installation of the set has a change to commit: nothing to merge, no action recorded"
 		return res, nil
