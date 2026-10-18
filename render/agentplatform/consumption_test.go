@@ -459,18 +459,13 @@ func (c *consumption) renderPortal(file string) *customerportal.Input {
 }
 
 // write puts a definition's fileset into the shape's tree. A path already
-// written is a second owner for one file, which the definitions rule out —
-// but for the installation's record, which definitions edit keys into: there
-// the keys merge, and a key both render is the second owner.
+// written is a second owner for one file, which the definitions rule out.
 func (c *consumption) write(result *render.Result) {
 	for repo, files := range result.Files {
 		for path, f := range files {
 			full := filepath.Join(c.dir, string(repo), path)
-			if current, err := os.ReadFile(full); err == nil { // #nosec G304 -- a path of the test's own tree
-				if filepath.Base(path) != render.RecordFile {
-					c.t.Fatalf("%s:%s is rendered by both definitions", repo, path)
-				}
-				f.Content = c.mergeRecord(repo, path, current, f.Content)
+			if _, err := os.Stat(full); err == nil {
+				c.t.Fatalf("%s:%s is rendered by both definitions", repo, path)
 			}
 			if err := os.MkdirAll(filepath.Dir(full), 0o750); err != nil {
 				c.t.Fatal(err)
@@ -1404,27 +1399,4 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	sort.Strings(keys)
 	return keys
-}
-
-// mergeRecord is the record both definitions edit keys into, their keys
-// merged; a top-level key both render fails the test.
-func (c *consumption) mergeRecord(repo render.Repository, path string, current, rendered []byte) []byte {
-	var cur, ren map[string]any
-	if err := yaml.Unmarshal(current, &cur); err != nil {
-		c.t.Fatal(err)
-	}
-	if err := yaml.Unmarshal(rendered, &ren); err != nil {
-		c.t.Fatal(err)
-	}
-	for k, v := range ren {
-		if _, both := cur[k]; both {
-			c.t.Fatalf("%s:%s: key %s is rendered by both definitions", repo, path, k)
-		}
-		cur[k] = v
-	}
-	out, err := yaml.Marshal(cur)
-	if err != nil {
-		c.t.Fatal(err)
-	}
-	return out
 }

@@ -34,15 +34,6 @@ func keepRecord(rendered, current []byte) ([]byte, []Kept, error) {
 	return out, nil, err
 }
 
-// RecordWithKeys answers the installation's record on record (current) with
-// rendered's keys edited in, every other key kept: what a commit writes when
-// its render holds what the plan's dry run could not, an App's id supplied
-// at commit.
-func RecordWithKeys(rendered []byte, current string) ([]byte, error) {
-	out, _, err := keepRecord(rendered, []byte(current))
-	return out, err
-}
-
 // mergeMapping edits ren's entries into cur and says whether anything
 // changed: a key cur lacks is appended with ren's key and value nodes (their
 // comments with them), two mappings merge, any other value is replaced where

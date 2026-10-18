@@ -14,7 +14,6 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
-	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // The capability tools' own arguments.
@@ -60,9 +59,6 @@ type planned struct {
 	byName  map[string]installations.Installation
 	reports map[string]installations.Report
 	inputs  map[string]map[string]any
-	// apps is the registry's credential inventory of GitHub Apps by id, read
-	// where a plan runs on an App of the installation's own; nil otherwise.
-	apps map[int][]installations.AppHolder
 }
 
 // commitNext says what mode commit does with a dry run, word for word.
@@ -117,7 +113,7 @@ const forceJoinArgDescription = `Only after a commit refused for the join: proce
 const reasonArgDescription = `mode commit only, required: why, in a sentence a teammate judges the change by; the team's review and the pull requests show it.`
 
 // rotateArgDescription describes the rotate argument of the write tools.
-const rotateArgDescription = `Generated values to rotate, or GitHub Apps whose credentials to swap, by name as the plan lists them. Workloads restart.`
+const rotateArgDescription = `Generated values to rotate, by name as the plan lists them. Every other value of a rewritten file rotates with it; their workloads restart.`
 
 func (t *Tools) enableCapabilityTool() WriteTool {
 	return WriteTool{Name: ToolEnableCapability,
@@ -248,21 +244,6 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 			e.CommitRefused = commitRefusal(e.Installation, env.reports[e.Name].Record)
 		}
 	}
-	// An App's id on record for another owner's installation refuses the
-	// commit, read against the registry's credential inventory.
-	if slices.ContainsFunc(out.Installations, func(e DryRun) bool { return len(e.GitHubApps) > 0 }) {
-		var unread []string
-		env.apps, unread = reg.AppHolders(ctx, c, reg.Installations)
-		if len(unread) > 0 {
-			t.d.Log.Info(tool, identity.LogAttr(ctx), "githubAppsUnread", strings.Join(unread, ","))
-		}
-		for i := range out.Installations {
-			e := &out.Installations[i]
-			if e.CommitRefused == "" && e.Refused == "" {
-				e.CommitRefused = plan.SharedAppRefusal(e.Installation, byName[e.Name].Customer, env.apps, nil)
-			}
-		}
-	}
 	if unknown := unknownRotations(rotate, out.Installations); len(unknown) > 0 {
 		where := "no plan of the set lists"
 		if whole {
@@ -296,9 +277,6 @@ func unknownRotations(rotate []string, entries []DryRun) []string {
 		rendered = true
 		for _, g := range e.GeneratedSecrets {
 			listed[g.Name] = true
-		}
-		for _, a := range e.GitHubApps {
-			listed[a.Name] = true
 		}
 	}
 	var unknown []string
@@ -502,28 +480,4 @@ func stringSlice(v any) []string {
 		}
 	}
 	return out
-}
-
-// sharedAppRefusal is the refusal of a commit whose targets run on a GitHub
-// App another owner's installation holds: on record (env.apps) or supplied
-// to another target of the same commit. supplied are the targets' values by
-// installation; "" where every App is the installation's own.
-func sharedAppRefusal(env *planned, targets []plan.Installation, supplied map[string]map[string]string) string {
-	holders := make(map[int][]installations.AppHolder, len(env.apps))
-	for id, hs := range env.apps {
-		holders[id] = slices.Clone(hs)
-	}
-	for _, p := range targets {
-		for _, a := range p.GitHubApps {
-			if id := render.AppID(supplied[p.Name][a.IDField]); id > 0 {
-				holders[id] = append(holders[id], installations.AppHolder{Installation: p.Name, Customer: env.byName[p.Name].Customer, Purpose: a.Purpose, App: render.GitHubApp{Name: a.Name, ID: id}})
-			}
-		}
-	}
-	for _, p := range targets {
-		if refusal := plan.SharedAppRefusal(p, env.byName[p.Name].Customer, holders, supplied[p.Name]); refusal != "" {
-			return refusal
-		}
-	}
-	return ""
 }
