@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -18,6 +20,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/platformctl/muster"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // JSON writes the tool's document re-indented, as the manager answered it.
@@ -57,6 +60,7 @@ func Installations(w io.Writer, r tools.ListInstallationsResult) error {
 		rows = append(rows, append(row, lastAction(inst)))
 	}
 	p.table(0, rows)
+	p.appInventory(r.Installations)
 	if len(r.Unreadable) > 0 {
 		p.f("\nUnreadable as you: %s\n", strings.Join(r.Unreadable, ", "))
 	}
@@ -70,6 +74,45 @@ func Installations(w io.Writer, r tools.ListInstallationsResult) error {
 		p.f("\nErrors:\n%s\n", strings.Join(lines, "\n"))
 	}
 	return p.err
+}
+
+// clock is the time the inventory reads an App's age at; a test sets it.
+var clock = time.Now
+
+// appInventory is the credential inventory of GitHub Apps the records keep:
+// per installation each App's purpose, name, id and creation date, and the
+// rotation of one due a successor. Nothing where no record keeps one.
+func (p *printer) appInventory(insts []installations.Report) {
+	rows := [][]string{{"INSTALLATION", "PURPOSE", "GITHUB APP", "ID", "CREATED", "ROTATION"}}
+	for _, inst := range insts {
+		if inst.Record == nil {
+			continue
+		}
+		purposes := make([]string, 0, len(inst.Record.GitHubApps))
+		for purpose := range inst.Record.GitHubApps {
+			purposes = append(purposes, purpose)
+		}
+		sort.Strings(purposes)
+		for _, purpose := range purposes {
+			a := inst.Record.GitHubApps[purpose]
+			rotation := "-"
+			if due, ok := a.RotationDue(clock()); ok {
+				rotation = "due since " + due
+			} else if due != "" {
+				rotation = due
+			}
+			id := "-"
+			if a.ID > 0 {
+				id = strconv.Itoa(a.ID)
+			}
+			rows = append(rows, []string{inst.Name, purpose, a.Name, id, dash(a.Created), rotation})
+		}
+	}
+	if len(rows) == 1 {
+		return
+	}
+	p.f("\nGitHub Apps on record:\n")
+	p.table(2, rows)
 }
 
 func capabilityState(inst installations.Report, capability string) installations.State {
@@ -235,6 +278,7 @@ func (p *printer) installation(inst plan.Installation, features []verify.Feature
 			p.f("    %s%s\n", c.ID, dexClient(c))
 		}
 	}
+	p.githubApps(inst.GitHubApps)
 	p.customerActions(inst.CustomerActions)
 	if len(inst.Probes) > 0 {
 		p.f("  Probes:\n")
@@ -621,6 +665,41 @@ func Verify(w io.Writer, r verify.Result, liveErr error) error {
 		}
 	}
 	return p.err
+}
+
+// githubApps lists the GitHub Apps of the installation's own the plan runs
+// on: the App's name and what the record holds of it, the step that creates
+// one whose credentials are not on record with the references its commit
+// takes them by, and the rotation of one due a successor.
+func (p *printer) githubApps(apps []plan.GitHubApp) {
+	if len(apps) == 0 {
+		return
+	}
+	p.f("  GitHub Apps:\n")
+	for _, a := range apps {
+		p.f("    %s (%s)%s\n", a.Name, a.Purpose, appOnRecord(a.OnRecord))
+		if a.NotOnRecord {
+			p.f("      not on record: create it with %s, then commit with %s\n", a.Create, strings.Join(a.Secrets, " "))
+		}
+		switch {
+		case a.Rotation != "":
+			p.f("      rotation due since %s: %s\n", a.RotationDue, a.Rotation)
+		case a.RotationDue != "":
+			p.f("      rotation due on %s\n", a.RotationDue)
+		}
+	}
+}
+
+// appOnRecord is what the record holds of a GitHub App: its id and creation
+// date, or that it holds nothing.
+func appOnRecord(a render.GitHubApp) string {
+	switch {
+	case a.ID == 0:
+		return ": no id on record"
+	case a.Created == "":
+		return fmt.Sprintf(": id %d on record", a.ID)
+	}
+	return fmt.Sprintf(": id %d on record, created %s", a.ID, a.Created)
 }
 
 // customerActions lists the actions still the customer's with their reason,

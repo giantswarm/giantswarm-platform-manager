@@ -133,7 +133,15 @@ type Installation struct {
 	AgentPlatform bool     `json:"agentPlatform"`
 	// Test says this is one of Giant Swarm's own test installations, where
 	// the chart line may pin an exact version.
-	Test bool `json:"test"`
+	Test bool `json:"test"` // GitHubApps is the record's credential inventory of GitHub Apps, the
+	// portal's own among them (githubapp.go).
+	GitHubApps GitHubApps `json:"githubApps"`
+}
+
+// GitHubApps is the record's githubApps: the installation's GitHub Apps by
+// purpose, as far as the portal reads them.
+type GitHubApps struct {
+	CustomerPortal *render.GitHubApp `json:"customerPortal"`
 }
 
 // Portal is the portal as the person names it.

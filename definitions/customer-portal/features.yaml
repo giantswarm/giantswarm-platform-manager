@@ -58,6 +58,7 @@ features:
     dimensions:
       - {id: user-secrets, kind: backstage, key: user-secrets.enc.yaml}
       - {id: github-app-credentials, kind: backstage, key: github-app-credentials.enc.yaml}
+      - {id: github-app-on-record, kind: record, key: "config.yaml.patch githubApps.customerPortal (the portal's own GitHub App, giantswarm-portal-<installation>: its name, id and creation date; the credential inventory)"}
       - {id: plugin-keys, kind: backstage, key: plugin-keys-secret.enc.yaml / app-config.yaml backend.auth.pluginKeyStore}
       - {id: dex-client-secret, kind: backstage, key: dex-client-backstage-secret.enc.yaml}
       - {id: live-values-secrets, kind: live, key: "Secrets user-secrets-backstage, plugin-keys-backstage and github-app-credentials-backstage in flux-giantswarm with key values"}

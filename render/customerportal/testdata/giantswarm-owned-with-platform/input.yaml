@@ -18,6 +18,11 @@ input:
     pipeline: testing
     agentPlatform: true
     test: true
+    githubApps:
+      customerPortal:
+        name: giantswarm-portal-hazel
+        id: 654321
+        created: "2026-05-12"
   portal:
     domain: portal.hazel.example.test
     title: Example Portal

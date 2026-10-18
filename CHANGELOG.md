@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- customer-portal: the portal runs on a GitHub App of the installation's own, `giantswarm-portal-<installation>` ([#569](https://github.com/giantswarm/giantswarm-platform-manager/issues/569)). The dry run names the App (`githubApps` of the plan) and, where its credentials are not on record, the secret tooling's step that creates it and the commit's `beekeeper:` references to its vault item. The commit records the App's name, id and creation date in the installation's credential inventory, `githubApps.customerPortal` of its `config.yaml.patch`, every other key kept; `installation list` prints the inventory. A plan whose App id another owning organisation's installation has on record, or another target of the same wave is supplied, is refused naming both. Six months after its creation the dry run raises the App's rotation: the successor step and the commit that swaps the credentials, `--rotate giantswarm-portal-<installation>`, which asks for every field of the App again and rewrites its credentials file. No credential value is read: the id is configuration.
+
 ### Fixed
 
 - agent-platform: the platform's Dex client no longer carries the workspace-manager's `/signin` redirect URI, and `live-dex-auth-per-client` no longer asks Dex for it ([#668](https://github.com/giantswarm/giantswarm-platform-manager/issues/668)). workspace-manager 0.10.0 removed `/signin`; the person signs in through muster. A reconcile of an installation with workspaces on drops `oidc.staticClients.muster.extraRedirectURIs` from its Dex values (planned as a removal), and the commit is no longer held for a dex-app older than 3.3.0 on its account. `installation.workspaces` is no longer an input of the definition; list_installations still reports whether workspaces are on. Installations with workspaces off render unchanged.
