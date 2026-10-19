@@ -262,6 +262,28 @@ func TestRoutesThePortalsLeaves(t *testing.T) {
 	}
 }
 
+// The tenant mode's leaves, and any other tenants key a person sets by
+// hand, are observed under the runtime feature's tenant dimension, not the
+// patch's catch-all.
+func TestRoutesTheTenantsLeaves(t *testing.T) {
+	feats, err := definitions.Features("agent-platform")
+	if err != nil {
+		t.Fatal(err)
+	}
+	matchers := matchersOf(feats, nil)
+	const patch = "installations/rowan/apps/agent-platform/configmap-values.yaml.patch"
+	fd := &fileDiff{path: patch, kind: kindOf(patch)}
+	for leaf, want := range map[string]string{
+		tenantsInput:                   "tenant-organizations",
+		"tenants.platformTeam[0].name": "tenant-organizations",
+		"llmRouting.modelConfigPolicy": "patch-top-level-keys",
+	} {
+		if d := route(matchers, fd, leaf); d == nil || d.ID != want {
+			t.Errorf("%s is observed under %v, want %s", leaf, d, want)
+		}
+	}
+}
+
 // A leaf no dimension of its kind names, where the kind has no catch-all,
 // is reported under the dimension of OtherFeature for the kind instead of
 // dropped: a difference marks it, a choice not on record alone makes it not

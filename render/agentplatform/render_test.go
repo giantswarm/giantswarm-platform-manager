@@ -1461,3 +1461,76 @@ func yamlScalar(ttl string) string {
 	}
 	return ttl
 }
+
+// TestTenantOrganizations renders the person's tenant mode as the meta
+// chart's tenants.organizations.enabled, beside the LLM listener the chart
+// refuses the mode without, and leaves the chart's other two conditions —
+// the listener's ModelConfig policy and a default provider it serves — to
+// the chart's defaults: the patch overrides none of them. Off, the goldens
+// are the render. Refused when it is no boolean, on the 3 line and where the
+// policy does not run kagent and the agent-manager.
+func TestTenantOrganizations(t *testing.T) {
+	withTenants := func(shape string, enabled any) (map[string]any, map[string]string) {
+		input, secrets := loadInput(t, shape)
+		input["tenants"] = map[string]any{"organizations": map[string]any{keyEnabled: enabled}}
+		return input, secrets
+	}
+	input, secrets := withTenants(shapeHubPrivateTarget, true)
+	result, err := Render(input, secrets, render.ModeCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw []byte
+	for name, content := range result.Tree() {
+		if strings.HasSuffix(name, "apps/agent-platform/configmap-values.yaml.patch") {
+			raw = content
+		}
+	}
+	var patch struct {
+		Tenants    map[string]any `yaml:"tenants"`
+		LLMRouting map[string]any `yaml:"llmRouting"`
+		Kagent     struct {
+			Providers map[string]any `yaml:"providers"`
+		} `yaml:"kagent"`
+	}
+	if err := yaml.Unmarshal(raw, &patch); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := fmt.Sprint(patch.Tenants), "map[organizations:map[enabled:true]]"; got != want {
+		t.Errorf("tenants %s, want %s", got, want)
+	}
+	if patch.LLMRouting[keyEnabled] != true {
+		t.Errorf("the tenant mode without the LLM listener: llmRouting %v", patch.LLMRouting)
+	}
+	for _, k := range []string{"modelConfigPolicy", "models"} {
+		if _, ok := patch.LLMRouting[k]; ok {
+			t.Errorf("the patch overrides the chart's llmRouting.%s: %v", k, patch.LLMRouting[k])
+		}
+	}
+	if _, ok := patch.Kagent.Providers["default"]; ok {
+		t.Errorf("the patch overrides the default provider: %v", patch.Kagent.Providers)
+	}
+
+	notBool, hubSecrets := withTenants(shapeHubPrivateTarget, "yes")
+	lineThree, lineThreeSecrets := withTenants(shapePublicCustomer, true)
+	noKagent, noKagentSecrets := withTenants(shapeHubPrivateTarget, true)
+	noKagent["installation"].(map[string]any)["customer"] = customerWithoutKagent
+	noKagent["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
+	for _, c := range []struct {
+		name    string
+		input   map[string]any
+		secrets map[string]string
+		names   string
+	}{
+		{"not a boolean", notBool, hubSecrets, "tenants/organizations/enabled"},
+		{"the 3 line", lineThree, lineThreeSecrets, "tenants.organizations.enabled"},
+		{"no kagent and no agent-manager", noKagent, noKagentSecrets, "tenants.organizations.enabled"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := Render(c.input, c.secrets, render.ModeCommit)
+			if !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), c.names) {
+				t.Fatalf("got %v, want ErrInput naming %q", err, c.names)
+			}
+		})
+	}
+}

@@ -632,6 +632,7 @@ func must[T any](v T, err error) T {
 const (
 	baseDomainKey   = "baseDomain"
 	servingInput    = "modelServing.enabled"
+	tenantsInput    = "tenants.organizations.enabled"
 	baseDomainInput = "installation." + baseDomainKey
 	customerInput   = "installation.customer"
 	hostLeaf        = "r:values#host"
@@ -664,11 +665,11 @@ func TestDrivenInputsAreThePersonsAndTheTyped(t *testing.T) {
 	versionInputs := []string{"versions.chart", "versions.components.agent-manager", "versions.components.cluster-manager", "versions.components.kagent", "versions.components.klaus-gateway", "versions.components.model-manager", "versions.components.muster", "versions.components.valkey",
 		"versions.reasons.chart", "versions.reasons.components.agent-manager", "versions.reasons.components.cluster-manager", "versions.reasons.components.kagent", "versions.reasons.components.klaus-gateway", "versions.reasons.components.model-manager", "versions.reasons.components.muster", "versions.reasons.components.valkey"}
 	got, err := drivenInputs(def, Inputs{Values: doc("a.test", "acme", true)})
-	if err != nil || !reflect.DeepEqual(got, slices.Concat(agentInputs, chatInputs, []string{commitInput}, hiveInputs, gatewayInputs, llmInputs, []string{modelCommitInput, servingInput, "networkPolicy.mcpBackends", "scheduling.singletonsCapacity", "sessions.idleTTL", skillsInput}, versionInputs)) {
+	if err != nil || !reflect.DeepEqual(got, slices.Concat(agentInputs, chatInputs, []string{commitInput}, hiveInputs, gatewayInputs, llmInputs, []string{modelCommitInput, servingInput, "networkPolicy.mcpBackends", "scheduling.singletonsCapacity", "sessions.idleTTL", skillsInput, tenantsInput}, versionInputs)) {
 		t.Errorf("from the record: %v %v", got, err)
 	}
 	got, err = drivenInputs(def, Inputs{Values: doc("a.test", "acme", true), Typed: doc("b.test", "acme", false)})
-	if err != nil || !reflect.DeepEqual(got, slices.Concat(agentInputs, chatInputs, []string{commitInput}, hiveInputs, []string{baseDomainInput, customerInput}, gatewayInputs, llmInputs, []string{modelCommitInput, servingInput, "networkPolicy.mcpBackends", "scheduling.singletonsCapacity", "sessions.idleTTL", skillsInput}, versionInputs)) {
+	if err != nil || !reflect.DeepEqual(got, slices.Concat(agentInputs, chatInputs, []string{commitInput}, hiveInputs, []string{baseDomainInput, customerInput}, gatewayInputs, llmInputs, []string{modelCommitInput, servingInput, "networkPolicy.mcpBackends", "scheduling.singletonsCapacity", "sessions.idleTTL", skillsInput, tenantsInput}, versionInputs)) {
 		t.Errorf("with facts typed: %v %v", got, err)
 	}
 }
