@@ -715,7 +715,7 @@ type commitChoice struct {
 // the cluster does not serve PodCertificateRequest, the chat or skill
 // repositories on an installation whose organisation hosts no portal for
 // them, the chat without a model, or on Vertex without its Google project or
-// location, the Hive where the installation cannot serve it, the MCP backends' network policy or the LLM listener's rate limits on the 3 line, the rate limits or the session idle TTL where no kagent runs, the session idle TTL on the 3 line, the tenant mode on the 3 line or where kagent and the agent-manager do not both run, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
+// location, the Hive where the installation cannot serve it, the MCP backends' network policy or the LLM listener's rate limits on the 3 line, the rate limits or the session idle TTL where no kagent runs, the session idle TTL on the 3 line, the tenant mode on the 3 line, where kagent and the agent-manager do not both run or with a hold below the releases it needs, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
 // is ErrInput too.
 func Parse(raw any) (*Input, error) {
 	schemaBytes, err := definitions.FS.ReadFile("agent-platform/schema.json")
@@ -918,6 +918,16 @@ func (in *Input) checkRecord() error {
 	if in.TenantOrganizations && (!in.kagent() || !in.agentManager()) {
 		return refuse(fmt.Sprintf("%s needs kagent, whose LLM listener (llmRouting.enabled) the meta chart's tenant mode refuses to run without, and the agent-manager, whose tenant reconciler it turns on; the fleet policy does not run both on %s's installations", describe("tenants.organizations.enabled"), in.Installation.Customer))
 	}
+	if in.TenantOrganizations {
+		for _, h := range []struct{ input, what, hold, floor string }{
+			{"versions.chart", "the meta chart", in.Versions.Chart, tenantsChartFloor},
+			{"versions.components." + componentAgentManager, "the agent-manager", in.Versions.Components[componentAgentManager], tenantsAgentManagerFloor},
+		} {
+			if !holdAdmits(h.hold, h.floor) {
+				return refuse(fmt.Sprintf("%s needs %s %s or later, and %s holds it at %s; move or lift the hold first", describe("tenants.organizations.enabled"), h.what, h.floor, describe(h.input), h.hold))
+			}
+		}
+	}
 	if len(in.LLMRateLimits) > 0 && !in.kagent() {
 		return refuse(fmt.Sprintf("%s bound the LLM listener, and the fleet policy runs no kagent on %s's installations, so no listener is rendered", describe("llmRouting.rateLimits"), in.Installation.Customer))
 	}
@@ -1043,6 +1053,25 @@ func releaseFilterAdmits(semver string) bool {
 		return true
 	}
 	return releaseTag.MatchString(semver)
+}
+
+// The releases the tenant mode needs: the meta chart that holds a tenant's
+// ModelConfigs to the LLM listener (giantswarm/agent-platform#1082) and the
+// agent-manager with the tenant reconciler.
+const tenantsChartFloor, tenantsAgentManagerFloor = "4.150.0", "2.1.0"
+
+// holdAdmits says whether a version hold lets Flux resolve a release at or
+// above floor: no hold, a constraint the floor or a far later release meets,
+// or one the definition cannot read, which Flux reports itself.
+func holdAdmits(hold, floor string) bool {
+	if hold == "" {
+		return true
+	}
+	c, err := semverlib.NewConstraint(hold)
+	if err != nil {
+		return true
+	}
+	return c.Check(semverlib.MustParse(floor)) || c.Check(semverlib.MustParse("999999.0.0"))
 }
 
 // holdComment is the comment a held version carries in the file: the reason
