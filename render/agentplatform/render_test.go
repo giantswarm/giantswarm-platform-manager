@@ -1543,7 +1543,7 @@ func TestTenantOrganizations(t *testing.T) {
 		secrets map[string]string
 		names   string
 	}{
-		{"not a boolean", notBool, hubSecrets, "tenants/organizations/enabled"},
+		{"not a boolean", notBool, hubSecrets, "tenants/organizations/enabled"}, // gitleaks:allow (a schema path, no credential)
 		{"the chart held below the mode", chartHeld, chartHeldSecrets, "versions.chart"},
 		{"the agent-manager held below the mode", managerHeld, managerHeldSecrets, "versions.components.agent-manager"},
 		{"the 3 line", lineThree, lineThreeSecrets, "tenants.organizations.enabled"},
