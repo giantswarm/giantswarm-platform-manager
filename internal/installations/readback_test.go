@@ -322,7 +322,7 @@ func TestDefaults(t *testing.T) {
 	// The holds and their reasons, by component: none by default.
 	holds := map[string]any{"muster": "", "valkey": "", "kagent": "", "agent-manager": "", "klaus-gateway": "", "cluster-manager": "", "model-manager": ""}
 	want := map[string]any{"modelServing": map[string]any{keyEnabled: false}, "aiChat": map[string]any{keyEnabled: false, "model": "claude-opus-5", keyProvider: "anthropic"},
-		"scheduling": map[string]any{"singletonsCapacity": "any"}, "networkPolicy": map[string]any{"mcpBackends": map[string]any{}}, "llmRouting": map[string]any{"rateLimits": []any{}, "rateLimitsComment": ""}, "sessions": map[string]any{"idleTTL": ""}, keySkills: map[string]any{keyRepositories: []any{}},
+		"scheduling": map[string]any{"singletonsCapacity": "any"}, "networkPolicy": map[string]any{"mcpBackends": map[string]any{}}, "llmRouting": map[string]any{"rateLimits": []any{}, "rateLimitsComment": ""}, "sessions": map[string]any{"idleTTL": ""}, "tenants": map[string]any{"organizations": map[string]any{keyEnabled: false}}, keySkills: map[string]any{keyRepositories: []any{}},
 		"hive": map[string]any{keyEnabled: false, "plans": map[string]any{keyRepositories: []any{}}, "magazine": map[string]any{"repository": ""},
 			boardRoadmap: map[string]any{"board": boardRoadmap, "teams": []any{}}},
 		"clusterManager": map[string]any{keyGitHub: map[string]any{keyEnabled: false}},
@@ -477,6 +477,21 @@ func TestAgentPlatformReadsBackModelServing(t *testing.T) {
 		t.Fatal(err)
 	}
 	if want := map[string]any{"modelServing.enabled": true}; !reflect.DeepEqual(got, want) {
+		t.Errorf("read back %v, want %v", got, want)
+	}
+}
+
+// The agent-platform definition reads the tenant mode back from the
+// configmap patch on record, so a reconcile keeps a mode on record — one a
+// person set by hand before the input existed among them.
+func TestAgentPlatformReadsBackTenantOrganizations(t *testing.T) {
+	def, _ := FindCapability(AgentPlatform)
+	read := files(map[string]string{"acme/configs:" + def.EnabledMarker("rowan"): "tenants:\n  organizations:\n    enabled: true\n"})
+	got, err := def.ReadBack(context.Background(), read, readBackInstallation, readBackName, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]any{"tenants.organizations.enabled": true}; !reflect.DeepEqual(got, want) {
 		t.Errorf("read back %v, want %v", got, want)
 	}
 }

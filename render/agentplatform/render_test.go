@@ -1461,3 +1461,99 @@ func yamlScalar(ttl string) string {
 	}
 	return ttl
 }
+
+// TestTenantOrganizations renders the person's tenant mode as the meta
+// chart's tenants.organizations.enabled, beside the LLM listener the chart
+// refuses the mode without, and leaves the chart's other two conditions —
+// the listener's ModelConfig policy and a default provider it serves — to
+// the chart's defaults: the patch overrides none of them, and points the
+// default provider, whose copy agent-manager writes into each tenant, at the
+// listener the tenants' admission holds it to. Off, the goldens are the
+// render. A hold that still resolves to releases with the mode renders;
+// refused when it is no boolean, on the 3 line, where the policy does not
+// run kagent and the agent-manager, and with a hold of the chart or the
+// agent-manager below the releases the mode needs.
+func TestTenantOrganizations(t *testing.T) {
+	withTenants := func(shape string, enabled any) (map[string]any, map[string]string) {
+		input, secrets := loadInput(t, shape)
+		input["tenants"] = map[string]any{"organizations": map[string]any{keyEnabled: enabled}}
+		return input, secrets
+	}
+	withHold := func(chart, agentManager string) (map[string]any, map[string]string) {
+		input, secrets := withTenants(shapeHubPrivateTarget, true)
+		input["versions"] = map[string]any{"chart": chart, "components": map[string]any{"agent-manager": agentManager}}
+		return input, secrets
+	}
+	input, secrets := withHold(">=4.100.0 <5.0.0", ">=2.0.0 <3.0.0")
+	result, err := Render(input, secrets, render.ModeCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw []byte
+	for name, content := range result.Tree() {
+		if strings.HasSuffix(name, "apps/agent-platform/configmap-values.yaml.patch") {
+			raw = content
+		}
+	}
+	var patch struct {
+		Tenants    map[string]any `yaml:"tenants"`
+		LLMRouting map[string]any `yaml:"llmRouting"`
+		Kagent     struct {
+			Providers struct {
+				Default   *string `yaml:"default"`
+				Anthropic struct {
+					Config struct {
+						BaseURL string `yaml:"baseUrl"`
+					} `yaml:"config"`
+				} `yaml:"anthropic"`
+			} `yaml:"providers"`
+		} `yaml:"kagent"`
+	}
+	if err := yaml.Unmarshal(raw, &patch); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := fmt.Sprint(patch.Tenants), "map[organizations:map[enabled:true]]"; got != want {
+		t.Errorf("tenants %s, want %s", got, want)
+	}
+	if patch.LLMRouting[keyEnabled] != true {
+		t.Errorf("the tenant mode without the LLM listener: llmRouting %v", patch.LLMRouting)
+	}
+	for _, k := range []string{"modelConfigPolicy", "models"} {
+		if _, ok := patch.LLMRouting[k]; ok {
+			t.Errorf("the patch overrides the chart's llmRouting.%s: %v", k, patch.LLMRouting[k])
+		}
+	}
+	if d := patch.Kagent.Providers.Default; d != nil {
+		t.Errorf("the patch overrides the default provider: %s", *d)
+	}
+	if got, want := patch.Kagent.Providers.Anthropic.Config.BaseURL, "http://agentgateway.agent-platform.svc:8081"; got != want {
+		t.Errorf("the default provider's baseUrl %q, want the LLM listener %q", got, want)
+	}
+
+	notBool, hubSecrets := withTenants(shapeHubPrivateTarget, "yes")
+	lineThree, lineThreeSecrets := withTenants(shapePublicCustomer, true)
+	noKagent, noKagentSecrets := withTenants(shapeHubPrivateTarget, true)
+	noKagent["installation"].(map[string]any)["customer"] = customerWithoutKagent
+	noKagent["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
+	chartHeld, chartHeldSecrets := withHold("4.140.0", "")
+	managerHeld, managerHeldSecrets := withHold("", "~2.0.0")
+	for _, c := range []struct {
+		name    string
+		input   map[string]any
+		secrets map[string]string
+		names   string
+	}{
+		{"not a boolean", notBool, hubSecrets, "tenants/organizations/enabled"}, // gitleaks:allow (a schema path, no credential)
+		{"the chart held below the mode", chartHeld, chartHeldSecrets, "versions.chart"},
+		{"the agent-manager held below the mode", managerHeld, managerHeldSecrets, "versions.components.agent-manager"},
+		{"the 3 line", lineThree, lineThreeSecrets, "tenants.organizations.enabled"},
+		{"no kagent and no agent-manager", noKagent, noKagentSecrets, "tenants.organizations.enabled"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := Render(c.input, c.secrets, render.ModeCommit)
+			if !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), c.names) {
+				t.Fatalf("got %v, want ErrInput naming %q", err, c.names)
+			}
+		})
+	}
+}

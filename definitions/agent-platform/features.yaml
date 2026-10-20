@@ -62,7 +62,7 @@ features:
       - {id: live-oauth2-proxy-secret-and-flux-sa, kind: live, key: Secret kagent-oauth2-proxy-credentials and ServiceAccount kagent-flux}
   runtime:
     title: Runtime
-    description: kagent, the platform Postgres, connectivity and the chart release.
+    description: kagent, the platform Postgres, connectivity, the Organizations' agent tenants and the chart release.
     dimensions:
       - {id: kagent-enabled, kind: configmap, key: components.kagent.enabled}
       - {id: klaus-gateway, kind: configmap, key: components.klaus-gateway.enabled / klausGateway}
@@ -72,6 +72,7 @@ features:
       - {id: kagent-providers, kind: configmap, key: kagent.providers}
       - {id: kagent-model-configs, kind: configmap, key: kagent.modelConfigs}
       - {id: singletons-placement, kind: configmap, key: scheduling.singletons}
+      - {id: tenant-organizations, kind: configmap, key: "tenants (the meta chart's tenant mode: the Organizations' namespaces as agent tenants)"}
       - {id: patch-top-level-keys, kind: configmap, catchAll: true, key: the patch's top-level keys (every key no other dimension names)}
       - {id: chart-line-on-record, kind: record, key: config.yaml.patch agentPlatform.kagentApiV2 (the meta chart line the record selects; an enable or a reconcile writes the policy's line)}
       - {id: extras-kustomization-resources, kind: extras, key: agent-platform/kustomization.yaml (resources and the chart line's patch)}

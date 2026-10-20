@@ -270,6 +270,12 @@ func (in *Input) configmapPatch() render.Map {
 				e("tls", render.Map{e("issuerRef", render.Map{e("name", in.Installation.ClusterIssuer)})})}),
 		}))
 	}
+	// The tenant mode alone: the chart's other conditions for it, the LLM
+	// listener's ModelConfig policy and a default provider the listener
+	// serves, are the chart's and the shared defaults' and never rendered.
+	if in.TenantOrganizations {
+		m = append(m, e("tenants", render.Map{e("organizations", render.Map{e("enabled", true)})}))
+	}
 
 	m = append(m, e("muster", in.musterValues()))
 	targets := in.Installation.Federation.Targets
