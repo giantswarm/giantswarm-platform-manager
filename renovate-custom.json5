@@ -121,6 +121,43 @@
       allowedVersions: '/^2\\./',
     },
     {
+      // The installation's own MCP servers and their Valkey stores run under a
+      // cap in the fleet base (giantswarm/management-cluster-bases, extras/<server>/
+      // oci-repository.yaml and valkey-oci-repository.yaml: semver "<=x.y.z"), and
+      // a pin above the cap fails the test. The base's Renovate raises a cap once a
+      // stable release is older than its 3-day soak, looked up as a GitHub release
+      // of the chart's source repository. The pins follow the same lookup and
+      // soak, so a pin's pull request opens with the cap's and passes once that
+      // one is merged; a release still soaking opens none.
+      matchDatasources: [
+        'docker',
+      ],
+      matchPackageNames: [
+        'gsoci.azurecr.io/charts/giantswarm/mcp-kubernetes',
+        'gsoci.azurecr.io/charts/giantswarm/mcp-prometheus',
+        'gsoci.azurecr.io/charts/giantswarm/mcp-capi',
+      ],
+      overrideDatasource: 'github-releases',
+      overridePackageName: "{{{replace 'gsoci.azurecr.io/charts/' '' packageName}}}",
+      extractVersion: '^v(?<version>.*)$',
+      minimumReleaseAge: '3 days',
+      internalChecksFilter: 'strict',
+    },
+    {
+      // Chart valkey is released from giantswarm/valkey-app.
+      matchDatasources: [
+        'docker',
+      ],
+      matchPackageNames: [
+        'gsoci.azurecr.io/charts/giantswarm/valkey',
+      ],
+      overrideDatasource: 'github-releases',
+      overridePackageName: 'giantswarm/valkey-app',
+      extractVersion: '^v(?<version>.*)$',
+      minimumReleaseAge: '3 days',
+      internalChecksFilter: 'strict',
+    },
+    {
       // The testdata pins are fixtures of the render-consumption test, not what
       // ships: their bumps go in as test(deps), which cuts no release.
       matchFileNames: [
