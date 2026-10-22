@@ -11,7 +11,7 @@ require (
 	github.com/giantswarm/gitops-commit v0.11.7
 	github.com/giantswarm/go-selfupdate v1.6.6
 	github.com/giantswarm/mcp-oauth v1.7.8
-	github.com/giantswarm/mcp-toolkit v0.4.2
+	github.com/giantswarm/mcp-toolkit v0.4.4
 	github.com/giantswarm/selfupdate-cosign v0.3.10
 	github.com/go-jose/go-jose/v4 v4.1.6
 	github.com/google/go-containerregistry v0.22.1
