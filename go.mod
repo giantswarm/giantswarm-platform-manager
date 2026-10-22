@@ -2,15 +2,17 @@ module github.com/giantswarm/giantswarm-platform-manager
 
 go 1.26.5
 
+toolchain go1.27.3
+
 require (
 	filippo.io/age v1.3.2
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/getsops/sops/v3 v3.13.3
-	github.com/giantswarm/gitops-commit v0.11.5
-	github.com/giantswarm/go-selfupdate v1.6.5
-	github.com/giantswarm/mcp-oauth v1.7.4
-	github.com/giantswarm/mcp-toolkit v0.4.2
-	github.com/giantswarm/selfupdate-cosign v0.3.8
+	github.com/giantswarm/gitops-commit v0.11.7
+	github.com/giantswarm/go-selfupdate v1.6.6
+	github.com/giantswarm/mcp-oauth v1.7.8
+	github.com/giantswarm/mcp-toolkit v0.4.4
+	github.com/giantswarm/selfupdate-cosign v0.3.13
 	github.com/go-jose/go-jose/v4 v4.1.6
 	github.com/google/go-containerregistry v0.22.1
 	github.com/google/go-github/v93 v93.0.0
