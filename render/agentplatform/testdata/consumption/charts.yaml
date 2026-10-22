@@ -21,13 +21,13 @@ charts:
   # Every server's Valkey (the fleet base) and muster's (a child of the meta chart).
   - name: valkey
     registry: gsoci.azurecr.io/charts/giantswarm/valkey
-    version: 0.4.1
+    version: 0.4.4
   # The installation's Dex, rendered with the emitted dex-app patch. 3.2.0 is the
   # first version with mcpPrometheus and mcpCapi as built-in clients reading a
   # clientSecretRef, the version the definition targets.
   - name: dex-app
     registry: gsoci.azurecr.io/charts/giantswarm/dex-app
-    version: 3.4.3
+    version: 3.4.5
   # The meta chart on both of its lines — a shape renders at the line its record
   # selects (installation.chartLine): the 3 line, which the fleet base caps <4.0.0,
   # and the 4 line, which pins itself. renovate-custom.json5 keeps each pin on its
@@ -57,11 +57,11 @@ charts:
   # with the version to pin.
   - name: muster
     registry: gsoci.azurecr.io/charts/giantswarm/muster
-    version: 5.52.4
+    version: 5.52.6
   - name: kagent
     line: "3"
     registry: gsoci.azurecr.io/charts/giantswarm/kagent
-    version: 0.3.13
+    version: 0.3.14
   - name: kagent
     line: "4"
     registry: gsoci.azurecr.io/giantswarm/kagent/helm/kagent
