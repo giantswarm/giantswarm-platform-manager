@@ -12,7 +12,7 @@ require (
 	github.com/giantswarm/go-selfupdate v1.6.6
 	github.com/giantswarm/mcp-oauth v1.7.8
 	github.com/giantswarm/mcp-toolkit v0.4.4
-	github.com/giantswarm/selfupdate-cosign v0.3.10
+	github.com/giantswarm/selfupdate-cosign v0.3.13
 	github.com/go-jose/go-jose/v4 v4.1.6
 	github.com/google/go-containerregistry v0.22.1
 	github.com/google/go-github/v92 v92.0.0
