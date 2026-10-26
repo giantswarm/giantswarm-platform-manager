@@ -435,3 +435,19 @@ removals:
     reason: >-
       Kept: workspace-manager carries this installation's own provider instances, sign-in keys and base URL; the block stays with the
       workspaces switch until the definition takes them as a choice
+  # --- the toolchain-manager: the installation's own switch and values ---
+  - key: configmap:components.toolchain-manager
+    kind: kept
+    reason: >-
+      Kept: components.toolchain-manager turns the toolchain-manager on here, and with it the coding agents' toolchains; the switch stays
+      until the fleet policy runs the component or the definition takes toolchains as a choice
+  - key: configmap:toolchain-manager
+    kind: kept
+    reason: >-
+      Kept: toolchain-manager carries this installation's own source owners and agents GitHub App install link; the block stays with the
+      toolchains switch until the definition takes them as a choice
+  - key: configmap:kagent.controller.sessionToolImageEgressOrigins
+    kind: kept
+    reason: >-
+      Kept: the kagent controller admits the egress origins this installation's toolchains name (proxy.golang.org for go); the meta chart
+      derives only their repositories, so the list stays with the toolchains switch until the chart or the definition derives it

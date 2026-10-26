@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- agent-platform: a reconcile keeps an installation's own toolchains switch: `components.toolchain-manager`, the `toolchain-manager` block and `kagent.controller.sessionToolImageEgressOrigins` are carried from the record into the render (kind `kept`). Before, a reconcile removed them as drift, so no installation could turn the coding agents' toolchains on.
 - customer-portal: GitHub is optional for a customer and never read with more rights than the signed-in person has ([#569](https://github.com/giantswarm/giantswarm-platform-manager/issues/569)). The customer's GitHub path is the person's own grant in muster (`gs.github`, rendered by the agent-platform definition where the muster holds a GitHub grant server); the App integration is the customer's own optional App, installed on the repositories every portal user may read. The manager no longer names a `giantswarm-portal-<installation>` App, its creation step or rotation, records no `githubApps` inventory and refuses no App id; `--rotate` takes generated values only. The definition README documents how a customer configures its own git repository access, GitLab, Bitbucket and Azure DevOps included.
 
 ### Fixed

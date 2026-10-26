@@ -226,7 +226,7 @@ func TestKeepSubtreesLeavesTheRendersOwnKeyAndAPathThroughAScalar(t *testing.T) 
 }
 
 func TestKeptPlatformKeysReadTheDefinition(t *testing.T) {
-	for _, want := range []string{"muster.muster.oauth.server.trustedIssuers", "kagent.oauth2ProxyIngress", "muster.muster.oauth.server.dex.connectorId", "muster.muster.oauth.server.providerTokenRefreshThreshold", "kagent.controller.nodeSelector", "postgres.affinity", "kagent.providers.annotations", "postgres.databases", "kagent.controller.volumes", "kagent.harnesses"} {
+	for _, want := range []string{"muster.muster.oauth.server.trustedIssuers", "kagent.oauth2ProxyIngress", "muster.muster.oauth.server.dex.connectorId", "muster.muster.oauth.server.providerTokenRefreshThreshold", "kagent.controller.nodeSelector", "postgres.affinity", "kagent.providers.annotations", "postgres.databases", "kagent.controller.volumes", "kagent.harnesses", "components.toolchain-manager", "toolchain-manager", "kagent.controller.sessionToolImageEgressOrigins"} {
 		if !slices.Contains(keptPlatformKeys, want) {
 			t.Errorf("the agent-platform definition keeps %s; kept keys: %v", want, keptPlatformKeys)
 		}
