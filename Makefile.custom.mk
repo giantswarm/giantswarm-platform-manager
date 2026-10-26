@@ -59,7 +59,7 @@ test-chart: ## The chart's render proofs over the test values (internal/chart; n
 .PHONY: helm-schema
 helm-schema: ## Regenerate values.schema.json (needs helm-values-schema-json and schemalint on PATH; the pre-commit hook checks the result).
 	helm-values-schema-json --config $(CHART_DIR)/.schema.yaml
-	python3 -c 'import json,sys; h=lambda o: {**{k:v for k,v in o.items() if k!="additionalProperties"},"unevaluatedProperties":False} if ("$ref" in o and o.get("additionalProperties") is False) else o; p=sys.argv[1]; f=open(p,encoding="utf-8"); d=json.load(f,object_hook=h); f.close(); f=open(p,"w",encoding="utf-8"); json.dump(d,f); f.close()' $(CHART_DIR)/values.schema.json
+	python3 -c 'import json,sys; h=lambda o: {**{k:v for k,v in o.items() if k!="additionalProperties"},"unevaluatedProperties":False} if ("$$ref" in o and o.get("additionalProperties") is False) else o; p=sys.argv[1]; f=open(p,encoding="utf-8"); d=json.load(f,object_hook=h); f.close(); f=open(p,"w",encoding="utf-8"); json.dump(d,f); f.close()' $(CHART_DIR)/values.schema.json
 	schemalint normalize $(CHART_DIR)/values.schema.json -o $(CHART_DIR)/values.schema.json --force
 
 ##@ Render
