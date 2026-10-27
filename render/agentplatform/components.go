@@ -239,7 +239,8 @@ func (in *Input) managerOAuth(path string) render.Map {
 
 // clusterManagerValues names the installation the manager runs on, on the 3
 // line its OAuth section — the 4 line derives issuer, client and secret from
-// the template's global identity block and the base URL from the domain — and
+// global.identity where set, else from muster's login, and the base URL from
+// the domain — and
 // with the person's choice its commit mode: the chart registers with muster
 // pinned to its GitHub App and opens a node pool's pull request as the person,
 // with the App's OAuth client from the installation's own Secret

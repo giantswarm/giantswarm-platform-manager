@@ -195,13 +195,15 @@ removals:
   - key: configmap:agent-manager.oauth
     kind: template
     reason: >-
-      Removed: this is the chart 3.x form of agent-manager's OAuth settings. Chart 4.x derives issuer, client, Secret and base URL from global.identity and
-      global.domain, which this installation already sets.
+      Removed: this is the chart 3.x form of agent-manager's OAuth settings. Chart 4.x derives issuer, client and Secret from global.identity where it is
+      set and otherwise from muster's login (muster.muster.oauth.server dex.issuerUrl, dex.clientId and existingSecret), and the base URL from
+      global.domain.
   - key: configmap:cluster-manager.oauth
     kind: template
     reason: >-
-      Removed: this is the chart 3.x form of cluster-manager's OAuth settings. Chart 4.x derives issuer, client, Secret and base URL from global.identity
-      and global.domain, which this installation already sets.
+      Removed: this is the chart 3.x form of cluster-manager's OAuth settings. Chart 4.x derives issuer, client and Secret from global.identity where it
+      is set and otherwise from muster's login (muster.muster.oauth.server dex.issuerUrl, dex.clientId and existingSecret), and the base URL from
+      global.domain.
 
   # --- dex-app secret-values.yaml.patch ---
   - key: dex-secret:oidc.staticClients.muster.clientID
