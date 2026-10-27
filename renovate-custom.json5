@@ -109,6 +109,25 @@
       groupName: null,
     },
     {
+      // On a 0.x child the minor is the breaking boundary the meta chart's range
+      // stops at (cluster-manager 0.35.x against >=0.22.0 <0.35.0), so it leaves
+      // the group like a major does.
+      matchDatasources: [
+        'docker',
+      ],
+      matchPackageNames: [
+        'gsoci.azurecr.io/charts/giantswarm/cluster-manager',
+        'gsoci.azurecr.io/charts/giantswarm/kserve-llmisvc-crd',
+        'gsoci.azurecr.io/charts/giantswarm/kserve-llmisvc-resources',
+        'gsoci.azurecr.io/charts/giantswarm/kserve-runtime-configs',
+      ],
+      matchCurrentVersion: '/^0\\./',
+      matchUpdateTypes: [
+        'minor',
+      ],
+      groupName: null,
+    },
+    {
       // The developer portal pin follows the major the fleet base's backstage
       // range and the portal shapes' line (testdata/consumption/*.portal.yaml)
       // follow; a pin past it fails the test. It moves with them.
