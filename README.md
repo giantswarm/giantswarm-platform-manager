@@ -516,6 +516,12 @@ Installing it and keeping it current:
   `list_installations` over an invented registry — an installation in each state the repositories
   can show, one whose repositories the caller may not read, one the portal alone knows, the markers
   read on every call, the filters, a registry the caller cannot read, a call without a caller.
+  `internal/e2e` runs only with `E2E=1`, so a plain `go test ./...` skips it. It takes minutes (about
+  10 on a CI executor, past go test's default timeout of 10 minutes), so `make test-e2e` runs it first,
+  on its own, verbose and with `-timeout 20m` (`E2E_TEST_TIMEOUT`). By hand:
+  `E2E=1 go test -count=1 -timeout 20m ./internal/e2e/...`. The unit tests follow with `-race` where
+  a C toolchain is present and `-timeout 5m` per package (`UNIT_TEST_TIMEOUT`); `make test-unit` runs
+  them alone.
 - `make scenario-test` — the muster half in muster's own scenario harness (`tests/scenarios`, needs
   the `muster` binary on `PATH`): a mock authorization server standing in for GitHub as the App, the
   consent once, the token on every call, a second session adopting the grant, a person without a
