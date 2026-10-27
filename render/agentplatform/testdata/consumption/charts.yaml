@@ -39,7 +39,7 @@ charts:
   - name: agent-platform
     line: "4"
     registry: gsoci.azurecr.io/charts/giantswarm/agent-platform
-    version: 4.164.2
+    version: 4.173.0
   # The meta chart hands its connectivity child the whole platform values, Secret
   # names included, so the test renders it too; it follows the meta chart's line.
   - name: agent-platform-connectivity
@@ -49,7 +49,7 @@ charts:
   - name: agent-platform-connectivity
     line: "4"
     registry: gsoci.azurecr.io/charts/giantswarm/agent-platform-connectivity
-    version: 4.164.2
+    version: 4.173.0
   # The meta chart's children that read the platform Secrets, at the newest
   # versions inside the ranges the meta chart declares for them — per line where
   # the lines' ranges differ. renovate-custom.json5 bumps the 4 line's children in
@@ -65,7 +65,7 @@ charts:
   - name: kagent
     line: "4"
     registry: gsoci.azurecr.io/giantswarm/kagent/helm/kagent
-    version: 1.24.3
+    version: 1.27.0
   - name: agent-manager
     line: "3"
     registry: gsoci.azurecr.io/charts/giantswarm/agent-manager
@@ -73,12 +73,12 @@ charts:
   - name: agent-manager
     line: "4"
     registry: gsoci.azurecr.io/charts/giantswarm/agent-manager
-    version: 2.11.0
+    version: 2.17.8
   # The meta chart's children the policy offers Giant Swarm-owned installations,
   # on the 4 line.
   - name: klaus-gateway
     registry: gsoci.azurecr.io/charts/giantswarm/klaus-gateway
-    version: 4.13.1
+    version: 4.16.0
   - name: cluster-manager
     registry: gsoci.azurecr.io/charts/giantswarm/cluster-manager
     version: 0.34.2
@@ -89,26 +89,26 @@ charts:
   - name: model-manager
     line: "4"
     registry: gsoci.azurecr.io/charts/giantswarm/model-manager
-    version: 1.18.6
+    version: 1.18.17
   - name: agentgateway
     line: "4"
     registry: gsoci.azurecr.io/charts/giantswarm/agentgateway
-    version: 2.8.7
+    version: 2.8.14
   # The 4 line's serving slice (modelServing.enabled): the llm-d control plane and
   # the well-known LLMInferenceServiceConfigs, which the meta chart hands the same
   # platform values; its models Gateway renders in the connectivity chart.
   - name: kserve-llmisvc-crd
     line: "4"
     registry: gsoci.azurecr.io/charts/giantswarm/kserve-llmisvc-crd
-    version: 0.7.6
+    version: 0.7.8
   - name: kserve-llmisvc-resources
     line: "4"
     registry: gsoci.azurecr.io/charts/giantswarm/kserve-llmisvc-resources
-    version: 0.7.6
+    version: 0.7.8
   - name: kserve-runtime-configs
     line: "4"
     registry: gsoci.azurecr.io/charts/giantswarm/kserve-runtime-configs
-    version: 0.7.6
+    version: 0.7.8
   # The developer portal, rendered over the fleet base with the customer-portal
   # definition's own files (its app-config, values and Secrets) and, in the
   # platform shapes, the agent-platform definition's Component: its values
