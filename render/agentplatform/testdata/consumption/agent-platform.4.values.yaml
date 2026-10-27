@@ -1,7 +1,9 @@
-# Stands in, over agent-platform.values.yaml, for what the shared template carries
-# on the 4 line alone. The identity block the managers derive their OAuth from
+# Stands in, over agent-platform.values.yaml, for what the 4 line's values carry
+# beyond the 3 line's. The identity block the managers derive their OAuth from
 # (issuer, the platform's client, the muster credentials Secret the definition
-# emits — the 3 line's patch carries each manager's oauth section instead), and
+# emits), which the shared template sets for the giantswarm customer only; other
+# installations leave it unset and the chart falls back to muster's dex login.
+# The 3 line's patch carries each manager's oauth section instead. And
 # the actors' snapshot store the platform Harness writes to, which the template
 # provisions per provider through Crossplane and the chart derives the location
 # of; the stand-in gives the derived location, which is all the children read.
