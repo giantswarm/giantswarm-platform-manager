@@ -83,6 +83,9 @@
         "clusterID": {
             "type": "string"
         },
+        "externalDNSIP": {
+            "type": "string"
+        },
         "extraArgs": {
             "type": "array",
             "description": "Extra container arguments."
@@ -127,6 +130,16 @@
         "global": {
             "type": "object",
             "description": "Platform-wide values an umbrella chart shares with every component and Helm forwards here; this chart reads none of them.",
+            "additionalProperties": true,
+            "properties": {
+                "podSecurityStandards": {
+                    "type": "object",
+                    "additionalProperties": true
+                }
+            }
+        },
+        "helm": {
+            "type": "object",
             "additionalProperties": true
         },
         "hub": {
@@ -213,6 +226,9 @@
                     }
                 }
             }
+        },
+        "managementCluster": {
+            "type": "string"
         },
         "mcp": {
             "type": "object",
