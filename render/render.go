@@ -292,6 +292,9 @@ const (
 	ResourcePresent ProbeKind = "ResourcePresent"
 	// Condition is an object whose condition Expect.Condition has Expect.ConditionStatus.
 	Condition ProbeKind = "Condition"
+	// AnyCondition is some object of Resource in Namespace whose condition
+	// Expect.Condition has Expect.ConditionStatus; Name stays empty.
+	AnyCondition ProbeKind = "AnyCondition"
 	// HTTP is a GET of URL, redirects not followed, answered as Expect says.
 	HTTP ProbeKind = "HTTP"
 	// LogAbsent is a workload whose log matches Expect.Absent nowhere.

@@ -347,6 +347,8 @@ func (f *fakeInstallation) populate(t *testing.T, installation string, res *rend
 			f.put(kind, p.Namespace, p.Name, obj)
 		case render.Condition:
 			f.put(kind, p.Namespace, p.Name, conditionTrue(p.Expect.Condition))
+		case render.AnyCondition:
+			f.put(kind, p.Namespace, "default-model-config", conditionTrue(p.Expect.Condition))
 		case render.APIServed:
 			resource, group, _ := strings.Cut(p.Resource, ".")
 			f.serveAPI(group, p.Expect.Version, resource, "PodCertificateRequest")
