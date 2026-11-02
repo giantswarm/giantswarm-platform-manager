@@ -779,6 +779,8 @@ func (x *executor) run(ctx context.Context, p render.Probe) (Check, []Difference
 		err = x.condition(ctx, &c, p, "Ready", "True")
 	case render.Condition:
 		err = x.condition(ctx, &c, p, p.Expect.Condition, p.Expect.ConditionStatus)
+	case render.AnyCondition:
+		err = x.anyCondition(ctx, &c, p)
 	case render.ResourcePresent:
 		err = x.present(ctx, &c, p)
 	case render.PodsRunning:
@@ -848,6 +850,41 @@ func (x *executor) condition(ctx context.Context, c *Check, p render.Probe, cond
 			c.Failed, c.Message = true, c.Message+"; "+failure
 		}
 	}
+	return nil
+}
+
+// anyCondition marks the namespace's objects of the resource as defined when
+// one of them has the condition at the expected status, naming those that do;
+// otherwise drifted, naming each object with its verdict, or the namespace
+// holding none.
+func (x *executor) anyCondition(ctx context.Context, c *Check, p render.Probe) error {
+	objs, err := x.cluster().List(ctx, p.Namespace, p.Resource, "", Readiness)
+	if err != nil {
+		return err
+	}
+	kind, _, _ := strings.Cut(p.Resource, ".")
+	if len(objs) == 0 {
+		c.Mark, c.Message = Drifted, "no "+kind+" in "+p.Namespace
+		return nil
+	}
+	var met, verdicts []string
+	for _, obj := range objs {
+		m := conditionEntry(obj, p.Expect.Condition)
+		got, _ := m["status"].(string)
+		switch {
+		case m == nil:
+			verdicts = append(verdicts, nameOf(obj)+": no "+p.Expect.Condition+" condition")
+		case got == p.Expect.ConditionStatus:
+			met = append(met, nameOf(obj))
+		default:
+			verdicts = append(verdicts, nameOf(obj)+": "+conditionVerdict(p.Expect.Condition, m))
+		}
+	}
+	if len(met) > 0 {
+		c.Mark, c.Message = AsDefined, p.Expect.Condition+"="+p.Expect.ConditionStatus+" on "+strings.Join(met, ", ")
+		return nil
+	}
+	c.Mark, c.Message = Drifted, strings.Join(verdicts, "; ")
 	return nil
 }
 

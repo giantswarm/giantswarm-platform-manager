@@ -454,6 +454,45 @@ func TestConditionProbeReadsTheNamedCondition(t *testing.T) {
 	}
 }
 
+// An AnyCondition probe is defined when one object of the namespace has the
+// condition, whatever the others say: the default ModelConfig without its key
+// beside a model the customer added with theirs is as defined. With none
+// there, it names each object's verdict, or the namespace holding none.
+func TestAnyConditionProbeNeedsOneObject(t *testing.T) {
+	const (
+		modelConfig = "ModelConfig.api.kagent.dev"
+		resolved    = "ResolvedRefs"
+		missing     = "secret kagent-anthropic-key not found"
+	)
+	object := func(name, status string) map[string]any {
+		obj := map[string]any{"metadata": map[string]any{"name": name}}
+		if status != "" {
+			obj[keyStatus] = map[string]any{keyConditions: []any{map[string]any{keyType: resolved, keyStatus: status, keyReason: "APIKeySecretNotFound", keyMessage: missing}}}
+		}
+		return obj
+	}
+	for _, c := range []struct {
+		name    string
+		objects []map[string]any
+		mark    Mark
+		message string
+	}{
+		{"the default unresolved, the customer's resolved", []map[string]any{object("default-model-config", "False"), object("vertex-claude", conditionTrue)},
+			AsDefined, "ResolvedRefs=True on vertex-claude"},
+		{"none resolved", []map[string]any{object("default-model-config", "False"), object("fresh", "")},
+			Drifted, "default-model-config: ResolvedRefs=False (APIKeySecretNotFound): " + missing + "; fresh: no ResolvedRefs condition"},
+		{"none there", nil, Drifted, "no ModelConfig in " + testNamespace},
+	} {
+		x := &executor{opts: LiveOptions{Cluster: &recordingCluster{pods: c.objects}}}
+		probe := render.Probe{Kind: render.AnyCondition, Namespace: testNamespace, Resource: modelConfig,
+			Expect: render.Expectation{Condition: resolved, ConditionStatus: conditionTrue}}
+		check, _, _ := x.run(t.Context(), probe)
+		if check.Mark != c.mark || check.Message != c.message {
+			t.Errorf("%s: %s %q, want %s %q", c.name, check.Mark, check.Message, c.mark, c.message)
+		}
+	}
+}
+
 // When a Secret's data was written and when the containers that read it
 // started, in the fixtures of the SecretLoaded checks.
 const (
