@@ -117,17 +117,15 @@ func (in *Input) probes() []render.Probe {
 // kagent is wired to the Secret by name, the definition renders no file for
 // it and nobody supplies a value at commit; the person creates the Secret
 // afterwards — the one step the platform leaves to them (CustomerActions),
-// held up live by the model-key action until the default ModelConfig reads
-// its model key resolved (modelConfigCondition).
+// held up live by the model-key action until a ModelConfig in kagent's
+// namespace reads its model key resolved (modelConfigCondition): the default
+// one, or one the customer added with its own key.
 const (
 	modelKeySecret    = "kagent-anthropic-key" // #nosec G101 -- a Secret name, not a value
 	modelKeySecretKey = "ANTHROPIC_API_KEY"    // #nosec G101 -- a Secret key name, not a value
 	modelKeyActionID  = "model-key"
 	modelKeyDimension = "live-model-configs"
 	modelKeyWhy       = "the model key is the installation's own: the definition references the Secret and renders no value for it, and no value is supplied at commit; until the Secret exists the verify reads the runtime feature as waiting for the customer"
-	// defaultModelConfig is the ModelConfig kagent's chart renders from the
-	// provider values, the one the model key is wired to.
-	defaultModelConfig = "default-model-config"
 )
 
 // The ModelConfig resource each meta chart line's kagent serves: the 4 line's
@@ -167,10 +165,10 @@ func (in *Input) modelConfigCondition() string {
 	return modelConfigConditionThree
 }
 
-// modelKeyNote is the model key step, naming the default ModelConfig by the
-// resource and the condition the installation's line serves.
+// modelKeyNote is the model key step, naming the resource and the condition
+// the installation's line serves.
 func (in *Input) modelKeyNote() string {
-	return "Create Secret " + modelKeySecret + " in namespace " + kagentNamespace + " with key " + modelKeySecretKey + ", or add a ModelConfig in the portal; until then " + defaultModelConfig + " (" + in.modelConfigResource() + ") stays " + in.modelConfigCondition() + "=False."
+	return "Create Secret " + modelKeySecret + " in namespace " + kagentNamespace + " with key " + modelKeySecretKey + ", or add a ModelConfig in the portal; until then no ModelConfig (" + in.modelConfigResource() + ") in " + kagentNamespace + " is " + in.modelConfigCondition() + "=True."
 }
 
 // actions are what a person outside the platform team still has to do for the
@@ -201,15 +199,18 @@ func (in *Input) helmReleases() []string {
 	return names
 }
 
-// modelConfigProbe is the default ModelConfig's model key condition, True, in
-// the group and by the condition the installation's line serves
-// (modelConfigResource, modelConfigCondition). The note
-// says whose move a False is, and the model-key action (actions) names this
+// modelConfigProbe is some ModelConfig in kagent's namespace with its model
+// key condition True, in the group and by the condition the installation's
+// line serves (modelConfigResource, modelConfigCondition): the default one
+// with the Secret in place, or any the customer added, so an installation
+// that brings its own models never waits on the default's key. The note says
+// whose move a False is, and the model-key action (actions) names this
 // dimension: until the person acts it reads waiting for the customer, not
 // drifted.
 func (in *Input) modelConfigProbe() render.Probe {
-	p := conditionProbe(modelKeyDimension, featureRuntime, kagentNamespace, in.modelConfigResource(), defaultModelConfig, in.modelConfigCondition(), conditionTrue)
-	p.Expect.Note = "waiting for the customer's model key (Secret " + modelKeySecret + ", key " + modelKeySecretKey + ", or a ModelConfig in the portal)"
+	p := render.Probe{ID: modelKeyDimension, Feature: featureRuntime, Kind: render.AnyCondition, Namespace: kagentNamespace, Resource: in.modelConfigResource()}
+	p.Expect = render.Expectation{Condition: in.modelConfigCondition(), ConditionStatus: conditionTrue,
+		Note: "waiting for the customer's model key (Secret " + modelKeySecret + ", key " + modelKeySecretKey + ") or a ModelConfig of their own in the portal"}
 	return p
 }
 

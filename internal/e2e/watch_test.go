@@ -295,7 +295,7 @@ func TestWatchActionWaitsForTheCustomerThenFlips(t *testing.T) {
 		w.Action.Status.State != actions.StateWaitingForCustomer || w.Action.Status.Result == nil || w.Action.Status.Result.State != actions.StateWaitingForCustomer || w.Action.Status.Rollout.FinishedAt == nil {
 		t.Fatalf("waiting: %v %s", isErr, text)
 	}
-	for _, want := range []string{"*" + rowan + "* is *" + actions.StateWaitingForCustomer + "*", "❌ live-model-configs (runtime): Accepted=False", openCustomerActions, "kagent-anthropic-key"} {
+	for _, want := range []string{"*" + rowan + "* is *" + actions.StateWaitingForCustomer + "*", "❌ live-model-configs (runtime): default-model-config: Accepted=False", openCustomerActions, "kagent-anthropic-key"} {
 		if !strings.Contains(w.Report, want) {
 			t.Errorf("the report lacks %q:\n%s", want, w.Report)
 		}
