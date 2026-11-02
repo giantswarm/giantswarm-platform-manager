@@ -464,6 +464,28 @@ func TestVerifyInstallationWaitingForTheCustomer(t *testing.T) {
 	}
 }
 
+// An installation that brings its own model is not waiting for the default
+// one's key: the default ModelConfig stays off while a ModelConfig the
+// customer added is, so the dimension reads as defined and the installation
+// enabled.
+func TestVerifyInstallationWithTheCustomersOwnModel(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	alice := st.mcpClient(t, aliceToken)
+	enableRowanLive(t, st, alice, minimalInputs(nil))
+	setAccepted(st.inst, statusFalse, modelKeyMissing)
+	st.inst.put("ModelConfig", kagentNamespace, "vertex-claude", conditionTrue(accepted))
+
+	res := verifyLive(t, st.liveClient(t, st.dex.token(t, liveAdmin, []string{liveAudience}, time.Hour)), rowan)
+	d := liveDimensions(res)["live-model-configs"]
+	if d.Mark != verify.AsDefined || d.Live == nil || !strings.Contains(d.Live.Checks[0].Message, "vertex-claude") {
+		t.Fatalf("live-model-configs: %+v", d)
+	}
+	if res.State != installations.StateEnabled {
+		t.Errorf("state %q summary %v", res.State, res.Summary)
+	}
+}
+
 // An installation no action has rendered, verified without inputs: every
 // live dimension is not checked and says there is nothing to compare
 // against; nothing is read.

@@ -241,8 +241,9 @@ func TestGoldensCoverBothLines(t *testing.T) {
 	}
 }
 
-// The default ModelConfig is read in the group the installation's line
-// serves, and the model-key action and the plan's customer action name it:
+// Every ModelConfig in kagent's namespace is read, in the group the
+// installation's line serves, and the model-key action and the plan's
+// customer action name it:
 // the 4 line's kagent renders its catalog at api.kagent.dev, the 3 line's at
 // kagent.dev. The 4 line's probe reads ResolvedRefs, which is False while the
 // key Secret is missing although the ModelConfig is Accepted; the 3 line's
@@ -268,6 +269,9 @@ func TestModelConfigProbeFollowsTheLine(t *testing.T) {
 		for _, p := range result.Probes {
 			if p.ID == modelKeyDimension {
 				probed = append(probed, p.Resource)
+				if p.Kind != render.AnyCondition || p.Name != "" || p.Namespace != kagentNamespace {
+					t.Errorf("%s: the %s probe is %s of %q in %s, want any ModelConfig in %s", shape, modelKeyDimension, p.Kind, p.Name, p.Namespace, kagentNamespace)
+				}
 				if p.Expect.Condition != condition || p.Expect.ConditionStatus != conditionTrue {
 					t.Errorf("%s (line %s): the %s probe reads %s=%s, want %s=True", shape, in.Installation.ChartLine, modelKeyDimension, p.Expect.Condition, p.Expect.ConditionStatus, condition)
 				}
@@ -283,7 +287,7 @@ func TestModelConfigProbeFollowsTheLine(t *testing.T) {
 		if len(probed) != 1 || probed[0] != resource {
 			t.Errorf("%s (line %s): the %s probe reads %v, want %s", shape, in.Installation.ChartLine, modelKeyDimension, probed, resource)
 		}
-		if len(result.Actions) != 1 || !strings.Contains(result.Actions[0].Note, "("+resource+") stays "+condition+"=False") {
+		if len(result.Actions) != 1 || !strings.Contains(result.Actions[0].Note, "("+resource+") in "+kagentNamespace+" is "+condition+"=True") {
 			t.Errorf("%s (line %s): the actions %+v do not name %s", shape, in.Installation.ChartLine, result.Actions, resource)
 		}
 		if ca := in.CustomerActions(); len(ca) != 1 || !strings.Contains(ca[0].Action, "("+resource+")") {

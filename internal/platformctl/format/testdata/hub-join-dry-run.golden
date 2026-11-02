@@ -18,7 +18,7 @@ heron: enabled
     : client mcpCapi; secretRef dex-client-mcp-capi
     kagent: kagent-ui; secretRef dex-client-kagent; redirect URIs https://kagent.heron.oakridge.example/oauth2/callback
   Customer actions:
-    heron: Create Secret kagent-anthropic-key in namespace kagent with key ANTHROPIC_API_KEY, or add a ModelConfig in the portal; until then default-model-config (ModelConfig.kagent.dev) stays Accepted=False. (the model key is the installation's own: the definition references the Secret and renders no value for it, and no value is supplied at commit; until the Secret exists the verify reads the runtime feature as waiting for the customer)
+    heron: Create Secret kagent-anthropic-key in namespace kagent with key ANTHROPIC_API_KEY, or add a ModelConfig in the portal; until then no ModelConfig (ModelConfig.kagent.dev) in kagent is Accepted=True. (the model key is the installation's own: the definition references the Secret and renders no value for it, and no value is supplied at commit; until the Secret exists the verify reads the runtime feature as waiting for the customer)
   Probes:
     live-oauth2-proxy-extra-audience: identity oauth2-proxy --oidc-extra-audience argument
     live-muster-trusted-audiences: identity muster ConfigMap trustedAudiences
@@ -67,7 +67,7 @@ kestrel: enabled
     backstage: Dev Portal; secretRef dex-client-backstage; redirect URIs https://portal.kestrel.oakridge.example/api/auth/oidc-kestrel/handler/frame https://portal.example.io/api/auth/oidc-kestrel/handler/frame
     muster-token-exchange-kestrel: gopher token exchange; secretRef dex-client-muster-token-exchange-kestrel
   Customer actions:
-    kestrel: Create Secret kagent-anthropic-key in namespace kagent with key ANTHROPIC_API_KEY, or add a ModelConfig in the portal; until then default-model-config (ModelConfig.kagent.dev) stays Accepted=False. (the model key is the installation's own: the definition references the Secret and renders no value for it, and no value is supplied at commit; until the Secret exists the verify reads the runtime feature as waiting for the customer)
+    kestrel: Create Secret kagent-anthropic-key in namespace kagent with key ANTHROPIC_API_KEY, or add a ModelConfig in the portal; until then no ModelConfig (ModelConfig.kagent.dev) in kagent is Accepted=True. (the model key is the installation's own: the definition references the Secret and renders no value for it, and no value is supplied at commit; until the Secret exists the verify reads the runtime feature as waiting for the customer)
   Probes:
     live-oauth2-proxy-extra-audience: identity oauth2-proxy --oidc-extra-audience argument
     live-muster-trusted-audiences: identity muster ConfigMap trustedAudiences
