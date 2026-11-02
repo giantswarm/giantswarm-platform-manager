@@ -120,8 +120,9 @@ portal's own app-config carries the chat by hand —, nothing else — an instal
 by hand commits with no supplied secret.
 The model provider key is never supplied: on every installation kagent references the Secret
 `kagent-anthropic-key` (key `ANTHROPIC_API_KEY`, namespace `kagent`), which the definition renders no file for.
-Creating it is the one action the plan names for the installation's people, and until it exists the verify
-reads the runtime feature as *waiting for the customer* rather than drifted.
+Creating it, or adding a ModelConfig of their own, is the one action the plan names for the installation's
+people: until some ModelConfig in `kagent` resolves its key, the verify reads the runtime feature as *waiting for
+the customer* rather than drifted.
 
 Key paths in `x-renders` and `removals.yaml` are normalised: a list index is `[*]`, a per-installation map key is
 `<name>`. A path covers every key beneath it.
