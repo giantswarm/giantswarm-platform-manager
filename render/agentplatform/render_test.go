@@ -67,6 +67,7 @@ const (
 	firstLimitPath        = "llmRouting/rateLimits/0"
 	keyGoogle             = "google"
 	keyCapacity           = "singletonsCapacity"
+	keyModelConfig        = "modelConfig"
 )
 
 // shapes are the installation shapes, in the order the goldens are rendered.
@@ -1559,5 +1560,104 @@ func TestTenantOrganizations(t *testing.T) {
 				t.Fatalf("got %v, want ErrInput naming %q", err, c.names)
 			}
 		})
+	}
+}
+
+// configmapPatchOf renders input and returns the installation's configmap
+// patch as text.
+func configmapPatchOf(t *testing.T, input map[string]any, secrets map[string]string) string {
+	t.Helper()
+	result, err := Render(input, secrets, render.ModeCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range result.Tree() {
+		if strings.HasSuffix(name, "apps/agent-platform/configmap-values.yaml.patch") {
+			return string(content)
+		}
+	}
+	t.Fatal("no configmap patch rendered")
+	return ""
+}
+
+// TestAgentManagerAssistant renders the platform-shipped Agent Manager as
+// the meta chart runs it: on by default, so neither the toggle nor the model
+// override is written and the goldens are the render; turned off, the
+// component's toggle; with a model override, the ModelConfig it names.
+func TestAgentManagerAssistant(t *testing.T) {
+	withAssistant := func(shape string, choice map[string]any) (map[string]any, map[string]string) {
+		input, secrets := loadInput(t, shape)
+		if choice != nil {
+			input["agentManagerAssistant"] = choice
+		}
+		return input, secrets
+	}
+	for _, choice := range []map[string]any{nil, {keyEnabled: true}} {
+		input, secrets := withAssistant(shapeHubPrivateTarget, choice)
+		if got := configmapPatchOf(t, input, secrets); strings.Contains(got, "agent-manager-assistant") || strings.Contains(got, "agentManagerAssistant") {
+			t.Errorf("on, the chart's default, and the patch carries the assistant (%v):\n%s", choice, got)
+		}
+	}
+
+	input, secrets := withAssistant(shapeHubPrivateTarget, map[string]any{keyEnabled: false})
+	if got := configmapPatchOf(t, input, secrets); !strings.Contains(got, "\n  agent-manager-assistant:\n    enabled: false\n") {
+		t.Errorf("off, and the patch carries no components.agent-manager-assistant.enabled: false:\n%s", got)
+	}
+
+	input, secrets = withAssistant(shapeHubPrivateTarget, map[string]any{keyModelConfig: "claude-sonnet"})
+	if got := configmapPatchOf(t, input, secrets); !strings.Contains(got, "\nagentManagerAssistant:\n  modelConfig: claude-sonnet\n") {
+		t.Errorf("a model override, and the patch carries no agentManagerAssistant.modelConfig:\n%s", got)
+	}
+
+	notAName, hubSecrets := withAssistant(shapeHubPrivateTarget, map[string]any{keyModelConfig: "Claude Sonnet"})
+	lineThree, lineThreeSecrets := withAssistant(shapePublicCustomer, map[string]any{keyModelConfig: "claude-sonnet"})
+	noKagent, noKagentSecrets := withAssistant(shapeHubPrivateTarget, map[string]any{keyModelConfig: "claude-sonnet"})
+	noKagent["installation"].(map[string]any)["customer"] = customerWithoutKagent
+	noKagent["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
+	for _, c := range []struct {
+		name    string
+		input   map[string]any
+		secrets map[string]string
+		names   string
+	}{
+		{"not a ModelConfig name", notAName, hubSecrets, "agentManagerAssistant/modelConfig"},
+		{"the 3 line", lineThree, lineThreeSecrets, "agentManagerAssistant.modelConfig"},
+		{"no kagent", noKagent, noKagentSecrets, "agentManagerAssistant.modelConfig"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := Render(c.input, c.secrets, render.ModeCommit)
+			if !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), c.names) {
+				t.Fatalf("got %v, want ErrInput naming %q", err, c.names)
+			}
+		})
+	}
+}
+
+// TestAgentManagerSkillRepositoryObjects renders agent-manager's skill
+// repositories as the person lists them: a URL as a URL, an object with its
+// ref, path and read-only mark as the object, in order; an object without a
+// URL, or with a key agent-manager does not read, is refused.
+func TestAgentManagerSkillRepositoryObjects(t *testing.T) {
+	withRepositories := func(repositories ...any) (map[string]any, map[string]string) {
+		input, secrets := loadInput(t, shapeHubPrivateTarget)
+		input["agentManager"] = map[string]any{keySkills: map[string]any{keyRepositories: repositories}}
+		return input, secrets
+	}
+	input, secrets := withRepositories("https://github.com/acme/skills",
+		map[string]any{"url": "https://github.com/acme/platform-skills", "ref": "v1.2.0", "path": "skills", "readOnly": true})
+	got := configmapPatchOf(t, input, secrets)
+	want := "\nagent-manager:\n  skills:\n    repositories:\n      - https://github.com/acme/skills\n      - url: https://github.com/acme/platform-skills\n        ref: v1.2.0\n        path: skills\n        readOnly: true\n"
+	if !strings.Contains(got, want) {
+		t.Errorf("the patch carries no repositories\n%s\nin:\n%s", want, got)
+	}
+
+	for name, entry := range map[string]map[string]any{
+		"no url":      {"ref": "main"},
+		"unknown key": {"url": "https://github.com/acme/skills", "branch": "main"},
+	} {
+		input, secrets := withRepositories(entry)
+		if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "agentManager/skills/repositories") {
+			t.Errorf("%s: got %v, want ErrInput naming the repositories", name, err)
+		}
 	}
 }

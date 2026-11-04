@@ -488,13 +488,28 @@
           "properties": {
             "repositories": {
               "type": "array",
-              "items": {"type": "string", "minLength": 1},
+              "items": {
+                "oneOf": [
+                  {"type": "string", "minLength": 1},
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["url"],
+                    "properties": {
+                      "url": {"type": "string", "minLength": 1},
+                      "ref": {"type": "string"},
+                      "path": {"type": "string"},
+                      "readOnly": {"type": "boolean"}
+                    }
+                  }
+                ]
+              },
               "default": [],
               "x-source": "person",
               "x-readback": {"file": "configmap", "key": "agent-manager.skills.repositories"},
               "x-feature": "runtime",
               "x-renders": ["configmap:agent-manager.skills.repositories"],
-              "description": "The GitHub repositories agent-manager's list_skills discovers skills in (agent-manager.skills.repositories), the catalog meta agents create agents from. None, the key is not written and the chart's default (giantswarm/agent-skills) stands. Read back from the configmap patch on record."
+              "description": "The GitHub repositories agent-manager's list_skills discovers skills in (agent-manager.skills.repositories), the catalog meta agents create agents from: each a URL, or {url, ref, path, readOnly} (a ref and a directory to scan, read-only in the portal; agent-manager with ref/path support). None, the key is not written and the chart's list stands. Written under agent-manager, not the meta chart's skills.repositories, so a release without that key renders as before. Read back from the configmap patch on record."
             },
             "appSecretName": {
               "type": "string",
@@ -539,6 +554,33 @@
               "description": "The agent-manager's commit mode through its GitHub App (agent-manager.github.enabled): the chart registers with muster pinned to the App and create_agent, update_agent and delete_agent take mode: commit, the pull request opened as the person in the repository that owns the target namespace. The connectivity chart opens its egress to api.github.com (GET /user, the pull request). The App's OAuth client is the installation's own Secret, giantswarm-agent-manager-oauth-client in agent-platform, not rendered. Where the fleet policy runs the agent-manager only. Read back from the configmap patch on record."
             }
           }
+        }
+      }
+    },
+    "agentManagerAssistant": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Two choices: whether the platform-shipped Agent Manager runs, and the ModelConfig it answers with.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "x-source": "person",
+          "x-readback": {"file": "configmap", "key": "components.agent-manager-assistant.enabled"},
+          "x-feature": "runtime",
+          "x-renders": ["configmap:components.agent-manager-assistant.enabled"],
+          "description": "The Agent Manager, the meta agent the meta chart ships (components.agent-manager-assistant, kagent namespace, with the platform's skills pinned to the release). On, the chart's default: the key is not written. Off, enabled: false is written; for an installation still running a hand-added meta agent, until it is removed. Read back from the configmap patch on record."
+        },
+        "modelConfig": {
+          "type": "string",
+          "default": "",
+          "maxLength": 253,
+          "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$",
+          "x-source": "person",
+          "x-readback": {"file": "configmap", "key": "agentManagerAssistant.modelConfig"},
+          "x-feature": "runtime",
+          "x-renders": ["configmap:agentManagerAssistant.modelConfig"],
+          "description": "The ModelConfig in kagent the Agent Manager answers with (agentManagerAssistant.modelConfig). Empty, the key is not written and the chart's default-model-config stands. The 4 chart line only, where the fleet policy runs kagent. Read back from the configmap patch on record."
         }
       }
     },

@@ -72,6 +72,7 @@ features:
       - {id: kagent-providers, kind: configmap, key: kagent.providers}
       - {id: kagent-model-configs, kind: configmap, key: kagent.modelConfigs}
       - {id: singletons-placement, kind: configmap, key: scheduling.singletons}
+      - {id: agent-manager-assistant, kind: configmap, key: "components.agent-manager-assistant / agentManagerAssistant (the platform-shipped Agent Manager: off, and its ModelConfig)"}
       - {id: tenant-organizations, kind: configmap, key: "tenants (the meta chart's tenant mode: the Organizations' namespaces as agent tenants)"}
       - {id: patch-top-level-keys, kind: configmap, catchAll: true, key: the patch's top-level keys (every key no other dimension names)}
       - {id: chart-line-on-record, kind: record, key: config.yaml.patch agentPlatform.kagentApiV2 (the meta chart line the record selects; an enable or a reconcile writes the policy's line)}

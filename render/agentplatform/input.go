@@ -45,6 +45,9 @@ const (
 	componentAgentManager   = "agent-manager"
 	componentKlausGateway   = "klaus-gateway"
 	componentClusterManager = "cluster-manager"
+	// componentAgentManagerAssistant is the platform-shipped Agent Manager,
+	// a meta agent the meta chart runs by default.
+	componentAgentManagerAssistant = "agent-manager-assistant"
 	// componentModelManager is no choice of the policy's: the meta chart's 4
 	// line runs it by default and the definition leaves it on.
 	componentModelManager = "model-manager"
@@ -142,6 +145,10 @@ type Input struct {
 	// and the Secrets private ones are read and booted with, read back from
 	// the configmap patch on record.
 	AgentManagerSkills AgentManagerSkills
+	// AgentManagerAssistant is the person's choice of the platform-shipped
+	// Agent Manager (agentManagerAssistant.*), read back from the configmap
+	// patch on record.
+	AgentManagerAssistant AgentManagerAssistant
 	// Versions are the person's version holds (versions.*), read back from
 	// the record so a reconcile keeps them.
 	Versions Versions
@@ -618,7 +625,8 @@ type document struct {
 		commitChoice
 		Skills AgentManagerSkills `json:"skills"`
 	} `json:"agentManager"`
-	KlausGateway struct {
+	AgentManagerAssistant AgentManagerAssistant `json:"agentManagerAssistant"`
+	KlausGateway          struct {
 		Slack struct {
 			ContextBotIDs          []ContextBot `json:"contextBotIDs"`
 			ContextBotIDsComment   string       `json:"contextBotIDsComment"`
@@ -685,10 +693,68 @@ type Holds struct {
 // are read with, and the Secret agents with a git skill boot with — provisioned
 // and named, or minted from the App by agent-manager.
 type AgentManagerSkills struct {
-	Repositories      []string `json:"repositories"`
-	AppSecretName     string   `json:"appSecretName"`
-	GitAuthSecretName string   `json:"gitAuthSecretName"`
-	MintGitAuthSecret bool     `json:"mintGitAuthSecret"`
+	Repositories      []SkillRepository `json:"repositories"`
+	AppSecretName     string            `json:"appSecretName"`
+	GitAuthSecretName string            `json:"gitAuthSecretName"`
+	MintGitAuthSecret bool              `json:"mintGitAuthSecret"`
+}
+
+// AgentManagerAssistant is the meta chart's platform-shipped Agent Manager
+// (component agent-manager-assistant): whether it runs, nil the chart's
+// default (on), and the ModelConfig it answers with, empty the chart's.
+type AgentManagerAssistant struct {
+	Enabled     *bool  `json:"enabled"`
+	ModelConfig string `json:"modelConfig"`
+}
+
+// disabled is whether the person turned the Agent Manager off.
+func (a AgentManagerAssistant) disabled() bool { return a.Enabled != nil && !*a.Enabled }
+
+// SkillRepository is one entry of agent-manager's skill repositories, in the
+// form the person wrote it: a URL alone, or the URL with the ref and the
+// directory scanned and the read-only mark.
+type SkillRepository struct {
+	URL      string `json:"url"`
+	Ref      string `json:"ref,omitempty"`
+	Path     string `json:"path,omitempty"`
+	ReadOnly bool   `json:"readOnly,omitempty"`
+	// object is whether the person wrote the entry as an object.
+	object bool
+}
+
+// UnmarshalJSON reads a URL or an object; the schema has checked the shape.
+func (r *SkillRepository) UnmarshalJSON(raw []byte) error {
+	var url string
+	if err := json.Unmarshal(raw, &url); err == nil {
+		*r = SkillRepository{URL: url}
+		return nil
+	}
+	type plain SkillRepository
+	var p plain
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return err
+	}
+	*r = SkillRepository(p)
+	r.object = true
+	return nil
+}
+
+// MarshalYAML writes the entry in the form it was read in.
+func (r SkillRepository) MarshalYAML() (any, error) {
+	if !r.object {
+		return r.URL, nil
+	}
+	m := render.Map{e("url", r.URL)}
+	if r.Ref != "" {
+		m = append(m, e("ref", r.Ref))
+	}
+	if r.Path != "" {
+		m = append(m, e("path", r.Path))
+	}
+	if r.ReadOnly {
+		m = append(m, e("readOnly", true))
+	}
+	return m, nil
 }
 
 // set is whether the person chose anything for the catalog.
@@ -715,7 +781,7 @@ type commitChoice struct {
 // the cluster does not serve PodCertificateRequest, the chat or skill
 // repositories on an installation whose organisation hosts no portal for
 // them, the chat without a model, or on Vertex without its Google project or
-// location, the Hive where the installation cannot serve it, the MCP backends' network policy or the LLM listener's rate limits on the 3 line, the rate limits or the session idle TTL where no kagent runs, the session idle TTL on the 3 line, the tenant mode on the 3 line, where kagent and the agent-manager do not both run or with a hold below the releases it needs, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
+// location, the Hive where the installation cannot serve it, the MCP backends' network policy or the LLM listener's rate limits on the 3 line, the rate limits or the session idle TTL where no kagent runs, the session idle TTL on the 3 line, the Agent Manager's model override on the 3 line or where no kagent runs, the tenant mode on the 3 line, where kagent and the agent-manager do not both run or with a hold below the releases it needs, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
 // is ErrInput too.
 func Parse(raw any) (*Input, error) {
 	schemaBytes, err := definitions.FS.ReadFile("agent-platform/schema.json")
@@ -758,7 +824,7 @@ func Parse(raw any) (*Input, error) {
 		return nil, err
 	}
 	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, MCPBackends: d.NetworkPolicy.MCPBackends, LLMRateLimits: d.LLMRouting.RateLimits, LLMRateLimitsComment: d.LLMRouting.RateLimitsComment, SessionIdleTTL: d.Sessions.IdleTTL, TenantOrganizations: d.Tenants.Organizations.Enabled, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories, Hive: d.Hive,
-		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, ContextBotNames: d.KlausGateway.Slack.ContextBotNames, ContextBotNamesComment: d.KlausGateway.Slack.ContextBotNamesComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
+		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, AgentManagerAssistant: d.AgentManagerAssistant, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, ContextBotNames: d.KlausGateway.Slack.ContextBotNames, ContextBotNamesComment: d.KlausGateway.Slack.ContextBotNamesComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
 		ReleaseCandidates: pol.releaseCandidates(d.Installation)}
 	if in.Components, err = pol.components(in.Installation); err != nil {
 		return nil, err
@@ -911,6 +977,12 @@ func (in *Input) checkRecord() error {
 	}
 	if in.SessionIdleTTL != "" && !in.kagent() {
 		return refuse(fmt.Sprintf("%s bounds how long kagent keeps an idle Session, and the fleet policy runs no kagent on %s's installations", describe("sessions.idleTTL"), in.Installation.Customer))
+	}
+	if mc := in.AgentManagerAssistant.ModelConfig; mc != "" && in.Installation.ChartLine != lineFour {
+		return refuse(fmt.Sprintf("%s is the 4 chart line's, and this installation runs the %s line; the record's chart line decides", describe("agentManagerAssistant.modelConfig"), in.Installation.ChartLine))
+	}
+	if mc := in.AgentManagerAssistant.ModelConfig; mc != "" && !in.kagent() {
+		return refuse(fmt.Sprintf("%s names the Agent Manager's ModelConfig in kagent, and the fleet policy runs no kagent on %s's installations", describe("agentManagerAssistant.modelConfig"), in.Installation.Customer))
 	}
 	if in.TenantOrganizations && in.Installation.ChartLine != lineFour {
 		return refuse(fmt.Sprintf("%s is the 4 chart line's, and this installation runs the %s line; the record's chart line decides", describe("tenants.organizations.enabled"), in.Installation.ChartLine))

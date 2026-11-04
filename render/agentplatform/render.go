@@ -246,6 +246,9 @@ func (in *Input) configmapPatch() render.Map {
 	components := render.Map{e("kagent", render.Map{e("enabled", in.kagent())}),
 		e("agent-manager", render.Map{e("enabled", in.agentManager())})}
 	components = in.componentToggles(components)
+	if in.AgentManagerAssistant.disabled() {
+		components = append(components, e(componentAgentManagerAssistant, render.Map{e("enabled", false)}))
+	}
 	if in.ModelServing {
 		for _, c := range servingComponents {
 			components = append(components, e(c, render.Map{e("enabled", true)}))
@@ -299,6 +302,9 @@ func (in *Input) configmapPatch() render.Map {
 		m = append(m, e("agent-platform-mcps", mcps))
 	}
 	m = in.componentValues(m)
+	if mc := in.AgentManagerAssistant.ModelConfig; mc != "" {
+		m = append(m, e("agentManagerAssistant", render.Map{e("modelConfig", mc)}))
+	}
 	if len(in.MCPBackends) > 0 {
 		m = append(m, e("networkPolicy", render.Map{e("mcpBackends", in.mcpBackends())}))
 	}
