@@ -68,6 +68,11 @@ const (
 	keyGoogle             = "google"
 	keyCapacity           = "singletonsCapacity"
 	keyModelConfig        = "modelConfig"
+	keyURL                = "url"
+	keyRef                = "ref"
+	refMain               = "main"
+	acmeSkills            = "https://github.com/acme/skills"
+	caseLineThree         = "the 3 line"
 )
 
 // shapes are the installation shapes, in the order the goldens are rendered.
@@ -1620,7 +1625,7 @@ func TestAgentManagerAssistant(t *testing.T) {
 	}
 
 	input, secrets = withAssistant(shapeHubPrivateTarget, map[string]any{keyModelConfig: "claude-sonnet"})
-	input["versions"] = map[string]any{"chart": ">=4.100.0 <5.0.0"}
+	input[keyVersions] = map[string]any{keyChart: ">=4.100.0 <5.0.0"}
 	if got := renderedPatch(t, input, secrets); !strings.Contains(got, "\nagentManagerAssistant:\n  modelConfig: claude-sonnet\n") {
 		t.Errorf("a model override, and the patch carries no agentManagerAssistant.modelConfig:\n%s", got)
 	}
@@ -1634,7 +1639,7 @@ func TestAgentManagerAssistant(t *testing.T) {
 		noKagent["installation"].(map[string]any)["customer"] = customerWithoutKagent
 		noKagent["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
 		held, heldSecrets := withAssistant(shapeHubPrivateTarget, choice)
-		held["versions"] = map[string]any{"chart": "~4.174.0"}
+		held[keyVersions] = map[string]any{keyChart: "~4.174.0"}
 		cases = append(cases,
 			refusalCase{input + " on the 3 line", lineThree, lineThreeSecrets, input},
 			refusalCase{input + " without kagent", noKagent, noKagentSecrets, input},
@@ -1655,29 +1660,29 @@ func TestAgentManagerSkillRepositoryObjects(t *testing.T) {
 		input["agentManager"] = map[string]any{keySkills: map[string]any{keyRepositories: repositories}}
 		return input, secrets
 	}
-	input, secrets := withRepositories(shapeHubPrivateTarget, "https://github.com/acme/skills",
-		map[string]any{"url": "https://github.com/acme/platform-skills", "ref": "v1.2.0", "path": "skills", "readOnly": true},
-		map[string]any{"url": "https://github.com/acme/more-skills", "ref": "", "readOnly": false})
+	input, secrets := withRepositories(shapeHubPrivateTarget, acmeSkills,
+		map[string]any{keyURL: "https://github.com/acme/platform-skills", keyRef: "v1.2.0", "path": "skills", "readOnly": true},
+		map[string]any{keyURL: "https://github.com/acme/more-skills", keyRef: "", "readOnly": false})
 	got := renderedPatch(t, input, secrets)
 	want := "\nagent-manager:\n  skills:\n    repositories:\n      - https://github.com/acme/skills\n      - url: https://github.com/acme/platform-skills\n        ref: v1.2.0\n        path: skills\n        readOnly: true\n      - url: https://github.com/acme/more-skills\n        ref: \"\"\n        readOnly: false\n"
 	if !strings.Contains(got, want) {
 		t.Errorf("the patch carries no repositories\n%s\nin:\n%s", want, got)
 	}
 
-	input, secrets = withRepositories(shapeHubPrivateTarget, "https://github.com/acme/skills")
-	input["versions"] = map[string]any{"components": map[string]any{componentAgentManager: "~2.18.0"}}
+	input, secrets = withRepositories(shapeHubPrivateTarget, acmeSkills)
+	input[keyVersions] = map[string]any{keyComponents: map[string]any{componentAgentManager: "~2.18.0"}}
 	renderedPatch(t, input, secrets)
 
-	object := map[string]any{"url": "https://github.com/acme/skills", "ref": "main"}
-	noURL, noURLSecrets := withRepositories(shapeHubPrivateTarget, map[string]any{"ref": "main"})
-	unknown, unknownSecrets := withRepositories(shapeHubPrivateTarget, map[string]any{"url": "https://github.com/acme/skills", "branch": "main"})
+	object := map[string]any{keyURL: acmeSkills, keyRef: refMain}
+	noURL, noURLSecrets := withRepositories(shapeHubPrivateTarget, map[string]any{keyRef: refMain})
+	unknown, unknownSecrets := withRepositories(shapeHubPrivateTarget, map[string]any{keyURL: acmeSkills, "branch": refMain})
 	lineThree, lineThreeSecrets := withRepositories(shapePublicCustomer, object)
 	held, heldSecrets := withRepositories(shapeHubPrivateTarget, object)
-	held["versions"] = map[string]any{"components": map[string]any{componentAgentManager: "~2.18.0"}}
+	held[keyVersions] = map[string]any{keyComponents: map[string]any{componentAgentManager: "~2.18.0"}}
 	requireRefusals(t, []refusalCase{
 		{"no url", noURL, noURLSecrets, "agentManager/skills/repositories"},
 		{"unknown key", unknown, unknownSecrets, "agentManager/skills/repositories"},
-		{"the 3 line", lineThree, lineThreeSecrets, "agentManager.skills.repositories"},
+		{caseLineThree, lineThree, lineThreeSecrets, "agentManager.skills.repositories"},
 		{"the agent-manager held below objects", held, heldSecrets, "versions.components.agent-manager"},
 	})
 }
