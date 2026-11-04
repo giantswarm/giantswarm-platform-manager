@@ -509,7 +509,7 @@
               "x-readback": {"file": "configmap", "key": "agent-manager.skills.repositories"},
               "x-feature": "runtime",
               "x-renders": ["configmap:agent-manager.skills.repositories"],
-              "description": "The GitHub repositories agent-manager's list_skills discovers skills in (agent-manager.skills.repositories), the catalog meta agents create agents from: each a URL, or {url, ref, path, readOnly} (a ref and a directory to scan, read-only in the portal; agent-manager with ref/path support). None, the key is not written and the chart's list stands. Written under agent-manager, not the meta chart's skills.repositories, so a release without that key renders as before. Read back from the configmap patch on record."
+              "description": "The GitHub repositories agent-manager's list_skills discovers skills in (agent-manager.skills.repositories), the catalog meta agents create agents from: each a URL, or {url, ref, path, readOnly} (a ref and a directory to scan, read-only in the portal; the 4 chart line, no versions.components.agent-manager hold below 2.19.0). None, the key is not written and the chart's list stands. Written under agent-manager, not the meta chart's skills.repositories, so a release without that key renders as before. Read back from the configmap patch on record."
             },
             "appSecretName": {
               "type": "string",
@@ -569,7 +569,7 @@
           "x-readback": {"file": "configmap", "key": "components.agent-manager-assistant.enabled"},
           "x-feature": "runtime",
           "x-renders": ["configmap:components.agent-manager-assistant.enabled"],
-          "description": "The Agent Manager, the meta agent the meta chart ships (components.agent-manager-assistant, kagent namespace, with the platform's skills pinned to the release). On, the chart's default: the key is not written. Off, enabled: false is written; for an installation still running a hand-added meta agent, until it is removed. Read back from the configmap patch on record."
+          "description": "The Agent Manager, the meta agent the meta chart ships (components.agent-manager-assistant, kagent namespace, with the platform's skills pinned to the release). On, the chart's default: the key is not written. Off, enabled: false is written: set it on an installation that still runs a hand-added meta agent before upgrading to the release with the Agent Manager. Off: the 4 chart line only, where the fleet policy runs kagent, with no versions.chart hold below 4.175.0. Read back from the configmap patch on record."
         },
         "modelConfig": {
           "type": "string",
@@ -580,7 +580,7 @@
           "x-readback": {"file": "configmap", "key": "agentManagerAssistant.modelConfig"},
           "x-feature": "runtime",
           "x-renders": ["configmap:agentManagerAssistant.modelConfig"],
-          "description": "The ModelConfig in kagent the Agent Manager answers with (agentManagerAssistant.modelConfig). Empty, the key is not written and the chart's default-model-config stands. The 4 chart line only, where the fleet policy runs kagent. Read back from the configmap patch on record."
+          "description": "The ModelConfig in kagent the Agent Manager answers with (agentManagerAssistant.modelConfig). Empty, the key is not written and the chart's default-model-config stands. The 4 chart line only, where the fleet policy runs kagent, with no versions.chart hold below 4.175.0. Read back from the configmap patch on record."
         }
       }
     },

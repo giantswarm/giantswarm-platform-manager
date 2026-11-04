@@ -714,10 +714,12 @@ func (a AgentManagerAssistant) disabled() bool { return a.Enabled != nil && !*a.
 // form the person wrote it: a URL alone, or the URL with the ref and the
 // directory scanned and the read-only mark.
 type SkillRepository struct {
-	URL      string `json:"url"`
-	Ref      string `json:"ref,omitempty"`
-	Path     string `json:"path,omitempty"`
-	ReadOnly bool   `json:"readOnly,omitempty"`
+	URL string `json:"url"`
+	// Ref, Path and ReadOnly are nil where the entry does not carry them,
+	// so an entry is written back with the keys it was read with.
+	Ref      *string `json:"ref,omitempty"`
+	Path     *string `json:"path,omitempty"`
+	ReadOnly *bool   `json:"readOnly,omitempty"`
 	// object is whether the person wrote the entry as an object.
 	object bool
 }
@@ -745,16 +747,26 @@ func (r SkillRepository) MarshalYAML() (any, error) {
 		return r.URL, nil
 	}
 	m := render.Map{e("url", r.URL)}
-	if r.Ref != "" {
-		m = append(m, e("ref", r.Ref))
+	if r.Ref != nil {
+		m = append(m, e("ref", *r.Ref))
 	}
-	if r.Path != "" {
-		m = append(m, e("path", r.Path))
+	if r.Path != nil {
+		m = append(m, e("path", *r.Path))
 	}
-	if r.ReadOnly {
-		m = append(m, e("readOnly", true))
+	if r.ReadOnly != nil {
+		m = append(m, e("readOnly", *r.ReadOnly))
 	}
 	return m, nil
+}
+
+// objects is whether any repository is written as an object.
+func (s AgentManagerSkills) objects() bool {
+	for _, r := range s.Repositories {
+		if r.object {
+			return true
+		}
+	}
+	return false
 }
 
 // set is whether the person chose anything for the catalog.
@@ -781,7 +793,7 @@ type commitChoice struct {
 // the cluster does not serve PodCertificateRequest, the chat or skill
 // repositories on an installation whose organisation hosts no portal for
 // them, the chat without a model, or on Vertex without its Google project or
-// location, the Hive where the installation cannot serve it, the MCP backends' network policy or the LLM listener's rate limits on the 3 line, the rate limits or the session idle TTL where no kagent runs, the session idle TTL on the 3 line, the Agent Manager's model override on the 3 line or where no kagent runs, the tenant mode on the 3 line, where kagent and the agent-manager do not both run or with a hold below the releases it needs, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
+// location, the Hive where the installation cannot serve it, the MCP backends' network policy or the LLM listener's rate limits on the 3 line, the rate limits or the session idle TTL where no kagent runs, the session idle TTL on the 3 line, the Agent Manager turned off or its model override on the 3 line, where no kagent runs or with a chart hold below the release that ships it, skill repository objects on the 3 line or with an agent-manager hold below the release that reads them, the tenant mode on the 3 line, where kagent and the agent-manager do not both run or with a hold below the releases it needs, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
 // is ErrInput too.
 func Parse(raw any) (*Input, error) {
 	schemaBytes, err := definitions.FS.ReadFile("agent-platform/schema.json")
@@ -972,17 +984,21 @@ func (in *Input) checkRecord() error {
 	if in.AgentManagerCommit && !in.agentManager() {
 		return refuse(fmt.Sprintf("%s asks for the agent-manager's commit mode, and the fleet policy runs no agent-manager on %s's installations", describe("agentManager.github.enabled"), in.Installation.Customer))
 	}
-	if in.SessionIdleTTL != "" && in.Installation.ChartLine != lineFour {
-		return refuse(fmt.Sprintf("%s is the 4 chart line's, and this installation runs the %s line; the record's chart line decides", describe("sessions.idleTTL"), in.Installation.ChartLine))
+	if in.SessionIdleTTL != "" {
+		if err := in.onFourLineKagent("sessions.idleTTL", "bounds how long kagent keeps an idle Session"); err != nil {
+			return err
+		}
 	}
-	if in.SessionIdleTTL != "" && !in.kagent() {
-		return refuse(fmt.Sprintf("%s bounds how long kagent keeps an idle Session, and the fleet policy runs no kagent on %s's installations", describe("sessions.idleTTL"), in.Installation.Customer))
+	if err := in.checkAgentManagerAssistant(); err != nil {
+		return err
 	}
-	if mc := in.AgentManagerAssistant.ModelConfig; mc != "" && in.Installation.ChartLine != lineFour {
-		return refuse(fmt.Sprintf("%s is the 4 chart line's, and this installation runs the %s line; the record's chart line decides", describe("agentManagerAssistant.modelConfig"), in.Installation.ChartLine))
-	}
-	if mc := in.AgentManagerAssistant.ModelConfig; mc != "" && !in.kagent() {
-		return refuse(fmt.Sprintf("%s names the Agent Manager's ModelConfig in kagent, and the fleet policy runs no kagent on %s's installations", describe("agentManagerAssistant.modelConfig"), in.Installation.Customer))
+	if in.AgentManagerSkills.objects() {
+		if in.Installation.ChartLine != lineFour {
+			return refuse(fmt.Sprintf("%s lists a repository with a ref, a path or a read-only mark, the 4 chart line's agent-manager's, and this installation runs the %s line; the record's chart line decides", describe("agentManager.skills.repositories"), in.Installation.ChartLine))
+		}
+		if hold := in.Versions.Components[componentAgentManager]; !holdAdmits(hold, skillObjectsAgentManagerFloor) {
+			return refuse(fmt.Sprintf("%s lists a repository with a ref, a path or a read-only mark, which needs the agent-manager %s or later, and %s holds it at %s; move or lift the hold first", describe("agentManager.skills.repositories"), skillObjectsAgentManagerFloor, describe("versions.components."+componentAgentManager), hold))
+		}
 	}
 	if in.TenantOrganizations && in.Installation.ChartLine != lineFour {
 		return refuse(fmt.Sprintf("%s is the 4 chart line's, and this installation runs the %s line; the record's chart line decides", describe("tenants.organizations.enabled"), in.Installation.ChartLine))
@@ -1126,6 +1142,58 @@ func releaseFilterAdmits(semver string) bool {
 	}
 	return releaseTag.MatchString(semver)
 }
+
+// onFourLineKagent refuses input, which the person chose, outside the 4
+// chart line or where the fleet policy runs no kagent; what says what the
+// input does with kagent.
+func (in *Input) onFourLineKagent(input, what string) error {
+	if in.Installation.ChartLine != lineFour {
+		return refuse(fmt.Sprintf("%s is the 4 chart line's, and this installation runs the %s line; the record's chart line decides", describe(input), in.Installation.ChartLine))
+	}
+	if !in.kagent() {
+		return refuse(fmt.Sprintf("%s %s, and the fleet policy runs no kagent on %s's installations", describe(input), what, in.Installation.Customer))
+	}
+	return nil
+}
+
+// checkAgentManagerAssistant refuses the Agent Manager's choices where the
+// meta chart cannot take them: outside the 4 chart line, without kagent and
+// with a chart hold below the release that ships the agent. On, the
+// chart's default, is no choice and never refused.
+func (in *Input) checkAgentManagerAssistant() error {
+	a := in.AgentManagerAssistant
+	for _, c := range []struct {
+		chosen      bool
+		input, what string
+	}{
+		{a.disabled(), "agentManagerAssistant.enabled", "turns off the Agent Manager in kagent"},
+		{a.ModelConfig != "", "agentManagerAssistant.modelConfig", "names the Agent Manager's ModelConfig in kagent"},
+	} {
+		if !c.chosen {
+			continue
+		}
+		if err := in.onFourLineKagent(c.input, c.what); err != nil {
+			return err
+		}
+		if !holdAdmits(in.Versions.Chart, assistantChartFloor) {
+			return refuse(fmt.Sprintf("%s needs the meta chart %s or later, which ships the Agent Manager, and %s holds it at %s; move or lift the hold first", describe(c.input), assistantChartFloor, describe("versions.chart"), in.Versions.Chart))
+		}
+	}
+	return nil
+}
+
+// assistantChartFloor is the meta chart release that ships the Agent
+// Manager (giantswarm/agent-platform#1265): the minor after 4.174.3, the
+// latest release when the input was added. Set it to the release that
+// carries #1265 if that differs.
+const assistantChartFloor = "4.175.0"
+
+// skillObjectsAgentManagerFloor is the agent-manager release that reads a
+// skill repository's ref, path and read-only mark
+// (giantswarm/agent-manager#290): the minor after 2.18.0, the latest release
+// when the input was added. Set it to the release that carries #290 if that
+// differs.
+const skillObjectsAgentManagerFloor = "2.19.0"
 
 // The releases the tenant mode needs: the meta chart that holds a tenant's
 // ModelConfigs to the LLM listener (giantswarm/agent-platform#1082) and the

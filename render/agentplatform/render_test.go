@@ -1563,27 +1563,42 @@ func TestTenantOrganizations(t *testing.T) {
 	}
 }
 
-// configmapPatchOf renders input and returns the installation's configmap
-// patch as text.
-func configmapPatchOf(t *testing.T, input map[string]any, secrets map[string]string) string {
+// renderedPatch renders input and returns the installation's configmap patch.
+func renderedPatch(t *testing.T, input map[string]any, secrets map[string]string) string {
 	t.Helper()
 	result, err := Render(input, secrets, render.ModeCommit)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, content := range result.Tree() {
-		if strings.HasSuffix(name, "apps/agent-platform/configmap-values.yaml.patch") {
-			return string(content)
-		}
+	return platformPatch(t, result)
+}
+
+// refusalCase is an input the render refuses, naming the input it names.
+type refusalCase struct {
+	name    string
+	input   map[string]any
+	secrets map[string]string
+	names   string
+}
+
+func requireRefusals(t *testing.T, cases []refusalCase) {
+	t.Helper()
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := Render(c.input, c.secrets, render.ModeCommit)
+			if !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), c.names) {
+				t.Fatalf("got %v, want ErrInput naming %q", err, c.names)
+			}
+		})
 	}
-	t.Fatal("no configmap patch rendered")
-	return ""
 }
 
 // TestAgentManagerAssistant renders the platform-shipped Agent Manager as
 // the meta chart runs it: on by default, so neither the toggle nor the model
 // override is written and the goldens are the render; turned off, the
-// component's toggle; with a model override, the ModelConfig it names.
+// component's toggle; with a model override, the ModelConfig it names. Off
+// and the override are refused on the 3 line, where no kagent runs and with
+// a chart hold below the release that ships the agent.
 func TestAgentManagerAssistant(t *testing.T) {
 	withAssistant := func(shape string, choice map[string]any) (map[string]any, map[string]string) {
 		input, secrets := loadInput(t, shape)
@@ -1594,70 +1609,75 @@ func TestAgentManagerAssistant(t *testing.T) {
 	}
 	for _, choice := range []map[string]any{nil, {keyEnabled: true}} {
 		input, secrets := withAssistant(shapeHubPrivateTarget, choice)
-		if got := configmapPatchOf(t, input, secrets); strings.Contains(got, "agent-manager-assistant") || strings.Contains(got, "agentManagerAssistant") {
+		if got := renderedPatch(t, input, secrets); strings.Contains(got, "agent-manager-assistant") || strings.Contains(got, "agentManagerAssistant") {
 			t.Errorf("on, the chart's default, and the patch carries the assistant (%v):\n%s", choice, got)
 		}
 	}
 
 	input, secrets := withAssistant(shapeHubPrivateTarget, map[string]any{keyEnabled: false})
-	if got := configmapPatchOf(t, input, secrets); !strings.Contains(got, "\n  agent-manager-assistant:\n    enabled: false\n") {
+	if got := renderedPatch(t, input, secrets); !strings.Contains(got, "\n  agent-manager-assistant:\n    enabled: false\n") {
 		t.Errorf("off, and the patch carries no components.agent-manager-assistant.enabled: false:\n%s", got)
 	}
 
 	input, secrets = withAssistant(shapeHubPrivateTarget, map[string]any{keyModelConfig: "claude-sonnet"})
-	if got := configmapPatchOf(t, input, secrets); !strings.Contains(got, "\nagentManagerAssistant:\n  modelConfig: claude-sonnet\n") {
+	input["versions"] = map[string]any{"chart": ">=4.100.0 <5.0.0"}
+	if got := renderedPatch(t, input, secrets); !strings.Contains(got, "\nagentManagerAssistant:\n  modelConfig: claude-sonnet\n") {
 		t.Errorf("a model override, and the patch carries no agentManagerAssistant.modelConfig:\n%s", got)
 	}
 
+	var cases []refusalCase
 	notAName, hubSecrets := withAssistant(shapeHubPrivateTarget, map[string]any{keyModelConfig: "Claude Sonnet"})
-	lineThree, lineThreeSecrets := withAssistant(shapePublicCustomer, map[string]any{keyModelConfig: "claude-sonnet"})
-	noKagent, noKagentSecrets := withAssistant(shapeHubPrivateTarget, map[string]any{keyModelConfig: "claude-sonnet"})
-	noKagent["installation"].(map[string]any)["customer"] = customerWithoutKagent
-	noKagent["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
-	for _, c := range []struct {
-		name    string
-		input   map[string]any
-		secrets map[string]string
-		names   string
-	}{
-		{"not a ModelConfig name", notAName, hubSecrets, "agentManagerAssistant/modelConfig"},
-		{"the 3 line", lineThree, lineThreeSecrets, "agentManagerAssistant.modelConfig"},
-		{"no kagent", noKagent, noKagentSecrets, "agentManagerAssistant.modelConfig"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			_, err := Render(c.input, c.secrets, render.ModeCommit)
-			if !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), c.names) {
-				t.Fatalf("got %v, want ErrInput naming %q", err, c.names)
-			}
-		})
+	cases = append(cases, refusalCase{"not a ModelConfig name", notAName, hubSecrets, "agentManagerAssistant/modelConfig"})
+	for input, choice := range map[string]map[string]any{"agentManagerAssistant.modelConfig": {keyModelConfig: "claude-sonnet"}, "agentManagerAssistant.enabled": {keyEnabled: false}} {
+		lineThree, lineThreeSecrets := withAssistant(shapePublicCustomer, choice)
+		noKagent, noKagentSecrets := withAssistant(shapeHubPrivateTarget, choice)
+		noKagent["installation"].(map[string]any)["customer"] = customerWithoutKagent
+		noKagent["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
+		held, heldSecrets := withAssistant(shapeHubPrivateTarget, choice)
+		held["versions"] = map[string]any{"chart": "~4.174.0"}
+		cases = append(cases,
+			refusalCase{input + " on the 3 line", lineThree, lineThreeSecrets, input},
+			refusalCase{input + " without kagent", noKagent, noKagentSecrets, input},
+			refusalCase{input + " with the chart held below the agent", held, heldSecrets, "versions.chart"})
 	}
+	requireRefusals(t, cases)
 }
 
 // TestAgentManagerSkillRepositoryObjects renders agent-manager's skill
 // repositories as the person lists them: a URL as a URL, an object with its
-// ref, path and read-only mark as the object, in order; an object without a
-// URL, or with a key agent-manager does not read, is refused.
+// ref, path and read-only mark as the object, in order, every key written
+// as it was read; an object without a URL, or with a key agent-manager does
+// not read, is refused, and so is an object on the 3 line or with an
+// agent-manager hold below the release that reads objects.
 func TestAgentManagerSkillRepositoryObjects(t *testing.T) {
-	withRepositories := func(repositories ...any) (map[string]any, map[string]string) {
-		input, secrets := loadInput(t, shapeHubPrivateTarget)
+	withRepositories := func(shape string, repositories ...any) (map[string]any, map[string]string) {
+		input, secrets := loadInput(t, shape)
 		input["agentManager"] = map[string]any{keySkills: map[string]any{keyRepositories: repositories}}
 		return input, secrets
 	}
-	input, secrets := withRepositories("https://github.com/acme/skills",
-		map[string]any{"url": "https://github.com/acme/platform-skills", "ref": "v1.2.0", "path": "skills", "readOnly": true})
-	got := configmapPatchOf(t, input, secrets)
-	want := "\nagent-manager:\n  skills:\n    repositories:\n      - https://github.com/acme/skills\n      - url: https://github.com/acme/platform-skills\n        ref: v1.2.0\n        path: skills\n        readOnly: true\n"
+	input, secrets := withRepositories(shapeHubPrivateTarget, "https://github.com/acme/skills",
+		map[string]any{"url": "https://github.com/acme/platform-skills", "ref": "v1.2.0", "path": "skills", "readOnly": true},
+		map[string]any{"url": "https://github.com/acme/more-skills", "ref": "", "readOnly": false})
+	got := renderedPatch(t, input, secrets)
+	want := "\nagent-manager:\n  skills:\n    repositories:\n      - https://github.com/acme/skills\n      - url: https://github.com/acme/platform-skills\n        ref: v1.2.0\n        path: skills\n        readOnly: true\n      - url: https://github.com/acme/more-skills\n        ref: \"\"\n        readOnly: false\n"
 	if !strings.Contains(got, want) {
 		t.Errorf("the patch carries no repositories\n%s\nin:\n%s", want, got)
 	}
 
-	for name, entry := range map[string]map[string]any{
-		"no url":      {"ref": "main"},
-		"unknown key": {"url": "https://github.com/acme/skills", "branch": "main"},
-	} {
-		input, secrets := withRepositories(entry)
-		if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "agentManager/skills/repositories") {
-			t.Errorf("%s: got %v, want ErrInput naming the repositories", name, err)
-		}
-	}
+	input, secrets = withRepositories(shapeHubPrivateTarget, "https://github.com/acme/skills")
+	input["versions"] = map[string]any{"components": map[string]any{componentAgentManager: "~2.18.0"}}
+	renderedPatch(t, input, secrets)
+
+	object := map[string]any{"url": "https://github.com/acme/skills", "ref": "main"}
+	noURL, noURLSecrets := withRepositories(shapeHubPrivateTarget, map[string]any{"ref": "main"})
+	unknown, unknownSecrets := withRepositories(shapeHubPrivateTarget, map[string]any{"url": "https://github.com/acme/skills", "branch": "main"})
+	lineThree, lineThreeSecrets := withRepositories(shapePublicCustomer, object)
+	held, heldSecrets := withRepositories(shapeHubPrivateTarget, object)
+	held["versions"] = map[string]any{"components": map[string]any{componentAgentManager: "~2.18.0"}}
+	requireRefusals(t, []refusalCase{
+		{"no url", noURL, noURLSecrets, "agentManager/skills/repositories"},
+		{"unknown key", unknown, unknownSecrets, "agentManager/skills/repositories"},
+		{"the 3 line", lineThree, lineThreeSecrets, "agentManager.skills.repositories"},
+		{"the agent-manager held below objects", held, heldSecrets, "versions.components.agent-manager"},
+	})
 }
