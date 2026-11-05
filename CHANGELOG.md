@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- agent-platform: a reconcile keeps an installation's muster toolset presets (`muster.muster.toolsetPresets`) and the extra connectors of muster's sign-in check (`muster.muster.oauth.server.dex.identityCheckConnectors`): both are carried from the record into the render (kind `kept`) instead of being removed as drift.
 - agent-platform: the `model-key` action and the `live-model-configs` dimension are done once any ModelConfig in `kagent` resolves its key (`ResolvedRefs=True` on the 4 line, `Accepted=True` on the 3 line), not only `default-model-config` ([#789](https://github.com/giantswarm/giantswarm-platform-manager/issues/789)). An installation that brings its own models no longer reads *waiting for the customer* while the default stays unresolved. The new `AnyCondition` probe kind lists the namespace's objects and names each one's verdict when none qualifies.
 
 - agent-platform: a reconcile keeps an installation's own toolchains switch: `components.toolchain-manager`, the `toolchain-manager` block and `kagent.controller.sessionToolImageEgressOrigins` are carried from the record into the render (kind `kept`). Before, a reconcile removed them as drift, so no installation could turn the coding agents' toolchains on.
