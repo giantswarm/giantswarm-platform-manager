@@ -175,7 +175,8 @@ func TestRemovalsNameThePlannedChanges(t *testing.T) {
 // same leaf on record with another value is a difference. <x> in a key
 // stands for a map key, or for a part of a file's or a list entry's name; a
 // file-level key covers the whole file, a backstage:file directory the
-// Component beneath it. A removal's reason comes first.
+// Component beneath it. A removal's reason comes first, but a removal of
+// kind migration never names a leaf the record lacks.
 func TestMigrationsNameThePlannedAdditions(t *testing.T) {
 	const m1, m3, m5, m32 = "M1", "M3", "M5", "M32"
 	migs := readMigrations([]definitions.Migration{
@@ -191,7 +192,10 @@ func TestMigrationsNameThePlannedAdditions(t *testing.T) {
 	if len(migs) != 7 {
 		t.Fatalf("%d migrations read, want 7 (a prefix of no file kind is left out)", len(migs))
 	}
-	rms := readRemovals([]definitions.Removal{{Key: "dex-configmap:oidc.extraStaticClients[*].redirectURIs", Kind: "template", Reason: "R1"}}, nil)
+	rms := readRemovals([]definitions.Removal{
+		{Key: "dex-configmap:oidc.extraStaticClients[*].redirectURIs", Kind: "template", Reason: "R1"},
+		{Key: "dex-configmap:oidc.extraStaticClients[kagent].secret", Kind: definitions.RemovalMigration, Reason: "R2"},
+	}, nil)
 	dexCM := &fileDiff{path: testDexPatch, kind: definitions.KindDexConfigMap}
 	patch := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
 	secret := &fileDiff{path: "management-clusters/x/extras/agent-platform/secrets/dex-client-muster-secret.yaml", kind: definitions.KindExtras}
@@ -223,6 +227,8 @@ func TestMigrationsNameThePlannedAdditions(t *testing.T) {
 		{"a backstage directory covers the Component's files", component, absent("app.extensions[0]"), m3},
 		{"a backstage file beside the directory", appConfig, absent("app.extensions[0]"), ""},
 		{"a removal's reason first", dexCM, absent("oidc.extraStaticClients[kagent].redirectURIs[0]"), "R1"},
+		{"never a migration's removal for a leaf the record lacks", dexCM, absent("oidc.extraStaticClients[kagent].secret"), m5},
+		{"a migration's removal for a leaf the record holds", dexCM, present("oidc.extraStaticClients[kagent].secret"), "R2"},
 	} {
 		if got := planned(tc.fd, tc.d, rms, migs); got != tc.want {
 			t.Errorf("%s: %s#%s planned %q, want %q", tc.name, tc.fd.path, tc.d.Path, got, tc.want)

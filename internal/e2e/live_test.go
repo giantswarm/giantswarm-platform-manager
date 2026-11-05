@@ -267,9 +267,10 @@ func TestVerifyInstallationAsDefined(t *testing.T) {
 			continue
 		}
 		// rowan runs the 3 line and registers no server of its own: the API
-		// Agent Substrate needs on the 4 line and the registered servers are
+		// Agent Substrate needs and the Agents naming kagent's
+		// default-model-config on the 4 line, and the registered servers, are
 		// not probed, and the dimensions say so.
-		if id == "live-pod-certificate-request" || id == "live-registered-mcp-servers" {
+		if id == "live-pod-certificate-request" || id == "live-agent-models" || id == "live-registered-mcp-servers" {
 			if d.Mark != verify.NotChecked || d.Reason != verify.ReasonNoProbe {
 				t.Errorf("%s: %s (%s)", id, d.Mark, d.Reason)
 			}

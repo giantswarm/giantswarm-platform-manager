@@ -40,6 +40,11 @@ const RemovalKept = "kept"
 // the definition would turn the hub's portal into a customer's.
 const RemovalHub = "hub"
 
+// RemovalMigration is the kind of a removal that is a value the fleet
+// carries today and no input of the definition renders: it moves to where it
+// belongs or goes. It never names a leaf the render carries.
+const RemovalMigration = "migration"
+
 // RemovalOtherDefinition is the kind of a removal that is a key the
 // capability hands to the other definition, which renders it in a file of
 // its own: the customer-portal definition's agent-platform section, which
