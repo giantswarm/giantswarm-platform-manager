@@ -129,6 +129,16 @@ removals:
   - key: configmap:muster.muster.oauth.server.dex.connectorId
     kind: kept
     reason: "Kept: muster's Dex login connector is pinned here; the shared defaults pick one connector for every Giant Swarm installation, which this installation's Dex may lack, so the pin stays until they choose per installation · M27"
+  - key: configmap:muster.muster.oauth.server.dex.identityCheckConnectors
+    kind: kept
+    reason: >-
+      Kept: muster's sign-in check also accepts the Dex connectors listed here, so a portal session signed in through another connector
+      (the Microsoft fallback) matches its Dex subject; it stays until the shared defaults list the installation's own connectors
+  - key: configmap:muster.muster.toolsetPresets
+    kind: kept
+    reason: >-
+      Kept: muster's toolset presets are written here (devctl's tools as the calling person, and its read-only subset); they stay until
+      the definition renders the presets of the MCP servers the installation registers
   - key: configmap:muster.muster.oauth.server.trustedIssuers
     kind: kept
     reason: >-
