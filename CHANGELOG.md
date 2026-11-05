@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- agent-platform: inputs for the platform-shipped Agent Manager ([giantswarm/giantswarm#38970](https://github.com/giantswarm/giantswarm/issues/38970)): `agentManagerAssistant.enabled` (default true; false writes `components.agent-manager-assistant.enabled: false`) and `agentManagerAssistant.modelConfig` (writes `agentManagerAssistant.modelConfig`; the 4 chart line, where kagent runs). `agentManager.skills.repositories` takes `{url, ref, path, readOnly}` entries beside URLs. Defaults render nothing new.
+- agent-platform: inputs for the platform-shipped Agent Manager ([giantswarm/giantswarm#38970](https://github.com/giantswarm/giantswarm/issues/38970)): `agentManagerAssistant.enabled` (default true; false writes `components.agent-manager-assistant.enabled: false`) and `agentManagerAssistant.modelConfig` (writes `agentManagerAssistant.modelConfig`; the 4 chart line, where kagent runs). `skillManager.sources` (strings or `{url, ref, path, readOnly}`, written as read) renders the meta chart's `skillManager.sources`, the skill-manager's sources (giantswarm/giantswarm#38322); the 4 chart line only, where the agent-manager runs, with no chart hold below the release with the skill-manager. Defaults render nothing new.
 
 ### Changed
 

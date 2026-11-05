@@ -305,6 +305,9 @@ func (in *Input) configmapPatch() render.Map {
 	if mc := in.AgentManagerAssistant.ModelConfig; mc != "" {
 		m = append(m, e("agentManagerAssistant", render.Map{e("modelConfig", mc)}))
 	}
+	if len(in.SkillManagerSources) > 0 {
+		m = append(m, e("skillManager", render.Map{e("sources", in.SkillManagerSources)}))
+	}
 	if len(in.MCPBackends) > 0 {
 		m = append(m, e("networkPolicy", render.Map{e("mcpBackends", in.mcpBackends())}))
 	}

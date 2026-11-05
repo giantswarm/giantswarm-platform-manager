@@ -69,6 +69,7 @@ const (
 	keyCapacity           = "singletonsCapacity"
 	keyModelConfig        = "modelConfig"
 	keyURL                = "url"
+	keySources            = "sources"
 	keyRef                = "ref"
 	refMain               = "main"
 	acmeSkills            = "https://github.com/acme/skills"
@@ -1648,41 +1649,60 @@ func TestAgentManagerAssistant(t *testing.T) {
 	requireRefusals(t, cases)
 }
 
-// TestAgentManagerSkillRepositoryObjects renders agent-manager's skill
-// repositories as the person lists them: a URL as a URL, an object with its
-// ref, path and read-only mark as the object, in order, every key written
-// as it was read; an object without a URL, or with a key agent-manager does
-// not read, is refused, and so is an object on the 3 line or with an
-// agent-manager hold below the release that reads objects.
-func TestAgentManagerSkillRepositoryObjects(t *testing.T) {
-	withRepositories := func(shape string, repositories ...any) (map[string]any, map[string]string) {
+// TestSkillManagerSources renders the skill-manager's sources as the person
+// lists them, into the meta chart's skillManager.sources: a URL as a URL, an
+// object with its ref, path and read-only mark as the object, in order,
+// every key written as it was read. None writes nothing. An object without a
+// URL, or with a key the skill-manager does not read, is refused, and so is
+// the list on the 3 line, where the fleet policy runs no agent-manager, and
+// with a chart hold below the release with the skill-manager.
+func TestSkillManagerSources(t *testing.T) {
+	withSources := func(shape string, sources ...any) (map[string]any, map[string]string) {
 		input, secrets := loadInput(t, shape)
-		input["agentManager"] = map[string]any{keySkills: map[string]any{keyRepositories: repositories}}
+		input["skillManager"] = map[string]any{keySources: sources}
 		return input, secrets
 	}
-	input, secrets := withRepositories(shapeHubPrivateTarget, acmeSkills,
+	input, secrets := loadInput(t, shapeHubPrivateTarget)
+	if got := renderedPatch(t, input, secrets); strings.Contains(got, "skillManager") {
+		t.Errorf("no sources, and the patch carries skillManager:\n%s", got)
+	}
+
+	input, secrets = withSources(shapeHubPrivateTarget, acmeSkills,
 		map[string]any{keyURL: "https://github.com/acme/platform-skills", keyRef: "v1.2.0", "path": "skills", "readOnly": true},
 		map[string]any{keyURL: "https://github.com/acme/more-skills", keyRef: "", "readOnly": false})
 	got := renderedPatch(t, input, secrets)
-	want := "\nagent-manager:\n  skills:\n    repositories:\n      - https://github.com/acme/skills\n      - url: https://github.com/acme/platform-skills\n        ref: v1.2.0\n        path: skills\n        readOnly: true\n      - url: https://github.com/acme/more-skills\n        ref: \"\"\n        readOnly: false\n"
+	want := "\nskillManager:\n  sources:\n    - https://github.com/acme/skills\n    - url: https://github.com/acme/platform-skills\n      ref: v1.2.0\n      path: skills\n      readOnly: true\n    - url: https://github.com/acme/more-skills\n      ref: \"\"\n      readOnly: false\n"
 	if !strings.Contains(got, want) {
-		t.Errorf("the patch carries no repositories\n%s\nin:\n%s", want, got)
+		t.Errorf("the patch carries no sources\n%s\nin:\n%s", want, got)
 	}
 
-	input, secrets = withRepositories(shapeHubPrivateTarget, acmeSkills)
-	input[keyVersions] = map[string]any{keyComponents: map[string]any{componentAgentManager: "~2.18.0"}}
+	input, secrets = withSources(shapeHubPrivateTarget, acmeSkills)
+	input[keyVersions] = map[string]any{keyChart: ">=4.100.0 <5.0.0"}
 	renderedPatch(t, input, secrets)
 
 	object := map[string]any{keyURL: acmeSkills, keyRef: refMain}
-	noURL, noURLSecrets := withRepositories(shapeHubPrivateTarget, map[string]any{keyRef: refMain})
-	unknown, unknownSecrets := withRepositories(shapeHubPrivateTarget, map[string]any{keyURL: acmeSkills, "branch": refMain})
-	lineThree, lineThreeSecrets := withRepositories(shapePublicCustomer, object)
-	held, heldSecrets := withRepositories(shapeHubPrivateTarget, object)
-	held[keyVersions] = map[string]any{keyComponents: map[string]any{componentAgentManager: "~2.18.0"}}
+	noURL, noURLSecrets := withSources(shapeHubPrivateTarget, map[string]any{keyRef: refMain})
+	unknown, unknownSecrets := withSources(shapeHubPrivateTarget, map[string]any{keyURL: acmeSkills, "branch": refMain})
+	lineThree, lineThreeSecrets := withSources(shapePublicCustomer, object)
+	noAgentManager, noAgentManagerSecrets := withSources(shapeHubPrivateTarget, acmeSkills)
+	noAgentManager["installation"].(map[string]any)["customer"] = customerWithoutKagent
+	noAgentManager["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
+	held, heldSecrets := withSources(shapeHubPrivateTarget, object)
+	held[keyVersions] = map[string]any{keyChart: "~4.174.0"}
 	requireRefusals(t, []refusalCase{
-		{"no url", noURL, noURLSecrets, "agentManager/skills/repositories"},
-		{"unknown key", unknown, unknownSecrets, "agentManager/skills/repositories"},
-		{caseLineThree, lineThree, lineThreeSecrets, "agentManager.skills.repositories"},
-		{"the agent-manager held below objects", held, heldSecrets, "versions.components.agent-manager"},
+		{"no url", noURL, noURLSecrets, "skillManager/sources"},
+		{"unknown key", unknown, unknownSecrets, "skillManager/sources"},
+		{caseLineThree, lineThree, lineThreeSecrets, "skillManager.sources"},
+		{"without agent-manager", noAgentManager, noAgentManagerSecrets, "skillManager.sources"},
+		{"the chart held below the skill-manager", held, heldSecrets, "versions.chart"},
 	})
+}
+
+// TestAgentManagerSkillRepositoriesAreURLs refuses an object in
+// agent-manager's deprecated skill repositories: the object form is the
+// skill-manager's (skillManager.sources).
+func TestAgentManagerSkillRepositoriesAreURLs(t *testing.T) {
+	input, secrets := loadInput(t, shapeHubPrivateTarget)
+	input["agentManager"] = map[string]any{keySkills: map[string]any{keyRepositories: []any{map[string]any{keyURL: acmeSkills, keyRef: refMain}}}}
+	requireRefusals(t, []refusalCase{{"an object", input, secrets, "agentManager/skills/repositories"}})
 }

@@ -330,6 +330,7 @@ func TestDefaults(t *testing.T) {
 		"klausGateway":          map[string]any{"slack": map[string]any{"contextBotIDs": []any{}, "contextBotIDsComment": "", "contextBotNames": []any{}, "contextBotNamesComment": ""}},
 		"agentManager":          map[string]any{keyGitHub: map[string]any{keyEnabled: false}, keySkills: map[string]any{keyRepositories: []any{}, "appSecretName": "", "gitAuthSecretName": "", "mintGitAuthSecret": false}},
 		"agentManagerAssistant": map[string]any{keyEnabled: true, "modelConfig": ""},
+		"skillManager":          map[string]any{"sources": []any{}},
 		"versions":              map[string]any{"chart": "", "components": holds, "reasons": map[string]any{"chart": "", "components": holds}}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("defaults %v, want %v", got, want)
@@ -527,7 +528,7 @@ func TestAgentPlatformReadsBackClusterManagerCommit(t *testing.T) {
 		{"model-manager and agent-manager commit mode on", "agent-manager:\n  github:\n    enabled: true\nmodel-manager:\n  github:\n    enabled: true\n", map[string]any{"modelManager.github.enabled": true, "agentManager.github.enabled": true}},
 		{"Agent Manager on, written by hand", "components:\n  agent-manager-assistant:\n    enabled: true\n", map[string]any{"agentManagerAssistant.enabled": true}},
 		{"Agent Manager off with a model override", "components:\n  agent-manager-assistant:\n    enabled: false\nagentManagerAssistant:\n  modelConfig: claude-sonnet\n", map[string]any{"agentManagerAssistant.enabled": false, "agentManagerAssistant.modelConfig": "claude-sonnet"}},
-		{"agent-manager skill repository with ref and path", "agent-manager:\n  skills:\n    repositories:\n      - https://github.com/acme/skills\n      - url: https://github.com/acme/platform\n        ref: v4.200.0\n        path: skills\n", map[string]any{"agentManager.skills.repositories": []any{"https://github.com/acme/skills", map[string]any{"url": "https://github.com/acme/platform", "ref": "v4.200.0", "path": "skills"}}}},
+		{"skill-manager sources with ref, path and readOnly", "skillManager:\n  sources:\n    - https://github.com/acme/skills\n    - url: https://github.com/acme/platform\n      ref: v4.200.0\n      path: skills\n      readOnly: false\n", map[string]any{"skillManager.sources": []any{"https://github.com/acme/skills", map[string]any{"url": "https://github.com/acme/platform", "ref": "v4.200.0", "path": "skills", "readOnly": false}}}},
 		{"agent-manager skill catalog with private repositories", "agent-manager:\n  skills:\n    repositories:\n      - https://github.com/acme/skills\n    github:\n      app:\n        secretName: acme-skills-app\n    gitAuthSecretName: acme-skills-token\n", map[string]any{"agentManager.skills.repositories": []any{"https://github.com/acme/skills"}, "agentManager.skills.appSecretName": "acme-skills-app", "agentManager.skills.gitAuthSecretName": "acme-skills-token"}}, //nolint:gosec // a Secret's name in a fixture, no credential
 	} {
 		read := files(map[string]string{"acme/configs:" + def.EnabledMarker("rowan"): tc.patch})

@@ -145,6 +145,10 @@ type Input struct {
 	// and the Secrets private ones are read and booted with, read back from
 	// the configmap patch on record.
 	AgentManagerSkills AgentManagerSkills
+	// SkillManagerSources are the skill-manager's skill sources
+	// (skillManager.sources) as the person wrote them, read back from the
+	// configmap patch on record.
+	SkillManagerSources []SkillSource
 	// AgentManagerAssistant is the person's choice of the platform-shipped
 	// Agent Manager (agentManagerAssistant.*), read back from the configmap
 	// patch on record.
@@ -626,7 +630,10 @@ type document struct {
 		Skills AgentManagerSkills `json:"skills"`
 	} `json:"agentManager"`
 	AgentManagerAssistant AgentManagerAssistant `json:"agentManagerAssistant"`
-	KlausGateway          struct {
+	SkillManager          struct {
+		Sources []SkillSource `json:"sources"`
+	} `json:"skillManager"`
+	KlausGateway struct {
 		Slack struct {
 			ContextBotIDs          []ContextBot `json:"contextBotIDs"`
 			ContextBotIDsComment   string       `json:"contextBotIDsComment"`
@@ -693,10 +700,10 @@ type Holds struct {
 // are read with, and the Secret agents with a git skill boot with — provisioned
 // and named, or minted from the App by agent-manager.
 type AgentManagerSkills struct {
-	Repositories      []SkillRepository `json:"repositories"`
-	AppSecretName     string            `json:"appSecretName"`
-	GitAuthSecretName string            `json:"gitAuthSecretName"`
-	MintGitAuthSecret bool              `json:"mintGitAuthSecret"`
+	Repositories      []string `json:"repositories"`
+	AppSecretName     string   `json:"appSecretName"`
+	GitAuthSecretName string   `json:"gitAuthSecretName"`
+	MintGitAuthSecret bool     `json:"mintGitAuthSecret"`
 }
 
 // AgentManagerAssistant is the meta chart's platform-shipped Agent Manager
@@ -710,10 +717,10 @@ type AgentManagerAssistant struct {
 // disabled is whether the person turned the Agent Manager off.
 func (a AgentManagerAssistant) disabled() bool { return a.Enabled != nil && !*a.Enabled }
 
-// SkillRepository is one entry of agent-manager's skill repositories, in the
-// form the person wrote it: a URL alone, or the URL with the ref and the
-// directory scanned and the read-only mark.
-type SkillRepository struct {
+// SkillSource is one of the skill-manager's skill sources, in the form the
+// person wrote it: a URL alone, or the URL with the ref and the directory
+// scanned and the read-only mark.
+type SkillSource struct {
 	URL string `json:"url"`
 	// Ref, Path and ReadOnly are nil where the entry does not carry them,
 	// so an entry is written back with the keys it was read with.
@@ -725,24 +732,24 @@ type SkillRepository struct {
 }
 
 // UnmarshalJSON reads a URL or an object; the schema has checked the shape.
-func (r *SkillRepository) UnmarshalJSON(raw []byte) error {
+func (r *SkillSource) UnmarshalJSON(raw []byte) error {
 	var url string
 	if err := json.Unmarshal(raw, &url); err == nil {
-		*r = SkillRepository{URL: url}
+		*r = SkillSource{URL: url}
 		return nil
 	}
-	type plain SkillRepository
+	type plain SkillSource
 	var p plain
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return err
 	}
-	*r = SkillRepository(p)
+	*r = SkillSource(p)
 	r.object = true
 	return nil
 }
 
 // MarshalYAML writes the entry in the form it was read in.
-func (r SkillRepository) MarshalYAML() (any, error) {
+func (r SkillSource) MarshalYAML() (any, error) {
 	if !r.object {
 		return r.URL, nil
 	}
@@ -757,16 +764,6 @@ func (r SkillRepository) MarshalYAML() (any, error) {
 		m = append(m, e("readOnly", *r.ReadOnly))
 	}
 	return m, nil
-}
-
-// objects is whether any repository is written as an object.
-func (s AgentManagerSkills) objects() bool {
-	for _, r := range s.Repositories {
-		if r.object {
-			return true
-		}
-	}
-	return false
 }
 
 // set is whether the person chose anything for the catalog.
@@ -793,7 +790,7 @@ type commitChoice struct {
 // the cluster does not serve PodCertificateRequest, the chat or skill
 // repositories on an installation whose organisation hosts no portal for
 // them, the chat without a model, or on Vertex without its Google project or
-// location, the Hive where the installation cannot serve it, the MCP backends' network policy or the LLM listener's rate limits on the 3 line, the rate limits or the session idle TTL where no kagent runs, the session idle TTL on the 3 line, the Agent Manager turned off or its model override on the 3 line, where no kagent runs or with a chart hold below the release that ships it, skill repository objects on the 3 line or with an agent-manager hold below the release that reads them, the tenant mode on the 3 line, where kagent and the agent-manager do not both run or with a hold below the releases it needs, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
+// location, the Hive where the installation cannot serve it, the MCP backends' network policy or the LLM listener's rate limits on the 3 line, the rate limits or the session idle TTL where no kagent runs, the session idle TTL on the 3 line, the Agent Manager turned off or its model override on the 3 line, where no kagent runs or with a chart hold below the release that ships it, the skill-manager's sources on the 3 line, where no agent-manager runs or with a chart hold below the release with the skill-manager, the tenant mode on the 3 line, where kagent and the agent-manager do not both run or with a hold below the releases it needs, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
 // is ErrInput too.
 func Parse(raw any) (*Input, error) {
 	schemaBytes, err := definitions.FS.ReadFile("agent-platform/schema.json")
@@ -836,7 +833,7 @@ func Parse(raw any) (*Input, error) {
 		return nil, err
 	}
 	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, MCPBackends: d.NetworkPolicy.MCPBackends, LLMRateLimits: d.LLMRouting.RateLimits, LLMRateLimitsComment: d.LLMRouting.RateLimitsComment, SessionIdleTTL: d.Sessions.IdleTTL, TenantOrganizations: d.Tenants.Organizations.Enabled, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories, Hive: d.Hive,
-		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, AgentManagerAssistant: d.AgentManagerAssistant, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, ContextBotNames: d.KlausGateway.Slack.ContextBotNames, ContextBotNamesComment: d.KlausGateway.Slack.ContextBotNamesComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
+		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, SkillManagerSources: d.SkillManager.Sources, AgentManagerAssistant: d.AgentManagerAssistant, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, ContextBotNames: d.KlausGateway.Slack.ContextBotNames, ContextBotNamesComment: d.KlausGateway.Slack.ContextBotNamesComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
 		ReleaseCandidates: pol.releaseCandidates(d.Installation)}
 	if in.Components, err = pol.components(in.Installation); err != nil {
 		return nil, err
@@ -992,13 +989,8 @@ func (in *Input) checkRecord() error {
 	if err := in.checkAgentManagerAssistant(); err != nil {
 		return err
 	}
-	if in.AgentManagerSkills.objects() {
-		if in.Installation.ChartLine != lineFour {
-			return refuse(fmt.Sprintf("%s lists a repository with a ref, a path or a read-only mark, the 4 chart line's agent-manager's, and this installation runs the %s line; the record's chart line decides", describe("agentManager.skills.repositories"), in.Installation.ChartLine))
-		}
-		if hold := in.Versions.Components[componentAgentManager]; !holdAdmits(hold, skillObjectsAgentManagerFloor) {
-			return refuse(fmt.Sprintf("%s lists a repository with a ref, a path or a read-only mark, which needs the agent-manager %s or later, and %s holds it at %s; move or lift the hold first", describe("agentManager.skills.repositories"), skillObjectsAgentManagerFloor, describe("versions.components."+componentAgentManager), hold))
-		}
+	if err := in.checkSkillManagerSources(); err != nil {
+		return err
 	}
 	if in.TenantOrganizations && in.Installation.ChartLine != lineFour {
 		return refuse(fmt.Sprintf("%s is the 4 chart line's, and this installation runs the %s line; the record's chart line decides", describe("tenants.organizations.enabled"), in.Installation.ChartLine))
@@ -1188,12 +1180,32 @@ func (in *Input) checkAgentManagerAssistant() error {
 // carries #1265 if that differs.
 const assistantChartFloor = "4.175.0"
 
-// skillObjectsAgentManagerFloor is the agent-manager release that reads a
-// skill repository's ref, path and read-only mark
-// (giantswarm/agent-manager#290): the minor after 2.18.0, the latest release
-// when the input was added. Set it to the release that carries #290 if that
-// differs.
-const skillObjectsAgentManagerFloor = "2.19.0"
+// checkSkillManagerSources refuses the skill-manager's sources where the
+// meta chart runs no skill-manager: outside the 4 chart line, where the
+// fleet policy runs no agent-manager (the skill-manager follows it) and with
+// a chart hold below the release with the skill-manager.
+func (in *Input) checkSkillManagerSources() error {
+	if len(in.SkillManagerSources) == 0 {
+		return nil
+	}
+	const input = "skillManager.sources"
+	if in.Installation.ChartLine != lineFour {
+		return refuse(fmt.Sprintf("%s is the 4 chart line's, and this installation runs the %s line; the record's chart line decides", describe(input), in.Installation.ChartLine))
+	}
+	if !in.agentManager() {
+		return refuse(fmt.Sprintf("%s lists the skill-manager's sources, which runs with the agent-manager, and the fleet policy runs no agent-manager on %s's installations", describe(input), in.Installation.Customer))
+	}
+	if !holdAdmits(in.Versions.Chart, skillManagerChartFloor) {
+		return refuse(fmt.Sprintf("%s needs the meta chart %s or later, which runs the skill-manager, and %s holds it at %s; move or lift the hold first", describe(input), skillManagerChartFloor, describe("versions.chart"), in.Versions.Chart))
+	}
+	return nil
+}
+
+// skillManagerChartFloor is the meta chart release with the skill-manager
+// component (giantswarm/agent-platform#1265, giantswarm/giantswarm#38322).
+// PLACEHOLDER: the minor after 4.174.3, the latest release when the input
+// was added; set it to the release that carries the component.
+const skillManagerChartFloor = "4.175.0"
 
 // The releases the tenant mode needs: the meta chart that holds a tenant's
 // ModelConfigs to the LLM listener (giantswarm/agent-platform#1082) and the
