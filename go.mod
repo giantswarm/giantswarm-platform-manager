@@ -9,9 +9,9 @@ require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/getsops/sops/v3 v3.13.3
 	github.com/giantswarm/gitops-commit v0.11.10
-	github.com/giantswarm/go-selfupdate v1.7.3
+	github.com/giantswarm/go-selfupdate v1.7.4
 	github.com/giantswarm/mcp-oauth v1.9.6
-	github.com/giantswarm/mcp-toolkit v0.4.8
+	github.com/giantswarm/mcp-toolkit v0.4.12
 	github.com/giantswarm/selfupdate-cosign v0.3.20
 	github.com/go-jose/go-jose/v4 v4.1.8
 	github.com/google/go-containerregistry v0.22.1
