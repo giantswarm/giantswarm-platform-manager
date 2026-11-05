@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- agent-platform: inputs for the platform-shipped Agent Manager ([giantswarm/giantswarm#38970](https://github.com/giantswarm/giantswarm/issues/38970)): `agentManagerAssistant.enabled` (default true; false writes `components.agent-manager-assistant.enabled: false`) and `agentManagerAssistant.modelConfig` (writes `agentManagerAssistant.modelConfig`; the 4 chart line, where kagent runs). `skillManager.sources` (strings or `{url, ref, path, readOnly}`, written as read) renders the meta chart's `skillManager.sources`, the skill-manager's sources (giantswarm/giantswarm#38322); the 4 chart line only, where the agent-manager runs, with no chart hold below the release with the skill-manager. Defaults render nothing new.
+
 ### Changed
 
 - agent-platform: the `model-key` action and the `live-model-configs` dimension are done once any ModelConfig in `kagent` resolves its key (`ResolvedRefs=True` on the 4 line, `Accepted=True` on the 3 line), not only `default-model-config` ([#789](https://github.com/giantswarm/giantswarm-platform-manager/issues/789)). An installation that brings its own models no longer reads *waiting for the customer* while the default stays unresolved. The new `AnyCondition` probe kind lists the namespace's objects and names each one's verdict when none qualifies.
