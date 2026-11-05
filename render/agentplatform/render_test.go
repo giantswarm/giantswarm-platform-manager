@@ -74,6 +74,7 @@ const (
 	refMain               = "main"
 	acmeSkills            = "https://github.com/acme/skills"
 	caseLineThree         = "the 3 line"
+	inputChartHold        = "versions.chart"
 )
 
 // shapes are the installation shapes, in the order the goldens are rendered.
@@ -1555,7 +1556,7 @@ func TestTenantOrganizations(t *testing.T) {
 		names   string
 	}{
 		{"not a boolean", notBool, hubSecrets, "tenants/organizations/enabled"}, // gitleaks:allow (a schema path, no credential)
-		{"the chart held below the mode", chartHeld, chartHeldSecrets, "versions.chart"},
+		{"the chart held below the mode", chartHeld, chartHeldSecrets, inputChartHold},
 		{"the agent-manager held below the mode", managerHeld, managerHeldSecrets, "versions.components.agent-manager"},
 		{"the 3 line", lineThree, lineThreeSecrets, "tenants.organizations.enabled"},
 		{"no kagent and no agent-manager", noKagent, noKagentSecrets, "tenants.organizations.enabled"},
@@ -1644,7 +1645,7 @@ func TestAgentManagerAssistant(t *testing.T) {
 		cases = append(cases,
 			refusalCase{input + " on the 3 line", lineThree, lineThreeSecrets, input},
 			refusalCase{input + " without kagent", noKagent, noKagentSecrets, input},
-			refusalCase{input + " with the chart held below the agent", held, heldSecrets, "versions.chart"})
+			refusalCase{input + " with the chart held below the agent", held, heldSecrets, inputChartHold})
 	}
 	requireRefusals(t, cases)
 }
@@ -1694,7 +1695,7 @@ func TestSkillManagerSources(t *testing.T) {
 		{"unknown key", unknown, unknownSecrets, "skillManager/sources"},
 		{caseLineThree, lineThree, lineThreeSecrets, "skillManager.sources"},
 		{"without agent-manager", noAgentManager, noAgentManagerSecrets, "skillManager.sources"},
-		{"the chart held below the skill-manager", held, heldSecrets, "versions.chart"},
+		{"the chart held below the skill-manager", held, heldSecrets, inputChartHold},
 	})
 }
 
