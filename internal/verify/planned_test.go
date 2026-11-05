@@ -616,7 +616,7 @@ func TestModelKeysAreTheM43Removal(t *testing.T) {
 	}
 	rms := readRemovals(rs, facts{factDomain: testDomain})
 	fd := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
-	for path, says := range map[string]string{
+	for path, says := range map[string]string{ // #nosec G101 -- values paths, not credentials
 		"kagent.providers.anthropic.model":                      "pins the model of kagent's own default-model-config",
 		"kagent.providers.annotations.ui.giantswarm.io/display": "names kagent's own default-model-config in the UI",
 		"kagent.modelConfigs[0].name":                           "kagent's ModelConfigs are inlined",

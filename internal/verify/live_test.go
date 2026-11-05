@@ -499,11 +499,11 @@ func TestAnyConditionProbeNeedsOneObject(t *testing.T) {
 func TestNoneNamesProbeNamesTheHolders(t *testing.T) {
 	const old = "default-model-config"
 	agent := func(namespace, name, model, release string) map[string]any {
-		meta := map[string]any{"name": name, "namespace": namespace}
+		meta := map[string]any{keyName: name, "namespace": namespace}
 		if release != "" {
 			meta["labels"] = map[string]any{fluxReleaseName: release, fluxReleaseNamespace: "flux-giantswarm"}
 		}
-		return map[string]any{"metadata": meta, "spec": map[string]any{"template": map[string]any{"modelConfig": map[string]any{"name": model}}}}
+		return map[string]any{"metadata": meta, keySpec: map[string]any{"modelConfig": map[string]any{keyName: model}}}
 	}
 	for _, c := range []struct {
 		name    string
@@ -518,7 +518,7 @@ func TestNoneNamesProbeNamesTheHolders(t *testing.T) {
 	} {
 		x := &executor{opts: LiveOptions{Cluster: &recordingCluster{pods: c.objects}}}
 		probe := render.Probe{Kind: render.NoneNames, Resource: "Agent.api.kagent.dev",
-			Expect: render.Expectation{Path: "spec.template.modelConfig.name", Value: old}}
+			Expect: render.Expectation{Path: "spec.modelConfig.name", Value: old}}
 		check, _, _ := x.run(t.Context(), probe)
 		if check.Mark != c.mark || check.Message != c.message {
 			t.Errorf("%s: %s %q, want %s %q", c.name, check.Mark, check.Message, c.mark, c.message)
