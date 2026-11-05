@@ -33,24 +33,50 @@
 #   retired             a key of a generated Secret the definition no longer writes and nothing reads; the plan
 #                       leaves it on record, since dropping it alone would rewrite the Secret and draw every value
 #                       it holds anew, and it goes with the Secret's next rotation
+#
+# keptWhile, on a removal of another kind, names a key path of the same file: while the render carries it, the plan
+# keeps the key from the record as it keeps one of kind kept; once the render lacks it, the key goes for the reason
+# given. It holds a removal that comes with a chart release the installation may not run yet.
 removals:
   # --- former inputs: migrations ---
   - key: configmap:components.agent-sandbox
     kind: migration
     reason: "Removed: components.agent-sandbox switches the agent sandbox on here; the sandbox is retired from the fleet, nothing replaces it, and it stops on the one installation running it · M13"
+  # --- M43: the meta chart declares no model from 4.175.0 on ---
+  # kagent's model provider and inlined ModelConfigs stay where the installation resolves an earlier chart (a
+  # hold, the 3 line), where the definition still renders kagent.providers; from 4.175.0 on the chart refuses them.
   - key: configmap:kagent.providers.anthropic.model
-    kind: kept
+    kind: migration
+    keptWhile: kagent.providers
     reason: >-
-      Kept: kagent.providers.anthropic.model pins this installation's default Anthropic model; the pin stays until the shared defaults' fleet-wide pick is
-      the right one for it and the installation's own is moved there or dropped by hand · M26
+      Removed: kagent.providers.anthropic.model pins the model of kagent's own default-model-config here; the meta chart 4.175.0 and later
+      renders no default-model-config and refuses the key, and the installation's models are ModelConfig objects under extras · M43
   - key: configmap:kagent.providers.annotations
-    kind: kept
+    kind: migration
+    keptWhile: kagent.providers
     reason: >-
-      Kept: kagent.providers.annotations names this installation's default ModelConfig in the UI (ui.giantswarm.io/display-name) after the model it pins;
-      the name stays with the model pin, until the shared defaults carry both
+      Removed: kagent.providers.annotations names kagent's own default-model-config in the UI here; the meta chart 4.175.0 and later renders
+      no default-model-config and refuses the key, and each ModelConfig object under extras carries its own display name · M43
   - key: configmap:kagent.modelConfigs
-    kind: kept
-    reason: "Kept: kagent's ModelConfigs are inlined in these values; they stay until each is a ModelConfig object under extras, next to the agents that use it · M25"
+    kind: migration
+    keptWhile: kagent.providers
+    reason: >-
+      Removed: kagent's ModelConfigs are inlined in these values; the meta chart 4.175.0 and later refuses kagent.modelConfigs, and each is a
+      ModelConfig object under extras, next to the agents that use it · M43
+  - key: configmap:kagent.providers
+    kind: migration
+    reason: >-
+      Removed: kagent's model provider (the key Secret, the LLM listener as its base URL, the output cap of a call) is wired here; the meta
+      chart 4.175.0 and later writes providers: false to the kagent release and refuses the key, and the installation's models are ModelConfig
+      objects under extras · M43
+  - key: configmap:kagent.defaultModelConfig
+    kind: migration
+    reason: "Removed: kagent.defaultModelConfig switches kagent's own default-model-config here; the meta chart 4.175.0 and later refuses the key and never renders that ModelConfig · M43"
+  - key: configmap:tenants.organizations
+    kind: migration
+    reason: >-
+      Removed: tenants.organizations switches the meta chart's tenant mode on here; the meta chart 4.175.0 and later refuses it, and the
+      Organizations' namespaces are served by the agent-platform-operator (agentPlatformOrganizations.enabled)
   - key: configmap:kagent.controller.resources
     kind: kept
     reason: "Kept: the kagent controller's CPU and memory requests are tuned here; they stay until the chart's defaults, or the shared defaults, size the controller for every installation · M23"

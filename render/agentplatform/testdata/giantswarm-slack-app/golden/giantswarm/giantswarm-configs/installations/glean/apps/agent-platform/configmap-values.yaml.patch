@@ -68,12 +68,6 @@ llmRouting:
       unit: Minutes
       key: '(source.unverifiedWorkload.namespace == "ate-system" && source.unverifiedWorkload.serviceAccount == "atenet-egress") ? request.headers["x-kagent-agent-namespace"] + "/" + request.headers["x-kagent-agent"] : source.unverifiedWorkload.namespace + "/" + source.unverifiedWorkload.serviceAccount'
 kagent:
-  providers:
-    anthropic:
-      apiKeySecretRef: kagent-anthropic-key
-      config:
-        baseUrl: http://agentgateway.agent-platform.svc:8081
-        maxTokens: 32000
   oauth2-proxy:
     config:
       existingSecret: kagent-oauth2-proxy-credentials

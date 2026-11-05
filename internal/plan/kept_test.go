@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 )
 
 // The keys of the two components the tests name.
@@ -167,6 +169,32 @@ func TestKeepAudiencesCarriesTheKeptKeysFromTheRecord(t *testing.T) {
 	}
 }
 
+// A render without kagent.providers, the meta chart that declares no model:
+// the held keys under it and kagent.modelConfigs stay on record only, so the
+// reconcile removes them, while the unconditionally kept keys are carried.
+func TestKeepAudiencesDropsHeldKeysWithoutTheirPath(t *testing.T) {
+	rendered := strings.Replace(renderedPlatformPatchLean, "kagent:\n  providers:\n    anthropic:\n      apiKeySecretRef: kagent-anthropic-key\n", "kagent:\n  oauth2-proxy:\n    config:\n      existingSecret: kagent-oauth2-proxy-credentials\n", 1)
+	if rendered == renderedPlatformPatchLean {
+		t.Fatal("the lean render no longer carries kagent.providers as the test expects")
+	}
+	out, kept, err := keepAudiences([]byte(rendered), []byte(currentPlatformPatchKept))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, ren, err := mapping(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"kagent.providers", "kagent.modelConfigs"} {
+		if at(ren, strings.Split(path, ".")...) != nil {
+			t.Errorf("%s: carried into a render without kagent.providers:\n%s", path, out)
+		}
+	}
+	if at(ren, "kagent", "controller", "nodeSelector") == nil || !slices.Contains(kept, Kept{List: "kagent.controller", Entry: "nodeSelector"}) {
+		t.Errorf("an unconditionally kept key is still carried; kept: %+v", kept)
+	}
+}
+
 // A record whose kept keys stand in another order than the definition lists
 // them (the controller's volumes before its resources, Postgres' databases
 // before the render's own key, a kept key ahead of the render's first): the
@@ -226,9 +254,17 @@ func TestKeepSubtreesLeavesTheRendersOwnKeyAndAPathThroughAScalar(t *testing.T) 
 }
 
 func TestKeptPlatformKeysReadTheDefinition(t *testing.T) {
-	for _, want := range []string{"muster.muster.oauth.server.trustedIssuers", "kagent.oauth2ProxyIngress", "muster.muster.oauth.server.dex.connectorId", "muster.muster.oauth.server.providerTokenRefreshThreshold", "kagent.controller.nodeSelector", "postgres.affinity", "kagent.providers.annotations", "postgres.databases", "kagent.controller.volumes", "kagent.harnesses", "components.toolchain-manager", "toolchain-manager", "kagent.controller.sessionToolImageEgressOrigins"} {
+	for _, want := range []string{"muster.muster.oauth.server.trustedIssuers", "kagent.oauth2ProxyIngress", "muster.muster.oauth.server.dex.connectorId", "muster.muster.oauth.server.providerTokenRefreshThreshold", "kagent.controller.nodeSelector", "postgres.affinity", "postgres.databases", "kagent.controller.volumes", "kagent.harnesses", "components.toolchain-manager", "toolchain-manager", "kagent.controller.sessionToolImageEgressOrigins"} {
 		if !slices.Contains(keptPlatformKeys, want) {
 			t.Errorf("the agent-platform definition keeps %s; kept keys: %v", want, keptPlatformKeys)
+		}
+	}
+	for _, want := range []string{"kagent.providers.anthropic.model", "kagent.providers.annotations", "kagent.modelConfigs"} {
+		if !slices.Contains(heldPlatformKeys, definitions.HeldKey{Path: want, While: "kagent.providers"}) {
+			t.Errorf("the agent-platform definition holds %s while the render carries kagent.providers; held keys: %v", want, heldPlatformKeys)
+		}
+		if slices.Contains(keptPlatformKeys, want) {
+			t.Errorf("%s is held, never kept unconditionally; kept keys: %v", want, keptPlatformKeys)
 		}
 	}
 	if slices.Contains(keptPlatformKeys, "agent-platform-mcps.defaults") {

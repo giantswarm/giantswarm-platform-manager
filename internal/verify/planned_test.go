@@ -605,3 +605,30 @@ func TestRetiredValkeyPasswordIsPlanned(t *testing.T) {
 		}
 	}
 }
+
+// A leaf of kagent's model provider or an inlined ModelConfig the render no
+// longer carries, from the meta chart that declares no model on, is the M43
+// removal: the held keys by their own reason, the rest by the provider's.
+func TestModelKeysAreTheM43Removal(t *testing.T) {
+	rs, err := definitions.Removals(installations.AgentPlatform)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rms := readRemovals(rs, facts{factDomain: testDomain})
+	fd := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
+	for path, says := range map[string]string{
+		"kagent.providers.anthropic.model":                      "pins the model of kagent's own default-model-config",
+		"kagent.providers.annotations.ui.giantswarm.io/display": "names kagent's own default-model-config in the UI",
+		"kagent.modelConfigs[0].name":                           "kagent's ModelConfigs are inlined",
+		"kagent.providers.anthropic.config.maxTokens":           "kagent's model provider",
+		"kagent.providers.anthropic.apiKeySecretRef":            "kagent's model provider",
+		"kagent.defaultModelConfig.enabled":                     "kagent.defaultModelConfig",
+	} {
+		if got := rms.reason(fd, path); !strings.Contains(got, says) || !strings.HasSuffix(got, "· M43") {
+			t.Errorf("%s: reason %q, want one naming %q tagged M43", path, got, says)
+		}
+	}
+	if got := rms.reason(fd, "tenants.organizations.enabled"); !strings.HasPrefix(got, "Removed: tenants.organizations") {
+		t.Errorf("tenants.organizations.enabled: reason %q", got)
+	}
+}

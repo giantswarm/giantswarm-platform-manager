@@ -316,6 +316,11 @@ const (
 	// its spec names: behind for less than its reconciliation interval it
 	// reads rolling, behind for longer drifted.
 	SourceFollowed ProbeKind = "SourceFollowed"
+	// NoneNames is no object of Resource in Namespace (in every namespace
+	// where Namespace is empty) whose Expect.Path holds Expect.Value; the
+	// objects that do are named, each with the Flux HelmRelease its labels
+	// say renders it. Name stays empty.
+	NoneNames ProbeKind = "NoneNames"
 )
 
 // Expectation is what a probe expects; the fields its kind does not read stay zero.
@@ -332,6 +337,8 @@ type Expectation struct {
 	NotState         string   `yaml:"notState,omitempty"`         // ResourcePresent: a status.state the object must not report (an MCPServer's Failed)
 	Version          string   `yaml:"version,omitempty"`          // APIServed: the API version the resource is served at
 	Pods             string   `yaml:"pods,omitempty"`             // SecretLoaded: the label selector of the pods that read the Secret at start
+	Path             string   `yaml:"path,omitempty"`             // NoneNames: the dotted path in each object that must not hold Value
+	Value            string   `yaml:"value,omitempty"`            // NoneNames: the value no object may hold at Path
 	Container        string   `yaml:"container,omitempty"`        // SecretLoaded: the container of those pods that reads it
 	Note             string   `yaml:"note,omitempty"`             // one sentence a person reads next to the mark (e.g. what a False means)
 	// Compare lists, for a Drift probe, the places of the live object that are

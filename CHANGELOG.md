@@ -11,10 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- agent-platform: where the meta chart the installation resolves is 4.175.0 or later (its release candidates from `4.175.0-rc.21` count; the 4 line's range, or a hold of `versions.chart` at or above it), the configmap patch carries no `kagent.providers`, and migration M43 removes `kagent.providers`, `kagent.defaultModelConfig` and `kagent.modelConfigs` from the record ([#824](https://github.com/giantswarm/giantswarm-platform-manager/issues/824)). On the 3 line and below that release the patch is unchanged: `kagent.providers.anthropic.model`, `kagent.providers.annotations` and `kagent.modelConfigs` stay kept while the render carries `kagent.providers` (the new removal field `keptWhile`). `live-kagent-provider-values` is probed only there.
+- agent-platform: the `model-key` action asks for a ModelConfig with its key Secret in `kagent` (in the portal or under `extras/agent-platform`), and names the Secret `kagent-anthropic-key` only where the patch still references it. On the 4 line the new `agent-models` action and `live-agent-models` dimension list every Agent in any namespace that names `default-model-config`, with the HelmRelease that renders it (probe kind `NoneNames`).
+
 - agent-platform: the `model-key` action and the `live-model-configs` dimension are done once any ModelConfig in `kagent` resolves its key (`ResolvedRefs=True` on the 4 line, `Accepted=True` on the 3 line), not only `default-model-config` ([#789](https://github.com/giantswarm/giantswarm-platform-manager/issues/789)). An installation that brings its own models no longer reads *waiting for the customer* while the default stays unresolved. The new `AnyCondition` probe kind lists the namespace's objects and names each one's verdict when none qualifies.
 
 - agent-platform: a reconcile keeps an installation's own toolchains switch: `components.toolchain-manager`, the `toolchain-manager` block and `kagent.controller.sessionToolImageEgressOrigins` are carried from the record into the render (kind `kept`). Before, a reconcile removed them as drift, so no installation could turn the coding agents' toolchains on.
 - customer-portal: GitHub is optional for a customer and never read with more rights than the signed-in person has ([#569](https://github.com/giantswarm/giantswarm-platform-manager/issues/569)). The customer's GitHub path is the person's own grant in muster (`gs.github`, rendered by the agent-platform definition where the muster holds a GitHub grant server); the App integration is the customer's own optional App, installed on the repositories every portal user may read. The manager no longer names a `giantswarm-portal-<installation>` App, its creation step or rotation, records no `githubApps` inventory and refuses no App id; `--rotate` takes generated values only. The definition README documents how a customer configures its own git repository access, GitLab, Bitbucket and Azure DevOps included.
+
+### Removed
+
+- agent-platform: the `tenants.organizations.enabled` choice; the meta chart refuses `tenants.organizations`, and a key on record is a removal.
 
 ### Fixed
 
