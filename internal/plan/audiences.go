@@ -82,7 +82,8 @@ func JoinedList(path, yamlPath string) bool {
 // comma-joined), the audiences of the edge's JWT provider of the same issuer,
 // the chat gateway's review callers — after the render's, in current's
 // order, and with every key the definition keeps (the removals of kind kept:
-// keptPlatformKeys) as it is on record, and names what it kept. The render
+// keptPlatformKeys), and every held key whose keptWhile path the render
+// carries (heldPlatformKeys), as it is on record, and names what it kept. The render
 // carries the ids the definition knows: its own clients and the portals'. An
 // id the installation trusts besides is its own and stays in the list it is
 // in, nowhere else: a peer of the authenticator is no audience of the kagent
@@ -111,7 +112,7 @@ func keepAudiences(rendered, current []byte) ([]byte, []Kept, error) {
 	keepList(at(ren, callers...), at(cur, callers...), ListAllowedCallers, &kept)
 	issuers := strings.Split(ListTrustedIssuers, ".")
 	keepIssuers(at(ren, issuers...), at(cur, issuers...), &kept)
-	keepSubtrees(ren, cur, keptPlatformKeys, &kept)
+	keepSubtrees(ren, cur, keptPaths(ren, keptPlatformKeys, heldPlatformKeys), &kept)
 	if len(kept) == 0 {
 		return rendered, nil, nil
 	}

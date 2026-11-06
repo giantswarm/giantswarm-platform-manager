@@ -28,12 +28,18 @@ func (in *Input) SuppliedMarkers() map[string]string {
 func (in *Input) MissingInputs() []string { return nil }
 
 // CustomerActions names what the rollout needs from the person beyond the
-// pull requests: the model key Secret, wherever kagent runs — the step the
-// runtime feature's model-key action (actions) holds up live until the default
-// ModelConfig reads its model key resolved (modelConfigCondition).
+// pull requests, wherever kagent runs: a model with its key, the step the
+// model-key action (actions) holds up live until some ModelConfig in kagent's
+// namespace reads its model key resolved (modelConfigCondition), and, on the
+// 4 line, every Agent off kagent's own default-model-config, which the
+// agent-models action holds up until none names it.
 func (in *Input) CustomerActions() []render.CustomerAction {
 	if !in.kagent() {
 		return nil
 	}
-	return []render.CustomerAction{{Action: in.modelKeyNote(), Why: modelKeyWhy, Dimension: modelKeyDimension}}
+	actions := []render.CustomerAction{{Action: in.modelKeyNote(), Why: modelKeyWhy, Dimension: modelKeyDimension}}
+	if in.Installation.ChartLine == lineFour {
+		actions = append(actions, render.CustomerAction{Action: agentModelsNote(), Why: agentModelsWhy, Dimension: agentModelsDimension})
+	}
+	return actions
 }

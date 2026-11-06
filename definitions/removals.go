@@ -18,6 +18,11 @@ type Removal struct {
 	Key    string `yaml:"key"`
 	Kind   string `yaml:"kind"`
 	Reason string `yaml:"reason"`
+	// KeptWhile, on a removal of another kind, is a key path of the same
+	// file: while the render carries it, the plan keeps the key from the
+	// record as it keeps one of kind kept; once the render lacks it, the key
+	// goes for the reason given.
+	KeptWhile string `yaml:"keptWhile,omitempty"`
 }
 
 // RemovalKept is the kind of a removal the plan does not remove: a key of a
@@ -35,6 +40,11 @@ const RemovalKept = "kept"
 // the definition would turn the hub's portal into a customer's.
 const RemovalHub = "hub"
 
+// RemovalMigration is the kind of a removal that is a value the fleet
+// carries today and no input of the definition renders: it moves to where it
+// belongs or goes. It never names a leaf the render carries.
+const RemovalMigration = "migration"
+
 // RemovalOtherDefinition is the kind of a removal that is a key the
 // capability hands to the other definition, which renders it in a file of
 // its own: the customer-portal definition's agent-platform section, which
@@ -45,6 +55,28 @@ const RemovalOtherDefinition = "other-definition"
 // the file prefix (KindConfigMap, …), the prefix cut off, in file order.
 func KeptKeys(capability, prefix string) ([]string, error) {
 	return keysOfKind(capability, prefix, RemovalKept)
+}
+
+// HeldKey is a removal's key path under a file prefix, the prefix cut off,
+// that the plan keeps from the record while the render carries While.
+type HeldKey struct {
+	Path, While string
+}
+
+// HeldKeys are a capability's removals under the file prefix that carry
+// keptWhile, in file order.
+func HeldKeys(capability, prefix string) ([]HeldKey, error) {
+	rs, err := Removals(capability)
+	if err != nil {
+		return nil, err
+	}
+	var out []HeldKey
+	for _, r := range rs {
+		if path, ok := strings.CutPrefix(r.Key, prefix+":"); ok && r.KeptWhile != "" {
+			out = append(out, HeldKey{Path: path, While: r.KeptWhile})
+		}
+	}
+	return out, nil
 }
 
 // HandedKeys are the key paths of a capability's removals of kind

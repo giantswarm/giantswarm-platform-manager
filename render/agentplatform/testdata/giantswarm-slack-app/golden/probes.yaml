@@ -185,7 +185,7 @@
   expect:
     condition: ResolvedRefs
     conditionStatus: "True"
-    note: waiting for the customer's model key (Secret kagent-anthropic-key, key ANTHROPIC_API_KEY) or a ModelConfig of their own in the portal
+    note: 'waiting for the customer''s model: a ModelConfig in kagent with its key Secret in place'
 - id: live-kagent-api-protected
   feature: identity
   kind: HTTP
@@ -343,6 +343,14 @@
   name: kagent-oauth2-proxy
   expect:
     absent: audience .* does not match
+- id: live-agent-models
+  feature: runtime
+  kind: NoneNames
+  resource: Agent.api.kagent.dev
+  expect:
+    path: spec.template.modelConfig.name
+    value: default-model-config
+    note: an Agent names a ModelConfig of its namespace; one naming default-model-config is moved by its owner, in its HelmRelease's modelConfig.name where one renders it
 - id: live-pod-certificate-request
   feature: runtime
   kind: APIServed
@@ -358,17 +366,6 @@
   name: agent-platform
   expect:
     note: the values the HelmRelease reads from its ConfigMaps are the rendered values
-- id: live-kagent-provider-values
-  feature: runtime
-  kind: Drift
-  namespace: flux-giantswarm
-  resource: HelmRelease
-  name: kagent
-  expect:
-    note: .spec.values.providers are the rendered kagent.providers (the meta chart forwards its kagent block flat)
-    compare:
-      - live: spec.values.providers
-        rendered: kagent.providers
 - id: live-oauth2-proxy-extra-audience
   feature: identity
   kind: Drift
