@@ -32,8 +32,9 @@ import (
 // through muster's kubernetes tools in production, a fake in tests. resource
 // is a kind or kind.group as the render's probes name it; shape is how much
 // of the object the check reads, and tail how many of a pod's last log lines.
-// Serves is API discovery: whether the apiserver serves the resource (plural)
-// of the group at the version.
+// List reads every namespace where namespace is empty. Serves is API
+// discovery: whether the apiserver serves the resource (plural) of the group
+// at the version.
 type Cluster interface {
 	Get(ctx context.Context, namespace, resource, name string, shape Shape) (map[string]any, error)
 	List(ctx context.Context, namespace, resource, labelSelector string, shape Shape) ([]map[string]any, error)
@@ -779,6 +780,8 @@ func (x *executor) run(ctx context.Context, p render.Probe) (Check, []Difference
 		err = x.condition(ctx, &c, p, "Ready", "True")
 	case render.Condition:
 		err = x.condition(ctx, &c, p, p.Expect.Condition, p.Expect.ConditionStatus)
+	case render.AnyCondition:
+		err = x.anyCondition(ctx, &c, p)
 	case render.ResourcePresent:
 		err = x.present(ctx, &c, p)
 	case render.PodsRunning:
@@ -793,6 +796,8 @@ func (x *executor) run(ctx context.Context, p render.Probe) (Check, []Difference
 		err = x.secretLoaded(ctx, &c, p)
 	case render.SourceFollowed:
 		err = x.sourceFollowed(ctx, &c, p, time.Now())
+	case render.NoneNames:
+		err = x.noneNames(ctx, &c, p)
 	default:
 		c.Message = "probe kind " + string(p.Kind) + " is not one this verify runs"
 	}
@@ -850,6 +855,82 @@ func (x *executor) condition(ctx context.Context, c *Check, p render.Probe, cond
 	}
 	return nil
 }
+
+// anyCondition marks the namespace's objects of the resource as defined when
+// one of them has the condition at the expected status, naming those that do;
+// otherwise drifted, naming each object with its verdict, or the namespace
+// holding none.
+func (x *executor) anyCondition(ctx context.Context, c *Check, p render.Probe) error {
+	objs, err := x.cluster().List(ctx, p.Namespace, p.Resource, "", Readiness)
+	if err != nil {
+		return err
+	}
+	kind, _, _ := strings.Cut(p.Resource, ".")
+	if len(objs) == 0 {
+		c.Mark, c.Message = Drifted, "no "+kind+" in "+p.Namespace
+		return nil
+	}
+	var met, verdicts []string
+	for _, obj := range objs {
+		m := conditionEntry(obj, p.Expect.Condition)
+		got, _ := m["status"].(string)
+		switch {
+		case m == nil:
+			verdicts = append(verdicts, nameOf(obj)+": no "+p.Expect.Condition+" condition")
+		case got == p.Expect.ConditionStatus:
+			met = append(met, nameOf(obj))
+		default:
+			verdicts = append(verdicts, nameOf(obj)+": "+conditionVerdict(p.Expect.Condition, m))
+		}
+	}
+	if len(met) > 0 {
+		c.Mark, c.Message = AsDefined, p.Expect.Condition+"="+p.Expect.ConditionStatus+" on "+strings.Join(met, ", ")
+		return nil
+	}
+	c.Mark, c.Message = Drifted, strings.Join(verdicts, "; ")
+	return nil
+}
+
+// noneNames marks the objects of the resource as defined when none holds the
+// value at the path; otherwise drifted, naming each that does as
+// <namespace>/<name>, with the HelmRelease that renders it where its Flux
+// labels say.
+func (x *executor) noneNames(ctx context.Context, c *Check, p render.Probe) error {
+	objs, err := x.cluster().List(ctx, p.Namespace, p.Resource, "", Readiness)
+	if err != nil {
+		return err
+	}
+	kind, _, _ := strings.Cut(p.Resource, ".")
+	path := strings.Split(p.Expect.Path, ".")
+	var naming []string
+	for _, obj := range objs {
+		if got, _ := dig(obj, path...).(string); got != p.Expect.Value {
+			continue
+		}
+		namespace, _ := dig(obj, "metadata", "namespace").(string)
+		name := namespace + "/" + nameOf(obj)
+		labels, _ := dig(obj, "metadata", "labels").(map[string]any)
+		if release, _ := labels[fluxReleaseName].(string); release != "" {
+			releaseNamespace, _ := labels[fluxReleaseNamespace].(string)
+			name += " (HelmRelease " + releaseNamespace + "/" + release + ")"
+		}
+		naming = append(naming, name)
+	}
+	if len(naming) == 0 {
+		c.Mark, c.Message = AsDefined, "no "+kind+" names "+p.Expect.Value
+		return nil
+	}
+	sort.Strings(naming)
+	c.Mark, c.Message = Drifted, kind+" naming "+p.Expect.Value+": "+strings.Join(naming, ", ")
+	return nil
+}
+
+// The labels helm-controller puts on every object of a release: the
+// HelmRelease's name and namespace.
+const (
+	fluxReleaseName      = "helm.toolkit.fluxcd.io/name"
+	fluxReleaseNamespace = "helm.toolkit.fluxcd.io/namespace"
+)
 
 // helmReleaseKind is Flux's HelmRelease.
 const helmReleaseKind = "HelmRelease"

@@ -230,7 +230,7 @@ func TestFailedStageIsReReadOnlyAfterAProbe(t *testing.T) {
 // stand; the last stage recovered ends the action enabled; a re-read that
 // is still red changes nothing.
 func TestApplyStageRecoversAFailedStage(t *testing.T) {
-	failed := &actions.Result{State: actions.StateFailed, Message: "the wave stopped at birch"}
+	failed := &actions.Result{State: actions.StateFailed, Message: "the wave stopped at birch (stage 1 of 2): m", At: now()}
 	stages := func(states ...string) *actions.Rollout {
 		r := &actions.Rollout{FinishedAt: now()}
 		for i, s := range states {

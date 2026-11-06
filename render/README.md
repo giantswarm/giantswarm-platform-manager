@@ -188,14 +188,26 @@ reads rolling. If it is behind for longer, it is drifted and names both commits 
 agent-platform definition probes `agent-platform-konfiguration`, which renders the values the meta chart's
 HelmRelease reads, so a lag shows in the verify and the watch without annotating the object.
 
-`Actions` are what a person outside the platform team still has to do, as a note with a state. The model
-key is one, on every installation that runs kagent — the definition renders no file for it and nobody supplies
-it at commit: `WaitingForCustomer` until the Secret `kagent-anthropic-key` (key `ANTHROPIC_API_KEY`) exists in
-namespace `kagent` or a ModelConfig is added in the portal; the same step is the plan's customer action. The action names
-the live dimension it holds up (`live-model-configs`): the ModelConfig probe expects `Accepted=True` either
-way, read in the group the record's chart line serves (`ModelConfig.api.kagent.dev` on the 4 line,
-`ModelConfig.kagent.dev` on the 3 line), which the action names too, and while the customer's move is pending the verify reads the installation as *waiting for the
-customer* rather than *drifted*.
+A `NoneNames` probe names a resource, a dotted path in its objects and a value (`Expect.Path`,
+`Expect.Value`), and a namespace, or none for every namespace. It is as defined when no object holds the value at
+the path, and drifted otherwise, naming each object that does as `<namespace>/<name>` with the HelmRelease its
+`helm.toolkit.fluxcd.io` labels say renders it. The agent-platform definition renders one on the 4 line: no
+Agent (`Agent.api.kagent.dev`, `spec.template.modelConfig.name`) names kagent's own `default-model-config`, which
+the meta chart 4.175.0 and later no longer renders.
+
+`Actions` are what a person outside the platform team still has to do, as a note with a state. The model is
+one, on every installation that runs kagent (the definition renders no key for it and nobody supplies it at
+commit): `WaitingForCustomer` until a ModelConfig with its key Secret is in namespace `kagent`, added in the
+portal or as an object under `extras/agent-platform`; where the meta chart still takes kagent's model provider
+(the 3 line, or a hold of the chart below 4.175.0) the patch wires it to the Secret `kagent-anthropic-key` (key
+`ANTHROPIC_API_KEY`) and the note names that Secret too. The same step is the plan's customer action. The action
+names the live dimension it holds up (`live-model-configs`): the ModelConfig probe (`AnyCondition`) expects some
+ModelConfig in `kagent` with `ResolvedRefs=True` on the 4 line (`ModelConfig.api.kagent.dev`) or `Accepted=True`
+on the 3 line (`ModelConfig.kagent.dev`), any of them, which the action names too, and while the customer's move
+is pending the verify reads the installation as *waiting for the customer* rather than *drifted*. On the 4 line
+the Agents still naming `default-model-config` are the other (`agent-models`, held up by `live-agent-models`):
+each is moved to a ModelConfig of its namespace by its owner, in its HelmRelease's `modelConfig.name` where an
+agent chart release renders it.
 
 The goldens carry both as `probes.yaml` and `actions.yaml` per shape; `TestProbesAreLiveDimensions` holds every
 probe to a live dimension of the feature it names and every live dimension to at least one probe.

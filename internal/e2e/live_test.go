@@ -267,9 +267,10 @@ func TestVerifyInstallationAsDefined(t *testing.T) {
 			continue
 		}
 		// rowan runs the 3 line and registers no server of its own: the API
-		// Agent Substrate needs on the 4 line and the registered servers are
+		// Agent Substrate needs and the Agents naming kagent's
+		// default-model-config on the 4 line, and the registered servers, are
 		// not probed, and the dimensions say so.
-		if id == "live-pod-certificate-request" || id == "live-registered-mcp-servers" {
+		if id == "live-pod-certificate-request" || id == "live-agent-models" || id == "live-registered-mcp-servers" {
 			if d.Mark != verify.NotChecked || d.Reason != verify.ReasonNoProbe {
 				t.Errorf("%s: %s (%s)", id, d.Mark, d.Reason)
 			}
@@ -461,6 +462,28 @@ func TestVerifyInstallationWaitingForTheCustomer(t *testing.T) {
 	}
 	if s := rowanState(t, alice); s != installations.StateWaitingForCustomer {
 		t.Errorf("list_installations: %q", s)
+	}
+}
+
+// An installation that brings its own model is not waiting for the default
+// one's key: the default ModelConfig stays off while a ModelConfig the
+// customer added is, so the dimension reads as defined and the installation
+// enabled.
+func TestVerifyInstallationWithTheCustomersOwnModel(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	alice := st.mcpClient(t, aliceToken)
+	enableRowanLive(t, st, alice, minimalInputs(nil))
+	setAccepted(st.inst, statusFalse, modelKeyMissing)
+	st.inst.put("ModelConfig", kagentNamespace, "vertex-claude", conditionTrue(accepted))
+
+	res := verifyLive(t, st.liveClient(t, st.dex.token(t, liveAdmin, []string{liveAudience}, time.Hour)), rowan)
+	d := liveDimensions(res)["live-model-configs"]
+	if d.Mark != verify.AsDefined || d.Live == nil || !strings.Contains(d.Live.Checks[0].Message, "vertex-claude") {
+		t.Fatalf("live-model-configs: %+v", d)
+	}
+	if res.State != installations.StateEnabled {
+		t.Errorf("state %q summary %v", res.State, res.Summary)
 	}
 }
 

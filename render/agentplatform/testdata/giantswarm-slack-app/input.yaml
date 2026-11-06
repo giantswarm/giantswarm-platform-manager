@@ -8,7 +8,7 @@
 # every value are invented. Its app collection follows the testing stage, so it runs the platform's
 # release candidates. One alerting bot's posts reach an agent's thread context, and every installation's Alertmanager
 # by its Slack profile name, each list under the generic comment naming its input, since no person
-# wrote one. Two in-cluster MCP backends sit behind
+# wrote one, and its Slack app's slash command. Two in-cluster MCP backends sit behind
 # the platform's network policy: one muster alone reaches, one also served through the gateway in front
 # of it, a peer on its ports. The LLM listener carries two token buckets, one shared and one per
 # agent behind the Substrate egress, under a comment a person wrote.
@@ -78,6 +78,7 @@ input:
       contextBotNames:
         - value: "*-alertmanager"
           comment: every installation's Alertmanager
+      slashCommand: /swarmgeist-glean
 secrets:
   klausGateway.slack.bot-token: PLACEHOLDER-SLACK-BOT-TOKEN
   klausGateway.slack.signing-secret: PLACEHOLDER-SLACK-SIGNING-SECRET

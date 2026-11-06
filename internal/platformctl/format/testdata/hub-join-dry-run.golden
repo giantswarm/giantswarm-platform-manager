@@ -18,7 +18,7 @@ heron: enabled
     : client mcpCapi; secretRef dex-client-mcp-capi
     kagent: kagent-ui; secretRef dex-client-kagent; redirect URIs https://kagent.heron.oakridge.example/oauth2/callback
   Customer actions:
-    heron: Create Secret kagent-anthropic-key in namespace kagent with key ANTHROPIC_API_KEY, or add a ModelConfig in the portal; until then default-model-config (ModelConfig.kagent.dev) stays Accepted=False. (the model key is the installation's own: the definition references the Secret and renders no value for it, and no value is supplied at commit; until the Secret exists the verify reads the runtime feature as waiting for the customer)
+    heron: Create Secret kagent-anthropic-key in namespace kagent with key ANTHROPIC_API_KEY, or add a ModelConfig in the portal; until then no ModelConfig (ModelConfig.kagent.dev) in kagent is Accepted=True. (the model and its key are the installation's own: the definition renders no model key and none is supplied at commit; until a ModelConfig in kagent resolves its key the verify reads the runtime feature as waiting for the customer)
   Probes:
     live-oauth2-proxy-extra-audience: identity oauth2-proxy --oidc-extra-audience argument
     live-muster-trusted-audiences: identity muster ConfigMap trustedAudiences
@@ -30,7 +30,8 @@ heron: enabled
     live-oauth2-proxy-audience: identity no audience mismatch in oauth2-proxy's log
     live-oauth2-proxy-secret-and-flux-sa: secrets Secret kagent-oauth2-proxy-credentials and ServiceAccount kagent-flux
     live-model-configs: runtime ModelConfigs in the kagent namespace
-    live-kagent-provider-values: runtime kagent HelmRelease .spec.values.providers
+    live-agent-models: runtime Agents in every namespace that name kagent's default-model-config, each with the HelmRelease that renders it (the 4 line)
+    live-kagent-provider-values: runtime kagent HelmRelease .spec.values.providers (where the meta chart the installation resolves still takes kagent.providers)
     live-konfiguration-source: runtime Konfiguration agent-platform-konfiguration on its GitRepository's revision: behind within its reconciliation interval reads rolling, longer drifted
     live-helmreleases-ready: runtime HelmReleases agent-platform, kagent, connectivity, muster, mcps Ready
     live-platform-workloads: runtime the Deployments that read muster's credentials Available: muster, its Valkey, and klaus-gateway, agent-manager, cluster-manager and model-manager where each runs
@@ -67,7 +68,7 @@ kestrel: enabled
     backstage: Dev Portal; secretRef dex-client-backstage; redirect URIs https://portal.kestrel.oakridge.example/api/auth/oidc-kestrel/handler/frame https://portal.example.io/api/auth/oidc-kestrel/handler/frame
     muster-token-exchange-kestrel: gopher token exchange; secretRef dex-client-muster-token-exchange-kestrel
   Customer actions:
-    kestrel: Create Secret kagent-anthropic-key in namespace kagent with key ANTHROPIC_API_KEY, or add a ModelConfig in the portal; until then default-model-config (ModelConfig.kagent.dev) stays Accepted=False. (the model key is the installation's own: the definition references the Secret and renders no value for it, and no value is supplied at commit; until the Secret exists the verify reads the runtime feature as waiting for the customer)
+    kestrel: Create Secret kagent-anthropic-key in namespace kagent with key ANTHROPIC_API_KEY, or add a ModelConfig in the portal; until then no ModelConfig (ModelConfig.kagent.dev) in kagent is Accepted=True. (the model and its key are the installation's own: the definition renders no model key and none is supplied at commit; until a ModelConfig in kagent resolves its key the verify reads the runtime feature as waiting for the customer)
   Probes:
     live-oauth2-proxy-extra-audience: identity oauth2-proxy --oidc-extra-audience argument
     live-muster-trusted-audiences: identity muster ConfigMap trustedAudiences
@@ -79,7 +80,8 @@ kestrel: enabled
     live-oauth2-proxy-audience: identity no audience mismatch in oauth2-proxy's log
     live-oauth2-proxy-secret-and-flux-sa: secrets Secret kagent-oauth2-proxy-credentials and ServiceAccount kagent-flux
     live-model-configs: runtime ModelConfigs in the kagent namespace
-    live-kagent-provider-values: runtime kagent HelmRelease .spec.values.providers
+    live-agent-models: runtime Agents in every namespace that name kagent's default-model-config, each with the HelmRelease that renders it (the 4 line)
+    live-kagent-provider-values: runtime kagent HelmRelease .spec.values.providers (where the meta chart the installation resolves still takes kagent.providers)
     live-konfiguration-source: runtime Konfiguration agent-platform-konfiguration on its GitRepository's revision: behind within its reconciliation interval reads rolling, longer drifted
     live-helmreleases-ready: runtime HelmReleases agent-platform, kagent, connectivity, muster, mcps Ready
     live-platform-workloads: runtime the Deployments that read muster's credentials Available: muster, its Valkey, and klaus-gateway, agent-manager, cluster-manager and model-manager where each runs

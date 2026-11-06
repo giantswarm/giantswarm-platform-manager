@@ -1,5 +1,10 @@
 - id: model-key
   feature: runtime
   state: WaitingForCustomer
-  note: Create Secret kagent-anthropic-key in namespace kagent with key ANTHROPIC_API_KEY, or add a ModelConfig in the portal; until then default-model-config (ModelConfig.api.kagent.dev) stays ResolvedRefs=False.
+  note: Create Secret kagent-anthropic-key in namespace kagent with key ANTHROPIC_API_KEY, or add a ModelConfig in the portal; until then no ModelConfig (ModelConfig.api.kagent.dev) in kagent is ResolvedRefs=True.
   dimension: live-model-configs
+- id: agent-models
+  feature: runtime
+  state: WaitingForCustomer
+  note: Point every Agent that names default-model-config at a ModelConfig of its namespace (modelConfig.name in its HelmRelease's values where an agent chart release renders it); the meta chart 4.175.0 and later renders no default-model-config.
+  dimension: live-agent-models

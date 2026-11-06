@@ -454,6 +454,78 @@ func TestConditionProbeReadsTheNamedCondition(t *testing.T) {
 	}
 }
 
+// An AnyCondition probe is defined when one object of the namespace has the
+// condition, whatever the others say: the default ModelConfig without its key
+// beside a model the customer added with theirs is as defined. With none
+// there, it names each object's verdict, or the namespace holding none.
+func TestAnyConditionProbeNeedsOneObject(t *testing.T) {
+	const (
+		modelConfig = "ModelConfig.api.kagent.dev"
+		resolved    = "ResolvedRefs"
+		missing     = "secret kagent-anthropic-key not found"
+	)
+	object := func(name, status string) map[string]any {
+		obj := map[string]any{"metadata": map[string]any{"name": name}}
+		if status != "" {
+			obj[keyStatus] = map[string]any{keyConditions: []any{map[string]any{keyType: resolved, keyStatus: status, keyReason: "APIKeySecretNotFound", keyMessage: missing}}}
+		}
+		return obj
+	}
+	for _, c := range []struct {
+		name    string
+		objects []map[string]any
+		mark    Mark
+		message string
+	}{
+		{"the default unresolved, the customer's resolved", []map[string]any{object("default-model-config", "False"), object("vertex-claude", conditionTrue)},
+			AsDefined, "ResolvedRefs=True on vertex-claude"},
+		{"none resolved", []map[string]any{object("default-model-config", "False"), object("fresh", "")},
+			Drifted, "default-model-config: ResolvedRefs=False (APIKeySecretNotFound): " + missing + "; fresh: no ResolvedRefs condition"},
+		{"none there", nil, Drifted, "no ModelConfig in " + testNamespace},
+	} {
+		x := &executor{opts: LiveOptions{Cluster: &recordingCluster{pods: c.objects}}}
+		probe := render.Probe{Kind: render.AnyCondition, Namespace: testNamespace, Resource: modelConfig,
+			Expect: render.Expectation{Condition: resolved, ConditionStatus: conditionTrue}}
+		check, _, _ := x.run(t.Context(), probe)
+		if check.Mark != c.mark || check.Message != c.message {
+			t.Errorf("%s: %s %q, want %s %q", c.name, check.Mark, check.Message, c.mark, c.message)
+		}
+	}
+}
+
+// A NoneNames probe is defined when no object holds the value at the path;
+// otherwise it names each that does, with the HelmRelease its Flux labels
+// name where it has one.
+func TestNoneNamesProbeNamesTheHolders(t *testing.T) {
+	const old = "default-model-config"
+	agent := func(namespace, name, model, release string) map[string]any {
+		meta := map[string]any{keyName: name, "namespace": namespace}
+		if release != "" {
+			meta["labels"] = map[string]any{fluxReleaseName: release, fluxReleaseNamespace: "flux-giantswarm"}
+		}
+		return map[string]any{"metadata": meta, keySpec: map[string]any{"modelConfig": map[string]any{keyName: model}}}
+	}
+	for _, c := range []struct {
+		name    string
+		objects []map[string]any
+		mark    Mark
+		message string
+	}{
+		{"every agent on its own model", []map[string]any{agent("kagent", "sre", "anthropic", "sre")}, AsDefined, "no Agent names " + old},
+		{"none there", nil, AsDefined, "no Agent names " + old},
+		{"two on the old one", []map[string]any{agent("org-acme", "helper", old, ""), agent("kagent", "sre", "anthropic", "sre"), agent("kagent", "claude-code", old, "claude-code")},
+			Drifted, "Agent naming " + old + ": kagent/claude-code (HelmRelease flux-giantswarm/claude-code), org-acme/helper"},
+	} {
+		x := &executor{opts: LiveOptions{Cluster: &recordingCluster{pods: c.objects}}}
+		probe := render.Probe{Kind: render.NoneNames, Resource: "Agent.api.kagent.dev",
+			Expect: render.Expectation{Path: "spec.modelConfig.name", Value: old}}
+		check, _, _ := x.run(t.Context(), probe)
+		if check.Mark != c.mark || check.Message != c.message {
+			t.Errorf("%s: %s %q, want %s %q", c.name, check.Mark, check.Message, c.mark, c.message)
+		}
+	}
+}
+
 // When a Secret's data was written and when the containers that read it
 // started, in the fixtures of the SecretLoaded checks.
 const (
