@@ -295,12 +295,10 @@ func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
 	stages := status.Rollout.Installations
 	for i := range stages {
 		st := &stages[i]
-		if st.State == actions.StateEnabled {
+		if st.State == actions.StateEnabled || (st.State == actions.StateWaitingForCustomer && i+1 < len(stages)) {
 			continue
 		}
-		// The stage in flight: merged, and not enabled yet — the watch
-		// carries it there; the next stage's pull requests wait (a red probe
-		// stops the wave with them open).
+		// A merged stage needs its rollout verified before another merge.
 		if allMerged(a, st.Name) {
 			return nil, stageNotEnabled(a, *st)
 		}
@@ -392,23 +390,22 @@ func noReview(a *actions.Action) bool {
 	return a.Status.Approval != nil && a.Status.Approval.Decision == actions.DecisionNotRequired
 }
 
-// startStage moves stage i of status to rolling out — its pull requests are
-// merged, by merge_action or outside it — queues the stages after it and
-// starts the rollout's clock.
+// startStage starts the rollout clock and queues stages without a live result.
 func startStage(status *actions.Status, i int) {
 	stages := status.Rollout.Installations
 	stages[i].State, stages[i].Message = actions.StateRollingOut, "the pull requests are merged; Flux reconciles the installation — "+ToolWatchAction+" reads its rollout and runs the probes"
 	for j := i + 1; j < len(stages); j++ {
-		stages[j].State, stages[j].Message = actions.StateRollingOut, stageQueued
+		switch stages[j].State {
+		case "", actions.StatePendingApproval, actions.StateReadyToMerge:
+			stages[j].State, stages[j].Message = actions.StateRollingOut, stageQueued
+		}
 	}
-	status.State = actions.StateRollingOut
+	applyStage(status, i, actions.StateRollingOut)
 	if status.Rollout.StartedAt == nil {
 		status.Rollout.StartedAt = now()
 	}
 }
 
-// stageNotEnabled is merge_action's refusal at a stage whose pull requests
-// are merged and whose watch has not said enabled: the next stage waits.
 func stageNotEnabled(a *actions.Action, st actions.InstallationRollout) error {
 	next := ""
 	if i := stageIndex(a.Status.Rollout, st.Name); i >= 0 && i+1 < len(a.Spec.Installations) {
@@ -469,7 +466,7 @@ func openPRs(prs []actions.PullRequest) []actions.PullRequest {
 func nextStage(a *actions.Action, installation string) string {
 	for i, n := range a.Spec.Installations {
 		if n == installation && i+1 < len(a.Spec.Installations) {
-			return "; enabled, the pull requests of " + a.Spec.Installations[i+1] + " are merged next"
+			return "; once its rollout is verified, the pull requests of " + a.Spec.Installations[i+1] + " are merged next"
 		}
 	}
 	return ""

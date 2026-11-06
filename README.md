@@ -215,10 +215,15 @@ rollout order for the set (every rendered installation exactly once).
 targets in the rollout order and the skipped, the pull requests per installation on their own branches.
 `merge_action` (the actor's) advances it one stage per call — merge the first installation's pull requests
 once green; `watch_action` (anyone's, as the person) carries the installation rolling out to
-*enabled*; only then does the next `merge_action` take the next installation's pull requests — and a red
-probe stops it: that installation *failed*, the stages after it not started, their pull requests open, the
-result naming where and why. A stage *waiting for the customer* holds the wave too: `merge_action` says
-so, and the customer's action done flips the stage on the next watch. A wave takes the supplied secret
+*enabled* or *waiting for the customer*; the next `merge_action` then takes the next installation's pull requests.
+A red probe stops further merges: that installation is *failed*, and later unmerged stages are not
+started, with their pull requests open. Already merged stages keep their live results. The action stays
+*failed* until every failed stage recovers, with the result naming the remaining failure.
+Customer model actions stay with their installation and do not hold the
+next stage. The watch reads merged stages before re-reading customer waits, including stages merged
+outside the manager. The action stays *rolling out* until every stage has been verified, then reads
+*waiting for the customer* while any installation has an open customer action. Each waiting stage is
+re-read in turn; the action becomes *enabled* once every stage is enabled. A wave takes the supplied secret
 values its targets' plans ask for in `secrets`, in the same call: a key `<field>` goes to every target
 that asks for the field (the two sides of a pairing hold one value), `<installation>/<field>` to that
 target alone; a value missing or one no target asks for refuses the wave whole, by field, before

@@ -40,7 +40,7 @@ type WaveResult struct {
 }
 
 // The message the wave's queued stages carry.
-const stageQueued = "queued: its pull requests are merged once the installation before it is enabled"
+const stageQueued = "queued: its pull requests are merged once the previous rollout is verified; customer model actions stay with their installation"
 
 // capabilityWave is reconcile_capability in mode commit over a set: one dry
 // run, one Action in pending approval carrying every installation's state,
@@ -169,11 +169,11 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 	res.Action = a
 	res.PullRequests = prs
 	if test {
-		res.Next = fmt.Sprintf("every target is a test installation: no Team review; the wave goes over %s in this order%s; once green you merge stage 1 (%s) as the actor with %s, which tells the team's standup channel, and call it again once Flux has reconciled it — the installation's verify runs first and, green, the next stage is merged; a red probe stops the wave with the remaining pull requests open",
+		res.Next = fmt.Sprintf("every target is a test installation: no Team review; the wave goes over %s in this order%s; once green you merge stage 1 (%s) as the actor with %s, which tells the team's standup channel, and call it again once Flux has reconciled it: the watch verifies its rollout before the next stage is merged; customer model actions stay with their installation, and other red probes stop the wave with the remaining pull requests open",
 			strings.Join(res.Order, ", "), skippedClause(res.Skipped), res.Order[0], ToolMergeAction)
 		return res, nil
 	}
-	res.Next = fmt.Sprintf("the wave waits for the team's approval (review %s in %s) over %s in this order%s; once approved and green you merge stage 1 (%s) as the actor with %s, and call it again once Flux has reconciled it — the installation's verify runs first and, green, the next stage is merged; a red probe stops the wave with the remaining pull requests open",
+	res.Next = fmt.Sprintf("the wave waits for the team's approval (review %s in %s) over %s in this order%s; once approved and green you merge stage 1 (%s) as the actor with %s, and call it again once Flux has reconciled it: the watch verifies its rollout before the next stage is merged; customer model actions stay with their installation, and other red probes stop the wave with the remaining pull requests open",
 		a.Status.Approval.ReviewID, a.Status.Approval.Channel, strings.Join(res.Order, ", "), skippedClause(res.Skipped), res.Order[0], ToolMergeAction)
 	return res, nil
 }
