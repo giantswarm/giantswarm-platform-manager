@@ -400,8 +400,7 @@ func startStage(status *actions.Status, i int) {
 			stages[j].State, stages[j].Message = actions.StateRollingOut, stageQueued
 		}
 	}
-	status.State = actions.StateRollingOut
-	status.Result, status.Rollout.FinishedAt = nil, nil
+	applyStage(status, i, actions.StateRollingOut)
 	if status.Rollout.StartedAt == nil {
 		status.Rollout.StartedAt = now()
 	}

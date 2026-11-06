@@ -168,10 +168,12 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 	out := WatchResult{Installation: st.Name, Objects: objects, Ready: ready, Verify: &res, Planned: plannedDimensions(res), NotRead: notRead(res, server)}
 	out.Private = privateNote(st.Name, inputs, out.NotRead, res, server)
 	if prev == actions.StateRollingOut && !ready && !failed {
-		status.State = actions.StateRollingOut
-		status.Result, status.Rollout.FinishedAt = nil, nil
 		st.Message = rolloutMessage(objects)
+		applyStage(&status, i, prev)
 		out.Next = "call " + ToolWatchAction + " again once Flux has reconciled the installation; nothing is hurried"
+		if status.State == actions.StateFailed {
+			out.Next = nextAfter(a, status, i)
+		}
 	} else {
 		state, message, red := decideStage(prev, res)
 		out.Red = red
@@ -447,36 +449,29 @@ func applyStage(status *actions.Status, i int, prev string) {
 				stages[j].State, stages[j].Message = actions.StateRollingOut, stageQueued
 			}
 		}
-		status.Result, status.Rollout.FinishedAt = nil, nil
 	}
-	switch st.State {
-	case actions.StateFailed:
-		if prev == actions.StateFailed {
-			// Re-read and still red: the stop stands as recorded.
-			return
-		}
+	if st.State == actions.StateFailed && prev != actions.StateFailed {
 		current := &actions.Action{Spec: actions.Spec{Installations: names(stages)}, Status: *status}
 		for j := i + 1; j < n; j++ {
 			if !allMerged(current, stages[j].Name) {
 				stages[j].State, stages[j].Message = "", "not started: the wave stopped at "+st.Name
 			}
 		}
-		msg := fmt.Sprintf("%s failed: %s", st.Name, st.Message)
-		if n > 1 {
-			msg = fmt.Sprintf("the wave stopped at %s (stage %d of %d): %s", st.Name, i+1, n, st.Message)
+	}
+	for j, stage := range stages {
+		if stage.State == actions.StateFailed {
+			recordStageFailure(status, j)
+			return
 		}
-		if open := openPRs(status.PullRequests); len(open) > 0 {
-			msg += fmt.Sprintf("; %d pull request(s) stay open (%s)", len(open), prList(open))
-		}
-		status.State, status.Rollout.FinishedAt = actions.StateFailed, now()
-		status.Result = &actions.Result{State: actions.StateFailed, Message: msg, At: now()}
+	}
+	if status.State == actions.StateFailed && !recovering {
+		return
+	}
+	switch st.State {
+	case actions.StateRollingOut:
+		status.State = actions.StateRollingOut
+		status.Result, status.Rollout.FinishedAt = nil, nil
 	case actions.StateEnabled, actions.StateWaitingForCustomer:
-		for _, stage := range stages {
-			if stage.State == actions.StateFailed {
-				status.State = actions.StateFailed
-				return
-			}
-		}
 		var waiting []string
 		for _, s := range stages {
 			switch s.State {
@@ -516,6 +511,25 @@ func applyStage(status *actions.Status, i int, prev string) {
 	}
 }
 
+func recordStageFailure(status *actions.Status, i int) {
+	stages := status.Rollout.Installations
+	stage := stages[i]
+	message := fmt.Sprintf("%s failed: %s", stage.Name, stage.Message)
+	if len(stages) > 1 {
+		message = fmt.Sprintf("the wave stopped at %s (stage %d of %d): %s", stage.Name, i+1, len(stages), stage.Message)
+	}
+	if open := openPRs(status.PullRequests); len(open) > 0 {
+		message += fmt.Sprintf("; %d pull request(s) stay open (%s)", len(open), prList(open))
+	}
+	status.State = actions.StateFailed
+	if status.Result == nil || status.Result.State != actions.StateFailed || status.Result.Message != message || status.Result.At == nil {
+		status.Result = &actions.Result{State: actions.StateFailed, Message: message, At: now()}
+	}
+	if status.Rollout.FinishedAt == nil {
+		status.Rollout.FinishedAt = now()
+	}
+}
+
 func names(stages []actions.InstallationRollout) []string {
 	out := make([]string, 0, len(stages))
 	for _, s := range stages {
@@ -526,6 +540,9 @@ func names(stages []actions.InstallationRollout) []string {
 
 // nextAfter says what follows the stage i's state.
 func nextAfter(a *actions.Action, status actions.Status, i int) string {
+	if status.State == actions.StateFailed {
+		return "the action is failed on a probe: fix what it names and " + ToolWatchAction + " re-reads the stage — green, the wave goes on from it; or " + ToolDenyAction + " as the actor withdraws the action with the reason, closing the pull requests left open"
+	}
 	st := status.Rollout.Installations[i]
 	switch st.State {
 	case actions.StateEnabled, actions.StateWaitingForCustomer:
@@ -542,8 +559,6 @@ func nextAfter(a *actions.Action, status actions.Status, i int) string {
 			return "the customer's action; " + ToolWatchAction + " or " + ToolVerifyInstallation + " flips each waiting stage to enabled once it is done"
 		}
 		return "nothing: the action is " + status.State
-	case actions.StateFailed:
-		return "the action is failed on a probe: fix what it names and " + ToolWatchAction + " re-reads the stage — green, the wave goes on from it; or " + ToolDenyAction + " as the actor withdraws the action with the reason, closing the pull requests left open"
 	case actions.StateDrifted:
 		return "the installation is off its definition: reconcile it, or " + ToolVerifyInstallation + " once it is back"
 	}
@@ -820,14 +835,14 @@ func (t *Tools) report(a *actions.Action, status actions.Status, i int, res veri
 		}
 		fmt.Fprintf(&b, "\nCustomer actions done: %s.", strings.Join(ids, ", "))
 	}
-	switch st.State {
-	case actions.StateFailed:
+	switch {
+	case status.State == actions.StateFailed:
 		if openPRs := openPRs(status.PullRequests); len(openPRs) > 0 {
 			fmt.Fprintf(&b, "\nThe action is failed; %d pull request(s) stay open: %s.", len(openPRs), prLinks(openPRs))
 		} else {
 			b.WriteString("\nThe action is failed.")
 		}
-	case actions.StateEnabled, actions.StateWaitingForCustomer:
+	case st.State == actions.StateEnabled || st.State == actions.StateWaitingForCustomer:
 		if next := pendingStage(status); next >= 0 {
 			current := *a
 			current.Status = status

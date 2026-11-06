@@ -109,9 +109,104 @@ func TestApplyStageAggregatesCustomerWaitsAcrossTheWave(t *testing.T) {
 }
 
 func TestCustomerWaitCannotClearAnotherStagesFailure(t *testing.T) {
-	failure := &actions.Result{State: actions.StateFailed, Message: "rowan failed"}
-	status := actions.Status{State: actions.StateFailed, Result: failure, Rollout: &actions.Rollout{FinishedAt: now(), Installations: []actions.InstallationRollout{
+	status := actions.Status{State: actions.StateFailed, Rollout: &actions.Rollout{Installations: []actions.InstallationRollout{
 		{Name: birch, State: actions.StateEnabled}, {Name: rowan, State: actions.StateFailed, Message: probeRed + "failed"},
+	}}}
+	applyStage(&status, 1, actions.StateRollingOut)
+	failure := status.Result
+	applyStage(&status, 0, actions.StateWaitingForCustomer)
+	require.Equal(t, actions.StateFailed, status.State)
+	require.Same(t, failure, status.Result)
+	require.NotNil(t, status.Rollout.FinishedAt)
+}
+
+func TestStageUpdatesPreserveOtherFailures(t *testing.T) {
+	for _, state := range []string{actions.StateRollingOut, actions.StateEnabled, actions.StateWaitingForCustomer, actions.StateDrifted} {
+		t.Run(state, func(t *testing.T) {
+			status := actions.Status{Rollout: &actions.Rollout{Installations: []actions.InstallationRollout{
+				{Name: birch, State: state}, {Name: rowan, State: actions.StateFailed, Message: probeRed + "failed"},
+			}}}
+			applyStage(&status, 1, actions.StateRollingOut)
+			failure, finished := status.Result, status.Rollout.FinishedAt
+			applyStage(&status, 0, actions.StateRollingOut)
+			require.Equal(t, actions.StateFailed, status.State)
+			require.Same(t, failure, status.Result)
+			require.Equal(t, finished, status.Rollout.FinishedAt)
+			action := &actions.Action{Status: status}
+			require.Contains(t, nextAfter(action, status, 0), ToolDenyAction)
+			require.NotContains(t, nextAfter(action, status, 0), ToolMergeAction)
+		})
+	}
+}
+
+func TestRecoveryRecordsTheRemainingFailure(t *testing.T) {
+	const alder = "alder"
+	for _, recoveredState := range []string{actions.StateEnabled, actions.StateWaitingForCustomer} {
+		t.Run(recoveredState, func(t *testing.T) {
+			status := actions.Status{
+				PullRequests: []actions.PullRequest{
+					{Installation: birch, State: actions.PullRequestMerged},
+					{Installation: rowan, State: actions.PullRequestMerged},
+					{Installation: alder, State: actions.PullRequestMerged},
+				},
+				Rollout: &actions.Rollout{Installations: []actions.InstallationRollout{
+					{Name: birch, State: actions.StateFailed, Message: probeRed + "first failure"},
+					{Name: rowan, State: actions.StateWaitingForCustomer},
+					{Name: alder, State: actions.StateFailed, Message: probeRed + "last failure"},
+				}},
+			}
+			applyStage(&status, 0, actions.StateRollingOut)
+			require.Contains(t, status.Result.Message, birch)
+			finished := status.Rollout.FinishedAt
+			status.Rollout.Installations[0].State = recoveredState
+			applyStage(&status, 0, actions.StateFailed)
+			require.Equal(t, actions.StateFailed, status.State)
+			require.NotNil(t, status.Result)
+			require.Equal(t, actions.StateFailed, status.Result.State)
+			require.Contains(t, status.Result.Message, alder)
+			require.Contains(t, status.Result.Message, "last failure")
+			require.NotContains(t, status.Result.Message, "first failure")
+			require.NotNil(t, status.Result.At)
+			require.Equal(t, finished, status.Rollout.FinishedAt)
+			failure := status.Result
+			applyStage(&status, 2, actions.StateFailed)
+			require.Same(t, failure, status.Result)
+			status.Rollout.Installations[2].State = actions.StateEnabled
+			applyStage(&status, 2, actions.StateFailed)
+			require.Equal(t, actions.StateWaitingForCustomer, status.State)
+			require.Equal(t, actions.StateWaitingForCustomer, status.Result.State)
+		})
+	}
+}
+
+func TestStageUpdatesRestoreMissingFailureMetadata(t *testing.T) {
+	status := actions.Status{State: actions.StateRollingOut, Rollout: &actions.Rollout{Installations: []actions.InstallationRollout{
+		{Name: birch, State: actions.StateRollingOut}, {Name: rowan, State: actions.StateFailed, Message: probeRed + "failed"},
+	}}}
+	applyStage(&status, 0, actions.StateRollingOut)
+	require.Equal(t, actions.StateFailed, status.State)
+	require.NotNil(t, status.Result)
+	require.Equal(t, actions.StateFailed, status.Result.State)
+	require.Contains(t, status.Result.Message, rowan)
+	require.NotNil(t, status.Rollout.FinishedAt)
+}
+
+func TestStartingAStagePreservesLaterFailures(t *testing.T) {
+	status := actions.Status{Rollout: &actions.Rollout{Installations: []actions.InstallationRollout{
+		{Name: birch, State: actions.StateRollingOut}, {Name: rowan, State: actions.StateFailed, Message: probeRed + "failed"},
+	}}}
+	applyStage(&status, 1, actions.StateRollingOut)
+	failure, finished := status.Result, status.Rollout.FinishedAt
+	startStage(&status, 0)
+	require.Equal(t, actions.StateFailed, status.State)
+	require.Same(t, failure, status.Result)
+	require.Equal(t, finished, status.Rollout.FinishedAt)
+}
+
+func TestStageUpdatesPreserveFailuresOutsideTheRollout(t *testing.T) {
+	failure := &actions.Result{State: actions.StateFailed, Message: "pull request closed unmerged"}
+	status := actions.Status{State: actions.StateFailed, Result: failure, Rollout: &actions.Rollout{FinishedAt: now(), Installations: []actions.InstallationRollout{
+		{Name: birch, State: actions.StateEnabled}, {Name: rowan, State: actions.StateRollingOut},
 	}}}
 	applyStage(&status, 0, actions.StateWaitingForCustomer)
 	require.Equal(t, actions.StateFailed, status.State)

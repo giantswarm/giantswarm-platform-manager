@@ -44,7 +44,7 @@ func TestWaveAdvancesPastCustomerModelActions(t *testing.T) {
 					status.Result = &actions.Result{State: actions.StateWaitingForCustomer, Message: "waiting for the customer on birch"}
 					finished := time.Now()
 					status.Rollout.FinishedAt = &finished
-					_, err := actions.New(st.dyn, actionsNamespace).UpdateStatus(t.Context(), action.Name, status)
+					_, err := actions.New(st.dyn, actionsNamespace).UpdateStatus(t.Context(), watched.Action, status)
 					require.NoError(t, err)
 				}
 				mergeAllOutside(t, st)
