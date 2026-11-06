@@ -8,10 +8,15 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 )
 
 // The keys of the two components the tests name.
 const kagentKey, musterKey = "kagent", "muster"
+
+// The kagent paths the kept and held keys hang under.
+const providersPath, modelConfigsPath, controllerPath = "kagent.providers", "kagent.modelConfigs", "kagent.controller"
 
 // The definition's platform patch as it renders without the keys the fleet
 // still carries by hand: no trusted issuers, no connector pin, no resources,
@@ -111,7 +116,7 @@ func TestKeepAudiencesCarriesTheKeptKeysFromTheRecord(t *testing.T) {
 		"muster.resources.limits.memory",
 		"kagent.providers.anthropic.model",
 		"kagent.providers.annotations",
-		"kagent.modelConfigs",
+		modelConfigsPath,
 		"kagent.oauth2ProxyIngress.additionalPeers",
 		"kagent.controller.nodeSelector",
 		"kagent.controller.volumes",
@@ -144,17 +149,17 @@ func TestKeepAudiencesCarriesTheKeptKeysFromTheRecord(t *testing.T) {
 	want := []Kept{
 		{List: ListAllowedCallers, Entry: "system:serviceaccount:marge:marge-shield-sweep"},
 		{List: "kagent.providers.anthropic", Entry: "model"},
-		{List: "kagent.providers", Entry: "annotations"},
+		{List: providersPath, Entry: "annotations"},
 		{List: kagentKey, Entry: "modelConfigs"},
 		{List: kagentKey, Entry: "oauth2ProxyIngress"},
 		{List: musterKey, Entry: "resources"},
 		{List: "muster.muster.oauth.server.dex", Entry: "connectorId"},
 		{List: "muster.muster.oauth.server", Entry: "trustedIssuers"},
 		{List: "muster.muster.oauth.server", Entry: "providerTokenRefreshThreshold"},
-		{List: "kagent.controller", Entry: "nodeSelector"},
+		{List: controllerPath, Entry: "nodeSelector"},
 		{List: "postgres", Entry: "affinity"},
 		{List: "postgres", Entry: "databases"},
-		{List: "kagent.controller", Entry: "volumes"},
+		{List: controllerPath, Entry: "volumes"},
 		{List: kagentKey, Entry: "harnesses"},
 	}
 	for _, w := range want {
@@ -164,6 +169,32 @@ func TestKeepAudiencesCarriesTheKeptKeysFromTheRecord(t *testing.T) {
 	}
 	if slices.Contains(kept, Kept{List: "agent-platform-mcps", Entry: "defaults"}) {
 		t.Errorf("agent-platform-mcps.defaults is nobody's kept key; kept: %+v", kept)
+	}
+}
+
+// A render without kagent.providers, the meta chart that declares no model:
+// the held keys under it and kagent.modelConfigs stay on record only, so the
+// reconcile removes them, while the unconditionally kept keys are carried.
+func TestKeepAudiencesDropsHeldKeysWithoutTheirPath(t *testing.T) {
+	rendered := strings.Replace(renderedPlatformPatchLean, "kagent:\n  providers:\n    anthropic:\n      apiKeySecretRef: kagent-anthropic-key\n", "kagent:\n  oauth2-proxy:\n    config:\n      existingSecret: kagent-oauth2-proxy-credentials\n", 1)
+	if rendered == renderedPlatformPatchLean {
+		t.Fatal("the lean render no longer carries kagent.providers as the test expects")
+	}
+	out, kept, err := keepAudiences([]byte(rendered), []byte(currentPlatformPatchKept))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, ren, err := mapping(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{providersPath, modelConfigsPath} {
+		if at(ren, strings.Split(path, ".")...) != nil {
+			t.Errorf("%s: carried into a render without kagent.providers:\n%s", path, out)
+		}
+	}
+	if at(ren, "kagent", "controller", "nodeSelector") == nil || !slices.Contains(kept, Kept{List: controllerPath, Entry: "nodeSelector"}) {
+		t.Errorf("an unconditionally kept key is still carried; kept: %+v", kept)
 	}
 }
 
@@ -226,9 +257,17 @@ func TestKeepSubtreesLeavesTheRendersOwnKeyAndAPathThroughAScalar(t *testing.T) 
 }
 
 func TestKeptPlatformKeysReadTheDefinition(t *testing.T) {
-	for _, want := range []string{"muster.muster.oauth.server.trustedIssuers", "kagent.oauth2ProxyIngress", "muster.muster.oauth.server.dex.connectorId", "muster.muster.oauth.server.providerTokenRefreshThreshold", "kagent.controller.nodeSelector", "postgres.affinity", "kagent.providers.annotations", "postgres.databases", "kagent.controller.volumes", "kagent.harnesses", "components.toolchain-manager", "toolchain-manager", "kagent.controller.sessionToolImageEgressOrigins"} {
+	for _, want := range []string{"muster.muster.oauth.server.trustedIssuers", "kagent.oauth2ProxyIngress", "muster.muster.oauth.server.dex.connectorId", "muster.muster.oauth.server.providerTokenRefreshThreshold", "kagent.controller.nodeSelector", "postgres.affinity", "postgres.databases", "kagent.controller.volumes", "kagent.harnesses", "components.toolchain-manager", "toolchain-manager", "kagent.controller.sessionToolImageEgressOrigins"} {
 		if !slices.Contains(keptPlatformKeys, want) {
 			t.Errorf("the agent-platform definition keeps %s; kept keys: %v", want, keptPlatformKeys)
+		}
+	}
+	for _, want := range []string{providersPath + ".anthropic.model", providersPath + ".annotations", modelConfigsPath} {
+		if !slices.Contains(heldPlatformKeys, definitions.HeldKey{Path: want, While: providersPath}) {
+			t.Errorf("the agent-platform definition holds %s while the render carries kagent.providers; held keys: %v", want, heldPlatformKeys)
+		}
+		if slices.Contains(keptPlatformKeys, want) {
+			t.Errorf("%s is held, never kept unconditionally; kept keys: %v", want, keptPlatformKeys)
 		}
 	}
 	if slices.Contains(keptPlatformKeys, "agent-platform-mcps.defaults") {

@@ -539,13 +539,17 @@ func shown(files []plan.File) {
 }
 
 // planned is the reason a difference is a planned change: the removal that
-// names its path, or, for a leaf the record lacks, the migration that adds
+// names its path (for a leaf the record lacks, never one of kind migration,
+// which goes from the render), or, for a leaf the record lacks, the migration that adds
 // it, or, for a value the record holds encrypted that the render does not
 // carry, its removal by the commit (droppedReason). A leaf the record holds
 // with another value is no migration's — but for a scalar the plan merges as
 // a comma-separated set, whose only change is the entries the migrations
 // add (joined).
 func planned(fd *fileDiff, d *Difference, rms, migs plannedKeys) string {
+	if d.absent {
+		rms = rms.rendered()
+	}
 	if reason := rms.reason(fd, d.Path); reason != "" {
 		return reason
 	}

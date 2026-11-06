@@ -287,13 +287,17 @@ func TestModelConfigProbeFollowsTheLine(t *testing.T) {
 		if len(probed) != 1 || probed[0] != resource {
 			t.Errorf("%s (line %s): the %s probe reads %v, want %s", shape, in.Installation.ChartLine, modelKeyDimension, probed, resource)
 		}
-		if len(result.Actions) != 1 || !strings.Contains(result.Actions[0].Note, "("+resource+") in "+kagentNamespace+" is "+condition+"=True") {
+		i := slices.IndexFunc(result.Actions, func(a render.Action) bool { return a.ID == modelKeyActionID })
+		if i < 0 || !strings.Contains(result.Actions[i].Note, "("+resource+") in "+kagentNamespace+" is "+condition+"=True") {
 			t.Errorf("%s (line %s): the actions %+v do not name %s", shape, in.Installation.ChartLine, result.Actions, resource)
+			continue
 		}
-		if ca := in.CustomerActions(); len(ca) != 1 || !strings.Contains(ca[0].Action, "("+resource+")") {
+		ca := in.CustomerActions()
+		j := slices.IndexFunc(ca, func(a render.CustomerAction) bool { return a.Dimension == modelKeyDimension })
+		if j < 0 || !strings.Contains(ca[j].Action, "("+resource+")") {
 			t.Errorf("%s (line %s): the customer actions %+v do not name %s", shape, in.Installation.ChartLine, ca, resource)
-		} else if ca[0].Dimension == "" || ca[0].Dimension != result.Actions[0].Dimension {
-			t.Errorf("%s (line %s): the customer action holds up %q, the action %q: the live marks sort both alike", shape, in.Installation.ChartLine, ca[0].Dimension, result.Actions[0].Dimension)
+		} else if ca[j].Dimension != result.Actions[i].Dimension {
+			t.Errorf("%s (line %s): the customer action holds up %q, the action %q: the live marks sort both alike", shape, in.Installation.ChartLine, ca[j].Dimension, result.Actions[i].Dimension)
 		}
 	}
 	for line := range want {
@@ -508,7 +512,7 @@ func TestProbesAreLiveDimensions(t *testing.T) {
 	probed := map[string]bool{}
 	standsFor := func(shape, id string) bool {
 		switch id {
-		case podCertificateRequestDimension:
+		case podCertificateRequestDimension, agentModelsDimension:
 			return shape == shapeGiantswarmOwned
 		case registeredServersDimension:
 			return shape == shapeRegisteredServers
@@ -1466,98 +1470,104 @@ func yamlScalar(ttl string) string {
 	return ttl
 }
 
-// TestTenantOrganizations renders the person's tenant mode as the meta
-// chart's tenants.organizations.enabled, beside the LLM listener the chart
-// refuses the mode without, and leaves the chart's other two conditions —
-// the listener's ModelConfig policy and a default provider it serves — to
-// the chart's defaults: the patch overrides none of them, and points the
-// default provider, whose copy agent-manager writes into each tenant, at the
-// listener the tenants' admission holds it to. Off, the goldens are the
-// render. A hold that still resolves to releases with the mode renders;
-// refused when it is no boolean, on the 3 line, where the policy does not
-// run kagent and the agent-manager, and with a hold of the chart or the
-// agent-manager below the releases the mode needs.
-func TestTenantOrganizations(t *testing.T) {
-	withTenants := func(shape string, enabled any) (map[string]any, map[string]string) {
-		input, secrets := loadInput(t, shape)
-		input["tenants"] = map[string]any{"organizations": map[string]any{keyEnabled: enabled}}
-		return input, secrets
+// TestTenantsAreNoInput refuses the meta chart's tenant mode, which the
+// chart refuses from 4.175.0 on.
+func TestTenantsAreNoInput(t *testing.T) {
+	input, secrets := loadInput(t, shapeHubPrivateTarget)
+	input["tenants"] = map[string]any{"organizations": map[string]any{keyEnabled: true}}
+	if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "tenants") {
+		t.Fatalf("got %v, want ErrInput naming tenants", err)
 	}
-	withHold := func(chart, agentManager string) (map[string]any, map[string]string) {
-		input, secrets := withTenants(shapeHubPrivateTarget, true)
-		input["versions"] = map[string]any{"chart": chart, "components": map[string]any{"agent-manager": agentManager}}
-		return input, secrets
-	}
-	input, secrets := withHold(">=4.100.0 <5.0.0", ">=2.0.0 <3.0.0")
-	result, err := Render(input, secrets, render.ModeCommit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var raw []byte
-	for name, content := range result.Tree() {
-		if strings.HasSuffix(name, "apps/agent-platform/configmap-values.yaml.patch") {
-			raw = content
-		}
-	}
-	var patch struct {
-		Tenants    map[string]any `yaml:"tenants"`
-		LLMRouting map[string]any `yaml:"llmRouting"`
-		Kagent     struct {
-			Providers struct {
-				Default   *string `yaml:"default"`
-				Anthropic struct {
-					Config struct {
-						BaseURL string `yaml:"baseUrl"`
-					} `yaml:"config"`
-				} `yaml:"anthropic"`
-			} `yaml:"providers"`
-		} `yaml:"kagent"`
-	}
-	if err := yaml.Unmarshal(raw, &patch); err != nil {
-		t.Fatal(err)
-	}
-	if got, want := fmt.Sprint(patch.Tenants), "map[organizations:map[enabled:true]]"; got != want {
-		t.Errorf("tenants %s, want %s", got, want)
-	}
-	if patch.LLMRouting[keyEnabled] != true {
-		t.Errorf("the tenant mode without the LLM listener: llmRouting %v", patch.LLMRouting)
-	}
-	for _, k := range []string{"modelConfigPolicy", "models"} {
-		if _, ok := patch.LLMRouting[k]; ok {
-			t.Errorf("the patch overrides the chart's llmRouting.%s: %v", k, patch.LLMRouting[k])
-		}
-	}
-	if d := patch.Kagent.Providers.Default; d != nil {
-		t.Errorf("the patch overrides the default provider: %s", *d)
-	}
-	if got, want := patch.Kagent.Providers.Anthropic.Config.BaseURL, "http://agentgateway.agent-platform.svc:8081"; got != want {
-		t.Errorf("the default provider's baseUrl %q, want the LLM listener %q", got, want)
-	}
+}
 
-	notBool, hubSecrets := withTenants(shapeHubPrivateTarget, "yes")
-	lineThree, lineThreeSecrets := withTenants(shapePublicCustomer, true)
-	noKagent, noKagentSecrets := withTenants(shapeHubPrivateTarget, true)
-	noKagent["installation"].(map[string]any)["customer"] = customerWithoutKagent
-	noKagent["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
-	chartHeld, chartHeldSecrets := withHold("4.140.0", "")
-	managerHeld, managerHeldSecrets := withHold("", "~2.0.0")
+// TestKagentProvidersFollowTheChart renders kagent's model provider where
+// the meta chart the installation resolves still takes it (the 3 line, or a
+// hold of the chart below modelFreeChart) and none from modelFreeChart on,
+// its release candidates included; the provider drift probe and the model
+// step's Secret follow it.
+func TestKagentProvidersFollowTheChart(t *testing.T) {
 	for _, c := range []struct {
-		name    string
-		input   map[string]any
-		secrets map[string]string
-		names   string
+		name, shape, hold string
+		providers         bool
 	}{
-		{"not a boolean", notBool, hubSecrets, "tenants/organizations/enabled"}, // gitleaks:allow (a schema path, no credential)
-		{"the chart held below the mode", chartHeld, chartHeldSecrets, "versions.chart"},
-		{"the agent-manager held below the mode", managerHeld, managerHeldSecrets, "versions.components.agent-manager"},
-		{"the 3 line", lineThree, lineThreeSecrets, "tenants.organizations.enabled"},
-		{"no kagent and no agent-manager", noKagent, noKagentSecrets, "tenants.organizations.enabled"},
+		{"the 4 line's range", shapeHubPrivateTarget, "", false},
+		{"a hold on the last release before", shapeHubPrivateTarget, "4.174.3", true},
+		{"a hold on the release candidate before", shapeHubPrivateTarget, "4.175.0-rc.20", true},
+		{"a hold on the first release candidate without models", shapeHubPrivateTarget, modelFreeChart, false},
+		{"a hold on the release", shapeHubPrivateTarget, "4.175.0", false},
+		{"a range below", shapeHubPrivateTarget, ">=4.170.0 <4.175.0", true},
+		{"a range over the release", shapeHubPrivateTarget, ">=4.170.0 <4.176.0", false},
+		{"a range over the release candidates", shapeHubPrivateTarget, ">=4.170.0-0 <4.175.0", false},
+		{"the 3 line", shapePublicCustomer, "", true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			_, err := Render(c.input, c.secrets, render.ModeCommit)
-			if !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), c.names) {
-				t.Fatalf("got %v, want ErrInput naming %q", err, c.names)
+			input, secrets := loadInput(t, c.shape)
+			if c.hold != "" {
+				input["versions"] = map[string]any{"chart": c.hold}
+			}
+			result, err := Render(input, secrets, render.ModeCommit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var raw []byte
+			for name, content := range result.Tree() {
+				if strings.HasSuffix(name, "apps/agent-platform/configmap-values.yaml.patch") {
+					raw = content
+				}
+			}
+			var patch struct {
+				Kagent map[string]any `yaml:"kagent"`
+			}
+			if err := yaml.Unmarshal(raw, &patch); err != nil {
+				t.Fatal(err)
+			}
+			if _, got := patch.Kagent["providers"]; got != c.providers {
+				t.Errorf("kagent.providers rendered %t, want %t: %v", got, c.providers, patch.Kagent)
+			}
+			probed := slices.ContainsFunc(result.Probes, func(p render.Probe) bool { return p.ID == "live-kagent-provider-values" })
+			if probed != c.providers {
+				t.Errorf("the provider drift probe rendered %t, want %t", probed, c.providers)
+			}
+			i := slices.IndexFunc(result.Actions, func(a render.Action) bool { return a.ID == modelKeyActionID })
+			if i < 0 {
+				t.Fatalf("no %s action: %+v", modelKeyActionID, result.Actions)
+			}
+			if got := strings.Contains(result.Actions[i].Note, modelKeySecret); got != c.providers {
+				t.Errorf("the model step names %s %t, want %t: %s", modelKeySecret, got, c.providers, result.Actions[i].Note)
 			}
 		})
+	}
+}
+
+// TestAgentModelsProbe lists, on the 4 line, the Agents of every namespace
+// that name kagent's default-model-config, held up by the agent-models
+// action; the 3 line renders neither.
+func TestAgentModelsProbe(t *testing.T) {
+	for _, c := range []struct {
+		shape string
+		want  bool
+	}{{shapeGiantswarmOwned, true}, {shapePublicCustomer, false}} {
+		input, secrets := loadInput(t, c.shape)
+		result, err := Render(input, secrets, render.ModeCommit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		i := slices.IndexFunc(result.Probes, func(p render.Probe) bool { return p.ID == agentModelsDimension })
+		if (i >= 0) != c.want {
+			t.Fatalf("%s: the %s probe rendered %t, want %t", c.shape, agentModelsDimension, i >= 0, c.want)
+		}
+		actioned := slices.ContainsFunc(result.Actions, func(a render.Action) bool {
+			return a.ID == agentModelsActionID && a.Dimension == agentModelsDimension && a.State == render.WaitingForCustomer
+		})
+		if actioned != c.want {
+			t.Errorf("%s: the %s action rendered %t, want %t", c.shape, agentModelsActionID, actioned, c.want)
+		}
+		if !c.want {
+			continue
+		}
+		p := result.Probes[i]
+		if p.Kind != render.NoneNames || p.Namespace != "" || p.Resource != agentResource || p.Expect.Path != agentModelPath || p.Expect.Value != kagentDefaultModelConfig {
+			t.Errorf("%s: the %s probe is %+v", c.shape, agentModelsDimension, p)
+		}
 	}
 }
