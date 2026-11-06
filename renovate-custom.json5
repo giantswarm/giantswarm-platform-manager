@@ -140,6 +140,12 @@
       allowedVersions: '/^2\\./',
     },
     {
+      matchDatasources: ['docker'],
+      matchPackageNames: ['gsoci.azurecr.io/charts/giantswarm/mcp-capi'],
+      versioning: 'semver',
+      allowedVersions: '<=0.6.30',
+    },
+    {
       matchDatasources: [
         'docker',
       ],
