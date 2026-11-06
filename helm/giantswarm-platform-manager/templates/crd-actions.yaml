@@ -127,6 +127,21 @@ spec:
             status:
               type: object
               properties:
+                commit:
+                  description: Pull request creation progress and remote writes whose outcome is unresolved.
+                  type: object
+                  required: [complete]
+                  properties:
+                    complete: {type: boolean}
+                    pending:
+                      type: array
+                      items:
+                        type: object
+                        required: [installation, repository, head]
+                        properties:
+                          installation: {type: string}
+                          repository: {type: string}
+                          head: {type: string}
                 state:
                   description: The action's state, one of the installations' states an action produces, or the action's own — refused (the gate refused it before any write — the installation unreadable as the person, or without repositories on record), denied (a member withdrew it before its merge), reverted (a merged pull request of it was reverted on the default branch), withdrawn (its actor withdrew it after the merge, with the reason), removed (the fileset it wrote left the default branch again), disabled (a disable merged and the capability's marker left the default branch).
                   type: string
