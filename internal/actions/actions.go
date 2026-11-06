@@ -560,16 +560,13 @@ func (c *Client) Create(ctx context.Context, a Action) (*Action, error) {
 	if a.CreatedAt.IsZero() {
 		a.CreatedAt = time.Now()
 	}
-	u, err := c.c.Resource(GVR).Namespace(c.ns).Create(ctx, Unstructured(a), metav1.CreateOptions{})
+	_, err := c.c.Resource(GVR).Namespace(c.ns).Create(ctx, Unstructured(a), metav1.CreateOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("actions: create %s/%s: %w", c.ns, a.Name, err)
 	}
 	// The status subresource is written apart from the object: a Create
 	// carries none, so the initial status follows in its own write.
-	if _, err := c.UpdateStatus(ctx, a.Name, a.Status); err != nil {
-		return nil, err
-	}
-	return fromUnstructured(u)
+	return c.UpdateStatus(ctx, a.Name, a.Status)
 }
 
 // UpdateStatus replaces the status of the Action called name.

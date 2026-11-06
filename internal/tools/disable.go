@@ -404,7 +404,7 @@ func (t *Tools) disableCommit(ctx context.Context, args map[string]any) (any, er
 	spec := actions.Spec{Actor: actions.Actor{Login: id.Login, ID: id.ID, Email: id.Email}, Capability: out.Capability, Installations: []string{one}, Inputs: env.inputs[one], Kind: actions.KindDisable,
 		InputsByInstallation: map[string]map[string]any{one: env.inputs[one]}, Customer: env.byName[one].Customer != env.hub.Customer, AccountEngineers: accountEngineers(env, one), AccountEngineerOf: accountEngineerOf(env, one), Reason: reason, Markers: markersOf(def, env, one),
 		Change: fmt.Sprintf("%d file(s) to delete, %d to update", deleted, updated), Changes: map[string][]string{one: disableSummary(out.Plan)}}
-	a, err := t.record(ctx, spec, actions.Status{State: actions.StatePendingApproval})
+	a, err := t.record(ctx, spec, actions.Status{State: actions.StatePendingApproval, Orphans: orphansFrom(one, out.Plan.Checklist)})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
 	}
@@ -415,10 +415,6 @@ func (t *Tools) disableCommit(ctx context.Context, args map[string]any) (any, er
 	prs, err := t.openRemovals(ctx, env.c, a, out.Plan, remote, prTitle(actions.KindDisable, one, out.Capability, a.Name, ""), disableBody(a, out))
 	if err != nil {
 		return nil, t.fail(ctx, tool, a, remote, prs, err)
-	}
-	a, err = t.d.Actions.UpdateStatus(ctx, a.Name, actions.Status{State: actions.StatePendingApproval, PullRequests: prs, Orphans: orphansFrom(one, out.Plan.Checklist)})
-	if err != nil {
-		return nil, fmt.Errorf("%s: the pull requests are open (%s) and the action could not record them: %w", tool, prList(prs), err)
 	}
 	t.d.Log.Info(tool, identity.LogAttr(ctx), "action", a.Name, "installation", one, "state", a.Status.State, "pullRequests", len(prs))
 	a, err = t.requestApproval(ctx, a, tool, test)
@@ -443,6 +439,9 @@ func (t *Tools) openRemovals(ctx context.Context, c *gh.Client, a *actions.Actio
 	req := commit.Request{Branch: branchPrefix + a.Name + "/" + d.Name, Title: title, Body: body}
 	var prs []actions.PullRequest
 	for _, pl := range d.PullRequests {
+		if err := ctx.Err(); err != nil {
+			return prs, err
+		}
 		files := map[string][]byte{}
 		var enc *target
 		for _, r := range d.Files {
@@ -482,13 +481,17 @@ func (t *Tools) openRemovals(ctx context.Context, c *gh.Client, a *actions.Actio
 		}
 		opened, err := commit.Open(ctx, remote, req, []commit.Change{{Location: loc, Files: files}})
 		for _, o := range opened {
-			prs = append(prs, actions.PullRequest{Installation: d.Name, Repository: o.Repository.String(), Number: o.Number, URL: o.URL, State: actions.PullRequestOpen, Head: o.Head, HeadSHA: o.HeadSHA})
+			pr := actions.PullRequest{Installation: d.Name, Repository: o.Repository.String(), Number: o.Number, URL: o.URL, State: actions.PullRequestOpen, Head: o.Head, HeadSHA: o.HeadSHA}
+			prs = append(prs, pr)
+			if recordErr := t.recordPullRequest(ctx, a, pr); recordErr != nil {
+				return prs, errors.Join(err, recordErr)
+			}
 		}
 		if err != nil {
 			return prs, remoteError(pl.Repository, err)
 		}
 	}
-	return prs, nil
+	return prs, ctx.Err()
 }
 
 // orphansFrom is the checklist as the action's orphans on installation.

@@ -136,7 +136,7 @@ this order, writing nothing before the gate:
    pair, teleport-fleet — one commit per repository, on branch `platform/<action>/<installation>`, titled in
    conventional-commit form — `feat(<installation>): enable <capability> (<action>)`, `fix(<installation>):
    reconcile <capability> (<action>)` — so the repositories' semantic-pull-request check passes as opened, the
-   action id in the title and body. The Action records them and stays in *pending approval*: the approval, the merge
+   action id in the title and body. The Action records each pull request before the next opens and stays in *pending approval*: the approval, the merge
    and the rollout follow. An action on Giant Swarm's test installations alone — the hub's customer's, not the
    hub: the wave's first stage — needs no Team review: the approval is recorded *not required*, the Action reads *ready to merge*, the actor merges
    with `merge_action` once green, and the merge is told to the team's standup channel — who, what, why and
@@ -144,7 +144,9 @@ this order, writing nothing before the gate:
    installation keep the review. A failure on the way moves the Action to *failed* and closes the pull requests
    opened so far as the person, branches deleted, recorded *closed* with the reason on the Action; one the
    remote refused to close stays open on the record, and `deny_action` — which takes a failed action too —
-   closes it, records the reason and leaves the action failed.
+   closes it, records the reason and leaves the action failed. Caller cancellation stops further pull requests;
+   cleanup and recording each have a separate 30-second deadline, so a tool timeout still records the failure
+   and any pull requests that could not be closed.
 
 A commit takes `reason` — why the actor makes the change, in a sentence; without one nothing is committed.
 **The review** in the team's channel (`approvals.channel`) is what a teammate judges the action by from

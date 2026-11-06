@@ -104,9 +104,11 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		spec.KeptByInstallation = keptByInstallation(spec.KeptByInstallation, p)
 	}
 	changes := make([]string, 0, len(targets))
+	var rotated []string
 	rollout := &actions.Rollout{Installations: make([]actions.InstallationRollout, 0, len(targets))}
 	test := true
 	for i, p := range targets {
+		rotated = append(rotated, p.Rotating()...)
 		if env.byName[p.Name].Customer != env.hub.Customer {
 			spec.Customer = true
 		}
@@ -122,7 +124,7 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
 	}
-	a, err := t.d.Actions.Create(ctx, actions.Action{Name: name, Spec: spec, Status: actions.Status{State: actions.StatePendingApproval, Rollout: rollout}})
+	a, err := t.d.Actions.Create(ctx, actions.Action{Name: name, Spec: spec, Status: actions.Status{State: actions.StatePendingApproval, Rollout: rollout, Rotated: rotated}})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
 	}
@@ -137,9 +139,7 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		return nil, t.fail(ctx, tool, a, remote, nil, err)
 	}
 	prs := []actions.PullRequest{}
-	var rotated []string
 	for i, p := range targets {
-		rotated = append(rotated, p.Rotating()...)
 		// The installation's supplied values, as one commit takes them; the
 		// fields whose files are on record render as markers and are never
 		// generated again, so no marker leaves.
@@ -157,10 +157,6 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		if err != nil {
 			return nil, t.fail(ctx, tool, a, remote, prs, err)
 		}
-	}
-	a, err = t.d.Actions.UpdateStatus(ctx, a.Name, actions.Status{State: actions.StatePendingApproval, PullRequests: prs, Rotated: rotated, Rollout: rollout})
-	if err != nil {
-		return nil, fmt.Errorf("%s: the pull requests are open (%s) and the action could not record them: %w", tool, prList(prs), err)
 	}
 	t.d.Log.Info(tool, identity.LogAttr(ctx), "action", a.Name, "wave", strings.Join(res.Order, ","), "skipped", len(res.Skipped), "pullRequests", len(prs))
 	a, err = t.requestApproval(ctx, a, tool, test)

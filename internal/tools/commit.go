@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -174,7 +176,7 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 		return res, nil
 	}
 
-	a, err := t.record(ctx, spec, actions.Status{State: actions.StatePendingApproval})
+	a, err := t.record(ctx, spec, actions.Status{State: actions.StatePendingApproval, Rotated: p.Rotating()})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
 	}
@@ -187,10 +189,6 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	res.UnchangedRepositories = unchanged
 	if err != nil {
 		return nil, t.fail(ctx, tool, a, remote, prs, err)
-	}
-	a, err = t.d.Actions.UpdateStatus(ctx, a.Name, actions.Status{State: actions.StatePendingApproval, PullRequests: prs, Rotated: p.Rotating()})
-	if err != nil {
-		return nil, fmt.Errorf("%s: the pull requests are open (%s) and the action could not record them: %w", tool, prList(prs), err)
 	}
 	t.d.Log.Info(tool, identity.LogAttr(ctx), "action", a.Name, "installation", one, "state", a.Status.State, "pullRequests", len(prs))
 	a, err = t.requestApproval(ctx, a, tool, test)
@@ -223,6 +221,9 @@ func (t *Tools) openPullRequests(ctx context.Context, env *planned, a *actions.A
 	var prs []actions.PullRequest
 	var unchanged []string
 	for _, pl := range planned {
+		if err := ctx.Err(); err != nil {
+			return prs, unchanged, err
+		}
 		tg := targets[pl.Repository]
 		if tg == nil {
 			continue
@@ -252,13 +253,38 @@ func (t *Tools) openPullRequests(ctx context.Context, env *planned, a *actions.A
 		}
 		opened, err := commit.Open(ctx, remote, req, []commit.Change{{Location: loc, Files: files}})
 		for _, o := range opened {
-			prs = append(prs, actions.PullRequest{Installation: p.Name, Repository: o.Repository.String(), Number: o.Number, URL: o.URL, State: actions.PullRequestOpen, Head: o.Head, HeadSHA: o.HeadSHA})
+			pr := actions.PullRequest{Installation: p.Name, Repository: o.Repository.String(), Number: o.Number, URL: o.URL, State: actions.PullRequestOpen, Head: o.Head, HeadSHA: o.HeadSHA}
+			prs = append(prs, pr)
+			if recordErr := t.recordPullRequest(ctx, a, pr); recordErr != nil {
+				return prs, unchanged, errors.Join(err, recordErr)
+			}
 		}
 		if err != nil {
 			return prs, unchanged, remoteError(pl.Repository, err)
 		}
 	}
-	return prs, unchanged, nil
+	return prs, unchanged, ctx.Err()
+}
+
+// A remote write can finish after the caller cancels. Its receipt and any
+// cleanup must still reach the Action, within a separate, bounded deadline.
+const commitRecoveryTimeout = 30 * time.Second
+
+func (t *Tools) recordCommitStatus(ctx context.Context, a *actions.Action, status actions.Status) error {
+	recordContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), commitRecoveryTimeout)
+	defer cancel()
+	updated, err := t.d.Actions.UpdateStatus(recordContext, a.Name, status)
+	if err != nil {
+		return fmt.Errorf("action %s could not record its pull requests (%s): %w", a.Name, prList(status.PullRequests), err)
+	}
+	*a = *updated
+	return nil
+}
+
+func (t *Tools) recordPullRequest(ctx context.Context, a *actions.Action, pr actions.PullRequest) error {
+	status := a.Status
+	status.PullRequests = append(slices.Clone(status.PullRequests), pr)
+	return t.recordCommitStatus(ctx, a, status)
 }
 
 // markersOf are the definition's enabled markers of the installations,
@@ -344,7 +370,9 @@ func (t *Tools) fail(ctx context.Context, tool string, a *actions.Action, remote
 	var left []string
 	open := len(openPRs(prs))
 	if remote != nil && open > 0 {
-		left = closeOpen(ctx, remote, prs)
+		cleanupContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), commitRecoveryTimeout)
+		left = closeOpen(cleanupContext, remote, prs)
+		cancel()
 	}
 	var outcome string
 	switch {
@@ -357,8 +385,9 @@ func (t *Tools) fail(ctx context.Context, tool string, a *actions.Action, remote
 	default:
 		outcome = fmt.Sprintf("its %d pull request(s) closed (%s)", open, prList(prs))
 	}
-	status := actions.Status{State: actions.StateFailed, PullRequests: prs, Result: &actions.Result{State: actions.StateFailed, Message: cause.Error() + "; " + outcome, At: now()}}
-	if _, err := t.d.Actions.UpdateStatus(ctx, a.Name, status); err != nil {
+	status := actions.Status{State: actions.StateFailed, PullRequests: prs, Rotated: a.Status.Rotated, Orphans: a.Status.Orphans,
+		Result: &actions.Result{State: actions.StateFailed, Message: cause.Error() + "; " + outcome, At: now()}}
+	if err := t.recordCommitStatus(ctx, a, status); err != nil {
 		return fmt.Errorf("%s: %w; and action %s could not record the failure: %v", tool, cause, a.Name, err)
 	}
 	t.d.Log.Info(tool, "action", a.Name, "state", actions.StateFailed, "pullRequests", len(prs), "stillOpen", len(openPRs(prs)))
@@ -611,9 +640,7 @@ func secretValues(v any) (map[string]string, error) {
 // guards the rest.
 func withMarkers(secrets map[string]string, onRecord []string) map[string]string {
 	out := make(map[string]string, len(secrets)+len(onRecord))
-	for field, value := range secrets {
-		out[field] = value
-	}
+	maps.Copy(out, secrets)
 	for _, field := range onRecord {
 		out[field] = render.Supplied(field)
 	}
@@ -672,8 +699,7 @@ func suppliedByTarget(secrets map[string]string, targets []plan.Installation) (m
 
 // remoteError says what GitHub refused and what the person can do about it.
 func remoteError(repository string, err error) error {
-	var auth *commit.AuthError
-	if errors.As(err, &auth) {
+	if auth, ok := errors.AsType[*commit.AuthError](err); ok {
 		return fmt.Errorf("GitHub refused your token on %s (%s, HTTP %d): the App %s must be installed on the repository with contents: write and pull requests: write, and you must be able to write there — %w", repository, auth.Op, auth.Status, ToolPrefix, err)
 	}
 	return fmt.Errorf("%s: %w", repository, err)
