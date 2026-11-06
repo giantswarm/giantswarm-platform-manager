@@ -189,5 +189,11 @@
       ],
       semanticCommitType: 'test',
     },
+    {
+      matchDatasources: ['docker'],
+      matchPackageNames: ['gsoci.azurecr.io/giantswarm/kagent/helm/kagent'],
+      versioning: 'semver',
+      allowedVersions: '>=1.27.0 <1.28.0',
+    },
   ],
 }
