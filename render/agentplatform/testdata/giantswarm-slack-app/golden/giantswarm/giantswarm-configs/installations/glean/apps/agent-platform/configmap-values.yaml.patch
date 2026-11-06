@@ -151,6 +151,9 @@ klausGateway:
     # klausGateway.slack.contextBotNames, read back so a reconcile keeps them.
     contextBotNames:
       - '*-alertmanager' # every installation's Alertmanager
+    # The slash command the installation's Slack app declares: the input
+    # klausGateway.slack.slashCommand, read back so a reconcile keeps it.
+    slashCommand: /swarmgeist-glean
   obo:
     enabled: true
     connectors:

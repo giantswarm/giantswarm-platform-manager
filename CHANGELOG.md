@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- agent-platform: the input `klausGateway.slack.slashCommand`, the slash command the installation's Slack app declares, with the comment above it (`slashCommandComment`). Read back from the configmap patch on record, so a reconcile keeps a command written there by hand instead of removing it as drift.
+
 ### Changed
 
 - agent-platform: a reconcile keeps an installation's muster toolset presets (`muster.muster.toolsetPresets`) and the extra connectors of muster's sign-in check (`muster.muster.oauth.server.dex.identityCheckConnectors`): both are carried from the record into the render (kind `kept`) instead of being removed as drift.

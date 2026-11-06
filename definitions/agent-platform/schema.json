@@ -618,6 +618,25 @@
               "x-renders": ["configmap:klausGateway.slack.contextBotNames"],
               "description": "The bot names whose posts reach an agent's thread context (klausGateway.slack.contextBotNames, klaus-gateway 4.8.1 or later): patterns matched against a bot post's Slack profile name (path.Match, case-insensitive), so one entry such as *-alertmanager admits every installation's Alertmanager app, each entry with the comment on its line, in the order given; beside klausGateway.slack.contextBotIDs, not in place of it. None, the key is not written and the gateway admits bots by ID only. Where the fleet policy runs the gateway only; read back from the configmap patch on record with each entry's comment, so a reconcile keeps the list; typed (--input 'klausGateway.slack.contextBotNames=[{\"value\": \"<pattern>\", \"comment\": \"<bots>\"}]'), it replaces it."
             },
+            "slashCommand": {
+              "type": "string",
+              "default": "",
+              "pattern": "^$|^/[a-z0-9_-]+$",
+              "x-source": "person",
+              "x-readback": {"file": "configmap", "key": "klausGateway.slack.slashCommand"},
+              "x-feature": "runtime",
+              "x-renders": ["configmap:klausGateway.slack.slashCommand"],
+              "description": "The slash command the installation's Slack app declares (klausGateway.slack.slashCommand, klaus-gateway 4.13.0 or later), such as /swarmgeist-glean: names are global per Slack workspace, so each app has its own, and the gateway's help and notices name it as the way to start a conversation. None, the key is not written. Where the fleet policy runs the gateway only; read back from the configmap patch on record with the comment above it, so a reconcile keeps it; typed (--input klausGateway.slack.slashCommand=/<command>), it replaces it, and an empty one lifts it."
+            },
+            "slashCommandComment": {
+              "type": "string",
+              "default": "",
+              "x-source": "person",
+              "x-readback": {"file": "configmap", "key": "klausGateway.slack.slashCommand", "kind": "comment", "skip": "^The slash command the installation's Slack app declares: the input\\s+klausGateway\\.slack\\.slashCommand,"},
+              "x-feature": "runtime",
+              "x-renders": ["configmap:klausGateway.slack.slashCommand"],
+              "description": "The comment above the slash command (klausGateway.slack.slashCommand), as a person wrote it on record or typed it (a line per line), read back so a reconcile keeps it; the generic comment naming the input reads back as none. Empty, the key carries the generic comment; no command carries none."
+            },
             "contextBotNamesComment": {
               "type": "string",
               "default": "",
