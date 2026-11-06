@@ -637,21 +637,10 @@ func (k *cluster) Get(ctx context.Context, namespace, resource, name string, sha
 	return doc.Resource, nil
 }
 
-// List reads the objects a label selector matches, as much of each as the
-// shape says.
+// List reads the objects a label selector matches, in the namespace or in
+// every namespace where it is empty, as much of each as the shape says.
 func (k *cluster) List(ctx context.Context, namespace, resource, labelSelector string, shape verify.Shape) ([]map[string]any, error) {
-	kind, group := kindArgs(resource)
-	args := map[string]any{"resourceType": kind, "fullOutput": true, "output": outputOf(shape), "limit": 200}
-	if namespace != "" {
-		args["namespace"] = namespace
-	}
-	if group != "" {
-		args["apiGroup"] = group
-	}
-	if labelSelector != "" {
-		args["labelSelector"] = labelSelector
-	}
-	text, err := k.call(ctx, opList, args)
+	text, err := k.call(ctx, opList, listArgs(namespace, resource, labelSelector, shape))
 	if err != nil {
 		return nil, err
 	}
@@ -662,6 +651,25 @@ func (k *cluster) List(ctx context.Context, namespace, resource, labelSelector s
 		return nil, fmt.Errorf("%s answered something other than a list for %s in %s: %.200q", k.tool(opList), resource, namespace, text)
 	}
 	return doc.Items, nil
+}
+
+// listArgs are mcp-kubernetes's list arguments: the namespace, or every
+// namespace where it is empty (the tool lists "default" without either).
+func listArgs(namespace, resource, labelSelector string, shape verify.Shape) map[string]any {
+	kind, group := kindArgs(resource)
+	args := map[string]any{"resourceType": kind, "fullOutput": true, "output": outputOf(shape), "limit": 200}
+	if namespace != "" {
+		args["namespace"] = namespace
+	} else {
+		args["allNamespaces"] = true
+	}
+	if group != "" {
+		args["apiGroup"] = group
+	}
+	if labelSelector != "" {
+		args["labelSelector"] = labelSelector
+	}
+	return args
 }
 
 // Logs reads a pod's log, the last tail lines (mcp-kubernetes takes 1 to 1000).

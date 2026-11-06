@@ -51,12 +51,6 @@ postgres:
 llmRouting:
   enabled: true
 kagent:
-  providers:
-    anthropic:
-      apiKeySecretRef: kagent-anthropic-key
-      config:
-        baseUrl: http://agentgateway.agent-platform.svc:8081
-        maxTokens: 32000
   oauth2-proxy:
     config:
       existingSecret: kagent-oauth2-proxy-credentials
