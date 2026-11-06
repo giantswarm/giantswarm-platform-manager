@@ -210,7 +210,7 @@ func (t *Tools) recordLiveVerify(ctx context.Context, a actions.Action, installa
 	status := a.Status
 	status.Probes = mergeProbes(status.Probes, installation, probesOf(installation, res))
 	status.Rollout = stagesOf(&a)
-	if i := stageIndex(status.Rollout, installation); i >= 0 && status.Result != nil && !actions.Settled(status.State) && verifyMoves(status.Rollout.Installations[i].State) {
+	if i := stageIndex(status.Rollout, installation); i >= 0 && !actions.Settled(status.State) && verifyMoves(status.Rollout.Installations[i].State) {
 		st := &status.Rollout.Installations[i]
 		prev := st.State
 		st.State, st.Message, _ = decideStage(prev, res)
