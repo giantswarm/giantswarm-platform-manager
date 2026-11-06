@@ -327,7 +327,7 @@ func TestDefaults(t *testing.T) {
 			boardRoadmap: map[string]any{"board": boardRoadmap, "teams": []any{}}},
 		"clusterManager": map[string]any{keyGitHub: map[string]any{keyEnabled: false}},
 		"modelManager":   map[string]any{keyGitHub: map[string]any{keyEnabled: false}},
-		"klausGateway":   map[string]any{"slack": map[string]any{"contextBotIDs": []any{}, "contextBotIDsComment": "", "contextBotNames": []any{}, "contextBotNamesComment": ""}},
+		"klausGateway":   map[string]any{"slack": map[string]any{"contextBotIDs": []any{}, "contextBotIDsComment": "", "contextBotNames": []any{}, "contextBotNamesComment": "", "slashCommand": "", "slashCommandComment": ""}},
 		"agentManager":   map[string]any{keyGitHub: map[string]any{keyEnabled: false}, keySkills: map[string]any{keyRepositories: []any{}, "appSecretName": "", "gitAuthSecretName": "", "mintGitAuthSecret": false}},
 		"versions":       map[string]any{"chart": "", "components": holds, "reasons": map[string]any{"chart": "", "components": holds}}}
 	if !reflect.DeepEqual(got, want) {
@@ -586,6 +586,41 @@ func TestCustomerPortalReadsBackThePortal(t *testing.T) {
 	}
 	if got[inputTokenBroker] != readBackName || got[inputGrafanaDomain] != readBackGrafana {
 		t.Errorf("read back %v, want the own broker and the deprecated grafana domain", got)
+	}
+}
+
+// TestAgentPlatformReadsBackSlashCommand reads the Slack app's slash command
+// back with the comment a person wrote above it; the generic comment reads
+// back as none.
+func TestAgentPlatformReadsBackSlashCommand(t *testing.T) {
+	def, _ := FindCapability(AgentPlatform)
+	for _, c := range []struct {
+		name, comment string
+		want          map[string]any
+	}{
+		{"a person's comment", "    # The command this installation's Slack app declares.\n", map[string]any{
+			"klausGateway.slack.slashCommandComment": "The command this installation's Slack app declares."}},
+		{"the generic comment", "    # The slash command the installation's Slack app declares: the input\n    # klausGateway.slack.slashCommand, read back so a reconcile keeps it.\n", map[string]any{}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			patch := "klausGateway:\n  slack:\n    enabled: true\n" + c.comment + "    slashCommand: /swarmgeist-rowan\n"
+			got, err := def.ReadBack(context.Background(), files(map[string]string{"acme/configs:" + def.EnabledMarker("rowan"): patch}), readBackInstallation, readBackName, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := map[string]any{"klausGateway.slack.slashCommand": "/swarmgeist-rowan"}
+			for k, v := range c.want {
+				want[k] = v
+			}
+			for k := range got {
+				if !strings.HasPrefix(k, "klausGateway.") {
+					delete(got, k)
+				}
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("read back %v, want %v", got, want)
+			}
+		})
 	}
 }
 

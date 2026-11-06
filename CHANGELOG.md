@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- agent-platform: the input `klausGateway.slack.slashCommand`, the slash command the installation's Slack app declares, with the comment above it (`slashCommandComment`). Read back from the configmap patch on record, so a reconcile keeps a command written there by hand instead of removing it as drift.
+
 ### Changed
 
 - agent-platform: where the meta chart the installation resolves is 4.175.0 or later (its release candidates from `4.175.0-rc.21` count; the 4 line's range, or a hold of `versions.chart` at or above it), the configmap patch carries no `kagent.providers`, and migration M43 removes `kagent.providers`, `kagent.defaultModelConfig` and `kagent.modelConfigs` from the record ([#824](https://github.com/giantswarm/giantswarm-platform-manager/issues/824)). On the 3 line and below that release the patch is unchanged: `kagent.providers.anthropic.model`, `kagent.providers.annotations` and `kagent.modelConfigs` stay kept while the render carries `kagent.providers` (the new removal field `keptWhile`). `live-kagent-provider-values` is probed only there.

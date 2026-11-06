@@ -154,6 +154,12 @@ type Input struct {
 	// the configmap patch on record so a reconcile keeps them.
 	ContextBotNames        []ContextBot
 	ContextBotNamesComment string
+	// SlashCommand is the person's choice of the slash command the
+	// installation's Slack app declares (klausGateway.slack.slashCommand), and
+	// SlashCommandComment the comment above it, read back from the configmap
+	// patch on record so a reconcile keeps them.
+	SlashCommand        string
+	SlashCommandComment string
 	// Components are the components the policy gives the installation, by
 	// name: its organisation's list and, where the policy names a Slack app
 	// for the installation, the chat gateway.
@@ -615,6 +621,8 @@ type document struct {
 			ContextBotIDsComment   string       `json:"contextBotIDsComment"`
 			ContextBotNames        []ContextBot `json:"contextBotNames"`
 			ContextBotNamesComment string       `json:"contextBotNamesComment"`
+			SlashCommand           string       `json:"slashCommand"`
+			SlashCommandComment    string       `json:"slashCommandComment"`
 		} `json:"slack"`
 	} `json:"klausGateway"`
 	Versions Versions `json:"versions"`
@@ -749,7 +757,7 @@ func Parse(raw any) (*Input, error) {
 		return nil, err
 	}
 	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, MCPBackends: d.NetworkPolicy.MCPBackends, LLMRateLimits: d.LLMRouting.RateLimits, LLMRateLimitsComment: d.LLMRouting.RateLimitsComment, SessionIdleTTL: d.Sessions.IdleTTL, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories, Hive: d.Hive,
-		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, ContextBotNames: d.KlausGateway.Slack.ContextBotNames, ContextBotNamesComment: d.KlausGateway.Slack.ContextBotNamesComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
+		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, ContextBotNames: d.KlausGateway.Slack.ContextBotNames, ContextBotNamesComment: d.KlausGateway.Slack.ContextBotNamesComment, SlashCommand: d.KlausGateway.Slack.SlashCommand, SlashCommandComment: d.KlausGateway.Slack.SlashCommandComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
 		ReleaseCandidates: pol.releaseCandidates(d.Installation)}
 	if in.Components, err = pol.components(in.Installation); err != nil {
 		return nil, err
@@ -911,6 +919,9 @@ func (in *Input) checkRecord() error {
 	}
 	if len(in.ContextBotNames) > 0 && !in.klausGateway() {
 		return refuse(fmt.Sprintf("%s names the bots whose posts reach the chat gateway's thread context, and the fleet policy names no Slack app for %s, so no gateway runs there", describe("klausGateway.slack.contextBotNames"), in.Installation.Name))
+	}
+	if in.SlashCommand != "" && !in.klausGateway() {
+		return refuse(fmt.Sprintf("%s names the slash command of the chat gateway's Slack app, and the fleet policy names no Slack app for %s, so no gateway runs there", describe("klausGateway.slack.slashCommand"), in.Installation.Name))
 	}
 	if in.AgentManagerSkills.set() && !in.agentManager() {
 		return refuse(fmt.Sprintf("%s asks for the agent-manager's skill catalog, and the fleet policy runs no agent-manager on %s's installations", describe("agentManager.skills"), in.Installation.Customer))

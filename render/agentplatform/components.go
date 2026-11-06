@@ -179,6 +179,9 @@ func (in *Input) klausGatewayValues() render.Map {
 	if names := commentedList(in.ContextBotNames); names != nil {
 		slack = append(slack, render.Entry{Key: "contextBotNames", Value: names, Comment: orGeneric(in.ContextBotNamesComment, "The bot names whose posts reach an agent's thread context: the input\nklausGateway.slack.contextBotNames, read back so a reconcile keeps them.")})
 	}
+	if in.SlashCommand != "" {
+		slack = append(slack, render.Entry{Key: "slashCommand", Value: in.SlashCommand, Comment: orGeneric(in.SlashCommandComment, "The slash command the installation's Slack app declares: the input\nklausGateway.slack.slashCommand, read back so a reconcile keeps it.")})
+	}
 	m = append(m, e("slack", slack))
 	m = append(m, e("obo", render.Map{e("enabled", true),
 		e("connectors", render.Map{e("enabled", g.OBO.Connectors)}),
