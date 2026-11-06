@@ -109,6 +109,9 @@ func (t *Tools) loadAction(ctx context.Context, tool string, args map[string]any
 		return nil, nil, fmt.Errorf("%s: %w", tool, err)
 	}
 	a = t.resyncAs(ctx, a)
+	if (tool == ToolApproveAction || tool == ToolMergeAction) && (a.Status.State == actions.StatePendingApproval || a.Status.State == actions.StateReadyToMerge) && a.Status.Commit != nil && !a.Status.Commit.Complete {
+		return nil, nil, fmt.Errorf("%s: action %s is still creating pull requests; deny it to stop creation", tool, a.Name)
+	}
 	if !slices.Contains(states, a.Status.State) {
 		return nil, nil, fmt.Errorf("%s: action %s is %s, not %s%s", tool, a.Name, a.Status.State, strings.Join(states, " or "), decidedBy(a))
 	}
@@ -163,7 +166,7 @@ func (t *Tools) approve(ctx context.Context, args map[string]any) (any, error) {
 	approval := *approvalOf(&status)
 	approval.Decision, approval.DecidedBy, approval.At = actions.DecisionApproved, id.Login, now()
 	status.Approval = &approval
-	a, err = t.d.Actions.UpdateStatus(ctx, a.Name, status)
+	a, err = t.d.Actions.UpdateStatus(ctx, a, status)
 	if err != nil {
 		return nil, fmt.Errorf("%s: the approving reviews are submitted and the action could not record the decision: %w", ToolApproveAction, err)
 	}
@@ -185,7 +188,7 @@ func (t *Tools) denyAction(ctx context.Context, req mcp.CallToolRequest) (*mcp.C
 // reverted, or still reading its change live — is its actor's to withdraw
 // (withdraw).
 func (t *Tools) deny(ctx context.Context, args map[string]any) (any, error) {
-	a, id, err := t.loadAction(ctx, ToolDenyAction, args, actions.StatePendingApproval, actions.StateReadyToMerge, actions.StateFailed, actions.StateReverted, actions.StateRollingOut, actions.StateWaitingForCustomer, actions.StateEnabled, actions.StateDrifted)
+	a, id, err := t.loadAction(ctx, ToolDenyAction, args, actions.StatePendingApproval, actions.StateReadyToMerge, actions.StateFailed, actions.StateDenied, actions.StateReverted, actions.StateRollingOut, actions.StateWaitingForCustomer, actions.StateEnabled, actions.StateDrifted)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +199,7 @@ func (t *Tools) deny(ctx context.Context, args map[string]any) (any, error) {
 	}
 	// An action that needs no review is denied like one pending the team's
 	// decision until it is merged.
-	if a.Status.Approval != nil && a.Status.Approval.Decision != "" && !noReview(a) {
+	if a.Status.Approval != nil && a.Status.Approval.Decision != "" && !noReview(a) && !denialPending(a) {
 		return nil, fmt.Errorf("%s: action %s is already %s by %s", ToolDenyAction, a.Name, a.Status.Approval.Decision, a.Status.Approval.DecidedBy)
 	}
 	if reason == "" {
@@ -207,35 +210,63 @@ func (t *Tools) deny(ctx context.Context, args map[string]any) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", ToolDenyAction, err)
 	}
-	status := a.Status
-	open := len(openPRs(status.PullRequests))
-	if left := closeOpen(ctx, remote, status.PullRequests); len(left) > 0 {
-		return nil, fmt.Errorf("%s: closing as %s: %s", ToolDenyAction, id.Login, strings.Join(left, "; "))
-	}
-	approval := *approvalOf(&status)
-	approval.Decision, approval.DecidedBy, approval.Reason, approval.At = actions.DecisionDenied, id.Login, reason, now()
-	status.Approval = &approval
-	if status.State == actions.StateFailed {
-		status.Result.Message += fmt.Sprintf("; denied by %s: %s (%d pull request(s) closed)", id.Login, reason, open)
-	} else {
-		status.State = actions.StateDenied
-		status.Result = &actions.Result{State: actions.StateDenied, Message: fmt.Sprintf("denied by %s: %s", id.Login, reason), At: now()}
-		// A wave's stages were pending approval or ready to merge too;
-		// denied, the files' state stands for each of them.
-		if status.Rollout != nil {
-			for i := range status.Rollout.Installations {
-				if s := status.Rollout.Installations[i].State; s == actions.StatePendingApproval || s == actions.StateReadyToMerge {
-					status.Rollout.Installations[i].State = actions.StateDenied
+	if err := t.recordCommitStatus(ctx, a, func(status *actions.Status) error {
+		if !slices.Contains([]string{actions.StatePendingApproval, actions.StateReadyToMerge, actions.StateFailed, actions.StateDenied}, status.State) {
+			return fmt.Errorf("%s: action %s is %s; read it again before deciding", ToolDenyAction, a.Name, status.State)
+		}
+		if status.Approval != nil && status.Approval.Decision != "" && status.Approval.Decision != actions.DecisionNotRequired && !denialPending(&actions.Action{Status: *status}) {
+			return fmt.Errorf("%s: action %s is already %s by %s", ToolDenyAction, a.Name, status.Approval.Decision, status.Approval.DecidedBy)
+		}
+		approval := *approvalOf(status)
+		approval.Decision, approval.DecidedBy, approval.Reason, approval.At = actions.DecisionDenied, id.Login, reason, now()
+		status.Approval = &approval
+		if status.State == actions.StateFailed {
+			if status.Result == nil {
+				status.Result = &actions.Result{State: actions.StateFailed, At: now()}
+			}
+			status.Result.Message += fmt.Sprintf("; denied by %s: %s", id.Login, reason)
+		} else {
+			status.State = actions.StateDenied
+			status.Result = &actions.Result{State: actions.StateDenied, Message: fmt.Sprintf("denied by %s: %s", id.Login, reason), At: now()}
+			if status.Rollout != nil {
+				for i := range status.Rollout.Installations {
+					if state := status.Rollout.Installations[i].State; state == actions.StatePendingApproval || state == actions.StateReadyToMerge {
+						status.Rollout.Installations[i].State = actions.StateDenied
+					}
 				}
 			}
 		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
-	a, err = t.d.Actions.UpdateStatus(ctx, a.Name, status)
-	if err != nil {
-		return nil, fmt.Errorf("%s: the pull requests are closed and the action could not record the denial: %w", ToolDenyAction, err)
+	prs := slices.Clone(a.Status.PullRequests)
+	open := len(openPRs(prs))
+	left := closeOpen(ctx, remote, prs)
+	if err := t.recordCommitStatus(ctx, a, func(status *actions.Status) error {
+		for _, pr := range prs {
+			if pr.State != actions.PullRequestClosed {
+				continue
+			}
+			for index := range status.PullRequests {
+				if status.PullRequests[index].Repository == pr.Repository && status.PullRequests[index].Number == pr.Number {
+					status.PullRequests[index].State = actions.PullRequestClosed
+				}
+			}
+		}
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("%s: the action could not record cleanup: %w", ToolDenyAction, err)
+	}
+	if len(left) > 0 {
+		return nil, fmt.Errorf("%s: closing as %s: %s", ToolDenyAction, id.Login, strings.Join(left, "; "))
 	}
 	t.d.Log.Info("action_denied", identity.LogAttr(ctx), "action", a.Name, "state", a.Status.State, "pullRequests", len(a.Status.PullRequests), "closed", open)
 	return Decision{Action: a, Message: fmt.Sprintf("%s denied action %s (%s): %s — %d pull request(s) closed (%s).", id.Login, a.Name, a.Status.State, reason, open, prList(a.Status.PullRequests))}, nil
+}
+
+func denialPending(a *actions.Action) bool {
+	return a.Status.Approval != nil && a.Status.Approval.Decision == actions.DecisionDenied && (len(openPRs(a.Status.PullRequests)) > 0 || (a.Status.Commit != nil && len(a.Status.Commit.Pending) > 0))
 }
 
 func (t *Tools) mergeAction(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -300,7 +331,7 @@ func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
 			case errors.Is(err, commit.ErrHeadMoved):
 				return nil, t.fail(ctx, ToolMergeAction, a, nil, status.PullRequests, fmt.Errorf("%s#%d: %w — the approval covered the head the pull request was opened with; open a new action", pr.Repository, pr.Number, err))
 			default:
-				if _, err2 := t.d.Actions.UpdateStatus(ctx, a.Name, status); err2 != nil {
+				if _, err2 := t.d.Actions.UpdateStatus(ctx, a, status); err2 != nil {
 					return nil, fmt.Errorf("%s: %w; and the action could not record the pull requests merged so far: %v", ToolMergeAction, remoteError(pr.Repository, err), err2)
 				}
 				return nil, fmt.Errorf("%s: merging %s#%d as %s: %w", ToolMergeAction, pr.Repository, pr.Number, id.Login, remoteError(pr.Repository, err))
@@ -316,7 +347,7 @@ func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
 	if res.Waiting == "" && res.Stage == "" {
 		return nil, fmt.Errorf("%s: every stage of action %s is enabled; nothing is left to merge", ToolMergeAction, a.Name)
 	}
-	a, err = t.d.Actions.UpdateStatus(ctx, a.Name, status)
+	a, err = t.d.Actions.UpdateStatus(ctx, a, status)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %d pull request(s) merged (%s) and the action could not record it: %w", ToolMergeAction, len(res.Merged), prList(res.Merged), err)
 	}
@@ -483,6 +514,14 @@ const reviewNotRequired = "every target is a test installation: no Team review, 
 // target a test installation — recorded as not required and the action ready
 // to merge, nothing posted until the merge tells the standup channel.
 func (t *Tools) requestApproval(ctx context.Context, a *actions.Action, tool string, test bool) (*actions.Action, error) {
+	latest, err := t.d.Actions.Get(ctx, a.Name)
+	if err != nil {
+		return nil, err
+	}
+	if err := commitActive(latest); err != nil {
+		return nil, err
+	}
+	*a = *latest
 	if !test {
 		return t.askApproval(ctx, a, tool)
 	}
@@ -491,7 +530,7 @@ func (t *Tools) requestApproval(ctx context.Context, a *actions.Action, tool str
 	approval.Decision, approval.Reason, approval.At = actions.DecisionNotRequired, reviewNotRequired, now()
 	status.Approval = &approval
 	actions.ReadyToMerge(&status)
-	out, err := t.d.Actions.UpdateStatus(ctx, a.Name, status)
+	out, err := t.d.Actions.UpdateStatus(ctx, a, status)
 	if err != nil {
 		return nil, fmt.Errorf("%s: action %s needs no review and could not record it: %w", tool, a.Name, err)
 	}
@@ -590,7 +629,7 @@ func (t *Tools) askApproval(ctx context.Context, a *actions.Action, tool string)
 	approval := *approvalOf(&status)
 	approval.Channel, approval.ReviewID, approval.PostedAt = receipt.Channel, receipt.ID, now()
 	status.Approval = &approval
-	a, err = t.d.Actions.UpdateStatus(ctx, a.Name, status)
+	a, err = t.d.Actions.UpdateStatus(ctx, a, status)
 	if err != nil {
 		return nil, fmt.Errorf("%s: the review of action %s is posted (%s) and the action could not record it: %w", tool, a.Name, receipt.ID, err)
 	}

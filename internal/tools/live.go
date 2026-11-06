@@ -220,6 +220,6 @@ func (t *Tools) recordLiveVerify(ctx context.Context, a actions.Action, installa
 		applyStage(&status, i, prev)
 		t.tellApplied(ctx, &a, &status, i)
 	}
-	_, err := t.d.Actions.UpdateStatus(ctx, a.Name, status)
+	_, err := t.d.Actions.UpdateStatus(ctx, &a, status)
 	return err
 }
