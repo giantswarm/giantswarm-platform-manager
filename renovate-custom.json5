@@ -189,5 +189,11 @@
       ],
       semanticCommitType: 'test',
     },
+    {
+      matchDatasources: ['docker'],
+      matchPackageNames: ['gsoci.azurecr.io/charts/giantswarm/valkey'],
+      versioning: 'semver',
+      allowedVersions: '<=0.4.15',
+    },
   ],
 }
