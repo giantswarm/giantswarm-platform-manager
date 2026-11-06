@@ -44,6 +44,7 @@ const (
 	keyEnabled = "enabled"
 	keyGitHub  = "github"
 	keySkills  = "skills"
+	keySlack   = "slack"
 	// keyRepositories is the repositories list of a skills or plans choice.
 	keyRepositories = "repositories"
 	// keyApp, keyToken and keyMint are the agent-manager skills inputs naming
@@ -654,13 +655,13 @@ func TestRefusals(t *testing.T) {
 			m["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: true}}
 		}), secrets, ErrInput, "clusterManager.github.enabled"},
 		{"context bots where no chat gateway runs", clone(func(m map[string]any) {
-			m["klausGateway"] = map[string]any{"slack": map[string]any{"contextBotIDs": []any{map[string]any{"value": "U0000000001"}}}}
+			m["klausGateway"] = map[string]any{keySlack: map[string]any{"contextBotIDs": []any{map[string]any{"value": "U0000000001"}}}}
 		}), secrets, ErrInput, "klausGateway.slack.contextBotIDs"},
 		{"context bot names where no chat gateway runs", clone(func(m map[string]any) {
-			m["klausGateway"] = map[string]any{"slack": map[string]any{"contextBotNames": []any{map[string]any{"value": "*-alertmanager"}}}}
+			m["klausGateway"] = map[string]any{keySlack: map[string]any{"contextBotNames": []any{map[string]any{"value": "*-alertmanager"}}}}
 		}), secrets, ErrInput, "klausGateway.slack.contextBotNames"},
 		{"a slash command where no chat gateway runs", clone(func(m map[string]any) {
-			m["klausGateway"] = map[string]any{"slack": map[string]any{"slashCommand": "/swarmgeist-rowan"}}
+			m["klausGateway"] = map[string]any{keySlack: map[string]any{"slashCommand": "/swarmgeist-rowan"}}
 		}), secrets, ErrInput, "klausGateway.slack.slashCommand"},
 		{"model-manager commit mode on the 3 line", clone(func(m map[string]any) {
 			m["installation"].(map[string]any)["chartLine"] = lineThree
