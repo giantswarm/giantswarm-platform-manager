@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/client-go/util/retry"
+
 	"github.com/giantswarm/gitops-commit/commit"
 	"github.com/giantswarm/gitops-commit/provenance"
 	"github.com/giantswarm/gitops-commit/sopsenc"
@@ -176,7 +178,7 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 		return res, nil
 	}
 
-	a, err := t.record(ctx, spec, actions.Status{State: actions.StatePendingApproval, Rotated: p.Rotating()})
+	a, err := t.record(ctx, spec, actions.Status{State: actions.StatePendingApproval, Rotated: p.Rotating(), Commit: &actions.CommitStatus{}})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
 	}
@@ -188,6 +190,9 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	prs, unchanged, err := t.openPullRequests(ctx, env, a, p, out.PullRequests, rendered.Files, remote, title, prBody(a, p, out.PullRequests), values)
 	res.UnchangedRepositories = unchanged
 	if err != nil {
+		return nil, t.fail(ctx, tool, a, remote, prs, err)
+	}
+	if err := t.finishCommit(ctx, a); err != nil {
 		return nil, t.fail(ctx, tool, a, remote, prs, err)
 	}
 	t.d.Log.Info(tool, identity.LogAttr(ctx), "action", a.Name, "installation", one, "state", a.Status.State, "pullRequests", len(prs))
@@ -251,14 +256,8 @@ func (t *Tools) openPullRequests(ctx context.Context, env *planned, a *actions.A
 		if err != nil {
 			return prs, unchanged, err
 		}
-		opened, err := commit.Open(ctx, remote, req, []commit.Change{{Location: loc, Files: files}})
-		for _, o := range opened {
-			pr := actions.PullRequest{Installation: p.Name, Repository: o.Repository.String(), Number: o.Number, URL: o.URL, State: actions.PullRequestOpen, Head: o.Head, HeadSHA: o.HeadSHA}
-			prs = append(prs, pr)
-			if recordErr := t.recordPullRequest(ctx, a, pr); recordErr != nil {
-				return prs, unchanged, errors.Join(err, recordErr)
-			}
-		}
+		opened, err := t.openCommitPullRequest(ctx, a, remote, req, commit.Change{Location: loc, Files: files}, p.Name)
+		prs = append(prs, opened...)
 		if err != nil {
 			return prs, unchanged, remoteError(pl.Repository, err)
 		}
@@ -270,21 +269,118 @@ func (t *Tools) openPullRequests(ctx context.Context, env *planned, a *actions.A
 // cleanup must still reach the Action, within a separate, bounded deadline.
 const commitRecoveryTimeout = 30 * time.Second
 
-func (t *Tools) recordCommitStatus(ctx context.Context, a *actions.Action, status actions.Status) error {
+func (t *Tools) recordCommitStatus(ctx context.Context, a *actions.Action, mutate func(*actions.Status) error) error {
 	recordContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), commitRecoveryTimeout)
 	defer cancel()
-	updated, err := t.d.Actions.UpdateStatus(recordContext, a.Name, status)
-	if err != nil {
-		return fmt.Errorf("action %s could not record its pull requests (%s): %w", a.Name, prList(status.PullRequests), err)
-	}
-	*a = *updated
-	return nil
+	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		latest, err := t.d.Actions.Get(recordContext, a.Name)
+		if err != nil {
+			return err
+		}
+		status := latest.Status
+		if err := mutate(&status); err != nil {
+			return err
+		}
+		updated, err := t.d.Actions.UpdateStatus(recordContext, latest, status)
+		if err == nil {
+			*a = *updated
+		}
+		return err
+	})
 }
 
 func (t *Tools) recordPullRequest(ctx context.Context, a *actions.Action, pr actions.PullRequest) error {
-	status := a.Status
-	status.PullRequests = append(slices.Clone(status.PullRequests), pr)
-	return t.recordCommitStatus(ctx, a, status)
+	return t.recordCommitStatus(ctx, a, func(status *actions.Status) error {
+		if !slices.ContainsFunc(status.PullRequests, func(existing actions.PullRequest) bool {
+			return existing.Repository == pr.Repository && existing.Number == pr.Number
+		}) {
+			status.PullRequests = append(status.PullRequests, pr)
+		}
+		if status.Commit != nil {
+			status.Commit.Pending = slices.DeleteFunc(status.Commit.Pending, func(intent actions.PullRequestIntent) bool {
+				return intent.Repository == pr.Repository && intent.Head == pr.Head
+			})
+		}
+		return nil
+	})
+}
+
+func commitActive(a *actions.Action) error {
+	if a.Status.State != actions.StatePendingApproval || (a.Status.Approval != nil && a.Status.Approval.Decision != "") {
+		return fmt.Errorf("action %s is %s; pull request creation stopped", a.Name, a.Status.State)
+	}
+	return nil
+}
+
+type openingRemote struct {
+	commit.Remote
+	attempted bool
+}
+
+func (r *openingRemote) OpenPullRequest(ctx context.Context, repository commit.Repository, head, base, title, body string) (commit.PullRequest, error) {
+	r.attempted = true
+	return r.Remote.OpenPullRequest(ctx, repository, head, base, title, body)
+}
+
+func (t *Tools) openCommitPullRequest(ctx context.Context, a *actions.Action, remote commit.Remote, request commit.Request, change commit.Change, installation string) ([]actions.PullRequest, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	intent := actions.PullRequestIntent{Installation: installation, Repository: change.Location.Repository.String(), Head: request.Branch}
+	if err := t.recordCommitStatus(ctx, a, func(status *actions.Status) error {
+		if err := commitActive(&actions.Action{Name: a.Name, Status: *status}); err != nil {
+			return err
+		}
+		if status.Commit == nil {
+			status.Commit = &actions.CommitStatus{}
+		}
+		status.Commit.Pending = append(status.Commit.Pending, intent)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	trackedRemote := &openingRemote{Remote: remote}
+	opened, openErr := commit.Open(ctx, trackedRemote, request, []commit.Change{change})
+	if openErr != nil && !trackedRemote.attempted {
+		recordErr := t.recordCommitStatus(ctx, a, func(status *actions.Status) error {
+			status.Commit.Pending = slices.DeleteFunc(status.Commit.Pending, func(pending actions.PullRequestIntent) bool { return pending == intent })
+			return nil
+		})
+		return nil, errors.Join(openErr, recordErr)
+	}
+	if openErr != nil {
+		recoveryContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), commitRecoveryTimeout)
+		found, exists, lookupErr := remote.FindPullRequest(recoveryContext, change.Location.Repository, request.Branch)
+		cancel()
+		if exists && lookupErr == nil {
+			opened = append(opened, found)
+		}
+		openErr = errors.Join(openErr, lookupErr)
+	}
+	var prs []actions.PullRequest
+	for _, openedPR := range opened {
+		pr := actions.PullRequest{Installation: installation, Repository: openedPR.Repository.String(), Number: openedPR.Number, URL: openedPR.URL, State: actions.PullRequestOpen, Head: openedPR.Head, HeadSHA: openedPR.HeadSHA}
+		prs = append(prs, pr)
+		if err := t.recordPullRequest(ctx, a, pr); err != nil {
+			return prs, errors.Join(openErr, err)
+		}
+	}
+	return prs, errors.Join(openErr, commitActive(a), ctx.Err())
+}
+
+func (t *Tools) finishCommit(ctx context.Context, a *actions.Action) error {
+	return t.recordCommitStatus(ctx, a, func(status *actions.Status) error {
+		if err := commitActive(&actions.Action{Name: a.Name, Status: *status}); err != nil {
+			return err
+		}
+		if status.Commit != nil {
+			if len(status.Commit.Pending) > 0 {
+				return fmt.Errorf("action %s has unresolved pull request writes", a.Name)
+			}
+			status.Commit.Complete = true
+		}
+		return ctx.Err()
+	})
 }
 
 // markersOf are the definition's enabled markers of the installations,
@@ -377,7 +473,7 @@ func (t *Tools) fail(ctx context.Context, tool string, a *actions.Action, remote
 	var outcome string
 	switch {
 	case open == 0:
-		outcome = "no pull request open"
+		outcome = "no confirmed pull request open"
 	case remote == nil:
 		outcome = fmt.Sprintf("%d pull request(s) open (%s)", open, prList(prs))
 	case len(left) > 0:
@@ -385,13 +481,41 @@ func (t *Tools) fail(ctx context.Context, tool string, a *actions.Action, remote
 	default:
 		outcome = fmt.Sprintf("its %d pull request(s) closed (%s)", open, prList(prs))
 	}
-	status := actions.Status{State: actions.StateFailed, PullRequests: prs, Rotated: a.Status.Rotated, Orphans: a.Status.Orphans,
-		Result: &actions.Result{State: actions.StateFailed, Message: cause.Error() + "; " + outcome, At: now()}}
-	if err := t.recordCommitStatus(ctx, a, status); err != nil {
+	if err := t.recordCommitStatus(ctx, a, func(status *actions.Status) error {
+		for _, pr := range prs {
+			index := slices.IndexFunc(status.PullRequests, func(existing actions.PullRequest) bool {
+				return existing.Repository == pr.Repository && existing.Number == pr.Number
+			})
+			if index < 0 {
+				status.PullRequests = append(status.PullRequests, pr)
+			} else if status.PullRequests[index].State == actions.PullRequestOpen {
+				status.PullRequests[index] = pr
+			}
+			if status.Commit != nil {
+				status.Commit.Pending = slices.DeleteFunc(status.Commit.Pending, func(intent actions.PullRequestIntent) bool {
+					return intent.Repository == pr.Repository && intent.Head == pr.Head
+				})
+			}
+		}
+		message := cause.Error() + "; " + outcome
+		if status.Commit != nil && len(status.Commit.Pending) > 0 {
+			message += fmt.Sprintf("; %d pull request write(s) unresolved; read or deny the Action again to recover them", len(status.Commit.Pending))
+		}
+		if status.State != actions.StateDenied && (status.Approval == nil || status.Approval.Decision != actions.DecisionDenied) {
+			status.State = actions.StateFailed
+			status.Result = &actions.Result{State: actions.StateFailed, Message: message, At: now()}
+		} else if status.Result != nil {
+			status.Result.Message += "; " + message
+		}
+		return nil
+	}); err != nil {
 		return fmt.Errorf("%s: %w; and action %s could not record the failure: %v", tool, cause, a.Name, err)
 	}
-	t.d.Log.Info(tool, "action", a.Name, "state", actions.StateFailed, "pullRequests", len(prs), "stillOpen", len(openPRs(prs)))
-	return fmt.Errorf("%s: %w — action %s is failed, %s", tool, cause, a.Name, outcome)
+	if a.Status.Commit != nil && len(a.Status.Commit.Pending) > 0 {
+		outcome += fmt.Sprintf("; %d pull request write(s) unresolved", len(a.Status.Commit.Pending))
+	}
+	t.d.Log.Info(tool, "action", a.Name, "state", a.Status.State, "pullRequests", len(prs), "stillOpen", len(openPRs(prs)))
+	return fmt.Errorf("%s: %w — action %s is %s, %s", tool, cause, a.Name, a.Status.State, outcome)
 }
 
 // closeOpen closes every open pull request of prs as the remote's person,

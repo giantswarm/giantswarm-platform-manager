@@ -124,7 +124,7 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
 	}
-	a, err := t.d.Actions.Create(ctx, actions.Action{Name: name, Spec: spec, Status: actions.Status{State: actions.StatePendingApproval, Rollout: rollout, Rotated: rotated}})
+	a, err := t.d.Actions.Create(ctx, actions.Action{Name: name, Spec: spec, Status: actions.Status{State: actions.StatePendingApproval, Rollout: rollout, Rotated: rotated, Commit: &actions.CommitStatus{}}})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
 	}
@@ -157,6 +157,9 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		if err != nil {
 			return nil, t.fail(ctx, tool, a, remote, prs, err)
 		}
+	}
+	if err := t.finishCommit(ctx, a); err != nil {
+		return nil, t.fail(ctx, tool, a, remote, prs, err)
 	}
 	t.d.Log.Info(tool, identity.LogAttr(ctx), "action", a.Name, "wave", strings.Join(res.Order, ","), "skipped", len(res.Skipped), "pullRequests", len(prs))
 	a, err = t.requestApproval(ctx, a, tool, test)

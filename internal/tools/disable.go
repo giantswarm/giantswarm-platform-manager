@@ -404,7 +404,7 @@ func (t *Tools) disableCommit(ctx context.Context, args map[string]any) (any, er
 	spec := actions.Spec{Actor: actions.Actor{Login: id.Login, ID: id.ID, Email: id.Email}, Capability: out.Capability, Installations: []string{one}, Inputs: env.inputs[one], Kind: actions.KindDisable,
 		InputsByInstallation: map[string]map[string]any{one: env.inputs[one]}, Customer: env.byName[one].Customer != env.hub.Customer, AccountEngineers: accountEngineers(env, one), AccountEngineerOf: accountEngineerOf(env, one), Reason: reason, Markers: markersOf(def, env, one),
 		Change: fmt.Sprintf("%d file(s) to delete, %d to update", deleted, updated), Changes: map[string][]string{one: disableSummary(out.Plan)}}
-	a, err := t.record(ctx, spec, actions.Status{State: actions.StatePendingApproval, Orphans: orphansFrom(one, out.Plan.Checklist)})
+	a, err := t.record(ctx, spec, actions.Status{State: actions.StatePendingApproval, Orphans: orphansFrom(one, out.Plan.Checklist), Commit: &actions.CommitStatus{}})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
 	}
@@ -414,6 +414,9 @@ func (t *Tools) disableCommit(ctx context.Context, args map[string]any) (any, er
 	}
 	prs, err := t.openRemovals(ctx, env.c, a, out.Plan, remote, prTitle(actions.KindDisable, one, out.Capability, a.Name, ""), disableBody(a, out))
 	if err != nil {
+		return nil, t.fail(ctx, tool, a, remote, prs, err)
+	}
+	if err := t.finishCommit(ctx, a); err != nil {
 		return nil, t.fail(ctx, tool, a, remote, prs, err)
 	}
 	t.d.Log.Info(tool, identity.LogAttr(ctx), "action", a.Name, "installation", one, "state", a.Status.State, "pullRequests", len(prs))
@@ -479,14 +482,8 @@ func (t *Tools) openRemovals(ctx context.Context, c *gh.Client, a *actions.Actio
 		if err != nil {
 			return prs, err
 		}
-		opened, err := commit.Open(ctx, remote, req, []commit.Change{{Location: loc, Files: files}})
-		for _, o := range opened {
-			pr := actions.PullRequest{Installation: d.Name, Repository: o.Repository.String(), Number: o.Number, URL: o.URL, State: actions.PullRequestOpen, Head: o.Head, HeadSHA: o.HeadSHA}
-			prs = append(prs, pr)
-			if recordErr := t.recordPullRequest(ctx, a, pr); recordErr != nil {
-				return prs, errors.Join(err, recordErr)
-			}
-		}
+		opened, err := t.openCommitPullRequest(ctx, a, remote, req, commit.Change{Location: loc, Files: files}, d.Name)
+		prs = append(prs, opened...)
 		if err != nil {
 			return prs, remoteError(pl.Repository, err)
 		}

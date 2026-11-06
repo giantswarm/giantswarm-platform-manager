@@ -194,7 +194,7 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 		}
 		out.Next = nextAfter(a, status, i)
 	}
-	a, err = t.d.Actions.UpdateStatus(ctx, a.Name, status)
+	a, err = t.d.Actions.UpdateStatus(ctx, a, status)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %s is %s and the action could not record it: %w", ToolWatchAction, st.Name, st.State, err)
 	}

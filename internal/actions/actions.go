@@ -43,11 +43,12 @@ var ErrNotFound = errors.New("action not found")
 
 // Action is the record as the tools answer it.
 type Action struct {
-	Name      string    `json:"name"`
-	Namespace string    `json:"namespace"`
-	CreatedAt time.Time `json:"createdAt"`
-	Spec      Spec      `json:"spec"`
-	Status    Status    `json:"status"`
+	ResourceVersion string    `json:"-"`
+	Name            string    `json:"name"`
+	Namespace       string    `json:"namespace"`
+	CreatedAt       time.Time `json:"createdAt"`
+	Spec            Spec      `json:"spec"`
+	Status          Status    `json:"status"`
 }
 
 // Spec is what was asked: by whom, on which installations, which capability,
@@ -124,6 +125,7 @@ type Actor struct {
 
 // Status is how the action went, under the status subresource.
 type Status struct {
+	Commit *CommitStatus `json:"commit,omitempty"`
 	// State is one of the installations' states an action produces —
 	// pending approval, ready to merge, rolling out, waiting for the
 	// customer, enabled, drifted, failed — or one of the action's own: refused, denied,
@@ -153,6 +155,19 @@ type Status struct {
 	// reverted: who withdrew it, why and when (deny_action on a merged
 	// action). The review's thread carries the same.
 	Withdrawal *Withdrawal `json:"withdrawal,omitempty"`
+}
+
+// CommitStatus fences approval until creation finishes and retains uncertain remote writes.
+type CommitStatus struct {
+	Complete bool                `json:"complete"`
+	Pending  []PullRequestIntent `json:"pending,omitempty"`
+}
+
+// PullRequestIntent identifies a remote write before its result is known.
+type PullRequestIntent struct {
+	Installation string `json:"installation"`
+	Repository   string `json:"repository"`
+	Head         string `json:"head"`
 }
 
 // Withdrawal is the actor withdrawing a merged action, with the reason.
@@ -370,7 +385,7 @@ func fromUnstructured(u *unstructured.Unstructured) (*Action, error) {
 		return nil, fmt.Errorf("actions: %s/%s: %w", u.GetNamespace(), u.GetName(), err)
 	}
 	ReadyToMerge(&body.Status)
-	return &Action{Name: u.GetName(), Namespace: u.GetNamespace(), CreatedAt: u.GetCreationTimestamp().Time, Spec: body.Spec, Status: body.Status}, nil
+	return &Action{ResourceVersion: u.GetResourceVersion(), Name: u.GetName(), Namespace: u.GetNamespace(), CreatedAt: u.GetCreationTimestamp().Time, Spec: body.Spec, Status: body.Status}, nil
 }
 
 // ReadyToMerge moves a status pending approval whose approval is not
@@ -403,6 +418,7 @@ func Unstructured(a Action) *unstructured.Unstructured {
 		"metadata": map[string]any{"name": a.Name, "namespace": a.Namespace, "creationTimestamp": a.CreatedAt.UTC().Format(time.RFC3339)},
 		"spec":     spec, "status": status,
 	}}
+	u.SetResourceVersion(a.ResourceVersion)
 	return u
 }
 
@@ -544,8 +560,8 @@ const (
 type Writer interface {
 	// Create stores a new Action; its name must be unique in the namespace.
 	Create(ctx context.Context, a Action) (*Action, error)
-	// UpdateStatus replaces the status of the Action called name.
-	UpdateStatus(ctx context.Context, name string, s Status) (*Action, error)
+	// UpdateStatus replaces the status only if the Action's resourceVersion still matches.
+	UpdateStatus(ctx context.Context, a *Action, s Status) (*Action, error)
 }
 
 // Store reads and writes Actions: what the tools run with.
@@ -560,27 +576,28 @@ func (c *Client) Create(ctx context.Context, a Action) (*Action, error) {
 	if a.CreatedAt.IsZero() {
 		a.CreatedAt = time.Now()
 	}
-	_, err := c.c.Resource(GVR).Namespace(c.ns).Create(ctx, Unstructured(a), metav1.CreateOptions{})
+	u, err := c.c.Resource(GVR).Namespace(c.ns).Create(ctx, Unstructured(a), metav1.CreateOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("actions: create %s/%s: %w", c.ns, a.Name, err)
 	}
 	// The status subresource is written apart from the object: a Create
 	// carries none, so the initial status follows in its own write.
-	return c.UpdateStatus(ctx, a.Name, a.Status)
+	a.ResourceVersion = u.GetResourceVersion()
+	return c.UpdateStatus(ctx, &a, a.Status)
 }
 
-// UpdateStatus replaces the status of the Action called name.
-func (c *Client) UpdateStatus(ctx context.Context, name string, s Status) (*Action, error) {
+// UpdateStatus replaces the status using the version that the caller read.
+func (c *Client) UpdateStatus(ctx context.Context, a *Action, s Status) (*Action, error) {
 	res := c.c.Resource(GVR).Namespace(c.ns)
-	u, err := res.Get(ctx, name, metav1.GetOptions{})
+	u := Unstructured(*a)
+	status, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&s)
 	if err != nil {
-		return nil, fmt.Errorf("actions: status of %s/%s: %w", c.ns, name, err)
+		return nil, fmt.Errorf("actions: encode status: %w", err)
 	}
-	status, _ := runtime.DefaultUnstructuredConverter.ToUnstructured(&s)
 	u.Object["status"] = status
 	u, err = res.UpdateStatus(ctx, u, metav1.UpdateOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("actions: update status of %s/%s: %w", c.ns, name, err)
+		return nil, fmt.Errorf("actions: update status of %s/%s: %w", c.ns, a.Name, err)
 	}
 	return fromUnstructured(u)
 }

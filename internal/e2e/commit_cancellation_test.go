@@ -22,7 +22,7 @@ type checkedActionStore struct {
 	failReceipt bool
 }
 
-func (s *checkedActionStore) UpdateStatus(ctx context.Context, name string, status actions.Status) (*actions.Action, error) {
+func (s *checkedActionStore) UpdateStatus(ctx context.Context, action *actions.Action, status actions.Status) (*actions.Action, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -30,7 +30,7 @@ func (s *checkedActionStore) UpdateStatus(ctx context.Context, name string, stat
 		s.failReceipt = false
 		return nil, errors.New("receipt write refused")
 	}
-	a, err := s.Store.UpdateStatus(ctx, name, status)
+	a, err := s.Store.UpdateStatus(ctx, action, status)
 	if err == nil && s.afterUpdate != nil {
 		s.afterUpdate(*a)
 	}
