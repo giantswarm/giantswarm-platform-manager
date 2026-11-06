@@ -207,7 +207,7 @@ func (t *Tools) watchReverts(ctx context.Context, a *actions.Action, status *act
 		return nil, nil
 	}
 	report := markReverted(status, a, found)
-	a, err = t.d.Actions.UpdateStatus(ctx, a.Name, *status)
+	a, err = t.d.Actions.UpdateStatus(ctx, a, *status)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %s is reverted and the action could not record it: %w", ToolWatchAction, st.Name, err)
 	}
@@ -302,7 +302,7 @@ func (t *Tools) withdraw(ctx context.Context, a *actions.Action, id *identity.Id
 	if status.Rollout.FinishedAt == nil {
 		status.Rollout.FinishedAt = now()
 	}
-	a, err := t.d.Actions.UpdateStatus(ctx, a.Name, status)
+	a, err := t.d.Actions.UpdateStatus(ctx, a, status)
 	if err != nil {
 		return nil, fmt.Errorf("%s: the action could not record the withdrawal: %w", ToolDenyAction, err)
 	}
@@ -311,17 +311,18 @@ func (t *Tools) withdraw(ctx context.Context, a *actions.Action, id *identity.Id
 		text += fmt.Sprintf(" Closed: %s.", prLinks(open))
 	}
 	posts = append(posts, text)
-	msg := fmt.Sprintf("%s withdrew action %s (it was %s): %s", id.Login, a.Name, was, reason)
+	var message strings.Builder
+	fmt.Fprintf(&message, "%s withdrew action %s (it was %s): %s", id.Login, a.Name, was, reason)
 	if len(open) > 0 {
-		msg += fmt.Sprintf(" — %d pull request(s) closed (%s)", len(open), prList(open))
+		fmt.Fprintf(&message, " — %d pull request(s) closed (%s)", len(open), prList(open))
 	}
-	msg += "."
+	message.WriteString(".")
 	for _, p := range posts {
 		if told := t.postResult(ctx, a, p); told != "" {
-			msg += " " + told
+			message.WriteString(" " + told)
 			break
 		}
 	}
 	t.d.Log.Info("action_withdrawn", identity.LogAttr(ctx), "action", a.Name, "was", was, "closed", len(open))
-	return Decision{Action: a, Message: msg}, nil
+	return Decision{Action: a, Message: message.String()}, nil
 }

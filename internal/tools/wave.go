@@ -40,7 +40,7 @@ type WaveResult struct {
 }
 
 // The message the wave's queued stages carry.
-const stageQueued = "queued: its pull requests are merged once the installation before it is enabled"
+const stageQueued = "queued: its pull requests are merged once the previous rollout is verified; customer model actions stay with their installation"
 
 // capabilityWave is reconcile_capability in mode commit over a set: one dry
 // run, one Action in pending approval carrying every installation's state,
@@ -104,9 +104,11 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		spec.KeptByInstallation = keptByInstallation(spec.KeptByInstallation, p)
 	}
 	changes := make([]string, 0, len(targets))
+	var rotated []string
 	rollout := &actions.Rollout{Installations: make([]actions.InstallationRollout, 0, len(targets))}
 	test := true
 	for i, p := range targets {
+		rotated = append(rotated, p.Rotating()...)
 		if env.byName[p.Name].Customer != env.hub.Customer {
 			spec.Customer = true
 		}
@@ -122,7 +124,7 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
 	}
-	a, err := t.d.Actions.Create(ctx, actions.Action{Name: name, Spec: spec, Status: actions.Status{State: actions.StatePendingApproval, Rollout: rollout}})
+	a, err := t.d.Actions.Create(ctx, actions.Action{Name: name, Spec: spec, Status: actions.Status{State: actions.StatePendingApproval, Rollout: rollout, Rotated: rotated, Commit: &actions.CommitStatus{}}})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
 	}
@@ -137,9 +139,7 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		return nil, t.fail(ctx, tool, a, remote, nil, err)
 	}
 	prs := []actions.PullRequest{}
-	var rotated []string
 	for i, p := range targets {
-		rotated = append(rotated, p.Rotating()...)
 		// The installation's supplied values, as one commit takes them; the
 		// fields whose files are on record render as markers and are never
 		// generated again, so no marker leaves.
@@ -158,9 +158,8 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 			return nil, t.fail(ctx, tool, a, remote, prs, err)
 		}
 	}
-	a, err = t.d.Actions.UpdateStatus(ctx, a.Name, actions.Status{State: actions.StatePendingApproval, PullRequests: prs, Rotated: rotated, Rollout: rollout})
-	if err != nil {
-		return nil, fmt.Errorf("%s: the pull requests are open (%s) and the action could not record them: %w", tool, prList(prs), err)
+	if err := t.finishCommit(ctx, a); err != nil {
+		return nil, t.fail(ctx, tool, a, remote, prs, err)
 	}
 	t.d.Log.Info(tool, identity.LogAttr(ctx), "action", a.Name, "wave", strings.Join(res.Order, ","), "skipped", len(res.Skipped), "pullRequests", len(prs))
 	a, err = t.requestApproval(ctx, a, tool, test)
@@ -170,11 +169,11 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 	res.Action = a
 	res.PullRequests = prs
 	if test {
-		res.Next = fmt.Sprintf("every target is a test installation: no Team review; the wave goes over %s in this order%s; once green you merge stage 1 (%s) as the actor with %s, which tells the team's standup channel, and call it again once Flux has reconciled it — the installation's verify runs first and, green, the next stage is merged; a red probe stops the wave with the remaining pull requests open",
+		res.Next = fmt.Sprintf("every target is a test installation: no Team review; the wave goes over %s in this order%s; once green you merge stage 1 (%s) as the actor with %s, which tells the team's standup channel, and call it again once Flux has reconciled it: the watch verifies its rollout before the next stage is merged; customer model actions stay with their installation, and other red probes stop the wave with the remaining pull requests open",
 			strings.Join(res.Order, ", "), skippedClause(res.Skipped), res.Order[0], ToolMergeAction)
 		return res, nil
 	}
-	res.Next = fmt.Sprintf("the wave waits for the team's approval (review %s in %s) over %s in this order%s; once approved and green you merge stage 1 (%s) as the actor with %s, and call it again once Flux has reconciled it — the installation's verify runs first and, green, the next stage is merged; a red probe stops the wave with the remaining pull requests open",
+	res.Next = fmt.Sprintf("the wave waits for the team's approval (review %s in %s) over %s in this order%s; once approved and green you merge stage 1 (%s) as the actor with %s, and call it again once Flux has reconciled it: the watch verifies its rollout before the next stage is merged; customer model actions stay with their installation, and other red probes stop the wave with the remaining pull requests open",
 		a.Status.Approval.ReviewID, a.Status.Approval.Channel, strings.Join(res.Order, ", "), skippedClause(res.Skipped), res.Order[0], ToolMergeAction)
 	return res, nil
 }

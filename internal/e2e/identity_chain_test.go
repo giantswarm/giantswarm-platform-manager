@@ -114,7 +114,7 @@ func (s *syncBuffer) String() string {
 	return s.b.String()
 }
 
-func newStack(t *testing.T) *stack {
+func newStack(t *testing.T, options ...func(*tools.Deps)) *stack {
 	t.Helper()
 	logs := &syncBuffer{}
 	log := slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -135,7 +135,7 @@ func newStack(t *testing.T) *stack {
 	}
 	t.Cleanup(lc.Close)
 	apiURL := st.ghs.URL + "/api/v3"
-	ts := tools.New(tools.Deps{Version: testVersion, GitHubAPIURL: apiURL, AuthorizationServer: server.DefaultAuthorizationServer, Log: log, Live: lc,
+	dependencies := tools.Deps{Version: testVersion, GitHubAPIURL: apiURL, AuthorizationServer: server.DefaultAuthorizationServer, Log: log, Live: lc,
 		Actions: actions.New(st.dyn, actionsNamespace),
 		Probes:  st.probes.client(),
 		// Every read follows GitHub: the tests move the remote by hand and
@@ -146,7 +146,11 @@ func newStack(t *testing.T) *stack {
 			return asRemote{Remote: st.remote, login: logins[token], st: st}, nil
 		},
 		Approvals: approvals.Config{GatewayURL: st.gateway.URL, Team: reviewTeam, Channel: reviewChannel, NoticeChannel: noticeChannel, StandupChannel: standupChannel, TokenFile: tokenFile},
-		Registry:  registrySources})
+		Registry:  registrySources}
+	for _, option := range options {
+		option(&dependencies)
+	}
+	ts := tools.New(dependencies)
 	ts.AddWrite(tools.WriteTool{Name: testWrite, Summary: "A fixture write.",
 		DryRun: func(_ context.Context, args map[string]any) (any, error) {
 			return map[string]any{"rendered": true, "args": args}, nil
