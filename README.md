@@ -136,7 +136,9 @@ this order, writing nothing before the gate:
    pair, teleport-fleet — one commit per repository, on branch `platform/<action>/<installation>`, titled in
    conventional-commit form — `feat(<installation>): enable <capability> (<action>)`, `fix(<installation>):
    reconcile <capability> (<action>)` — so the repositories' semantic-pull-request check passes as opened, the
-   action id in the title and body. The Action records them and stays in *pending approval*: the approval, the merge
+   action id in the title and body. The Action records the repository and head branch before each write,
+   and each resulting pull request before the next opens. Approval and merge wait until creation finishes.
+   The Action stays in *pending approval*: the approval, the merge
    and the rollout follow. An action on Giant Swarm's test installations alone — the hub's customer's, not the
    hub: the wave's first stage — needs no Team review: the approval is recorded *not required*, the Action reads *ready to merge*, the actor merges
    with `merge_action` once green, and the merge is told to the team's standup channel — who, what, why and
@@ -144,7 +146,13 @@ this order, writing nothing before the gate:
    installation keep the review. A failure on the way moves the Action to *failed* and closes the pull requests
    opened so far as the person, branches deleted, recorded *closed* with the reason on the Action; one the
    remote refused to close stays open on the record, and `deny_action` — which takes a failed action too —
-   closes it, records the reason and leaves the action failed.
+   closes it, records the reason and leaves the action failed. Caller cancellation stops further pull requests.
+   Recovery lookups, cleanup and status recording each have a separate 30-second deadline. If a create
+   response is lost, the manager looks up the pull request by its recorded head branch. An uncertain outcome
+   stays in `status.commit.pending`; reads and `deny_action` retry the lookup as the signed-in person.
+   Denial is recorded before cleanup and survives later receipts. A request already in flight can still
+   create a pull request, which the interrupted commit records and closes. A denied Action with unresolved
+   writes or open pull requests accepts another `deny_action` to retry recovery and cleanup.
 
 A commit takes `reason` — why the actor makes the change, in a sentence; without one nothing is committed.
 **The review** in the team's channel (`approvals.channel`) is what a teammate judges the action by from
@@ -207,10 +215,15 @@ rollout order for the set (every rendered installation exactly once).
 targets in the rollout order and the skipped, the pull requests per installation on their own branches.
 `merge_action` (the actor's) advances it one stage per call — merge the first installation's pull requests
 once green; `watch_action` (anyone's, as the person) carries the installation rolling out to
-*enabled*; only then does the next `merge_action` take the next installation's pull requests — and a red
-probe stops it: that installation *failed*, the stages after it not started, their pull requests open, the
-result naming where and why. A stage *waiting for the customer* holds the wave too: `merge_action` says
-so, and the customer's action done flips the stage on the next watch. A wave takes the supplied secret
+*enabled* or *waiting for the customer*; the next `merge_action` then takes the next installation's pull requests.
+A red probe stops further merges: that installation is *failed*, and later unmerged stages are not
+started, with their pull requests open. Already merged stages keep their live results. The action stays
+*failed* until every failed stage recovers, with the result naming the remaining failure.
+Customer model actions stay with their installation and do not hold the
+next stage. The watch reads merged stages before re-reading customer waits, including stages merged
+outside the manager. The action stays *rolling out* until every stage has been verified, then reads
+*waiting for the customer* while any installation has an open customer action. Each waiting stage is
+re-read in turn; the action becomes *enabled* once every stage is enabled. A wave takes the supplied secret
 values its targets' plans ask for in `secrets`, in the same call: a key `<field>` goes to every target
 that asks for the field (the two sides of a pairing hold one value), `<installation>/<field>` to that
 target alone; a value missing or one no target asks for refuses the wave whole, by field, before
