@@ -502,7 +502,7 @@ What you may read decides what is checked: an object you may not read is not che
 ```text
 Follow a merged action's rollout on the installation, as you. Call again while it is rolling out.
 
-Reads the HelmReleases through muster, then runs the probes: the stage moves to enabled, waiting for the customer, or failed with the red probe named; a failed one is re-read once the cause is fixed. A read it could not make is named with its fix. On a wave the actor merges the next stage with merge_action once one is enabled. A reverted stage moves the action to reverted; its actor withdraws it with deny_action. The report goes into the review's thread. Anyone signed in may watch.
+Reads Flux readiness through muster as you, runs probes and reports to the review thread. Stages reach enabled, waiting for the customer, or failed with the red probe named. Re-read failures after fixing them. Unread checks name their fix. The actor uses merge_action to advance past enabled stages or customer model waits. Watch merged stages before re-reading waits. A reverted action is withdrawn by its actor with deny_action. Anyone signed in may watch.
 ```
 
 ```json

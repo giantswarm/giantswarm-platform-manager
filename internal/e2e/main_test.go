@@ -30,6 +30,7 @@ func TestMain(m *testing.M) {
 // heartbeat prints the elapsed time to stderr at every tick until stopped.
 func heartbeat(every time.Duration) (stop func()) {
 	start := time.Now()
+	output := os.Stderr
 	ticker := time.NewTicker(every)
 	done := make(chan struct{})
 	go func() {
@@ -38,7 +39,7 @@ func heartbeat(every time.Duration) (stop func()) {
 			case <-done:
 				return
 			case <-ticker.C:
-				fmt.Fprintf(os.Stderr, "e2e: running for %s\n", time.Since(start).Round(time.Second))
+				_, _ = fmt.Fprintf(output, "e2e: running for %s\n", time.Since(start).Round(time.Second))
 			}
 		}
 	}()
