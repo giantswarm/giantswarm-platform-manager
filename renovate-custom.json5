@@ -154,11 +154,17 @@
       ignoreUnstable: true,
     },
     {
+      matchDatasources: ['docker'],
+      matchPackageNames: ['gsoci.azurecr.io/charts/giantswarm/mcp-prometheus'],
+      versioning: 'semver',
+      allowedVersions: '<=0.12.7',
+      minimumReleaseAge: '0 days',
+    },
+    {
       matchDatasources: [
         'docker',
       ],
       matchPackageNames: [
-        'gsoci.azurecr.io/charts/giantswarm/mcp-prometheus',
         'gsoci.azurecr.io/charts/giantswarm/mcp-capi',
       ],
       overrideDatasource: 'github-releases',
