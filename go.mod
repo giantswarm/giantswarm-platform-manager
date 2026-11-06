@@ -10,10 +10,10 @@ require (
 	github.com/getsops/sops/v3 v3.13.3
 	github.com/giantswarm/gitops-commit v0.11.10
 	github.com/giantswarm/go-selfupdate v1.7.4
-	github.com/giantswarm/mcp-oauth v1.9.6
+	github.com/giantswarm/mcp-oauth v1.10.2
 	github.com/giantswarm/mcp-toolkit v0.4.12
-	github.com/giantswarm/selfupdate-cosign v0.3.20
-	github.com/go-jose/go-jose/v4 v4.1.8
+	github.com/giantswarm/selfupdate-cosign v0.3.22
+	github.com/go-jose/go-jose/v4 v4.1.9
 	github.com/google/go-containerregistry v0.22.1
 	github.com/google/go-github/v93 v93.0.0
 	github.com/mark3labs/mcp-go v1.5.0
@@ -148,7 +148,7 @@ require (
 	github.com/in-toto/in-toto-golang v0.11.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/json-iterator/go v1.1.13-0.20220915233716-71ac16282d12 // indirect
-	github.com/klauspost/compress v1.19.2 // indirect
+	github.com/klauspost/compress v1.20.2 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/lib/pq v1.12.3 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
