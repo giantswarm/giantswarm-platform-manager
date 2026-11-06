@@ -180,6 +180,8 @@
       extractVersion: '^v(?<version>.*)$',
       minimumReleaseAge: '3 days',
       internalChecksFilter: 'strict',
+      versioning: 'semver',
+      allowedVersions: '<=0.4.15',
     },
     {
       // The testdata pins are fixtures of the render-consumption test, not what
@@ -188,12 +190,6 @@
         'render/agentplatform/testdata/**',
       ],
       semanticCommitType: 'test',
-    },
-    {
-      matchDatasources: ['docker'],
-      matchPackageNames: ['gsoci.azurecr.io/charts/giantswarm/valkey'],
-      versioning: 'semver',
-      allowedVersions: '<=0.4.15',
     },
   ],
 }
