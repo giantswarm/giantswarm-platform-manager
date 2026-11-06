@@ -189,5 +189,11 @@
       ],
       semanticCommitType: 'test',
     },
+    {
+      matchDatasources: ['docker'],
+      matchPackageNames: ['gsoci.azurecr.io/charts/giantswarm/cluster-manager'],
+      versioning: 'semver',
+      allowedVersions: '>=0.22.0 <0.35.0',
+    },
   ],
 }
