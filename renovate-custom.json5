@@ -64,7 +64,7 @@
       matchDatasources: ['docker'],
       matchPackageNames: ['gsoci.azurecr.io/giantswarm/kagent/helm/kagent'],
       versioning: 'semver',
-      allowedVersions: '>=1.27.0 <1.28.0',
+      allowedVersions: '>=1.31.0 <1.32.0',
     },
     {
       // agent-manager is pinned per line too: the 3 line's meta chart follows
