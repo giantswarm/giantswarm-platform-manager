@@ -128,6 +128,12 @@
       groupName: null,
     },
     {
+      matchDatasources: ['docker'],
+      matchPackageNames: ['gsoci.azurecr.io/charts/giantswarm/cluster-manager'],
+      versioning: 'semver',
+      allowedVersions: '>=0.22.0 <0.35.0',
+    },
+    {
       // The developer portal pin follows the major the fleet base's backstage
       // range and the portal shapes' line (testdata/consumption/*.portal.yaml)
       // follow; a pin past it fails the test. It moves with them.
@@ -188,12 +194,6 @@
         'render/agentplatform/testdata/**',
       ],
       semanticCommitType: 'test',
-    },
-    {
-      matchDatasources: ['docker'],
-      matchPackageNames: ['gsoci.azurecr.io/charts/giantswarm/cluster-manager'],
-      versioning: 'semver',
-      allowedVersions: '>=0.22.0 <0.35.0',
     },
   ],
 }
