@@ -31,13 +31,14 @@ type plannedKeys []plannedKey
 // captures, and what the reason's own <x> references are filled with — the
 // concrete server, client or target. A placeholder the key declares twice
 // stands for one value. key is the key as the definition spells it; hub
-// marks a removal of kind hub, a section of the hub's Dev Portal.
+// marks a removal of kind hub, a section of the hub's Dev Portal; goes a
+// removal of kind migration, which names no leaf the render carries.
 type plannedKey struct {
 	key, kind, reason string
 	file              *regexp.Regexp
 	path              []*regexp.Regexp
 	names             []string
-	hub               bool
+	hub, goes         bool
 }
 
 // factPlaceholders are the placeholders that stand for a fact of the
@@ -72,6 +73,7 @@ func readRemovals(rs []definitions.Removal, f facts) plannedKeys {
 		}
 		if k, ok := parseKey(r.Key, r.Reason, f); ok {
 			k.hub = r.Kind == definitions.RemovalHub
+			k.goes = r.Kind == definitions.RemovalMigration
 			out = append(out, k)
 		}
 	}
@@ -182,6 +184,12 @@ func (k *plannedKey) segmentPattern(s string, f facts) (*regexp.Regexp, bool) {
 		return regexp.MustCompile(`^([^\[].*)$`), true
 	}
 	return k.wildcard(s, `.+`, f)
+}
+
+// rendered are the keys that may name a leaf the render carries: every key
+// but a removal of kind migration.
+func (ks plannedKeys) rendered() plannedKeys {
+	return slices.DeleteFunc(slices.Clone(ks), func(k plannedKey) bool { return k.goes })
 }
 
 // reason is the reason of the first key that names the difference at

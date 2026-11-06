@@ -88,15 +88,17 @@ func (in *Input) probes() []render.Probe {
 		p = append(p, audience)
 	}
 	if in.kagent() && in.Installation.ChartLine == lineFour {
-		p = append(p, in.podCertificateRequestProbe())
+		p = append(p, agentModelsProbe(), in.podCertificateRequestProbe())
 	}
 	p = append(p, driftProbe("live-drift", featureRuntime, fluxNamespace, "HelmRelease", "agent-platform",
 		"the values the HelmRelease reads from its ConfigMaps are the rendered values"))
+	if in.kagent() && in.declaresModels() {
+		p = append(p, driftProbe("live-kagent-provider-values", featureRuntime, fluxNamespace, "HelmRelease", "kagent",
+			".spec.values.providers are the rendered kagent.providers (the meta chart forwards its kagent block flat)",
+			render.Comparison{Live: "spec.values.providers", Rendered: "kagent.providers"}))
+	}
 	if in.kagent() {
 		p = append(p,
-			driftProbe("live-kagent-provider-values", featureRuntime, fluxNamespace, "HelmRelease", "kagent",
-				".spec.values.providers are the rendered kagent.providers (the meta chart forwards its kagent block flat)",
-				render.Comparison{Live: "spec.values.providers", Rendered: "kagent.providers"}),
 			driftProbe("live-oauth2-proxy-extra-audience", featureIdentity, kagentNamespace, "Deployment", oauth2ProxyDeployment,
 				"--oidc-extra-audience carries the rendered audiences",
 				render.Comparison{Live: "spec.template.spec.containers[0].args[args]", Prefix: "--oidc-extra-audience=", Rendered: "kagent.oauth2-proxy.extraArgs.oidc-extra-audience"}))
@@ -113,19 +115,20 @@ func (in *Input) probes() []render.Probe {
 		render.Comparison{Live: "data.config.yaml:aggregator.oauth.server.dex.connectorId", Rendered: "muster.muster.oauth.server.dex.connectorId"}))
 }
 
-// The model provider key is the installation's own, on every installation:
-// kagent is wired to the Secret by name, the definition renders no file for
-// it and nobody supplies a value at commit; the person creates the Secret
-// afterwards — the one step the platform leaves to them (CustomerActions),
-// held up live by the model-key action until a ModelConfig in kagent's
-// namespace reads its model key resolved (modelConfigCondition): the default
-// one, or one the customer added with its own key.
+// A model is the installation's own: a ModelConfig with its key Secret,
+// added in the portal or as an object under extras, the one step the
+// platform leaves to the person (CustomerActions), held up live by the
+// model-key action until some ModelConfig in kagent's namespace reads its
+// model key resolved (modelConfigCondition). Where the meta chart still takes
+// kagent's model provider (declaresModels), the patch wires it to the Secret
+// modelKeySecret, which the definition renders no file for and nobody
+// supplies at commit.
 const (
 	modelKeySecret    = "kagent-anthropic-key" // #nosec G101 -- a Secret name, not a value
 	modelKeySecretKey = "ANTHROPIC_API_KEY"    // #nosec G101 -- a Secret key name, not a value
 	modelKeyActionID  = "model-key"
 	modelKeyDimension = "live-model-configs"
-	modelKeyWhy       = "the model key is the installation's own: the definition references the Secret and renders no value for it, and no value is supplied at commit; until the Secret exists the verify reads the runtime feature as waiting for the customer"
+	modelKeyWhy       = "the model and its key are the installation's own: the definition renders no model key and none is supplied at commit; until a ModelConfig in " + kagentNamespace + " resolves its key the verify reads the runtime feature as waiting for the customer"
 )
 
 // The ModelConfig resource each meta chart line's kagent serves: the 4 line's
@@ -165,19 +168,66 @@ func (in *Input) modelConfigCondition() string {
 	return modelConfigConditionThree
 }
 
-// modelKeyNote is the model key step, naming the resource and the condition
-// the installation's line serves.
+// modelKeyNote is the model step, naming the resource and the condition the
+// installation's line serves, and the Secret the patch wires kagent to where
+// the meta chart still takes kagent's model provider.
 func (in *Input) modelKeyNote() string {
-	return "Create Secret " + modelKeySecret + " in namespace " + kagentNamespace + " with key " + modelKeySecretKey + ", or add a ModelConfig in the portal; until then no ModelConfig (" + in.modelConfigResource() + ") in " + kagentNamespace + " is " + in.modelConfigCondition() + "=True."
+	add := "Add a ModelConfig with its key Secret in namespace " + kagentNamespace + ", in the portal or as an object under extras/agent-platform"
+	if in.declaresModels() {
+		add = "Create Secret " + modelKeySecret + " in namespace " + kagentNamespace + " with key " + modelKeySecretKey + ", or add a ModelConfig in the portal"
+	}
+	return add + "; until then no ModelConfig (" + in.modelConfigResource() + ") in " + kagentNamespace + " is " + in.modelConfigCondition() + "=True."
+}
+
+// kagent's own ModelConfig, which the kagent chart renders from the meta
+// chart's providers below modelFreeChart and deletes from it on.
+const kagentDefaultModelConfig = "default-model-config"
+
+// The live dimension and the action of the Agents that still name
+// kagentDefaultModelConfig.
+const (
+	agentModelsActionID  = "agent-models"
+	agentModelsDimension = "live-agent-models"
+	agentModelsWhy       = "the meta chart renders no " + kagentDefaultModelConfig + " from its release that declares no model on, and an Agent that names it stops resolving its model; the Agents and their HelmReleases are the installation's own"
+)
+
+// The Agent resource the 4 line's kagent serves, and where an Agent names
+// its ModelConfig there.
+const (
+	agentResource  = "Agent.api.kagent.dev"
+	agentModelPath = "spec.template.modelConfig.name"
+)
+
+// agentModelsProbe is no Agent in any namespace naming
+// kagentDefaultModelConfig, each one that does named with the HelmRelease
+// that renders it (an agent chart release's modelConfig.name): the list the
+// rollout of modelFreeChart waits on, rendered on the 4 line on either side
+// of it.
+func agentModelsProbe() render.Probe {
+	return render.Probe{ID: agentModelsDimension, Feature: featureRuntime, Kind: render.NoneNames, Resource: agentResource,
+		Expect: render.Expectation{Path: agentModelPath, Value: kagentDefaultModelConfig,
+			Note: "an Agent names a ModelConfig of its namespace; one naming " + kagentDefaultModelConfig + " is moved by its owner, in its HelmRelease's modelConfig.name where one renders it"}}
+}
+
+// agentModelsNote is the step of the Agents still naming
+// kagentDefaultModelConfig.
+func agentModelsNote() string {
+	release, _, _ := strings.Cut(modelFreeChart, "-")
+	return "Point every Agent that names " + kagentDefaultModelConfig + " at a ModelConfig of its namespace (modelConfig.name in its HelmRelease's values where an agent chart release renders it); the meta chart " + release + " and later renders no " + kagentDefaultModelConfig + "."
 }
 
 // actions are what a person outside the platform team still has to do for the
-// installation to work as rendered: the model key, wherever kagent runs.
+// installation to work as rendered, wherever kagent runs: a model with its
+// key and, on the 4 line, every Agent off kagentDefaultModelConfig.
 func (in *Input) actions() []render.Action {
 	if !in.kagent() {
 		return nil
 	}
-	return []render.Action{{ID: modelKeyActionID, Feature: featureRuntime, State: render.WaitingForCustomer, Dimension: modelKeyDimension, Note: in.modelKeyNote()}}
+	actions := []render.Action{{ID: modelKeyActionID, Feature: featureRuntime, State: render.WaitingForCustomer, Dimension: modelKeyDimension, Note: in.modelKeyNote()}}
+	if in.Installation.ChartLine == lineFour {
+		actions = append(actions, render.Action{ID: agentModelsActionID, Feature: featureRuntime, State: render.WaitingForCustomer, Dimension: agentModelsDimension, Note: agentModelsNote()})
+	}
+	return actions
 }
 
 // platformWorkloadsDimension is the live dimension of the Deployments that
@@ -201,16 +251,15 @@ func (in *Input) helmReleases() []string {
 
 // modelConfigProbe is some ModelConfig in kagent's namespace with its model
 // key condition True, in the group and by the condition the installation's
-// line serves (modelConfigResource, modelConfigCondition): the default one
-// with the Secret in place, or any the customer added, so an installation
-// that brings its own models never waits on the default's key. The note says
-// whose move a False is, and the model-key action (actions) names this
-// dimension: until the person acts it reads waiting for the customer, not
-// drifted.
+// line serves (modelConfigResource, modelConfigCondition): any ModelConfig
+// there, so an installation that brings its own models never waits on a
+// Secret the platform names. The note says whose move a False is, and the
+// model-key action (actions) names this dimension: until the person acts it
+// reads waiting for the customer, not drifted.
 func (in *Input) modelConfigProbe() render.Probe {
 	p := render.Probe{ID: modelKeyDimension, Feature: featureRuntime, Kind: render.AnyCondition, Namespace: kagentNamespace, Resource: in.modelConfigResource()}
 	p.Expect = render.Expectation{Condition: in.modelConfigCondition(), ConditionStatus: conditionTrue,
-		Note: "waiting for the customer's model key (Secret " + modelKeySecret + ", key " + modelKeySecretKey + ") or a ModelConfig of their own in the portal"}
+		Note: "waiting for the customer's model: a ModelConfig in " + kagentNamespace + " with its key Secret in place"}
 	return p
 }
 

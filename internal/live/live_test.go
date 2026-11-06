@@ -66,6 +66,17 @@ func TestKindArgsSplitKindAndGroup(t *testing.T) {
 // platformClient is the audience of the platform's own OAuth client.
 const platformClient = "agent-platform"
 
+func TestListArgsNameTheNamespaceOrEvery(t *testing.T) {
+	one := listArgs("kagent", "ModelConfig.api.kagent.dev", "", verify.Readiness)
+	if one["namespace"] != "kagent" || one["allNamespaces"] != nil || one["apiGroup"] != "api.kagent.dev" || one["resourceType"] != "modelconfig" {
+		t.Errorf("one namespace: %v", one)
+	}
+	every := listArgs("", "Agent.api.kagent.dev", "app=agent", verify.Readiness)
+	if every["namespace"] != nil || every["allNamespaces"] != true || every["labelSelector"] != "app=agent" {
+		t.Errorf("every namespace: %v", every)
+	}
+}
+
 func TestConfigValidateNamesTheMissingField(t *testing.T) {
 	cfg := Config{Issuer: "https://dex.example.test/dex", Audiences: []string{platformClient}, MusterURL: "http://muster:8090/mcp", KubernetesFamily: "kubernetes"}
 	if err := cfg.Validate(); err != nil {
