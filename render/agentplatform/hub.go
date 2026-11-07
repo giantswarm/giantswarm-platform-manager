@@ -175,7 +175,7 @@ func (in *Input) brokerValues() render.Map {
 	}
 	names := make([]string, 0, len(in.Installation.Federation.Targets)+1)
 	targets := render.Map{}
-	if in.grantsGitHub() {
+	if in.federationBrokers() && in.grantsGitHub() {
 		names = append(names, githubGrantTarget)
 		targets = append(targets, e(githubGrantTarget, render.Map{e("grantIssuer", githubGrantIssuer)}))
 	}
@@ -189,11 +189,17 @@ func (in *Input) brokerValues() render.Map {
 			e("clientCredentialsSecretRef", render.Map{e("name", t.credentialsSecret())}))
 		targets = append(targets, e(t.Installation, entry))
 	}
-	return append(m,
-		e("brokerClients", render.Map{e(in.brokerClient(),
-			render.Map{e("clientCredentialsSecretRef", render.Map{e("name", brokerClients)})})}),
-		e("clientAudiences", render.Map{e(in.brokerClient(), names)}),
-		e("targets", targets))
+	clients, audiences := render.Map{}, render.Map{}
+	if in.federationBrokers() {
+		clients = append(clients, e(in.brokerClient(), render.Map{e("clientCredentialsSecretRef", render.Map{e("name", brokerClients)})}))
+		audiences = append(audiences, e(in.brokerClient(), names))
+	}
+	if in.AgentManagerTokenExchange {
+		clients = append(clients, e(componentAgentManager, render.Map{e("clientCredentialsSecretRef", render.Map{e("name", agentManagerBrokerSecret)})}))
+		audiences = append(audiences, e(componentAgentManager, []string{agentManagerBrokerAudience}))
+		targets = append(targets, e(agentManagerBrokerAudience, render.Map{e("grantIssuer", agentManagerGrantIssuer)}))
+	}
+	return append(m, e("brokerClients", clients), e("clientAudiences", audiences), e("targets", targets))
 }
 
 // extraCaFile is muster.muster.extraCaFile: the SPIFFE bundle muster trusts the

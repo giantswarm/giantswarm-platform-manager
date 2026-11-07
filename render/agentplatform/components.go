@@ -135,6 +135,15 @@ func (in *Input) agentManagerValues() render.Map {
 	if in.AgentManagerCommit {
 		m = append(m, githubEnabled())
 	}
+	if in.AgentManagerTokenExchange {
+		m = append(m, e("github", render.Map{e("enabled", false)}), e("githubTokenExchange", render.Map{
+			e("endpoint", "https://"+in.host("muster")+"/oauth/token"), e("clientID", componentAgentManager),
+			e("audience", agentManagerBrokerAudience), e("secretName", agentManagerBrokerSecret),
+		}))
+	}
+	if in.AgentManagerCredentialUI != "" {
+		m = append(m, e("credentials", render.Map{e("uiURL", in.AgentManagerCredentialUI)}))
+	}
 	return m
 }
 

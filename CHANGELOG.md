@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- agent-platform: configure agent-manager credential operations with a client-owned HTTPS URL and a dedicated RFC 8693 broker client restricted to its GitHub App user grant. Reconciliation preserves both choices and generates the broker credential through the existing encrypted secret machinery.
+
 - agent-platform: the input `klausGateway.slack.slashCommand`, the slash command the installation's Slack app declares, with the comment above it (`slashCommandComment`). Read back from the configmap patch on record, so a reconcile keeps a command written there by hand instead of removing it as drift.
 
 ### Changed
