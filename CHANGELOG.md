@@ -8,3 +8,7 @@ https://github.com/giantswarm/giantswarm-platform-manager/releases
 ### Added
 
 - agent-platform: configure agent-manager credential operations with a client-owned HTTPS URL and a dedicated RFC 8693 broker client restricted to its GitHub App user grant. Reconciliation preserves both choices and generates the broker credential through the existing encrypted secret machinery.
+
+### Fixed
+
+- agent-platform: preserve other muster provider Apps when changing agent-manager credential settings, including ChatGPT device-code sign-in. Refuse conflicting App names or issuers.
