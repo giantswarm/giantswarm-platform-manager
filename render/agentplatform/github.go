@@ -62,17 +62,16 @@ func (in *Input) portalGitHub() bool {
 		p != nil && p.Installation == in.Installation.Name && in.githubGrantServer() != ""
 }
 
-// trustedIssuers is muster.muster.oauth.server.trustedIssuers where the
-// portal reads GitHub through this muster: the broker validates the portal's
-// subject token — the person's ID token from this installation's Dex, issued
-// to the portal's client — against this list, and muster refuses a broker
-// without one. The subject is the token's email, the identity the person's
-// grant is filed under. An issuer the record trusts besides is the
-// installation's own, and the plan keeps its entry.
+// The email mapping serves ordinary on-behalf-of exchange. Grant release
+// binds ownership to the verified raw sub at this installation's Dex issuer.
 func (in *Input) trustedIssuers() []render.Map {
 	issuer := "https://" + in.host("dex")
+	audiences := in.portalAudiences()
+	if in.AgentManagerTokenExchange {
+		audiences = in.audiences()
+	}
 	entry := render.Map{e("issuer", issuer), e("jwksUrl", issuer+"/keys"),
-		e("allowedAudiences", in.portalAudiences()), e("subjectClaim", "email"), e("acceptedTypHeaders", []string{""})}
+		e("allowedAudiences", audiences), e("subjectClaim", "email"), e("acceptedTypHeaders", []string{""})}
 	if in.Installation.Private {
 		entry = append(entry, e("allowPrivateIPJWKS", true))
 	}
@@ -86,6 +85,10 @@ func (in *Input) grantsGitHub() bool { return in.Installation.Hub || in.portalGi
 // brokers says whether muster runs the token broker: for the targets, or
 // for the hosted portal's GitHub.
 func (in *Input) brokers() bool {
+	return in.federationBrokers() || in.AgentManagerTokenExchange
+}
+
+func (in *Input) federationBrokers() bool {
 	return len(in.Installation.Federation.Targets) > 0 || in.portalGitHub()
 }
 

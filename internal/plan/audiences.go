@@ -99,6 +99,7 @@ func keepAudiences(rendered, current []byte) ([]byte, []Kept, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	credentialIssuer := credentialBrokerIssuer(ren)
 	var kept []Kept
 	trusted := append(slices.Clone(musterServerPath), "trustedAudiences")
 	keepList(at(ren, trusted...), at(cur, trusted...), ListTrustedAudiences, &kept)
@@ -113,6 +114,12 @@ func keepAudiences(rendered, current []byte) ([]byte, []Kept, error) {
 	issuers := strings.Split(ListTrustedIssuers, ".")
 	keepIssuers(at(ren, issuers...), at(cur, issuers...), &kept)
 	keepSubtrees(ren, cur, keptPaths(ren, keptPlatformKeys, heldPlatformKeys), &kept)
+	if err := keepCredentialProviderApps(ren, cur, &kept); err != nil {
+		return nil, nil, err
+	}
+	if err := validateCredentialBrokerIssuer(ren, credentialIssuer); err != nil {
+		return nil, nil, err
+	}
 	if len(kept) == 0 {
 		return rendered, nil, nil
 	}
