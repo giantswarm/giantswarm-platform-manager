@@ -114,6 +114,9 @@ func keepAudiences(rendered, current []byte) ([]byte, []Kept, error) {
 	issuers := strings.Split(ListTrustedIssuers, ".")
 	keepIssuers(at(ren, issuers...), at(cur, issuers...), &kept)
 	keepSubtrees(ren, cur, keptPaths(ren, keptPlatformKeys, heldPlatformKeys), &kept)
+	if err := keepCredentialProviderApps(ren, cur, &kept); err != nil {
+		return nil, nil, err
+	}
 	if err := validateCredentialBrokerIssuer(ren, credentialIssuer); err != nil {
 		return nil, nil, err
 	}
