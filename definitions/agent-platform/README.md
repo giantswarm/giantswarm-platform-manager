@@ -56,11 +56,17 @@ policy decides once, and what the definition drops. The render library reads it.
 
 `agentManager.githubTokenExchange.enabled=true` configures the existing muster provider App and confidential RFC 8693 grant-release mechanisms. Set `agentManager.github.enabled=false` to remove the MCP App pin and hold `versions.components.agent-manager` at `>=2.22.0-rc.3 <3.0.0`. This requires the 4 chart line, muster 5.58.0 or later, and a meta chart that accepts the credential operations contract.
 
+Chart lines with the Kubernetes MCP's per-server OAuth contract require muster 5.59.0 or later. Configure organization GitOps writes with the meta chart's `agent-manager.tenants.commit` block, and enable `agentManager.route` for a client using the HTTPS credential API. A bundled Flux engine needs `kustomize-controller` in `flux-engine.instance.components` to apply organization Kustomizations.
+
 The installation's `giantswarm-agent-manager-oauth-client` Secret must already exist in `agent-platform`. The provider App keeps issuer `https://github.com/apps/giantswarm-agent-manager`, so an existing personal App grant remains usable. Consent uses muster's provider App login for `agent-manager`, independently of the MCP registration. The definition generates `agent-manager-github-broker` through its existing encrypted secret machinery. Only that client may request the `agent-manager-github` target; the portal and federation clients gain no access to it. Both manager and broker use this installation's Dex identity. The grant broker uses the verified raw subject, regardless of the email mapping used by ordinary on-behalf-of exchanges.
 
 `agentManager.credentials.uiURL` is an optional client-owned HTTPS template with exactly one `{operation}` placeholder. The manager supplies the opaque operation identifier; the UI obtains confirmation and posts values to the authenticated HTTPS credential API. The template and broker choice are read back on reconciliation. No Backstage route is inferred, and no secret value travels through MCP. This profile does not enable `agentPlatformOrganizations`: verify that switch's admission, isolation and upgrade prerequisites separately.
 
 Before rollout, render and review a dry run, verify the App installation can write the selected repository, and test create and replacement with synthetic values. Reconciliation refuses the profile if preserved broker configuration adds an independent subject-token issuer or lacks an explicit input-audience allowlist. A credential receipt in commit mode proves the pull request was created; it does not prove Flux applied it. Treat missing grants, uncertain writes and changed confirmation versions as failures requiring fresh confirmation. See [agent-manager's credential API](https://github.com/giantswarm/agent-manager/blob/main/docs/organization-credentials.md).
+
+The canonical issuer guard restricts deployment configuration. It does not migrate existing grant ownership. Before activation, establish that persisted raw-sub grants came from that issuer; a synthetic GitHub fixture cannot prove the production App's consent, repository permissions or Flux source access.
+
+MCP 2025-11-25 session capabilities and completion streams remain local to one manager process. Use one manager replica for those clients unless session routing has been verified; the shared credential metadata does not share MCP sessions. The tested two-replica credential flow uses MCP 2026-07-28 request capabilities.
 
 ## The 4 chart line's prerequisites
 
