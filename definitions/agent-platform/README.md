@@ -66,7 +66,7 @@ Before rollout, render and review a dry run, verify the App installation can wri
 
 The canonical issuer guard restricts deployment configuration. It does not migrate existing grant ownership. Before activation, establish that persisted raw-sub grants came from that issuer; a synthetic GitHub fixture cannot prove the production App's consent, repository permissions or Flux source access.
 
-MCP 2025-11-25 session capabilities and completion streams remain local to one manager process. Use one manager replica for those clients unless session routing has been verified; the shared credential metadata does not share MCP sessions. The tested two-replica credential flow uses MCP 2026-07-28 request capabilities.
+MCP 2025-11-25 session capabilities and completion streams remain local to one manager process. Preserve the released manager chart's default of one replica (`agent-manager.replicaCount: 1` in installation values) for those clients. URL elicitation, HTTPS save, completion notification and retry work through the public gateway with that topology. Multiple unpinned replicas are unsupported for legacy clients unless session routing and recovery have been independently verified. Shared credential metadata does not share MCP sessions; reconnect and initialize a new session after a manager restart. The tested two-replica credential flow uses MCP 2026-07-28 request capabilities.
 
 ## The 4 chart line's prerequisites
 
