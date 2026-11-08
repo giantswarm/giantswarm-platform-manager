@@ -163,6 +163,7 @@ func (p *printer) installation(inst plan.Installation, features []verify.Feature
 	if inst.CommitRefused != "" && inst.CommitRefused != inst.Refused {
 		p.f("  A commit would be refused: %s\n", inst.CommitRefused)
 	}
+	p.switchOff(inst.Name, inst.SwitchOff)
 	if len(inst.Files) > 0 {
 		p.f("  Files (%s):\n", diff(inst.Diff))
 		rows := [][]string{{"CHANGE", "REPOSITORY", "PATH"}}

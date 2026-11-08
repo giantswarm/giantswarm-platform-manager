@@ -159,6 +159,10 @@ A set renders only the installations that have it on record, as reconcile_capabi
       "description": "Only after a commit refused for the join: proceed although the reconcile takes servers, providers or redirects off an installation's muster.",
       "type": "boolean"
     },
+    "forceSwitchOff": {
+      "description": "Only after a commit refused for the switch-off: proceed although the reconcile switches off components running on an installation.",
+      "type": "boolean"
+    },
     "inputs": {
       "description": "Your typed inputs of the definition (get_info lists the schema), laid over its defaults and what is on record. An unknown key is refused. No secrets.",
       "properties": {},
@@ -365,6 +369,10 @@ A plan whose files are all unchanged means the installation matches the definiti
     },
     "forceJoin": {
       "description": "Only after a commit refused for the join: proceed although the reconcile takes servers, providers or redirects off an installation's muster.",
+      "type": "boolean"
+    },
+    "forceSwitchOff": {
+      "description": "Only after a commit refused for the switch-off: proceed although the reconcile switches off components running on an installation.",
       "type": "boolean"
     },
     "inputs": {
