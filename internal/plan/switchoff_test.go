@@ -73,12 +73,29 @@ func TestSwitchOffNamesTheRunningComponentsTheRenderDrops(t *testing.T) {
 	}
 }
 
+// The template's components are read from the definition's removals: the
+// agent-platform-mcps toggle the shared defaults set, and no component the
+// render switches itself.
+func TestTemplateEnabledComesFromTheRemovals(t *testing.T) {
+	if !templateEnabled["agent-platform-mcps"] {
+		t.Errorf("agent-platform-mcps is not among the template's components: %v", templateEnabled)
+	}
+	for _, c := range []string{"agent-manager", "cluster-manager", "klaus-gateway", "agent-sandbox"} {
+		if templateEnabled[c] {
+			t.Errorf("%s reads as enabled by the template", c)
+		}
+	}
+}
+
 // A render that keeps every running component on, or switches on one that
 // was off, records nothing; neither does a patch that does not decode.
 func TestSwitchOffRecordsNothingWhereNothingRunningGoes(t *testing.T) {
 	same := strings.Replace(runningPatch, "  modelServing:\n    enabled: false\n", "  modelServing:\n    enabled: true\n", 1)
 	for name, c := range map[string]struct{ current, rendered string }{
-		"unchanged":        {runningPatch, runningPatch},
+		"unchanged": {runningPatch, runningPatch},
+		// The template enables agent-platform-mcps on every installation:
+		// the reconcile drops the repeated toggle, the component runs on.
+		"template default": {strings.Replace(runningPatch, "  modelServing:\n", "  agent-platform-mcps:\n    enabled: true\n  modelServing:\n", 1), strings.Replace(narrowerPatch, "    enabled: false\n", "    enabled: true\n  cluster-manager:\n    enabled: true\n", 1)},
 		"one switched on":  {runningPatch, same},
 		"none on record":   {"global: {}\n", narrowerPatch},
 		"undecodable":      {"components: [\n", narrowerPatch},

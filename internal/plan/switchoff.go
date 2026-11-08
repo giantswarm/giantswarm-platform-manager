@@ -5,6 +5,9 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/giantswarm/giantswarm-platform-manager/definitions"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 )
 
 // SwitchOff is what a plan switches off of what runs on the installation:
@@ -60,12 +63,42 @@ var componentDependents = map[string]string{
 // componentsKey is the components map of the agent-platform values patch.
 const componentsKey = "components"
 
+// templateEnabled are the components the shared defaults enable on every
+// installation: the removals of kind template of the agent-platform
+// configmap patch that name a component's toggle (components.<name>.enabled)
+// or the component (components.<name>). A patch on record that repeats one's
+// toggle loses it to the template, and the component keeps running.
+var templateEnabled = mustTemplateComponents(installations.AgentPlatform, definitions.KindConfigMap)
+
+// mustTemplateComponents reads the components among the definition's
+// template keys under the prefix, as mustKeptKeys reads the kept keys.
+func mustTemplateComponents(capability, prefix string) map[string]bool {
+	keys, err := definitions.TemplateKeys(capability, prefix)
+	if err != nil {
+		panic(err)
+	}
+	out := map[string]bool{}
+	for _, k := range keys {
+		rest, ok := strings.CutPrefix(k, componentsKey+".")
+		if !ok {
+			continue
+		}
+		if name, toggle, nested := strings.Cut(rest, "."); !nested || toggle == "enabled" {
+			out[name] = true
+		}
+	}
+	return out
+}
+
 // switchOff reads the installation's agent-platform values patch on record
-// against the render and records the components enabled on record that the
-// render does not enable: set to false, or left out — the patch carries a
-// component's toggle only where it deviates from the shared template, which
-// runs none of the optional ones. A patch that does not decode on either
-// side records nothing: the comparison names that by itself.
+// against the render and records the components enabled on record that run
+// no more once the render is applied: the render sets the toggle false, or
+// leaves it out where the shared defaults do not enable the component — the
+// patch carries a component's toggle only where it deviates from the shared
+// template, which runs none of the optional ones; one the template enables
+// (templateEnabled) keeps running without the toggle. A patch that does not
+// decode on either side records nothing: the comparison names that by
+// itself.
 func (p *Installation) switchOff(current, rendered string, forced bool) {
 	cur, ren := patchRoot(current), patchRoot(rendered)
 	if cur == nil || ren == nil {
@@ -78,7 +111,7 @@ func (p *Installation) switchOff(current, rendered string, forced bool) {
 	var off []SwitchedOff
 	for i := 0; i+1 < len(comps.Content); i += 2 {
 		name := comps.Content[i].Value
-		if !enabled(at(comps.Content[i+1], "enabled")) || enabled(at(ren, componentsKey, name, "enabled")) {
+		if !enabled(at(comps.Content[i+1], "enabled")) || runs(at(ren, componentsKey, name, "enabled"), templateEnabled[name]) {
 			continue
 		}
 		off = append(off, SwitchedOff{Component: name, DependedOnBy: componentDependents[name]})
@@ -86,6 +119,15 @@ func (p *Installation) switchOff(current, rendered string, forced bool) {
 	if len(off) > 0 {
 		p.SwitchOff = &SwitchOff{Components: off, Forced: forced}
 	}
+}
+
+// runs says a component runs under the rendered toggle: one set is the
+// component's state, one left out is the shared defaults'.
+func runs(toggle *yaml.Node, byDefault bool) bool {
+	if toggle == nil {
+		return byDefault
+	}
+	return enabled(toggle)
 }
 
 // enabled says a toggle reads true.

@@ -2,8 +2,10 @@ package e2e
 
 // A policy that drops a running component: rowan's organisation runs kagent
 // and the agent-manager by policy, and its agent-platform values patch on
-// record runs the cluster-manager too. The dry run names the cluster-manager
-// as switched off, apart from the drift, and refuses the commit; the commit
+// record runs the cluster-manager too, and repeats the agent-platform-mcps
+// toggle the shared defaults set. The dry run names the cluster-manager alone
+// as switched off — the template keeps agent-platform-mcps running —, apart
+// from the drift, and refuses the commit; the commit
 // is refused, nothing written; forced, the commit proceeds and the action's
 // summary leads with the warning.
 
@@ -19,7 +21,7 @@ func TestReconcileWarnsOfARunningComponentThePolicyDrops(t *testing.T) {
 	st := newStack(t)
 	c := enabledOnRecord(t, st)
 	repo, path, content := onRecord(t, st, "/"+rowan+"/apps/agent-platform/configmap-values.yaml.patch")
-	running := strings.Replace(content, "  agent-manager:\n    enabled: true\n", "  agent-manager:\n    enabled: true\n  cluster-manager:\n    enabled: true\n", 1)
+	running := strings.Replace(content, "  agent-manager:\n    enabled: true\n", "  agent-manager:\n    enabled: true\n  cluster-manager:\n    enabled: true\n  agent-platform-mcps:\n    enabled: true\n", 1)
 	if running == content {
 		t.Fatalf("the patch on record lacks the agent-manager toggle:\n%s", content)
 	}
