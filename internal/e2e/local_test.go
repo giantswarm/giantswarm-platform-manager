@@ -84,7 +84,7 @@ func TestLocalRenderIsTheManagersRenderAndSaysSo(t *testing.T) {
 	commit := args()
 	commit[tools.ArgMode] = string(tools.ModeCommit)
 	commit[tools.ArgReason] = "a local commit"
-	if _, err := ls.Call(context.Background(), tools.ToolEnableCapability, commit); err == nil || !strings.Contains(err.Error(), "rendered locally") {
+	if _, err := ls.Call(context.Background(), tools.ToolEnableCapability, commit); err == nil || !strings.Contains(err.Error(), "mode commit records an Action on the hub") {
 		t.Errorf("a commit through the local session: %v, want the tools' refusal", err)
 	}
 }

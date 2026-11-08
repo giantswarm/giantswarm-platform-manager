@@ -212,7 +212,6 @@ type Inputs struct {
 	Planned PlannedObjects `json:"planned,omitempty"`
 }
 
-// Result is the verify of one installation × capability.
 // RenderedBy is what rendered a result from the definitions: the deployed
 // manager, or — Local — platformctl --local from the definitions compiled
 // into that build, a render change proven before its merge and rollout.
@@ -230,6 +229,7 @@ func (r RenderedBy) String() string {
 	return "by the manager " + r.Version
 }
 
+// Result is the verify of one installation × capability.
 type Result struct {
 	Caller       string `json:"caller"`
 	Installation string `json:"installation"`
