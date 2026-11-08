@@ -320,3 +320,101 @@ func TestDefaultProbeClientIsBoundedWithinThePhase(t *testing.T) {
 		t.Fatalf("redirects followed: %v", err)
 	}
 }
+
+// On an installation on record as private the manager does not reach its
+// hosts by design: an unreachable probe reads not checked with ReasonPrivate
+// naming the host and is no gap (ByDesign); an answer off the expectation is
+// still drift, and a public installation's unreachable host still a gap.
+func TestProbeUnreachableOnAPrivateInstallationIsByDesign(t *testing.T) {
+	pr := newProber(answering(nil))
+	pr.private = true
+	d := pr.probe(context.Background(), base, nil, false, gate)
+	if d.Mark != NotChecked || d.Reason != ReasonPrivate+": "+gateHost || !d.ByDesign || !strings.HasPrefix(d.Reason, ReasonUnreachable) {
+		t.Fatalf("mark %q, reason %q, by design %t", d.Mark, d.Reason, d.ByDesign)
+	}
+	drift := newProber(answering(map[string]int{gateHost: http.StatusInternalServerError}))
+	drift.private = true
+	if d := drift.probe(context.Background(), base, nil, false, gate); d.Mark != Drifted || d.ByDesign {
+		t.Fatalf("drift on a private installation: mark %q, by design %t", d.Mark, d.ByDesign)
+	}
+	if d := newProber(answering(nil)).probe(context.Background(), base, nil, false, gate); d.ByDesign {
+		t.Fatalf("a public installation's unreachable host is by design: %+v", d)
+	}
+}
+
+// The live HTTP checks of a private installation read the same: a dimension
+// whose only unchecked checks are unreachable by design is no gap; one that
+// also misses a read of the caller's is.
+func TestLiveHTTPProbesOnAPrivateInstallationAreByDesign(t *testing.T) {
+	p := render.Probe{ID: "live-kagent-api-protected", Kind: render.HTTP, URL: "https://kagent.example.test/api", Expect: render.Expectation{Status: http.StatusOK}}
+	x := &executor{lv: &liveRender{probes: []render.Probe{p}}, pr: newProber(answering(nil))}
+	x.pr.private = true
+	x.sendHTTP(context.Background())
+	d := x.dimension(context.Background(), definitions.Dimension{ID: p.ID, Kind: definitions.KindLive})
+	if d.Mark != NotChecked || d.Reason != ReasonPrivate+": kagent.example.test" || !d.ByDesign {
+		t.Fatalf("mark %q, reason %q, by design %t", d.Mark, d.Reason, d.ByDesign)
+	}
+	// A dimension drifted on another check is drifted, whatever its host.
+	drifting := render.Probe{ID: p.ID, Kind: render.HTTP, URL: "https://dex.example.test/auth", Expect: render.Expectation{Status: http.StatusFound}}
+	y := &executor{lv: &liveRender{probes: []render.Probe{p, drifting}}, pr: newProber(answering(map[string]int{"dex.example.test": http.StatusNotFound}))}
+	y.pr.private = true
+	y.sendHTTP(context.Background())
+	if d := y.dimension(context.Background(), definitions.Dimension{ID: p.ID, Kind: definitions.KindLive}); d.Mark != Drifted || d.ByDesign {
+		t.Fatalf("drifted beside an unreachable host: mark %q, by design %t", d.Mark, d.ByDesign)
+	}
+	private := Check{Mark: NotChecked, Message: ReasonPrivate + ": kagent.example.test"}
+	for _, tc := range []struct {
+		checks []Check
+		want   bool
+	}{
+		{[]Check{private, {Mark: AsDefined}}, true},
+		{[]Check{private, {Mark: NotChecked, Message: NotConnected}}, false},
+		{[]Check{{Mark: NotChecked, Message: ReasonUnreachable + ": kagent.example.test"}}, false},
+		{[]Check{{Mark: AsDefined}}, false},
+	} {
+		if got := byDesign(tc.checks); got != tc.want {
+			t.Errorf("byDesign(%+v) = %t, want %t", tc.checks, got, tc.want)
+		}
+	}
+}
+
+// installationKey is the inputs' section of the installation's facts.
+const installationKey = "installation"
+
+// Private reads the installation's fact; anything else is a public one.
+func TestPrivate(t *testing.T) {
+	for _, tc := range []struct {
+		values map[string]any
+		want   bool
+	}{
+		{map[string]any{installationKey: map[string]any{"private": true}}, true},
+		{map[string]any{installationKey: map[string]any{"private": false}}, false},
+		{map[string]any{installationKey: map[string]any{}}, false},
+		{nil, false},
+	} {
+		if got := Private(tc.values); got != tc.want {
+			t.Errorf("Private(%v) = %t, want %t", tc.values, got, tc.want)
+		}
+	}
+}
+
+// A dimension not checked by design counts apart, in the feature's and the
+// result's ByDesign, never among the marks: no gap in the summary; the
+// merged result counts it the same.
+func TestByDesignIsNoGapInTheSummary(t *testing.T) {
+	r := Result{Summary: map[Mark]int{}}
+	r.addFeature(Feature{ID: featureIdentity, Marks: map[Mark]int{}, Dimensions: []Dimension{
+		{ID: "dex", Kind: definitions.KindProbe, Mark: NotChecked, Reason: ReasonPrivate + ": dex.example.test", ByDesign: true},
+		{ID: "files", Kind: definitions.KindConfigMap, Mark: AsDefined},
+	}})
+	if r.Summary[NotChecked] != 0 || r.Summary[AsDefined] != 1 || r.ByDesign != 1 || r.Features[0].ByDesign != 1 || r.Features[0].Marks[NotChecked] != 0 || r.Features[0].Mark != AsDefined {
+		t.Fatalf("summary %v, by design %d, feature %+v", r.Summary, r.ByDesign, r.Features[0])
+	}
+	m := Merge(r, Result{})
+	if m.Summary[NotChecked] != 0 || m.ByDesign != 1 || m.Features[0].ByDesign != 1 {
+		t.Fatalf("merged: summary %v, by design %d", m.Summary, m.ByDesign)
+	}
+	if ByDesignClause(0) != "" || ByDesignClause(9) != "9 unreachable from the manager by design (private installation)" {
+		t.Fatalf("clause %q", ByDesignClause(9))
+	}
+}

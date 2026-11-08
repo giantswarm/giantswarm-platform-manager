@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
@@ -322,8 +323,8 @@ func TestVerifyPrintsFeaturesWithMarksAndDimensions(t *testing.T) {
 					{ID: "oauth2-proxy-gate", Kind: "probe", Key: "gate", Mark: verify.AsDefined,
 						Probe: &verify.ProbeResult{Expect: []int{302, 403}, Requests: []verify.Request{{URL: "https://kagent.rowan.example/", Status: 302, OK: true}}}},
 					{ID: "dex-auth-request", Kind: "probe", Key: "dex", Mark: verify.Drifted,
-						Probe: &verify.ProbeResult{Expect: []int{302}, Requests: []verify.Request{{URL: "https://dex.rowan.example/auth", Client: kagent, Error: "dial tcp: timeout", OK: false},
-							{URL: "https://dex.rowan.example/auth", Client: kagent, Status: 404, Connector: "github", Message: "Dex does not know client kagent", OK: false}}}},
+						Probe: &verify.ProbeResult{Expect: []int{302}, Requests: []verify.Request{{URL: dexAuthURL, Client: kagent, Error: "dial tcp: timeout", OK: false},
+							{URL: dexAuthURL, Client: kagent, Status: 404, Connector: "github", Message: "Dex does not know client kagent", OK: false}}}},
 				}},
 		},
 	}
@@ -345,8 +346,8 @@ func TestVerifyPrintsFeaturesWithMarksAndDimensions(t *testing.T) {
 		"[not checked] kagent/live (live: deployment) — "+verify.ReasonAuthority,
 		"expect 302|403",
 		"ok   https://kagent.rowan.example/ → 302",
-		"FAIL https://dex.rowan.example/auth (kagent) — dial tcp: timeout",
-		"FAIL https://dex.rowan.example/auth (kagent) → 404 from connector github: Dex does not know client kagent")
+		"unreachable "+dexAuthURL+" (kagent) — dial tcp: timeout",
+		"FAIL "+dexAuthURL+" (kagent) → 404 from connector github: Dex does not know client kagent")
 }
 
 func TestDecisionAndMergeCarryTheMessageAndTheAction(t *testing.T) {
@@ -472,5 +473,36 @@ func TestRefusalPrintedOnce(t *testing.T) {
 	}
 	if out := b.String(); !strings.Contains(out, "  Refused: "+refused) || strings.Contains(out, "A commit would be refused") {
 		t.Errorf("plan:\n%s", out)
+	}
+}
+
+// dexAuthURL is the Dex auth endpoint the verify fixtures probe.
+const dexAuthURL = "https://dex.rowan.example/auth"
+
+// A probe of a host the manager cannot reach reads unreachable with the
+// reason, never FAIL; on a private installation the dimensions not checked by
+// design are counted apart from the marks, no gap.
+func TestVerifyPrintsUnreachableByDesignApart(t *testing.T) {
+	reason := verify.ReasonPrivate + ": dex.rowan.example"
+	r := verify.Result{
+		Caller: someone, Installation: rowan, Capability: agentPlatform, Hub: hazel,
+		Summary: map[verify.Mark]int{verify.AsDefined: 1}, ByDesign: 1,
+		Features: []verify.Feature{{ID: kagent, Title: "Identity", Mark: verify.AsDefined, Marks: map[verify.Mark]int{verify.AsDefined: 1}, ByDesign: 1,
+			Dimensions: []verify.Dimension{
+				{ID: "dex-auth-request", Kind: definitions.KindProbe, Key: "dex", Mark: verify.NotChecked, Reason: reason, Detail: "Client.Timeout exceeded", ByDesign: true,
+					Probe: &verify.ProbeResult{Expect: []int{302}, Requests: []verify.Request{{URL: dexAuthURL, Error: "Client.Timeout exceeded"}}}},
+			}}},
+	}
+	var buf bytes.Buffer
+	if err := Verify(&buf, r, nil); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, buf.String(),
+		"Summary: 1 as defined, 1 unreachable from the manager by design (private installation)",
+		"Identity: as defined (1 as defined, 1 unreachable from the manager by design (private installation))",
+		"[not checked] dex-auth-request (probe: dex) — "+reason,
+		"unreachable "+dexAuthURL+" — Client.Timeout exceeded")
+	if strings.Contains(buf.String(), "FAIL") || strings.Contains(buf.String(), "1 not checked") {
+		t.Fatalf("an unreachable host printed as a failure or a gap:\n%s", buf.String())
 	}
 }

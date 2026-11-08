@@ -359,7 +359,7 @@ func CompareLive(ctx context.Context, opts LiveOptions) Result {
 		}
 	}
 	x := &executor{opts: opts, lv: lv, refused: r.Refused, pr: newProber(opts.Probes)}
-	x.pr.planned = opts.Inputs.Planned
+	x.pr.planned, x.pr.private = opts.Inputs.Planned, Private(opts.Inputs.Values)
 	x.sendHTTP(ctx)
 	held := map[string]bool{}
 	var clients []plan.DexClient
@@ -405,8 +405,7 @@ func CompareLive(ctx context.Context, opts LiveOptions) Result {
 			f.Dimensions = append(f.Dimensions, dim)
 		}
 		for _, d := range f.Dimensions {
-			f.Marks[d.Mark]++
-			r.Summary[d.Mark]++
+			f.count(d, r.Summary, &r.ByDesign)
 		}
 		f.Mark = rollUp(f.Dimensions)
 		r.Features = append(r.Features, f)
@@ -426,7 +425,7 @@ func CompareLive(ctx context.Context, opts LiveOptions) Result {
 // waiting for the customer from either side.
 func Merge(repo, live Result) Result {
 	out := repo
-	out.Features, out.Summary = []Feature{}, map[Mark]int{}
+	out.Features, out.Summary, out.ByDesign = []Feature{}, map[Mark]int{}, 0
 	out.LiveCaller = live.Caller
 	byID := map[string]Dimension{}
 	for _, f := range live.Features {
@@ -441,8 +440,7 @@ func Merge(repo, live Result) Result {
 				d = ld
 			}
 			nf.Dimensions = append(nf.Dimensions, d)
-			nf.Marks[d.Mark]++
-			out.Summary[d.Mark]++
+			nf.count(d, out.Summary, &out.ByDesign)
 		}
 		nf.Mark = rollUp(nf.Dimensions)
 		out.Features = append(out.Features, nf)
@@ -714,6 +712,7 @@ func (x *executor) dimension(ctx context.Context, d definitions.Dimension) Dimen
 	}
 	dim.Live = live
 	dim.Mark, dim.Reason, dim.Detail = checkRollUp(live.Checks)
+	dim.ByDesign = dim.Mark == NotChecked && byDesign(live.Checks)
 	sort.Slice(dim.Differences, func(i, j int) bool {
 		return dim.Differences[i].Object+dim.Differences[i].Path < dim.Differences[j].Object+dim.Differences[j].Path
 	})
@@ -741,6 +740,22 @@ func checkRollUp(checks []Check) (Mark, string, string) {
 		return NotChecked, c.Message, c.Detail
 	}
 	return AsDefined, "", ""
+}
+
+// byDesign says every check not checked is so only because the manager does
+// not reach a private installation's host (ReasonPrivate), and one is.
+func byDesign(checks []Check) bool {
+	found := false
+	for _, c := range checks {
+		if c.Mark != NotChecked {
+			continue
+		}
+		if !strings.HasPrefix(c.Message, ReasonPrivate) {
+			return false
+		}
+		found = true
+	}
+	return found
 }
 
 // logCheck writes one line for a check of the installation's objects: the
@@ -1281,11 +1296,11 @@ func (x *executor) logAbsent(ctx context.Context, c *Check, p render.Probe) erro
 
 // answer sends the anonymous request of the HTTP probe p (get) and holds the
 // answer against the expectation, into c: not checked with ReasonUnreachable
-// naming the host and the transport's error as the detail when there was none.
+// (ReasonPrivate on a private installation) naming the host and the transport's error as the detail when there was none.
 func (pr *prober) answer(ctx context.Context, c *Check, p render.Probe) {
 	r, err := pr.get(ctx, p.URL, p.Expect.DexConnectorStep)
 	if err != nil {
-		c.Mark, c.Message, c.Detail = NotChecked, unreachable(p.URL), strings.TrimSpace(err.Error())
+		c.Mark, c.Message, c.Detail = NotChecked, pr.unreachable(p.URL), strings.TrimSpace(err.Error())
 		return
 	}
 	c.Message = r.String()

@@ -141,17 +141,37 @@ type Dimension struct {
 	Probe       *ProbeResult `json:"probe,omitempty"`
 	// Live is what a live dimension's probes answered (CompareLive).
 	Live *LiveResult `json:"live,omitempty"`
+	// ByDesign says the dimension is not checked only because the manager
+	// does not reach a private installation's hosts (ReasonPrivate): its
+	// reason says why, and it is no gap — counted in ByDesign, never among
+	// the marks.
+	ByDesign bool `json:"byDesign,omitempty"`
 	// missing are the choices not on record the dimension's leaves carry.
 	missing map[string]bool
 }
 
 // Feature is one feature of the definition, rolled up.
 type Feature struct {
-	ID         string       `json:"id"`
-	Title      string       `json:"title"`
-	Mark       Mark         `json:"mark"`
-	Marks      map[Mark]int `json:"marks"`
-	Dimensions []Dimension  `json:"dimensions"`
+	ID    string       `json:"id"`
+	Title string       `json:"title"`
+	Mark  Mark         `json:"mark"`
+	Marks map[Mark]int `json:"marks"`
+	// ByDesign counts the dimensions not checked by design (Dimension.ByDesign),
+	// which Marks leaves out.
+	ByDesign   int         `json:"byDesign,omitempty"`
+	Dimensions []Dimension `json:"dimensions"`
+}
+
+// count counts d into f's marks and summary, the result's; a dimension not
+// checked by design into f's and the result's byDesign instead: no gap.
+func (f *Feature) count(d Dimension, summary map[Mark]int, byDesign *int) {
+	if d.ByDesign {
+		f.ByDesign++
+		*byDesign++
+		return
+	}
+	f.Marks[d.Mark]++
+	summary[d.Mark]++
 }
 
 // The sources of the inputs a comparison renders from. The record is the
@@ -227,6 +247,9 @@ type Result struct {
 	Refused  string       `json:"refused,omitempty"`
 	Features []Feature    `json:"features"`
 	Summary  map[Mark]int `json:"summary"`
+	// ByDesign counts the dimensions not checked by design
+	// (Dimension.ByDesign), which Summary leaves out.
+	ByDesign int `json:"byDesign,omitempty"`
 	// LiveCaller is who the live reads ran as, in a merged result.
 	LiveCaller string `json:"liveCaller,omitempty"`
 	// The plan's view, from the one build the comparison ran: what a commit
@@ -349,7 +372,7 @@ func Compare(ctx context.Context, opts Options) Result {
 		clients = c.dexClients
 	}
 	pr := newProber(opts.Probes)
-	pr.planned = r.Inputs.Planned
+	pr.planned, pr.private = r.Inputs.Planned, Private(opts.Inputs.Values)
 	probed := pr.probeAll(ctx, probeData(opts.Installation.Name, opts.Installation.BaseDomain, opts.Inputs.Values), clients, c != nil, probes)
 	for _, fd := range feats {
 		f := Feature{ID: fd.ID, Title: fd.Title, Marks: map[Mark]int{}, Dimensions: []Dimension{}}
@@ -413,8 +436,7 @@ func (r Result) HoldCustomerActions(actions []plan.CustomerAction) []plan.Custom
 // the summary.
 func (r *Result) addFeature(f Feature) {
 	for _, d := range f.Dimensions {
-		f.Marks[d.Mark]++
-		r.Summary[d.Mark]++
+		f.count(d, r.Summary, &r.ByDesign)
 	}
 	f.Mark = rollUp(f.Dimensions)
 	r.Features = append(r.Features, f)
