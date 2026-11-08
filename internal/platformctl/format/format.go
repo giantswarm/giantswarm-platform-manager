@@ -104,8 +104,8 @@ func Plan(w io.Writer, r tools.CapabilityResult, content bool) error {
 	}
 	for _, inst := range r.Installations {
 		p.installation(inst.Installation, inst.Features, content)
-		if len(inst.Summary) > 0 {
-			p.f("  Comparison: %s\n", marks(inst.Summary))
+		if len(inst.Summary) > 0 || inst.ByDesign > 0 {
+			p.f("  Comparison: %s\n", marksByDesign(inst.Summary, inst.ByDesign))
 		}
 	}
 	if len(r.Installations) > 1 && suppliesAny(r.Installations) {
@@ -702,11 +702,9 @@ func note(n string) string {
 	return " — " + n
 }
 
-// marks counts the marks in their severity order, the way the result rolls up.
-func marks(m map[verify.Mark]int) string { return marksByDesign(m, 0) }
-
-// marksByDesign is marks with the dimensions not checked by design appended:
-// no gap, so never among the marks.
+// marksByDesign counts the marks in their severity order, the way the result
+// rolls up, then the dimensions not checked by design: no gap, so never among
+// the marks.
 func marksByDesign(m map[verify.Mark]int, byDesign int) string {
 	var parts []string
 	for _, mark := range []verify.Mark{verify.Drifted, verify.DiffersByInput, verify.Planned, verify.AsDefined, verify.NotChecked} {

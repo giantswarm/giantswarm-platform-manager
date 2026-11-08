@@ -19,6 +19,9 @@ type DryRun struct {
 	plan.Installation
 	Features []verify.Feature    `json:"features"`
 	Summary  map[verify.Mark]int `json:"summary"`
+	// ByDesign counts the dimensions not checked by design, which Summary
+	// leaves out (verify.Result.ByDesign).
+	ByDesign int `json:"byDesign,omitempty"`
 }
 
 // compare is the one computation verify_capability and the dry runs answer:
@@ -100,7 +103,7 @@ func missingChoices(capability string, fields []string) string {
 // comparison with its evidence, as verify_capability answers it. A set's
 // answer rolls each entry up (rolledUp); the wave commits the entries whole.
 func dryRun(res *verify.Result) DryRun {
-	return DryRun{Installation: res.Plan(), Features: res.Features, Summary: res.Summary}
+	return DryRun{Installation: res.Plan(), Features: res.Features, Summary: res.Summary, ByDesign: res.ByDesign}
 }
 
 // rolledUp is a set's entry: what differs from the definition, the rest

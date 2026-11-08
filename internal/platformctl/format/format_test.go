@@ -506,3 +506,15 @@ func TestVerifyPrintsUnreachableByDesignApart(t *testing.T) {
 		t.Fatalf("an unreachable host printed as a failure or a gap:\n%s", buf.String())
 	}
 }
+
+// A dry run's comparison line names the dimensions not checked by design
+// beside the marks: never dropped from the count without a word.
+func TestPlanComparisonNamesByDesign(t *testing.T) {
+	r := tools.CapabilityResult{Caller: someone, Tool: tools.ToolReconcileCapability, Capability: agentPlatform, Hub: hazel, DryRun: true,
+		Installations: []tools.DryRun{{Summary: map[verify.Mark]int{verify.AsDefined: 68, verify.NotChecked: 18}, ByDesign: 7, Installation: plan.Installation{Name: rowan}}}}
+	var buf bytes.Buffer
+	if err := Plan(&buf, r, false); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, buf.String(), "Comparison: 68 as defined, 18 not checked, 7 unreachable from the manager by design (private installation)")
+}

@@ -378,8 +378,12 @@ func TestLiveHTTPProbesOnAPrivateInstallationAreByDesign(t *testing.T) {
 	}
 }
 
-// installationKey is the inputs' section of the installation's facts.
-const installationKey = "installation"
+// installationKey is the inputs' section of the installation's facts,
+// privateKey its private flag.
+const (
+	installationKey = "installation"
+	privateKey      = "private"
+)
 
 // Private reads the installation's fact; anything else is a public one.
 func TestPrivate(t *testing.T) {
@@ -387,8 +391,8 @@ func TestPrivate(t *testing.T) {
 		values map[string]any
 		want   bool
 	}{
-		{map[string]any{installationKey: map[string]any{"private": true}}, true},
-		{map[string]any{installationKey: map[string]any{"private": false}}, false},
+		{map[string]any{installationKey: map[string]any{privateKey: true}}, true},
+		{map[string]any{installationKey: map[string]any{privateKey: false}}, false},
 		{map[string]any{installationKey: map[string]any{}}, false},
 		{nil, false},
 	} {
@@ -417,4 +421,71 @@ func TestByDesignIsNoGapInTheSummary(t *testing.T) {
 	if ByDesignClause(0) != "" || ByDesignClause(9) != "9 unreachable from the manager by design (private installation)" {
 		t.Fatalf("clause %q", ByDesignClause(9))
 	}
+}
+
+// refusing is the agent-platform definition refusing every input: nothing is
+// rendered, the probes over the installation's domain run all the same.
+func refusing() installations.Capability {
+	return installations.Capability{Name: installations.AgentPlatform, Parse: func(any) (render.Input, error) { return nil, errors.New("not rendered in this test") }}
+}
+
+// privateInputs are the inputs on record of an installation held as private.
+func privateInputs() Inputs {
+	return Inputs{Values: map[string]any{installationKey: map[string]any{privateKey: true, "baseDomain": testDomain}}}
+}
+
+// assertByDesign holds every probe dimension of r that sent a request to
+// unreachable by design, counted in ByDesign and never as not checked.
+func assertByDesign(t *testing.T, r Result) {
+	t.Helper()
+	var sent int
+	for _, f := range r.Features {
+		for _, d := range f.Dimensions {
+			if d.Kind != definitions.KindProbe || d.Probe == nil || len(d.Probe.Requests) == 0 {
+				continue
+			}
+			sent++
+			if d.Mark != NotChecked || !strings.HasPrefix(d.Reason, ReasonPrivate+": ") || !d.ByDesign {
+				t.Errorf("%s: mark %q, reason %q, by design %t", d.ID, d.Mark, d.Reason, d.ByDesign)
+			}
+		}
+	}
+	if sent == 0 || r.ByDesign != sent {
+		t.Fatalf("%d probe(s) sent, %d by design", sent, r.ByDesign)
+	}
+	notChecked := 0
+	for _, f := range r.Features {
+		for _, d := range f.Dimensions {
+			if d.Mark == NotChecked && !d.ByDesign {
+				notChecked++
+			}
+		}
+	}
+	if r.Summary[NotChecked] != notChecked {
+		t.Fatalf("summary counts %d not checked, %d are a gap", r.Summary[NotChecked], notChecked)
+	}
+}
+
+// Compare reads the installation's private fact from the inputs on record:
+// its unreachable probes are unreachable by design, no gap in the summary.
+func TestComparePrivateInstallationProbesAreByDesign(t *testing.T) {
+	assertByDesign(t, Compare(context.Background(), Options{
+		Definition:   refusing(),
+		Installation: installations.Installation{Name: "x", BaseDomain: testDomain},
+		State:        installations.StateEnabled,
+		Inputs:       privateInputs(),
+		Probes:       answering(nil),
+	}))
+}
+
+// CompareLive reads it the same, for the anonymous probes the watch runs.
+func TestCompareLivePrivateInstallationProbesAreByDesign(t *testing.T) {
+	assertByDesign(t, CompareLive(context.Background(), LiveOptions{
+		Definition:      refusing(),
+		Installation:    "x",
+		State:           installations.StateEnabled,
+		Inputs:          privateInputs(),
+		Probes:          answering(nil),
+		AnonymousProbes: true,
+	}))
 }
