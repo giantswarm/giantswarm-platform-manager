@@ -57,7 +57,7 @@ charts:
   - name: kagent
     line: "3"
     registry: gsoci.azurecr.io/charts/giantswarm/kagent
-    version: 0.3.45
+    version: 0.3.46
   - name: kagent
     line: "4"
     registry: gsoci.azurecr.io/giantswarm/kagent/helm/kagent
