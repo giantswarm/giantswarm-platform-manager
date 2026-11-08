@@ -419,7 +419,7 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
   `platformctl installation enable <installation> <capability> --dry-run|--commit --reason <text> [--input k=v]… [--secret f=src]… [--rotate <name>]… [--content]`,
   `platformctl installation reconcile <installation>…|--all <capability> --dry-run|--commit --reason <text> [--input k=v]… [--secret f=src]… [--rotate <name>]… [--content]`,
   `platformctl installation disable <installation> <capability> --dry-run|--commit --reason <text> [--keep <path>]… [--content]`,
-  `platformctl installation verify <installation> <capability>`,
+  `platformctl installation verify <installation> <capability> [--local [--hub <installation>]]`,
   `platformctl action get <name>`, `platformctl action list [--installation <name>] [--capability <name>]`,
   `platformctl action approve <name>`, `platformctl action deny <name> --reason <text>`,
   `platformctl action merge <name>` and `platformctl action watch <name>` call the manager's tools and
@@ -442,6 +442,16 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
   dimensions; `approve`, `deny` and `merge` are the review's tools called as you, the manager's answer
   saying what follows (`deny` on a merged action is its actor's withdrawal); `watch` is `watch_action` — the rollout picture object by
   object, the dimensions that decided, the report, what follows — called again while it is rolling out.
+- `--local` on `enable`, `reconcile` and `disable` with `--dry-run`, and on `verify`, renders with the
+  definitions built into that platformctl instead of the deployed manager's: the manager's own tools run in
+  process, so a render change built from a checkout (`go run ./cmd/platformctl installation verify <installation>
+  <capability> --local`) is dry-run and verified against an installation's repositories before its merge and
+  rollout. It reads as you with `GITHUB_TOKEN`, `GH_TOKEN` or `gh auth token` (verified with `GET /user`),
+  from the registry of the hub `--hub <installation>` names — by default the deployed manager's, from its
+  `get_info` through muster. The result says *Rendered locally by platformctl <version>* under its header
+  (`renderedBy.local` in JSON; the manager answers `renderedBy` with its own version), and the live half of
+  `verify` stays the deployed manager's `verify_installation`, through muster, from its own definitions; out
+  of reach, the live line says why. `--commit` refuses `--local`: a commit goes through the deployed manager.
 - The calls go through `muster agent --mcp-server`, muster's own bridge: it takes the aggregator from
   muster's configuration (`--endpoint` names another) and signs you in to muster when needed. The bridge
   exposes muster's meta tools only, so every manager tool is called through its `call_tool` and the

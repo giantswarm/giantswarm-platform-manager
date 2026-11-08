@@ -4,6 +4,10 @@
   "capability": "agent-platform",
   "hub": "hazel",
   "dryRun": true,
+  "renderedBy": {
+    "local": false,
+    "version": ""
+  },
   "order": [
     "rowan"
   ],

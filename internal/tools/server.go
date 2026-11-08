@@ -24,6 +24,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/live"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 )
 
 // ToolPrefix is the MCPServer name muster registers this server under.
@@ -55,6 +56,10 @@ func PlannedTools() []string { return []string{} }
 // every GitHub call runs with the caller's.
 type Deps struct {
 	Version string
+	// Local says the tools run inside platformctl --local, from the
+	// definitions built into it, and not in the deployed manager: every
+	// render answers it in its renderedBy.
+	Local bool
 	// GitHubAPIURL is the API base URL the caller's calls go to (empty:
 	// api.github.com; the fake in tests).
 	GitHubAPIURL string
@@ -156,6 +161,11 @@ func New(d Deps) *Tools {
 	t.AddWrite(t.reconcileCapabilityTool())
 	t.AddWrite(t.disableCapabilityTool())
 	return t
+}
+
+// renderedBy is what this tool set's renders say rendered them.
+func (t *Tools) renderedBy() verify.RenderedBy {
+	return verify.RenderedBy{Local: t.d.Local, Version: t.d.Version}
 }
 
 // AddWrite registers a write tool through the framework: dryRun and mode are
