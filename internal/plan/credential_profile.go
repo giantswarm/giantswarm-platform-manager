@@ -6,13 +6,11 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/giantswarm/giantswarm-platform-manager/render/agentplatform"
 )
 
-const (
-	providerAppsList         = "muster.muster.providerApps"
-	managerProviderAppName   = "agent-manager"
-	managerProviderAppIssuer = "https://github.com/apps/giantswarm-agent-manager"
-)
+const providerAppsList = "muster.muster.providerApps"
 
 func keepCredentialProviderApps(rendered, current *yaml.Node, kept *[]Kept) error {
 	path := strings.Split(providerAppsList, ".")
@@ -43,7 +41,7 @@ func keepCredentialProviderApps(rendered, current *yaml.Node, kept *[]Kept) erro
 			continue
 		}
 		issuer := entry(app, keyIssuer)
-		if managedEnabled && (name.Value == managerProviderAppName || (issuer != nil && issuer.Value == managerProviderAppIssuer)) {
+		if managedEnabled && (name.Value == agentplatform.ManagerProviderAppName || (issuer != nil && issuer.Value == agentplatform.ManagerGrantIssuer)) {
 			return fmt.Errorf("%s app %q conflicts with the managed agent-manager GitHub App", providerAppsList, name.Value)
 		}
 		if renderedApps == nil {
@@ -70,37 +68,62 @@ func keepCredentialProviderApps(rendered, current *yaml.Node, kept *[]Kept) erro
 
 func managedManagerProviderApp(app *yaml.Node) bool {
 	name, issuer := entry(app, keyName), entry(app, keyIssuer)
-	return name != nil && issuer != nil && name.Value == managerProviderAppName && issuer.Value == managerProviderAppIssuer
+	return name != nil && issuer != nil && name.Value == agentplatform.ManagerProviderAppName && issuer.Value == agentplatform.ManagerGrantIssuer
 }
 
-func credentialBrokerIssuer(values *yaml.Node) string {
-	endpoint := at(values, "agent-manager", "githubTokenExchange", "endpoint")
-	if endpoint == nil || endpoint.Value == "" {
-		return ""
-	}
-	issuers := at(values, strings.Split(ListTrustedIssuers, ".")...)
-	if issuers == nil || len(issuers.Content) != 1 {
-		return ""
-	}
-	issuer := entry(issuers.Content[0], keyIssuer)
-	if issuer == nil {
-		return ""
-	}
-	return issuer.Value
+// brokerIssuer is the subject-token issuer the render trusts for the
+// manager's grant exchange, and the audiences the exchange needs it to accept.
+type brokerIssuer struct {
+	issuer    string
+	audiences []string
 }
 
-func validateCredentialBrokerIssuer(values *yaml.Node, expected string) error {
-	endpoint := at(values, "agent-manager", "githubTokenExchange", "endpoint")
-	if endpoint == nil || endpoint.Value == "" {
+// renderedBrokerIssuer is the render's broker issuer while it carries the
+// manager's grant exchange; nil without it. Read before the record's issuers
+// are merged, which replace the render's entry of the same issuer.
+func renderedBrokerIssuer(values *yaml.Node) *brokerIssuer {
+	if endpoint := at(values, "agent-manager", "githubTokenExchange", "endpoint"); endpoint == nil || endpoint.Value == "" {
 		return nil
 	}
+	b := &brokerIssuer{}
 	issuers := at(values, strings.Split(ListTrustedIssuers, ".")...)
-	if expected != "" && issuers != nil && issuers.Kind == yaml.SequenceNode && len(issuers.Content) == 1 {
-		issuer := entry(issuers.Content[0], keyIssuer)
-		audiences := entry(issuers.Content[0], "allowedAudiences")
-		if issuer != nil && issuer.Value == expected && audiences != nil && audiences.Kind == yaml.SequenceNode && len(audiences.Content) > 0 {
-			return nil
+	if issuers == nil || issuers.Kind != yaml.SequenceNode || len(issuers.Content) != 1 {
+		return b
+	}
+	if issuer := entry(issuers.Content[0], keyIssuer); issuer != nil {
+		b.issuer = issuer.Value
+	}
+	if audiences := entry(issuers.Content[0], keyAllowedAudiences); audiences != nil && audiences.Kind == yaml.SequenceNode {
+		for _, a := range audiences.Content {
+			b.audiences = append(b.audiences, a.Value)
 		}
 	}
-	return errors.New("agentManager.githubTokenExchange.enabled requires one canonical Dex subject-token issuer and an explicit input audience allowlist; the issuers preserved from this installation's record do not meet that condition")
+	return b
+}
+
+// enforceBrokerIssuer holds the merged trusted issuers to the grant
+// exchange's deployment gate: the render's issuer is the only one, its entry
+// on record carries an explicit audience allowlist, and that allowlist gains
+// every audience the render needs that the record lacks. The record's own
+// audiences stay.
+func enforceBrokerIssuer(values *yaml.Node, want *brokerIssuer) error {
+	if want == nil {
+		return nil
+	}
+	refusal := errors.New("agentManager.githubTokenExchange.enabled requires one canonical Dex subject-token issuer and an explicit input audience allowlist; the issuers preserved from this installation's record do not meet that condition")
+	issuers := at(values, strings.Split(ListTrustedIssuers, ".")...)
+	if want.issuer == "" || issuers == nil || issuers.Kind != yaml.SequenceNode || len(issuers.Content) != 1 {
+		return refusal
+	}
+	issuer := entry(issuers.Content[0], keyIssuer)
+	audiences := entry(issuers.Content[0], keyAllowedAudiences)
+	if issuer == nil || issuer.Value != want.issuer || audiences == nil || audiences.Kind != yaml.SequenceNode || len(audiences.Content) == 0 {
+		return refusal
+	}
+	for _, a := range want.audiences {
+		if !contains(audiences, a) {
+			audiences.Content = append(audiences.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: a})
+		}
+	}
+	return nil
 }

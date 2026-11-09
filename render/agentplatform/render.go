@@ -451,7 +451,10 @@ func (in *Input) musterValues() render.Map {
 	oauth = append(oauth, e("server", server))
 	muster := render.Map{}
 	if in.AgentManagerTokenExchange {
-		muster = append(muster, e("providerApps", []render.Map{in.agentManagerProviderApp()}))
+		muster = append(muster, e("providerApps", []render.Map{agentManagerProviderApp()}))
+	}
+	if in.AgentManagerCredentialUI != "" {
+		muster = append(muster, e("aggregator", render.Map{e("devPortalUrl", credentialUIOrigin(in.AgentManagerCredentialUI))}))
 	}
 	if in.hasPrivateTarget() {
 		muster = append(muster, e("extraCaFile", extraCaFile()))

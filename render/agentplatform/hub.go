@@ -197,7 +197,7 @@ func (in *Input) brokerValues() render.Map {
 	if in.AgentManagerTokenExchange {
 		clients = append(clients, e(componentAgentManager, render.Map{e("clientCredentialsSecretRef", render.Map{e("name", agentManagerBrokerSecret)})}))
 		audiences = append(audiences, e(componentAgentManager, []string{agentManagerBrokerAudience}))
-		targets = append(targets, e(agentManagerBrokerAudience, render.Map{e("grantIssuer", agentManagerGrantIssuer)}))
+		targets = append(targets, e(agentManagerBrokerAudience, render.Map{e("grantIssuer", ManagerGrantIssuer)}))
 	}
 	return append(m, e("brokerClients", clients), e("clientAudiences", audiences), e("targets", targets))
 }

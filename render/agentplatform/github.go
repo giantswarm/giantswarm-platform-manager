@@ -66,12 +66,8 @@ func (in *Input) portalGitHub() bool {
 // binds ownership to the verified raw sub at this installation's Dex issuer.
 func (in *Input) trustedIssuers() []render.Map {
 	issuer := "https://" + in.host("dex")
-	audiences := in.portalAudiences()
-	if in.AgentManagerTokenExchange {
-		audiences = in.audiences()
-	}
 	entry := render.Map{e("issuer", issuer), e("jwksUrl", issuer+"/keys"),
-		e("allowedAudiences", audiences), e("subjectClaim", "email"), e("acceptedTypHeaders", []string{""})}
+		e("allowedAudiences", in.brokerSubjectAudiences()), e("subjectClaim", "email"), e("acceptedTypHeaders", []string{""})}
 	if in.Installation.Private {
 		entry = append(entry, e("allowPrivateIPJWKS", true))
 	}

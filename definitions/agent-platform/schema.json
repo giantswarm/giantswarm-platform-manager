@@ -474,8 +474,8 @@
           "properties": {"uiURL": {
             "type": "string", "default": "", "x-source": "person",
             "x-readback": {"file": "configmap", "key": "agent-manager.credentials.uiURL"},
-            "x-feature": "runtime", "x-renders": ["configmap:agent-manager.credentials.uiURL"],
-            "description": "Client-owned HTTPS credential UI URL template with exactly one {operation}. Optional {parent} and {organization}; manager >=2.22.0-rc.3. No portal route is derived."
+            "x-feature": "runtime", "x-renders": ["configmap:agent-manager.credentials.uiURL", "configmap:muster.muster.aggregator.devPortalUrl"],
+            "description": "Client-owned HTTPS credential UI URL template with exactly one {operation} in its path or query, optionally {parent} and {organization}, and no other braces; manager >=2.22.0-rc.3. Its origin is muster's URL-elicitation relay origin (aggregator.devPortalUrl). No portal route is derived."
           }}
         },
         "skills": {

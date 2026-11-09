@@ -14,6 +14,7 @@ const (
 	formURL             = "https://portal.example.com/credentials/{operation}"
 	insecureFormURL     = "http://portal.example.com/{operation}"
 	missingOperationURL = "https://portal.example.com/credentials"
+	refusedUIURL        = "HTTPS URL"
 )
 
 func TestAgentManagerCredentialBroker(t *testing.T) {
@@ -26,7 +27,7 @@ func TestAgentManagerCredentialBroker(t *testing.T) {
 			require.NoError(t, err)
 			broker := credentialValues(t, in.brokerValues())
 			require.Equal(t, []any{agentManagerBrokerAudience}, broker["clientAudiences"].(map[string]any)[componentAgentManager])
-			require.Equal(t, map[string]any{"grantIssuer": agentManagerGrantIssuer}, broker["targets"].(map[string]any)[agentManagerBrokerAudience])
+			require.Equal(t, map[string]any{"grantIssuer": ManagerGrantIssuer}, broker["targets"].(map[string]any)[agentManagerBrokerAudience])
 			for client, audiences := range broker["clientAudiences"].(map[string]any) {
 				if client != componentAgentManager {
 					require.NotContains(t, audiences, agentManagerBrokerAudience)
@@ -38,12 +39,14 @@ func TestAgentManagerCredentialBroker(t *testing.T) {
 			require.Equal(t, componentAgentManager, exchange["clientID"])
 			require.Equal(t, agentManagerBrokerSecret, exchange["secretName"])
 			require.Equal(t, "https://"+in.host("muster")+"/oauth/token", exchange["endpoint"])
-			require.Equal(t, agentManagerGrantIssuer, credentialValues(t, in.agentManagerProviderApp())["issuer"])
+			require.Equal(t, ManagerGrantIssuer, credentialValues(t, agentManagerProviderApp())["issuer"])
 			muster := credentialValues(t, in.musterValues())["muster"].(map[string]any)
 			require.Equal(t, true, muster["oauth"].(map[string]any)["mcpClient"].(map[string]any)[keyEnabled])
 			trusted := credentialValues(t, in.trustedIssuers()[0])
 			require.Equal(t, "https://"+in.host("dex"), trusted["issuer"])
-			require.ElementsMatch(t, in.audiences(), trusted["allowedAudiences"])
+			require.Equal(t, toAny(append(in.portalAudiences(), authenticatorClient)), trusted["allowedAudiences"])
+			require.NotContains(t, trusted["allowedAudiences"], componentKagent)
+			require.Equal(t, "https://portal.example.com", muster["aggregator"].(map[string]any)["devPortalUrl"])
 			found := false
 			for _, files := range result.Files {
 				for path, file := range files {
@@ -97,10 +100,20 @@ func TestAgentManagerCredentialInputsFailClosed(t *testing.T) {
 		}, "reserves the agent-manager-github broker target"},
 		{"insecure UI", func(input map[string]any) {
 			input["agentManager"].(map[string]any)["credentials"] = map[string]any{keyCredentialUI: insecureFormURL}
-		}, "HTTPS URL"},
+		}, refusedUIURL},
 		{"missing operation", func(input map[string]any) {
 			input["agentManager"].(map[string]any)["credentials"] = map[string]any{keyCredentialUI: missingOperationURL}
-		}, "HTTPS URL"},
+		}, refusedUIURL},
+		{"unknown placeholder", func(input map[string]any) {
+			input["agentManager"].(map[string]any)["credentials"] = map[string]any{keyCredentialUI: formURL + "/{foo}"}
+		}, "no other braces"},
+		{"placeholder in host", func(input map[string]any) {
+			// #nosec G101 -- a URL template, no credential value
+			input["agentManager"].(map[string]any)["credentials"] = map[string]any{keyCredentialUI: "https://{operation}.example.com/credentials"}
+		}, refusedUIURL},
+		{"repeated operation", func(input map[string]any) {
+			input["agentManager"].(map[string]any)["credentials"] = map[string]any{keyCredentialUI: formURL + "?again={operation}"}
+		}, refusedUIURL},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			input, _ := credentialInput(t, shapeGiantswarmSlackAppPub)
@@ -132,4 +145,25 @@ func credentialValues(t *testing.T, values render.Map) map[string]any {
 	var result map[string]any
 	require.NoError(t, yaml.Unmarshal(render.MustYAML(values), &result))
 	return result
+}
+
+func TestCredentialUIOrigin(t *testing.T) {
+	for template, want := range map[string]string{
+		formURL: "https://portal.example.com",
+		"https://portal.example.com:8443/orgs/{parent}/{organization}?operation={operation}": "https://portal.example.com:8443",
+		insecureFormURL:     "",
+		missingOperationURL: "",
+		"https://user@portal.example.com/{operation}":     "",
+		"https://portal.example.com/{operation}#fragment": "",
+	} {
+		require.Equal(t, want, credentialUIOrigin(template), template)
+	}
+}
+
+func toAny(values []string) []any {
+	out := make([]any, len(values))
+	for i, v := range values {
+		out[i] = v
+	}
+	return out
 }

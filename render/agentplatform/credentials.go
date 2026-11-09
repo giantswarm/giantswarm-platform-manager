@@ -2,16 +2,27 @@ package agentplatform
 
 import (
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
+// ManagerProviderAppName and ManagerGrantIssuer identify agent-manager's
+// GitHub App in muster's provider Apps: the grants are filed under the App's
+// own identity, not under GitHub's shared OAuth issuer.
+const (
+	ManagerProviderAppName = componentAgentManager
+	ManagerGrantIssuer     = "https://github.com/apps/giantswarm-agent-manager"
+)
+
 const (
 	agentManagerBrokerAudience = "agent-manager-github"
 	agentManagerBrokerSecret   = "agent-manager-github-broker"
-	agentManagerGrantIssuer    = "https://github.com/apps/giantswarm-agent-manager"
 	managerOperationFloor      = "2.22.0-rc.3"
+	// musterGrantReleaseFloor is the first muster with provider Apps and
+	// grant targets.
+	musterGrantReleaseFloor = "5.58.0"
 )
 
 func (in *Input) validateAgentManagerCredentials() error {
@@ -21,21 +32,15 @@ func (in *Input) validateAgentManagerCredentials() error {
 	if !in.agentManager() || in.Installation.ChartLine != lineFour {
 		return refuse("agentManager credential operations require agent-manager on the 4 chart line")
 	}
-	version, err := portalChartFloor(in.Versions.Components[componentAgentManager])
-	minimum, _ := portalChartFloor(managerOperationFloor)
-	if err != nil || version.LessThan(minimum) {
+	if !floorAtLeast(in.Versions.Components[componentAgentManager], managerOperationFloor) {
 		return refuse("agentManager credential operations require versions.components.agent-manager with a floor of " + managerOperationFloor + " or later")
 	}
 	if in.AgentManagerTokenExchange && in.AgentManagerCommit {
 		return refuse("agentManager.githubTokenExchange.enabled and agentManager.github.enabled are mutually exclusive")
 	}
 	if in.AgentManagerTokenExchange {
-		if hold := in.Versions.Components["muster"]; hold != "" {
-			version, err := portalChartFloor(hold)
-			minimum, _ := portalChartFloor("5.58.0")
-			if err != nil || version.LessThan(minimum) {
-				return refuse("agentManager.githubTokenExchange.enabled requires a muster version floor of 5.58.0 or later")
-			}
+		if hold := in.Versions.Components[componentMuster]; hold != "" && !floorAtLeast(hold, musterGrantReleaseFloor) {
+			return refuse("agentManager.githubTokenExchange.enabled requires a muster version floor of " + musterGrantReleaseFloor + " or later")
 		}
 		if in.federationBrokers() && in.brokerClient() == componentAgentManager {
 			return refuse("agentManager.githubTokenExchange.enabled reserves the agent-manager broker client ID")
@@ -46,21 +51,52 @@ func (in *Input) validateAgentManagerCredentials() error {
 			}
 		}
 	}
-	if in.AgentManagerCredentialUI != "" {
-		parsed, err := url.Parse(in.AgentManagerCredentialUI)
-		if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || parsed.Fragment != "" || strings.Count(in.AgentManagerCredentialUI, "{operation}") != 1 {
-			return refuse("agentManager.credentials.uiURL requires an HTTPS URL with one {operation}, no user information and no fragment")
-		}
+	if in.AgentManagerCredentialUI != "" && credentialUIOrigin(in.AgentManagerCredentialUI) == "" {
+		return refuse("agentManager.credentials.uiURL requires an HTTPS URL with exactly one {operation} in its path or query, optionally {parent} and {organization}, and no other braces, user information or fragment")
 	}
 	return nil
 }
 
-func (in *Input) agentManagerProviderApp() render.Map {
+// floorAtLeast says whether the version hold's floor is minimum or later.
+func floorAtLeast(hold, minimum string) bool {
+	version, err := portalChartFloor(hold)
+	floor, _ := portalChartFloor(minimum)
+	return err == nil && !version.LessThan(floor)
+}
+
+// credentialUIOrigin is the origin of the credential UI URL template, or
+// empty when agent-manager would refuse the template: the same rule as its
+// organizations.ValidateCredentialUIURL, so a template the definition
+// accepts never stops the manager from starting.
+func credentialUIOrigin(template string) string {
+	const marker = "credential-operation-placeholder"
+	resolved := strings.NewReplacer("{operation}", marker, "{parent}", marker, "{organization}", marker).Replace(template)
+	parsed, err := url.Parse(resolved)
+	if err != nil || strings.ContainsAny(resolved, "{}") || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil ||
+		parsed.Fragment != "" || strings.Contains(parsed.Host, marker) || strings.Count(template, "{operation}") != 1 {
+		return ""
+	}
+	return parsed.Scheme + "://" + parsed.Host
+}
+
+// brokerSubjectAudiences are the audiences muster's broker accepts on this
+// installation's Dex ID tokens: the portals', and with the manager's grant
+// exchange the authenticator's, the cross-client audience of the ID token
+// muster forwards to agent-manager.
+func (in *Input) brokerSubjectAudiences() []string {
+	audiences := in.portalAudiences()
+	if in.AgentManagerTokenExchange && !slices.Contains(audiences, authenticatorClient) {
+		audiences = append(audiences, authenticatorClient)
+	}
+	return audiences
+}
+
+func agentManagerProviderApp() render.Map {
 	return render.Map{
-		e("name", "agent-manager"), e("issuer", agentManagerGrantIssuer),
+		e("name", ManagerProviderAppName), e("issuer", ManagerGrantIssuer),
 		e("authorizationEndpoint", "https://github.com/login/oauth/authorize"),
 		e("tokenEndpoint", "https://github.com/login/oauth/access_token"),
-		e("expectedIssuer", "https://github.com/login/oauth"),
+		e("expectedIssuer", githubGrantIssuer),
 		e("clientCredentialsSecretRef", render.Map{e("name", "giantswarm-agent-manager-oauth-client")}),
 	}
 }
