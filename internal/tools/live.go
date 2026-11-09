@@ -168,6 +168,7 @@ func (t *Tools) verifyLive(ctx context.Context, args map[string]any) (any, error
 	}
 	out := verify.CompareLive(ctx, opts)
 	out.Caller = id.String()
+	out.RenderedBy = t.renderedBy()
 	if record != nil {
 		if err := t.recordLiveVerify(ctx, *record, name, out); err != nil {
 			t.d.Log.Warn("live verify not recorded", identity.LogAttr(ctx), "action", record.Name, "error", err)
@@ -210,7 +211,7 @@ func (t *Tools) recordLiveVerify(ctx context.Context, a actions.Action, installa
 	status := a.Status
 	status.Probes = mergeProbes(status.Probes, installation, probesOf(installation, res))
 	status.Rollout = stagesOf(&a)
-	if i := stageIndex(status.Rollout, installation); i >= 0 && status.Result != nil && !actions.Settled(status.State) && verifyMoves(status.Rollout.Installations[i].State) {
+	if i := stageIndex(status.Rollout, installation); i >= 0 && !actions.Settled(status.State) && verifyMoves(status.Rollout.Installations[i].State) {
 		st := &status.Rollout.Installations[i]
 		prev := st.State
 		st.State, st.Message, _ = decideStage(prev, res)
@@ -220,6 +221,6 @@ func (t *Tools) recordLiveVerify(ctx context.Context, a actions.Action, installa
 		applyStage(&status, i, prev)
 		t.tellApplied(ctx, &a, &status, i)
 	}
-	_, err := t.d.Actions.UpdateStatus(ctx, a.Name, status)
+	_, err := t.d.Actions.UpdateStatus(ctx, &a, status)
 	return err
 }

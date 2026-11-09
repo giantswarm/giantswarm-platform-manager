@@ -141,17 +141,37 @@ type Dimension struct {
 	Probe       *ProbeResult `json:"probe,omitempty"`
 	// Live is what a live dimension's probes answered (CompareLive).
 	Live *LiveResult `json:"live,omitempty"`
+	// ByDesign says the dimension is not checked only because the manager
+	// does not reach a private installation's hosts (ReasonPrivate): its
+	// reason says why, and it is no gap — counted in ByDesign, never among
+	// the marks.
+	ByDesign bool `json:"byDesign,omitempty"`
 	// missing are the choices not on record the dimension's leaves carry.
 	missing map[string]bool
 }
 
 // Feature is one feature of the definition, rolled up.
 type Feature struct {
-	ID         string       `json:"id"`
-	Title      string       `json:"title"`
-	Mark       Mark         `json:"mark"`
-	Marks      map[Mark]int `json:"marks"`
-	Dimensions []Dimension  `json:"dimensions"`
+	ID    string       `json:"id"`
+	Title string       `json:"title"`
+	Mark  Mark         `json:"mark"`
+	Marks map[Mark]int `json:"marks"`
+	// ByDesign counts the dimensions not checked by design (Dimension.ByDesign),
+	// which Marks leaves out.
+	ByDesign   int         `json:"byDesign,omitempty"`
+	Dimensions []Dimension `json:"dimensions"`
+}
+
+// count counts d into f's marks and summary, the result's; a dimension not
+// checked by design into f's and the result's byDesign instead: no gap.
+func (f *Feature) count(d Dimension, summary map[Mark]int, byDesign *int) {
+	if d.ByDesign {
+		f.ByDesign++
+		*byDesign++
+		return
+	}
+	f.Marks[d.Mark]++
+	summary[d.Mark]++
 }
 
 // The sources of the inputs a comparison renders from. The record is the
@@ -212,6 +232,23 @@ type Inputs struct {
 	Planned PlannedObjects `json:"planned,omitempty"`
 }
 
+// RenderedBy is what rendered a result from the definitions: the deployed
+// manager, or — Local — platformctl --local from the definitions compiled
+// into that build, a render change proven before its merge and rollout.
+// Version is that build's (version.String()).
+type RenderedBy struct {
+	Local   bool   `json:"local"`
+	Version string `json:"version"`
+}
+
+// String says where a result was rendered, for a person.
+func (r RenderedBy) String() string {
+	if r.Local {
+		return "locally by platformctl " + r.Version + ", from the definitions built into it — not the deployed manager"
+	}
+	return "by the manager " + r.Version
+}
+
 // Result is the verify of one installation × capability.
 type Result struct {
 	Caller       string `json:"caller"`
@@ -227,8 +264,14 @@ type Result struct {
 	Refused  string       `json:"refused,omitempty"`
 	Features []Feature    `json:"features"`
 	Summary  map[Mark]int `json:"summary"`
+	// ByDesign counts the dimensions not checked by design
+	// (Dimension.ByDesign), which Summary leaves out.
+	ByDesign int `json:"byDesign,omitempty"`
 	// LiveCaller is who the live reads ran as, in a merged result.
 	LiveCaller string `json:"liveCaller,omitempty"`
+	// RenderedBy is what rendered the definition: the deployed manager, or
+	// platformctl --local from the definitions built into it.
+	RenderedBy RenderedBy `json:"renderedBy"`
 	// The plan's view, from the one build the comparison ran: what a commit
 	// would write for this installation (the dry run's entry, regrouped).
 	// CommitRefused says why a commit of this plan would be refused.
@@ -244,6 +287,7 @@ type Result struct {
 	HubSections      []string               `json:"hubSections,omitempty"`
 	DropsPrereleases bool                   `json:"dropsPrereleases,omitempty"`
 	Join             *plan.Join             `json:"join,omitempty"`
+	SwitchOff        *plan.SwitchOff        `json:"switchOff,omitempty"`
 	DexClients       []plan.DexClient       `json:"dexClients"`
 	CustomerActions  []plan.CustomerAction  `json:"customerActions"`
 	Probes           []plan.Probe           `json:"probes"`
@@ -254,7 +298,7 @@ type Result struct {
 func (r *Result) view(p plan.Installation, content bool) {
 	r.Files, r.Includes, r.Diff = p.Files, p.Includes, p.Diff
 	r.GeneratedSecrets, r.SuppliedSecrets, r.SuppliedOnRecord, r.HubSections = p.GeneratedSecrets, p.SuppliedSecrets, p.SuppliedOnRecord, p.HubSections
-	r.DropsPrereleases, r.Join = p.DropsPrereleases, p.Join
+	r.DropsPrereleases, r.Join, r.SwitchOff = p.DropsPrereleases, p.Join, p.SwitchOff
 	r.DexClients, r.CustomerActions, r.Probes = p.DexClients, p.CustomerActions, p.Probes
 	r.MissingFacts = p.MissingFacts
 	if !content {
@@ -271,7 +315,7 @@ func (r *Result) view(p plan.Installation, content bool) {
 func (r Result) Plan() plan.Installation {
 	return plan.Installation{Name: r.Installation, State: r.State, Inputs: r.Inputs.Values, MissingInputs: r.Inputs.Missing, Refused: r.Refused, CommitRefused: r.CommitRefused, MissingFacts: r.MissingFacts,
 		Files: r.Files, Includes: r.Includes, Diff: r.Diff, GeneratedSecrets: r.GeneratedSecrets, SuppliedSecrets: r.SuppliedSecrets, SuppliedOnRecord: r.SuppliedOnRecord,
-		HubSections: r.HubSections, DropsPrereleases: r.DropsPrereleases, Join: r.Join, DexClients: r.DexClients, CustomerActions: r.CustomerActions, Probes: r.Probes}
+		HubSections: r.HubSections, DropsPrereleases: r.DropsPrereleases, Join: r.Join, SwitchOff: r.SwitchOff, DexClients: r.DexClients, CustomerActions: r.CustomerActions, Probes: r.Probes}
 }
 
 // Options shape one verify.
@@ -291,6 +335,8 @@ type Options struct {
 	Rotate []string
 	// ForceJoin: the join was asked for with its warning known (plan.Options.ForceJoin).
 	ForceJoin bool
+	// ForceSwitchOff: the switch-off was asked for with its warning known (plan.Options.ForceSwitchOff).
+	ForceSwitchOff bool
 	// Installations are the registry's installations by name (plan.Options.Installations).
 	Installations map[string]installations.Installation
 }
@@ -349,7 +395,7 @@ func Compare(ctx context.Context, opts Options) Result {
 		clients = c.dexClients
 	}
 	pr := newProber(opts.Probes)
-	pr.planned = r.Inputs.Planned
+	pr.planned, pr.private = r.Inputs.Planned, Private(opts.Inputs.Values)
 	probed := pr.probeAll(ctx, probeData(opts.Installation.Name, opts.Installation.BaseDomain, opts.Inputs.Values), clients, c != nil, probes)
 	for _, fd := range feats {
 		f := Feature{ID: fd.ID, Title: fd.Title, Marks: map[Mark]int{}, Dimensions: []Dimension{}}
@@ -413,8 +459,7 @@ func (r Result) HoldCustomerActions(actions []plan.CustomerAction) []plan.Custom
 // the summary.
 func (r *Result) addFeature(f Feature) {
 	for _, d := range f.Dimensions {
-		f.Marks[d.Mark]++
-		r.Summary[d.Mark]++
+		f.count(d, r.Summary, &r.ByDesign)
 	}
 	f.Mark = rollUp(f.Dimensions)
 	r.Features = append(r.Features, f)
@@ -539,13 +584,17 @@ func shown(files []plan.File) {
 }
 
 // planned is the reason a difference is a planned change: the removal that
-// names its path, or, for a leaf the record lacks, the migration that adds
+// names its path (for a leaf the record lacks, never one of kind migration,
+// which goes from the render), or, for a leaf the record lacks, the migration that adds
 // it, or, for a value the record holds encrypted that the render does not
 // carry, its removal by the commit (droppedReason). A leaf the record holds
 // with another value is no migration's — but for a scalar the plan merges as
 // a comma-separated set, whose only change is the entries the migrations
 // add (joined).
 func planned(fd *fileDiff, d *Difference, rms, migs plannedKeys) string {
+	if d.absent {
+		rms = rms.rendered()
+	}
 	if reason := rms.reason(fd, d.Path); reason != "" {
 		return reason
 	}
@@ -571,7 +620,7 @@ func droppedReason(path string) string {
 // with the files the definition renders flattened to their leaves by key.
 // The definition's refusal is the error.
 func build(ctx context.Context, opts Options, values map[string]any, read plan.Reader) (plan.Installation, map[string]map[string]string, error) {
-	p := plan.Build(ctx, plan.Options{Definition: opts.Definition, Installation: opts.Installation, Hub: opts.Hub, Inputs: values, Content: true, Read: read, Rotate: opts.Rotate, ForceJoin: opts.ForceJoin, Installations: opts.Installations})
+	p := plan.Build(ctx, plan.Options{Definition: opts.Definition, Installation: opts.Installation, Hub: opts.Hub, Inputs: values, Content: true, Read: read, Rotate: opts.Rotate, ForceJoin: opts.ForceJoin, ForceSwitchOff: opts.ForceSwitchOff, Installations: opts.Installations})
 	if p.Refused != "" {
 		return p, nil, errors.New(p.Refused)
 	}

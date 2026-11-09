@@ -42,10 +42,10 @@ Behind muster the tools appear as `x_giantswarm-platform-manager_<tool>`.
 | `get_info` | read | The version, the caller (login and id), the pinned authorization server, the capability definitions with their input schemas, the write modes, the write tools, the approval channel configuration and the tools still to come. Call first. |
 | `list_installations` | read | Every installation of the registry with, per capability, its state, the inputs on record and the last action, and whether the agent platform's workspaces are on (`workspaces`), every read as you at call time. `installations` (names) and `customer` narrow the answer; `summary: true` answers the states, the workspaces and the last actions alone, without the record, the portals and the federation facts — the overview's call. Every read of a call runs at once, 32 in flight at most. |
 | `enable_capability` | write | Enable a capability on one installation (`installation`) or a set (`installations`): with `dryRun: true` the plan — files per repository with the change each one is against the repository now, pull requests in dependency order, generated secrets by name, Dex clients and redirect URIs, the secrets the person supplies at commit (by field), customer actions, probes. `inputs` are the definition's typed inputs over the facts on record. With `mode: "commit"` and one `installation`: the gate, the Action in *pending approval*, the pull requests as the person (see [The commit](#the-commit)); `secrets` carries the supplied values by field. |
-| `reconcile_capability` | write | The same render over a set (empty: every installation of the registry), every file compared with the repository: all *unchanged* is an empty diff. Installations without the capability on record are listed as *skipped*: a wave reconciles what is on record; a fresh enable is `enable_capability` with one installation. `rotate` names generated values to rotate on request (see [Rotation on request](#rotation-on-request)). A plan whose agent-platform values patch takes off the installation's muster what it serves beyond the shared defaults — the broker's exchange targets, the identity providers, the MCP servers it lists, a public-registration redirect URI that moves to another installation of the set — carries it as `join`, naming each entry, the warning of a hub join; the commit is refused (`commitRefused`) while the muster still serves in-cluster servers of its own, until `forceJoin: true` (`platformctl --force-join`) proceeds with the warning. |
+| `reconcile_capability` | write | The same render over a set (empty: every installation of the registry), every file compared with the repository: all *unchanged* is an empty diff. Installations without the capability on record are listed as *skipped*: a wave reconciles what is on record; a fresh enable is `enable_capability` with one installation. `rotate` names generated values to rotate on request (see [Rotation on request](#rotation-on-request)). A plan whose agent-platform values patch takes off the installation's muster what it serves beyond the shared defaults — the broker's exchange targets, the identity providers, the MCP servers it lists, a public-registration redirect URI that moves to another installation of the set — carries it as `join`, naming each entry, the warning of a hub join; the commit is refused (`commitRefused`) while the muster still serves in-cluster servers of its own, until `forceJoin: true` (`platformctl --force-join`) proceeds with the warning. A plan whose agent-platform values patch switches off a component running on record (`components.<name>.enabled: true` that the render sets false, or leaves out where the shared defaults do not enable it — a toggle `removals.yaml` lists as `kind: template` goes without a warning — as when a policy lists the installation with fewer components than it runs) carries it as `switchOff`, naming each component and what depends on it; the dry run prints it first, apart from the drift lines, the action's summary (`spec.change`, `spec.changes`) leads with it, and the commit is refused (`commitRefused`) until `forceSwitchOff: true` (`platformctl --force-switch-off`) proceeds with the warning. |
 | `disable_capability` | write | The mirror of `enable_capability` on one `installation`: with `dryRun: true` the removal — the marker and every file of the definition's directories as deletions — what a person wrote there beside the render too, unless a capability that stays renders it, with the kustomization entries that name it —, the files a capability that stays keeps edited down to its own entries, the kustomizations that list them, the Dex clients of the installation's patch whose Secret is in a removed file or whose redirect URIs name the platform's hosts with their trusted-peer ids, under `leftOnRecord` every client it cannot attribute and why, the files `keep` names kept with their entries (`kept`), and, where the definition's Kustomization does not prune, a checklist of the cluster objects a person deletes afterwards, the remote bases' objects included, in deletion order, each line naming what its deletion takes with it (a base that cannot be read refuses the dry run). A capability another installation federates, a portal entry points at, or a peered pairing still uses is refused with the reference named (`commitRefused`). With `mode: "commit"` the same Action, approval and merge path as an enable; once merged the action is *disabled*, its checklist on `status.orphans`, and `list_installations` and `verify_capability` read the capability *not enabled*. |
 | `get_action`, `list_actions` | read | The Action records on the hub: one per enablement or reconcile a person commits — actor, installations, capability, inputs, pull requests, approval, rollout, probes, result. The record follows GitHub on every read, as you (at most once a minute per action): a pull request merged outside `merge_action` is recorded *merged* with its commit, time and `mergedBy`, and the action rolls out as after the merge; one closed unmerged fails it; a fileset gone from the default branch again moves it to *removed*, naming the objects left on the installation. See [The Action record](#the-action-record). |
-| `verify_capability` | read | One installation against a capability's definition, grouped into the definition's features with one mark each — *as defined*, *planned*, *differs by input*, *drifted* — and expanded to its dimensions: the owning repositories' files, read as the person, against the render from the inputs on record (every difference names the file, the path and the person's input that drives it — a choice the schema names, or one typed for the call, so the file expresses another choice than the one on record — the planned change it is — a key the capability's `removals.yaml` or `migrations.yaml` names — or drift: a leaf no choice drives, the ones the installation's facts derive included, which only a reconcile resolves), and the definition's anonymous HTTP probes. The live dimensions read *not checked* here: they are `verify_installation`'s. |
+| `verify_capability` | read | One installation against a capability's definition, grouped into the definition's features with one mark each — *as defined*, *planned*, *differs by input*, *drifted* — and expanded to its dimensions: the owning repositories' files, read as the person, against the render from the inputs on record (every difference names the file, the path and the person's input that drives it — a choice the schema names, or one typed for the call, so the file expresses another choice than the one on record — the planned change it is — a key the capability's `removals.yaml` or `migrations.yaml` names — or drift: a leaf no choice drives, the ones the installation's facts derive included, which only a reconcile resolves), and the definition's anonymous HTTP probes. A probe whose host does not answer the manager is *not checked, unreachable from the manager*, never a failure; on an installation on record as private (`installation.private`) its hosts answer inside its network only, so the probe is unreachable *by design*: the reason says so, and it is counted apart from the marks (`byDesign` on the dimension, the feature and the result), no gap. The live dimensions read *not checked* here: they are `verify_installation`'s. |
 | `verify_installation` | read, **live** | The same installation's running objects against the definition's probes — HelmReleases Ready, workloads Available, Secrets and MCPServer objects present, conditions, logs, Dex started since every client Secret it reads last changed, the live values against the render — read through muster's kubernetes tools **as the person**, with the platform ID token muster forwards next to the App user token (`X-Muster-Id-Token`, the `MCPServer`'s `auth.forwardIdentity` with `live.enabled`, muster ≥ 5.31.0); a call without a valid one is refused, naming the header. What the person may read decides what is checked: an object they may not read is *not checked, forbidden for them*, an installation they are not connected to answers with muster's own sign-in. Handed `verify_capability`'s `inputs`, a missing object the plan creates and the record lacks yet (`inputs.planned`: a migration's Secret, a Dex client the dex patch on record lacks) reads *planned*, naming the migration. The result is recorded on the installation's newest action and feeds `list_installations`: *drifted*, or *waiting for the customer* when the only red dimension is the one the customer's action holds up. A portal or `platformctl` shows the two verifies as one result. |
 | `watch_action` | **live** | The rollout watch of an action whose pull requests are merged, **as the person calling** — the manager holds no token beyond a call, so the watch is a call (the portal's page, `platformctl action watch`, an agent), never a loop. Reads the Flux objects the definition names on the installation rolling out (the HelmReleases with their Ready condition and revision) through muster's kubernetes tools and answers the picture; once every one is Ready it runs the definition's probes — the live dimensions as the person, the anonymous HTTP probes direct — and the stage moves to *enabled*, *waiting for the customer* (the customer's own action is the only thing open) or *failed* (a probe is red, named). A HelmRelease whose last release Flux reports failed — `Released=False` after an install or upgrade Helm gave up on, rolled back or not, or `Stalled=True` — will not become Ready on its own: the stage is *failed* on its probe, Flux's reason and message named, and a later watch re-reads it. The report — pull requests, rollout per object, each probe, the open customer actions — goes into the review's thread and onto the Action (`status.rollout.installations[]`, `status.probes`, `status.result`). Nothing is waited for or hurried: call again while it is rolling out. Anyone signed in may watch; the reads are theirs, and the state follows the picture whoever read it. An action *waiting for the customer* or *enabled* is re-read: the customer's action done flips it to *enabled*. The watch first re-reads the action's pull requests from GitHub as you, as `get_action` does, with the GitHub token muster puts on the call next to your forwarded identity: an action whose pull requests were merged outside the manager is watched all the same. Before it reads the installation it reads, with the same token, whether the stage's pull requests are still on the default branch: a revert leaves every object healthy on the previous values, so the probes cannot tell it — see [The Action record](#the-action-record). |
 
@@ -64,7 +64,8 @@ this order, writing nothing before the gate:
    or a supplied secret left out of `secrets` (or one the plan does not ask for) refuses the commit before any
    write. The plan's own refusals — the dex-app on record, the release candidates dropped while one is ahead of
    the stable release, the frozen values, the hub's portal, the registry the installation's muster still serves
-   that a join as a target would drop (`join`, unless `forceJoin`) — are one list
+   that a join as a target would drop (`join`, unless `forceJoin`), a running component the patch switches off
+   (`switchOff`, unless `forceSwitchOff`) — are one list
    the commit, the wave's pre-check and the dry run's `commitRefused` share. Every file on record
    already: nothing to commit, no Action.
 3. **The Action** — created in *pending approval* with the actor, the capability, the installation and the
@@ -136,7 +137,9 @@ this order, writing nothing before the gate:
    pair, teleport-fleet — one commit per repository, on branch `platform/<action>/<installation>`, titled in
    conventional-commit form — `feat(<installation>): enable <capability> (<action>)`, `fix(<installation>):
    reconcile <capability> (<action>)` — so the repositories' semantic-pull-request check passes as opened, the
-   action id in the title and body. The Action records them and stays in *pending approval*: the approval, the merge
+   action id in the title and body. The Action records the repository and head branch before each write,
+   and each resulting pull request before the next opens. Approval and merge wait until creation finishes.
+   The Action stays in *pending approval*: the approval, the merge
    and the rollout follow. An action on Giant Swarm's test installations alone — the hub's customer's, not the
    hub: the wave's first stage — needs no Team review: the approval is recorded *not required*, the Action reads *ready to merge*, the actor merges
    with `merge_action` once green, and the merge is told to the team's standup channel — who, what, why and
@@ -144,7 +147,13 @@ this order, writing nothing before the gate:
    installation keep the review. A failure on the way moves the Action to *failed* and closes the pull requests
    opened so far as the person, branches deleted, recorded *closed* with the reason on the Action; one the
    remote refused to close stays open on the record, and `deny_action` — which takes a failed action too —
-   closes it, records the reason and leaves the action failed.
+   closes it, records the reason and leaves the action failed. Caller cancellation stops further pull requests.
+   Recovery lookups, cleanup and status recording each have a separate 30-second deadline. If a create
+   response is lost, the manager looks up the pull request by its recorded head branch. An uncertain outcome
+   stays in `status.commit.pending`; reads and `deny_action` retry the lookup as the signed-in person.
+   Denial is recorded before cleanup and survives later receipts. A request already in flight can still
+   create a pull request, which the interrupted commit records and closes. A denied Action with unresolved
+   writes or open pull requests accepts another `deny_action` to retry recovery and cleanup.
 
 A commit takes `reason` — why the actor makes the change, in a sentence; without one nothing is committed.
 **The review** in the team's channel (`approvals.channel`) is what a teammate judges the action by from
@@ -207,10 +216,15 @@ rollout order for the set (every rendered installation exactly once).
 targets in the rollout order and the skipped, the pull requests per installation on their own branches.
 `merge_action` (the actor's) advances it one stage per call — merge the first installation's pull requests
 once green; `watch_action` (anyone's, as the person) carries the installation rolling out to
-*enabled*; only then does the next `merge_action` take the next installation's pull requests — and a red
-probe stops it: that installation *failed*, the stages after it not started, their pull requests open, the
-result naming where and why. A stage *waiting for the customer* holds the wave too: `merge_action` says
-so, and the customer's action done flips the stage on the next watch. A wave takes the supplied secret
+*enabled* or *waiting for the customer*; the next `merge_action` then takes the next installation's pull requests.
+A red probe stops further merges: that installation is *failed*, and later unmerged stages are not
+started, with their pull requests open. Already merged stages keep their live results. The action stays
+*failed* until every failed stage recovers, with the result naming the remaining failure.
+Customer model actions stay with their installation and do not hold the
+next stage. The watch reads merged stages before re-reading customer waits, including stages merged
+outside the manager. The action stays *rolling out* until every stage has been verified, then reads
+*waiting for the customer* while any installation has an open customer action. Each waiting stage is
+re-read in turn; the action becomes *enabled* once every stage is enabled. A wave takes the supplied secret
 values its targets' plans ask for in `secrets`, in the same call: a key `<field>` goes to every target
 that asks for the field (the two sides of a pairing hold one value), `<installation>/<field>` to that
 target alone; a value missing or one no target asks for refuses the wave whole, by field, before
@@ -406,7 +420,7 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
   `platformctl installation enable <installation> <capability> --dry-run|--commit --reason <text> [--input k=v]… [--secret f=src]… [--rotate <name>]… [--content]`,
   `platformctl installation reconcile <installation>…|--all <capability> --dry-run|--commit --reason <text> [--input k=v]… [--secret f=src]… [--rotate <name>]… [--content]`,
   `platformctl installation disable <installation> <capability> --dry-run|--commit --reason <text> [--keep <path>]… [--content]`,
-  `platformctl installation verify <installation> <capability>`,
+  `platformctl installation verify <installation> <capability> [--local [--hub <installation>]]`,
   `platformctl action get <name>`, `platformctl action list [--installation <name>] [--capability <name>]`,
   `platformctl action approve <name>`, `platformctl action deny <name> --reason <text>`,
   `platformctl action merge <name>` and `platformctl action watch <name>` call the manager's tools and
@@ -429,6 +443,16 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
   dimensions; `approve`, `deny` and `merge` are the review's tools called as you, the manager's answer
   saying what follows (`deny` on a merged action is its actor's withdrawal); `watch` is `watch_action` — the rollout picture object by
   object, the dimensions that decided, the report, what follows — called again while it is rolling out.
+- `--local` on `enable`, `reconcile` and `disable` with `--dry-run`, and on `verify`, renders with the
+  definitions built into that platformctl instead of the deployed manager's: the manager's own tools run in
+  process, so a render change built from a checkout (`go run ./cmd/platformctl installation verify <installation>
+  <capability> --local`) is dry-run and verified against an installation's repositories before its merge and
+  rollout. It reads as you with `GITHUB_TOKEN`, `GH_TOKEN` or `gh auth token` (verified with `GET /user`),
+  from the registry of the hub `--hub <installation>` names — by default the deployed manager's, from its
+  `get_info` through muster. The result says *Rendered locally by platformctl <version>* under its header
+  (`renderedBy.local` in JSON; the manager answers `renderedBy` with its own version), and the live half of
+  `verify` stays the deployed manager's `verify_installation`, through muster, from its own definitions; out
+  of reach, the live line says why. `--commit` refuses `--local`: a commit goes through the deployed manager.
 - The calls go through `muster agent --mcp-server`, muster's own bridge: it takes the aggregator from
   muster's configuration (`--endpoint` names another) and signs you in to muster when needed. The bridge
   exposes muster's meta tools only, so every manager tool is called through its `call_tool` and the
@@ -517,9 +541,9 @@ Installing it and keeping it current:
   can show, one whose repositories the caller may not read, one the portal alone knows, the markers
   read on every call, the filters, a registry the caller cannot read, a call without a caller.
   `internal/e2e` runs only with `E2E=1`, so a plain `go test ./...` skips it. It takes minutes (about
-  10 on a CI executor, past go test's default timeout of 10 minutes), so `make test-e2e` runs it first,
-  on its own, verbose and with `-timeout 20m` (`E2E_TEST_TIMEOUT`). By hand:
-  `E2E=1 go test -count=1 -timeout 20m ./internal/e2e/...`. The unit tests follow with `-race` where
+  4 on an idle machine, 10 to 11 on a CI executor or a loaded one, past go test's default timeout of
+  10 minutes), so `make test-e2e` runs it first, on its own, verbose and with `-timeout 30m`
+  (`E2E_TEST_TIMEOUT`). By hand: `E2E=1 go test -count=1 -timeout 30m ./internal/e2e/...`. The unit tests follow with `-race` where
   a C toolchain is present and `-timeout 5m` per package (`UNIT_TEST_TIMEOUT`); `make test-unit` runs
   them alone.
 - `make scenario-test` — the muster half in muster's own scenario harness (`tests/scenarios`, needs
@@ -535,10 +559,12 @@ Installing it and keeping it current:
 
 ## Proving a release candidate
 
-A merge to `main` is tagged as a release candidate (`vX.Y.Z-rc.N`, a GitHub pre-release with the image,
-the chart and `platformctl-<os>-<arch>`) and promoted to the stable `vX.Y.Z`. The hub's manager follows
-stable releases only (its OCIRepository's semver `>=0.17.0 <1.0.0`), so no running manager dry-runs a
-candidate before its promote. The candidate's proof is offline:
+A merge to `main` that bumps the minor version is tagged as a release candidate (`vX.Y.0-rc.N`, a
+GitHub pre-release with the image, the chart and `platformctl-<os>-<arch>`) and promoted to the stable
+`vX.Y.0`; a patch is released stable directly. The hub's manager follows stable releases only (its
+OCIRepository's semver `>=0.17.0 <1.0.0`); the release candidate lane, a second manager declared on one
+of Giant Swarm's test installations, is to follow every candidate. A candidate's proof is its offline
+checks and, where the lane serves the candidate, a dry run on the lane:
 
 1. **The candidate's own CLI.** Build it at the tag (`git checkout vX.Y.Z-rc.N && make build-platformctl`),
    `go install github.com/giantswarm/giantswarm-platform-manager/cmd/platformctl@vX.Y.Z-rc.N`, or download
@@ -569,19 +595,38 @@ candidate before its promote. The candidate's proof is offline:
 3. **The unit and golden tests** at the tag: `make test` (the render goldens of every definition among
    them; `go test ./render/... -update` is never part of a proof), and `make test-chart` where `helm` is on
    `PATH`.
-4. **The live dry run, where a manager follows candidates.** Where a manager serves the candidate (a
-   manager pinned to the RC's chart, a local lab), `platformctl installation reconcile <installation>
-   <capability> --dry-run` against it answers with no `commitRefused` and only the changes the candidate
-   intends.
+4. **The live dry run on the release candidate lane.** The lane's manager is declared to follow the
+   newest release candidate or stable release (OCIRepository semver `>=0.17.0-0 <1.0.0-0`, filtered to `X.Y.Z` and
+   `X.Y.Z-rc.N` so CI's per-branch chart builds stay off it, polled every minute) and names the same `hub`,
+   so it renders exactly what the hub's manager will once the candidate is promoted. It is reached through
+   the test installation's muster, and the candidate's own CLI asks it:
 
-Proven means: every diff in step 2 is empty, `make test` passes, and a dry run of step 4, where one ran,
-shows only the intended changes. Once that proof is green, the promote runs as routine
-(`devctl release promote giantswarm/giantswarm-platform-manager`); no one is asked for it.
+   ```sh
+   platformctl version   # the candidate's, vX.Y.0-rc.N
+   platformctl installation reconcile <installation> <capability> --dry-run \
+     --endpoint https://muster.<the lane's installation domain>/mcp
+   ```
 
-No test installation's manager follows candidates today: the test installations' managers follow the same
-stable range as the hub and are claimed by other proving windows, so pointing one at the RC line would take
-those windows' manager from under them. An RC lane is a GitOps change of its own (an OCIRepository with a
-prerelease semver on one test installation's manager) and gets its own issue when it is wanted; until
-then the offline proof above is this repository's RC proof.
+   Step 4 runs only once the lane's HelmRelease `flux-giantswarm/giantswarm-platform-manager` on that
+   installation reports the candidate's chart version as its last applied revision; until the lane serves
+   the candidate, steps 1–3 are the proof. The answer shows no `commitRefused` and only the changes the
+   candidate intends. A disable dry run shows the checklist fields a candidate changes (the takes,
+   hand-written removals, Dex drops, `leftOnRecord`, `--keep`) live; `--endpoint` holds for one
+   invocation only, so every command against the lane names it:
+
+   ```sh
+   platformctl installation disable <installation> <capability> --dry-run \
+     --endpoint https://muster.<the lane's installation domain>/mcp
+   ```
+
+   The lane has no approvals endpoint, so it refuses every `--commit`: a candidate never opens a pull
+   request, and every commit goes through the hub's stable manager and its review.
+
+Proven means: every diff in step 2 is empty, `make test` passes, and the lane's dry run of step 4, where
+the lane serves the candidate, shows only the intended changes. Once that proof is green, the promote
+runs as routine (`devctl release promote giantswarm/giantswarm-platform-manager`); no one is asked for it.
+
+The lane is declared in the test installation's GitOps repository (`extras/giantswarm-platform-manager/`
+of its management cluster); between candidates it is to run the latest stable release like the hub.
 
 Public repository: every fixture uses invented installation names and placeholder values.

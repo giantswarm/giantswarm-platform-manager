@@ -28,6 +28,10 @@ type Location struct {
 	Path       string `json:"path"`
 }
 
+// DefaultCatalog is the installations catalog the manager reads unless
+// configured otherwise, and platformctl --local with --hub.
+var DefaultCatalog = Location{Repository: "giantswarm/github", Path: "catalog/installations.yaml"}
+
 func (l Location) String() string { return l.Repository + ":" + l.Path }
 
 // Sources are the two registry sources: the installations catalog (a

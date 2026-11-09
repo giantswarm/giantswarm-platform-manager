@@ -25,6 +25,7 @@ const (
 	getCmd        = "get"
 	denyCmd       = "deny"
 	dryRunFlag    = "--dry-run"
+	localFlag     = "--local"
 	inputsFlag    = "--inputs"
 	hazel         = "hazel"
 	lab           = "lab"
@@ -37,6 +38,8 @@ const (
 // flag package worded them), 3 sign-in required, 125 a newer release for
 // self-update --check (TestSelfUpdateCheckExits125WhenANewerReleaseIsOut).
 func TestExitCodes(t *testing.T) {
+	localCommit := strings.Fields("--commit --reason r " + localFlag)
+	const localRefused = "goes through the deployed manager"
 	for _, c := range []struct {
 		args []string
 		exit int
@@ -62,6 +65,10 @@ func TestExitCodes(t *testing.T) {
 		{[]string{installationCmd, enableCmd, hazel, agentPlatform, "--input", "novalue", dryRunFlag}, exitUsage, `invalid value "novalue" for flag -input: --input takes key=value`},
 		{[]string{installationCmd, reconcileCmd, hazel, agentPlatform, dryRunFlag, "--rotate"}, exitUsage, "flag needs an argument: -rotate"},
 		{[]string{installationCmd, reconcileCmd, helpFlag}, exitOK, "--rotate name"},
+		{[]string{installationCmd, verifyCmd, hazel, agentPlatform, "--hub", "gazelle"}, exitUsage, "--hub goes with --local"},
+		{append([]string{installationCmd, enableCmd, hazel, agentPlatform}, localCommit...), exitUsage, localRefused},
+		{append([]string{installationCmd, "disable", hazel, agentPlatform}, localCommit...), exitUsage, localRefused},
+		{[]string{installationCmd, verifyCmd, helpFlag}, exitOK, localFlag},
 	} {
 		var stdout, stderr bytes.Buffer
 		if got := run(c.args, &stdout, &stderr); got != c.exit {

@@ -32,8 +32,9 @@ import (
 // through muster's kubernetes tools in production, a fake in tests. resource
 // is a kind or kind.group as the render's probes name it; shape is how much
 // of the object the check reads, and tail how many of a pod's last log lines.
-// Serves is API discovery: whether the apiserver serves the resource (plural)
-// of the group at the version.
+// List reads every namespace where namespace is empty. Serves is API
+// discovery: whether the apiserver serves the resource (plural) of the group
+// at the version.
 type Cluster interface {
 	Get(ctx context.Context, namespace, resource, name string, shape Shape) (map[string]any, error)
 	List(ctx context.Context, namespace, resource, labelSelector string, shape Shape) ([]map[string]any, error)
@@ -358,7 +359,7 @@ func CompareLive(ctx context.Context, opts LiveOptions) Result {
 		}
 	}
 	x := &executor{opts: opts, lv: lv, refused: r.Refused, pr: newProber(opts.Probes)}
-	x.pr.planned = opts.Inputs.Planned
+	x.pr.planned, x.pr.private = opts.Inputs.Planned, Private(opts.Inputs.Values)
 	x.sendHTTP(ctx)
 	held := map[string]bool{}
 	var clients []plan.DexClient
@@ -404,8 +405,7 @@ func CompareLive(ctx context.Context, opts LiveOptions) Result {
 			f.Dimensions = append(f.Dimensions, dim)
 		}
 		for _, d := range f.Dimensions {
-			f.Marks[d.Mark]++
-			r.Summary[d.Mark]++
+			f.count(d, r.Summary, &r.ByDesign)
 		}
 		f.Mark = rollUp(f.Dimensions)
 		r.Features = append(r.Features, f)
@@ -425,7 +425,7 @@ func CompareLive(ctx context.Context, opts LiveOptions) Result {
 // waiting for the customer from either side.
 func Merge(repo, live Result) Result {
 	out := repo
-	out.Features, out.Summary = []Feature{}, map[Mark]int{}
+	out.Features, out.Summary, out.ByDesign = []Feature{}, map[Mark]int{}, 0
 	out.LiveCaller = live.Caller
 	byID := map[string]Dimension{}
 	for _, f := range live.Features {
@@ -440,8 +440,7 @@ func Merge(repo, live Result) Result {
 				d = ld
 			}
 			nf.Dimensions = append(nf.Dimensions, d)
-			nf.Marks[d.Mark]++
-			out.Summary[d.Mark]++
+			nf.count(d, out.Summary, &out.ByDesign)
 		}
 		nf.Mark = rollUp(nf.Dimensions)
 		out.Features = append(out.Features, nf)
@@ -713,6 +712,7 @@ func (x *executor) dimension(ctx context.Context, d definitions.Dimension) Dimen
 	}
 	dim.Live = live
 	dim.Mark, dim.Reason, dim.Detail = checkRollUp(live.Checks)
+	dim.ByDesign = dim.Mark == NotChecked && byDesign(live.Checks)
 	sort.Slice(dim.Differences, func(i, j int) bool {
 		return dim.Differences[i].Object+dim.Differences[i].Path < dim.Differences[j].Object+dim.Differences[j].Path
 	})
@@ -740,6 +740,22 @@ func checkRollUp(checks []Check) (Mark, string, string) {
 		return NotChecked, c.Message, c.Detail
 	}
 	return AsDefined, "", ""
+}
+
+// byDesign says every check not checked is so only because the manager does
+// not reach a private installation's host (ReasonPrivate), and one is.
+func byDesign(checks []Check) bool {
+	found := false
+	for _, c := range checks {
+		if c.Mark != NotChecked {
+			continue
+		}
+		if !strings.HasPrefix(c.Message, ReasonPrivate) {
+			return false
+		}
+		found = true
+	}
+	return found
 }
 
 // logCheck writes one line for a check of the installation's objects: the
@@ -795,6 +811,8 @@ func (x *executor) run(ctx context.Context, p render.Probe) (Check, []Difference
 		err = x.secretLoaded(ctx, &c, p)
 	case render.SourceFollowed:
 		err = x.sourceFollowed(ctx, &c, p, time.Now())
+	case render.NoneNames:
+		err = x.noneNames(ctx, &c, p)
 	default:
 		c.Message = "probe kind " + string(p.Kind) + " is not one this verify runs"
 	}
@@ -887,6 +905,47 @@ func (x *executor) anyCondition(ctx context.Context, c *Check, p render.Probe) e
 	c.Mark, c.Message = Drifted, strings.Join(verdicts, "; ")
 	return nil
 }
+
+// noneNames marks the objects of the resource as defined when none holds the
+// value at the path; otherwise drifted, naming each that does as
+// <namespace>/<name>, with the HelmRelease that renders it where its Flux
+// labels say.
+func (x *executor) noneNames(ctx context.Context, c *Check, p render.Probe) error {
+	objs, err := x.cluster().List(ctx, p.Namespace, p.Resource, "", Readiness)
+	if err != nil {
+		return err
+	}
+	kind, _, _ := strings.Cut(p.Resource, ".")
+	path := strings.Split(p.Expect.Path, ".")
+	var naming []string
+	for _, obj := range objs {
+		if got, _ := dig(obj, path...).(string); got != p.Expect.Value {
+			continue
+		}
+		namespace, _ := dig(obj, "metadata", "namespace").(string)
+		name := namespace + "/" + nameOf(obj)
+		labels, _ := dig(obj, "metadata", "labels").(map[string]any)
+		if release, _ := labels[fluxReleaseName].(string); release != "" {
+			releaseNamespace, _ := labels[fluxReleaseNamespace].(string)
+			name += " (HelmRelease " + releaseNamespace + "/" + release + ")"
+		}
+		naming = append(naming, name)
+	}
+	if len(naming) == 0 {
+		c.Mark, c.Message = AsDefined, "no "+kind+" names "+p.Expect.Value
+		return nil
+	}
+	sort.Strings(naming)
+	c.Mark, c.Message = Drifted, kind+" naming "+p.Expect.Value+": "+strings.Join(naming, ", ")
+	return nil
+}
+
+// The labels helm-controller puts on every object of a release: the
+// HelmRelease's name and namespace.
+const (
+	fluxReleaseName      = "helm.toolkit.fluxcd.io/name"
+	fluxReleaseNamespace = "helm.toolkit.fluxcd.io/namespace"
+)
 
 // helmReleaseKind is Flux's HelmRelease.
 const helmReleaseKind = "HelmRelease"
@@ -1237,11 +1296,11 @@ func (x *executor) logAbsent(ctx context.Context, c *Check, p render.Probe) erro
 
 // answer sends the anonymous request of the HTTP probe p (get) and holds the
 // answer against the expectation, into c: not checked with ReasonUnreachable
-// naming the host and the transport's error as the detail when there was none.
+// (ReasonPrivate on a private installation) naming the host and the transport's error as the detail when there was none.
 func (pr *prober) answer(ctx context.Context, c *Check, p render.Probe) {
 	r, err := pr.get(ctx, p.URL, p.Expect.DexConnectorStep)
 	if err != nil {
-		c.Mark, c.Message, c.Detail = NotChecked, unreachable(p.URL), strings.TrimSpace(err.Error())
+		c.Mark, c.Message, c.Detail = NotChecked, pr.unreachable(p.URL), strings.TrimSpace(err.Error())
 		return
 	}
 	c.Message = r.String()

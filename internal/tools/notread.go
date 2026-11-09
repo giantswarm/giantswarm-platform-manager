@@ -98,8 +98,20 @@ func signIn(server string) string {
 	return fmt.Sprintf("sign in to %s in muster (muster auth login --server %s), then watch again", server, server)
 }
 
-// noRoute is the fix of an unreachable host.
-const noRoute = "the manager has no answer from the host: it is down, or on addresses the manager does not reach"
+// noRoute is the fix of an unreachable host; noRouteByDesign of a private
+// installation's host, which the manager does not reach by design.
+const (
+	noRoute         = "the manager has no answer from the host: it is down, or on addresses the manager does not reach"
+	noRouteByDesign = "none needed: the installation is private, its hosts answer inside its network only; no gap"
+)
+
+// routeFix is the fix of a host the manager got no answer from, by the reason it was not checked for.
+func routeFix(reason string) string {
+	if strings.HasPrefix(reason, verify.ReasonPrivate) {
+		return noRouteByDesign
+	}
+	return noRoute
+}
 
 // notRead names every read the watch could not make in res, grouped by
 // cause and where — the live checks muster, the apiserver or the transport
@@ -138,7 +150,7 @@ func notRead(res verify.Result, server string) []NotRead {
 						continue
 					}
 					h := hostOf(r.URL)
-					add(CauseUnreachable+"|"+h, NotRead{Cause: CauseUnreachable, Host: h, Message: r.Error, Fix: noRoute}, d.ID)
+					add(CauseUnreachable+"|"+h, NotRead{Cause: CauseUnreachable, Host: h, Message: r.Error, Fix: routeFix(d.Reason)}, d.ID)
 				}
 			}
 		}
@@ -161,7 +173,7 @@ func checkNotRead(c verify.Check, auth *verify.AuthRequired, server string) (str
 		return CauseAuthRequired + "|" + n.Server, n
 	case c.URL != "" && strings.HasPrefix(c.Message, verify.ReasonUnreachable):
 		h := hostOf(c.URL)
-		return CauseUnreachable + "|" + h, NotRead{Cause: CauseUnreachable, Host: h, Message: orMessage(c.Detail, c.Message), Fix: noRoute}
+		return CauseUnreachable + "|" + h, NotRead{Cause: CauseUnreachable, Host: h, Message: orMessage(c.Detail, c.Message), Fix: routeFix(c.Message)}
 	case strings.HasPrefix(c.Message, "forbidden for "):
 		return CauseForbidden, NotRead{Cause: CauseForbidden, Message: c.Message, Fix: "the installation's RBAC refuses these reads as you: a role that may read the objects"}
 	case strings.HasPrefix(c.Message, "no answer within ") || strings.HasPrefix(c.Message, "not read: the live verify's read budget"):
@@ -193,7 +205,7 @@ func hostOf(u string) string {
 // muster session to server. "" for an installation not on record as private
 // or one whose endpoints answered.
 func privateNote(installation string, inputs map[string]any, reads []NotRead, res verify.Result, server string) string {
-	if private, _ := dig(inputs, inputInstallation, inputPrivate).(bool); !private {
+	if !verify.Private(inputs) {
 		return ""
 	}
 	var hosts, unread []string
@@ -239,23 +251,4 @@ func readsObjects(lv *verify.LiveResult) bool {
 		}
 	}
 	return false
-}
-
-// inputInstallation is the inputs' section of the installation's facts, inputPrivate its flag of an installation reached through the tunnel.
-const (
-	inputInstallation = "installation"
-	inputPrivate      = "private"
-)
-
-// dig reads the leaf of values at path.
-func dig(values map[string]any, path ...string) any {
-	var cur any = values
-	for _, k := range path {
-		m, ok := cur.(map[string]any)
-		if !ok {
-			return nil
-		}
-		cur = m[k]
-	}
-	return cur
 }

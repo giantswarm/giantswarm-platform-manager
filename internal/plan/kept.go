@@ -19,6 +19,12 @@ import (
 // says what has to land before the key goes.
 var keptPlatformKeys = mustKeptKeys(installations.AgentPlatform, definitions.KindConfigMap)
 
+// heldPlatformKeys are the removals of the agent-platform configmap patch
+// the plan keeps from the record only while the render carries their
+// keptWhile path: a key that goes with a chart release the installation may
+// not run yet.
+var heldPlatformKeys = mustHeldKeys(installations.AgentPlatform, definitions.KindConfigMap)
+
 // mustKeptKeys reads the definition's kept keys under the prefix; the
 // definitions are embedded, so a removals.yaml that does not read fails the
 // build's tests, never a call.
@@ -28,6 +34,28 @@ func mustKeptKeys(capability, prefix string) []string {
 		panic(err)
 	}
 	return keys
+}
+
+// mustHeldKeys reads the definition's held keys under the prefix, as
+// mustKeptKeys does.
+func mustHeldKeys(capability, prefix string) []definitions.HeldKey {
+	keys, err := definitions.HeldKeys(capability, prefix)
+	if err != nil {
+		panic(err)
+	}
+	return keys
+}
+
+// keptPaths are the kept keys and the held keys whose keptWhile path the
+// render ren carries, read before anything is carried into it.
+func keptPaths(ren *yaml.Node, kept []string, held []definitions.HeldKey) []string {
+	paths := slices.Clone(kept)
+	for _, h := range held {
+		if at(ren, strings.Split(h.While, ".")...) != nil {
+			paths = append(paths, h.Path)
+		}
+	}
+	return paths
 }
 
 // keepSubtrees carries into the mapping ren every key path of paths that the

@@ -116,10 +116,6 @@ type Input struct {
 	// kagent.controller.sessionIdleTTL), a Go duration; empty, the chart's
 	// default.
 	SessionIdleTTL string
-	// TenantOrganizations is the person's choice of the meta chart's tenant
-	// mode (tenants.organizations.enabled): the Organizations' namespaces as
-	// agent tenants, read back from the configmap patch on record.
-	TenantOrganizations bool
 	// AIChat is the person's other choice: the portal's AI chat, in the
 	// platform's portal section (portal.go).
 	AIChat AIChat
@@ -169,6 +165,12 @@ type Input struct {
 	// the configmap patch on record so a reconcile keeps them.
 	ContextBotNames        []ContextBot
 	ContextBotNamesComment string
+	// SlashCommand is the person's choice of the slash command the
+	// installation's Slack app declares (klausGateway.slack.slashCommand), and
+	// SlashCommandComment the comment above it, read back from the configmap
+	// patch on record so a reconcile keeps them.
+	SlashCommand        string
+	SlashCommandComment string
 	// Components are the components the policy gives the installation, by
 	// name: its organisation's list and, where the policy names a Slack app
 	// for the installation, the chat gateway.
@@ -613,11 +615,6 @@ type document struct {
 	Sessions struct {
 		IdleTTL string `json:"idleTTL"`
 	} `json:"sessions"`
-	Tenants struct {
-		Organizations struct {
-			Enabled bool `json:"enabled"`
-		} `json:"organizations"`
-	} `json:"tenants"`
 	AIChat AIChat `json:"aiChat"`
 	Skills struct {
 		Repositories []string `json:"repositories"`
@@ -639,6 +636,8 @@ type document struct {
 			ContextBotIDsComment   string       `json:"contextBotIDsComment"`
 			ContextBotNames        []ContextBot `json:"contextBotNames"`
 			ContextBotNamesComment string       `json:"contextBotNamesComment"`
+			SlashCommand           string       `json:"slashCommand"`
+			SlashCommandComment    string       `json:"slashCommandComment"`
 		} `json:"slack"`
 	} `json:"klausGateway"`
 	Versions Versions `json:"versions"`
@@ -832,8 +831,8 @@ func Parse(raw any) (*Input, error) {
 	if err != nil {
 		return nil, err
 	}
-	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, MCPBackends: d.NetworkPolicy.MCPBackends, LLMRateLimits: d.LLMRouting.RateLimits, LLMRateLimitsComment: d.LLMRouting.RateLimitsComment, SessionIdleTTL: d.Sessions.IdleTTL, TenantOrganizations: d.Tenants.Organizations.Enabled, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories, Hive: d.Hive,
-		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, SkillManagerSources: d.SkillManager.Sources, AgentManagerAssistant: d.AgentManagerAssistant, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, ContextBotNames: d.KlausGateway.Slack.ContextBotNames, ContextBotNamesComment: d.KlausGateway.Slack.ContextBotNamesComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
+	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, MCPBackends: d.NetworkPolicy.MCPBackends, LLMRateLimits: d.LLMRouting.RateLimits, LLMRateLimitsComment: d.LLMRouting.RateLimitsComment, SessionIdleTTL: d.Sessions.IdleTTL, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories, Hive: d.Hive,
+		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, SkillManagerSources: d.SkillManager.Sources, AgentManagerAssistant: d.AgentManagerAssistant, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, ContextBotNames: d.KlausGateway.Slack.ContextBotNames, ContextBotNamesComment: d.KlausGateway.Slack.ContextBotNamesComment, SlashCommand: d.KlausGateway.Slack.SlashCommand, SlashCommandComment: d.KlausGateway.Slack.SlashCommandComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
 		ReleaseCandidates: pol.releaseCandidates(d.Installation)}
 	if in.Components, err = pol.components(in.Installation); err != nil {
 		return nil, err
@@ -992,22 +991,6 @@ func (in *Input) checkRecord() error {
 	if err := in.checkSkillManagerSources(); err != nil {
 		return err
 	}
-	if in.TenantOrganizations && in.Installation.ChartLine != lineFour {
-		return refuse(fmt.Sprintf("%s is the 4 chart line's, and this installation runs the %s line; the record's chart line decides", describe("tenants.organizations.enabled"), in.Installation.ChartLine))
-	}
-	if in.TenantOrganizations && (!in.kagent() || !in.agentManager()) {
-		return refuse(fmt.Sprintf("%s needs kagent, whose LLM listener (llmRouting.enabled) the meta chart's tenant mode refuses to run without, and the agent-manager, whose tenant reconciler it turns on; the fleet policy does not run both on %s's installations", describe("tenants.organizations.enabled"), in.Installation.Customer))
-	}
-	if in.TenantOrganizations {
-		for _, h := range []struct{ input, what, hold, floor string }{
-			{"versions.chart", "the meta chart", in.Versions.Chart, tenantsChartFloor},
-			{"versions.components." + componentAgentManager, "the agent-manager", in.Versions.Components[componentAgentManager], tenantsAgentManagerFloor},
-		} {
-			if !holdAdmits(h.hold, h.floor) {
-				return refuse(fmt.Sprintf("%s needs %s %s or later, and %s holds it at %s; move or lift the hold first", describe("tenants.organizations.enabled"), h.what, h.floor, describe(h.input), h.hold))
-			}
-		}
-	}
 	if len(in.LLMRateLimits) > 0 && !in.kagent() {
 		return refuse(fmt.Sprintf("%s bound the LLM listener, and the fleet policy runs no kagent on %s's installations, so no listener is rendered", describe("llmRouting.rateLimits"), in.Installation.Customer))
 	}
@@ -1016,6 +999,9 @@ func (in *Input) checkRecord() error {
 	}
 	if len(in.ContextBotNames) > 0 && !in.klausGateway() {
 		return refuse(fmt.Sprintf("%s names the bots whose posts reach the chat gateway's thread context, and the fleet policy names no Slack app for %s, so no gateway runs there", describe("klausGateway.slack.contextBotNames"), in.Installation.Name))
+	}
+	if in.SlashCommand != "" && !in.klausGateway() {
+		return refuse(fmt.Sprintf("%s names the slash command of the chat gateway's Slack app, and the fleet policy names no Slack app for %s, so no gateway runs there", describe("klausGateway.slack.slashCommand"), in.Installation.Name))
 	}
 	if in.AgentManagerSkills.set() && !in.agentManager() {
 		return refuse(fmt.Sprintf("%s asks for the agent-manager's skill catalog, and the fleet policy runs no agent-manager on %s's installations", describe("agentManager.skills"), in.Installation.Customer))
@@ -1207,23 +1193,43 @@ func (in *Input) checkSkillManagerSources() error {
 // was added; set it to the release that carries the component.
 const skillManagerChartFloor = "4.175.0"
 
-// The releases the tenant mode needs: the meta chart that holds a tenant's
-// ModelConfigs to the LLM listener (giantswarm/agent-platform#1082) and the
-// agent-manager with the tenant reconciler.
-const tenantsChartFloor, tenantsAgentManagerFloor = "4.150.0", "2.1.0"
+// modelFreeChart is the first meta chart that declares no model
+// (giantswarm/agent-platform#1295): it refuses kagent.providers,
+// kagent.defaultModelConfig and kagent.modelConfigs, and writes providers:
+// false into the kagent release, so kagent renders no default-model-config.
+// The release candidate counts: the installations that run the release
+// candidates reach it first, the others with 4.175.0.
+const modelFreeChart = "4.175.0-rc.21"
+
+// declaresModels says whether the meta chart the installation resolves to
+// still takes kagent's model provider from the patch: the 3 line, or a hold
+// of the chart (versions.chart) that resolves below modelFreeChart. The 4
+// line's range resolves to its newest release.
+func (in *Input) declaresModels() bool {
+	if in.Installation.ChartLine != lineFour {
+		return true
+	}
+	return !holdAdmits(in.Versions.Chart, modelFreeChart)
+}
 
 // holdAdmits says whether a version hold lets Flux resolve a release at or
-// above floor: no hold, a constraint the floor or a far later release meets,
-// or one the definition cannot read, which Flux reports itself.
+// above floor: no hold, an exact version at or above it, a constraint the
+// floor, its release or a far later release meets, or one the definition
+// cannot read, which Flux reports itself.
 func holdAdmits(hold, floor string) bool {
 	if hold == "" {
 		return true
+	}
+	min := semverlib.MustParse(floor)
+	if v, err := semverlib.StrictNewVersion(strings.TrimPrefix(hold, "v")); err == nil {
+		return !v.LessThan(min)
 	}
 	c, err := semverlib.NewConstraint(hold)
 	if err != nil {
 		return true
 	}
-	return c.Check(semverlib.MustParse(floor)) || c.Check(semverlib.MustParse("999999.0.0"))
+	release, _ := min.SetPrerelease("")
+	return c.Check(min) || c.Check(&release) || c.Check(semverlib.MustParse("999999.0.0"))
 }
 
 // holdComment is the comment a held version carries in the file: the reason

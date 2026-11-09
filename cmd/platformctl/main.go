@@ -20,7 +20,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/platformctl/format"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/platformctl/local"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/platformctl/muster"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/platformctl/update"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
@@ -32,10 +34,10 @@ const usage = `platformctl — the laptop and CI surface of giantswarm-platform-
       Render a capability's fileset locally from an inputs document (` + "`input`" + ` and ` + "`secrets`" + `);
       no token, no network. Without --out the files are printed.
   platformctl installation list [<installation>...] [--customer <name>]
-  platformctl installation enable <installation> <capability> --dry-run|--commit --reason <text> [--input k=v]... [--secret f=src]... [--rotate <name>]... [--content]
-  platformctl installation reconcile <installation>...|--all <capability> --dry-run|--commit --reason <text> [--input k=v]... [--secret f=src]... [--rotate <name>]... [--content]
-  platformctl installation disable <installation> <capability> --dry-run|--commit --reason <text> [--content]
-  platformctl installation verify <installation> <capability>
+  platformctl installation enable <installation> <capability> --dry-run|--commit --reason <text> [--input k=v]... [--secret f=src]... [--rotate <name>]... [--content] [--local [--hub <installation>]]
+  platformctl installation reconcile <installation>...|--all <capability> --dry-run|--commit --reason <text> [--input k=v]... [--secret f=src]... [--rotate <name>]... [--content] [--local [--hub <installation>]]
+  platformctl installation disable <installation> <capability> --dry-run|--commit --reason <text> [--content] [--local [--hub <installation>]]
+  platformctl installation verify <installation> <capability> [--local [--hub <installation>]]
   platformctl installation dex-split <installation> --configs <dir> --management-clusters <dir> [--vault sops|beekeeper] [--hub <mc> --hub-management-clusters <dir>] [--write]
       Move an installation's Dex clients out of its encrypted dex-app values into referenced
       Secrets and the plaintext patch, in local checkouts; the dry run without --write
@@ -81,7 +83,14 @@ pull request, the files that stay because another capability on record renders t
 the fleet's Kustomization leaves on the cluster as a checklist in deletion order, what still
 depends on the capability (a refusal names it) and the commands that check the result after the
 merge; --commit opens the pull requests through the action and its review, like enable.
-verify prints the features of the definition with their marks and dimensions. approve, deny and
+verify prints the features of the definition with their marks and dimensions.
+--local (enable, reconcile and disable with --dry-run, verify) renders with the definitions built
+into this platformctl instead of the deployed manager's, so a render change built from a checkout
+(go run ./cmd/platformctl …) is dry-run and verified against an installation's repositories before
+its merge and rollout. It reads as you with GITHUB_TOKEN, GH_TOKEN or ` + "`gh auth token`" + `, the registry
+of the hub --hub names (default: the deployed manager's, from its get_info through muster); the
+result says "Rendered locally" (JSON: renderedBy.local) and the live half of verify stays the deployed
+manager's, through muster. --commit refuses --local. approve, deny and
 merge are the review's tools called as you; the manager's answer says what follows. deny on a
 merged action that failed or was reverted is its actor's withdrawal: the action moves to
 withdrawn with the reason, the review's thread told. watch reads the rollout of a merged action
@@ -358,9 +367,14 @@ func fail(stderr io.Writer, err error) int {
 }
 
 // conn is how the muster commands reach the manager and print its answers.
+// With local (--local) the renders run in process from the definitions
+// built into platformctl, against the hub --hub names or the deployed
+// manager's; the live half stays the deployed manager's, through muster.
 type conn struct {
 	output, binary, endpoint, configPath string
 	timeout                              time.Duration
+	local                                bool
+	hub                                  string
 }
 
 // flags registers the muster commands' flags on cmd, with their completions.
@@ -397,36 +411,132 @@ func (c *conn) callCtx() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), c.timeout+bridgeGrace)
 }
 
+// localFlags registers --local and --hub on the commands that render: the
+// dry runs and verify.
+func (c *conn) localFlags(cmd *cobra.Command) {
+	fs := cmd.Flags()
+	fs.BoolVar(&c.local, "local", false, "render with the definitions built into this platformctl, not the deployed manager's: a render change dry-run and verified before its merge and rollout, as you (GITHUB_TOKEN, GH_TOKEN or `gh auth token`); the live half stays the deployed manager's, through muster")
+	fs.StringVar(&c.hub, "hub", "", "with --local: the hub installation the registry is read from (default: the deployed manager's, from its get_info through muster)")
+	completeFlag(cmd, "hub", cobra.NoFileCompletions)
+}
+
 func (c *conn) valid() error {
 	if c.output != outputText && c.output != outputJSON {
 		return fmt.Errorf("--output is text or json, not %q", c.output)
 	}
+	if c.hub != "" && !c.local {
+		return errors.New("--hub goes with --local")
+	}
 	return nil
+}
+
+// caller runs one of the manager's tools by its plain name: the deployed
+// manager through muster, or the tools in process with --local.
+type caller interface {
+	Call(ctx context.Context, tool string, args map[string]any) (json.RawMessage, error)
+}
+
+// sessions are the two halves of a command: repo renders (the deployed
+// manager, or the tools in process with --local), live reads the running
+// installation through the deployed manager — nil with liveErr saying why
+// when --local cannot reach muster. close ends both.
+type sessions struct {
+	repo    caller
+	live    caller
+	liveErr error
+	close   func()
+}
+
+// sessions opens the halves a command needs; withLive asks for the live
+// half. Without --local both are the one muster session. With --local muster
+// is opened only for the live half or the hub (no --hub): the hub from the
+// deployed manager's get_info, so the plans render against the registry it
+// reads.
+func (c *conn) sessions(stderr io.Writer, withLive bool) (*sessions, error) {
+	if !c.local {
+		s, err := c.open(stderr)
+		if err != nil {
+			return nil, err
+		}
+		return &sessions{repo: s, live: s, close: func() { _ = s.Close() }}, nil
+	}
+	out := &sessions{close: func() {}}
+	var ms *muster.Session
+	musterErr := errors.New("not opened")
+	if withLive || c.hub == "" {
+		ms, musterErr = c.open(stderr)
+	}
+	if ms != nil {
+		out.live, out.close = ms, func() { _ = ms.Close() }
+	} else {
+		out.liveErr = fmt.Errorf("the deployed manager is out of reach through muster: %w", musterErr)
+	}
+	reg := installations.Sources{Catalog: installations.DefaultCatalog, Hub: c.hub}
+	if c.hub == "" {
+		if ms == nil {
+			out.close()
+			return nil, fmt.Errorf("--local without --hub reads the hub from the deployed manager's %s through muster: %w", tools.ToolGetInfo, musterErr)
+		}
+		ctx, cancel := c.callCtx()
+		raw, err := ms.Call(ctx, tools.ToolGetInfo, map[string]any{})
+		cancel()
+		if err != nil {
+			out.close()
+			return nil, err
+		}
+		var info tools.Info
+		if err := decode(raw, &info); err != nil {
+			out.close()
+			return nil, err
+		}
+		reg = installations.Sources{Catalog: info.Registry.Catalog, Hub: info.Registry.Hub}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
+	defer cancel()
+	token, err := local.Token(ctx, os.LookupEnv, "")
+	if err != nil {
+		out.close()
+		return nil, err
+	}
+	ls, err := local.Open(ctx, local.Options{Token: token, Registry: reg})
+	if err != nil {
+		out.close()
+		return nil, err
+	}
+	closeLive := out.close
+	out.repo, out.close = ls, func() { _ = ls.Close(); closeLive() }
+	return out, nil
+}
+
+// refused prints why a call or a session failed: muster's sign-in (exit 3),
+// as JSON when asked, or the error.
+func (c *conn) refused(err error, stdout, stderr io.Writer) int {
+	if auth, ok := muster.IsAuthRequired(err); ok {
+		if c.output == outputJSON {
+			b, _ := json.Marshal(auth)
+			_ = format.JSON(stdout, b)
+		} else {
+			_ = format.AuthRequired(stderr, auth)
+		}
+		return exitSignIn
+	}
+	return fail(stderr, err)
 }
 
 // call runs one tool of the manager and prints its answer:
 // as JSON when asked, else through show, which decodes the document into the
 // manager's type and formats it.
 func (c *conn) call(tool string, args map[string]any, stdout, stderr io.Writer, show func(json.RawMessage) error) int {
-	s, err := c.open(stderr)
+	ss, err := c.sessions(stderr, false)
 	if err != nil {
-		return fail(stderr, err)
+		return c.refused(err, stdout, stderr)
 	}
-	defer func() { _ = s.Close() }()
+	defer ss.close()
 	ctx, cancel := c.callCtx()
 	defer cancel()
-	raw, err := s.Call(ctx, tool, args)
+	raw, err := ss.repo.Call(ctx, tool, args)
 	if err != nil {
-		if auth, ok := muster.IsAuthRequired(err); ok {
-			if c.output == outputJSON {
-				b, _ := json.Marshal(auth)
-				_ = format.JSON(stdout, b)
-			} else {
-				_ = format.AuthRequired(stderr, auth)
-			}
-			return exitSignIn
-		}
-		return fail(stderr, err)
+		return c.refused(err, stdout, stderr)
 	}
 	if c.output == outputJSON {
 		err = format.JSON(stdout, raw)
@@ -442,35 +552,32 @@ func (c *conn) call(tool string, args map[string]any, stdout, stderr io.Writer, 
 // callBoth is call over the two halves of a result, both tools of the one
 // registration: tool, then liveTool with liveArgs of the first answer; the live answer, or why there is none, goes to show with
 // the first. A live tool that refuses — not served, no identity forwarded,
-// an installation not connected — is not a failure of the command: the
-// repository result stands and the live side says why. --output json prints the two documents as one
+// an installation not connected, muster out of reach with --local — is not a
+// failure of the command: the repository result stands and the live side
+// says why. With --local the first is rendered in process and the live
+// tool stays the deployed manager's. --output json prints the two documents as one
 // object, {"repository": …, "live": …|null, "liveError": …}, with "liveCut"
 // {layer, tool, timeout} when the live call ended without an answer. Each
 // call has its own --timeout.
 func (c *conn) callBoth(tool, liveTool string, args map[string]any, liveArgs func(repo json.RawMessage) map[string]any, stdout, stderr io.Writer, show func(repo, live json.RawMessage, liveErr error) error) int {
-	s, err := c.open(stderr)
+	ss, err := c.sessions(stderr, true)
 	if err != nil {
-		return fail(stderr, err)
+		return c.refused(err, stdout, stderr)
 	}
-	defer func() { _ = s.Close() }()
+	defer ss.close()
 	ctx, cancel := c.callCtx()
-	repo, err := s.Call(ctx, tool, args)
+	repo, err := ss.repo.Call(ctx, tool, args)
 	cancel()
 	if err != nil {
-		if auth, ok := muster.IsAuthRequired(err); ok {
-			if c.output == outputJSON {
-				b, _ := json.Marshal(auth)
-				_ = format.JSON(stdout, b)
-			} else {
-				_ = format.AuthRequired(stderr, auth)
-			}
-			return exitSignIn
-		}
-		return fail(stderr, err)
+		return c.refused(err, stdout, stderr)
 	}
-	liveCtx, cancelLive := c.callCtx()
-	defer cancelLive()
-	live, liveErr := s.Call(liveCtx, liveTool, liveArgs(repo))
+	var live json.RawMessage
+	liveErr := ss.liveErr
+	if ss.live != nil {
+		liveCtx, cancelLive := c.callCtx()
+		defer cancelLive()
+		live, liveErr = ss.live.Call(liveCtx, liveTool, liveArgs(repo))
+	}
 	if c.output == outputJSON {
 		doc := map[string]any{"repository": repo, "live": nil}
 		if liveErr != nil {

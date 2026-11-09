@@ -22,6 +22,14 @@ const (
 	dialError   = "dial tcp 10.0.0.7:443: i/o timeout"
 )
 
+// kagentUIProbe is the anonymous probe of the kagent UI; installationKey the
+// inputs' section of the installation's facts, privateKey its private flag.
+const (
+	kagentUIProbe   = "kagent-ui-reachable"
+	installationKey = "installation"
+	privateKey      = "private"
+)
+
 func notConnected() string {
 	return verify.NotConnected + ": auth_required: server '" + birchServer + "' requires authentication before its tools can be called"
 }
@@ -38,7 +46,7 @@ func privateResult() verify.Result {
 		{Kind: string(render.HTTP), URL: "https://" + kagentHost + "/api/health", Mark: verify.NotChecked, Message: verify.ReasonUnreachable + ": " + kagentHost, Detail: dialError},
 		{Kind: string(render.PodsRunning), Namespace: kagentNS, Resource: "Pod", Mark: verify.NotChecked, Message: notConnected()},
 	}}}
-	probe := verify.Dimension{ID: "kagent-ui-reachable", Kind: definitions.KindProbe, Mark: verify.NotChecked, Reason: verify.ReasonUnreachable + ": " + kagentHost, Detail: dialError,
+	probe := verify.Dimension{ID: kagentUIProbe, Kind: definitions.KindProbe, Mark: verify.NotChecked, Reason: verify.ReasonUnreachable + ": " + kagentHost, Detail: dialError,
 		Probe: &verify.ProbeResult{Requests: []verify.Request{{URL: "https://" + kagentHost + "/?redirect_uri=secret", Error: dialError}}}}
 	// Left out: a dimension of the repositories and one whose checks answered.
 	files := verify.Dimension{ID: "values-file", Kind: "file", Mark: verify.NotChecked, Reason: verify.ReasonRepositorySide}
@@ -55,7 +63,7 @@ func TestNotReadNamesAuthRequiredAndUnreachable(t *testing.T) {
 	want := []NotRead{
 		{Cause: CauseAuthRequired, Server: birchServer, SignInURL: signInURL, Message: "auth_required: server '" + birchServer + "' requires authentication before its tools can be called",
 			Fix: signIn(birchServer), Checks: 3, Dimensions: []string{dimReleases, dimKagent}},
-		{Cause: CauseUnreachable, Host: kagentHost, Message: dialError, Fix: noRoute, Checks: 2, Dimensions: []string{dimKagent, "kagent-ui-reachable"}},
+		{Cause: CauseUnreachable, Host: kagentHost, Message: dialError, Fix: noRoute, Checks: 2, Dimensions: []string{dimKagent, kagentUIProbe}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("not read:\n got %+v\nwant %+v", got, want)
@@ -117,7 +125,7 @@ func TestNotReadGroupsTheOtherCauses(t *testing.T) {
 func TestPrivateNoteSaysWhatRunsFromTheCaller(t *testing.T) {
 	res := privateResult()
 	reads := notRead(res, birchServer)
-	private := map[string]any{inputInstallation: map[string]any{"name": birch, inputPrivate: true}}
+	private := map[string]any{installationKey: map[string]any{"name": birch, privateKey: true}}
 	note := privateNote(birch, private, reads, res, birchServer)
 	for _, s := range []string{birch + " is private", "does not reach its endpoints (" + kagentHost + ")", "2 endpoint checks are not read from the manager (live-kagent, kagent-ui-reachable)",
 		"run through your muster session to " + birchServer + " instead (live-helmreleases-ready, live-kagent, live-crds)"} {
@@ -125,7 +133,7 @@ func TestPrivateNoteSaysWhatRunsFromTheCaller(t *testing.T) {
 			t.Errorf("note %q lacks %q", note, s)
 		}
 	}
-	if note := privateNote(birch, map[string]any{inputInstallation: map[string]any{inputPrivate: false}}, reads, res, birchServer); note != "" {
+	if note := privateNote(birch, map[string]any{installationKey: map[string]any{privateKey: false}}, reads, res, birchServer); note != "" {
 		t.Errorf("a public installation: %q", note)
 	}
 	if note := privateNote(birch, private, reads[:1], res, birchServer); note != "" {
@@ -138,7 +146,7 @@ func TestPrivateNoteSaysWhatRunsFromTheCaller(t *testing.T) {
 func TestReportNamesTheReadsNotMade(t *testing.T) {
 	res := privateResult()
 	reads := notRead(res, birchServer)
-	private := privateNote(birch, map[string]any{inputInstallation: map[string]any{inputPrivate: true}}, reads, res, birchServer)
+	private := privateNote(birch, map[string]any{installationKey: map[string]any{privateKey: true}}, reads, res, birchServer)
 	a := &actions.Action{Spec: actions.Spec{Installations: []string{birch}}}
 	status := actions.Status{State: actions.StateEnabled, Rollout: &actions.Rollout{Installations: []actions.InstallationRollout{{Name: birch, State: actions.StateEnabled, WatchedBy: "someone"}}}}
 	report := (&Tools{}).report(a, status, 0, res, nil, nil, "", private, reads)
@@ -153,5 +161,28 @@ func TestReportNamesTheReadsNotMade(t *testing.T) {
 	}
 	if strings.Contains(report, signInURL) {
 		t.Errorf("the report carries the sign-in URL:\n%s", report)
+	}
+}
+
+// A private installation's host the manager does not reach is not read by
+// design: the fix says no gap, and the report's not-checked line leaves the
+// dimension to the private note.
+func TestNotReadByDesignOnAPrivateInstallation(t *testing.T) {
+	reason := verify.ReasonPrivate + ": " + kagentHost
+	probe := verify.Dimension{ID: kagentUIProbe, Kind: definitions.KindProbe, Mark: verify.NotChecked, Reason: reason, Detail: dialError, ByDesign: true,
+		Probe: &verify.ProbeResult{Requests: []verify.Request{{URL: "https://" + kagentHost + "/", Error: dialError}}}}
+	live := verify.Dimension{ID: dimKagent, Kind: definitions.KindLive, Mark: verify.NotChecked, Reason: reason, ByDesign: true, Live: &verify.LiveResult{Checks: []verify.Check{
+		{Kind: string(render.HTTP), URL: "https://" + kagentHost + "/api/health", Mark: verify.NotChecked, Message: reason, Detail: dialError},
+	}}}
+	got := notRead(liveResult(installations.StateEnabled, live, probe), birchServer)
+	want := []NotRead{{Cause: CauseUnreachable, Host: kagentHost, Message: dialError, Fix: noRouteByDesign, Checks: 2, Dimensions: []string{dimKagent, kagentUIProbe}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("not read:\n got %+v\nwant %+v", got, want)
+	}
+	res := liveResult(installations.StateEnabled, live, probe)
+	a := &actions.Action{Spec: actions.Spec{Installations: []string{birch}}}
+	status := actions.Status{State: actions.StateEnabled, Rollout: &actions.Rollout{Installations: []actions.InstallationRollout{{Name: birch, State: actions.StateEnabled, WatchedBy: "someone"}}}}
+	if report := (&Tools{}).report(a, status, 0, res, nil, nil, "", "", got); strings.Contains(report, "not checked:") {
+		t.Errorf("the report counts dimensions not checked by design as a gap:\n%s", report)
 	}
 }

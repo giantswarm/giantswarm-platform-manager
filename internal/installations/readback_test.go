@@ -322,12 +322,12 @@ func TestDefaults(t *testing.T) {
 	// The holds and their reasons, by component: none by default.
 	holds := map[string]any{"muster": "", "valkey": "", "kagent": "", "agent-manager": "", "klaus-gateway": "", "cluster-manager": "", "model-manager": ""}
 	want := map[string]any{"modelServing": map[string]any{keyEnabled: false}, "aiChat": map[string]any{keyEnabled: false, "model": "claude-opus-5", keyProvider: "anthropic"},
-		"scheduling": map[string]any{"singletonsCapacity": "any"}, "networkPolicy": map[string]any{"mcpBackends": map[string]any{}}, "llmRouting": map[string]any{"rateLimits": []any{}, "rateLimitsComment": ""}, "sessions": map[string]any{"idleTTL": ""}, "tenants": map[string]any{"organizations": map[string]any{keyEnabled: false}}, keySkills: map[string]any{keyRepositories: []any{}},
+		"scheduling": map[string]any{"singletonsCapacity": "any"}, "networkPolicy": map[string]any{"mcpBackends": map[string]any{}}, "llmRouting": map[string]any{"rateLimits": []any{}, "rateLimitsComment": ""}, "sessions": map[string]any{"idleTTL": ""}, keySkills: map[string]any{keyRepositories: []any{}},
 		"hive": map[string]any{keyEnabled: false, "plans": map[string]any{keyRepositories: []any{}}, "magazine": map[string]any{"repository": ""},
 			boardRoadmap: map[string]any{"board": boardRoadmap, "teams": []any{}}},
 		"clusterManager":        map[string]any{keyGitHub: map[string]any{keyEnabled: false}},
 		"modelManager":          map[string]any{keyGitHub: map[string]any{keyEnabled: false}},
-		"klausGateway":          map[string]any{"slack": map[string]any{"contextBotIDs": []any{}, "contextBotIDsComment": "", "contextBotNames": []any{}, "contextBotNamesComment": ""}},
+		"klausGateway":          map[string]any{"slack": map[string]any{"contextBotIDs": []any{}, "contextBotIDsComment": "", "contextBotNames": []any{}, "contextBotNamesComment": "", "slashCommand": "", "slashCommandComment": ""}},
 		"agentManager":          map[string]any{keyGitHub: map[string]any{keyEnabled: false}, keySkills: map[string]any{keyRepositories: []any{}, "appSecretName": "", "gitAuthSecretName": "", "mintGitAuthSecret": false}},
 		"agentManagerAssistant": map[string]any{keyEnabled: true, "modelConfig": ""},
 		"skillManager":          map[string]any{"sources": []any{}},
@@ -483,21 +483,6 @@ func TestAgentPlatformReadsBackModelServing(t *testing.T) {
 	}
 }
 
-// The agent-platform definition reads the tenant mode back from the
-// configmap patch on record, so a reconcile keeps a mode on record — one a
-// person set by hand before the input existed among them.
-func TestAgentPlatformReadsBackTenantOrganizations(t *testing.T) {
-	def, _ := FindCapability(AgentPlatform)
-	read := files(map[string]string{"acme/configs:" + def.EnabledMarker("rowan"): "tenants:\n  organizations:\n    enabled: true\n"})
-	got, err := def.ReadBack(context.Background(), read, readBackInstallation, readBackName, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := map[string]any{"tenants.organizations.enabled": true}; !reflect.DeepEqual(got, want) {
-		t.Errorf("read back %v, want %v", got, want)
-	}
-}
-
 // The agent-platform definition reads the singletons' placement back from
 // the configmap patch on record.
 func TestAgentPlatformReadsBackSingletonsCapacity(t *testing.T) {
@@ -606,6 +591,41 @@ func TestCustomerPortalReadsBackThePortal(t *testing.T) {
 	}
 	if got[inputTokenBroker] != readBackName || got[inputGrafanaDomain] != readBackGrafana {
 		t.Errorf("read back %v, want the own broker and the deprecated grafana domain", got)
+	}
+}
+
+// TestAgentPlatformReadsBackSlashCommand reads the Slack app's slash command
+// back with the comment a person wrote above it; the generic comment reads
+// back as none.
+func TestAgentPlatformReadsBackSlashCommand(t *testing.T) {
+	def, _ := FindCapability(AgentPlatform)
+	for _, c := range []struct {
+		name, comment string
+		want          map[string]any
+	}{
+		{"a person's comment", "    # The command this installation's Slack app declares.\n", map[string]any{
+			"klausGateway.slack.slashCommandComment": "The command this installation's Slack app declares."}},
+		{"the generic comment", "    # The slash command the installation's Slack app declares: the input\n    # klausGateway.slack.slashCommand, read back so a reconcile keeps it.\n", map[string]any{}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			patch := "klausGateway:\n  slack:\n    enabled: true\n" + c.comment + "    slashCommand: /swarmgeist-rowan\n"
+			got, err := def.ReadBack(context.Background(), files(map[string]string{"acme/configs:" + def.EnabledMarker("rowan"): patch}), readBackInstallation, readBackName, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := map[string]any{"klausGateway.slack.slashCommand": "/swarmgeist-rowan"}
+			for k, v := range c.want {
+				want[k] = v
+			}
+			for k := range got {
+				if !strings.HasPrefix(k, "klausGateway.") {
+					delete(got, k)
+				}
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("read back %v, want %v", got, want)
+			}
+		})
 	}
 }
 

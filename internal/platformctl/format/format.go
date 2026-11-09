@@ -93,19 +93,28 @@ func lastAction(inst installations.Report) string {
 	return "-"
 }
 
+// rendered says a result was rendered locally (platformctl --local), right
+// under its header; the deployed manager's render needs no word.
+func (p *printer) rendered(r verify.RenderedBy) {
+	if r.Local {
+		p.f("Rendered %s\n", r)
+	}
+}
+
 // Plan is a dry run of enable_capability or reconcile_capability: every
 // installation with its files and what a commit would carry, the pull requests
 // in order, the installations skipped, and what the commit step says.
 func Plan(w io.Writer, r tools.CapabilityResult, content bool) error {
 	p := &printer{w: w}
 	p.f("%s dry run: %s on hub %s, as %s\n", r.Tool, r.Capability, dash(r.Hub), dash(r.Caller))
+	p.rendered(r.RenderedBy)
 	if len(r.Order) > 0 {
 		p.f("Order: %s\n", strings.Join(r.Order, ", "))
 	}
 	for _, inst := range r.Installations {
 		p.installation(inst.Installation, inst.Features, content)
-		if len(inst.Summary) > 0 {
-			p.f("  Comparison: %s\n", marks(inst.Summary))
+		if len(inst.Summary) > 0 || inst.ByDesign > 0 {
+			p.f("  Comparison: %s\n", marksByDesign(inst.Summary, inst.ByDesign))
 		}
 	}
 	if len(r.Installations) > 1 && suppliesAny(r.Installations) {
@@ -163,6 +172,7 @@ func (p *printer) installation(inst plan.Installation, features []verify.Feature
 	if inst.CommitRefused != "" && inst.CommitRefused != inst.Refused {
 		p.f("  A commit would be refused: %s\n", inst.CommitRefused)
 	}
+	p.switchOff(inst.Name, inst.SwitchOff)
 	if len(inst.Files) > 0 {
 		p.f("  Files (%s):\n", diff(inst.Diff))
 		rows := [][]string{{"CHANGE", "REPOSITORY", "PATH"}}
@@ -587,13 +597,18 @@ func Wave(w io.Writer, r tools.WaveResult) error {
 func Verify(w io.Writer, r verify.Result, liveErr error) error {
 	p := &printer{w: w}
 	p.f("verify %s on %s (hub %s), as %s\n", r.Capability, r.Installation, dash(r.Hub), dash(r.Caller))
+	p.rendered(r.RenderedBy)
+	by := ""
+	if r.RenderedBy.Local {
+		by = " by the deployed manager, from its own definitions"
+	}
 	if liveErr != nil {
 		p.f("Live: not checked — %s\n", liveErr.Error())
 	} else if r.LiveCaller != "" {
-		p.f("Live: read as %s\n", r.LiveCaller)
+		p.f("Live: read as %s%s\n", r.LiveCaller, by)
 	}
 	p.f("State: %s   Inputs: %s\n", dash(string(r.State)), dash(r.Inputs.Source))
-	p.f("Summary: %s\n", marks(r.Summary))
+	p.f("Summary: %s\n", marksByDesign(r.Summary, r.ByDesign))
 	if r.Refused != "" {
 		p.f("Refused: %s\n", r.Refused)
 	}
@@ -615,7 +630,7 @@ func Verify(w io.Writer, r verify.Result, liveErr error) error {
 	}
 	p.customerActions(r.CustomerActions)
 	for _, f := range r.Features {
-		p.f("\n%s: %s (%s)\n", f.Title, f.Mark, marks(f.Marks))
+		p.f("\n%s: %s (%s)\n", f.Title, f.Mark, marksByDesign(f.Marks, f.ByDesign))
 		for _, d := range f.Dimensions {
 			p.dimension(d)
 		}
@@ -664,7 +679,7 @@ func (p *printer) dimension(d verify.Dimension) {
 	if pr := d.Probe; pr != nil {
 		p.f("      expect %s\n", statuses(pr.Expect))
 		for _, req := range pr.Requests {
-			p.f("      %s %s%s%s\n", probeMark(req.OK), req.URL, client(req.Client), outcome(req))
+			p.f("      %s %s%s%s\n", probeMark(req), req.URL, client(req.Client), outcome(req))
 		}
 	}
 	if lv := d.Live; lv != nil {
@@ -702,13 +717,18 @@ func note(n string) string {
 	return " — " + n
 }
 
-// marks counts the marks in their severity order, the way the result rolls up.
-func marks(m map[verify.Mark]int) string {
+// marksByDesign counts the marks in their severity order, the way the result
+// rolls up, then the dimensions not checked by design: no gap, so never among
+// the marks.
+func marksByDesign(m map[verify.Mark]int, byDesign int) string {
 	var parts []string
 	for _, mark := range []verify.Mark{verify.Drifted, verify.DiffersByInput, verify.Planned, verify.AsDefined, verify.NotChecked} {
 		if n := m[mark]; n > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", n, mark))
 		}
+	}
+	if c := verify.ByDesignClause(byDesign); c != "" {
+		parts = append(parts, c)
 	}
 	if len(parts) == 0 {
 		return "none"
@@ -724,9 +744,16 @@ func statuses(codes []int) string {
 	return strings.Join(parts, "|")
 }
 
-func probeMark(ok bool) string {
-	if ok {
+// probeMark is a request's word: ok, FAIL for an answer off the
+// expectation, unreachable for none — the target did not answer the
+// manager, which is no failure of the installation; the dimension's reason
+// says why.
+func probeMark(req verify.Request) string {
+	switch {
+	case req.OK:
 		return "ok  "
+	case req.Error != "":
+		return "unreachable"
 	}
 	return "FAIL"
 }
@@ -805,7 +832,7 @@ func Watch(w io.Writer, r tools.WatchResult) error {
 		}
 	}
 	if r.Verify != nil {
-		p.f("Probes: %s\n", marks(r.Verify.Summary))
+		p.f("Probes: %s\n", marksByDesign(r.Verify.Summary, r.Verify.ByDesign))
 	}
 	if r.Report != "" {
 		p.f("Report:\n  %s\n", strings.ReplaceAll(r.Report, "\n", "\n  "))
@@ -979,6 +1006,7 @@ func Disable(w io.Writer, r tools.DisableResult, content bool) error {
 		mode = "commit"
 	}
 	p.f("%s %s: %s on %s (hub %s), as %s\n", r.Tool, mode, r.Capability, r.Installation, dash(r.Hub), dash(r.Caller))
+	p.rendered(r.RenderedBy)
 	p.f("State: %s\n", r.State)
 	if a := r.Action; a != nil {
 		p.f("Action: %s (%s)\n", a.Name, dash(a.Status.State))

@@ -61,6 +61,12 @@
       separateMajorMinor: false,
     },
     {
+      matchDatasources: ['docker'],
+      matchPackageNames: ['gsoci.azurecr.io/giantswarm/kagent/helm/kagent'],
+      versioning: 'semver',
+      allowedVersions: '>=1.31.0 <1.32.0',
+    },
+    {
       // agent-manager is pinned per line too: the 3 line's meta chart follows
       // 0.x, the 4 line's 1.x and newer, which moves with the 4 line's group.
       matchDatasources: [
@@ -128,6 +134,12 @@
       groupName: null,
     },
     {
+      matchDatasources: ['docker'],
+      matchPackageNames: ['gsoci.azurecr.io/charts/giantswarm/cluster-manager'],
+      versioning: 'semver',
+      allowedVersions: '>=0.22.0 <0.35.0',
+    },
+    {
       // The developer portal pin follows the major the fleet base's backstage
       // range and the portal shapes' line (testdata/consumption/*.portal.yaml)
       // follow; a pin past it fails the test. It moves with them.
@@ -140,20 +152,37 @@
       allowedVersions: '/^2\\./',
     },
     {
-      // The installation's own MCP servers and their Valkey stores run under a
-      // cap in the fleet base (giantswarm/management-cluster-bases, extras/<server>/
-      // oci-repository.yaml and valkey-oci-repository.yaml: semver "<=x.y.z"), and
-      // a pin above the cap fails the test. The base's Renovate raises a cap once a
-      // stable release is older than its 3-day soak, looked up as a GitHub release
-      // of the chart's source repository. The pins follow the same lookup and
-      // soak, so a pin's pull request opens with the cap's and passes once that
-      // one is merged; a release still soaking opens none.
+      matchDatasources: ['docker'],
+      matchPackageNames: ['gsoci.azurecr.io/charts/giantswarm/mcp-capi'],
+      versioning: 'semver',
+      allowedVersions: '<=0.6.30',
+    },
+    {
       matchDatasources: [
         'docker',
       ],
       matchPackageNames: [
         'gsoci.azurecr.io/charts/giantswarm/mcp-kubernetes',
-        'gsoci.azurecr.io/charts/giantswarm/mcp-prometheus',
+      ],
+      allowedVersions: '/^1\\./',
+      overrideDatasource: 'github-releases',
+      overridePackageName: 'giantswarm/mcp-kubernetes',
+      extractVersion: '^v(?<version>.*)$',
+      minimumReleaseAge: '0 days',
+      ignoreUnstable: true,
+    },
+    {
+      matchDatasources: ['docker'],
+      matchPackageNames: ['gsoci.azurecr.io/charts/giantswarm/mcp-prometheus'],
+      versioning: 'semver',
+      allowedVersions: '<=0.12.7',
+      minimumReleaseAge: '0 days',
+    },
+    {
+      matchDatasources: [
+        'docker',
+      ],
+      matchPackageNames: [
         'gsoci.azurecr.io/charts/giantswarm/mcp-capi',
       ],
       overrideDatasource: 'github-releases',
@@ -175,6 +204,8 @@
       extractVersion: '^v(?<version>.*)$',
       minimumReleaseAge: '3 days',
       internalChecksFilter: 'strict',
+      versioning: 'semver',
+      allowedVersions: '<=0.4.15',
     },
     {
       // The testdata pins are fixtures of the render-consumption test, not what

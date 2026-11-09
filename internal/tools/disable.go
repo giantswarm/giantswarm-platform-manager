@@ -16,6 +16,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
@@ -35,14 +36,17 @@ import (
 // DisableResult is the answer of disable_capability: the plan, what depends
 // on the capability, and for mode commit the action with its pull requests.
 type DisableResult struct {
-	Caller       string              `json:"caller"`
-	Tool         string              `json:"tool"`
-	Capability   string              `json:"capability"`
-	Hub          string              `json:"hub"`
-	Installation string              `json:"installation"`
-	DryRun       bool                `json:"dryRun"`
-	State        installations.State `json:"state"`
-	Plan         plan.Disablement    `json:"plan"`
+	Caller       string `json:"caller"`
+	Tool         string `json:"tool"`
+	Capability   string `json:"capability"`
+	Hub          string `json:"hub"`
+	Installation string `json:"installation"`
+	DryRun       bool   `json:"dryRun"`
+	// RenderedBy is what rendered the plan: the deployed manager, or
+	// platformctl --local.
+	RenderedBy verify.RenderedBy   `json:"renderedBy"`
+	State      installations.State `json:"state"`
+	Plan       plan.Disablement    `json:"plan"`
 	// Prunes says the fleet's Kustomization over the definition's tree
 	// prunes: Flux deletes what the files applied, and the checklist is empty.
 	Prunes bool `json:"prunes"`
@@ -134,7 +138,7 @@ func (t *Tools) disablePlan(ctx context.Context, args map[string]any) (*DisableR
 	if skip, ok := skipped(r, def.Name, true); ok {
 		return nil, nil, fmt.Errorf("%s: %s is %s (%s); the record is read before any removal and nothing is removed blind", tool, one, skip.Reason, strings.Join(skip.Errors, "; "))
 	}
-	out := &DisableResult{Caller: identity.Caller(ctx), Tool: tool, Capability: def.Name, Hub: reg.Hub, Installation: one, DryRun: true,
+	out := &DisableResult{Caller: identity.Caller(ctx), Tool: tool, Capability: def.Name, Hub: reg.Hub, Installation: one, DryRun: true, RenderedBy: t.renderedBy(),
 		State: capabilityState(r, def.Name), Prunes: def.Prunes, Remaining: []string{}, References: []string{}, Commit: disableCommitNext,
 		Plan: plan.Disablement{Name: one, Files: []plan.Removal{}, Stays: []plan.Stay{}, Kept: []plan.Stay{}, LeftOnRecord: []plan.Leftover{}, Directories: []string{}, Others: []string{}, Checklist: []plan.Object{}, PullRequests: []plan.PullRequest{}}}
 	if !out.State.OnRecord() {
@@ -404,7 +408,7 @@ func (t *Tools) disableCommit(ctx context.Context, args map[string]any) (any, er
 	spec := actions.Spec{Actor: actions.Actor{Login: id.Login, ID: id.ID, Email: id.Email}, Capability: out.Capability, Installations: []string{one}, Inputs: env.inputs[one], Kind: actions.KindDisable,
 		InputsByInstallation: map[string]map[string]any{one: env.inputs[one]}, Customer: env.byName[one].Customer != env.hub.Customer, AccountEngineers: accountEngineers(env, one), AccountEngineerOf: accountEngineerOf(env, one), Reason: reason, Markers: markersOf(def, env, one),
 		Change: fmt.Sprintf("%d file(s) to delete, %d to update", deleted, updated), Changes: map[string][]string{one: disableSummary(out.Plan)}}
-	a, err := t.record(ctx, spec, actions.Status{State: actions.StatePendingApproval})
+	a, err := t.record(ctx, spec, actions.Status{State: actions.StatePendingApproval, Orphans: orphansFrom(one, out.Plan.Checklist), Commit: &actions.CommitStatus{}})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
 	}
@@ -416,9 +420,8 @@ func (t *Tools) disableCommit(ctx context.Context, args map[string]any) (any, er
 	if err != nil {
 		return nil, t.fail(ctx, tool, a, remote, prs, err)
 	}
-	a, err = t.d.Actions.UpdateStatus(ctx, a.Name, actions.Status{State: actions.StatePendingApproval, PullRequests: prs, Orphans: orphansFrom(one, out.Plan.Checklist)})
-	if err != nil {
-		return nil, fmt.Errorf("%s: the pull requests are open (%s) and the action could not record them: %w", tool, prList(prs), err)
+	if err := t.finishCommit(ctx, a); err != nil {
+		return nil, t.fail(ctx, tool, a, remote, prs, err)
 	}
 	t.d.Log.Info(tool, identity.LogAttr(ctx), "action", a.Name, "installation", one, "state", a.Status.State, "pullRequests", len(prs))
 	a, err = t.requestApproval(ctx, a, tool, test)
@@ -443,6 +446,9 @@ func (t *Tools) openRemovals(ctx context.Context, c *gh.Client, a *actions.Actio
 	req := commit.Request{Branch: branchPrefix + a.Name + "/" + d.Name, Title: title, Body: body}
 	var prs []actions.PullRequest
 	for _, pl := range d.PullRequests {
+		if err := ctx.Err(); err != nil {
+			return prs, err
+		}
 		files := map[string][]byte{}
 		var enc *target
 		for _, r := range d.Files {
@@ -480,15 +486,13 @@ func (t *Tools) openRemovals(ctx context.Context, c *gh.Client, a *actions.Actio
 		if err != nil {
 			return prs, err
 		}
-		opened, err := commit.Open(ctx, remote, req, []commit.Change{{Location: loc, Files: files}})
-		for _, o := range opened {
-			prs = append(prs, actions.PullRequest{Installation: d.Name, Repository: o.Repository.String(), Number: o.Number, URL: o.URL, State: actions.PullRequestOpen, Head: o.Head, HeadSHA: o.HeadSHA})
-		}
+		opened, err := t.openCommitPullRequest(ctx, a, remote, req, commit.Change{Location: loc, Files: files}, d.Name)
+		prs = append(prs, opened...)
 		if err != nil {
 			return prs, remoteError(pl.Repository, err)
 		}
 	}
-	return prs, nil
+	return prs, ctx.Err()
 }
 
 // orphansFrom is the checklist as the action's orphans on installation.

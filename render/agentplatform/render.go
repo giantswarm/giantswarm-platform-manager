@@ -273,13 +273,6 @@ func (in *Input) configmapPatch() render.Map {
 				e("tls", render.Map{e("issuerRef", render.Map{e("name", in.Installation.ClusterIssuer)})})}),
 		}))
 	}
-	// The tenant mode alone: the chart's other conditions for it, the LLM
-	// listener's ModelConfig policy and a default provider the listener
-	// serves, are the chart's and the shared defaults' and never rendered.
-	if in.TenantOrganizations {
-		m = append(m, e("tenants", render.Map{e("organizations", render.Map{e("enabled", true)})}))
-	}
-
 	m = append(m, e("muster", in.musterValues()))
 	targets := in.Installation.Federation.Targets
 	var mcps render.Map
@@ -381,25 +374,28 @@ func (in *Input) portalJWTProvider() render.Map {
 // not the shared defaults', which carry the default model.
 const kagentModelMaxTokens = 32000
 
-// kagentValues is the kagent section: the model provider wired through the
+// kagentValues is the kagent section: the UI's oauth2-proxy with its
+// credentials Secret and the audiences it accepts, the controller's session
+// idle TTL where the person chose one (sessions.idleTTL), and, where the meta
+// chart still takes it (declaresModels), the model provider wired through the
 // edge to the key Secret the installation creates (modelKeySecret; no file is
-// rendered for it) with the output cap of a call, and the UI's oauth2-proxy
-// with its credentials Secret and the audiences it accepts, and the
-// controller's session idle TTL where the person chose one (sessions.idleTTL).
+// rendered for it) with the output cap of a call. From modelFreeChart on the
+// installation's models are ModelConfig objects under extras.
 func (in *Input) kagentValues() render.Map {
-	m := render.Map{
-		e("providers", render.Map{e("anthropic", render.Map{
+	var m render.Map
+	if in.declaresModels() {
+		m = append(m, e("providers", render.Map{e("anthropic", render.Map{
 			e("apiKeySecretRef", modelKeySecret),
 			e("config", render.Map{
 				e("baseUrl", "http://agentgateway.agent-platform.svc:8081"),
 				e("maxTokens", kagentModelMaxTokens),
 			}),
-		})}),
-		e("oauth2-proxy", render.Map{
-			e("config", render.Map{e("existingSecret", kagentOAuth2ProxySecret)}),
-			e("extraArgs", render.Map{e("oidc-extra-audience", strings.Join(in.audiences(), ","))}),
-		}),
+		})}))
 	}
+	m = append(m, e("oauth2-proxy", render.Map{
+		e("config", render.Map{e("existingSecret", kagentOAuth2ProxySecret)}),
+		e("extraArgs", render.Map{e("oidc-extra-audience", strings.Join(in.audiences(), ","))}),
+	}))
 	if in.SessionIdleTTL != "" {
 		m = append(m, e("controller", render.Map{e("sessionIdleTTL", in.SessionIdleTTL)}))
 	}

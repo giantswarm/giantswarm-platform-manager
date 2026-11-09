@@ -345,7 +345,12 @@ type Installation struct {
 	// targets, the identity providers, the MCP servers, the registration
 	// URIs it moves —, the warning a join as a target prints apart from the
 	// drift lines; nil where it takes nothing (JoinRefusal).
-	Join       *Join       `json:"join,omitempty"`
+	Join *Join `json:"join,omitempty"`
+	// SwitchOff names the components running on record that the plan's
+	// agent-platform values patch switches off, with what depends on each:
+	// the warning the dry run prints first, apart from the drift lines; nil
+	// where it switches nothing off (SwitchOffRefusal).
+	SwitchOff  *SwitchOff  `json:"switchOff,omitempty"`
 	DexClients []DexClient `json:"dexClients"`
 	// DexConnectors are the ids of the token-exchange connectors the
 	// rendered Dex patch declares under oidc.customer.connectors
@@ -464,6 +469,10 @@ type Options struct {
 	// what the patch takes off the installation's muster holds no commit
 	// (Join.Forced).
 	ForceJoin bool
+	// ForceSwitchOff: the person asked for the switch-off with its warning
+	// known, so the components the plan switches off hold no commit
+	// (SwitchOff.Forced).
+	ForceSwitchOff bool
 	// Installations are the registry's installations by name: where a
 	// generated value's peer (render.Peer) is on record.
 	Installations map[string]installations.Installation
@@ -643,6 +652,7 @@ func Build(ctx context.Context, opts Options) Installation {
 			if strings.HasSuffix(path, platformPatchFile) && pf.Change == ChangeUpdate {
 				p.DropsPrereleases = dropsPrereleases(current, content)
 				p.join(current, content, opts.ForceJoin)
+				p.switchOff(current, content, opts.ForceSwitchOff)
 			}
 		}
 	}

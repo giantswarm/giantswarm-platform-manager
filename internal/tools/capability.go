@@ -14,6 +14,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 )
 
 // The capability tools' own arguments.
@@ -27,6 +28,9 @@ const (
 	// ArgForceJoin lets a commit proceed over what the plan takes off an
 	// installation's muster.
 	ArgForceJoin = "forceJoin"
+	// ArgForceSwitchOff lets a commit proceed over the components the plan
+	// switches off of what runs on an installation (the dry run's warning).
+	ArgForceSwitchOff = "forceSwitchOff"
 	// ArgKeep names the files a disable keeps.
 	ArgKeep = "keep"
 )
@@ -41,6 +45,9 @@ type CapabilityResult struct {
 	Capability string `json:"capability"`
 	Hub        string `json:"hub"`
 	DryRun     bool   `json:"dryRun"`
+	// RenderedBy is what rendered the plans: the deployed manager, or
+	// platformctl --local.
+	RenderedBy verify.RenderedBy `json:"renderedBy"`
 	// Order is the wave's rollout order: Giant Swarm's test installations,
 	// the hub, then the customers' installations.
 	Order         []string           `json:"order"`
@@ -101,6 +108,7 @@ func capabilityOptions() []mcp.ToolOption {
 		mcp.WithObject(ArgSecrets, mcp.Description("mode commit only: the values the plan's suppliedSecrets name: <field> for every installation of a set, <installation>/<field> for one.")),
 		mcp.WithArray(ArgRotate, mcp.Description(rotateArgDescription), mcp.Items(stringItems())),
 		mcp.WithBoolean(ArgForceJoin, mcp.Description(forceJoinArgDescription)),
+		mcp.WithBoolean(ArgForceSwitchOff, mcp.Description(forceSwitchOffArgDescription)),
 		mcp.WithString(ArgReason, mcp.Description(reasonArgDescription)),
 	}
 }
@@ -108,6 +116,10 @@ func capabilityOptions() []mcp.ToolOption {
 // forceJoinArgDescription describes the forceJoin argument of the write
 // tools: the way past the join refusal.
 const forceJoinArgDescription = `Only after a commit refused for the join: proceed although the reconcile takes servers, providers or redirects off an installation's muster.`
+
+// forceSwitchOffArgDescription describes the forceSwitchOff argument of the
+// write tools: the way past the switch-off refusal.
+const forceSwitchOffArgDescription = `Only after a commit refused for the switch-off: proceed although the reconcile switches off components running on an installation.`
 
 // reasonArgDescription describes the reason argument of the write tools.
 const reasonArgDescription = `mode commit only, required: why, in a sentence a teammate judges the change by; the team's review and the pull requests show it.`
@@ -175,7 +187,7 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 	}
 	inputs, _ := args[ArgInputs].(map[string]any)
 	rotate := rotateArg(args)
-	forceJoin, _ := args[ArgForceJoin].(bool)
+	force := forces{join: boolArg(args, ArgForceJoin), switchOff: boolArg(args, ArgForceSwitchOff)}
 	whole := wholeArg(args)
 	content := contentArg(args, whole)
 
@@ -202,7 +214,7 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 	}
 	caps := installations.Capabilities()
 	reports := reg.InspectAll(ctx, c, selected, caps, installations.Full)
-	out := CapabilityResult{Caller: identity.Caller(ctx), Tool: tool, Capability: def.Name, Hub: reg.Hub, DryRun: true,
+	out := CapabilityResult{Caller: identity.Caller(ctx), Tool: tool, Capability: def.Name, Hub: reg.Hub, DryRun: true, RenderedBy: t.renderedBy(),
 		Order: []string{}, Installations: []DryRun{}, PullRequests: []plan.PullRequest{}, Skipped: []Skipped{}, Commit: commitNext}
 	env := &planned{c: c, hub: hub, byName: byName, reports: map[string]installations.Report{}, inputs: map[string]map[string]any{}}
 	for _, r := range waveOrder(reports, hub) {
@@ -211,7 +223,7 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 			out.Skipped = append(out.Skipped, skip)
 			continue
 		}
-		res, err := t.compare(ctx, env, r, def, inputs, content, rotate, forceJoin)
+		res, err := t.compare(ctx, env, r, def, inputs, content, rotate, force)
 		if err != nil {
 			return nil, nil, err
 		}

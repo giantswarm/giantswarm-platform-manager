@@ -9,17 +9,18 @@ require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/getsops/sops/v3 v3.13.3
 	github.com/giantswarm/gitops-commit v0.11.10
-	github.com/giantswarm/go-selfupdate v1.7.3
-	github.com/giantswarm/mcp-oauth v1.9.6
-	github.com/giantswarm/mcp-toolkit v0.4.8
-	github.com/giantswarm/selfupdate-cosign v0.3.20
-	github.com/go-jose/go-jose/v4 v4.1.8
+	github.com/giantswarm/go-selfupdate v1.7.6
+	github.com/giantswarm/mcp-oauth v1.12.1
+	github.com/giantswarm/mcp-toolkit v0.5.2
+	github.com/giantswarm/selfupdate-cosign v0.3.26
+	github.com/go-jose/go-jose/v4 v4.1.9
 	github.com/google/go-containerregistry v0.22.1
 	github.com/google/go-github/v93 v93.0.0
 	github.com/mark3labs/mcp-go v1.5.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/spf13/cobra v1.10.2
-	github.com/spf13/pflag v1.0.10
+	github.com/spf13/pflag v1.1.0
+	github.com/stretchr/testify v1.12.1
 	golang.org/x/sync v0.24.0
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/apimachinery v0.37.2
@@ -148,7 +149,7 @@ require (
 	github.com/in-toto/in-toto-golang v0.11.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/json-iterator/go v1.1.13-0.20220915233716-71ac16282d12 // indirect
-	github.com/klauspost/compress v1.19.2 // indirect
+	github.com/klauspost/compress v1.20.2 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/lib/pq v1.12.3 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
@@ -227,3 +228,9 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
+
+replace github.com/prometheus/prometheus v0.51.0 => github.com/prometheus/prometheus v0.315.0
+
+replace go.etcd.io/etcd/v3 v3.6.8 => go.etcd.io/etcd/v3 v3.7.2
+
+replace github.com/yuin/goldmark v1.4.13 => github.com/yuin/goldmark v1.7.17

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/giantswarm/gitops-commit/commit"
+
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
@@ -40,6 +42,9 @@ func (t *Tools) resyncInterval() time.Duration {
 // due says whether a's record is old enough for a resync: an action a read
 // can still move, whose last sync is older than the interval.
 func (t *Tools) due(a *actions.Action) bool {
+	if a.Status.Commit != nil && len(a.Status.Commit.Pending) > 0 {
+		return true
+	}
 	if actions.Terminal(a.Status.State) {
 		return false
 	}
@@ -82,6 +87,35 @@ func (t *Tools) resyncCaller(ctx context.Context, a *actions.Action) (*actions.A
 	c, err := t.person(token)
 	if err != nil {
 		return nil, err
+	}
+	if a.Status.Commit != nil {
+		if len(a.Status.Commit.Pending) > 0 {
+			remote, err := t.d.Remote(token)
+			if err != nil {
+				return nil, err
+			}
+			for _, intent := range slices.Clone(a.Status.Commit.Pending) {
+				owner, repository, err := gh.SplitRepo(intent.Repository)
+				if err != nil {
+					return nil, err
+				}
+				lookupContext, cancel := context.WithTimeout(ctx, commitRecoveryTimeout)
+				pr, found, err := remote.FindPullRequest(lookupContext, commit.Repository{Owner: owner, Name: repository}, intent.Head)
+				cancel()
+				if err != nil {
+					return nil, err
+				}
+				if found {
+					err := t.recordPullRequest(ctx, a, actions.PullRequest{Installation: intent.Installation, Repository: intent.Repository, Number: pr.Number, URL: pr.URL, State: actions.PullRequestOpen, Head: pr.Head, HeadSHA: pr.HeadSHA})
+					if err != nil {
+						return nil, err
+					}
+				}
+			}
+		}
+		if (!a.Status.Commit.Complete && a.Status.State == actions.StatePendingApproval) || actions.Terminal(a.Status.State) {
+			return a, nil
+		}
 	}
 	return t.resync(ctx, c, id, a)
 }
@@ -201,7 +235,7 @@ func (t *Tools) resync(ctx context.Context, c *gh.Client, id *identity.Identity,
 	if len(unread) == 0 {
 		status.SyncedAt, status.SyncedBy = now(), id.String()
 	}
-	out, err := t.d.Actions.UpdateStatus(ctx, a.Name, status)
+	out, err := t.d.Actions.UpdateStatus(ctx, a, status)
 	if err != nil {
 		return nil, err
 	}
