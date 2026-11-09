@@ -16,8 +16,9 @@ const keyOrganizations = "organizations"
 // TestOrganizationsRefusals refuses the organizations' choices an
 // installation cannot serve, naming the input: the switch off the 4 chart
 // line, where no kagent runs or under a meta chart hold before the
-// organizations' release; the hostnames or commit mode without the switch;
-// the portal's pages where no portal carries the installation's section.
+// organizations' release; commit mode under a hold before the release that
+// takes agent-manager.tenants.commit; the portal's pages where no portal
+// carries the installation's section.
 func TestOrganizationsRefusals(t *testing.T) {
 	for _, c := range []struct {
 		name   string
@@ -33,11 +34,9 @@ func TestOrganizationsRefusals(t *testing.T) {
 		{"the switch under a chart hold before the organizations", func(m map[string]any) {
 			m["versions"] = map[string]any{keyChart: "4.176.5"}
 		}, "versions.chart"},
-		{"API hostnames without the switch", func(m map[string]any) {
-			m[keyOrganizations] = map[string]any{"apiHostnames": []any{"api.other.example.io"}}
-		}, "organizations.apiHostnames"},
-		{"commit mode without the switch", func(m map[string]any) {
-			m[keyOrganizations] = map[string]any{"commit": map[string]any{keyEnabled: true}}
+		{"commit mode under a chart hold before the release that takes it", func(m map[string]any) {
+			m[keyOrganizations].(map[string]any)["commit"] = map[string]any{keyEnabled: true}
+			m["versions"] = map[string]any{keyChart: "4.177.0-rc.1"}
 		}, "organizations.commit.enabled"},
 		{"the portal's pages without a portal section", func(m map[string]any) {
 			m[keyOrganizations] = map[string]any{"portal": map[string]any{keyEnabled: true}}
@@ -51,6 +50,21 @@ func TestOrganizationsRefusals(t *testing.T) {
 				t.Fatalf("got %v, want ErrInput naming %s", err, c.names)
 			}
 		})
+	}
+	// The API hostnames and commit mode read back without the switch render
+	// nothing: a person turns the switch off alone.
+	input, secrets := loadInput(t, shapeOrganizationsCommit)
+	input[keyOrganizations].(map[string]any)[keyEnabled] = false
+	input[keyOrganizations].(map[string]any)["apiHostnames"] = []any{"internal-api.garnet.example.io"}
+	in, err := Parse(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if patch := string(render.MustYAML(in.configmapPatch())); strings.Contains(patch, "agentPlatformOrganizations") || strings.Contains(patch, "tenants") || strings.Contains(patch, "agent-platform-operator") {
+		t.Errorf("the switch off renders organizations' values:\n%s", patch)
+	}
+	if _, err := Render(input, secrets, render.ModeCommit); err != nil {
+		t.Fatal(err)
 	}
 	// A hold on the organizations' release or a range that reaches it stands.
 	for _, hold := range []string{organizationsChart, ">=4.170.0 <5.0.0"} {
@@ -72,7 +86,7 @@ func TestOrganizationsPortalPagesStayWithoutTheSwitch(t *testing.T) {
 		name   string
 		portal bool
 		want   bool
-	}{{"read back on", true, true}, {"neither on", false, false}} {
+	}{{"the choice on, the switch off", true, true}, {"neither on", false, false}} {
 		t.Run(c.name, func(t *testing.T) {
 			input, secrets := loadInput(t, shapeOrganizationsPortal)
 			input[keyOrganizations] = map[string]any{"portal": map[string]any{keyEnabled: c.portal}}
@@ -128,5 +142,18 @@ func TestPolicyDefaultAgent(t *testing.T) {
 				t.Errorf("%s: got %v, want ErrPolicy", doc, err)
 			}
 		}
+	}
+}
+
+// TestPolicyOrganizationsBlock refuses an organizations block with a value
+// commit mode writes left empty, a misspelt key among them; the fleet's own
+// policy carries every one.
+func TestPolicyOrganizationsBlock(t *testing.T) {
+	const base = "flux: {sourceInterval: 1m}\n"
+	if _, err := parsePolicy([]byte(base + "organizations: {branch: main, installationKustomization: orgs, flux: {namespace: flux-giantswarm, source: {kind: GitRepository, name: fleet}, decryptionsecret: sops-keys}}\n")); !errors.Is(err, ErrPolicy) || !strings.Contains(err.Error(), "organizations.flux.decryptionSecret") {
+		t.Errorf("a misspelt key: got %v, want ErrPolicy naming it", err)
+	}
+	if _, err := loadPolicy(); err != nil {
+		t.Errorf("the fleet's policy: %v", err)
 	}
 }

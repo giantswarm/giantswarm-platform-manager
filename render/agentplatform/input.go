@@ -492,6 +492,9 @@ func parsePolicy(raw []byte) (*policy, error) {
 			return nil, fmt.Errorf("%w: chartLine.customers.%s: %q is not a line of the meta chart (%s or %s)", ErrPolicy, customer, t, lineThree, lineFour)
 		}
 	}
+	if err := pol.Organizations.check(); err != nil {
+		return nil, err
+	}
 	if err := checkDefaultAgent("klausGateway.a2a.defaultAgent", pol.KlausGateway.A2A.DefaultAgent); err != nil {
 		return nil, err
 	}

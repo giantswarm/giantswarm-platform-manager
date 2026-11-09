@@ -45,6 +45,13 @@ type OrganizationsPolicy struct {
 // (4.176.6).
 const organizationsChart = "4.176.6"
 
+// organizationsCommitChart is the meta chart before which commit mode is
+// refused: every release up to 4.177.0-rc.1 refuses agent-manager.tenants
+// but enabled, and the release that takes tenants.commit
+// (giantswarm/agent-platform#1312) is not out. A hold below it is refused.
+// Once that release is out, this names it.
+const organizationsCommitChart = "4.177.0"
+
 // organizationsDir is the directory under an installation's extras that
 // holds its organizations in git, in commit mode: the objects the
 // installation's Kustomization applies and each organization's content,
@@ -115,9 +122,12 @@ func (in *Input) portalOrganizations() bool {
 
 // checkOrganizations refuses the organizations' choices the installation
 // cannot serve: the switch off the 4 chart line, where no kagent runs or
-// with a hold of the meta chart below organizationsChart; its hostnames or
-// commit mode without it; commit mode where no agent-manager runs; the
+// with a hold of the meta chart below organizationsChart; commit mode where
+// no agent-manager runs or with a hold below organizationsCommitChart; the
 // portal's pages where no portal carries a section for the installation.
+// The API hostnames and commit mode render with the switch only: with it
+// off they are not written, so a person who turns the switch off types
+// that alone, and the next reconcile reads back none of them.
 func (in *Input) checkOrganizations() error {
 	o := in.Organizations
 	if o.Enabled && in.Installation.ChartLine != lineFour {
@@ -129,17 +139,38 @@ func (in *Input) checkOrganizations() error {
 	if o.Enabled && !holdAdmits(in.Versions.Chart, organizationsChart) {
 		return refuse(fmt.Sprintf("%s needs the meta chart %s or later, and %s holds it at %s; move or lift the hold first", describe("organizations.enabled"), organizationsChart, describe("versions.chart"), in.Versions.Chart))
 	}
-	if len(o.APIHostnames) > 0 && !o.Enabled {
-		return refuse(describe("organizations.apiHostnames") + " names the API hostnames an organization's egress may not reach, and " + describe("organizations.enabled") + " is off")
-	}
-	if o.Commit.Enabled && !o.Enabled {
-		return refuse(describe("organizations.commit.enabled") + " commits the organizations to git, and " + describe("organizations.enabled") + " is off")
-	}
-	if o.Commit.Enabled && !in.agentManager() {
+	commit := o.Enabled && o.Commit.Enabled
+	if commit && !in.agentManager() {
 		return refuse(fmt.Sprintf("%s has agent-manager open the organizations' pull requests, and the fleet policy runs no agent-manager on %s's installations", describe("organizations.commit.enabled"), in.Installation.Customer))
+	}
+	if commit && in.organizationsPolicy == (OrganizationsPolicy{}) {
+		return refuse(describe("organizations.commit.enabled") + " keeps the organizations in git where the fleet policy's organizations block says, and the policy has none")
+	}
+	if commit && !holdAdmits(in.Versions.Chart, organizationsCommitChart) {
+		return refuse(fmt.Sprintf("%s writes agent-manager.tenants.commit, which the meta chart refuses before %s (giantswarm/agent-platform#1312), and %s holds it at %s; move or lift the hold first", describe("organizations.commit.enabled"), organizationsCommitChart, describe("versions.chart"), in.Versions.Chart))
 	}
 	if o.Portal.Enabled && in.hostedPortal() == nil {
 		return refuse(describe("organizations.portal.enabled") + " turns on the Organizations pages in the developer portal's agent-platform section, and no portal carries one for this installation: the record lists no portal hosted on it, nor its organisation's on a sibling that is not hand-kept")
+	}
+	return nil
+}
+
+// check refuses an organizations block that leaves a value commit mode
+// writes empty: the chart would refuse the render, or the operator would
+// write no Kustomization while agent-manager commits. A policy without the
+// block stands, and commit mode is refused under it (checkOrganizations).
+func (p OrganizationsPolicy) check() error {
+	if p == (OrganizationsPolicy{}) {
+		return nil
+	}
+	for field, value := range map[string]string{
+		"organizations.branch": p.Branch, "organizations.installationKustomization": p.InstallationKustomization,
+		"organizations.flux.namespace": p.Flux.Namespace, "organizations.flux.source.kind": p.Flux.Source.Kind,
+		"organizations.flux.source.name": p.Flux.Source.Name, "organizations.flux.decryptionSecret": p.Flux.DecryptionSecret,
+	} {
+		if value == "" {
+			return fmt.Errorf("%w: %s is empty; the organizations' commit mode writes it", ErrPolicy, field)
+		}
 	}
 	return nil
 }
