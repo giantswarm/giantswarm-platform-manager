@@ -44,7 +44,7 @@ func TestAnswerAboveTheLimitIsRefusedNamingSizeAndLimit(t *testing.T) {
 func TestASetsEntryCarriesWhatDiffers(t *testing.T) {
 	const configs, configmap = "acme/configs", "configmap"
 	marks := map[verify.Mark]int{verify.Drifted: 1, verify.AsDefined: 1, verify.NotChecked: 1}
-	res := &verify.Result{Installation: "lab", Summary: marks, Features: []verify.Feature{{
+	res := &verify.Result{Installation: "lab", Summary: marks, ByDesign: 2, Features: []verify.Feature{{
 		ID: "runtime", Title: "Runtime", Mark: verify.Drifted, Marks: marks,
 		Dimensions: []verify.Dimension{{
 			ID: "kagent-providers", Kind: configmap, Key: "kagent.providers", Mark: verify.Drifted, Reason: "the record differs", Detail: "the transport's error",
@@ -77,7 +77,7 @@ func TestASetsEntryCarriesWhatDiffers(t *testing.T) {
 	if len(d.Differences) != 0 || len(d.Files) != 0 || d.Detail != "" || d.Probe != nil {
 		t.Errorf("a set's entry carries evidence: %+v", d)
 	}
-	if set.Name != "lab" || set.Summary[verify.AsDefined] != 1 || set.Features[0].Mark != verify.Drifted || set.Features[0].Marks[verify.NotChecked] != 1 {
+	if set.Name != "lab" || set.Summary[verify.AsDefined] != 1 || whole.ByDesign != 2 || set.ByDesign != 2 || set.Features[0].Mark != verify.Drifted || set.Features[0].Marks[verify.NotChecked] != 1 {
 		t.Errorf("a set's entry lost the counts: %+v", set)
 	}
 	var paths []string

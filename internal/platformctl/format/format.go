@@ -104,8 +104,8 @@ func Plan(w io.Writer, r tools.CapabilityResult, content bool) error {
 	}
 	for _, inst := range r.Installations {
 		p.installation(inst.Installation, inst.Features, content)
-		if len(inst.Summary) > 0 {
-			p.f("  Comparison: %s\n", marks(inst.Summary))
+		if len(inst.Summary) > 0 || inst.ByDesign > 0 {
+			p.f("  Comparison: %s\n", marksByDesign(inst.Summary, inst.ByDesign))
 		}
 	}
 	if len(r.Installations) > 1 && suppliesAny(r.Installations) {
@@ -163,6 +163,7 @@ func (p *printer) installation(inst plan.Installation, features []verify.Feature
 	if inst.CommitRefused != "" && inst.CommitRefused != inst.Refused {
 		p.f("  A commit would be refused: %s\n", inst.CommitRefused)
 	}
+	p.switchOff(inst.Name, inst.SwitchOff)
 	if len(inst.Files) > 0 {
 		p.f("  Files (%s):\n", diff(inst.Diff))
 		rows := [][]string{{"CHANGE", "REPOSITORY", "PATH"}}
@@ -593,7 +594,7 @@ func Verify(w io.Writer, r verify.Result, liveErr error) error {
 		p.f("Live: read as %s\n", r.LiveCaller)
 	}
 	p.f("State: %s   Inputs: %s\n", dash(string(r.State)), dash(r.Inputs.Source))
-	p.f("Summary: %s\n", marks(r.Summary))
+	p.f("Summary: %s\n", marksByDesign(r.Summary, r.ByDesign))
 	if r.Refused != "" {
 		p.f("Refused: %s\n", r.Refused)
 	}
@@ -615,7 +616,7 @@ func Verify(w io.Writer, r verify.Result, liveErr error) error {
 	}
 	p.customerActions(r.CustomerActions)
 	for _, f := range r.Features {
-		p.f("\n%s: %s (%s)\n", f.Title, f.Mark, marks(f.Marks))
+		p.f("\n%s: %s (%s)\n", f.Title, f.Mark, marksByDesign(f.Marks, f.ByDesign))
 		for _, d := range f.Dimensions {
 			p.dimension(d)
 		}
@@ -664,7 +665,7 @@ func (p *printer) dimension(d verify.Dimension) {
 	if pr := d.Probe; pr != nil {
 		p.f("      expect %s\n", statuses(pr.Expect))
 		for _, req := range pr.Requests {
-			p.f("      %s %s%s%s\n", probeMark(req.OK), req.URL, client(req.Client), outcome(req))
+			p.f("      %s %s%s%s\n", probeMark(req), req.URL, client(req.Client), outcome(req))
 		}
 	}
 	if lv := d.Live; lv != nil {
@@ -702,13 +703,18 @@ func note(n string) string {
 	return " — " + n
 }
 
-// marks counts the marks in their severity order, the way the result rolls up.
-func marks(m map[verify.Mark]int) string {
+// marksByDesign counts the marks in their severity order, the way the result
+// rolls up, then the dimensions not checked by design: no gap, so never among
+// the marks.
+func marksByDesign(m map[verify.Mark]int, byDesign int) string {
 	var parts []string
 	for _, mark := range []verify.Mark{verify.Drifted, verify.DiffersByInput, verify.Planned, verify.AsDefined, verify.NotChecked} {
 		if n := m[mark]; n > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", n, mark))
 		}
+	}
+	if c := verify.ByDesignClause(byDesign); c != "" {
+		parts = append(parts, c)
 	}
 	if len(parts) == 0 {
 		return "none"
@@ -724,9 +730,16 @@ func statuses(codes []int) string {
 	return strings.Join(parts, "|")
 }
 
-func probeMark(ok bool) string {
-	if ok {
+// probeMark is a request's word: ok, FAIL for an answer off the
+// expectation, unreachable for none — the target did not answer the
+// manager, which is no failure of the installation; the dimension's reason
+// says why.
+func probeMark(req verify.Request) string {
+	switch {
+	case req.OK:
 		return "ok  "
+	case req.Error != "":
+		return "unreachable"
 	}
 	return "FAIL"
 }
@@ -805,7 +818,7 @@ func Watch(w io.Writer, r tools.WatchResult) error {
 		}
 	}
 	if r.Verify != nil {
-		p.f("Probes: %s\n", marks(r.Verify.Summary))
+		p.f("Probes: %s\n", marksByDesign(r.Verify.Summary, r.Verify.ByDesign))
 	}
 	if r.Report != "" {
 		p.f("Report:\n  %s\n", strings.ReplaceAll(r.Report, "\n", "\n  "))

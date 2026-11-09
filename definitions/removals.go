@@ -40,6 +40,11 @@ const RemovalKept = "kept"
 // the definition would turn the hub's portal into a customer's.
 const RemovalHub = "hub"
 
+// RemovalTemplate is the kind of a removal the shared template renders: the
+// installation's patch repeats a value the shared defaults set on every
+// installation, so its removal changes nothing that runs.
+const RemovalTemplate = "template"
+
 // RemovalMigration is the kind of a removal that is a value the fleet
 // carries today and no input of the definition renders: it moves to where it
 // belongs or goes. It never names a leaf the render carries.
@@ -77,6 +82,13 @@ func HeldKeys(capability, prefix string) ([]HeldKey, error) {
 		}
 	}
 	return out, nil
+}
+
+// TemplateKeys are the key paths of a capability's removals of kind template
+// under the file prefix, the prefix cut off, in file order: the keys the
+// shared defaults set alike.
+func TemplateKeys(capability, prefix string) ([]string, error) {
+	return keysOfKind(capability, prefix, RemovalTemplate)
 }
 
 // HandedKeys are the key paths of a capability's removals of kind
