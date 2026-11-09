@@ -10,9 +10,9 @@ require (
 	github.com/getsops/sops/v3 v3.13.3
 	github.com/giantswarm/gitops-commit v0.11.10
 	github.com/giantswarm/go-selfupdate v1.7.6
-	github.com/giantswarm/mcp-oauth v1.12.0
-	github.com/giantswarm/mcp-toolkit v0.4.12
-	github.com/giantswarm/selfupdate-cosign v0.3.22
+	github.com/giantswarm/mcp-oauth v1.12.1
+	github.com/giantswarm/mcp-toolkit v0.5.2
+	github.com/giantswarm/selfupdate-cosign v0.3.26
 	github.com/go-jose/go-jose/v4 v4.1.9
 	github.com/google/go-containerregistry v0.22.1
 	github.com/google/go-github/v93 v93.0.0
