@@ -25,9 +25,10 @@ const (
 	agentManagerBrokerAudience = "agent-manager-github"
 	agentManagerBrokerSecret   = "agent-manager-github-broker"
 	managerOperationFloor      = "2.22.0"
-	// musterCredentialFloor is the first muster that accepts the configured
-	// Dex audiences alongside resource access tokens.
-	musterCredentialFloor = "5.59.5"
+	// musterCredentialFloor is the first muster that passes a backend's
+	// input_required through to MCP 2026-07-28 clients (giantswarm/muster#1812)
+	// and accepts the configured Dex audiences alongside resource access tokens.
+	musterCredentialFloor = "5.61.0"
 )
 
 func (in *Input) validateAgentManagerCredentials() error {

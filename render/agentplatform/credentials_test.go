@@ -82,7 +82,7 @@ func TestAgentManagerCredentialInputsFailClosed(t *testing.T) {
 			input["versions"] = map[string]any{keyComponents: map[string]any{componentAgentManager: ">=2.22.0-rc.12 <3.0.0"}}
 		}, refusedManagerFloor},
 		{"old muster", func(input map[string]any) {
-			input["versions"].(map[string]any)[keyComponents].(map[string]any)[componentMuster] = ">=5.59.4 <6.0.0"
+			input["versions"].(map[string]any)[keyComponents].(map[string]any)[componentMuster] = ">=5.60.0 <6.0.0"
 		}, "muster version floor"},
 		{"client collision", func(input map[string]any) {
 			other, _ := loadInput(t, shapeHubPrivateTarget)
@@ -130,7 +130,7 @@ func TestAgentManagerCredentialInputsFailClosed(t *testing.T) {
 
 func TestAgentManagerCredentialMusterFloor(t *testing.T) {
 	input, _ := credentialInput(t, shapeGiantswarmSlackAppPub)
-	input["versions"].(map[string]any)[keyComponents].(map[string]any)[componentMuster] = ">=5.59.5 <6.0.0"
+	input["versions"].(map[string]any)[keyComponents].(map[string]any)[componentMuster] = ">=5.61.0 <6.0.0"
 	_, err := Parse(input)
 	require.NoError(t, err)
 }
