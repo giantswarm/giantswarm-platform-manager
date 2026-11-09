@@ -8,13 +8,18 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
-// ManagerProviderAppName and ManagerGrantIssuer identify agent-manager's
+// managerProviderAppName and managerGrantIssuer identify agent-manager's
 // GitHub App in muster's provider Apps: the grants are filed under the App's
 // own identity, not under GitHub's shared OAuth issuer.
 const (
-	ManagerProviderAppName = componentAgentManager
-	ManagerGrantIssuer     = "https://github.com/apps/giantswarm-agent-manager"
+	managerProviderAppName = componentAgentManager
+	managerGrantIssuer     = "https://github.com/apps/giantswarm-agent-manager"
 )
+
+// ManagerExchangeSubjectAudience is the subject-token audience the broker
+// accepts only for the manager's grant exchange: the audience of the ID
+// token muster forwards to agent-manager.
+const ManagerExchangeSubjectAudience = authenticatorClient
 
 const (
 	agentManagerBrokerAudience = "agent-manager-github"
@@ -59,8 +64,8 @@ func (in *Input) validateAgentManagerCredentials() error {
 
 // floorAtLeast says whether the version hold's floor is minimum or later.
 func floorAtLeast(hold, minimum string) bool {
-	version, err := portalChartFloor(hold)
-	floor, _ := portalChartFloor(minimum)
+	version, err := rangeFloor(hold)
+	floor, _ := rangeFloor(minimum)
 	return err == nil && !version.LessThan(floor)
 }
 
@@ -81,15 +86,15 @@ func validCredentialUI(template string) bool {
 // muster forwards to agent-manager.
 func (in *Input) brokerSubjectAudiences() []string {
 	audiences := in.portalAudiences()
-	if in.AgentManagerTokenExchange && !slices.Contains(audiences, authenticatorClient) {
-		audiences = append(audiences, authenticatorClient)
+	if in.AgentManagerTokenExchange && !slices.Contains(audiences, ManagerExchangeSubjectAudience) {
+		audiences = append(audiences, ManagerExchangeSubjectAudience)
 	}
 	return audiences
 }
 
 func agentManagerProviderApp() render.Map {
 	return render.Map{
-		e("name", ManagerProviderAppName), e("issuer", ManagerGrantIssuer),
+		e("name", managerProviderAppName), e("issuer", managerGrantIssuer),
 		e("authorizationEndpoint", "https://github.com/login/oauth/authorize"),
 		e("tokenEndpoint", "https://github.com/login/oauth/access_token"),
 		e("expectedIssuer", githubGrantIssuer),

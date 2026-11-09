@@ -62,8 +62,13 @@ func (in *Input) portalGitHub() bool {
 		p != nil && p.Installation == in.Installation.Name && in.githubGrantServer() != ""
 }
 
-// The email mapping serves ordinary on-behalf-of exchange. Grant release
-// binds ownership to the verified raw sub at this installation's Dex issuer.
+// trustedIssuers is muster.muster.oauth.server.trustedIssuers where the
+// broker serves the portal's GitHub or the manager's grant exchange: the
+// broker validates subject tokens (the person's ID token from this
+// installation's Dex) against this list, and muster refuses a broker without
+// one. The email subject mapping serves on-behalf-of exchange; grant release
+// looks the grant up by the token's raw sub. An issuer the record trusts
+// besides is the installation's own, and the plan keeps its entry.
 func (in *Input) trustedIssuers() []render.Map {
 	issuer := "https://" + in.host("dex")
 	entry := render.Map{e("issuer", issuer), e("jwksUrl", issuer+"/keys"),

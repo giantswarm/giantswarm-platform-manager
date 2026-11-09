@@ -28,7 +28,7 @@ func TestAgentManagerCredentialBroker(t *testing.T) {
 			require.NoError(t, err)
 			broker := credentialValues(t, in.brokerValues())
 			require.Equal(t, []any{agentManagerBrokerAudience}, broker["clientAudiences"].(map[string]any)[componentAgentManager])
-			require.Equal(t, map[string]any{"grantIssuer": ManagerGrantIssuer}, broker["targets"].(map[string]any)[agentManagerBrokerAudience])
+			require.Equal(t, map[string]any{"grantIssuer": managerGrantIssuer}, broker["targets"].(map[string]any)[agentManagerBrokerAudience])
 			for client, audiences := range broker["clientAudiences"].(map[string]any) {
 				if client != componentAgentManager {
 					require.NotContains(t, audiences, agentManagerBrokerAudience)
@@ -40,7 +40,7 @@ func TestAgentManagerCredentialBroker(t *testing.T) {
 			require.Equal(t, componentAgentManager, exchange["clientID"])
 			require.Equal(t, agentManagerBrokerSecret, exchange["secretName"])
 			require.Equal(t, "https://"+in.host("muster")+"/oauth/token", exchange["endpoint"])
-			require.Equal(t, ManagerGrantIssuer, credentialValues(t, agentManagerProviderApp())["issuer"])
+			require.Equal(t, managerGrantIssuer, credentialValues(t, agentManagerProviderApp())["issuer"])
 			muster := credentialValues(t, in.musterValues())["muster"].(map[string]any)
 			require.Equal(t, true, muster["oauth"].(map[string]any)["mcpClient"].(map[string]any)[keyEnabled])
 			trusted := credentialValues(t, in.trustedIssuers()[0])

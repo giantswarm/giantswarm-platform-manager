@@ -894,7 +894,7 @@ func (in *Input) checkRecord() error {
 		if p.ChartLine == "" {
 			return refuse(fmt.Sprintf("the hosted portal's chart line (installation.portals[%s].chartLine) is not on record: management-clusters/%s/extras/backstage/backstage/kustomization.yaml patches no ref onto the fleet base's backstage OCIRepository, and the portal section names the agents' Flux identity for a portal before backstage %s only", p.Installation, p.Installation, portalPluginRemoval))
 		}
-		if _, err := portalChartFloor(p.ChartLine); err != nil {
+		if _, err := rangeFloor(p.ChartLine); err != nil {
 			return refuse(fmt.Sprintf("the hosted portal's chart line (installation.portals[%s].chartLine) is not one the definition reads: %v", p.Installation, err))
 		}
 	}
