@@ -84,6 +84,7 @@ func (t *Tools) verifyInstallation(ctx context.Context, token, name string, def 
 	}
 	// A registration URI the patch puts on moves from a plan of a set alone.
 	out.Join = out.Join.Pruned()
+	out.RenderedBy = t.renderedBy()
 	t.d.Log.Info(ToolVerifyCapability, identity.LogAttr(ctx), "installation", name, "inputs", out.Inputs.Source, "state", out.State, "summary", out.Summary, "reads", c.Requests(), "charged", c.Charged(), "duration_ms", time.Since(start).Milliseconds())
 	return out, nil
 }

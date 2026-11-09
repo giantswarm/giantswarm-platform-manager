@@ -168,6 +168,7 @@ func (t *Tools) verifyLive(ctx context.Context, args map[string]any) (any, error
 	}
 	out := verify.CompareLive(ctx, opts)
 	out.Caller = id.String()
+	out.RenderedBy = t.renderedBy()
 	if record != nil {
 		if err := t.recordLiveVerify(ctx, *record, name, out); err != nil {
 			t.d.Log.Warn("live verify not recorded", identity.LogAttr(ctx), "action", record.Name, "error", err)

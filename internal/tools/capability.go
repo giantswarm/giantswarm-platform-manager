@@ -14,6 +14,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 )
 
 // The capability tools' own arguments.
@@ -44,6 +45,9 @@ type CapabilityResult struct {
 	Capability string `json:"capability"`
 	Hub        string `json:"hub"`
 	DryRun     bool   `json:"dryRun"`
+	// RenderedBy is what rendered the plans: the deployed manager, or
+	// platformctl --local.
+	RenderedBy verify.RenderedBy `json:"renderedBy"`
 	// Order is the wave's rollout order: Giant Swarm's test installations,
 	// the hub, then the customers' installations.
 	Order         []string           `json:"order"`
@@ -210,7 +214,7 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 	}
 	caps := installations.Capabilities()
 	reports := reg.InspectAll(ctx, c, selected, caps, installations.Full)
-	out := CapabilityResult{Caller: identity.Caller(ctx), Tool: tool, Capability: def.Name, Hub: reg.Hub, DryRun: true,
+	out := CapabilityResult{Caller: identity.Caller(ctx), Tool: tool, Capability: def.Name, Hub: reg.Hub, DryRun: true, RenderedBy: t.renderedBy(),
 		Order: []string{}, Installations: []DryRun{}, PullRequests: []plan.PullRequest{}, Skipped: []Skipped{}, Commit: commitNext}
 	env := &planned{c: c, hub: hub, byName: byName, reports: map[string]installations.Report{}, inputs: map[string]map[string]any{}}
 	for _, r := range waveOrder(reports, hub) {

@@ -57,6 +57,10 @@ func newTemplateCmd() *cobra.Command {
 	return cmd
 }
 
+// localCommit refuses --local with --commit: a commit goes through the
+// deployed manager, its Action and its review.
+const localCommit = "--local renders the dry run and verify; --commit goes through the deployed manager, after the render change is merged and rolled out"
+
 func newInstallationListCmd() *cobra.Command {
 	var c conn
 	var customer string
@@ -130,6 +134,9 @@ func newCapabilityCmd(tool string, allowSet bool) *cobra.Command {
 		}
 		if dryRun && len(secretFlags) > 0 {
 			return usageError(stderr, "--secret goes with --commit; a dry run carries no secret value")
+		}
+		if commit && c.local {
+			return usageError(stderr, localCommit)
 		}
 		toolArgs := map[string]any{tools.ArgCapability: pos[len(pos)-1], tools.ArgContent: content}
 		if commit {
@@ -224,6 +231,7 @@ func newCapabilityCmd(tool string, allowSet bool) *cobra.Command {
 		})
 	})
 	c.flags(cmd)
+	c.localFlags(cmd)
 	fs := cmd.Flags()
 	fs.BoolVar(&dryRun, "dry-run", false, "render the change and write nothing")
 	fs.BoolVar(&commit, "commit", false, "start the action: the manager's mode commit, the pull requests opened as you")
@@ -291,6 +299,7 @@ func newVerifyCmd() *cobra.Command {
 		})
 	})
 	c.flags(cmd)
+	c.localFlags(cmd)
 	cmd.ValidArgsFunction = capabilityAt(func(_ *cobra.Command, pos []string) bool { return len(pos) == 1 })
 	return cmd
 }
@@ -444,6 +453,9 @@ func newDisableCmd() *cobra.Command {
 		if commit && strings.TrimSpace(reason) == "" {
 			return usageError(stderr, "--commit needs --reason: why you make the change, for the team's review")
 		}
+		if commit && c.local {
+			return usageError(stderr, localCommit)
+		}
 		toolArgs := map[string]any{tools.ArgInstallation: pos[0], tools.ArgCapability: pos[1], tools.ArgContent: content}
 		if len(keep) > 0 {
 			toolArgs[tools.ArgKeep] = keep
@@ -463,6 +475,7 @@ func newDisableCmd() *cobra.Command {
 		})
 	})
 	c.flags(cmd)
+	c.localFlags(cmd)
 	fs := cmd.Flags()
 	fs.BoolVar(&dryRun, "dry-run", false, "list what the disable removes and write nothing")
 	fs.BoolVar(&commit, "commit", false, "start the action: the manager's mode commit, the pull requests opened as you")

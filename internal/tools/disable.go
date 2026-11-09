@@ -16,6 +16,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
@@ -35,14 +36,17 @@ import (
 // DisableResult is the answer of disable_capability: the plan, what depends
 // on the capability, and for mode commit the action with its pull requests.
 type DisableResult struct {
-	Caller       string              `json:"caller"`
-	Tool         string              `json:"tool"`
-	Capability   string              `json:"capability"`
-	Hub          string              `json:"hub"`
-	Installation string              `json:"installation"`
-	DryRun       bool                `json:"dryRun"`
-	State        installations.State `json:"state"`
-	Plan         plan.Disablement    `json:"plan"`
+	Caller       string `json:"caller"`
+	Tool         string `json:"tool"`
+	Capability   string `json:"capability"`
+	Hub          string `json:"hub"`
+	Installation string `json:"installation"`
+	DryRun       bool   `json:"dryRun"`
+	// RenderedBy is what rendered the plan: the deployed manager, or
+	// platformctl --local.
+	RenderedBy verify.RenderedBy   `json:"renderedBy"`
+	State      installations.State `json:"state"`
+	Plan       plan.Disablement    `json:"plan"`
 	// Prunes says the fleet's Kustomization over the definition's tree
 	// prunes: Flux deletes what the files applied, and the checklist is empty.
 	Prunes bool `json:"prunes"`
@@ -134,7 +138,7 @@ func (t *Tools) disablePlan(ctx context.Context, args map[string]any) (*DisableR
 	if skip, ok := skipped(r, def.Name, true); ok {
 		return nil, nil, fmt.Errorf("%s: %s is %s (%s); the record is read before any removal and nothing is removed blind", tool, one, skip.Reason, strings.Join(skip.Errors, "; "))
 	}
-	out := &DisableResult{Caller: identity.Caller(ctx), Tool: tool, Capability: def.Name, Hub: reg.Hub, Installation: one, DryRun: true,
+	out := &DisableResult{Caller: identity.Caller(ctx), Tool: tool, Capability: def.Name, Hub: reg.Hub, Installation: one, DryRun: true, RenderedBy: t.renderedBy(),
 		State: capabilityState(r, def.Name), Prunes: def.Prunes, Remaining: []string{}, References: []string{}, Commit: disableCommitNext,
 		Plan: plan.Disablement{Name: one, Files: []plan.Removal{}, Stays: []plan.Stay{}, Kept: []plan.Stay{}, LeftOnRecord: []plan.Leftover{}, Directories: []string{}, Others: []string{}, Checklist: []plan.Object{}, PullRequests: []plan.PullRequest{}}}
 	if !out.State.OnRecord() {

@@ -93,12 +93,21 @@ func lastAction(inst installations.Report) string {
 	return "-"
 }
 
+// rendered says a result was rendered locally (platformctl --local), right
+// under its header; the deployed manager's render needs no word.
+func (p *printer) rendered(r verify.RenderedBy) {
+	if r.Local {
+		p.f("Rendered %s\n", r)
+	}
+}
+
 // Plan is a dry run of enable_capability or reconcile_capability: every
 // installation with its files and what a commit would carry, the pull requests
 // in order, the installations skipped, and what the commit step says.
 func Plan(w io.Writer, r tools.CapabilityResult, content bool) error {
 	p := &printer{w: w}
 	p.f("%s dry run: %s on hub %s, as %s\n", r.Tool, r.Capability, dash(r.Hub), dash(r.Caller))
+	p.rendered(r.RenderedBy)
 	if len(r.Order) > 0 {
 		p.f("Order: %s\n", strings.Join(r.Order, ", "))
 	}
@@ -588,10 +597,15 @@ func Wave(w io.Writer, r tools.WaveResult) error {
 func Verify(w io.Writer, r verify.Result, liveErr error) error {
 	p := &printer{w: w}
 	p.f("verify %s on %s (hub %s), as %s\n", r.Capability, r.Installation, dash(r.Hub), dash(r.Caller))
+	p.rendered(r.RenderedBy)
+	by := ""
+	if r.RenderedBy.Local {
+		by = " by the deployed manager, from its own definitions"
+	}
 	if liveErr != nil {
 		p.f("Live: not checked — %s\n", liveErr.Error())
 	} else if r.LiveCaller != "" {
-		p.f("Live: read as %s\n", r.LiveCaller)
+		p.f("Live: read as %s%s\n", r.LiveCaller, by)
 	}
 	p.f("State: %s   Inputs: %s\n", dash(string(r.State)), dash(r.Inputs.Source))
 	p.f("Summary: %s\n", marksByDesign(r.Summary, r.ByDesign))
@@ -992,6 +1006,7 @@ func Disable(w io.Writer, r tools.DisableResult, content bool) error {
 		mode = "commit"
 	}
 	p.f("%s %s: %s on %s (hub %s), as %s\n", r.Tool, mode, r.Capability, r.Installation, dash(r.Hub), dash(r.Caller))
+	p.rendered(r.RenderedBy)
 	p.f("State: %s\n", r.State)
 	if a := r.Action; a != nil {
 		p.f("Action: %s (%s)\n", a.Name, dash(a.Status.State))

@@ -476,6 +476,35 @@ func TestRefusalPrintedOnce(t *testing.T) {
 	}
 }
 
+// A local render says so under the header; the live half of a local verify
+// is the deployed manager's, and says that too. The deployed manager's
+// render needs no word.
+func TestRenderedLocally(t *testing.T) {
+	by := verify.RenderedBy{Local: true, Version: "dev-abc"}
+	var b bytes.Buffer
+	if err := Plan(&b, tools.CapabilityResult{Tool: tools.ToolEnableCapability, Capability: agentPlatform, Hub: hazel, RenderedBy: by}, false); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, b.String(), "Rendered locally by platformctl dev-abc, from the definitions built into it — not the deployed manager")
+	b.Reset()
+	if err := Verify(&b, verify.Result{Capability: agentPlatform, Installation: rowan, LiveCaller: someone, RenderedBy: by}, nil); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, b.String(), "Rendered locally by platformctl dev-abc", "Live: read as "+someone+" by the deployed manager, from its own definitions")
+	b.Reset()
+	if err := Disable(&b, tools.DisableResult{Tool: tools.ToolDisableCapability, DryRun: true, Capability: agentPlatform, Installation: rowan, RenderedBy: by}, false); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, b.String(), "Rendered locally by platformctl dev-abc")
+	b.Reset()
+	if err := Verify(&b, verify.Result{Capability: agentPlatform, Installation: rowan, RenderedBy: verify.RenderedBy{Version: "v1"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(b.String(), "Rendered") {
+		t.Errorf("the deployed manager's render printed a rendered line:\n%s", b.String())
+	}
+}
+
 // dexAuthURL is the Dex auth endpoint the verify fixtures probe.
 const dexAuthURL = "https://dex.rowan.example/auth"
 

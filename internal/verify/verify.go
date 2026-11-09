@@ -232,6 +232,23 @@ type Inputs struct {
 	Planned PlannedObjects `json:"planned,omitempty"`
 }
 
+// RenderedBy is what rendered a result from the definitions: the deployed
+// manager, or — Local — platformctl --local from the definitions compiled
+// into that build, a render change proven before its merge and rollout.
+// Version is that build's (version.String()).
+type RenderedBy struct {
+	Local   bool   `json:"local"`
+	Version string `json:"version"`
+}
+
+// String says where a result was rendered, for a person.
+func (r RenderedBy) String() string {
+	if r.Local {
+		return "locally by platformctl " + r.Version + ", from the definitions built into it — not the deployed manager"
+	}
+	return "by the manager " + r.Version
+}
+
 // Result is the verify of one installation × capability.
 type Result struct {
 	Caller       string `json:"caller"`
@@ -252,6 +269,9 @@ type Result struct {
 	ByDesign int `json:"byDesign,omitempty"`
 	// LiveCaller is who the live reads ran as, in a merged result.
 	LiveCaller string `json:"liveCaller,omitempty"`
+	// RenderedBy is what rendered the definition: the deployed manager, or
+	// platformctl --local from the definitions built into it.
+	RenderedBy RenderedBy `json:"renderedBy"`
 	// The plan's view, from the one build the comparison ran: what a commit
 	// would write for this installation (the dry run's entry, regrouped).
 	// CommitRefused says why a commit of this plan would be refused.
