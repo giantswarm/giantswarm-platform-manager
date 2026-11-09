@@ -45,9 +45,9 @@ const (
 	componentAgentManager   = "agent-manager"
 	componentKlausGateway   = "klaus-gateway"
 	componentClusterManager = "cluster-manager"
-	// componentAgentManagerAssistant is the platform-shipped Agent Manager,
+	// componentDefaultAgent is the platform-shipped default agent,
 	// a meta agent the meta chart runs by default.
-	componentAgentManagerAssistant = "agent-manager-assistant"
+	componentDefaultAgent = "default-agent"
 	// componentModelManager is no choice of the policy's: the meta chart's 4
 	// line runs it by default and the definition leaves it on.
 	componentModelManager = "model-manager"
@@ -145,10 +145,10 @@ type Input struct {
 	// (skillManager.sources) as the person wrote them, read back from the
 	// configmap patch on record.
 	SkillManagerSources []SkillSource
-	// AgentManagerAssistant is the person's choice of the platform-shipped
-	// Agent Manager (agentManagerAssistant.*), read back from the configmap
+	// DefaultAgent is the person's choice of the platform-shipped
+	// default agent (defaultAgent.*), read back from the configmap
 	// patch on record.
-	AgentManagerAssistant AgentManagerAssistant
+	DefaultAgent DefaultAgent
 	// Versions are the person's version holds (versions.*), read back from
 	// the record so a reconcile keeps them.
 	Versions Versions
@@ -626,8 +626,8 @@ type document struct {
 		commitChoice
 		Skills AgentManagerSkills `json:"skills"`
 	} `json:"agentManager"`
-	AgentManagerAssistant AgentManagerAssistant `json:"agentManagerAssistant"`
-	SkillManager          struct {
+	DefaultAgent DefaultAgent `json:"defaultAgent"`
+	SkillManager struct {
 		Sources []SkillSource `json:"sources"`
 	} `json:"skillManager"`
 	KlausGateway struct {
@@ -705,16 +705,16 @@ type AgentManagerSkills struct {
 	MintGitAuthSecret bool     `json:"mintGitAuthSecret"`
 }
 
-// AgentManagerAssistant is the meta chart's platform-shipped Agent Manager
-// (component agent-manager-assistant): whether it runs, nil the chart's
+// DefaultAgent is the meta chart's platform-shipped default agent
+// (component default-agent): whether it runs, nil the chart's
 // default (on), and the ModelConfig it answers with, empty the chart's.
-type AgentManagerAssistant struct {
+type DefaultAgent struct {
 	Enabled     *bool  `json:"enabled"`
 	ModelConfig string `json:"modelConfig"`
 }
 
-// disabled is whether the person turned the Agent Manager off.
-func (a AgentManagerAssistant) disabled() bool { return a.Enabled != nil && !*a.Enabled }
+// disabled is whether the person turned the default agent off.
+func (a DefaultAgent) disabled() bool { return a.Enabled != nil && !*a.Enabled }
 
 // SkillSource is one of the skill-manager's skill sources, in the form the
 // person wrote it: a URL alone, or the URL with the ref and the directory
@@ -789,7 +789,7 @@ type commitChoice struct {
 // the cluster does not serve PodCertificateRequest, the chat or skill
 // repositories on an installation whose organisation hosts no portal for
 // them, the chat without a model, or on Vertex without its Google project or
-// location, the Hive where the installation cannot serve it, the MCP backends' network policy or the LLM listener's rate limits on the 3 line, the rate limits or the session idle TTL where no kagent runs, the session idle TTL on the 3 line, the Agent Manager turned off or its model override on the 3 line, where no kagent runs or with a chart hold below the release that ships it, the skill-manager's sources on the 3 line, where no agent-manager runs or with a chart hold below the release with the skill-manager, the tenant mode on the 3 line, where kagent and the agent-manager do not both run or with a hold below the releases it needs, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
+// location, the Hive where the installation cannot serve it, the MCP backends' network policy or the LLM listener's rate limits on the 3 line, the rate limits or the session idle TTL where no kagent runs, the session idle TTL on the 3 line, the default agent turned off or its model override on the 3 line, where no kagent runs or with a chart hold below the release that ships it, the skill-manager's sources on the 3 line, where no agent-manager runs or with a chart hold below the release with the skill-manager, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
 // is ErrInput too.
 func Parse(raw any) (*Input, error) {
 	schemaBytes, err := definitions.FS.ReadFile("agent-platform/schema.json")
@@ -832,7 +832,7 @@ func Parse(raw any) (*Input, error) {
 		return nil, err
 	}
 	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, MCPBackends: d.NetworkPolicy.MCPBackends, LLMRateLimits: d.LLMRouting.RateLimits, LLMRateLimitsComment: d.LLMRouting.RateLimitsComment, SessionIdleTTL: d.Sessions.IdleTTL, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories, Hive: d.Hive,
-		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, SkillManagerSources: d.SkillManager.Sources, AgentManagerAssistant: d.AgentManagerAssistant, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, ContextBotNames: d.KlausGateway.Slack.ContextBotNames, ContextBotNamesComment: d.KlausGateway.Slack.ContextBotNamesComment, SlashCommand: d.KlausGateway.Slack.SlashCommand, SlashCommandComment: d.KlausGateway.Slack.SlashCommandComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
+		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, SkillManagerSources: d.SkillManager.Sources, DefaultAgent: d.DefaultAgent, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, ContextBotNames: d.KlausGateway.Slack.ContextBotNames, ContextBotNamesComment: d.KlausGateway.Slack.ContextBotNamesComment, SlashCommand: d.KlausGateway.Slack.SlashCommand, SlashCommandComment: d.KlausGateway.Slack.SlashCommandComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
 		ReleaseCandidates: pol.releaseCandidates(d.Installation)}
 	if in.Components, err = pol.components(in.Installation); err != nil {
 		return nil, err
@@ -985,7 +985,7 @@ func (in *Input) checkRecord() error {
 			return err
 		}
 	}
-	if err := in.checkAgentManagerAssistant(); err != nil {
+	if err := in.checkDefaultAgent(); err != nil {
 		return err
 	}
 	if err := in.checkSkillManagerSources(); err != nil {
@@ -1134,18 +1134,18 @@ func (in *Input) onFourLineKagent(input, what string) error {
 	return nil
 }
 
-// checkAgentManagerAssistant refuses the Agent Manager's choices where the
+// checkDefaultAgent refuses the default agent's choices where the
 // meta chart cannot take them: outside the 4 chart line, without kagent and
 // with a chart hold below the release that ships the agent. On, the
 // chart's default, is no choice and never refused.
-func (in *Input) checkAgentManagerAssistant() error {
-	a := in.AgentManagerAssistant
+func (in *Input) checkDefaultAgent() error {
+	a := in.DefaultAgent
 	for _, c := range []struct {
 		chosen      bool
 		input, what string
 	}{
-		{a.disabled(), "agentManagerAssistant.enabled", "turns off the Agent Manager in kagent"},
-		{a.ModelConfig != "", "agentManagerAssistant.modelConfig", "names the Agent Manager's ModelConfig in kagent"},
+		{a.disabled(), "defaultAgent.enabled", "turns off the default agent in kagent"},
+		{a.ModelConfig != "", "defaultAgent.modelConfig", "names the default agent's ModelConfig in kagent"},
 	} {
 		if !c.chosen {
 			continue
@@ -1153,18 +1153,18 @@ func (in *Input) checkAgentManagerAssistant() error {
 		if err := in.onFourLineKagent(c.input, c.what); err != nil {
 			return err
 		}
-		if !holdAdmits(in.Versions.Chart, assistantChartFloor) {
-			return refuse(fmt.Sprintf("%s needs the meta chart %s or later, which ships the Agent Manager, and %s holds it at %s; move or lift the hold first", describe(c.input), assistantChartFloor, describe("versions.chart"), in.Versions.Chart))
+		if !holdAdmits(in.Versions.Chart, defaultAgentChartFloor) {
+			return refuse(fmt.Sprintf("%s needs the meta chart %s or later, which ships the default agent, and %s holds it at %s; move or lift the hold first", describe(c.input), defaultAgentChartFloor, describe("versions.chart"), in.Versions.Chart))
 		}
 	}
 	return nil
 }
 
-// assistantChartFloor is the meta chart release that ships the Agent
-// Manager (giantswarm/agent-platform#1265): the minor after 4.174.3, the
+// defaultAgentChartFloor is the meta chart release that ships the default
+// agent (giantswarm/agent-platform#1265): the minor after 4.174.3, the
 // latest release when the input was added. Set it to the release that
 // carries #1265 if that differs.
-const assistantChartFloor = "4.175.0"
+const defaultAgentChartFloor = "4.175.0"
 
 // checkSkillManagerSources refuses the skill-manager's sources where the
 // meta chart runs no skill-manager: outside the 4 chart line, where the

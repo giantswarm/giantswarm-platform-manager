@@ -246,8 +246,8 @@ func (in *Input) configmapPatch() render.Map {
 	components := render.Map{e("kagent", render.Map{e("enabled", in.kagent())}),
 		e("agent-manager", render.Map{e("enabled", in.agentManager())})}
 	components = in.componentToggles(components)
-	if in.AgentManagerAssistant.disabled() {
-		components = append(components, e(componentAgentManagerAssistant, render.Map{e("enabled", false)}))
+	if in.DefaultAgent.disabled() {
+		components = append(components, e(componentDefaultAgent, render.Map{e("enabled", false)}))
 	}
 	if in.ModelServing {
 		for _, c := range servingComponents {
@@ -295,8 +295,8 @@ func (in *Input) configmapPatch() render.Map {
 		m = append(m, e("agent-platform-mcps", mcps))
 	}
 	m = in.componentValues(m)
-	if mc := in.AgentManagerAssistant.ModelConfig; mc != "" {
-		m = append(m, e("agentManagerAssistant", render.Map{e("modelConfig", mc)}))
+	if mc := in.DefaultAgent.ModelConfig; mc != "" {
+		m = append(m, e("defaultAgent", render.Map{e("modelConfig", mc)}))
 	}
 	if len(in.SkillManagerSources) > 0 {
 		m = append(m, e("skillManager", render.Map{e("sources", in.SkillManagerSources)}))

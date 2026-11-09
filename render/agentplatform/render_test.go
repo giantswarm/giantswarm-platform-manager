@@ -1581,47 +1581,47 @@ func requireRefusals(t *testing.T, cases []refusalCase) {
 	}
 }
 
-// TestAgentManagerAssistant renders the platform-shipped Agent Manager as
+// TestDefaultAgent renders the platform-shipped default agent as
 // the meta chart runs it: on by default, so neither the toggle nor the model
 // override is written and the goldens are the render; turned off, the
 // component's toggle; with a model override, the ModelConfig it names. Off
 // and the override are refused on the 3 line, where no kagent runs and with
 // a chart hold below the release that ships the agent.
-func TestAgentManagerAssistant(t *testing.T) {
-	withAssistant := func(shape string, choice map[string]any) (map[string]any, map[string]string) {
+func TestDefaultAgent(t *testing.T) {
+	withDefaultAgent := func(shape string, choice map[string]any) (map[string]any, map[string]string) {
 		input, secrets := loadInput(t, shape)
 		if choice != nil {
-			input["agentManagerAssistant"] = choice
+			input["defaultAgent"] = choice
 		}
 		return input, secrets
 	}
 	for _, choice := range []map[string]any{nil, {keyEnabled: true}} {
-		input, secrets := withAssistant(shapeHubPrivateTarget, choice)
-		if got := renderedPatch(t, input, secrets); strings.Contains(got, "agent-manager-assistant") || strings.Contains(got, "agentManagerAssistant") {
-			t.Errorf("on, the chart's default, and the patch carries the assistant (%v):\n%s", choice, got)
+		input, secrets := withDefaultAgent(shapeHubPrivateTarget, choice)
+		if got := renderedPatch(t, input, secrets); strings.Contains(got, "\n  default-agent:") || strings.Contains(got, "\ndefaultAgent:") {
+			t.Errorf("on, the chart's default, and the patch carries the default agent (%v):\n%s", choice, got)
 		}
 	}
 
-	input, secrets := withAssistant(shapeHubPrivateTarget, map[string]any{keyEnabled: false})
-	if got := renderedPatch(t, input, secrets); !strings.Contains(got, "\n  agent-manager-assistant:\n    enabled: false\n") {
-		t.Errorf("off, and the patch carries no components.agent-manager-assistant.enabled: false:\n%s", got)
+	input, secrets := withDefaultAgent(shapeHubPrivateTarget, map[string]any{keyEnabled: false})
+	if got := renderedPatch(t, input, secrets); !strings.Contains(got, "\n  default-agent:\n    enabled: false\n") {
+		t.Errorf("off, and the patch carries no components.default-agent.enabled: false:\n%s", got)
 	}
 
-	input, secrets = withAssistant(shapeHubPrivateTarget, map[string]any{keyModelConfig: "claude-sonnet"})
+	input, secrets = withDefaultAgent(shapeHubPrivateTarget, map[string]any{keyModelConfig: "claude-sonnet"})
 	input[keyVersions] = map[string]any{keyChart: ">=4.100.0 <5.0.0"}
-	if got := renderedPatch(t, input, secrets); !strings.Contains(got, "\nagentManagerAssistant:\n  modelConfig: claude-sonnet\n") {
-		t.Errorf("a model override, and the patch carries no agentManagerAssistant.modelConfig:\n%s", got)
+	if got := renderedPatch(t, input, secrets); !strings.Contains(got, "\ndefaultAgent:\n  modelConfig: claude-sonnet\n") {
+		t.Errorf("a model override, and the patch carries no defaultAgent.modelConfig:\n%s", got)
 	}
 
 	var cases []refusalCase
-	notAName, hubSecrets := withAssistant(shapeHubPrivateTarget, map[string]any{keyModelConfig: "Claude Sonnet"})
-	cases = append(cases, refusalCase{"not a ModelConfig name", notAName, hubSecrets, "agentManagerAssistant/modelConfig"})
-	for input, choice := range map[string]map[string]any{"agentManagerAssistant.modelConfig": {keyModelConfig: "claude-sonnet"}, "agentManagerAssistant.enabled": {keyEnabled: false}} {
-		lineThree, lineThreeSecrets := withAssistant(shapePublicCustomer, choice)
-		noKagent, noKagentSecrets := withAssistant(shapeHubPrivateTarget, choice)
+	notAName, hubSecrets := withDefaultAgent(shapeHubPrivateTarget, map[string]any{keyModelConfig: "Claude Sonnet"})
+	cases = append(cases, refusalCase{"not a ModelConfig name", notAName, hubSecrets, "defaultAgent/modelConfig"})
+	for input, choice := range map[string]map[string]any{"defaultAgent.modelConfig": {keyModelConfig: "claude-sonnet"}, "defaultAgent.enabled": {keyEnabled: false}} {
+		lineThree, lineThreeSecrets := withDefaultAgent(shapePublicCustomer, choice)
+		noKagent, noKagentSecrets := withDefaultAgent(shapeHubPrivateTarget, choice)
 		noKagent["installation"].(map[string]any)["customer"] = customerWithoutKagent
 		noKagent["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
-		held, heldSecrets := withAssistant(shapeHubPrivateTarget, choice)
+		held, heldSecrets := withDefaultAgent(shapeHubPrivateTarget, choice)
 		held[keyVersions] = map[string]any{keyChart: "~4.174.0"}
 		cases = append(cases,
 			refusalCase{input + " on the 3 line", lineThree, lineThreeSecrets, input},
@@ -1634,10 +1634,11 @@ func TestAgentManagerAssistant(t *testing.T) {
 // TestSkillManagerSources renders the skill-manager's sources as the person
 // lists them, into the meta chart's skillManager.sources: a URL as a URL, an
 // object with its ref, path and read-only mark as the object, in order,
-// every key written as it was read. None writes nothing. An object without a
-// URL, or with a key the skill-manager does not read, is refused, and so is
-// the list on the 3 line, where the fleet policy runs no agent-manager, and
-// with a chart hold below the release with the skill-manager.
+// every key written as it was read. None writes nothing. An entry that is
+// no http(s) URL, or an object with a key the skill-manager does not read,
+// is refused, and so is the list on the 3 line, where the fleet policy runs
+// no agent-manager, and with a chart hold below the release with the
+// skill-manager.
 func TestSkillManagerSources(t *testing.T) {
 	withSources := func(shape string, sources ...any) (map[string]any, map[string]string) {
 		input, secrets := loadInput(t, shape)
@@ -1665,15 +1666,20 @@ func TestSkillManagerSources(t *testing.T) {
 	object := map[string]any{keyURL: acmeSkills, keyRef: refMain}
 	noURL, noURLSecrets := withSources(shapeHubPrivateTarget, map[string]any{keyRef: refMain})
 	unknown, unknownSecrets := withSources(shapeHubPrivateTarget, map[string]any{keyURL: acmeSkills, "branch": refMain})
+	notAURL, notAURLSecrets := withSources(shapeHubPrivateTarget, "acme/skills")
+	objectNotAURL, objectNotAURLSecrets := withSources(shapeHubPrivateTarget, map[string]any{keyURL: "git@github.com:acme/skills.git"})
 	lineThree, lineThreeSecrets := withSources(shapePublicCustomer, object)
 	noAgentManager, noAgentManagerSecrets := withSources(shapeHubPrivateTarget, acmeSkills)
 	noAgentManager["installation"].(map[string]any)["customer"] = customerWithoutKagent
 	noAgentManager["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
 	held, heldSecrets := withSources(shapeHubPrivateTarget, object)
 	held[keyVersions] = map[string]any{keyChart: "~4.174.0"}
+	const sourcesPath = "skillManager/sources"
 	requireRefusals(t, []refusalCase{
-		{"no url", noURL, noURLSecrets, "skillManager/sources"},
-		{"unknown key", unknown, unknownSecrets, "skillManager/sources"},
+		{"no url", noURL, noURLSecrets, sourcesPath},
+		{"unknown key", unknown, unknownSecrets, sourcesPath},
+		{"not a URL", notAURL, notAURLSecrets, sourcesPath},
+		{"an object without a URL", objectNotAURL, objectNotAURLSecrets, sourcesPath},
 		{caseLineThree, lineThree, lineThreeSecrets, "skillManager.sources"},
 		{"without agent-manager", noAgentManager, noAgentManagerSecrets, "skillManager.sources"},
 		{"the chart held below the skill-manager", held, heldSecrets, inputChartHold},

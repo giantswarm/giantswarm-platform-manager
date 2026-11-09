@@ -466,7 +466,7 @@
           "properties": {
             "repositories": {
               "type": "array",
-"items": {"type": "string", "minLength": 1},
+              "items": {"type": "string", "minLength": 1},
               "default": [],
               "x-source": "person",
               "x-readback": {"file": "configmap", "key": "agent-manager.skills.repositories"},
@@ -529,13 +529,13 @@
           "type": "array",
           "items": {
             "oneOf": [
-              {"type": "string", "minLength": 1},
+              {"type": "string", "pattern": "^https?://\\S+$"},
               {
                 "type": "object",
                 "additionalProperties": false,
                 "required": ["url"],
                 "properties": {
-                  "url": {"type": "string", "minLength": 1},
+                  "url": {"type": "string", "pattern": "^https?://\\S+$"},
                   "ref": {"type": "string"},
                   "path": {"type": "string"},
                   "readOnly": {"type": "boolean"}
@@ -548,23 +548,23 @@
           "x-readback": {"file": "configmap", "key": "skillManager.sources"},
           "x-feature": "runtime",
           "x-renders": ["configmap:skillManager.sources"],
-          "description": "The skill sources the skill-manager lists and pins skills from (the meta chart's skillManager.sources), after the platform's own: each a GitHub repository URL, or {url, ref, path, readOnly} (a branch, tag or commit, the directory scanned, the read-only mark). Written as read, every key kept. None, the key is not written and the chart's list stands. The 4 chart line only, where the fleet policy runs the agent-manager, with no versions.chart hold below the release with the skill-manager. Read back from the configmap patch on record."
+          "description": "The skill sources the skill-manager lists and pins skills from (the meta chart's skillManager.sources), after the platform's own: each a GitHub repository URL, or {url, ref, path, readOnly} (a branch, tag or commit, the directory scanned, the read-only mark). Written as read, every key kept. None, the key is not written and the chart's list stands; a list replaces it. The 4 chart line only, where the fleet policy runs the agent-manager, with no versions.chart hold below the release with the skill-manager. Read back from the configmap patch on record."
         }
       }
     },
-    "agentManagerAssistant": {
+    "defaultAgent": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Two choices: whether the platform-shipped Agent Manager runs, and the ModelConfig it answers with.",
+      "description": "Two choices: whether the platform-shipped default agent runs, and the ModelConfig it answers with.",
       "properties": {
         "enabled": {
           "type": "boolean",
           "default": true,
           "x-source": "person",
-          "x-readback": {"file": "configmap", "key": "components.agent-manager-assistant.enabled"},
+          "x-readback": {"file": "configmap", "key": "components.default-agent.enabled"},
           "x-feature": "runtime",
-          "x-renders": ["configmap:components.agent-manager-assistant.enabled"],
-          "description": "The Agent Manager, the meta agent the meta chart ships (components.agent-manager-assistant, kagent namespace, with the platform's skills pinned to the release). On, the chart's default: the key is not written. Off, enabled: false is written: set it on an installation that still runs a hand-added meta agent before upgrading to the release with the Agent Manager. Off: the 4 chart line only, where the fleet policy runs kagent, with no versions.chart hold below 4.175.0. Read back from the configmap patch on record."
+          "x-renders": ["configmap:components.default-agent.enabled"],
+          "description": "The default agent, the meta agent the meta chart ships (components.default-agent, kagent namespace, with the platform's skills pinned to the release). On, the chart's default: the key is not written. Off, enabled: false is written: set it on an installation that still runs a hand-added meta agent before upgrading to the release with the default agent. Off: the 4 chart line only, where the fleet policy runs kagent, with no versions.chart hold below 4.175.0. Read back from the configmap patch on record."
         },
         "modelConfig": {
           "type": "string",
@@ -572,10 +572,10 @@
           "maxLength": 253,
           "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$",
           "x-source": "person",
-          "x-readback": {"file": "configmap", "key": "agentManagerAssistant.modelConfig"},
+          "x-readback": {"file": "configmap", "key": "defaultAgent.modelConfig"},
           "x-feature": "runtime",
-          "x-renders": ["configmap:agentManagerAssistant.modelConfig"],
-          "description": "The ModelConfig in kagent the Agent Manager answers with (agentManagerAssistant.modelConfig). Empty, the key is not written and the chart's default-model-config stands. The 4 chart line only, where the fleet policy runs kagent, with no versions.chart hold below 4.175.0. Read back from the configmap patch on record."
+          "x-renders": ["configmap:defaultAgent.modelConfig"],
+          "description": "The ModelConfig in kagent the default agent answers with (defaultAgent.modelConfig). Empty, the key is not written and the chart's default stands. The 4 chart line only, where the fleet policy runs kagent, with no versions.chart hold below 4.175.0. Read back from the configmap patch on record."
         }
       }
     },

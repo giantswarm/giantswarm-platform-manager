@@ -73,7 +73,7 @@ features:
       - {id: kagent-model-configs, kind: configmap, key: kagent.modelConfigs}
       - {id: singletons-placement, kind: configmap, key: scheduling.singletons}
       - {id: skill-manager-sources, kind: configmap, key: "skillManager.sources (the skill-manager's skill sources)"}
-      - {id: agent-manager-assistant, kind: configmap, key: "components.agent-manager-assistant / agentManagerAssistant (the platform-shipped Agent Manager: off, and its ModelConfig)"}
+      - {id: default-agent, kind: configmap, key: "components.default-agent / defaultAgent (the platform-shipped default agent: off, and its ModelConfig)"}
       - {id: patch-top-level-keys, kind: configmap, catchAll: true, key: the patch's top-level keys (every key no other dimension names)}
       - {id: chart-line-on-record, kind: record, key: config.yaml.patch agentPlatform.kagentApiV2 (the meta chart line the record selects; an enable or a reconcile writes the policy's line)}
       - {id: extras-kustomization-resources, kind: extras, key: agent-platform/kustomization.yaml (resources and the chart line's patch)}
