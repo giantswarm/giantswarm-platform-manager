@@ -15,7 +15,7 @@ import (
 )
 
 // The plan's refusals, as plan.Installation answers them.
-var planRefusals = []string{"DexAppRefusal", "DexSecretRefusal", "ReleaseCandidateRefusal", "FrozenRefusal", "HubRefusal"}
+var planRefusals = []string{"DexAppRefusal", "DexSecretRefusal", "ReleaseCandidateRefusal", "FrozenRefusal", "HubRefusal", "JoinRefusal", "SwitchOffRefusal"}
 
 // The single commit, the wave's pre-check and the comparison's
 // commitRefused take the plan's refusals from commitRefusal and nowhere else,
@@ -47,7 +47,8 @@ func TestCommitRefusalsAreOneList(t *testing.T) {
 	frozen := plan.Installation{Name: rowan, Diff: map[plan.Change]int{plan.ChangeUpdate: 1}, Files: []plan.File{{Change: plan.ChangeUpdate}},
 		GeneratedSecrets: []plan.GeneratedSecret{{Name: rowan + "-muster-valkey-password", Refusal: rowan + "-muster-valkey-password is frozen in a file the definition does not own whole"}}}
 	hub := plan.Installation{Name: rowan, Diff: map[plan.Change]int{plan.ChangeUpdate: 1}, Files: []plan.File{{Change: plan.ChangeUpdate}}, HubSections: []string{"app-config.yaml#backstage.appConfig.scaffolder"}}
-	for _, p := range []plan.Installation{frozen, hub} {
+	switchOff := plan.Installation{Name: rowan, Diff: map[plan.Change]int{plan.ChangeUpdate: 1}, Files: []plan.File{{Change: plan.ChangeUpdate}}, SwitchOff: &plan.SwitchOff{Components: []plan.SwitchedOff{{Component: "agent-manager"}}}}
+	for _, p := range []plan.Installation{frozen, hub, switchOff} {
 		want := commitRefusal(p, &installations.Record{})
 		if want == "" {
 			t.Fatalf("no refusal for %+v", p)

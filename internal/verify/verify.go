@@ -267,6 +267,7 @@ type Result struct {
 	HubSections      []string               `json:"hubSections,omitempty"`
 	DropsPrereleases bool                   `json:"dropsPrereleases,omitempty"`
 	Join             *plan.Join             `json:"join,omitempty"`
+	SwitchOff        *plan.SwitchOff        `json:"switchOff,omitempty"`
 	DexClients       []plan.DexClient       `json:"dexClients"`
 	CustomerActions  []plan.CustomerAction  `json:"customerActions"`
 	Probes           []plan.Probe           `json:"probes"`
@@ -277,7 +278,7 @@ type Result struct {
 func (r *Result) view(p plan.Installation, content bool) {
 	r.Files, r.Includes, r.Diff = p.Files, p.Includes, p.Diff
 	r.GeneratedSecrets, r.SuppliedSecrets, r.SuppliedOnRecord, r.HubSections = p.GeneratedSecrets, p.SuppliedSecrets, p.SuppliedOnRecord, p.HubSections
-	r.DropsPrereleases, r.Join = p.DropsPrereleases, p.Join
+	r.DropsPrereleases, r.Join, r.SwitchOff = p.DropsPrereleases, p.Join, p.SwitchOff
 	r.DexClients, r.CustomerActions, r.Probes = p.DexClients, p.CustomerActions, p.Probes
 	r.MissingFacts = p.MissingFacts
 	if !content {
@@ -294,7 +295,7 @@ func (r *Result) view(p plan.Installation, content bool) {
 func (r Result) Plan() plan.Installation {
 	return plan.Installation{Name: r.Installation, State: r.State, Inputs: r.Inputs.Values, MissingInputs: r.Inputs.Missing, Refused: r.Refused, CommitRefused: r.CommitRefused, MissingFacts: r.MissingFacts,
 		Files: r.Files, Includes: r.Includes, Diff: r.Diff, GeneratedSecrets: r.GeneratedSecrets, SuppliedSecrets: r.SuppliedSecrets, SuppliedOnRecord: r.SuppliedOnRecord,
-		HubSections: r.HubSections, DropsPrereleases: r.DropsPrereleases, Join: r.Join, DexClients: r.DexClients, CustomerActions: r.CustomerActions, Probes: r.Probes}
+		HubSections: r.HubSections, DropsPrereleases: r.DropsPrereleases, Join: r.Join, SwitchOff: r.SwitchOff, DexClients: r.DexClients, CustomerActions: r.CustomerActions, Probes: r.Probes}
 }
 
 // Options shape one verify.
@@ -314,6 +315,8 @@ type Options struct {
 	Rotate []string
 	// ForceJoin: the join was asked for with its warning known (plan.Options.ForceJoin).
 	ForceJoin bool
+	// ForceSwitchOff: the switch-off was asked for with its warning known (plan.Options.ForceSwitchOff).
+	ForceSwitchOff bool
 	// Installations are the registry's installations by name (plan.Options.Installations).
 	Installations map[string]installations.Installation
 }
@@ -597,7 +600,7 @@ func droppedReason(path string) string {
 // with the files the definition renders flattened to their leaves by key.
 // The definition's refusal is the error.
 func build(ctx context.Context, opts Options, values map[string]any, read plan.Reader) (plan.Installation, map[string]map[string]string, error) {
-	p := plan.Build(ctx, plan.Options{Definition: opts.Definition, Installation: opts.Installation, Hub: opts.Hub, Inputs: values, Content: true, Read: read, Rotate: opts.Rotate, ForceJoin: opts.ForceJoin, Installations: opts.Installations})
+	p := plan.Build(ctx, plan.Options{Definition: opts.Definition, Installation: opts.Installation, Hub: opts.Hub, Inputs: values, Content: true, Read: read, Rotate: opts.Rotate, ForceJoin: opts.ForceJoin, ForceSwitchOff: opts.ForceSwitchOff, Installations: opts.Installations})
 	if p.Refused != "" {
 		return p, nil, errors.New(p.Refused)
 	}

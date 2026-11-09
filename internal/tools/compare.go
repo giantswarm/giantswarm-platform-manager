@@ -31,9 +31,8 @@ type DryRun struct {
 // verify_capability answers it as it is, a dry run regrouped as the plan's
 // entry (dryRun). content keeps the rendered files' content; rotate names the
 // generated values the plan rotates on request (a dry run's rotate);
-// forceJoin lets a commit proceed over what the plan takes off the
-// installation's muster (a dry run's forceJoin).
-func (t *Tools) compare(ctx context.Context, env *planned, r installations.Report, def installations.Capability, typed map[string]any, content bool, rotate []string, forceJoin bool) (*verify.Result, error) {
+// force lets a commit proceed over the plan's warnings the person knows.
+func (t *Tools) compare(ctx context.Context, env *planned, r installations.Report, def installations.Capability, typed map[string]any, content bool, rotate []string, force forces) (*verify.Result, error) {
 	read := readAs(env.c)
 	values, back, err := mergeInputs(ctx, def, r, installations.Reader(read), typed, env.byName)
 	if err != nil {
@@ -45,7 +44,7 @@ func (t *Tools) compare(ctx context.Context, env *planned, r installations.Repor
 	}
 	env.inputs[r.Name] = values
 	in := verify.Inputs{Source: verify.Source(len(back) > 0, len(typed) > 0), Values: values, ReadBack: back, Unset: unset, Typed: typed}
-	res := verify.Compare(ctx, verify.Options{Definition: def, Installation: r.Installation, Hub: env.hub, State: capabilityState(r, def.Name), Inputs: in, Read: read, Content: content, Probes: t.d.Probes, Rotate: rotate, ForceJoin: forceJoin, Installations: env.byName})
+	res := verify.Compare(ctx, verify.Options{Definition: def, Installation: r.Installation, Hub: env.hub, State: capabilityState(r, def.Name), Inputs: in, Read: read, Content: content, Probes: t.d.Probes, Rotate: rotate, ForceJoin: force.join, ForceSwitchOff: force.switchOff, Installations: env.byName})
 	res.Caller = identity.Caller(ctx)
 	p := res.Plan()
 	switch {
@@ -60,19 +59,33 @@ func (t *Tools) compare(ctx context.Context, env *planned, r installations.Repor
 	return &res, nil
 }
 
+// forces are the warnings of a dry run the person asked a commit to proceed
+// over: what the plan takes off the installation's muster (forceJoin), the
+// components it switches off (forceSwitchOff).
+type forces struct {
+	join, switchOff bool
+}
+
+// boolArg is the boolean argument key of args, false where unset.
+func boolArg(args map[string]any, key string) bool {
+	b, _ := args[key].(bool)
+	return b
+}
+
 // commitRefusal is why a commit of p is refused over what its plan found on
 // the record, or "": the record's dex-app too old for a referenced Dex client,
 // its secret patch carrying a client the plan references, the release
 // candidates dropped while one is ahead of the stable release, a generated value
 // frozen where it cannot rotate — a rotation asked for alike —, a section of
 // the hub's Dev Portal the commit would remove, the registry the
-// installation's muster still serves that the patch drops. It is the one
+// installation's muster still serves that the patch drops, a running
+// component the patch switches off. It is the one
 // list the single commit, the wave's pre-check and the comparison's
 // commitRefused take these refusals from, the first one found answered, so
 // the three refuse alike (TestCommitRefusalsAreOneList). Last, a fact the
 // render needs that the record leaves empty (FactsRefusal).
 func commitRefusal(p plan.Installation, rec *installations.Record) string {
-	for _, refusal := range []string{p.DexAppRefusal(rec), p.DexSecretRefusal(rec), p.ReleaseCandidateRefusal(rec), p.FrozenRefusal(), p.CarryRefusal(), p.HubRefusal(), p.JoinRefusal()} {
+	for _, refusal := range []string{p.DexAppRefusal(rec), p.DexSecretRefusal(rec), p.ReleaseCandidateRefusal(rec), p.FrozenRefusal(), p.CarryRefusal(), p.HubRefusal(), p.JoinRefusal(), p.SwitchOffRefusal()} {
 		if refusal != "" {
 			return refusal
 		}
