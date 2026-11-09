@@ -15,6 +15,7 @@ const (
 	insecureFormURL     = "http://portal.example.com/{operation}"
 	missingOperationURL = "https://portal.example.com/credentials"
 	refusedUIURL        = "HTTPS URL"
+	refusedManagerFloor = "floor of"
 )
 
 func TestAgentManagerCredentialBroker(t *testing.T) {
@@ -46,7 +47,7 @@ func TestAgentManagerCredentialBroker(t *testing.T) {
 			require.Equal(t, "https://"+in.host("dex"), trusted["issuer"])
 			require.Equal(t, toAny(append(in.portalAudiences(), authenticatorClient)), trusted["allowedAudiences"])
 			require.NotContains(t, trusted["allowedAudiences"], componentKagent)
-			require.Equal(t, "https://portal.example.com", muster["aggregator"].(map[string]any)["devPortalUrl"])
+			require.NotContains(t, muster, "aggregator")
 			found := false
 			for _, files := range result.Files {
 				for path, file := range files {
@@ -75,8 +76,11 @@ func TestAgentManagerCredentialInputsFailClosed(t *testing.T) {
 		}, "mutually exclusive"},
 		{"old manager", func(input map[string]any) {
 			input["versions"] = map[string]any{keyComponents: map[string]any{componentAgentManager: "2.21.0"}}
-		}, "floor of"},
-		{"no manager floor", func(input map[string]any) { delete(input, "versions") }, "floor of"},
+		}, refusedManagerFloor},
+		{"no manager floor", func(input map[string]any) { delete(input, "versions") }, refusedManagerFloor},
+		{"release candidate manager", func(input map[string]any) {
+			input["versions"] = map[string]any{keyComponents: map[string]any{componentAgentManager: ">=2.22.0-rc.12 <3.0.0"}}
+		}, refusedManagerFloor},
 		{"old muster", func(input map[string]any) {
 			input["versions"].(map[string]any)[keyComponents].(map[string]any)[componentMuster] = "5.57.0"
 		}, "muster version floor"},
@@ -136,7 +140,7 @@ func credentialInput(t *testing.T, shape string) (map[string]any, map[string]str
 		"githubTokenExchange": map[string]any{keyEnabled: true},
 		"credentials":         map[string]any{keyCredentialUI: formURL},
 	}
-	input["versions"] = map[string]any{keyComponents: map[string]any{componentAgentManager: ">=2.22.0-rc.3 <3.0.0"}}
+	input["versions"] = map[string]any{keyComponents: map[string]any{componentAgentManager: ">=2.22.0 <3.0.0"}}
 	return input, secrets
 }
 
@@ -147,16 +151,16 @@ func credentialValues(t *testing.T, values render.Map) map[string]any {
 	return result
 }
 
-func TestCredentialUIOrigin(t *testing.T) {
-	for template, want := range map[string]string{
-		formURL: "https://portal.example.com",
-		"https://portal.example.com:8443/orgs/{parent}/{organization}?operation={operation}": "https://portal.example.com:8443",
-		insecureFormURL:     "",
-		missingOperationURL: "",
-		"https://user@portal.example.com/{operation}":     "",
-		"https://portal.example.com/{operation}#fragment": "",
+func TestValidCredentialUI(t *testing.T) {
+	for template, want := range map[string]bool{
+		formURL: true,
+		"https://portal.example.com:8443/orgs/{parent}/{organization}?operation={operation}": true,
+		insecureFormURL:     false,
+		missingOperationURL: false,
+		"https://user@portal.example.com/{operation}":     false,
+		"https://portal.example.com/{operation}#fragment": false,
 	} {
-		require.Equal(t, want, credentialUIOrigin(template), template)
+		require.Equal(t, want, validCredentialUI(template), template)
 	}
 }
 

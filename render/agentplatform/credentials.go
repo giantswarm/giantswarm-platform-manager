@@ -19,7 +19,7 @@ const (
 const (
 	agentManagerBrokerAudience = "agent-manager-github"
 	agentManagerBrokerSecret   = "agent-manager-github-broker"
-	managerOperationFloor      = "2.22.0-rc.3"
+	managerOperationFloor      = "2.22.0"
 	// musterGrantReleaseFloor is the first muster with provider Apps and
 	// grant targets.
 	musterGrantReleaseFloor = "5.58.0"
@@ -51,7 +51,7 @@ func (in *Input) validateAgentManagerCredentials() error {
 			}
 		}
 	}
-	if in.AgentManagerCredentialUI != "" && credentialUIOrigin(in.AgentManagerCredentialUI) == "" {
+	if in.AgentManagerCredentialUI != "" && !validCredentialUI(in.AgentManagerCredentialUI) {
 		return refuse("agentManager.credentials.uiURL requires an HTTPS URL with exactly one {operation} in its path or query, optionally {parent} and {organization}, and no other braces, user information or fragment")
 	}
 	return nil
@@ -64,19 +64,15 @@ func floorAtLeast(hold, minimum string) bool {
 	return err == nil && !version.LessThan(floor)
 }
 
-// credentialUIOrigin is the origin of the credential UI URL template, or
-// empty when agent-manager would refuse the template: the same rule as its
-// organizations.ValidateCredentialUIURL, so a template the definition
-// accepts never stops the manager from starting.
-func credentialUIOrigin(template string) string {
+// validCredentialUI applies agent-manager's
+// organizations.ValidateCredentialUIURL, so a template the definition accepts
+// never stops the manager from starting.
+func validCredentialUI(template string) bool {
 	const marker = "credential-operation-placeholder"
 	resolved := strings.NewReplacer("{operation}", marker, "{parent}", marker, "{organization}", marker).Replace(template)
 	parsed, err := url.Parse(resolved)
-	if err != nil || strings.ContainsAny(resolved, "{}") || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil ||
-		parsed.Fragment != "" || strings.Contains(parsed.Host, marker) || strings.Count(template, "{operation}") != 1 {
-		return ""
-	}
-	return parsed.Scheme + "://" + parsed.Host
+	return err == nil && !strings.ContainsAny(resolved, "{}") && parsed.Scheme == "https" && parsed.Host != "" && parsed.User == nil &&
+		parsed.Fragment == "" && !strings.Contains(parsed.Host, marker) && strings.Count(template, "{operation}") == 1
 }
 
 // brokerSubjectAudiences are the audiences muster's broker accepts on this
