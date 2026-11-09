@@ -20,9 +20,9 @@ const (
 	agentManagerBrokerAudience = "agent-manager-github"
 	agentManagerBrokerSecret   = "agent-manager-github-broker"
 	managerOperationFloor      = "2.22.0"
-	// musterGrantReleaseFloor is the first muster with provider Apps and
-	// grant targets.
-	musterGrantReleaseFloor = "5.58.0"
+	// musterCredentialFloor is the first muster that accepts the configured
+	// Dex audiences alongside resource access tokens.
+	musterCredentialFloor = "5.59.5"
 )
 
 func (in *Input) validateAgentManagerCredentials() error {
@@ -39,8 +39,8 @@ func (in *Input) validateAgentManagerCredentials() error {
 		return refuse("agentManager.githubTokenExchange.enabled and agentManager.github.enabled are mutually exclusive")
 	}
 	if in.AgentManagerTokenExchange {
-		if hold := in.Versions.Components[componentMuster]; hold != "" && !floorAtLeast(hold, musterGrantReleaseFloor) {
-			return refuse("agentManager.githubTokenExchange.enabled requires a muster version floor of " + musterGrantReleaseFloor + " or later")
+		if hold := in.Versions.Components[componentMuster]; hold != "" && !floorAtLeast(hold, musterCredentialFloor) {
+			return refuse("agentManager.githubTokenExchange.enabled requires a muster version floor of " + musterCredentialFloor + " or later")
 		}
 		if in.federationBrokers() && in.brokerClient() == componentAgentManager {
 			return refuse("agentManager.githubTokenExchange.enabled reserves the agent-manager broker client ID")
