@@ -548,10 +548,12 @@ Installing it and keeping it current:
 
 ## Proving a release candidate
 
-A merge to `main` is tagged as a release candidate (`vX.Y.Z-rc.N`, a GitHub pre-release with the image,
-the chart and `platformctl-<os>-<arch>`) and promoted to the stable `vX.Y.Z`. The hub's manager follows
-stable releases only (its OCIRepository's semver `>=0.17.0 <1.0.0`), so no running manager dry-runs a
-candidate before its promote. The candidate's proof is offline:
+A merge to `main` that bumps the minor version is tagged as a release candidate (`vX.Y.0-rc.N`, a
+GitHub pre-release with the image, the chart and `platformctl-<os>-<arch>`) and promoted to the stable
+`vX.Y.0`; a patch is released stable directly. The hub's manager follows stable releases only (its
+OCIRepository's semver `>=0.17.0 <1.0.0`); the release candidate lane, a second manager declared on one
+of Giant Swarm's test installations, is to follow every candidate. A candidate's proof is its offline
+checks and, where the lane serves the candidate, a dry run on the lane:
 
 1. **The candidate's own CLI.** Build it at the tag (`git checkout vX.Y.Z-rc.N && make build-platformctl`),
    `go install github.com/giantswarm/giantswarm-platform-manager/cmd/platformctl@vX.Y.Z-rc.N`, or download
@@ -582,19 +584,38 @@ candidate before its promote. The candidate's proof is offline:
 3. **The unit and golden tests** at the tag: `make test` (the render goldens of every definition among
    them; `go test ./render/... -update` is never part of a proof), and `make test-chart` where `helm` is on
    `PATH`.
-4. **The live dry run, where a manager follows candidates.** Where a manager serves the candidate (a
-   manager pinned to the RC's chart, a local lab), `platformctl installation reconcile <installation>
-   <capability> --dry-run` against it answers with no `commitRefused` and only the changes the candidate
-   intends.
+4. **The live dry run on the release candidate lane.** The lane's manager is declared to follow the
+   newest release candidate or stable release (OCIRepository semver `>=0.17.0-0 <1.0.0-0`, filtered to `X.Y.Z` and
+   `X.Y.Z-rc.N` so CI's per-branch chart builds stay off it, polled every minute) and names the same `hub`,
+   so it renders exactly what the hub's manager will once the candidate is promoted. It is reached through
+   the test installation's muster, and the candidate's own CLI asks it:
 
-Proven means: every diff in step 2 is empty, `make test` passes, and a dry run of step 4, where one ran,
-shows only the intended changes. Once that proof is green, the promote runs as routine
-(`devctl release promote giantswarm/giantswarm-platform-manager`); no one is asked for it.
+   ```sh
+   platformctl version   # the candidate's, vX.Y.0-rc.N
+   platformctl installation reconcile <installation> <capability> --dry-run \
+     --endpoint https://muster.<the lane's installation domain>/mcp
+   ```
 
-No test installation's manager follows candidates today: the test installations' managers follow the same
-stable range as the hub and are claimed by other proving windows, so pointing one at the RC line would take
-those windows' manager from under them. An RC lane is a GitOps change of its own (an OCIRepository with a
-prerelease semver on one test installation's manager) and gets its own issue when it is wanted; until
-then the offline proof above is this repository's RC proof.
+   Step 4 runs only once the lane's HelmRelease `flux-giantswarm/giantswarm-platform-manager` on that
+   installation reports the candidate's chart version as its last applied revision; until the lane serves
+   the candidate, steps 1–3 are the proof. The answer shows no `commitRefused` and only the changes the
+   candidate intends. A disable dry run shows the checklist fields a candidate changes (the takes,
+   hand-written removals, Dex drops, `leftOnRecord`, `--keep`) live; `--endpoint` holds for one
+   invocation only, so every command against the lane names it:
+
+   ```sh
+   platformctl installation disable <installation> <capability> --dry-run \
+     --endpoint https://muster.<the lane's installation domain>/mcp
+   ```
+
+   The lane has no approvals endpoint, so it refuses every `--commit`: a candidate never opens a pull
+   request, and every commit goes through the hub's stable manager and its review.
+
+Proven means: every diff in step 2 is empty, `make test` passes, and the lane's dry run of step 4, where
+the lane serves the candidate, shows only the intended changes. Once that proof is green, the promote
+runs as routine (`devctl release promote giantswarm/giantswarm-platform-manager`); no one is asked for it.
+
+The lane is declared in the test installation's GitOps repository (`extras/giantswarm-platform-manager/`
+of its management cluster); between candidates it is to run the latest stable release like the hub.
 
 Public repository: every fixture uses invented installation names and placeholder values.
