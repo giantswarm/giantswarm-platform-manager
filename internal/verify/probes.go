@@ -3,6 +3,7 @@ package verify
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
@@ -57,11 +58,33 @@ func (r Request) Answer() string {
 // The reasons a probe is not checked: ReasonNoDexClients, a per-client probe
 // with no client to run for; ReasonUnreachable, a request the manager could
 // not get an answer to (timeout, DNS, connection refused), the target's host
-// appended and the transport's error in the detail.
+// appended and the transport's error in the detail; ReasonPrivate, the same
+// on an installation on record as private (Private), whose hosts answer
+// inside its network only: unreachable by design, no gap (ByDesign). Both
+// open with ReasonUnreachable, so a reader that groups the unreachable
+// targets groups both.
 const (
 	ReasonNoDexClients = "the render declares no Dex client with a redirect URI for the inputs on record"
 	ReasonUnreachable  = "unreachable from the manager"
+	ReasonPrivate      = ReasonUnreachable + " by design: the installation is private, its hosts answer inside its network only"
 )
+
+// Private says whether the inputs on record hold the installation as private
+// (installation.private, a fact of one reached through the tunnel): the
+// manager on the hub does not reach its hosts.
+func Private(values map[string]any) bool {
+	private, _ := dig(values, "installation", "private").(bool)
+	return private
+}
+
+// ByDesignClause is the count of the dimensions not checked by design in one
+// clause, for a summary line: "" when there are none.
+func ByDesignClause(n int) string {
+	if n == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d unreachable from the manager by design (private installation)", n)
+}
 
 // The bounds of one comparison's HTTP probes. A private installation's Dex,
 // kagent and muster are unreachable from the hub by design, so waiting for
@@ -117,11 +140,14 @@ func choice(values map[string]any, field string) string {
 // context, ProbePhaseTimeout long.
 //
 // planned are the objects the plan creates that the record lacks: a Dex
-// client among them that a request is answered wrong for is planned.
+// client among them that a request is answered wrong for is planned. private
+// says the installation is private (Private): a target that does not answer
+// is unreachable by design (ReasonPrivate).
 type prober struct {
 	client  *http.Client
 	slots   chan struct{}
 	planned PlannedObjects
+	private bool
 }
 
 // newProber probes with client; nil is a client that does not follow
@@ -160,6 +186,7 @@ func (pr *prober) probeAll(ctx context.Context, base ProbeData, clients []plan.D
 // client the plan creates and the record lacks — not checked with ReasonUnreachable when one got no
 // answer and none answered another status (an unexpected status is drift
 // whatever the other requests did; an unreachable target is no comparison),
+// ReasonPrivate and ByDesign on a private installation,
 // not checked when it had no request to make, or when its template names a
 // choice not on record (the reason names the field). The probe's requests
 // are sent at once and answered in the order of the clients.
@@ -223,7 +250,7 @@ func (pr *prober) probe(ctx context.Context, base ProbeData, clients []plan.DexC
 		switch {
 		case r.Error != "":
 			if d.Mark == AsDefined {
-				d.Mark, d.Reason, d.Detail = NotChecked, unreachable(r.URL), r.Error
+				d.Mark, d.Reason, d.Detail = NotChecked, pr.unreachable(r.URL), r.Error
 			}
 		case !r.OK && pr.planned.client(r.Client) != "":
 			r.Planned = pr.planned.client(r.Client)
@@ -235,6 +262,7 @@ func (pr *prober) probe(ctx context.Context, base ProbeData, clients []plan.DexC
 		}
 		d.Probe.Requests = append(d.Probe.Requests, r)
 	}
+	d.ByDesign = d.Mark == NotChecked && strings.HasPrefix(d.Reason, ReasonPrivate)
 	return d
 }
 
@@ -273,13 +301,18 @@ func (pr *prober) do(ctx context.Context, u string) (*http.Response, error) {
 
 // unreachable is the reason for a target the manager got no answer from: one
 // sentence naming the host, never the URL (a Dex client's redirect URI is in
-// its query). The transport's error is the detail.
-func unreachable(u string) string {
+// its query) — ReasonPrivate on a private installation, ReasonUnreachable
+// otherwise. The transport's error is the detail.
+func (pr *prober) unreachable(u string) string {
 	host := u
 	if p, err := url.Parse(u); err == nil && p.Host != "" {
 		host = p.Host
 	}
-	return ReasonUnreachable + ": " + host
+	reason := ReasonUnreachable
+	if pr.private {
+		reason = ReasonPrivate
+	}
+	return reason + ": " + host
 }
 
 // withPlanned is an answer with the migration that plans its object

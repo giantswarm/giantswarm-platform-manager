@@ -415,7 +415,7 @@ func decideStage(prev string, res verify.Result) (state, message string, red []s
 	case installations.StateWaitingForCustomer:
 		return actions.StateWaitingForCustomer, "the rollout is done and the customer's move is open: " + strings.Join(red, "; "), red
 	}
-	return actions.StateEnabled, "verified: " + summaryLine(res.Summary), nil
+	return actions.StateEnabled, "verified: " + summaryLine(res), nil
 }
 
 // verifyMoves says whether verify_installation's result moves a stage in
@@ -657,13 +657,17 @@ func detailOf(d verify.Dimension) string {
 	return string(d.Mark)
 }
 
-// summaryLine is a result's marks in one clause, drifted first.
-func summaryLine(summary map[verify.Mark]int) string {
+// summaryLine is a result's marks in one clause, drifted first, then the
+// dimensions not checked by design.
+func summaryLine(res verify.Result) string {
 	var parts []string
 	for _, m := range []verify.Mark{verify.Drifted, verify.DiffersByInput, verify.Planned, verify.AsDefined, verify.NotChecked} {
-		if n := summary[m]; n > 0 {
+		if n := res.Summary[m]; n > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", n, m))
 		}
+	}
+	if c := verify.ByDesignClause(res.ByDesign); c != "" {
+		parts = append(parts, c)
 	}
 	return strings.Join(parts, ", ")
 }
@@ -798,7 +802,8 @@ func (t *Tools) report(a *actions.Action, status actions.Status, i int, res veri
 			case verify.AsDefined:
 				green++
 			case verify.NotChecked:
-				if d.Reason != verify.ReasonRepositorySide {
+				// One by design is the private note's, no gap.
+				if d.Reason != verify.ReasonRepositorySide && !d.ByDesign {
 					notChecked = append(notChecked, d.ID)
 				}
 			case verify.Planned:
