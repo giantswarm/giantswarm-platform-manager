@@ -71,7 +71,7 @@ func enforceBrokerIssuer(values *yaml.Node, want *brokerIssuer) error {
 	}
 	for _, a := range want.audiences {
 		if !contains(audiences, a) {
-			audiences.Content = append(audiences.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: a})
+			audiences.Content = append(audiences.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: tagStr, Value: a})
 		}
 	}
 	return nil

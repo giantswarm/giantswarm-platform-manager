@@ -10,6 +10,11 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/render/agentplatform"
 )
 
+const (
+	testAgentManagerApp = "agent-manager"
+	testDexIssuer       = "https://dex.example.com"
+)
+
 func TestCredentialProviderAppsAreTheRenders(t *testing.T) {
 	const rendered = "muster:\n  muster:\n    providerApps:\n      - name: agent-manager\n        issuer: https://github.com/apps/giantswarm-agent-manager\n"
 	const current = "muster:\n  muster:\n    providerApps:\n      - name: chatgpt\n        flow: chatgptDeviceCode\n"
@@ -18,7 +23,7 @@ func TestCredentialProviderAppsAreTheRenders(t *testing.T) {
 	var values map[string]any
 	require.NoError(t, yaml.Unmarshal(merged, &values))
 	apps := values["muster"].(map[string]any)["muster"].(map[string]any)["providerApps"].([]any)
-	require.Equal(t, []any{map[string]any{keyName: "agent-manager", keyIssuer: "https://github.com/apps/giantswarm-agent-manager"}}, apps)
+	require.Equal(t, []any{map[string]any{keyName: testAgentManagerApp, keyIssuer: "https://github.com/apps/giantswarm-agent-manager"}}, apps)
 }
 
 func TestCredentialBrokerIssuerAfterReadback(t *testing.T) {
@@ -75,10 +80,10 @@ func TestCredentialBrokerIssuerWithdrawsTheExchangeAudience(t *testing.T) {
 		current string
 		want    map[string][]string
 	}{
-		{"exchange audience withdrawn", issuers("          - issuer: https://dex.example.com\n            allowedAudiences: [backstage, " + exchangeAudience + "]\n"), map[string][]string{"https://dex.example.com": {render.PortalDexClientID}}},
-		{"record's own audiences stay", issuers("          - issuer: https://dex.example.com\n            allowedAudiences: [local-portal, " + exchangeAudience + "]\n"), map[string][]string{"https://dex.example.com": {"local-portal"}}},
-		{"emptied allowlist takes the render's", issuers("          - issuer: https://dex.example.com\n            allowedAudiences: [" + exchangeAudience + "]\n"), map[string][]string{"https://dex.example.com": {render.PortalDexClientID}}},
-		{"other issuer untouched", issuers("          - issuer: https://other.example.com\n            allowedAudiences: [" + exchangeAudience + "]\n"), map[string][]string{"https://dex.example.com": {render.PortalDexClientID}, "https://other.example.com": {exchangeAudience}}},
+		{"exchange audience withdrawn", issuers("          - issuer: https://dex.example.com\n            allowedAudiences: [backstage, " + exchangeAudience + "]\n"), map[string][]string{testDexIssuer: {render.PortalDexClientID}}},
+		{"record's own audiences stay", issuers("          - issuer: https://dex.example.com\n            allowedAudiences: [local-portal, " + exchangeAudience + "]\n"), map[string][]string{testDexIssuer: {"local-portal"}}},
+		{"emptied allowlist takes the render's", issuers("          - issuer: https://dex.example.com\n            allowedAudiences: [" + exchangeAudience + "]\n"), map[string][]string{testDexIssuer: {render.PortalDexClientID}}},
+		{"other issuer untouched", issuers("          - issuer: https://other.example.com\n            allowedAudiences: [" + exchangeAudience + "]\n"), map[string][]string{testDexIssuer: {render.PortalDexClientID}, "https://other.example.com": {exchangeAudience}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			merged, _, err := keepAudiences([]byte(portalOnly), []byte(test.current))
