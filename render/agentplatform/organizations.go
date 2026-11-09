@@ -46,11 +46,12 @@ type OrganizationsPolicy struct {
 const organizationsChart = "4.176.6"
 
 // organizationsCommitChart is the meta chart before which commit mode is
-// refused: every release up to 4.177.0-rc.1 refuses agent-manager.tenants
-// but enabled, and the release that takes tenants.commit
-// (giantswarm/agent-platform#1312) is not out. A hold below it is refused.
-// Once that release is out, this names it.
-const organizationsCommitChart = "4.177.0"
+// refused under a hold: every release up to 4.177.0-rc.1 refuses
+// agent-manager.tenants but enabled, and no tag carries the change that
+// takes tenants.commit (giantswarm/agent-platform#1312). Until one does, it
+// stands above every planned release, so commit mode is refused under any
+// hold; once that release is tagged, this names it.
+const organizationsCommitChart = "4.999.0"
 
 // organizationsDir is the directory under an installation's extras that
 // holds its organizations in git, in commit mode: the objects the
