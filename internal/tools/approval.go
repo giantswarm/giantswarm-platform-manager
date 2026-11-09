@@ -741,11 +741,15 @@ func whyAndWhat(a *actions.Action, heading string, installations []string) strin
 	return b.String()
 }
 
-// changeSummary is the plan's change in one clause: files by change, the
+// changeSummary is the plan's change in one clause: the running components
+// it switches off first (the dry run's warning), files by change, the
 // generated secrets by name and the rotations, the ones on request apart from
 // the ones a file to write forced — the Action's spec.change.
 func changeSummary(p plan.Installation) string {
 	parts := []string{}
+	if w := p.SwitchOff.Warning(); w != "" {
+		parts = append(parts, w)
+	}
 	for _, c := range []plan.Change{plan.ChangeCreate, plan.ChangeUpdate} {
 		if n := p.Diff[c]; n > 0 {
 			parts = append(parts, fmt.Sprintf("%d file(s) to %s", n, c))

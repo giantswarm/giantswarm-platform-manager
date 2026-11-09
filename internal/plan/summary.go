@@ -18,6 +18,8 @@ import (
 // values keys that change (by path, no value), the resources and list
 // entries added and removed, the keys of a Secret added and removed, and the
 // credentials that rotate (by name, the installation and component dropped).
+// The running components the plan switches off lead, as one warning line
+// (SwitchOff.Warning), so the summary never hides them among the rest.
 // A file whose shape cannot be read reads "rewritten". Never a secret value:
 // a Secret's values and an encrypted file's leaves are not compared.
 func Summary(p Installation) []string {
@@ -71,6 +73,9 @@ func Summary(p Installation) []string {
 		rotations[comp] = append(rotations[comp], short)
 	}
 	var out []string
+	if w := p.SwitchOff.Warning(); w != "" {
+		out = append(out, w)
+	}
 	for _, name := range order {
 		c := comps[name]
 		items := joinAdds(uniq(c.items))
