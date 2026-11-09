@@ -132,6 +132,7 @@ func (in *Input) agentManagerValues() render.Map {
 	if skills := in.agentManagerSkills(); len(skills) > 0 {
 		m = append(m, e("skills", skills))
 	}
+	m = append(m, in.organizationsAgentManager()...)
 	if in.AgentManagerCommit {
 		m = append(m, githubEnabled())
 	}

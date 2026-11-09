@@ -330,6 +330,8 @@ func TestDefaults(t *testing.T) {
 		"klausGateway":   map[string]any{"slack": map[string]any{"contextBotIDs": []any{}, "contextBotIDsComment": "", "contextBotNames": []any{}, "contextBotNamesComment": "", "slashCommand": "", "slashCommandComment": ""}},
 		"agentManager":   map[string]any{keyGitHub: map[string]any{keyEnabled: false}, keySkills: map[string]any{keyRepositories: []any{}, "appSecretName": "", "gitAuthSecretName": "", "mintGitAuthSecret": false}},
 		"versions":       map[string]any{"chart": "", "components": holds, "reasons": map[string]any{"chart": "", "components": holds}}}
+
+	want["organizations"] = map[string]any{keyEnabled: false, "apiHostnames": []any{}, "commit": map[string]any{keyEnabled: false}, "portal": map[string]any{keyEnabled: false}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("defaults %v, want %v", got, want)
 	}
@@ -476,7 +478,7 @@ func TestAgentPlatformReadsBackModelServing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := map[string]any{"modelServing.enabled": true}; !reflect.DeepEqual(got, want) {
+	if want := map[string]any{inputOrganizationsCommit: false, "modelServing.enabled": true}; !reflect.DeepEqual(got, want) {
 		t.Errorf("read back %v, want %v", got, want)
 	}
 }
@@ -490,7 +492,7 @@ func TestAgentPlatformReadsBackSingletonsCapacity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := map[string]any{"scheduling.singletonsCapacity": "on-demand"}; !reflect.DeepEqual(got, want) {
+	if want := map[string]any{inputOrganizationsCommit: false, "scheduling.singletonsCapacity": "on-demand"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("read back %v, want %v", got, want)
 	}
 }
@@ -516,6 +518,7 @@ func TestAgentPlatformReadsBackClusterManagerCommit(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", tc.name, err)
 		}
+		tc.want[inputOrganizationsCommit] = false
 		if !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s: read back %v, want %v", tc.name, got, tc.want)
 		}
@@ -687,7 +690,7 @@ func TestAgentPlatformReadsBackVersionHolds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]any{"versions.chart": "4.114.1", "versions.components.agent-manager": "1.9.2", "versions.components.klaus-gateway": "4.0.0",
+	want := map[string]any{inputOrganizationsCommit: false, "versions.chart": "4.114.1", "versions.components.agent-manager": "1.9.2", "versions.components.klaus-gateway": "4.0.0",
 		"versions.reasons.chart":                    "Held on the running release until the next line lands here as one window\n(acme/platform#12); back to the range in that PR.",
 		"versions.reasons.components.agent-manager": "Held on the running release."}
 	if !reflect.DeepEqual(got, want) {
