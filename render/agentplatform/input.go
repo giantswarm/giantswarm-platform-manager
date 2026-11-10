@@ -1116,9 +1116,11 @@ func (in *Input) declaresModels() bool {
 }
 
 // holdAdmits says whether a version hold lets Flux resolve a release at or
-// above floor: no hold, an exact version at or above it, a constraint the
-// floor, its release or a far later release meets, or one the definition
-// cannot read, which Flux reports itself.
+// above floor: no hold, an exact version at or above it, a constraint that
+// admits a version at or above it, or one the definition cannot read, which
+// Flux reports itself. A constraint is checked at the floor, its release, a
+// far later release, and each version it names and the patch after that one
+// at or above the floor, so a range bounded above the floor admits too.
 func holdAdmits(hold, floor string) bool {
 	if hold == "" {
 		return true
@@ -1132,8 +1134,26 @@ func holdAdmits(hold, floor string) bool {
 		return true
 	}
 	release, _ := min.SetPrerelease("")
-	return c.Check(min) || c.Check(&release) || c.Check(semverlib.MustParse("999999.0.0"))
+	candidates := []*semverlib.Version{min, &release, semverlib.MustParse("999999.0.0")}
+	for _, named := range constraintVersion.FindAllString(hold, -1) {
+		v, err := semverlib.NewVersion(named)
+		if err != nil {
+			continue
+		}
+		next := v.IncPatch()
+		candidates = append(candidates, v, &next)
+	}
+	for _, v := range candidates {
+		if !v.LessThan(min) && c.Check(v) {
+			return true
+		}
+	}
+	return false
 }
+
+// constraintVersion matches the versions a semver constraint names, a
+// wildcard's numeric part included (4.178 of 4.178.x).
+var constraintVersion = regexp.MustCompile(`v?\d+(\.\d+){0,2}(-[0-9A-Za-z.-]+)?`)
 
 // holdComment is the comment a held version carries in the file: the reason
 // on record or typed for it (versions.reasons.*), else the generic one naming
