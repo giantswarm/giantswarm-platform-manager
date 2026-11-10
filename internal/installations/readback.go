@@ -270,7 +270,9 @@ func (c Capability) TypedWithoutSwitch(typed, values map[string]any) (string, er
 				return nil
 			}
 		}
-		if on, _ := lookup(values, splitKey(leaf.Requires)); on == true {
+		// A switch that is no boolean is the schema's refusal to name.
+		on, set := lookup(values, splitKey(leaf.Requires))
+		if b, isBool := on.(bool); b || (set && on != nil && !isBool) {
 			return nil
 		}
 		refusal = fmt.Sprintf("%s is typed, and it renders only with %s on, which is off for this installation: type %s: true with it, or leave %s out",

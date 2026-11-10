@@ -77,7 +77,8 @@ func organizations(enabled, commit any, hostnames []any) map[string]any {
 // The agent-platform definition refuses commit mode or API hostnames typed
 // while the switch is off, naming the switch; the same values read back from
 // the record, typed with the switch on, or typed at their defaults stand, so
-// a person turns the switch off alone or with its dependents.
+// a person turns the switch off alone or with its dependents; a switch typed
+// as no boolean is left to the schema to refuse.
 func TestAgentPlatformRefusesADependentTypedWithoutItsSwitch(t *testing.T) {
 	def, _ := FindCapability(AgentPlatform)
 	hostnames := []any{"internal-api.rowan.acme.test"}
@@ -91,6 +92,7 @@ func TestAgentPlatformRefusesADependentTypedWithoutItsSwitch(t *testing.T) {
 		{"commit mode typed with the switch", organizations(true, true, nil), organizations(true, true, nil), ""},
 		{"commit mode and API hostnames read back, the switch typed off", organizations(false, nil, nil), organizations(false, true, hostnames), ""},
 		{"commit mode and API hostnames typed off with the switch", organizations(false, false, []any{}), organizations(false, false, []any{}), ""},
+		{"commit mode typed, the switch typed as no boolean", organizations("true", true, nil), organizations("true", true, nil), ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := def.TypedWithoutSwitch(tc.typed, tc.values)

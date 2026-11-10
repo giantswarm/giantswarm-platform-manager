@@ -170,9 +170,10 @@ func documentedKinds(t *testing.T, capability string) map[string]bool {
 	return kinds
 }
 
-// TestEveryRequiresNamesASwitch holds every schema's x-requires to a boolean
-// person input of the same schema: a switch renamed or gone would leave its
-// dependents refused whenever they are typed.
+// TestEveryRequiresNamesASwitch holds every schema's x-requires to a person
+// input naming a boolean person input of the same schema: a switch renamed
+// or gone would leave its dependents refused whenever they are typed, and
+// x-requires on an object would be checked nowhere.
 func TestEveryRequiresNamesASwitch(t *testing.T) {
 	caps, err := definitions.Capabilities()
 	if err != nil {
@@ -206,6 +207,9 @@ func TestEveryRequiresNamesASwitch(t *testing.T) {
 				case string:
 					if sw := nodes[req]; sw == nil || sw["type"] != "boolean" || sw["x-source"] != "person" {
 						t.Errorf("%s: x-requires %q names no boolean person input", path, req)
+					}
+					if _, object := node["properties"]; object || node["x-source"] != "person" {
+						t.Errorf("%s: x-requires on a node that is no person input: only those are checked", path)
 					}
 				default:
 					t.Errorf("%s: x-requires %v is not a dotted key", path, req)

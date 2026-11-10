@@ -98,6 +98,15 @@ func TestRenderRefusals(t *testing.T) {
 	if _, err := Render("agent-platform", []byte("input: [1")); err == nil {
 		t.Fatal("malformed YAML: want an error")
 	}
+	// Commit mode in a document with the organizations' switch off.
+	commit, err := os.ReadFile(testdata["agent-platform"] + "/organizations-commit/input.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	off := strings.Replace(string(commit), "  organizations:\n    enabled: true\n", "  organizations:\n    enabled: false\n", 1)
+	if _, err := Render("agent-platform", []byte(off)); off == string(commit) || err == nil || !strings.Contains(err.Error(), "type organizations.enabled: true") {
+		t.Fatalf("commit mode with the switch off: got %v", err)
+	}
 }
 
 func TestShapes(t *testing.T) {
