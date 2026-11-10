@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -653,47 +654,87 @@ func TestWatchActionReplaysCommitModeAnOlderManagerStored(t *testing.T) {
 	}
 }
 
-// storedAsRefused has rowan's inputs on record of action name turn the
-// organizations' switch on, which rowan's 3 chart line refuses: a document
-// the render of this manager refuses, as a later definition may refuse one
-// an older manager stored.
-func storedAsRefused(t *testing.T, st *stack, name string) {
+// storedAsRefused has installation's inputs on record of action name turn
+// the organizations' switch on, which the 3 chart line of the fixtures
+// refuses: a document the render of this manager refuses, as a later
+// definition may refuse one an older manager stored.
+func storedAsRefused(t *testing.T, st *stack, name, installation string) {
+	t.Helper()
+	storeOrganizationsSwitch(t, st, name, installation, true)
+}
+
+// storeOrganizationsSwitch sets the organizations' switch in installation's
+// inputs on record of action name.
+func storeOrganizationsSwitch(t *testing.T, st *stack, name, installation string, on bool) {
 	t.Helper()
 	a, err := actions.New(st.dyn, actionsNamespace).Get(t.Context(), name)
 	if err != nil {
 		t.Fatal(err)
 	}
-	in := a.InputsOnRecord(rowan)
+	in := a.InputsOnRecord(installation)
 	if in == nil {
-		t.Fatalf("action %s holds no inputs on record for %s", name, rowan)
+		t.Fatalf("action %s holds no inputs on record for %s", name, installation)
 	}
-	in["organizations"].(map[string]any)[enabledKey] = true
+	in["organizations"].(map[string]any)[enabledKey] = on
 	if _, err := st.dyn.Resource(actions.GVR).Namespace(actionsNamespace).Update(t.Context(), actions.Unstructured(*a), metav1.UpdateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 }
 
+// refusedSwitch is what the render's refusal of storedAsRefused names.
+const refusedSwitch = "organizations.enabled"
+
 // A render the inputs on record are refused by reads no Flux object, and
-// nothing it reads moves the stage: the watch answers the refusal and the
-// action stays rolling out; verify_installation does not flip a stage
-// waiting for the customer to enabled.
+// nothing it reads moves the stage: the action stays rolling out, and the
+// stage's message on the Action says why, once however often it is watched,
+// until a read of the inputs renders.
 func TestARefusedRenderMovesNoStage(t *testing.T) {
 	st := newStack(t)
 	a, aliceC := rolledOut(t, st)
 	admin := adminLive(t, st)
-	storedAsRefused(t, st, a.Name)
+	storedAsRefused(t, st, a.Name, rowan)
 
-	if w, text, isErr := watchCall(t, admin, a.Name); !isErr || !strings.Contains(text, "organizations.enabled") {
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || w.Verify == nil || !strings.Contains(w.Verify.Refused, refusedSwitch) || w.State != actions.StateRollingOut || w.Ready || len(w.Objects) != 0 {
 		t.Fatalf("the watch of a refused render: %v state %q, %d Flux object(s): %s", isErr, w.State, len(w.Objects), text)
 	}
-	if got := getAction(t, aliceC, a.Name); got.Status.State != actions.StateRollingOut || stageOf(&got, rowan).State != actions.StateRollingOut {
-		t.Fatalf("after the refused watch: %s, stage %s", got.Status.State, stageOf(&got, rowan).State)
+	got := getAction(t, aliceC, a.Name)
+	stage := stageOf(&got, rowan)
+	if got.Status.State != actions.StateRollingOut || stage.State != actions.StateRollingOut || !strings.Contains(stage.Message, refusedSwitch) {
+		t.Fatalf("after the refused watch: %s, stage %s: %q", got.Status.State, stage.State, stage.Message)
+	}
+	if _, text, isErr := watchCall(t, admin, a.Name); isErr {
+		t.Fatalf("the second watch of a refused render: %s", text)
+	}
+	if again := getAction(t, aliceC, a.Name); stageOf(&again, rowan).Message != stage.Message {
+		t.Fatalf("the second refused watch changed the stage's message:\n%q\n%q", stage.Message, stageOf(&again, rowan).Message)
+	}
+
+	storeOrganizationsSwitch(t, st, a.Name, rowan, false)
+	if res := verifyLive(t, admin, rowan); res.Refused != "" {
+		t.Fatalf("verify of the inputs restored: refused %q", res.Refused)
+	}
+	read := getAction(t, aliceC, a.Name)
+	if stage := stageOf(&read, rowan); stage.State != actions.StateRollingOut || strings.Contains(stage.Message, refusedSwitch) {
+		t.Fatalf("after a verify that renders: stage %s: %q", stage.State, stage.Message)
 	}
 }
 
+// probesOf are the probe entries of installation on a's record.
+func probesOf(a actions.Action, installation string) []actions.Probe {
+	var out []actions.Probe
+	for _, p := range a.Status.Probes {
+		if p.Installation == installation {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // verify_installation of a render the inputs on record are refused by
-// answers the refusal and leaves a stage waiting for the customer waiting:
-// the read checked nothing the customer's move holds up.
+// answers the refusal, leaves a stage waiting for the customer waiting, keeps
+// the probe results the last read recorded and says on the stage why; the
+// refusal of inputs the caller hands over writes nothing on the Action.
 func TestVerifyInstallationRefusedRenderKeepsTheWait(t *testing.T) {
 	st := newStack(t)
 	a, aliceC := rolledOut(t, st)
@@ -702,13 +743,50 @@ func TestVerifyInstallationRefusedRenderKeepsTheWait(t *testing.T) {
 	if w, text, isErr := watchCall(t, admin, a.Name); isErr || w.State != actions.StateWaitingForCustomer {
 		t.Fatalf("waiting: %v %s", isErr, text)
 	}
-	storedAsRefused(t, st, a.Name)
+	waiting := getAction(t, aliceC, a.Name)
+	probes, stage := probesOf(waiting, rowan), stageOf(&waiting, rowan)
+	if len(probes) == 0 {
+		t.Fatal("the watch recorded no probe")
+	}
 	setAccepted(st.inst, statusTrue, "ok")
 
-	if res := verifyLive(t, admin, rowan); !strings.Contains(res.Refused, "organizations.enabled") {
+	refused := waiting.InputsOnRecord(rowan)
+	refused["organizations"].(map[string]any)[enabledKey] = true
+	if res := verifyLiveWith(t, admin, rowan, verify.Inputs{Source: "handed over", Values: refused}); !strings.Contains(res.Refused, refusedSwitch) {
+		t.Fatalf("verify of refused inputs handed over: refused %q", res.Refused)
+	}
+	if after := getAction(t, aliceC, a.Name); !reflect.DeepEqual(probesOf(after, rowan), probes) || !reflect.DeepEqual(stageOf(&after, rowan), stage) {
+		t.Fatalf("the refusal of inputs handed over changed the Action: probes %+v, stage %+v", probesOf(after, rowan), stageOf(&after, rowan))
+	}
+
+	storedAsRefused(t, st, a.Name, rowan)
+	if res := verifyLive(t, admin, rowan); !strings.Contains(res.Refused, refusedSwitch) {
 		t.Fatalf("verify of a refused render: refused %q, state %q", res.Refused, res.State)
 	}
-	if got := getAction(t, aliceC, a.Name); got.Status.State != actions.StateWaitingForCustomer || stageOf(&got, rowan).State != actions.StateWaitingForCustomer {
-		t.Fatalf("after the verify: %s, stage %s", got.Status.State, stageOf(&got, rowan).State)
+	got := getAction(t, aliceC, a.Name)
+	if stage := stageOf(&got, rowan); got.Status.State != actions.StateWaitingForCustomer || stage.State != actions.StateWaitingForCustomer || !strings.Contains(stage.Message, refusedSwitch) {
+		t.Fatalf("after the verify: %s, stage %s: %q", got.Status.State, stage.State, stage.Message)
+	}
+	if kept := probesOf(got, rowan); !reflect.DeepEqual(kept, probes) {
+		t.Fatalf("the refused verify replaced the probes on record:\n%+v\n%+v", probes, kept)
+	}
+}
+
+// A stage failed on a red probe keeps the probe's cause in its message when
+// a refused render is noted after it, so the watch still re-reads it.
+func TestARefusedRenderKeepsAProbeFailureReRead(t *testing.T) {
+	st := newStack(t)
+	a, aliceC := rolledOut(t, st)
+	admin := adminLive(t, st)
+	redEdgeProbe(t, st, aliceC, rowan)
+	if w, text, isErr := watchCall(t, admin, a.Name); isErr || w.State != actions.StateFailed {
+		t.Fatalf("the red probe: %v %s", isErr, text)
+	}
+	storedAsRefused(t, st, a.Name, rowan)
+	for n := range 2 {
+		w, text, isErr := watchCall(t, admin, a.Name)
+		if isErr || w.State != actions.StateFailed || w.Action == nil || !strings.Contains(stageOf(w.Action, rowan).Message, refusedSwitch) {
+			t.Fatalf("refused watch %d of a stage failed on a probe: %v %s", n+1, isErr, text)
+		}
 	}
 }

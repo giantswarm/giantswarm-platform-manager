@@ -170,7 +170,7 @@ func (t *Tools) verifyLive(ctx context.Context, args map[string]any) (any, error
 	out.Caller = id.String()
 	out.RenderedBy = t.renderedBy()
 	if record != nil {
-		if err := t.recordLiveVerify(ctx, *record, name, out); err != nil {
+		if err := t.recordLiveVerify(ctx, *record, name, out, given == nil); err != nil {
 			t.d.Log.Warn("live verify not recorded", identity.LogAttr(ctx), "action", record.Name, "error", err)
 		}
 	}
@@ -206,13 +206,28 @@ func givenInputs(args map[string]any) (*verify.Inputs, error) {
 // (the customer's action done flips a stage waiting for the customer to
 // enabled, and the action with it). list_installations reads it from there.
 // A stage rolling out is the watch's to carry; a failed one is over; an
-// action reverted or past its last word moves no more; a refused render
-// read nothing and moves no stage.
-func (t *Tools) recordLiveVerify(ctx context.Context, a actions.Action, installation string, res verify.Result) error {
+// action reverted or past its last word moves no more. A refused render read
+// nothing: the probes on record stand and no stage moves; when the refused
+// inputs are the action's own (onRecord), the stage's message says why until
+// a read of them renders.
+func (t *Tools) recordLiveVerify(ctx context.Context, a actions.Action, installation string, res verify.Result, onRecord bool) error {
 	status := a.Status
-	status.Probes = mergeProbes(status.Probes, installation, probesOf(installation, res))
 	status.Rollout = stagesOf(&a)
-	if i := stageIndex(status.Rollout, installation); i >= 0 && res.Refused == "" && !actions.Settled(status.State) && verifyMoves(status.Rollout.Installations[i].State) {
+	i := stageIndex(status.Rollout, installation)
+	if res.Refused != "" {
+		if !onRecord || i < 0 {
+			return nil
+		}
+		noteRefused(&status.Rollout.Installations[i], res.Refused)
+		_, err := t.d.Actions.UpdateStatus(ctx, &a, status)
+		return err
+	}
+	status.Probes = mergeProbes(status.Probes, installation, probesOf(installation, res))
+	if i >= 0 && onRecord {
+		st := &status.Rollout.Installations[i]
+		st.Message = withoutRefusal(st.Message)
+	}
+	if i >= 0 && !actions.Settled(status.State) && verifyMoves(status.Rollout.Installations[i].State) {
 		st := &status.Rollout.Installations[i]
 		prev := st.State
 		st.State, st.Message, _ = decideStage(prev, res)
