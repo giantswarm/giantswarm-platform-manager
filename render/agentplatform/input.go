@@ -986,19 +986,19 @@ func (in *Input) checkRecord() error {
 		return refuse(fmt.Sprintf("%s asks for the agent-manager's commit mode, and the fleet policy runs no agent-manager on %s's installations", describe("agentManager.github.enabled"), in.Installation.Customer))
 	}
 	if in.SessionIdleTTL != "" && in.Installation.ChartLine != lineFour {
-		return refuse(fmt.Sprintf("%s is the 4 chart line's, and this installation runs the %s line; the record's chart line decides", describe("sessions.idleTTL"), in.Installation.ChartLine))
+		return in.refuseOffLineFour("sessions.idleTTL")
 	}
 	if in.SessionIdleTTL != "" && !in.kagent() {
 		return refuse(fmt.Sprintf("%s bounds how long kagent keeps an idle Session, and the fleet policy runs no kagent on %s's installations", describe("sessions.idleTTL"), in.Installation.Customer))
 	}
-	if err := in.checkSkillManagerRelease("kagent with the agent-manager", in.kagent() && in.agentManager(),
-		releaseChoice{in.DefaultAgent.disabled(), "defaultAgent.enabled", "turns off the default agent in kagent"},
-		releaseChoice{in.DefaultAgent.ModelConfig != "", "defaultAgent.modelConfig", "names the default agent's ModelConfig in kagent"}); err != nil {
+	if err := in.checkSkillManagerChart("kagent with the agent-manager", in.kagent() && in.agentManager(),
+		skillManagerChartChoice{in.DefaultAgent.disabled(), "defaultAgent.enabled", "turns off the default agent in kagent"},
+		skillManagerChartChoice{in.DefaultAgent.ModelConfig != "", "defaultAgent.modelConfig", "names the default agent's ModelConfig in kagent"}); err != nil {
 		return err
 	}
-	if err := in.checkSkillManagerRelease(componentAgentManager, in.agentManager(),
-		releaseChoice{len(in.SkillManagerSources) > 0, "skillManager.sources", "lists the sources of the skill-manager, which runs with the agent-manager"},
-		releaseChoice{in.SkillManagerAppSecret != "", "skillManager.appSecretName", "names the GitHub App of the skill-manager, which runs with the agent-manager"}); err != nil {
+	if err := in.checkSkillManagerChart(componentAgentManager, in.agentManager(),
+		skillManagerChartChoice{len(in.SkillManagerSources) > 0, "skillManager.sources", "lists the sources of the skill-manager, which runs with the agent-manager"},
+		skillManagerChartChoice{in.SkillManagerAppSecret != "", "skillManager.appSecretName", "names the GitHub App of the skill-manager, which runs with the agent-manager"}); err != nil {
 		return err
 	}
 	if err := in.checkSkillSources(); err != nil {
@@ -1134,23 +1134,29 @@ func releaseFilterAdmits(semver string) bool {
 	return releaseTag.MatchString(semver)
 }
 
-// releaseChoice is an input the person chose, or not, that the meta chart
-// takes from skillManagerChart on; what says what the input does.
-type releaseChoice struct {
+// refuseOffLineFour refuses input, a choice of the 4 chart line's, on an
+// installation the record puts on another line.
+func (in *Input) refuseOffLineFour(input string) error {
+	return refuse(fmt.Sprintf("%s is the 4 chart line's, and this installation runs the %s line; the record's chart line decides", describe(input), in.Installation.ChartLine))
+}
+
+// skillManagerChartChoice is an input the person chose, or not, that the
+// meta chart takes from skillManagerChart on; what says what the input does.
+type skillManagerChartChoice struct {
 	chosen      bool
 	input, what string
 }
 
-// checkSkillManagerRelease refuses each chosen input outside the 4 chart
+// checkSkillManagerChart refuses each chosen input outside the 4 chart
 // line, where the fleet policy does not run component (runs), and with a
 // versions.chart hold below skillManagerChart.
-func (in *Input) checkSkillManagerRelease(component string, runs bool, choices ...releaseChoice) error {
+func (in *Input) checkSkillManagerChart(component string, runs bool, choices ...skillManagerChartChoice) error {
 	for _, c := range choices {
 		if !c.chosen {
 			continue
 		}
 		if in.Installation.ChartLine != lineFour {
-			return refuse(fmt.Sprintf("%s is the 4 chart line's, and this installation runs the %s line; the record's chart line decides", describe(c.input), in.Installation.ChartLine))
+			return in.refuseOffLineFour(c.input)
 		}
 		if !runs {
 			return refuse(fmt.Sprintf("%s %s, and the fleet policy runs no %s on %s's installations", describe(c.input), c.what, component, in.Installation.Customer))
@@ -1167,10 +1173,10 @@ func (in *Input) checkSkillManagerRelease(component string, runs bool, choices .
 // refuses skillManager, skill-manager and defaultAgent below it.
 const skillManagerChart = "4.179.0"
 
-// agentManagerSkillManager is the first agent-manager release that takes its
-// skills from the skill-manager (the meta chart's
-// agent-platform.agentManager.skillManagerFloor).
-const agentManagerSkillManager = "2.24.0"
+// agentManagerViaSkillManager is the first agent-manager release that takes
+// its skills from the skill-manager (the meta chart's
+// agent-platform.agentManager.skillManagerFloor, behind its viaSkillManager).
+const agentManagerViaSkillManager = "2.24.0"
 
 // platformSkillsRepository is the platform's own skill source, which the
 // meta chart lists first (skills.platformSource, never turned off by this
@@ -1190,8 +1196,8 @@ func (in *Input) checkSkillSources() error {
 			return refuse(fmt.Sprintf("%s entry %d (%s) names the platform's own skill repository, which the meta chart already lists read-only at its release; remove the entry", describe("skillManager.sources"), i, s.URL))
 		}
 	}
-	if len(in.AgentManagerSkills.Repositories) > 0 && in.Installation.ChartLine == lineFour && holdAdmits(in.Versions.Chart, skillManagerChart) && holdAdmits(in.Versions.Components[componentAgentManager], agentManagerSkillManager) {
-		return refuse(fmt.Sprintf("%s is set, and from the meta chart %s with the agent-manager %s on the agent-manager takes its skills from the skill-manager and the meta chart fails on the list; move it into skillManager.sources, or hold %s or %s below those releases", describe("agentManager.skills.repositories"), skillManagerChart, agentManagerSkillManager, describe("versions.chart"), describe("versions.components.agent-manager")))
+	if len(in.AgentManagerSkills.Repositories) > 0 && in.Installation.ChartLine == lineFour && holdAdmits(in.Versions.Chart, skillManagerChart) && holdAdmits(in.Versions.Components[componentAgentManager], agentManagerViaSkillManager) {
+		return refuse(fmt.Sprintf("%s is set, and from the meta chart %s with the agent-manager %s on the agent-manager takes its skills from the skill-manager and the meta chart fails on the list; move it into skillManager.sources, or hold %s or %s below those releases", describe("agentManager.skills.repositories"), skillManagerChart, agentManagerViaSkillManager, describe("versions.chart"), describe("versions.components.agent-manager")))
 	}
 	if len(in.SkillManagerSources) > 0 && len(in.AgentManagerSkills.Repositories) > 0 {
 		return refuse(fmt.Sprintf("%s and %s are both set, and the agent-manager takes its skills from the skill-manager's sources; move the agent-manager's list into skillManager.sources", describe("skillManager.sources"), describe("agentManager.skills.repositories")))
