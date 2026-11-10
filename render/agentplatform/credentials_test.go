@@ -14,7 +14,7 @@ const (
 	formURL             = "https://portal.example.com/credentials/{operation}"
 	insecureFormURL     = "http://portal.example.com/{operation}"
 	missingOperationURL = "https://portal.example.com/credentials"
-	refusedUIURL        = "HTTPS URL"
+	refusedUIURL        = "RFC 6570 URI template"
 	refusedManagerFloor = "floor of"
 )
 
@@ -77,12 +77,14 @@ func TestAgentManagerCredentialInputsFailClosed(t *testing.T) {
 		{"old manager", func(input map[string]any) {
 			input["versions"] = map[string]any{keyComponents: map[string]any{componentAgentManager: "2.21.0"}}
 		}, refusedManagerFloor},
-		{"no manager floor", func(input map[string]any) { delete(input, "versions") }, refusedManagerFloor},
+		{"old chart", func(input map[string]any) {
+			input["versions"] = map[string]any{keyChart: ">=4.176.0 <4.177.0"}
+		}, "meta chart"},
 		{"release candidate manager", func(input map[string]any) {
 			input["versions"] = map[string]any{keyComponents: map[string]any{componentAgentManager: ">=2.22.0-rc.12 <3.0.0"}}
 		}, refusedManagerFloor},
 		{"old muster", func(input map[string]any) {
-			input["versions"].(map[string]any)[keyComponents].(map[string]any)[componentMuster] = ">=5.60.0 <6.0.0"
+			input["versions"] = map[string]any{keyComponents: map[string]any{componentMuster: ">=5.60.0 <6.0.0"}}
 		}, "muster version floor"},
 		{"client collision", func(input map[string]any) {
 			other, _ := loadInput(t, shapeHubPrivateTarget)
@@ -110,7 +112,7 @@ func TestAgentManagerCredentialInputsFailClosed(t *testing.T) {
 		}, refusedUIURL},
 		{"unknown placeholder", func(input map[string]any) {
 			input["agentManager"].(map[string]any)["credentials"] = map[string]any{keyCredentialUI: formURL + "/{foo}"}
-		}, "no other braces"},
+		}, refusedUIURL},
 		{"placeholder in host", func(input map[string]any) {
 			// #nosec G101 -- a URL template, no credential value
 			input["agentManager"].(map[string]any)["credentials"] = map[string]any{keyCredentialUI: "https://{operation}.example.com/credentials"}
@@ -128,11 +130,21 @@ func TestAgentManagerCredentialInputsFailClosed(t *testing.T) {
 	}
 }
 
-func TestAgentManagerCredentialMusterFloor(t *testing.T) {
-	input, _ := credentialInput(t, shapeGiantswarmSlackAppPub)
-	input["versions"].(map[string]any)[keyComponents].(map[string]any)[componentMuster] = ">=5.61.0 <6.0.0"
-	_, err := Parse(input)
-	require.NoError(t, err)
+func TestAgentManagerCredentialHoldsAdmitted(t *testing.T) {
+	for name, versions := range map[string]any{
+		"no hold":            nil,
+		"chart range":        map[string]any{keyChart: ">=4.170.0 <5.0.0"},
+		"manager and muster": map[string]any{keyComponents: map[string]any{componentAgentManager: ">=2.22.0 <3.0.0", componentMuster: ">=5.61.0 <6.0.0"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			input, _ := credentialInput(t, shapeGiantswarmSlackAppPub)
+			if versions != nil {
+				input["versions"] = versions
+			}
+			_, err := Parse(input)
+			require.NoError(t, err)
+		})
+	}
 }
 
 func TestAgentManagerCredentialUIIsInputOnly(t *testing.T) {
@@ -155,7 +167,7 @@ func credentialInput(t *testing.T, shape string) (map[string]any, map[string]str
 		"githubTokenExchange": map[string]any{keyEnabled: true},
 		"credentials":         map[string]any{keyCredentialUI: formURL},
 	}
-	input["versions"] = map[string]any{keyComponents: map[string]any{componentAgentManager: ">=2.22.0 <3.0.0"}}
+	delete(input, "versions")
 	return input, secrets
 }
 
@@ -172,8 +184,16 @@ func TestValidCredentialUI(t *testing.T) {
 		"https://portal.example.com:8443/orgs/{parent}/{organization}?operation={operation}": true,
 		insecureFormURL:     false,
 		missingOperationURL: false,
-		"https://user@portal.example.com/{operation}":     false,
-		"https://portal.example.com/{operation}#fragment": false,
+		"https://user@portal.example.com/{operation}":              false,
+		"https://portal.example.com/{operation}#fragment":          false,
+		"https://portal.example.com/credentials{?operation}":       true,
+		"https://portal.example.com/orgs{/parent,operation}":       true,
+		"https://portal.example.com/credentials/{+operation}":      true,
+		"https://portal.example.com/a b/{operation}":               false,
+		"https://portal.example.com/a|b/{operation}":               false,
+		"https://portal.example.com/{operation}?again={operation}": false,
+		"https://portal.example.com/{operation}/{foo}":             false,
+		"https://{organization}.example.com/{operation}":           false,
 	} {
 		require.Equal(t, want, validCredentialUI(template), template)
 	}

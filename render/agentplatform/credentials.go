@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/yosida95/uritemplate/v3"
+
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
@@ -24,7 +26,12 @@ const ManagerExchangeSubjectAudience = authenticatorClient
 const (
 	agentManagerBrokerAudience = "agent-manager-github"
 	agentManagerBrokerSecret   = "agent-manager-github-broker"
-	managerOperationFloor      = "2.22.0"
+	// credentialChart is the first meta chart that carries agent-manager's
+	// credential operations (giantswarm/agent-platform#1312); its ranges admit
+	// agent-manager managerOperationFloor and muster musterCredentialFloor
+	// and later only.
+	credentialChart       = "4.177.0"
+	managerOperationFloor = "2.22.0"
 	// musterCredentialFloor is the first muster that passes a backend's
 	// input_required through to MCP 2026-07-28 clients (giantswarm/muster#1812)
 	// and accepts the configured Dex audiences alongside resource access tokens.
@@ -38,8 +45,11 @@ func (in *Input) validateAgentManagerCredentials() error {
 	if !in.agentManager() || in.Installation.ChartLine != lineFour {
 		return refuse("agentManager credential operations require agent-manager on the 4 chart line")
 	}
-	if !floorAtLeast(in.Versions.Components[componentAgentManager], managerOperationFloor) {
-		return refuse("agentManager credential operations require versions.components.agent-manager with a floor of " + managerOperationFloor + " or later")
+	if !holdAdmits(in.Versions.Chart, credentialChart) {
+		return refuse("agentManager credential operations require the meta chart " + credentialChart + " or later, and versions.chart holds an earlier one")
+	}
+	if hold := in.Versions.Components[componentAgentManager]; hold != "" && !floorAtLeast(hold, managerOperationFloor) {
+		return refuse("agentManager credential operations require a versions.components.agent-manager floor of " + managerOperationFloor + " or later")
 	}
 	if in.AgentManagerTokenExchange && in.AgentManagerCommit {
 		return refuse("agentManager.githubTokenExchange.enabled and agentManager.github.enabled are mutually exclusive")
@@ -58,7 +68,7 @@ func (in *Input) validateAgentManagerCredentials() error {
 		}
 	}
 	if in.AgentManagerCredentialUI != "" && !validCredentialUI(in.AgentManagerCredentialUI) {
-		return refuse("agentManager.credentials.uiURL requires an HTTPS URL with exactly one {operation} in its path or query, optionally {parent} and {organization}, and no other braces, user information or fragment")
+		return refuse("agentManager.credentials.uiURL requires an HTTPS RFC 6570 URI template with one {operation} expression in its path or query, using only {operation}, {parent} and {organization}, and no user information or fragment")
 	}
 	return nil
 }
@@ -70,15 +80,35 @@ func floorAtLeast(hold, minimum string) bool {
 	return err == nil && !version.LessThan(floor)
 }
 
+// credentialUIVariables are the variables agent-manager expands in the
+// credential UI template.
+var credentialUIVariables = []string{"operation", "parent", "organization"}
+
 // validCredentialUI applies agent-manager's
-// organizations.ValidateCredentialUIURL, so a template the definition accepts
-// never stops the manager from starting.
+// organizations.ValidateCredentialUIURL (an RFC 6570 URI template), so a
+// template the definition accepts never stops the manager from starting.
 func validCredentialUI(template string) bool {
-	const marker = "credential-operation-placeholder"
-	resolved := strings.NewReplacer("{operation}", marker, "{parent}", marker, "{organization}", marker).Replace(template)
-	parsed, err := url.Parse(resolved)
-	return err == nil && !strings.ContainsAny(resolved, "{}") && parsed.Scheme == "https" && parsed.Host != "" && parsed.User == nil &&
-		parsed.Fragment == "" && !strings.Contains(parsed.Host, marker) && strings.Count(template, "{operation}") == 1
+	const marker = "credentialoperationplaceholder"
+	parsed, err := uritemplate.New(template)
+	if err != nil || !slices.Contains(parsed.Varnames(), "operation") {
+		return false
+	}
+	for _, name := range parsed.Varnames() {
+		if !slices.Contains(credentialUIVariables, name) {
+			return false
+		}
+	}
+	expanded, err := parsed.Expand(uritemplate.Values{
+		"operation":    uritemplate.String(marker + "o"),
+		"parent":       uritemplate.String(marker + "p"),
+		"organization": uritemplate.String(marker + "n"),
+	})
+	if err != nil {
+		return false
+	}
+	u, err := url.Parse(expanded)
+	return err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil && u.Fragment == "" &&
+		!strings.Contains(u.Host, marker) && strings.Count(expanded, marker+"o") == 1
 }
 
 // brokerSubjectAudiences are the audiences muster's broker accepts on this

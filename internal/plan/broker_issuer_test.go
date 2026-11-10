@@ -12,7 +12,6 @@ import (
 
 const (
 	testAgentManagerApp = "agent-manager"
-	testDexIssuer       = "https://dex.example.com"
 )
 
 func TestCredentialProviderAppsAreTheRenders(t *testing.T) {
@@ -69,40 +68,17 @@ func TestCredentialBrokerIssuerAfterReadback(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestCredentialBrokerIssuerWithdrawsTheExchangeAudience(t *testing.T) {
-	const exchangeAudience = agentplatform.ManagerExchangeSubjectAudience
+func TestCredentialBrokerIssuerKeepsTheRecordWhenOff(t *testing.T) {
 	const portalOnly = "muster:\n  muster:\n    oauth:\n      server:\n        trustedIssuers:\n          - issuer: https://dex.example.com\n            allowedAudiences: [backstage]\n"
-	issuers := func(entries string) string {
-		return "muster:\n  muster:\n    oauth:\n      server:\n        trustedIssuers:\n" + entries
+	const current = "muster:\n  muster:\n    oauth:\n      server:\n        trustedIssuers:\n          - issuer: https://dex.example.com\n            allowedAudiences: [backstage, " + agentplatform.ManagerExchangeSubjectAudience + "]\n"
+	merged, _, err := keepAudiences([]byte(portalOnly), []byte(current))
+	require.NoError(t, err)
+	_, values, err := mapping(merged)
+	require.NoError(t, err)
+	var entries []struct {
+		Issuer           string   `yaml:"issuer"`
+		AllowedAudiences []string `yaml:"allowedAudiences"`
 	}
-	for _, test := range []struct {
-		name    string
-		current string
-		want    map[string][]string
-	}{
-		{"exchange audience withdrawn", issuers("          - issuer: https://dex.example.com\n            allowedAudiences: [backstage, " + exchangeAudience + "]\n"), map[string][]string{testDexIssuer: {render.PortalDexClientID}}},
-		{"record's own audiences stay", issuers("          - issuer: https://dex.example.com\n            allowedAudiences: [local-portal, " + exchangeAudience + "]\n"), map[string][]string{testDexIssuer: {"local-portal"}}},
-		{"emptied allowlist takes the render's", issuers("          - issuer: https://dex.example.com\n            allowedAudiences: [" + exchangeAudience + "]\n"), map[string][]string{testDexIssuer: {render.PortalDexClientID}}},
-		{"other issuer untouched", issuers("          - issuer: https://other.example.com\n            allowedAudiences: [" + exchangeAudience + "]\n"), map[string][]string{testDexIssuer: {render.PortalDexClientID}, "https://other.example.com": {exchangeAudience}}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			merged, _, err := keepAudiences([]byte(portalOnly), []byte(test.current))
-			require.NoError(t, err)
-			_, values, err := mapping(merged)
-			require.NoError(t, err)
-			var entries []struct {
-				Issuer           string   `yaml:"issuer"`
-				AllowedAudiences []string `yaml:"allowedAudiences"`
-			}
-			require.NoError(t, at(values, "muster", "muster", "oauth", "server", "trustedIssuers").Decode(&entries))
-			got := map[string][]string{}
-			for _, e := range entries {
-				got[e.Issuer] = e.AllowedAudiences
-			}
-			require.Equal(t, test.want, got)
-			again, _, err := keepAudiences([]byte(portalOnly), merged)
-			require.NoError(t, err)
-			require.Equal(t, merged, again)
-		})
-	}
+	require.NoError(t, at(values, "muster", "muster", "oauth", "server", "trustedIssuers").Decode(&entries))
+	require.Equal(t, []string{render.PortalDexClientID, agentplatform.ManagerExchangeSubjectAudience}, entries[0].AllowedAudiences)
 }

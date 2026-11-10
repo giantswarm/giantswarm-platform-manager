@@ -466,7 +466,7 @@
             "type": "boolean", "default": false, "x-source": "person",
             "x-readback": {"file": "configmap", "key": "agent-manager.githubTokenExchange.endpoint", "kind": "present"},
             "x-feature": "runtime", "x-renders": ["configmap:agent-manager.githubTokenExchange", "configmap:muster.muster.providerApps", "configmap:muster.muster.oauth.server.tokenExchangeBroker"],
-            "description": "Use the dedicated confidential RFC 8693 client to retrieve the person's manager App grant. Requires github.enabled=false, manager >=2.22.0, muster >=5.61.0 and the installation's giantswarm-agent-manager-oauth-client Secret. Generates an isolated client credential; grants remain with the manager App."
+            "description": "Use the dedicated confidential RFC 8693 client to retrieve the person's manager App grant. Requires github.enabled=false, the meta chart 4.177.0 or later (manager >=2.22.0, muster >=5.61.0) and the installation's giantswarm-agent-manager-oauth-client Secret. Generates an isolated client credential; grants remain with the manager App."
           }}
         },
         "credentials": {
@@ -475,7 +475,7 @@
             "type": "string", "default": "", "x-source": "person",
             "x-readback": {"file": "configmap", "key": "agent-manager.credentials.uiURL"},
             "x-feature": "runtime", "x-renders": ["configmap:agent-manager.credentials.uiURL"],
-            "description": "Client-owned HTTPS credential UI URL template with exactly one {operation} in its path or query, optionally {parent} and {organization}, and no other braces; manager >=2.22.0. Client-owned input; never derived."
+            "description": "Client-owned HTTPS RFC 6570 URI template for the credential UI with one {operation} expression in its path or query, using only {operation}, {parent} and {organization}; meta chart 4.177.0 or later with agentPlatformOrganizations.enabled. Never derived."
           }}
         },
         "skills": {
