@@ -275,7 +275,9 @@ type InstallationRollout struct {
 // ReleaseBaseline is the Helm release a HelmRelease (Release, as
 // "namespace/name") ran when a pull request (PullRequest, as "owner/repo#n")
 // was merged: its version, when it was deployed and the digest of its values
-// (helm-controller's configDigest).
+// (helm-controller's configDigest). Version 0, with no digest, says no
+// release ran at the merge: the HelmRelease was created after it and
+// installed its first release after it.
 type ReleaseBaseline struct {
 	Release      string     `json:"release"`
 	PullRequest  string     `json:"pullRequest"`

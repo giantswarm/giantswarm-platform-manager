@@ -762,6 +762,75 @@ func TestWatchActionCountsAReleaseInTheMergesSecondBeforeIt(t *testing.T) {
 	}
 }
 
+// An enablement that brings the meta chart's HelmRelease for the first time:
+// before the merge there is no HelmRelease, so no release ran at the merge,
+// and the first release Helm installs after it is the proof. The stage waits
+// while the HelmRelease is missing and is enabled once Flux created it and
+// its release v1 runs.
+func TestWatchActionProvesAFirstInstallByItsFirstRelease(t *testing.T) {
+	st := newStack(t)
+	a, _ := mergedRowan(t, st)
+	admin := adminLive(t, st)
+	fluxBehind(t, st, st.inst, a, rowan)
+	hr := st.inst.take(helmReleaseKind, fluxNamespace, platformRelease)
+	if w, text, isErr := watchCall(t, admin, a.Name); isErr || w.Ready || w.State != actions.StateRollingOut {
+		t.Fatalf("no HelmRelease yet: %v %s", isErr, text)
+	}
+	_, merge := configsMerge(t, &a, rowan)
+	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
+	st.inst.install(hr, valuesMerged)
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || !w.Ready || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled {
+		t.Fatalf("the first release: %v %s", isErr, text)
+	}
+}
+
+// A HelmRelease older than the merge whose release Flux uninstalled and
+// installed again after it: Helm counts from v1 again and Flux clears the
+// history at the install, so the history keeps no release from before the
+// merge. A release ran at the merge all the same: its values are not known,
+// and the stage is not proven.
+func TestWatchActionTakesNoReinstallForAFirstInstall(t *testing.T) {
+	st := newStack(t)
+	a, _ := mergedRowan(t, st)
+	admin := adminLive(t, st)
+	fluxBehind(t, st, st.inst, a, rowan)
+	_, merge := configsMerge(t, &a, rowan)
+	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
+	st.inst.reinstall(fluxNamespace, platformRelease, valuesBefore)
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || !w.Ready || w.State != actions.StateRollingOut {
+		t.Fatalf("a reinstall: %v %s", isErr, text)
+	}
+	if msg := stageOf(w.Action, rowan).Message; !strings.Contains(msg, "runs release v1 since ") || !strings.Contains(msg, "neither in its history nor on record") {
+		t.Fatalf("the stage's message: %q", msg)
+	}
+}
+
+// A HelmRelease created after the merge whose history keeps no release v1:
+// it took over a Helm release that ran at the merge (Flux clears the history
+// and upgrades a release it does not manage yet), or Flux truncated its
+// history. Its object is new, but a release may have run at the merge: the
+// stage is not proven.
+func TestWatchActionTakesNoTruncatedHistoryForAFirstInstall(t *testing.T) {
+	st := newStack(t)
+	a, _ := mergedRowan(t, st)
+	admin := adminLive(t, st)
+	fluxBehind(t, st, st.inst, a, rowan)
+	_, merge := configsMerge(t, &a, rowan)
+	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
+	at := time.Now().Add(time.Second)
+	st.inst.recreate(fluxNamespace, platformRelease, at)
+	st.inst.releaseVersion(fluxNamespace, platformRelease, valuesBefore, 11, at)
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || !w.Ready || w.State != actions.StateRollingOut {
+		t.Fatalf("a history without v1: %v %s", isErr, text)
+	}
+	if msg := stageOf(w.Action, rowan).Message; !strings.Contains(msg, "runs release v11 since ") || !strings.Contains(msg, "neither in its history nor on record") {
+		t.Fatalf("the stage's message: %q", msg)
+	}
+}
+
 // A merge that rewrites the values file with the values it had — a comment,
 // the layout — composes the same values, and Flux runs no release for it:
 // the stage asks no new release of the meta chart's HelmRelease and is

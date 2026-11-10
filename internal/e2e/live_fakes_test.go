@@ -441,19 +441,28 @@ func (f *fakeInstallation) release(namespace, name, digest string) {
 
 // releaseAt is release with the release deployed at deployedAt.
 func (f *fakeInstallation) releaseAt(namespace, name, digest string, deployedAt time.Time) {
+	f.releaseVersion(namespace, name, digest, 0, deployedAt)
+}
+
+// releaseVersion is releaseAt with the Helm release's version: the one after
+// the newest of the history when version is 0.
+func (f *fakeInstallation) releaseVersion(namespace, name, digest string, version int, deployedAt time.Time) {
 	f.edit(helmReleaseKind, namespace, name, func(obj map[string]any) {
 		status := obj[statusKey].(map[string]any)
 		history, _ := status["history"].([]any)
-		version := 0
+		newest := 0
 		for _, h := range history {
 			entry := h.(map[string]any)
 			entry[statusKey] = releaseSuperseded
-			if v, ok := entry["version"].(int); ok && v > version {
-				version = v
+			if v, ok := entry["version"].(int); ok && v > newest {
+				newest = v
 			}
 		}
+		if version == 0 {
+			version = newest + 1
+		}
 		history = append([]any{map[string]any{"chartName": name, "chartVersion": "4.50.0", "digest": strings.Repeat("cd", 32), nameKey: name, namespaceKey: platformNamespace,
-			statusKey: releaseDeployed, "version": version + 1, "lastDeployed": deployedAt.UTC().Format(time.RFC3339), "configDigest": digest}}, history...)
+			statusKey: releaseDeployed, "version": version, "lastDeployed": deployedAt.UTC().Format(time.RFC3339), "configDigest": digest}}, history...)
 		slices.SortFunc(history, func(a, b any) int { return b.(map[string]any)["version"].(int) - a.(map[string]any)["version"].(int) })
 		for i := 1; i < len(history); i++ {
 			if state := history[i].(map[string]any)[statusKey]; state == releaseDeployed || state == releaseSuperseded {
@@ -464,6 +473,53 @@ func (f *fakeInstallation) releaseAt(namespace, name, digest string, deployedAt 
 		status["history"] = history
 	})
 }
+
+// take removes object kind namespace/name from the installation and returns
+// it: an object Flux has not created yet.
+func (f *fakeInstallation) take(kind, namespace, name string) map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	key := objectKey(kind, namespace, name)
+	obj := f.objects[key]
+	delete(f.objects, key)
+	return obj
+}
+
+// install has Flux create HelmRelease obj, as take returned it, at the next
+// whole second, and Helm install its first release with values of digest:
+// release v1 alone in the history.
+func (f *fakeInstallation) install(obj map[string]any, digest string) {
+	at := time.Now().Add(time.Second)
+	f.mu.Lock()
+	meta := obj[metadataKey].(map[string]any)
+	f.objects[objectKey(helmReleaseKind, meta["namespace"].(string), meta[nameKey].(string))] = obj
+	f.mu.Unlock()
+	f.recreate(meta["namespace"].(string), meta[nameKey].(string), at)
+	f.releaseAt(meta["namespace"].(string), meta[nameKey].(string), digest, at)
+}
+
+// recreate has HelmRelease namespace/name created at created with no
+// release history: Flux created it again, or it is new.
+func (f *fakeInstallation) recreate(namespace, name string, created time.Time) {
+	f.edit(helmReleaseKind, namespace, name, func(obj map[string]any) {
+		obj[metadataKey].(map[string]any)[creationTimestampKey] = created.UTC().Format(time.RFC3339)
+		obj[statusKey].(map[string]any)["history"] = []any{}
+	})
+}
+
+// reinstall has Flux uninstall HelmRelease namespace/name's release and
+// install it again now with values of digest: helm-controller clears the
+// history at an install (internal/reconcile/install.go, ClearHistory), and
+// Helm counts from v1 again.
+func (f *fakeInstallation) reinstall(namespace, name, digest string) {
+	f.edit(helmReleaseKind, namespace, name, func(obj map[string]any) {
+		obj[statusKey].(map[string]any)["history"] = []any{}
+	})
+	f.release(namespace, name, digest)
+}
+
+// creationTimestampKey is when the apiserver created an object.
+const creationTimestampKey = "creationTimestamp"
 
 // The statuses of a Helm release in a HelmRelease's history.
 const (
@@ -609,8 +665,10 @@ func busyLog() string {
 func bulky(obj map[string]any) {
 	fields := strings.Repeat(`{"f:spec":{"f:values":{"f:kagent":{"f:providers":{}}}}},`, 1500)
 	obj[metadataKey] = map[string]any{
-		"annotations":   map[string]any{lastAppliedAnnotation: `{"apiVersion":"helm.toolkit.fluxcd.io/v2","kind":"HelmRelease","spec":` + fields + `}`},
-		"managedFields": []any{map[string]any{"manager": "helm-controller", "operation": "Apply", "fieldsType": "FieldsV1", "fieldsV1": fields}},
+		// Created long before the tests' merges, and its releases after it.
+		creationTimestampKey: "2026-09-01T06:00:00Z",
+		"annotations":        map[string]any{lastAppliedAnnotation: `{"apiVersion":"helm.toolkit.fluxcd.io/v2","kind":"HelmRelease","spec":` + fields + `}`},
+		"managedFields":      []any{map[string]any{"manager": "helm-controller", "operation": "Apply", "fieldsType": "FieldsV1", "fieldsV1": fields}},
 	}
 	// Flux keeps the newest release and the previous successful one.
 	var history []any

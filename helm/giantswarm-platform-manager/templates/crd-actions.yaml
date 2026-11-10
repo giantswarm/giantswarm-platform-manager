@@ -220,7 +220,7 @@ spec:
                           reportedAt: {type: string, format: date-time}
                           noticedAt: {type: string, format: date-time}
                           baselines:
-                            description: The Helm releases that ran at the stage's merges, as the watch first read them in a release history.
+                            description: The Helm releases that ran at the stage's merges, as the watch first read them in a release history; version 0 when no release ran at a merge (the HelmRelease was created and installed after it).
                             type: array
                             items:
                               type: object
