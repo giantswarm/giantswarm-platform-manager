@@ -158,7 +158,7 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 		return nil, fmt.Errorf("%s: %w", ToolWatchAction, err)
 	}
 	res := verify.CompareLive(ctx, verify.LiveOptions{Definition: def, Installation: st.Name, State: settledState(st.State),
-		Inputs: verify.Inputs{Source: "action " + a.Name, Values: inputs, Typed: a.Spec.Inputs}, Kept: a.KeptOnRecord(st.Name), Cluster: cluster, Probes: t.d.Probes, Person: id.String(), AnonymousProbes: true, Log: t.d.Log})
+		Inputs: verify.Inputs{Source: "action " + a.Name, Values: inputs, Typed: a.Spec.Inputs}, Kept: a.KeptOnRecord(st.Name), Cluster: cluster, Probes: t.d.Probes, Person: id.String(), AnonymousProbes: true, Rollout: true, Log: t.d.Log})
 	res.Caller = id.String()
 	// A refused render reads no Flux object and no probe: nothing moves the
 	// stage, and its message says why.
@@ -167,20 +167,35 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 	}
 	objects, ready, failed := rolloutObjects(res)
 	prev := st.State
+	// Every object Ready is not yet the merged change: a stage that has not
+	// reached a state reads the proof that the installation runs it.
+	var waits []rolloutWait
+	if ready && !failed && (prev == actions.StateRollingOut || prev == actions.StateFailed) {
+		if waits, err = t.rolloutWaits(ctx, def, a, &status, st.Name, res); err != nil {
+			return nil, fmt.Errorf("%s: whether %s runs the merged revision could not be read as you: %w; nothing is decided — call again", ToolWatchAction, st.Name, err)
+		}
+	}
+	late := overdue(waits, lastMerge(a, status, st.Name))
 	st.Objects, st.WatchedAt, st.WatchedBy = objects, now(), id.String()
 	status.Probes = mergeProbes(status.Probes, st.Name, probesOf(st.Name, res))
 	server := t.d.Live.KubernetesServer(st.Name)
 	out := WatchResult{Installation: st.Name, Objects: objects, Ready: ready, Verify: &res, Planned: plannedDimensions(res), NotRead: notRead(res, server)}
 	out.Private = privateNote(st.Name, inputs, out.NotRead, res, server)
-	if prev == actions.StateRollingOut && !ready && !failed {
-		st.Message = rolloutMessage(objects)
+	if prev == actions.StateRollingOut && !failed && (!ready || (len(waits) > 0 && !late)) {
+		st.Message = rolloutMessage(objects, waits)
 		applyStage(&status, i, prev)
 		out.Next = "call " + ToolWatchAction + " again once Flux has reconciled the installation; nothing is hurried"
+		if len(waits) > 0 {
+			out.Next = fmt.Sprintf("call %s again once Flux has applied the merge; a stage that does not run it %s after its last merge fails on it", ToolWatchAction, rolloutBound)
+		}
 		if status.State == actions.StateFailed {
 			out.Next = nextAfter(a, status, i)
 		}
 	} else {
 		state, message, red := decideStage(prev, res)
+		if len(waits) > 0 && (state == actions.StateEnabled || state == actions.StateWaitingForCustomer) {
+			state, message, red = actions.StateFailed, notRunning(waits, late), waitLines(waits)
+		}
 		out.Red = red
 		recovered := ""
 		if state != prev {
@@ -194,7 +209,7 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 		t.tellApplied(ctx, a, &status, i)
 		if st.ReportedAt == nil {
 			open, done := customerActions(def, inputs, res)
-			out.Report = t.report(a, status, i, res, open, done, recovered, out.Private, out.NotRead)
+			out.Report = t.report(a, status, i, res, waits, open, done, recovered, out.Private, out.NotRead)
 			if told := t.postResult(ctx, a, out.Report); told == "" {
 				st.ReportedAt = now()
 			} else {
@@ -421,15 +436,34 @@ func conditionStatus(message string) string {
 	return strings.TrimSpace(status)
 }
 
-// rolloutMessage is one line for a stage still rolling out.
-func rolloutMessage(objects []actions.RolloutObject) string {
+// rolloutMessage is one line for a stage still rolling out: the objects not
+// Ready, else what the proof of the merged revision waits for.
+func rolloutMessage(objects []actions.RolloutObject, waits []rolloutWait) string {
 	var notReady []string
 	for _, o := range objects {
 		if o.Ready != conditionTrue {
 			notReady = append(notReady, fmt.Sprintf("%s %s/%s (%s)", o.Kind, o.Namespace, o.Name, orNotRead(o.Message)))
 		}
 	}
+	if len(notReady) == 0 && len(waits) > 0 {
+		return fmt.Sprintf("rolling out: %d of %d Ready, %s%s", len(objects), len(objects), waitingForMerge, strings.Join(waitLines(waits), "; "))
+	}
 	return fmt.Sprintf("rolling out: %d of %d Ready; not Ready: %s", len(objects)-len(notReady), len(objects), strings.Join(notReady, ", "))
+}
+
+// waitingForMerge opens what a stage whose objects are all Ready still waits
+// for: the proof that the installation runs the merged revision.
+const waitingForMerge = "not yet on the merged revision: "
+
+// notRunning is the message of a stage that failed on the proof: a probe
+// red, as for a release Flux gave up on, so the watch re-reads it — past the
+// bound after its last merge (late), or read again after a failure.
+func notRunning(waits []rolloutWait, late bool) string {
+	when := "the installation does not run the merged revision: "
+	if late {
+		when = fmt.Sprintf("the installation does not run the merged revision %s after the last merge: ", rolloutBound)
+	}
+	return probeRed + when + strings.Join(waitLines(waits), "; ")
 }
 
 // orNotRead is an object's message in the stage's line: "not read" for none,
@@ -796,11 +830,12 @@ const reportLimit = 2900
 // report is the stage's report for the review's thread: the state, the pull
 // requests, the rollout per object, each probe by mark, the customer actions
 // still open and the ones the installation reads done, and what follows;
-// recovered, when the stage had failed on a probe, is the stop it read
-// itself out of; private and notRead say up front that the manager does not
+// waits, when the stage failed on the proof of the merged revision, are what
+// it does not run yet; recovered, when the stage had failed on a probe, is
+// the stop it read itself out of; private and notRead say up front that the manager does not
 // reach the installation's endpoints and name the reads not made, each with
 // what makes it work. Never a value.
-func (t *Tools) report(a *actions.Action, status actions.Status, i int, res verify.Result, open, done []render.Action, recovered, private string, notRead []NotRead) string {
+func (t *Tools) report(a *actions.Action, status actions.Status, i int, res verify.Result, waits []rolloutWait, open, done []render.Action, recovered, private string, notRead []NotRead) string {
 	stages := status.Rollout.Installations
 	st := stages[i]
 	var b strings.Builder
@@ -860,6 +895,11 @@ func (t *Tools) report(a *actions.Action, status actions.Status, i int, res veri
 		}
 	}
 	fmt.Fprintf(&b, "\nProbes: ✅ %d as defined", green)
+	if st.State == actions.StateFailed {
+		for _, w := range waits {
+			b.WriteString("\n❌ " + waitingForMerge + w.what)
+		}
+	}
 	for _, r := range red {
 		b.WriteString("\n" + r)
 	}

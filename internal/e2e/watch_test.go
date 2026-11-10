@@ -10,6 +10,7 @@ package e2e
 // next call.
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -59,6 +60,15 @@ func setAccepted(inst *fakeInstallation, status, msg string) {
 // on record: an action in rolling out with a healthy installation behind it.
 func rolledOut(t *testing.T, st *stack) (actions.Action, *client.Client) {
 	t.Helper()
+	a, aliceC := mergedRowan(t, st)
+	populateStage(t, st.inst, a, rowan)
+	return a, aliceC
+}
+
+// mergedRowan commits the enablement of rowan as alice, has carol approve
+// and alice merge: an action in rolling out, nothing on the installation yet.
+func mergedRowan(t *testing.T, st *stack) (actions.Action, *client.Client) {
+	t.Helper()
 	out, aliceC := commitRowan(t, st)
 	name := out.Action.Name
 	if _, text, isErr := decide(t, st.mcpClient(t, carolToken), tools.ToolApproveAction, map[string]any{tools.ArgAction: name}); isErr {
@@ -71,12 +81,42 @@ func rolledOut(t *testing.T, st *stack) (actions.Action, *client.Client) {
 	if isErr || m.Action == nil || m.Action.Status.State != actions.StateRollingOut {
 		t.Fatalf("merge: %v %s", isErr, text)
 	}
-	populateStage(t, st.inst, *m.Action, rowan)
 	return *m.Action, aliceC
 }
 
-// populateStage fills inst as the action's inputs on record render installation.
+// populateStage fills inst as the action's inputs on record render
+// installation, with the stage's merge applied by Flux (fluxApplied).
 func populateStage(t *testing.T, inst *fakeInstallation, a actions.Action, installation string) {
+	t.Helper()
+	populateBeforeFlux(t, inst, a, installation)
+	fluxApplied(inst, a, installation)
+}
+
+// fluxBehind fills inst as the action's inputs on record render
+// installation, every object Ready, with Flux not yet on the stage's merge:
+// the Konfiguration on the commit before the merge of the stage's configs
+// pull request, the meta chart's release on the values from before it.
+func fluxBehind(t *testing.T, st *stack, inst *fakeInstallation, a actions.Action, installation string) {
+	t.Helper()
+	populateBeforeFlux(t, inst, a, installation)
+	for _, k := range a.StagePullRequests(installation) {
+		pr := a.Status.PullRequests[k]
+		if !strings.HasSuffix(pr.Repository, "-configs") {
+			continue
+		}
+		parent := st.ghs.parentOf(pr.Repository, cmp.Or(pr.MergeCommit, pr.HeadSHA))
+		if parent == "" {
+			t.Fatalf("%s#%d: its merge has no parent on the history", pr.Repository, pr.Number)
+		}
+		inst.followConfigs(fluxNamespace, pr.Repository)
+		inst.applyConfigs(fluxNamespace, konfiguration, parent)
+	}
+}
+
+// populateBeforeFlux fills inst as the action's inputs on record render
+// installation; the Konfiguration and the meta chart's release as they were
+// before any merge of the tests.
+func populateBeforeFlux(t *testing.T, inst *fakeInstallation, a actions.Action, installation string) {
 	t.Helper()
 	def, ok := installations.FindCapability(a.Spec.Capability)
 	if !ok {
@@ -103,6 +143,23 @@ func populateStage(t *testing.T, inst *fakeInstallation, a actions.Action, insta
 		}
 	}
 	inst.populate(t, installation, res, valuesFile)
+}
+
+// fluxApplied has inst run the merge of installation's pull requests: the
+// Konfiguration applied the merge commit of the stage's configs pull
+// request, and the meta chart's HelmRelease ran a release with the values
+// it wrote — what the watch proves before it decides the stage.
+func fluxApplied(inst *fakeInstallation, a actions.Action, installation string) {
+	for _, k := range a.StagePullRequests(installation) {
+		pr := a.Status.PullRequests[k]
+		if !strings.HasSuffix(pr.Repository, "-configs") {
+			continue
+		}
+		inst.followConfigs(fluxNamespace, pr.Repository)
+		// The Fake fast-forwards the base: the merge commit is the head.
+		inst.applyConfigs(fluxNamespace, konfiguration, cmp.Or(pr.MergeCommit, pr.HeadSHA))
+	}
+	inst.release(fluxNamespace, platformRelease, valuesMerged)
 }
 
 func watchCall(t *testing.T, c *client.Client, name string) (tools.WatchResult, string, bool) {
@@ -545,6 +602,116 @@ func TestWatchActionFailsAReleaseFluxGaveUpOn(t *testing.T) {
 	w, text, isErr = watchCall(t, admin, a.Name)
 	if isErr || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled || !strings.Contains(w.Report, "Recovered: the stage had failed (a probe is red: ") {
 		t.Fatalf("the recovery: %v %s", isErr, text)
+	}
+}
+
+// configsMerge is the merge commit of stage installation's pull request on
+// its configs repository, as the action records it.
+func configsMerge(t *testing.T, a *actions.Action, installation string) (actions.PullRequest, string) {
+	t.Helper()
+	for _, k := range a.StagePullRequests(installation) {
+		if pr := a.Status.PullRequests[k]; strings.HasSuffix(pr.Repository, "-configs") {
+			return pr, cmp.Or(pr.MergeCommit, pr.HeadSHA)
+		}
+	}
+	t.Fatalf("%s has no configs pull request", installation)
+	return actions.PullRequest{}, ""
+}
+
+// Every HelmRelease Ready is not yet the merged change (giantswarm-platform-
+// manager#888): after the merge the releases stay Ready on the values from
+// before until Flux reconciles them. The watch keeps the stage rolling out,
+// naming what it waits for, while the Konfiguration has not applied a commit
+// that contains the merge, and while the meta chart's release runs a release
+// from before the merge or one with the values from before it (a chart-only
+// upgrade); a release with the merged values carries it to enabled.
+func TestWatchActionWaitsForFluxToApplyTheMerge(t *testing.T) {
+	st := newStack(t)
+	a, aliceC := mergedRowan(t, st)
+	admin := adminLive(t, st)
+	fluxBehind(t, st, st.inst, a, rowan)
+	pr, merge := configsMerge(t, &a, rowan)
+	release := helmReleaseKind + " " + fluxNamespace + "/" + platformRelease
+	rollingOut := func(step string, want ...string) {
+		t.Helper()
+		w, text, isErr := watchCall(t, admin, a.Name)
+		if isErr || !w.Ready || w.State != actions.StateRollingOut || w.Action.Status.State != actions.StateRollingOut || w.Report != "" {
+			t.Fatalf("%s: %v %s", step, isErr, text)
+		}
+		msg := stageOf(w.Action, rowan).Message
+		for _, s := range want {
+			if !strings.Contains(msg, s) {
+				t.Errorf("%s: the stage's message lacks %q: %q", step, s, msg)
+			}
+		}
+	}
+
+	// Every object Ready, Flux on the commit before the merge.
+	behind := st.ghs.parentOf(pr.Repository, merge)
+	rollingOut("before Flux",
+		fmt.Sprintf("Konfiguration %s/%s applied %s, not yet %s#%d's merge %s", fluxNamespace, konfiguration, behind[:12], pr.Repository, pr.Number, merge[:12]),
+		release+" runs release v10, deployed at 2026-09-23T15:00:00Z, before "+fmt.Sprintf("%s#%d's merge", pr.Repository, pr.Number))
+	if _, text, isErr := mergeCall(t, aliceC, a.Name); !isErr || !strings.Contains(text, rowan+" is "+actions.StateRollingOut) {
+		t.Fatalf("merge before the merged revision runs: %v %s", isErr, text)
+	}
+
+	// The Konfiguration on a commit after the merge, the release not
+	// reconciled yet: the release is what the stage waits for.
+	later := st.ghs.commitByHand(pr.Repository, "README.md", "a later change\n")
+	st.inst.applyConfigs(fluxNamespace, konfiguration, later)
+	rollingOut("the Konfiguration applied", release+" runs release v10")
+	if got := getAction(t, aliceC, a.Name); strings.Contains(stageOf(&got, rowan).Message, "Konfiguration") {
+		t.Errorf("the Konfiguration on a later commit is still waited for: %q", stageOf(&got, rowan).Message)
+	}
+
+	// A release after the merge with the values from before.
+	st.inst.release(fluxNamespace, platformRelease, valuesBefore)
+	rollingOut("a chart-only release", release+" runs release v11 with the values of release v10 from before")
+
+	st.inst.release(fluxNamespace, platformRelease, valuesMerged)
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled || w.Report == "" {
+		t.Fatalf("the merged values released: %v %s", isErr, text)
+	}
+}
+
+// A merge Flux never applies does not keep the stage rolling out for good:
+// past the bound after the last merge, the stage fails on what it waits for,
+// as on a release Flux gave up on, the report naming it; the re-read once
+// Flux applied the merge recovers it.
+func TestWatchActionFailsAMergeFluxNeverApplies(t *testing.T) {
+	st := newStack(t)
+	a, _ := mergedRowan(t, st)
+	admin := adminLive(t, st)
+	fluxBehind(t, st, st.inst, a, rowan)
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || w.State != actions.StateRollingOut {
+		t.Fatalf("within the bound: %v %s", isErr, text)
+	}
+	status := w.Action.Status
+	hourAgo := time.Now().Add(-time.Hour)
+	for k := range status.PullRequests {
+		status.PullRequests[k].MergedAt = &hourAgo
+	}
+	if _, err := actions.New(st.dyn, actionsNamespace).UpdateStatus(t.Context(), w.Action, status); err != nil {
+		t.Fatal(err)
+	}
+
+	w, text, isErr = watchCall(t, admin, a.Name)
+	if isErr || w.State != actions.StateFailed || w.Action.Status.State != actions.StateFailed || len(w.Red) != 2 {
+		t.Fatalf("past the bound: %v %s", isErr, text)
+	}
+	if msg := stageOf(w.Action, rowan).Message; !strings.HasPrefix(msg, "a probe is red: the installation does not run the merged revision 30m0s after the last merge: Konfiguration ") {
+		t.Fatalf("the stage's message: %q", msg)
+	}
+	if !strings.Contains(w.Report, "❌ not yet on the merged revision: Konfiguration "+fluxNamespace+"/"+konfiguration) || !strings.Contains(w.Report, "❌ not yet on the merged revision: "+helmReleaseKind+" "+fluxNamespace+"/"+platformRelease) {
+		t.Fatalf("the report:\n%s", w.Report)
+	}
+
+	fluxApplied(st.inst, *w.Action, rowan)
+	w, text, isErr = watchCall(t, admin, a.Name)
+	if isErr || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled || !strings.Contains(w.Report, "Recovered: the stage had failed (a probe is red: the installation does not run the merged revision") {
+		t.Fatalf("Flux applied the merge: %v %s", isErr, text)
 	}
 }
 

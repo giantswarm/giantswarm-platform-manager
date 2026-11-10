@@ -176,3 +176,22 @@ func LastChange(ctx context.Context, c *Client, owner, repo, path string) (Commi
 	}
 	return cm, nil
 }
+
+// Contains says whether head of owner/repo contains commit: head is commit,
+// or commit is one of head's ancestors — GitHub's comparison of commit to
+// head answers identical or ahead; behind or diverged, it does not. One
+// request as the person; the commit list it answers is asked one entry long.
+func Contains(ctx context.Context, c *Client, owner, repo, commit, head string) (bool, error) {
+	if commit == head {
+		return true, nil
+	}
+	cmp, _, err := c.Repositories.CompareCommits(ctx, owner, repo, commit, head, &github.ListOptions{PerPage: 1})
+	if err != nil {
+		return false, fmt.Errorf("github: %s/%s: comparing %s with %s: %w", owner, repo, commit, head, classify(err))
+	}
+	switch cmp.GetStatus() {
+	case "identical", "ahead":
+		return true, nil
+	}
+	return false, nil
+}

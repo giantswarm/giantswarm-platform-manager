@@ -313,6 +313,34 @@ func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 		}
 		writeJSON(w, http.StatusOK, list)
 	})
+	// The comparison of two commits of the history: identical, ahead where
+	// the base is an ancestor of the head, behind where the head is one of
+	// the base, diverged otherwise; 404 for a commit the history lacks.
+	mux.HandleFunc("GET /api/v3/repos/{owner}/{repo}/compare/{basehead}", func(w http.ResponseWriter, r *http.Request) {
+		repo, ok := g.readable(w, r)
+		if !ok {
+			return
+		}
+		base, head, _ := strings.Cut(r.PathValue("basehead"), "...")
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		_, hasBase := g.commitLocked(repo, base)
+		_, hasHead := g.commitLocked(repo, head)
+		if !hasBase || !hasHead {
+			writeJSON(w, http.StatusNotFound, map[string]any{message: notFound})
+			return
+		}
+		status := "diverged"
+		switch {
+		case base == head:
+			status = "identical"
+		case g.ancestorLocked(repo, base, head):
+			status = "ahead"
+		case g.ancestorLocked(repo, head, base):
+			status = "behind"
+		}
+		writeJSON(w, http.StatusOK, map[string]any{statusKey: status, "commits": []any{}, "files": []any{}})
+	})
 	// The pull requests a commit came through: the one it merged.
 	mux.HandleFunc("GET /api/v3/repos/{owner}/{repo}/commits/{sha}/pulls", func(w http.ResponseWriter, r *http.Request) {
 		repo, ok := g.readable(w, r)
@@ -361,6 +389,42 @@ func (g *fakeGitHub) commitLocked(repo, sha string) (fakeCommit, bool) {
 		}
 	}
 	return fakeCommit{}, false
+}
+
+// ancestorLocked says whether commit is one of head's ancestors in owner/repo's
+// history. Called with g.mu held.
+func (g *fakeGitHub) ancestorLocked(repo, commit, head string) bool {
+	for c, ok := g.commitLocked(repo, head); ok && c.parent != ""; c, ok = g.commitLocked(repo, c.parent) {
+		if c.parent == commit {
+			return true
+		}
+	}
+	return false
+}
+
+// commitByHand changes path of owner/repo on its default branch by hand —
+// no pull request — and records the commit on the history; it answers the
+// commit.
+func (g *fakeGitHub) commitByHand(repo, path, content string) string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	h := g.history[repo]
+	parent := ""
+	if n := len(h); n > 0 {
+		parent = h[n-1].sha
+	}
+	g.files[repo][path] = content
+	sha := blobSHA(fmt.Sprint(parent, g.files[repo]))[:40]
+	g.history[repo] = append(h, fakeCommit{sha: sha, parent: parent, tree: maps.Clone(g.files[repo])})
+	return sha
+}
+
+// parentOf is the parent of commit sha on owner/repo's history.
+func (g *fakeGitHub) parentOf(repo, sha string) string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	c, _ := g.commitLocked(repo, sha)
+	return c.parent
 }
 
 func commitURL(repo, sha string) string { return "https://github.example/" + repo + "/commit/" + sha }
