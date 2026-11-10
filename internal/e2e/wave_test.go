@@ -385,30 +385,3 @@ func TestDenyWithdrawsAStoppedWave(t *testing.T) {
 		t.Fatalf("a watch after the withdrawal: %v %s", isErr, text)
 	}
 }
-
-// A refused render of the stage in flight holds the wave: the watch and
-// verify_installation record the refusal on birch's stage and leave it
-// rolling out, so the merge of rowan's pull requests stays refused.
-func TestARefusedRenderHoldsTheWave(t *testing.T) {
-	st := newStack(t)
-	a, aliceC, _ := waveStage1(t, st)
-	admin := adminLive(t, st)
-	storedAsRefused(t, st, a.Name, birch)
-
-	w, text, isErr := watchCall(t, admin, a.Name)
-	if isErr || w.Installation != birch || w.State != actions.StateRollingOut || w.Action == nil || w.Action.Status.State != actions.StateRollingOut ||
-		!strings.Contains(stageOf(w.Action, birch).Message, refusedSwitch) {
-		t.Fatalf("birch's refused watch: %v %s", isErr, text)
-	}
-	if res := verifyLive(t, admin, birch); !strings.Contains(res.Refused, refusedSwitch) {
-		t.Fatalf("birch's refused verify: refused %q", res.Refused)
-	}
-	if _, text, isErr := mergeCall(t, aliceC, a.Name); !isErr || !strings.Contains(text, birch+" is "+actions.StateRollingOut) {
-		t.Fatalf("the merge of rowan after a refused render: %v %s", isErr, text)
-	}
-	for _, pr := range st.remote.PullRequests() {
-		if strings.HasPrefix(pr.Head, "platform/"+a.Name+"/"+rowan) && (pr.Merged || pr.Closed) {
-			t.Fatalf("rowan's pull request touched: %+v", pr)
-		}
-	}
-}

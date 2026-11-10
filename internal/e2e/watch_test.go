@@ -773,12 +773,14 @@ func TestVerifyInstallationRefusedRenderKeepsTheWait(t *testing.T) {
 }
 
 // A stage failed on a red probe keeps the probe's cause in its message when
-// a refused render is noted after it, so the watch still re-reads it.
+// a refused render is noted after it, so the watch still re-reads it; once
+// the inputs render and the probe is green, the recovery names the red
+// probe, not the refusal.
 func TestARefusedRenderKeepsAProbeFailureReRead(t *testing.T) {
 	st := newStack(t)
 	a, aliceC := rolledOut(t, st)
 	admin := adminLive(t, st)
-	redEdgeProbe(t, st, aliceC, rowan)
+	restore := redEdgeProbe(t, st, aliceC, rowan)
 	if w, text, isErr := watchCall(t, admin, a.Name); isErr || w.State != actions.StateFailed {
 		t.Fatalf("the red probe: %v %s", isErr, text)
 	}
@@ -788,5 +790,12 @@ func TestARefusedRenderKeepsAProbeFailureReRead(t *testing.T) {
 		if isErr || w.State != actions.StateFailed || w.Action == nil || !strings.Contains(stageOf(w.Action, rowan).Message, refusedSwitch) {
 			t.Fatalf("refused watch %d of a stage failed on a probe: %v %s", n+1, isErr, text)
 		}
+	}
+
+	storeOrganizationsSwitch(t, st, a.Name, rowan, false)
+	restore()
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || w.State != actions.StateEnabled || !strings.Contains(w.Report, "Recovered") || !strings.Contains(w.Report, edgeProbe) || strings.Contains(w.Report, refusedSwitch) {
+		t.Fatalf("the recovery: %v %s", isErr, text)
 	}
 }

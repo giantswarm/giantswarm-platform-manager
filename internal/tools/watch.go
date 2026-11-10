@@ -186,7 +186,7 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 		if state != prev {
 			st.ReportedAt = nil
 			if prev == actions.StateFailed {
-				recovered = st.Message
+				recovered = withoutRefusal(st.Message)
 			}
 		}
 		st.State, st.Message = state, message

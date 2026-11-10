@@ -208,14 +208,15 @@ func givenInputs(args map[string]any) (*verify.Inputs, error) {
 // A stage rolling out is the watch's to carry; a failed one is over; an
 // action reverted or past its last word moves no more. A refused render read
 // nothing: the probes on record stand and no stage moves; when the refused
-// inputs are the action's own (onRecord), the stage's message says why until
-// a read of them renders.
+// inputs are the action's own (onRecord) and the stage has started on an
+// action not past its last word, the stage's message says why until a read
+// of them renders.
 func (t *Tools) recordLiveVerify(ctx context.Context, a actions.Action, installation string, res verify.Result, onRecord bool) error {
 	status := a.Status
 	status.Rollout = stagesOf(&a)
 	i := stageIndex(status.Rollout, installation)
 	if res.Refused != "" {
-		if !onRecord || i < 0 {
+		if !onRecord || i < 0 || actions.Settled(status.State) || status.Rollout.Installations[i].State == "" {
 			return nil
 		}
 		noteRefused(&status.Rollout.Installations[i], res.Refused)
