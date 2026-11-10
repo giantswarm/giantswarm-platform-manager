@@ -20,6 +20,7 @@ import (
 
 	"github.com/giantswarm/gitops-commit/commit"
 	"github.com/mark3labs/mcp-go/client"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
@@ -596,5 +597,118 @@ func TestWatchActionReadsThePullRequestsAsThePerson(t *testing.T) {
 	}
 	if th := thread(t, st); len(th) != 2 || !strings.Contains(th[0], "Merged outside the manager by "+dave) || !strings.Contains(th[1], "*"+rowan+"* is *"+actions.StateEnabled+"*") {
 		t.Fatalf("the thread: %q", th)
+	}
+}
+
+// olderCommitMode is rowan's merged document in the organizations' commit
+// mode as a manager before installation.repositories stored it — without
+// the fact — and the same document with the repository that manager wrote,
+// giantswarm/<customer>-management-clusters, to render the installation's
+// objects from (the render's name is pinned by
+// TestOrganizationsCommitReplaysADocumentWithoutTheRepositories).
+func olderCommitMode(t *testing.T, st *stack) (stored, rendered map[string]any) {
+	t.Helper()
+	out, text, isErr := dryRun(t, st.mcpClient(t, aliceToken), tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: kagentEnabled()})
+	if isErr {
+		t.Fatalf("dry run: %s", text)
+	}
+	copyOf := func() map[string]any {
+		b, err := json.Marshal(findPlan(t, out, rowan).Inputs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(b, &m); err != nil {
+			t.Fatal(err)
+		}
+		inst := m["installation"].(map[string]any)
+		inst["chartLine"], inst["podCertificateRequest"] = "4", true
+		org := m["organizations"].(map[string]any)
+		org[enabledKey] = true
+		org[organizationsCommit] = map[string]any{enabledKey: true}
+		return m
+	}
+	stored, rendered = copyOf(), copyOf()
+	delete(stored["installation"].(map[string]any), "repositories")
+	rendered["installation"].(map[string]any)["repositories"] = map[string]any{"managementClusters": "giantswarm/acme-management-clusters"}
+	return stored, rendered
+}
+
+// An Action an older manager stored in the organizations' commit mode
+// carries no installation.repositories: the watch's render is not refused,
+// it reads the rollout's Flux objects and judges the stage by them —
+// enabled with nothing red.
+func TestWatchActionReplaysCommitModeAnOlderManagerStored(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	stored, rendered := olderCommitMode(t, st)
+	seedRowanLive(t, st, rendered, stored, map[string]any{"organizations": map[string]any{enabledKey: true, organizationsCommit: map[string]any{enabledKey: true}}}, "")
+
+	w, text, isErr := watchCall(t, adminLive(t, st), liveAction)
+	if isErr || w.Verify == nil {
+		t.Fatalf("the replay of the stored inputs: %v %s", isErr, text)
+	}
+	if w.Verify.Refused != "" || len(w.Objects) == 0 || !w.Ready || w.State != actions.StateEnabled || len(w.Red) != 0 {
+		t.Fatalf("the replay of the stored inputs: refused %q, %d Flux object(s), ready %v, state %q, red %v", w.Verify.Refused, len(w.Objects), w.Ready, w.State, w.Red)
+	}
+}
+
+// storedAsRefused has rowan's inputs on record of action name turn the
+// organizations' switch on, which rowan's 3 chart line refuses: a document
+// the render of this manager refuses, as a later definition may refuse one
+// an older manager stored.
+func storedAsRefused(t *testing.T, st *stack, name string) {
+	t.Helper()
+	a, err := actions.New(st.dyn, actionsNamespace).Get(t.Context(), name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := a.InputsOnRecord(rowan)
+	if in == nil {
+		t.Fatalf("action %s holds no inputs on record for %s", name, rowan)
+	}
+	in["organizations"].(map[string]any)[enabledKey] = true
+	if _, err := st.dyn.Resource(actions.GVR).Namespace(actionsNamespace).Update(t.Context(), actions.Unstructured(*a), metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A render the inputs on record are refused by reads no Flux object, and
+// nothing it reads moves the stage: the watch answers the refusal and the
+// action stays rolling out; verify_installation does not flip a stage
+// waiting for the customer to enabled.
+func TestARefusedRenderMovesNoStage(t *testing.T) {
+	st := newStack(t)
+	a, aliceC := rolledOut(t, st)
+	admin := adminLive(t, st)
+	storedAsRefused(t, st, a.Name)
+
+	if w, text, isErr := watchCall(t, admin, a.Name); !isErr || !strings.Contains(text, "organizations.enabled") {
+		t.Fatalf("the watch of a refused render: %v state %q, %d Flux object(s): %s", isErr, w.State, len(w.Objects), text)
+	}
+	if got := getAction(t, aliceC, a.Name); got.Status.State != actions.StateRollingOut || stageOf(&got, rowan).State != actions.StateRollingOut {
+		t.Fatalf("after the refused watch: %s, stage %s", got.Status.State, stageOf(&got, rowan).State)
+	}
+}
+
+// verify_installation of a render the inputs on record are refused by
+// answers the refusal and leaves a stage waiting for the customer waiting:
+// the read checked nothing the customer's move holds up.
+func TestVerifyInstallationRefusedRenderKeepsTheWait(t *testing.T) {
+	st := newStack(t)
+	a, aliceC := rolledOut(t, st)
+	admin := adminLive(t, st)
+	setAccepted(st.inst, statusFalse, modelKeyMissing)
+	if w, text, isErr := watchCall(t, admin, a.Name); isErr || w.State != actions.StateWaitingForCustomer {
+		t.Fatalf("waiting: %v %s", isErr, text)
+	}
+	storedAsRefused(t, st, a.Name)
+	setAccepted(st.inst, statusTrue, "ok")
+
+	if res := verifyLive(t, admin, rowan); !strings.Contains(res.Refused, "organizations.enabled") {
+		t.Fatalf("verify of a refused render: refused %q, state %q", res.Refused, res.State)
+	}
+	if got := getAction(t, aliceC, a.Name); got.Status.State != actions.StateWaitingForCustomer || stageOf(&got, rowan).State != actions.StateWaitingForCustomer {
+		t.Fatalf("after the verify: %s, stage %s", got.Status.State, stageOf(&got, rowan).State)
 	}
 }

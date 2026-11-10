@@ -104,7 +104,7 @@ agent-platform-mcps:
 agent-manager:
   tenants:
     commit:
-      repository: giantswarm/giantswarm-management-clusters
+      repository: giantswarm/example-management-clusters
       branch: main
       objectsPath: management-clusters/garnet/extras/agent-platform-organizations/objects
       contentPrefix: management-clusters/garnet/extras/agent-platform-organizations/content

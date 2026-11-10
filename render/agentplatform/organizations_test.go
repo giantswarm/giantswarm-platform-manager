@@ -21,7 +21,8 @@ const chartRangeFour = ">=4.170.0 <5.0.0"
 // installation cannot serve, naming the input: the switch off the 4 chart
 // line, where no kagent runs or under a meta chart hold before the
 // organizations' release; commit mode under a hold before the release that
-// takes agent-manager.tenants.commit; the portal's pages where no portal
+// takes agent-manager.tenants.commit or where the registry names no
+// management-clusters repository; the portal's pages where no portal
 // carries the installation's section.
 func TestOrganizationsRefusals(t *testing.T) {
 	for _, c := range []struct {
@@ -41,7 +42,12 @@ func TestOrganizationsRefusals(t *testing.T) {
 		{"commit mode under a chart hold before the release that takes it", func(m map[string]any) {
 			m[keyOrganizations].(map[string]any)["commit"] = map[string]any{keyEnabled: true}
 			m["versions"] = map[string]any{keyChart: "4.177.0-rc.1"}
-		}, "organizations.commit.enabled"},
+		}, "refuses before 4.177.0"},
+		// A plan's document carries the registry's repositories, empty where it names none.
+		{"commit mode where the registry names no management-clusters repository", func(m map[string]any) {
+			m[keyOrganizations].(map[string]any)["commit"] = map[string]any{keyEnabled: true}
+			m["installation"].(map[string]any)[keyRepositories] = map[string]any{}
+		}, "installation.repositories.managementClusters"},
 		{"the portal's pages without a portal section", func(m map[string]any) {
 			m[keyOrganizations] = map[string]any{"portal": map[string]any{keyEnabled: true}}
 		}, "organizations.portal.enabled"},
@@ -88,6 +94,30 @@ func TestOrganizationsRefusals(t *testing.T) {
 			t.Errorf("hold %s: %v", hold, err)
 		}
 	}
+}
+
+// TestOrganizationsCommitReplaysADocumentWithoutTheRepositories renders a
+// document without installation.repositories — the inputs on record of an
+// Action a manager before the fact stored, which the watch and the live
+// verify replay — with the repository that manager committed:
+// giantswarm/<customer>-management-clusters.
+func TestOrganizationsCommitReplaysADocumentWithoutTheRepositories(t *testing.T) {
+	input, secrets := loadInput(t, shapeOrganizationsCommit)
+	delete(input["installation"].(map[string]any), keyRepositories)
+	res, err := Render(input, secrets, render.ModeCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The name is written out: the customer is giantswarm in the shape.
+	const want = "repository: giantswarm/giantswarm-management-clusters\n"
+	for _, files := range res.Files {
+		for path, f := range files {
+			if strings.HasSuffix(path, "/configmap-values.yaml.patch") && strings.Contains(string(f.Content), want) {
+				return
+			}
+		}
+	}
+	t.Fatalf("no values patch carries %q", want)
 }
 
 // TestOrganizationsPortalPagesStayWithoutTheSwitch keeps the portal's

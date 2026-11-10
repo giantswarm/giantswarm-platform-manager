@@ -250,6 +250,14 @@ type Installation struct {
 	// Hub says this is the registry's hub: its broker releases the person's
 	// GitHub grant to the Dev Portal (hub.go).
 	Hub bool `json:"hub"`
+	// Repositories are the installation's GitOps repositories as the
+	// registry names them: commit mode of the organizations has agent-manager
+	// open its pull requests in the management-clusters one. Every document
+	// a plan merges carries them, empty where the registry names none. Nil
+	// is any document without the key — an Action's inputs on record that a
+	// manager before the fact stored, or a hand-written one — and gets the
+	// name that manager wrote (managementClusters).
+	Repositories *Repositories `json:"repositories,omitempty"`
 	// AgentPlatform says the capability is on record for the installation:
 	// its marker file exists, whoever put it there. False is a fresh enable;
 	// either moves to the chart line the policy declares (selectLine).
@@ -283,6 +291,11 @@ type Installation struct {
 	// stable callback: the ConfigMaps under extras/agent-platform/mcpclients/
 	// on record (registered.go).
 	MCPClients []RegisteredClient `json:"mcpClients"`
+}
+
+// Repositories are the installation's GitOps repositories the render reads.
+type Repositories struct {
+	ManagementClusters string `json:"managementClusters"`
 }
 
 // PortalRef is a developer portal that signs people in on the installation:

@@ -1,8 +1,9 @@
 # The organizations-apply installation with the organizations in commit mode
 # (organizations.commit.enabled): agent-manager's organization tools open a pull request as the
 # person in the installation's management-clusters repository (agent-manager.tenants.commit: the
-# policy's branch, the objects under management-clusters/garnet/extras/agent-platform-organizations/
-# objects and the content under .../content), and agent-platform-operator gives each organization a
+# repository the registry names, not one built from the customer's name, the policy's branch, the
+# objects under management-clusters/garnet/extras/agent-platform-organizations/objects and the
+# content under .../content), and agent-platform-operator gives each organization a
 # Kustomization in the policy's Flux namespace that applies its content from the policy's source,
 # decrypting with the policy's SOPS key Secret (agentPlatformOrganizations.flux*), reading the
 # inventory of the installation's own Kustomization
@@ -19,6 +20,8 @@ input:
     musterClientId: 00000000-0000-4000-8000-000000000007
     podCertificateRequest: true
     portalClientSecret: true
+    repositories:
+      managementClusters: giantswarm/example-management-clusters
     portals:
       - installation: gopher
         customer: giantswarm

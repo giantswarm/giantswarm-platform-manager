@@ -512,8 +512,8 @@ func (r *Record) Input() map[string]any {
 
 // Facts are every installation fact on record, as a definition's inputs name
 // them under installation: the record's (config.yaml.patch), the registry's
-// region, pipeline, whether this is the hub and whether it is one of Giant
-// Swarm's test installations, what the record registers with muster
+// region, pipeline, repositories, whether this is the hub and whether it is
+// one of Giant Swarm's test installations, what the record registers with muster
 // (mcpServers, mcpClients), and per capability whether it is enabled here
 // (agentPlatform, customerPortal). A definition takes the ones its schema
 // names (Capability.Facts).
@@ -523,6 +523,7 @@ func (r Report) Facts() map[string]any {
 		facts = r.Record.Input()
 	}
 	facts["region"], facts["pipeline"], facts["hub"], facts["test"] = r.Region, r.Pipeline, r.Hub, r.Test
+	facts["repositories"] = r.Repositories
 	if r.Portals != nil {
 		facts["portals"] = r.Portals
 	}

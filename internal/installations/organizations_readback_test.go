@@ -57,3 +57,54 @@ func TestAgentPlatformReadsBackOrganizations(t *testing.T) {
 		})
 	}
 }
+
+// organizations is an organizations input document: the switch, the API
+// hostnames and commit mode, each left out where nil.
+func organizations(enabled, commit any, hostnames []any) map[string]any {
+	o := map[string]any{}
+	if enabled != nil {
+		o[keyEnabled] = enabled
+	}
+	if commit != nil {
+		o["commit"] = map[string]any{keyEnabled: commit}
+	}
+	if hostnames != nil {
+		o["apiHostnames"] = hostnames
+	}
+	return map[string]any{"organizations": o}
+}
+
+// The agent-platform definition refuses commit mode or API hostnames typed
+// while the switch is off, naming the switch; the same values read back from
+// the record, typed with the switch on, or typed at their defaults stand, so
+// a person turns the switch off alone or with its dependents; a switch typed
+// as no boolean is left to the schema to refuse.
+func TestAgentPlatformRefusesADependentTypedWithoutItsSwitch(t *testing.T) {
+	def, _ := FindCapability(AgentPlatform)
+	hostnames := []any{"internal-api.rowan.acme.test"}
+	for _, tc := range []struct {
+		name          string
+		typed, values map[string]any
+		refused       string
+	}{
+		{"commit mode typed, the switch off", organizations(nil, true, nil), organizations(false, true, nil), inputOrganizationsCommit},
+		{"API hostnames typed, the switch off", organizations(nil, nil, hostnames), organizations(false, false, hostnames), "organizations.apiHostnames"},
+		{"commit mode typed with the switch", organizations(true, true, nil), organizations(true, true, nil), ""},
+		{"commit mode and API hostnames read back, the switch typed off", organizations(false, nil, nil), organizations(false, true, hostnames), ""},
+		{"commit mode and API hostnames typed off with the switch", organizations(false, false, []any{}), organizations(false, false, []any{}), ""},
+		{"commit mode typed, the switch typed as no boolean", organizations("true", true, nil), organizations("true", true, nil), ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := def.TypedWithoutSwitch(tc.typed, tc.values)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.refused == "" && got != "" {
+				t.Errorf("refused: %s", got)
+			}
+			if tc.refused != "" && (!strings.Contains(got, tc.refused) || !strings.Contains(got, "type organizations.enabled: true")) {
+				t.Errorf("got %q, want a refusal naming %s and the switch", got, tc.refused)
+			}
+		})
+	}
+}

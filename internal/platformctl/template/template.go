@@ -4,6 +4,7 @@
 package template
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -45,6 +46,15 @@ func Render(shape string, inputs []byte) (map[string][]byte, error) {
 	}
 	if doc.Input == nil {
 		return nil, fmt.Errorf("the inputs document has no `input` mapping; it carries `input` (the definition's inputs) and `secrets` (the values you supply)")
+	}
+	// Every input of the document is typed: a dependent with its switch off
+	// is refused, as a dry run refuses it.
+	refusal, err := def.TypedWithoutSwitch(doc.Input, doc.Input)
+	if err != nil {
+		return nil, err
+	}
+	if refusal != "" {
+		return nil, errors.New(refusal)
 	}
 	result, err := def.Render(doc.Input, doc.Secrets, render.ModeCommit)
 	if err != nil {
