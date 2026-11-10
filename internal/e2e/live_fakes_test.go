@@ -429,7 +429,10 @@ func (f *fakeInstallation) followConfigs(namespace, repository string) {
 
 // release has HelmRelease namespace/name run a new Helm release, deployed
 // now with values of digest: the newest of its history, the one before it
-// superseded.
+// superseded, and the history truncated as helm-controller does
+// (Snapshots.Truncate, helm-controller api v2 snapshot_types.go): the newest
+// release and every one after it down to the previous deployed or
+// superseded one.
 func (f *fakeInstallation) release(namespace, name, digest string) {
 	f.edit(helmReleaseKind, namespace, name, func(obj map[string]any) {
 		status := obj[statusKey].(map[string]any)
@@ -437,15 +440,29 @@ func (f *fakeInstallation) release(namespace, name, digest string) {
 		version := 0
 		for _, h := range history {
 			entry := h.(map[string]any)
-			entry[statusKey] = "superseded"
+			entry[statusKey] = releaseSuperseded
 			if v, ok := entry["version"].(int); ok && v > version {
 				version = v
 			}
 		}
-		status["history"] = append([]any{map[string]any{"chartName": name, "chartVersion": "4.50.0", "digest": strings.Repeat("cd", 32), nameKey: name, namespaceKey: platformNamespace,
-			statusKey: "deployed", "version": version + 1, "lastDeployed": time.Now().UTC().Format(time.RFC3339), "configDigest": digest}}, history...)
+		history = append([]any{map[string]any{"chartName": name, "chartVersion": "4.50.0", "digest": strings.Repeat("cd", 32), nameKey: name, namespaceKey: platformNamespace,
+			statusKey: releaseDeployed, "version": version + 1, "lastDeployed": time.Now().UTC().Format(time.RFC3339), "configDigest": digest}}, history...)
+		slices.SortFunc(history, func(a, b any) int { return b.(map[string]any)["version"].(int) - a.(map[string]any)["version"].(int) })
+		for i := 1; i < len(history); i++ {
+			if state := history[i].(map[string]any)[statusKey]; state == releaseDeployed || state == releaseSuperseded {
+				history = history[:i+1]
+				break
+			}
+		}
+		status["history"] = history
 	})
 }
+
+// The statuses of a Helm release in a HelmRelease's history.
+const (
+	releaseDeployed   = "deployed"
+	releaseSuperseded = "superseded"
+)
 
 // The digests of the values the platform's meta chart release ran with:
 // before the tests' merges, and with the values a merge wrote.
@@ -588,11 +605,12 @@ func bulky(obj map[string]any) {
 		"annotations":   map[string]any{lastAppliedAnnotation: `{"apiVersion":"helm.toolkit.fluxcd.io/v2","kind":"HelmRelease","spec":` + fields + `}`},
 		"managedFields": []any{map[string]any{"manager": "helm-controller", "operation": "Apply", "fieldsType": "FieldsV1", "fieldsV1": fields}},
 	}
+	// Flux keeps the newest release and the previous successful one.
 	var history []any
-	for i := range 10 {
-		state := "superseded"
+	for i := 8; i < 10; i++ {
+		state := releaseSuperseded
 		if i == 9 {
-			state = "deployed"
+			state = releaseDeployed
 		}
 		history = append(history, map[string]any{"chartName": platformRelease, "chartVersion": fmt.Sprintf("4.4%d.0", i), "digest": strings.Repeat("ab", 32), nameKey: platformRelease, "namespace": platformNamespace, statusKey: state, "version": i + 1,
 			"lastDeployed": fmt.Sprintf("2026-09-23T%02d:00:00Z", 6+i), "configDigest": valuesBefore})

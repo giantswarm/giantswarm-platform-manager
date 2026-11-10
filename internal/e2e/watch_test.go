@@ -664,14 +664,51 @@ func TestWatchActionWaitsForFluxToApplyTheMerge(t *testing.T) {
 		t.Errorf("the Konfiguration on a later commit is still waited for: %q", stageOf(&got, rowan).Message)
 	}
 
-	// A release after the merge with the values from before.
+	// Two releases after the merge with the values from before: Flux's
+	// history keeps v12 and v11 alone, and the stage's record of v10, the
+	// release that ran at the merge, still tells the values are old.
 	st.inst.release(fluxNamespace, platformRelease, valuesBefore)
-	rollingOut("a chart-only release", release+" runs release v11 with the values of release v10 from before")
+	st.inst.release(fluxNamespace, platformRelease, valuesBefore)
+	rollingOut("two chart-only releases", release+" runs release v12 with the values of release v10 from before")
 
 	st.inst.release(fluxNamespace, platformRelease, valuesMerged)
 	w, text, isErr := watchCall(t, admin, a.Name)
 	if isErr || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled || w.Report == "" {
 		t.Fatalf("the merged values released: %v %s", isErr, text)
+	}
+}
+
+// A release history that keeps no release from before the merge proves
+// nothing: two chart-only upgrades after the merge, before any watch, leave
+// Flux's history with v12 and v11 alone, both on the values from before, and
+// no release that ran at the merge is on record. The stage stays rolling
+// out, saying what is not known — even once a release with other values
+// runs, since nothing tells what it is compared with.
+func TestWatchActionNeedsTheReleaseThatRanAtTheMerge(t *testing.T) {
+	st := newStack(t)
+	a, _ := mergedRowan(t, st)
+	admin := adminLive(t, st)
+	fluxBehind(t, st, st.inst, a, rowan)
+	_, merge := configsMerge(t, &a, rowan)
+	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
+	st.inst.release(fluxNamespace, platformRelease, valuesBefore)
+	st.inst.release(fluxNamespace, platformRelease, valuesBefore)
+	unknown := helmReleaseKind + " " + fluxNamespace + "/" + platformRelease + " runs release v%d since "
+	for _, step := range []struct {
+		name    string
+		digest  string
+		version int
+	}{{"two chart-only releases", "", 12}, {"a release with other values", valuesMerged, 13}} {
+		if step.digest != "" {
+			st.inst.release(fluxNamespace, platformRelease, step.digest)
+		}
+		w, text, isErr := watchCall(t, admin, a.Name)
+		if isErr || !w.Ready || w.State != actions.StateRollingOut || w.Action.Status.State != actions.StateRollingOut {
+			t.Fatalf("%s: %v %s", step.name, isErr, text)
+		}
+		if msg := stageOf(w.Action, rowan).Message; !strings.Contains(msg, fmt.Sprintf(unknown, step.version)) || !strings.Contains(msg, "neither in its history nor on record") {
+			t.Fatalf("%s: the stage's message: %q", step.name, msg)
+		}
 	}
 }
 
