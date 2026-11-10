@@ -1639,9 +1639,10 @@ func TestDefaultAgent(t *testing.T) {
 // object with its ref, path and read-only mark as the object, in order,
 // every key written as it was read. None writes nothing. An entry that is
 // no http(s) URL, or an object with a key the skill-manager does not read,
-// is refused, and so is the list on the 3 line, where the fleet policy runs
-// no agent-manager, and with a chart hold below the release with the
-// skill-manager.
+// is refused, and so is an entry naming the platform's own repository, the
+// list beside the agent-manager's skill repositories, on the 3 line, where
+// the fleet policy runs no agent-manager, and with a chart hold below the
+// release with the skill-manager.
 func TestSkillManagerSources(t *testing.T) {
 	withSources := func(shape string, sources ...any) (map[string]any, map[string]string) {
 		input, secrets := loadInput(t, shape)
@@ -1677,8 +1678,16 @@ func TestSkillManagerSources(t *testing.T) {
 	noAgentManager["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
 	held, heldSecrets := withSources(shapeHubPrivateTarget, object)
 	held[keyVersions] = map[string]any{keyChart: holdBelowSkillManager}
+	heldReleased, heldReleasedSecrets := withSources(shapeHubPrivateTarget, object)
+	heldReleased[keyVersions] = map[string]any{keyChart: "~4.177.0"}
+	platform, platformSecrets := withSources(shapeHubPrivateTarget, map[string]any{keyURL: "https://github.com/giantswarm/agent-platform.git/", keyRef: refMain})
+	both, bothSecrets := withSources(shapeHubPrivateTarget, acmeSkills)
+	both["agentManager"] = map[string]any{keySkills: map[string]any{keyRepositories: []any{acmeSkills}}}
 	const sourcesPath = "skillManager/sources"
 	requireRefusals(t, []refusalCase{
+		{"the chart held on a release without the skill-manager", heldReleased, heldReleasedSecrets, inputChartHold},
+		{"the platform's own repository", platform, platformSecrets, "skillManager.sources"},
+		{"beside the agent-manager's repositories", both, bothSecrets, "agentManager.skills.repositories"},
 		{"no url", noURL, noURLSecrets, sourcesPath},
 		{"unknown key", unknown, unknownSecrets, sourcesPath},
 		{"not a URL", notAURL, notAURLSecrets, sourcesPath},
@@ -1690,8 +1699,8 @@ func TestSkillManagerSources(t *testing.T) {
 }
 
 // TestSkillManagerAppSecret writes the skill-manager's GitHub App Secret
-// where the person names it, and refuses it where the meta chart runs no
-// skill-manager.
+// where the person names it, and refuses a name that is no Secret's and the
+// name where the meta chart runs no skill-manager.
 func TestSkillManagerAppSecret(t *testing.T) {
 	withApp := func(shape string) (map[string]any, map[string]string) {
 		input, secrets := loadInput(t, shape)
@@ -1716,8 +1725,11 @@ func TestSkillManagerAppSecret(t *testing.T) {
 	noAgentManager["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
 	held, heldSecrets := withApp(shapeHubPrivateTarget)
 	held[keyVersions] = map[string]any{keyChart: holdBelowSkillManager}
+	notAName, notANameSecrets := loadInput(t, shapeHubPrivateTarget)
+	notAName["skillManager"] = map[string]any{keyApp: "Acme Skills"}
 	const appInput = "skillManager.appSecretName"
 	requireRefusals(t, []refusalCase{
+		{"not a Secret name", notAName, notANameSecrets, "skillManager/appSecretName"},
 		{caseLineThree, lineThree, lineThreeSecrets, appInput},
 		{"without agent-manager", noAgentManager, noAgentManagerSecrets, appInput},
 		{"the chart held below the skill-manager", held, heldSecrets, inputChartHold},

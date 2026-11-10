@@ -736,10 +736,10 @@ type SkillSource struct {
 }
 
 // UnmarshalJSON reads a URL or an object; the schema has checked the shape.
-func (r *SkillSource) UnmarshalJSON(raw []byte) error {
+func (s *SkillSource) UnmarshalJSON(raw []byte) error {
 	var url string
 	if err := json.Unmarshal(raw, &url); err == nil {
-		*r = SkillSource{URL: url}
+		*s = SkillSource{URL: url}
 		return nil
 	}
 	type plain SkillSource
@@ -747,25 +747,25 @@ func (r *SkillSource) UnmarshalJSON(raw []byte) error {
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return err
 	}
-	*r = SkillSource(p)
-	r.object = true
+	*s = SkillSource(p)
+	s.object = true
 	return nil
 }
 
 // MarshalYAML writes the entry in the form it was read in.
-func (r SkillSource) MarshalYAML() (any, error) {
-	if !r.object {
-		return r.URL, nil
+func (s SkillSource) MarshalYAML() (any, error) {
+	if !s.object {
+		return s.URL, nil
 	}
-	m := render.Map{e("url", r.URL)}
-	if r.Ref != nil {
-		m = append(m, e("ref", *r.Ref))
+	m := render.Map{e("url", s.URL)}
+	if s.Ref != nil {
+		m = append(m, e("ref", *s.Ref))
 	}
-	if r.Path != nil {
-		m = append(m, e("path", *r.Path))
+	if s.Path != nil {
+		m = append(m, e("path", *s.Path))
 	}
-	if r.ReadOnly != nil {
-		m = append(m, e("readOnly", *r.ReadOnly))
+	if s.ReadOnly != nil {
+		m = append(m, e("readOnly", *s.ReadOnly))
 	}
 	return m, nil
 }
@@ -794,7 +794,7 @@ type commitChoice struct {
 // the cluster does not serve PodCertificateRequest, the chat or skill
 // repositories on an installation whose organisation hosts no portal for
 // them, the chat without a model, or on Vertex without its Google project or
-// location, the Hive where the installation cannot serve it, the MCP backends' network policy or the LLM listener's rate limits on the 3 line, the rate limits or the session idle TTL where no kagent runs, the session idle TTL on the 3 line, the default agent turned off or its model override on the 3 line, where no kagent runs or with a chart hold below the release that ships it, the skill-manager's sources or GitHub App on the 3 line, where no agent-manager runs or with a chart hold below the release with the skill-manager, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
+// location, the Hive where the installation cannot serve it, the MCP backends' network policy or the LLM listener's rate limits on the 3 line, the rate limits or the session idle TTL where no kagent runs, the session idle TTL on the 3 line, the default agent turned off or its model override on the 3 line, where no kagent runs or with a chart hold below the release that ships it, the skill-manager's sources or GitHub App on the 3 line, where no agent-manager runs or with a chart hold below the release with the skill-manager, a source naming the platform's own skill repository, the skill-manager's sources beside the agent-manager's skill repositories, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
 // is ErrInput too.
 func Parse(raw any) (*Input, error) {
 	schemaBytes, err := definitions.FS.ReadFile("agent-platform/schema.json")
@@ -985,15 +985,23 @@ func (in *Input) checkRecord() error {
 	if in.AgentManagerCommit && !in.agentManager() {
 		return refuse(fmt.Sprintf("%s asks for the agent-manager's commit mode, and the fleet policy runs no agent-manager on %s's installations", describe("agentManager.github.enabled"), in.Installation.Customer))
 	}
-	if in.SessionIdleTTL != "" {
-		if err := in.onFourLineKagent("sessions.idleTTL", "bounds how long kagent keeps an idle Session"); err != nil {
-			return err
-		}
+	if in.SessionIdleTTL != "" && in.Installation.ChartLine != lineFour {
+		return refuse(fmt.Sprintf("%s is the 4 chart line's, and this installation runs the %s line; the record's chart line decides", describe("sessions.idleTTL"), in.Installation.ChartLine))
 	}
-	if err := in.checkDefaultAgent(); err != nil {
+	if in.SessionIdleTTL != "" && !in.kagent() {
+		return refuse(fmt.Sprintf("%s bounds how long kagent keeps an idle Session, and the fleet policy runs no kagent on %s's installations", describe("sessions.idleTTL"), in.Installation.Customer))
+	}
+	if err := in.checkSkillManagerRelease(componentKagent, in.kagent(),
+		releaseChoice{in.DefaultAgent.disabled(), "defaultAgent.enabled", "turns off the default agent in kagent"},
+		releaseChoice{in.DefaultAgent.ModelConfig != "", "defaultAgent.modelConfig", "names the default agent's ModelConfig in kagent"}); err != nil {
 		return err
 	}
-	if err := in.checkSkillManagerSources(); err != nil {
+	if err := in.checkSkillManagerRelease(componentAgentManager, in.agentManager(),
+		releaseChoice{len(in.SkillManagerSources) > 0, "skillManager.sources", "lists the sources of the skill-manager, which runs with the agent-manager"},
+		releaseChoice{in.SkillManagerAppSecret != "", "skillManager.appSecretName", "names the GitHub App of the skill-manager, which runs with the agent-manager"}); err != nil {
+		return err
+	}
+	if err := in.checkSkillSources(); err != nil {
 		return err
 	}
 	if len(in.LLMRateLimits) > 0 && !in.kagent() {
@@ -1126,84 +1134,61 @@ func releaseFilterAdmits(semver string) bool {
 	return releaseTag.MatchString(semver)
 }
 
-// onFourLineKagent refuses input, which the person chose, outside the 4
-// chart line or where the fleet policy runs no kagent; what says what the
-// input does with kagent.
-func (in *Input) onFourLineKagent(input, what string) error {
-	if in.Installation.ChartLine != lineFour {
-		return refuse(fmt.Sprintf("%s is the 4 chart line's, and this installation runs the %s line; the record's chart line decides", describe(input), in.Installation.ChartLine))
-	}
-	if !in.kagent() {
-		return refuse(fmt.Sprintf("%s %s, and the fleet policy runs no kagent on %s's installations", describe(input), what, in.Installation.Customer))
-	}
-	return nil
+// releaseChoice is an input the person chose, or not, that the meta chart
+// takes from skillManagerChart on; what says what the input does.
+type releaseChoice struct {
+	chosen      bool
+	input, what string
 }
 
-// checkDefaultAgent refuses the default agent's choices where the
-// meta chart cannot take them: outside the 4 chart line, without kagent and
-// with a chart hold below the release that ships the agent. On, the
-// chart's default, is no choice and never refused.
-func (in *Input) checkDefaultAgent() error {
-	a := in.DefaultAgent
-	for _, c := range []struct {
-		chosen      bool
-		input, what string
-	}{
-		{a.disabled(), "defaultAgent.enabled", "turns off the default agent in kagent"},
-		{a.ModelConfig != "", "defaultAgent.modelConfig", "names the default agent's ModelConfig in kagent"},
-	} {
-		if !c.chosen {
-			continue
-		}
-		if err := in.onFourLineKagent(c.input, c.what); err != nil {
-			return err
-		}
-		if !holdAdmits(in.Versions.Chart, defaultAgentChartFloor) {
-			return refuse(fmt.Sprintf("%s needs the meta chart %s or later, which ships the default agent, and %s holds it at %s; move or lift the hold first", describe(c.input), defaultAgentChartFloor, describe("versions.chart"), in.Versions.Chart))
-		}
-	}
-	return nil
-}
-
-// defaultAgentChartFloor is the meta chart release that ships the default
-// agent (giantswarm/agent-platform#1265): the minor after 4.174.3, the
-// latest release when the input was added. Set it to the release that
-// carries #1265 if that differs.
-const defaultAgentChartFloor = "4.175.0"
-
-// checkSkillManagerSources refuses the skill-manager's sources and GitHub
-// App where the meta chart runs no skill-manager: outside the 4 chart line,
-// where the fleet policy runs no agent-manager (the skill-manager follows it)
-// and with a chart hold below the release with the skill-manager.
-func (in *Input) checkSkillManagerSources() error {
-	for _, c := range []struct {
-		chosen      bool
-		input, what string
-	}{
-		{len(in.SkillManagerSources) > 0, "skillManager.sources", "lists the skill-manager's sources"},
-		{in.SkillManagerAppSecret != "", "skillManager.appSecretName", "names the skill-manager's GitHub App"},
-	} {
+// checkSkillManagerRelease refuses each chosen input outside the 4 chart
+// line, where the fleet policy does not run component (runs), and with a
+// versions.chart hold below skillManagerChart.
+func (in *Input) checkSkillManagerRelease(component string, runs bool, choices ...releaseChoice) error {
+	for _, c := range choices {
 		if !c.chosen {
 			continue
 		}
 		if in.Installation.ChartLine != lineFour {
 			return refuse(fmt.Sprintf("%s is the 4 chart line's, and this installation runs the %s line; the record's chart line decides", describe(c.input), in.Installation.ChartLine))
 		}
-		if !in.agentManager() {
-			return refuse(fmt.Sprintf("%s %s, which runs with the agent-manager, and the fleet policy runs no agent-manager on %s's installations", describe(c.input), c.what, in.Installation.Customer))
+		if !runs {
+			return refuse(fmt.Sprintf("%s %s, and the fleet policy runs no %s on %s's installations", describe(c.input), c.what, component, in.Installation.Customer))
 		}
-		if !holdAdmits(in.Versions.Chart, skillManagerChartFloor) {
-			return refuse(fmt.Sprintf("%s needs the meta chart %s or later, which runs the skill-manager, and %s holds it at %s; move or lift the hold first", describe(c.input), skillManagerChartFloor, describe("versions.chart"), in.Versions.Chart))
+		if !holdAdmits(in.Versions.Chart, skillManagerChart) {
+			return refuse(fmt.Sprintf("%s needs the meta chart %s or later, which runs the skill-manager and the default agent, and %s holds it at %s; move or lift the hold first", describe(c.input), skillManagerChart, describe("versions.chart"), in.Versions.Chart))
 		}
 	}
 	return nil
 }
 
-// skillManagerChartFloor is the meta chart release with the skill-manager
-// component (giantswarm/agent-platform#1265, giantswarm/giantswarm#38322).
-// PLACEHOLDER: the minor after 4.174.3, the latest release when the input
-// was added; set it to the release that carries the component.
-const skillManagerChartFloor = "4.175.0"
+// skillManagerChart is the first meta chart that runs the skill-manager and
+// ships the default agent (giantswarm/agent-platform#1265). Its values schema
+// refuses skillManager, skill-manager and defaultAgent below it.
+const skillManagerChart = "4.179.0"
+
+// platformSkillsRepository is the platform's own skill source, which the
+// meta chart lists first (skills.platformSource, never turned off by this
+// definition) and fails the render on a skillManager.sources entry naming it.
+const platformSkillsRepository = "https://github.com/giantswarm/agent-platform"
+
+// checkSkillSources refuses a skillManager.sources entry naming the
+// platform's own repository, compared as the meta chart does (no trailing
+// "/" or ".git"), and agentManager.skills.repositories beside
+// skillManager.sources: the meta chart either fails on the agent-manager's
+// list or lets it replace the sources for the agent-manager.
+func (in *Input) checkSkillSources() error {
+	for i, s := range in.SkillManagerSources {
+		url := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(s.URL, "/"), ".git"), "/")
+		if url == platformSkillsRepository {
+			return refuse(fmt.Sprintf("%s entry %d (%s) names the platform's own skill repository, which the meta chart already lists read-only at its release; remove the entry", describe("skillManager.sources"), i, s.URL))
+		}
+	}
+	if len(in.SkillManagerSources) > 0 && len(in.AgentManagerSkills.Repositories) > 0 {
+		return refuse(fmt.Sprintf("%s and %s are both set, and the agent-manager takes its skills from the skill-manager's sources; move the agent-manager's list into skillManager.sources", describe("skillManager.sources"), describe("agentManager.skills.repositories")))
+	}
+	return nil
+}
 
 // modelFreeChart is the first meta chart that declares no model
 // (giantswarm/agent-platform#1295): it refuses kagent.providers,
