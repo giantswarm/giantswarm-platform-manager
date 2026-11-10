@@ -66,6 +66,15 @@ func TestOrganizationsRefusals(t *testing.T) {
 	if _, err := Render(input, secrets, render.ModeCommit); err != nil {
 		t.Fatal(err)
 	}
+	// Commit mode under a hold on the release that takes it, or a range that
+	// reaches it, stands.
+	for _, hold := range []string{organizationsCommitChart, ">=4.170.0 <5.0.0"} {
+		input, secrets := loadInput(t, shapeOrganizationsCommit)
+		input["versions"] = map[string]any{keyChart: hold}
+		if _, err := Render(input, secrets, render.ModeCommit); err != nil {
+			t.Errorf("commit mode, hold %s: %v", hold, err)
+		}
+	}
 	// A hold on the organizations' release or a range that reaches it stands.
 	for _, hold := range []string{organizationsChart, ">=4.170.0 <5.0.0"} {
 		input, secrets := loadInput(t, shapeOrganizationsApply)
@@ -125,6 +134,10 @@ func TestPolicyDefaultAgent(t *testing.T) {
 		"sre-agent":                    true,
 		"kagent/sre-agent":             true,
 		"agents-platform-x7k2p/triage": true,
+		"agents-team-abcde/sre.agent":  true,
+		"sre.agent":                    true,
+		"agents-team.abcde/triage":     false,
+		"agents-team-abcde/-triage":    false,
 		"default/sre-agent":            false,
 		"agents-platform-x7k2p/":       false,
 		"Agents-Platform/triage":       false,

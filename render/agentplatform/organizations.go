@@ -2,8 +2,9 @@ package agentplatform
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
+
+	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
@@ -45,13 +46,11 @@ type OrganizationsPolicy struct {
 // (4.176.6).
 const organizationsChart = "4.176.6"
 
-// organizationsCommitChart is the meta chart before which commit mode is
-// refused under a hold: every release up to 4.177.0-rc.1 refuses
-// agent-manager.tenants but enabled, and no tag carries the change that
-// takes tenants.commit (giantswarm/agent-platform#1312). Until one does, it
-// stands above every planned release, so commit mode is refused under any
-// hold; once that release is tagged, this names it.
-const organizationsCommitChart = "4.999.0"
+// organizationsCommitChart is the first meta chart that takes
+// agent-manager.tenants.commit (giantswarm/agent-platform#1312); an earlier
+// release refuses agent-manager.tenants but enabled, so commit mode is
+// refused under a hold below it.
+const organizationsCommitChart = "4.177.0"
 
 // organizationsDir is the directory under an installation's extras that
 // holds its organizations in git, in commit mode: the objects the
@@ -176,17 +175,14 @@ func (p OrganizationsPolicy) check() error {
 	return nil
 }
 
-// kubernetesName is a Kubernetes object name (RFC 1123 label): a namespace,
-// or an agent's name.
-var kubernetesName = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)
-
 // organizationNamespacePrefix starts the name of every organization
 // namespace agent-platform-operator creates: agents-<organization>-<suffix>.
 const organizationNamespacePrefix = "agents-"
 
 // checkDefaultAgent refuses a chat gateway's default agent the gateway
 // cannot call: a name in kagent, or namespace/name in an organization
-// namespace.
+// namespace. A namespace is a DNS label and an Agent's name a DNS
+// subdomain, as the API server validates them, so a dotted name stands.
 func checkDefaultAgent(field, agent string) error {
 	if agent == "" {
 		return nil
@@ -195,7 +191,7 @@ func checkDefaultAgent(field, agent string) error {
 	if !qualified {
 		namespace, name = componentKagent, agent
 	}
-	if !kubernetesName.MatchString(namespace) || !kubernetesName.MatchString(name) ||
+	if len(validation.IsDNS1123Label(namespace)) != 0 || len(validation.IsDNS1123Subdomain(name)) != 0 ||
 		(namespace != componentKagent && !strings.HasPrefix(namespace, organizationNamespacePrefix)) {
 		return fmt.Errorf("%w: %s: %q is neither an agent's name in kagent nor <organization namespace>/<name>, an organization namespace being %s<organization>-<suffix>", ErrPolicy, field, agent, organizationNamespacePrefix)
 	}
