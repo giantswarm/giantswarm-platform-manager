@@ -37,6 +37,9 @@ const (
 	shapePortalHive             = "portal-hive"
 	shapeCustomerSibling        = "customer-sibling"
 	shapeConfidentialClient     = "confidential-client"
+	shapeOrganizationsApply     = "organizations-apply"
+	shapeOrganizationsCommit    = "organizations-commit"
+	shapeOrganizationsPortal    = "organizations-portal"
 )
 
 // The keys of the choices' documents the refusal cases build.
@@ -47,10 +50,9 @@ const (
 	keySlack   = "slack"
 	// keyRepositories is the repositories list of a skills or plans choice.
 	keyRepositories = "repositories"
-	// keyApp, keyToken and keyMint are the agent-manager skills inputs naming
-	// the skills GitHub App's Secret, the boot Secret and the minted boot
-	// Secret's choice; skillsApp and skillsTok the Secrets the cases name.
-	keyApp    = "appSecretName"
+	// keyToken and keyMint are the agent-manager skills inputs naming the
+	// boot Secret and the minted boot Secret's choice; skillsApp and skillsTok
+	// the Secrets the cases name.
 	keyToken  = "gitAuthSecretName" //nolint:gosec // an input's name, no credential
 	keyMint   = "mintGitAuthSecret"
 	skillsApp = "acme-skills-app"
@@ -82,7 +84,8 @@ const (
 )
 
 // shapes are the installation shapes, in the order the goldens are rendered.
-var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned, shapeGiantswarmSlackApp, shapeGiantswarmSlackAppPub, shapeHubPrivateTarget, shapeMultiClusterAggregator, shapeSecondHub, shapeHandKeptPortal, shapeRegisteredServers, shapePortalGitHubGrant, shapePortalHive, shapeCustomerSibling, shapeConfidentialClient}
+var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned, shapeGiantswarmSlackApp, shapeGiantswarmSlackAppPub, shapeHubPrivateTarget, shapeMultiClusterAggregator, shapeSecondHub, shapeHandKeptPortal, shapeRegisteredServers, shapePortalGitHubGrant, shapePortalHive, shapeCustomerSibling, shapeConfidentialClient,
+	shapeOrganizationsApply, shapeOrganizationsCommit, shapeOrganizationsPortal}
 
 func loadInput(t *testing.T, shape string) (map[string]any, map[string]string) {
 	t.Helper()
@@ -776,7 +779,7 @@ func TestManagersCommitMode(t *testing.T) {
 			if patch == nil {
 				t.Fatal("no configmap patch rendered")
 			}
-			for key, want := range map[string]string{"model-manager": c.wantM, "agent-manager": c.wantA} {
+			for key, want := range map[string]string{"model-manager": c.wantM, componentAgentManager: c.wantA} {
 				got := ""
 				if v, ok := patch[key].(map[string]any); ok && v[keyGitHub] != nil {
 					got = string(render.MustYAML(map[string]any{keyGitHub: v[keyGitHub]}))
@@ -798,7 +801,7 @@ func TestManagersCommitMode(t *testing.T) {
 
 // agentManagerBelowSkillManager holds the agent-manager below the release
 // that takes its skills from the skill-manager.
-var agentManagerBelowSkillManager = map[string]any{"components": map[string]any{"agent-manager": "~2.22.0"}}
+var agentManagerBelowSkillManager = map[string]any{keyComponents: map[string]any{componentAgentManager: "~2.22.0"}}
 
 // TestAgentManagerSkills renders the agent-manager's skill catalog from its
 // choices: only what is chosen is written, under the agent-manager's values
@@ -809,7 +812,7 @@ func TestAgentManagerSkills(t *testing.T) {
 	input, secrets := loadInput(t, shapeHubPrivateTarget)
 	input["agentManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: true}, keySkills: map[string]any{ //nolint:gosec // Secret names in a fixture, no credential
 		keyRepositories: []any{"https://github.com/acme/skills", "https://github.com/acme/skills-internal"},
-		keyApp:          skillsApp, keyToken: skillsTok}}
+		keyGitHub:       appSecret(skillsApp), keyToken: skillsTok}}
 	input[keyVersions] = agentManagerBelowSkillManager
 	result, err := Render(input, secrets, render.ModeCommit)
 	if err != nil {
@@ -843,7 +846,7 @@ func TestAgentManagerSkills(t *testing.T) {
 	}
 
 	input, secrets = loadInput(t, shapeHubPrivateTarget)
-	input["agentManager"] = map[string]any{keySkills: map[string]any{keyApp: skillsApp, keyMint: true}}
+	input["agentManager"] = map[string]any{keySkills: map[string]any{keyGitHub: appSecret(skillsApp), keyMint: true}}
 	result, err = Render(input, secrets, render.ModeCommit)
 	if err != nil {
 		t.Fatal(err)
@@ -863,7 +866,7 @@ func TestAgentManagerSkills(t *testing.T) {
 	}
 
 	for name, skills := range map[string]map[string]any{
-		"minted and named":   {keyApp: skillsApp, keyMint: true, keyToken: skillsTok}, //nolint:gosec // Secret names in a fixture, no credential
+		"minted and named":   {keyGitHub: appSecret(skillsApp), keyMint: true, keyToken: skillsTok}, //nolint:gosec // Secret names in a fixture, no credential
 		"minted without App": {keyMint: true},
 	} {
 		input, secrets = loadInput(t, shapeHubPrivateTarget)
@@ -1005,7 +1008,7 @@ func TestDevBuildHoldRendersNoReleaseFilter(t *testing.T) {
 			input, secrets := loadInput(t, shapeGiantswarmSlackAppPub)
 			delete(input, "versions")
 			if c.hold != "" {
-				input["versions"] = map[string]any{"chart": c.hold}
+				input["versions"] = map[string]any{keyChart: c.hold}
 			}
 			result, err := Render(input, secrets, render.ModeCommit)
 			if err != nil {
@@ -1526,7 +1529,7 @@ func TestKagentProvidersFollowTheChart(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			input, secrets := loadInput(t, c.shape)
 			if c.hold != "" {
-				input["versions"] = map[string]any{"chart": c.hold}
+				input["versions"] = map[string]any{keyChart: c.hold}
 			}
 			result, err := Render(input, secrets, render.ModeCommit)
 			if err != nil {
@@ -1692,11 +1695,11 @@ func TestSkillManagerSources(t *testing.T) {
 	both, bothSecrets := withSources(shapeHubPrivateTarget, acmeSkills)
 	both["agentManager"] = map[string]any{keySkills: map[string]any{keyRepositories: []any{acmeSkills}}}
 	both[keyVersions] = agentManagerBelowSkillManager
-	const sourcesPath = "skillManager/sources"
+	const sourcesPath, sourcesInput, repositoriesInput = "skillManager/sources", "skillManager.sources", "agentManager.skills.repositories"
 	requireRefusals(t, []refusalCase{
 		{"the chart held on a release without the skill-manager", heldReleased, heldReleasedSecrets, inputChartHold},
-		{"the platform's own repository", platform, platformSecrets, "skillManager.sources"},
-		{"beside the agent-manager's repositories", both, bothSecrets, "agentManager.skills.repositories"},
+		{"the platform's own repository", platform, platformSecrets, sourcesInput},
+		{"beside the agent-manager's repositories", both, bothSecrets, repositoriesInput},
 		{"no url", noURL, noURLSecrets, sourcesPath},
 		{"unknown key", unknown, unknownSecrets, sourcesPath},
 		{"not a URL", notAURL, notAURLSecrets, sourcesPath},
@@ -1713,7 +1716,7 @@ func TestSkillManagerSources(t *testing.T) {
 func TestSkillManagerAppSecret(t *testing.T) {
 	withApp := func(shape string) (map[string]any, map[string]string) {
 		input, secrets := loadInput(t, shape)
-		input["skillManager"] = map[string]any{keyApp: skillsApp}
+		input["skillManager"] = map[string]any{keyGitHub: appSecret(skillsApp)}
 		return input, secrets
 	}
 	input, secrets := loadInput(t, shapeHubPrivateTarget)
@@ -1735,10 +1738,10 @@ func TestSkillManagerAppSecret(t *testing.T) {
 	held, heldSecrets := withApp(shapeHubPrivateTarget)
 	held[keyVersions] = map[string]any{keyChart: holdBelowSkillManager}
 	notAName, notANameSecrets := loadInput(t, shapeHubPrivateTarget)
-	notAName["skillManager"] = map[string]any{keyApp: "Acme Skills"}
-	const appInput = "skillManager.appSecretName"
+	notAName["skillManager"] = map[string]any{keyGitHub: appSecret("Acme Skills")}
+	const appInput = "skillManager.github.app.secretName"
 	requireRefusals(t, []refusalCase{
-		{"not a Secret name", notAName, notANameSecrets, "skillManager/appSecretName"},
+		{"not a Secret name", notAName, notANameSecrets, "skillManager/github/app/secretName"},
 		{caseLineThree, lineThree, lineThreeSecrets, appInput},
 		{"without agent-manager", noAgentManager, noAgentManagerSecrets, appInput},
 		{"the chart held below the skill-manager", held, heldSecrets, inputChartHold},
@@ -1812,4 +1815,9 @@ func TestAgentModelsProbe(t *testing.T) {
 			t.Errorf("%s: the %s probe is %+v", c.shape, agentModelsDimension, p)
 		}
 	}
+}
+
+// appSecret is the github.app.secretName choice naming a GitHub App's Secret.
+func appSecret(name string) map[string]any {
+	return map[string]any{"app": map[string]any{"secretName": name}}
 }

@@ -14,12 +14,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/giantswarm/gitops-commit/commit"
 	"github.com/mark3labs/mcp-go/client"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
@@ -596,5 +598,204 @@ func TestWatchActionReadsThePullRequestsAsThePerson(t *testing.T) {
 	}
 	if th := thread(t, st); len(th) != 2 || !strings.Contains(th[0], "Merged outside the manager by "+dave) || !strings.Contains(th[1], "*"+rowan+"* is *"+actions.StateEnabled+"*") {
 		t.Fatalf("the thread: %q", th)
+	}
+}
+
+// olderCommitMode is rowan's merged document in the organizations' commit
+// mode as a manager before installation.repositories stored it — without
+// the fact — and the same document with the repository that manager wrote,
+// giantswarm/<customer>-management-clusters, to render the installation's
+// objects from (the render's name is pinned by
+// TestOrganizationsCommitReplaysADocumentWithoutTheRepositories).
+func olderCommitMode(t *testing.T, st *stack) (stored, rendered map[string]any) {
+	t.Helper()
+	out, text, isErr := dryRun(t, st.mcpClient(t, aliceToken), tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: kagentEnabled()})
+	if isErr {
+		t.Fatalf("dry run: %s", text)
+	}
+	copyOf := func() map[string]any {
+		b, err := json.Marshal(findPlan(t, out, rowan).Inputs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(b, &m); err != nil {
+			t.Fatal(err)
+		}
+		inst := m["installation"].(map[string]any)
+		inst["chartLine"], inst["podCertificateRequest"] = "4", true
+		org := m["organizations"].(map[string]any)
+		org[enabledKey] = true
+		org[organizationsCommit] = map[string]any{enabledKey: true}
+		return m
+	}
+	stored, rendered = copyOf(), copyOf()
+	delete(stored["installation"].(map[string]any), "repositories")
+	rendered["installation"].(map[string]any)["repositories"] = map[string]any{"managementClusters": "giantswarm/acme-management-clusters"}
+	return stored, rendered
+}
+
+// An Action an older manager stored in the organizations' commit mode
+// carries no installation.repositories: the watch's render is not refused,
+// it reads the rollout's Flux objects and judges the stage by them —
+// enabled with nothing red.
+func TestWatchActionReplaysCommitModeAnOlderManagerStored(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	stored, rendered := olderCommitMode(t, st)
+	seedRowanLive(t, st, rendered, stored, map[string]any{"organizations": map[string]any{enabledKey: true, organizationsCommit: map[string]any{enabledKey: true}}}, "")
+
+	w, text, isErr := watchCall(t, adminLive(t, st), liveAction)
+	if isErr || w.Verify == nil {
+		t.Fatalf("the replay of the stored inputs: %v %s", isErr, text)
+	}
+	if w.Verify.Refused != "" || len(w.Objects) == 0 || !w.Ready || w.State != actions.StateEnabled || len(w.Red) != 0 {
+		t.Fatalf("the replay of the stored inputs: refused %q, %d Flux object(s), ready %v, state %q, red %v", w.Verify.Refused, len(w.Objects), w.Ready, w.State, w.Red)
+	}
+}
+
+// storedAsRefused has installation's inputs on record of action name turn
+// the organizations' switch on, which the 3 chart line of the fixtures
+// refuses: a document the render of this manager refuses, as a later
+// definition may refuse one an older manager stored.
+func storedAsRefused(t *testing.T, st *stack, name, installation string) {
+	t.Helper()
+	storeOrganizationsSwitch(t, st, name, installation, true)
+}
+
+// storeOrganizationsSwitch sets the organizations' switch in installation's
+// inputs on record of action name.
+func storeOrganizationsSwitch(t *testing.T, st *stack, name, installation string, on bool) {
+	t.Helper()
+	a, err := actions.New(st.dyn, actionsNamespace).Get(t.Context(), name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := a.InputsOnRecord(installation)
+	if in == nil {
+		t.Fatalf("action %s holds no inputs on record for %s", name, installation)
+	}
+	in["organizations"].(map[string]any)[enabledKey] = on
+	if _, err := st.dyn.Resource(actions.GVR).Namespace(actionsNamespace).Update(t.Context(), actions.Unstructured(*a), metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// refusedSwitch is what the render's refusal of storedAsRefused names.
+const refusedSwitch = "organizations.enabled"
+
+// A render the inputs on record are refused by reads no Flux object, and
+// nothing it reads moves the stage: the action stays rolling out, and the
+// stage's message on the Action says why, once however often it is watched,
+// until a read of the inputs renders.
+func TestARefusedRenderMovesNoStage(t *testing.T) {
+	st := newStack(t)
+	a, aliceC := rolledOut(t, st)
+	admin := adminLive(t, st)
+	storedAsRefused(t, st, a.Name, rowan)
+
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || w.Verify == nil || !strings.Contains(w.Verify.Refused, refusedSwitch) || w.State != actions.StateRollingOut || w.Ready || len(w.Objects) != 0 {
+		t.Fatalf("the watch of a refused render: %v state %q, %d Flux object(s): %s", isErr, w.State, len(w.Objects), text)
+	}
+	got := getAction(t, aliceC, a.Name)
+	stage := stageOf(&got, rowan)
+	if got.Status.State != actions.StateRollingOut || stage.State != actions.StateRollingOut || !strings.Contains(stage.Message, refusedSwitch) {
+		t.Fatalf("after the refused watch: %s, stage %s: %q", got.Status.State, stage.State, stage.Message)
+	}
+	if _, text, isErr := watchCall(t, admin, a.Name); isErr {
+		t.Fatalf("the second watch of a refused render: %s", text)
+	}
+	if again := getAction(t, aliceC, a.Name); stageOf(&again, rowan).Message != stage.Message {
+		t.Fatalf("the second refused watch changed the stage's message:\n%q\n%q", stage.Message, stageOf(&again, rowan).Message)
+	}
+
+	storeOrganizationsSwitch(t, st, a.Name, rowan, false)
+	if res := verifyLive(t, admin, rowan); res.Refused != "" {
+		t.Fatalf("verify of the inputs restored: refused %q", res.Refused)
+	}
+	read := getAction(t, aliceC, a.Name)
+	if stage := stageOf(&read, rowan); stage.State != actions.StateRollingOut || strings.Contains(stage.Message, refusedSwitch) {
+		t.Fatalf("after a verify that renders: stage %s: %q", stage.State, stage.Message)
+	}
+}
+
+// probesOf are the probe entries of installation on a's record.
+func probesOf(a actions.Action, installation string) []actions.Probe {
+	var out []actions.Probe
+	for _, p := range a.Status.Probes {
+		if p.Installation == installation {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// verify_installation of a render the inputs on record are refused by
+// answers the refusal, leaves a stage waiting for the customer waiting, keeps
+// the probe results the last read recorded and says on the stage why; the
+// refusal of inputs the caller hands over writes nothing on the Action.
+func TestVerifyInstallationRefusedRenderKeepsTheWait(t *testing.T) {
+	st := newStack(t)
+	a, aliceC := rolledOut(t, st)
+	admin := adminLive(t, st)
+	setAccepted(st.inst, statusFalse, modelKeyMissing)
+	if w, text, isErr := watchCall(t, admin, a.Name); isErr || w.State != actions.StateWaitingForCustomer {
+		t.Fatalf("waiting: %v %s", isErr, text)
+	}
+	waiting := getAction(t, aliceC, a.Name)
+	probes, stage := probesOf(waiting, rowan), stageOf(&waiting, rowan)
+	if len(probes) == 0 {
+		t.Fatal("the watch recorded no probe")
+	}
+	setAccepted(st.inst, statusTrue, "ok")
+
+	refused := waiting.InputsOnRecord(rowan)
+	refused["organizations"].(map[string]any)[enabledKey] = true
+	if res := verifyLiveWith(t, admin, rowan, verify.Inputs{Source: "handed over", Values: refused}); !strings.Contains(res.Refused, refusedSwitch) {
+		t.Fatalf("verify of refused inputs handed over: refused %q", res.Refused)
+	}
+	if after := getAction(t, aliceC, a.Name); !reflect.DeepEqual(probesOf(after, rowan), probes) || !reflect.DeepEqual(stageOf(&after, rowan), stage) {
+		t.Fatalf("the refusal of inputs handed over changed the Action: probes %+v, stage %+v", probesOf(after, rowan), stageOf(&after, rowan))
+	}
+
+	storedAsRefused(t, st, a.Name, rowan)
+	if res := verifyLive(t, admin, rowan); !strings.Contains(res.Refused, refusedSwitch) {
+		t.Fatalf("verify of a refused render: refused %q, state %q", res.Refused, res.State)
+	}
+	got := getAction(t, aliceC, a.Name)
+	if stage := stageOf(&got, rowan); got.Status.State != actions.StateWaitingForCustomer || stage.State != actions.StateWaitingForCustomer || !strings.Contains(stage.Message, refusedSwitch) {
+		t.Fatalf("after the verify: %s, stage %s: %q", got.Status.State, stage.State, stage.Message)
+	}
+	if kept := probesOf(got, rowan); !reflect.DeepEqual(kept, probes) {
+		t.Fatalf("the refused verify replaced the probes on record:\n%+v\n%+v", probes, kept)
+	}
+}
+
+// A stage failed on a red probe keeps the probe's cause in its message when
+// a refused render is noted after it, so the watch still re-reads it; once
+// the inputs render and the probe is green, the recovery names the red
+// probe, not the refusal.
+func TestARefusedRenderKeepsAProbeFailureReRead(t *testing.T) {
+	st := newStack(t)
+	a, aliceC := rolledOut(t, st)
+	admin := adminLive(t, st)
+	restore := redEdgeProbe(t, st, aliceC, rowan)
+	if w, text, isErr := watchCall(t, admin, a.Name); isErr || w.State != actions.StateFailed {
+		t.Fatalf("the red probe: %v %s", isErr, text)
+	}
+	storedAsRefused(t, st, a.Name, rowan)
+	for n := range 2 {
+		w, text, isErr := watchCall(t, admin, a.Name)
+		if isErr || w.State != actions.StateFailed || w.Action == nil || !strings.Contains(stageOf(w.Action, rowan).Message, refusedSwitch) {
+			t.Fatalf("refused watch %d of a stage failed on a probe: %v %s", n+1, isErr, text)
+		}
+	}
+
+	storeOrganizationsSwitch(t, st, a.Name, rowan, false)
+	restore()
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || w.State != actions.StateEnabled || !strings.Contains(w.Report, "Recovered") || !strings.Contains(w.Report, edgeProbe) || strings.Contains(w.Report, refusedSwitch) {
+		t.Fatalf("the recovery: %v %s", isErr, text)
 	}
 }

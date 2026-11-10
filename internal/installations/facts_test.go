@@ -2,6 +2,7 @@ package installations
 
 import (
 	"maps"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -12,13 +13,16 @@ import (
 // under installation: the agent-platform definition takes the record's chart
 // line and muster client id and not the registry's region; the portal takes
 // region, pipeline and the agent-platform capability's enabled state and not
-// the chart line. The names of the enabled states are the definitions' in
-// lowerCamelCase.
+// the chart line. The agent-platform definition takes the registry's
+// management-clusters repository, which its commit mode of the
+// organizations commits to. The names of the enabled states are the
+// definitions' in lowerCamelCase.
 // agentPlatformFact is the fact key of the agent-platform capability: on record for the installation.
 const agentPlatformFact = "agentPlatform"
 
 func TestFactsPerDefinition(t *testing.T) {
-	r := Report{Installation: Installation{Name: fixtureInstallation, Region: "example-region-1", Pipeline: "stable", Hub: true},
+	r := Report{Installation: Installation{Name: fixtureInstallation, Region: "example-region-1", Pipeline: "stable", Hub: true,
+		Repositories: Repositories{Configs: "acme/acme-configs", ManagementClusters: "acme/acme-gitops"}},
 		Record:       &Record{Name: fixtureInstallation, BaseDomain: "maple.acme.example.test", Customer: "acme", Provider: "capz", ChartLine: "4", MusterClientID: "muster-maple", DexAppVersion: pinnedDexApp},
 		Capabilities: []CapabilityState{{Name: AgentPlatform, Enabled: true}, {Name: CustomerPortal, Enabled: false}}}
 	all := r.Facts()
@@ -31,7 +35,7 @@ func TestFactsPerDefinition(t *testing.T) {
 		return slices.Sorted(slices.Values(append(slices.Clone(common), own...)))
 	}
 	want := map[string][]string{
-		AgentPlatform:     facts("chartLine", "dexAppVersion", "hub", "musterClientId", "podCertificateRequest", "portalClientSecret", "private", "provider"),
+		AgentPlatform:     facts("chartLine", "dexAppVersion", "hub", "musterClientId", "podCertificateRequest", "portalClientSecret", "private", "provider", "repositories"),
 		CustomerPortal:    facts("pipeline", "provider", "region", "test"),
 		ClusterMCPServers: facts("dexAppVersion"),
 	}
@@ -43,6 +47,9 @@ func TestFactsPerDefinition(t *testing.T) {
 		got := slices.Sorted(maps.Keys(facts))
 		if !slices.Equal(got, want[c.Name]) {
 			t.Errorf("%s: facts %v, want %v", c.Name, got, want[c.Name])
+		}
+		if c.Name == AgentPlatform && !reflect.DeepEqual(facts["repositories"], map[string]any{"managementClusters": "acme/acme-gitops"}) {
+			t.Errorf("%s: repositories %v, want the registry's management-clusters repository alone", c.Name, facts["repositories"])
 		}
 	}
 	if factKey("agent-platform") != agentPlatformFact || factKey("customer-portal") != "customerPortal" || factKey("x") != "x" {

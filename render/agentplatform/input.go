@@ -140,13 +140,15 @@ type Input struct {
 	// catalog (agentManager.skills): the repositories list_skills discovers
 	// and the Secrets private ones are read and booted with, read back from
 	// the configmap patch on record.
-	AgentManagerSkills AgentManagerSkills
+	AgentManagerSkills        AgentManagerSkills
+	AgentManagerTokenExchange bool
+	AgentManagerCredentialUI  string
 	// SkillManagerSources are the skill-manager's skill sources
 	// (skillManager.sources) as the person wrote them, read back from the
 	// configmap patch on record.
 	SkillManagerSources []SkillSource
 	// SkillManagerAppSecret is the Secret of the GitHub App the
-	// skill-manager reads its sources with (skillManager.appSecretName),
+	// skill-manager reads its sources with (skillManager.github.app.secretName),
 	// read back from the configmap patch on record.
 	SkillManagerAppSecret string
 	// DefaultAgent is the person's choice of the platform-shipped
@@ -175,6 +177,12 @@ type Input struct {
 	// patch on record so a reconcile keeps them.
 	SlashCommand        string
 	SlashCommandComment string
+	// Organizations is the person's choice of the Agent Platform
+	// organizations (organizations.*), read back from the record so a
+	// reconcile keeps it, and organizationsPolicy where commit mode keeps
+	// them in git (policy.yaml's organizations).
+	Organizations       Organizations
+	organizationsPolicy OrganizationsPolicy
 	// Components are the components the policy gives the installation, by
 	// name: its organisation's list and, where the policy names a Slack app
 	// for the installation, the chat gateway.
@@ -257,6 +265,14 @@ type Installation struct {
 	// Hub says this is the registry's hub: its broker releases the person's
 	// GitHub grant to the Dev Portal (hub.go).
 	Hub bool `json:"hub"`
+	// Repositories are the installation's GitOps repositories as the
+	// registry names them: commit mode of the organizations has agent-manager
+	// open its pull requests in the management-clusters one. Every document
+	// a plan merges carries them, empty where the registry names none. Nil
+	// is any document without the key — an Action's inputs on record that a
+	// manager before the fact stored, or a hand-written one — and gets the
+	// name that manager wrote (managementClusters).
+	Repositories *Repositories `json:"repositories,omitempty"`
 	// AgentPlatform says the capability is on record for the installation:
 	// its marker file exists, whoever put it there. False is a fresh enable;
 	// either moves to the chart line the policy declares (selectLine).
@@ -290,6 +306,11 @@ type Installation struct {
 	// stable callback: the ConfigMaps under extras/agent-platform/mcpclients/
 	// on record (registered.go).
 	MCPClients []RegisteredClient `json:"mcpClients"`
+}
+
+// Repositories are the installation's GitOps repositories the render reads.
+type Repositories struct {
+	ManagementClusters string `json:"managementClusters"`
 }
 
 // PortalRef is a developer portal that signs people in on the installation:
@@ -466,7 +487,8 @@ type policy struct {
 	Flux struct {
 		SourceInterval string `yaml:"sourceInterval"`
 	} `yaml:"flux"`
-	ChartLine struct {
+	Organizations OrganizationsPolicy `yaml:"organizations"`
+	ChartLine     struct {
 		Default   string            `yaml:"default"`
 		Customers map[string]string `yaml:"customers"`
 	} `yaml:"chartLine"`
@@ -498,6 +520,17 @@ func parsePolicy(raw []byte) (*policy, error) {
 	for customer, t := range pol.ChartLine.Customers {
 		if !metaChartLine(t) {
 			return nil, fmt.Errorf("%w: chartLine.customers.%s: %q is not a line of the meta chart (%s or %s)", ErrPolicy, customer, t, lineThree, lineFour)
+		}
+	}
+	if err := pol.Organizations.check(); err != nil {
+		return nil, err
+	}
+	if err := checkDefaultAgent("klausGateway.a2a.defaultAgent", pol.KlausGateway.A2A.DefaultAgent); err != nil {
+		return nil, err
+	}
+	for name, own := range pol.KlausGateway.Installations {
+		if err := checkDefaultAgent("klausGateway.installations."+name+".defaultAgent", own.DefaultAgent); err != nil {
+			return nil, err
 		}
 	}
 	for _, customer := range pol.ReleaseCandidates.Customers {
@@ -628,12 +661,18 @@ type document struct {
 	ModelManager   commitChoice `json:"modelManager"`
 	AgentManager   struct {
 		commitChoice
-		Skills AgentManagerSkills `json:"skills"`
+		Skills              AgentManagerSkills `json:"skills"`
+		GitHubTokenExchange struct {
+			Enabled bool `json:"enabled"`
+		} `json:"githubTokenExchange"`
+		Credentials struct {
+			UIURL string `json:"uiURL"`
+		} `json:"credentials"`
 	} `json:"agentManager"`
 	DefaultAgent DefaultAgent `json:"defaultAgent"`
 	SkillManager struct {
-		Sources       []SkillSource `json:"sources"`
-		AppSecretName string        `json:"appSecretName"`
+		Sources []SkillSource `json:"sources"`
+		GitHub  githubApp     `json:"github"`
 	} `json:"skillManager"`
 	KlausGateway struct {
 		Slack struct {
@@ -645,7 +684,8 @@ type document struct {
 			SlashCommandComment    string       `json:"slashCommandComment"`
 		} `json:"slack"`
 	} `json:"klausGateway"`
-	Versions Versions `json:"versions"`
+	Organizations Organizations `json:"organizations"`
+	Versions      Versions      `json:"versions"`
 }
 
 // MCPBackend is one in-cluster MCP backend the meta chart's network policy
@@ -704,10 +744,18 @@ type Holds struct {
 // are read with, and the Secret agents with a git skill boot with — provisioned
 // and named, or minted from the App by agent-manager.
 type AgentManagerSkills struct {
-	Repositories      []string `json:"repositories"`
-	AppSecretName     string   `json:"appSecretName"`
-	GitAuthSecretName string   `json:"gitAuthSecretName"`
-	MintGitAuthSecret bool     `json:"mintGitAuthSecret"`
+	Repositories      []string  `json:"repositories"`
+	GitHub            githubApp `json:"github"`
+	GitAuthSecretName string    `json:"gitAuthSecretName"`
+	MintGitAuthSecret bool      `json:"mintGitAuthSecret"`
+}
+
+// githubApp names the Secret of a GitHub App a component reads with, under
+// the chart's own path (github.app.secretName).
+type githubApp struct {
+	App struct {
+		SecretName string `json:"secretName"`
+	} `json:"app"`
 }
 
 // DefaultAgent is the meta chart's platform-shipped default agent
@@ -772,7 +820,7 @@ func (s SkillSource) MarshalYAML() (any, error) {
 
 // set is whether the person chose anything for the catalog.
 func (s AgentManagerSkills) set() bool {
-	return len(s.Repositories) > 0 || s.AppSecretName != "" || s.GitAuthSecretName != "" || s.MintGitAuthSecret
+	return len(s.Repositories) > 0 || s.GitHub.App.SecretName != "" || s.GitAuthSecretName != "" || s.MintGitAuthSecret
 }
 
 // commitChoice is a manager's commit mode through its GitHub App: the one
@@ -819,6 +867,9 @@ func Parse(raw any) (*Input, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInput, err)
 	}
+	if encoded, err = renameInputs(encoded); err != nil {
+		return nil, err
+	}
 	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(encoded))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInput, err)
@@ -837,7 +888,7 @@ func Parse(raw any) (*Input, error) {
 		return nil, err
 	}
 	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, MCPBackends: d.NetworkPolicy.MCPBackends, LLMRateLimits: d.LLMRouting.RateLimits, LLMRateLimitsComment: d.LLMRouting.RateLimitsComment, SessionIdleTTL: d.Sessions.IdleTTL, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories, Hive: d.Hive,
-		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, SkillManagerSources: d.SkillManager.Sources, SkillManagerAppSecret: d.SkillManager.AppSecretName, DefaultAgent: d.DefaultAgent, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, ContextBotNames: d.KlausGateway.Slack.ContextBotNames, ContextBotNamesComment: d.KlausGateway.Slack.ContextBotNamesComment, SlashCommand: d.KlausGateway.Slack.SlashCommand, SlashCommandComment: d.KlausGateway.Slack.SlashCommandComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
+		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, SkillManagerSources: d.SkillManager.Sources, SkillManagerAppSecret: d.SkillManager.GitHub.App.SecretName, DefaultAgent: d.DefaultAgent, AgentManagerTokenExchange: d.AgentManager.GitHubTokenExchange.Enabled, AgentManagerCredentialUI: d.AgentManager.Credentials.UIURL, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, ContextBotNames: d.KlausGateway.Slack.ContextBotNames, ContextBotNamesComment: d.KlausGateway.Slack.ContextBotNamesComment, SlashCommand: d.KlausGateway.Slack.SlashCommand, SlashCommandComment: d.KlausGateway.Slack.SlashCommandComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
 		ReleaseCandidates: pol.releaseCandidates(d.Installation)}
 	if in.Components, err = pol.components(in.Installation); err != nil {
 		return nil, err
@@ -849,6 +900,7 @@ func Parse(raw any) (*Input, error) {
 		return nil, err
 	}
 	pol.browseOnly(in.Installation.Federation.Targets)
+	in.Organizations, in.organizationsPolicy = d.Organizations, pol.Organizations
 	in.selectLine(pol.targetLine(in.Installation))
 	if err := in.checkRecord(); err != nil {
 		return nil, err
@@ -966,7 +1018,7 @@ func (in *Input) checkRecord() error {
 		if p.ChartLine == "" {
 			return refuse(fmt.Sprintf("the hosted portal's chart line (installation.portals[%s].chartLine) is not on record: management-clusters/%s/extras/backstage/backstage/kustomization.yaml patches no ref onto the fleet base's backstage OCIRepository, and the portal section names the agents' Flux identity for a portal before backstage %s only", p.Installation, p.Installation, portalPluginRemoval))
 		}
-		if _, err := portalChartFloor(p.ChartLine); err != nil {
+		if _, err := rangeFloor(p.ChartLine); err != nil {
 			return refuse(fmt.Sprintf("the hosted portal's chart line (installation.portals[%s].chartLine) is not one the definition reads: %v", p.Installation, err))
 		}
 	}
@@ -985,6 +1037,9 @@ func (in *Input) checkRecord() error {
 	if in.AgentManagerCommit && !in.agentManager() {
 		return refuse(fmt.Sprintf("%s asks for the agent-manager's commit mode, and the fleet policy runs no agent-manager on %s's installations", describe("agentManager.github.enabled"), in.Installation.Customer))
 	}
+	if err := in.validateAgentManagerCredentials(); err != nil {
+		return err
+	}
 	if in.SessionIdleTTL != "" && in.Installation.ChartLine != lineFour {
 		return in.refuseOffLineFour("sessions.idleTTL")
 	}
@@ -998,7 +1053,7 @@ func (in *Input) checkRecord() error {
 	}
 	if err := in.checkSkillManagerChart(componentAgentManager, in.agentManager(),
 		skillManagerChartChoice{len(in.SkillManagerSources) > 0, "skillManager.sources", "lists the sources of the skill-manager, which runs with the agent-manager"},
-		skillManagerChartChoice{in.SkillManagerAppSecret != "", "skillManager.appSecretName", "names the GitHub App of the skill-manager, which runs with the agent-manager"}); err != nil {
+		skillManagerChartChoice{in.SkillManagerAppSecret != "", "skillManager.github.app.secretName", "names the GitHub App of the skill-manager, which runs with the agent-manager"}); err != nil {
 		return err
 	}
 	if err := in.checkSkillSourceConflicts(); err != nil {
@@ -1023,8 +1078,8 @@ func (in *Input) checkRecord() error {
 		if skills.GitAuthSecretName != "" {
 			return refuse(describe("agentManager.skills.mintGitAuthSecret") + " and " + describe("agentManager.skills.gitAuthSecretName") + " both name the agents' boot Secret; the minted one replaces the provisioned one")
 		}
-		if skills.AppSecretName == "" {
-			return refuse(describe("agentManager.skills.mintGitAuthSecret") + " mints the skills GitHub App's installation token, and " + describe("agentManager.skills.appSecretName") + " names no App")
+		if skills.GitHub.App.SecretName == "" {
+			return refuse(describe("agentManager.skills.mintGitAuthSecret") + " mints the skills GitHub App's installation token, and " + describe("agentManager.skills.github.app.secretName") + " names no App")
 		}
 	}
 	if in.ModelManagerCommit && !in.modelManager() {
@@ -1044,7 +1099,7 @@ func (in *Input) checkRecord() error {
 		return refuse(fmt.Sprintf("%s does not say this cluster serves %s/%s %s, which kagent's Agent Substrate on the 4 chart line needs; enable the feature gates %s under cluster.internal.advancedConfiguration.{%s}.featureGates in the cluster App's values (management-clusters/%s/cluster-app-manifests.yaml), or run a cluster App chart that enables them by default (%s and later)",
 			describe("installation.podCertificateRequest"), apiGroup(PodCertificateRequestResource), PodCertificateRequestVersion, apiResource(PodCertificateRequestResource), strings.Join(PodCertificateRequestGates, ", "), strings.Join(PodCertificateRequestComponents, ","), in.Installation.Name, podCertificateRequestDefaults()))
 	}
-	return nil
+	return in.checkOrganizations()
 }
 
 // apiResource and apiGroup split a probe's resource.group.

@@ -373,7 +373,16 @@ func Compare(ctx context.Context, opts Options) Result {
 	own := ownFacts(opts.Installation)
 	if opts.Inputs.Values != nil {
 		var p plan.Installation
-		if c, p, err = compare(ctx, opts, readRemovals(rms, own), readMigrations(migs, own)); err != nil {
+		// A dependent typed with its switch off is refused here, where the
+		// typed inputs are told from the read-back: the render sees them
+		// merged, and renders a read-back dependent as nothing.
+		var refusal string
+		if refusal, err = opts.Definition.TypedWithoutSwitch(opts.Inputs.Typed, opts.Inputs.Values); err != nil {
+			refusal = err.Error()
+		}
+		if refusal != "" {
+			r.Refused = refusal
+		} else if c, p, err = compare(ctx, opts, readRemovals(rms, own), readMigrations(migs, own)); err != nil {
 			r.Refused = err.Error()
 			c = nil
 		}

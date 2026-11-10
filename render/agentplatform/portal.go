@@ -329,6 +329,9 @@ func (in *Input) portalAppConfig() render.Map {
 	if len(in.SkillRepositories) > 0 {
 		platform = append(platform, e("skills", render.Map{e("repositories", in.SkillRepositories)}))
 	}
+	if in.portalOrganizations() {
+		platform = append(platform, e("organizations", render.Map{e("enabled", true)}))
+	}
 	if len(platform) > 0 {
 		m = append(m, e("agentPlatform", platform))
 	}
@@ -385,11 +388,11 @@ func (in *Input) portalValues() render.Map {
 	return m
 }
 
-// portalChartFloor is the lowest chart version a portal's chart line admits:
-// the lower bound of a bounded range (>=A <B, the form the customer-portal
-// definition writes) or of the release candidates (>=A.B.C-0, open above), or
-// the tag itself. Another form is an error naming it.
-func portalChartFloor(line string) (*semver.Version, error) {
+// rangeFloor is the lowest version a version range admits (a portal's chart
+// line, a component's hold): the lower bound of a bounded range (>=A <B, the
+// form the definitions write) or of the release candidates (>=A.B.C-0, open
+// above), or the tag itself. Another form is an error naming it.
+func rangeFloor(line string) (*semver.Version, error) {
 	fields := strings.Fields(line)
 	var floor string
 	switch {
@@ -417,7 +420,7 @@ func portalChartAdmits(line string, v *semver.Version) bool {
 	if render.ReleaseCandidates(line) {
 		return true
 	}
-	floor, err := portalChartFloor(line)
+	floor, err := rangeFloor(line)
 	if err != nil {
 		return false
 	}
@@ -468,7 +471,7 @@ func (in *Input) portalReadsFluxServiceAccount() bool {
 	if p == nil || render.ReleaseCandidates(p.ChartLine) {
 		return false
 	}
-	floor, err := portalChartFloor(p.ChartLine)
+	floor, err := rangeFloor(p.ChartLine)
 	return err == nil && floor.LessThan(semver.MustParse(portalPluginRemoval))
 }
 

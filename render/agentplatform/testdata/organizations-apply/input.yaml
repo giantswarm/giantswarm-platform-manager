@@ -1,0 +1,31 @@
+# A Giant Swarm-owned installation on the 4 chart line with the Agent Platform organizations on in
+# apply mode (organizations.enabled): agentPlatformOrganizations.enabled with the API hostnames the
+# installation's API server answers on besides api.<global.domain> (organizations.apiHostnames);
+# agent-manager's organization tools write the organizations live, as the caller, so no Flux value,
+# no operator value and no agent-manager commit setting render. Signed into from the hub's
+# hand-kept Dev Portal alone, which carries its own section, so no portal Component renders.
+# Invented names, placeholder values.
+input:
+  installation:
+    name: garnet
+    baseDomain: garnet.example.io
+    customer: giantswarm
+    provider: capa
+    private: false
+    chartLine: "4"
+    musterClientId: 00000000-0000-4000-8000-000000000007
+    podCertificateRequest: true
+    portalClientSecret: true
+    portals:
+      - installation: gopher
+        customer: giantswarm
+        domain: portal.example.io
+        handKept: true
+        chartLine: ">=2.1.0 <3.0.0"
+    federation:
+      hubs: [gopher]
+      registryHub: gopher
+      targets: []
+  organizations:
+    enabled: true
+    apiHostnames: [internal-api.garnet.example.io]

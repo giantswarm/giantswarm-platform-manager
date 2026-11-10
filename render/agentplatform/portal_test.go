@@ -363,7 +363,7 @@ func TestPortalChartFloor(t *testing.T) {
 		{">=2.1.0-0", "2.1.0-0", false},
 		{">=1.0.0-0", "1.0.0-0", false},
 	} {
-		floor, err := portalChartFloor(tc.line)
+		floor, err := rangeFloor(tc.line)
 		if err != nil || floor.String() != tc.floor {
 			t.Errorf("%q: floor %v, %v; want %s", tc.line, floor, err, tc.floor)
 			continue
@@ -374,7 +374,7 @@ func TestPortalChartFloor(t *testing.T) {
 		}
 	}
 	for _, line := range []string{"", "x.x.x", "^0.244.7", ">=0.244.7", ">=2.1.0-rc.1", "<1.0.0", ">=0.244.7 <1.0.0 || >=2.0.0", "latest", ">=a.b.c <1.0.0"} {
-		if _, err := portalChartFloor(line); err == nil {
+		if _, err := rangeFloor(line); err == nil {
 			t.Errorf("%q: a line of another form is an error", line)
 		}
 	}

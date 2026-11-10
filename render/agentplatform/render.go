@@ -304,6 +304,7 @@ func (in *Input) configmapPatch() render.Map {
 	if in.SkillManagerAppSecret != "" {
 		m = append(m, e("skill-manager", render.Map{e("github", render.Map{e("app", render.Map{e("secretName", in.SkillManagerAppSecret)})})}))
 	}
+	m = in.organizationsValues(m)
 	if len(in.MCPBackends) > 0 {
 		m = append(m, e("networkPolicy", render.Map{e("mcpBackends", in.mcpBackends())}))
 	}
@@ -437,7 +438,7 @@ func (in *Input) musterValues() render.Map {
 			e("allowPrivateIPRedirectURIs", true))
 	}
 	server = append(server, e("trustedAudiences", in.musterAudiences()))
-	if in.portalGitHub() {
+	if in.portalGitHub() || in.AgentManagerTokenExchange {
 		server = append(server, e("trustedIssuers", in.trustedIssuers()))
 	}
 	if uris := in.clientRedirectURIs(); len(uris) > 0 {
@@ -448,6 +449,9 @@ func (in *Input) musterValues() render.Map {
 	}
 	oauth := render.Map{}
 	mcpClient := render.Map{}
+	if in.AgentManagerTokenExchange {
+		mcpClient = append(mcpClient, e("enabled", true))
+	}
 	if in.klausGateway() && in.Gateway.OBO.Connectors {
 		mcpClient = append(mcpClient, e("postLoginRedirectAllowlist", in.postLoginRedirectAllowlist()))
 	}
@@ -459,6 +463,9 @@ func (in *Input) musterValues() render.Map {
 	}
 	oauth = append(oauth, e("server", server))
 	muster := render.Map{}
+	if in.AgentManagerTokenExchange {
+		muster = append(muster, e("providerApps", []render.Map{agentManagerProviderApp()}))
+	}
 	if in.hasPrivateTarget() {
 		muster = append(muster, e("extraCaFile", extraCaFile()))
 	}
@@ -821,8 +828,12 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 		}
 		add(dexClientSecretFile(c.ClientID), f)
 	}
-	if in.brokers() {
+	if in.federationBrokers() {
 		in.hubSecrets(add)
+	}
+	if in.AgentManagerTokenExchange {
+		add(agentManagerBrokerSecret+".yaml", in.agentManagerBrokerCredentials())
+		r.Revision(revision, in.agentManagerBrokerKey())
 	}
 	in.componentSecrets(add, secrets)
 	names := make([]string, 0, len(files))

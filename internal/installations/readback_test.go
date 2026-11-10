@@ -64,6 +64,7 @@ const readBackFilesSchema = `{
 const (
 	keyEnabled         = "enabled"
 	keyGitHub          = "github"
+	keyApp             = "app"
 	keyRepositories    = "repositories"
 	boardRoadmap       = "roadmap"
 	keySkills          = "skills"
@@ -329,10 +330,12 @@ func TestDefaults(t *testing.T) {
 		"clusterManager": map[string]any{keyGitHub: map[string]any{keyEnabled: false}},
 		"modelManager":   map[string]any{keyGitHub: map[string]any{keyEnabled: false}},
 		"klausGateway":   map[string]any{"slack": map[string]any{"contextBotIDs": []any{}, "contextBotIDsComment": "", "contextBotNames": []any{}, "contextBotNamesComment": "", "slashCommand": "", "slashCommandComment": ""}},
-		"agentManager":   map[string]any{keyGitHub: map[string]any{keyEnabled: false}, keySkills: map[string]any{keyRepositories: []any{}, "appSecretName": "", "gitAuthSecretName": "", "mintGitAuthSecret": false}},
+		"agentManager":   map[string]any{"githubTokenExchange": map[string]any{keyEnabled: false}, "credentials": map[string]any{"uiURL": ""}, keyGitHub: map[string]any{keyEnabled: false}, keySkills: map[string]any{keyRepositories: []any{}, keyGitHub: map[string]any{keyApp: map[string]any{"secretName": ""}}, "gitAuthSecretName": "", "mintGitAuthSecret": false}},
 		"defaultAgent":   map[string]any{keyEnabled: true, "modelConfig": ""},
-		"skillManager":   map[string]any{"sources": []any{}, "appSecretName": ""},
+		"skillManager":   map[string]any{"sources": []any{}, keyGitHub: map[string]any{keyApp: map[string]any{"secretName": ""}}},
 		"versions":       map[string]any{"chart": "", "components": holds, "reasons": map[string]any{"chart": "", "components": holds}}}
+
+	want["organizations"] = map[string]any{keyEnabled: false, "apiHostnames": []any{}, "commit": map[string]any{keyEnabled: false}, "portal": map[string]any{keyEnabled: false}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("defaults %v, want %v", got, want)
 	}
@@ -479,7 +482,7 @@ func TestAgentPlatformReadsBackModelServing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := map[string]any{"modelServing.enabled": true}; !reflect.DeepEqual(got, want) {
+	if want := map[string]any{inputAgentManagerExchange: false, inputOrganizationsCommit: false, "modelServing.enabled": true}; !reflect.DeepEqual(got, want) {
 		t.Errorf("read back %v, want %v", got, want)
 	}
 }
@@ -493,7 +496,7 @@ func TestAgentPlatformReadsBackSingletonsCapacity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := map[string]any{"scheduling.singletonsCapacity": "on-demand"}; !reflect.DeepEqual(got, want) {
+	if want := map[string]any{inputAgentManagerExchange: false, inputOrganizationsCommit: false, "scheduling.singletonsCapacity": "on-demand"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("read back %v, want %v", got, want)
 	}
 }
@@ -508,21 +511,23 @@ func TestAgentPlatformReadsBackClusterManagerCommit(t *testing.T) {
 		patch string
 		want  map[string]any
 	}{
-		{"agent-manager boot Secret minted from the App", "agent-manager:\n  skills:\n    github:\n      app:\n        secretName: " + skillsApp + "\n    mintGitAuthSecret: true\n", map[string]any{"agentManager.skills.appSecretName": skillsApp, "agentManager.skills.mintGitAuthSecret": true}}, //nolint:gosec // a Secret's name in a fixture, no credential
+		{"agent-manager boot Secret minted from the App", "agent-manager:\n  skills:\n    github:\n      app:\n        secretName: acme-skills-app\n    mintGitAuthSecret: true\n", map[string]any{"agentManager.skills.github.app.secretName": "acme-skills-app", "agentManager.skills.mintGitAuthSecret": true}}, //nolint:gosec // a Secret's name in a fixture, no credential
 		{"commit mode on", "cluster-manager:\n  installation:\n    name: rowan\n  github:\n    enabled: true\n", map[string]any{"clusterManager.github.enabled": true}},
 		{"commit mode not on record", "cluster-manager:\n  installation:\n    name: rowan\n", map[string]any{}},
 		{"model-manager and agent-manager commit mode on", "agent-manager:\n  github:\n    enabled: true\nmodel-manager:\n  github:\n    enabled: true\n", map[string]any{"modelManager.github.enabled": true, "agentManager.github.enabled": true}},
 		{"the default agent on, written by hand", "components:\n  default-agent:\n    enabled: true\n", map[string]any{"defaultAgent.enabled": true}},
 		{"the default agent off with a model override", "components:\n  default-agent:\n    enabled: false\ndefaultAgent:\n  modelConfig: claude-sonnet\n", map[string]any{"defaultAgent.enabled": false, "defaultAgent.modelConfig": "claude-sonnet"}},
 		{"skill-manager sources with ref, path and readOnly", "skillManager:\n  sources:\n    - https://github.com/acme/skills\n    - url: https://github.com/acme/platform\n      ref: v4.200.0\n      path: skills\n      readOnly: false\n", map[string]any{"skillManager.sources": []any{"https://github.com/acme/skills", map[string]any{"url": "https://github.com/acme/platform", "ref": "v4.200.0", "path": "skills", "readOnly": false}}}},
-		{"skill-manager GitHub App", "skill-manager:\n  github:\n    app:\n      secretName: " + skillsApp + "\n", map[string]any{"skillManager.appSecretName": skillsApp}},                                                                                                                                                                                                                                                                                                      //nolint:gosec // a Secret's name in a fixture, no credential
-		{"agent-manager skill catalog with private repositories", "agent-manager:\n  skills:\n    repositories:\n      - https://github.com/acme/skills\n    github:\n      app:\n        secretName: " + skillsApp + "\n    gitAuthSecretName: acme-skills-token\n", map[string]any{"agentManager.skills.repositories": []any{"https://github.com/acme/skills"}, "agentManager.skills.appSecretName": skillsApp, "agentManager.skills.gitAuthSecretName": "acme-skills-token"}}, //nolint:gosec // a Secret's name in a fixture, no credential
+		{"skill-manager GitHub App", "skill-manager:\n  github:\n    app:\n      secretName: " + skillsApp + "\n", map[string]any{"skillManager.github.app.secretName": skillsApp}},                                                                                                                                                                                                                                                                                                            //nolint:gosec // a Secret's name in a fixture, no credential
+		{"agent-manager skill catalog with private repositories", "agent-manager:\n  skills:\n    repositories:\n      - https://github.com/acme/skills\n    github:\n      app:\n        secretName: acme-skills-app\n    gitAuthSecretName: acme-skills-token\n", map[string]any{"agentManager.skills.repositories": []any{"https://github.com/acme/skills"}, "agentManager.skills.github.app.secretName": "acme-skills-app", "agentManager.skills.gitAuthSecretName": "acme-skills-token"}}, //nolint:gosec // a Secret's name in a fixture, no credential
 	} {
 		read := files(map[string]string{"acme/configs:" + def.EnabledMarker("rowan"): tc.patch})
 		got, err := def.ReadBack(context.Background(), read, readBackInstallation, readBackName, nil)
 		if err != nil {
 			t.Fatalf("%s: %v", tc.name, err)
 		}
+		tc.want[inputAgentManagerExchange] = false
+		tc.want[inputOrganizationsCommit] = false
 		if !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s: read back %v, want %v", tc.name, got, tc.want)
 		}
@@ -694,7 +699,7 @@ func TestAgentPlatformReadsBackVersionHolds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]any{"versions.chart": "4.114.1", "versions.components.agent-manager": "1.9.2", "versions.components.klaus-gateway": "4.0.0",
+	want := map[string]any{inputAgentManagerExchange: false, inputOrganizationsCommit: false, "versions.chart": "4.114.1", "versions.components.agent-manager": "1.9.2", "versions.components.klaus-gateway": "4.0.0",
 		"versions.reasons.chart":                    "Held on the running release until the next line lands here as one window\n(acme/platform#12); back to the range in that PR.",
 		"versions.reasons.components.agent-manager": "Held on the running release."}
 	if !reflect.DeepEqual(got, want) {

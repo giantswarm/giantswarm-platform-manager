@@ -30,10 +30,11 @@ const (
 	// issuer the record trusts besides kept whole.
 	ListTrustedIssuers = "muster.muster.oauth.server.trustedIssuers"
 
-	keyAuthenticator = "dexK8SAuthenticator"
-	keyTrustedPeers  = "trustedPeers"
-	keyIssuer        = "issuer"
-	keyAudiences     = "audiences"
+	keyAuthenticator    = "dexK8SAuthenticator"
+	keyTrustedPeers     = "trustedPeers"
+	keyIssuer           = "issuer"
+	keyAudiences        = "audiences"
+	keyAllowedAudiences = "allowedAudiences"
 )
 
 // LiveLists are the audience lists of the platform patch whose merged value
@@ -99,6 +100,7 @@ func keepAudiences(rendered, current []byte) ([]byte, []Kept, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	exchangeIssuer := renderedBrokerIssuer(ren)
 	var kept []Kept
 	trusted := append(slices.Clone(musterServerPath), "trustedAudiences")
 	keepList(at(ren, trusted...), at(cur, trusted...), ListTrustedAudiences, &kept)
@@ -113,6 +115,9 @@ func keepAudiences(rendered, current []byte) ([]byte, []Kept, error) {
 	issuers := strings.Split(ListTrustedIssuers, ".")
 	keepIssuers(at(ren, issuers...), at(cur, issuers...), &kept)
 	keepSubtrees(ren, cur, keptPaths(ren, keptPlatformKeys, heldPlatformKeys), &kept)
+	if err := enforceBrokerIssuer(ren, exchangeIssuer); err != nil {
+		return nil, nil, err
+	}
 	if len(kept) == 0 {
 		return rendered, nil, nil
 	}
