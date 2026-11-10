@@ -434,6 +434,13 @@ func (f *fakeInstallation) followConfigs(namespace, repository string) {
 // release and every one after it down to the previous deployed or
 // superseded one.
 func (f *fakeInstallation) release(namespace, name, digest string) {
+	// Flux deploys a merge's values seconds after the merge at the earliest:
+	// the next whole second, at least.
+	f.releaseAt(namespace, name, digest, time.Now().Add(time.Second))
+}
+
+// releaseAt is release with the release deployed at deployedAt.
+func (f *fakeInstallation) releaseAt(namespace, name, digest string, deployedAt time.Time) {
 	f.edit(helmReleaseKind, namespace, name, func(obj map[string]any) {
 		status := obj[statusKey].(map[string]any)
 		history, _ := status["history"].([]any)
@@ -446,7 +453,7 @@ func (f *fakeInstallation) release(namespace, name, digest string) {
 			}
 		}
 		history = append([]any{map[string]any{"chartName": name, "chartVersion": "4.50.0", "digest": strings.Repeat("cd", 32), nameKey: name, namespaceKey: platformNamespace,
-			statusKey: releaseDeployed, "version": version + 1, "lastDeployed": time.Now().UTC().Format(time.RFC3339), "configDigest": digest}}, history...)
+			statusKey: releaseDeployed, "version": version + 1, "lastDeployed": deployedAt.UTC().Format(time.RFC3339), "configDigest": digest}}, history...)
 		slices.SortFunc(history, func(a, b any) int { return b.(map[string]any)["version"].(int) - a.(map[string]any)["version"].(int) })
 		for i := 1; i < len(history); i++ {
 			if state := history[i].(map[string]any)[statusKey]; state == releaseDeployed || state == releaseSuperseded {

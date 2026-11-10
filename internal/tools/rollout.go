@@ -220,14 +220,16 @@ func baselineOf(st *actions.InstallationRollout, release, merge string) *actions
 // newest that was deployed — deployed or superseded since — before the
 // merge; nil when the history keeps none (helm-controller keeps the newest
 // release and the previous successful one) or the merge time is not on
-// record.
+// record. Flux's times are whole seconds: a release in the merge's second
+// ran before the merge, since Flux applies a merge seconds after it at the
+// earliest.
 func ranAtMerge(release, merge string, pr actions.PullRequest, releases []verify.Release) *actions.ReleaseBaseline {
 	if pr.MergedAt == nil {
 		return nil
 	}
 	mergedAt := pr.MergedAt.Truncate(time.Second)
 	for _, r := range releases {
-		if r.Deployed == nil || !r.Deployed.Before(mergedAt) || (r.Status != helmDeployed && r.Status != helmSuperseded) {
+		if r.Deployed == nil || r.Deployed.After(mergedAt) || (r.Status != helmDeployed && r.Status != helmSuperseded) {
 			continue
 		}
 		return &actions.ReleaseBaseline{Release: release, PullRequest: merge, Version: r.Version, ConfigDigest: r.ConfigDigest, Deployed: r.Deployed}
@@ -237,7 +239,7 @@ func ranAtMerge(release, merge string, pr actions.PullRequest, releases []verify
 
 // releaseWait is what the release history says of pr's merge against base,
 // the release that ran at the merge: "" only when the newest release runs,
-// was deployed at or after the merge and carries values of another digest
+// was deployed after the merge's second and carries values of another digest
 // than base. Without a base the values that ran at the merge are not known,
 // and nothing proves the newest release's are new.
 func releaseWait(object string, pr actions.PullRequest, releases []verify.Release, base *actions.ReleaseBaseline) string {
@@ -253,7 +255,7 @@ func releaseWait(object string, pr actions.PullRequest, releases []verify.Releas
 	if newest.Status != helmDeployed || newest.Deployed == nil {
 		return fmt.Sprintf("%s: release v%d is %s, no release runs since %s", object, newest.Version, orNotRead(newest.Status), merge)
 	}
-	if newest.Deployed.Before(mergedAt) {
+	if !newest.Deployed.After(mergedAt) {
 		return fmt.Sprintf("%s runs release v%d, deployed at %s, before %s", object, newest.Version, newest.Deployed.UTC().Format(time.RFC3339), merge)
 	}
 	if base == nil {

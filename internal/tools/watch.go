@@ -465,9 +465,9 @@ const waitingForMerge = "not yet on the merged revision: "
 // red, as for a release Flux gave up on, so the watch re-reads it — past the
 // bound after its last merge (late), or read again after a failure.
 func notRunning(waits []rolloutWait, late bool) string {
-	when := "the installation does not run the merged revision: "
+	when := "the installation is not proven to run the merged revision: "
 	if late {
-		when = fmt.Sprintf("the installation does not run the merged revision %s after the last merge: ", rolloutBound)
+		when = fmt.Sprintf("the installation is not proven to run the merged revision %s after the last merge: ", rolloutBound)
 	}
 	return probeRed + when + strings.Join(waitLines(waits), "; ")
 }
