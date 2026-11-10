@@ -990,7 +990,7 @@ func TestDevBuildHoldRendersNoReleaseFilter(t *testing.T) {
 			input, secrets := loadInput(t, shapeGiantswarmSlackAppPub)
 			delete(input, "versions")
 			if c.hold != "" {
-				input["versions"] = map[string]any{"chart": c.hold}
+				input["versions"] = map[string]any{keyChart: c.hold}
 			}
 			result, err := Render(input, secrets, render.ModeCommit)
 			if err != nil {
@@ -1511,7 +1511,7 @@ func TestKagentProvidersFollowTheChart(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			input, secrets := loadInput(t, c.shape)
 			if c.hold != "" {
-				input["versions"] = map[string]any{"chart": c.hold}
+				input["versions"] = map[string]any{keyChart: c.hold}
 			}
 			result, err := Render(input, secrets, render.ModeCommit)
 			if err != nil {

@@ -11,8 +11,8 @@ require (
 	github.com/giantswarm/gitops-commit v0.11.10
 	github.com/giantswarm/go-selfupdate v1.7.6
 	github.com/giantswarm/mcp-oauth v1.13.2
-	github.com/giantswarm/mcp-toolkit v0.5.2
-	github.com/giantswarm/selfupdate-cosign v0.3.26
+	github.com/giantswarm/mcp-toolkit v0.5.3
+	github.com/giantswarm/selfupdate-cosign v0.3.27
 	github.com/go-jose/go-jose/v4 v4.1.9
 	github.com/google/go-containerregistry v0.22.1
 	github.com/google/go-github/v93 v93.0.0
@@ -21,7 +21,8 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.1.0
 	github.com/stretchr/testify v1.12.1
-	golang.org/x/sync v0.24.0
+	github.com/yosida95/uritemplate/v3 v3.0.2
+	golang.org/x/sync v0.25.0
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/apimachinery v0.37.2
 	k8s.io/client-go v0.37.2
@@ -186,7 +187,6 @@ require (
 	github.com/ulikunitz/xz v0.5.17 // indirect
 	github.com/urfave/cli v1.22.17 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
-	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
 	gitlab.com/gitlab-org/api/client-go v1.46.0 // indirect
 	go.mongodb.org/mongo-driver v1.17.10 // indirect

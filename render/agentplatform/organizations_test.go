@@ -13,6 +13,10 @@ import (
 // keyOrganizations is the organizations' choices in the input document.
 const keyOrganizations = "organizations"
 
+// chartRangeFour is a meta chart hold on the 4 line from 4.170.0, a range
+// that reaches every release the 4 line gates on.
+const chartRangeFour = ">=4.170.0 <5.0.0"
+
 // TestOrganizationsRefusals refuses the organizations' choices an
 // installation cannot serve, naming the input: the switch off the 4 chart
 // line, where no kagent runs or under a meta chart hold before the
@@ -69,7 +73,7 @@ func TestOrganizationsRefusals(t *testing.T) {
 	// Commit mode under a hold on the release that takes it, or a range that
 	// reaches it, stands. The release is written out: the constant would
 	// pass with any value.
-	for _, hold := range []string{"4.177.0", ">=4.170.0 <5.0.0"} {
+	for _, hold := range []string{"4.177.0", chartRangeFour} {
 		input, secrets := loadInput(t, shapeOrganizationsCommit)
 		input["versions"] = map[string]any{keyChart: hold}
 		if _, err := Render(input, secrets, render.ModeCommit); err != nil {
@@ -77,7 +81,7 @@ func TestOrganizationsRefusals(t *testing.T) {
 		}
 	}
 	// A hold on the organizations' release or a range that reaches it stands.
-	for _, hold := range []string{organizationsChart, ">=4.170.0 <5.0.0"} {
+	for _, hold := range []string{organizationsChart, chartRangeFour} {
 		input, secrets := loadInput(t, shapeOrganizationsApply)
 		input["versions"] = map[string]any{keyChart: hold}
 		if _, err := Render(input, secrets, render.ModeCommit); err != nil {
