@@ -7,7 +7,7 @@
 charts:
   - name: mcp-kubernetes
     registry: gsoci.azurecr.io/charts/giantswarm/mcp-kubernetes
-    version: 1.14.6
+    version: 1.14.11
   - name: mcp-prometheus
     registry: gsoci.azurecr.io/charts/giantswarm/mcp-prometheus
     version: 0.12.6
@@ -53,11 +53,11 @@ charts:
   # with the version to pin.
   - name: muster
     registry: gsoci.azurecr.io/charts/giantswarm/muster
-    version: 5.59.12
+    version: 5.61.1
   - name: kagent
     line: "3"
     registry: gsoci.azurecr.io/charts/giantswarm/kagent
-    version: 0.3.48
+    version: 0.3.49
   - name: kagent
     line: "4"
     registry: gsoci.azurecr.io/giantswarm/kagent/helm/kagent
