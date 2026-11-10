@@ -411,6 +411,23 @@ func TestVerifyCapabilityDiffersByInput(t *testing.T) {
 	}
 }
 
+// Commit mode typed while the organizations' switch is off on record is
+// refused, naming the switch: the comparison tells the typed inputs from
+// the read-back, which the render sees merged. The commit is refused alike.
+func TestVerifyCapabilityRefusesADependentTypedWithoutItsSwitch(t *testing.T) {
+	// organizationsCommit is the organizations' commit mode block.
+	const organizationsCommit = "commit"
+	st := newStack(t)
+	fixtures(st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	enableRowan(t, st, c, kagentEnabled(), kagentEnabled())
+
+	res := verifyWith(t, c, rowan, map[string]any{"organizations": map[string]any{organizationsCommit: map[string]any{enabledKey: true}}})
+	if !strings.Contains(res.Refused, "organizations.commit.enabled") || !strings.Contains(res.Refused, "type organizations.enabled: true") || res.CommitRefused != res.Refused {
+		t.Fatalf("refused %q, commitRefused %q, want both naming the switch", res.Refused, res.CommitRefused)
+	}
+}
+
 // allDifferences are every difference of res, over its features and dimensions.
 func allDifferences(res verify.Result) []verify.Difference {
 	var out []verify.Difference

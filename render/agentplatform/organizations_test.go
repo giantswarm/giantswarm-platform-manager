@@ -21,7 +21,8 @@ const chartRangeFour = ">=4.170.0 <5.0.0"
 // installation cannot serve, naming the input: the switch off the 4 chart
 // line, where no kagent runs or under a meta chart hold before the
 // organizations' release; commit mode under a hold before the release that
-// takes agent-manager.tenants.commit; the portal's pages where no portal
+// takes agent-manager.tenants.commit or where the registry names no
+// management-clusters repository; the portal's pages where no portal
 // carries the installation's section.
 func TestOrganizationsRefusals(t *testing.T) {
 	for _, c := range []struct {
@@ -41,7 +42,10 @@ func TestOrganizationsRefusals(t *testing.T) {
 		{"commit mode under a chart hold before the release that takes it", func(m map[string]any) {
 			m[keyOrganizations].(map[string]any)["commit"] = map[string]any{keyEnabled: true}
 			m["versions"] = map[string]any{keyChart: "4.177.0-rc.1"}
-		}, "organizations.commit.enabled"},
+		}, "refuses before 4.177.0"},
+		{"commit mode where the registry names no management-clusters repository", func(m map[string]any) {
+			m[keyOrganizations].(map[string]any)["commit"] = map[string]any{keyEnabled: true}
+		}, "installation.repositories.managementClusters"},
 		{"the portal's pages without a portal section", func(m map[string]any) {
 			m[keyOrganizations] = map[string]any{"portal": map[string]any{keyEnabled: true}}
 		}, "organizations.portal.enabled"},

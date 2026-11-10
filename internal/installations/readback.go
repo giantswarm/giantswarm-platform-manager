@@ -14,6 +14,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // InputsInstallation is the key of the input document the installation's
@@ -61,12 +62,14 @@ const (
 )
 
 // schemaNode is the part of a schema node the read-back reads: the
-// properties below it, its default, its source and its x-readback.
+// properties below it, its default, its source, its x-readback and the
+// switch it renders under (x-requires).
 type schemaNode struct {
 	Properties map[string]schemaNode `json:"properties"`
 	Default    json.RawMessage       `json:"default"`
 	Source     string                `json:"x-source"`
 	ReadBack   *readBackSpec         `json:"x-readback"`
+	Requires   string                `json:"x-requires"`
 }
 
 // readBackSpec is an x-readback: the fileset key of the file the value is
@@ -231,6 +234,57 @@ func (c Capability) Unset(values map[string]any) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// TypedWithoutSwitch is the refusal of an input typed with the switch it
+// renders under off: a leaf the schema marks x-requires (the dotted key of
+// a boolean switch) that typed — the person's inputs of the call — carries
+// with a value other than its default, while values — every layer merged —
+// hold the switch off. The same value only read back from the record stands
+// and renders nothing: a person turns the switch off alone, and its
+// dependents go with it. Empty when nothing is refused; the first leaf in
+// key order is named.
+func (c Capability) TypedWithoutSwitch(typed, values map[string]any) (string, error) {
+	if len(typed) == 0 {
+		return "", nil
+	}
+	s, err := c.inputSchema()
+	if err != nil {
+		return "", err
+	}
+	var refusal string
+	return refusal, s.leaves(func(path string, leaf schemaNode) error {
+		if refusal != "" || leaf.Requires == "" {
+			return nil
+		}
+		v, ok := lookup(typed, splitKey(path))
+		if !ok {
+			return nil
+		}
+		if len(leaf.Default) > 0 {
+			var def any
+			if err := json.Unmarshal(leaf.Default, &def); err != nil {
+				return fmt.Errorf("%s: schema: %s: default: %w", c.Name, path, err)
+			}
+			if equalJSON(v, def) {
+				return nil
+			}
+		}
+		if on, _ := lookup(values, splitKey(leaf.Requires)); on == true {
+			return nil
+		}
+		refusal = fmt.Sprintf("%s is typed, and it renders only with %s on, which is off for this installation: type %s: true with it, or leave %s out",
+			render.Describe(c.Name, path), render.Describe(c.Name, leaf.Requires), leaf.Requires, path)
+		return nil
+	})
+}
+
+// equalJSON says whether a and b are the same JSON value, whatever Go types
+// a decoder gave them (a typed list from YAML or JSON, a default from JSON).
+func equalJSON(a, b any) bool {
+	ja, errA := json.Marshal(a)
+	jb, errB := json.Marshal(b)
+	return errA == nil && errB == nil && string(ja) == string(jb)
 }
 
 // ReadBack reads every input the schema marks x-readback from the files on

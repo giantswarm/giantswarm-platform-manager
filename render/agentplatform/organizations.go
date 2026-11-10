@@ -92,25 +92,20 @@ func (in *Input) organizationsValues(m render.Map) render.Map {
 }
 
 // organizationsAgentManager is agent-manager's tenants section in commit
-// mode: the installation's management-clusters repository, the policy's
-// branch and the installation's objects and content paths; nothing
-// otherwise, since the meta chart derives tenants.enabled from the switch.
+// mode: the installation's management-clusters repository as the registry
+// names it, the policy's branch and the installation's objects and content
+// paths; nothing otherwise, since the meta chart derives tenants.enabled
+// from the switch.
 func (in *Input) organizationsAgentManager() render.Map {
 	if !in.Organizations.Enabled || !in.Organizations.Commit.Enabled {
 		return nil
 	}
 	return render.Map{e("tenants", render.Map{e("commit", render.Map{
-		e("repository", in.managementClustersRepository()),
+		e("repository", in.Installation.Repositories.ManagementClusters),
 		e("branch", in.organizationsPolicy.Branch),
 		e("objectsPath", in.organizationsPath("objects")),
 		e("contentPrefix", in.organizationsPath("content")),
 	})})}
-}
-
-// managementClustersRepository is the installation's management-clusters
-// repository, owner/name, the one the render writes the extras into.
-func (in *Input) managementClustersRepository() string {
-	return "giantswarm/" + in.Installation.Customer + "-management-clusters"
 }
 
 // portalOrganizations says whether the portal section turns on the Dev
@@ -123,7 +118,8 @@ func (in *Input) portalOrganizations() bool {
 // checkOrganizations refuses the organizations' choices the installation
 // cannot serve: the switch off the 4 chart line, where no kagent runs or
 // with a hold of the meta chart below organizationsChart; commit mode where
-// no agent-manager runs or with a hold below organizationsCommitChart; the
+// no agent-manager runs, with a hold below organizationsCommitChart or where
+// the registry names no management-clusters repository; the
 // portal's pages where no portal carries a section for the installation.
 // The API hostnames and commit mode render with the switch only: with it
 // off they are not written, so a person who turns the switch off types
@@ -148,6 +144,9 @@ func (in *Input) checkOrganizations() error {
 	}
 	if commit && !holdAdmits(in.Versions.Chart, organizationsCommitChart) {
 		return refuse(fmt.Sprintf("%s writes agent-manager.tenants.commit, which the meta chart refuses before %s (giantswarm/agent-platform#1312), and %s holds it at %s; move or lift the hold first", describe("organizations.commit.enabled"), organizationsCommitChart, describe("versions.chart"), in.Versions.Chart))
+	}
+	if commit && in.Installation.Repositories.ManagementClusters == "" {
+		return refuse(fmt.Sprintf("%s has agent-manager open the organizations' pull requests in %s, and the registry names none for %s", describe("organizations.commit.enabled"), describe("installation.repositories.managementClusters"), in.Installation.Name))
 	}
 	if o.Portal.Enabled && in.hostedPortal() == nil {
 		return refuse(describe("organizations.portal.enabled") + " turns on the Organizations pages in the developer portal's agent-platform section, and no portal carries one for this installation: the record lists no portal hosted on it, nor its organisation's on a sibling that is not hand-kept")

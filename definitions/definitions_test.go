@@ -170,6 +170,51 @@ func documentedKinds(t *testing.T, capability string) map[string]bool {
 	return kinds
 }
 
+// TestEveryRequiresNamesASwitch holds every schema's x-requires to a boolean
+// person input of the same schema: a switch renamed or gone would leave its
+// dependents refused whenever they are typed.
+func TestEveryRequiresNamesASwitch(t *testing.T) {
+	caps, err := definitions.Capabilities()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range caps {
+		t.Run(c, func(t *testing.T) {
+			raw, err := definitions.FS.ReadFile(c + "/schema.json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var schema map[string]any
+			if err := json.Unmarshal(raw, &schema); err != nil {
+				t.Fatal(err)
+			}
+			nodes := map[string]map[string]any{}
+			var walk func(node map[string]any, path string)
+			walk = func(node map[string]any, path string) {
+				nodes[path] = node
+				props, _ := node["properties"].(map[string]any)
+				for name, child := range props {
+					if m, ok := child.(map[string]any); ok {
+						walk(m, strings.TrimPrefix(path+"."+name, "."))
+					}
+				}
+			}
+			walk(schema, "")
+			for path, node := range nodes {
+				switch req := node["x-requires"].(type) {
+				case nil:
+				case string:
+					if sw := nodes[req]; sw == nil || sw["type"] != "boolean" || sw["x-source"] != "person" {
+						t.Errorf("%s: x-requires %q names no boolean person input", path, req)
+					}
+				default:
+					t.Errorf("%s: x-requires %v is not a dotted key", path, req)
+				}
+			}
+		})
+	}
+}
+
 // TestEveryReadBackNamesADeclaredFile holds every schema's x-readback to
 // its shape: every file it names (one, or a list) is one the schema's
 // x-files declares, the kind is one the reader knows, a key (a path, or a

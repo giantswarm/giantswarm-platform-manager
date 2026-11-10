@@ -250,6 +250,12 @@ type Installation struct {
 	// Hub says this is the registry's hub: its broker releases the person's
 	// GitHub grant to the Dev Portal (hub.go).
 	Hub bool `json:"hub"`
+	// Repositories are the installation's GitOps repositories as the
+	// registry names them: commit mode of the organizations has agent-manager
+	// open its pull requests in the management-clusters one.
+	Repositories struct {
+		ManagementClusters string `json:"managementClusters"`
+	} `json:"repositories"`
 	// AgentPlatform says the capability is on record for the installation:
 	// its marker file exists, whoever put it there. False is a fresh enable;
 	// either moves to the chart line the policy declares (selectLine).
