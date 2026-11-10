@@ -598,3 +598,55 @@ func TestWatchActionReadsThePullRequestsAsThePerson(t *testing.T) {
 		t.Fatalf("the thread: %q", th)
 	}
 }
+
+// olderCommitMode is rowan's merged document in the organizations' commit
+// mode as a manager before installation.repositories stored it — without
+// the fact — and the same document with the repository that manager wrote,
+// giantswarm/<customer>-management-clusters, which the registry need not
+// name (it names example/acme-management-clusters for rowan).
+func olderCommitMode(t *testing.T, st *stack) (stored, rendered map[string]any) {
+	t.Helper()
+	out, text, isErr := dryRun(t, st.mcpClient(t, aliceToken), tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: kagentEnabled()})
+	if isErr {
+		t.Fatalf("dry run: %s", text)
+	}
+	copyOf := func() map[string]any {
+		b, err := json.Marshal(findPlan(t, out, rowan).Inputs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(b, &m); err != nil {
+			t.Fatal(err)
+		}
+		inst := m["installation"].(map[string]any)
+		inst["chartLine"], inst["podCertificateRequest"] = "4", true
+		org := m["organizations"].(map[string]any)
+		org[enabledKey] = true
+		org[organizationsCommit] = map[string]any{enabledKey: true}
+		return m
+	}
+	stored, rendered = copyOf(), copyOf()
+	delete(stored["installation"].(map[string]any), "repositories")
+	rendered["installation"].(map[string]any)["repositories"] = map[string]any{"managementClusters": "giantswarm/acme-management-clusters"}
+	return stored, rendered
+}
+
+// An Action an older manager stored in the organizations' commit mode
+// carries no installation.repositories: the watch renders the repository
+// that manager wrote, reads the rollout's Flux objects and judges it by
+// them — enabled with nothing red, no refusal.
+func TestWatchActionReplaysCommitModeAnOlderManagerStored(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	stored, rendered := olderCommitMode(t, st)
+	seedRowanLive(t, st, rendered, stored, map[string]any{"organizations": map[string]any{enabledKey: true, organizationsCommit: map[string]any{enabledKey: true}}}, "")
+
+	w, text, isErr := watchCall(t, adminLive(t, st), liveAction)
+	if isErr || w.Verify == nil {
+		t.Fatalf("the replay of the stored inputs: %v %s", isErr, text)
+	}
+	if w.Verify.Refused != "" || len(w.Objects) == 0 || !w.Ready || w.State != actions.StateEnabled || len(w.Red) != 0 {
+		t.Fatalf("the replay of the stored inputs: refused %q, %d Flux object(s), ready %v, state %q, red %v", w.Verify.Refused, len(w.Objects), w.Ready, w.State, w.Red)
+	}
+}

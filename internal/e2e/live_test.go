@@ -69,25 +69,41 @@ func enableRowanLive(t *testing.T, st *stack, c *client.Client, inputs map[strin
 	for repo, fs := range files {
 		st.ghs.addFiles(repo, fs)
 	}
+	seedRowanLive(t, st, p.Inputs, p.Inputs, inputs, valuesFile)
+	return p
+}
+
+// seedRowanLive populates the fake installation from the render of rendered
+// with valuesFile, the values file the commit wrote (the render's own when
+// empty), and seeds the enabled Action liveAction with stored, the merged
+// inputs on record for rowan, and typed, the person's.
+func seedRowanLive(t *testing.T, st *stack, rendered, stored, typed map[string]any, valuesFile string) {
+	t.Helper()
 	def, _ := installations.FindCapability(installations.AgentPlatform)
-	in, err := def.Parse(p.Inputs)
+	in, err := def.Parse(rendered)
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := def.Render(p.Inputs, in.SuppliedMarkers(), render.ModeCompare)
+	res, err := def.Render(rendered, in.SuppliedMarkers(), render.ModeCompare)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, files := range res.Files {
+		for path, f := range files {
+			if valuesFile == "" && strings.HasSuffix(path, "/apps/"+def.Name+"/"+valuesFileKey+".patch") {
+				valuesFile = string(f.Content)
+			}
+		}
 	}
 	st.inst.populate(t, rowan, res, valuesFile)
 	now := time.Date(2026, 9, 19, 8, 0, 0, 0, time.UTC)
 	seeded := actions.Action{Name: liveAction, Namespace: actionsNamespace, CreatedAt: now,
 		Spec: actions.Spec{Actor: actions.Actor{Login: alice}, Capability: installations.AgentPlatform, Installations: []string{rowan}, Kind: actions.KindEnable,
-			Inputs: inputs, InputsByInstallation: map[string]map[string]any{rowan: p.Inputs}},
+			Inputs: typed, InputsByInstallation: map[string]map[string]any{rowan: stored}},
 		Status: actions.Status{State: actions.StateEnabled, Result: &actions.Result{State: actions.StateEnabled, Message: "rolled out", At: &now}}}
 	if _, err := st.dyn.Resource(actions.GVR).Namespace(actionsNamespace).Create(context.Background(), actions.Unstructured(seeded), metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	return p
 }
 
 func verifyLive(t *testing.T, c *client.Client, name string) verify.Result {

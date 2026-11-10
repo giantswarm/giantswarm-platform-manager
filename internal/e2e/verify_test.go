@@ -411,12 +411,13 @@ func TestVerifyCapabilityDiffersByInput(t *testing.T) {
 	}
 }
 
+// organizationsCommit is the organizations' commit mode block.
+const organizationsCommit = "commit"
+
 // Commit mode typed while the organizations' switch is off on record is
 // refused, naming the switch: the comparison tells the typed inputs from
 // the read-back, which the render sees merged. The commit is refused alike.
 func TestVerifyCapabilityRefusesADependentTypedWithoutItsSwitch(t *testing.T) {
-	// organizationsCommit is the organizations' commit mode block.
-	const organizationsCommit = "commit"
 	st := newStack(t)
 	fixtures(st.ghs)
 	c := st.mcpClient(t, aliceToken)

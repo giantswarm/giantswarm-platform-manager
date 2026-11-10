@@ -43,8 +43,10 @@ func TestOrganizationsRefusals(t *testing.T) {
 			m[keyOrganizations].(map[string]any)["commit"] = map[string]any{keyEnabled: true}
 			m["versions"] = map[string]any{keyChart: "4.177.0-rc.1"}
 		}, "refuses before 4.177.0"},
+		// A plan's document carries the registry's repositories, empty where it names none.
 		{"commit mode where the registry names no management-clusters repository", func(m map[string]any) {
 			m[keyOrganizations].(map[string]any)["commit"] = map[string]any{keyEnabled: true}
+			m["installation"].(map[string]any)[keyRepositories] = map[string]any{}
 		}, "installation.repositories.managementClusters"},
 		{"the portal's pages without a portal section", func(m map[string]any) {
 			m[keyOrganizations] = map[string]any{"portal": map[string]any{keyEnabled: true}}

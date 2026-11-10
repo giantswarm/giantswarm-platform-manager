@@ -92,20 +92,34 @@ func (in *Input) organizationsValues(m render.Map) render.Map {
 }
 
 // organizationsAgentManager is agent-manager's tenants section in commit
-// mode: the installation's management-clusters repository as the registry
-// names it, the policy's branch and the installation's objects and content
-// paths; nothing otherwise, since the meta chart derives tenants.enabled
-// from the switch.
+// mode: the installation's management-clusters repository
+// (managementClusters), the policy's branch and the installation's objects
+// and content paths; nothing otherwise, since the meta chart derives
+// tenants.enabled from the switch.
 func (in *Input) organizationsAgentManager() render.Map {
 	if !in.Organizations.Enabled || !in.Organizations.Commit.Enabled {
 		return nil
 	}
 	return render.Map{e("tenants", render.Map{e("commit", render.Map{
-		e("repository", in.Installation.Repositories.ManagementClusters),
+		e("repository", in.managementClusters()),
 		e("branch", in.organizationsPolicy.Branch),
 		e("objectsPath", in.organizationsPath("objects")),
 		e("contentPrefix", in.organizationsPath("content")),
 	})})}
+}
+
+// managementClusters is the installation's management-clusters repository,
+// owner/name, that commit mode has agent-manager commit to: the registry's.
+// A document without the fact is one a manager before it stored (an
+// Action's inputs on record, which the watch and the live verify replay);
+// it gets the name that manager wrote, giantswarm/<customer>-management-
+// clusters, so the replay renders what the commit wrote. Empty where the
+// registry names none: commit mode is refused then (checkOrganizations).
+func (in *Input) managementClusters() string {
+	if in.Installation.Repositories == nil {
+		return "giantswarm/" + in.Installation.Customer + "-management-clusters"
+	}
+	return in.Installation.Repositories.ManagementClusters
 }
 
 // portalOrganizations says whether the portal section turns on the Dev
@@ -145,7 +159,7 @@ func (in *Input) checkOrganizations() error {
 	if commit && !holdAdmits(in.Versions.Chart, organizationsCommitChart) {
 		return refuse(fmt.Sprintf("%s writes agent-manager.tenants.commit, which the meta chart refuses before %s (giantswarm/agent-platform#1312), and %s holds it at %s; move or lift the hold first", describe("organizations.commit.enabled"), organizationsCommitChart, describe("versions.chart"), in.Versions.Chart))
 	}
-	if commit && in.Installation.Repositories.ManagementClusters == "" {
+	if commit && in.managementClusters() == "" {
 		return refuse(fmt.Sprintf("%s has agent-manager open the organizations' pull requests in %s, and the registry names none for %s", describe("organizations.commit.enabled"), describe("installation.repositories.managementClusters"), in.Installation.Name))
 	}
 	if o.Portal.Enabled && in.hostedPortal() == nil {
