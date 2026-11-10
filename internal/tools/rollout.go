@@ -181,7 +181,7 @@ func releaseWaits(ctx context.Context, c *gh.Client, def installations.Capabilit
 // and each HelmRelease whose release history res read, the release that ran
 // at the merge, where the history still keeps it and the stage has none on
 // record: the first read after the merge sees it, and Flux drops it from the
-// history two releases later. Called on every read of a stage that has not
+// history once a later release succeeds after the next one. Called on every read of a stage that has not
 // reached a state, Ready or not.
 func recordBaselines(a *actions.Action, status actions.Status, st *actions.InstallationRollout, res verify.Result) {
 	current := *a
@@ -218,9 +218,9 @@ func baselineOf(st *actions.InstallationRollout, release, merge string) *actions
 
 // ranAtMerge is the release of the history that ran when pr was merged: the
 // newest that was deployed — deployed or superseded since — before the
-// merge; nil when the history keeps none (helm-controller keeps the newest
-// release and the previous successful one) or the merge time is not on
-// record. Flux's times are whole seconds: a release in the merge's second
+// merge; nil when the history keeps none (helm-controller's
+// Snapshots.Truncate keeps the newest release and those after the previous
+// successful one) or the merge time is not on record. Flux's times are whole seconds: a release in the merge's second
 // ran before the merge, since Flux applies a merge seconds after it at the
 // earliest.
 func ranAtMerge(release, merge string, pr actions.PullRequest, releases []verify.Release) *actions.ReleaseBaseline {
