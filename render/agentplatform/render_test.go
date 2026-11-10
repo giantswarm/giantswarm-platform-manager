@@ -76,6 +76,9 @@ const (
 	acmeSkills            = "https://github.com/acme/skills"
 	caseLineThree         = "the 3 line"
 	inputChartHold        = "versions.chart"
+	// holdBelowSkillManager holds the meta chart below the release with
+	// the skill-manager and the default agent.
+	holdBelowSkillManager = "~4.174.0"
 )
 
 // shapes are the installation shapes, in the order the goldens are rendered.
@@ -1622,7 +1625,7 @@ func TestDefaultAgent(t *testing.T) {
 		noKagent["installation"].(map[string]any)["customer"] = customerWithoutKagent
 		noKagent["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
 		held, heldSecrets := withDefaultAgent(shapeHubPrivateTarget, choice)
-		held[keyVersions] = map[string]any{keyChart: "~4.174.0"}
+		held[keyVersions] = map[string]any{keyChart: holdBelowSkillManager}
 		cases = append(cases,
 			refusalCase{input + " on the 3 line", lineThree, lineThreeSecrets, input},
 			refusalCase{input + " without kagent", noKagent, noKagentSecrets, input},
@@ -1673,7 +1676,7 @@ func TestSkillManagerSources(t *testing.T) {
 	noAgentManager["installation"].(map[string]any)["customer"] = customerWithoutKagent
 	noAgentManager["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
 	held, heldSecrets := withSources(shapeHubPrivateTarget, object)
-	held[keyVersions] = map[string]any{keyChart: "~4.174.0"}
+	held[keyVersions] = map[string]any{keyChart: holdBelowSkillManager}
 	const sourcesPath = "skillManager/sources"
 	requireRefusals(t, []refusalCase{
 		{"no url", noURL, noURLSecrets, sourcesPath},
@@ -1682,6 +1685,41 @@ func TestSkillManagerSources(t *testing.T) {
 		{"an object without a URL", objectNotAURL, objectNotAURLSecrets, sourcesPath},
 		{caseLineThree, lineThree, lineThreeSecrets, "skillManager.sources"},
 		{"without agent-manager", noAgentManager, noAgentManagerSecrets, "skillManager.sources"},
+		{"the chart held below the skill-manager", held, heldSecrets, inputChartHold},
+	})
+}
+
+// TestSkillManagerAppSecret writes the skill-manager's GitHub App Secret
+// where the person names it, and refuses it where the meta chart runs no
+// skill-manager.
+func TestSkillManagerAppSecret(t *testing.T) {
+	withApp := func(shape string) (map[string]any, map[string]string) {
+		input, secrets := loadInput(t, shape)
+		input["skillManager"] = map[string]any{keyApp: skillsApp}
+		return input, secrets
+	}
+	input, secrets := loadInput(t, shapeHubPrivateTarget)
+	if got := renderedPatch(t, input, secrets); strings.Contains(got, "skill-manager:") {
+		t.Errorf("no App, and the patch carries skill-manager:\n%s", got)
+	}
+
+	input, secrets = withApp(shapeHubPrivateTarget)
+	got := renderedPatch(t, input, secrets)
+	want := "\nskill-manager:\n  github:\n    app:\n      secretName: " + skillsApp + "\n"
+	if !strings.Contains(got, want) {
+		t.Errorf("the patch carries no App Secret\n%s\nin:\n%s", want, got)
+	}
+
+	lineThree, lineThreeSecrets := withApp(shapePublicCustomer)
+	noAgentManager, noAgentManagerSecrets := withApp(shapeHubPrivateTarget)
+	noAgentManager["installation"].(map[string]any)["customer"] = customerWithoutKagent
+	noAgentManager["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
+	held, heldSecrets := withApp(shapeHubPrivateTarget)
+	held[keyVersions] = map[string]any{keyChart: holdBelowSkillManager}
+	const appInput = "skillManager.appSecretName"
+	requireRefusals(t, []refusalCase{
+		{caseLineThree, lineThree, lineThreeSecrets, appInput},
+		{"without agent-manager", noAgentManager, noAgentManagerSecrets, appInput},
 		{"the chart held below the skill-manager", held, heldSecrets, inputChartHold},
 	})
 }

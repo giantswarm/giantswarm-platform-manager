@@ -301,6 +301,9 @@ func (in *Input) configmapPatch() render.Map {
 	if len(in.SkillManagerSources) > 0 {
 		m = append(m, e("skillManager", render.Map{e("sources", in.SkillManagerSources)}))
 	}
+	if in.SkillManagerAppSecret != "" {
+		m = append(m, e("skill-manager", render.Map{e("github", render.Map{e("app", render.Map{e("secretName", in.SkillManagerAppSecret)})})}))
+	}
 	if len(in.MCPBackends) > 0 {
 		m = append(m, e("networkPolicy", render.Map{e("mcpBackends", in.mcpBackends())}))
 	}

@@ -145,6 +145,10 @@ type Input struct {
 	// (skillManager.sources) as the person wrote them, read back from the
 	// configmap patch on record.
 	SkillManagerSources []SkillSource
+	// SkillManagerAppSecret is the Secret of the GitHub App the
+	// skill-manager reads its sources with (skillManager.appSecretName),
+	// read back from the configmap patch on record.
+	SkillManagerAppSecret string
 	// DefaultAgent is the person's choice of the platform-shipped
 	// default agent (defaultAgent.*), read back from the configmap
 	// patch on record.
@@ -628,7 +632,8 @@ type document struct {
 	} `json:"agentManager"`
 	DefaultAgent DefaultAgent `json:"defaultAgent"`
 	SkillManager struct {
-		Sources []SkillSource `json:"sources"`
+		Sources       []SkillSource `json:"sources"`
+		AppSecretName string        `json:"appSecretName"`
 	} `json:"skillManager"`
 	KlausGateway struct {
 		Slack struct {
@@ -789,7 +794,7 @@ type commitChoice struct {
 // the cluster does not serve PodCertificateRequest, the chat or skill
 // repositories on an installation whose organisation hosts no portal for
 // them, the chat without a model, or on Vertex without its Google project or
-// location, the Hive where the installation cannot serve it, the MCP backends' network policy or the LLM listener's rate limits on the 3 line, the rate limits or the session idle TTL where no kagent runs, the session idle TTL on the 3 line, the default agent turned off or its model override on the 3 line, where no kagent runs or with a chart hold below the release that ships it, the skill-manager's sources on the 3 line, where no agent-manager runs or with a chart hold below the release with the skill-manager, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
+// location, the Hive where the installation cannot serve it, the MCP backends' network policy or the LLM listener's rate limits on the 3 line, the rate limits or the session idle TTL where no kagent runs, the session idle TTL on the 3 line, the default agent turned off or its model override on the 3 line, where no kagent runs or with a chart hold below the release that ships it, the skill-manager's sources or GitHub App on the 3 line, where no agent-manager runs or with a chart hold below the release with the skill-manager, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
 // is ErrInput too.
 func Parse(raw any) (*Input, error) {
 	schemaBytes, err := definitions.FS.ReadFile("agent-platform/schema.json")
@@ -832,7 +837,7 @@ func Parse(raw any) (*Input, error) {
 		return nil, err
 	}
 	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, MCPBackends: d.NetworkPolicy.MCPBackends, LLMRateLimits: d.LLMRouting.RateLimits, LLMRateLimitsComment: d.LLMRouting.RateLimitsComment, SessionIdleTTL: d.Sessions.IdleTTL, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories, Hive: d.Hive,
-		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, SkillManagerSources: d.SkillManager.Sources, DefaultAgent: d.DefaultAgent, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, ContextBotNames: d.KlausGateway.Slack.ContextBotNames, ContextBotNamesComment: d.KlausGateway.Slack.ContextBotNamesComment, SlashCommand: d.KlausGateway.Slack.SlashCommand, SlashCommandComment: d.KlausGateway.Slack.SlashCommandComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
+		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, SkillManagerSources: d.SkillManager.Sources, SkillManagerAppSecret: d.SkillManager.AppSecretName, DefaultAgent: d.DefaultAgent, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, ContextBotNames: d.KlausGateway.Slack.ContextBotNames, ContextBotNamesComment: d.KlausGateway.Slack.ContextBotNamesComment, SlashCommand: d.KlausGateway.Slack.SlashCommand, SlashCommandComment: d.KlausGateway.Slack.SlashCommandComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
 		ReleaseCandidates: pol.releaseCandidates(d.Installation)}
 	if in.Components, err = pol.components(in.Installation); err != nil {
 		return nil, err
@@ -1166,23 +1171,30 @@ func (in *Input) checkDefaultAgent() error {
 // carries #1265 if that differs.
 const defaultAgentChartFloor = "4.175.0"
 
-// checkSkillManagerSources refuses the skill-manager's sources where the
-// meta chart runs no skill-manager: outside the 4 chart line, where the
-// fleet policy runs no agent-manager (the skill-manager follows it) and with
-// a chart hold below the release with the skill-manager.
+// checkSkillManagerSources refuses the skill-manager's sources and GitHub
+// App where the meta chart runs no skill-manager: outside the 4 chart line,
+// where the fleet policy runs no agent-manager (the skill-manager follows it)
+// and with a chart hold below the release with the skill-manager.
 func (in *Input) checkSkillManagerSources() error {
-	if len(in.SkillManagerSources) == 0 {
-		return nil
-	}
-	const input = "skillManager.sources"
-	if in.Installation.ChartLine != lineFour {
-		return refuse(fmt.Sprintf("%s is the 4 chart line's, and this installation runs the %s line; the record's chart line decides", describe(input), in.Installation.ChartLine))
-	}
-	if !in.agentManager() {
-		return refuse(fmt.Sprintf("%s lists the skill-manager's sources, which runs with the agent-manager, and the fleet policy runs no agent-manager on %s's installations", describe(input), in.Installation.Customer))
-	}
-	if !holdAdmits(in.Versions.Chart, skillManagerChartFloor) {
-		return refuse(fmt.Sprintf("%s needs the meta chart %s or later, which runs the skill-manager, and %s holds it at %s; move or lift the hold first", describe(input), skillManagerChartFloor, describe("versions.chart"), in.Versions.Chart))
+	for _, c := range []struct {
+		chosen      bool
+		input, what string
+	}{
+		{len(in.SkillManagerSources) > 0, "skillManager.sources", "lists the skill-manager's sources"},
+		{in.SkillManagerAppSecret != "", "skillManager.appSecretName", "names the skill-manager's GitHub App"},
+	} {
+		if !c.chosen {
+			continue
+		}
+		if in.Installation.ChartLine != lineFour {
+			return refuse(fmt.Sprintf("%s is the 4 chart line's, and this installation runs the %s line; the record's chart line decides", describe(c.input), in.Installation.ChartLine))
+		}
+		if !in.agentManager() {
+			return refuse(fmt.Sprintf("%s %s, which runs with the agent-manager, and the fleet policy runs no agent-manager on %s's installations", describe(c.input), c.what, in.Installation.Customer))
+		}
+		if !holdAdmits(in.Versions.Chart, skillManagerChartFloor) {
+			return refuse(fmt.Sprintf("%s needs the meta chart %s or later, which runs the skill-manager, and %s holds it at %s; move or lift the hold first", describe(c.input), skillManagerChartFloor, describe("versions.chart"), in.Versions.Chart))
+		}
 	}
 	return nil
 }

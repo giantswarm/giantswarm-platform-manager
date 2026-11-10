@@ -523,8 +523,17 @@
     "skillManager": {
       "type": "object",
       "additionalProperties": false,
-      "description": "One choice: the skill-manager's skill sources.",
+      "description": "Two choices: the skill-manager's skill sources and the GitHub App it reads them with.",
       "properties": {
+        "appSecretName": {
+          "type": "string",
+          "default": "",
+          "x-source": "person",
+          "x-readback": {"file": "configmap", "key": "skill-manager.github.app.secretName"},
+          "x-feature": "runtime",
+          "x-renders": ["configmap:skill-manager.github.app.secretName"],
+          "description": "The installation's Secret in the skill-manager's namespace (agent-platform unless the component is moved) holding the read-only skills GitHub App's app-id, installation-id and private-key (skill-manager.github.app.secretName): the skill-manager lists and pins skills with the App's installation tokens and lists a private source only to the people who can read it. The Secret exists before this is set: a missing one stops the pod. Empty, anonymous reads, public sources only. The 4 chart line only, where the fleet policy runs the agent-manager, with no versions.chart hold below the release with the skill-manager. Read back from the configmap patch on record."
+        },
         "sources": {
           "type": "array",
           "items": {
