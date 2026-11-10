@@ -159,12 +159,12 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 	}
 	res := verify.CompareLive(ctx, verify.LiveOptions{Definition: def, Installation: st.Name, State: settledState(st.State),
 		Inputs: verify.Inputs{Source: "action " + a.Name, Values: inputs, Typed: a.Spec.Inputs}, Kept: a.KeptOnRecord(st.Name), Cluster: cluster, Probes: t.d.Probes, Person: id.String(), AnonymousProbes: true, Log: t.d.Log})
-	// A refused render reads no Flux object and no probe: nothing moves the
-	// stage, and the refusal is the answer.
-	if res.Refused != "" {
-		return nil, fmt.Errorf("%s: the inputs on record of action %s for %s are refused by this manager's render, so nothing was read and the stage stays %s: %s", ToolWatchAction, a.Name, st.Name, st.State, res.Refused)
-	}
 	res.Caller = id.String()
+	// A refused render reads no Flux object and no probe: nothing moves the
+	// stage, and its message says why.
+	if res.Refused != "" {
+		return t.watchRefused(ctx, a, status, i, res, note)
+	}
 	objects, ready, failed := rolloutObjects(res)
 	prev := st.State
 	st.Objects, st.WatchedAt, st.WatchedBy = objects, now(), id.String()
@@ -186,7 +186,7 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 		if state != prev {
 			st.ReportedAt = nil
 			if prev == actions.StateFailed {
-				recovered = st.Message
+				recovered = withoutRefusal(st.Message)
 			}
 		}
 		st.State, st.Message = state, message
@@ -216,6 +216,47 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 	if len(out.NotRead) > 0 {
 		out.Message += " " + notReadClause(out.NotRead)
 	}
+	if note != "" {
+		out.Message += " " + note
+	}
+	return out, nil
+}
+
+// renderRefused opens the clause a stage's message carries once this
+// manager's render refused the stage's inputs on record: the read read
+// nothing, and the stage stays where the message before it says. The next
+// read that renders writes the message anew.
+const renderRefused = "; not read since: this manager's render refuses the inputs on record: "
+
+// noteRefused keeps st's message — why the stage is where it is — and says
+// after it, once, that the last read was refused and why.
+func noteRefused(st *actions.InstallationRollout, refused string) {
+	message := withoutRefusal(st.Message) + renderRefused + refused
+	st.Message = strings.TrimPrefix(message, "; ")
+}
+
+// withoutRefusal is a stage's message without noteRefused's clause.
+func withoutRefusal(message string) string {
+	before, _, _ := strings.Cut(message, strings.TrimPrefix(renderRefused, "; "))
+	return strings.TrimSuffix(before, "; ")
+}
+
+// watchRefused is the watch of stage i when the render refuses its inputs on
+// record: the refusal goes on the stage's message, the stage's state, its
+// objects and the probes on record stay as the last read left them, and the
+// Action is the answer, as for every outcome the watch records.
+func (t *Tools) watchRefused(ctx context.Context, a *actions.Action, status actions.Status, i int, res verify.Result, note string) (any, error) {
+	st := &status.Rollout.Installations[i]
+	noteRefused(st, res.Refused)
+	st.WatchedAt, st.WatchedBy = now(), res.Caller
+	a, err := t.d.Actions.UpdateStatus(ctx, a, status)
+	if err != nil {
+		return nil, fmt.Errorf("%s: this manager's render refuses the inputs on record for %s (%s), and the action could not record it: %w", ToolWatchAction, st.Name, res.Refused, err)
+	}
+	t.d.Log.Info("action_watch_refused", identity.LogAttr(ctx), "action", a.Name, "installation", st.Name, "state", st.State, "actionState", a.Status.State)
+	out := WatchResult{Action: a, Installation: st.Name, State: st.State, Objects: []actions.RolloutObject{}, Verify: &res,
+		Next: "nothing moves the stage while this manager's render refuses its inputs on record; the refusal names what the render asks for, and " + ToolReconcileCapability + "'s dry run shows the inputs it renders now"}
+	out.Message = fmt.Sprintf("%s stays %s (action %s, %s): this manager's render refuses the inputs on record, so nothing was read: %s.", st.Name, st.State, a.Name, a.Status.State, res.Refused)
 	if note != "" {
 		out.Message += " " + note
 	}
