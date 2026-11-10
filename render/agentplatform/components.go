@@ -158,8 +158,8 @@ func (in *Input) agentManagerSkills() render.Map {
 	if len(s.Repositories) > 0 {
 		m = append(m, e("repositories", s.Repositories))
 	}
-	if s.AppSecretName != "" {
-		m = append(m, e("github", render.Map{e("app", render.Map{e("secretName", s.AppSecretName)})}))
+	if s.GitHub.App.SecretName != "" {
+		m = append(m, e("github", render.Map{e("app", render.Map{e("secretName", s.GitHub.App.SecretName)})}))
 	}
 	if s.GitAuthSecretName != "" {
 		m = append(m, e("gitAuthSecretName", s.GitAuthSecretName))

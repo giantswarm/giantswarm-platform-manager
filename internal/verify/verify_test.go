@@ -662,7 +662,7 @@ func TestDrivenInputsAreThePersonsAndTheTyped(t *testing.T) {
 	if !ok {
 		t.Fatal("no agent-platform definition")
 	}
-	agentInputs := []string{"agentManager.credentials.uiURL", agentCommitInput, "agentManager.githubTokenExchange.enabled", "agentManager.skills.appSecretName", "agentManager.skills.gitAuthSecretName", "agentManager.skills.mintGitAuthSecret", "agentManager.skills.repositories"}
+	agentInputs := []string{"agentManager.credentials.uiURL", agentCommitInput, "agentManager.githubTokenExchange.enabled", "agentManager.skills.gitAuthSecretName", "agentManager.skills.github.app.secretName", "agentManager.skills.mintGitAuthSecret", "agentManager.skills.repositories"}
 	chatInputs := []string{"aiChat.enabled", "aiChat.google.location", "aiChat.google.project", "aiChat.model", "aiChat.provider"}
 	hiveInputs := []string{"hive.enabled", "hive.magazine.repository", "hive.plans.repositories", "hive.roadmap.board", "hive.roadmap.teams"}
 	gatewayInputs := []string{"klausGateway.slack.contextBotIDs", "klausGateway.slack.contextBotIDsComment", "klausGateway.slack.contextBotNames", "klausGateway.slack.contextBotNamesComment", "klausGateway.slack.slashCommand", "klausGateway.slack.slashCommandComment"}
