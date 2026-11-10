@@ -407,11 +407,11 @@ func driftProbe(id, feature, namespace, resource, name, note string, compare ...
 	return p
 }
 
-// httpProbe is a GET of url answered as expect says.
 // agentManagerRouteDimension is the live dimension of the credential form's
 // route (agentManager.route).
 const agentManagerRouteDimension = "live-agent-manager-route-protected"
 
+// httpProbe is a GET of url answered as expect says.
 func httpProbe(id, feature, url string, expect render.Expectation) render.Probe {
 	return render.Probe{ID: id, Feature: feature, Kind: render.HTTP, URL: url, Expect: expect}
 }
