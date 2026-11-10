@@ -586,7 +586,7 @@
           "x-readback": {"file": "configmap", "key": "defaultAgent.modelConfig"},
           "x-feature": "runtime",
           "x-renders": ["configmap:defaultAgent.modelConfig"],
-          "description": "The ModelConfig in kagent the default agent answers with (defaultAgent.modelConfig). Empty, the key is not written and the chart's default stands. The 4 chart line only, where the fleet policy runs kagent and the agent-manager, with no versions.chart hold below the release with the default agent. Read back from the configmap patch on record."
+          "description": "The ModelConfig in kagent the default agent answers with (defaultAgent.modelConfig). Empty, the key is not written; none: follows the installation's default model at runtime. The 4 chart line only, where the fleet policy runs kagent and the agent-manager, with no versions.chart hold below the release with the default agent. Read back from the configmap patch on record."
         }
       }
     },
