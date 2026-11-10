@@ -133,7 +133,7 @@ func TestAgentManagerCredentialInputsFailClosed(t *testing.T) {
 func TestAgentManagerCredentialHoldsAdmitted(t *testing.T) {
 	for name, versions := range map[string]any{
 		"no hold":            nil,
-		"chart range":        map[string]any{keyChart: ">=4.170.0 <5.0.0"},
+		"chart range":        map[string]any{keyChart: chartRangeFour},
 		"manager and muster": map[string]any{keyComponents: map[string]any{componentAgentManager: ">=2.22.0 <3.0.0", componentMuster: ">=5.61.0 <6.0.0"}},
 	} {
 		t.Run(name, func(t *testing.T) {

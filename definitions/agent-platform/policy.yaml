@@ -49,8 +49,11 @@ chartLine:
 # signing-secret and, on a private installation, app-token); an installation not named runs no
 # gateway and asks for nothing. Each entry carries what is the installation's own: the agent
 # agent-to-agent calls by default (defaultAgent), one of the installation's own agents
-# (extras/agent-platform/agents/, which the definition keeps and does not render); an entry naming
-# none gets a2a.defaultAgent. The shape is one for all: Slack over every channel — in events mode
+# (extras/agent-platform/agents/, which the definition keeps and does not render) by its name in
+# kagent, or an organization's agent as <organization namespace>/<name> (klaus-gateway's
+# --a2a-default-agent takes namespace/name), the namespace agent-platform-operator gave the
+# organization (agents-<organization>-<suffix>, its status.namespace); an entry naming none gets
+# a2a.defaultAgent. Another namespace, or a name that is no Kubernetes name, is refused. The shape is one for all: Slack over every channel — in events mode
 # over the public route where the installation is public, in socket mode where it is private, since
 # Slack cannot reach a private ingress; the mode follows the record, not this file — the
 # on-behalf-of connectors, agent-to-agent, and team reviews the platform's own workloads may call:
@@ -118,6 +121,25 @@ federation:
   # tunnels to their MCP servers, kagent or agentgateway. A hub's own tokens of the tunnels it no
   # longer renders leave teleport-fleet's values, and a tunnel with them once no token is left.
   browseOnly: [elver]
+
+# The Agent Platform organizations' commit mode (the input organizations.commit.enabled): where an
+# installation's organizations live in git, the same on every installation. agent-manager opens its
+# pull requests in the installation's management-clusters repository on `branch`; each organization's
+# Kustomization (agent-platform-operator's commit mode) lives in `flux.namespace` and applies its
+# content from the repository's Flux source `flux.source`, decrypting with `flux.decryptionSecret`,
+# the installation's SOPS key Secret; `installationKustomization` is the installation's own
+# Kustomization in `flux.namespace` that applies the organization objects, which the operator reads
+# the inventory of. The paths derive from the installation's name:
+# management-clusters/<name>/extras/agent-platform-organizations/objects and .../content.
+organizations:
+  branch: main
+  installationKustomization: agent-platform-organizations
+  flux:
+    namespace: flux-giantswarm
+    source:
+      kind: GitRepository
+      name: management-clusters-fleet
+    decryptionSecret: sops-keys
 
 # The poll interval of every OCIRepository the definition renders (the tunnelport operator's today):
 # the one every Bumblebee OCIRepository of an installation's extras polls at, so a release runs

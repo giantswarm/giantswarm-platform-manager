@@ -20,9 +20,10 @@ func TestAgentManagerCredentialReadBack(t *testing.T) {
 		{"enabled", "agent-manager:\n  github:\n    enabled: false\n  githubTokenExchange:\n    endpoint: https://muster.rowan.acme.test/oauth/token\n  credentials:\n    uiURL: https://portal.acme.test/credentials/{operation}\n", map[string]any{
 			"agentManager.github.enabled":    false,
 			inputAgentManagerExchange:        true,
+			inputOrganizationsCommit:         false,
 			"agentManager.credentials.uiURL": "https://portal.acme.test/credentials/{operation}",
 		}},
-		{"absent", "{}\n", map[string]any{inputAgentManagerExchange: false}},
+		{"absent", "{}\n", map[string]any{inputAgentManagerExchange: false, inputOrganizationsCommit: false}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			read := files(map[string]string{"acme/configs:" + definition.EnabledMarker("rowan"): test.patch})

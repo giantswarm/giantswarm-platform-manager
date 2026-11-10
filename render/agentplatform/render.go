@@ -292,6 +292,7 @@ func (in *Input) configmapPatch() render.Map {
 		m = append(m, e("agent-platform-mcps", mcps))
 	}
 	m = in.componentValues(m)
+	m = in.organizationsValues(m)
 	if len(in.MCPBackends) > 0 {
 		m = append(m, e("networkPolicy", render.Map{e("mcpBackends", in.mcpBackends())}))
 	}

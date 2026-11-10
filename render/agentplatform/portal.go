@@ -329,6 +329,9 @@ func (in *Input) portalAppConfig() render.Map {
 	if len(in.SkillRepositories) > 0 {
 		platform = append(platform, e("skills", render.Map{e("repositories", in.SkillRepositories)}))
 	}
+	if in.portalOrganizations() {
+		platform = append(platform, e("organizations", render.Map{e("enabled", true)}))
+	}
 	if len(platform) > 0 {
 		m = append(m, e("agentPlatform", platform))
 	}

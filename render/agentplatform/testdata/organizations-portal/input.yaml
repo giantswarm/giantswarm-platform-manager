@@ -1,0 +1,29 @@
+# A Giant Swarm-owned installation on the 4 chart line that hosts its own portal (rendered, not
+# hand-kept), with the Agent Platform organizations on (organizations.enabled): besides
+# agentPlatformOrganizations.enabled in the configmap patch, the Component's fragment turns on the
+# Dev Portal's Organizations pages for everyone (agentPlatform.organizations.enabled,
+# giantswarm/backstage#3393) beside the shell and the kagent installations. Invented names,
+# placeholder values.
+input:
+  installation:
+    name: garnet
+    baseDomain: garnet.example.io
+    customer: giantswarm
+    provider: capa
+    private: false
+    chartLine: "4"
+    musterClientId: 00000000-0000-4000-8000-000000000007
+    podCertificateRequest: true
+    portalClientSecret: true
+    portals:
+      - installation: garnet
+        customer: giantswarm
+        domain: portal.garnet.example.io
+        clientId: backstage
+        chartLine: ">=2.1.0 <3.0.0"
+    federation:
+      hubs: []
+      registryHub: garnet
+      targets: []
+  organizations:
+    enabled: true

@@ -646,6 +646,62 @@
         }
       }
     },
+    "organizations": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The Agent Platform organizations (giantswarm/giantswarm#38891): the switch, the installation's other Kubernetes API hostnames, commit mode and the Dev Portal's Organizations pages.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "x-source": "person",
+          "x-readback": {"file": "configmap", "key": "agentPlatformOrganizations.enabled"},
+          "x-feature": "runtime",
+          "x-renders": ["configmap:agentPlatformOrganizations.enabled", "backstage:app-config:agentPlatform.organizations.enabled"],
+          "description": "Turn on the Agent Platform organizations (agentPlatformOrganizations.enabled, the meta chart 4.176.6 or later): agent-platform-operator runs, the organizations' role, admission policies and access render, and agent-manager serves the organization tools in apply mode. The chart refuses it without its own prerequisites (kagent and Agent Substrate, the LLM listener with its ModelConfig policy, agent-manager's downstream OAuth, muster's OAuth server on dex). On, the portal section also turns on the Organizations pages (organizations.portal.enabled). The 4 chart line only, where the fleet policy runs kagent; a hold of the meta chart below 4.176.6 is refused. Read back from the configmap patch on record."
+        },
+        "apiHostnames": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "default": [],
+          "x-source": "person",
+          "x-readback": {"file": "configmap", "key": "agentPlatformOrganizations.apiHostnames"},
+          "x-feature": "runtime",
+          "x-renders": ["configmap:agentPlatformOrganizations.apiHostnames"],
+          "description": "The installation's Kubernetes API hostnames beside api.<global.domain>, which the chart derives (agentPlatformOrganizations.apiHostnames): an EgressPolicy in an organization namespace may not name them. The names the API server's certificate carries besides the derived one. None, the key is not written; nor with organizations.enabled off, so turning the switch off takes it along. Read back from the configmap patch on record, so a reconcile keeps the list; typed, it replaces it."
+        },
+        "commit": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "x-source": "person",
+              "x-readback": {"file": "configmap", "key": "agent-manager.tenants.commit.repository", "kind": "present"},
+              "x-feature": "runtime",
+              "x-renders": ["configmap:agentPlatformOrganizations.fluxNamespace", "configmap:agentPlatformOrganizations.fluxSource", "configmap:agentPlatformOrganizations.fluxPathPrefix", "configmap:agentPlatformOrganizations.fluxDecryptionSecret", "configmap:agent-platform-operator.commitMode.installationKustomization", "configmap:agent-manager.tenants.commit"],
+              "description": "Commit mode of the organizations: agent-manager's organization tools open a pull request as the person in the installation's management-clusters repository (agent-manager.tenants.commit, giantswarm/agent-platform#1312, agent-manager 2.22.0), and agent-platform-operator gives each organization a Kustomization that applies its content from there. Everything is derived, the operator's and agent-manager's settings together, never one without the other: the repository is the installation's management-clusters repository, the branch, the Flux namespace, source and SOPS key Secret are the fleet policy's (organizations), the organization objects sit under management-clusters/<name>/extras/agent-platform-organizations/objects and their content under .../content, and the installation's Kustomization that applies the objects is the policy's. Written only with organizations.enabled, so turning the switch off takes it along. Needs the agent-manager and the fleet policy's organizations block; the meta chart refuses agent-manager.tenants.commit before 4.177.0 (giantswarm/agent-platform#1312), so a hold of the meta chart below 4.177.0 is refused. Read back from the configmap patch on record (the commit repository's presence)."
+            }
+          }
+        },
+        "portal": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "x-source": "person",
+              "x-readback": {"file": ["backstage:agent-platform/app-config", "backstage:app-config"], "key": "agentPlatform.organizations.enabled"},
+              "x-feature": "portal",
+              "x-renders": ["backstage:app-config:agentPlatform.organizations.enabled"],
+              "description": "The Dev Portal's Organizations pages for everyone (agentPlatform.organizations.enabled in the portal section, giantswarm/backstage#3393), which organizations.enabled turns on as well. The Component's fragment carries the key, on a hand-kept portal too. Read back from the fragment on record, else from the portal's own app-config, so every plan that renders a shared portal's fragment keeps it; it goes off only when typed false where no installation of the portal has organizations.enabled. Refused where no portal carries a section for the installation."
+            }
+          }
+        }
+      }
+    },
     "versions": {
       "type": "object",
       "additionalProperties": false,

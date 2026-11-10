@@ -162,6 +162,12 @@ type Input struct {
 	// patch on record so a reconcile keeps them.
 	SlashCommand        string
 	SlashCommandComment string
+	// Organizations is the person's choice of the Agent Platform
+	// organizations (organizations.*), read back from the record so a
+	// reconcile keeps it, and organizationsPolicy where commit mode keeps
+	// them in git (policy.yaml's organizations).
+	Organizations       Organizations
+	organizationsPolicy OrganizationsPolicy
 	// Components are the components the policy gives the installation, by
 	// name: its organisation's list and, where the policy names a Slack app
 	// for the installation, the chat gateway.
@@ -453,7 +459,8 @@ type policy struct {
 	Flux struct {
 		SourceInterval string `yaml:"sourceInterval"`
 	} `yaml:"flux"`
-	ChartLine struct {
+	Organizations OrganizationsPolicy `yaml:"organizations"`
+	ChartLine     struct {
 		Default   string            `yaml:"default"`
 		Customers map[string]string `yaml:"customers"`
 	} `yaml:"chartLine"`
@@ -485,6 +492,17 @@ func parsePolicy(raw []byte) (*policy, error) {
 	for customer, t := range pol.ChartLine.Customers {
 		if !metaChartLine(t) {
 			return nil, fmt.Errorf("%w: chartLine.customers.%s: %q is not a line of the meta chart (%s or %s)", ErrPolicy, customer, t, lineThree, lineFour)
+		}
+	}
+	if err := pol.Organizations.check(); err != nil {
+		return nil, err
+	}
+	if err := checkDefaultAgent("klausGateway.a2a.defaultAgent", pol.KlausGateway.A2A.DefaultAgent); err != nil {
+		return nil, err
+	}
+	for name, own := range pol.KlausGateway.Installations {
+		if err := checkDefaultAgent("klausGateway.installations."+name+".defaultAgent", own.DefaultAgent); err != nil {
+			return nil, err
 		}
 	}
 	for _, customer := range pol.ReleaseCandidates.Customers {
@@ -633,7 +651,8 @@ type document struct {
 			SlashCommandComment    string       `json:"slashCommandComment"`
 		} `json:"slack"`
 	} `json:"klausGateway"`
-	Versions Versions `json:"versions"`
+	Organizations Organizations `json:"organizations"`
+	Versions      Versions      `json:"versions"`
 }
 
 // MCPBackend is one in-cluster MCP backend the meta chart's network policy
@@ -777,6 +796,7 @@ func Parse(raw any) (*Input, error) {
 		return nil, err
 	}
 	pol.browseOnly(in.Installation.Federation.Targets)
+	in.Organizations, in.organizationsPolicy = d.Organizations, pol.Organizations
 	in.selectLine(pol.targetLine(in.Installation))
 	if err := in.checkRecord(); err != nil {
 		return nil, err
@@ -962,7 +982,7 @@ func (in *Input) checkRecord() error {
 		return refuse(fmt.Sprintf("%s does not say this cluster serves %s/%s %s, which kagent's Agent Substrate on the 4 chart line needs; enable the feature gates %s under cluster.internal.advancedConfiguration.{%s}.featureGates in the cluster App's values (management-clusters/%s/cluster-app-manifests.yaml), or run a cluster App chart that enables them by default (%s and later)",
 			describe("installation.podCertificateRequest"), apiGroup(PodCertificateRequestResource), PodCertificateRequestVersion, apiResource(PodCertificateRequestResource), strings.Join(PodCertificateRequestGates, ", "), strings.Join(PodCertificateRequestComponents, ","), in.Installation.Name, podCertificateRequestDefaults()))
 	}
-	return nil
+	return in.checkOrganizations()
 }
 
 // apiResource and apiGroup split a probe's resource.group.

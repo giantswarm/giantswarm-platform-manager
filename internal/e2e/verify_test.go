@@ -156,7 +156,9 @@ func TestVerifyCapabilityAsDefined(t *testing.T) {
 	if res.Caller != alice || res.Inputs.Source != verify.Source(true, false) || res.State != installations.StateEnabled {
 		t.Errorf("caller %q inputs %q state %q", res.Caller, res.Inputs.Source, res.State)
 	}
-	if !reflect.DeepEqual(res.Inputs.ReadBack, map[string]any{"agentManager.githubTokenExchange.enabled": false}) {
+	// Commit mode of the organizations is read back as the commit
+	// repository's presence, so a patch on record without it answers false.
+	if !reflect.DeepEqual(res.Inputs.ReadBack, map[string]any{"agentManager.githubTokenExchange.enabled": false, "organizations.commit.enabled": false}) {
 		t.Errorf("read back %v", res.Inputs.ReadBack)
 	}
 	if res.Summary[verify.Drifted] != 0 || res.Summary[verify.DiffersByInput] != 0 || res.Summary[verify.AsDefined] == 0 {
@@ -529,7 +531,7 @@ func TestVerifyCapabilityReadsBackTheServingChoice(t *testing.T) {
 
 	birchByHand(t, st, c, false)
 	res = verifyRowan(t, c, birch)
-	if res.Inputs.Source != verify.Source(true, false) || res.Refused != "" || !reflect.DeepEqual(res.Inputs.ReadBack, map[string]any{"agentManager.githubTokenExchange.enabled": false}) || res.Summary[verify.DiffersByInput] != 0 {
+	if res.Inputs.Source != verify.Source(true, false) || res.Refused != "" || !reflect.DeepEqual(res.Inputs.ReadBack, map[string]any{"agentManager.githubTokenExchange.enabled": false, "organizations.commit.enabled": false}) || res.Summary[verify.DiffersByInput] != 0 {
 		t.Fatalf("inputs %q refused %q read back %v summary %v", res.Inputs.Source, res.Refused, res.Inputs.ReadBack, res.Summary)
 	}
 	if serving, _ := res.Inputs.Values["modelServing"].(map[string]any); serving["enabled"] != false {
