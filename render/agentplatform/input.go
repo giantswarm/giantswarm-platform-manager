@@ -253,8 +253,10 @@ type Installation struct {
 	// Repositories are the installation's GitOps repositories as the
 	// registry names them: commit mode of the organizations has agent-manager
 	// open its pull requests in the management-clusters one. Every document
-	// a plan merges carries them, empty where the registry names none; nil is
-	// a document a manager before the fact stored (managementClusters).
+	// a plan merges carries them, empty where the registry names none. Nil
+	// is any document without the key — an Action's inputs on record that a
+	// manager before the fact stored, or a hand-written one — and gets the
+	// name that manager wrote (managementClusters).
 	Repositories *Repositories `json:"repositories,omitempty"`
 	// AgentPlatform says the capability is on record for the installation:
 	// its marker file exists, whoever put it there. False is a fresh enable;

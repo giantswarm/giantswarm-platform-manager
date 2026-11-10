@@ -96,6 +96,30 @@ func TestOrganizationsRefusals(t *testing.T) {
 	}
 }
 
+// TestOrganizationsCommitReplaysADocumentWithoutTheRepositories renders a
+// document without installation.repositories — the inputs on record of an
+// Action a manager before the fact stored, which the watch and the live
+// verify replay — with the repository that manager committed:
+// giantswarm/<customer>-management-clusters.
+func TestOrganizationsCommitReplaysADocumentWithoutTheRepositories(t *testing.T) {
+	input, secrets := loadInput(t, shapeOrganizationsCommit)
+	delete(input["installation"].(map[string]any), keyRepositories)
+	res, err := Render(input, secrets, render.ModeCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The name is written out: the customer is giantswarm in the shape.
+	const want = "repository: giantswarm/giantswarm-management-clusters\n"
+	for _, files := range res.Files {
+		for path, f := range files {
+			if strings.HasSuffix(path, "/configmap-values.yaml.patch") && strings.Contains(string(f.Content), want) {
+				return
+			}
+		}
+	}
+	t.Fatalf("no values patch carries %q", want)
+}
+
 // TestOrganizationsPortalPagesStayWithoutTheSwitch keeps the portal's
 // Organizations pages where the person's choice, read back from the
 // fragment on record, carries them and the switch is off: a plan of another

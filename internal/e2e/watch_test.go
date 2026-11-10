@@ -603,8 +603,9 @@ func TestWatchActionReadsThePullRequestsAsThePerson(t *testing.T) {
 // olderCommitMode is rowan's merged document in the organizations' commit
 // mode as a manager before installation.repositories stored it — without
 // the fact — and the same document with the repository that manager wrote,
-// giantswarm/<customer>-management-clusters, which the registry need not
-// name (it names example/acme-management-clusters for rowan).
+// giantswarm/<customer>-management-clusters, to render the installation's
+// objects from (the render's name is pinned by
+// TestOrganizationsCommitReplaysADocumentWithoutTheRepositories).
 func olderCommitMode(t *testing.T, st *stack) (stored, rendered map[string]any) {
 	t.Helper()
 	out, text, isErr := dryRun(t, st.mcpClient(t, aliceToken), tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: kagentEnabled()})
@@ -634,9 +635,9 @@ func olderCommitMode(t *testing.T, st *stack) (stored, rendered map[string]any) 
 }
 
 // An Action an older manager stored in the organizations' commit mode
-// carries no installation.repositories: the watch renders the repository
-// that manager wrote, reads the rollout's Flux objects and judges it by
-// them — enabled with nothing red, no refusal.
+// carries no installation.repositories: the watch's render is not refused,
+// it reads the rollout's Flux objects and judges the stage by them —
+// enabled with nothing red.
 func TestWatchActionReplaysCommitModeAnOlderManagerStored(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
