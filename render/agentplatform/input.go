@@ -1001,7 +1001,7 @@ func (in *Input) checkRecord() error {
 		skillManagerChartChoice{in.SkillManagerAppSecret != "", "skillManager.appSecretName", "names the GitHub App of the skill-manager, which runs with the agent-manager"}); err != nil {
 		return err
 	}
-	if err := in.checkSkillSources(); err != nil {
+	if err := in.checkSkillSourceConflicts(); err != nil {
 		return err
 	}
 	if len(in.LLMRateLimits) > 0 && !in.kagent() {
@@ -1183,13 +1183,13 @@ const agentManagerViaSkillManager = "2.24.0"
 // definition) and fails the render on a skillManager.sources entry naming it.
 const platformSkillsRepository = "https://github.com/giantswarm/agent-platform"
 
-// checkSkillSources refuses a skillManager.sources entry naming the
+// checkSkillSourceConflicts refuses a skillManager.sources entry naming the
 // platform's own repository, compared as the meta chart does (no trailing
 // "/" or ".git"); agentManager.skills.repositories where the agent-manager
 // may take its skills from the skill-manager, on which the meta chart fails;
-// and agentManager.skills.repositories beside skillManager.sources, which
-// it replaces for the agent-manager.
-func (in *Input) checkSkillSources() error {
+// and agentManager.skills.repositories beside skillManager.sources, which an
+// agent-manager held below agentManagerViaSkillManager takes in their place.
+func (in *Input) checkSkillSourceConflicts() error {
 	for i, s := range in.SkillManagerSources {
 		url := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(s.URL, "/"), ".git"), "/")
 		if url == platformSkillsRepository {
@@ -1200,7 +1200,7 @@ func (in *Input) checkSkillSources() error {
 		return refuse(fmt.Sprintf("%s is set, and from the meta chart %s with the agent-manager %s on the agent-manager takes its skills from the skill-manager and the meta chart fails on the list; move it into skillManager.sources, or hold %s or %s below those releases", describe("agentManager.skills.repositories"), skillManagerChart, agentManagerViaSkillManager, describe("versions.chart"), describe("versions.components.agent-manager")))
 	}
 	if len(in.SkillManagerSources) > 0 && len(in.AgentManagerSkills.Repositories) > 0 {
-		return refuse(fmt.Sprintf("%s and %s are both set, and the agent-manager takes its skills from the skill-manager's sources; move the agent-manager's list into skillManager.sources", describe("skillManager.sources"), describe("agentManager.skills.repositories")))
+		return refuse(fmt.Sprintf("%s and %s are both set, and with the agent-manager held below %s the meta chart lets the agent-manager's list replace skillManager.sources for it; move the list into skillManager.sources and lift the hold", describe("skillManager.sources"), describe("agentManager.skills.repositories"), agentManagerViaSkillManager))
 	}
 	return nil
 }
