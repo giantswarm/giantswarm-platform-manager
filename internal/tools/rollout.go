@@ -153,7 +153,7 @@ func releaseWaits(ctx context.Context, c *gh.Client, def installations.Capabilit
 	var waits []rolloutWait
 	for _, k := range merged {
 		pr := prs[k]
-		changed, err := changesValues(ctx, c, def, pr)
+		changed, added, err := changesValues(ctx, c, def, pr)
 		if err != nil {
 			return nil, err
 		}
@@ -170,7 +170,7 @@ func releaseWaits(ctx context.Context, c *gh.Client, def installations.Capabilit
 		}
 		release, merge := objectName(ch.Namespace, ch.Name), fmt.Sprintf("%s#%d", pr.Repository, pr.Number)
 		base := baselineOf(st, release, merge)
-		if w := releaseWait(object, pr, ch.Releases, base); w != "" {
+		if w := releaseWait(object, pr, ch.Releases, base, added); w != "" {
 			waits = append(waits, rolloutWait{what: w})
 		}
 	}
@@ -223,7 +223,8 @@ func baselineOf(st *actions.InstallationRollout, release, merge string) *actions
 // successful one) or the merge time is not on record. Flux's times are whole
 // seconds: a release in the merge's second ran before the merge, since Flux
 // applies a merge seconds after it at the earliest. Where no release ran at
-// the merge (installedAfter), the baseline is version 0 with no digest.
+// the merge (installedAfter), the baseline is version 0 with no digest;
+// releaseWait takes it only for a merge that added the values file.
 func ranAtMerge(release, merge string, pr actions.PullRequest, ch verify.Check) *actions.ReleaseBaseline {
 	if pr.MergedAt == nil {
 		return nil
@@ -251,7 +252,12 @@ func ranAtMerge(release, merge string, pr actions.PullRequest, ch verify.Check) 
 // Helm ran before it is upgraded to a later version, and a truncated history
 // has lost its v1. A release uninstalled and installed again starts at v1
 // too: the creation time tells it, the HelmRelease being older than the
-// merge.
+// merge. The v1 deploy time after the merge is a defensive check: a
+// HelmRelease created after the merge deploys its v1 after it. The creation
+// time is the apiserver's clock against GitHub's merge time: a skew of
+// seconds may read an install just before the merge as after it, which the
+// restriction to a merge that added the values file (releaseWait) keeps from
+// proving anything.
 func installedAfter(ch verify.Check, mergedAt time.Time) bool {
 	if ch.Created == nil || !ch.Created.After(mergedAt) {
 		return false
@@ -269,9 +275,13 @@ func installedAfter(ch verify.Check, mergedAt time.Time) bool {
 // was deployed after the merge's second and carries values of another digest
 // than base. Without a base the values that ran at the merge are not known,
 // and nothing proves the newest release's are new. A base of version 0 says
-// no release ran at the merge: any release deployed after it runs values
-// Flux applied after it.
-func releaseWait(object string, pr actions.PullRequest, releases []verify.Release, base *actions.ReleaseBaseline) string {
+// no release ran at the merge; it proves the newest release only where the
+// merge added the values file (added): before the merge the HelmRelease's
+// valuesFrom had no key to read, so no release could run with values from
+// before it. Where the file was there, a HelmRelease created after the merge
+// may have installed the old values before the Konfiguration applied it, and
+// what ran is not known.
+func releaseWait(object string, pr actions.PullRequest, releases []verify.Release, base *actions.ReleaseBaseline, added bool) string {
 	newest := releases[0]
 	var mergedAt time.Time
 	if pr.MergedAt != nil {
@@ -290,7 +300,13 @@ func releaseWait(object string, pr actions.PullRequest, releases []verify.Releas
 	if base == nil {
 		return fmt.Sprintf("%s runs release v%d since %s, and the release that ran at the merge is neither in its history nor on record: whether its values are new is not known", object, newest.Version, merge)
 	}
-	if base.Version != 0 && newest.ConfigDigest == base.ConfigDigest {
+	if base.Version == 0 {
+		if added {
+			return ""
+		}
+		return fmt.Sprintf("%s runs release v%d since %s, installed after it while the values file was already there: whether it runs the merged values is not known", object, newest.Version, merge)
+	}
+	if newest.ConfigDigest == base.ConfigDigest {
 		return fmt.Sprintf("%s runs release v%d with the values of release v%d from before %s", object, newest.Version, base.Version, merge)
 	}
 	return ""
@@ -301,35 +317,36 @@ func releaseWait(object string, pr actions.PullRequest, releases []verify.Releas
 // the blobs, cached): a file added or removed does, and a changed one does
 // when its YAML before and after differs. A file rewritten with the same
 // values — a comment or the layout — composes the same values, and Flux
-// runs no release for it.
-func changesValues(ctx context.Context, c *gh.Client, def installations.Capability, pr actions.PullRequest) (bool, error) {
+// runs no release for it. Added says the merge added a values file: none
+// was there before it.
+func changesValues(ctx context.Context, c *gh.Client, def installations.Capability, pr actions.PullRequest) (changed, added bool, err error) {
 	if pr.MergeCommit == "" {
-		return false, fmt.Errorf("%s#%d: GitHub names no merge commit", pr.Repository, pr.Number)
+		return false, false, fmt.Errorf("%s#%d: GitHub names no merge commit", pr.Repository, pr.Number)
 	}
 	owner, repo, err := gh.SplitRepo(pr.Repository)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	change, err := gh.ChangeOf(ctx, c, owner, repo, pr.MergeCommit)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	for _, f := range change.Files {
 		if !strings.HasSuffix(f.Path, verify.ValuesSuffix(def.Name)) {
 			continue
 		}
 		if f.Before == "" || f.Blob == "" {
-			return true, nil
+			changed = true
+			added = added || f.Before == ""
+			continue
 		}
 		same, err := sameValues(ctx, c, owner, repo, f.Before, f.Blob)
 		if err != nil {
-			return false, err
+			return false, false, err
 		}
-		if !same {
-			return true, nil
-		}
+		changed = changed || !same
 	}
-	return false, nil
+	return changed, added, nil
 }
 
 // sameValues says whether the YAML documents of two blobs carry the same

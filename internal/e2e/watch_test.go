@@ -763,8 +763,9 @@ func TestWatchActionCountsAReleaseInTheMergesSecondBeforeIt(t *testing.T) {
 }
 
 // An enablement that brings the meta chart's HelmRelease for the first time:
-// before the merge there is no HelmRelease, so no release ran at the merge,
-// and the first release Helm installs after it is the proof. The stage waits
+// before the merge there is no HelmRelease and no values file, so no release
+// ran at the merge, and the first release Helm installs after it is the
+// proof. The stage waits
 // while the HelmRelease is missing and is enabled once Flux created it and
 // its release v1 runs.
 func TestWatchActionProvesAFirstInstallByItsFirstRelease(t *testing.T) {
@@ -782,6 +783,34 @@ func TestWatchActionProvesAFirstInstallByItsFirstRelease(t *testing.T) {
 	w, text, isErr := watchCall(t, admin, a.Name)
 	if isErr || !w.Ready || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled {
 		t.Fatalf("the first release: %v %s", isErr, text)
+	}
+}
+
+// A HelmRelease created after a merge that changed a values file already
+// there: Helm may install its first release from the ConfigMap the
+// Konfiguration still holds from before the merge, and the Konfiguration
+// applies the merge after it. That first release is no proof of the merged
+// values, and the stage is not proven.
+func TestWatchActionTakesNoFirstInstallOfOldValues(t *testing.T) {
+	st := newStack(t)
+	a, _ := mergedRowan(t, st)
+	admin := adminLive(t, st)
+	pr, merge := configsMerge(t, &a, rowan)
+	path := "installations/" + rowan + "/apps/" + installations.AgentPlatform + "/" + valuesFileKey + ".patch"
+	if st.ghs.fileAt(pr.Repository, merge, path) == "" {
+		t.Fatalf("the merge wrote no %s", path)
+	}
+	st.ghs.rewriteBefore(pr.Repository, merge, path, "kagent:\n  enabled: false\n")
+	fluxBehind(t, st, st.inst, a, rowan)
+	hr := st.inst.take(helmReleaseKind, fluxNamespace, platformRelease)
+	st.inst.install(hr, valuesBefore)
+	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || !w.Ready || w.State != actions.StateRollingOut {
+		t.Fatalf("a first install of the old values: %v %s", isErr, text)
+	}
+	if msg := stageOf(w.Action, rowan).Message; !strings.Contains(msg, "runs release v1 since ") || !strings.Contains(msg, "while the values file was already there") {
+		t.Fatalf("the stage's message: %q", msg)
 	}
 }
 
