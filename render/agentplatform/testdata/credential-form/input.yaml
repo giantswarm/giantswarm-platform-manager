@@ -1,0 +1,33 @@
+# A Giant Swarm-owned installation on the 4 chart line whose agent-manager links the organizations'
+# credential form (agentManager.credentials.uiURL) in the hub's Dev Portal, a portal on another
+# installation: agent-manager's REST API is exposed on the gateway (agentManager.route) behind a Strict
+# JWT policy whose issuer is this installation's Dex and whose keys come from the in-cluster Dex
+# Service, and the agentgateway controller's egress to that Service opens (gateway.jwksEgress). No
+# portal's client is trusted here (no portal client Secret on record), so the edge renders no provider
+# of its own: the egress is the route's alone. Invented names, placeholder values.
+input:
+  installation:
+    name: jasper
+    baseDomain: jasper.example.io
+    customer: giantswarm
+    provider: capa
+    private: false
+    chartLine: "4"
+    musterClientId: 00000000-0000-4000-8000-000000000008
+    podCertificateRequest: true
+    portalClientSecret: false
+    portals:
+      - installation: gopher
+        customer: giantswarm
+        domain: portal.example.io
+        handKept: true
+        chartLine: ">=2.1.0 <3.0.0"
+    federation:
+      hubs: [gopher]
+      registryHub: gopher
+      targets: []
+  organizations:
+    enabled: true
+  agentManager:
+    credentials:
+      uiURL: https://portal.example.io/organizations/jasper/{parent}/{organization}/credentials/{operation}

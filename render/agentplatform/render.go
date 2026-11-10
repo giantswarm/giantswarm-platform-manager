@@ -283,9 +283,13 @@ func (in *Input) configmapPatch() render.Map {
 		list = append(list, in.targetServers()...)
 		mcps = append(mcps, e("mcpServers", list))
 	}
+	if in.edgeJWTProvider() || in.agentManagerRoute() {
+		// The agentgateway controller fetches the in-cluster Dex's keys for
+		// the edge's provider and for agent-manager's route alike.
+		m = append(m, e("gateway", render.Map{e("jwksEgress", render.Map{e("enabled", true)})}))
+	}
 	if in.edgeJWTProvider() {
-		m = append(m, e("gateway", render.Map{e("jwksEgress", render.Map{e("enabled", true)})}),
-			e("extraObjects", []render.Map{in.dexJWKSReferenceGrant()}))
+		m = append(m, e("extraObjects", []render.Map{in.dexJWKSReferenceGrant()}))
 		mcps = append(mcps, e("agentgateway", render.Map{e("jwt", render.Map{e("extraProviders", []render.Map{in.portalJWTProvider()})})}))
 	}
 	if len(mcps) > 0 {
@@ -325,8 +329,12 @@ func (in *Input) edgeJWTProvider() bool {
 	return in.Installation.ChartLine == lineFour && len(in.portalAudiences()) > 0
 }
 
-// dexService is the in-cluster Dex Service the edge fetches the JWKS from.
-const dexService, dexServicePort = "dex", 5556
+// dexService is the in-cluster Dex Service the edge fetches the JWKS from,
+// on dexServicePort at dexJWKSPath.
+const (
+	dexService, dexServicePort = "dex", 5556
+	dexJWKSPath                = "/keys"
+)
 
 // dexJWKSReferenceGrant lets the edge's AgentgatewayPolicy in the platform's
 // namespace reference the Dex Service in Dex's namespace for the JWKS fetch.
@@ -350,7 +358,7 @@ func (in *Input) portalJWTProvider() render.Map {
 		e("audiences", in.portalAudiences()),
 		e("jwks", render.Map{e("remote", render.Map{
 			e("backendRef", render.Map{e("name", dexService), e("namespace", dexNamespace), e("port", dexServicePort)}),
-			e("jwksPath", "/keys"), e("cacheDuration", "5m"),
+			e("jwksPath", dexJWKSPath), e("cacheDuration", "5m"),
 		})}),
 	}
 }
