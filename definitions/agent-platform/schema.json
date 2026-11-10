@@ -493,14 +493,26 @@
               "x-renders": ["configmap:agent-manager.skills.repositories"],
               "description": "The GitHub repositories agent-manager's list_skills discovers skills in (agent-manager.skills.repositories), the catalog meta agents create agents from. None, the key is not written and the chart's default (giantswarm/agent-skills) stands. Read back from the configmap patch on record."
             },
-            "appSecretName": {
-              "type": "string",
-              "default": "",
-              "x-source": "person",
-              "x-readback": {"file": "configmap", "key": "agent-manager.skills.github.app.secretName"},
-              "x-feature": "runtime",
-              "x-renders": ["configmap:agent-manager.skills.github.app.secretName"],
-              "description": "The installation's Secret in agent-platform holding the read-only skills GitHub App's app-id, installation-id and private-key (agent-manager.skills.github.app.secretName; giantswarm-agent-skills-app by convention, not rendered): agent-manager discovers and pins skills with the App's installation tokens and offers a private repository only to the people who can read it. The Secret exists before this is set: a missing one stops the pod. Empty, anonymous discovery, public repositories only. Read back from the configmap patch on record."
+            "github": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "app": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "secretName": {
+                      "type": "string",
+                      "default": "",
+                      "x-source": "person",
+                      "x-readback": {"file": "configmap", "key": "agent-manager.skills.github.app.secretName"},
+                      "x-feature": "runtime",
+                      "x-renders": ["configmap:agent-manager.skills.github.app.secretName"],
+                      "description": "The installation's Secret in agent-platform holding the read-only skills GitHub App's app-id, installation-id and private-key (agent-manager.skills.github.app.secretName; giantswarm-agent-skills-app by convention, not rendered): agent-manager discovers and pins skills with the App's installation tokens and offers a private repository only to the people who can read it. The Secret exists before this is set: a missing one stops the pod. Empty, anonymous discovery, public repositories only. Read back from the configmap patch on record."
+                    }
+                  }
+                }
+              }
             },
             "gitAuthSecretName": {
               "type": "string",
@@ -518,7 +530,7 @@
               "x-readback": {"file": "configmap", "key": "agent-manager.skills.mintGitAuthSecret"},
               "x-feature": "runtime",
               "x-renders": ["configmap:agent-manager.skills.mintGitAuthSecret"],
-              "description": "agent-manager keeps the boot Secret of git skills filled with the skills GitHub App's installation token (agent-manager.skills.mintGitAuthSecret, agent-manager 1.8.0 or newer): the chart renders agent-manager-skills-token in kagent and composes it onto every agent with a git skill, so no personal token is needed. Needs appSecretName; replaces gitAuthSecretName. Turned off, the chart removes that Secret and every agent that names it stops booting its private skills. Read back from the configmap patch on record."
+              "description": "agent-manager keeps the boot Secret of git skills filled with the skills GitHub App's installation token (agent-manager.skills.mintGitAuthSecret, agent-manager 1.8.0 or newer): the chart renders agent-manager-skills-token in kagent and composes it onto every agent with a git skill, so no personal token is needed. Needs github.app.secretName; replaces gitAuthSecretName. Turned off, the chart removes that Secret and every agent that names it stops booting its private skills. Read back from the configmap patch on record."
             }
           }
         },

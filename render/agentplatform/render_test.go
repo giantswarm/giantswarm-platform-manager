@@ -50,10 +50,9 @@ const (
 	keySlack   = "slack"
 	// keyRepositories is the repositories list of a skills or plans choice.
 	keyRepositories = "repositories"
-	// keyApp, keyToken and keyMint are the agent-manager skills inputs naming
-	// the skills GitHub App's Secret, the boot Secret and the minted boot
-	// Secret's choice; skillsApp and skillsTok the Secrets the cases name.
-	keyApp    = "appSecretName"
+	// keyToken and keyMint are the agent-manager skills inputs naming the
+	// boot Secret and the minted boot Secret's choice; skillsApp and skillsTok
+	// the Secrets the cases name.
 	keyToken  = "gitAuthSecretName" //nolint:gosec // an input's name, no credential
 	keyMint   = "mintGitAuthSecret"
 	skillsApp = "acme-skills-app"
@@ -796,7 +795,7 @@ func TestAgentManagerSkills(t *testing.T) {
 	input, secrets := loadInput(t, shapeHubPrivateTarget)
 	input["agentManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: true}, keySkills: map[string]any{ //nolint:gosec // Secret names in a fixture, no credential
 		keyRepositories: []any{"https://github.com/acme/skills", "https://github.com/acme/skills-internal"},
-		keyApp:          skillsApp, keyToken: skillsTok}}
+		keyGitHub:       appSecret(skillsApp), keyToken: skillsTok}}
 	result, err := Render(input, secrets, render.ModeCommit)
 	if err != nil {
 		t.Fatal(err)
@@ -828,7 +827,7 @@ func TestAgentManagerSkills(t *testing.T) {
 	}
 
 	input, secrets = loadInput(t, shapeHubPrivateTarget)
-	input["agentManager"] = map[string]any{keySkills: map[string]any{keyApp: skillsApp, keyMint: true}}
+	input["agentManager"] = map[string]any{keySkills: map[string]any{keyGitHub: appSecret(skillsApp), keyMint: true}}
 	result, err = Render(input, secrets, render.ModeCommit)
 	if err != nil {
 		t.Fatal(err)
@@ -848,7 +847,7 @@ func TestAgentManagerSkills(t *testing.T) {
 	}
 
 	for name, skills := range map[string]map[string]any{
-		"minted and named":   {keyApp: skillsApp, keyMint: true, keyToken: skillsTok}, //nolint:gosec // Secret names in a fixture, no credential
+		"minted and named":   {keyGitHub: appSecret(skillsApp), keyMint: true, keyToken: skillsTok}, //nolint:gosec // Secret names in a fixture, no credential
 		"minted without App": {keyMint: true},
 	} {
 		input, secrets = loadInput(t, shapeHubPrivateTarget)
@@ -1578,4 +1577,9 @@ func TestAgentModelsProbe(t *testing.T) {
 			t.Errorf("%s: the %s probe is %+v", c.shape, agentModelsDimension, p)
 		}
 	}
+}
+
+// appSecret is the github.app.secretName choice naming a GitHub App's Secret.
+func appSecret(name string) map[string]any {
+	return map[string]any{"app": map[string]any{"secretName": name}}
 }

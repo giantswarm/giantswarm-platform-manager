@@ -724,15 +724,23 @@ type Holds struct {
 // are read with, and the Secret agents with a git skill boot with — provisioned
 // and named, or minted from the App by agent-manager.
 type AgentManagerSkills struct {
-	Repositories      []string `json:"repositories"`
-	AppSecretName     string   `json:"appSecretName"`
-	GitAuthSecretName string   `json:"gitAuthSecretName"`
-	MintGitAuthSecret bool     `json:"mintGitAuthSecret"`
+	Repositories      []string  `json:"repositories"`
+	GitHub            githubApp `json:"github"`
+	GitAuthSecretName string    `json:"gitAuthSecretName"`
+	MintGitAuthSecret bool      `json:"mintGitAuthSecret"`
+}
+
+// githubApp names the Secret of a GitHub App a component reads with, under
+// the chart's own path (github.app.secretName).
+type githubApp struct {
+	App struct {
+		SecretName string `json:"secretName"`
+	} `json:"app"`
 }
 
 // set is whether the person chose anything for the catalog.
 func (s AgentManagerSkills) set() bool {
-	return len(s.Repositories) > 0 || s.AppSecretName != "" || s.GitAuthSecretName != "" || s.MintGitAuthSecret
+	return len(s.Repositories) > 0 || s.GitHub.App.SecretName != "" || s.GitAuthSecretName != "" || s.MintGitAuthSecret
 }
 
 // commitChoice is a manager's commit mode through its GitHub App: the one
@@ -778,6 +786,9 @@ func Parse(raw any) (*Input, error) {
 	encoded, err := json.Marshal(raw)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInput, err)
+	}
+	if encoded, err = renameInputs(encoded); err != nil {
+		return nil, err
 	}
 	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(encoded))
 	if err != nil {
@@ -974,8 +985,8 @@ func (in *Input) checkRecord() error {
 		if skills.GitAuthSecretName != "" {
 			return refuse(describe("agentManager.skills.mintGitAuthSecret") + " and " + describe("agentManager.skills.gitAuthSecretName") + " both name the agents' boot Secret; the minted one replaces the provisioned one")
 		}
-		if skills.AppSecretName == "" {
-			return refuse(describe("agentManager.skills.mintGitAuthSecret") + " mints the skills GitHub App's installation token, and " + describe("agentManager.skills.appSecretName") + " names no App")
+		if skills.GitHub.App.SecretName == "" {
+			return refuse(describe("agentManager.skills.mintGitAuthSecret") + " mints the skills GitHub App's installation token, and " + describe("agentManager.skills.github.app.secretName") + " names no App")
 		}
 	}
 	if in.ModelManagerCommit && !in.modelManager() {
