@@ -67,8 +67,9 @@ func TestOrganizationsRefusals(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Commit mode under a hold on the release that takes it, or a range that
-	// reaches it, stands.
-	for _, hold := range []string{organizationsCommitChart, ">=4.170.0 <5.0.0"} {
+	// reaches it, stands. The release is written out: the constant would
+	// pass with any value.
+	for _, hold := range []string{"4.177.0", ">=4.170.0 <5.0.0"} {
 		input, secrets := loadInput(t, shapeOrganizationsCommit)
 		input["versions"] = map[string]any{keyChart: hold}
 		if _, err := Render(input, secrets, render.ModeCommit); err != nil {
