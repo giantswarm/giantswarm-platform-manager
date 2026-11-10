@@ -20,6 +20,7 @@ import (
 
 	"github.com/giantswarm/gitops-commit/commit"
 	"github.com/mark3labs/mcp-go/client"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
@@ -648,5 +649,65 @@ func TestWatchActionReplaysCommitModeAnOlderManagerStored(t *testing.T) {
 	}
 	if w.Verify.Refused != "" || len(w.Objects) == 0 || !w.Ready || w.State != actions.StateEnabled || len(w.Red) != 0 {
 		t.Fatalf("the replay of the stored inputs: refused %q, %d Flux object(s), ready %v, state %q, red %v", w.Verify.Refused, len(w.Objects), w.Ready, w.State, w.Red)
+	}
+}
+
+// storedAsRefused has rowan's inputs on record of action name turn the
+// organizations' switch on, which rowan's 3 chart line refuses: a document
+// the render of this manager refuses, as a later definition may refuse one
+// an older manager stored.
+func storedAsRefused(t *testing.T, st *stack, name string) {
+	t.Helper()
+	a, err := actions.New(st.dyn, actionsNamespace).Get(t.Context(), name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := a.InputsOnRecord(rowan)
+	if in == nil {
+		t.Fatalf("action %s holds no inputs on record for %s", name, rowan)
+	}
+	in["organizations"].(map[string]any)[enabledKey] = true
+	if _, err := st.dyn.Resource(actions.GVR).Namespace(actionsNamespace).Update(t.Context(), actions.Unstructured(*a), metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A render the inputs on record are refused by reads no Flux object, and
+// nothing it reads moves the stage: the watch answers the refusal and the
+// action stays rolling out; verify_installation does not flip a stage
+// waiting for the customer to enabled.
+func TestARefusedRenderMovesNoStage(t *testing.T) {
+	st := newStack(t)
+	a, aliceC := rolledOut(t, st)
+	admin := adminLive(t, st)
+	storedAsRefused(t, st, a.Name)
+
+	if w, text, isErr := watchCall(t, admin, a.Name); !isErr || !strings.Contains(text, "organizations.enabled") {
+		t.Fatalf("the watch of a refused render: %v state %q, %d Flux object(s): %s", isErr, w.State, len(w.Objects), text)
+	}
+	if got := getAction(t, aliceC, a.Name); got.Status.State != actions.StateRollingOut || stageOf(&got, rowan).State != actions.StateRollingOut {
+		t.Fatalf("after the refused watch: %s, stage %s", got.Status.State, stageOf(&got, rowan).State)
+	}
+}
+
+// verify_installation of a render the inputs on record are refused by
+// answers the refusal and leaves a stage waiting for the customer waiting:
+// the read checked nothing the customer's move holds up.
+func TestVerifyInstallationRefusedRenderKeepsTheWait(t *testing.T) {
+	st := newStack(t)
+	a, aliceC := rolledOut(t, st)
+	admin := adminLive(t, st)
+	setAccepted(st.inst, statusFalse, modelKeyMissing)
+	if w, text, isErr := watchCall(t, admin, a.Name); isErr || w.State != actions.StateWaitingForCustomer {
+		t.Fatalf("waiting: %v %s", isErr, text)
+	}
+	storedAsRefused(t, st, a.Name)
+	setAccepted(st.inst, statusTrue, "ok")
+
+	if res := verifyLive(t, admin, rowan); !strings.Contains(res.Refused, "organizations.enabled") {
+		t.Fatalf("verify of a refused render: refused %q, state %q", res.Refused, res.State)
+	}
+	if got := getAction(t, aliceC, a.Name); got.Status.State != actions.StateWaitingForCustomer || stageOf(&got, rowan).State != actions.StateWaitingForCustomer {
+		t.Fatalf("after the verify: %s, stage %s", got.Status.State, stageOf(&got, rowan).State)
 	}
 }

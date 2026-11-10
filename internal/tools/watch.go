@@ -159,6 +159,11 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 	}
 	res := verify.CompareLive(ctx, verify.LiveOptions{Definition: def, Installation: st.Name, State: settledState(st.State),
 		Inputs: verify.Inputs{Source: "action " + a.Name, Values: inputs, Typed: a.Spec.Inputs}, Kept: a.KeptOnRecord(st.Name), Cluster: cluster, Probes: t.d.Probes, Person: id.String(), AnonymousProbes: true, Log: t.d.Log})
+	// A refused render reads no Flux object and no probe: nothing moves the
+	// stage, and the refusal is the answer.
+	if res.Refused != "" {
+		return nil, fmt.Errorf("%s: the inputs on record of action %s for %s are refused by this manager's render, so nothing was read and the stage stays %s: %s", ToolWatchAction, a.Name, st.Name, st.State, res.Refused)
+	}
 	res.Caller = id.String()
 	objects, ready, failed := rolloutObjects(res)
 	prev := st.State
