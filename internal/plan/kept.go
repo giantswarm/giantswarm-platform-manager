@@ -124,7 +124,7 @@ func insert(m, cur *yaml.Node, key, value *yaml.Node) {
 
 // keyNode is a mapping key.
 func keyNode(key string) *yaml.Node {
-	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}
+	return &yaml.Node{Kind: yaml.ScalarNode, Tag: tagStr, Value: key}
 }
 
 // keyOf is the key node of key in the mapping m, comments and all; a fresh
