@@ -794,7 +794,7 @@ type commitChoice struct {
 // the cluster does not serve PodCertificateRequest, the chat or skill
 // repositories on an installation whose organisation hosts no portal for
 // them, the chat without a model, or on Vertex without its Google project or
-// location, the Hive where the installation cannot serve it, the MCP backends' network policy or the LLM listener's rate limits on the 3 line, the rate limits or the session idle TTL where no kagent runs, the session idle TTL on the 3 line, the default agent turned off or its model override on the 3 line, where no kagent runs or with a chart hold below the release that ships it, the skill-manager's sources or GitHub App on the 3 line, where no agent-manager runs or with a chart hold below the release with the skill-manager, a source naming the platform's own skill repository, the skill-manager's sources beside the agent-manager's skill repositories, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
+// location, the Hive where the installation cannot serve it, the MCP backends' network policy or the LLM listener's rate limits on the 3 line, the rate limits or the session idle TTL where no kagent runs, the session idle TTL on the 3 line, the default agent turned off or its model override on the 3 line, where kagent and the agent-manager do not both run or with a chart hold below the release that ships it, the skill-manager's sources or GitHub App on the 3 line, where no agent-manager runs or with a chart hold below the release with the skill-manager, a source naming the platform's own skill repository, the agent-manager's skill repositories where it may take its skills from the skill-manager or beside the skill-manager's sources, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
 // is ErrInput too.
 func Parse(raw any) (*Input, error) {
 	schemaBytes, err := definitions.FS.ReadFile("agent-platform/schema.json")
@@ -991,7 +991,7 @@ func (in *Input) checkRecord() error {
 	if in.SessionIdleTTL != "" && !in.kagent() {
 		return refuse(fmt.Sprintf("%s bounds how long kagent keeps an idle Session, and the fleet policy runs no kagent on %s's installations", describe("sessions.idleTTL"), in.Installation.Customer))
 	}
-	if err := in.checkSkillManagerRelease(componentKagent, in.kagent(),
+	if err := in.checkSkillManagerRelease("kagent with the agent-manager", in.kagent() && in.agentManager(),
 		releaseChoice{in.DefaultAgent.disabled(), "defaultAgent.enabled", "turns off the default agent in kagent"},
 		releaseChoice{in.DefaultAgent.ModelConfig != "", "defaultAgent.modelConfig", "names the default agent's ModelConfig in kagent"}); err != nil {
 		return err
@@ -1167,6 +1167,11 @@ func (in *Input) checkSkillManagerRelease(component string, runs bool, choices .
 // refuses skillManager, skill-manager and defaultAgent below it.
 const skillManagerChart = "4.179.0"
 
+// agentManagerSkillManager is the first agent-manager release that takes its
+// skills from the skill-manager (the meta chart's
+// agent-platform.agentManager.skillManagerFloor).
+const agentManagerSkillManager = "2.24.0"
+
 // platformSkillsRepository is the platform's own skill source, which the
 // meta chart lists first (skills.platformSource, never turned off by this
 // definition) and fails the render on a skillManager.sources entry naming it.
@@ -1174,15 +1179,19 @@ const platformSkillsRepository = "https://github.com/giantswarm/agent-platform"
 
 // checkSkillSources refuses a skillManager.sources entry naming the
 // platform's own repository, compared as the meta chart does (no trailing
-// "/" or ".git"), and agentManager.skills.repositories beside
-// skillManager.sources: the meta chart either fails on the agent-manager's
-// list or lets it replace the sources for the agent-manager.
+// "/" or ".git"); agentManager.skills.repositories where the agent-manager
+// may take its skills from the skill-manager, on which the meta chart fails;
+// and agentManager.skills.repositories beside skillManager.sources, which
+// it replaces for the agent-manager.
 func (in *Input) checkSkillSources() error {
 	for i, s := range in.SkillManagerSources {
 		url := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(s.URL, "/"), ".git"), "/")
 		if url == platformSkillsRepository {
 			return refuse(fmt.Sprintf("%s entry %d (%s) names the platform's own skill repository, which the meta chart already lists read-only at its release; remove the entry", describe("skillManager.sources"), i, s.URL))
 		}
+	}
+	if len(in.AgentManagerSkills.Repositories) > 0 && in.Installation.ChartLine == lineFour && holdAdmits(in.Versions.Chart, skillManagerChart) && holdAdmits(in.Versions.Components[componentAgentManager], agentManagerSkillManager) {
+		return refuse(fmt.Sprintf("%s is set, and from the meta chart %s with the agent-manager %s on the agent-manager takes its skills from the skill-manager and the meta chart fails on the list; move it into skillManager.sources, or hold %s or %s below those releases", describe("agentManager.skills.repositories"), skillManagerChart, agentManagerSkillManager, describe("versions.chart"), describe("versions.components.agent-manager")))
 	}
 	if len(in.SkillManagerSources) > 0 && len(in.AgentManagerSkills.Repositories) > 0 {
 		return refuse(fmt.Sprintf("%s and %s are both set, and the agent-manager takes its skills from the skill-manager's sources; move the agent-manager's list into skillManager.sources", describe("skillManager.sources"), describe("agentManager.skills.repositories")))

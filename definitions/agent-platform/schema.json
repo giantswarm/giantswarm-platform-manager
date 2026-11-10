@@ -559,7 +559,7 @@
           "x-readback": {"file": "configmap", "key": "skillManager.sources"},
           "x-feature": "runtime",
           "x-renders": ["configmap:skillManager.sources"],
-          "description": "The skill sources the skill-manager lists and pins skills from (the meta chart's skillManager.sources), after the platform's own: each a GitHub repository URL, or {url, ref, path, readOnly} (a branch, tag or commit, the directory scanned, the read-only mark); never the platform's own repository, which the meta chart lists first, and not beside agentManager.skills.repositories. Written as read, every key kept. None, the key is not written and the chart's list stands; a list replaces it. The 4 chart line only, where the fleet policy runs the agent-manager, with no versions.chart hold below the release with the skill-manager. Read back from the configmap patch on record."
+          "description": "The skill sources the skill-manager lists and pins skills from (the meta chart's skillManager.sources), after the platform's own: each a GitHub repository URL, or {url, ref, path, readOnly} (a branch, tag or commit, the directory scanned, the read-only mark); never the platform's own repository, which the meta chart lists first. agentManager.skills.repositories is refused beside it, and wherever the agent-manager may take its skills from the skill-manager (no versions.chart hold below the release with the skill-manager and no versions.components.agent-manager hold below 2.24.0). Written as read, every key kept. None, the key is not written and the chart's list stands; a list replaces it. The 4 chart line only, where the fleet policy runs the agent-manager, with no versions.chart hold below the release with the skill-manager. Read back from the configmap patch on record."
         }
       }
     },
@@ -575,7 +575,7 @@
           "x-readback": {"file": "configmap", "key": "components.default-agent.enabled"},
           "x-feature": "runtime",
           "x-renders": ["configmap:components.default-agent.enabled"],
-          "description": "The default agent, the meta agent the meta chart ships (components.default-agent, kagent namespace, with the platform's skills pinned to the release). On, the chart's default: the key is not written. Off, enabled: false is written: set it on an installation that still runs a hand-added meta agent before upgrading to the release with the default agent. Off: the 4 chart line only, where the fleet policy runs kagent, with no versions.chart hold below the release with the default agent. Read back from the configmap patch on record."
+          "description": "The default agent, the meta agent the meta chart ships (components.default-agent, kagent namespace, with the platform's skills pinned to the release). On, the chart's default: the key is not written. Off, enabled: false is written: set it on an installation that still runs a hand-added meta agent before upgrading to the release with the default agent. Off: the 4 chart line only, where the fleet policy runs kagent and the agent-manager, with no versions.chart hold below the release with the default agent. Read back from the configmap patch on record."
         },
         "modelConfig": {
           "type": "string",
@@ -586,7 +586,7 @@
           "x-readback": {"file": "configmap", "key": "defaultAgent.modelConfig"},
           "x-feature": "runtime",
           "x-renders": ["configmap:defaultAgent.modelConfig"],
-          "description": "The ModelConfig in kagent the default agent answers with (defaultAgent.modelConfig). Empty, the key is not written and the chart's default stands. The 4 chart line only, where the fleet policy runs kagent, with no versions.chart hold below the release with the default agent. Read back from the configmap patch on record."
+          "description": "The ModelConfig in kagent the default agent answers with (defaultAgent.modelConfig). Empty, the key is not written and the chart's default stands. The 4 chart line only, where the fleet policy runs kagent and the agent-manager, with no versions.chart hold below the release with the default agent. Read back from the configmap patch on record."
         }
       }
     },

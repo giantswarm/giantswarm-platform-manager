@@ -796,14 +796,21 @@ func TestManagersCommitMode(t *testing.T) {
 	}
 }
 
+// agentManagerBelowSkillManager holds the agent-manager below the release
+// that takes its skills from the skill-manager.
+var agentManagerBelowSkillManager = map[string]any{"components": map[string]any{"agent-manager": "~2.22.0"}}
+
 // TestAgentManagerSkills renders the agent-manager's skill catalog from its
 // choices: only what is chosen is written, under the agent-manager's values
-// next to its commit mode; refused where the policy runs no agent-manager.
+// next to its commit mode, where a hold keeps the agent-manager or the meta
+// chart below the skill-manager; refused where the policy runs no
+// agent-manager.
 func TestAgentManagerSkills(t *testing.T) {
 	input, secrets := loadInput(t, shapeHubPrivateTarget)
 	input["agentManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: true}, keySkills: map[string]any{ //nolint:gosec // Secret names in a fixture, no credential
 		keyRepositories: []any{"https://github.com/acme/skills", "https://github.com/acme/skills-internal"},
 		keyApp:          skillsApp, keyToken: skillsTok}}
+	input[keyVersions] = agentManagerBelowSkillManager
 	result, err := Render(input, secrets, render.ModeCommit)
 	if err != nil {
 		t.Fatal(err)
@@ -824,6 +831,7 @@ func TestAgentManagerSkills(t *testing.T) {
 
 	input, secrets = loadInput(t, shapeHubPrivateTarget)
 	input["agentManager"] = map[string]any{keySkills: map[string]any{keyRepositories: []any{"https://github.com/acme/skills"}}}
+	input[keyVersions] = map[string]any{keyChart: holdBelowSkillManager}
 	result, err = Render(input, secrets, render.ModeCommit)
 	if err != nil {
 		t.Fatal(err)
@@ -1683,6 +1691,7 @@ func TestSkillManagerSources(t *testing.T) {
 	platform, platformSecrets := withSources(shapeHubPrivateTarget, map[string]any{keyURL: "https://github.com/giantswarm/agent-platform.git/", keyRef: refMain})
 	both, bothSecrets := withSources(shapeHubPrivateTarget, acmeSkills)
 	both["agentManager"] = map[string]any{keySkills: map[string]any{keyRepositories: []any{acmeSkills}}}
+	both[keyVersions] = agentManagerBelowSkillManager
 	const sourcesPath = "skillManager/sources"
 	requireRefusals(t, []refusalCase{
 		{"the chart held on a release without the skill-manager", heldReleased, heldReleasedSecrets, inputChartHold},
@@ -1743,6 +1752,33 @@ func TestAgentManagerSkillRepositoriesAreURLs(t *testing.T) {
 	input, secrets := loadInput(t, shapeHubPrivateTarget)
 	input["agentManager"] = map[string]any{keySkills: map[string]any{keyRepositories: []any{map[string]any{keyURL: acmeSkills, keyRef: refMain}}}}
 	requireRefusals(t, []refusalCase{{"an object", input, secrets, "agentManager/skills/repositories"}})
+}
+
+// TestAgentManagerSkillRepositoriesBeforeTheSkillManager refuses the
+// agent-manager's skill repositories where it may take its skills from the
+// skill-manager, on which the meta chart fails, and renders them where a
+// hold keeps it or the meta chart below.
+func TestAgentManagerSkillRepositoriesBeforeTheSkillManager(t *testing.T) {
+	withRepositories := func(versions map[string]any) (map[string]any, map[string]string) {
+		input, secrets := loadInput(t, shapeHubPrivateTarget)
+		input["agentManager"] = map[string]any{keySkills: map[string]any{keyRepositories: []any{acmeSkills}}}
+		if versions != nil {
+			input[keyVersions] = versions
+		}
+		return input, secrets
+	}
+	for _, versions := range []map[string]any{agentManagerBelowSkillManager, {keyChart: holdBelowSkillManager}} {
+		input, secrets := withRepositories(versions)
+		if got := renderedPatch(t, input, secrets); !strings.Contains(got, "    repositories:\n      - "+acmeSkills+"\n") {
+			t.Errorf("held below the skill-manager (%v), and the patch carries no agent-manager repositories:\n%s", versions, got)
+		}
+	}
+	noHold, noHoldSecrets := withRepositories(nil)
+	agentManagerAtFloor, agentManagerAtFloorSecrets := withRepositories(map[string]any{"components": map[string]any{"agent-manager": "~2.24.0"}})
+	requireRefusals(t, []refusalCase{
+		{"no hold", noHold, noHoldSecrets, "agentManager.skills.repositories"},
+		{"the agent-manager held at the skill-manager's release", agentManagerAtFloor, agentManagerAtFloorSecrets, "agentManager.skills.repositories"},
+	})
 }
 
 // TestAgentModelsProbe lists, on the 4 line, the Agents of every namespace
