@@ -236,13 +236,20 @@ const platformWorkloadsDimension = "live-platform-workloads"
 
 // helmReleases are the HelmReleases the installation's platform consists of:
 // the meta chart, kagent when it runs, the connectivity chart, muster, the
-// servers' registration, and every own MCP server with its Valkey.
+// servers' registration, agent-platform-operator with the organizations, and
+// every own MCP server with its Valkey.
 func (in *Input) helmReleases() []string {
 	names := []string{"agent-platform"}
 	if in.kagent() {
 		names = append(names, "kagent")
 	}
 	names = append(names, "agent-platform-connectivity", "muster", "agent-platform-mcps")
+	// The meta chart creates agent-platform-operator's release with the
+	// organizations' switch: a release the merge brings for the first time,
+	// read like the others so the rollout waits for it.
+	if in.Organizations.Enabled {
+		names = append(names, "agent-platform-operator")
+	}
 	for _, s := range servers {
 		names = append(names, s.Name, s.Name+"-valkey")
 	}

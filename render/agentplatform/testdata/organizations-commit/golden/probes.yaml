@@ -39,6 +39,12 @@
   kind: HelmReleaseReady
   namespace: flux-giantswarm
   resource: HelmRelease
+  name: agent-platform-operator
+- id: live-helmreleases-ready
+  feature: runtime
+  kind: HelmReleaseReady
+  namespace: flux-giantswarm
+  resource: HelmRelease
   name: mcp-kubernetes
 - id: live-helmreleases-ready
   feature: runtime

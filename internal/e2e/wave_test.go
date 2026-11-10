@@ -233,6 +233,38 @@ func TestWaveAdvancesOnceTheWatchSaysEnabled(t *testing.T) {
 	}
 }
 
+// A wave merges the next installation only once the stage before runs the
+// merged revision: birch's objects all Ready on the values from before keep
+// birch rolling out, and merge_action refuses rowan's pull requests; Flux
+// applied birch's merge, the watch says enabled and the merge goes on.
+func TestWaveWaitsForFluxBeforeTheNextMerge(t *testing.T) {
+	st := newStack(t)
+	a, aliceC, birchInst := waveStage1(t, st)
+	admin := adminLive(t, st)
+	fluxBehind(t, st, birchInst, a, birch)
+
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || w.Installation != birch || !w.Ready || w.State != actions.StateRollingOut || !strings.Contains(stageOf(w.Action, birch).Message, "not yet on the merged revision: ") {
+		t.Fatalf("birch's watch before Flux: %v %s", isErr, text)
+	}
+	if _, text, isErr := mergeCall(t, aliceC, a.Name); !isErr || !strings.Contains(text, birch+" is "+actions.StateRollingOut) {
+		t.Fatalf("merge before birch runs the merged revision: %v %s", isErr, text)
+	}
+	for _, pr := range st.remote.PullRequests() {
+		if strings.HasSuffix(pr.Head, "/"+rowan) && pr.Merged {
+			t.Fatalf("rowan's pull request merged: %+v", pr)
+		}
+	}
+
+	fluxApplied(birchInst, a, birch)
+	if w, text, isErr = watchCall(t, admin, a.Name); isErr || w.Installation != birch || w.State != actions.StateEnabled {
+		t.Fatalf("birch's watch after Flux: %v %s", isErr, text)
+	}
+	if m, text, isErr := mergeCall(t, aliceC, a.Name); isErr || m.Stage != rowan || len(m.Merged) == 0 {
+		t.Fatalf("stage 2: %v %s", isErr, text)
+	}
+}
+
 // redEdgeProbe makes the installation's edge metadata probe answer 404 and
 // hands back what restores it.
 func redEdgeProbe(t *testing.T, st *stack, c *client.Client, installation string) func() {

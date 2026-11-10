@@ -359,12 +359,12 @@ func (f *fakeInstallation) populate(t *testing.T, installation string, res *rend
 			f.put("Pod", p.Namespace, podOf(p), map[string]any{metadataKey: map[string]any{"labels": labelsOf(p.Expect.Pods)}, statusKey: map[string]any{"phase": "Running",
 				"containerStatuses": []any{map[string]any{nameKey: p.Expect.Container, "state": map[string]any{"running": map[string]any{startedAtKey: containerStarted}}}}}})
 		case render.SourceFollowed:
-			// The Konfiguration on its GitRepository's commit.
-			const repo, commit = "giantswarm-config", "6aeb7ac319a0d15007a8d4342dbbd7f2fadb9c63"
+			// The Konfiguration on its GitRepository's commit, a commit of the
+			// configs repository from before any merge of the tests.
 			f.put(kind, p.Namespace, p.Name, map[string]any{specKey: map[string]any{"reconciliation": map[string]any{"interval": "1m"},
-				"sources": map[string]any{"flux": map[string]any{"gitRepository": map[string]any{nameKey: repo}}}},
-				statusKey: map[string]any{"lastAppliedRevision": commit, "lastAttemptedRevision": commit}})
-			f.put("GitRepository", p.Namespace, repo, map[string]any{statusKey: map[string]any{"artifact": map[string]any{"revision": "main@sha1:" + commit, "lastUpdateTime": dataWritten}}})
+				"sources": map[string]any{"flux": map[string]any{"gitRepository": map[string]any{nameKey: configsSource}}}}})
+			f.put("GitRepository", p.Namespace, configsSource, map[string]any{specKey: map[string]any{"url": sourceURL(acmeConfigs)}})
+			f.applyConfigs(p.Namespace, p.Name, configsBefore)
 		case render.ResourcePresent:
 			obj := map[string]any{}
 			if len(p.Expect.Keys) > 0 {
@@ -398,6 +398,61 @@ func (f *fakeInstallation) populate(t *testing.T, installation string, res *rend
 	}
 	_ = installation
 }
+
+// configsSource is the GitRepository of the configs repository the
+// Konfiguration renders from; configsBefore a commit of it from before any
+// merge of the tests.
+const (
+	configsSource = "giantswarm-config"
+	configsBefore = "6aeb7ac319a0d15007a8d4342dbbd7f2fadb9c63"
+)
+
+// sourceURL is the URL Flux's GitRepository follows repository at, as the
+// platform writes it.
+func sourceURL(repository string) string {
+	return "ssh://git@ssh.github.com:443/" + repository + ".git"
+}
+
+// applyConfigs has the Konfiguration namespace/name apply commit of its
+// configs repository: the GitRepository's artifact at the commit, the
+// Konfiguration's applied and attempted revision too.
+func (f *fakeInstallation) applyConfigs(namespace, name, commit string) {
+	f.put("GitRepository", namespace, configsSource, map[string]any{statusKey: map[string]any{"artifact": map[string]any{"revision": "main@sha1:" + commit, "lastUpdateTime": dataWritten}}})
+	f.put("Konfiguration", namespace, name, map[string]any{statusKey: map[string]any{"lastAppliedRevision": commit, "lastAttemptedRevision": commit}})
+}
+
+// followConfigs has the GitRepository of the configs repository follow
+// repository.
+func (f *fakeInstallation) followConfigs(namespace, repository string) {
+	f.put("GitRepository", namespace, configsSource, map[string]any{specKey: map[string]any{"url": sourceURL(repository)}})
+}
+
+// release has HelmRelease namespace/name run a new Helm release, deployed
+// now with values of digest: the newest of its history, the one before it
+// superseded.
+func (f *fakeInstallation) release(namespace, name, digest string) {
+	f.edit(helmReleaseKind, namespace, name, func(obj map[string]any) {
+		status := obj[statusKey].(map[string]any)
+		history, _ := status["history"].([]any)
+		version := 0
+		for _, h := range history {
+			entry := h.(map[string]any)
+			entry[statusKey] = "superseded"
+			if v, ok := entry["version"].(int); ok && v > version {
+				version = v
+			}
+		}
+		status["history"] = append([]any{map[string]any{"chartName": name, "chartVersion": "4.50.0", "digest": strings.Repeat("cd", 32), nameKey: name, namespaceKey: platformNamespace,
+			statusKey: "deployed", "version": version + 1, "lastDeployed": time.Now().UTC().Format(time.RFC3339), "configDigest": digest}}, history...)
+	})
+}
+
+// The digests of the values the platform's meta chart release ran with:
+// before the tests' merges, and with the values a merge wrote.
+const (
+	valuesBefore = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	valuesMerged = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+)
 
 // When the fake installation's Secrets that a container reads at start were
 // written, and when those containers started: after the write.
@@ -535,7 +590,12 @@ func bulky(obj map[string]any) {
 	}
 	var history []any
 	for i := range 10 {
-		history = append(history, map[string]any{"chartName": platformRelease, "chartVersion": fmt.Sprintf("4.4%d.0", i), "digest": strings.Repeat("ab", 32), nameKey: platformRelease, "namespace": platformNamespace, statusKey: "superseded", "version": i + 1})
+		state := "superseded"
+		if i == 9 {
+			state = "deployed"
+		}
+		history = append(history, map[string]any{"chartName": platformRelease, "chartVersion": fmt.Sprintf("4.4%d.0", i), "digest": strings.Repeat("ab", 32), nameKey: platformRelease, "namespace": platformNamespace, statusKey: state, "version": i + 1,
+			"lastDeployed": fmt.Sprintf("2026-09-23T%02d:00:00Z", 6+i), "configDigest": valuesBefore})
 	}
 	obj[statusKey].(map[string]any)["history"] = history
 }
