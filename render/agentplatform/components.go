@@ -96,6 +96,9 @@ func (in *Input) componentValues(m render.Map) render.Map {
 	if v := in.agentManagerValues(); len(v) > 0 {
 		m = append(m, e(componentAgentManager, v))
 	}
+	if in.agentManagerRoute() {
+		m = append(m, e("agentManager", in.agentManagerRouteValues()))
+	}
 	if in.klausGateway() {
 		m = append(m, e("klausGateway", in.klausGatewayValues()))
 	}

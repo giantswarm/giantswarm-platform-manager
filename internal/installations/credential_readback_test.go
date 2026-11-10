@@ -1,9 +1,16 @@
 package installations
 
 import (
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
+
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 const inputAgentManagerExchange = "agentManager.githubTokenExchange.enabled"
@@ -32,4 +39,53 @@ func TestAgentManagerCredentialReadBack(t *testing.T) {
 			require.Equal(t, test.want, got)
 		})
 	}
+}
+
+// A reconcile types no input: the plan reads the person's choices back from
+// the record and renders them over the installation's facts. On an
+// installation whose configmap patch carries agent-manager's credential form
+// (agentManager.credentials.uiURL), that render keeps the route the form's
+// backend reaches agent-manager on (agentManager.route, the JWKS egress),
+// derived from the form's address and never read back itself: the
+// credential-form golden's patch read back and rendered again is the same
+// patch, byte for byte.
+func TestAgentManagerCredentialFormSurvivesAReconcile(t *testing.T) {
+	definition, found := FindCapability(AgentPlatform)
+	require.True(t, found)
+	shape := os.DirFS("../../render/agentplatform/testdata/credential-form")
+	raw, err := fs.ReadFile(shape, "input.yaml")
+	require.NoError(t, err)
+	var doc struct {
+		Input map[string]any `yaml:"input"`
+	}
+	require.NoError(t, yaml.Unmarshal(raw, &doc))
+	record := doc.Input["installation"].(map[string]any)
+	name := record["name"].(string)
+	marker := definition.EnabledMarker(name)
+	patch, err := fs.ReadFile(shape, "golden/giantswarm/giantswarm-configs/"+marker)
+	require.NoError(t, err)
+	require.Contains(t, string(patch), "agentManager:\n  route:\n", "the golden carries no route to keep")
+
+	inst := Installation{Name: name, BaseDomain: record["baseDomain"].(string), Repositories: Repositories{Configs: "giantswarm/giantswarm-configs", ManagementClusters: "giantswarm/giantswarm-management-clusters"}}
+	read, err := definition.ReadBack(t.Context(), files(map[string]string{inst.Repositories.Configs + ":" + marker: string(patch)}), inst, "", nil)
+	require.NoError(t, err)
+	for input := range read {
+		require.False(t, strings.HasPrefix(input, "agentManager.route"), "%s is derived, not read back", input)
+	}
+
+	input := map[string]any{"installation": record}
+	for key, value := range read {
+		node := input
+		steps := strings.Split(key, ".")
+		for _, step := range steps[:len(steps)-1] {
+			if _, ok := node[step]; !ok {
+				node[step] = map[string]any{}
+			}
+			node = node[step].(map[string]any)
+		}
+		node[steps[len(steps)-1]] = value
+	}
+	result, err := definition.Render(input, nil, render.ModeCommit)
+	require.NoError(t, err)
+	require.Equal(t, string(patch), string(result.Tree()[filepath.Join("giantswarm", "giantswarm-configs", marker)]))
 }

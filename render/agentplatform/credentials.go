@@ -111,6 +111,32 @@ func validCredentialUI(template string) bool {
 		!strings.Contains(u.Host, marker) && strings.Count(expanded, marker+"o") == 1
 }
 
+// jwtModeStrict is an agentgateway JWT policy's mode that answers a request
+// without a valid bearer 401.
+const jwtModeStrict = "Strict"
+
+// agentManagerRoute says whether the meta chart exposes agent-manager's REST
+// API on the gateway: where agent-manager links a credential form
+// (agentManager.credentials.uiURL). The form's backend reaches the API as the
+// person at https://agentgateway.<base domain>/agent-manager, the route's
+// path, whichever installation hosts the portal (giantswarm/backstage#3435).
+func (in *Input) agentManagerRoute() bool { return in.AgentManagerCredentialUI != "" }
+
+// agentManagerRouteValues is the meta chart's agentManager block for the
+// route: on, behind a Strict JWT policy whose issuer is this installation's
+// Dex and whose keys come from the in-cluster Dex Service (the edge's
+// gateway.jwksEgress opens it). The hostname is the chart's,
+// agentgateway.<global.domain>. The chart's policy names no audience:
+// agent-manager checks the audience itself (agent-manager.oauth) and acts
+// as the caller.
+func (in *Input) agentManagerRouteValues() render.Map {
+	return render.Map{e("route", render.Map{e("enabled", true), e("jwtAuthentication", render.Map{
+		e("enabled", true), e("mode", jwtModeStrict), e("issuer", "https://"+in.host("dex")),
+		e("jwks", render.Map{e("host", dexService+"."+dexNamespace+".svc.cluster.local"),
+			e("port", dexServicePort), e("path", dexJWKSPath)}),
+	})})}
+}
+
 // brokerSubjectAudiences are the audiences muster's broker accepts on this
 // installation's Dex ID tokens: the portals', and with the manager's grant
 // exchange the authenticator's, the cross-client audience of the ID token

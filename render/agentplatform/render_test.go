@@ -40,6 +40,7 @@ const (
 	shapeOrganizationsApply     = "organizations-apply"
 	shapeOrganizationsCommit    = "organizations-commit"
 	shapeOrganizationsPortal    = "organizations-portal"
+	shapeCredentialForm         = "credential-form" //nolint:gosec // a golden shape's name, no credential
 )
 
 // The keys of the choices' documents the refusal cases build.
@@ -75,7 +76,7 @@ const (
 
 // shapes are the installation shapes, in the order the goldens are rendered.
 var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned, shapeGiantswarmSlackApp, shapeGiantswarmSlackAppPub, shapeHubPrivateTarget, shapeMultiClusterAggregator, shapeSecondHub, shapeHandKeptPortal, shapeRegisteredServers, shapePortalGitHubGrant, shapePortalHive, shapeCustomerSibling, shapeConfidentialClient,
-	shapeOrganizationsApply, shapeOrganizationsCommit, shapeOrganizationsPortal}
+	shapeOrganizationsApply, shapeOrganizationsCommit, shapeOrganizationsPortal, shapeCredentialForm}
 
 func loadInput(t *testing.T, shape string) (map[string]any, map[string]string) {
 	t.Helper()
