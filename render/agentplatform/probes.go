@@ -73,6 +73,14 @@ func (in *Input) probes() []render.Probe {
 	for _, c := range in.dexSecretClients() {
 		p = append(p, render.DexSecretLoadedProbe(dexSecretsLoadedDimension, featureIdentity, dexNamespace, c.secret, c.client))
 	}
+	if in.agentManagerRoute() {
+		// The credential form's path: the route answers a call without a
+		// token 401 at the gateway's JWT policy; without the route the
+		// hostname answers 404.
+		p = append(p, httpProbe(agentManagerRouteDimension, featureToolAccess, "https://"+in.host("agentgateway")+"/agent-manager/api/v1/info", render.Expectation{
+			Status: 401, Note: "agent-manager's REST API on the gateway refuses a call without the person's token",
+		}))
+	}
 	p = append(p, httpProbe("live-muster-protected-resource", featureToolAccess, "https://"+in.host("muster")+"/.well-known/oauth-protected-resource", render.Expectation{
 		Status: 200, BodyContains: `"resource":"https://` + in.host("muster") + `/mcp"`,
 	}))
@@ -400,6 +408,10 @@ func driftProbe(id, feature, namespace, resource, name, note string, compare ...
 }
 
 // httpProbe is a GET of url answered as expect says.
+// agentManagerRouteDimension is the live dimension of the credential form's
+// route (agentManager.route).
+const agentManagerRouteDimension = "live-agent-manager-route-protected"
+
 func httpProbe(id, feature, url string, expect render.Expectation) render.Probe {
 	return render.Probe{ID: id, Feature: feature, Kind: render.HTTP, URL: url, Expect: expect}
 }

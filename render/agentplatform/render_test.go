@@ -513,8 +513,9 @@ func TestProbesAreLiveDimensions(t *testing.T) {
 	}
 	// probed is, per dimension, the shape that probes it: the public-customer
 	// shape stands for every dimension but the 4 line's own, which a 4-line
-	// shape (giantswarm-owned) stands for, and the registered servers', which
-	// the shape that registers some stands for.
+	// shape (giantswarm-owned) stands for, the registered servers', which
+	// the shape that registers some stands for, and agent-manager's route,
+	// which the shape with the credential form stands for.
 	probed := map[string]bool{}
 	standsFor := func(shape, id string) bool {
 		switch id {
@@ -522,6 +523,8 @@ func TestProbesAreLiveDimensions(t *testing.T) {
 			return shape == shapeGiantswarmOwned
 		case registeredServersDimension:
 			return shape == shapeRegisteredServers
+		case agentManagerRouteDimension:
+			return shape == shapeCredentialForm
 		}
 		return shape == shapePublicCustomer
 	}

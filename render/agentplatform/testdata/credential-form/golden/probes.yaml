@@ -271,6 +271,13 @@
     pods: app.kubernetes.io/name=dex
     container: dex
     note: Dex reads the secret of client muster-token-exchange-jasper only when its container starts; one started before the Secret changed holds the old secret and the client's sign-ins fail until Dex restarts (dex-app 3.2.3 restarts it on the change)
+- id: live-agent-manager-route-protected
+  feature: tool-access
+  kind: HTTP
+  url: https://agentgateway.jasper.example.io/agent-manager/api/v1/info
+  expect:
+    status: 401
+    note: agent-manager's REST API on the gateway refuses a call without the person's token
 - id: live-muster-protected-resource
   feature: tool-access
   kind: HTTP
