@@ -3,8 +3,11 @@ package tools
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
@@ -196,8 +199,12 @@ func releaseWait(object string, pr actions.PullRequest, releases []verify.Releas
 	return ""
 }
 
-// changesValues says whether pr's merge changed the capability's rendered
-// values file, read as the person (gh.ChangeOf, cached per commit).
+// changesValues says whether pr's merge changed the values of the
+// capability's rendered values file, read as the person (gh.ChangeOf and
+// the blobs, cached): a file added or removed does, and a changed one does
+// when its YAML before and after differs. A file rewritten with the same
+// values — a comment or the layout — composes the same values, and Flux
+// runs no release for it.
 func changesValues(ctx context.Context, c *gh.Client, def installations.Capability, pr actions.PullRequest) (bool, error) {
 	if pr.MergeCommit == "" {
 		return false, fmt.Errorf("%s#%d: GitHub names no merge commit", pr.Repository, pr.Number)
@@ -211,11 +218,37 @@ func changesValues(ctx context.Context, c *gh.Client, def installations.Capabili
 		return false, err
 	}
 	for _, f := range change.Files {
-		if strings.HasSuffix(f.Path, verify.ValuesSuffix(def.Name)) {
+		if !strings.HasSuffix(f.Path, verify.ValuesSuffix(def.Name)) {
+			continue
+		}
+		if f.Before == "" || f.Blob == "" {
+			return true, nil
+		}
+		same, err := sameValues(ctx, c, owner, repo, f.Before, f.Blob)
+		if err != nil {
+			return false, err
+		}
+		if !same {
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+// sameValues says whether the YAML documents of two blobs carry the same
+// values; a blob that is no YAML differs.
+func sameValues(ctx context.Context, c *gh.Client, owner, repo, before, after string) (bool, error) {
+	var docs [2]any
+	for i, sha := range []string{before, after} {
+		content, err := gh.Blob(ctx, c, owner, repo, sha)
+		if err != nil {
+			return false, err
+		}
+		if err := yaml.Unmarshal([]byte(content), &docs[i]); err != nil {
+			return false, nil
+		}
+	}
+	return reflect.DeepEqual(docs[0], docs[1]), nil
 }
 
 // objectLine names a check's object as the stage's message does: kind and
@@ -267,9 +300,11 @@ func lastMerge(a *actions.Action, status actions.Status, installation string) ti
 // overdue says whether the proof is past rolloutBound: a wait this call
 // read, and the stage's last merge longer ago than the bound.
 func overdue(waits []rolloutWait, merged time.Time) bool {
-	if merged.IsZero() || time.Since(merged) <= rolloutBound {
-		return false
-	}
+	return !merged.IsZero() && time.Since(merged) > rolloutBound && readWait(waits)
+}
+
+// readWait says whether one of the waits rests on a read this call made.
+func readWait(waits []rolloutWait) bool {
 	for _, w := range waits {
 		if !w.unread {
 			return true

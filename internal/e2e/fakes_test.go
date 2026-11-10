@@ -203,6 +203,14 @@ func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 				found = &content
 			}
 		}
+		// A blob of an earlier commit, no file of the branch's head any more.
+		for _, c := range g.history[repo] {
+			for _, content := range c.tree {
+				if found == nil && blobSHA(content) == r.PathValue("sha") {
+					found = &content
+				}
+			}
+		}
 		if found == nil {
 			writeJSON(w, http.StatusNotFound, map[string]any{message: notFound})
 			return
@@ -417,6 +425,28 @@ func (g *fakeGitHub) commitByHand(repo, path, content string) string {
 	sha := blobSHA(fmt.Sprint(parent, g.files[repo]))[:40]
 	g.history[repo] = append(h, fakeCommit{sha: sha, parent: parent, tree: maps.Clone(g.files[repo])})
 	return sha
+}
+
+// rewriteBefore has path of owner/repo carry content in the parent of commit
+// sha: the history as if the merge had found the file so.
+func (g *fakeGitHub) rewriteBefore(repo, sha, path, content string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	c, _ := g.commitLocked(repo, sha)
+	for i := range g.history[repo] {
+		if g.history[repo][i].sha == c.parent {
+			g.history[repo][i].tree = maps.Clone(g.history[repo][i].tree)
+			g.history[repo][i].tree[path] = content
+		}
+	}
+}
+
+// fileAt is path of owner/repo in commit sha.
+func (g *fakeGitHub) fileAt(repo, sha, path string) string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	c, _ := g.commitLocked(repo, sha)
+	return c.tree[path]
 }
 
 // parentOf is the parent of commit sha on owner/repo's history.

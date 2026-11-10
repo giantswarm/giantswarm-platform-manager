@@ -675,6 +675,30 @@ func TestWatchActionWaitsForFluxToApplyTheMerge(t *testing.T) {
 	}
 }
 
+// A merge that rewrites the values file with the values it had — a comment,
+// the layout — composes the same values, and Flux runs no release for it:
+// the stage asks no new release of the meta chart's HelmRelease and is
+// enabled once the Konfiguration applied the merge.
+func TestWatchActionAsksNoReleaseOfAMergeThatKeepsTheValues(t *testing.T) {
+	st := newStack(t)
+	a, _ := mergedRowan(t, st)
+	admin := adminLive(t, st)
+	pr, merge := configsMerge(t, &a, rowan)
+	path := "installations/" + rowan + "/apps/" + installations.AgentPlatform + "/" + valuesFileKey + ".patch"
+	after := st.ghs.fileAt(pr.Repository, merge, path)
+	if after == "" {
+		t.Fatalf("the merge wrote no %s", path)
+	}
+	st.ghs.rewriteBefore(pr.Repository, merge, path, "# the values before the merge, as the merge left them\n"+after)
+	fluxBehind(t, st, st.inst, a, rowan)
+	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
+
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled {
+		t.Fatalf("the values kept: %v %s", isErr, text)
+	}
+}
+
 // A merge Flux never applies does not keep the stage rolling out for good:
 // past the bound after the last merge, the stage fails on what it waits for,
 // as on a release Flux gave up on, the report naming it; the re-read once

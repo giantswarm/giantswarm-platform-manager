@@ -195,3 +195,13 @@ func Contains(ctx context.Context, c *Client, owner, repo, commit, head string) 
 	}
 	return false, nil
 }
+
+// Blob is the content of the blob sha of owner/repo, read as the person and
+// cached by SHA across calls and persons, as every file read is.
+func Blob(ctx context.Context, c *Client, owner, repo, sha string) (string, error) {
+	content, err := c.files.blob(ctx, c, owner, repo, sha)
+	if err != nil {
+		return "", fmt.Errorf("github: %s/%s: blob %s: %w", owner, repo, sha, err)
+	}
+	return content, nil
+}

@@ -185,8 +185,11 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 		st.Message = rolloutMessage(objects, waits)
 		applyStage(&status, i, prev)
 		out.Next = "call " + ToolWatchAction + " again once Flux has reconciled the installation; nothing is hurried"
-		if len(waits) > 0 {
+		switch {
+		case readWait(waits):
 			out.Next = fmt.Sprintf("call %s again once Flux has applied the merge; a stage that does not run it %s after its last merge fails on it", ToolWatchAction, rolloutBound)
+		case len(waits) > 0:
+			out.Next = "call " + ToolWatchAction + " again as someone who may read what the stage's message names: what you may not read is not checked, and the stage waits for it"
 		}
 		if status.State == actions.StateFailed {
 			out.Next = nextAfter(a, status, i)
