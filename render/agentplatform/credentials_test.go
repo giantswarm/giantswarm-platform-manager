@@ -206,3 +206,27 @@ func toAny(values []string) []any {
 	}
 	return out
 }
+
+// Where the edge already validates a portal's ID token, the credential form's
+// route shares the edge's JWKS egress: the configmap patch carries one
+// gateway block, so konfigure's merge sees no duplicate key, beside the
+// edge's own provider and the route (the credential-form golden covers the
+// route alone).
+func TestAgentManagerRouteBesideTheEdgeProvider(t *testing.T) {
+	input, secrets := loadInput(t, shapeOrganizationsApply)
+	input["agentManager"] = map[string]any{"credentials": map[string]any{keyCredentialUI: formURL}}
+	in, err := Parse(input)
+	require.NoError(t, err)
+	require.True(t, in.edgeJWTProvider())
+	result, err := Render(input, secrets, render.ModeCommit)
+	require.NoError(t, err)
+	var patch map[string]any
+	for _, files := range result.Files {
+		if f, ok := files["installations/"+in.Installation.Name+"/apps/agent-platform/configmap-values.yaml.patch"]; ok {
+			require.NoError(t, yaml.Unmarshal(f.Content, &patch))
+		}
+	}
+	require.Equal(t, map[string]any{"jwksEgress": map[string]any{keyEnabled: true}}, patch["gateway"])
+	require.NotEmpty(t, patch["extraObjects"])
+	require.Contains(t, patch, "agentManager")
+}
