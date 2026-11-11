@@ -222,12 +222,7 @@ func TestAgentManagerRouteBesideTheEdgeProvider(t *testing.T) {
 	require.True(t, in.edgeJWTProvider())
 	result, err := Render(input, secrets, render.ModeCommit)
 	require.NoError(t, err)
-	var patch map[string]any
-	for _, files := range result.Files {
-		if f, ok := files["installations/"+in.Installation.Name+"/apps/agent-platform/configmap-values.yaml.patch"]; ok {
-			require.NoError(t, yaml.Unmarshal(f.Content, &patch))
-		}
-	}
+	patch := configmapPatch(t, result, in.Installation.Name)
 	require.Equal(t, map[string]any{"jwksEgress": map[string]any{keyEnabled: true}}, patch["gateway"])
 	require.NotEmpty(t, patch["extraObjects"])
 	require.Contains(t, patch, "agentManager")
@@ -243,15 +238,11 @@ func TestAgentManagerRouteBesideTheEdgeProvider(t *testing.T) {
 func TestCredentialFormRendersWithTheOrganizationsOnly(t *testing.T) {
 	input, secrets := loadInput(t, shapeCredentialForm)
 	input[keyOrganizations] = map[string]any{keyEnabled: false}
+	in, err := Parse(input)
+	require.NoError(t, err)
 	result, err := Render(input, secrets, render.ModeCommit)
 	require.NoError(t, err)
-	var patch map[string]any
-	for _, files := range result.Files {
-		if f, ok := files["installations/jasper/apps/agent-platform/configmap-values.yaml.patch"]; ok {
-			require.NoError(t, yaml.Unmarshal(f.Content, &patch))
-		}
-	}
-	require.NotNil(t, patch, "no configmap patch rendered")
+	patch := configmapPatch(t, result, in.Installation.Name)
 	manager, _ := patch[componentAgentManager].(map[string]any)
 	require.NotContains(t, manager, "credentials")
 	require.NotContains(t, patch, "agentManager")
@@ -259,4 +250,19 @@ func TestCredentialFormRendersWithTheOrganizationsOnly(t *testing.T) {
 	for _, p := range result.Probes {
 		require.NotEqual(t, agentManagerRouteDimension, p.ID)
 	}
+}
+
+// configmapPatch is the agent-platform configmap values patch a render wrote
+// for the installation, decoded.
+func configmapPatch(t *testing.T, result *render.Result, name string) map[string]any {
+	t.Helper()
+	for _, files := range result.Files {
+		if f, ok := files["installations/"+name+"/apps/agent-platform/configmap-values.yaml.patch"]; ok {
+			var patch map[string]any
+			require.NoError(t, yaml.Unmarshal(f.Content, &patch))
+			return patch
+		}
+	}
+	t.Fatalf("no configmap patch rendered for %s", name)
+	return nil
 }

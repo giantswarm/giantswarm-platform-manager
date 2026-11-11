@@ -109,6 +109,7 @@
         'gsoci.azurecr.io/charts/giantswarm/kserve-llmisvc-resources',
         'gsoci.azurecr.io/charts/giantswarm/kserve-runtime-configs',
         'gsoci.azurecr.io/charts/giantswarm/agent-manager',
+        'gsoci.azurecr.io/charts/giantswarm/agent-platform-operator',
       ],
       matchUpdateTypes: [
         'major',

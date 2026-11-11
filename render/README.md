@@ -221,7 +221,10 @@ definition's input for the same installation (`render/agentplatform/testdata/con
 supplied values as dry-run markers); three signed into from a portal on another installation, with no portal tree
 of their own (the organizations in apply and in commit mode, and agent-manager's credential form; the portal
 client's Secret their record says is on record is stood in); and a portal-only installation without the
-platform. Every chart is rendered as on an API server that serves
+platform. Where agent-manager links the credential form, the test also asserts the connectivity chart's route to
+agent-manager, its public route on `agentgateway.<base domain>` and its Strict JWT policy with the installation's
+Dex as the issuer: the chart's values schema leaves `agentManager` open, so helm validates none of it. Every chart
+is rendered as on an API server that serves
 `admissionregistration.k8s.io/v1/MutatingAdmissionPolicy`, which the connectivity chart needs for the
 organizations. For every shape it writes both definitions' filesets into one
 tree (a path both render fails the test: one file, one owner), builds each emitted `extras/<x>/` directory over

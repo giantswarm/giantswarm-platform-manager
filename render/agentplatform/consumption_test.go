@@ -77,16 +77,18 @@ var consumptionShapes = []consumptionShape{
 }
 
 const (
-	consumptionDir = "testdata/consumption"
-	kindSecret     = "Secret"
-	kindConfigMap  = "ConfigMap"
-	kindHelmRel    = "HelmRelease"
-	kindOCIRepo    = "OCIRepository"
-	fieldSpec      = "spec"
-	fieldName      = "name"
-	fieldKey       = "key"
-	fieldKind      = "kind"
-	fieldOptional  = "optional"
+	// chartConnectivity is the meta chart's connectivity child.
+	chartConnectivity = "agent-platform-connectivity"
+	consumptionDir    = "testdata/consumption"
+	kindSecret        = "Secret"
+	kindConfigMap     = "ConfigMap"
+	kindHelmRel       = "HelmRelease"
+	kindOCIRepo       = "OCIRepository"
+	fieldSpec         = "spec"
+	fieldName         = "name"
+	fieldKey          = "key"
+	fieldKind         = "kind"
+	fieldOptional     = "optional"
 )
 
 // pin is one entry of charts.yaml: a consuming chart, its OCI repository and the
@@ -349,6 +351,9 @@ func consume(t *testing.T, shape consumptionShape, charts *chartStore) {
 			t.Fatal(err)
 		}
 		if portal == nil {
+			if p := in.hostedPortal(); p != nil && !p.HandKept {
+				t.Fatalf("%s: the platform writes its portal section into %s's portal, so the shape needs that portal's input under %s", shape.platform, p.Installation, consumptionDir)
+			}
 			c.installation = in.Installation.Name
 		} else {
 			ownPortal := slices.ContainsFunc(in.Installation.Portals, func(p PortalRef) bool {
@@ -400,6 +405,7 @@ func consume(t *testing.T, shape consumptionShape, charts *chartStore) {
 		c.assertKagentConsumers()
 		c.assertMCPBackends()
 		c.assertLLMRateLimits()
+		c.assertAgentManagerRoute()
 	}
 }
 
@@ -414,7 +420,7 @@ func (c *consumption) assertMCPBackends() {
 		return
 	}
 	for _, rel := range c.rendered {
-		if rel.chart.Name != "agent-platform-connectivity" {
+		if rel.chart.Name != chartConnectivity {
 			continue
 		}
 		for _, key := range sortedKeys(c.platform.MCPBackends) {
@@ -441,7 +447,7 @@ func (c *consumption) assertLLMRateLimits() {
 		return
 	}
 	for _, rel := range c.rendered {
-		if rel.chart.Name != "agent-platform-connectivity" {
+		if rel.chart.Name != chartConnectivity {
 			continue
 		}
 		for _, o := range rel.objects {
@@ -457,6 +463,61 @@ func (c *consumption) assertLLMRateLimits() {
 		return
 	}
 	c.t.Errorf("llmRouting.rateLimits is set, and no connectivity chart was rendered to take it")
+}
+
+// assertAgentManagerRoute holds the credential form's route to the rendered
+// connectivity chart, whose values schema leaves agentManager open, so helm
+// validates none of agentManager.route: with agent-manager.credentials.uiURL
+// rendered, the route on the platform's Gateway at /agent-manager, its public
+// route on agentgateway.<base domain>, and the route's Strict JWT policy with
+// the installation's Dex as the issuer; without it, none of them.
+func (c *consumption) assertAgentManagerRoute() {
+	want := c.platform.agentManagerRoute()
+	host := c.platform.host("agentgateway")
+	issuer := "https://" + c.platform.host("dex")
+	for _, rel := range c.rendered {
+		if rel.chart.Name != chartConnectivity {
+			continue
+		}
+		found := map[string]bool{}
+		for _, o := range rel.objects {
+			switch {
+			case o.kind() == "HTTPRoute" && o.name() == componentAgentManager:
+				found["route"] = routePrefix(o) == "/agent-manager"
+			case o.kind() == "HTTPRoute" && o.name() == componentAgentManager+"-public":
+				hosts, _ := get(o, fieldSpec, "hostnames").([]any)
+				found["public route"] = routePrefix(o) == "/agent-manager" && len(hosts) == 1 && hosts[0] == host
+			case o.kind() == "AgentgatewayPolicy" && o.name() == componentAgentManager+"-jwt":
+				jwt := get(o, fieldSpec, "traffic", "jwtAuthentication")
+				providers, _ := get(jwt, "providers").([]any)
+				found["Strict JWT policy"] = str(get(jwt, "mode")) == jwtModeStrict && len(providers) == 1 && str(get(providers[0], "issuer")) == issuer
+			}
+		}
+		for _, part := range []string{"route", "public route", "Strict JWT policy"} {
+			if got, rendered := found[part]; want && !got {
+				c.t.Errorf("%s: agent-manager.credentials.uiURL is set, and the chart renders no agent-manager %s as the definition derives it (rendered: %v)", rel, part, rendered)
+			} else if !want && rendered {
+				c.t.Errorf("%s: no credential form, and the chart renders an agent-manager %s", rel, part)
+			}
+		}
+		return
+	}
+	if want {
+		c.t.Errorf("agent-manager.credentials.uiURL is set, and no connectivity chart was rendered to take its route")
+	}
+}
+
+// routePrefix is the path prefix of an HTTPRoute's first match.
+func routePrefix(o object) string {
+	rules, _ := get(o, fieldSpec, "rules").([]any)
+	if len(rules) == 0 {
+		return ""
+	}
+	matches, _ := get(rules[0], "matches").([]any)
+	if len(matches) == 0 {
+		return ""
+	}
+	return str(get(matches[0], "path", "value"))
 }
 
 // renderPortal renders the customer-portal definition from its input under
@@ -900,10 +961,12 @@ func (c *consumption) template(rel *release) {
 	}
 }
 
-// servedAPIs are the API versions beyond helm's defaults the installations
-// serve that a chart checks for: the connectivity chart renders the
-// organizations' ModelConfig admission policy as a MutatingAdmissionPolicy
-// and refuses the organizations on an API server without it.
+// servedAPIs are the API versions beyond helm's defaults that a chart checks
+// for, as the fleet's Kubernetes serves them — an assumption about the
+// fleet's version, which the organizations need anyway: the connectivity
+// chart renders the organizations' ModelConfig admission policy as a
+// MutatingAdmissionPolicy and refuses the organizations on an API server
+// without it. Every shape renders as on such an API server.
 var servedAPIs = []string{"--api-versions", "admissionregistration.k8s.io/v1/MutatingAdmissionPolicy"}
 
 // helmTemplate renders rel's chart at its pin, as rel, with the values files.
