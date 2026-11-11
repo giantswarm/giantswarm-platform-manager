@@ -765,8 +765,8 @@ func TestWatchActionCountsAReleaseInTheMergesSecondBeforeIt(t *testing.T) {
 // An enablement that brings the meta chart's HelmRelease for the first time:
 // before the merge there is no HelmRelease, so no release ran at the merge.
 // The stage waits while the HelmRelease is missing, and is enabled once Flux
-// created it and its release v1 runs, deployed after the Konfiguration wrote
-// the merged values into the ConfigMap it reads.
+// created it and its release v1 runs with the values the ConfigMap it reads
+// holds: the merged ones.
 func TestWatchActionProvesAFirstInstallByItsFirstRelease(t *testing.T) {
 	st := newStack(t)
 	a, _ := mergedRowan(t, st)
@@ -778,7 +778,6 @@ func TestWatchActionProvesAFirstInstallByItsFirstRelease(t *testing.T) {
 	}
 	_, merge := configsMerge(t, &a, rowan)
 	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
-	st.inst.writeValues(fluxNamespace, time.Now())
 	st.inst.install(hr, valuesMerged)
 	w, text, isErr := watchCall(t, admin, a.Name)
 	if isErr || !w.Ready || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled {
@@ -786,36 +785,45 @@ func TestWatchActionProvesAFirstInstallByItsFirstRelease(t *testing.T) {
 	}
 }
 
-// A HelmRelease created after the merge whose first release Helm installed
-// from the ConfigMap the Konfiguration held before it applied the merge: the
-// Konfiguration writes the merged values after the release, so the release
-// is no proof of them and the stage is not proven. The next release, after
-// the write, carries it to enabled.
-func TestWatchActionTakesNoFirstInstallOfOldValues(t *testing.T) {
+// A first install whose values ConfigMap does not hold the merged values
+// yet: v1 runs, and the drift check finds the values it reads are not the
+// merged ones. The stage waits for them instead of failing on the drift.
+func TestWatchActionWaitsForAFirstInstallsMergedValues(t *testing.T) {
 	st := newStack(t)
 	a, _ := mergedRowan(t, st)
 	admin := adminLive(t, st)
 	fluxBehind(t, st, st.inst, a, rowan)
 	hr := st.inst.take(helmReleaseKind, fluxNamespace, platformRelease)
-	st.inst.install(hr, valuesBefore)
 	_, merge := configsMerge(t, &a, rowan)
 	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
-	// No manager owns the ConfigMap's data yet: when it changed is not known.
-	if w, text, isErr := watchCall(t, admin, a.Name); isErr || w.State != actions.StateRollingOut || !strings.Contains(stageOf(w.Action, rowan).Message, "when the values it reads last changed is not known") {
-		t.Fatalf("no write time: %v %s", isErr, text)
-	}
-	written := time.Now().Add(2 * time.Second)
-	st.inst.writeValues(fluxNamespace, written)
+	st.inst.staleValues(t, fluxNamespace)
+	st.inst.install(hr, valuesBefore)
 	w, text, isErr := watchCall(t, admin, a.Name)
-	if isErr || !w.Ready || w.State != actions.StateRollingOut {
-		t.Fatalf("a first install of the old values: %v %s", isErr, text)
+	if isErr || !w.Ready || w.State != actions.StateRollingOut || w.Action.Status.State != actions.StateRollingOut {
+		t.Fatalf("a first install of other values: %v %s", isErr, text)
 	}
-	if msg := stageOf(w.Action, rowan).Message; !strings.Contains(msg, "runs release v1, its first since the merge, deployed at ") || !strings.Contains(msg, "not after the values it reads last changed at "+written.UTC().Format(time.RFC3339)) {
+	if msg := stageOf(w.Action, rowan).Message; !strings.Contains(msg, "runs release v1, its first since the merge, and the values it reads are not the merged ones yet") {
 		t.Fatalf("the stage's message: %q", msg)
 	}
-	st.inst.releaseAt(fluxNamespace, platformRelease, valuesMerged, written.Add(time.Second))
-	if w, text, isErr = watchCall(t, admin, a.Name); isErr || w.State != actions.StateEnabled {
-		t.Fatalf("a release after the write: %v %s", isErr, text)
+}
+
+// A first install whose values ConfigMap the manager that owns its data
+// changed afterwards in its metadata alone — konfigure rewrites its revision
+// label on every commit of the configs repository: v1 runs the merged
+// values, and the stage is enabled.
+func TestWatchActionProvesAFirstInstallAfterAMetadataChange(t *testing.T) {
+	st := newStack(t)
+	a, _ := mergedRowan(t, st)
+	admin := adminLive(t, st)
+	fluxBehind(t, st, st.inst, a, rowan)
+	hr := st.inst.take(helmReleaseKind, fluxNamespace, platformRelease)
+	_, merge := configsMerge(t, &a, rowan)
+	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
+	st.inst.install(hr, valuesMerged)
+	st.inst.relabelValues(fluxNamespace, time.Now().Add(3*time.Second))
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || !w.Ready || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled {
+		t.Fatalf("a first install, then a label: %v %s", isErr, text)
 	}
 }
 

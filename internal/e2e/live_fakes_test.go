@@ -518,13 +518,39 @@ func (f *fakeInstallation) reinstall(namespace, name, digest string) {
 	f.release(namespace, name, digest)
 }
 
-// writeValues has the Konfiguration write the meta chart's values
-// ConfigMap in namespace at at: its managed fields own the data since then.
-func (f *fakeInstallation) writeValues(namespace string, at time.Time) {
-	f.edit("ConfigMap", namespace, "agent-platform-konfiguration", func(obj map[string]any) {
-		obj[metadataKey].(map[string]any)[managedFieldsKey] = []any{dataWrite(at.UTC().Format(time.RFC3339))}
+// relabelValues has the manager that owns the data of the meta chart's
+// values ConfigMap in namespace change its revision label alone at at, as
+// konfigure does on every commit of the configs repository: one
+// managed-fields entry owns the data and the label, its time at.
+func (f *fakeInstallation) relabelValues(namespace string, at time.Time) {
+	f.edit("ConfigMap", namespace, platformValuesConfigMap, func(obj map[string]any) {
+		meta := obj[metadataKey].(map[string]any)
+		meta["labels"] = map[string]any{"configuration.giantswarm.io/revision": strings.Repeat("ef", 20)}
+		entry := dataWrite(at.UTC().Format(time.RFC3339))
+		entry["fieldsV1"].(map[string]any)["f:metadata"] = map[string]any{"f:labels": map[string]any{"f:configuration.giantswarm.io/revision": map[string]any{}}}
+		meta[managedFieldsKey] = []any{entry}
 	})
 }
+
+// staleValues has the meta chart's values ConfigMap in namespace hold values
+// other than the rendered ones: rowan's hosts under another domain.
+func (f *fakeInstallation) staleValues(t *testing.T, namespace string) {
+	t.Helper()
+	f.edit("ConfigMap", namespace, platformValuesConfigMap, func(obj map[string]any) {
+		data := obj[dataKey].(map[string]any)
+		values := data[platformValuesKey].(string)
+		if !strings.Contains(values, ".rowan.acme.test") {
+			t.Fatalf("the values ConfigMap names no host of rowan")
+		}
+		data[platformValuesKey] = strings.ReplaceAll(values, ".rowan.acme.test", ".stale.acme.test")
+	})
+}
+
+// The ConfigMap the meta chart's HelmRelease reads its values from, and its key.
+const (
+	platformValuesConfigMap = "agent-platform-konfiguration"
+	platformValuesKey       = "configmap-values.yaml"
+)
 
 // creationTimestampKey is when the apiserver created an object.
 const creationTimestampKey = "creationTimestamp"
