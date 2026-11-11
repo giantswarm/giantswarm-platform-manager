@@ -219,6 +219,18 @@ spec:
                           watchedBy: {type: string}
                           reportedAt: {type: string, format: date-time}
                           noticedAt: {type: string, format: date-time}
+                          baselines:
+                            description: The Helm releases that ran at the stage's merges, as the watch first read them in a release history; version 0 when no release ran at a merge (the HelmRelease was created and installed after it).
+                            type: array
+                            items:
+                              type: object
+                              required: [release, pullRequest, version, configDigest]
+                              properties:
+                                release: {type: string}
+                                pullRequest: {type: string}
+                                version: {type: integer}
+                                configDigest: {type: string}
+                                deployed: {type: string, format: date-time}
                 probes:
                   type: array
                   items:

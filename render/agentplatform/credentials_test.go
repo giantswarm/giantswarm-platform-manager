@@ -167,6 +167,8 @@ func credentialInput(t *testing.T, shape string) (map[string]any, map[string]str
 		"githubTokenExchange": map[string]any{keyEnabled: true},
 		"credentials":         map[string]any{keyCredentialUI: formURL},
 	}
+	// The meta chart takes the credential form with the organizations only.
+	input[keyOrganizations] = map[string]any{keyEnabled: true}
 	delete(input, "versions")
 	return input, secrets
 }
@@ -205,4 +207,62 @@ func toAny(values []string) []any {
 		out[i] = v
 	}
 	return out
+}
+
+// Where the edge already validates a portal's ID token, the credential form's
+// route shares the edge's JWKS egress: the configmap patch carries one
+// gateway block, so konfigure's merge sees no duplicate key, beside the
+// edge's own provider and the route (the credential-form golden covers the
+// route alone).
+func TestAgentManagerRouteBesideTheEdgeProvider(t *testing.T) {
+	input, secrets := loadInput(t, shapeOrganizationsApply)
+	input["agentManager"] = map[string]any{"credentials": map[string]any{keyCredentialUI: formURL}}
+	in, err := Parse(input)
+	require.NoError(t, err)
+	require.True(t, in.edgeJWTProvider())
+	result, err := Render(input, secrets, render.ModeCommit)
+	require.NoError(t, err)
+	patch := configmapPatch(t, result, in.Installation.Name)
+	require.Equal(t, map[string]any{"jwksEgress": map[string]any{keyEnabled: true}}, patch["gateway"])
+	require.NotEmpty(t, patch["extraObjects"])
+	require.Contains(t, patch, "agentManager")
+}
+
+// The meta chart takes the credential form with the organizations only
+// (agent-manager links it beside its organization tools). A form's address
+// read back from the record while the switch is off — a person turns the
+// switch off alone — renders nothing of the form: no
+// agent-manager.credentials, no route on the gateway, no JWKS egress for it
+// and no probe of it; the render is not refused, so the switch goes off and
+// the form goes with it.
+func TestCredentialFormRendersWithTheOrganizationsOnly(t *testing.T) {
+	input, secrets := loadInput(t, shapeCredentialForm)
+	input[keyOrganizations] = map[string]any{keyEnabled: false}
+	in, err := Parse(input)
+	require.NoError(t, err)
+	result, err := Render(input, secrets, render.ModeCommit)
+	require.NoError(t, err)
+	patch := configmapPatch(t, result, in.Installation.Name)
+	manager, _ := patch[componentAgentManager].(map[string]any)
+	require.NotContains(t, manager, "credentials")
+	require.NotContains(t, patch, "agentManager")
+	require.NotContains(t, patch, "gateway")
+	for _, p := range result.Probes {
+		require.NotEqual(t, agentManagerRouteDimension, p.ID)
+	}
+}
+
+// configmapPatch is the agent-platform configmap values patch a render wrote
+// for the installation, decoded.
+func configmapPatch(t *testing.T, result *render.Result, name string) map[string]any {
+	t.Helper()
+	for _, files := range result.Files {
+		if f, ok := files["installations/"+name+"/apps/agent-platform/configmap-values.yaml.patch"]; ok {
+			var patch map[string]any
+			require.NoError(t, yaml.Unmarshal(f.Content, &patch))
+			return patch
+		}
+	}
+	t.Fatalf("no configmap patch rendered for %s", name)
+	return nil
 }

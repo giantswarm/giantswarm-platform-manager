@@ -33,11 +33,12 @@ heron: enabled
     live-agent-models: runtime Agents in every namespace that name kagent's default-model-config, each with the HelmRelease that renders it (the 4 line)
     live-kagent-provider-values: runtime kagent HelmRelease .spec.values.providers (where the meta chart the installation resolves still takes kagent.providers)
     live-konfiguration-source: runtime Konfiguration agent-platform-konfiguration on its GitRepository's revision: behind within its reconciliation interval reads rolling, longer drifted
-    live-helmreleases-ready: runtime HelmReleases agent-platform, kagent, connectivity, muster, mcps Ready
+    live-helmreleases-ready: runtime HelmReleases agent-platform, kagent, connectivity, muster, mcps, and agent-platform-operator with the organizations, Ready
     live-platform-workloads: runtime the Deployments that read muster's credentials Available: muster, its Valkey, and klaus-gateway, agent-manager, cluster-manager and model-manager where each runs
     live-kagent-workloads: runtime kagent pods Running and the CNPG cluster healthy
     live-pod-certificate-request: runtime certificates.k8s.io/v1beta1 podcertificaterequests served by the apiserver (Agent Substrate's feature gates, the 4 line)
     live-drift: runtime live values equal the rendered manifests
+    live-agent-manager-route-protected: tool-access https://agentgateway.<domain>/agent-manager/api/v1/info answered 401 by the route's JWT policy, where agent-manager.credentials.uiURL is set
     live-own-mcp-servers: tool-access MCPServer objects of the installation itself
     live-registered-mcp-servers: tool-access MCPServer objects registered under extras/agent-platform/mcpservers, present and none Failed
     live-muster-protected-resource: tool-access muster's OAuth protected-resource metadata
@@ -83,11 +84,12 @@ kestrel: enabled
     live-agent-models: runtime Agents in every namespace that name kagent's default-model-config, each with the HelmRelease that renders it (the 4 line)
     live-kagent-provider-values: runtime kagent HelmRelease .spec.values.providers (where the meta chart the installation resolves still takes kagent.providers)
     live-konfiguration-source: runtime Konfiguration agent-platform-konfiguration on its GitRepository's revision: behind within its reconciliation interval reads rolling, longer drifted
-    live-helmreleases-ready: runtime HelmReleases agent-platform, kagent, connectivity, muster, mcps Ready
+    live-helmreleases-ready: runtime HelmReleases agent-platform, kagent, connectivity, muster, mcps, and agent-platform-operator with the organizations, Ready
     live-platform-workloads: runtime the Deployments that read muster's credentials Available: muster, its Valkey, and klaus-gateway, agent-manager, cluster-manager and model-manager where each runs
     live-kagent-workloads: runtime kagent pods Running and the CNPG cluster healthy
     live-pod-certificate-request: runtime certificates.k8s.io/v1beta1 podcertificaterequests served by the apiserver (Agent Substrate's feature gates, the 4 line)
     live-drift: runtime live values equal the rendered manifests
+    live-agent-manager-route-protected: tool-access https://agentgateway.<domain>/agent-manager/api/v1/info answered 401 by the route's JWT policy, where agent-manager.credentials.uiURL is set
     live-own-mcp-servers: tool-access MCPServer objects of the installation itself
     live-registered-mcp-servers: tool-access MCPServer objects registered under extras/agent-platform/mcpservers, present and none Failed
     live-muster-protected-resource: tool-access muster's OAuth protected-resource metadata

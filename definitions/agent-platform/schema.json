@@ -475,8 +475,9 @@
           "properties": {"uiURL": {
             "type": "string", "default": "", "x-source": "person",
             "x-readback": {"file": "configmap", "key": "agent-manager.credentials.uiURL"},
-            "x-feature": "runtime", "x-renders": ["configmap:agent-manager.credentials.uiURL"],
-            "description": "Client-owned HTTPS RFC 6570 URI template for the credential UI with one {operation} expression in its path or query, using only {operation}, {parent} and {organization}; meta chart 4.177.0 or later with agentPlatformOrganizations.enabled. Never derived."
+            "x-requires": "organizations.enabled",
+            "x-feature": "runtime", "x-renders": ["configmap:agent-manager.credentials.uiURL", "configmap:agentManager.route", "configmap:gateway.jwksEgress"],
+            "description": "Client-owned HTTPS RFC 6570 URI template for the credential UI with one {operation} expression in its path or query, using only {operation}, {parent} and {organization}; meta chart 4.177.0 or later with agentPlatformOrganizations.enabled. Never derived. Set, it also exposes agent-manager's REST API at https://agentgateway.<baseDomain>/agent-manager (agentManager.route) behind a Strict JWT policy with this installation's Dex as the issuer, the path the form's backend reaches agent-manager on as the person. Written only with organizations.enabled, which the meta chart requires for it, so turning the switch off takes the form and the route along; typed other than empty with the switch off, it is refused. Read back from the configmap patch on record."
           }}
         },
         "skills": {
@@ -799,6 +800,59 @@
         }
       }
     },
+    "musterMcpServerViewers": {
+      "title": "muster's MCP-server viewers",
+      "type": ["array", "null"],
+      "items": {"$ref": "#/$defs/subject"},
+      "x-source": "person",
+      "x-readback": {"file": "configmap", "key": "musterMcpServerViewers"},
+      "x-feature": "tool-access",
+      "x-renders": ["configmap:musterMcpServerViewers"],
+      "description": "muster's MCP-server viewers (musterMcpServerViewers, the meta chart 4.178.0 and later, giantswarm/agent-platform#1331): RBAC subjects bound to list, get and watch muster's MCPServers in muster's namespace (the Role and RoleBinding agent-platform:mcpserver-viewer). Unset, the default, the key is not written and the chart's viewers are tenants.platform.users. An empty list is written as [] and binds nobody. Typed null, the key goes and the chart's fallback comes back. With organizations.enabled the viewers must not be empty: this list where it is set, else tenants.platform.users where it is set, else the chart's default (system:authenticated); the chart refuses the render otherwise, so the definition refuses it first. The 4 chart line only; a hold of the meta chart below 4.178.0-rc.4 is refused. Read back from the configmap patch on record, so a reconcile keeps the list, an empty one too; typed, it replaces it."
+    },
+    "tenants": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The platform tenant's bindings in the kagent namespace (tenants.*, the meta chart 4.132.0 and later, giantswarm/agent-platform#706). Each list, unset, is not written and the chart's default stands; empty, it is written as [] and binds nobody; typed null, the key goes and the default comes back. To retire the platform tenant (giantswarm/giantswarm#38990), set musterMcpServerViewers, then type tenants.platform.users and tenants.platform.editors as []: a removed key brings the chart's default back. Read back from the configmap patch on record, so a reconcile keeps each list, an empty one too.",
+      "properties": {
+        "platform": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "users": {
+              "title": "the platform tenant's users",
+              "type": ["array", "null"],
+              "items": {"$ref": "#/$defs/subject"},
+              "x-source": "person",
+              "x-readback": {"file": "configmap", "key": "tenants.platform.users"},
+              "x-feature": "tool-access",
+              "x-renders": ["configmap:tenants.platform.users"],
+              "description": "The platform tenant's users (tenants.platform.users): RBAC subjects bound to agent-platform:platform-user in the kagent namespace, and muster's MCP-server viewers while musterMcpServerViewers is unset. Unset, the chart's default: every signed-in person and every ServiceAccount (system:authenticated). Empty ([]), no agent-platform:platform-user binding renders; with organizations.enabled and musterMcpServerViewers unset, that is refused. Where the fleet policy runs kagent, on the 4 chart line; a hold of the meta chart below 4.132.0-rc.1 is refused."
+            },
+            "editors": {
+              "title": "the platform tenant's editors",
+              "type": ["array", "null"],
+              "items": {"$ref": "#/$defs/subject"},
+              "x-source": "person",
+              "x-readback": {"file": "configmap", "key": "tenants.platform.editors"},
+              "x-feature": "tool-access",
+              "x-renders": ["configmap:tenants.platform.editors"],
+              "description": "The platform's operators (tenants.platform.editors): RBAC subjects bound to agent-platform:editor in the kagent namespace. Unset, the chart's default: the Giant Swarm admin groups. Empty ([]), the binding renders only for tenants.platformTeam, and not at all without it. Where the fleet policy runs kagent, on the 4 chart line; a hold of the meta chart below 4.132.0-rc.1 is refused."
+            }
+          }
+        },
+        "platformTeam": {
+          "title": "the customer's platform team",
+          "type": ["array", "null"],
+          "items": {"$ref": "#/$defs/subject"},
+          "x-source": "person",
+          "x-readback": {"file": "configmap", "key": "tenants.platformTeam"},
+          "x-feature": "tool-access",
+          "x-renders": ["configmap:tenants.platformTeam"],
+          "description": "The customer's platform team (tenants.platformTeam): RBAC subjects bound to agent-platform:editor in the kagent namespace beside tenants.platform.editors, and added to muster's mcpserver-editor and workflow-editor subjects. Unset, the chart's default: none. With tenants.platform.editors empty, the agent-platform:editor binding stays for the platform team alone. The 4 chart line only; a hold of the meta chart below 4.132.0-rc.1 is refused."
+        }
+      }
+    },
     "versions": {
       "type": "object",
       "additionalProperties": false,
@@ -969,6 +1023,20 @@
             }
           }
         }
+      }
+    }
+  },
+  "$defs": {
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name"],
+      "description": "An RBAC subject in the meta chart's shape: kind User, Group or ServiceAccount, its name, the apiGroup (rbac.authorization.k8s.io for a User or a Group, none for a ServiceAccount; the API server defaults it) and a ServiceAccount's namespace. A group is written as the API server sees it, with the installation's OIDC groups prefix.",
+      "properties": {
+        "apiGroup": {"type": "string"},
+        "kind": {"type": "string", "enum": ["User", "Group", "ServiceAccount"]},
+        "name": {"type": "string", "minLength": 1},
+        "namespace": {"type": "string"}
       }
     }
   }

@@ -40,6 +40,9 @@ const (
 	shapeOrganizationsApply     = "organizations-apply"
 	shapeOrganizationsCommit    = "organizations-commit"
 	shapeOrganizationsPortal    = "organizations-portal"
+	shapeCredentialForm         = "credential-form" //nolint:gosec // a golden shape's name, no credential
+	shapePlatformTenantRetired  = "platform-tenant-retired"
+	shapePlatformTenantTeam     = "platform-tenant-team"
 )
 
 // The keys of the choices' documents the refusal cases build.
@@ -85,7 +88,7 @@ const (
 
 // shapes are the installation shapes, in the order the goldens are rendered.
 var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned, shapeGiantswarmSlackApp, shapeGiantswarmSlackAppPub, shapeHubPrivateTarget, shapeMultiClusterAggregator, shapeSecondHub, shapeHandKeptPortal, shapeRegisteredServers, shapePortalGitHubGrant, shapePortalHive, shapeCustomerSibling, shapeConfidentialClient,
-	shapeOrganizationsApply, shapeOrganizationsCommit, shapeOrganizationsPortal}
+	shapeOrganizationsApply, shapeOrganizationsCommit, shapeOrganizationsPortal, shapeCredentialForm, shapePlatformTenantRetired, shapePlatformTenantTeam}
 
 func loadInput(t *testing.T, shape string) (map[string]any, map[string]string) {
 	t.Helper()
@@ -522,8 +525,9 @@ func TestProbesAreLiveDimensions(t *testing.T) {
 	}
 	// probed is, per dimension, the shape that probes it: the public-customer
 	// shape stands for every dimension but the 4 line's own, which a 4-line
-	// shape (giantswarm-owned) stands for, and the registered servers', which
-	// the shape that registers some stands for.
+	// shape (giantswarm-owned) stands for, the registered servers', which
+	// the shape that registers some stands for, and agent-manager's route,
+	// which the shape with the credential form stands for.
 	probed := map[string]bool{}
 	standsFor := func(shape, id string) bool {
 		switch id {
@@ -531,6 +535,8 @@ func TestProbesAreLiveDimensions(t *testing.T) {
 			return shape == shapeGiantswarmOwned
 		case registeredServersDimension:
 			return shape == shapeRegisteredServers
+		case agentManagerRouteDimension:
+			return shape == shapeCredentialForm
 		}
 		return shape == shapePublicCustomer
 	}
@@ -687,6 +693,11 @@ func TestRefusals(t *testing.T) {
 		}), secrets, ErrInput, "modelManager.github.enabled"},
 		{"an MCP backend without its namespace", mcpBackends("", 8080), secrets, ErrInput, "networkPolicy/mcpBackends/tickets"},
 		{"an MCP backend's port that is no integer", mcpBackends("mcp-tickets", "http"), secrets, ErrInput, "networkPolicy/mcpBackends/tickets/ports/0"},
+		// The meta chart's values schema refuses an additional peer without a namespace.
+		{"an MCP backend's additional peer with an empty namespace", clone(func(m map[string]any) {
+			m["networkPolicy"] = map[string]any{"mcpBackends": map[string]any{"tickets": map[string]any{"namespace": "mcp-tickets", "ports": []any{8080},
+				"additionalPeers": []any{map[string]any{"namespace": "", "matchLabels": map[string]any{"app": "gateway"}}}}}}
+		}), secrets, ErrInput, "networkPolicy/mcpBackends/tickets/additionalPeers/0/namespace"},
 		{"MCP backends on the 3 line", mcpBackends("mcp-tickets", 8080), secrets, ErrInput, "networkPolicy.mcpBackends"},
 		{"targets without a broker client", clone(func(m map[string]any) {
 			federation(m)["targets"] = []any{target(false)}

@@ -892,11 +892,23 @@ func drivenPaths(values map[string]any, inputs []string, base map[string]map[str
 	}
 	bests := map[string]best{}
 	for _, l := range inputLeaves(values, inputs) {
-		for _, alt := range perturbations(l.value) {
+		alts := perturbations(l.value)
+		for i := 0; i < len(alts); i++ {
 			raw := deepCopy(values)
-			set(raw, l.path, alt)
+			set(raw, l.path, alts[i])
 			other, err := render(raw)
 			if err != nil {
+				// Leaving a list of named entries out is refused for
+				// another input's sake (muster's MCP-server viewers, which
+				// tenants.platform.users stand in for while they are
+				// unset): its entries renamed tell its leaves instead.
+				if _, left := alts[i].(removed); left {
+					if list, isList := l.value.([]any); isList {
+						if renamed, ok := renamedEntries(list); ok {
+							alts = append(alts, renamed)
+						}
+					}
+				}
 				continue
 			}
 			changed := changedLeaves(base, other)
@@ -981,6 +993,30 @@ func perturbations(v any) []any {
 		out = append(out, t+1)
 	}
 	return out
+}
+
+// renamedEntries is a copy of list with the name of every entry that has one
+// changed, which moves every leaf of an entry keyed by its name (identity: an
+// entry with an id is keyed by the id, and its leaves stay); false when no
+// entry has a name.
+func renamedEntries(list []any) ([]any, bool) {
+	out := make([]any, len(list))
+	renamed := false
+	for i, item := range list {
+		out[i] = item
+		m, isMap := item.(map[string]any)
+		if !isMap {
+			continue
+		}
+		name, isText := m["name"].(string)
+		if !isText {
+			continue
+		}
+		entry := maps.Clone(m)
+		entry["name"] = name + "-x"
+		out[i], renamed = entry, true
+	}
+	return out, renamed
 }
 
 func set(m map[string]any, path []string, v any) {

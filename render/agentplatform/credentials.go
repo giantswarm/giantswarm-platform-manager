@@ -38,8 +38,22 @@ const (
 	musterCredentialFloor = "5.61.0"
 )
 
+// credentialUI is the credential form's address agent-manager links
+// (agentManager.credentials.uiURL), where it renders: with the
+// organizations on only. The meta chart refuses the form without the switch
+// (agent-manager links it beside its organization tools), so the schema's
+// x-requires refuses it typed with the switch off, and a value read back
+// with the switch off renders nothing: a person turns the switch off alone,
+// and the form goes with it.
+func (in *Input) credentialUI() string {
+	if !in.Organizations.Enabled {
+		return ""
+	}
+	return in.AgentManagerCredentialUI
+}
+
 func (in *Input) validateAgentManagerCredentials() error {
-	if !in.AgentManagerTokenExchange && in.AgentManagerCredentialUI == "" {
+	if !in.AgentManagerTokenExchange && in.credentialUI() == "" {
 		return nil
 	}
 	if !in.agentManager() || in.Installation.ChartLine != lineFour {
@@ -67,7 +81,7 @@ func (in *Input) validateAgentManagerCredentials() error {
 			}
 		}
 	}
-	if in.AgentManagerCredentialUI != "" && !validCredentialUI(in.AgentManagerCredentialUI) {
+	if ui := in.credentialUI(); ui != "" && !validCredentialUI(ui) {
 		return refuse("agentManager.credentials.uiURL requires an HTTPS RFC 6570 URI template with one {operation} expression in its path or query, using only {operation}, {parent} and {organization}, and no user information or fragment")
 	}
 	return nil
@@ -109,6 +123,32 @@ func validCredentialUI(template string) bool {
 	u, err := url.Parse(expanded)
 	return err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil && u.Fragment == "" &&
 		!strings.Contains(u.Host, marker) && strings.Count(expanded, marker+"o") == 1
+}
+
+// jwtModeStrict is an agentgateway JWT policy's mode that answers a request
+// without a valid bearer 401.
+const jwtModeStrict = "Strict"
+
+// agentManagerRoute says whether the meta chart exposes agent-manager's REST
+// API on the gateway: where agent-manager links a credential form
+// (agentManager.credentials.uiURL). The form's backend reaches the API as the
+// person at https://agentgateway.<base domain>/agent-manager, the route's
+// path, whichever installation hosts the portal (giantswarm/backstage#3435).
+func (in *Input) agentManagerRoute() bool { return in.credentialUI() != "" }
+
+// agentManagerRouteValues is the meta chart's agentManager block for the
+// route: on, behind a Strict JWT policy whose issuer is this installation's
+// Dex and whose keys come from the in-cluster Dex Service (the edge's
+// gateway.jwksEgress opens it). The hostname is the chart's,
+// agentgateway.<global.domain>. The chart's policy names no audience:
+// agent-manager checks the audience itself (agent-manager.oauth) and acts
+// as the caller.
+func (in *Input) agentManagerRouteValues() render.Map {
+	return render.Map{e("route", render.Map{e("enabled", true), e("jwtAuthentication", render.Map{
+		e("enabled", true), e("mode", jwtModeStrict), e("issuer", "https://"+in.host("dex")),
+		e("jwks", render.Map{e("host", dexService+"."+dexNamespace+".svc.cluster.local"),
+			e("port", dexServicePort), e("path", dexJWKSPath)}),
+	})})}
 }
 
 // brokerSubjectAudiences are the audiences muster's broker accepts on this

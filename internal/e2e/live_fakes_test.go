@@ -154,6 +154,8 @@ type fakeInstallation struct {
 	objects map[string]map[string]any // kind|namespace|name, kind lowercased
 	logs    map[string]string         // namespace/pod
 	apis    []apiResource             // what discovery lists
+	// forbidden are the objects no person may read, by objectKey.
+	forbidden map[string]bool
 }
 
 // apiResource is one API resource discovery lists, as mcp-kubernetes's
@@ -168,7 +170,7 @@ type apiResource struct {
 }
 
 func newFakeInstallation() *fakeInstallation {
-	return &fakeInstallation{objects: map[string]map[string]any{}, logs: map[string]string{}}
+	return &fakeInstallation{objects: map[string]map[string]any{}, logs: map[string]string{}, forbidden: map[string]bool{}}
 }
 
 // serveAPI makes discovery list the resource of the group at the version.
@@ -359,12 +361,12 @@ func (f *fakeInstallation) populate(t *testing.T, installation string, res *rend
 			f.put("Pod", p.Namespace, podOf(p), map[string]any{metadataKey: map[string]any{"labels": labelsOf(p.Expect.Pods)}, statusKey: map[string]any{"phase": "Running",
 				"containerStatuses": []any{map[string]any{nameKey: p.Expect.Container, "state": map[string]any{"running": map[string]any{startedAtKey: containerStarted}}}}}})
 		case render.SourceFollowed:
-			// The Konfiguration on its GitRepository's commit.
-			const repo, commit = "giantswarm-config", "6aeb7ac319a0d15007a8d4342dbbd7f2fadb9c63"
+			// The Konfiguration on its GitRepository's commit, a commit of the
+			// configs repository from before any merge of the tests.
 			f.put(kind, p.Namespace, p.Name, map[string]any{specKey: map[string]any{"reconciliation": map[string]any{"interval": "1m"},
-				"sources": map[string]any{"flux": map[string]any{"gitRepository": map[string]any{nameKey: repo}}}},
-				statusKey: map[string]any{"lastAppliedRevision": commit, "lastAttemptedRevision": commit}})
-			f.put("GitRepository", p.Namespace, repo, map[string]any{statusKey: map[string]any{"artifact": map[string]any{"revision": "main@sha1:" + commit, "lastUpdateTime": dataWritten}}})
+				"sources": map[string]any{"flux": map[string]any{"gitRepository": map[string]any{nameKey: configsSource}}}}})
+			f.put("GitRepository", p.Namespace, configsSource, map[string]any{specKey: map[string]any{"url": sourceURL(acmeConfigs)}})
+			f.applyConfigs(p.Namespace, p.Name, configsBefore)
 		case render.ResourcePresent:
 			obj := map[string]any{}
 			if len(p.Expect.Keys) > 0 {
@@ -398,6 +400,202 @@ func (f *fakeInstallation) populate(t *testing.T, installation string, res *rend
 	}
 	_ = installation
 }
+
+// configsSource is the GitRepository of the configs repository the
+// Konfiguration renders from; configsBefore a commit of it from before any
+// merge of the tests.
+const (
+	configsSource = "giantswarm-config"
+	configsBefore = "6aeb7ac319a0d15007a8d4342dbbd7f2fadb9c63"
+)
+
+// sourceURL is the URL Flux's GitRepository follows repository at, as the
+// platform writes it.
+func sourceURL(repository string) string {
+	return "ssh://git@ssh.github.com:443/" + repository + ".git"
+}
+
+// applyConfigs has the Konfiguration namespace/name apply commit of its
+// configs repository: the GitRepository's artifact at the commit, the
+// Konfiguration's applied and attempted revision too.
+func (f *fakeInstallation) applyConfigs(namespace, name, commit string) {
+	f.put("GitRepository", namespace, configsSource, map[string]any{statusKey: map[string]any{"artifact": map[string]any{"revision": "main@sha1:" + commit, "lastUpdateTime": dataWritten}}})
+	f.put("Konfiguration", namespace, name, map[string]any{statusKey: map[string]any{"lastAppliedRevision": commit, "lastAttemptedRevision": commit}})
+}
+
+// followConfigs has the GitRepository of the configs repository follow
+// repository.
+func (f *fakeInstallation) followConfigs(namespace, repository string) {
+	f.put("GitRepository", namespace, configsSource, map[string]any{specKey: map[string]any{"url": sourceURL(repository)}})
+}
+
+// release has HelmRelease namespace/name run a new Helm release, deployed
+// now with values of digest: the newest of its history, the one before it
+// superseded, and the history truncated as helm-controller does
+// (Snapshots.Truncate, helm-controller api v2 snapshot_types.go): the newest
+// release and every one after it down to the previous deployed or
+// superseded one.
+func (f *fakeInstallation) release(namespace, name, digest string) {
+	// Flux deploys a merge's values seconds after the merge at the earliest:
+	// the next whole second, at least.
+	f.releaseAt(namespace, name, digest, time.Now().Add(time.Second))
+}
+
+// releaseAt is release with the release deployed at deployedAt.
+func (f *fakeInstallation) releaseAt(namespace, name, digest string, deployedAt time.Time) {
+	f.releaseVersion(namespace, name, digest, 0, deployedAt)
+}
+
+// releaseVersion is releaseAt with the Helm release's version: the one after
+// the newest of the history when version is 0.
+func (f *fakeInstallation) releaseVersion(namespace, name, digest string, version int, deployedAt time.Time) {
+	f.edit(helmReleaseKind, namespace, name, func(obj map[string]any) {
+		status := obj[statusKey].(map[string]any)
+		history, _ := status["history"].([]any)
+		newest := 0
+		for _, h := range history {
+			entry := h.(map[string]any)
+			entry[statusKey] = releaseSuperseded
+			if v, ok := entry["version"].(int); ok && v > newest {
+				newest = v
+			}
+		}
+		if version == 0 {
+			version = newest + 1
+		}
+		history = append([]any{map[string]any{"chartName": name, "chartVersion": "4.50.0", "digest": strings.Repeat("cd", 32), nameKey: name, namespaceKey: platformNamespace,
+			statusKey: releaseDeployed, "version": version, "lastDeployed": deployedAt.UTC().Format(time.RFC3339), "configDigest": digest}}, history...)
+		slices.SortFunc(history, func(a, b any) int { return b.(map[string]any)["version"].(int) - a.(map[string]any)["version"].(int) })
+		for i := 1; i < len(history); i++ {
+			if state := history[i].(map[string]any)[statusKey]; state == releaseDeployed || state == releaseSuperseded {
+				history = history[:i+1]
+				break
+			}
+		}
+		status["history"] = history
+	})
+}
+
+// forbid has the apiserver refuse every person the read of object kind
+// namespace/name.
+func (f *fakeInstallation) forbid(kind, namespace, name string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.forbidden[objectKey(kind, namespace, name)] = true
+}
+
+// isForbidden says whether no person may read object kind namespace/name.
+func (f *fakeInstallation) isForbidden(kind, namespace, name string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.forbidden[objectKey(kind, namespace, name)]
+}
+
+// take removes object kind namespace/name from the installation and returns
+// it: an object Flux has not created yet.
+func (f *fakeInstallation) take(kind, namespace, name string) map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	key := objectKey(kind, namespace, name)
+	obj := f.objects[key]
+	delete(f.objects, key)
+	return obj
+}
+
+// install has Flux create HelmRelease obj, as take returned it, at the next
+// whole second, and Helm install its first release with values of digest:
+// release v1 alone in the history.
+func (f *fakeInstallation) install(obj map[string]any, digest string) {
+	at := time.Now().Add(time.Second)
+	f.mu.Lock()
+	meta := obj[metadataKey].(map[string]any)
+	f.objects[objectKey(helmReleaseKind, meta["namespace"].(string), meta[nameKey].(string))] = obj
+	f.mu.Unlock()
+	f.recreate(meta["namespace"].(string), meta[nameKey].(string), at)
+	f.releaseAt(meta["namespace"].(string), meta[nameKey].(string), digest, at)
+}
+
+// recreate has HelmRelease namespace/name created at created with no
+// release history: Flux created it again, or it is new.
+func (f *fakeInstallation) recreate(namespace, name string, created time.Time) {
+	f.edit(helmReleaseKind, namespace, name, func(obj map[string]any) {
+		obj[metadataKey].(map[string]any)[creationTimestampKey] = created.UTC().Format(time.RFC3339)
+		obj[statusKey].(map[string]any)["history"] = []any{}
+	})
+}
+
+// reinstall has Flux uninstall HelmRelease namespace/name's release and
+// install it again now with values of digest: helm-controller clears the
+// history at an install (internal/reconcile/install.go, ClearHistory), and
+// Helm counts from v1 again.
+func (f *fakeInstallation) reinstall(namespace, name, digest string) {
+	f.edit(helmReleaseKind, namespace, name, func(obj map[string]any) {
+		obj[statusKey].(map[string]any)["history"] = []any{}
+	})
+	f.release(namespace, name, digest)
+}
+
+// relabelValues has the manager that owns the data of the meta chart's
+// values ConfigMap in namespace change its revision label alone at at, as
+// konfigure does on every commit of the configs repository: one
+// managed-fields entry owns the data and the label, its time at.
+func (f *fakeInstallation) relabelValues(namespace string, at time.Time) {
+	f.edit("ConfigMap", namespace, platformValuesConfigMap, func(obj map[string]any) {
+		meta := obj[metadataKey].(map[string]any)
+		meta["labels"] = map[string]any{"configuration.giantswarm.io/revision": strings.Repeat("ef", 20)}
+		entry := dataWrite(at.UTC().Format(time.RFC3339))
+		entry["fieldsV1"].(map[string]any)["f:metadata"] = map[string]any{"f:labels": map[string]any{"f:configuration.giantswarm.io/revision": map[string]any{}}}
+		meta[managedFieldsKey] = []any{entry}
+	})
+}
+
+// staleValues has the meta chart's values ConfigMap in namespace hold values
+// other than the rendered ones: rowan's hosts under another domain.
+func (f *fakeInstallation) staleValues(t *testing.T, namespace string) {
+	t.Helper()
+	f.edit("ConfigMap", namespace, platformValuesConfigMap, func(obj map[string]any) {
+		data := obj[dataKey].(map[string]any)
+		values := data[platformValuesKey].(string)
+		if !strings.Contains(values, ".rowan.acme.test") {
+			t.Fatalf("the values ConfigMap names no host of rowan")
+		}
+		data[platformValuesKey] = strings.ReplaceAll(values, ".rowan.acme.test", ".stale.acme.test")
+	})
+}
+
+// The ConfigMap the meta chart's HelmRelease reads its values from, and its key.
+const (
+	platformValuesConfigMap = "agent-platform-konfiguration"
+	platformValuesKey       = "configmap-values.yaml"
+)
+
+// failRelease marks release version of HelmRelease namespace/name failed
+// in its history.
+func (f *fakeInstallation) failRelease(namespace, name string, version int) {
+	f.edit(helmReleaseKind, namespace, name, func(obj map[string]any) {
+		for _, h := range obj[statusKey].(map[string]any)["history"].([]any) {
+			if entry := h.(map[string]any); entry["version"] == version {
+				entry[statusKey] = "failed"
+			}
+		}
+	})
+}
+
+// creationTimestampKey is when the apiserver created an object.
+const creationTimestampKey = "creationTimestamp"
+
+// The statuses of a Helm release in a HelmRelease's history.
+const (
+	releaseDeployed   = "deployed"
+	releaseSuperseded = "superseded"
+)
+
+// The digests of the values the platform's meta chart release ran with:
+// before the tests' merges, and with the values a merge wrote.
+const (
+	valuesBefore = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	valuesMerged = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+)
 
 // When the fake installation's Secrets that a container reads at start were
 // written, and when those containers started: after the write.
@@ -530,12 +728,20 @@ func busyLog() string {
 func bulky(obj map[string]any) {
 	fields := strings.Repeat(`{"f:spec":{"f:values":{"f:kagent":{"f:providers":{}}}}},`, 1500)
 	obj[metadataKey] = map[string]any{
-		"annotations":   map[string]any{lastAppliedAnnotation: `{"apiVersion":"helm.toolkit.fluxcd.io/v2","kind":"HelmRelease","spec":` + fields + `}`},
-		"managedFields": []any{map[string]any{"manager": "helm-controller", "operation": "Apply", "fieldsType": "FieldsV1", "fieldsV1": fields}},
+		// Created long before the tests' merges, and its releases after it.
+		creationTimestampKey: "2026-09-01T06:00:00Z",
+		"annotations":        map[string]any{lastAppliedAnnotation: `{"apiVersion":"helm.toolkit.fluxcd.io/v2","kind":"HelmRelease","spec":` + fields + `}`},
+		"managedFields":      []any{map[string]any{"manager": "helm-controller", "operation": "Apply", "fieldsType": "FieldsV1", "fieldsV1": fields}},
 	}
+	// Flux keeps the newest release and the previous successful one.
 	var history []any
-	for i := range 10 {
-		history = append(history, map[string]any{"chartName": platformRelease, "chartVersion": fmt.Sprintf("4.4%d.0", i), "digest": strings.Repeat("ab", 32), nameKey: platformRelease, "namespace": platformNamespace, statusKey: "superseded", "version": i + 1})
+	for i := 8; i < 10; i++ {
+		state := releaseSuperseded
+		if i == 9 {
+			state = releaseDeployed
+		}
+		history = append(history, map[string]any{"chartName": platformRelease, "chartVersion": fmt.Sprintf("4.4%d.0", i), "digest": strings.Repeat("ab", 32), nameKey: platformRelease, "namespace": platformNamespace, statusKey: state, "version": i + 1,
+			"lastDeployed": fmt.Sprintf("2026-09-23T%02d:00:00Z", 6+i), "configDigest": valuesBefore})
 	}
 	obj[statusKey].(map[string]any)["history"] = history
 }
@@ -652,6 +858,9 @@ func (m *fakeMuster) kubernetes(op string) mustertest.Tool {
 		switch op {
 		case opGet:
 			name, _ := args["name"].(string)
+			if inst.isForbidden(kind, namespace, name) {
+				return mcp.NewToolResultError(fmt.Sprintf(`Failed to get resource: %ss %q is forbidden: User "oidc:%s" cannot get resource "%ss" in API group "" in the namespace "%s" (impersonating user=%s)`, kind, name, person, kind, namespace, person))
+			}
 			obj, ok := inst.get(kind, namespace, name)
 			if !ok {
 				return mcp.NewToolResultError(fmt.Sprintf("Failed to get resource: %ss.%s %q not found", kind, args["apiGroup"], name))

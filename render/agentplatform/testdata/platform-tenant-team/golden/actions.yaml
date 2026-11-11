@@ -1,0 +1,10 @@
+- id: model-key
+  feature: runtime
+  state: WaitingForCustomer
+  note: Add a ModelConfig with its key Secret in namespace kagent, in the portal or as an object under extras/agent-platform; until then no ModelConfig (ModelConfig.api.kagent.dev) in kagent is ResolvedRefs=True.
+  dimension: live-model-configs
+- id: agent-models
+  feature: runtime
+  state: WaitingForCustomer
+  note: Point every Agent that names default-model-config at a ModelConfig of its namespace (modelConfig.name in its HelmRelease's values where an agent chart release renders it); the meta chart 4.175.0 and later renders no default-model-config.
+  dimension: live-agent-models

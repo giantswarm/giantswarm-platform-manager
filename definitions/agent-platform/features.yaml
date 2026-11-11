@@ -29,7 +29,7 @@ features:
       - {id: muster-trusted-issuers, kind: configmap, key: muster.muster.oauth.server.trustedIssuers}
       - {id: muster-public-registration-redirect-uris, kind: configmap, key: muster.muster.oauth.server.trustedPublicRegistrationRedirectURIs}
       - {id: muster-post-login-redirect-allowlist, kind: configmap, key: muster.muster.oauth.mcpClient.postLoginRedirectAllowlist}
-      - {id: edge-jwt-validation, kind: configmap, key: "gateway.jwksEgress / extraObjects[ReferenceGrant/<namespace>/<name>] / agent-platform-mcps.agentgateway.jwt.extraProviders"}
+      - {id: edge-jwt-validation, kind: configmap, key: "gateway.jwksEgress / extraObjects[ReferenceGrant/<namespace>/<name>] / agent-platform-mcps.agentgateway.jwt.extraProviders (gateway.jwksEgress also opens the keys of agentManager.route's JWT policy)"}
       - {id: edge-oauth-mode, kind: configmap, key: agent-platform-mcps.agentgateway.oauthMode}
       - {id: dex-extra-static-clients, kind: dex-configmap, key: oidc.extraStaticClients}
       - {id: dex-static-client-keys, kind: dex-configmap, key: oidc.staticClients}
@@ -83,7 +83,7 @@ features:
       - {id: live-agent-models, kind: live, key: "Agents in every namespace that name kagent's default-model-config, each with the HelmRelease that renders it (the 4 line)"}
       - {id: live-kagent-provider-values, kind: live, key: "kagent HelmRelease .spec.values.providers (where the meta chart the installation resolves still takes kagent.providers)"}
       - {id: live-konfiguration-source, kind: live, key: "Konfiguration agent-platform-konfiguration on its GitRepository's revision: behind within its reconciliation interval reads rolling, longer drifted"}
-      - {id: live-helmreleases-ready, kind: live, key: "HelmReleases agent-platform, kagent, connectivity, muster, mcps Ready"}
+      - {id: live-helmreleases-ready, kind: live, key: "HelmReleases agent-platform, kagent, connectivity, muster, mcps, and agent-platform-operator with the organizations, Ready"}
       - {id: live-platform-workloads, kind: live, key: "the Deployments that read muster's credentials Available: muster, its Valkey, and klaus-gateway, agent-manager, cluster-manager and model-manager where each runs"}
       - {id: live-kagent-workloads, kind: live, key: kagent pods Running and the CNPG cluster healthy}
       - {id: live-pod-certificate-request, kind: live, key: "certificates.k8s.io/v1beta1 podcertificaterequests served by the apiserver (Agent Substrate's feature gates, the 4 line)"}
@@ -93,6 +93,9 @@ features:
     description: muster and the MCP servers of the installation itself, and the agent-manager.
     dimensions:
       - {id: agent-manager, kind: configmap, key: components.agent-manager.enabled / agent-manager.oauth}
+      - {id: agent-manager-route, kind: configmap, key: "agentManager.route (agent-manager's REST API on the gateway behind its JWT policy, for the credential form's backend; derived from agent-manager.credentials.uiURL)"}
+      - {id: live-agent-manager-route-protected, kind: live, key: "https://agentgateway.<domain>/agent-manager/api/v1/info answered 401 by the route's JWT policy, where agent-manager.credentials.uiURL is set"}
+      - {id: platform-tenant-bindings, kind: configmap, key: "tenants / musterMcpServerViewers (who the platform tenant binds in the kagent namespace, and who lists muster's MCP servers)"}
       - {id: own-mcp-servers, kind: configmap, key: "agent-platform-mcps.mcpServers[http://<name>.svc:8080/mcp] / agent-platform-mcps.mcpServers[<scheme>://mcp-<name>.<domain>/mcp] (the installation's own: at the in-cluster Service, or on its own base domain)"}
       - {id: own-mcp-kubernetes-url, kind: configmap, key: "agent-platform-mcps.mcpServers[http://mcp-kubernetes.mcp-kubernetes.svc:8080/mcp].url"}
       - {id: muster-private-exchange, kind: configmap, key: muster.muster.oauth.mcpClient.tokenExchange.allowPrivateIP}

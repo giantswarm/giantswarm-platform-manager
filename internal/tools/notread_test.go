@@ -149,7 +149,7 @@ func TestReportNamesTheReadsNotMade(t *testing.T) {
 	private := privateNote(birch, map[string]any{installationKey: map[string]any{privateKey: true}}, reads, res, birchServer)
 	a := &actions.Action{Spec: actions.Spec{Installations: []string{birch}}}
 	status := actions.Status{State: actions.StateEnabled, Rollout: &actions.Rollout{Installations: []actions.InstallationRollout{{Name: birch, State: actions.StateEnabled, WatchedBy: "someone"}}}}
-	report := (&Tools{}).report(a, status, 0, res, nil, nil, "", private, reads)
+	report := (&Tools{}).report(a, status, 0, res, nil, nil, nil, "", private, reads)
 	lines := strings.Split(report, "\n")
 	if len(lines) < 2 || !strings.HasPrefix(lines[1], birch+" is private") {
 		t.Errorf("the private note is not up front: %q", report)
@@ -182,7 +182,7 @@ func TestNotReadByDesignOnAPrivateInstallation(t *testing.T) {
 	res := liveResult(installations.StateEnabled, live, probe)
 	a := &actions.Action{Spec: actions.Spec{Installations: []string{birch}}}
 	status := actions.Status{State: actions.StateEnabled, Rollout: &actions.Rollout{Installations: []actions.InstallationRollout{{Name: birch, State: actions.StateEnabled, WatchedBy: "someone"}}}}
-	if report := (&Tools{}).report(a, status, 0, res, nil, nil, "", "", got); strings.Contains(report, "not checked:") {
+	if report := (&Tools{}).report(a, status, 0, res, nil, nil, nil, "", "", got); strings.Contains(report, "not checked:") {
 		t.Errorf("the report counts dimensions not checked by design as a gap:\n%s", report)
 	}
 }

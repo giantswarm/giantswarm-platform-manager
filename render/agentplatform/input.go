@@ -183,6 +183,11 @@ type Input struct {
 	// them in git (policy.yaml's organizations).
 	Organizations       Organizations
 	organizationsPolicy OrganizationsPolicy
+	// PlatformTenant is the person's choice of the platform tenant's
+	// bindings (tenants.*) and muster's MCP-server viewers
+	// (musterMcpServerViewers), read back from the configmap patch on record
+	// so a reconcile keeps them (tenants.go).
+	PlatformTenant PlatformTenant
 	// Components are the components the policy gives the installation, by
 	// name: its organisation's list and, where the policy names a Slack app
 	// for the installation, the chat gateway.
@@ -684,8 +689,16 @@ type document struct {
 			SlashCommandComment    string       `json:"slashCommandComment"`
 		} `json:"slack"`
 	} `json:"klausGateway"`
-	Organizations Organizations `json:"organizations"`
-	Versions      Versions      `json:"versions"`
+	Organizations          Organizations `json:"organizations"`
+	MusterMcpServerViewers *[]Subject    `json:"musterMcpServerViewers"`
+	Tenants                struct {
+		Platform struct {
+			Users   *[]Subject `json:"users"`
+			Editors *[]Subject `json:"editors"`
+		} `json:"platform"`
+		PlatformTeam *[]Subject `json:"platformTeam"`
+	} `json:"tenants"`
+	Versions Versions `json:"versions"`
 }
 
 // MCPBackend is one in-cluster MCP backend the meta chart's network policy
@@ -901,6 +914,7 @@ func Parse(raw any) (*Input, error) {
 	}
 	pol.browseOnly(in.Installation.Federation.Targets)
 	in.Organizations, in.organizationsPolicy = d.Organizations, pol.Organizations
+	in.PlatformTenant = PlatformTenant{Users: d.Tenants.Platform.Users, Editors: d.Tenants.Platform.Editors, PlatformTeam: d.Tenants.PlatformTeam, Viewers: d.MusterMcpServerViewers}
 	in.selectLine(pol.targetLine(in.Installation))
 	if err := in.checkRecord(); err != nil {
 		return nil, err
@@ -1099,7 +1113,10 @@ func (in *Input) checkRecord() error {
 		return refuse(fmt.Sprintf("%s does not say this cluster serves %s/%s %s, which kagent's Agent Substrate on the 4 chart line needs; enable the feature gates %s under cluster.internal.advancedConfiguration.{%s}.featureGates in the cluster App's values (management-clusters/%s/cluster-app-manifests.yaml), or run a cluster App chart that enables them by default (%s and later)",
 			describe("installation.podCertificateRequest"), apiGroup(PodCertificateRequestResource), PodCertificateRequestVersion, apiResource(PodCertificateRequestResource), strings.Join(PodCertificateRequestGates, ", "), strings.Join(PodCertificateRequestComponents, ","), in.Installation.Name, podCertificateRequestDefaults()))
 	}
-	return in.checkOrganizations()
+	if err := in.checkOrganizations(); err != nil {
+		return err
+	}
+	return in.checkPlatformTenant()
 }
 
 // apiResource and apiGroup split a probe's resource.group.
@@ -1280,9 +1297,11 @@ func (in *Input) declaresModels() bool {
 }
 
 // holdAdmits says whether a version hold lets Flux resolve a release at or
-// above floor: no hold, an exact version at or above it, a constraint the
-// floor, its release or a far later release meets, or one the definition
-// cannot read, which Flux reports itself.
+// above floor: no hold, an exact version at or above it, a constraint that
+// admits a version at or above it, or one the definition cannot read, which
+// Flux reports itself. A constraint is checked at the floor, its release, a
+// far later release, and each version it names and the patch after that one
+// at or above the floor, so a range bounded above the floor admits too.
 func holdAdmits(hold, floor string) bool {
 	if hold == "" {
 		return true
@@ -1296,8 +1315,26 @@ func holdAdmits(hold, floor string) bool {
 		return true
 	}
 	release, _ := min.SetPrerelease("")
-	return c.Check(min) || c.Check(&release) || c.Check(semverlib.MustParse("999999.0.0"))
+	candidates := []*semverlib.Version{min, &release, semverlib.MustParse("999999.0.0")}
+	for _, named := range constraintVersion.FindAllString(hold, -1) {
+		v, err := semverlib.NewVersion(named)
+		if err != nil {
+			continue
+		}
+		next := v.IncPatch()
+		candidates = append(candidates, v, &next)
+	}
+	for _, v := range candidates {
+		if !v.LessThan(min) && c.Check(v) {
+			return true
+		}
+	}
+	return false
 }
+
+// constraintVersion matches the versions a semver constraint names, a
+// wildcard's numeric part included (4.178 of 4.178.x).
+var constraintVersion = regexp.MustCompile(`v?\d+(\.\d+){0,2}(-[0-9A-Za-z.-]+)?`)
 
 // holdComment is the comment a held version carries in the file: the reason
 // on record or typed for it (versions.reasons.*), else the generic one naming

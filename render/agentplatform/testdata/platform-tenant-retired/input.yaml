@@ -1,0 +1,38 @@
+# The organizations-apply installation with the platform tenant retired (giantswarm/giantswarm#38990):
+# muster's MCP-server viewers named on their own (musterMcpServerViewers), and the platform tenant's
+# users, editors and platform team all empty, written as [] so the meta chart's defaults stay away
+# (a removed key brings them back). The connectivity chart then renders no agent-platform:platform-user
+# and no agent-platform:editor binding in kagent, and the viewers alone list muster's MCP servers.
+# Invented names, placeholder values.
+input:
+  installation:
+    name: garnet
+    baseDomain: garnet.example.io
+    customer: giantswarm
+    provider: capa
+    private: false
+    chartLine: "4"
+    musterClientId: 00000000-0000-4000-8000-000000000007
+    podCertificateRequest: true
+    portalClientSecret: true
+    portals:
+      - installation: gopher
+        customer: giantswarm
+        domain: portal.example.io
+        handKept: true
+        chartLine: ">=2.1.0 <3.0.0"
+    federation:
+      hubs: [gopher]
+      registryHub: gopher
+      targets: []
+  organizations:
+    enabled: true
+  musterMcpServerViewers:
+    - apiGroup: rbac.authorization.k8s.io
+      kind: Group
+      name: oidc:example-agent-users
+  tenants:
+    platform:
+      users: []
+      editors: []
+    platformTeam: []

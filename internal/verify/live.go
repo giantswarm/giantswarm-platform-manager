@@ -292,6 +292,35 @@ type Check struct {
 	// naming Flux's verdict. The rollout watch reads it: the stage is
 	// failed, not rolling out.
 	Failed bool `json:"failed,omitempty"`
+	// Source is the URL of the Flux GitRepository a Konfiguration renders
+	// from (its spec.url): the repository whose commit Revision is. The
+	// rollout watch holds Revision against the merge commit of a pull
+	// request on that repository.
+	Source string `json:"source,omitempty"`
+	// Releases are the release history of a HelmRelease whose whole values a
+	// drift probe compares (status.history), newest first, kept for the
+	// rollout watch (LiveOptions.Rollout) only: the watch reads from them
+	// whether the release ran a Helm release with new values since a merge.
+	// Not nil on such a check, empty where the HelmRelease was not read or
+	// keeps no history; nil on every other check.
+	Releases []Release `json:"releases,omitempty"`
+	// Created is when the HelmRelease of Releases was created
+	// (metadata.creationTimestamp), kept for the rollout watch with them: a
+	// HelmRelease created after a merge ran no release at it.
+	Created *time.Time `json:"created,omitempty"`
+}
+
+// Release is one entry of a HelmRelease's release history as Flux keeps it
+// (status.history, helm-controller's Snapshot): the Helm release's version
+// and status, when it was last deployed, and the digest of the values it
+// was deployed with (configDigest). A change of the values a HelmRelease
+// reads through valuesFrom leaves its generation as it was; the next
+// release's digest is what tells it.
+type Release struct {
+	Version      int        `json:"version"`
+	Status       string     `json:"status,omitempty"`
+	Deployed     *time.Time `json:"deployed,omitempty"`
+	ConfigDigest string     `json:"configDigest,omitempty"`
 }
 
 // LiveResult is what a live dimension's probes answered.
@@ -327,6 +356,11 @@ type LiveOptions struct {
 	// direct — the rollout watch's whole picture in one result. Off, they
 	// read not checked: verify_capability's, on the repository side.
 	AnonymousProbes bool
+	// Rollout keeps what the rollout watch proves the merged revision runs
+	// by: the release history of the HelmRelease a drift probe reads whole
+	// (Check.Releases). The Konfiguration's source is kept either way
+	// (Check.Source).
+	Rollout bool
 	// ReadTimeout and ReadBudget bound the reads through Cluster (ReadTimeout,
 	// ReadBudget); zero is the default.
 	ReadTimeout time.Duration
@@ -503,14 +537,14 @@ func renderLive(opts LiveOptions) (*liveRender, error) {
 	if err != nil {
 		return nil, err
 	}
-	withKept(flat[valuesKey], opts.Kept, valuesSuffix(opts.Definition.Name))
+	withKept(flat[valuesKey], opts.Kept, ValuesSuffix(opts.Definition.Name))
 	lv := &liveRender{probes: res.Probes, actions: res.Actions, values: flat[valuesKey]}
 	for _, files := range res.Files {
 		for path, f := range files {
 			if strings.HasSuffix(path, dexPatchSuffix) {
 				lv.dexClients = plan.DexClients(f.Content, in)
 			}
-			if strings.HasSuffix(path, valuesSuffix(opts.Definition.Name)) {
+			if strings.HasSuffix(path, ValuesSuffix(opts.Definition.Name)) {
 				lv.file = &fileDiff{path: path, kind: kindOf(path), documents: flattenLines(string(f.Content)).documents}
 			}
 		}
@@ -571,9 +605,9 @@ func hasPrefixKey(m map[string]string, prefix string) bool {
 // file that declares the Dex clients.
 const dexPatchSuffix = "/apps/dex-app/configmap-values.yaml.patch"
 
-// valuesSuffix ends the path of the capability's rendered values file, the
+// ValuesSuffix ends the path of the capability's rendered values file, the
 // one the drift probes hold the live values against.
-func valuesSuffix(capability string) string {
+func ValuesSuffix(capability string) string {
 	return "/apps/" + capability + "/" + configMapPatch
 }
 
@@ -608,7 +642,7 @@ func renderValues(def installations.Capability, values map[string]any) (*render.
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	suffix := valuesSuffix(def.Name)
+	suffix := ValuesSuffix(def.Name)
 	flat := map[string]map[string]string{}
 	for _, files := range res.Files {
 		for path, f := range files {
@@ -1191,6 +1225,7 @@ func (x *executor) sourceFollowed(ctx context.Context, c *Check, p render.Probe,
 		return err
 	}
 	source := "GitRepository " + namespace + "/" + name
+	c.Source, _ = dig(repo, "spec", "url").(string)
 	want := commitOf(dig(repo, "status", "artifact", "revision"))
 	applied, _ := dig(kfg, "status", "lastAppliedRevision").(string)
 	attempted, _ := dig(kfg, "status", "lastAttemptedRevision").(string)
@@ -1327,6 +1362,11 @@ func (x *executor) drift(ctx context.Context, c *Check, p render.Probe) ([]Diffe
 		c.Mark, c.Message = NotChecked, ReasonNoValuesFile
 		return nil, nil
 	}
+	if kind, _, _ := strings.Cut(p.Resource, "."); x.opts.Rollout && len(p.Expect.Compare) == 0 && kind == helmReleaseKind {
+		// Set before the read: a check of the release's whole values carries
+		// its history, empty when the read failed.
+		c.Releases = []Release{}
+	}
 	obj, err := x.cluster().Get(ctx, p.Namespace, p.Resource, p.Name, Configuration)
 	if err != nil {
 		return nil, err
@@ -1338,6 +1378,9 @@ func (x *executor) drift(ctx context.Context, c *Check, p render.Probe) ([]Diffe
 		if kind != helmReleaseKind {
 			c.Mark, c.Message = NotChecked, "the probe names no place of the object to compare"
 			return nil, nil
+		}
+		if x.opts.Rollout {
+			c.Releases, c.Created = releasesOf(obj), createdOf(obj)
 		}
 		live, err := x.helmReleaseValues(ctx, p.Namespace, obj)
 		if err != nil {
@@ -1592,6 +1635,44 @@ func revisionOf(obj map[string]any) string {
 		}
 	}
 	return ""
+}
+
+// releasesOf is a HelmRelease's status.history, newest first by the Helm
+// release's version (Flux keeps it so; the order is not relied on): an
+// entry without a version is left out, a lastDeployed that is no RFC 3339
+// time is left unset.
+func releasesOf(obj map[string]any) []Release {
+	history, _ := dig(obj, "status", "history").([]any)
+	out := make([]Release, 0, len(history))
+	for _, h := range history {
+		entry, _ := h.(map[string]any)
+		version, ok := entry["version"].(float64)
+		if !ok {
+			continue
+		}
+		r := Release{Version: int(version)}
+		r.Status, _ = entry["status"].(string)
+		r.ConfigDigest, _ = entry["configDigest"].(string)
+		if s, _ := entry["lastDeployed"].(string); s != "" {
+			if t, err := time.Parse(time.RFC3339, s); err == nil {
+				r.Deployed = &t
+			}
+		}
+		out = append(out, r)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Version > out[j].Version })
+	return out
+}
+
+// createdOf is an object's metadata.creationTimestamp; nil when it carries
+// none or no RFC 3339 time.
+func createdOf(obj map[string]any) *time.Time {
+	s, _ := dig(obj, "metadata", "creationTimestamp").(string)
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return nil
+	}
+	return &t
 }
 
 // selectorOf is a workload's spec.selector.matchLabels as a label selector.
