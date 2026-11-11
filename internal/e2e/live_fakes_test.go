@@ -518,6 +518,14 @@ func (f *fakeInstallation) reinstall(namespace, name, digest string) {
 	f.release(namespace, name, digest)
 }
 
+// writeValues has the Konfiguration write the meta chart's values
+// ConfigMap in namespace at at: its managed fields own the data since then.
+func (f *fakeInstallation) writeValues(namespace string, at time.Time) {
+	f.edit("ConfigMap", namespace, "agent-platform-konfiguration", func(obj map[string]any) {
+		obj[metadataKey].(map[string]any)[managedFieldsKey] = []any{dataWrite(at.UTC().Format(time.RFC3339))}
+	})
+}
+
 // creationTimestampKey is when the apiserver created an object.
 const creationTimestampKey = "creationTimestamp"
 

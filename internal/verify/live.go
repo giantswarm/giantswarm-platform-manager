@@ -308,6 +308,11 @@ type Check struct {
 	// (metadata.creationTimestamp), kept for the rollout watch with them: a
 	// HelmRelease created after a merge ran no release at it.
 	Created *time.Time `json:"created,omitempty"`
+	// ValuesWritten is when the data of the HelmRelease's valuesFrom
+	// ConfigMaps last changed (their managed fields), kept for the rollout
+	// watch with Releases: a release deployed after it ran with that data.
+	// Nil when it is not known.
+	ValuesWritten *time.Time `json:"valuesWritten,omitempty"`
 }
 
 // Release is one entry of a HelmRelease's release history as Flux keeps it
@@ -1386,6 +1391,9 @@ func (x *executor) drift(ctx context.Context, c *Check, p render.Probe) ([]Diffe
 		if err != nil {
 			return nil, err
 		}
+		if x.opts.Rollout {
+			c.ValuesWritten = x.valuesWritten(ctx, p.Namespace, obj)
+		}
 		diffs = x.differences(object, "", x.lv.values, live)
 	}
 	var absent []string
@@ -1479,6 +1487,34 @@ func (x *executor) helmReleaseValues(ctx context.Context, namespace string, hr m
 	out := map[string]string{}
 	flatten(merged, "", out)
 	return out, nil
+}
+
+// valuesWritten is when the data of HelmRelease hr's valuesFrom ConfigMaps
+// last changed: the latest managed-fields time that owns their data, read
+// whole (Manifest). Nil when a ConfigMap is not read or no manager owns its
+// data: then it is not known.
+func (x *executor) valuesWritten(ctx context.Context, namespace string, hr map[string]any) *time.Time {
+	var latest *time.Time
+	sources, _ := dig(hr, "spec", "valuesFrom").([]any)
+	for _, s := range sources {
+		src, _ := s.(map[string]any)
+		if kind, _ := src["kind"].(string); kind != "ConfigMap" {
+			continue
+		}
+		name, _ := src["name"].(string)
+		cm, err := x.cluster().Get(ctx, namespace, "ConfigMap", name, Manifest)
+		if err != nil {
+			return nil
+		}
+		changed, ok := dataChanged(cm)
+		if !ok {
+			return nil
+		}
+		if latest == nil || changed.After(*latest) {
+			latest = &changed
+		}
+	}
+	return latest
 }
 
 // deepMerge puts over into base, maps merged key by key, everything else replaced.

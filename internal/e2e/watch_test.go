@@ -763,11 +763,10 @@ func TestWatchActionCountsAReleaseInTheMergesSecondBeforeIt(t *testing.T) {
 }
 
 // An enablement that brings the meta chart's HelmRelease for the first time:
-// before the merge there is no HelmRelease and no values file, so no release
-// ran at the merge, and the first release Helm installs after it is the
-// proof. The stage waits
-// while the HelmRelease is missing and is enabled once Flux created it and
-// its release v1 runs.
+// before the merge there is no HelmRelease, so no release ran at the merge.
+// The stage waits while the HelmRelease is missing, and is enabled once Flux
+// created it and its release v1 runs, deployed after the Konfiguration wrote
+// the merged values into the ConfigMap it reads.
 func TestWatchActionProvesAFirstInstallByItsFirstRelease(t *testing.T) {
 	st := newStack(t)
 	a, _ := mergedRowan(t, st)
@@ -779,6 +778,7 @@ func TestWatchActionProvesAFirstInstallByItsFirstRelease(t *testing.T) {
 	}
 	_, merge := configsMerge(t, &a, rowan)
 	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
+	st.inst.writeValues(fluxNamespace, time.Now())
 	st.inst.install(hr, valuesMerged)
 	w, text, isErr := watchCall(t, admin, a.Name)
 	if isErr || !w.Ready || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled {
@@ -786,31 +786,36 @@ func TestWatchActionProvesAFirstInstallByItsFirstRelease(t *testing.T) {
 	}
 }
 
-// A HelmRelease created after a merge that changed a values file already
-// there: Helm may install its first release from the ConfigMap the
-// Konfiguration still holds from before the merge, and the Konfiguration
-// applies the merge after it. That first release is no proof of the merged
-// values, and the stage is not proven.
+// A HelmRelease created after the merge whose first release Helm installed
+// from the ConfigMap the Konfiguration held before it applied the merge: the
+// Konfiguration writes the merged values after the release, so the release
+// is no proof of them and the stage is not proven. The next release, after
+// the write, carries it to enabled.
 func TestWatchActionTakesNoFirstInstallOfOldValues(t *testing.T) {
 	st := newStack(t)
 	a, _ := mergedRowan(t, st)
 	admin := adminLive(t, st)
-	pr, merge := configsMerge(t, &a, rowan)
-	path := "installations/" + rowan + "/apps/" + installations.AgentPlatform + "/" + valuesFileKey + ".patch"
-	if st.ghs.fileAt(pr.Repository, merge, path) == "" {
-		t.Fatalf("the merge wrote no %s", path)
-	}
-	st.ghs.rewriteBefore(pr.Repository, merge, path, "kagent:\n  enabled: false\n")
 	fluxBehind(t, st, st.inst, a, rowan)
 	hr := st.inst.take(helmReleaseKind, fluxNamespace, platformRelease)
 	st.inst.install(hr, valuesBefore)
+	_, merge := configsMerge(t, &a, rowan)
 	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
+	// No manager owns the ConfigMap's data yet: when it changed is not known.
+	if w, text, isErr := watchCall(t, admin, a.Name); isErr || w.State != actions.StateRollingOut || !strings.Contains(stageOf(w.Action, rowan).Message, "when the values it reads last changed is not known") {
+		t.Fatalf("no write time: %v %s", isErr, text)
+	}
+	written := time.Now().Add(2 * time.Second)
+	st.inst.writeValues(fluxNamespace, written)
 	w, text, isErr := watchCall(t, admin, a.Name)
 	if isErr || !w.Ready || w.State != actions.StateRollingOut {
 		t.Fatalf("a first install of the old values: %v %s", isErr, text)
 	}
-	if msg := stageOf(w.Action, rowan).Message; !strings.Contains(msg, "runs release v1 since ") || !strings.Contains(msg, "while the values file was already there") {
+	if msg := stageOf(w.Action, rowan).Message; !strings.Contains(msg, "runs release v1, its first since the merge, deployed at ") || !strings.Contains(msg, "not after the values it reads last changed at "+written.UTC().Format(time.RFC3339)) {
 		t.Fatalf("the stage's message: %q", msg)
+	}
+	st.inst.releaseAt(fluxNamespace, platformRelease, valuesMerged, written.Add(time.Second))
+	if w, text, isErr = watchCall(t, admin, a.Name); isErr || w.State != actions.StateEnabled {
+		t.Fatalf("a release after the write: %v %s", isErr, text)
 	}
 }
 

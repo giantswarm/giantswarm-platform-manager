@@ -153,7 +153,7 @@ func releaseWaits(ctx context.Context, c *gh.Client, def installations.Capabilit
 	var waits []rolloutWait
 	for _, k := range merged {
 		pr := prs[k]
-		changed, added, err := changesValues(ctx, c, def, pr)
+		changed, err := changesValues(ctx, c, def, pr)
 		if err != nil {
 			return nil, err
 		}
@@ -170,7 +170,7 @@ func releaseWaits(ctx context.Context, c *gh.Client, def installations.Capabilit
 		}
 		release, merge := objectName(ch.Namespace, ch.Name), fmt.Sprintf("%s#%d", pr.Repository, pr.Number)
 		base := baselineOf(st, release, merge)
-		if w := releaseWait(object, pr, ch.Releases, base, added); w != "" {
+		if w := releaseWait(object, pr, ch, base); w != "" {
 			waits = append(waits, rolloutWait{what: w})
 		}
 	}
@@ -223,8 +223,8 @@ func baselineOf(st *actions.InstallationRollout, release, merge string) *actions
 // successful one) or the merge time is not on record. Flux's times are whole
 // seconds: a release in the merge's second ran before the merge, since Flux
 // applies a merge seconds after it at the earliest. Where no release ran at
-// the merge (installedAfter), the baseline is version 0 with no digest;
-// releaseWait takes it only for a merge that added the values file.
+// the merge (installedAfter), the baseline is version 0 with no digest:
+// releaseWait then proves the newest release by the values it reads.
 func ranAtMerge(release, merge string, pr actions.PullRequest, ch verify.Check) *actions.ReleaseBaseline {
 	if pr.MergedAt == nil {
 		return nil
@@ -254,10 +254,9 @@ func ranAtMerge(release, merge string, pr actions.PullRequest, ch verify.Check) 
 // too: the creation time tells it, the HelmRelease being older than the
 // merge. The v1 deploy time after the merge is a defensive check: a
 // HelmRelease created after the merge deploys its v1 after it. The creation
-// time is the apiserver's clock against GitHub's merge time: a skew of
-// seconds may read an install just before the merge as after it, which the
-// restriction to a merge that added the values file (releaseWait) keeps from
-// proving anything.
+// time is the apiserver's clock against GitHub's merge time; a skew of
+// seconds may read an install just before the merge as after it, and
+// releaseWait's proof of a version-0 baseline holds all the same.
 func installedAfter(ch verify.Check, mergedAt time.Time) bool {
 	if ch.Created == nil || !ch.Created.After(mergedAt) {
 		return false
@@ -275,14 +274,14 @@ func installedAfter(ch verify.Check, mergedAt time.Time) bool {
 // was deployed after the merge's second and carries values of another digest
 // than base. Without a base the values that ran at the merge are not known,
 // and nothing proves the newest release's are new. A base of version 0 says
-// no release ran at the merge; it proves the newest release only where the
-// merge added the values file (added): before the merge the HelmRelease's
-// valuesFrom had no key to read, so no release could run with values from
-// before it. Where the file was there, a HelmRelease created after the merge
-// may have installed the old values before the Konfiguration applied it, and
-// what ran is not known.
-func releaseWait(object string, pr actions.PullRequest, releases []verify.Release, base *actions.ReleaseBaseline, added bool) string {
-	newest := releases[0]
+// no release ran at the merge, so there is no digest to tell old values by:
+// the newest release proves the merge where the values it reads hold the
+// merged ones (ch's drift check of the whole values is as defined) and it
+// was deployed after the second their ConfigMaps last changed in
+// (ch.ValuesWritten). A first release Helm installed from the values before
+// the Konfiguration applied the merge was deployed before that change.
+func releaseWait(object string, pr actions.PullRequest, ch verify.Check, base *actions.ReleaseBaseline) string {
+	newest := ch.Releases[0]
 	var mergedAt time.Time
 	if pr.MergedAt != nil {
 		mergedAt = pr.MergedAt.Truncate(time.Second)
@@ -301,13 +300,25 @@ func releaseWait(object string, pr actions.PullRequest, releases []verify.Releas
 		return fmt.Sprintf("%s runs release v%d since %s, and the release that ran at the merge is neither in its history nor on record: whether its values are new is not known", object, newest.Version, merge)
 	}
 	if base.Version == 0 {
-		if added {
-			return ""
-		}
-		return fmt.Sprintf("%s runs release v%d since %s, installed after it while the values file was already there: whether it runs the merged values is not known", object, newest.Version, merge)
+		return firstReleaseWait(object, newest, ch)
 	}
 	if newest.ConfigDigest == base.ConfigDigest {
 		return fmt.Sprintf("%s runs release v%d with the values of release v%d from before %s", object, newest.Version, base.Version, merge)
+	}
+	return ""
+}
+
+// firstReleaseWait is what holds a HelmRelease that ran no release at the
+// merge (ch) and runs newest since: "" when the values it reads hold the
+// merged ones and newest was deployed after their last change's second.
+func firstReleaseWait(object string, newest verify.Release, ch verify.Check) string {
+	switch {
+	case ch.Mark != verify.AsDefined:
+		return fmt.Sprintf("%s runs release v%d, its first since the merge, and the values it reads are not the merged ones yet", object, newest.Version)
+	case ch.ValuesWritten == nil:
+		return fmt.Sprintf("%s runs release v%d, its first since the merge, and when the values it reads last changed is not known", object, newest.Version)
+	case !newest.Deployed.After(ch.ValuesWritten.Truncate(time.Second)):
+		return fmt.Sprintf("%s runs release v%d, its first since the merge, deployed at %s, not after the values it reads last changed at %s", object, newest.Version, newest.Deployed.UTC().Format(time.RFC3339), ch.ValuesWritten.UTC().Format(time.RFC3339))
 	}
 	return ""
 }
@@ -317,36 +328,35 @@ func releaseWait(object string, pr actions.PullRequest, releases []verify.Releas
 // the blobs, cached): a file added or removed does, and a changed one does
 // when its YAML before and after differs. A file rewritten with the same
 // values — a comment or the layout — composes the same values, and Flux
-// runs no release for it. Added says the merge added a values file: none
-// was there before it.
-func changesValues(ctx context.Context, c *gh.Client, def installations.Capability, pr actions.PullRequest) (changed, added bool, err error) {
+// runs no release for it.
+func changesValues(ctx context.Context, c *gh.Client, def installations.Capability, pr actions.PullRequest) (bool, error) {
 	if pr.MergeCommit == "" {
-		return false, false, fmt.Errorf("%s#%d: GitHub names no merge commit", pr.Repository, pr.Number)
+		return false, fmt.Errorf("%s#%d: GitHub names no merge commit", pr.Repository, pr.Number)
 	}
 	owner, repo, err := gh.SplitRepo(pr.Repository)
 	if err != nil {
-		return false, false, err
+		return false, err
 	}
 	change, err := gh.ChangeOf(ctx, c, owner, repo, pr.MergeCommit)
 	if err != nil {
-		return false, false, err
+		return false, err
 	}
 	for _, f := range change.Files {
 		if !strings.HasSuffix(f.Path, verify.ValuesSuffix(def.Name)) {
 			continue
 		}
 		if f.Before == "" || f.Blob == "" {
-			changed = true
-			added = added || f.Before == ""
-			continue
+			return true, nil
 		}
 		same, err := sameValues(ctx, c, owner, repo, f.Before, f.Blob)
 		if err != nil {
-			return false, false, err
+			return false, err
 		}
-		changed = changed || !same
+		if !same {
+			return true, nil
+		}
 	}
-	return changed, added, nil
+	return false, nil
 }
 
 // sameValues says whether the YAML documents of two blobs carry the same
