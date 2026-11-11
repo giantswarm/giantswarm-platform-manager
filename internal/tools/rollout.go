@@ -35,8 +35,12 @@ import (
 // the proof arriving later carries it on.
 const rolloutBound = 30 * time.Minute
 
-// helmDeployed is the status of a Helm release that runs.
-const helmDeployed = "deployed"
+// helmDeployed is the status of a Helm release that runs; helmSuperseded
+// of one that ran and a later release replaced.
+const (
+	helmDeployed   = "deployed"
+	helmSuperseded = "superseded"
+)
 
 // rolloutWait is one thing the proof still waits for: what, in one clause,
 // and whether it rests on a read this call made — a revision behind, a
@@ -51,10 +55,12 @@ type rolloutWait struct {
 // res, with GitHub as the person for what the cluster does not say: whether
 // a commit a Konfiguration applied contains a merge, and whether a merge
 // changed the rendered values file. Nothing when the merged revision runs.
-func (t *Tools) rolloutWaits(ctx context.Context, def installations.Capability, a *actions.Action, status *actions.Status, installation string, res verify.Result) ([]rolloutWait, error) {
+// The release that ran at a merge is the one recordBaselines put on the
+// stage (st.Baselines).
+func (t *Tools) rolloutWaits(ctx context.Context, def installations.Capability, a *actions.Action, status *actions.Status, st *actions.InstallationRollout, res verify.Result) ([]rolloutWait, error) {
 	current := *a
 	current.Status = *status
-	merged := mergedPRs(&current, installation)
+	merged := mergedPRs(&current, st.Name)
 	if len(merged) == 0 {
 		return nil, nil
 	}
@@ -72,7 +78,7 @@ func (t *Tools) rolloutWaits(ctx context.Context, def installations.Capability, 
 			}
 			waits = append(waits, w...)
 		case ch.Releases != nil:
-			w, err := releaseWaits(ctx, c, def, status.PullRequests, merged, ch)
+			w, err := releaseWaits(ctx, c, def, status.PullRequests, merged, ch, st)
 			if err != nil {
 				return nil, err
 			}
@@ -136,12 +142,13 @@ func sourceWaits(ctx context.Context, c *gh.Client, prs []actions.PullRequest, m
 // rendered values file (ch, a drift check of its whole values) against each
 // merged pull request that changed that file: the newest release runs, was
 // deployed at or after the merge, and with values other than those of the
-// release that ran at the merge (configDigest). A values change reaches the
+// release that ran at the merge (configDigest) — the baseline, from the
+// history or from the stage's record. A values change reaches the
 // HelmRelease through a ConfigMap of its valuesFrom: its generation stays as
 // it was and Flux upgrades it on its interval, so the digest of the newest
 // release is what tells the new values from the old. A pull request that
 // changed no values file asks nothing of the release.
-func releaseWaits(ctx context.Context, c *gh.Client, def installations.Capability, prs []actions.PullRequest, merged []int, ch verify.Check) ([]rolloutWait, error) {
+func releaseWaits(ctx context.Context, c *gh.Client, def installations.Capability, prs []actions.PullRequest, merged []int, ch verify.Check, st *actions.InstallationRollout) ([]rolloutWait, error) {
 	object := objectLine(ch)
 	var waits []rolloutWait
 	for _, k := range merged {
@@ -161,18 +168,131 @@ func releaseWaits(ctx context.Context, c *gh.Client, def installations.Capabilit
 			waits = append(waits, rolloutWait{what: fmt.Sprintf("%s keeps no release history to tell %s#%d's values by", object, pr.Repository, pr.Number)})
 			continue
 		}
-		if w := releaseWait(object, pr, ch.Releases); w != "" {
+		release, merge := objectName(ch.Namespace, ch.Name), fmt.Sprintf("%s#%d", pr.Repository, pr.Number)
+		base := baselineOf(st, release, merge)
+		if base != nil && base.Version == 0 && ch.Mark == verify.NotChecked {
+			// The values the first install reads were not read: what the
+			// person may not read is not checked, and the bound does not
+			// count it.
+			waits = append(waits, rolloutWait{what: fmt.Sprintf("the values %s reads not read: %s", object, orNotRead(ch.Message)), unread: true})
+			continue
+		}
+		if w := releaseWait(object, pr, ch, base); w != "" {
 			waits = append(waits, rolloutWait{what: w})
 		}
 	}
 	return waits, nil
 }
 
-// releaseWait is what the release history says of pr's merge, "" when the
-// newest release runs the merged values. A merge time not on record (a
-// merge always records one) asks no more than a release that runs.
-func releaseWait(object string, pr actions.PullRequest, releases []verify.Release) string {
-	newest := releases[0]
+// recordBaselines records on stage st, for each of its merged pull requests
+// and each HelmRelease whose release history res read, the release that ran
+// at the merge, where the history still keeps it and the stage has none on
+// record: the first read after the merge sees it, and Flux drops it from the
+// history once a later release succeeds after the next one. Called on every read of a stage that has not
+// reached a state, Ready or not.
+func recordBaselines(a *actions.Action, status actions.Status, st *actions.InstallationRollout, res verify.Result) {
+	current := *a
+	current.Status = status
+	merged := mergedPRs(&current, st.Name)
+	for _, ch := range liveChecks(res) {
+		if len(ch.Releases) == 0 {
+			continue
+		}
+		release := objectName(ch.Namespace, ch.Name)
+		for _, k := range merged {
+			pr := status.PullRequests[k]
+			merge := fmt.Sprintf("%s#%d", pr.Repository, pr.Number)
+			if baselineOf(st, release, merge) != nil {
+				continue
+			}
+			if base := ranAtMerge(release, merge, pr, ch); base != nil {
+				st.Baselines = append(st.Baselines, *base)
+			}
+		}
+	}
+}
+
+// baselineOf is the stage's record of the release that ran at merge; nil
+// when none is on record.
+func baselineOf(st *actions.InstallationRollout, release, merge string) *actions.ReleaseBaseline {
+	for i := range st.Baselines {
+		if b := st.Baselines[i]; b.Release == release && b.PullRequest == merge {
+			return &b
+		}
+	}
+	return nil
+}
+
+// ranAtMerge is the release of the history of ch that ran when pr was
+// merged: the newest that was deployed — deployed or superseded since —
+// before the merge; nil when the history keeps none (helm-controller's
+// Snapshots.Truncate keeps the newest release and those after the previous
+// successful one) or the merge time is not on record. Flux's times are whole
+// seconds: a release in the merge's second ran before the merge, since Flux
+// applies a merge seconds after it at the earliest. Where no release ran at
+// the merge (installedAfter), the baseline is version 0 with no digest:
+// releaseWait then proves the newest release by the values it reads.
+func ranAtMerge(release, merge string, pr actions.PullRequest, ch verify.Check) *actions.ReleaseBaseline {
+	if pr.MergedAt == nil {
+		return nil
+	}
+	mergedAt := pr.MergedAt.Truncate(time.Second)
+	for _, r := range ch.Releases {
+		if r.Deployed == nil || r.Deployed.After(mergedAt) || (r.Status != helmDeployed && r.Status != helmSuperseded) {
+			continue
+		}
+		return &actions.ReleaseBaseline{Release: release, PullRequest: merge, Version: r.Version, ConfigDigest: r.ConfigDigest, Deployed: r.Deployed}
+	}
+	if installedAfter(ch, mergedAt) {
+		return &actions.ReleaseBaseline{Release: release, PullRequest: merge}
+	}
+	return nil
+}
+
+// installedAfter says that no release of ch's HelmRelease ran at the merge
+// (mergedAt, its whole second): the HelmRelease was created after the merge,
+// so none of its releases ran at it, and its history keeps its install,
+// release v1, deployed after the merge. helm-controller clears the history
+// when it installs (internal/reconcile/install.go) and Helm numbers a
+// release name's first release 1, so a v1 in the history is the install the
+// HelmRelease's history starts with; a HelmRelease that took over a release
+// Helm ran before it is upgraded to a later version, and a truncated history
+// has lost its v1. A release uninstalled and installed again starts at v1
+// too: the creation time tells it, the HelmRelease being older than the
+// merge. The v1 deploy time after the merge is a defensive check: a
+// HelmRelease created after the merge deploys its v1 after it. v1's status
+// is not asked: a failed install that a later upgrade fixed is a first
+// install too, and releaseWait asks the newest release to run. The creation
+// time is the apiserver's clock against GitHub's merge time: an apiserver
+// clock behind by more than the Konfiguration's apply latency reads a new
+// HelmRelease as older than the merge, and the stage is not proven.
+func installedAfter(ch verify.Check, mergedAt time.Time) bool {
+	if ch.Created == nil || !ch.Created.After(mergedAt) {
+		return false
+	}
+	for _, r := range ch.Releases {
+		if r.Version == 1 {
+			return r.Deployed != nil && r.Deployed.After(mergedAt)
+		}
+	}
+	return false
+}
+
+// releaseWait is what the release history says of pr's merge against base,
+// the release that ran at the merge: "" only when the newest release runs,
+// was deployed after the merge's second and carries values of another digest
+// than base. Without a base the values that ran at the merge are not known,
+// and nothing proves the newest release's are new. A base of version 0 says
+// no release ran at the merge, so there is no digest to tell old values by:
+// the newest release proves the merge where the values it reads hold the
+// merged ones (ch's drift check of the whole values is as defined). A first
+// release Helm installed from values read before the merged ones were
+// written — seconds before, when one apply creates the HelmRelease and
+// writes its values, up to one HelmRelease interval when another applier
+// writes them later — reads as proven too; it runs them until Flux's next
+// upgrade, a race accepted as rare and self-correcting.
+func releaseWait(object string, pr actions.PullRequest, ch verify.Check, base *actions.ReleaseBaseline) string {
+	newest := ch.Releases[0]
 	var mergedAt time.Time
 	if pr.MergedAt != nil {
 		mergedAt = pr.MergedAt.Truncate(time.Second)
@@ -184,17 +304,20 @@ func releaseWait(object string, pr actions.PullRequest, releases []verify.Releas
 	if newest.Status != helmDeployed || newest.Deployed == nil {
 		return fmt.Sprintf("%s: release v%d is %s, no release runs since %s", object, newest.Version, orNotRead(newest.Status), merge)
 	}
-	if newest.Deployed.Before(mergedAt) {
+	if !newest.Deployed.After(mergedAt) {
 		return fmt.Sprintf("%s runs release v%d, deployed at %s, before %s", object, newest.Version, newest.Deployed.UTC().Format(time.RFC3339), merge)
 	}
-	for _, r := range releases[1:] {
-		if r.Deployed == nil || !r.Deployed.Before(mergedAt) {
-			continue
+	if base == nil {
+		return fmt.Sprintf("%s runs release v%d since %s, and the release that ran at the merge is neither in its history nor on record: whether its values are new is not known", object, newest.Version, merge)
+	}
+	if base.Version == 0 {
+		if ch.Mark != verify.AsDefined {
+			return fmt.Sprintf("%s runs release v%d, its first since the merge, and the values it reads are not the merged ones yet", object, newest.Version)
 		}
-		if r.ConfigDigest == newest.ConfigDigest {
-			return fmt.Sprintf("%s runs release v%d with the values of release v%d from before %s", object, newest.Version, r.Version, merge)
-		}
-		break
+		return ""
+	}
+	if newest.ConfigDigest == base.ConfigDigest {
+		return fmt.Sprintf("%s runs release v%d with the values of release v%d from before %s", object, newest.Version, base.Version, merge)
 	}
 	return ""
 }

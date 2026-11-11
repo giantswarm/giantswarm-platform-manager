@@ -664,14 +664,262 @@ func TestWatchActionWaitsForFluxToApplyTheMerge(t *testing.T) {
 		t.Errorf("the Konfiguration on a later commit is still waited for: %q", stageOf(&got, rowan).Message)
 	}
 
-	// A release after the merge with the values from before.
+	// Two releases after the merge with the values from before: Flux's
+	// history keeps v12 and v11 alone, and the stage's record of v10, the
+	// release that ran at the merge, still tells the values are old.
 	st.inst.release(fluxNamespace, platformRelease, valuesBefore)
-	rollingOut("a chart-only release", release+" runs release v11 with the values of release v10 from before")
+	st.inst.release(fluxNamespace, platformRelease, valuesBefore)
+	rollingOut("two chart-only releases", release+" runs release v12 with the values of release v10 from before")
 
 	st.inst.release(fluxNamespace, platformRelease, valuesMerged)
 	w, text, isErr := watchCall(t, admin, a.Name)
 	if isErr || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled || w.Report == "" {
 		t.Fatalf("the merged values released: %v %s", isErr, text)
+	}
+}
+
+// A release history that keeps no release from before the merge proves
+// nothing: two chart-only upgrades after the merge, before any watch, leave
+// Flux's history with v12 and v11 alone, both on the values from before, and
+// no release that ran at the merge is on record. The stage stays rolling
+// out, saying what is not known — even once a release with other values
+// runs, since nothing tells what it is compared with.
+func TestWatchActionNeedsTheReleaseThatRanAtTheMerge(t *testing.T) {
+	st := newStack(t)
+	a, _ := mergedRowan(t, st)
+	admin := adminLive(t, st)
+	fluxBehind(t, st, st.inst, a, rowan)
+	_, merge := configsMerge(t, &a, rowan)
+	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
+	st.inst.release(fluxNamespace, platformRelease, valuesBefore)
+	st.inst.release(fluxNamespace, platformRelease, valuesBefore)
+	unknown := helmReleaseKind + " " + fluxNamespace + "/" + platformRelease + " runs release v%d since "
+	for _, step := range []struct {
+		name    string
+		digest  string
+		version int
+	}{{"two chart-only releases", "", 12}, {"a release with other values", valuesMerged, 13}} {
+		if step.digest != "" {
+			st.inst.release(fluxNamespace, platformRelease, step.digest)
+		}
+		w, text, isErr := watchCall(t, admin, a.Name)
+		if isErr || !w.Ready || w.State != actions.StateRollingOut || w.Action.Status.State != actions.StateRollingOut {
+			t.Fatalf("%s: %v %s", step.name, isErr, text)
+		}
+		if msg := stageOf(w.Action, rowan).Message; !strings.Contains(msg, fmt.Sprintf(unknown, step.version)) || !strings.Contains(msg, "neither in its history nor on record") {
+			t.Fatalf("%s: the stage's message: %q", step.name, msg)
+		}
+	}
+}
+
+// The release that ran at the merge is recorded on the first read after the
+// merge, Ready or not: a meta chart release not Ready yet, then two releases
+// with the values from before that leave Flux's history without it — the
+// record still tells their values are old.
+func TestWatchActionRecordsTheReleaseThatRanAtTheMergeWhileNotReady(t *testing.T) {
+	st := newStack(t)
+	a, _ := mergedRowan(t, st)
+	admin := adminLive(t, st)
+	fluxBehind(t, st, st.inst, a, rowan)
+	setReady(st.inst, platformRelease, statusFalse, "upgrading", "4.44.1")
+	if w, text, isErr := watchCall(t, admin, a.Name); isErr || w.Ready || w.State != actions.StateRollingOut {
+		t.Fatalf("not Ready: %v %s", isErr, text)
+	}
+	_, merge := configsMerge(t, &a, rowan)
+	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
+	st.inst.release(fluxNamespace, platformRelease, valuesBefore)
+	st.inst.release(fluxNamespace, platformRelease, valuesBefore)
+	setReady(st.inst, platformRelease, statusTrue, "upgraded", "4.50.0")
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || !w.Ready || w.State != actions.StateRollingOut {
+		t.Fatalf("two chart-only releases: %v %s", isErr, text)
+	}
+	if msg := stageOf(w.Action, rowan).Message; !strings.Contains(msg, "runs release v12 with the values of release v10 from before") {
+		t.Fatalf("the stage's message: %q", msg)
+	}
+}
+
+// Flux's release times are whole seconds: a release with other values in
+// the merge's own second ran before Flux could apply the merge, and proves
+// nothing.
+func TestWatchActionCountsAReleaseInTheMergesSecondBeforeIt(t *testing.T) {
+	st := newStack(t)
+	a, _ := mergedRowan(t, st)
+	admin := adminLive(t, st)
+	fluxBehind(t, st, st.inst, a, rowan)
+	pr, merge := configsMerge(t, &a, rowan)
+	if pr.MergedAt == nil {
+		t.Fatalf("%s#%d records no merge time", pr.Repository, pr.Number)
+	}
+	st.inst.releaseAt(fluxNamespace, platformRelease, valuesMerged, pr.MergedAt.Truncate(time.Second))
+	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || !w.Ready || w.State != actions.StateRollingOut {
+		t.Fatalf("a release in the merge's second: %v %s", isErr, text)
+	}
+	if msg := stageOf(w.Action, rowan).Message; !strings.Contains(msg, "runs release v11, deployed at "+pr.MergedAt.UTC().Truncate(time.Second).Format(time.RFC3339)+", before") {
+		t.Fatalf("the stage's message: %q", msg)
+	}
+}
+
+// An enablement that brings the meta chart's HelmRelease for the first time:
+// before the merge there is no HelmRelease, so no release ran at the merge.
+// The stage waits while the HelmRelease is missing, and is enabled once Flux
+// created it and its release v1 runs with the values the ConfigMap it reads
+// holds: the merged ones.
+func TestWatchActionProvesAFirstInstallByItsFirstRelease(t *testing.T) {
+	st := newStack(t)
+	a, _ := mergedRowan(t, st)
+	admin := adminLive(t, st)
+	fluxBehind(t, st, st.inst, a, rowan)
+	hr := st.inst.take(helmReleaseKind, fluxNamespace, platformRelease)
+	if w, text, isErr := watchCall(t, admin, a.Name); isErr || w.Ready || w.State != actions.StateRollingOut {
+		t.Fatalf("no HelmRelease yet: %v %s", isErr, text)
+	}
+	_, merge := configsMerge(t, &a, rowan)
+	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
+	st.inst.install(hr, valuesMerged)
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || !w.Ready || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled {
+		t.Fatalf("the first release: %v %s", isErr, text)
+	}
+}
+
+// A first install whose values ConfigMap does not hold the merged values
+// yet: v1 runs, and the drift check finds the values it reads are not the
+// merged ones. The stage waits for them instead of failing on the drift.
+func TestWatchActionWaitsForAFirstInstallsMergedValues(t *testing.T) {
+	st := newStack(t)
+	a, _ := mergedRowan(t, st)
+	admin := adminLive(t, st)
+	fluxBehind(t, st, st.inst, a, rowan)
+	hr := st.inst.take(helmReleaseKind, fluxNamespace, platformRelease)
+	_, merge := configsMerge(t, &a, rowan)
+	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
+	st.inst.staleValues(t, fluxNamespace)
+	st.inst.install(hr, valuesBefore)
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || !w.Ready || w.State != actions.StateRollingOut || w.Action.Status.State != actions.StateRollingOut {
+		t.Fatalf("a first install of other values: %v %s", isErr, text)
+	}
+	if msg := stageOf(w.Action, rowan).Message; !strings.Contains(msg, "runs release v1, its first since the merge, and the values it reads are not the merged ones yet") {
+		t.Fatalf("the stage's message: %q", msg)
+	}
+}
+
+// A first install whose values ConfigMap the person may not read: what is not
+// read is not checked, so the stage stays rolling out past the bound, never
+// failed on it.
+func TestWatchActionKeepsAnUnreadFirstInstallRollingOut(t *testing.T) {
+	st := newStack(t)
+	a, _ := mergedRowan(t, st)
+	admin := adminLive(t, st)
+	fluxBehind(t, st, st.inst, a, rowan)
+	hr := st.inst.take(helmReleaseKind, fluxNamespace, platformRelease)
+	_, merge := configsMerge(t, &a, rowan)
+	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
+	st.inst.install(hr, valuesMerged)
+	st.inst.forbid("ConfigMap", fluxNamespace, platformValuesConfigMap)
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || w.State != actions.StateRollingOut || !strings.Contains(stageOf(w.Action, rowan).Message, "the values "+helmReleaseKind+" "+fluxNamespace+"/"+platformRelease+" reads not read") {
+		t.Fatalf("the values not read: %v %s", isErr, text)
+	}
+	status := w.Action.Status
+	hourAgo := time.Now().Add(-time.Hour)
+	for k := range status.PullRequests {
+		status.PullRequests[k].MergedAt = &hourAgo
+	}
+	if _, err := actions.New(st.dyn, actionsNamespace).UpdateStatus(t.Context(), w.Action, status); err != nil {
+		t.Fatal(err)
+	}
+	if w, text, isErr = watchCall(t, admin, a.Name); isErr || w.State != actions.StateRollingOut || w.Action.Status.State != actions.StateRollingOut {
+		t.Fatalf("past the bound: %v %s", isErr, text)
+	}
+}
+
+// A first install whose v1 failed and whose upgrade to v2 runs: the history
+// keeps the failed v1, since no release before it ran, and the stage is
+// enabled — v1's own status is not asked.
+func TestWatchActionProvesAFirstInstallWhoseV1Failed(t *testing.T) {
+	st := newStack(t)
+	a, _ := mergedRowan(t, st)
+	admin := adminLive(t, st)
+	fluxBehind(t, st, st.inst, a, rowan)
+	hr := st.inst.take(helmReleaseKind, fluxNamespace, platformRelease)
+	_, merge := configsMerge(t, &a, rowan)
+	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
+	st.inst.install(hr, valuesMerged)
+	st.inst.releaseAt(fluxNamespace, platformRelease, valuesMerged, time.Now().Add(2*time.Second))
+	st.inst.failRelease(fluxNamespace, platformRelease, 1)
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || !w.Ready || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled {
+		t.Fatalf("a failed v1, then v2: %v %s", isErr, text)
+	}
+}
+
+// A first install whose values ConfigMap the manager that owns its data
+// changed afterwards in its metadata alone — konfigure rewrites its revision
+// label on every commit of the configs repository: v1 runs the merged
+// values, and the stage is enabled.
+func TestWatchActionProvesAFirstInstallAfterAMetadataChange(t *testing.T) {
+	st := newStack(t)
+	a, _ := mergedRowan(t, st)
+	admin := adminLive(t, st)
+	fluxBehind(t, st, st.inst, a, rowan)
+	hr := st.inst.take(helmReleaseKind, fluxNamespace, platformRelease)
+	_, merge := configsMerge(t, &a, rowan)
+	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
+	st.inst.install(hr, valuesMerged)
+	st.inst.relabelValues(fluxNamespace, time.Now().Add(3*time.Second))
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || !w.Ready || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled {
+		t.Fatalf("a first install, then a label: %v %s", isErr, text)
+	}
+}
+
+// A HelmRelease older than the merge whose release Flux uninstalled and
+// installed again after it: Helm counts from v1 again and Flux clears the
+// history at the install, so the history keeps no release from before the
+// merge. A release ran at the merge all the same: its values are not known,
+// and the stage is not proven.
+func TestWatchActionTakesNoReinstallForAFirstInstall(t *testing.T) {
+	st := newStack(t)
+	a, _ := mergedRowan(t, st)
+	admin := adminLive(t, st)
+	fluxBehind(t, st, st.inst, a, rowan)
+	_, merge := configsMerge(t, &a, rowan)
+	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
+	st.inst.reinstall(fluxNamespace, platformRelease, valuesBefore)
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || !w.Ready || w.State != actions.StateRollingOut {
+		t.Fatalf("a reinstall: %v %s", isErr, text)
+	}
+	if msg := stageOf(w.Action, rowan).Message; !strings.Contains(msg, "runs release v1 since ") || !strings.Contains(msg, "neither in its history nor on record") {
+		t.Fatalf("the stage's message: %q", msg)
+	}
+}
+
+// A HelmRelease created after the merge whose history keeps no release v1:
+// it took over a Helm release that ran at the merge (Flux clears the history
+// and upgrades a release it does not manage yet), or Flux truncated its
+// history. Its object is new, but a release may have run at the merge: the
+// stage is not proven.
+func TestWatchActionTakesNoTruncatedHistoryForAFirstInstall(t *testing.T) {
+	st := newStack(t)
+	a, _ := mergedRowan(t, st)
+	admin := adminLive(t, st)
+	fluxBehind(t, st, st.inst, a, rowan)
+	_, merge := configsMerge(t, &a, rowan)
+	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
+	at := time.Now().Add(time.Second)
+	st.inst.recreate(fluxNamespace, platformRelease, at)
+	st.inst.releaseVersion(fluxNamespace, platformRelease, valuesBefore, 11, at)
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || !w.Ready || w.State != actions.StateRollingOut {
+		t.Fatalf("a history without v1: %v %s", isErr, text)
+	}
+	if msg := stageOf(w.Action, rowan).Message; !strings.Contains(msg, "runs release v11 since ") || !strings.Contains(msg, "neither in its history nor on record") {
+		t.Fatalf("the stage's message: %q", msg)
 	}
 }
 
@@ -725,7 +973,7 @@ func TestWatchActionFailsAMergeFluxNeverApplies(t *testing.T) {
 	if isErr || w.State != actions.StateFailed || w.Action.Status.State != actions.StateFailed || len(w.Red) != 2 {
 		t.Fatalf("past the bound: %v %s", isErr, text)
 	}
-	if msg := stageOf(w.Action, rowan).Message; !strings.HasPrefix(msg, "a probe is red: the installation does not run the merged revision 30m0s after the last merge: Konfiguration ") {
+	if msg := stageOf(w.Action, rowan).Message; !strings.HasPrefix(msg, "a probe is red: the installation is not proven to run the merged revision 30m0s after the last merge: Konfiguration ") {
 		t.Fatalf("the stage's message: %q", msg)
 	}
 	if !strings.Contains(w.Report, "❌ not yet on the merged revision: Konfiguration "+fluxNamespace+"/"+konfiguration) || !strings.Contains(w.Report, "❌ not yet on the merged revision: "+helmReleaseKind+" "+fluxNamespace+"/"+platformRelease) {
@@ -734,7 +982,7 @@ func TestWatchActionFailsAMergeFluxNeverApplies(t *testing.T) {
 
 	fluxApplied(st.inst, *w.Action, rowan)
 	w, text, isErr = watchCall(t, admin, a.Name)
-	if isErr || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled || !strings.Contains(w.Report, "Recovered: the stage had failed (a probe is red: the installation does not run the merged revision") {
+	if isErr || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled || !strings.Contains(w.Report, "Recovered: the stage had failed (a probe is red: the installation is not proven to run the merged revision") {
 		t.Fatalf("Flux applied the merge: %v %s", isErr, text)
 	}
 }

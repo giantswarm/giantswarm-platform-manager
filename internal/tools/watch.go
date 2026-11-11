@@ -170,8 +170,11 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 	// Every object Ready is not yet the merged change: a stage that has not
 	// reached a state reads the proof that the installation runs it.
 	var waits []rolloutWait
+	if prev == actions.StateRollingOut || prev == actions.StateFailed {
+		recordBaselines(a, status, st, res)
+	}
 	if ready && !failed && (prev == actions.StateRollingOut || prev == actions.StateFailed) {
-		if waits, err = t.rolloutWaits(ctx, def, a, &status, st.Name, res); err != nil {
+		if waits, err = t.rolloutWaits(ctx, def, a, &status, st, res); err != nil {
 			return nil, fmt.Errorf("%s: whether %s runs the merged revision could not be read as you: %w; nothing is decided — call again", ToolWatchAction, st.Name, err)
 		}
 	}
@@ -462,9 +465,9 @@ const waitingForMerge = "not yet on the merged revision: "
 // red, as for a release Flux gave up on, so the watch re-reads it — past the
 // bound after its last merge (late), or read again after a failure.
 func notRunning(waits []rolloutWait, late bool) string {
-	when := "the installation does not run the merged revision: "
+	when := "the installation is not proven to run the merged revision: "
 	if late {
-		when = fmt.Sprintf("the installation does not run the merged revision %s after the last merge: ", rolloutBound)
+		when = fmt.Sprintf("the installation is not proven to run the merged revision %s after the last merge: ", rolloutBound)
 	}
 	return probeRed + when + strings.Join(waitLines(waits), "; ")
 }

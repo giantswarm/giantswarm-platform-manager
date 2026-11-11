@@ -265,6 +265,25 @@ type InstallationRollout struct {
 	// NoticedAt is when the Account Engineers' channel was told the change is
 	// applied on this customer installation: once, at its first enabled.
 	NoticedAt *time.Time `json:"noticedAt,omitempty"`
+	// Baselines are the Helm releases that ran at the stage's merges, as the
+	// watch first read them in a release history: what it proves a release
+	// with the merged values against once Flux's history no longer keeps
+	// them.
+	Baselines []ReleaseBaseline `json:"baselines,omitempty"`
+}
+
+// ReleaseBaseline is the Helm release a HelmRelease (Release, as
+// "namespace/name") ran when a pull request (PullRequest, as "owner/repo#n")
+// was merged: its version, when it was deployed and the digest of its values
+// (helm-controller's configDigest). Version 0, with no digest, says no
+// release ran at the merge: the HelmRelease was created after it and
+// installed its first release after it.
+type ReleaseBaseline struct {
+	Release      string     `json:"release"`
+	PullRequest  string     `json:"pullRequest"`
+	Version      int        `json:"version"`
+	ConfigDigest string     `json:"configDigest"`
+	Deployed     *time.Time `json:"deployed,omitempty"`
 }
 
 // RolloutObject is one Flux object of the rollout as the watch read it:

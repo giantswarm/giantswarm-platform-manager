@@ -304,6 +304,10 @@ type Check struct {
 	// Not nil on such a check, empty where the HelmRelease was not read or
 	// keeps no history; nil on every other check.
 	Releases []Release `json:"releases,omitempty"`
+	// Created is when the HelmRelease of Releases was created
+	// (metadata.creationTimestamp), kept for the rollout watch with them: a
+	// HelmRelease created after a merge ran no release at it.
+	Created *time.Time `json:"created,omitempty"`
 }
 
 // Release is one entry of a HelmRelease's release history as Flux keeps it
@@ -1376,7 +1380,7 @@ func (x *executor) drift(ctx context.Context, c *Check, p render.Probe) ([]Diffe
 			return nil, nil
 		}
 		if x.opts.Rollout {
-			c.Releases = releasesOf(obj)
+			c.Releases, c.Created = releasesOf(obj), createdOf(obj)
 		}
 		live, err := x.helmReleaseValues(ctx, p.Namespace, obj)
 		if err != nil {
@@ -1658,6 +1662,17 @@ func releasesOf(obj map[string]any) []Release {
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Version > out[j].Version })
 	return out
+}
+
+// createdOf is an object's metadata.creationTimestamp; nil when it carries
+// none or no RFC 3339 time.
+func createdOf(obj map[string]any) *time.Time {
+	s, _ := dig(obj, "metadata", "creationTimestamp").(string)
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return nil
+	}
+	return &t
 }
 
 // selectorOf is a workload's spec.selector.matchLabels as a label selector.
