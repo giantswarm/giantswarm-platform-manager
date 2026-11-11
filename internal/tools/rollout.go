@@ -316,7 +316,7 @@ func firstReleaseWait(object string, newest verify.Release, ch verify.Check) str
 	case ch.Mark != verify.AsDefined:
 		return fmt.Sprintf("%s runs release v%d, its first since the merge, and the values it reads are not the merged ones yet", object, newest.Version)
 	case ch.ValuesWritten == nil:
-		return fmt.Sprintf("%s runs release v%d, its first since the merge, and when the values it reads last changed is not known", object, newest.Version)
+		return fmt.Sprintf("%s runs release v%d, its first since the merge, and when the values it reads last changed is not known: no manager owns the data of its valuesFrom ConfigMaps, or they could not be read whole", object, newest.Version)
 	case !newest.Deployed.After(ch.ValuesWritten.Truncate(time.Second)):
 		return fmt.Sprintf("%s runs release v%d, its first since the merge, deployed at %s, not after the values it reads last changed at %s", object, newest.Version, newest.Deployed.UTC().Format(time.RFC3339), ch.ValuesWritten.UTC().Format(time.RFC3339))
 	}
