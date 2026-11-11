@@ -167,6 +167,8 @@ func credentialInput(t *testing.T, shape string) (map[string]any, map[string]str
 		"githubTokenExchange": map[string]any{keyEnabled: true},
 		"credentials":         map[string]any{keyCredentialUI: formURL},
 	}
+	// The meta chart takes the credential form with the organizations only.
+	input[keyOrganizations] = map[string]any{keyEnabled: true}
 	delete(input, "versions")
 	return input, secrets
 }
@@ -229,4 +231,32 @@ func TestAgentManagerRouteBesideTheEdgeProvider(t *testing.T) {
 	require.Equal(t, map[string]any{"jwksEgress": map[string]any{keyEnabled: true}}, patch["gateway"])
 	require.NotEmpty(t, patch["extraObjects"])
 	require.Contains(t, patch, "agentManager")
+}
+
+// The meta chart takes the credential form with the organizations only
+// (agent-manager links it beside its organization tools). A form's address
+// read back from the record while the switch is off — a person turns the
+// switch off alone — renders nothing of the form: no
+// agent-manager.credentials, no route on the gateway, no JWKS egress for it
+// and no probe of it; the render is not refused, so the switch goes off and
+// the form goes with it.
+func TestCredentialFormRendersWithTheOrganizationsOnly(t *testing.T) {
+	input, secrets := loadInput(t, shapeCredentialForm)
+	input[keyOrganizations] = map[string]any{keyEnabled: false}
+	result, err := Render(input, secrets, render.ModeCommit)
+	require.NoError(t, err)
+	var patch map[string]any
+	for _, files := range result.Files {
+		if f, ok := files["installations/jasper/apps/agent-platform/configmap-values.yaml.patch"]; ok {
+			require.NoError(t, yaml.Unmarshal(f.Content, &patch))
+		}
+	}
+	require.NotNil(t, patch, "no configmap patch rendered")
+	manager, _ := patch[componentAgentManager].(map[string]any)
+	require.NotContains(t, manager, "credentials")
+	require.NotContains(t, patch, "agentManager")
+	require.NotContains(t, patch, "gateway")
+	for _, p := range result.Probes {
+		require.NotEqual(t, agentManagerRouteDimension, p.ID)
+	}
 }

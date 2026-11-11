@@ -145,8 +145,8 @@ func (in *Input) agentManagerValues() render.Map {
 			e("audience", agentManagerBrokerAudience), e("secretName", agentManagerBrokerSecret),
 		}))
 	}
-	if in.AgentManagerCredentialUI != "" {
-		m = append(m, e("credentials", render.Map{e("uiURL", in.AgentManagerCredentialUI)}))
+	if ui := in.credentialUI(); ui != "" {
+		m = append(m, e("credentials", render.Map{e("uiURL", ui)}))
 	}
 	return m
 }

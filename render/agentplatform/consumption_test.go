@@ -47,10 +47,12 @@ func TestRenderConsumption(t *testing.T) {
 
 // consumptionShape is one installation the test proves: the customer-portal
 // definition's input under testdata/consumption/ whose files compose the
-// portal's tree, and the agent-platform shape (testdata/<platform>) whose
-// files the portal's tree lists as its Component — "" for a portal-only
-// installation, where the portal's files alone compose the backstage release
-// and its own dex patch carries its Dex client.
+// portal's tree — "" for an installation signed into from a portal on
+// another installation, the hub's hand-kept Dev Portal, which renders no
+// portal tree here — and the agent-platform shape (testdata/<platform>)
+// whose files the portal's tree lists as its Component — "" for a
+// portal-only installation, where the portal's files alone compose the
+// backstage release and its own dex patch carries its Dex client.
 type consumptionShape struct {
 	name     string
 	platform string
@@ -65,6 +67,13 @@ var consumptionShapes = []consumptionShape{
 	{name: shapeGiantswarmOwned, platform: shapeGiantswarmOwned, portal: shapeGiantswarmOwned + portalInputSuffix},
 	{name: shapeGiantswarmSlackApp, platform: shapeGiantswarmSlackApp, portal: shapeGiantswarmSlackApp + portalInputSuffix},
 	{name: "customer-portal", portal: "customer-portal" + portalInputSuffix},
+	// The organizations and agent-manager's credential form (meta chart
+	// 4.177.0 and later): signed into from the hub's hand-kept portal, or
+	// from the installation's own portal with the Organizations pages.
+	{name: shapeOrganizationsApply, platform: shapeOrganizationsApply},
+	{name: shapeOrganizationsCommit, platform: shapeOrganizationsCommit},
+	{name: shapeOrganizationsPortal, platform: shapeOrganizationsPortal, portal: shapeOrganizationsPortal + portalInputSuffix},
+	{name: shapeCredentialForm, platform: shapeCredentialForm},
 }
 
 const (
@@ -328,19 +337,26 @@ func loadGaps(t *testing.T) map[string]knownGap {
 
 func consume(t *testing.T, shape consumptionShape, charts *chartStore) {
 	c := &consumption{t: t, dir: t.TempDir(), charts: charts, gaps: loadGaps(t), emitted: map[string]emittedSecret{}}
-	portal := c.renderPortal(shape.portal)
-	c.installation = portal.Installation.Name
+	var portal *customerportal.Input
+	if shape.portal != "" {
+		portal = c.renderPortal(shape.portal)
+		c.installation = portal.Installation.Name
+	}
 	if shape.platform != "" {
 		input, secrets := loadInput(t, shape.platform)
 		in, err := Parse(input)
 		if err != nil {
 			t.Fatal(err)
 		}
-		ownPortal := slices.ContainsFunc(in.Installation.Portals, func(p PortalRef) bool {
-			return p.Customer == in.Installation.Customer && p.Domain == portal.Portal.Domain
-		})
-		if in.Installation.Name != c.installation || !ownPortal || !portal.Installation.AgentPlatform {
-			t.Fatalf("%s and %s/%s must describe one installation with the platform and its portal", shape.platform, consumptionDir, shape.portal)
+		if portal == nil {
+			c.installation = in.Installation.Name
+		} else {
+			ownPortal := slices.ContainsFunc(in.Installation.Portals, func(p PortalRef) bool {
+				return p.Customer == in.Installation.Customer && p.Domain == portal.Portal.Domain
+			})
+			if in.Installation.Name != c.installation || !ownPortal || !portal.Installation.AgentPlatform {
+				t.Fatalf("%s and %s/%s must describe one installation with the platform and its portal", shape.platform, consumptionDir, shape.portal)
+			}
 		}
 		result, err := Render(input, secrets, render.ModeCommit)
 		if err != nil {
@@ -348,6 +364,13 @@ func consume(t *testing.T, shape consumptionShape, charts *chartStore) {
 		}
 		c.write(result)
 		c.platform = in
+		if portal == nil && in.Installation.PortalClientSecret {
+			// The portal client's Secret the record says is on record, which
+			// the customer-portal definition renders with a portal's tree: a
+			// shape without one stands it in for the Dex Deployment to load.
+			name := dexClientSecretName(render.PortalDexClientID)
+			c.emitted[dexNamespace+"/"+name] = emittedSecret{ns: dexNamespace, name: name, keys: map[string]bool{dexSecretKey: true}}
+		}
 	} else if portal.Installation.AgentPlatform {
 		t.Fatalf("%s/%s enables the platform but the shape renders none", consumptionDir, shape.portal)
 	}
@@ -355,9 +378,14 @@ func consume(t *testing.T, shape consumptionShape, charts *chartStore) {
 	if err != nil || len(extras) == 0 {
 		t.Fatalf("no extras directories rendered (%v)", err)
 	}
-	// The portal first, then every other extras directory.
-	backstage := filepath.Join(c.dir, "giantswarm", portal.Installation.Customer+"-management-clusters", "management-clusters", c.installation, "extras", "backstage")
-	c.backstage(backstage)
+	// The portal first, then every other extras directory. A platform shape
+	// signed into from a portal on another installation (a hub's hand-kept
+	// Dev Portal) has no portal tree of its own.
+	backstage := ""
+	if portal != nil {
+		backstage = filepath.Join(c.dir, "giantswarm", portal.Installation.Customer+"-management-clusters", "management-clusters", c.installation, "extras", "backstage")
+		c.backstage(backstage)
+	}
 	for _, k := range extras {
 		if dir := filepath.Dir(k); dir != backstage {
 			c.extras(dir)
@@ -872,9 +900,16 @@ func (c *consumption) template(rel *release) {
 	}
 }
 
+// servedAPIs are the API versions beyond helm's defaults the installations
+// serve that a chart checks for: the connectivity chart renders the
+// organizations' ModelConfig admission policy as a MutatingAdmissionPolicy
+// and refuses the organizations on an API server without it.
+var servedAPIs = []string{"--api-versions", "admissionregistration.k8s.io/v1/MutatingAdmissionPolicy"}
+
 // helmTemplate renders rel's chart at its pin, as rel, with the values files.
 func (c *consumption) helmTemplate(rel *release, values []string) []byte {
-	return run(c.t, "helm", append([]string{"template", rel.name, c.charts.pull(c.t, rel.chart), "-n", rel.ns}, flags(values)...)...)
+	args := append([]string{"template", rel.name, c.charts.pull(c.t, rel.chart), "-n", rel.ns}, servedAPIs...)
+	return run(c.t, "helm", append(args, flags(values)...)...)
 }
 
 // collect records every Secret reference of one rendered object: the pod
