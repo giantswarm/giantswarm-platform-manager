@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
@@ -68,6 +70,12 @@ func TestPlatformTenantRefusals(t *testing.T) {
 			delete(m, keyOrganizations)
 			m["installation"].(map[string]any)["customer"] = customerWithoutKagent
 		}, "(tenants.platform.users) is bound in kagent's namespace"},
+		{"the editors where no kagent runs", func(m map[string]any) {
+			delete(m, keyViewers)
+			delete(m, keyOrganizations)
+			m[keyTenants] = map[string]any{keyPlatform: map[string]any{"editors": []any{}}}
+			m["installation"].(map[string]any)["customer"] = customerWithoutKagent
+		}, "(tenants.platform.editors) is bound in kagent's namespace"},
 		{"a group in another API group", func(m map[string]any) {
 			m[keyViewers] = []any{subject("example.io", subjectGroup, "oidc:example")}
 		}, "entry 0 of muster's MCP-server viewers (musterMcpServerViewers) is a subject the API server refuses"},
@@ -131,7 +139,13 @@ func TestPlatformTenantStands(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if patch := string(render.MustYAML(in.configmapPatch())); strings.Contains(patch, "tenants") || strings.Contains(patch, keyViewers) {
-		t.Errorf("lists typed null are written:\n%s", patch)
+	var patch map[string]any
+	if err := yaml.Unmarshal(render.MustYAML(in.configmapPatch()), &patch); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{keyTenants, keyViewers} {
+		if _, written := patch[key]; written {
+			t.Errorf("lists typed null write %s: %v", key, patch[key])
+		}
 	}
 }

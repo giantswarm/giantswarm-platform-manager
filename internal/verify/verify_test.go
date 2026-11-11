@@ -717,6 +717,48 @@ func TestDrivenPathsPerturbsOnlyTheNamedInputs(t *testing.T) {
 	}
 }
 
+// A list of named entries whose leaving out the definition refuses — the
+// viewers, which the empty users would stand in for — is told by its entries
+// renamed: every leaf of each entry is the list's. A render that takes the
+// list out is tried first, and where it renders, no rename is tried.
+func TestDrivenPathsRenamesAListThatCannotBeLeftOut(t *testing.T) {
+	const viewers = "viewers"
+	values := map[string]any{viewers: []any{map[string]any{"kind": "Group", keyName: "people"}}, "users": []any{}}
+	renders := 0
+	render := func(v map[string]any) (map[string]map[string]string, error) {
+		renders++
+		list, ok := v[viewers].([]any)
+		if _, emptyUsers := v["users"]; !ok && emptyUsers {
+			return nil, errors.New("no viewer")
+		}
+		flat := map[string]string{}
+		for _, item := range list {
+			m := item.(map[string]any)
+			name := m[keyName].(string)
+			flat["viewers["+name+"].kind"] = m["kind"].(string)
+			flat["viewers["+name+"].name"] = name
+		}
+		return map[string]map[string]string{"r:values": flat}, nil
+	}
+	base, _ := render(values)
+	renders = 0
+	got := drivenPaths(values, []string{viewers}, base, render)
+	for _, leaf := range []string{"r:values#viewers[people].kind", "r:values#viewers[people].name"} {
+		if got[leaf] != viewers {
+			t.Errorf("refused out: %s is %q in %v", leaf, got[leaf], got)
+		}
+	}
+	if renders != 2 {
+		t.Errorf("refused out: %d renders, want the removal and the rename", renders)
+	}
+	delete(values, "users")
+	renders = 0
+	got = drivenPaths(values, []string{viewers}, base, render)
+	if got["r:values#viewers[people].name"] != viewers || renders != 1 {
+		t.Errorf("left out: %v after %d renders, want the removal alone", got, renders)
+	}
+}
+
 // The plan fetches its files from several goroutines at once; the cache
 // answers each of them once and stays consistent under the race detector.
 func TestReadsAreSafeAtOnce(t *testing.T) {

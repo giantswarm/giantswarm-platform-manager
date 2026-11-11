@@ -31,7 +31,6 @@ features:
       - {id: muster-post-login-redirect-allowlist, kind: configmap, key: muster.muster.oauth.mcpClient.postLoginRedirectAllowlist}
       - {id: edge-jwt-validation, kind: configmap, key: "gateway.jwksEgress / extraObjects[ReferenceGrant/<namespace>/<name>] / agent-platform-mcps.agentgateway.jwt.extraProviders (gateway.jwksEgress also opens the keys of agentManager.route's JWT policy)"}
       - {id: edge-oauth-mode, kind: configmap, key: agent-platform-mcps.agentgateway.oauthMode}
-      - {id: platform-tenant-bindings, kind: configmap, key: "tenants / musterMcpServerViewers (who the platform tenant binds in the kagent namespace, and who lists muster's MCP servers)"}
       - {id: dex-extra-static-clients, kind: dex-configmap, key: oidc.extraStaticClients}
       - {id: dex-static-client-keys, kind: dex-configmap, key: oidc.staticClients}
       - {id: dex-other-oidc-keys, kind: dex-configmap, catchAll: true, key: every other key of the patch (oidc.* but staticClients and extraStaticClients and customer.connectors)}
@@ -93,6 +92,7 @@ features:
       - {id: agent-manager, kind: configmap, key: components.agent-manager.enabled / agent-manager.oauth}
       - {id: agent-manager-route, kind: configmap, key: "agentManager.route (agent-manager's REST API on the gateway behind its JWT policy, for the credential form's backend; derived from agent-manager.credentials.uiURL)"}
       - {id: live-agent-manager-route-protected, kind: live, key: "https://agentgateway.<domain>/agent-manager/api/v1/info answered 401 by the route's JWT policy, where agent-manager.credentials.uiURL is set"}
+      - {id: platform-tenant-bindings, kind: configmap, key: "tenants / musterMcpServerViewers (who the platform tenant binds in the kagent namespace, and who lists muster's MCP servers)"}
       - {id: own-mcp-servers, kind: configmap, key: "agent-platform-mcps.mcpServers[http://<name>.svc:8080/mcp] / agent-platform-mcps.mcpServers[<scheme>://mcp-<name>.<domain>/mcp] (the installation's own: at the in-cluster Service, or on its own base domain)"}
       - {id: own-mcp-kubernetes-url, kind: configmap, key: "agent-platform-mcps.mcpServers[http://mcp-kubernetes.mcp-kubernetes.svc:8080/mcp].url"}
       - {id: muster-private-exchange, kind: configmap, key: muster.muster.oauth.mcpClient.tokenExchange.allowPrivateIP}

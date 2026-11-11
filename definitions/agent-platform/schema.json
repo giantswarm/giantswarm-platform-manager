@@ -214,7 +214,7 @@
                   "additionalProperties": false,
                   "required": ["namespace", "matchLabels"],
                   "properties": {
-                    "namespace": {"type": "string", "minLength": 1},
+                    "namespace": {"type": "string"},
                     "matchLabels": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "string"}}
                   }
                 }
@@ -723,7 +723,7 @@
       "items": {"$ref": "#/$defs/subject"},
       "x-source": "person",
       "x-readback": {"file": "configmap", "key": "musterMcpServerViewers"},
-      "x-feature": "identity",
+      "x-feature": "tool-access",
       "x-renders": ["configmap:musterMcpServerViewers"],
       "description": "muster's MCP-server viewers (musterMcpServerViewers, the meta chart 4.178.0 and later, giantswarm/agent-platform#1331): RBAC subjects bound to list, get and watch muster's MCPServers in muster's namespace (the Role and RoleBinding agent-platform:mcpserver-viewer). Unset, the default, the key is not written and the chart's viewers are tenants.platform.users. An empty list is written as [] and binds nobody. Typed null, the key goes and the chart's fallback comes back. With organizations.enabled the viewers must not be empty: this list where it is set, else tenants.platform.users where it is set, else the chart's default (system:authenticated); the chart refuses the render otherwise, so the definition refuses it first. The 4 chart line only; a hold of the meta chart below 4.178.0-rc.4 is refused. Read back from the configmap patch on record, so a reconcile keeps the list, an empty one too; typed, it replaces it."
     },
@@ -742,7 +742,7 @@
               "items": {"$ref": "#/$defs/subject"},
               "x-source": "person",
               "x-readback": {"file": "configmap", "key": "tenants.platform.users"},
-              "x-feature": "identity",
+              "x-feature": "tool-access",
               "x-renders": ["configmap:tenants.platform.users"],
               "description": "The platform tenant's users (tenants.platform.users): RBAC subjects bound to agent-platform:platform-user in the kagent namespace, and muster's MCP-server viewers while musterMcpServerViewers is unset. Unset, the chart's default: every signed-in person and every ServiceAccount (system:authenticated). Empty ([]), no agent-platform:platform-user binding renders; with organizations.enabled and musterMcpServerViewers unset, that is refused. Where the fleet policy runs kagent, on the 4 chart line; a hold of the meta chart below 4.132.0-rc.1 is refused."
             },
@@ -752,7 +752,7 @@
               "items": {"$ref": "#/$defs/subject"},
               "x-source": "person",
               "x-readback": {"file": "configmap", "key": "tenants.platform.editors"},
-              "x-feature": "identity",
+              "x-feature": "tool-access",
               "x-renders": ["configmap:tenants.platform.editors"],
               "description": "The platform's operators (tenants.platform.editors): RBAC subjects bound to agent-platform:editor in the kagent namespace. Unset, the chart's default: the Giant Swarm admin groups. Empty ([]), the binding renders only for tenants.platformTeam, and not at all without it. Where the fleet policy runs kagent, on the 4 chart line; a hold of the meta chart below 4.132.0-rc.1 is refused."
             }
@@ -764,7 +764,7 @@
           "items": {"$ref": "#/$defs/subject"},
           "x-source": "person",
           "x-readback": {"file": "configmap", "key": "tenants.platformTeam"},
-          "x-feature": "identity",
+          "x-feature": "tool-access",
           "x-renders": ["configmap:tenants.platformTeam"],
           "description": "The customer's platform team (tenants.platformTeam): RBAC subjects bound to agent-platform:editor in the kagent namespace beside tenants.platform.editors, and added to muster's mcpserver-editor and workflow-editor subjects. Unset, the chart's default: none. With tenants.platform.editors empty, the agent-platform:editor binding stays for the platform team alone. The 4 chart line only; a hold of the meta chart below 4.132.0-rc.1 is refused."
         }
@@ -953,7 +953,7 @@
         "apiGroup": {"type": "string"},
         "kind": {"type": "string", "enum": ["User", "Group", "ServiceAccount"]},
         "name": {"type": "string", "minLength": 1},
-        "namespace": {"type": "string", "minLength": 1}
+        "namespace": {"type": "string"}
       }
     }
   }

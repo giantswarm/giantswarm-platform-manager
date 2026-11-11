@@ -892,11 +892,23 @@ func drivenPaths(values map[string]any, inputs []string, base map[string]map[str
 	}
 	bests := map[string]best{}
 	for _, l := range inputLeaves(values, inputs) {
-		for _, alt := range perturbations(l.value) {
+		alts := perturbations(l.value)
+		for i := 0; i < len(alts); i++ {
 			raw := deepCopy(values)
-			set(raw, l.path, alt)
+			set(raw, l.path, alts[i])
 			other, err := render(raw)
 			if err != nil {
+				// Leaving a list of named entries out is refused for
+				// another input's sake (muster's MCP-server viewers, which
+				// tenants.platform.users stand in for while they are
+				// unset): its entries renamed tell its leaves instead.
+				if _, left := alts[i].(removed); left {
+					if list, isList := l.value.([]any); isList {
+						if renamed, ok := renamedEntries(list); ok {
+							alts = append(alts, renamed)
+						}
+					}
+				}
 				continue
 			}
 			changed := changedLeaves(base, other)
@@ -967,11 +979,7 @@ func leaves(v any, path []string) []leaf {
 type removed struct{}
 
 // perturbations are the alternatives a leaf is tried with: left out, and a
-// value of its type that differs — of a list whose entries are named, each
-// entry renamed, which moves every leaf of every entry (an entry is keyed by
-// its name), where leaving the list out is refused for another input's sake
-// (muster's MCP-server viewers, which tenants.platform.users stand in for
-// while they are unset).
+// value of its type that differs.
 func perturbations(v any) []any {
 	out := []any{removed{}}
 	switch t := v.(type) {
@@ -983,16 +991,14 @@ func perturbations(v any) []any {
 		out = append(out, t+1)
 	case int:
 		out = append(out, t+1)
-	case []any:
-		if renamed, ok := renamedEntries(t); ok {
-			out = append(out, renamed)
-		}
 	}
 	return out
 }
 
 // renamedEntries is a copy of list with the name of every entry that has one
-// changed; false when no entry has one.
+// changed, which moves every leaf of an entry keyed by its name (identity: an
+// entry with an id is keyed by the id, and its leaves stay); false when no
+// entry has a name.
 func renamedEntries(list []any) ([]any, bool) {
 	out := make([]any, len(list))
 	renamed := false

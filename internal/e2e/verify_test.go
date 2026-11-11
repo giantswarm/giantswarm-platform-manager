@@ -448,7 +448,7 @@ func TestVerifyCapabilityNamesThePlatformTenantInputs(t *testing.T) {
 	c := st.mcpClient(t, aliceToken)
 	birchByHand(t, st, c, false)
 
-	const viewers, users = "musterMcpServerViewers", "tenants.platform.users"
+	const viewers, users, editors = "musterMcpServerViewers", "tenants.platform.users", "tenants.platform.editors"
 	res := verifyWith(t, c, birch, map[string]any{
 		organizationsKey: map[string]any{enabledKey: true},
 		viewers:          []any{map[string]any{"apiGroup": "rbac.authorization.k8s.io", kindKey: "Group", nameKey: "oidc:birch-agent-users"}},
@@ -459,7 +459,7 @@ func TestVerifyCapabilityNamesThePlatformTenantInputs(t *testing.T) {
 	}
 	seen := map[string]bool{}
 	for _, diff := range allDifferences(res) {
-		for _, input := range []string{viewers, users} {
+		for _, input := range []string{viewers, users, editors} {
 			if strings.HasPrefix(diff.Path, input) {
 				seen[input] = true
 				if diff.Input != input {
@@ -468,8 +468,8 @@ func TestVerifyCapabilityNamesThePlatformTenantInputs(t *testing.T) {
 			}
 		}
 	}
-	if !seen[viewers] || !seen[users] {
-		t.Fatalf("the comparison shows no difference for %v of %s and %s", seen, viewers, users)
+	if !seen[viewers] || !seen[users] || !seen[editors] {
+		t.Fatalf("the comparison shows no difference for %v of %s, %s and %s", seen, viewers, users, editors)
 	}
 }
 
