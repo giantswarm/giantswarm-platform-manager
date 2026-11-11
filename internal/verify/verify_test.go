@@ -670,12 +670,13 @@ func TestDrivenInputsAreThePersonsAndTheTyped(t *testing.T) {
 	versionInputs := []string{"versions.chart", "versions.components.agent-manager", "versions.components.cluster-manager", "versions.components.kagent", "versions.components.klaus-gateway", "versions.components.model-manager", "versions.components.muster", "versions.components.valkey",
 		"versions.reasons.chart", "versions.reasons.components.agent-manager", "versions.reasons.components.cluster-manager", "versions.reasons.components.kagent", "versions.reasons.components.klaus-gateway", "versions.reasons.components.model-manager", "versions.reasons.components.muster", "versions.reasons.components.valkey"}
 	organizationsInputs := []string{"organizations.apiHostnames", "organizations.commit.enabled", "organizations.enabled", "organizations.portal.enabled"}
+	tenantInputs := []string{"tenants.platform.editors", "tenants.platform.users", "tenants.platformTeam"}
 	got, err := drivenInputs(def, Inputs{Values: doc("a.test", "acme", true)})
-	if err != nil || !reflect.DeepEqual(got, slices.Concat(agentInputs, chatInputs, []string{commitInput}, hiveInputs, gatewayInputs, llmInputs, []string{modelCommitInput, servingInput, "networkPolicy.mcpBackends"}, organizationsInputs, []string{"scheduling.singletonsCapacity", "sessions.idleTTL", skillsInput}, versionInputs)) {
+	if err != nil || !reflect.DeepEqual(got, slices.Concat(agentInputs, chatInputs, []string{commitInput}, hiveInputs, gatewayInputs, llmInputs, []string{modelCommitInput, servingInput, "musterMcpServerViewers", "networkPolicy.mcpBackends"}, organizationsInputs, []string{"scheduling.singletonsCapacity", "sessions.idleTTL", skillsInput}, tenantInputs, versionInputs)) {
 		t.Errorf("from the record: %v %v", got, err)
 	}
 	got, err = drivenInputs(def, Inputs{Values: doc("a.test", "acme", true), Typed: doc("b.test", "acme", false)})
-	if err != nil || !reflect.DeepEqual(got, slices.Concat(agentInputs, chatInputs, []string{commitInput}, hiveInputs, []string{baseDomainInput, customerInput}, gatewayInputs, llmInputs, []string{modelCommitInput, servingInput, "networkPolicy.mcpBackends"}, organizationsInputs, []string{"scheduling.singletonsCapacity", "sessions.idleTTL", skillsInput}, versionInputs)) {
+	if err != nil || !reflect.DeepEqual(got, slices.Concat(agentInputs, chatInputs, []string{commitInput}, hiveInputs, []string{baseDomainInput, customerInput}, gatewayInputs, llmInputs, []string{modelCommitInput, servingInput, "musterMcpServerViewers", "networkPolicy.mcpBackends"}, organizationsInputs, []string{"scheduling.singletonsCapacity", "sessions.idleTTL", skillsInput}, tenantInputs, versionInputs)) {
 		t.Errorf("with facts typed: %v %v", got, err)
 	}
 }
@@ -713,6 +714,48 @@ func TestDrivenPathsPerturbsOnlyTheNamedInputs(t *testing.T) {
 	}
 	if got := drivenPaths(values, nil, base, render); len(got) != 0 {
 		t.Errorf("no input named: %v", got)
+	}
+}
+
+// A list of named entries whose leaving out the definition refuses — the
+// viewers, which the empty users would stand in for — is told by its entries
+// renamed: every leaf of each entry is the list's. A render that takes the
+// list out is tried first, and where it renders, no rename is tried.
+func TestDrivenPathsRenamesAListThatCannotBeLeftOut(t *testing.T) {
+	const viewers = "viewers"
+	values := map[string]any{viewers: []any{map[string]any{"kind": "Group", keyName: "people"}}, "users": []any{}}
+	renders := 0
+	render := func(v map[string]any) (map[string]map[string]string, error) {
+		renders++
+		list, ok := v[viewers].([]any)
+		if _, emptyUsers := v["users"]; !ok && emptyUsers {
+			return nil, errors.New("no viewer")
+		}
+		flat := map[string]string{}
+		for _, item := range list {
+			m := item.(map[string]any)
+			name := m[keyName].(string)
+			flat["viewers["+name+"].kind"] = m["kind"].(string)
+			flat["viewers["+name+"].name"] = name
+		}
+		return map[string]map[string]string{"r:values": flat}, nil
+	}
+	base, _ := render(values)
+	renders = 0
+	got := drivenPaths(values, []string{viewers}, base, render)
+	for _, leaf := range []string{"r:values#viewers[people].kind", "r:values#viewers[people].name"} {
+		if got[leaf] != viewers {
+			t.Errorf("refused out: %s is %q in %v", leaf, got[leaf], got)
+		}
+	}
+	if renders != 2 {
+		t.Errorf("refused out: %d renders, want the removal and the rename", renders)
+	}
+	delete(values, "users")
+	renders = 0
+	got = drivenPaths(values, []string{viewers}, base, render)
+	if got["r:values#viewers[people].name"] != viewers || renders != 1 {
+		t.Errorf("left out: %v after %d renders, want the removal alone", got, renders)
 	}
 }
 

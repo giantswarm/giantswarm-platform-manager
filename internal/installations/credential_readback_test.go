@@ -50,9 +50,24 @@ func TestAgentManagerCredentialReadBack(t *testing.T) {
 // credential-form golden's patch read back and rendered again is the same
 // patch, byte for byte.
 func TestAgentManagerCredentialFormSurvivesAReconcile(t *testing.T) {
+	patch, read, again := renderGoldenFromTheRecord(t, "credential-form")
+	require.Contains(t, patch, "agentManager:\n  route:\n", "the golden carries no route to keep")
+	for input := range read {
+		require.False(t, strings.HasPrefix(input, "agentManager.route"), "%s is derived, not read back", input)
+	}
+	require.Equal(t, patch, again)
+}
+
+// renderGoldenFromTheRecord is a reconcile of a golden shape that types no
+// input: the shape's golden configmap patch on record, the person's choices
+// read back from it, rendered again over the shape's installation facts. It
+// answers the patch on record, what was read back and the patch rendered
+// again.
+func renderGoldenFromTheRecord(t *testing.T, shapeName string) (patch string, read map[string]any, again string) {
+	t.Helper()
 	definition, found := FindCapability(AgentPlatform)
 	require.True(t, found)
-	shape := os.DirFS("../../render/agentplatform/testdata/credential-form")
+	shape := os.DirFS(filepath.Join("../../render/agentplatform/testdata", shapeName))
 	raw, err := fs.ReadFile(shape, "input.yaml")
 	require.NoError(t, err)
 	var doc struct {
@@ -62,16 +77,12 @@ func TestAgentManagerCredentialFormSurvivesAReconcile(t *testing.T) {
 	record := doc.Input["installation"].(map[string]any)
 	name := record["name"].(string)
 	marker := definition.EnabledMarker(name)
-	patch, err := fs.ReadFile(shape, "golden/giantswarm/giantswarm-configs/"+marker)
+	golden, err := fs.ReadFile(shape, "golden/giantswarm/giantswarm-configs/"+marker)
 	require.NoError(t, err)
-	require.Contains(t, string(patch), "agentManager:\n  route:\n", "the golden carries no route to keep")
 
 	inst := Installation{Name: name, BaseDomain: record["baseDomain"].(string), Repositories: Repositories{Configs: "giantswarm/giantswarm-configs", ManagementClusters: "giantswarm/giantswarm-management-clusters"}}
-	read, err := definition.ReadBack(t.Context(), files(map[string]string{inst.Repositories.Configs + ":" + marker: string(patch)}), inst, "", nil)
+	read, err = definition.ReadBack(t.Context(), files(map[string]string{inst.Repositories.Configs + ":" + marker: string(golden)}), inst, "", nil)
 	require.NoError(t, err)
-	for input := range read {
-		require.False(t, strings.HasPrefix(input, "agentManager.route"), "%s is derived, not read back", input)
-	}
 
 	input := map[string]any{"installation": record}
 	for key, value := range read {
@@ -87,5 +98,5 @@ func TestAgentManagerCredentialFormSurvivesAReconcile(t *testing.T) {
 	}
 	result, err := definition.Render(input, nil, render.ModeCommit)
 	require.NoError(t, err)
-	require.Equal(t, string(patch), string(result.Tree()[filepath.Join("giantswarm", "giantswarm-configs", marker)]))
+	return string(golden), read, string(result.Tree()[filepath.Join("giantswarm", "giantswarm-configs", marker)])
 }
