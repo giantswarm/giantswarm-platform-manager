@@ -1061,13 +1061,13 @@ func (in *Input) checkRecord() error {
 		return refuse(fmt.Sprintf("%s bounds how long kagent keeps an idle Session, and the fleet policy runs no kagent on %s's installations", describe("sessions.idleTTL"), in.Installation.Customer))
 	}
 	if err := in.checkSkillManagerChart("kagent with the agent-manager", in.kagent() && in.agentManager(),
-		skillManagerChartChoice{in.DefaultAgent.disabled(), "defaultAgent.enabled", "turns off the default agent in kagent"},
-		skillManagerChartChoice{in.DefaultAgent.ModelConfig != "", "defaultAgent.modelConfig", "names the default agent's ModelConfig in kagent"}); err != nil {
+		skillManagerChartChoice{in.DefaultAgent.disabled(), "defaultAgent.enabled", "turns off the default agent in kagent", true},
+		skillManagerChartChoice{in.DefaultAgent.ModelConfig != "", "defaultAgent.modelConfig", "names the default agent's ModelConfig in kagent", false}); err != nil {
 		return err
 	}
 	if err := in.checkSkillManagerChart(componentAgentManager, in.agentManager(),
-		skillManagerChartChoice{len(in.SkillManagerSources) > 0, "skillManager.sources", "lists the sources of the skill-manager, which runs with the agent-manager"},
-		skillManagerChartChoice{in.SkillManagerAppSecret != "", "skillManager.github.app.secretName", "names the GitHub App of the skill-manager, which runs with the agent-manager"}); err != nil {
+		skillManagerChartChoice{len(in.SkillManagerSources) > 0, "skillManager.sources", "lists the sources of the skill-manager, which runs with the agent-manager", false},
+		skillManagerChartChoice{in.SkillManagerAppSecret != "", "skillManager.github.app.secretName", "names the GitHub App of the skill-manager, which runs with the agent-manager", false}); err != nil {
 		return err
 	}
 	if err := in.checkSkillSourceConflicts(); err != nil {
@@ -1214,14 +1214,19 @@ func (in *Input) refuseOffLineFour(input string) error {
 
 // skillManagerChartChoice is an input the person chose, or not, that the
 // meta chart takes from skillManagerChart on; what says what the input does.
+// anyChart marks an input every 4 chart takes (a components toggle, open in
+// the values schema of every release), so no chart gates it.
 type skillManagerChartChoice struct {
 	chosen      bool
 	input, what string
+	anyChart    bool
 }
 
 // checkSkillManagerChart refuses each chosen input outside the 4 chart
-// line, where the fleet policy does not run component (runs), and with a
-// versions.chart hold below skillManagerChart.
+// line, where the fleet policy does not run component (runs), and, unless
+// any chart takes it, with a versions.chart hold below skillManagerChart or
+// on an installation that runs stable releases only while skillManagerChart
+// is a release candidate (skillManagerChartReleased).
 func (in *Input) checkSkillManagerChart(component string, runs bool, choices ...skillManagerChartChoice) error {
 	for _, c := range choices {
 		if !c.chosen {
@@ -1233,17 +1238,44 @@ func (in *Input) checkSkillManagerChart(component string, runs bool, choices ...
 		if !runs {
 			return refuse(fmt.Sprintf("%s %s, and the fleet policy runs no %s on %s's installations", describe(c.input), c.what, component, in.Installation.Customer))
 		}
+		if c.anyChart {
+			continue
+		}
 		if !holdAdmits(in.Versions.Chart, skillManagerChart) {
 			return refuse(fmt.Sprintf("%s needs the meta chart %s or later, which runs the skill-manager and the default agent, and %s holds it at %s; move or lift the hold first", describe(c.input), skillManagerChart, describe("versions.chart"), in.Versions.Chart))
+		}
+		if !in.ReleaseCandidates && !skillManagerChartReleased {
+			return refuse(fmt.Sprintf("%s needs agent-platform %s, a release candidate so far; this installation runs stable releases only", describe(c.input), skillManagerChartRelease()))
 		}
 	}
 	return nil
 }
 
 // skillManagerChart is the first meta chart that runs the skill-manager and
-// ships the default agent (giantswarm/agent-platform#1265). Its values schema
-// refuses skillManager, skill-manager and defaultAgent below it.
-const skillManagerChart = "4.179.0"
+// ships the default agent (giantswarm/agent-platform#1265), its first release
+// candidate with the keys. Its values schema refuses skillManager,
+// skill-manager and defaultAgent below it.
+const skillManagerChart = "4.179.0-rc.9"
+
+// skillManagerChartReleased says skillManagerChart's release is out as a
+// stable release. Until it is, only the installations that run release
+// candidates reach it: the stable ones run a chart whose closed schema
+// refuses the inputs. Set it to true once agent-platform 4.179.0 is stable.
+const skillManagerChartReleased = false
+
+// skillManagerChartRelease is the release of skillManagerChart, without the
+// candidate.
+func skillManagerChartRelease() string {
+	release, _, _ := strings.Cut(skillManagerChart, "-")
+	return release
+}
+
+// reachesSkillManagerChart says whether the meta chart the installation
+// resolves to may be skillManagerChart or later: the 4 line, no
+// versions.chart hold below it, and release candidates or the release out.
+func (in *Input) reachesSkillManagerChart() bool {
+	return in.Installation.ChartLine == lineFour && holdAdmits(in.Versions.Chart, skillManagerChart) && (in.ReleaseCandidates || skillManagerChartReleased)
+}
 
 // agentManagerViaSkillManager is the first agent-manager release that takes
 // its skills from the skill-manager (the meta chart's
@@ -1252,29 +1284,77 @@ const agentManagerViaSkillManager = "2.24.0"
 
 // platformSkillsRepository is the platform's own skill source, which the
 // meta chart lists first (skills.platformSource, never turned off by this
-// definition) and fails the render on a skillManager.sources entry naming it.
+// definition) and fails the render on a skill source naming it.
 const platformSkillsRepository = "https://github.com/giantswarm/agent-platform"
 
-// checkSkillSourceConflicts refuses a skillManager.sources entry naming the
-// platform's own repository, compared as the meta chart does (no trailing
-// "/" or ".git"); agentManager.skills.repositories where the agent-manager
-// may take its skills from the skill-manager, on which the meta chart fails;
+// namesPlatformSkills says whether a skill source's URL names the platform's
+// own repository, compared as the meta chart does (no trailing "/" or ".git").
+func namesPlatformSkills(url string) bool {
+	return strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(url, "/"), ".git"), "/") == platformSkillsRepository
+}
+
+// takesSkillsFromSkillManager says whether the agent-manager takes its skills
+// from the skill-manager, as the meta chart decides it
+// (agent-platform.agentManager.viaSkillManager): on a chart with the
+// skill-manager, the floor of components.agent-manager.versionRange at
+// agentManagerViaSkillManager or later. Only a hold sets that range here;
+// without one the chart's default (>=2.22.0) stands, below the floor.
+func (in *Input) takesSkillsFromSkillManager() bool {
+	return in.reachesSkillManagerChart() && componentFloorAtLeast(in.Versions.Components[componentAgentManager], agentManagerViaSkillManager)
+}
+
+// checkSkillSourceConflicts refuses a skill source naming the platform's own
+// repository where the meta chart lists it itself: a skillManager.sources
+// entry, and an agentManager.skills.repositories entry on a chart with the
+// skill-manager; agentManager.skills.repositories where the agent-manager
+// takes its skills from the skill-manager, on which the meta chart fails;
 // and agentManager.skills.repositories beside skillManager.sources, which an
-// agent-manager held below agentManagerViaSkillManager takes in their place.
+// agent-manager below agentManagerViaSkillManager takes in their place.
 func (in *Input) checkSkillSourceConflicts() error {
 	for i, s := range in.SkillManagerSources {
-		url := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(s.URL, "/"), ".git"), "/")
-		if url == platformSkillsRepository {
+		if namesPlatformSkills(s.URL) {
 			return refuse(fmt.Sprintf("%s entry %d (%s) names the platform's own skill repository, which the meta chart already lists read-only at its release; remove the entry", describe("skillManager.sources"), i, s.URL))
 		}
 	}
-	if len(in.AgentManagerSkills.Repositories) > 0 && in.Installation.ChartLine == lineFour && holdAdmits(in.Versions.Chart, skillManagerChart) && holdAdmits(in.Versions.Components[componentAgentManager], agentManagerViaSkillManager) {
-		return refuse(fmt.Sprintf("%s is set, and from the meta chart %s with the agent-manager %s on the agent-manager takes its skills from the skill-manager and the meta chart fails on the list; move it into skillManager.sources, or hold %s or %s below those releases", describe("agentManager.skills.repositories"), skillManagerChart, agentManagerViaSkillManager, describe("versions.chart"), describe("versions.components.agent-manager")))
+	if len(in.AgentManagerSkills.Repositories) > 0 && in.takesSkillsFromSkillManager() {
+		return refuse(fmt.Sprintf("%s is set, and %s holds the agent-manager at %s or later, which takes its skills from the skill-manager, so the meta chart fails on the list; move it into skillManager.sources, or hold the agent-manager below %s", describe("agentManager.skills.repositories"), describe("versions.components.agent-manager"), agentManagerViaSkillManager, agentManagerViaSkillManager))
+	}
+	if in.reachesSkillManagerChart() {
+		for i, url := range in.AgentManagerSkills.Repositories {
+			if namesPlatformSkills(url) {
+				return refuse(fmt.Sprintf("%s entry %d (%s) names the platform's own skill repository, which the meta chart from %s on already lists read-only at its release; remove the entry", describe("agentManager.skills.repositories"), i, url, skillManagerChart))
+			}
+		}
 	}
 	if len(in.SkillManagerSources) > 0 && len(in.AgentManagerSkills.Repositories) > 0 {
-		return refuse(fmt.Sprintf("%s and %s are both set, and with the agent-manager held below %s the meta chart lets the agent-manager's list replace skillManager.sources for it; move the list into skillManager.sources and lift the hold", describe("skillManager.sources"), describe("agentManager.skills.repositories"), agentManagerViaSkillManager))
+		return refuse(fmt.Sprintf("%s and %s are both set, and an agent-manager below %s (the meta chart's default range among them) takes its own list in place of skillManager.sources; move the list into skillManager.sources", describe("skillManager.sources"), describe("agentManager.skills.repositories"), agentManagerViaSkillManager))
 	}
 	return nil
+}
+
+// componentFloorAtLeast says whether the floor of a component's version
+// hold is version or later, its release candidates included, as the meta
+// chart reads it (agent-platform.componentFloorAtLeast over
+// agent-platform.semverRangeFloor): the version of the first term that is no
+// upper bound and reads as a version, its >=, >, ^, ~ or = taken off, the
+// pre-release stripped. No hold, or one without a floor, is false.
+func componentFloorAtLeast(hold, version string) bool {
+	for _, term := range strings.Fields(strings.ReplaceAll(hold, ",", " ")) {
+		if strings.HasPrefix(term, "<") {
+			continue
+		}
+		v := strings.TrimPrefix(term, ">=")
+		for _, p := range []string{">", "^", "~", "=", "v"} {
+			v = strings.TrimPrefix(v, p)
+		}
+		floor, err := semverlib.StrictNewVersion(v)
+		if err != nil {
+			continue
+		}
+		release, _ := floor.SetPrerelease("")
+		return !release.LessThan(semverlib.MustParse(version))
+	}
+	return false
 }
 
 // modelFreeChart is the first meta chart that declares no model
