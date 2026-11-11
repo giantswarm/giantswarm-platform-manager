@@ -214,7 +214,7 @@
                   "additionalProperties": false,
                   "required": ["namespace", "matchLabels"],
                   "properties": {
-                    "namespace": {"type": "string"},
+                    "namespace": {"type": "string", "minLength": 1},
                     "matchLabels": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "string"}}
                   }
                 }

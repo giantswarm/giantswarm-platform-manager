@@ -682,6 +682,11 @@ func TestRefusals(t *testing.T) {
 		}), secrets, ErrInput, "modelManager.github.enabled"},
 		{"an MCP backend without its namespace", mcpBackends("", 8080), secrets, ErrInput, "networkPolicy/mcpBackends/tickets"},
 		{"an MCP backend's port that is no integer", mcpBackends("mcp-tickets", "http"), secrets, ErrInput, "networkPolicy/mcpBackends/tickets/ports/0"},
+		// The meta chart's values schema refuses an additional peer without a namespace.
+		{"an MCP backend's additional peer with an empty namespace", clone(func(m map[string]any) {
+			m["networkPolicy"] = map[string]any{"mcpBackends": map[string]any{"tickets": map[string]any{"namespace": "mcp-tickets", "ports": []any{8080},
+				"additionalPeers": []any{map[string]any{"namespace": "", "matchLabels": map[string]any{"app": "gateway"}}}}}}
+		}), secrets, ErrInput, "networkPolicy/mcpBackends/tickets/additionalPeers/0/namespace"},
 		{"MCP backends on the 3 line", mcpBackends("mcp-tickets", 8080), secrets, ErrInput, "networkPolicy.mcpBackends"},
 		{"targets without a broker client", clone(func(m map[string]any) {
 			federation(m)["targets"] = []any{target(false)}
