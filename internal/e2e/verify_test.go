@@ -411,8 +411,15 @@ func TestVerifyCapabilityDiffersByInput(t *testing.T) {
 	}
 }
 
-// organizationsCommit is the organizations' commit mode block.
-const organizationsCommit = "commit"
+// organizationsCommit is the organizations' commit mode block, and
+// organizationsKey the organizations' choices in an input document.
+const (
+	organizationsCommit = "commit"
+	organizationsKey    = "organizations"
+)
+
+// kindKey is an object's or an RBAC subject's kind.
+const kindKey = "kind"
 
 // Commit mode typed while the organizations' switch is off on record is
 // refused, naming the switch: the comparison tells the typed inputs from
@@ -423,9 +430,46 @@ func TestVerifyCapabilityRefusesADependentTypedWithoutItsSwitch(t *testing.T) {
 	c := st.mcpClient(t, aliceToken)
 	enableRowan(t, st, c, kagentEnabled(), kagentEnabled())
 
-	res := verifyWith(t, c, rowan, map[string]any{"organizations": map[string]any{organizationsCommit: map[string]any{enabledKey: true}}})
+	res := verifyWith(t, c, rowan, map[string]any{organizationsKey: map[string]any{organizationsCommit: map[string]any{enabledKey: true}}})
 	if !strings.Contains(res.Refused, "organizations.commit.enabled") || !strings.Contains(res.Refused, "type organizations.enabled: true") || res.CommitRefused != res.Refused {
 		t.Fatalf("refused %q, commitRefused %q, want both naming the switch", res.Refused, res.CommitRefused)
+	}
+}
+
+// The retirement of the platform tenant typed in one call — the
+// organizations on, muster's MCP-server viewers named, the platform tenant's
+// users and editors empty — is not refused, and the comparison names each
+// list's input for every difference it makes, the viewers' too: leaving the
+// viewers out would make the users the viewers, which the organizations
+// refuse empty, so the viewers are told by their entries renamed instead.
+func TestVerifyCapabilityNamesThePlatformTenantInputs(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	birchByHand(t, st, c, false)
+
+	const viewers, users = "musterMcpServerViewers", "tenants.platform.users"
+	res := verifyWith(t, c, birch, map[string]any{
+		organizationsKey: map[string]any{enabledKey: true},
+		viewers:          []any{map[string]any{"apiGroup": "rbac.authorization.k8s.io", kindKey: "Group", nameKey: "oidc:birch-agent-users"}},
+		"tenants":        map[string]any{"platform": map[string]any{"users": []any{}, "editors": []any{}}},
+	})
+	if res.Refused != "" {
+		t.Fatalf("refused: %s", res.Refused)
+	}
+	seen := map[string]bool{}
+	for _, diff := range allDifferences(res) {
+		for _, input := range []string{viewers, users} {
+			if strings.HasPrefix(diff.Path, input) {
+				seen[input] = true
+				if diff.Input != input {
+					t.Errorf("%s#%s is %q, want %s", diff.File, diff.Path, diff.Input, input)
+				}
+			}
+		}
+	}
+	if !seen[viewers] || !seen[users] {
+		t.Fatalf("the comparison shows no difference for %v of %s and %s", seen, viewers, users)
 	}
 }
 

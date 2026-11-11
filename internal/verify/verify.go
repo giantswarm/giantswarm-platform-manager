@@ -967,7 +967,11 @@ func leaves(v any, path []string) []leaf {
 type removed struct{}
 
 // perturbations are the alternatives a leaf is tried with: left out, and a
-// value of its type that differs.
+// value of its type that differs — of a list whose entries are named, each
+// entry renamed, which moves every leaf of every entry (an entry is keyed by
+// its name), where leaving the list out is refused for another input's sake
+// (muster's MCP-server viewers, which tenants.platform.users stand in for
+// while they are unset).
 func perturbations(v any) []any {
 	out := []any{removed{}}
 	switch t := v.(type) {
@@ -979,8 +983,34 @@ func perturbations(v any) []any {
 		out = append(out, t+1)
 	case int:
 		out = append(out, t+1)
+	case []any:
+		if renamed, ok := renamedEntries(t); ok {
+			out = append(out, renamed)
+		}
 	}
 	return out
+}
+
+// renamedEntries is a copy of list with the name of every entry that has one
+// changed; false when no entry has one.
+func renamedEntries(list []any) ([]any, bool) {
+	out := make([]any, len(list))
+	renamed := false
+	for i, item := range list {
+		out[i] = item
+		m, isMap := item.(map[string]any)
+		if !isMap {
+			continue
+		}
+		name, isText := m["name"].(string)
+		if !isText {
+			continue
+		}
+		entry := maps.Clone(m)
+		entry["name"] = name + "-x"
+		out[i], renamed = entry, true
+	}
+	return out, renamed
 }
 
 func set(m map[string]any, path []string, v any) {

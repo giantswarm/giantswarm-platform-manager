@@ -31,6 +31,7 @@ features:
       - {id: muster-post-login-redirect-allowlist, kind: configmap, key: muster.muster.oauth.mcpClient.postLoginRedirectAllowlist}
       - {id: edge-jwt-validation, kind: configmap, key: "gateway.jwksEgress / extraObjects[ReferenceGrant/<namespace>/<name>] / agent-platform-mcps.agentgateway.jwt.extraProviders (gateway.jwksEgress also opens the keys of agentManager.route's JWT policy)"}
       - {id: edge-oauth-mode, kind: configmap, key: agent-platform-mcps.agentgateway.oauthMode}
+      - {id: platform-tenant-bindings, kind: configmap, key: "tenants / musterMcpServerViewers (who the platform tenant binds in the kagent namespace, and who lists muster's MCP servers)"}
       - {id: dex-extra-static-clients, kind: dex-configmap, key: oidc.extraStaticClients}
       - {id: dex-static-client-keys, kind: dex-configmap, key: oidc.staticClients}
       - {id: dex-other-oidc-keys, kind: dex-configmap, catchAll: true, key: every other key of the patch (oidc.* but staticClients and extraStaticClients and customer.connectors)}
