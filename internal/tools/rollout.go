@@ -170,6 +170,13 @@ func releaseWaits(ctx context.Context, c *gh.Client, def installations.Capabilit
 		}
 		release, merge := objectName(ch.Namespace, ch.Name), fmt.Sprintf("%s#%d", pr.Repository, pr.Number)
 		base := baselineOf(st, release, merge)
+		if base != nil && base.Version == 0 && ch.Mark == verify.NotChecked {
+			// The values the first install reads were not read: what the
+			// person may not read is not checked, and the bound does not
+			// count it.
+			waits = append(waits, rolloutWait{what: fmt.Sprintf("the values %s reads not read: %s", object, orNotRead(ch.Message)), unread: true})
+			continue
+		}
 		if w := releaseWait(object, pr, ch, base); w != "" {
 			waits = append(waits, rolloutWait{what: w})
 		}
@@ -255,7 +262,10 @@ func ranAtMerge(release, merge string, pr actions.PullRequest, ch verify.Check) 
 // merge. The v1 deploy time after the merge is a defensive check: a
 // HelmRelease created after the merge deploys its v1 after it. v1's status
 // is not asked: a failed install that a later upgrade fixed is a first
-// install too, and releaseWait asks the newest release to run.
+// install too, and releaseWait asks the newest release to run. The creation
+// time is the apiserver's clock against GitHub's merge time: an apiserver
+// clock behind by more than the Konfiguration's apply latency reads a new
+// HelmRelease as older than the merge, and the stage is not proven.
 func installedAfter(ch verify.Check, mergedAt time.Time) bool {
 	if ch.Created == nil || !ch.Created.After(mergedAt) {
 		return false
@@ -276,9 +286,11 @@ func installedAfter(ch verify.Check, mergedAt time.Time) bool {
 // no release ran at the merge, so there is no digest to tell old values by:
 // the newest release proves the merge where the values it reads hold the
 // merged ones (ch's drift check of the whole values is as defined). A first
-// release Helm installed from the values of seconds before the
-// Konfiguration wrote the merged ones reads as proven too; it runs them
-// until Flux's next upgrade, a race accepted as rare and self-correcting.
+// release Helm installed from values read before the merged ones were
+// written — seconds before, when one apply creates the HelmRelease and
+// writes its values, up to one HelmRelease interval when another applier
+// writes them later — reads as proven too; it runs them until Flux's next
+// upgrade, a race accepted as rare and self-correcting.
 func releaseWait(object string, pr actions.PullRequest, ch verify.Check, base *actions.ReleaseBaseline) string {
 	newest := ch.Releases[0]
 	var mergedAt time.Time

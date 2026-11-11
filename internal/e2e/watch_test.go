@@ -807,6 +807,56 @@ func TestWatchActionWaitsForAFirstInstallsMergedValues(t *testing.T) {
 	}
 }
 
+// A first install whose values ConfigMap the person may not read: what is not
+// read is not checked, so the stage stays rolling out past the bound, never
+// failed on it.
+func TestWatchActionKeepsAnUnreadFirstInstallRollingOut(t *testing.T) {
+	st := newStack(t)
+	a, _ := mergedRowan(t, st)
+	admin := adminLive(t, st)
+	fluxBehind(t, st, st.inst, a, rowan)
+	hr := st.inst.take(helmReleaseKind, fluxNamespace, platformRelease)
+	_, merge := configsMerge(t, &a, rowan)
+	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
+	st.inst.install(hr, valuesMerged)
+	st.inst.forbid("ConfigMap", fluxNamespace, platformValuesConfigMap)
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || w.State != actions.StateRollingOut || !strings.Contains(stageOf(w.Action, rowan).Message, "the values "+helmReleaseKind+" "+fluxNamespace+"/"+platformRelease+" reads not read") {
+		t.Fatalf("the values not read: %v %s", isErr, text)
+	}
+	status := w.Action.Status
+	hourAgo := time.Now().Add(-time.Hour)
+	for k := range status.PullRequests {
+		status.PullRequests[k].MergedAt = &hourAgo
+	}
+	if _, err := actions.New(st.dyn, actionsNamespace).UpdateStatus(t.Context(), w.Action, status); err != nil {
+		t.Fatal(err)
+	}
+	if w, text, isErr = watchCall(t, admin, a.Name); isErr || w.State != actions.StateRollingOut || w.Action.Status.State != actions.StateRollingOut {
+		t.Fatalf("past the bound: %v %s", isErr, text)
+	}
+}
+
+// A first install whose v1 failed and whose upgrade to v2 runs: the history
+// keeps the failed v1, since no release before it ran, and the stage is
+// enabled — v1's own status is not asked.
+func TestWatchActionProvesAFirstInstallWhoseV1Failed(t *testing.T) {
+	st := newStack(t)
+	a, _ := mergedRowan(t, st)
+	admin := adminLive(t, st)
+	fluxBehind(t, st, st.inst, a, rowan)
+	hr := st.inst.take(helmReleaseKind, fluxNamespace, platformRelease)
+	_, merge := configsMerge(t, &a, rowan)
+	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
+	st.inst.install(hr, valuesMerged)
+	st.inst.releaseAt(fluxNamespace, platformRelease, valuesMerged, time.Now().Add(2*time.Second))
+	st.inst.failRelease(fluxNamespace, platformRelease, 1)
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || !w.Ready || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled {
+		t.Fatalf("a failed v1, then v2: %v %s", isErr, text)
+	}
+}
+
 // A first install whose values ConfigMap the manager that owns its data
 // changed afterwards in its metadata alone — konfigure rewrites its revision
 // label on every commit of the configs repository: v1 runs the merged

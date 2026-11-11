@@ -154,6 +154,8 @@ type fakeInstallation struct {
 	objects map[string]map[string]any // kind|namespace|name, kind lowercased
 	logs    map[string]string         // namespace/pod
 	apis    []apiResource             // what discovery lists
+	// forbidden are the objects no person may read, by objectKey.
+	forbidden map[string]bool
 }
 
 // apiResource is one API resource discovery lists, as mcp-kubernetes's
@@ -168,7 +170,7 @@ type apiResource struct {
 }
 
 func newFakeInstallation() *fakeInstallation {
-	return &fakeInstallation{objects: map[string]map[string]any{}, logs: map[string]string{}}
+	return &fakeInstallation{objects: map[string]map[string]any{}, logs: map[string]string{}, forbidden: map[string]bool{}}
 }
 
 // serveAPI makes discovery list the resource of the group at the version.
@@ -474,6 +476,21 @@ func (f *fakeInstallation) releaseVersion(namespace, name, digest string, versio
 	})
 }
 
+// forbid has the apiserver refuse every person the read of object kind
+// namespace/name.
+func (f *fakeInstallation) forbid(kind, namespace, name string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.forbidden[objectKey(kind, namespace, name)] = true
+}
+
+// isForbidden says whether no person may read object kind namespace/name.
+func (f *fakeInstallation) isForbidden(kind, namespace, name string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.forbidden[objectKey(kind, namespace, name)]
+}
+
 // take removes object kind namespace/name from the installation and returns
 // it: an object Flux has not created yet.
 func (f *fakeInstallation) take(kind, namespace, name string) map[string]any {
@@ -551,6 +568,18 @@ const (
 	platformValuesConfigMap = "agent-platform-konfiguration"
 	platformValuesKey       = "configmap-values.yaml"
 )
+
+// failRelease marks release version of HelmRelease namespace/name failed
+// in its history.
+func (f *fakeInstallation) failRelease(namespace, name string, version int) {
+	f.edit(helmReleaseKind, namespace, name, func(obj map[string]any) {
+		for _, h := range obj[statusKey].(map[string]any)["history"].([]any) {
+			if entry := h.(map[string]any); entry["version"] == version {
+				entry[statusKey] = "failed"
+			}
+		}
+	})
+}
 
 // creationTimestampKey is when the apiserver created an object.
 const creationTimestampKey = "creationTimestamp"
@@ -829,6 +858,9 @@ func (m *fakeMuster) kubernetes(op string) mustertest.Tool {
 		switch op {
 		case opGet:
 			name, _ := args["name"].(string)
+			if inst.isForbidden(kind, namespace, name) {
+				return mcp.NewToolResultError(fmt.Sprintf(`Failed to get resource: %ss %q is forbidden: User "oidc:%s" cannot get resource "%ss" in API group "" in the namespace "%s" (impersonating user=%s)`, kind, name, person, kind, namespace, person))
+			}
 			obj, ok := inst.get(kind, namespace, name)
 			if !ok {
 				return mcp.NewToolResultError(fmt.Sprintf("Failed to get resource: %ss.%s %q not found", kind, args["apiGroup"], name))
