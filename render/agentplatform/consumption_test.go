@@ -47,10 +47,12 @@ func TestRenderConsumption(t *testing.T) {
 
 // consumptionShape is one installation the test proves: the customer-portal
 // definition's input under testdata/consumption/ whose files compose the
-// portal's tree, and the agent-platform shape (testdata/<platform>) whose
-// files the portal's tree lists as its Component — "" for a portal-only
-// installation, where the portal's files alone compose the backstage release
-// and its own dex patch carries its Dex client.
+// portal's tree — "" for an installation signed into from a portal on
+// another installation, the hub's hand-kept Dev Portal, which renders no
+// portal tree here — and the agent-platform shape (testdata/<platform>)
+// whose files the portal's tree lists as its Component — "" for a
+// portal-only installation, where the portal's files alone compose the
+// backstage release and its own dex patch carries its Dex client.
 type consumptionShape struct {
 	name     string
 	platform string
@@ -65,19 +67,28 @@ var consumptionShapes = []consumptionShape{
 	{name: shapeGiantswarmOwned, platform: shapeGiantswarmOwned, portal: shapeGiantswarmOwned + portalInputSuffix},
 	{name: shapeGiantswarmSlackApp, platform: shapeGiantswarmSlackApp, portal: shapeGiantswarmSlackApp + portalInputSuffix},
 	{name: "customer-portal", portal: "customer-portal" + portalInputSuffix},
+	// The organizations and agent-manager's credential form (meta chart
+	// 4.177.0 and later): signed into from the hub's hand-kept portal, or
+	// from the installation's own portal with the Organizations pages.
+	{name: shapeOrganizationsApply, platform: shapeOrganizationsApply},
+	{name: shapeOrganizationsCommit, platform: shapeOrganizationsCommit},
+	{name: shapeOrganizationsPortal, platform: shapeOrganizationsPortal, portal: shapeOrganizationsPortal + portalInputSuffix},
+	{name: shapeCredentialForm, platform: shapeCredentialForm},
 }
 
 const (
-	consumptionDir = "testdata/consumption"
-	kindSecret     = "Secret"
-	kindConfigMap  = "ConfigMap"
-	kindHelmRel    = "HelmRelease"
-	kindOCIRepo    = "OCIRepository"
-	fieldSpec      = "spec"
-	fieldName      = "name"
-	fieldKey       = "key"
-	fieldKind      = "kind"
-	fieldOptional  = "optional"
+	// chartConnectivity is the meta chart's connectivity child.
+	chartConnectivity = "agent-platform-connectivity"
+	consumptionDir    = "testdata/consumption"
+	kindSecret        = "Secret"
+	kindConfigMap     = "ConfigMap"
+	kindHelmRel       = "HelmRelease"
+	kindOCIRepo       = "OCIRepository"
+	fieldSpec         = "spec"
+	fieldName         = "name"
+	fieldKey          = "key"
+	fieldKind         = "kind"
+	fieldOptional     = "optional"
 )
 
 // pin is one entry of charts.yaml: a consuming chart, its OCI repository and the
@@ -328,19 +339,29 @@ func loadGaps(t *testing.T) map[string]knownGap {
 
 func consume(t *testing.T, shape consumptionShape, charts *chartStore) {
 	c := &consumption{t: t, dir: t.TempDir(), charts: charts, gaps: loadGaps(t), emitted: map[string]emittedSecret{}}
-	portal := c.renderPortal(shape.portal)
-	c.installation = portal.Installation.Name
+	var portal *customerportal.Input
+	if shape.portal != "" {
+		portal = c.renderPortal(shape.portal)
+		c.installation = portal.Installation.Name
+	}
 	if shape.platform != "" {
 		input, secrets := loadInput(t, shape.platform)
 		in, err := Parse(input)
 		if err != nil {
 			t.Fatal(err)
 		}
-		ownPortal := slices.ContainsFunc(in.Installation.Portals, func(p PortalRef) bool {
-			return p.Customer == in.Installation.Customer && p.Domain == portal.Portal.Domain
-		})
-		if in.Installation.Name != c.installation || !ownPortal || !portal.Installation.AgentPlatform {
-			t.Fatalf("%s and %s/%s must describe one installation with the platform and its portal", shape.platform, consumptionDir, shape.portal)
+		if portal == nil {
+			if p := in.hostedPortal(); p != nil && !p.HandKept {
+				t.Fatalf("%s: the platform writes its portal section into %s's portal, so the shape needs that portal's input under %s", shape.platform, p.Installation, consumptionDir)
+			}
+			c.installation = in.Installation.Name
+		} else {
+			ownPortal := slices.ContainsFunc(in.Installation.Portals, func(p PortalRef) bool {
+				return p.Customer == in.Installation.Customer && p.Domain == portal.Portal.Domain
+			})
+			if in.Installation.Name != c.installation || !ownPortal || !portal.Installation.AgentPlatform {
+				t.Fatalf("%s and %s/%s must describe one installation with the platform and its portal", shape.platform, consumptionDir, shape.portal)
+			}
 		}
 		result, err := Render(input, secrets, render.ModeCommit)
 		if err != nil {
@@ -348,6 +369,13 @@ func consume(t *testing.T, shape consumptionShape, charts *chartStore) {
 		}
 		c.write(result)
 		c.platform = in
+		if portal == nil && in.Installation.PortalClientSecret {
+			// The portal client's Secret the record says is on record, which
+			// the customer-portal definition renders with a portal's tree: a
+			// shape without one stands it in for the Dex Deployment to load.
+			name := dexClientSecretName(render.PortalDexClientID)
+			c.emitted[dexNamespace+"/"+name] = emittedSecret{ns: dexNamespace, name: name, keys: map[string]bool{dexSecretKey: true}}
+		}
 	} else if portal.Installation.AgentPlatform {
 		t.Fatalf("%s/%s enables the platform but the shape renders none", consumptionDir, shape.portal)
 	}
@@ -355,9 +383,14 @@ func consume(t *testing.T, shape consumptionShape, charts *chartStore) {
 	if err != nil || len(extras) == 0 {
 		t.Fatalf("no extras directories rendered (%v)", err)
 	}
-	// The portal first, then every other extras directory.
-	backstage := filepath.Join(c.dir, "giantswarm", portal.Installation.Customer+"-management-clusters", "management-clusters", c.installation, "extras", "backstage")
-	c.backstage(backstage)
+	// The portal first, then every other extras directory. A platform shape
+	// signed into from a portal on another installation (a hub's hand-kept
+	// Dev Portal) has no portal tree of its own.
+	backstage := ""
+	if portal != nil {
+		backstage = filepath.Join(c.dir, "giantswarm", portal.Installation.Customer+"-management-clusters", "management-clusters", c.installation, "extras", "backstage")
+		c.backstage(backstage)
+	}
 	for _, k := range extras {
 		if dir := filepath.Dir(k); dir != backstage {
 			c.extras(dir)
@@ -372,6 +405,7 @@ func consume(t *testing.T, shape consumptionShape, charts *chartStore) {
 		c.assertKagentConsumers()
 		c.assertMCPBackends()
 		c.assertLLMRateLimits()
+		c.assertAgentManagerRoute()
 	}
 }
 
@@ -386,7 +420,7 @@ func (c *consumption) assertMCPBackends() {
 		return
 	}
 	for _, rel := range c.rendered {
-		if rel.chart.Name != "agent-platform-connectivity" {
+		if rel.chart.Name != chartConnectivity {
 			continue
 		}
 		for _, key := range sortedKeys(c.platform.MCPBackends) {
@@ -413,7 +447,7 @@ func (c *consumption) assertLLMRateLimits() {
 		return
 	}
 	for _, rel := range c.rendered {
-		if rel.chart.Name != "agent-platform-connectivity" {
+		if rel.chart.Name != chartConnectivity {
 			continue
 		}
 		for _, o := range rel.objects {
@@ -429,6 +463,61 @@ func (c *consumption) assertLLMRateLimits() {
 		return
 	}
 	c.t.Errorf("llmRouting.rateLimits is set, and no connectivity chart was rendered to take it")
+}
+
+// assertAgentManagerRoute holds the credential form's route to the rendered
+// connectivity chart, whose values schema leaves agentManager open, so helm
+// validates none of agentManager.route: with agent-manager.credentials.uiURL
+// rendered, the route on the platform's Gateway at /agent-manager, its public
+// route on agentgateway.<base domain>, and the route's Strict JWT policy with
+// the installation's Dex as the issuer; without it, none of them.
+func (c *consumption) assertAgentManagerRoute() {
+	want := c.platform.agentManagerRoute()
+	host := c.platform.host("agentgateway")
+	issuer := "https://" + c.platform.host("dex")
+	for _, rel := range c.rendered {
+		if rel.chart.Name != chartConnectivity {
+			continue
+		}
+		found := map[string]bool{}
+		for _, o := range rel.objects {
+			switch {
+			case o.kind() == "HTTPRoute" && o.name() == componentAgentManager:
+				found["route"] = routePrefix(o) == "/agent-manager"
+			case o.kind() == "HTTPRoute" && o.name() == componentAgentManager+"-public":
+				hosts, _ := get(o, fieldSpec, "hostnames").([]any)
+				found["public route"] = routePrefix(o) == "/agent-manager" && len(hosts) == 1 && hosts[0] == host
+			case o.kind() == "AgentgatewayPolicy" && o.name() == componentAgentManager+"-jwt":
+				jwt := get(o, fieldSpec, "traffic", "jwtAuthentication")
+				providers, _ := get(jwt, "providers").([]any)
+				found["Strict JWT policy"] = str(get(jwt, "mode")) == jwtModeStrict && len(providers) == 1 && str(get(providers[0], "issuer")) == issuer
+			}
+		}
+		for _, part := range []string{"route", "public route", "Strict JWT policy"} {
+			if got, rendered := found[part]; want && !got {
+				c.t.Errorf("%s: agent-manager.credentials.uiURL is set, and the chart renders no agent-manager %s as the definition derives it (rendered: %v)", rel, part, rendered)
+			} else if !want && rendered {
+				c.t.Errorf("%s: no credential form, and the chart renders an agent-manager %s", rel, part)
+			}
+		}
+		return
+	}
+	if want {
+		c.t.Errorf("agent-manager.credentials.uiURL is set, and no connectivity chart was rendered to take its route")
+	}
+}
+
+// routePrefix is the path prefix of an HTTPRoute's first match.
+func routePrefix(o object) string {
+	rules, _ := get(o, fieldSpec, "rules").([]any)
+	if len(rules) == 0 {
+		return ""
+	}
+	matches, _ := get(rules[0], "matches").([]any)
+	if len(matches) == 0 {
+		return ""
+	}
+	return str(get(matches[0], "path", "value"))
 }
 
 // renderPortal renders the customer-portal definition from its input under
@@ -872,9 +961,18 @@ func (c *consumption) template(rel *release) {
 	}
 }
 
+// servedAPIs are the API versions beyond helm's defaults that a chart checks
+// for, as the fleet's Kubernetes serves them — an assumption about the
+// fleet's version, which the organizations need anyway: the connectivity
+// chart renders the organizations' ModelConfig admission policy as a
+// MutatingAdmissionPolicy and refuses the organizations on an API server
+// without it. Every shape renders as on such an API server.
+var servedAPIs = []string{"--api-versions", "admissionregistration.k8s.io/v1/MutatingAdmissionPolicy"}
+
 // helmTemplate renders rel's chart at its pin, as rel, with the values files.
 func (c *consumption) helmTemplate(rel *release, values []string) []byte {
-	return run(c.t, "helm", append([]string{"template", rel.name, c.charts.pull(c.t, rel.chart), "-n", rel.ns}, flags(values)...)...)
+	args := append([]string{"template", rel.name, c.charts.pull(c.t, rel.chart), "-n", rel.ns}, servedAPIs...)
+	return run(c.t, "helm", append(args, flags(values)...)...)
 }
 
 // collect records every Secret reference of one rendered object: the pod

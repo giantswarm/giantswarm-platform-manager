@@ -74,11 +74,24 @@ func organizations(enabled, commit any, hostnames []any) map[string]any {
 	return map[string]any{"organizations": o}
 }
 
-// The agent-platform definition refuses commit mode or API hostnames typed
-// while the switch is off, naming the switch; the same values read back from
-// the record, typed with the switch on, or typed at their defaults stand, so
-// a person turns the switch off alone or with its dependents; a switch typed
-// as no boolean is left to the schema to refuse.
+// inputCredentialUI is agent-manager's credential form, which renders with
+// the organizations' switch only; formAddress a form's address.
+const (
+	inputCredentialUI = "agentManager.credentials.uiURL"
+	formAddress       = "https://portal.acme.test/credentials/{operation}"
+)
+
+// credentialForm adds the credential form's address to an input document.
+func credentialForm(doc map[string]any, address string) map[string]any {
+	doc["agentManager"] = map[string]any{"credentials": map[string]any{"uiURL": address}}
+	return doc
+}
+
+// The agent-platform definition refuses commit mode, API hostnames or the
+// credential form typed while the switch is off, naming the switch; the same
+// values read back from the record, typed with the switch on, or typed at
+// their defaults stand, so a person turns the switch off alone or with its
+// dependents; a switch typed as no boolean is left to the schema to refuse.
 func TestAgentPlatformRefusesADependentTypedWithoutItsSwitch(t *testing.T) {
 	def, _ := FindCapability(AgentPlatform)
 	hostnames := []any{"internal-api.rowan.acme.test"}
@@ -93,6 +106,9 @@ func TestAgentPlatformRefusesADependentTypedWithoutItsSwitch(t *testing.T) {
 		{"commit mode and API hostnames read back, the switch typed off", organizations(false, nil, nil), organizations(false, true, hostnames), ""},
 		{"commit mode and API hostnames typed off with the switch", organizations(false, false, []any{}), organizations(false, false, []any{}), ""},
 		{"commit mode typed, the switch typed as no boolean", organizations("true", true, nil), organizations("true", true, nil), ""},
+		{"the credential form typed, the switch off", credentialForm(organizations(nil, nil, nil), formAddress), credentialForm(organizations(false, false, nil), formAddress), inputCredentialUI},
+		{"the credential form read back, the switch typed off", organizations(false, nil, nil), credentialForm(organizations(false, false, nil), formAddress), ""},
+		{"the credential form typed empty with the switch off", credentialForm(organizations(false, nil, nil), ""), credentialForm(organizations(false, false, nil), ""), ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := def.TypedWithoutSwitch(tc.typed, tc.values)

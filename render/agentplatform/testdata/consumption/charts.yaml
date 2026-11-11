@@ -90,6 +90,12 @@ charts:
     line: "4"
     registry: gsoci.azurecr.io/charts/giantswarm/agentgateway
     version: 2.8.24
+  # The Agent Platform organizations' operator, which the meta chart runs with
+  # agentPlatformOrganizations.enabled (the organizations shapes).
+  - name: agent-platform-operator
+    line: "4"
+    registry: gsoci.azurecr.io/charts/giantswarm/agent-platform-operator
+    version: 0.2.0
   # The 4 line's serving slice (modelServing.enabled): the llm-d control plane and
   # the well-known LLMInferenceServiceConfigs, which the meta chart hands the same
   # platform values; its models Gateway renders in the connectivity chart.

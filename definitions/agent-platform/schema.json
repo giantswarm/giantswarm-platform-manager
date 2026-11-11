@@ -475,8 +475,9 @@
           "properties": {"uiURL": {
             "type": "string", "default": "", "x-source": "person",
             "x-readback": {"file": "configmap", "key": "agent-manager.credentials.uiURL"},
+            "x-requires": "organizations.enabled",
             "x-feature": "runtime", "x-renders": ["configmap:agent-manager.credentials.uiURL", "configmap:agentManager.route", "configmap:gateway.jwksEgress"],
-            "description": "Client-owned HTTPS RFC 6570 URI template for the credential UI with one {operation} expression in its path or query, using only {operation}, {parent} and {organization}; meta chart 4.177.0 or later with agentPlatformOrganizations.enabled. Never derived. Set, it also exposes agent-manager's REST API at https://agentgateway.<baseDomain>/agent-manager (agentManager.route) behind a Strict JWT policy with this installation's Dex as the issuer, the path the form's backend reaches agent-manager on as the person."
+            "description": "Client-owned HTTPS RFC 6570 URI template for the credential UI with one {operation} expression in its path or query, using only {operation}, {parent} and {organization}; meta chart 4.177.0 or later with agentPlatformOrganizations.enabled. Never derived. Set, it also exposes agent-manager's REST API at https://agentgateway.<baseDomain>/agent-manager (agentManager.route) behind a Strict JWT policy with this installation's Dex as the issuer, the path the form's backend reaches agent-manager on as the person. Written only with organizations.enabled, which the meta chart requires for it, so turning the switch off takes the form and the route along; typed other than empty with the switch off, it is refused. Read back from the configmap patch on record."
           }}
         },
         "skills": {
