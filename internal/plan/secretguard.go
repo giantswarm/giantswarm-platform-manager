@@ -204,7 +204,7 @@ func (guard *referenceGuard) indexRecord(repository, file, namespace string) {
 		} else if err != nil {
 			return
 		}
-		if document.Namespace != "" {
+		if namespace == "" && document.Namespace != "" {
 			namespace = document.Namespace
 		}
 		secretNamespace := document.Metadata.Namespace

@@ -35,6 +35,7 @@ func TestHubSecretReferencesHaveManifests(t *testing.T) {
 		{name: "resource on record", planned: map[string]string{secretPath: secretManifest, root: "resources: [other.yaml]\n"}, recorded: map[string]string{"management-clusters/hazel/extras/other.yaml": "kind: ConfigMap\nmetadata: {name: other}\n"}},
 		{name: "remote resource", planned: map[string]string{secretPath: secretManifest, root: "resources: [https://github.com/example/bases//extras]\n"}},
 		{name: "recorded namespace transformer", recorded: map[string]string{root: "namespace: giantswarm\nresources: [secrets/client.yaml]\n", secretPath: strings.ReplaceAll(secretManifest, "  namespace: giantswarm\n", "")}},
+		{name: "outer namespace wins", recorded: map[string]string{root: "namespace: other\nresources: [secrets/]\n", "management-clusters/hazel/extras/secrets/kustomization.yaml": "namespace: giantswarm\nresources: [client.yaml]\n", secretPath: secretManifest}, want: missingManifest},
 		{name: "planned namespace transformer", planned: map[string]string{root: "namespace: giantswarm\nresources: [secrets/client.yaml]\n", secretPath: strings.ReplaceAll(secretManifest, "  namespace: giantswarm\n", "")}},
 		{name: "cyclic kustomization", recorded: map[string]string{root: "resources: [./, secrets/client.yaml]\n", secretPath: secretManifest}},
 		{name: "several documents", planned: map[string]string{secretPath: "kind: ConfigMap\nmetadata: {name: unrelated}\n---\n" + secretManifest}},
