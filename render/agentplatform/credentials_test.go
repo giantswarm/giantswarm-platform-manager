@@ -137,9 +137,22 @@ func TestAgentManagerExchangeWithCommitRendersTheExchange(t *testing.T) {
 	input["agentManager"].(map[string]any)[keyGitHub].(map[string]any)[keyEnabled] = true
 	in, err := Parse(input)
 	require.NoError(t, err)
-	github := credentialValues(t, in.agentManagerValues())[keyGitHub].(map[string]any)
-	require.Equal(t, true, github[keyEnabled])
-	require.Contains(t, github, "tokenExchange")
+	require.Equal(t, map[string]any{keyEnabled: true, "tokenExchange": map[string]any{
+		"tokenEndpoint":  "https://" + in.host("muster") + "/oauth/token",
+		"audience":       managerProviderAppName,
+		"existingSecret": agentManagerBrokerSecret,
+	}}, credentialValues(t, in.agentManagerValues())[keyGitHub])
+}
+
+// The exchange turned off renders no commit mode: the record of an exchange
+// reads back no pin (agent-manager.github.enabled is the exchange's render),
+// so the person's choices are the exchange off and the pin unset.
+func TestAgentManagerExchangeOffRendersNoPin(t *testing.T) {
+	input, _ := credentialInput(t, shapeGiantswarmSlackAppPub)
+	input["agentManager"].(map[string]any)[keyGitHub] = map[string]any{"tokenExchange": map[string]any{keyEnabled: false}}
+	in, err := Parse(input)
+	require.NoError(t, err)
+	require.NotContains(t, credentialValues(t, in.agentManagerValues()), keyGitHub)
 }
 
 func TestAgentManagerCredentialHoldsAdmitted(t *testing.T) {
