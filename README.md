@@ -94,7 +94,9 @@ this order, writing nothing before the gate:
    the dex-app patch with it), and the commit is refused until the carry is on record (`commitRefused`).
    Over a set, a plan that moves a side of a token-exchange pair carries the wave's **vault copy**
    (`vaultCopies`): the pair's values only, by key — supplied from the peer's file, or carried into a file
-   that lacks them; a pair both sides of which the wave creates is drawn once and copies nothing. A carry
+   that lacks them; a pair both sides of which the wave creates is drawn once and copies nothing.
+   A new pair absent on both sides is deferred when its peer is outside the set (`deferredPairs`),
+   including its Secret references and kustomization entries. A carry
    of any other generated value the record holds is listed outside it and the wave refuses it by name:
    the installation's own reconcile carries it, so a cut-over commit never carries a credential its author
    did not mean to move.
