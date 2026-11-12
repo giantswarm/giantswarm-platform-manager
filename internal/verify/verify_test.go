@@ -672,11 +672,11 @@ func TestDrivenInputsAreThePersonsAndTheTyped(t *testing.T) {
 	organizationsInputs := []string{"organizations.apiHostnames", "organizations.commit.enabled", "organizations.enabled", "organizations.portal.enabled"}
 	tenantInputs := []string{"tenants.platform.editors", "tenants.platform.users", "tenants.platformTeam"}
 	got, err := drivenInputs(def, Inputs{Values: doc("a.test", "acme", true)})
-	if err != nil || !reflect.DeepEqual(got, slices.Concat(agentInputs, chatInputs, []string{commitInput}, hiveInputs, gatewayInputs, llmInputs, []string{modelCommitInput, servingInput, "musterMcpServerViewers", "networkPolicy.mcpBackends"}, organizationsInputs, []string{"scheduling.singletonsCapacity", "sessions.idleTTL", skillsInput}, tenantInputs, versionInputs)) {
+	if err != nil || !reflect.DeepEqual(got, slices.Concat(agentInputs, chatInputs, []string{commitInput, "defaultAgent.enabled", "defaultAgent.modelConfig"}, hiveInputs, gatewayInputs, llmInputs, []string{modelCommitInput, servingInput, "musterMcpServerViewers", "networkPolicy.mcpBackends"}, organizationsInputs, []string{"scheduling.singletonsCapacity", "sessions.idleTTL", "skillManager.github.app.secretName", "skillManager.sources", skillsInput}, tenantInputs, versionInputs)) {
 		t.Errorf("from the record: %v %v", got, err)
 	}
 	got, err = drivenInputs(def, Inputs{Values: doc("a.test", "acme", true), Typed: doc("b.test", "acme", false)})
-	if err != nil || !reflect.DeepEqual(got, slices.Concat(agentInputs, chatInputs, []string{commitInput}, hiveInputs, []string{baseDomainInput, customerInput}, gatewayInputs, llmInputs, []string{modelCommitInput, servingInput, "musterMcpServerViewers", "networkPolicy.mcpBackends"}, organizationsInputs, []string{"scheduling.singletonsCapacity", "sessions.idleTTL", skillsInput}, tenantInputs, versionInputs)) {
+	if err != nil || !reflect.DeepEqual(got, slices.Concat(agentInputs, chatInputs, []string{commitInput, "defaultAgent.enabled", "defaultAgent.modelConfig"}, hiveInputs, []string{baseDomainInput, customerInput}, gatewayInputs, llmInputs, []string{modelCommitInput, servingInput, "musterMcpServerViewers", "networkPolicy.mcpBackends"}, organizationsInputs, []string{"scheduling.singletonsCapacity", "sessions.idleTTL", "skillManager.github.app.secretName", "skillManager.sources", skillsInput}, tenantInputs, versionInputs)) {
 		t.Errorf("with facts typed: %v %v", got, err)
 	}
 }

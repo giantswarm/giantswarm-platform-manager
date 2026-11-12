@@ -45,6 +45,9 @@ const (
 	componentAgentManager   = "agent-manager"
 	componentKlausGateway   = "klaus-gateway"
 	componentClusterManager = "cluster-manager"
+	// componentDefaultAgent is the platform-shipped default agent,
+	// a meta agent the meta chart runs by default.
+	componentDefaultAgent = "default-agent"
 	// componentModelManager is no choice of the policy's: the meta chart's 4
 	// line runs it by default and the definition leaves it on.
 	componentModelManager = "model-manager"
@@ -140,6 +143,18 @@ type Input struct {
 	AgentManagerSkills        AgentManagerSkills
 	AgentManagerTokenExchange bool
 	AgentManagerCredentialUI  string
+	// SkillManagerSources are the skill-manager's skill sources
+	// (skillManager.sources) as the person wrote them, read back from the
+	// configmap patch on record.
+	SkillManagerSources []SkillSource
+	// SkillManagerAppSecret is the Secret of the GitHub App the
+	// skill-manager reads its sources with (skillManager.github.app.secretName),
+	// read back from the configmap patch on record.
+	SkillManagerAppSecret string
+	// DefaultAgent is the person's choice of the platform-shipped
+	// default agent (defaultAgent.*), read back from the configmap
+	// patch on record.
+	DefaultAgent DefaultAgent
 	// Versions are the person's version holds (versions.*), read back from
 	// the record so a reconcile keeps them.
 	Versions Versions
@@ -659,6 +674,11 @@ type document struct {
 			UIURL string `json:"uiURL"`
 		} `json:"credentials"`
 	} `json:"agentManager"`
+	DefaultAgent DefaultAgent `json:"defaultAgent"`
+	SkillManager struct {
+		Sources []SkillSource `json:"sources"`
+		GitHub  githubApp     `json:"github"`
+	} `json:"skillManager"`
 	KlausGateway struct {
 		Slack struct {
 			ContextBotIDs          []ContextBot `json:"contextBotIDs"`
@@ -751,6 +771,66 @@ type githubApp struct {
 	} `json:"app"`
 }
 
+// DefaultAgent is the meta chart's platform-shipped default agent
+// (component default-agent): whether it runs, nil the chart's
+// default (on), and the ModelConfig it answers with, empty the chart's.
+type DefaultAgent struct {
+	Enabled     *bool  `json:"enabled"`
+	ModelConfig string `json:"modelConfig"`
+}
+
+// disabled is whether the person turned the default agent off.
+func (a DefaultAgent) disabled() bool { return a.Enabled != nil && !*a.Enabled }
+
+// SkillSource is one of the skill-manager's skill sources, in the form the
+// person wrote it: a URL alone, or the URL with the ref and the directory
+// scanned and the read-only mark.
+type SkillSource struct {
+	URL string `json:"url"`
+	// Ref, Path and ReadOnly are nil where the entry does not carry them,
+	// so an entry is written back with the keys it was read with.
+	Ref      *string `json:"ref,omitempty"`
+	Path     *string `json:"path,omitempty"`
+	ReadOnly *bool   `json:"readOnly,omitempty"`
+	// object is whether the person wrote the entry as an object.
+	object bool
+}
+
+// UnmarshalJSON reads a URL or an object; the schema has checked the shape.
+func (s *SkillSource) UnmarshalJSON(raw []byte) error {
+	var url string
+	if err := json.Unmarshal(raw, &url); err == nil {
+		*s = SkillSource{URL: url}
+		return nil
+	}
+	type plain SkillSource
+	var p plain
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return err
+	}
+	*s = SkillSource(p)
+	s.object = true
+	return nil
+}
+
+// MarshalYAML writes the entry in the form it was read in.
+func (s SkillSource) MarshalYAML() (any, error) {
+	if !s.object {
+		return s.URL, nil
+	}
+	m := render.Map{e("url", s.URL)}
+	if s.Ref != nil {
+		m = append(m, e("ref", *s.Ref))
+	}
+	if s.Path != nil {
+		m = append(m, e("path", *s.Path))
+	}
+	if s.ReadOnly != nil {
+		m = append(m, e("readOnly", *s.ReadOnly))
+	}
+	return m, nil
+}
+
 // set is whether the person chose anything for the catalog.
 func (s AgentManagerSkills) set() bool {
 	return len(s.Repositories) > 0 || s.GitHub.App.SecretName != "" || s.GitAuthSecretName != "" || s.MintGitAuthSecret
@@ -775,7 +855,7 @@ type commitChoice struct {
 // the cluster does not serve PodCertificateRequest, the chat or skill
 // repositories on an installation whose organisation hosts no portal for
 // them, the chat without a model, or on Vertex without its Google project or
-// location, the Hive where the installation cannot serve it, the MCP backends' network policy or the LLM listener's rate limits on the 3 line, the rate limits or the session idle TTL where no kagent runs, the session idle TTL on the 3 line, the tenant mode on the 3 line, where kagent and the agent-manager do not both run or with a hold below the releases it needs, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
+// location, the Hive where the installation cannot serve it, the MCP backends' network policy or the LLM listener's rate limits on the 3 line, the rate limits or the session idle TTL where no kagent runs, the session idle TTL on the 3 line, the default agent turned off or its model override on the 3 line, where kagent and the agent-manager do not both run or with a chart hold below the release that ships it, the skill-manager's sources or GitHub App on the 3 line, where no agent-manager runs or with a chart hold below the release with the skill-manager, a source naming the platform's own skill repository, the agent-manager's skill repositories where it may take its skills from the skill-manager or beside the skill-manager's sources, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
 // is ErrInput too.
 func Parse(raw any) (*Input, error) {
 	schemaBytes, err := definitions.FS.ReadFile("agent-platform/schema.json")
@@ -821,7 +901,7 @@ func Parse(raw any) (*Input, error) {
 		return nil, err
 	}
 	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, MCPBackends: d.NetworkPolicy.MCPBackends, LLMRateLimits: d.LLMRouting.RateLimits, LLMRateLimitsComment: d.LLMRouting.RateLimitsComment, SessionIdleTTL: d.Sessions.IdleTTL, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories, Hive: d.Hive,
-		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, AgentManagerTokenExchange: d.AgentManager.GitHubTokenExchange.Enabled, AgentManagerCredentialUI: d.AgentManager.Credentials.UIURL, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, ContextBotNames: d.KlausGateway.Slack.ContextBotNames, ContextBotNamesComment: d.KlausGateway.Slack.ContextBotNamesComment, SlashCommand: d.KlausGateway.Slack.SlashCommand, SlashCommandComment: d.KlausGateway.Slack.SlashCommandComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
+		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, SkillManagerSources: d.SkillManager.Sources, SkillManagerAppSecret: d.SkillManager.GitHub.App.SecretName, DefaultAgent: d.DefaultAgent, AgentManagerTokenExchange: d.AgentManager.GitHubTokenExchange.Enabled, AgentManagerCredentialUI: d.AgentManager.Credentials.UIURL, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, ContextBotNames: d.KlausGateway.Slack.ContextBotNames, ContextBotNamesComment: d.KlausGateway.Slack.ContextBotNamesComment, SlashCommand: d.KlausGateway.Slack.SlashCommand, SlashCommandComment: d.KlausGateway.Slack.SlashCommandComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
 		ReleaseCandidates: pol.releaseCandidates(d.Installation)}
 	if in.Components, err = pol.components(in.Installation); err != nil {
 		return nil, err
@@ -975,10 +1055,23 @@ func (in *Input) checkRecord() error {
 		return err
 	}
 	if in.SessionIdleTTL != "" && in.Installation.ChartLine != lineFour {
-		return refuse(fmt.Sprintf("%s is the 4 chart line's, and this installation runs the %s line; the record's chart line decides", describe("sessions.idleTTL"), in.Installation.ChartLine))
+		return in.refuseOffLineFour("sessions.idleTTL")
 	}
 	if in.SessionIdleTTL != "" && !in.kagent() {
 		return refuse(fmt.Sprintf("%s bounds how long kagent keeps an idle Session, and the fleet policy runs no kagent on %s's installations", describe("sessions.idleTTL"), in.Installation.Customer))
+	}
+	if err := in.checkSkillManagerChart("kagent with the agent-manager", in.kagent() && in.agentManager(),
+		skillManagerChartChoice{in.DefaultAgent.disabled(), "defaultAgent.enabled", "turns off the default agent in kagent", true},
+		skillManagerChartChoice{in.DefaultAgent.ModelConfig != "", "defaultAgent.modelConfig", "names the default agent's ModelConfig in kagent", false}); err != nil {
+		return err
+	}
+	if err := in.checkSkillManagerChart(componentAgentManager, in.agentManager(),
+		skillManagerChartChoice{len(in.SkillManagerSources) > 0, "skillManager.sources", "lists the sources of the skill-manager, which runs with the agent-manager", false},
+		skillManagerChartChoice{in.SkillManagerAppSecret != "", "skillManager.github.app.secretName", "names the GitHub App of the skill-manager, which runs with the agent-manager", false}); err != nil {
+		return err
+	}
+	if err := in.checkSkillSourceConflicts(); err != nil {
+		return err
 	}
 	if len(in.LLMRateLimits) > 0 && !in.kagent() {
 		return refuse(fmt.Sprintf("%s bound the LLM listener, and the fleet policy runs no kagent on %s's installations, so no listener is rendered", describe("llmRouting.rateLimits"), in.Installation.Customer))
@@ -1111,6 +1204,144 @@ func releaseFilterAdmits(semver string) bool {
 		return true
 	}
 	return releaseTag.MatchString(semver)
+}
+
+// refuseOffLineFour refuses input, a choice of the 4 chart line's, on an
+// installation the record puts on another line.
+func (in *Input) refuseOffLineFour(input string) error {
+	return refuse(fmt.Sprintf("%s is the 4 chart line's, and this installation runs the %s line; the record's chart line decides", describe(input), in.Installation.ChartLine))
+}
+
+// skillManagerChartChoice is an input the person chose, or not, that the
+// meta chart takes from skillManagerChart on; what says what the input does.
+// anyChart marks an input every 4 chart takes (a components toggle, open in
+// the values schema of every release), so no chart gates it.
+type skillManagerChartChoice struct {
+	chosen      bool
+	input, what string
+	anyChart    bool
+}
+
+// checkSkillManagerChart refuses each chosen input outside the 4 chart
+// line, where the fleet policy does not run component (runs), and, unless
+// any chart takes it, with a versions.chart hold below skillManagerChart.
+func (in *Input) checkSkillManagerChart(component string, runs bool, choices ...skillManagerChartChoice) error {
+	for _, c := range choices {
+		if !c.chosen {
+			continue
+		}
+		if in.Installation.ChartLine != lineFour {
+			return in.refuseOffLineFour(c.input)
+		}
+		if !runs {
+			return refuse(fmt.Sprintf("%s %s, and the fleet policy runs no %s on %s's installations", describe(c.input), c.what, component, in.Installation.Customer))
+		}
+		if c.anyChart {
+			continue
+		}
+		if !holdAdmits(in.Versions.Chart, skillManagerChart) {
+			return refuse(fmt.Sprintf("%s needs the meta chart %s or later, which runs the skill-manager and the default agent, and %s holds it at %s; move or lift the hold first", describe(c.input), skillManagerChart, describe("versions.chart"), in.Versions.Chart))
+		}
+	}
+	return nil
+}
+
+// skillManagerChart is the first meta chart that runs the skill-manager and
+// ships the default agent (giantswarm/agent-platform#1265), its first release
+// candidate with the keys; its release, agent-platform 4.179.0, is stable.
+// Its values schema refuses skillManager, skill-manager and defaultAgent
+// below it.
+const skillManagerChart = "4.179.0-rc.9"
+
+// reachesSkillManagerChart says whether the meta chart the installation
+// resolves to may be skillManagerChart or later: the 4 line and no
+// versions.chart hold below it.
+func (in *Input) reachesSkillManagerChart() bool {
+	return in.Installation.ChartLine == lineFour && holdAdmits(in.Versions.Chart, skillManagerChart)
+}
+
+// agentManagerViaSkillManager is the first agent-manager release that takes
+// its skills from the skill-manager (the meta chart's
+// agent-platform.agentManager.skillManagerFloor, behind its viaSkillManager).
+const agentManagerViaSkillManager = "2.24.0"
+
+// platformSkillsRepository is the platform's own skill source, which the
+// meta chart lists first (skills.platformSource, never turned off by this
+// definition) and fails the render on a skill source naming it.
+const platformSkillsRepository = "https://github.com/giantswarm/agent-platform"
+
+// namesPlatformSkills says whether a skill source's URL names the platform's
+// own repository, compared as the meta chart does (no trailing "/" or ".git").
+func namesPlatformSkills(url string) bool {
+	return strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(url, "/"), ".git"), "/") == platformSkillsRepository
+}
+
+// takesSkillsFromSkillManager says whether the agent-manager takes its skills
+// from the skill-manager, as the meta chart decides it
+// (agent-platform.agentManager.viaSkillManager): on a chart with the
+// skill-manager, the floor of components.agent-manager.versionRange at
+// agentManagerViaSkillManager or later. Only a hold sets that range here;
+// without one the chart's default (>=2.22.0) stands, below the floor.
+func (in *Input) takesSkillsFromSkillManager() bool {
+	return in.reachesSkillManagerChart() && componentFloorAtLeast(in.Versions.Components[componentAgentManager], agentManagerViaSkillManager)
+}
+
+// checkSkillSourceConflicts refuses a skill source naming the platform's own
+// repository where the meta chart lists it itself: a skillManager.sources
+// entry, and an agentManager.skills.repositories entry on a chart with the
+// skill-manager; agentManager.skills.repositories where the agent-manager
+// takes its skills from the skill-manager, on which the meta chart fails;
+// and agentManager.skills.repositories beside skillManager.sources. The
+// meta chart takes both lists (an agent-manager below
+// agentManagerViaSkillManager reads its own list in place of the sources, the
+// skill-manager the sources); refusing the pair is this definition's choice,
+// so one reconcile moves an installation and no state leaves the two
+// consumers with lists that differ.
+func (in *Input) checkSkillSourceConflicts() error {
+	for i, s := range in.SkillManagerSources {
+		if namesPlatformSkills(s.URL) {
+			return refuse(fmt.Sprintf("%s entry %d (%s) names the platform's own skill repository, which the meta chart already lists read-only at its release; remove the entry", describe("skillManager.sources"), i, s.URL))
+		}
+	}
+	if len(in.AgentManagerSkills.Repositories) > 0 && in.takesSkillsFromSkillManager() {
+		return refuse(fmt.Sprintf("%s is set, and %s holds the agent-manager at %s or later, which takes its skills from the skill-manager, so the meta chart fails on the list; move it into skillManager.sources, or hold the agent-manager below %s", describe("agentManager.skills.repositories"), describe("versions.components.agent-manager"), agentManagerViaSkillManager, agentManagerViaSkillManager))
+	}
+	if in.reachesSkillManagerChart() {
+		for i, url := range in.AgentManagerSkills.Repositories {
+			if namesPlatformSkills(url) {
+				return refuse(fmt.Sprintf("%s entry %d (%s) names the platform's own skill repository, which the meta chart from %s on already lists read-only at its release; remove the entry", describe("agentManager.skills.repositories"), i, url, skillManagerChart))
+			}
+		}
+	}
+	if len(in.SkillManagerSources) > 0 && len(in.AgentManagerSkills.Repositories) > 0 {
+		return refuse(fmt.Sprintf("%s and %s are both set. The meta chart takes both, but an agent-manager below %s (the meta chart's default range among them) then reads its own list and the skill-manager the sources, two lists that can differ; this definition keeps one list: move the agent-manager's list into skillManager.sources and empty it in the same reconcile", describe("skillManager.sources"), describe("agentManager.skills.repositories"), agentManagerViaSkillManager))
+	}
+	return nil
+}
+
+// componentFloorAtLeast says whether the floor of a component's version
+// hold is version or later, its release candidates included, as the meta
+// chart reads it (agent-platform.componentFloorAtLeast over
+// agent-platform.semverRangeFloor): the version of the first term that is no
+// upper bound and reads as a version, its >=, >, ^, ~ or = taken off, the
+// pre-release stripped. No hold, or one without a floor, is false.
+func componentFloorAtLeast(hold, version string) bool {
+	for _, term := range strings.Fields(strings.ReplaceAll(hold, ",", " ")) {
+		if strings.HasPrefix(term, "<") {
+			continue
+		}
+		v := strings.TrimPrefix(term, ">=")
+		for _, p := range []string{">", "^", "~", "=", "v"} {
+			v = strings.TrimPrefix(v, p)
+		}
+		floor, err := semverlib.StrictNewVersion(v)
+		if err != nil {
+			continue
+		}
+		release, _ := floor.SetPrerelease("")
+		return !release.LessThan(semverlib.MustParse(version))
+	}
+	return false
 }
 
 // modelFreeChart is the first meta chart that declares no model

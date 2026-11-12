@@ -492,7 +492,7 @@
               "x-readback": {"file": "configmap", "key": "agent-manager.skills.repositories"},
               "x-feature": "runtime",
               "x-renders": ["configmap:agent-manager.skills.repositories"],
-              "description": "The GitHub repositories agent-manager's list_skills discovers skills in (agent-manager.skills.repositories), the catalog meta agents create agents from. None, the key is not written and the chart's default (giantswarm/agent-skills) stands. Read back from the configmap patch on record."
+              "description": "The GitHub repositories agent-manager's list_skills discovers skills in (agent-manager.skills.repositories), the catalog meta agents create agents from. None, the key is not written and the chart's default (giantswarm/agent-skills) stands. Refused beside skillManager.sources (the meta chart takes both, but this definition keeps one list: move it into skillManager.sources and empty it in the same reconcile), where a versions.components.agent-manager hold puts the agent-manager at 2.24.0 or later (it then takes its skills from the skill-manager, and the meta chart fails on the list), and, from the release with the skill-manager on, an entry naming the platform's own repository. Read back from the configmap patch on record."
             },
             "github": {
               "type": "object",
@@ -549,6 +549,88 @@
               "description": "The agent-manager's commit mode through its GitHub App (agent-manager.github.enabled): the chart registers with muster pinned to the App and create_agent, update_agent and delete_agent take mode: commit, the pull request opened as the person in the repository that owns the target namespace. The connectivity chart opens its egress to api.github.com (GET /user, the pull request). The App's OAuth client is the installation's own Secret, giantswarm-agent-manager-oauth-client in agent-platform, not rendered. Where the fleet policy runs the agent-manager only. Read back from the configmap patch on record."
             }
           }
+        }
+      }
+    },
+    "skillManager": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Two choices: the skill-manager's skill sources and the GitHub App it reads them with.",
+      "properties": {
+        "github": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "app": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "secretName": {
+                  "type": "string",
+                  "default": "",
+                  "maxLength": 253,
+                  "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$",
+                  "x-source": "person",
+                  "x-readback": {"file": "configmap", "key": "skill-manager.github.app.secretName"},
+                  "x-feature": "runtime",
+                  "x-renders": ["configmap:skill-manager.github.app.secretName"],
+                  "description": "The installation's Secret in the skill-manager's namespace (agent-platform unless the component is moved) holding the read-only skills GitHub App's app-id, installation-id and private-key (skill-manager.github.app.secretName): the skill-manager lists and pins skills with the App's installation tokens and lists a private source only to the people who can read it. The Secret exists before this is set: a missing one stops the pod. Empty, anonymous reads, public sources only. The 4 chart line only, where the fleet policy runs the agent-manager, with no versions.chart hold below the release with the skill-manager (4.179.0). Read back from the configmap patch on record."
+                }
+              }
+            }
+          }
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {"type": "string", "pattern": "^https?://\\S+$"},
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["url"],
+                "properties": {
+                  "url": {"type": "string", "pattern": "^https?://\\S+$"},
+                  "ref": {"type": "string"},
+                  "path": {"type": "string"},
+                  "readOnly": {"type": "boolean"}
+                }
+              }
+            ]
+          },
+          "default": [],
+          "x-source": "person",
+          "x-readback": {"file": "configmap", "key": "skillManager.sources"},
+          "x-feature": "runtime",
+          "x-renders": ["configmap:skillManager.sources"],
+          "description": "The skill sources the skill-manager lists and pins skills from (the meta chart's skillManager.sources), after the platform's own: each a GitHub repository URL, or {url, ref, path, readOnly} (a branch, tag or commit, the directory scanned, the read-only mark); never the platform's own repository, which the meta chart lists first (skills.platformSource). agentManager.skills.repositories is refused beside it: the meta chart takes both, but this definition keeps one list, so one reconcile sets this list and empties the agent-manager's. Written as read, every key kept. None, the key is not written and the chart's list (giantswarm/agent-skills) stands; a list replaces it, so it names agent-skills to keep it. The 4 chart line only, where the fleet policy runs the agent-manager, with no versions.chart hold below the release with the skill-manager (4.179.0). Read back from the configmap patch on record."
+        }
+      }
+    },
+    "defaultAgent": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Two choices: whether the platform-shipped default agent runs, and the ModelConfig it answers with.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "x-source": "person",
+          "x-readback": {"file": "configmap", "key": "components.default-agent.enabled"},
+          "x-feature": "runtime",
+          "x-renders": ["configmap:components.default-agent.enabled"],
+          "description": "The default agent, the meta agent the meta chart ships (components.default-agent, kagent namespace, with the platform's skills pinned to the release). On, the chart's default: the key is not written. Off, enabled: false is written: set it on an installation that still runs a hand-added meta agent before upgrading to the release with the default agent. Off: the 4 chart line only, where the fleet policy runs kagent and the agent-manager; any chart release takes it (components is open). Read back from the configmap patch on record."
+        },
+        "modelConfig": {
+          "type": "string",
+          "default": "",
+          "maxLength": 253,
+          "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$",
+          "x-source": "person",
+          "x-readback": {"file": "configmap", "key": "defaultAgent.modelConfig"},
+          "x-feature": "runtime",
+          "x-renders": ["configmap:defaultAgent.modelConfig"],
+          "description": "The ModelConfig in kagent the default agent answers with (defaultAgent.modelConfig). Empty, the key is not written and the agent gets a model by itself only where the agent-manager's version range (components.agent-manager.versionRange: a versions.components.agent-manager hold, else the meta chart's default, >=2.22.0 on 4.179.0) starts at 2.24.0 or later: the meta chart then has agent-manager set the installation's default model once, while the agent has none, and never re-point it. Anywhere else, set it, or the agent has no model and kagent reports it not ready (Compatible=False, kagent ModelConfig is required). Set it to pin or change the model. The 4 chart line only, where the fleet policy runs kagent and the agent-manager, with no versions.chart hold below the release with the default agent (4.179.0). Read back from the configmap patch on record."
         }
       }
     },

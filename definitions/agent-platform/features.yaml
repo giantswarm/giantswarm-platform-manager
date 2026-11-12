@@ -72,6 +72,9 @@ features:
       - {id: kagent-providers, kind: configmap, key: kagent.providers}
       - {id: kagent-model-configs, kind: configmap, key: kagent.modelConfigs}
       - {id: singletons-placement, kind: configmap, key: scheduling.singletons}
+      - {id: skill-manager-sources, kind: configmap, key: "skillManager.sources (the skill-manager's skill sources)"}
+      - {id: skill-manager-github-app, kind: configmap, key: "skill-manager.github.app.secretName (the skill-manager's GitHub App Secret)"}
+      - {id: default-agent, kind: configmap, key: "components.default-agent / defaultAgent (the platform-shipped default agent: off, and its ModelConfig)"}
       - {id: organizations, kind: configmap, key: "agentPlatformOrganizations / agent-platform-operator.commitMode / agent-manager.tenants (the organizations' switch, their API hostnames and commit mode)"}
       - {id: patch-top-level-keys, kind: configmap, catchAll: true, key: the patch's top-level keys (every key no other dimension names)}
       - {id: chart-line-on-record, kind: record, key: config.yaml.patch agentPlatform.kagentApiV2 (the meta chart line the record selects; an enable or a reconcile writes the policy's line)}

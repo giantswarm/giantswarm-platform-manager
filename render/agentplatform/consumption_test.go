@@ -589,7 +589,7 @@ func (c *consumption) include(inc render.Include) {
 	}
 	list := "resources"
 	if inc.Component {
-		list = "components"
+		list = keyComponents
 	}
 	entries, _ := k[list].([]any)
 	for _, e := range entries {
