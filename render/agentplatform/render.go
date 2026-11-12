@@ -605,8 +605,9 @@ type musterConsumer struct {
 // and the cluster-manager where the policy runs them, the model-manager
 // wherever the 4 line runs (the meta chart's default), and the skill-manager
 // wherever the meta chart runs it (beside the agent-manager, from
-// skillManagerChart on). TestRenderConsumption holds the list to the charts: every pod that reads either Secret is a
-// consumer's, and the revision changes its pod template.
+// skillManagerChart on). TestRenderConsumption holds the list to the
+// charts: every pod that reads either Secret is a consumer's, and the
+// revision changes its pod template.
 var musterConsumers = []musterConsumer{
 	{component: componentMuster, deployment: componentMuster, revision: musterChecksumValues, runs: always},
 	{component: componentValkey, deployment: "muster-valkey", revision: []string{valkeyChecksumValue}, runs: always},

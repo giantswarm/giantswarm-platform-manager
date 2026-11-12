@@ -1832,6 +1832,7 @@ func TestSkillManagerReadsMusterCredentials(t *testing.T) {
 		{"no hold", "", false, true},
 		{"a hold on the release", "~4.179.0", false, true},
 		{"a hold on a candidate with the skill-manager", "4.179.0-rc.9", false, true},
+		{"a hold on the candidate before", "4.179.0-rc.8", false, false},
 		{"a hold on the release before", holdReleaseBeforeSkillManager, false, false},
 		{"a hold below", holdBelowSkillManager, false, false},
 		{"no agent-manager", "", true, false},

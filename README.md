@@ -121,7 +121,7 @@ this order, writing nothing before the gate:
    rotation keeps the revision and changes no pod template; muster's own credentials carry the same revision
    (`<installation>-muster-credentials-revision`, the Secret `muster-credentials-revision`, handed through the meta
    chart's `components.<name>.valuesFromRefs` to every workload that reads them: muster, its Valkey and, where each
-   runs, klaus-gateway and the agent-, cluster- and model-manager). Unseen by the
+   runs, klaus-gateway and the agent-, cluster-, model- and skill-manager). Unseen by the
    comparison: a literal the render changes under an encrypted field — the record holds it encrypted. A
    value frozen in a file the definition does not own whole (one with several owners) cannot rotate and
    refuses the commit naming the file. Where the capability is on record (its marker file exists), a

@@ -84,7 +84,7 @@ features:
       - {id: live-kagent-provider-values, kind: live, key: "kagent HelmRelease .spec.values.providers (where the meta chart the installation resolves still takes kagent.providers)"}
       - {id: live-konfiguration-source, kind: live, key: "Konfiguration agent-platform-konfiguration on its GitRepository's revision: behind within its reconciliation interval reads rolling, longer drifted"}
       - {id: live-helmreleases-ready, kind: live, key: "HelmReleases agent-platform, kagent, connectivity, muster, mcps, and agent-platform-operator with the organizations, Ready"}
-      - {id: live-platform-workloads, kind: live, key: "the Deployments that read muster's credentials Available: muster, its Valkey, and klaus-gateway, agent-manager, cluster-manager and model-manager where each runs"}
+      - {id: live-platform-workloads, kind: live, key: "the Deployments that read muster's credentials Available: muster, its Valkey, and klaus-gateway, agent-manager, cluster-manager and model-manager where each runs, and skill-manager with the agent-manager from meta chart 4.179.0-rc.9 on"}
       - {id: live-kagent-workloads, kind: live, key: kagent pods Running and the CNPG cluster healthy}
       - {id: live-pod-certificate-request, kind: live, key: "certificates.k8s.io/v1beta1 podcertificaterequests served by the apiserver (Agent Substrate's feature gates, the 4 line)"}
       - {id: live-drift, kind: live, key: live values equal the rendered manifests}
