@@ -110,6 +110,12 @@ spec:
                   description: The inputs each installation of the set was rendered from at commit, the typed inputs over the facts on record, by installation; never a secret value.
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
+                deferredPairs:
+                  type: object
+                  additionalProperties:
+                    type: array
+                    items:
+                      type: string
                 keptByInstallation:
                   description: Per installation, the entries of the platform patch's audience lists the commit kept beside the render; the live probes hold the objects against the render with them. Ids only, never a secret value.
                   type: object

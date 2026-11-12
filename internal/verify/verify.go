@@ -282,6 +282,7 @@ type Result struct {
 	Diff             map[plan.Change]int    `json:"diff"`
 	PullRequests     []plan.PullRequest     `json:"pullRequests"`
 	GeneratedSecrets []plan.GeneratedSecret `json:"generatedSecrets"`
+	DeferredPairs    []plan.DeferredPair    `json:"deferredPairs,omitempty"`
 	SuppliedSecrets  []string               `json:"suppliedSecrets"`
 	SuppliedOnRecord []string               `json:"suppliedOnRecord,omitempty"`
 	HubSections      []string               `json:"hubSections,omitempty"`
@@ -296,6 +297,7 @@ type Result struct {
 // view takes the plan's view into the result; the files' content, rendered
 // and on record, only when asked for.
 func (r *Result) view(p plan.Installation, content bool) {
+	r.DeferredPairs = p.DeferredPairs
 	r.Files, r.Includes, r.Diff = p.Files, p.Includes, p.Diff
 	r.GeneratedSecrets, r.SuppliedSecrets, r.SuppliedOnRecord, r.HubSections = p.GeneratedSecrets, p.SuppliedSecrets, p.SuppliedOnRecord, p.HubSections
 	r.DropsPrereleases, r.Join, r.SwitchOff = p.DropsPrereleases, p.Join, p.SwitchOff
@@ -314,7 +316,7 @@ func (r *Result) view(p plan.Installation, content bool) {
 // write, without the marks.
 func (r Result) Plan() plan.Installation {
 	return plan.Installation{Name: r.Installation, State: r.State, Inputs: r.Inputs.Values, MissingInputs: r.Inputs.Missing, Refused: r.Refused, CommitRefused: r.CommitRefused, MissingFacts: r.MissingFacts,
-		Files: r.Files, Includes: r.Includes, Diff: r.Diff, GeneratedSecrets: r.GeneratedSecrets, SuppliedSecrets: r.SuppliedSecrets, SuppliedOnRecord: r.SuppliedOnRecord,
+		Files: r.Files, Includes: r.Includes, Diff: r.Diff, GeneratedSecrets: r.GeneratedSecrets, DeferredPairs: r.DeferredPairs, SuppliedSecrets: r.SuppliedSecrets, SuppliedOnRecord: r.SuppliedOnRecord,
 		HubSections: r.HubSections, DropsPrereleases: r.DropsPrereleases, Join: r.Join, SwitchOff: r.SwitchOff, DexClients: r.DexClients, CustomerActions: r.CustomerActions, Probes: r.Probes}
 }
 
@@ -338,7 +340,8 @@ type Options struct {
 	// ForceSwitchOff: the switch-off was asked for with its warning known (plan.Options.ForceSwitchOff).
 	ForceSwitchOff bool
 	// Installations are the registry's installations by name (plan.Options.Installations).
-	Installations map[string]installations.Installation
+	Installations     map[string]installations.Installation
+	PlanInstallations map[string]bool
 }
 
 // Compare answers the verify of opts' installation.
@@ -629,7 +632,7 @@ func droppedReason(path string) string {
 // with the files the definition renders flattened to their leaves by key.
 // The definition's refusal is the error.
 func build(ctx context.Context, opts Options, values map[string]any, read plan.Reader) (plan.Installation, map[string]map[string]string, error) {
-	p := plan.Build(ctx, plan.Options{Definition: opts.Definition, Installation: opts.Installation, Hub: opts.Hub, Inputs: values, Content: true, Read: read, Rotate: opts.Rotate, ForceJoin: opts.ForceJoin, ForceSwitchOff: opts.ForceSwitchOff, Installations: opts.Installations})
+	p := plan.Build(ctx, plan.Options{Definition: opts.Definition, Installation: opts.Installation, Hub: opts.Hub, Inputs: values, Content: true, Read: read, Rotate: opts.Rotate, ForceJoin: opts.ForceJoin, ForceSwitchOff: opts.ForceSwitchOff, Installations: opts.Installations, PlanInstallations: opts.PlanInstallations})
 	if p.Refused != "" {
 		return p, nil, errors.New(p.Refused)
 	}
