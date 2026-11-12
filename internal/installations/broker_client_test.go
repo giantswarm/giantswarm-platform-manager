@@ -80,7 +80,7 @@ func TestRenderedBrokerClientReadsBack(t *testing.T) {
 	shapes := os.DirFS(filepath.Join("..", "..", "render", "agentplatform", "testdata"))
 	entries, err := fs.ReadDir(shapes, ".")
 	require.NoError(t, err)
-	exchanges := 0
+	var exchanged []string
 	for _, entry := range entries {
 		raw, err := fs.ReadFile(shapes, entry.Name()+"/input.yaml")
 		if err != nil {
@@ -121,9 +121,12 @@ func TestRenderedBrokerClientReadsBack(t *testing.T) {
 			require.Contains(t, patch, "\n            "+managerClient+":\n", "%s: the exchange renders agent-manager's broker client", entry.Name())
 			require.Equal(t, asIs, got, "%s: agent-manager's exchange client changes the fleet's broker client read back", entry.Name())
 			if asIs != "" {
-				exchanges++
+				exchanged = append(exchanged, entry.Name())
 			}
 		}
 	}
-	require.Positive(t, exchanges, "no brokering shape rendered with agent-manager's exchange: the read-back beside it is unproved")
+	// The hub shape brokers for its targets and runs the agent-manager on the
+	// 4 line, as gazelle does: it must render with the exchange, so a
+	// refusal there fails here instead of being skipped.
+	require.Contains(t, exchanged, "hub-private-target", "the hub shape did not render with agent-manager's exchange: the read-back beside it is unproved")
 }
