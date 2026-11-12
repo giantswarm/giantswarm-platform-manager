@@ -1,0 +1,29 @@
+# A Giant Swarm-owned installation on the 4 chart line that moved its skills to the skill-manager
+# (a URL as its one source, read with the read-only skills GitHub App, an installation's own Secret
+# not rendered here) and runs the default agent on a ModelConfig it names, as an installation whose
+# agent-manager range starts below 2.24.0 must. No portal, no hub. Invented names, placeholder
+# values.
+input:
+  installation:
+    name: finch
+    baseDomain: finch.example.io
+    customer: giantswarm
+    provider: capa
+    private: false
+    chartLine: "4"
+    musterClientId: 00000000-0000-4000-8000-00000000000a
+    podCertificateRequest: true
+    portalClientSecret: false
+    portals: []
+    federation:
+      hubs: []
+      registryHub: finch
+      targets: []
+  skillManager:
+    sources:
+      - https://github.com/acme/skills
+    github:
+      app:
+        secretName: acme-skills-app
+  defaultAgent:
+    modelConfig: claude-sonnet

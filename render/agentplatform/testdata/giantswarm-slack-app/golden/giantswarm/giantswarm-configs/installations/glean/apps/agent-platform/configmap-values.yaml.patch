@@ -55,6 +55,12 @@ components:
         name: muster-credentials-revision
         valuesKey: revision
         targetPath: podAnnotations.muster-credentials-revision
+  skill-manager:
+    valuesFromRefs:
+      - kind: Secret
+        name: muster-credentials-revision
+        valuesKey: revision
+        targetPath: podAnnotations.muster-credentials-revision
 postgres:
   enabled: true
 llmRouting:

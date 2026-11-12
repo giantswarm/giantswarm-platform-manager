@@ -51,6 +51,10 @@ const (
 	// componentModelManager is no choice of the policy's: the meta chart's 4
 	// line runs it by default and the definition leaves it on.
 	componentModelManager = "model-manager"
+	// componentSkillManager is no choice of the policy's either: the meta
+	// chart runs it wherever the agent-manager runs, from skillManagerChart
+	// on.
+	componentSkillManager = "skill-manager"
 )
 
 // organisationComponents are the components policy.yaml lists per
@@ -1147,6 +1151,11 @@ func (in *Input) agentManager() bool   { return in.Components[componentAgentMana
 func (in *Input) klausGateway() bool   { return in.Components[componentKlausGateway] }
 func (in *Input) clusterManager() bool { return in.Components[componentClusterManager] }
 func (in *Input) modelManager() bool   { return in.Installation.ChartLine == lineFour }
+
+// skillManager says whether the meta chart runs the skill-manager: with the
+// agent-manager, on a chart from skillManagerChart on (a versions.chart hold
+// below it runs a chart without the component).
+func (in *Input) skillManager() bool { return in.agentManager() && in.reachesSkillManagerChart() }
 
 // portalHost is the installation whose management-clusters tree hosts the
 // portal the platform's portal section is written into (hostedPortal); empty
