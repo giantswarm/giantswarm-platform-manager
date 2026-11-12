@@ -84,9 +84,9 @@ const (
 	// holdBelowSkillManager holds the meta chart below the release with
 	// the skill-manager and the default agent.
 	holdBelowSkillManager = "~4.174.0"
-	// stableOnly is what a refusal names on an installation that runs
-	// stable releases only.
-	stableOnly = "stable releases only"
+	// holdReleaseBeforeSkillManager holds the meta chart on the stable
+	// release before the one with the skill-manager.
+	holdReleaseBeforeSkillManager = "~4.178.0"
 	// holdAgentManagerViaSkillManager holds the agent-manager on the release
 	// that takes its skills from the skill-manager.
 	holdAgentManagerViaSkillManager = "~2.24.0"
@@ -1625,8 +1625,8 @@ func requireRefusals(t *testing.T, cases []refusalCase) {
 // component's toggle, on any chart release; with a model override, the
 // ModelConfig it names. Off and the override are refused on the 3 line and
 // where no kagent runs; the override also with a chart hold below the
-// release that ships the agent, and on an installation that runs stable
-// releases only while that release is a candidate.
+// release that ships the agent. The release is stable, so an installation
+// that runs stable releases only takes the override.
 func TestDefaultAgent(t *testing.T) {
 	withDefaultAgent := func(shape string, choice map[string]any) (map[string]any, map[string]string) {
 		input, secrets := loadInput(t, shape)
@@ -1652,11 +1652,15 @@ func TestDefaultAgent(t *testing.T) {
 		}
 	}
 
-	input, secrets := withDefaultAgent(shapeHubPrivateTarget, map[string]any{keyModelConfig: modelSonnet})
-	runReleaseCandidates(input)
-	input[keyVersions] = map[string]any{keyChart: ">=4.100.0 <5.0.0"}
-	if got := renderedPatch(t, input, secrets); !strings.Contains(got, "\ndefaultAgent:\n  modelConfig: claude-sonnet\n") {
-		t.Errorf("a model override, and the patch carries no defaultAgent.modelConfig:\n%s", got)
+	for _, candidates := range []bool{true, false} {
+		input, secrets := withDefaultAgent(shapeHubPrivateTarget, map[string]any{keyModelConfig: modelSonnet})
+		if candidates {
+			runReleaseCandidates(input)
+			input[keyVersions] = map[string]any{keyChart: ">=4.100.0 <5.0.0"}
+		}
+		if got := renderedPatch(t, input, secrets); !strings.Contains(got, "\ndefaultAgent:\n  modelConfig: claude-sonnet\n") {
+			t.Errorf("a model override (release candidates %v), and the patch carries no defaultAgent.modelConfig:\n%s", candidates, got)
+		}
 	}
 
 	var cases []refusalCase
@@ -1674,10 +1678,8 @@ func TestDefaultAgent(t *testing.T) {
 	held, heldSecrets := withDefaultAgent(shapeHubPrivateTarget, map[string]any{keyModelConfig: modelSonnet})
 	runReleaseCandidates(held)
 	held[keyVersions] = map[string]any{keyChart: holdBelowSkillManager}
-	stable, stableSecrets := withDefaultAgent(shapeHubPrivateTarget, map[string]any{keyModelConfig: modelSonnet})
 	cases = append(cases,
-		refusalCase{"defaultAgent.modelConfig with the chart held below the agent", held, heldSecrets, inputChartHold},
-		refusalCase{"defaultAgent.modelConfig on stable releases only", stable, stableSecrets, stableOnly})
+		refusalCase{"defaultAgent.modelConfig with the chart held below the agent", held, heldSecrets, inputChartHold})
 	requireRefusals(t, cases)
 }
 
@@ -1688,9 +1690,11 @@ func TestDefaultAgent(t *testing.T) {
 // no http(s) URL, or an object with a key the skill-manager does not read,
 // is refused, and so is an entry naming the platform's own repository, the
 // list beside the agent-manager's skill repositories, on the 3 line, where
-// the fleet policy runs no agent-manager, with a chart hold below the
-// release with the skill-manager, and on an installation that runs stable
-// releases only while that release is a candidate.
+// the fleet policy runs no agent-manager, and with a chart hold below the
+// release with the skill-manager (a stable hold on 4.177 or 4.178 among
+// them). A hold on a candidate with the keys, or on the release, takes them,
+// and so does an installation that runs stable releases only, the release
+// being stable.
 func TestSkillManagerSources(t *testing.T) {
 	withSources := func(shape string, sources ...any) (map[string]any, map[string]string) {
 		input, secrets := loadInput(t, shape)
@@ -1714,9 +1718,16 @@ func TestSkillManagerSources(t *testing.T) {
 		t.Errorf("the patch carries no sources\n%s\nin:\n%s", want, got)
 	}
 
-	input, secrets = withSources(shapeHubPrivateTarget, acmeSkills)
-	input[keyVersions] = map[string]any{keyChart: ">=4.100.0 <5.0.0"}
-	renderedPatch(t, input, secrets)
+	for _, hold := range []string{">=4.100.0 <5.0.0", "4.179.0-rc.12", "~4.179.0"} {
+		input, secrets = withSources(shapeHubPrivateTarget, acmeSkills)
+		input[keyVersions] = map[string]any{keyChart: hold}
+		renderedPatch(t, input, secrets)
+	}
+	stableInput, stableSecrets := withSources(shapeHubPrivateTarget, acmeSkills)
+	stableInput["installation"].(map[string]any)["collectionsStage"] = ""
+	if got := renderedPatch(t, stableInput, stableSecrets); !strings.Contains(got, "\nskillManager:\n  sources:\n    - "+acmeSkills+"\n") {
+		t.Errorf("stable releases only, and the patch carries no sources:\n%s", got)
+	}
 
 	object := map[string]any{keyURL: acmeSkills, keyRef: refMain}
 	noURL, noURLSecrets := withSources(shapeHubPrivateTarget, map[string]any{keyRef: refMain})
@@ -1734,8 +1745,8 @@ func TestSkillManagerSources(t *testing.T) {
 	platform, platformSecrets := withSources(shapeHubPrivateTarget, map[string]any{keyURL: "https://github.com/giantswarm/agent-platform.git/", keyRef: refMain})
 	both, bothSecrets := withSources(shapeHubPrivateTarget, acmeSkills)
 	both["agentManager"] = map[string]any{keySkills: map[string]any{keyRepositories: []any{acmeSkills}}}
-	stable, stableSecrets := withSources(shapeHubPrivateTarget, acmeSkills)
-	stable["installation"].(map[string]any)["collectionsStage"] = ""
+	heldStable, heldStableSecrets := withSources(shapeHubPrivateTarget, object)
+	heldStable[keyVersions] = map[string]any{keyChart: holdReleaseBeforeSkillManager}
 	const sourcesPath, sourcesInput, repositoriesInput = "skillManager/sources", "skillManager.sources", "agentManager.skills.repositories"
 	requireRefusals(t, []refusalCase{
 		{"the chart held on a release without the skill-manager", heldReleased, heldReleasedSecrets, inputChartHold},
@@ -1748,14 +1759,15 @@ func TestSkillManagerSources(t *testing.T) {
 		{caseLineThree, lineThree, lineThreeSecrets, "skillManager.sources"},
 		{"without agent-manager", noAgentManager, noAgentManagerSecrets, "skillManager.sources"},
 		{"the chart held below the skill-manager", held, heldSecrets, inputChartHold},
-		{"stable releases only", stable, stableSecrets, stableOnly},
+		{"the chart held on the release before the skill-manager", heldStable, heldStableSecrets, inputChartHold},
 	})
 }
 
 // TestSkillManagerAppSecret writes the skill-manager's GitHub App Secret
 // where the person names it, and refuses a name that is no Secret's and the
-// name where the meta chart runs no skill-manager, or not yet on an
-// installation that runs stable releases only.
+// name where the meta chart runs no skill-manager or a chart hold is below
+// the release with it; an installation that runs stable releases only takes
+// it, the release being stable.
 func TestSkillManagerAppSecret(t *testing.T) {
 	withApp := func(shape string) (map[string]any, map[string]string) {
 		input, secrets := loadInput(t, shape)
@@ -1770,11 +1782,15 @@ func TestSkillManagerAppSecret(t *testing.T) {
 		t.Errorf("no App, and the patch carries skill-manager:\n%s", got)
 	}
 
-	input, secrets = withApp(shapeHubPrivateTarget)
-	got := renderedPatch(t, input, secrets)
 	want := "\nskill-manager:\n  github:\n    app:\n      secretName: " + skillsApp + "\n"
-	if !strings.Contains(got, want) {
+	input, secrets = withApp(shapeHubPrivateTarget)
+	if got := renderedPatch(t, input, secrets); !strings.Contains(got, want) {
 		t.Errorf("the patch carries no App Secret\n%s\nin:\n%s", want, got)
+	}
+	stable, stableSecrets := loadInput(t, shapeHubPrivateTarget)
+	stable["skillManager"] = map[string]any{keyGitHub: appSecret(skillsApp)}
+	if got := renderedPatch(t, stable, stableSecrets); !strings.Contains(got, want) {
+		t.Errorf("stable releases only, and the patch carries no App Secret\n%s\nin:\n%s", want, got)
 	}
 
 	lineThree, lineThreeSecrets := withApp(shapePublicCustomer)
@@ -1785,15 +1801,12 @@ func TestSkillManagerAppSecret(t *testing.T) {
 	held[keyVersions] = map[string]any{keyChart: holdBelowSkillManager}
 	notAName, notANameSecrets := loadInput(t, shapeHubPrivateTarget)
 	notAName["skillManager"] = map[string]any{keyGitHub: appSecret("Acme Skills")}
-	stable, stableSecrets := loadInput(t, shapeHubPrivateTarget)
-	stable["skillManager"] = map[string]any{keyGitHub: appSecret(skillsApp)}
 	const appInput = "skillManager.github.app.secretName"
 	requireRefusals(t, []refusalCase{
 		{"not a Secret name", notAName, notANameSecrets, "skillManager/github/app/secretName"},
 		{caseLineThree, lineThree, lineThreeSecrets, appInput},
 		{"without agent-manager", noAgentManager, noAgentManagerSecrets, appInput},
 		{"the chart held below the skill-manager", held, heldSecrets, inputChartHold},
-		{"stable releases only", stable, stableSecrets, stableOnly},
 	})
 }
 
@@ -1834,13 +1847,14 @@ func TestAgentManagerSkillRepositoriesBeforeTheSkillManager(t *testing.T) {
 	for _, c := range []struct {
 		candidates bool
 		versions   map[string]any
-	}{{false, nil}, {true, map[string]any{keyChart: holdBelowSkillManager}}} {
+	}{{false, map[string]any{keyChart: holdReleaseBeforeSkillManager}}, {true, map[string]any{keyChart: holdBelowSkillManager}}} {
 		input, secrets := withRepositories(c.candidates, c.versions, platformSkillsRepository)
 		if got := renderedPatch(t, input, secrets); !strings.Contains(got, "      - "+platformSkillsRepository+"\n") {
 			t.Errorf("a chart without the platform's source (%v, %v), and the patch carries no platform repository:\n%s", c.candidates, c.versions, got)
 		}
 	}
 	const repositoriesInput = "agentManager.skills.repositories"
+	stablePlatform, stablePlatformSecrets := withRepositories(false, nil, platformSkillsRepository)
 	atFloor, atFloorSecrets := withRepositories(true, map[string]any{keyComponents: map[string]any{componentAgentManager: holdAgentManagerViaSkillManager}}, acmeSkills)
 	candidate, candidateSecrets := withRepositories(true, map[string]any{keyComponents: map[string]any{componentAgentManager: ">=2.24.0-rc.6 <3.0.0"}}, acmeSkills)
 	platform, platformSecrets := withRepositories(true, nil, acmeSkills, platformSkillsRepository+".git")
@@ -1848,6 +1862,7 @@ func TestAgentManagerSkillRepositoriesBeforeTheSkillManager(t *testing.T) {
 		{"the agent-manager held at the skill-manager's release", atFloor, atFloorSecrets, repositoriesInput},
 		{"the agent-manager held from a candidate of it", candidate, candidateSecrets, repositoriesInput},
 		{"the platform's own repository", platform, platformSecrets, repositoriesInput + " entry 1"},
+		{"the platform's own repository on stable releases only", stablePlatform, stablePlatformSecrets, repositoriesInput + " entry 0"},
 	})
 }
 

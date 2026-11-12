@@ -1224,9 +1224,7 @@ type skillManagerChartChoice struct {
 
 // checkSkillManagerChart refuses each chosen input outside the 4 chart
 // line, where the fleet policy does not run component (runs), and, unless
-// any chart takes it, with a versions.chart hold below skillManagerChart or
-// on an installation that runs stable releases only while skillManagerChart
-// is a release candidate (skillManagerChartReleased).
+// any chart takes it, with a versions.chart hold below skillManagerChart.
 func (in *Input) checkSkillManagerChart(component string, runs bool, choices ...skillManagerChartChoice) error {
 	for _, c := range choices {
 		if !c.chosen {
@@ -1244,37 +1242,22 @@ func (in *Input) checkSkillManagerChart(component string, runs bool, choices ...
 		if !holdAdmits(in.Versions.Chart, skillManagerChart) {
 			return refuse(fmt.Sprintf("%s needs the meta chart %s or later, which runs the skill-manager and the default agent, and %s holds it at %s; move or lift the hold first", describe(c.input), skillManagerChart, describe("versions.chart"), in.Versions.Chart))
 		}
-		if !in.ReleaseCandidates && !skillManagerChartReleased {
-			return refuse(fmt.Sprintf("%s needs agent-platform %s, a release candidate so far; this installation runs stable releases only", describe(c.input), skillManagerChartRelease()))
-		}
 	}
 	return nil
 }
 
 // skillManagerChart is the first meta chart that runs the skill-manager and
 // ships the default agent (giantswarm/agent-platform#1265), its first release
-// candidate with the keys. Its values schema refuses skillManager,
-// skill-manager and defaultAgent below it.
+// candidate with the keys; its release, agent-platform 4.179.0, is stable.
+// Its values schema refuses skillManager, skill-manager and defaultAgent
+// below it.
 const skillManagerChart = "4.179.0-rc.9"
 
-// skillManagerChartReleased says skillManagerChart's release is out as a
-// stable release. Until it is, only the installations that run release
-// candidates reach it: the stable ones run a chart whose closed schema
-// refuses the inputs. Set it to true once agent-platform 4.179.0 is stable.
-const skillManagerChartReleased = false
-
-// skillManagerChartRelease is the release of skillManagerChart, without the
-// candidate.
-func skillManagerChartRelease() string {
-	release, _, _ := strings.Cut(skillManagerChart, "-")
-	return release
-}
-
 // reachesSkillManagerChart says whether the meta chart the installation
-// resolves to may be skillManagerChart or later: the 4 line, no
-// versions.chart hold below it, and release candidates or the release out.
+// resolves to may be skillManagerChart or later: the 4 line and no
+// versions.chart hold below it.
 func (in *Input) reachesSkillManagerChart() bool {
-	return in.Installation.ChartLine == lineFour && holdAdmits(in.Versions.Chart, skillManagerChart) && (in.ReleaseCandidates || skillManagerChartReleased)
+	return in.Installation.ChartLine == lineFour && holdAdmits(in.Versions.Chart, skillManagerChart)
 }
 
 // agentManagerViaSkillManager is the first agent-manager release that takes
@@ -1308,8 +1291,12 @@ func (in *Input) takesSkillsFromSkillManager() bool {
 // entry, and an agentManager.skills.repositories entry on a chart with the
 // skill-manager; agentManager.skills.repositories where the agent-manager
 // takes its skills from the skill-manager, on which the meta chart fails;
-// and agentManager.skills.repositories beside skillManager.sources, which an
-// agent-manager below agentManagerViaSkillManager takes in their place.
+// and agentManager.skills.repositories beside skillManager.sources. The
+// meta chart takes both lists (an agent-manager below
+// agentManagerViaSkillManager reads its own list in place of the sources, the
+// skill-manager the sources); refusing the pair is this definition's choice,
+// so one reconcile moves an installation and no state leaves the two
+// consumers with lists that differ.
 func (in *Input) checkSkillSourceConflicts() error {
 	for i, s := range in.SkillManagerSources {
 		if namesPlatformSkills(s.URL) {
@@ -1327,7 +1314,7 @@ func (in *Input) checkSkillSourceConflicts() error {
 		}
 	}
 	if len(in.SkillManagerSources) > 0 && len(in.AgentManagerSkills.Repositories) > 0 {
-		return refuse(fmt.Sprintf("%s and %s are both set, and an agent-manager below %s (the meta chart's default range among them) takes its own list in place of skillManager.sources; move the list into skillManager.sources", describe("skillManager.sources"), describe("agentManager.skills.repositories"), agentManagerViaSkillManager))
+		return refuse(fmt.Sprintf("%s and %s are both set. The meta chart takes both, but an agent-manager below %s (the meta chart's default range among them) then reads its own list and the skill-manager the sources, two lists that can differ; this definition keeps one list: move the agent-manager's list into skillManager.sources and empty it in the same reconcile", describe("skillManager.sources"), describe("agentManager.skills.repositories"), agentManagerViaSkillManager))
 	}
 	return nil
 }
