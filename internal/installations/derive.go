@@ -14,6 +14,7 @@ import (
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
 	"github.com/giantswarm/giantswarm-platform-manager/render"
+	"github.com/giantswarm/giantswarm-platform-manager/render/agentplatform"
 	"github.com/giantswarm/giantswarm-platform-manager/render/mcpservers"
 )
 
@@ -853,9 +854,8 @@ func proxied(portals []Portal, hub, name string) bool {
 	return slices.ContainsFunc(portals, func(p Portal) bool { return p.Broker == hub && slices.Contains(p.PlatformProxied, name) })
 }
 
-// brokerClientID reads a hub's broker client id back from its patch: the one
-// client under muster.muster.oauth.server.tokenExchangeBroker.brokerClients.
-// Empty when the hub carries no patch or no broker yet.
+// brokerClientID reads a hub's broker client id back from its patch
+// (fleetBrokerClient). Empty when the hub carries no patch or no broker yet.
 func brokerClientID(ctx context.Context, c *gh.Client, hub Report) (string, error) {
 	owner, repo, err := gh.SplitRepo(hub.Repositories.Configs)
 	if err != nil {
@@ -868,6 +868,17 @@ func brokerClientID(ctx context.Context, c *gh.Client, hub Report) (string, erro
 	if err != nil {
 		return "", err
 	}
+	return fleetBrokerClient(AgentPlatformPatchPath(hub.Name), data)
+}
+
+// fleetBrokerClient is the fleet's broker client id in a hub's values patch
+// (path names it in errors): the one client under
+// muster.muster.oauth.server.tokenExchangeBroker.brokerClients that is not a
+// manager's own exchange client, which the render writes beside it under the
+// manager's id with the manager's Secret (agentplatform.IsManagerBrokerClient;
+// a fleet client of the same id carries the fleet's Secret). Empty when there is none; more than
+// one is a record the definition did not render and is refused.
+func fleetBrokerClient(path, data string) (string, error) {
 	var patch struct {
 		Muster struct {
 			Muster struct {
@@ -882,18 +893,30 @@ func brokerClientID(ctx context.Context, c *gh.Client, hub Report) (string, erro
 		} `yaml:"muster"`
 	}
 	if err := yaml.Unmarshal([]byte(data), &patch); err != nil {
-		return "", fmt.Errorf("%s: %w", AgentPlatformPatchPath(hub.Name), err)
+		return "", fmt.Errorf("%s: %w", path, err)
 	}
 	ids := make([]string, 0, 1)
-	for id := range patch.Muster.Muster.OAuth.Server.TokenExchangeBroker.BrokerClients {
-		ids = append(ids, id)
+	for id, client := range patch.Muster.Muster.OAuth.Server.TokenExchangeBroker.BrokerClients {
+		if !agentplatform.IsManagerBrokerClient(id, credentialsSecretRef(client)) {
+			ids = append(ids, id)
+		}
 	}
 	if len(ids) > 1 {
 		sort.Strings(ids)
-		return "", fmt.Errorf("%s: %d broker clients (%s); the definition renders one", AgentPlatformPatchPath(hub.Name), len(ids), strings.Join(ids, ", "))
+		return "", fmt.Errorf("%s: %d fleet broker clients (%s); the definition renders one, beside the managers' own exchange clients", path, len(ids), strings.Join(ids, ", "))
 	}
 	if len(ids) == 0 {
 		return "", nil
 	}
 	return ids[0], nil
+}
+
+// credentialsSecretRef is the Secret a broker client entry's
+// clientCredentialsSecretRef names, "" for an entry without one (a record
+// from before the reference, with its secret inline).
+func credentialsSecretRef(client any) string {
+	entry, _ := client.(map[string]any)
+	ref, _ := entry["clientCredentialsSecretRef"].(map[string]any)
+	name, _ := ref["name"].(string)
+	return name
 }
