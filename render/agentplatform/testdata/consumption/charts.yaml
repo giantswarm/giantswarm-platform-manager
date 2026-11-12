@@ -69,12 +69,12 @@ charts:
   - name: agent-manager
     line: "4"
     registry: gsoci.azurecr.io/charts/giantswarm/agent-manager
-    version: 2.23.2
+    version: 2.24.0
   # The meta chart's children the policy offers Giant Swarm-owned installations,
   # on the 4 line.
   - name: klaus-gateway
     registry: gsoci.azurecr.io/charts/giantswarm/klaus-gateway
-    version: 4.16.33
+    version: 4.16.34
   - name: cluster-manager
     registry: gsoci.azurecr.io/charts/giantswarm/cluster-manager
     version: 0.34.2
@@ -102,15 +102,15 @@ charts:
   - name: kserve-llmisvc-crd
     line: "4"
     registry: gsoci.azurecr.io/charts/giantswarm/kserve-llmisvc-crd
-    version: 0.7.13
+    version: 0.7.14
   - name: kserve-llmisvc-resources
     line: "4"
     registry: gsoci.azurecr.io/charts/giantswarm/kserve-llmisvc-resources
-    version: 0.7.13
+    version: 0.7.14
   - name: kserve-runtime-configs
     line: "4"
     registry: gsoci.azurecr.io/charts/giantswarm/kserve-runtime-configs
-    version: 0.7.13
+    version: 0.7.14
   # The developer portal, rendered over the fleet base with the customer-portal
   # definition's own files (its app-config, values and Secrets) and, in the
   # platform shapes, the agent-platform definition's Component: its values
