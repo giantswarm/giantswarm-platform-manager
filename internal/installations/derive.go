@@ -874,8 +874,9 @@ func brokerClientID(ctx context.Context, c *gh.Client, hub Report) (string, erro
 // fleetBrokerClient is the fleet's broker client id in a hub's values patch
 // (path names it in errors): the one client under
 // muster.muster.oauth.server.tokenExchangeBroker.brokerClients that is not a
-// manager's own exchange client, which the render writes beside it
-// (agentplatform.IsManagerBrokerClient). Empty when there is none; more than
+// manager's own exchange client, which the render writes beside it under the
+// manager's id with the manager's Secret (agentplatform.IsManagerBrokerClient;
+// a fleet client of the same id carries the fleet's Secret). Empty when there is none; more than
 // one is a record the definition did not render and is refused.
 func fleetBrokerClient(path, data string) (string, error) {
 	var patch struct {
@@ -895,8 +896,8 @@ func fleetBrokerClient(path, data string) (string, error) {
 		return "", fmt.Errorf("%s: %w", path, err)
 	}
 	ids := make([]string, 0, 1)
-	for id := range patch.Muster.Muster.OAuth.Server.TokenExchangeBroker.BrokerClients {
-		if !agentplatform.IsManagerBrokerClient(id) {
+	for id, client := range patch.Muster.Muster.OAuth.Server.TokenExchangeBroker.BrokerClients {
+		if !agentplatform.IsManagerBrokerClient(id, credentialsSecretRef(client)) {
 			ids = append(ids, id)
 		}
 	}
@@ -908,4 +909,14 @@ func fleetBrokerClient(path, data string) (string, error) {
 		return "", nil
 	}
 	return ids[0], nil
+}
+
+// credentialsSecretRef is the Secret a broker client entry's
+// clientCredentialsSecretRef names, "" for an entry without one (a record
+// from before the reference, with its secret inline).
+func credentialsSecretRef(client any) string {
+	entry, _ := client.(map[string]any)
+	ref, _ := entry["clientCredentialsSecretRef"].(map[string]any)
+	name, _ := ref["name"].(string)
+	return name
 }

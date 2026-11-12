@@ -1,6 +1,7 @@
 package installations
 
 import (
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -18,16 +19,22 @@ const (
 	fleetClient    = "A9gQ-8CaXDUy9G8T1roAuXA_p4bzc8zZBvcBc0x4Zt4"
 	hubPatchPath   = "installations/gazelle/apps/agent-platform/configmap-values.yaml.patch"
 	managerClient  = "agent-manager"
+	hubShape       = "hub-private-target"
 	fleetSecret    = "muster-broker-clients"       //nolint:gosec // a Secret's name, no credential
 	managerSecret  = "agent-manager-github-broker" //nolint:gosec // a Secret's name, no credential
 	brokerPatchFmt = "muster:\n  muster:\n    oauth:\n      server:\n        tokenExchangeBroker:\n          brokerClients:\n%s"
 )
 
 // brokerPatch is a hub's values patch with the broker clients named, each
-// with the Secret its credentials are read from.
+// with the Secret its credentials are read from, or, for "", with its secret
+// inline (a record from before clientCredentialsSecretRef).
 func brokerPatch(clients map[string]string) string {
 	var b strings.Builder
 	for id, secret := range clients {
+		if secret == "" {
+			b.WriteString("            " + id + ":\n              clientSecret: inline\n")
+			continue
+		}
 		b.WriteString("            " + id + ":\n              clientCredentialsSecretRef: {name: " + secret + "}\n")
 	}
 	return strings.Replace(brokerPatchFmt, "%s", b.String(), 1)
@@ -47,6 +54,9 @@ func TestFleetBrokerClient(t *testing.T) {
 		{"the fleet's beside agent-manager's exchange client", map[string]string{fleetClient: fleetSecret, managerClient: managerSecret}, fleetClient, ""},
 		{"the fleet's alone", map[string]string{fleetClient: fleetSecret}, fleetClient, ""},
 		{"agent-manager's alone", map[string]string{managerClient: managerSecret}, "", ""},
+		{"a fleet client named agent-manager, the exchange off", map[string]string{managerClient: fleetSecret}, managerClient, ""},
+		{"a fleet client named agent-manager with its secret inline", map[string]string{managerClient: ""}, managerClient, ""},
+		{"the fleet's with its secret inline, beside agent-manager's", map[string]string{fleetClient: "", managerClient: managerSecret}, fleetClient, ""},
 		{"none", map[string]string{}, "", ""},
 		{"two that are no manager's", map[string]string{fleetClient: fleetSecret, "other": fleetSecret}, "", "2 fleet broker clients (" + fleetClient + ", other)"},
 		{"two that are no manager's, beside agent-manager's", map[string]string{fleetClient: fleetSecret, "other": "x", managerClient: managerSecret}, "", "2 fleet broker clients (" + fleetClient + ", other)"},
@@ -97,18 +107,11 @@ func TestRenderedBrokerClientReadsBack(t *testing.T) {
 				doc.Input["agentManager"] = map[string]any{"githubTokenExchange": map[string]any{"enabled": true}}
 				delete(doc.Input, "versions")
 			}
-			result, err := agentplatform.Render(doc.Input, doc.Secrets, render.ModeCommit)
+			patch, err := renderedPlatformPatch(doc.Input, doc.Secrets)
 			if exchange && err != nil {
 				continue // a shape that cannot take the exchange (no agent-manager, the 3 line, commit mode)
 			}
 			require.NoError(t, err, entry.Name())
-			var patch string
-			for name, content := range result.Tree() {
-				if strings.HasSuffix(filepath.ToSlash(name), "/apps/agent-platform/configmap-values.yaml.patch") {
-					patch = string(content)
-				}
-			}
-			require.NotEmpty(t, patch, entry.Name())
 			got, err := fleetBrokerClient(entry.Name(), patch)
 			require.NoError(t, err, "%s (exchange %v)", entry.Name(), exchange)
 			if !exchange {
@@ -128,5 +131,41 @@ func TestRenderedBrokerClientReadsBack(t *testing.T) {
 	// The hub shape brokers for its targets and runs the agent-manager on the
 	// 4 line, as gazelle does: it must render with the exchange, so a
 	// refusal there fails here instead of being skipped.
-	require.Contains(t, exchanged, "hub-private-target", "the hub shape did not render with agent-manager's exchange: the read-back beside it is unproved")
+	require.Contains(t, exchanged, hubShape, "the hub shape did not render with agent-manager's exchange: the read-back beside it is unproved")
+}
+
+// TestRenderedFleetBrokerClientNamedAgentManager renders the hub shape with
+// its fleet broker client named agent-manager and agent-manager's exchange
+// off, which the render takes (it reserves the id only with the exchange on)
+// and writes with the fleet's Secret: the read-back reads that client back.
+func TestRenderedFleetBrokerClientNamedAgentManager(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "render", "agentplatform", "testdata", hubShape, "input.yaml"))
+	require.NoError(t, err)
+	var doc struct {
+		Input   map[string]any    `yaml:"input"`
+		Secrets map[string]string `yaml:"secrets"`
+	}
+	require.NoError(t, yaml.Unmarshal(raw, &doc))
+	doc.Input["installation"].(map[string]any)["federation"].(map[string]any)["brokerClientId"] = managerClient
+	patch, err := renderedPlatformPatch(doc.Input, doc.Secrets)
+	require.NoError(t, err)
+	require.Contains(t, patch, "\n            "+managerClient+":\n              clientCredentialsSecretRef:\n                name: "+fleetSecret+"\n")
+	got, err := fleetBrokerClient(hubShape, patch)
+	require.NoError(t, err)
+	require.Equal(t, managerClient, got)
+}
+
+// renderedPlatformPatch renders an agent-platform input and returns its
+// agent-platform values patch.
+func renderedPlatformPatch(input map[string]any, secrets map[string]string) (string, error) {
+	result, err := agentplatform.Render(input, secrets, render.ModeCommit)
+	if err != nil {
+		return "", err
+	}
+	for name, content := range result.Tree() {
+		if strings.HasSuffix(filepath.ToSlash(name), "/apps/agent-platform/configmap-values.yaml.patch") {
+			return string(content), nil
+		}
+	}
+	return "", errors.New("no agent-platform values patch rendered")
 }
