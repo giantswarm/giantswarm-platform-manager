@@ -87,6 +87,12 @@ func TestAgentManagerCredentialInputsFailClosed(t *testing.T) {
 		{"old muster", func(input map[string]any) {
 			input["versions"] = map[string]any{keyComponents: map[string]any{componentMuster: ">=5.60.0 <6.0.0"}}
 		}, "muster version floor"},
+		{"manager before the values schema", func(input map[string]any) {
+			input["versions"] = map[string]any{keyComponents: map[string]any{componentAgentManager: ">=3.0.0-rc.9 <4.0.0-0"}}
+		}, "agent-manager version floor"},
+		{"broker before Basic credential decoding", func(input map[string]any) {
+			input["versions"] = map[string]any{keyComponents: map[string]any{componentMuster: ">=5.63.1 <6.0.0"}}
+		}, "muster version floor"},
 		{"client collision", func(input map[string]any) {
 			other, _ := loadInput(t, shapeHubPrivateTarget)
 			federation := other["installation"].(map[string]any)["federation"].(map[string]any)
@@ -160,7 +166,7 @@ func TestAgentManagerCredentialHoldsAdmitted(t *testing.T) {
 	for name, versions := range map[string]any{
 		"no hold":            nil,
 		"chart range":        map[string]any{keyChart: chartRangeFour},
-		"manager and muster": map[string]any{keyComponents: map[string]any{componentAgentManager: ">=2.22.0 <3.0.0", componentMuster: ">=5.61.0 <6.0.0"}},
+		"manager and muster": map[string]any{keyComponents: map[string]any{componentAgentManager: ">=3.0.0-rc.10 <4.0.0-0", componentMuster: ">=5.63.2 <6.0.0"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			input, _ := credentialInput(t, shapeGiantswarmSlackAppPub)
@@ -179,6 +185,17 @@ func TestAgentManagerCredentialUIIsInputOnly(t *testing.T) {
 	in, err := Parse(input)
 	require.NoError(t, err)
 	require.NotContains(t, credentialValues(t, in.agentManagerValues()), "credentials")
+}
+
+func TestAgentManagerCredentialUIKeepsItsVersionFloor(t *testing.T) {
+	input, _ := credentialInput(t, shapeGiantswarmSlackAppPub)
+	input["agentManager"].(map[string]any)[keyGitHub] = map[string]any{keyTokenExchange: map[string]any{keyEnabled: false}}
+	input["versions"] = map[string]any{keyComponents: map[string]any{
+		componentAgentManager: ">=2.22.0 <3.0.0",
+		componentMuster:       ">=5.61.0 <6.0.0",
+	}}
+	_, err := Parse(input)
+	require.NoError(t, err)
 }
 
 func credentialInput(t *testing.T, shape string) (map[string]any, map[string]string) {

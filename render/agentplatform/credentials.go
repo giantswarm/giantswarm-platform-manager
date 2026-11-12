@@ -28,16 +28,12 @@ const ManagerExchangeSubjectAudience = authenticatorClient
 
 const (
 	agentManagerBrokerSecret = "agent-manager-github-broker"
-	// credentialChart is the first meta chart that carries agent-manager's
-	// credential operations (giantswarm/agent-platform#1312); its ranges admit
-	// agent-manager managerOperationFloor and muster musterCredentialFloor
-	// and later only.
+	// Credential UI configuration is supported independently of grant exchange.
 	credentialChart       = "4.177.0"
 	managerOperationFloor = "2.22.0"
-	// musterCredentialFloor is the first muster that passes a backend's
-	// input_required through to MCP 2026-07-28 clients (giantswarm/muster#1812)
-	// and accepts the configured Dex audiences alongside resource access tokens.
-	musterCredentialFloor = "5.61.0"
+	managerExchangeFloor  = "3.0.0-rc.10"
+	// The broker must release provider App grants and decode Basic credentials.
+	musterGrantFloor = "5.63.2"
 )
 
 // credentialUI is the credential form's address agent-manager links
@@ -68,8 +64,11 @@ func (in *Input) validateAgentManagerCredentials() error {
 		return refuse("agentManager credential operations require a versions.components.agent-manager floor of " + managerOperationFloor + " or later")
 	}
 	if in.AgentManagerTokenExchange {
-		if hold := in.Versions.Components[componentMuster]; hold != "" && !floorAtLeast(hold, musterCredentialFloor) {
-			return refuse("agentManager.github.tokenExchange.enabled requires a muster version floor of " + musterCredentialFloor + " or later")
+		if hold := in.Versions.Components[componentAgentManager]; hold != "" && !floorAtLeast(hold, managerExchangeFloor) {
+			return refuse("agentManager.github.tokenExchange.enabled requires an agent-manager version floor of " + managerExchangeFloor + " or later")
+		}
+		if hold := in.Versions.Components[componentMuster]; hold != "" && !floorAtLeast(hold, musterGrantFloor) {
+			return refuse("agentManager.github.tokenExchange.enabled requires a muster version floor of " + musterGrantFloor + " or later")
 		}
 		if in.federationBrokers() && in.brokerClient() == componentAgentManager {
 			return refuse("agentManager.github.tokenExchange.enabled reserves the agent-manager broker client ID")
