@@ -172,7 +172,7 @@ func parseRemoteBase(resource string) (remoteBase, bool) {
 }
 
 func (source *dexApp) patch(patch, targetKind, targetName string) (bool, error) {
-	const remove = "remove"
+	const remove, nullTag, specKey = "remove", "!!null", "spec"
 	var node yaml.Node
 	if err := yaml.Unmarshal([]byte(patch), &node); err != nil {
 		return false, err
@@ -200,6 +200,9 @@ func (source *dexApp) patch(patch, targetKind, targetName string) (bool, error) 
 			}
 			var destination any
 			switch op.Path {
+			case "/spec":
+				source.Spec = dexApp{}.Spec
+				destination = &source.Spec
 			case "/spec/version":
 				if source.Kind == kindApp {
 					destination = &source.Spec.Version
@@ -216,10 +219,11 @@ func (source *dexApp) patch(patch, targetKind, targetName string) (bool, error) 
 			}
 			if destination != nil {
 				value := op.Value
-				if op.Op == remove || value.Tag == "!!null" {
+				if op.Op == remove || value.Tag == nullTag {
 					value = yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: ""}
 				}
-				if op.Path != "/spec/ref" || (op.Op != remove && op.Value.Tag != "!!null") {
+				composite := op.Path == "/spec" || op.Path == "/spec/ref"
+				if !composite || (op.Op != remove && op.Value.Tag != nullTag) {
 					if err := value.Decode(destination); err != nil {
 						return false, err
 					}
@@ -239,20 +243,32 @@ func (source *dexApp) patch(patch, targetKind, targetName string) (bool, error) 
 		} else if app.Kind != source.Kind || app.Metadata.Name != dexAppName {
 			return false, nil
 		}
+		if spec, found := nodeAt(doc, []string{specKey}); found && spec.Tag == nullTag {
+			source.Spec = dexApp{}.Spec
+			return true, nil
+		}
 		var values struct {
 			Spec struct {
-				Version *string              `yaml:"version"`
-				Ref     map[string]yaml.Node `yaml:"ref"`
+				Ref map[string]yaml.Node `yaml:"ref"`
 			} `yaml:"spec"`
 		}
 		if err := doc.Decode(&values); err != nil {
 			return false, err
 		}
 		spec := values.Spec
-		if source.Kind == kindApp && spec.Version != nil {
-			source.Spec.Version, changed = *spec.Version, true
+		if source.Kind == kindApp {
+			if version, found := nodeAt(doc, []string{specKey, "version"}); found {
+				source.Spec.Version, changed = "", true
+				if err := version.Decode(&source.Spec.Version); err != nil {
+					return false, err
+				}
+			}
 		}
 		if source.Kind == kindOCIRepository {
+			if reference, found := nodeAt(doc, []string{specKey, "ref"}); found && reference.Tag == nullTag {
+				source.Spec.Ref = dexAppRef{}
+				return true, nil
+			}
 			for key, value := range spec.Ref {
 				if destination := source.Spec.Ref.field(key); destination != nil {
 					*destination = ""

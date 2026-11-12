@@ -7,6 +7,7 @@ import (
 
 func TestDexAppOCIRepository(t *testing.T) {
 	const baseVersion, pinnedVersion, inexact = "3.4.24", "3.4.0", "not an exact version"
+	const missingTag = "sets no spec.ref.tag"
 	const header = "kind: OCIRepository\nmetadata:\n  name: dex-app\nspec:\n  ref:\n"
 	const release = "---\nkind: HelmRelease\nmetadata:\n  name: dex-app\nspec:\n  chartRef:\n    kind: OCIRepository\n    name: dex-app\n"
 	const target = "patches:\n  - target:\n      kind: OCIRepository\n      name: dex-app\n    patch: |\n"
@@ -22,10 +23,14 @@ func TestDexAppOCIRepository(t *testing.T) {
 		{name: "patch adds semver", manifest: header + "    tag: 3.4.24\n", patches: target + "      - op: add\n        path: /spec/ref/semver\n        value: '>=3.0.0'\n", wantError: inexact},
 		{name: "patch clears semver", manifest: header + "    semver: '>=0.0.0-0'\n", patches: target + "      - op: add\n        path: /spec/ref/tag\n        value: 3.4.0\n      - op: remove\n        path: /spec/ref/semver\n", want: pinnedVersion},
 		{name: "patch replaces reference", manifest: header + "    semver: '*'\n", patches: target + "      - op: replace\n        path: /spec/ref\n        value: {tag: 3.4.0}\n", want: pinnedVersion},
+		{name: "patch removes reference", manifest: header + "    tag: 3.4.24\n", patches: target + "      - op: remove\n        path: /spec/ref\n", wantError: missingTag},
+		{name: "patch replaces spec", manifest: header + "    semver: '*'\n", patches: target + "      - op: replace\n        path: /spec\n        value: {ref: {tag: 3.4.0}}\n", want: pinnedVersion},
+		{name: "strategic patch clears reference", manifest: header + "    tag: 3.4.24\n", patches: target + "      spec:\n        ref: null\n", wantError: missingTag},
+		{name: "strategic patch clears spec", manifest: header + "    tag: 3.4.24\n", patches: target + "      spec: null\n", wantError: missingTag},
 		{name: "strategic pin", manifest: header + "    tag: 2.2.3\n", patches: "patches:\n  - patch: |\n      kind: OCIRepository\n      metadata:\n        name: dex-app\n      spec:\n        ref:\n          tag: 3.4.0\n", want: pinnedVersion},
 		{name: "targeted strategic pin clears semver", manifest: header + "    semver: '*'\n", patches: target + "      kind: OCIRepository\n      metadata:\n        name: patched-by-target-selector\n      spec:\n        ref:\n          tag: 3.4.0\n          semver: null\n", want: pinnedVersion},
 		{name: "unrelated patch", manifest: header + "    tag: 3.4.24\n", patches: strings.ReplaceAll(target, "name: dex-app", "name: other") + "      - op: replace\n        path: /spec/ref/tag\n        value: 1.0.0\n", want: baseVersion},
-		{name: "missing tag", manifest: header + "    tag: ''\n", wantError: "sets no spec.ref.tag"},
+		{name: "missing tag", manifest: header + "    tag: ''\n", wantError: missingTag},
 		{name: "non-semantic tag", manifest: header + "    tag: latest\n", wantError: "is no semantic version"},
 		{name: "malformed patch", manifest: header + "    tag: 3.4.24\n", patches: target + "      [invalid\n", wantError: "yaml:"},
 	}
