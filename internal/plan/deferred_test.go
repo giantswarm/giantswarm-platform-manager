@@ -3,6 +3,7 @@ package plan
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
@@ -71,5 +72,32 @@ func TestDeferOnlyNewPairsOutsideThePlan(t *testing.T) {
 				t.Fatalf("generated %+v", result.GeneratedSecrets)
 			}
 		})
+	}
+}
+
+func TestDeferredRenderMustOmitThePair(t *testing.T) {
+	refusal := errors.New("cannot omit the pair")
+	for _, test := range []struct {
+		name   string
+		render func([]string) (*render.Result, error)
+		want   string
+	}{
+		{name: "no deferral hook", want: "cannot defer"},
+		{name: "hook error", render: func([]string) (*render.Result, error) { return nil, refusal }, want: refusal.Error()},
+		{name: "hook retains pair", render: func([]string) (*render.Result, error) {
+			return &render.Result{Files: render.Fileset{renderedHub: {pairHubSide: render.File{Generated: []render.Generated{{Name: pairName}}}}}}, nil
+		}, want: "still renders deferred pair"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			planned := Installation{DeferredPairs: []DeferredPair{{Name: pairName}}}
+			_, err := planned.ApplyDeferrals(&render.Result{WithoutPairs: test.render})
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error %v, want %q", err, test.want)
+			}
+		})
+	}
+	result := &render.Result{}
+	if same, err := (Installation{}).ApplyDeferrals(result); err != nil || same != result {
+		t.Fatalf("no deferral: result %p, error %v", same, err)
 	}
 }
