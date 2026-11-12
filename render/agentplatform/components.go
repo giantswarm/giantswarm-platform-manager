@@ -136,14 +136,14 @@ func (in *Input) agentManagerValues() render.Map {
 		m = append(m, e("skills", skills))
 	}
 	m = append(m, in.organizationsAgentManager()...)
-	if in.AgentManagerCommit {
+	switch {
+	case in.AgentManagerTokenExchange:
+		m = append(m, e("github", render.Map{e("enabled", true), e("tokenExchange", render.Map{
+			e("tokenEndpoint", "https://"+in.host("muster")+"/oauth/token"),
+			e("audience", managerProviderAppName), e("existingSecret", agentManagerBrokerSecret),
+		})}))
+	case in.AgentManagerCommit:
 		m = append(m, githubEnabled())
-	}
-	if in.AgentManagerTokenExchange {
-		m = append(m, e("github", render.Map{e("enabled", false)}), e("githubTokenExchange", render.Map{
-			e("endpoint", "https://"+in.host("muster")+"/oauth/token"), e("clientID", componentAgentManager),
-			e("audience", agentManagerBrokerAudience), e("secretName", agentManagerBrokerSecret),
-		}))
 	}
 	if ui := in.credentialUI(); ui != "" {
 		m = append(m, e("credentials", render.Map{e("uiURL", ui)}))

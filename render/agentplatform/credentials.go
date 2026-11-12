@@ -12,7 +12,10 @@ import (
 
 // managerProviderAppName and managerGrantIssuer identify agent-manager's
 // GitHub App in muster's provider Apps: the grants are filed under the App's
-// own identity, not under GitHub's shared OAuth issuer.
+// own identity, not under GitHub's shared OAuth issuer. The App's name is
+// also the broker target agent-manager exchanges for and the audience it
+// names (agent-manager.github.tokenExchange.audience): the chart registers
+// the MCPServer with that name in auth.providerApps.
 const (
 	managerProviderAppName = componentAgentManager
 	managerGrantIssuer     = "https://github.com/apps/giantswarm-agent-manager"
@@ -24,8 +27,7 @@ const (
 const ManagerExchangeSubjectAudience = authenticatorClient
 
 const (
-	agentManagerBrokerAudience = "agent-manager-github"
-	agentManagerBrokerSecret   = "agent-manager-github-broker"
+	agentManagerBrokerSecret = "agent-manager-github-broker"
 	// credentialChart is the first meta chart that carries agent-manager's
 	// credential operations (giantswarm/agent-platform#1312); its ranges admit
 	// agent-manager managerOperationFloor and muster musterCredentialFloor
@@ -65,19 +67,16 @@ func (in *Input) validateAgentManagerCredentials() error {
 	if hold := in.Versions.Components[componentAgentManager]; hold != "" && !floorAtLeast(hold, managerOperationFloor) {
 		return refuse("agentManager credential operations require a versions.components.agent-manager floor of " + managerOperationFloor + " or later")
 	}
-	if in.AgentManagerTokenExchange && in.AgentManagerCommit {
-		return refuse("agentManager.githubTokenExchange.enabled and agentManager.github.enabled are mutually exclusive")
-	}
 	if in.AgentManagerTokenExchange {
 		if hold := in.Versions.Components[componentMuster]; hold != "" && !floorAtLeast(hold, musterCredentialFloor) {
-			return refuse("agentManager.githubTokenExchange.enabled requires a muster version floor of " + musterCredentialFloor + " or later")
+			return refuse("agentManager.github.tokenExchange.enabled requires a muster version floor of " + musterCredentialFloor + " or later")
 		}
 		if in.federationBrokers() && in.brokerClient() == componentAgentManager {
-			return refuse("agentManager.githubTokenExchange.enabled reserves the agent-manager broker client ID")
+			return refuse("agentManager.github.tokenExchange.enabled reserves the agent-manager broker client ID")
 		}
 		for _, target := range in.Installation.Federation.Targets {
-			if target.Installation == agentManagerBrokerAudience {
-				return refuse("agentManager.githubTokenExchange.enabled reserves the agent-manager-github broker target")
+			if target.Installation == managerProviderAppName {
+				return refuse("agentManager.github.tokenExchange.enabled reserves the agent-manager broker target")
 			}
 		}
 	}

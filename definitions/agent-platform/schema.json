@@ -461,15 +461,6 @@
       "additionalProperties": false,
       "description": "Two choices: the agent-manager's commit mode and its skill catalog.",
       "properties": {
-        "githubTokenExchange": {
-          "type": "object", "additionalProperties": false,
-          "properties": {"enabled": {
-            "type": "boolean", "default": false, "x-source": "person",
-            "x-readback": {"file": "configmap", "key": "agent-manager.githubTokenExchange.endpoint", "kind": "present"},
-            "x-feature": "runtime", "x-renders": ["configmap:agent-manager.githubTokenExchange", "configmap:muster.muster.providerApps", "configmap:muster.muster.oauth.server.tokenExchangeBroker"],
-            "description": "Use the dedicated confidential RFC 8693 client to retrieve the person's manager App grant. Requires github.enabled=false, the meta chart 4.177.0 or later (manager >=2.22.0, muster >=5.61.0) and the installation's giantswarm-agent-manager-oauth-client Secret. Generates an isolated client credential; grants remain with the manager App."
-          }}
-        },
         "credentials": {
           "type": "object", "additionalProperties": false,
           "properties": {"uiURL": {
@@ -546,7 +537,16 @@
               "x-readback": {"file": "configmap", "key": "agent-manager.github.enabled"},
               "x-feature": "runtime",
               "x-renders": ["configmap:agent-manager.github.enabled"],
-              "description": "The agent-manager's commit mode through its GitHub App (agent-manager.github.enabled): the chart registers with muster pinned to the App and create_agent, update_agent and delete_agent take mode: commit, the pull request opened as the person in the repository that owns the target namespace. The connectivity chart opens its egress to api.github.com (GET /user, the pull request). The App's OAuth client is the installation's own Secret, giantswarm-agent-manager-oauth-client in agent-platform, not rendered. Where the fleet policy runs the agent-manager only. Read back from the configmap patch on record."
+              "description": "The agent-manager's commit mode through its GitHub App (agent-manager.github.enabled): the chart registers with muster pinned to the App and create_agent, update_agent and delete_agent take mode: commit, the pull request opened as the person in the repository that owns the target namespace. The connectivity chart opens its egress to api.github.com (GET /user, the pull request). The App's OAuth client is the installation's own Secret, giantswarm-agent-manager-oauth-client in agent-platform, not rendered. The pin is deprecated: agentManager.github.tokenExchange.enabled fetches the person's grant from muster's broker instead. Where the fleet policy runs the agent-manager only. Read back from the configmap patch on record."
+            },
+            "tokenExchange": {
+              "type": "object", "additionalProperties": false,
+              "properties": {"enabled": {
+                "type": "boolean", "default": false, "x-source": "person",
+                "x-readback": {"file": "configmap", "key": ["agent-manager.github.tokenExchange.tokenEndpoint", "agent-manager.githubTokenExchange.endpoint"], "kind": "present"},
+                "x-feature": "runtime", "x-renders": ["configmap:agent-manager.github.tokenExchange", "configmap:muster.muster.providerApps", "configmap:muster.muster.oauth.server.tokenExchangeBroker"],
+                "description": "The agent-manager's commit mode with the person's grant of its GitHub App fetched per call from muster's broker (RFC 8693) in place of the pin: agent-manager.github.enabled with agent-manager.github.tokenExchange (tokenEndpoint muster's /oauth/token, audience agent-manager, existingSecret agent-manager-github-broker, which holds client-id and client-secret). The provider App, the broker target and the audience share the name agent-manager. Turns commit mode on whatever agentManager.github.enabled says. Requires the meta chart 4.177.0 or later (manager >=2.22.0, muster >=5.61.0) and the installation's giantswarm-agent-manager-oauth-client Secret. Generates an isolated client credential; grants remain with the manager App. Read back from the configmap patch on record, the former agent-manager.githubTokenExchange included."
+              }}
             }
           }
         }
