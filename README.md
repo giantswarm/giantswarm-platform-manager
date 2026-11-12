@@ -492,8 +492,8 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
 
   A split installation reports nothing to do, and a re-run after `--write` changes nothing. A run
   that stopped half-way is completed by the next: a Secret already present with the same value stays,
-  one with another value is refused. dex-app older than 3.2.2 is refused, naming the pin to add to the
-  collections kustomization. `--hub` and `--hub-management-clusters` compare the
+  one with another value is refused. An unknown dex-app version or one without referenced-client support
+  is refused. `--hub` and `--hub-management-clusters` compare the
   `muster-token-exchange-<mc>` value with the hub's `<mc>-token-exchange-credentials`, which must stay
   one value; `--write` refuses when they differ.
 
