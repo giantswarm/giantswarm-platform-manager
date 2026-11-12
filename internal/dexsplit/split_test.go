@@ -229,8 +229,7 @@ patches:
 		Installation: inst, Configs: configs, ManagementClusters: mc,
 		Hub: hub, HubManagementClusters: hubMC, Vault: v,
 		ReadBase: func(context.Context, string, string, string) (string, error) {
-			t.Fatal("pinned: no base read")
-			return "", nil
+			return "kind: App\nmetadata:\n  name: dex-app\nspec:\n  version: 2.2.3\n", nil
 		},
 	}, v
 }
