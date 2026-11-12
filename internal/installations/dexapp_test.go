@@ -153,10 +153,10 @@ func TestDexAppVersionErrors(t *testing.T) {
 // path or another host names none.
 func TestParseRemoteBase(t *testing.T) {
 	cases := map[string]remoteBase{
-		"https://github.com/fleet/management-cluster-bases//bases/collections/capa/stages/stable?ref=main": {Repository: fixtureBases, Ref: "main"},
-		"github.com/fleet/management-cluster-bases//bases/collections/shared/base?ref=v2.1.0":              {Repository: fixtureBases, Ref: "v2.1.0"},
-		"https://github.com/fleet/management-cluster-bases.git?ref=main":                                   {Repository: fixtureBases, Ref: "main"},
-		"https://github.com/fleet/management-cluster-bases":                                                {Repository: fixtureBases},
+		"https://github.com/fleet/management-cluster-bases//bases/collections/capa/stages/stable?ref=main": {Repository: fixtureBases, Ref: "main", Path: "bases/collections/capa/stages/stable"},
+		"github.com/fleet/management-cluster-bases//bases/collections/shared/base?ref=v2.1.0":              {Repository: fixtureBases, Ref: "v2.1.0", Path: "bases/collections/shared/base"},
+		"https://github.com/fleet/management-cluster-bases.git?ref=main":                                   {Repository: fixtureBases, Ref: "main", Path: "."},
+		"https://github.com/fleet/management-cluster-bases":                                                {Repository: fixtureBases, Path: "."},
 		"./apps/":                            {},
 		"https://gitlab.example/fleet/bases": {},
 		"https://github.com/fleet":           {},

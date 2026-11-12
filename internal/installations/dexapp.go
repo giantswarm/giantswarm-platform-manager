@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"path"
+	"regexp"
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
@@ -83,13 +85,26 @@ func readDexAppVersion(ctx context.Context, read refReader, inst Installation, c
 		return DexAppVersion{}, fmt.Errorf("the dex-app on record: %s in %s at %s: %w", DexAppBasePath, base.Repository, base.refOrDefault(), err)
 	}
 	v := DexAppVersion{Repository: base.Repository, Path: DexAppBasePath}
-	for _, patch := range col.kustomization.Patches {
-		changed, err := source.patch(patch.Patch, patch.Target.Kind, patch.Target.Name)
+	var overlays []dexCollectionPatch
+	if source.Kind == kindOCIRepository {
+		overlays, err = dexCollectionPatches(ctx, read, base)
 		if err != nil {
-			return DexAppVersion{}, fmt.Errorf("the dex-app on record: %s in %s: %w", kustomizationPath, inst.Repositories.ManagementClusters, err)
+			return DexAppVersion{}, fmt.Errorf("the dex-app on record: %w", err)
+		}
+	}
+	reader := dexCollectionReader{read: read, active: map[string]bool{}}
+	local, err := reader.overlays(ctx, remoteBase{Repository: inst.Repositories.ManagementClusters, Path: path.Dir(kustomizationPath)}, kustomizationPath, col.kustomization)
+	if err != nil {
+		return DexAppVersion{}, fmt.Errorf("the dex-app on record: %w", err)
+	}
+	overlays = append(overlays, local...)
+	for _, overlay := range overlays {
+		changed, err := source.apply(overlay.patch)
+		if err != nil {
+			return DexAppVersion{}, fmt.Errorf("the dex-app on record: %s:%s: %w", overlay.repository, overlay.path, err)
 		}
 		if changed {
-			v.Repository, v.Path = inst.Repositories.ManagementClusters, kustomizationPath
+			v.Repository, v.Path = overlay.repository, overlay.path
 		}
 	}
 	v.Version, err = source.version()
@@ -129,6 +144,7 @@ func (v DexAppVersion) check() error {
 type remoteBase struct {
 	Repository string
 	Ref        string
+	Path       string
 }
 
 func (b remoteBase) refOrDefault() string {
@@ -141,14 +157,26 @@ func (b remoteBase) refOrDefault() string {
 // collectionsKustomization is the part of the installation's collections
 // kustomization the record reads: the remote resources and the patches.
 type collectionsKustomization struct {
-	Resources []string `yaml:"resources"`
-	Patches   []struct {
-		Patch  string `yaml:"patch"`
-		Target struct {
-			Kind string `yaml:"kind"`
-			Name string `yaml:"name"`
-		} `yaml:"target"`
-	} `yaml:"patches"`
+	Resources          []string          `yaml:"resources"`
+	Components         []string          `yaml:"components"`
+	Patches            []collectionPatch `yaml:"patches"`
+	Replacements       []yaml.Node       `yaml:"replacements"`
+	Transformers       []yaml.Node       `yaml:"transformers"`
+	LegacyMergePatches []yaml.Node       `yaml:"patchesStrategicMerge"`
+	LegacyJSONPatches  []yaml.Node       `yaml:"patchesJson6902"`
+}
+
+type collectionPatch struct {
+	Patch  string `yaml:"patch"`
+	Path   string `yaml:"path"`
+	Target struct {
+		Kind      string         `yaml:"kind"`
+		Name      string         `yaml:"name"`
+		Namespace string         `yaml:"namespace"`
+		Group     string         `yaml:"group"`
+		Version   string         `yaml:"version"`
+		Other     map[string]any `yaml:",inline"`
+	} `yaml:"target"`
 }
 
 // parseRemoteBase reads a kustomize remote resource — a GitHub URL, with or
@@ -163,12 +191,35 @@ func parseRemoteBase(resource string) (remoteBase, bool) {
 	if err != nil || u.Host != "github.com" {
 		return remoteBase{}, false
 	}
-	repoPath, _, _ := strings.Cut(strings.TrimPrefix(u.Path, "/"), "//")
+	repoPath, directory, _ := strings.Cut(strings.TrimPrefix(u.Path, "/"), "//")
 	parts := strings.Split(strings.TrimSuffix(repoPath, ".git"), "/")
 	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
 		return remoteBase{}, false
 	}
-	return remoteBase{Repository: parts[0] + "/" + parts[1], Ref: u.Query().Get("ref")}, true
+	return remoteBase{Repository: parts[0] + "/" + parts[1], Ref: u.Query().Get("ref"), Path: path.Clean(directory)}, true
+}
+
+func (source *dexApp) apply(patch collectionPatch) (bool, error) {
+	if patch.Target.Namespace != "" && !matchesDexName(patch.Target.Namespace, source.Metadata.Namespace) {
+		return false, nil
+	}
+	group, version, _ := strings.Cut(source.APIVersion, "/")
+	if patch.Target.Group != "" && patch.Target.Group != group || patch.Target.Version != "" && patch.Target.Version != version {
+		return false, nil
+	}
+	changed, err := source.patch(patch.Patch, patch.Target.Kind, patch.Target.Name)
+	if err == nil && changed && len(patch.Target.Other) > 0 {
+		return false, fmt.Errorf("cannot establish the effective Dex version through additional patch selectors")
+	}
+	return changed, err
+}
+
+func matchesDexName(selector, name string) bool {
+	if selector == "" {
+		return true
+	}
+	pattern, err := regexp.Compile("^(?:" + selector + ")$")
+	return err == nil && pattern.MatchString(name)
 }
 
 func (source *dexApp) patch(patch, targetKind, targetName string) (bool, error) {
@@ -183,7 +234,7 @@ func (source *dexApp) patch(patch, targetKind, targetName string) (bool, error) 
 	var changed bool
 	switch doc := node.Content[0]; doc.Kind {
 	case yaml.SequenceNode:
-		if targetKind != source.Kind || targetName != dexAppName {
+		if targetKind != "" && targetKind != source.Kind || !matchesDexName(targetName, dexAppName) {
 			return false, nil
 		}
 		var ops []struct {
@@ -237,7 +288,7 @@ func (source *dexApp) patch(patch, targetKind, targetName string) (bool, error) 
 			return false, err
 		}
 		if targetKind != "" || targetName != "" {
-			if targetKind != source.Kind || targetName != dexAppName {
+			if targetKind != "" && targetKind != source.Kind || !matchesDexName(targetName, dexAppName) {
 				return false, nil
 			}
 		} else if app.Kind != source.Kind || app.Metadata.Name != dexAppName {
@@ -285,9 +336,11 @@ func (source *dexApp) patch(patch, targetKind, targetName string) (bool, error) 
 
 // dexApp holds the source fields needed for an exact version comparison.
 type dexApp struct {
-	Kind     string `yaml:"kind"`
-	Metadata struct {
-		Name string `yaml:"name"`
+	APIVersion string `yaml:"apiVersion"`
+	Kind       string `yaml:"kind"`
+	Metadata   struct {
+		Name      string `yaml:"name"`
+		Namespace string `yaml:"namespace"`
 	} `yaml:"metadata"`
 	Spec struct {
 		Version string    `yaml:"version"`

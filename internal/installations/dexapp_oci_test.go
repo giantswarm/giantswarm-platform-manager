@@ -36,7 +36,10 @@ func TestDexAppOCIRepository(t *testing.T) {
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			files := map[string]string{fixtureBases + "@main:" + DexAppBasePath: test.manifest}
+			files := map[string]string{
+				fixtureBases + "@main:" + DexAppBasePath:                                       test.manifest,
+				fixtureBases + "@main:bases/collections/capa/stages/stable/kustomization.yaml": "resources: [../../../shared/base/dex-app.yaml]\n",
+			}
 			var reads []string
 			got, err := DexAppVersionIn(t.Context(), filesAt(files, &reads), fixtureInstallation, fixtureMCs, collectionsFixture("main", "")+test.patches)
 			if test.wantError != "" {
