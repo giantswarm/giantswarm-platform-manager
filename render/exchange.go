@@ -39,12 +39,12 @@ type HubConnector struct {
 // names of the connector a target's Dex registers for a hub, as Go templates
 // over the hub's record ({{ .Customer }}, {{ .Name }}) — First for the
 // target's first hub of the organisation, Further for every further one —
-// and FromBase, the organisations whose hubs' connectors the fleet's Dex base
-// registers on every installation, so no definition renders them.
+// and FurtherByHand, the organisations whose further hubs' connectors are kept
+// by hand on the targets, so no definition renders them.
 type ConnectorNames struct {
-	First    string   `yaml:"first"`
-	Further  string   `yaml:"further"`
-	FromBase []string `yaml:"fromBase"`
+	First         string   `yaml:"first"`
+	Further       string   `yaml:"further"`
+	FurtherByHand []string `yaml:"furtherByHand"`
 }
 
 // ErrConnectorPolicy is a federation.connector entry of the policy that
@@ -87,10 +87,12 @@ func (n ConnectorNames) Name(first bool, customer, hub string) (string, error) {
 }
 
 // Rendered says whether a definition renders the connector of a hub of the
-// organisation customer: the fleet's Dex base registers the connectors of the
-// organisations under fromBase on every installation, so a target renders
-// none for their hubs.
-func (n ConnectorNames) Rendered(customer string) bool { return !slices.Contains(n.FromBase, customer) }
+// organisation customer, the target's first hub of the organisation or a
+// further one: every one but a further hub's of an organisation under
+// furtherByHand, which is kept by hand on the target.
+func (n ConnectorNames) Rendered(customer string, first bool) bool {
+	return first || !slices.Contains(n.FurtherByHand, customer)
+}
 
 // PolicyTemplate renders one of the policy's Go templates over data; a
 // template that does not parse, names a field data lacks or renders empty is
@@ -110,30 +112,43 @@ func PolicyTemplate(key, text string, data any) (string, error) {
 	return b.String(), nil
 }
 
-// ExchangeConnectors are the entries of the dex-app values' oidc.customer.connectors
-// an installation's Dex registers for its hubs, in the hubs' order: for every
-// hub the policy renders for, an oidc connector that trusts the hub's Dex as
-// the issuer and takes the groups the hub's token carries, with no client of
-// its own — Dex's token exchange verifies the subject token against the
-// issuer's keys. Nil where there is none to render; the plan keeps every
-// other entry of oidc.customer, the installation's own login connectors
-// among them, as another owner's.
-func ExchangeConnectors(names ConnectorNames, hubs []HubConnector) ([]Map, error) {
-	var list []Map
+// FederatedConnector is a connector a target's Dex registers for a hub that
+// brokers into it, as a definition renders it: the policy's name and the
+// hub's record.
+type FederatedConnector struct {
+	ID  string
+	Hub HubConnector
+}
+
+// FederatedConnectors are the connectors a target's Dex registers for its
+// hubs, in the hubs' order: one for every hub the policy renders for
+// (ConnectorNames.Rendered). Nil where there is none to render.
+func FederatedConnectors(names ConnectorNames, hubs []HubConnector) ([]FederatedConnector, error) {
+	var list []FederatedConnector
 	for _, h := range hubs {
-		if !names.Rendered(h.Customer) {
+		if !names.Rendered(h.Customer, h.First) {
 			continue
 		}
 		id, err := names.Name(h.First, h.Customer, h.Hub)
 		if err != nil {
 			return nil, err
 		}
-		list = append(list, Map{
-			{Key: "id", Value: id},
-			{Key: "connectorType", Value: "oidc"},
-			{Key: "connectorName", Value: h.Hub + " token exchange"},
-			{Key: "connectorConfig", Value: "issuer: https://dex." + h.BaseDomain + "\ninsecureEnableGroups: true\n"},
-		})
+		list = append(list, FederatedConnector{ID: id, Hub: h})
 	}
 	return list, nil
+}
+
+// Entry is the connector's entry of the dex-app values'
+// oidc.customer.connectors on the target at targetBaseDomain: an oidc
+// connector trusting the hub's Dex as the issuer, with the hub's client for
+// the login (FederationConnectorConfig). The plan keeps every other entry of
+// oidc.customer, the installation's own login connectors among them, as
+// another owner's.
+func (c FederatedConnector) Entry(targetBaseDomain string) Map {
+	return Map{
+		{Key: "id", Value: c.ID},
+		{Key: "connectorType", Value: "oidc"},
+		{Key: "connectorName", Value: c.Hub.Hub + " token exchange"},
+		{Key: "connectorConfig", Value: FederationConnectorConfig(c.ID, c.Hub.BaseDomain, targetBaseDomain)},
+	}
 }

@@ -20,7 +20,7 @@ Pull requests, in order:
              secretRef:
                name: dex-client-own-tool
                key: secret
-  2. giantswarm/oakridge-management-clusters: 33 changes
+  2. giantswarm/oakridge-management-clusters: 34 changes
      delete management-clusters/kestrel/extras/agent-platform/broker-clients.yaml  (not rendered by the definition: nothing that stays renders it under the capability's directory)
      update management-clusters/kestrel/extras/agent-platform/kustomization.yaml
      --- as the commit writes it
@@ -41,6 +41,7 @@ Pull requests, in order:
      delete management-clusters/kestrel/extras/agent-platform/secrets/dex-client-kagent-secret.yaml
      delete management-clusters/kestrel/extras/agent-platform/secrets/dex-client-muster-secret.yaml
      delete management-clusters/kestrel/extras/agent-platform/secrets/dex-client-muster-token-exchange-kestrel-secret.yaml  (paired with gopher:management-clusters/gopher/extras/agent-platform/secrets/kestrel-token-exchange-credentials.yaml)
+     delete management-clusters/kestrel/extras/agent-platform/secrets/dex-connector-giantswarm-simple-oidc-secret.yaml  (paired with gopher:management-clusters/gopher/extras/agent-platform/secrets/dex-client-federation-kestrel-secret.yaml)
      delete management-clusters/kestrel/extras/agent-platform/secrets/kagent-oauth2-proxy-credentials.yaml
      delete management-clusters/kestrel/extras/agent-platform/secrets/kustomization.yaml
      delete management-clusters/kestrel/extras/agent-platform/secrets/muster-oauth-credentials.yaml
@@ -112,6 +113,7 @@ After the merge, delete on kestrel in this order — the fleet's Kustomization o
   [ ] Secret giantswarm/dex-client-kagent
   [ ] Secret giantswarm/dex-client-muster
   [ ] Secret giantswarm/dex-client-muster-token-exchange-kestrel
+  [ ] Secret giantswarm/dex-connector-giantswarm-simple-oidc
   [ ] Secret flux-giantswarm/agent-platform-ai-chat-credentials-backstage
   [ ] ConfigMap backstage/agent-platform-app-config-backstage
   [ ] ConfigMap flux-giantswarm/agent-platform-values-backstage
@@ -123,10 +125,11 @@ After the merge, delete on kestrel in this order — the fleet's Kustomization o
   [ ] Secret giantswarm/dex-client-mcp-prometheus
 
 Still depends on agent-platform:
+  - kestrel shares a value with gopher, which holds the other side in management-clusters/gopher/extras/agent-platform/secrets/dex-client-federation-kestrel-secret.yaml
   - kestrel shares a value with gopher, which holds the other side in management-clusters/gopher/extras/agent-platform/secrets/kestrel-token-exchange-credentials.yaml
 
 After the merge, check:
   platformctl installation list kestrel   (agent-platform: not enabled)
   platformctl installation verify kestrel agent-platform
 
-Commit refused: 1 reference(s) still depend on agent-platform on kestrel
+Commit refused: 2 reference(s) still depend on agent-platform on kestrel

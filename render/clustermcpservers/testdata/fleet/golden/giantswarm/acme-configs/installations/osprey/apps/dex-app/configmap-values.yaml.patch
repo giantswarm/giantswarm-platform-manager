@@ -16,15 +16,83 @@ oidc:
         key: secret
   customer:
     connectors:
+      - id: giantswarm-simple-oidc
+        connectorType: oidc
+        connectorName: gopher token exchange
+        connectorConfig: |
+          issuer: https://dex.gopher.example.io
+          insecureEnableGroups: true
+          clientID: $DEX_CONNECTOR_GIANTSWARM_SIMPLE_OIDC_CLIENT_ID
+          clientSecret: $DEX_CONNECTOR_GIANTSWARM_SIMPLE_OIDC_CLIENT_SECRET
+          redirectURI: https://dex.osprey.acme.example.test/callback
+          scopes:
+            - openid
+            - profile
+            - email
+            - groups
       - id: acme-simple-oidc
         connectorType: oidc
         connectorName: harrier token exchange
         connectorConfig: |
           issuer: https://dex.harrier.acme.example.test
           insecureEnableGroups: true
+          clientID: $DEX_CONNECTOR_ACME_SIMPLE_OIDC_CLIENT_ID
+          clientSecret: $DEX_CONNECTOR_ACME_SIMPLE_OIDC_CLIENT_SECRET
+          redirectURI: https://dex.osprey.acme.example.test/callback
+          scopes:
+            - openid
+            - profile
+            - email
+            - groups
       - id: acme-kite-oidc
         connectorType: oidc
         connectorName: kite token exchange
         connectorConfig: |
           issuer: https://dex.kite.acme.example.test
           insecureEnableGroups: true
+          clientID: $DEX_CONNECTOR_ACME_KITE_OIDC_CLIENT_ID
+          clientSecret: $DEX_CONNECTOR_ACME_KITE_OIDC_CLIENT_SECRET
+          redirectURI: https://dex.osprey.acme.example.test/callback
+          scopes:
+            - openid
+            - profile
+            - email
+            - groups
+dex:
+  envVars:
+    - name: DEX_CONNECTOR_GIANTSWARM_SIMPLE_OIDC_CLIENT_ID
+      valueFrom:
+        secretKeyRef:
+          name: dex-connector-giantswarm-simple-oidc
+          key: client-id
+          optional: true
+    - name: DEX_CONNECTOR_GIANTSWARM_SIMPLE_OIDC_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: dex-connector-giantswarm-simple-oidc
+          key: client-secret
+          optional: true
+    - name: DEX_CONNECTOR_ACME_SIMPLE_OIDC_CLIENT_ID
+      valueFrom:
+        secretKeyRef:
+          name: dex-connector-acme-simple-oidc
+          key: client-id
+          optional: true
+    - name: DEX_CONNECTOR_ACME_SIMPLE_OIDC_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: dex-connector-acme-simple-oidc
+          key: client-secret
+          optional: true
+    - name: DEX_CONNECTOR_ACME_KITE_OIDC_CLIENT_ID
+      valueFrom:
+        secretKeyRef:
+          name: dex-connector-acme-kite-oidc
+          key: client-id
+          optional: true
+    - name: DEX_CONNECTOR_ACME_KITE_OIDC_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: dex-connector-acme-kite-oidc
+          key: client-secret
+          optional: true

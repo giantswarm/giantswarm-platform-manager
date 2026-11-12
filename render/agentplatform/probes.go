@@ -73,6 +73,9 @@ func (in *Input) probes() []render.Probe {
 	for _, c := range in.dexSecretClients() {
 		p = append(p, render.DexSecretLoadedProbe(dexSecretsLoadedDimension, featureIdentity, dexNamespace, c.secret, c.client))
 	}
+	for _, c := range in.HubConnectors {
+		p = append(p, render.DexConnectorSecretLoadedProbe(dexSecretsLoadedDimension, featureIdentity, dexNamespace, render.ConnectorSecretName(c.ID), c.ID))
+	}
 	if in.agentManagerRoute() {
 		// The credential form's path: the route answers a call without a
 		// token 401 at the gateway's JWT policy; without the route the

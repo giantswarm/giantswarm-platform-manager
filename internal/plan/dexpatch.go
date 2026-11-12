@@ -13,10 +13,14 @@ const (
 	keyCustomer           = "customer"
 	keyConnectors         = "connectors"
 	keyClientID           = "id"
+	keyDex                = "dex"
+	keyEnvVars            = "envVars"
+	keyEnvName            = "name"
 	listStaticClients     = keyOIDC + "." + keyStaticClients
 	listExtraClients      = keyOIDC + "." + keyExtraStaticClients
 	mapCustomer           = keyOIDC + "." + keyCustomer
 	listConnectors        = mapCustomer + "." + keyConnectors
+	listEnvVars           = keyDex + "." + keyEnvVars
 )
 
 // keepDexPatch answers rendered with every part of current's dex-app
@@ -24,7 +28,8 @@ const (
 // is one file with several owners: a definition owns the clients and the
 // connectors it renders — a built-in client under oidc.staticClients by its
 // key, an extra static client by its id, a token-exchange connector under
-// oidc.customer.connectors by its id — and nothing else. A top-level key
+// oidc.customer.connectors by its id, a variable of Dex's environment under
+// dex.envVars by its name — and nothing else. A top-level key
 // rendered lacks (the installation's ingress tuning), a key under oidc it
 // lacks, a key under oidc.customer it lacks (the installation's login
 // connector), a built-in client it does not render, an extra static client
@@ -46,7 +51,18 @@ func keepDexPatch(rendered, current []byte) ([]byte, []Kept, error) {
 	}
 	var kept []Kept
 	keepKeys(ren, cur, "", &kept, func(key string, r, c *yaml.Node) {
-		if key != keyOIDC || r.Kind != yaml.MappingNode || c.Kind != yaml.MappingNode {
+		if r.Kind != yaml.MappingNode || c.Kind != yaml.MappingNode {
+			return
+		}
+		if key == keyDex {
+			keepKeys(r, c, keyDex, &kept, func(key string, r, c *yaml.Node) {
+				if key == keyEnvVars && r.Kind == yaml.SequenceNode && c.Kind == yaml.SequenceNode {
+					keepEntries(r, c, keyEnvName, listEnvVars, &kept)
+				}
+			})
+			return
+		}
+		if key != keyOIDC {
 			return
 		}
 		keepKeys(r, c, keyOIDC, &kept, func(key string, r, c *yaml.Node) {
@@ -95,14 +111,21 @@ func keepKeys(ren, cur *yaml.Node, list string, kept *[]Kept, shared func(key st
 // whose id ren does not declare — an extra static client, a connector —
 // recording each under list.
 func keepClients(ren, cur *yaml.Node, list string, kept *[]Kept) {
+	keepEntries(ren, cur, keyClientID, list, kept)
+}
+
+// keepEntries appends to the sequence ren every entry of the sequence cur
+// whose identity, the value under field, ren does not declare, recording
+// each under list.
+func keepEntries(ren, cur *yaml.Node, field, list string, kept *[]Kept) {
 	declared := map[string]bool{}
 	for _, item := range ren.Content {
-		if id := entry(item, keyClientID); id != nil {
+		if id := entry(item, field); id != nil {
 			declared[id.Value] = true
 		}
 	}
 	for _, item := range cur.Content {
-		id := entry(item, keyClientID)
+		id := entry(item, field)
 		if id == nil || declared[id.Value] {
 			continue
 		}

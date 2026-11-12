@@ -550,6 +550,9 @@ func (in *Input) dexPatch() render.Map {
 		extra = append(extra, in.portalDexClient())
 	}
 	extra = append(extra, in.exchange().DexClients()...)
+	for _, t := range in.federationLogins() {
+		extra = append(extra, render.HubFederationClient(t.Installation, t.BaseDomain))
+	}
 	for _, c := range in.confidentialClients() {
 		extra = append(extra, confidentialDexClient(c))
 	}
@@ -557,10 +560,18 @@ func (in *Input) dexPatch() render.Map {
 	if len(extra) > 0 {
 		oidc = append(oidc, e("extraStaticClients", extra))
 	}
+	patch := render.Map{}
 	if len(in.HubConnectors) > 0 {
-		oidc = append(oidc, e("customer", render.Map{e("connectors", in.HubConnectors)}))
+		connectors := make([]render.Map, 0, len(in.HubConnectors))
+		var env []render.Map
+		for _, c := range in.HubConnectors {
+			connectors = append(connectors, c.Entry(in.Installation.BaseDomain))
+			env = append(env, render.ConnectorEnvVars(c.ID)...)
+		}
+		oidc = append(oidc, e("customer", render.Map{e("connectors", connectors)}))
+		patch = append(patch, e("dex", render.Map{e("envVars", env)}))
 	}
-	return render.Map{e("oidc", oidc)}
+	return append(render.Map{e("oidc", oidc)}, patch...)
 }
 
 // musterRevision says whether the installation's meta chart hands muster's
@@ -815,6 +826,14 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 	for _, hub := range in.Installation.Federation.Hubs {
 		// The hub's client in this Dex, peered with the hub's credentials Secret for this installation.
 		add(in.exchange().Secret(hub))
+	}
+	for _, c := range in.HubConnectors {
+		// The hub's login client for this Dex, peered with the hub's Dex-side Secret of the client.
+		add(render.ConnectorSecret(c.ID, c.Hub.Hub, in.Installation.Name))
+	}
+	for _, t := range in.federationLogins() {
+		// This hub's login client for t's Dex, peered with t's connector Secret.
+		add(render.HubFederationSecret(in.Installation.Name, t.Installation, in.connector(t)))
 	}
 	for _, c := range in.confidentialClients() {
 		f := dexClientSecret(c.ClientID, in.generatedName(confidentialSecretName(c)))

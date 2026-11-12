@@ -109,7 +109,7 @@ func DexClientSecret(component, valueName string) File {
 // DexClientSecretRef is a client's secret reference in the dex-app configmap
 // patch: the Secret in Dex's namespace that carries it and the key.
 func DexClientSecretRef(component string) Map {
-	return Map{{Key: "name", Value: DexClientSecretName(component)}, {Key: "key", Value: DexSecretKey}}
+	return Map{{Key: keyName, Value: DexClientSecretName(component)}, {Key: "key", Value: DexSecretKey}}
 }
 
 // PortalAuthProvider is the portal's sign-in provider on an installation's
@@ -129,14 +129,14 @@ func PortalRedirectURI(domain, installation string) string {
 func PortalDexClient(domain, installation string) Map {
 	return ExtraStaticClient(PortalDexClientID, PortalDexClientName,
 		Entry{Key: "redirectURIs", Value: []string{PortalRedirectURI(domain, installation)}},
-		Entry{Key: "secretRef", Value: DexClientSecretRef(PortalDexClientID)})
+		Entry{Key: keySecretRef, Value: DexClientSecretRef(PortalDexClientID)})
 }
 
 // ExtraStaticClient is an entry of the dex-app configmap patch's
 // oidc.extraStaticClients: the client's id and name, then what the client
 // carries beside them (its redirect URIs, its secret reference).
 func ExtraStaticClient(id, name string, rest ...Entry) Map {
-	return append(Map{{Key: "id", Value: id}, {Key: "name", Value: name}}, rest...)
+	return append(Map{{Key: "id", Value: id}, {Key: keyName, Value: name}}, rest...)
 }
 
 // PortalPlatformComponent is the entry the portal's extras/backstage/kustomization.yaml

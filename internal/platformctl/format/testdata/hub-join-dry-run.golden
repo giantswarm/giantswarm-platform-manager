@@ -2,7 +2,7 @@ reconcile_capability dry run: agent-platform on hub gopher, as jane
 Order: heron, kestrel
 
 heron: enabled
-  Files (1 update, 27 unchanged):
+  Files (1 update, 29 unchanged):
     CHANGE  REPOSITORY                   PATH
     update  giantswarm/oakridge-configs  installations/heron/apps/agent-platform/configmap-values.yaml.patch
   Warning: this reconcile changes what heron's muster serves beyond the shared defaults:
@@ -17,6 +17,8 @@ heron: enabled
     : client mcpPrometheus; secretRef dex-client-mcp-prometheus
     : client mcpCapi; secretRef dex-client-mcp-capi
     kagent: kagent-ui; secretRef dex-client-kagent; redirect URIs https://kagent.heron.oakridge.example/oauth2/callback
+    federation-kestrel: kestrel federation login; secretRef dex-client-federation-kestrel; redirect URIs https://dex.kestrel.oakridge.example/callback
+    federation-plover: plover federation login; secretRef dex-client-federation-plover; redirect URIs https://dex.plover.oakridge.example/callback
   Customer actions:
     heron: Create Secret kagent-anthropic-key in namespace kagent with key ANTHROPIC_API_KEY, or add a ModelConfig in the portal; until then no ModelConfig (ModelConfig.kagent.dev) in kagent is Accepted=True. (the model and its key are the installation's own: the definition renders no model key and none is supplied at commit; until a ModelConfig in kagent resolves its key the verify reads the runtime feature as waiting for the customer)
   Probes:
@@ -45,7 +47,7 @@ heron: enabled
 
 kestrel: enabled
   A commit would be refused: kestrel's muster serves a registry of its own: its agent-platform values list in-cluster servers of its own (http://mcp-kubernetes.mcp-kubernetes.svc:8080/mcp, http://mcp-prometheus.mcp-prometheus.svc:8080/mcp, http://mcp-capi.mcp-capi.svc:8080/mcp), and this reconcile drops the list whole — 4 server entries, 1 exchange target and 1 identity provider go, muster registers the shared defaults' servers alone, and everyone who reaches the others through kestrel's muster loses them. Move the registry to the hub first, register a server of its own as an MCPServer object under extras/agent-platform/mcpservers/, which a reconcile keeps, or force the join (forceJoin; platformctl --force-join), which proceeds with the warning
-  Files (1 update, 30 unchanged):
+  Files (1 update, 31 unchanged):
     CHANGE  REPOSITORY                   PATH
     update  giantswarm/oakridge-configs  installations/kestrel/apps/agent-platform/configmap-values.yaml.patch
   Warning: this reconcile changes what kestrel's muster serves beyond the shared defaults:

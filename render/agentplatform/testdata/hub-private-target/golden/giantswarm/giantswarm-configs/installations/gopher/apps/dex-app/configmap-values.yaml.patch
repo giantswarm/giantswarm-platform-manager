@@ -36,3 +36,17 @@ oidc:
       secretRef:
         name: dex-client-backstage
         key: secret
+    - id: federation-burrow
+      name: burrow federation login
+      redirectURIs:
+        - https://dex.burrow.example.io/callback
+      secretRef:
+        name: dex-client-federation-burrow
+        key: secret
+    - id: federation-marmot
+      name: marmot federation login
+      redirectURIs:
+        - https://dex.marmot.example.io/callback
+      secretRef:
+        name: dex-client-federation-marmot
+        key: secret
