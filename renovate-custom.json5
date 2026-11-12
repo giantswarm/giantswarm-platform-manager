@@ -57,6 +57,7 @@
         'gsoci.azurecr.io/charts/giantswarm/kserve-llmisvc-resources',
         'gsoci.azurecr.io/charts/giantswarm/kserve-runtime-configs',
         'gsoci.azurecr.io/charts/giantswarm/agent-platform-operator',
+        'gsoci.azurecr.io/charts/giantswarm/skill-manager',
       ],
       groupName: 'agent-platform 4 line',
       separateMajorMinor: false,
@@ -110,6 +111,7 @@
         'gsoci.azurecr.io/charts/giantswarm/kserve-runtime-configs',
         'gsoci.azurecr.io/charts/giantswarm/agent-manager',
         'gsoci.azurecr.io/charts/giantswarm/agent-platform-operator',
+        'gsoci.azurecr.io/charts/giantswarm/skill-manager',
       ],
       matchUpdateTypes: [
         'major',
@@ -129,6 +131,7 @@
         'gsoci.azurecr.io/charts/giantswarm/kserve-llmisvc-resources',
         'gsoci.azurecr.io/charts/giantswarm/kserve-runtime-configs',
         'gsoci.azurecr.io/charts/giantswarm/agent-platform-operator',
+        'gsoci.azurecr.io/charts/giantswarm/skill-manager',
       ],
       matchCurrentVersion: '/^0\\./',
       matchUpdateTypes: [

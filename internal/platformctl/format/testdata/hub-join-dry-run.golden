@@ -34,7 +34,7 @@ heron: enabled
     live-kagent-provider-values: runtime kagent HelmRelease .spec.values.providers (where the meta chart the installation resolves still takes kagent.providers)
     live-konfiguration-source: runtime Konfiguration agent-platform-konfiguration on its GitRepository's revision: behind within its reconciliation interval reads rolling, longer drifted
     live-helmreleases-ready: runtime HelmReleases agent-platform, kagent, connectivity, muster, mcps, and agent-platform-operator with the organizations, Ready
-    live-platform-workloads: runtime the Deployments that read muster's credentials Available: muster, its Valkey, and klaus-gateway, agent-manager, cluster-manager and model-manager where each runs
+    live-platform-workloads: runtime the Deployments that read muster's credentials Available: muster, its Valkey, and klaus-gateway, agent-manager, cluster-manager and model-manager where each runs, and skill-manager with the agent-manager from meta chart 4.179.0-rc.9 on
     live-kagent-workloads: runtime kagent pods Running and the CNPG cluster healthy
     live-pod-certificate-request: runtime certificates.k8s.io/v1beta1 podcertificaterequests served by the apiserver (Agent Substrate's feature gates, the 4 line)
     live-drift: runtime live values equal the rendered manifests
@@ -85,7 +85,7 @@ kestrel: enabled
     live-kagent-provider-values: runtime kagent HelmRelease .spec.values.providers (where the meta chart the installation resolves still takes kagent.providers)
     live-konfiguration-source: runtime Konfiguration agent-platform-konfiguration on its GitRepository's revision: behind within its reconciliation interval reads rolling, longer drifted
     live-helmreleases-ready: runtime HelmReleases agent-platform, kagent, connectivity, muster, mcps, and agent-platform-operator with the organizations, Ready
-    live-platform-workloads: runtime the Deployments that read muster's credentials Available: muster, its Valkey, and klaus-gateway, agent-manager, cluster-manager and model-manager where each runs
+    live-platform-workloads: runtime the Deployments that read muster's credentials Available: muster, its Valkey, and klaus-gateway, agent-manager, cluster-manager and model-manager where each runs, and skill-manager with the agent-manager from meta chart 4.179.0-rc.9 on
     live-kagent-workloads: runtime kagent pods Running and the CNPG cluster healthy
     live-pod-certificate-request: runtime certificates.k8s.io/v1beta1 podcertificaterequests served by the apiserver (Agent Substrate's feature gates, the 4 line)
     live-drift: runtime live values equal the rendered manifests

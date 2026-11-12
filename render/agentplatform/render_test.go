@@ -43,6 +43,10 @@ const (
 	shapeCredentialForm         = "credential-form" //nolint:gosec // a golden shape's name, no credential
 	shapePlatformTenantRetired  = "platform-tenant-retired"
 	shapePlatformTenantTeam     = "platform-tenant-team"
+	// The skill-manager's sources and GitHub App, with the default agent
+	// off, or on a named ModelConfig (meta chart 4.179.0 and later).
+	shapeSkillManagerAgentOff   = "skill-manager-default-agent-off"
+	shapeSkillManagerAgentModel = "skill-manager-default-agent-model"
 )
 
 // The keys of the choices' documents the refusal cases build.
@@ -97,7 +101,8 @@ const (
 
 // shapes are the installation shapes, in the order the goldens are rendered.
 var shapes = []string{shapePublicCustomer, shapeGiantswarmOwned, shapeGiantswarmSlackApp, shapeGiantswarmSlackAppPub, shapeHubPrivateTarget, shapeMultiClusterAggregator, shapeSecondHub, shapeHandKeptPortal, shapeRegisteredServers, shapePortalGitHubGrant, shapePortalHive, shapeCustomerSibling, shapeConfidentialClient,
-	shapeOrganizationsApply, shapeOrganizationsCommit, shapeOrganizationsPortal, shapeCredentialForm, shapePlatformTenantRetired, shapePlatformTenantTeam}
+	shapeOrganizationsApply, shapeOrganizationsCommit, shapeOrganizationsPortal, shapeCredentialForm, shapePlatformTenantRetired, shapePlatformTenantTeam,
+	shapeSkillManagerAgentOff, shapeSkillManagerAgentModel}
 
 func loadInput(t *testing.T, shape string) (map[string]any, map[string]string) {
 	t.Helper()
@@ -1778,8 +1783,8 @@ func TestSkillManagerAppSecret(t *testing.T) {
 		return input, secrets
 	}
 	input, secrets := loadInput(t, shapeHubPrivateTarget)
-	if got := renderedPatch(t, input, secrets); strings.Contains(got, "skill-manager:") {
-		t.Errorf("no App, and the patch carries skill-manager:\n%s", got)
+	if got := renderedPatch(t, input, secrets); strings.Contains(got, "\nskill-manager:") {
+		t.Errorf("no App, and the patch carries the skill-manager's values (skill-manager:):\n%s", got)
 	}
 
 	want := "\nskill-manager:\n  github:\n    app:\n      secretName: " + skillsApp + "\n"
@@ -1808,6 +1813,54 @@ func TestSkillManagerAppSecret(t *testing.T) {
 		{"without agent-manager", noAgentManager, noAgentManagerSecrets, appInput},
 		{"the chart held below the skill-manager", held, heldSecrets, inputChartHold},
 	})
+}
+
+// TestSkillManagerReadsMusterCredentials hands the credentials revision to
+// the skill-manager's HelmRelease and probes its Deployment wherever the meta
+// chart runs it: beside the agent-manager, with no versions.chart hold or a
+// hold that admits the release with the skill-manager. A hold below it runs
+// a chart without the component, and an installation without the
+// agent-manager runs none: neither gets the wiring nor the probe.
+func TestSkillManagerReadsMusterCredentials(t *testing.T) {
+	const wiring = "\n  skill-manager:\n    valuesFromRefs:\n      - kind: Secret\n        name: muster-credentials-revision\n"
+	for _, c := range []struct {
+		name  string
+		hold  string
+		noAM  bool
+		wants bool
+	}{
+		{"no hold", "", false, true},
+		{"a hold on the release", "~4.179.0", false, true},
+		{"a hold on a candidate with the skill-manager", "4.179.0-rc.9", false, true},
+		{"a hold on the candidate before", "4.179.0-rc.8", false, false},
+		{"a hold on the release before", holdReleaseBeforeSkillManager, false, false},
+		{"a hold below", holdBelowSkillManager, false, false},
+		{"no agent-manager", "", true, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			input, secrets := loadInput(t, shapeHubPrivateTarget)
+			if c.hold != "" {
+				input[keyVersions] = map[string]any{keyChart: c.hold}
+			}
+			if c.noAM {
+				input["installation"].(map[string]any)["customer"] = customerWithoutKagent
+				input["clusterManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: false}}
+			}
+			result, err := Render(input, secrets, render.ModeCommit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Contains(platformPatch(t, result), wiring); got != c.wants {
+				t.Errorf("components.skill-manager.valuesFromRefs rendered: %v, want %v", got, c.wants)
+			}
+			probed := slices.ContainsFunc(result.Probes, func(p render.Probe) bool {
+				return p.ID == platformWorkloadsDimension && p.Resource == "Deployment" && p.Name == componentSkillManager
+			})
+			if probed != c.wants {
+				t.Errorf("Deployment %s probed: %v, want %v", componentSkillManager, probed, c.wants)
+			}
+		})
+	}
 }
 
 // TestAgentManagerSkillRepositoriesAreURLs refuses an object in

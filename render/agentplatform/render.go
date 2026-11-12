@@ -306,7 +306,7 @@ func (in *Input) configmapPatch() render.Map {
 		m = append(m, e("skillManager", render.Map{e("sources", in.SkillManagerSources)}))
 	}
 	if in.SkillManagerAppSecret != "" {
-		m = append(m, e("skill-manager", render.Map{e("github", render.Map{e("app", render.Map{e("secretName", in.SkillManagerAppSecret)})})}))
+		m = append(m, e(componentSkillManager, render.Map{e("github", render.Map{e("app", render.Map{e("secretName", in.SkillManagerAppSecret)})})}))
 	}
 	m = in.organizationsValues(m)
 	m = in.platformTenantValues(m)
@@ -603,9 +603,11 @@ type musterConsumer struct {
 // managers, whose OAuth resource servers take the platform client's secret
 // from the Secret global.identity names (DEX_CLIENT_SECRET): the agent-manager
 // and the cluster-manager where the policy runs them, the model-manager
-// wherever the 4 line runs (the meta chart's default). TestRenderConsumption
-// holds the list to the charts: every pod that reads either Secret is a
-// consumer's, and the revision changes its pod template.
+// wherever the 4 line runs (the meta chart's default), and the skill-manager
+// wherever the meta chart runs it (beside the agent-manager, from
+// skillManagerChart on). TestRenderConsumption holds the list to the
+// charts: every pod that reads either Secret is a consumer's, and the
+// revision changes its pod template.
 var musterConsumers = []musterConsumer{
 	{component: componentMuster, deployment: componentMuster, revision: musterChecksumValues, runs: always},
 	{component: componentValkey, deployment: "muster-valkey", revision: []string{valkeyChecksumValue}, runs: always},
@@ -613,6 +615,7 @@ var musterConsumers = []musterConsumer{
 	{component: componentAgentManager, deployment: componentAgentManager, revision: []string{podRevisionAnnotation}, runs: (*Input).agentManager},
 	{component: componentClusterManager, deployment: componentClusterManager, revision: []string{podRevisionAnnotation}, runs: (*Input).clusterManager},
 	{component: componentModelManager, deployment: componentModelManager, revision: []string{podRevisionAnnotation}, runs: (*Input).modelManager},
+	{component: componentSkillManager, deployment: componentSkillManager, revision: []string{podRevisionAnnotation}, runs: (*Input).skillManager},
 }
 
 func always(*Input) bool { return true }

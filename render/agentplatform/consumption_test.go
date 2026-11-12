@@ -74,6 +74,10 @@ var consumptionShapes = []consumptionShape{
 	{name: shapeOrganizationsCommit, platform: shapeOrganizationsCommit},
 	{name: shapeOrganizationsPortal, platform: shapeOrganizationsPortal, portal: shapeOrganizationsPortal + portalInputSuffix},
 	{name: shapeCredentialForm, platform: shapeCredentialForm},
+	// The skill-manager's sources and GitHub App and the default agent's
+	// switch and model (meta chart 4.179.0 and later).
+	{name: shapeSkillManagerAgentOff, platform: shapeSkillManagerAgentOff},
+	{name: shapeSkillManagerAgentModel, platform: shapeSkillManagerAgentModel},
 }
 
 const (
