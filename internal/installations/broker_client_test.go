@@ -41,8 +41,7 @@ func brokerPatch(clients map[string]string) string {
 }
 
 // TestFleetBrokerClient reads the fleet's broker client back from a hub's
-// patch: beside agent-manager's own exchange client (gazelle's record since
-// agentManager.githubTokenExchange.enabled), alone, or none; two clients
+// patch: beside agent-manager's own exchange client, alone, or none; two clients
 // that are no manager's are a record the definition did not render.
 func TestFleetBrokerClient(t *testing.T) {
 	for _, c := range []struct {
@@ -104,7 +103,7 @@ func TestRenderedBrokerClientReadsBack(t *testing.T) {
 			}
 			require.NoError(t, yaml.Unmarshal(raw, &doc))
 			if exchange {
-				doc.Input["agentManager"] = map[string]any{"githubTokenExchange": map[string]any{"enabled": true}}
+				doc.Input["agentManager"] = map[string]any{"github": map[string]any{"tokenExchange": map[string]any{"enabled": true}}}
 				delete(doc.Input, "versions")
 			}
 			patch, err := renderedPlatformPatch(doc.Input, doc.Secrets)

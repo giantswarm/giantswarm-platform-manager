@@ -10,6 +10,7 @@ import (
 )
 
 const (
+	keyTokenExchange    = "tokenExchange"
 	keyCredentialUI     = "uiURL"
 	formURL             = "https://portal.example.com/credentials/{operation}"
 	insecureFormURL     = "http://portal.example.com/{operation}"
@@ -35,7 +36,7 @@ func TestAgentManagerCredentialBroker(t *testing.T) {
 				}
 			}
 			manager := credentialValues(t, in.agentManagerValues())
-			require.Equal(t, map[string]any{keyEnabled: true, "tokenExchange": map[string]any{
+			require.Equal(t, map[string]any{keyEnabled: true, keyTokenExchange: map[string]any{
 				"tokenEndpoint":  "https://" + in.host("muster") + "/oauth/token",
 				"audience":       managerProviderAppName,
 				"existingSecret": agentManagerBrokerSecret,
@@ -137,7 +138,7 @@ func TestAgentManagerExchangeWithCommitRendersTheExchange(t *testing.T) {
 	input["agentManager"].(map[string]any)[keyGitHub].(map[string]any)[keyEnabled] = true
 	in, err := Parse(input)
 	require.NoError(t, err)
-	require.Equal(t, map[string]any{keyEnabled: true, "tokenExchange": map[string]any{
+	require.Equal(t, map[string]any{keyEnabled: true, keyTokenExchange: map[string]any{
 		"tokenEndpoint":  "https://" + in.host("muster") + "/oauth/token",
 		"audience":       managerProviderAppName,
 		"existingSecret": agentManagerBrokerSecret,
@@ -149,7 +150,7 @@ func TestAgentManagerExchangeWithCommitRendersTheExchange(t *testing.T) {
 // so the person's choices are the exchange off and the pin unset.
 func TestAgentManagerExchangeOffRendersNoPin(t *testing.T) {
 	input, _ := credentialInput(t, shapeGiantswarmSlackAppPub)
-	input["agentManager"].(map[string]any)[keyGitHub] = map[string]any{"tokenExchange": map[string]any{keyEnabled: false}}
+	input["agentManager"].(map[string]any)[keyGitHub] = map[string]any{keyTokenExchange: map[string]any{keyEnabled: false}}
 	in, err := Parse(input)
 	require.NoError(t, err)
 	require.NotContains(t, credentialValues(t, in.agentManagerValues()), keyGitHub)
@@ -189,7 +190,7 @@ func credentialInput(t *testing.T, shape string) (map[string]any, map[string]str
 		input["installation"].(map[string]any)["podCertificateRequest"] = true
 	}
 	input["agentManager"] = map[string]any{
-		keyGitHub:     map[string]any{"tokenExchange": map[string]any{keyEnabled: true}},
+		keyGitHub:     map[string]any{keyTokenExchange: map[string]any{keyEnabled: true}},
 		"credentials": map[string]any{keyCredentialUI: formURL},
 	}
 	// The meta chart takes the credential form with the organizations only.
