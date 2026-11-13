@@ -9,7 +9,7 @@ Each manager can fetch the caller's GitHub App user grant from muster's RFC 8693
 | `modelManager.github.tokenExchange.enabled` | `1.20.0-rc.10` | `https://github.com/apps/giantswarm-model-manager` | `giantswarm-model-manager-oauth-client` |
 | `skillManager.github.tokenExchange.enabled` | `0.2.0-rc.1` | `https://github.com/apps/giantswarm-agent-skills` | `giantswarm-skill-manager-oauth-client` |
 
-The cluster-, model- and skill-manager inputs require an explicit `versions.components.<manager>` hold at or above the listed minimum. This selects an exchange-capable release over the meta chart's defaults. muster must be at least `5.63.2`; the meta chart must include the grant-broker connectivity changes in giantswarm/agent-platform#1375.
+The cluster-, model- and skill-manager inputs require an explicit `versions.components.<manager>` hold at or above the listed minimum. This selects an exchange-capable release over the meta chart's defaults. muster must be at least `5.63.2`; the meta chart must be at least `4.181.0-rc.3`, which includes the grant-broker connectivity changes in giantswarm/agent-platform#1375.
 
 GPM generates `<manager>-github-broker` in `agent-platform`, with `client-id` and `client-secret`. Both the manager and muster reference it. The OAuth client Secrets in the table belong to the existing Apps and must already be bound; GPM does not generate App credentials.
 

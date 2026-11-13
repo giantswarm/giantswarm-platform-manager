@@ -63,8 +63,8 @@ func (in *Input) validateAdditionalManagerGrants() error {
 		if in.Installation.ChartLine != lineFour || !running {
 			return refuse(field + " requires " + grant.component + " on the 4 chart line")
 		}
-		if !holdAdmits(in.Versions.Chart, credentialChart) {
-			return refuse(field + " requires the meta chart " + credentialChart + " or later")
+		if !holdAdmits(in.Versions.Chart, managerExchangeChart) {
+			return refuse(field + " requires the meta chart " + managerExchangeChart + " or later")
 		}
 		// Explicit holds select an exchange-capable release over older chart defaults.
 		if !floorAtLeast(in.Versions.Components[grant.component], grant.minimumVersion) {

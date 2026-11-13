@@ -96,6 +96,7 @@ func TestAdditionalManagerExchangeValues(t *testing.T) {
 	for index, manager := range managerGrantCases {
 		t.Run(manager.component, func(t *testing.T) {
 			input, secrets := managerGrantInput(t, 1<<index, false)
+			input["versions"].(map[string]any)[keyChart] = "4.181.0-rc.3"
 			input[manager.input].(map[string]any)[keyGitHub].(map[string]any)[keyEnabled] = true
 			result, err := Render(input, secrets, render.ModeCommit)
 			require.NoError(t, err)
@@ -125,7 +126,7 @@ func TestAdditionalManagerExchangeValues(t *testing.T) {
 
 func TestAdditionalManagerGrantVersionGuards(t *testing.T) {
 	for index, manager := range managerGrantCases {
-		for _, invalid := range []string{"missing hold", "older manager", "older muster", "older meta chart"} {
+		for _, invalid := range []string{"missing hold", "older manager", "older muster", "older meta chart", "older meta candidate"} {
 			t.Run(manager.component+"/"+invalid, func(t *testing.T) {
 				input, _ := managerGrantInput(t, 1<<index, false)
 				holds := input["versions"].(map[string]any)[keyComponents].(map[string]any)
@@ -137,7 +138,9 @@ func TestAdditionalManagerGrantVersionGuards(t *testing.T) {
 				case "older muster":
 					holds[componentMuster] = "5.63.1"
 				case "older meta chart":
-					input["versions"].(map[string]any)[keyChart] = "4.176.0"
+					input["versions"].(map[string]any)[keyChart] = "4.180.2"
+				case "older meta candidate":
+					input["versions"].(map[string]any)[keyChart] = "4.181.0-rc.2"
 				}
 				_, err := Parse(input)
 				require.Error(t, err)
