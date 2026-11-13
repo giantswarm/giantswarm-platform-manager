@@ -338,6 +338,54 @@ func TestWatchActionCarriesTheRolloutToEnabled(t *testing.T) {
 	assertNoLeak(t, "the server's log", st.logs.String())
 }
 
+// A child release Ready on its spec from before the merge is not yet the
+// merged change (giantswarm-platform-manager#891, item 1): the meta chart's
+// release ran the merged values and rewrote the kagent HelmRelease's spec,
+// and until Flux reconciles it, its Ready=True speaks of the spec before.
+// mcp-kubernetes answers the HelmRelease without metadata.generation; the
+// watch reads it through the list filter, keeps the stage rolling out with
+// the child named, and carries it to enabled once Flux has reconciled it.
+func TestWatchActionWaitsForAChildReleaseFluxHasNotReconciled(t *testing.T) {
+	const child = "kagent"
+	st := newStack(t)
+	a, _ := rolledOut(t, st)
+	admin := adminLive(t, st)
+	st.inst.changeSpec(fluxNamespace, child)
+
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || w.Ready || w.State != actions.StateRollingOut || w.Action.Status.State != actions.StateRollingOut || w.Report != "" {
+		t.Fatalf("the child not reconciled: %v %s", isErr, text)
+	}
+	stale := "rolling: Flux has not reconciled the last change of the spec yet: Ready=True is from generation 1, before the HelmRelease's spec changed"
+	var kagent *actions.RolloutObject
+	for i := range w.Objects {
+		if w.Objects[i].Name == child {
+			kagent = &w.Objects[i]
+		}
+	}
+	if kagent == nil || kagent.Ready != "Unknown" || kagent.Message != stale {
+		t.Fatalf("the child: %+v", w.Objects)
+	}
+	if msg := stageOf(w.Action, rowan).Message; !strings.Contains(msg, fmt.Sprintf("not Ready: HelmRelease %s/%s (%s)", fluxNamespace, child, stale)) {
+		t.Fatalf("the stage's message: %q", msg)
+	}
+
+	st.inst.reconcile(fluxNamespace, child)
+	w, text, isErr = watchCall(t, admin, a.Name)
+	if isErr || !w.Ready || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled || w.Report == "" {
+		t.Fatalf("the child reconciled: %v %s", isErr, text)
+	}
+	reports := len(thread(t, st))
+
+	// A later upgrade of the parent rewrites the child again: the enabled
+	// stage keeps its state, with no new report, while Flux catches up.
+	st.inst.changeSpec(fluxNamespace, child)
+	w, text, isErr = watchCall(t, admin, a.Name)
+	if isErr || w.State != actions.StateEnabled || w.Report != "" || len(thread(t, st)) != reports || !strings.Contains(stageOf(w.Action, rowan).Message, "while Flux reconciles a change") {
+		t.Fatalf("an enabled stage while the child reconciles: %v %s", isErr, text)
+	}
+}
+
 // The model key is the customer's: the default ModelConfig not Accepted is
 // the one red dimension, so the stage — and the action — wait for the
 // customer, the report names the open action, the next stage of a wave would

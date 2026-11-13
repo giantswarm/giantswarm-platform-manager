@@ -77,6 +77,18 @@ func TestListArgsNameTheNamespaceOrEvery(t *testing.T) {
 	}
 }
 
+// The generation read lists the one object by name and has mcp-kubernetes
+// match metadata.generation on the object before its output drops it; the
+// value is the generation's decimal form, as the tool prints the object's
+// number to compare it.
+func TestGenerationArgsMatchTheObjectAtTheGeneration(t *testing.T) {
+	args := generationArgs("flux-giantswarm", "HelmRelease.helm.toolkit.fluxcd.io", "kagent", 1234567)
+	filter, _ := args["filter"].(map[string]any)
+	if args["namespace"] != "flux-giantswarm" || args["resourceType"] != "helmrelease" || args["apiGroup"] != "helm.toolkit.fluxcd.io" || args["fieldSelector"] != "metadata.name=kagent" || len(filter) != 1 || filter["metadata.generation"] != "1234567" || args["limit"] != 1 || args["output"] != "slim" {
+		t.Errorf("generation args: %v", args)
+	}
+}
+
 func TestConfigValidateNamesTheMissingField(t *testing.T) {
 	cfg := Config{Issuer: "https://dex.example.test/dex", Audiences: []string{platformClient}, MusterURL: "http://muster:8090/mcp", KubernetesFamily: "kubernetes"}
 	if err := cfg.Validate(); err != nil {

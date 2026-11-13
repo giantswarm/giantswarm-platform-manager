@@ -6,6 +6,7 @@ resources:
   - user-values.yaml
   - user-secrets.enc.yaml
   - plugin-keys-secret.enc.yaml
+  - tunnelport-spiffe-bundle.yaml
   - dex-client-backstage-secret.enc.yaml
 patches:
   - patch: |
