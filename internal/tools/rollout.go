@@ -374,8 +374,10 @@ func sameValues(ctx context.Context, c *gh.Client, owner, repo, before, after st
 }
 
 // sameDocuments says whether two YAML files carry the same values: every
-// document of each, in order, the same — a comment or the layout aside. A
-// file that is no YAML differs.
+// document of each, in order, the same — a comment or the layout aside. An
+// empty document (a trailing separator, a comment alone) carries no values,
+// as kustomize and Helm read it, and is left out. A file that is no YAML
+// differs.
 func sameDocuments(before, after string) bool {
 	var docs [2][]any
 	for i, content := range []string{before, after} {
@@ -389,7 +391,9 @@ func sameDocuments(before, after string) bool {
 			if err != nil {
 				return false
 			}
-			docs[i] = append(docs[i], doc)
+			if doc != nil {
+				docs[i] = append(docs[i], doc)
+			}
 		}
 	}
 	return reflect.DeepEqual(docs[0], docs[1])

@@ -356,7 +356,7 @@ func TestWatchActionWaitsForAChildReleaseFluxHasNotReconciled(t *testing.T) {
 	if isErr || w.Ready || w.State != actions.StateRollingOut || w.Action.Status.State != actions.StateRollingOut || w.Report != "" {
 		t.Fatalf("the child not reconciled: %v %s", isErr, text)
 	}
-	stale := "rolling: Ready=True is from generation 1, and the HelmRelease's spec changed since: Flux has not reconciled the change yet"
+	stale := "rolling: Flux has not reconciled the last change of the spec yet: Ready=True is from generation 1, before the HelmRelease's spec changed"
 	var kagent *actions.RolloutObject
 	for i := range w.Objects {
 		if w.Objects[i].Name == child {
@@ -372,8 +372,17 @@ func TestWatchActionWaitsForAChildReleaseFluxHasNotReconciled(t *testing.T) {
 
 	st.inst.reconcile(fluxNamespace, child)
 	w, text, isErr = watchCall(t, admin, a.Name)
-	if isErr || !w.Ready || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled {
+	if isErr || !w.Ready || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled || w.Report == "" {
 		t.Fatalf("the child reconciled: %v %s", isErr, text)
+	}
+	reports := len(thread(t, st))
+
+	// A later upgrade of the parent rewrites the child again: the enabled
+	// stage keeps its state, with no new report, while Flux catches up.
+	st.inst.changeSpec(fluxNamespace, child)
+	w, text, isErr = watchCall(t, admin, a.Name)
+	if isErr || w.State != actions.StateEnabled || w.Report != "" || len(thread(t, st)) != reports || !strings.Contains(stageOf(w.Action, rowan).Message, "while Flux reconciles a change") {
+		t.Fatalf("an enabled stage while the child reconciles: %v %s", isErr, text)
 	}
 }
 

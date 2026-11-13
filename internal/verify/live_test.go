@@ -340,7 +340,7 @@ func TestAFluxConditionFromAnEarlierGenerationReadsRolling(t *testing.T) {
 	}
 	const helmRelease = "HelmRelease.helm.toolkit.fluxcd.io"
 	ready := conditionReady + "=" + conditionTrue
-	stale := Rolling + "Ready=True is from generation 4, and the HelmRelease's spec changed since: Flux has not reconciled the change yet"
+	stale := "rolling: Flux has not reconciled the last change of the spec yet: Ready=True is from generation 4, before the HelmRelease's spec changed"
 	for _, c := range []struct {
 		name        string
 		resource    string
@@ -356,7 +356,7 @@ func TestAFluxConditionFromAnEarlierGenerationReadsRolling(t *testing.T) {
 		{"the status behind the condition", helmRelease, render.HelmReleaseReady, hr(5, 5.0, 4.0, conditionTrue), nil, Drifted, stale, []int64{4}},
 		{"the condition behind the status", kindHelmRelease, render.HelmReleaseReady, hr(5, 4.0, 5.0, conditionTrue), nil, Drifted, stale, []int64{4}},
 		{"a Kustomization", "Kustomization.kustomize.toolkit.fluxcd.io", render.Condition, hr(3, 2.0, 2.0, conditionTrue), nil, Drifted,
-			Rolling + "Ready=True is from generation 2, and the Kustomization's spec changed since: Flux has not reconciled the change yet", []int64{2}},
+			Unreconciled + "Ready=True is from generation 2, before the Kustomization's spec changed", []int64{2}},
 		{"no observed generation", helmRelease, render.HelmReleaseReady, hr(5, nil, nil, conditionTrue), nil, AsDefined, ready, nil},
 		{"not Ready", helmRelease, render.HelmReleaseReady, hr(5, 4.0, 4.0, "False"), nil, Drifted, "Ready=False: ok", nil},
 		{"another controller's object", "ModelConfig.kagent.dev", render.Condition, hr(5, 4.0, 4.0, conditionTrue), nil, AsDefined, ready, nil},

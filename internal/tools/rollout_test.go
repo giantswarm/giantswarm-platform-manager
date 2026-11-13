@@ -14,6 +14,8 @@ func TestSameDocumentsReadsEveryDocument(t *testing.T) {
 	}{
 		{"the same documents", before, true},
 		{"a comment and the layout", "# the values\na:   1\n---\n\nb: 2 # two\n", true},
+		{"a trailing separator", before + "---\n", true},
+		{"a document of a comment alone", before + "---\n# nothing here\n", true},
 		{"the second document changed", "a: 1\n---\nb: 3\n", false},
 		{"a document added", before + "---\nc: 4\n", false},
 		{"a document removed", "a: 1\n", false},

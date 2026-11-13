@@ -910,7 +910,7 @@ func (x *executor) condition(ctx context.Context, c *Check, p render.Probe, cond
 		c.Mark, c.Message = Drifted, "no "+condition+" condition"
 	case got == status:
 		c.Mark, c.Message = AsDefined, condition+"="+got
-		if fluxObject(p.Resource) {
+		if FluxObject(p.Resource) {
 			if err := x.observedCurrent(ctx, c, p, obj, m); err != nil {
 				return err
 			}
@@ -926,12 +926,19 @@ func (x *executor) condition(ctx context.Context, c *Check, p render.Probe, cond
 	return nil
 }
 
-// fluxObject says whether a probe's resource is a Flux HelmRelease or
+// FluxObject says whether a probe's resource is a Flux HelmRelease or
 // Kustomization.
-func fluxObject(resource string) bool {
+func FluxObject(resource string) bool {
 	kind, group, _ := strings.Cut(resource, ".")
 	return (kind == helmReleaseKind || kind == "Kustomization") && (group == "" || strings.HasSuffix(group, "toolkit.fluxcd.io"))
 }
+
+// Unreconciled opens the message of a Flux object whose condition is from a
+// generation before its spec's last change (observedCurrent): a Rolling
+// check, which the installation leaves on its own once Flux reconciles the
+// object, so the watch reads it as not Ready yet, never as drift of a stage
+// that reached a state.
+const Unreconciled = Rolling + "Flux has not reconciled the last change of the spec yet: "
 
 // observedCurrent marks rolling a Flux object whose condition m (at the
 // expected status) is from an earlier generation than the object's: its
@@ -953,7 +960,7 @@ func (x *executor) observedCurrent(ctx context.Context, c *Check, p render.Probe
 	}
 	if !current {
 		kind, _, _ := strings.Cut(p.Resource, ".")
-		c.Mark, c.Message = Drifted, fmt.Sprintf("%s%s is from generation %d, and the %s's spec changed since: Flux has not reconciled the change yet", Rolling, c.Message, observed, kind)
+		c.Mark, c.Message = Drifted, fmt.Sprintf("%s%s is from generation %d, before the %s's spec changed", Unreconciled, c.Message, observed, kind)
 	}
 	return nil
 }
