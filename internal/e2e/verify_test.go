@@ -778,8 +778,8 @@ func TestVerifyCapabilityReadsDocumentsByObject(t *testing.T) {
 // The hub's portal on record, written by hand: its domain, organisation,
 // chart line and plugins are read back from its tree and the comparison
 // takes them as the record's inputs, refusing nothing and marking the tree
-// drifted from the render; the tunnel reads back off, its file not on
-// record; the title is the default.
+// drifted from the render; the tunnel reads back on from its bundle file;
+// the title is the default.
 func TestVerifyCapabilityReadsBackThePortal(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
@@ -797,7 +797,7 @@ func TestVerifyCapabilityReadsBackThePortal(t *testing.T) {
 		t.Fatalf("inputs %q refused %q state %q read back %v", res.Inputs.Source, res.Refused, res.State, back)
 	}
 	if back["portal.domain"] != "portal."+hub+".example.test" || back["portal.organization"] != "Example" || back[chartLineInput] != chartLine ||
-		back["plugins.github.enabled"] != false || back["plugins.grafana.enabled"] != false || back["plugins.flux.enabled"] != false || back["plugins.sentry.enabled"] != false || back["tunnel.enabled"] != false {
+		back["plugins.github.enabled"] != false || back["plugins.grafana.enabled"] != false || back["plugins.flux.enabled"] != false || back["plugins.sentry.enabled"] != false || back["tunnel.enabled"] != true {
 		t.Fatalf("read back %v", back)
 	}
 	if portal, _ := res.Inputs.Values["portal"].(map[string]any); portal["domain"] != "portal."+hub+".example.test" || portal["title"] != "Dev Portal" {
