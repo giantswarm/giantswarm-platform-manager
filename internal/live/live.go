@@ -25,6 +25,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"text/template"
@@ -669,6 +670,44 @@ func listArgs(namespace, resource, labelSelector string, shape verify.Shape) map
 	if labelSelector != "" {
 		args["labelSelector"] = labelSelector
 	}
+	return args
+}
+
+// AtGeneration says whether the object's metadata.generation is generation.
+// mcp-kubernetes drops metadata.generation from its slim and normal outputs,
+// and the full output of a HelmRelease with its history and values is past
+// its response cap; its list's client-side filter matches the object before
+// any output drops a field. So the read lists the one object by name
+// (fieldSelector) with a filter on metadata.generation: the object is in the
+// answer only at that generation.
+func (k *cluster) AtGeneration(ctx context.Context, namespace, resource, name string, generation int64) (bool, error) {
+	text, err := k.call(ctx, opList, generationArgs(namespace, resource, name, generation))
+	if err != nil {
+		return false, err
+	}
+	var doc struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := decode(text, &doc); err != nil {
+		return false, fmt.Errorf("%s answered something other than a list for %s %s/%s: %.200q", k.tool(opList), resource, namespace, name, text)
+	}
+	for _, item := range doc.Items {
+		if meta, _ := item["metadata"].(map[string]any); meta["name"] == name {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// generationArgs are mcp-kubernetes's list arguments that answer the object
+// namespace/name only at generation. The filter's value is a string: the tool
+// compares a number with it by its decimal form, which a float64 argument
+// would print in exponent form from a million on.
+func generationArgs(namespace, resource, name string, generation int64) map[string]any {
+	args := listArgs(namespace, resource, "", verify.Readiness)
+	args["fieldSelector"] = "metadata.name=" + name
+	args["filter"] = map[string]any{"metadata.generation": strconv.FormatInt(generation, 10)}
+	args["limit"] = 1
 	return args
 }
 
