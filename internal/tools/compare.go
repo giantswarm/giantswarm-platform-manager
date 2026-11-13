@@ -85,7 +85,7 @@ func boolArg(args map[string]any, key string) bool {
 // the three refuse alike (TestCommitRefusalsAreOneList). Last, a fact the
 // render needs that the record leaves empty (FactsRefusal).
 func commitRefusal(p plan.Installation, rec *installations.Record) string {
-	for _, refusal := range []string{p.DexAppRefusal(rec), p.DexSecretRefusal(rec), p.ReleaseCandidateRefusal(rec), p.FrozenRefusal(), p.CarryRefusal(), p.HubRefusal(), p.JoinRefusal(), p.SwitchOffRefusal()} {
+	for _, refusal := range []string{p.ReferenceRefusal(), p.DexAppRefusal(rec), p.DexSecretRefusal(rec), p.ReleaseCandidateRefusal(rec), p.FrozenRefusal(), p.CarryRefusal(), p.HubRefusal(), p.JoinRefusal(), p.SwitchOffRefusal()} {
 		if refusal != "" {
 			return refusal
 		}
