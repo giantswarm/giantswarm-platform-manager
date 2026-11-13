@@ -10,13 +10,14 @@ import (
 )
 
 const (
-	keyTokenExchange    = "tokenExchange"
-	keyCredentialUI     = "uiURL"
-	formURL             = "https://portal.example.com/credentials/{operation}"
-	insecureFormURL     = "http://portal.example.com/{operation}"
-	missingOperationURL = "https://portal.example.com/credentials"
-	refusedUIURL        = "RFC 6570 URI template"
-	refusedManagerFloor = "floor of"
+	keyTokenExchange     = "tokenExchange"
+	keyCredentialUI      = "uiURL"
+	formURL              = "https://portal.example.com/credentials/{operation}"
+	insecureFormURL      = "http://portal.example.com/{operation}"
+	missingOperationURL  = "https://portal.example.com/credentials"
+	refusedUIURL         = "RFC 6570 URI template"
+	refusedManagerFloor  = "floor of"
+	refusedExchangeChart = "meta chart 4.181.0-rc.3"
 )
 
 func TestAgentManagerCredentialBroker(t *testing.T) {
@@ -81,6 +82,15 @@ func TestAgentManagerCredentialInputsFailClosed(t *testing.T) {
 		{"old chart", func(input map[string]any) {
 			input["versions"] = map[string]any{keyChart: ">=4.176.0 <4.177.0"}
 		}, "meta chart"},
+		{"credential UI chart without grant exchange", func(input map[string]any) {
+			input["versions"] = map[string]any{keyChart: credentialChart}
+		}, refusedExchangeChart},
+		{"chart before grant exchange", func(input map[string]any) {
+			input["versions"] = map[string]any{keyChart: "4.181.0-rc.2"}
+		}, refusedExchangeChart},
+		{"chart range excluding grant exchange", func(input map[string]any) {
+			input["versions"] = map[string]any{keyChart: ">=4.177.0 <4.181.0"}
+		}, refusedExchangeChart},
 		{"release candidate manager", func(input map[string]any) {
 			input["versions"] = map[string]any{keyComponents: map[string]any{componentAgentManager: ">=2.22.0-rc.12 <3.0.0"}}
 		}, refusedManagerFloor},
@@ -166,6 +176,9 @@ func TestAgentManagerCredentialHoldsAdmitted(t *testing.T) {
 	for name, versions := range map[string]any{
 		"no hold":            nil,
 		"chart range":        map[string]any{keyChart: chartRangeFour},
+		"chart release":      map[string]any{keyChart: "4.181.0-rc.3"},
+		"chart stable":       map[string]any{keyChart: "4.181.0"},
+		"chart grant range":  map[string]any{keyChart: ">=4.181.0-rc.3 <5.0.0-0"},
 		"manager and muster": map[string]any{keyComponents: map[string]any{componentAgentManager: ">=3.0.0-rc.10 <4.0.0-0", componentMuster: ">=5.63.2 <6.0.0"}},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -190,10 +203,13 @@ func TestAgentManagerCredentialUIIsInputOnly(t *testing.T) {
 func TestAgentManagerCredentialUIKeepsItsVersionFloor(t *testing.T) {
 	input, _ := credentialInput(t, shapeGiantswarmSlackAppPub)
 	input["agentManager"].(map[string]any)[keyGitHub] = map[string]any{keyTokenExchange: map[string]any{keyEnabled: false}}
-	input["versions"] = map[string]any{keyComponents: map[string]any{
-		componentAgentManager: ">=2.22.0 <3.0.0",
-		componentMuster:       ">=5.61.0 <6.0.0",
-	}}
+	input["versions"] = map[string]any{
+		keyChart: "4.177.0",
+		keyComponents: map[string]any{
+			componentAgentManager: ">=2.22.0 <3.0.0",
+			componentMuster:       ">=5.61.0 <6.0.0",
+		},
+	}
 	_, err := Parse(input)
 	require.NoError(t, err)
 }

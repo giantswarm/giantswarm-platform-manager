@@ -31,6 +31,7 @@ const (
 	// Credential UI configuration is supported independently of grant exchange.
 	credentialChart       = "4.177.0"
 	managerOperationFloor = "2.22.0"
+	managerExchangeChart  = "4.181.0-rc.3"
 	managerExchangeFloor  = "3.0.0-rc.10"
 	// The broker must release provider App grants and decode Basic credentials.
 	musterGrantFloor = "5.63.2"
@@ -64,6 +65,9 @@ func (in *Input) validateAgentManagerCredentials() error {
 		return refuse("agentManager credential operations require a versions.components.agent-manager floor of " + managerOperationFloor + " or later")
 	}
 	if in.AgentManagerTokenExchange {
+		if !holdAdmits(in.Versions.Chart, managerExchangeChart) {
+			return refuse("agentManager.github.tokenExchange.enabled requires the meta chart " + managerExchangeChart + " or later, and versions.chart holds an earlier one")
+		}
 		if hold := in.Versions.Components[componentAgentManager]; hold != "" && !floorAtLeast(hold, managerExchangeFloor) {
 			return refuse("agentManager.github.tokenExchange.enabled requires an agent-manager version floor of " + managerExchangeFloor + " or later")
 		}
