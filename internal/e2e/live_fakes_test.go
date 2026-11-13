@@ -308,6 +308,41 @@ func matches(obj map[string]any, selector string) bool {
 	return true
 }
 
+// fieldsMatch says whether obj matches a field selector of metadata.name and
+// metadata.namespace terms, as the apiserver selects every resource by them.
+func fieldsMatch(obj map[string]any, selector string) bool {
+	if selector == "" {
+		return true
+	}
+	meta, _ := obj[metadataKey].(map[string]any)
+	for _, kv := range strings.Split(selector, ",") {
+		k, v, _ := strings.Cut(kv, "=")
+		field, ok := strings.CutPrefix(k, metadataKey+".")
+		if !ok || fmt.Sprint(meta[field]) != v {
+			return false
+		}
+	}
+	return true
+}
+
+// filterMatches is mcp-kubernetes's client-side filter of a list: every path
+// of filter (dotted, no wildcard) holds a value whose decimal or string form
+// is the filter's, read on the object as the apiserver holds it — before the
+// output drops a field.
+func filterMatches(obj map[string]any, filter map[string]any) bool {
+	for path, want := range filter {
+		var v any = obj
+		for _, k := range strings.Split(path, ".") {
+			m, _ := v.(map[string]any)
+			v = m[k]
+		}
+		if v == nil || fmt.Sprint(v) != fmt.Sprint(want) {
+			return false
+		}
+	}
+	return true
+}
+
 func conditionTrue(condition string) map[string]any {
 	return map[string]any{statusKey: map[string]any{conditionsKey: []any{map[string]any{typeKey: condition, statusKey: statusTrue, message: "ok"}}}}
 }
@@ -346,6 +381,12 @@ func (f *fakeInstallation) populate(t *testing.T, installation string, res *rend
 			case "kagent":
 				obj[specKey] = map[string]any{"values": map[string]any{"providers": at("kagent.providers")}}
 			}
+			// Flux reconciled the spec it reads: Ready and the status
+			// observed the object's generation.
+			meta, _ := obj[metadataKey].(map[string]any)
+			obj[metadataKey] = mergeMaps(meta, map[string]any{generationKey: 1})
+			obj[statusKey].(map[string]any)[observedGenerationKey] = 1
+			obj[statusKey].(map[string]any)[conditionsKey].([]any)[0].(map[string]any)[observedGenerationKey] = 1
 			f.put(kind, p.Namespace, p.Name, obj)
 		case render.Condition:
 			f.put(kind, p.Namespace, p.Name, conditionTrue(p.Expect.Condition))
@@ -569,6 +610,35 @@ const (
 	platformValuesKey       = "configmap-values.yaml"
 )
 
+// The generation of an object, and the one its controller observed.
+const (
+	generationKey         = "generation"
+	observedGenerationKey = "observedGeneration"
+)
+
+// changeSpec has a parent release rewrite HelmRelease namespace/name's spec:
+// its generation one up, its Ready condition and status still on the
+// generation Flux observed before.
+func (f *fakeInstallation) changeSpec(namespace, name string) {
+	f.edit(helmReleaseKind, namespace, name, func(obj map[string]any) {
+		meta := obj[metadataKey].(map[string]any)
+		meta[generationKey] = meta[generationKey].(int) + 1
+	})
+}
+
+// reconcile has Flux reconcile HelmRelease namespace/name's spec: its Ready
+// condition and status observe its generation.
+func (f *fakeInstallation) reconcile(namespace, name string) {
+	f.edit(helmReleaseKind, namespace, name, func(obj map[string]any) {
+		generation := obj[metadataKey].(map[string]any)[generationKey]
+		status := obj[statusKey].(map[string]any)
+		status[observedGenerationKey] = generation
+		for _, c := range status[conditionsKey].([]any) {
+			c.(map[string]any)[observedGenerationKey] = generation
+		}
+	})
+}
+
 // failRelease marks release version of HelmRelease namespace/name failed
 // in its history.
 func (f *fakeInstallation) failRelease(namespace, name string, version int) {
@@ -659,9 +729,9 @@ func capped(res *mcp.CallToolResult) *mcp.CallToolResult {
 
 // shaped is an object as mcp-kubernetes answers it for the output asked:
 // full and wide as the apiserver holds it; normal without the bookkeeping
-// (the managed fields, the last-applied configuration); slim — the tool's
-// default — without a HelmRelease's values and history either. A copy: the
-// installation's object stays whole.
+// (the managed fields, the last-applied configuration, the generation); slim
+// — the tool's default — without a HelmRelease's values and history either.
+// A copy: the installation's object stays whole.
 func shaped(obj map[string]any, output string) map[string]any {
 	out := deepCopy(obj)
 	if output == outputFull || output == "wide" {
@@ -669,6 +739,7 @@ func shaped(obj map[string]any, output string) map[string]any {
 	}
 	if meta, ok := out[metadataKey].(map[string]any); ok {
 		delete(meta, "managedFields")
+		delete(meta, generationKey)
 		if annotations, ok := meta["annotations"].(map[string]any); ok {
 			delete(annotations, lastAppliedAnnotation)
 		}
@@ -868,8 +939,13 @@ func (m *fakeMuster) kubernetes(op string) mustertest.Tool {
 			return capped(document(map[string]any{"resource": shaped(obj, output), "_meta": map[string]any{"cluster": mc}}))
 		case opList:
 			selector, _ := args["labelSelector"].(string)
+			fields, _ := args["fieldSelector"].(string)
+			filter, _ := args["filter"].(map[string]any)
 			items := []map[string]any{}
 			for _, obj := range inst.list(kind, namespace, selector) {
+				if !fieldsMatch(obj, fields) || !filterMatches(obj, filter) {
+					continue
+				}
 				items = append(items, shaped(obj, output))
 			}
 			return capped(document(map[string]any{"kind": strings.ToUpper(kind[:1]) + kind[1:] + "List", "items": items, "totalItems": len(items)}))

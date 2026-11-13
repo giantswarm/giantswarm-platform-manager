@@ -199,6 +199,39 @@ func TestSortActionsFollowTheLiveRead(t *testing.T) {
 	}
 }
 
+// A Flux object Flux has not reconciled since its spec changed is not Ready
+// (Unknown). A stage that reached a state keeps it while such objects alone
+// are red: a parent release's upgrade rewrites its children by any change,
+// and Flux catches up on its own. Any other red check drifts it as before; a
+// stage rolling out or failed is decided as before.
+func TestAnUnreconciledFluxObjectDriftsNoSettledStage(t *testing.T) {
+	unreconciled := verify.Check{Kind: string(render.HelmReleaseReady), Namespace: fluxNS, Resource: helmRelease, Name: "kagent", Mark: verify.Drifted,
+		Message: verify.Unreconciled + "Ready=True is from generation 4, before the HelmRelease's spec changed"}
+	dim := func(checks ...verify.Check) verify.Dimension {
+		return verify.Dimension{ID: dimReleases, Kind: definitions.KindLive, Mark: verify.Drifted, Live: &verify.LiveResult{Checks: checks}}
+	}
+	res := liveResult(installations.StateDrifted, dim(unreconciled))
+	if objects, ready, _ := rolloutObjects(res); ready || len(objects) != 1 || objects[0].Ready != conditionUnknown {
+		t.Errorf("the object: ready %v %+v", ready, objects)
+	}
+	for _, prev := range []string{actions.StateEnabled, actions.StateWaitingForCustomer} {
+		if state, message, red := decideStage(prev, res); state != prev || !strings.Contains(message, "while Flux reconciles a change") || len(red) != 1 {
+			t.Errorf("%s: %s %q %v", prev, state, message, red)
+		}
+	}
+	if state, _, _ := decideStage(actions.StateRollingOut, res); state != actions.StateFailed {
+		t.Errorf("rolling out: %s", state)
+	}
+	other := liveResult(installations.StateDrifted, dim(unreconciled, verify.Check{Kind: string(render.HelmReleaseReady), Resource: helmRelease, Name: musterName, Mark: verify.Drifted, Message: notReady}))
+	if state, _, _ := decideStage(actions.StateEnabled, other); state != actions.StateDrifted {
+		t.Errorf("another red check: %s", state)
+	}
+	rolling := liveResult(installations.StateDrifted, dim(verify.Check{Kind: string(render.APIServed), Mark: verify.Drifted, Message: verify.Rolling + "x/v1 y is not served yet"}))
+	if state, _, _ := decideStage(actions.StateEnabled, rolling); state != actions.StateDrifted {
+		t.Errorf("another rolling check: %s", state)
+	}
+}
+
 // A stage that failed on a probe is re-read: still red it stays failed with
 // the probe named, clean it is enabled. A stage that failed otherwise, or
 // whose pull requests are not merged, is over for the watch.
