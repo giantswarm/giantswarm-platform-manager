@@ -89,7 +89,7 @@ func (t ExchangeTarget) DexClients() []Map {
 	clients := make([]Map, 0, len(t.Hubs))
 	for _, hub := range t.Hubs {
 		client := t.Client(hub)
-		clients = append(clients, ExtraStaticClient(client, hub+" token exchange", Entry{Key: "secretRef", Value: DexClientSecretRef(client)}))
+		clients = append(clients, ExtraStaticClient(client, hub+" token exchange", Entry{Key: keySecretRef, Value: DexClientSecretRef(client)}))
 	}
 	return clients
 }

@@ -43,3 +43,10 @@ oidc:
       secretRef:
         name: dex-client-muster-token-exchange-warren
         key: secret
+    - id: federation-vole
+      name: vole federation login
+      redirectURIs:
+        - https://dex.vole.example.io/callback
+      secretRef:
+        name: dex-client-federation-vole
+        key: secret

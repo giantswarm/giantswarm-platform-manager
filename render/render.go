@@ -566,7 +566,7 @@ func Secret(name, namespace string, labels map[string]string, keys ...SecretKey)
 		data = append(data, Entry{Key: k.Key, Value: value})
 	}
 	f.Content = MustYAML(secret{
-		APIVersion: "v1", Kind: "Secret",
+		APIVersion: "v1", Kind: kindSecret,
 		Metadata: metadata{Name: name, Namespace: namespace, Labels: labels},
 		Type:     "Opaque", StringData: data,
 	})

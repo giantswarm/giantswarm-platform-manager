@@ -36,3 +36,17 @@ oidc:
       secretRef:
         name: dex-client-backstage
         key: secret
+    - id: federation-kestrel
+      name: kestrel federation login
+      redirectURIs:
+        - https://dex.kestrel.oakridge.example/callback
+      secretRef:
+        name: dex-client-federation-kestrel
+        key: secret
+    - id: federation-plover
+      name: plover federation login
+      redirectURIs:
+        - https://dex.plover.oakridge.example/callback
+      secretRef:
+        name: dex-client-federation-plover
+        key: secret

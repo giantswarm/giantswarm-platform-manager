@@ -104,14 +104,17 @@ releaseCandidates:
 # the connector in its broker and identity providers; the target's own definition — agent-platform
 # where the platform runs there, cluster-mcp-servers otherwise — registers it on the target's Dex,
 # an oidc connector trusting the hub's Dex as the issuer, under oidc.customer.connectors next to the
-# target's own login connectors. The organisations under `fromBase` are the exception: the fleet's
-# Dex base registers their hubs' connectors on every installation (giantswarm-simple-oidc), so a
-# target renders none for them.
+# target's own login connectors, with the login client the hub's Dex registers for the target.
+# The organisations under `furtherByHand` keep their further hubs' connectors by hand on the
+# targets, so no definition renders them, nor the hub's login client: giantswarm's further hub is
+# graveler, the Dev Portal's test hub, whose connectors on garm (token exchange into garm's MCP
+# servers) and glean (the Dev Portal's sign-in to glean through graveler) exist to try the portal
+# there and are set up by hand in each target's dex-operator credentials.
 federation:
   connector:
     first: "{{ .Customer }}-simple-oidc"
     further: "{{ .Customer }}-{{ .Name }}-oidc"
-    fromBase: [giantswarm]
+    furtherByHand: [giantswarm]
   teleport:
     clusterName: teleport.giantswarm.io
     proxyAddr: teleport.giantswarm.io:443

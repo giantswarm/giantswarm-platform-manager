@@ -77,7 +77,11 @@ func TestKeepDexPatchKeepsOtherOwnersPartsUnderEitherDefinition(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := []Kept{{"", keyIngress}, {keyOIDC, keyCustomer}, {listStaticClients, "argocd"}, {listExtraClients, "grafana"}}
+			// The platform's patch registers the fleet hub's connector under
+			// oidc.customer.connectors: the installation's login connector and
+			// every other key of oidc.customer stay beside it, one by one.
+			want := []Kept{{"", keyIngress}, {mapCustomer, "enabled"}, {mapCustomer, "connectorType"}, {mapCustomer, "connectorName"},
+				{listConnectors, "customer-simple-oidc"}, {listStaticClients, "argocd"}, {listExtraClients, "grafana"}}
 			if definition == "customer-portal" {
 				// The portal's definition renders no built-in client at all:
 				// the whole staticClients mapping is another owner's and
@@ -194,6 +198,50 @@ func TestKeepDexPatchKeepsTheLoginConnectorBesideTheExchangeConnectors(t *testin
 	}
 	if strings.Contains(s, "dex.stale.example.test") || strings.Contains(s, "connectorName: stale") || strings.Count(s, "id: oakridge-simple-oidc") != 1 {
 		t.Errorf("the definition's connector carries the current entry's stale values, or appears twice:\n%s", s)
+	}
+	again, keptAgain, err := keepDexPatch([]byte(rendered), got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(again) != s || len(keptAgain) != len(kept) {
+		t.Errorf("a second keep over the merged patch is not stable:\n%s", again)
+	}
+}
+
+// The variables a definition renders under dex.envVars are its own by name:
+// a rendered one replaces the current entry whole, one of another name — an
+// installation's own connector credentials — stays after the definition's,
+// and every other key under dex stays.
+func TestKeepDexPatchKeepsTheInstallationsEnvironmentBesideTheConnectorsVariables(t *testing.T) {
+	const rendered = "oidc:\n  staticClients:\n    muster:\n      clientSecretRef:\n        name: dex-client-muster\n        key: secret\n" +
+		"dex:\n  envVars:\n    - name: DEX_CONNECTOR_GIANTSWARM_SIMPLE_OIDC_CLIENT_ID\n      valueFrom:\n        secretKeyRef:\n          name: dex-connector-giantswarm-simple-oidc\n          key: client-id\n          optional: true\n"
+	const current = "oidc:\n  staticClients:\n    muster:\n      clientSecretRef:\n        name: dex-client-muster\n        key: secret\n" +
+		"dex:\n  replicas: 2\n  envVars:\n    # the organisation's own sign-in app\n    - name: OWN_CLIENT_ID\n      valueFrom:\n        secretKeyRef:\n          name: dex-connector-own\n          key: client-id\n" +
+		"    - name: DEX_CONNECTOR_GIANTSWARM_SIMPLE_OIDC_CLIENT_ID\n      valueFrom:\n        secretKeyRef:\n          name: stale\n          key: client-id\n"
+	got, kept, err := keepDexPatch([]byte(rendered), []byte(current))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Kept{{keyDex, "replicas"}, {listEnvVars, "OWN_CLIENT_ID"}}
+	if len(kept) != len(want) {
+		t.Fatalf("kept %v, want %v", kept, want)
+	}
+	for i := range want {
+		if kept[i] != want[i] {
+			t.Errorf("kept[%d] = %v, want %v", i, kept[i], want[i])
+		}
+	}
+	s := string(got)
+	for _, frag := range []string{"replicas: 2", "# the organisation's own sign-in app", "name: OWN_CLIENT_ID", "name: dex-connector-own", "name: dex-connector-giantswarm-simple-oidc"} {
+		if !strings.Contains(s, frag) {
+			t.Errorf("merged patch lacks %q:\n%s", frag, s)
+		}
+	}
+	if strings.Contains(s, "name: stale") || strings.Count(s, "name: DEX_CONNECTOR_GIANTSWARM_SIMPLE_OIDC_CLIENT_ID") != 1 {
+		t.Errorf("the definition's variable carries the current entry's stale values, or appears twice:\n%s", s)
+	}
+	if strings.Index(s, "DEX_CONNECTOR_GIANTSWARM_SIMPLE_OIDC_CLIENT_ID") > strings.Index(s, "OWN_CLIENT_ID") {
+		t.Errorf("the installation's variable precedes the definition's:\n%s", s)
 	}
 	again, keptAgain, err := keepDexPatch([]byte(rendered), got)
 	if err != nil {

@@ -20,7 +20,13 @@ migrations:
   - key: dex-configmap:oidc.staticClients.<name>.clientSecretRef
     reason: "Added: the <name> Dex client reads its secret from the Secret in the cluster the server shares, instead of the encrypted Dex values"
   - key: dex-configmap:oidc.customer.connectors[<connector>]
-    reason: "Added: Dex gets the connector <connector>, an oidc connector trusting a hub's Dex as the issuer, through which that hub's muster exchanges a person's token for one this installation accepts"
+    reason: "Added: Dex gets the connector <connector>, an oidc connector trusting a hub's Dex as the issuer, through which that hub's muster exchanges a person's token for one this installation accepts and a person signs in through the hub"
+  - key: extras:agent-platform/secrets/dex-connector-<connector>-secret.yaml
+    reason: "Added: the connector <connector> gets the hub's login client for this installation, its id and secret in a Secret in Dex's namespace, one generated value with the hub's Secret of the client, so a person can sign in through the connector as well as exchange a token"
+  - key: extras:agent-platform/secrets/kustomization.yaml resources[dex-connector-<connector>-secret.yaml]
+    reason: "Added: the secrets kustomization lists the connector <connector>'s Secret, so it is applied with the rest"
+  - key: dex-configmap:dex.envVars[DEX_CONNECTOR_<connector>]
+    reason: "Added: Dex reads the login client of a hub's connector from the Secret in its namespace into its environment, where the connector's configuration takes the client id and secret from, so no secret sits in the Dex values"
   # The hubs' token-exchange clients: an installation whose hubs' clients were registered by hand, or whose
   # agent platform rendered them and was disabled before this definition rendered them.
   - key: extras:agent-platform/kustomization.yaml
