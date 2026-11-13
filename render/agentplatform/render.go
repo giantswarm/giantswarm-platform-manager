@@ -305,8 +305,17 @@ func (in *Input) configmapPatch() render.Map {
 	if len(in.SkillManagerSources) > 0 {
 		m = append(m, e("skillManager", render.Map{e("sources", in.SkillManagerSources)}))
 	}
-	if in.SkillManagerAppSecret != "" {
-		m = append(m, e(componentSkillManager, render.Map{e("github", render.Map{e("app", render.Map{e("secretName", in.SkillManagerAppSecret)})})}))
+	if in.SkillManagerAppSecret != "" || in.SkillManagerTokenExchange || in.SkillManagerPrivateAccess {
+		github := render.Map{}
+		if in.SkillManagerAppSecret != "" {
+			github = append(github, e("app", render.Map{e("secretName", in.SkillManagerAppSecret)}))
+		}
+		if in.SkillManagerTokenExchange {
+			github = append(github, in.managerGrantValues(componentSkillManager)...)
+		} else if in.SkillManagerPrivateAccess {
+			github = append(github, e("enabled", true))
+		}
+		m = append(m, e(componentSkillManager, render.Map{e("github", github)}))
 	}
 	m = in.organizationsValues(m)
 	m = in.platformTenantValues(m)
@@ -447,7 +456,7 @@ func (in *Input) musterValues() render.Map {
 			e("allowPrivateIPRedirectURIs", true))
 	}
 	server = append(server, e("trustedAudiences", in.musterAudiences()))
-	if in.portalGitHub() || in.AgentManagerTokenExchange {
+	if in.portalGitHub() || in.hasManagerGrantExchange() {
 		server = append(server, e("trustedIssuers", in.trustedIssuers()))
 	}
 	if uris := in.clientRedirectURIs(); len(uris) > 0 {
@@ -458,7 +467,7 @@ func (in *Input) musterValues() render.Map {
 	}
 	oauth := render.Map{}
 	mcpClient := render.Map{}
-	if in.AgentManagerTokenExchange {
+	if in.hasManagerGrantExchange() {
 		mcpClient = append(mcpClient, e("enabled", true))
 	}
 	if in.klausGateway() && in.Gateway.OBO.Connectors {
@@ -472,8 +481,15 @@ func (in *Input) musterValues() render.Map {
 	}
 	oauth = append(oauth, e("server", server))
 	muster := render.Map{}
+	var providerApps []render.Map
 	if in.AgentManagerTokenExchange {
-		muster = append(muster, e("providerApps", []render.Map{agentManagerProviderApp()}))
+		providerApps = append(providerApps, agentManagerProviderApp())
+	}
+	for _, grant := range in.additionalManagerGrants() {
+		providerApps = append(providerApps, grant.providerApp())
+	}
+	if len(providerApps) > 0 {
+		muster = append(muster, e("providerApps", providerApps))
 	}
 	if in.hasPrivateTarget() {
 		muster = append(muster, e("extraCaFile", extraCaFile()))
@@ -846,6 +862,10 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 	if in.AgentManagerTokenExchange {
 		add(agentManagerBrokerSecret+".yaml", in.agentManagerBrokerCredentials())
 		r.Revision(revision, in.agentManagerBrokerKey())
+	}
+	for _, grant := range in.additionalManagerGrants() {
+		add(grant.brokerSecret()+".yaml", in.managerBrokerCredentials(grant))
+		r.Revision(revision, in.managerBrokerKey(grant))
 	}
 	in.componentSecrets(add, secrets)
 	names := make([]string, 0, len(files))

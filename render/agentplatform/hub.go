@@ -199,6 +199,11 @@ func (in *Input) brokerValues() render.Map {
 		audiences = append(audiences, e(componentAgentManager, []string{managerProviderAppName}))
 		targets = append(targets, e(managerProviderAppName, render.Map{e("grantIssuer", managerGrantIssuer)}))
 	}
+	for _, grant := range in.additionalManagerGrants() {
+		clients = append(clients, e(grant.component, render.Map{e("clientCredentialsSecretRef", render.Map{e("name", grant.brokerSecret())})}))
+		audiences = append(audiences, e(grant.component, []string{grant.component}))
+		targets = append(targets, e(grant.component, render.Map{e("grantIssuer", grant.issuer)}))
+	}
 	return append(m, e("brokerClients", clients), e("clientAudiences", audiences), e("targets", targets))
 }
 
