@@ -38,7 +38,7 @@ heron: enabled
     live-kagent-workloads: runtime kagent pods Running and the CNPG cluster healthy
     live-pod-certificate-request: runtime certificates.k8s.io/v1beta1 podcertificaterequests served by the apiserver (Agent Substrate's feature gates, the 4 line)
     live-drift: runtime live values equal the rendered manifests
-    live-agent-manager-route-protected: tool-access https://agentgateway.<domain>/agent-manager/api/v1/info answered 401 by the route's JWT policy, where agent-manager.credentials.uiURL is set
+    live-agent-manager-route-protected: tool-access https://agentgateway.<domain>/agent-manager/api/v1/info answered 401 by the route's JWT policy, where either credential form URL is set
     live-own-mcp-servers: tool-access MCPServer objects of the installation itself
     live-registered-mcp-servers: tool-access MCPServer objects registered under extras/agent-platform/mcpservers, present and none Failed
     live-muster-protected-resource: tool-access muster's OAuth protected-resource metadata
@@ -89,7 +89,7 @@ kestrel: enabled
     live-kagent-workloads: runtime kagent pods Running and the CNPG cluster healthy
     live-pod-certificate-request: runtime certificates.k8s.io/v1beta1 podcertificaterequests served by the apiserver (Agent Substrate's feature gates, the 4 line)
     live-drift: runtime live values equal the rendered manifests
-    live-agent-manager-route-protected: tool-access https://agentgateway.<domain>/agent-manager/api/v1/info answered 401 by the route's JWT policy, where agent-manager.credentials.uiURL is set
+    live-agent-manager-route-protected: tool-access https://agentgateway.<domain>/agent-manager/api/v1/info answered 401 by the route's JWT policy, where either credential form URL is set
     live-own-mcp-servers: tool-access MCPServer objects of the installation itself
     live-registered-mcp-servers: tool-access MCPServer objects registered under extras/agent-platform/mcpservers, present and none Failed
     live-muster-protected-resource: tool-access muster's OAuth protected-resource metadata

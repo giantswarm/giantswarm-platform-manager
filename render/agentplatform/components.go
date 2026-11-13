@@ -149,8 +149,15 @@ func (in *Input) agentManagerValues() render.Map {
 	case in.AgentManagerCommit:
 		m = append(m, githubEnabled())
 	}
+	var credentials render.Map
 	if ui := in.credentialUI(); ui != "" {
-		m = append(m, e("credentials", render.Map{e("uiURL", ui)}))
+		credentials = append(credentials, e("uiURL", ui))
+	}
+	if ui := in.AgentManagerPlatformCredentialUI; ui != "" {
+		credentials = append(credentials, e(keyPlatformCredentialUI, ui))
+	}
+	if len(credentials) > 0 {
+		m = append(m, e(keyCredentials, credentials))
 	}
 	return m
 }

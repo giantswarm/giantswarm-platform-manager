@@ -122,20 +122,20 @@ func TestAgentManagerCredentialInputsFailClosed(t *testing.T) {
 			input["installation"].(map[string]any)["federation"] = federation
 		}, "reserves the agent-manager broker target"},
 		{"insecure UI", func(input map[string]any) {
-			input["agentManager"].(map[string]any)["credentials"] = map[string]any{keyCredentialUI: insecureFormURL}
+			input["agentManager"].(map[string]any)[keyCredentials] = map[string]any{keyCredentialUI: insecureFormURL}
 		}, refusedUIURL},
 		{"missing operation", func(input map[string]any) {
-			input["agentManager"].(map[string]any)["credentials"] = map[string]any{keyCredentialUI: missingOperationURL}
+			input["agentManager"].(map[string]any)[keyCredentials] = map[string]any{keyCredentialUI: missingOperationURL}
 		}, refusedUIURL},
 		{"unknown placeholder", func(input map[string]any) {
-			input["agentManager"].(map[string]any)["credentials"] = map[string]any{keyCredentialUI: formURL + "/{foo}"}
+			input["agentManager"].(map[string]any)[keyCredentials] = map[string]any{keyCredentialUI: formURL + "/{foo}"}
 		}, refusedUIURL},
 		{"placeholder in host", func(input map[string]any) {
 			// #nosec G101 -- a URL template, no credential value
-			input["agentManager"].(map[string]any)["credentials"] = map[string]any{keyCredentialUI: "https://{operation}.example.com/credentials"}
+			input["agentManager"].(map[string]any)[keyCredentials] = map[string]any{keyCredentialUI: "https://{operation}.example.com/credentials"}
 		}, refusedUIURL},
 		{"repeated operation", func(input map[string]any) {
-			input["agentManager"].(map[string]any)["credentials"] = map[string]any{keyCredentialUI: formURL + "?again={operation}"}
+			input["agentManager"].(map[string]any)[keyCredentials] = map[string]any{keyCredentialUI: formURL + "?again={operation}"}
 		}, refusedUIURL},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -194,10 +194,78 @@ func TestAgentManagerCredentialHoldsAdmitted(t *testing.T) {
 
 func TestAgentManagerCredentialUIIsInputOnly(t *testing.T) {
 	input, _ := credentialInput(t, shapePortalGitHubGrant)
-	delete(input["agentManager"].(map[string]any), "credentials")
+	delete(input["agentManager"].(map[string]any), keyCredentials)
 	in, err := Parse(input)
 	require.NoError(t, err)
-	require.NotContains(t, credentialValues(t, in.agentManagerValues()), "credentials")
+	require.NotContains(t, credentialValues(t, in.agentManagerValues()), keyCredentials)
+}
+
+func TestInstallationCredentialFormPreservesOrganizations(t *testing.T) {
+	const platformURL = "https://portal.example.com/models/{namespace}/credentials/{operation}"
+	for _, test := range []struct {
+		name          string
+		organizations bool
+		tenantForm    bool
+	}{
+		{name: "installation only"},
+		{name: "installation with organizations", organizations: true},
+		{name: "both forms", organizations: true, tenantForm: true},
+		{name: "organization form read back after disabling organizations", tenantForm: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input, secrets := loadInput(t, shapeCredentialForm)
+			input[keyOrganizations] = map[string]any{keyEnabled: test.organizations}
+			forms := map[string]any{keyPlatformCredentialUI: platformURL}
+			if test.tenantForm {
+				forms[keyCredentialUI] = formURL
+			}
+			input["agentManager"] = map[string]any{keyCredentials: forms}
+			in, err := Parse(input)
+			require.NoError(t, err)
+			require.Equal(t, test.organizations, in.Organizations.Enabled)
+			result, err := Render(input, secrets, render.ModeCommit)
+			require.NoError(t, err)
+			patch := configmapPatch(t, result, in.Installation.Name)
+			manager := patch[componentAgentManager].(map[string]any)
+			want := map[string]any{keyPlatformCredentialUI: platformURL}
+			if test.organizations && test.tenantForm {
+				want[keyCredentialUI] = formURL
+			}
+			require.Equal(t, want, manager[keyCredentials])
+			require.Equal(t, credentialValues(t, in.agentManagerRouteValues()), patch["agentManager"])
+			require.Equal(t, map[string]any{"jwksEgress": map[string]any{keyEnabled: true}}, patch["gateway"])
+			if !test.organizations {
+				require.NotContains(t, patch, "agentPlatformOrganizations")
+				require.NotContains(t, manager, "tenants")
+			}
+			var protectedProbe bool
+			for _, probe := range result.Probes {
+				protectedProbe = protectedProbe || probe.ID == agentManagerRouteDimension
+			}
+			require.True(t, protectedProbe)
+		})
+	}
+}
+
+func TestInstallationCredentialFormRejectsUnsafeTemplates(t *testing.T) {
+	for _, address := range []string{
+		insecureFormURL,
+		missingOperationURL,
+		"https://user@portal.example.com/{operation}",
+		"https://portal.example.com/{operation}#fragment",
+		"https://{namespace}.example.com/{operation}",
+		"https://portal.example.com/{operation}?again={operation}",
+		"https://portal.example.com/{organization}/{operation}",
+		"https://portal.example.com/{parent}/{operation}",
+	} {
+		t.Run(address, func(t *testing.T) {
+			input, _ := loadInput(t, shapeCredentialForm)
+			input[keyOrganizations] = map[string]any{keyEnabled: false}
+			input["agentManager"] = map[string]any{keyCredentials: map[string]any{keyPlatformCredentialUI: address}}
+			_, err := Parse(input)
+			require.ErrorContains(t, err, "agentManager.credentials.platformUIURL")
+		})
+	}
 }
 
 func TestAgentManagerCredentialUIKeepsItsVersionFloor(t *testing.T) {
@@ -223,8 +291,8 @@ func credentialInput(t *testing.T, shape string) (map[string]any, map[string]str
 		input["installation"].(map[string]any)["podCertificateRequest"] = true
 	}
 	input["agentManager"] = map[string]any{
-		keyGitHub:     map[string]any{keyTokenExchange: map[string]any{keyEnabled: true}},
-		"credentials": map[string]any{keyCredentialUI: formURL},
+		keyGitHub:      map[string]any{keyTokenExchange: map[string]any{keyEnabled: true}},
+		keyCredentials: map[string]any{keyCredentialUI: formURL},
 	}
 	// The meta chart takes the credential form with the organizations only.
 	input[keyOrganizations] = map[string]any{keyEnabled: true}
@@ -275,7 +343,7 @@ func toAny(values []string) []any {
 // route alone).
 func TestAgentManagerRouteBesideTheEdgeProvider(t *testing.T) {
 	input, secrets := loadInput(t, shapeOrganizationsApply)
-	input["agentManager"] = map[string]any{"credentials": map[string]any{keyCredentialUI: formURL}}
+	input["agentManager"] = map[string]any{keyCredentials: map[string]any{keyCredentialUI: formURL}}
 	in, err := Parse(input)
 	require.NoError(t, err)
 	require.True(t, in.edgeJWTProvider())
@@ -303,7 +371,7 @@ func TestCredentialFormRendersWithTheOrganizationsOnly(t *testing.T) {
 	require.NoError(t, err)
 	patch := configmapPatch(t, result, in.Installation.Name)
 	manager, _ := patch[componentAgentManager].(map[string]any)
-	require.NotContains(t, manager, "credentials")
+	require.NotContains(t, manager, keyCredentials)
 	require.NotContains(t, patch, "agentManager")
 	require.NotContains(t, patch, "gateway")
 	for _, p := range result.Probes {

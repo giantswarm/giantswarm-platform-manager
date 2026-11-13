@@ -149,12 +149,13 @@ type Input struct {
 	// commit mode with the person's GitHub grant fetched from muster's broker
 	// per call (agentManager.github.tokenExchange.enabled) in place of the
 	// pin, read back from the configmap patch on record.
-	AgentManagerTokenExchange   bool
-	AgentManagerCredentialUI    string
-	ClusterManagerTokenExchange bool
-	ModelManagerTokenExchange   bool
-	SkillManagerTokenExchange   bool
-	SkillManagerPrivateAccess   bool
+	AgentManagerTokenExchange        bool
+	AgentManagerCredentialUI         string
+	AgentManagerPlatformCredentialUI string
+	ClusterManagerTokenExchange      bool
+	ModelManagerTokenExchange        bool
+	SkillManagerTokenExchange        bool
+	SkillManagerPrivateAccess        bool
 	// SkillManagerSources are the skill-manager's skill sources
 	// (skillManager.sources) as the person wrote them, read back from the
 	// configmap patch on record.
@@ -685,7 +686,8 @@ type document struct {
 		} `json:"github"`
 		Skills      AgentManagerSkills `json:"skills"`
 		Credentials struct {
-			UIURL string `json:"uiURL"`
+			UIURL         string `json:"uiURL"`
+			PlatformUIURL string `json:"platformUIURL"`
 		} `json:"credentials"`
 	} `json:"agentManager"`
 	DefaultAgent DefaultAgent `json:"defaultAgent"`
@@ -922,6 +924,7 @@ func Parse(raw any) (*Input, error) {
 		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, SkillManagerSources: d.SkillManager.Sources, SkillManagerAppSecret: d.SkillManager.GitHub.App.SecretName, DefaultAgent: d.DefaultAgent, AgentManagerTokenExchange: d.AgentManager.GitHub.TokenExchange.Enabled, AgentManagerCredentialUI: d.AgentManager.Credentials.UIURL, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, ContextBotNames: d.KlausGateway.Slack.ContextBotNames, ContextBotNamesComment: d.KlausGateway.Slack.ContextBotNamesComment, SlashCommand: d.KlausGateway.Slack.SlashCommand, SlashCommandComment: d.KlausGateway.Slack.SlashCommandComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
 		ReleaseCandidates: pol.releaseCandidates(d.Installation)}
 	in.ClusterManagerTokenExchange = d.ClusterManager.GitHub.TokenExchange.Enabled
+	in.AgentManagerPlatformCredentialUI = d.AgentManager.Credentials.PlatformUIURL
 	in.ModelManagerTokenExchange = d.ModelManager.GitHub.TokenExchange.Enabled
 	in.SkillManagerTokenExchange = d.SkillManager.GitHub.TokenExchange.Enabled
 	in.SkillManagerPrivateAccess = d.SkillManager.GitHub.Enabled
