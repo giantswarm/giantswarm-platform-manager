@@ -62,7 +62,7 @@ chartLine:
 klausGateway:
   installations:
     gazelle: {defaultAgent: swarmgeist}
-    graveler: {defaultAgent: sre-agent}
+    graveler: {defaultAgent: default-agent}
     glean: {defaultAgent: sre-agent}
   slack:
     channelMode: all
