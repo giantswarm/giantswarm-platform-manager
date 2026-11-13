@@ -447,10 +447,19 @@
               "type": "boolean",
               "default": false,
               "x-source": "person",
-              "x-readback": {"file": "configmap", "key": "model-manager.github.enabled"},
+              "x-readback": {"file": "configmap", "key": "model-manager.github.enabled", "unless": "model-manager.github.tokenExchange"},
               "x-feature": "runtime",
               "x-renders": ["configmap:model-manager.github.enabled"],
-              "description": "The model-manager's commit mode through its GitHub App (model-manager.github.enabled): the chart registers with muster pinned to the App and wire_model, unwire_model and the kserve load_model and unload_model take mode: commit, the pull request opened as the person in the repository that owns the target namespace. The connectivity chart opens its egress to api.github.com (GET /user, the pull request). The App's OAuth client is the installation's own Secret, giantswarm-model-manager-oauth-client in agent-platform, not rendered. On the 4 chart line only, where the model-manager runs. Read back from the configmap patch on record."
+              "description": "The model-manager's deprecated pinned GitHub commit mode. Its OAuth client is the installation's giantswarm-model-manager-oauth-client Secret. Read back only without model-manager.github.tokenExchange; prefer modelManager.github.tokenExchange.enabled."
+            },
+            "tokenExchange": {
+              "type": "object", "additionalProperties": false,
+              "properties": {"enabled": {
+                "type": "boolean", "default": false, "x-source": "person",
+                "x-readback": {"file": "configmap", "key": ["model-manager.github.tokenExchange.tokenEndpoint", "model-manager.githubTokenExchange.endpoint"], "kind": "present"},
+                "x-feature": "runtime", "x-renders": ["configmap:model-manager.github", "configmap:muster.muster.providerApps", "configmap:muster.muster.oauth.server.tokenExchangeBroker"],
+                "description": "Fetch the person's giantswarm-model-manager App grant on demand through muster's RFC 8693 broker, using model-manager as provider App, audience, target and isolated broker client. Requires an explicit versions.components.model-manager floor of 1.20.0-rc.10 or later, muster 5.63.2 or later, and the giantswarm-model-manager-oauth-client Secret. Read back from the new exchange endpoint or its former top-level key."
+              }}
             }
           }
         }
@@ -461,15 +470,6 @@
       "additionalProperties": false,
       "description": "Two choices: the agent-manager's commit mode and its skill catalog.",
       "properties": {
-        "githubTokenExchange": {
-          "type": "object", "additionalProperties": false,
-          "properties": {"enabled": {
-            "type": "boolean", "default": false, "x-source": "person",
-            "x-readback": {"file": "configmap", "key": "agent-manager.githubTokenExchange.endpoint", "kind": "present"},
-            "x-feature": "runtime", "x-renders": ["configmap:agent-manager.githubTokenExchange", "configmap:muster.muster.providerApps", "configmap:muster.muster.oauth.server.tokenExchangeBroker"],
-            "description": "Use the dedicated confidential RFC 8693 client to retrieve the person's manager App grant. Requires github.enabled=false, the meta chart 4.177.0 or later (manager >=2.22.0, muster >=5.61.0) and the installation's giantswarm-agent-manager-oauth-client Secret. Generates an isolated client credential; grants remain with the manager App."
-          }}
-        },
         "credentials": {
           "type": "object", "additionalProperties": false,
           "properties": {"uiURL": {
@@ -543,10 +543,19 @@
               "type": "boolean",
               "default": false,
               "x-source": "person",
-              "x-readback": {"file": "configmap", "key": "agent-manager.github.enabled"},
+              "x-readback": {"file": "configmap", "key": "agent-manager.github.enabled", "unless": "agent-manager.github.tokenExchange"},
               "x-feature": "runtime",
               "x-renders": ["configmap:agent-manager.github.enabled"],
-              "description": "The agent-manager's commit mode through its GitHub App (agent-manager.github.enabled): the chart registers with muster pinned to the App and create_agent, update_agent and delete_agent take mode: commit, the pull request opened as the person in the repository that owns the target namespace. The connectivity chart opens its egress to api.github.com (GET /user, the pull request). The App's OAuth client is the installation's own Secret, giantswarm-agent-manager-oauth-client in agent-platform, not rendered. Where the fleet policy runs the agent-manager only. Read back from the configmap patch on record."
+              "description": "The agent-manager's commit mode through its GitHub App (agent-manager.github.enabled): the chart registers with muster pinned to the App and create_agent, update_agent and delete_agent take mode: commit, the pull request opened as the person in the repository that owns the target namespace. The connectivity chart opens its egress to api.github.com (GET /user, the pull request). The App's OAuth client is the installation's own Secret, giantswarm-agent-manager-oauth-client in agent-platform, not rendered. The pin is deprecated: agentManager.github.tokenExchange.enabled fetches the person's grant from muster's broker instead. Where the fleet policy runs the agent-manager only. Read back from the configmap patch on record, except next to agent-manager.github.tokenExchange, which the exchange renders it with."
+            },
+            "tokenExchange": {
+              "type": "object", "additionalProperties": false,
+              "properties": {"enabled": {
+                "type": "boolean", "default": false, "x-source": "person",
+                "x-readback": {"file": "configmap", "key": ["agent-manager.github.tokenExchange.tokenEndpoint", "agent-manager.githubTokenExchange.endpoint"], "kind": "present"},
+                "x-feature": "runtime", "x-renders": ["configmap:agent-manager.github.tokenExchange", "configmap:muster.muster.providerApps", "configmap:muster.muster.oauth.server.tokenExchangeBroker"],
+                "description": "The agent-manager's commit mode with the person's grant of its GitHub App fetched per call from muster's broker (RFC 8693) in place of the pin: agent-manager.github.enabled with agent-manager.github.tokenExchange (tokenEndpoint muster's /oauth/token, audience agent-manager, existingSecret agent-manager-github-broker, which holds client-id and client-secret). The provider App, the broker target and the audience share the name agent-manager. Turns commit mode on whatever agentManager.github.enabled says. Requires agent-manager >=3.0.0-rc.10, muster >=5.63.2, the meta chart release containing giantswarm/agent-platform#1375, and the installation's giantswarm-agent-manager-oauth-client Secret. Generates an isolated client credential; grants remain with the manager App. Read back from the configmap patch on record, the former agent-manager.githubTokenExchange included."
+              }}
             }
           }
         }
@@ -555,12 +564,27 @@
     "skillManager": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Two choices: the skill-manager's skill sources and the GitHub App it reads them with.",
+      "description": "The skill sources, installation App and per-person private-source grant.",
       "properties": {
         "github": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "enabled": {
+              "type": "boolean", "default": false, "x-source": "person",
+              "x-readback": {"file": "configmap", "key": "skill-manager.github.enabled", "unless": "skill-manager.github.tokenExchange"},
+              "x-feature": "runtime", "x-renders": ["configmap:skill-manager.github.enabled"],
+              "description": "The legacy forwarded-GitHub-token private-source access check. Read back only without skill-manager.github.tokenExchange; prefer skillManager.github.tokenExchange.enabled."
+            },
+            "tokenExchange": {
+              "type": "object", "additionalProperties": false,
+              "properties": {"enabled": {
+                "type": "boolean", "default": false, "x-source": "person",
+                "x-readback": {"file": "configmap", "key": ["skill-manager.github.tokenExchange.tokenEndpoint", "skill-manager.githubTokenExchange.endpoint"], "kind": "present"},
+                "x-feature": "runtime", "x-renders": ["configmap:skill-manager.github", "configmap:muster.muster.providerApps", "configmap:muster.muster.oauth.server.tokenExchangeBroker"],
+                "description": "Fetch the person's grant of the existing read-only giantswarm-agent-skills App for private skills only. The provider App, audience, target and isolated broker client are skill-manager; the OAuth client is the giantswarm-skill-manager-oauth-client Secret. Requires skillManager.github.app.secretName for installation access, an explicit versions.components.skill-manager floor of 0.2.0-rc.1 or later, and muster 5.63.2 or later. Listings withhold private sources without requesting a grant. Read back from the new exchange endpoint or its former top-level key."
+              }}
+            },
             "app": {
               "type": "object",
               "additionalProperties": false,
@@ -647,10 +671,19 @@
               "type": "boolean",
               "default": false,
               "x-source": "person",
-              "x-readback": {"file": "configmap", "key": "cluster-manager.github.enabled"},
+              "x-readback": {"file": "configmap", "key": "cluster-manager.github.enabled", "unless": "cluster-manager.github.tokenExchange"},
               "x-feature": "runtime",
               "x-renders": ["configmap:cluster-manager.github.enabled", "configmap:clusterManager.networkPolicy.egress.fqdns"],
-              "description": "The cluster-manager's commit mode through its GitHub App (cluster-manager.github.enabled): the chart registers with muster pinned to the App and create_node_pool and delete_node_pool take mode: commit, the pull request opened as the person; its egress adds api.github.com (GET /user, the pull request). The App's OAuth client is the installation's own Secret, giantswarm-cluster-manager-oauth-client in agent-platform, not rendered. Where the fleet policy runs the cluster-manager only; read back from the configmap patch on record."
+              "description": "The cluster-manager's deprecated pinned GitHub commit mode. Its OAuth client is the installation's giantswarm-cluster-manager-oauth-client Secret. Read back only without cluster-manager.github.tokenExchange; prefer clusterManager.github.tokenExchange.enabled."
+            },
+            "tokenExchange": {
+              "type": "object", "additionalProperties": false,
+              "properties": {"enabled": {
+                "type": "boolean", "default": false, "x-source": "person",
+                "x-readback": {"file": "configmap", "key": ["cluster-manager.github.tokenExchange.tokenEndpoint", "cluster-manager.githubTokenExchange.endpoint"], "kind": "present"},
+                "x-feature": "runtime", "x-renders": ["configmap:cluster-manager.github", "configmap:clusterManager.networkPolicy.egress.fqdns", "configmap:muster.muster.providerApps", "configmap:muster.muster.oauth.server.tokenExchangeBroker"],
+                "description": "Fetch the person's giantswarm-cluster-manager App grant on demand through muster's RFC 8693 broker, using cluster-manager as provider App, audience, target and isolated broker client. Requires an explicit versions.components.cluster-manager floor of 0.37.0-rc.1 or later, muster 5.63.2 or later, and the giantswarm-cluster-manager-oauth-client Secret. Read back from the new exchange endpoint or its former top-level key."
+              }}
             }
           }
         }
@@ -934,6 +967,12 @@
               "x-feature": "runtime",
               "x-renders": ["configmap:components.model-manager.versionRange"],
               "description": "A hold on the model-manager chart: the version or range its HelmRelease follows (components.model-manager.versionRange), in place of the meta chart's. Empty, the meta chart's stands. Read back from the configmap patch on record, so a reconcile keeps it; typed, it moves or lifts it."
+            },
+            "skill-manager": {
+              "type": "string", "default": "", "x-source": "person",
+              "x-readback": {"file": "configmap", "key": "components.skill-manager.versionRange"},
+              "x-feature": "runtime", "x-renders": ["configmap:components.skill-manager.versionRange"],
+              "description": "The skill-manager chart version or range, in place of the meta chart's default. Required at 0.2.0-rc.1 or later for on-demand grants. Read back so a reconcile preserves the hold."
             }
           }
         },
@@ -1018,6 +1057,12 @@
                   "x-feature": "runtime",
                   "x-renders": ["configmap:components.model-manager.versionRange"],
                   "description": "The reason of the hold on the model-manager chart (versions.components.model-manager): the comment above its versionRange, as a person wrote it on record or typed it, read back so a reconcile keeps it. Empty, the hold carries the generic comment naming its input."
+                },
+                "skill-manager": {
+                  "type": "string", "default": "", "x-source": "person",
+                  "x-readback": {"file": "configmap", "key": "components.skill-manager.versionRange", "kind": "comment", "skip": "^Held by the input versions\\."},
+                  "x-feature": "runtime", "x-renders": ["configmap:components.skill-manager.versionRange"],
+                  "description": "The comment above the skill-manager version hold, read back so a reconcile preserves its reason."
                 }
               }
             }

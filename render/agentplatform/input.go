@@ -144,9 +144,17 @@ type Input struct {
 	// catalog (agentManager.skills): the repositories list_skills discovers
 	// and the Secrets private ones are read and booted with, read back from
 	// the configmap patch on record.
-	AgentManagerSkills        AgentManagerSkills
-	AgentManagerTokenExchange bool
-	AgentManagerCredentialUI  string
+	AgentManagerSkills AgentManagerSkills
+	// AgentManagerTokenExchange is the person's choice of agent-manager's
+	// commit mode with the person's GitHub grant fetched from muster's broker
+	// per call (agentManager.github.tokenExchange.enabled) in place of the
+	// pin, read back from the configmap patch on record.
+	AgentManagerTokenExchange   bool
+	AgentManagerCredentialUI    string
+	ClusterManagerTokenExchange bool
+	ModelManagerTokenExchange   bool
+	SkillManagerTokenExchange   bool
+	SkillManagerPrivateAccess   bool
 	// SkillManagerSources are the skill-manager's skill sources
 	// (skillManager.sources) as the person wrote them, read back from the
 	// configmap patch on record.
@@ -669,19 +677,21 @@ type document struct {
 	ClusterManager commitChoice `json:"clusterManager"`
 	ModelManager   commitChoice `json:"modelManager"`
 	AgentManager   struct {
-		commitChoice
-		Skills              AgentManagerSkills `json:"skills"`
-		GitHubTokenExchange struct {
-			Enabled bool `json:"enabled"`
-		} `json:"githubTokenExchange"`
+		GitHub struct {
+			Enabled       bool `json:"enabled"`
+			TokenExchange struct {
+				Enabled bool `json:"enabled"`
+			} `json:"tokenExchange"`
+		} `json:"github"`
+		Skills      AgentManagerSkills `json:"skills"`
 		Credentials struct {
 			UIURL string `json:"uiURL"`
 		} `json:"credentials"`
 	} `json:"agentManager"`
 	DefaultAgent DefaultAgent `json:"defaultAgent"`
 	SkillManager struct {
-		Sources []SkillSource `json:"sources"`
-		GitHub  githubApp     `json:"github"`
+		Sources []SkillSource       `json:"sources"`
+		GitHub  managerGitHubChoice `json:"github"`
 	} `json:"skillManager"`
 	KlausGateway struct {
 		Slack struct {
@@ -840,12 +850,16 @@ func (s AgentManagerSkills) set() bool {
 	return len(s.Repositories) > 0 || s.GitHub.App.SecretName != "" || s.GitAuthSecretName != "" || s.MintGitAuthSecret
 }
 
-// commitChoice is a manager's commit mode through its GitHub App: the one
-// choice clusterManager, modelManager and agentManager each carry.
 type commitChoice struct {
-	GitHub struct {
+	GitHub managerGitHubChoice `json:"github"`
+}
+
+type managerGitHubChoice struct {
+	githubApp
+	Enabled       bool `json:"enabled"`
+	TokenExchange struct {
 		Enabled bool `json:"enabled"`
-	} `json:"github"`
+	} `json:"tokenExchange"`
 }
 
 // Parse validates raw against the schema and resolves the inputs: the record
@@ -905,8 +919,12 @@ func Parse(raw any) (*Input, error) {
 		return nil, err
 	}
 	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, MCPBackends: d.NetworkPolicy.MCPBackends, LLMRateLimits: d.LLMRouting.RateLimits, LLMRateLimitsComment: d.LLMRouting.RateLimitsComment, SessionIdleTTL: d.Sessions.IdleTTL, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories, Hive: d.Hive,
-		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, SkillManagerSources: d.SkillManager.Sources, SkillManagerAppSecret: d.SkillManager.GitHub.App.SecretName, DefaultAgent: d.DefaultAgent, AgentManagerTokenExchange: d.AgentManager.GitHubTokenExchange.Enabled, AgentManagerCredentialUI: d.AgentManager.Credentials.UIURL, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, ContextBotNames: d.KlausGateway.Slack.ContextBotNames, ContextBotNamesComment: d.KlausGateway.Slack.ContextBotNamesComment, SlashCommand: d.KlausGateway.Slack.SlashCommand, SlashCommandComment: d.KlausGateway.Slack.SlashCommandComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
+		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, SkillManagerSources: d.SkillManager.Sources, SkillManagerAppSecret: d.SkillManager.GitHub.App.SecretName, DefaultAgent: d.DefaultAgent, AgentManagerTokenExchange: d.AgentManager.GitHub.TokenExchange.Enabled, AgentManagerCredentialUI: d.AgentManager.Credentials.UIURL, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, ContextBotNames: d.KlausGateway.Slack.ContextBotNames, ContextBotNamesComment: d.KlausGateway.Slack.ContextBotNamesComment, SlashCommand: d.KlausGateway.Slack.SlashCommand, SlashCommandComment: d.KlausGateway.Slack.SlashCommandComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
 		ReleaseCandidates: pol.releaseCandidates(d.Installation)}
+	in.ClusterManagerTokenExchange = d.ClusterManager.GitHub.TokenExchange.Enabled
+	in.ModelManagerTokenExchange = d.ModelManager.GitHub.TokenExchange.Enabled
+	in.SkillManagerTokenExchange = d.SkillManager.GitHub.TokenExchange.Enabled
+	in.SkillManagerPrivateAccess = d.SkillManager.GitHub.Enabled
 	if in.Components, err = pol.components(in.Installation); err != nil {
 		return nil, err
 	}
@@ -1058,6 +1076,9 @@ func (in *Input) checkRecord() error {
 	if err := in.validateAgentManagerCredentials(); err != nil {
 		return err
 	}
+	if err := in.validateAdditionalManagerGrants(); err != nil {
+		return err
+	}
 	if in.SessionIdleTTL != "" && in.Installation.ChartLine != lineFour {
 		return in.refuseOffLineFour("sessions.idleTTL")
 	}
@@ -1071,6 +1092,7 @@ func (in *Input) checkRecord() error {
 	}
 	if err := in.checkSkillManagerChart(componentAgentManager, in.agentManager(),
 		skillManagerChartChoice{len(in.SkillManagerSources) > 0, "skillManager.sources", "lists the sources of the skill-manager, which runs with the agent-manager", false},
+		skillManagerChartChoice{in.SkillManagerPrivateAccess, "skillManager.github.enabled", "checks private-source access in the skill-manager", false},
 		skillManagerChartChoice{in.SkillManagerAppSecret != "", "skillManager.github.app.secretName", "names the GitHub App of the skill-manager, which runs with the agent-manager", false}); err != nil {
 		return err
 	}
