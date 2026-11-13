@@ -42,3 +42,26 @@ func TestBoundedHoldAboveTheModelFreeChartDeclaresNoModels(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, in.declaresModels())
 }
+
+func TestComponentFloorAtLeast(t *testing.T) {
+	for _, c := range []struct {
+		hold string
+		want bool
+	}{
+		{"", false},
+		{">=2.22.0 <3.0.0", false},
+		{"~2.22.0", false},
+		{"<3.0.0", false},
+		{"2.24.0", true},
+		{holdAgentManagerViaSkillManager, true},
+		{"^2.25.1", true},
+		{">=2.24.0-rc.6 <3.0.0", true},
+		{"<3.0.0, >=2.24.0", true},
+		{"v2.24.0", true},
+		{"2.x", false},
+	} {
+		t.Run(c.hold, func(t *testing.T) {
+			require.Equal(t, c.want, componentFloorAtLeast(c.hold, agentManagerViaSkillManager))
+		})
+	}
+}

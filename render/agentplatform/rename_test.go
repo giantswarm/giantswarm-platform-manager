@@ -51,7 +51,7 @@ func TestComponentInputsAreNamedAfterTheChartPath(t *testing.T) {
 	var schema map[string]any
 	require.NoError(t, json.Unmarshal(raw, &schema))
 
-	components := map[string]string{"agentManager": "agent-manager", "clusterManager": "cluster-manager", "modelManager": "model-manager", "skillManager": "skill-manager"}
+	components := map[string]string{"agentManager": componentAgentManager, "clusterManager": "cluster-manager", "modelManager": "model-manager", "skillManager": "skill-manager"}
 	checked := 0
 	var walk func(node map[string]any, path []string)
 	walk = func(node map[string]any, path []string) {

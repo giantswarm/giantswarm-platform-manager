@@ -12,7 +12,10 @@ import (
 
 // managerProviderAppName and managerGrantIssuer identify agent-manager's
 // GitHub App in muster's provider Apps: the grants are filed under the App's
-// own identity, not under GitHub's shared OAuth issuer.
+// own identity, not under GitHub's shared OAuth issuer. The App's name is
+// also the broker target agent-manager exchanges for and the audience it
+// names (agent-manager.github.tokenExchange.audience): the chart registers
+// the MCPServer with that name in auth.providerApps.
 const (
 	managerProviderAppName = componentAgentManager
 	managerGrantIssuer     = "https://github.com/apps/giantswarm-agent-manager"
@@ -24,18 +27,14 @@ const (
 const ManagerExchangeSubjectAudience = authenticatorClient
 
 const (
-	agentManagerBrokerAudience = "agent-manager-github"
-	agentManagerBrokerSecret   = "agent-manager-github-broker"
-	// credentialChart is the first meta chart that carries agent-manager's
-	// credential operations (giantswarm/agent-platform#1312); its ranges admit
-	// agent-manager managerOperationFloor and muster musterCredentialFloor
-	// and later only.
+	agentManagerBrokerSecret = "agent-manager-github-broker"
+	// Credential UI configuration is supported independently of grant exchange.
 	credentialChart       = "4.177.0"
 	managerOperationFloor = "2.22.0"
-	// musterCredentialFloor is the first muster that passes a backend's
-	// input_required through to MCP 2026-07-28 clients (giantswarm/muster#1812)
-	// and accepts the configured Dex audiences alongside resource access tokens.
-	musterCredentialFloor = "5.61.0"
+	managerExchangeChart  = "4.181.0-rc.3"
+	managerExchangeFloor  = "3.0.0-rc.10"
+	// The broker must release provider App grants and decode Basic credentials.
+	musterGrantFloor = "5.63.2"
 )
 
 // credentialUI is the credential form's address agent-manager links
@@ -65,19 +64,22 @@ func (in *Input) validateAgentManagerCredentials() error {
 	if hold := in.Versions.Components[componentAgentManager]; hold != "" && !floorAtLeast(hold, managerOperationFloor) {
 		return refuse("agentManager credential operations require a versions.components.agent-manager floor of " + managerOperationFloor + " or later")
 	}
-	if in.AgentManagerTokenExchange && in.AgentManagerCommit {
-		return refuse("agentManager.githubTokenExchange.enabled and agentManager.github.enabled are mutually exclusive")
-	}
 	if in.AgentManagerTokenExchange {
-		if hold := in.Versions.Components[componentMuster]; hold != "" && !floorAtLeast(hold, musterCredentialFloor) {
-			return refuse("agentManager.githubTokenExchange.enabled requires a muster version floor of " + musterCredentialFloor + " or later")
+		if !holdAdmits(in.Versions.Chart, managerExchangeChart) {
+			return refuse("agentManager.github.tokenExchange.enabled requires the meta chart " + managerExchangeChart + " or later, and versions.chart holds an earlier one")
+		}
+		if hold := in.Versions.Components[componentAgentManager]; hold != "" && !floorAtLeast(hold, managerExchangeFloor) {
+			return refuse("agentManager.github.tokenExchange.enabled requires an agent-manager version floor of " + managerExchangeFloor + " or later")
+		}
+		if hold := in.Versions.Components[componentMuster]; hold != "" && !floorAtLeast(hold, musterGrantFloor) {
+			return refuse("agentManager.github.tokenExchange.enabled requires a muster version floor of " + musterGrantFloor + " or later")
 		}
 		if in.federationBrokers() && in.brokerClient() == componentAgentManager {
-			return refuse("agentManager.githubTokenExchange.enabled reserves the agent-manager broker client ID")
+			return refuse("agentManager.github.tokenExchange.enabled reserves the agent-manager broker client ID")
 		}
 		for _, target := range in.Installation.Federation.Targets {
-			if target.Installation == agentManagerBrokerAudience {
-				return refuse("agentManager.githubTokenExchange.enabled reserves the agent-manager-github broker target")
+			if target.Installation == managerProviderAppName {
+				return refuse("agentManager.github.tokenExchange.enabled reserves the agent-manager broker target")
 			}
 		}
 	}
@@ -157,7 +159,7 @@ func (in *Input) agentManagerRouteValues() render.Map {
 // muster forwards to agent-manager.
 func (in *Input) brokerSubjectAudiences() []string {
 	audiences := in.portalAudiences()
-	if in.AgentManagerTokenExchange && !slices.Contains(audiences, ManagerExchangeSubjectAudience) {
+	if in.hasManagerGrantExchange() && !slices.Contains(audiences, ManagerExchangeSubjectAudience) {
 		audiences = append(audiences, ManagerExchangeSubjectAudience)
 	}
 	return audiences

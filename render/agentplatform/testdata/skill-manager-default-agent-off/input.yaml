@@ -1,0 +1,33 @@
+# A Giant Swarm-owned installation on the 4 chart line that moved its skills to the skill-manager:
+# the skill-manager's sources (a URL and an object with a ref, a path and the read-only mark), the
+# read-only skills GitHub App it reads them with (an installation's own Secret, not rendered here),
+# and the default agent turned off (an installation that still runs a hand-added meta agent). No
+# portal, no hub. Invented names, placeholder values.
+input:
+  installation:
+    name: wren
+    baseDomain: wren.example.io
+    customer: giantswarm
+    provider: capa
+    private: false
+    chartLine: "4"
+    musterClientId: 00000000-0000-4000-8000-000000000009
+    podCertificateRequest: true
+    portalClientSecret: false
+    portals: []
+    federation:
+      hubs: []
+      registryHub: wren
+      targets: []
+  skillManager:
+    sources:
+      - https://github.com/acme/skills
+      - url: https://github.com/acme/more-skills
+        ref: main
+        path: skills
+        readOnly: true
+    github:
+      app:
+        secretName: acme-skills-app
+  defaultAgent:
+    enabled: false

@@ -121,6 +121,15 @@
   expect:
     condition: Available
     conditionStatus: "True"
+- id: live-platform-workloads
+  feature: runtime
+  kind: Condition
+  namespace: agent-platform
+  resource: Deployment
+  name: skill-manager
+  expect:
+    condition: Available
+    conditionStatus: "True"
 - id: live-kagent-workloads
   feature: runtime
   kind: Condition

@@ -18,7 +18,7 @@ type brokerIssuer struct {
 // carries no manager grant exchange. Read before the record's issuers are
 // merged, which replace the render's entry of the same issuer.
 func renderedBrokerIssuer(values *yaml.Node) *brokerIssuer {
-	if endpoint := at(values, "agent-manager", "githubTokenExchange", "endpoint"); endpoint == nil || endpoint.Value == "" {
+	if endpoint := at(values, "agent-manager", "github", "tokenExchange", "tokenEndpoint"); endpoint == nil || endpoint.Value == "" {
 		return nil
 	}
 	b := &brokerIssuer{}
@@ -45,7 +45,7 @@ func enforceBrokerIssuer(values *yaml.Node, want *brokerIssuer) error {
 	if want == nil {
 		return nil
 	}
-	refusal := errors.New("agentManager.githubTokenExchange.enabled requires one canonical Dex subject-token issuer and an explicit input audience allowlist; the issuers preserved from this installation's record do not meet that condition")
+	refusal := errors.New("agentManager.github.tokenExchange.enabled requires one canonical Dex subject-token issuer and an explicit input audience allowlist; the issuers preserved from this installation's record do not meet that condition")
 	issuers := at(values, strings.Split(ListTrustedIssuers, ".")...)
 	if want.issuer == "" || issuers == nil || issuers.Kind != yaml.SequenceNode || len(issuers.Content) != 1 {
 		return refusal

@@ -1,0 +1,4 @@
+giantswarm/giantswarm-management-clusters:management-clusters/wren/extras/kustomization.yaml resources ./agent-platform/
+giantswarm/giantswarm-management-clusters:management-clusters/wren/extras/kustomization.yaml resources ./mcp-capi/
+giantswarm/giantswarm-management-clusters:management-clusters/wren/extras/kustomization.yaml resources ./mcp-kubernetes/
+giantswarm/giantswarm-management-clusters:management-clusters/wren/extras/kustomization.yaml resources ./mcp-prometheus/

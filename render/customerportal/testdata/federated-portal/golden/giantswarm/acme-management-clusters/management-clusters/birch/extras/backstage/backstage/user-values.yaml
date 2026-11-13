@@ -32,3 +32,13 @@ data:
       extraEnvVars:
         - name: BACKSTAGE_AVATARS_IMG_SRC
           value: https://avatars.alder.acme.example.test
+        - name: NODE_EXTRA_CA_CERTS
+          value: /app/tunnelport-spiffe-bundle/svid_bundle.pem
+      extraVolumes:
+        - name: tunnelport-spiffe-bundle
+          secret:
+            secretName: tunnelport-spiffe-bundle
+      extraVolumeMounts:
+        - name: tunnelport-spiffe-bundle
+          mountPath: /app/tunnelport-spiffe-bundle
+          readOnly: true

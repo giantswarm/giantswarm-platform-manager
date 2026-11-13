@@ -74,6 +74,10 @@ var consumptionShapes = []consumptionShape{
 	{name: shapeOrganizationsCommit, platform: shapeOrganizationsCommit},
 	{name: shapeOrganizationsPortal, platform: shapeOrganizationsPortal, portal: shapeOrganizationsPortal + portalInputSuffix},
 	{name: shapeCredentialForm, platform: shapeCredentialForm},
+	// The skill-manager's sources and GitHub App and the default agent's
+	// switch and model (meta chart 4.179.0 and later).
+	{name: shapeSkillManagerAgentOff, platform: shapeSkillManagerAgentOff},
+	{name: shapeSkillManagerAgentModel, platform: shapeSkillManagerAgentModel},
 }
 
 const (
@@ -589,7 +593,7 @@ func (c *consumption) include(inc render.Include) {
 	}
 	list := "resources"
 	if inc.Component {
-		list = "components"
+		list = keyComponents
 	}
 	entries, _ := k[list].([]any)
 	for _, e := range entries {
