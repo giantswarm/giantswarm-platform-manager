@@ -63,6 +63,9 @@ type Spec struct {
 	// verify that has no GitHub token to re-read the facts (the live
 	// registration) renders the same document. Keyed by installation.
 	InputsByInstallation map[string]map[string]any `json:"inputsByInstallation,omitempty"`
+	// DeferredPairs names the generated pairs omitted from each installation's
+	// commit render and its rollout verification.
+	DeferredPairs map[string][]string `json:"deferredPairs,omitempty"`
 	// Kind is "enable", "reconcile" or "disable".
 	Kind string `json:"kind"`
 	// Customer marks a customer installation among the targets: the Account

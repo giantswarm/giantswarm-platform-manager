@@ -20,6 +20,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // The installations and values the scenarios name, as the fixtures do.
@@ -282,8 +283,7 @@ func TestEnableCapabilityDryRunTypedInputs(t *testing.T) {
 // id for each hub, told apart by the registry's hub among the installation's
 // facts (installation.federation.registryHub, typed here with the federation:
 // a typed federation stands whole), and the pair shares the generated
-// secret's name. Each side names the other as its peer: a commit that would
-// create one side alone is refused.
+// secret's name. A peer on record makes a new side's value supplied by the caller.
 func TestDryRunRendersTheTokenExchangeClientUnderTheFleetsID(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
@@ -308,13 +308,12 @@ func TestDryRunRendersTheTokenExchangeClientUnderTheFleetsID(t *testing.T) {
 		t.Fatalf("no file %s in %+v", suffix, p.Files)
 		return plan.File{}
 	}
-	// Each side names the other as the pair's peer, and a commit that would
-	// create one side alone is refused, naming the other.
+	// Each side names the peer that holds the supplied value on record.
 	peered := func(p plan.Installation, name, peer string) {
 		t.Helper()
 		for _, g := range p.GeneratedSecrets {
 			if g.Name == name {
-				if g.Peer != peer || !strings.Contains(p.CommitRefused, name+" is one value with") || !strings.Contains(p.CommitRefused, peer) {
+				if g.Peer != peer || !g.Supplied || strings.Contains(p.CommitRefused, name) {
 					t.Errorf("%s: peer %q, commit refused %q; want the peer %s", name, g.Peer, p.CommitRefused, peer)
 				}
 				return
@@ -332,6 +331,9 @@ func TestDryRunRendersTheTokenExchangeClientUnderTheFleetsID(t *testing.T) {
 		registryHub bool
 		client      string
 	}{{false, "muster-token-exchange-alder-rowan"}, {true, "muster-token-exchange-alder"}} {
+		value := render.ExchangeSecretName(tc.client)
+		secret := strings.ReplaceAll(string(render.DexClientSecret(tc.client, value).Content), render.Placeholder(value), enc("pair")) + sopsBlockOf
+		st.ghs.addFile(acmeMCs, render.PlatformSecretsPath(alder, render.DexClientSecretFile(tc.client)), secret)
 		hubPlan := planOf(hubInputs(tc.registryHub))
 		peered(hubPlan, tc.client+"-client-secret", acmeMCs+":management-clusters/"+alder+"/extras/agent-platform/secrets/dex-client-"+tc.client+"-secret.yaml")
 		credentials := fileWithSuffix(hubPlan, "/secrets/"+alder+"-token-exchange-credentials.yaml")
@@ -343,6 +345,7 @@ func TestDryRunRendersTheTokenExchangeClientUnderTheFleetsID(t *testing.T) {
 	for _, tc := range []struct {
 		hub, client, mcs string
 	}{{hub, "muster-token-exchange-" + rowan, hubMCs}, {birch, "muster-token-exchange-" + rowan + "-" + birch, acmeMCs}} {
+		st.ghs.addFile(tc.mcs, render.PlatformSecretsPath(tc.hub, render.ExchangeCredentialsSecret(rowan)+".yaml"), "kind: Secret\nmetadata:\n  name: "+render.ExchangeCredentialsSecret(rowan)+"\n  namespace: giantswarm\nstringData:\n  client-secret: "+enc("pair")+"\n"+sopsBlockOf)
 		p := planOf(minimalInputs(map[string]any{argInstallation: map[string]any{federationKey: map[string]any{hubsKey: []any{tc.hub}, "registryHub": hub, targetsKey: []any{}}}}))
 		peered(p, tc.client+"-client-secret", tc.mcs+":management-clusters/"+tc.hub+"/extras/agent-platform/secrets/"+rowan+"-token-exchange-credentials.yaml")
 		var client *plan.DexClient

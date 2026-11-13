@@ -16,12 +16,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
-// A hub and its target in one set, both files of the token-exchange pair
-// new: alone, each side's dry run refuses the pair and names the wave as
-// the way out; in one set the two plans are paired — each side is drawn
-// with the other, nothing is refused for it — and the wave draws the value
-// once: both installations' pull requests carry it encrypted, and decrypted
-// it is one value on both sides.
+// A wave draws a new pair once; a plan without the peer defers it and its consumers.
 func TestSetWaveDrawsATokenExchangePairOnce(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
@@ -42,12 +37,18 @@ func TestSetWaveDrawsATokenExchangePairOnce(t *testing.T) {
 	peerPath := "management-clusters/" + birch + "/extras/agent-platform/secrets/dex-client-muster-token-exchange-" + birch + "-secret.yaml"
 
 	for _, inst := range []string{hub, birch} {
-		out, text, isErr := dryRun(t, aliceC, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: inst, tools.ArgInputs: minimalInputs(nil)})
+		out, text, isErr := dryRun(t, aliceC, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: inst, tools.ArgInputs: minimalInputs(nil), tools.ArgContent: true})
 		if isErr {
 			t.Fatal(text)
 		}
-		if p := findPlan(t, out, inst); !strings.Contains(p.CommitRefused, name+" is one value with") || !strings.Contains(p.CommitRefused, "in the same wave") {
-			t.Fatalf("%s alone: commitRefused %q", inst, p.CommitRefused)
+		p := findPlan(t, out, inst)
+		if !slices.ContainsFunc(p.DeferredPairs, func(pair plan.DeferredPair) bool { return pair.Name == name }) || strings.Contains(p.CommitRefused, name) {
+			t.Fatalf("%s alone: deferred %+v, commitRefused %q", inst, p.DeferredPairs, p.CommitRefused)
+		}
+		for _, file := range p.Files {
+			if file.Path == hubPath || file.Path == peerPath || strings.Contains(file.Content, render.Placeholder(name)) {
+				t.Errorf("%s alone still writes the deferred pair in %s", inst, file.Path)
+			}
 		}
 	}
 	dry, text, isErr := dryRun(t, aliceC, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallations: []string{hub, birch}, tools.ArgInputs: minimalInputs(nil), tools.ArgContent: true})
