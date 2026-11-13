@@ -96,6 +96,7 @@ func TestAdditionalManagerExchangeValues(t *testing.T) {
 	for index, manager := range managerGrantCases {
 		t.Run(manager.component, func(t *testing.T) {
 			input, secrets := managerGrantInput(t, 1<<index, false)
+			input[manager.input].(map[string]any)[keyGitHub].(map[string]any)[keyEnabled] = true
 			result, err := Render(input, secrets, render.ModeCommit)
 			require.NoError(t, err)
 			var patch map[string]any
