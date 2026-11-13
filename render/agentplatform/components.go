@@ -108,8 +108,12 @@ func (in *Input) componentValues(m render.Map) render.Map {
 			m = append(m, e("clusterManager", render.Map{e("networkPolicy", np)}))
 		}
 	}
-	if in.modelManager() && in.ModelManagerCommit {
-		m = append(m, e(componentModelManager, render.Map{githubEnabled()}))
+	if in.modelManager() {
+		if in.ModelManagerTokenExchange {
+			m = append(m, e(componentModelManager, render.Map{e("github", in.managerGrantValues(componentModelManager))}))
+		} else if in.ModelManagerCommit {
+			m = append(m, e(componentModelManager, render.Map{githubEnabled()}))
+		}
 	}
 	return m
 }
@@ -266,7 +270,9 @@ func (in *Input) clusterManagerValues() render.Map {
 	if in.Installation.ChartLine == lineThree {
 		m = append(m, e("oauth", in.managerOAuth(componentClusterManager)))
 	}
-	if in.ClusterManagerCommit {
+	if in.ClusterManagerTokenExchange {
+		m = append(m, e("github", in.managerGrantValues(componentClusterManager)))
+	} else if in.ClusterManagerCommit {
 		m = append(m, githubEnabled())
 	}
 	return m
@@ -293,7 +299,7 @@ func (in *Input) clusterManagerNetworkPolicy() render.Map {
 		m = append(m, e("workloadClusters", render.Map{e("provider", preset)}))
 	}
 	egress := slices.Clone(clusterManagerEgress)
-	if in.ClusterManagerCommit {
+	if in.ClusterManagerCommit || in.ClusterManagerTokenExchange {
 		egress = append(egress, clusterManagerGitHub)
 	}
 	return append(m, e("egress", render.Map{e("fqdns", egress)}))

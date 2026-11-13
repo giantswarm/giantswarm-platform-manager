@@ -48,7 +48,7 @@ func TestAgentManagerCredentialReadBack(t *testing.T) {
 			read := files(map[string]string{"acme/configs:" + definition.EnabledMarker("rowan"): test.patch})
 			got, err := definition.ReadBack(t.Context(), read, readBackInstallation, readBackName, nil)
 			require.NoError(t, err)
-			require.Equal(t, test.want, got)
+			require.Equal(t, managerGrantDefaults(test.want), got)
 		})
 	}
 }

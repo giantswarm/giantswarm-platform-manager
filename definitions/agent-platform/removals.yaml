@@ -39,6 +39,15 @@
 # given. It holds a removal that comes with a chart release the installation may not run yet.
 removals:
   # --- former inputs: migrations ---
+  - key: configmap:cluster-manager.githubTokenExchange
+    kind: migration
+    reason: "Moved: cluster-manager's grant exchange is cluster-manager.github.tokenExchange with audience cluster-manager"
+  - key: configmap:model-manager.githubTokenExchange
+    kind: migration
+    reason: "Moved: model-manager's grant exchange is model-manager.github.tokenExchange with audience model-manager"
+  - key: configmap:skill-manager.githubTokenExchange
+    kind: migration
+    reason: "Moved: skill-manager's grant exchange is skill-manager.github.tokenExchange with audience skill-manager and the existing skills App"
   - key: configmap:components.agent-sandbox
     kind: migration
     reason: "Removed: components.agent-sandbox switches the agent sandbox on here; the sandbox is retired from the fleet, nothing replaces it, and it stops on the one installation running it · M13"

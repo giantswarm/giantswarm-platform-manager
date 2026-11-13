@@ -159,7 +159,7 @@ func (in *Input) agentManagerRouteValues() render.Map {
 // muster forwards to agent-manager.
 func (in *Input) brokerSubjectAudiences() []string {
 	audiences := in.portalAudiences()
-	if in.AgentManagerTokenExchange && !slices.Contains(audiences, ManagerExchangeSubjectAudience) {
+	if in.hasManagerGrantExchange() && !slices.Contains(audiences, ManagerExchangeSubjectAudience) {
 		audiences = append(audiences, ManagerExchangeSubjectAudience)
 	}
 	return audiences
