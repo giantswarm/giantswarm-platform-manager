@@ -83,7 +83,7 @@ const (
 
 // credentialForm adds the credential form's address to an input document.
 func credentialForm(doc map[string]any, address string) map[string]any {
-	doc["agentManager"] = map[string]any{"credentials": map[string]any{"uiURL": address}}
+	doc["agentManager"] = map[string]any{keyCredentials: map[string]any{"uiURL": address}}
 	return doc
 }
 
