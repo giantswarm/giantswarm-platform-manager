@@ -2,7 +2,9 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"reflect"
 	"strings"
 	"time"
@@ -359,19 +361,38 @@ func changesValues(ctx context.Context, c *gh.Client, def installations.Capabili
 }
 
 // sameValues says whether the YAML documents of two blobs carry the same
-// values; a blob that is no YAML differs.
+// values (sameDocuments).
 func sameValues(ctx context.Context, c *gh.Client, owner, repo, before, after string) (bool, error) {
-	var docs [2]any
+	var content [2]string
 	for i, sha := range []string{before, after} {
-		content, err := gh.Blob(ctx, c, owner, repo, sha)
-		if err != nil {
+		var err error
+		if content[i], err = gh.Blob(ctx, c, owner, repo, sha); err != nil {
 			return false, err
 		}
-		if err := yaml.Unmarshal([]byte(content), &docs[i]); err != nil {
-			return false, nil
+	}
+	return sameDocuments(content[0], content[1]), nil
+}
+
+// sameDocuments says whether two YAML files carry the same values: every
+// document of each, in order, the same — a comment or the layout aside. A
+// file that is no YAML differs.
+func sameDocuments(before, after string) bool {
+	var docs [2][]any
+	for i, content := range []string{before, after} {
+		dec := yaml.NewDecoder(strings.NewReader(content))
+		for {
+			var doc any
+			err := dec.Decode(&doc)
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				return false
+			}
+			docs[i] = append(docs[i], doc)
 		}
 	}
-	return reflect.DeepEqual(docs[0], docs[1]), nil
+	return reflect.DeepEqual(docs[0], docs[1])
 }
 
 // objectLine names a check's object as the stage's message does: kind and

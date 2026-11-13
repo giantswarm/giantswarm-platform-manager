@@ -21,8 +21,14 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
-// conditionTrue is a condition's status when it holds.
-const conditionTrue = "True"
+// conditionTrue is a condition's status when it holds; conditionUnknown the
+// status the watch puts on a Flux object whose condition is from before the
+// last change of its spec (verify.Rolling): what it says of the spec Flux
+// has not reconciled yet is not known.
+const (
+	conditionTrue    = "True"
+	conditionUnknown = "Unknown"
+)
 
 // ToolWatchAction is the second live tool: the rollout watch of an
 // action, as the person calling. The manager holds no token beyond a call, so
@@ -413,6 +419,9 @@ func rolloutObjects(res verify.Result) (objects []actions.RolloutObject, ready, 
 					obj.Ready = conditionTrue
 				case verify.Drifted:
 					obj.Ready = conditionStatus(c.Message)
+					if strings.HasPrefix(c.Message, verify.Rolling) {
+						obj.Ready = conditionUnknown
+					}
 				}
 				if obj.Ready != conditionTrue {
 					ready = false

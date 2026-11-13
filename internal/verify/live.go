@@ -34,12 +34,17 @@ import (
 // of the object the check reads, and tail how many of a pod's last log lines.
 // List reads every namespace where namespace is empty. Serves is API
 // discovery: whether the apiserver serves the resource (plural) of the group
-// at the version.
+// at the version. AtGeneration says whether the object's metadata.generation
+// is generation: mcp-kubernetes leaves metadata.generation out of every
+// output but the whole object, and the whole object of a HelmRelease is past
+// its response cap, so the read asks the tool to match the generation instead
+// of to answer it.
 type Cluster interface {
 	Get(ctx context.Context, namespace, resource, name string, shape Shape) (map[string]any, error)
 	List(ctx context.Context, namespace, resource, labelSelector string, shape Shape) ([]map[string]any, error)
 	Logs(ctx context.Context, namespace, pod string, tail int) (string, error)
 	Serves(ctx context.Context, group, version, resource string) (bool, error)
+	AtGeneration(ctx context.Context, namespace, resource, name string, generation int64) (bool, error)
 }
 
 // Shape is how much of an object a check reads, and so how much a read asks
@@ -249,6 +254,15 @@ func (r *reader) Serves(ctx context.Context, group, version, resource string) (b
 	var out bool
 	err := r.read(ctx, "the discovery of "+group+"/"+version+" "+resource, func(ctx context.Context) (err error) {
 		out, err = r.c.Serves(ctx, group, version, resource)
+		return err
+	})
+	return out, err
+}
+
+func (r *reader) AtGeneration(ctx context.Context, namespace, resource, name string, generation int64) (bool, error) {
+	var out bool
+	err := r.read(ctx, "the generation of "+resource+" "+namespace+"/"+name, func(ctx context.Context) (err error) {
+		out, err = r.c.AtGeneration(ctx, namespace, resource, name, generation)
 		return err
 	})
 	return out, err
@@ -880,7 +894,9 @@ func firstLine(s string) string {
 
 // condition marks the object's condition against the expected status. A
 // HelmRelease off it whose last release failed is marked failed, Flux's
-// verdict appended to the message (releaseFailure).
+// verdict appended to the message (releaseFailure). A Flux object at the
+// expected status that Flux observed at an earlier generation than the
+// object's reads rolling (observedCurrent).
 func (x *executor) condition(ctx context.Context, c *Check, p render.Probe, condition, status string) error {
 	obj, err := x.cluster().Get(ctx, p.Namespace, p.Resource, p.Name, Readiness)
 	if err != nil {
@@ -894,6 +910,11 @@ func (x *executor) condition(ctx context.Context, c *Check, p render.Probe, cond
 		c.Mark, c.Message = Drifted, "no "+condition+" condition"
 	case got == status:
 		c.Mark, c.Message = AsDefined, condition+"="+got
+		if fluxObject(p.Resource) {
+			if err := x.observedCurrent(ctx, c, p, obj, m); err != nil {
+				return err
+			}
+		}
 	default:
 		c.Mark, c.Message = Drifted, conditionVerdict(condition, m)
 	}
@@ -903,6 +924,71 @@ func (x *executor) condition(ctx context.Context, c *Check, p render.Probe, cond
 		}
 	}
 	return nil
+}
+
+// fluxObject says whether a probe's resource is a Flux HelmRelease or
+// Kustomization.
+func fluxObject(resource string) bool {
+	kind, group, _ := strings.Cut(resource, ".")
+	return (kind == helmReleaseKind || kind == "Kustomization") && (group == "" || strings.HasSuffix(group, "toolkit.fluxcd.io"))
+}
+
+// observedCurrent marks rolling a Flux object whose condition m (at the
+// expected status) is from an earlier generation than the object's: its
+// spec changed, by a parent release's upgrade that rewrote it for one, and
+// Flux has not reconciled the change yet, so the condition still speaks of
+// the spec before it. The generation Flux observed is the lower of the
+// condition's observedGeneration and status.observedGeneration; the read
+// holds it against metadata.generation (Cluster.AtGeneration). An object
+// that reports neither is left as it reads: Flux reports both once it has
+// reconciled the object.
+func (x *executor) observedCurrent(ctx context.Context, c *Check, p render.Probe, obj, m map[string]any) error {
+	observed, ok := observedGeneration(obj, m)
+	if !ok {
+		return nil
+	}
+	current, err := x.cluster().AtGeneration(ctx, p.Namespace, p.Resource, p.Name, observed)
+	if err != nil {
+		return err
+	}
+	if !current {
+		kind, _, _ := strings.Cut(p.Resource, ".")
+		c.Mark, c.Message = Drifted, fmt.Sprintf("%s%s is from generation %d, and the %s's spec changed since: Flux has not reconciled the change yet", Rolling, c.Message, observed, kind)
+	}
+	return nil
+}
+
+// observedGeneration is the generation of an object that its controller
+// observed as condition m reports it: the lower of m's observedGeneration
+// and status.observedGeneration, where the object reports either.
+func observedGeneration(obj, m map[string]any) (int64, bool) {
+	var out int64
+	found := false
+	for _, v := range []any{m["observedGeneration"], dig(obj, "status", "observedGeneration")} {
+		g, ok := generationOf(v)
+		if !ok {
+			continue
+		}
+		if !found || g < out {
+			out = g
+		}
+		found = true
+	}
+	return out, found
+}
+
+// generationOf is a generation as the read decodes it: a JSON number, or an
+// integer where a fake builds the object.
+func generationOf(v any) (int64, bool) {
+	switch g := v.(type) {
+	case float64:
+		return int64(g), g == float64(int64(g))
+	case int64:
+		return g, true
+	case int:
+		return int64(g), true
+	}
+	return 0, false
 }
 
 // anyCondition marks the namespace's objects of the resource as defined when

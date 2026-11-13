@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"log/slog"
@@ -181,6 +182,9 @@ func (c discoveryCluster) Logs(context.Context, string, string, int) (string, er
 func (c discoveryCluster) Serves(_ context.Context, group, version, resource string) (bool, error) {
 	return c.served[group+"/"+version+" "+resource], c.err
 }
+func (c discoveryCluster) AtGeneration(context.Context, string, string, string, int64) (bool, error) {
+	return false, errors.New("not read")
+}
 
 // An APIServed probe reads discovery: the API served is as defined; not
 // served, the check is red and reads rolling — the record enables what the
@@ -273,6 +277,10 @@ type recordingCluster struct {
 	err     error
 	shapes  []Shape
 	tails   []int
+	// generations are the generations each AtGeneration asked for;
+	// generationErr is its answer, where set.
+	generations   []int64
+	generationErr error
 }
 
 func (c *recordingCluster) Get(_ context.Context, namespace, resource, name string, shape Shape) (map[string]any, error) {
@@ -299,6 +307,69 @@ func (c *recordingCluster) Logs(_ context.Context, _, _ string, tail int) (strin
 
 func (c *recordingCluster) Serves(context.Context, string, string, string) (bool, error) {
 	return false, errors.New("not read")
+}
+
+func (c *recordingCluster) AtGeneration(_ context.Context, namespace, resource, name string, generation int64) (bool, error) {
+	c.generations = append(c.generations, generation)
+	if err := cmp.Or(c.generationErr, c.err); err != nil {
+		return false, err
+	}
+	g, ok := generationOf(dig(c.objects[resource+"/"+namespace+"/"+name], keyMetadata, "generation"))
+	return ok && g == generation, nil
+}
+
+// A Flux object Ready on a generation before its spec's last change — a
+// child HelmRelease a parent release's upgrade rewrote, which Flux has not
+// reconciled yet — reads rolling, not as defined: its Ready speaks of the
+// spec before. The generation Flux observed is the lower of the condition's
+// and the status's; an object that reports neither, a condition off its
+// expected status and an object of another controller are read as before,
+// with no read of the generation.
+func TestAFluxConditionFromAnEarlierGenerationReadsRolling(t *testing.T) {
+	const kagent = "kagent"
+	hr := func(generation, condition, status any, ready string) map[string]any {
+		cond := map[string]any{keyType: conditionReady, keyStatus: ready, keyMessage: "ok"}
+		if condition != nil {
+			cond["observedGeneration"] = condition
+		}
+		st := map[string]any{keyConditions: []any{cond}}
+		if status != nil {
+			st["observedGeneration"] = status
+		}
+		return map[string]any{keyMetadata: map[string]any{keyName: kagent, "generation": generation}, keyStatus: st}
+	}
+	const helmRelease = "HelmRelease.helm.toolkit.fluxcd.io"
+	ready := conditionReady + "=" + conditionTrue
+	stale := Rolling + "Ready=True is from generation 4, and the HelmRelease's spec changed since: Flux has not reconciled the change yet"
+	for _, c := range []struct {
+		name        string
+		resource    string
+		kind        render.ProbeKind
+		obj         map[string]any
+		err         error
+		mark        Mark
+		message     string
+		generations []int64
+	}{
+		{"reconciled", helmRelease, render.HelmReleaseReady, hr(5, 5.0, 5.0, conditionTrue), nil, AsDefined, ready, []int64{5}},
+		{"the spec changed since", helmRelease, render.HelmReleaseReady, hr(5, 4.0, 4.0, conditionTrue), nil, Drifted, stale, []int64{4}},
+		{"the status behind the condition", helmRelease, render.HelmReleaseReady, hr(5, 5.0, 4.0, conditionTrue), nil, Drifted, stale, []int64{4}},
+		{"the condition behind the status", kindHelmRelease, render.HelmReleaseReady, hr(5, 4.0, 5.0, conditionTrue), nil, Drifted, stale, []int64{4}},
+		{"a Kustomization", "Kustomization.kustomize.toolkit.fluxcd.io", render.Condition, hr(3, 2.0, 2.0, conditionTrue), nil, Drifted,
+			Rolling + "Ready=True is from generation 2, and the Kustomization's spec changed since: Flux has not reconciled the change yet", []int64{2}},
+		{"no observed generation", helmRelease, render.HelmReleaseReady, hr(5, nil, nil, conditionTrue), nil, AsDefined, ready, nil},
+		{"not Ready", helmRelease, render.HelmReleaseReady, hr(5, 4.0, 4.0, "False"), nil, Drifted, "Ready=False: ok", nil},
+		{"another controller's object", "ModelConfig.kagent.dev", render.Condition, hr(5, 4.0, 4.0, conditionTrue), nil, AsDefined, ready, nil},
+		{"the generation not read", helmRelease, render.HelmReleaseReady, hr(5, 5.0, 5.0, conditionTrue), &Forbidden{Person: "p", Reason: "no list"}, NotChecked, "forbidden for p: no list", []int64{5}},
+	} {
+		cluster := &recordingCluster{objects: map[string]map[string]any{c.resource + "/" + testNamespace + "/" + kagent: c.obj}, generationErr: c.err}
+		probe := render.Probe{ID: "live-helmreleases-ready", Kind: c.kind, Resource: c.resource, Namespace: testNamespace, Name: kagent, Expect: render.Expectation{Condition: conditionReady, ConditionStatus: conditionTrue}}
+		x := &executor{opts: LiveOptions{Cluster: cluster}}
+		check, _, _ := x.run(context.Background(), probe)
+		if check.Mark != c.mark || check.Message != c.message || !reflect.DeepEqual(cluster.generations, c.generations) {
+			t.Errorf("%s: %q %q, generations read %v; want %q %q, %v", c.name, check.Mark, check.Message, cluster.generations, c.mark, c.message, c.generations)
+		}
+	}
 }
 
 // Every check asks for what it reads, so the answer stays within what
