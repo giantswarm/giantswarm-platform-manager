@@ -89,7 +89,7 @@ charts:
   - name: skill-manager
     line: "4"
     registry: gsoci.azurecr.io/charts/giantswarm/skill-manager
-    version: 0.1.5
+    version: 0.2.0
   - name: agentgateway
     line: "4"
     registry: gsoci.azurecr.io/charts/giantswarm/agentgateway
