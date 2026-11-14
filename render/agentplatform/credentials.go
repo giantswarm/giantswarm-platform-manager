@@ -27,7 +27,10 @@ const (
 const ManagerExchangeSubjectAudience = authenticatorClient
 
 const (
-	agentManagerBrokerSecret = "agent-manager-github-broker"
+	agentManagerBrokerSecret    = "agent-manager-github-broker"
+	keyCredentials              = "credentials"
+	keyPlatformCredentialUI     = "platformUIURL"
+	credentialOperationVariable = "operation"
 	// Credential UI configuration is supported independently of grant exchange.
 	credentialChart       = "4.177.0"
 	managerOperationFloor = "2.22.0"
@@ -52,7 +55,7 @@ func (in *Input) credentialUI() string {
 }
 
 func (in *Input) validateAgentManagerCredentials() error {
-	if !in.AgentManagerTokenExchange && in.credentialUI() == "" {
+	if !in.AgentManagerTokenExchange && !in.agentManagerRoute() {
 		return nil
 	}
 	if !in.agentManager() || in.Installation.ChartLine != lineFour {
@@ -86,6 +89,9 @@ func (in *Input) validateAgentManagerCredentials() error {
 	if ui := in.credentialUI(); ui != "" && !validCredentialUI(ui) {
 		return refuse("agentManager.credentials.uiURL requires an HTTPS RFC 6570 URI template with one {operation} expression in its path or query, using only {operation}, {parent} and {organization}, and no user information or fragment")
 	}
+	if ui := in.AgentManagerPlatformCredentialUI; ui != "" && !validCredentialUITemplate(ui, []string{credentialOperationVariable, "namespace"}) {
+		return refuse("agentManager.credentials.platformUIURL requires an HTTPS RFC 6570 URI template with one {operation} expression in its path or query, using only {operation} and {namespace}, and no user information or fragment")
+	}
 	return nil
 }
 
@@ -98,26 +104,31 @@ func floorAtLeast(hold, minimum string) bool {
 
 // credentialUIVariables are the variables agent-manager expands in the
 // credential UI template.
-var credentialUIVariables = []string{"operation", "parent", "organization"}
+var credentialUIVariables = []string{credentialOperationVariable, "parent", "organization"}
 
 // validCredentialUI applies agent-manager's
 // organizations.ValidateCredentialUIURL (an RFC 6570 URI template), so a
 // template the definition accepts never stops the manager from starting.
 func validCredentialUI(template string) bool {
+	return validCredentialUITemplate(template, credentialUIVariables)
+}
+
+func validCredentialUITemplate(template string, variables []string) bool {
 	const marker = "credentialoperationplaceholder"
 	parsed, err := uritemplate.New(template)
-	if err != nil || !slices.Contains(parsed.Varnames(), "operation") {
+	if err != nil || !slices.Contains(parsed.Varnames(), credentialOperationVariable) {
 		return false
 	}
 	for _, name := range parsed.Varnames() {
-		if !slices.Contains(credentialUIVariables, name) {
+		if !slices.Contains(variables, name) {
 			return false
 		}
 	}
 	expanded, err := parsed.Expand(uritemplate.Values{
-		"operation":    uritemplate.String(marker + "o"),
-		"parent":       uritemplate.String(marker + "p"),
-		"organization": uritemplate.String(marker + "n"),
+		credentialOperationVariable: uritemplate.String(marker + "o"),
+		"parent":                    uritemplate.String(marker + "p"),
+		"organization":              uritemplate.String(marker + "n"),
+		"namespace":                 uritemplate.String(marker + "p"),
 	})
 	if err != nil {
 		return false
@@ -132,11 +143,11 @@ func validCredentialUI(template string) bool {
 const jwtModeStrict = "Strict"
 
 // agentManagerRoute says whether the meta chart exposes agent-manager's REST
-// API on the gateway: where agent-manager links a credential form
-// (agentManager.credentials.uiURL). The form's backend reaches the API as the
-// person at https://agentgateway.<base domain>/agent-manager, the route's
-// path, whichever installation hosts the portal (giantswarm/backstage#3435).
-func (in *Input) agentManagerRoute() bool { return in.credentialUI() != "" }
+// API on the gateway where either credential form's backend reaches it as
+// the person at https://agentgateway.<base domain>/agent-manager.
+func (in *Input) agentManagerRoute() bool {
+	return in.credentialUI() != "" || in.AgentManagerPlatformCredentialUI != ""
+}
 
 // agentManagerRouteValues is the meta chart's agentManager block for the
 // route: on, behind a Strict JWT policy whose issuer is this installation's
