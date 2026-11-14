@@ -41,8 +41,7 @@ func brokerPatch(clients map[string]string) string {
 }
 
 // TestFleetBrokerClient reads the fleet's broker client back from a hub's
-// patch: beside agent-manager's own exchange client (gazelle's record since
-// agentManager.githubTokenExchange.enabled), alone, or none; two clients
+// patch: beside agent-manager's own exchange client, alone, or none; two clients
 // that are no manager's are a record the definition did not render.
 func TestFleetBrokerClient(t *testing.T) {
 	for _, c := range []struct {
@@ -53,6 +52,11 @@ func TestFleetBrokerClient(t *testing.T) {
 	}{
 		{"the fleet's beside agent-manager's exchange client", map[string]string{fleetClient: fleetSecret, managerClient: managerSecret}, fleetClient, ""},
 		{"the fleet's alone", map[string]string{fleetClient: fleetSecret}, fleetClient, ""},
+		{"the fleet beside every manager", map[string]string{fleetClient: fleetSecret, managerClient: managerSecret, grantClusterManager: "cluster-manager-github-broker", grantModelManager: "model-manager-github-broker", grantSkillManager: "skill-manager-github-broker"}, fleetClient, ""},
+		{"only the managers", map[string]string{managerClient: managerSecret, grantClusterManager: "cluster-manager-github-broker", grantModelManager: "model-manager-github-broker", grantSkillManager: "skill-manager-github-broker"}, "", ""},
+		{"a fleet client named cluster-manager", map[string]string{grantClusterManager: fleetSecret}, grantClusterManager, ""},
+		{"a fleet client named model-manager", map[string]string{grantModelManager: fleetSecret}, grantModelManager, ""},
+		{"a fleet client named skill-manager", map[string]string{grantSkillManager: fleetSecret}, grantSkillManager, ""},
 		{"agent-manager's alone", map[string]string{managerClient: managerSecret}, "", ""},
 		{"a fleet client named agent-manager, the exchange off", map[string]string{managerClient: fleetSecret}, managerClient, ""},
 		{"a fleet client named agent-manager with its secret inline", map[string]string{managerClient: ""}, managerClient, ""},
@@ -104,7 +108,7 @@ func TestRenderedBrokerClientReadsBack(t *testing.T) {
 			}
 			require.NoError(t, yaml.Unmarshal(raw, &doc))
 			if exchange {
-				doc.Input["agentManager"] = map[string]any{"githubTokenExchange": map[string]any{"enabled": true}}
+				doc.Input["agentManager"] = map[string]any{"github": map[string]any{grantExchangeField: map[string]any{"enabled": true}}}
 				delete(doc.Input, "versions")
 			}
 			patch, err := renderedPlatformPatch(doc.Input, doc.Secrets)

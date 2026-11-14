@@ -173,8 +173,8 @@ type FederatedInstallation struct {
 	Pipeline      string   `json:"pipeline"`
 	AgentPlatform bool     `json:"agentPlatform"`
 	// Private says the portal reaches the installation's API through the
-	// hub's tunnel: its cluster entry is the tunnel Service with TLS
-	// verification off (the Service presents a SPIFFE certificate).
+	// hub's tunnel: its cluster entry trusts the Service's SPIFFE certificate
+	// through the mounted CA bundle.
 	Private bool `json:"private"`
 }
 
@@ -406,6 +406,9 @@ func (in *Input) checkFederation() error {
 	}
 	names := map[string]bool{in.Installation.Name: true}
 	for _, f := range in.Federation.Installations {
+		if f.Private && !in.Tunnel.Enabled && !in.HubPortal {
+			return refuse(ErrInput, "federation.installations names private installation "+f.Name+"; enable tunnel.enabled to mount its SPIFFE CA bundle")
+		}
 		if names[f.Name] {
 			return refuse(ErrInput, describe("federation.installations")+" name "+f.Name+", the portal's own installation or one listed twice; list each other installation once under Apply changes")
 		}

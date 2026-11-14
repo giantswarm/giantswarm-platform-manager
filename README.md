@@ -405,6 +405,8 @@ Flags, each with an environment variable (`--listen` / `LISTEN`, `--mcp-path` / 
 them. The chart in [`helm/giantswarm-platform-manager`](helm/giantswarm-platform-manager/README.md)
 sets them from its values.
 
+The agent-platform capability's [manager GitHub grant inputs](docs/manager-github-grants.md) configure each manager's isolated on-demand grant exchange.
+
 ## platformctl
 
 `platformctl` is the laptop and CI surface, built from `cmd/platformctl` in this repository and attached
