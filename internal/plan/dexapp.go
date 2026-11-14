@@ -22,11 +22,17 @@ const DexAppReferencedSecrets = "3.2.2"
 // DexAppRefusal says why a commit of p is refused for the dex-app on record:
 // p's Dex patch declares a client with a referenced Secret and rec's dex-app
 // is older than DexAppReferencedSecrets. Empty where nothing refuses — no
-// such client, no version on record (the report carries why it could not be
-// read), or a dex-app that takes them (render.DexAppTakes). The comparison runs either
-// way; only the commit is held.
+// such client, no source on record, or a dex-app that takes them
+// (render.DexAppTakes). An unreadable source or unresolved selector holds a
+// version-dependent commit. The comparison still runs.
 func (p Installation) DexAppRefusal(rec *installations.Record) string {
-	if rec == nil || rec.DexAppVersion == "" {
+	if rec == nil {
+		return ""
+	}
+	if p.referencesDexSecrets() && rec.DexAppVersionError != "" {
+		return "the referenced Dex client secrets need a proven chart version: " + rec.DexAppVersionError
+	}
+	if rec.DexAppVersion == "" {
 		return ""
 	}
 	v, err := semver.NewVersion(rec.DexAppVersion)

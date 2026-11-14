@@ -80,11 +80,11 @@ func TestDexAppVersionFromTheRecord(t *testing.T) {
 		read  string // the last file read
 	}{
 		{"the installation's own pin wins over the base", map[string]string{kustomization: collectionsFixture("main", pinnedDexApp), baseAtMain: dexAppManifest(fleetDexApp)},
-			DexAppVersion{Version: pinnedDexApp, Repository: fixtureMCs, Path: CollectionsKustomizationPath(fixtureInstallation)}, kustomization},
+			DexAppVersion{Version: pinnedDexApp, Repository: fixtureMCs, Path: CollectionsKustomizationPath(fixtureInstallation)}, baseAtMain},
 		{"without a pin, the base at the ref the kustomization names", map[string]string{kustomization: collectionsFixture("v2.1.0", ""), baseAtMain: dexAppManifest(pinnedDexApp), baseAtPin: dexAppManifest(fleetDexApp)},
 			DexAppVersion{Version: fleetDexApp, Repository: fixtureBases, Path: DexAppBasePath}, baseAtPin},
 		{"a strategic merge patch pins as well", map[string]string{kustomization: "resources:\n  - github.com/" + fixtureBases + "//bases/collections/shared/base?ref=main\npatches:\n  - patch: |\n      apiVersion: application.giantswarm.io/v1alpha1\n      kind: App\n      metadata:\n        name: dex-app\n        namespace: giantswarm\n      spec:\n        version: 3.2.2\n", baseAtMain: dexAppManifest(fleetDexApp)},
-			DexAppVersion{Version: pinnedDexApp, Repository: fixtureMCs, Path: CollectionsKustomizationPath(fixtureInstallation)}, kustomization},
+			DexAppVersion{Version: pinnedDexApp, Repository: fixtureMCs, Path: CollectionsKustomizationPath(fixtureInstallation)}, baseAtMain},
 		{"a patch on another App pins nothing", map[string]string{kustomization: "resources:\n  - https://github.com/" + fixtureBases + "//bases/collections/shared/base?ref=main\npatches:\n  - target:\n      kind: App\n      name: happa\n    patch: |\n      - op: replace\n        path: /spec/version\n        value: 9.9.9\n", baseAtMain: dexAppManifest(fleetDexApp)},
 			DexAppVersion{Version: fleetDexApp, Repository: fixtureBases, Path: DexAppBasePath}, baseAtMain},
 		{"no kustomization on record", map[string]string{baseAtMain: dexAppManifest(fleetDexApp)}, DexAppVersion{}, kustomization},
@@ -121,9 +121,9 @@ func TestDexAppVersionErrors(t *testing.T) {
 		files map[string]string
 		want  string
 	}{
-		{"a patch that does not decode", map[string]string{kustomization: collectionsFixture("main", "") + "patches:\n  - patch: \"[not\"\n"}, CollectionsKustomizationPath(fixtureInstallation)},
+		{"a patch that does not decode", map[string]string{kustomization: collectionsFixture("main", "") + "patches:\n  - patch: \"[not\"\n", baseAtMain: dexAppManifest(fleetDexApp)}, CollectionsKustomizationPath(fixtureInstallation)},
 		{"a kustomization without a remote base", map[string]string{kustomization: "resources:\n  - ./apps/\n"}, "names no remote base"},
-		{"a pin that is no semantic version", map[string]string{kustomization: collectionsFixture("main", "latest")}, `"latest" is no semantic version`},
+		{"a pin that is no semantic version", map[string]string{kustomization: collectionsFixture("main", "latest"), baseAtMain: dexAppManifest(fleetDexApp)}, `"latest" is no semantic version`},
 		{"a base without the App", map[string]string{kustomization: collectionsFixture("main", ""), baseAtMain: "kind: ConfigMap\nmetadata:\n  name: dex-app\n"}, "no App dex-app"},
 		{"a base App without a version", map[string]string{kustomization: collectionsFixture("main", ""), baseAtMain: "kind: App\nmetadata:\n  name: dex-app\nspec: {}\n"}, "sets no spec.version"},
 		{"a base version that is no semantic version", map[string]string{kustomization: collectionsFixture("main", ""), baseAtMain: dexAppManifest("latest")}, DexAppBasePath},
@@ -153,10 +153,10 @@ func TestDexAppVersionErrors(t *testing.T) {
 // path or another host names none.
 func TestParseRemoteBase(t *testing.T) {
 	cases := map[string]remoteBase{
-		"https://github.com/fleet/management-cluster-bases//bases/collections/capa/stages/stable?ref=main": {Repository: fixtureBases, Ref: "main"},
-		"github.com/fleet/management-cluster-bases//bases/collections/shared/base?ref=v2.1.0":              {Repository: fixtureBases, Ref: "v2.1.0"},
-		"https://github.com/fleet/management-cluster-bases.git?ref=main":                                   {Repository: fixtureBases, Ref: "main"},
-		"https://github.com/fleet/management-cluster-bases":                                                {Repository: fixtureBases},
+		"https://github.com/fleet/management-cluster-bases//bases/collections/capa/stages/stable?ref=main": {Repository: fixtureBases, Ref: "main", Path: "bases/collections/capa/stages/stable"},
+		"github.com/fleet/management-cluster-bases//bases/collections/shared/base?ref=v2.1.0":              {Repository: fixtureBases, Ref: "v2.1.0", Path: "bases/collections/shared/base"},
+		"https://github.com/fleet/management-cluster-bases.git?ref=main":                                   {Repository: fixtureBases, Ref: "main", Path: "."},
+		"https://github.com/fleet/management-cluster-bases":                                                {Repository: fixtureBases, Path: "."},
 		"./apps/":                            {},
 		"https://gitlab.example/fleet/bases": {},
 		"https://github.com/fleet":           {},
