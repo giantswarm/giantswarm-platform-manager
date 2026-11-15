@@ -328,6 +328,21 @@ func TestValidCredentialUI(t *testing.T) {
 	}
 }
 
+func TestValidPlatformCredentialUI(t *testing.T) {
+	for template, want := range map[string]bool{
+		"https://portal.example.com/customize/models/credentials/gazelle/{namespace}/{operation}": true,
+		"https://portal.example.com/credentials{?namespace,operation}":                            true,
+		"https://portal.example.com/{operation}":                                                  true,
+		"https://{namespace}.example.com/{operation}":                                             false,
+		"https://portal.example.com/{namespace}":                                                  false,
+		"https://portal.example.com/{namespace}/{operation}/{operation}":                          false,
+		"https://portal.example.com/{parent}/{operation}":                                         false,
+		"https://portal.example.com/{organization}/{operation}":                                   false,
+	} {
+		require.Equal(t, want, validPlatformCredentialUI(template), template)
+	}
+}
+
 func toAny(values []string) []any {
 	out := make([]any, len(values))
 	for i, v := range values {

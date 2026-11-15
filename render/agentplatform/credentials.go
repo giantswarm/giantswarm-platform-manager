@@ -89,7 +89,7 @@ func (in *Input) validateAgentManagerCredentials() error {
 	if ui := in.credentialUI(); ui != "" && !validCredentialUI(ui) {
 		return refuse("agentManager.credentials.uiURL requires an HTTPS RFC 6570 URI template with one {operation} expression in its path or query, using only {operation}, {parent} and {organization}, and no user information or fragment")
 	}
-	if ui := in.AgentManagerPlatformCredentialUI; ui != "" && !validCredentialUITemplate(ui, []string{credentialOperationVariable, "namespace"}) {
+	if ui := in.AgentManagerPlatformCredentialUI; ui != "" && !validPlatformCredentialUI(ui) {
 		return refuse("agentManager.credentials.platformUIURL requires an HTTPS RFC 6570 URI template with one {operation} expression in its path or query, using only {operation} and {namespace}, and no user information or fragment")
 	}
 	return nil
@@ -106,11 +106,20 @@ func floorAtLeast(hold, minimum string) bool {
 // credential UI template.
 var credentialUIVariables = []string{credentialOperationVariable, "parent", "organization"}
 
+// platformCredentialUIVariables are the variables agent-manager expands in
+// the installation credential UI template.
+var platformCredentialUIVariables = []string{credentialOperationVariable, "namespace"}
+
 // validCredentialUI applies agent-manager's
 // organizations.ValidateCredentialUIURL (an RFC 6570 URI template), so a
 // template the definition accepts never stops the manager from starting.
 func validCredentialUI(template string) bool {
 	return validCredentialUITemplate(template, credentialUIVariables)
+}
+
+// validPlatformCredentialUI applies the same check to the installation form.
+func validPlatformCredentialUI(template string) bool {
+	return validCredentialUITemplate(template, platformCredentialUIVariables)
 }
 
 func validCredentialUITemplate(template string, variables []string) bool {
@@ -128,7 +137,7 @@ func validCredentialUITemplate(template string, variables []string) bool {
 		credentialOperationVariable: uritemplate.String(marker + "o"),
 		"parent":                    uritemplate.String(marker + "p"),
 		"organization":              uritemplate.String(marker + "n"),
-		"namespace":                 uritemplate.String(marker + "p"),
+		"namespace":                 uritemplate.String(marker + "s"),
 	})
 	if err != nil {
 		return false
