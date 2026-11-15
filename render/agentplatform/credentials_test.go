@@ -257,6 +257,7 @@ func TestInstallationCredentialFormRejectsUnsafeTemplates(t *testing.T) {
 		"https://portal.example.com/{operation}?again={operation}",
 		"https://portal.example.com/{organization}/{operation}",
 		"https://portal.example.com/{parent}/{operation}",
+		"https://portal.example.com/credentials/{operation}",
 	} {
 		t.Run(address, func(t *testing.T) {
 			input, _ := loadInput(t, shapeCredentialForm)
@@ -332,7 +333,9 @@ func TestValidPlatformCredentialUI(t *testing.T) {
 	for template, want := range map[string]bool{
 		"https://portal.example.com/customize/models/credentials/gazelle/{namespace}/{operation}": true,
 		"https://portal.example.com/credentials{?namespace,operation}":                            true,
-		"https://portal.example.com/{operation}":                                                  true,
+		"https://portal.example.com/{operation}":                                                  false,
+		"https://portal.example.com/credentials{?operation}":                                      false,
+		"https://portal.example.com/{namespace}/{namespace}/{operation}":                          false,
 		"https://{namespace}.example.com/{operation}":                                             false,
 		"https://portal.example.com/{namespace}":                                                  false,
 		"https://portal.example.com/{namespace}/{operation}/{operation}":                          false,

@@ -476,7 +476,7 @@
             "type": "string", "default": "", "x-source": "person",
             "x-readback": {"file": "configmap", "key": "agent-manager.credentials.platformUIURL"},
             "x-feature": "runtime", "x-renders": ["configmap:agent-manager.credentials.platformUIURL", "configmap:agentManager.route", "configmap:gateway.jwksEgress"],
-            "description": "Client-owned HTTPS RFC 6570 URI template for the installation model credential form, with one {operation} expression in its path or query and optional {namespace}, and no user information or fragment. Independent of organizations.enabled. Set, it exposes agent-manager's REST API behind the installation's Strict Dex JWT policy and opens its JWKS egress. Read back from the configmap patch on record."
+            "description": "Client-owned HTTPS RFC 6570 URI template for the installation model credential form, with one {operation} and one {namespace} expression in its path or query, and no user information or fragment. Independent of organizations.enabled. Set, it exposes agent-manager's REST API behind the installation's Strict Dex JWT policy and opens its JWKS egress. Read back from the configmap patch on record."
           }, "uiURL": {
             "type": "string", "default": "", "x-source": "person",
             "x-readback": {"file": "configmap", "key": "agent-manager.credentials.uiURL"},

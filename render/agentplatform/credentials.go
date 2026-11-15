@@ -90,7 +90,7 @@ func (in *Input) validateAgentManagerCredentials() error {
 		return refuse("agentManager.credentials.uiURL requires an HTTPS RFC 6570 URI template with one {operation} expression in its path or query, using only {operation}, {parent} and {organization}, and no user information or fragment")
 	}
 	if ui := in.AgentManagerPlatformCredentialUI; ui != "" && !validPlatformCredentialUI(ui) {
-		return refuse("agentManager.credentials.platformUIURL requires an HTTPS RFC 6570 URI template with one {operation} expression in its path or query, using only {operation} and {namespace}, and no user information or fragment")
+		return refuse("agentManager.credentials.platformUIURL requires an HTTPS RFC 6570 URI template with one {operation} and one {namespace} expression in its path or query, using only those two, and no user information or fragment")
 	}
 	return nil
 }
@@ -110,6 +110,17 @@ var credentialUIVariables = []string{credentialOperationVariable, "parent", "org
 // the installation credential UI template.
 var platformCredentialUIVariables = []string{credentialOperationVariable, "namespace"}
 
+// credentialUIMarker prefixes the value each template variable expands to
+// when a template is checked; credentialUIMarkers names one per variable.
+const credentialUIMarker = "credentialoperationplaceholder"
+
+var credentialUIMarkers = map[string]string{
+	credentialOperationVariable: credentialUIMarker + "o",
+	"parent":                    credentialUIMarker + "p",
+	"organization":              credentialUIMarker + "n",
+	"namespace":                 credentialUIMarker + "s",
+}
+
 // validCredentialUI applies agent-manager's
 // organizations.ValidateCredentialUIURL (an RFC 6570 URI template), so a
 // template the definition accepts never stops the manager from starting.
@@ -117,34 +128,49 @@ func validCredentialUI(template string) bool {
 	return validCredentialUITemplate(template, credentialUIVariables)
 }
 
-// validPlatformCredentialUI applies the same check to the installation form.
+// validPlatformCredentialUI applies the same check to the installation form,
+// which also needs one {namespace} expression: the portal opens the form for
+// the namespace the link names.
 func validPlatformCredentialUI(template string) bool {
-	return validCredentialUITemplate(template, platformCredentialUIVariables)
+	return validCredentialUITemplate(template, platformCredentialUIVariables, "namespace")
 }
 
-func validCredentialUITemplate(template string, variables []string) bool {
-	const marker = "credentialoperationplaceholder"
+// validCredentialUITemplate checks template against variables; {operation}
+// and every required variable appear exactly once in its expansion.
+func validCredentialUITemplate(template string, variables []string, required ...string) bool {
 	parsed, err := uritemplate.New(template)
 	if err != nil || !slices.Contains(parsed.Varnames(), credentialOperationVariable) {
 		return false
+	}
+	for _, name := range required {
+		if !slices.Contains(parsed.Varnames(), name) {
+			return false
+		}
 	}
 	for _, name := range parsed.Varnames() {
 		if !slices.Contains(variables, name) {
 			return false
 		}
 	}
-	expanded, err := parsed.Expand(uritemplate.Values{
-		credentialOperationVariable: uritemplate.String(marker + "o"),
-		"parent":                    uritemplate.String(marker + "p"),
-		"organization":              uritemplate.String(marker + "n"),
-		"namespace":                 uritemplate.String(marker + "s"),
-	})
+	values := uritemplate.Values{}
+	for name, value := range credentialUIMarkers {
+		values[name] = uritemplate.String(value)
+	}
+	expanded, err := parsed.Expand(values)
 	if err != nil {
 		return false
 	}
 	u, err := url.Parse(expanded)
-	return err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil && u.Fragment == "" &&
-		!strings.Contains(u.Host, marker) && strings.Count(expanded, marker+"o") == 1
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Fragment != "" ||
+		strings.Contains(u.Host, credentialUIMarker) || strings.Count(expanded, credentialUIMarkers[credentialOperationVariable]) != 1 {
+		return false
+	}
+	for _, name := range required {
+		if strings.Count(expanded, credentialUIMarkers[name]) != 1 {
+			return false
+		}
+	}
+	return true
 }
 
 // jwtModeStrict is an agentgateway JWT policy's mode that answers a request
