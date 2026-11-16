@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -546,7 +547,7 @@ func compare(ctx context.Context, opts Options, rms, migs plannedKeys) (*compari
 	if err != nil {
 		return nil, p, err
 	}
-	driven := drivenPaths(opts.Inputs.Values, inputs, base, func(values map[string]any) (map[string]map[string]string, error) {
+	driven := drivenPaths(opts.Inputs.Values, opts.Inputs.ReadBack, inputs, base, func(values map[string]any) (map[string]map[string]string, error) {
 		_, other, err := build(ctx, opts, values, rs.recorded)
 		return other, err
 	})
@@ -889,8 +890,13 @@ func drivenInputs(def installations.Capability, in Inputs) ([]string, error) {
 // its value changed — and the leaves whose render changes are its. A leaf
 // several inputs drive is attributed to the most specific one — the input
 // whose perturbation changes the fewest leaves. A rendered leaf none of them
-// moves is nobody's: drift when it is off the record.
-func drivenPaths(values map[string]any, inputs []string, base map[string]map[string]string, render flatRender) map[string]string {
+// moves is nobody's: drift when it is off the record. A recorded empty list
+// typed null renders as left out, so leaving it out moves nothing: it is
+// also tried with the empty list read back (readBack, by dotted key), so the
+// reset it renders is its. Only a typed null holds nil over a read-back
+// value, as the read-back is laid over every person input; any other value
+// read back is left alone.
+func drivenPaths(values, readBack map[string]any, inputs []string, base map[string]map[string]string, render flatRender) map[string]string {
 	type best struct {
 		input string
 		n     int
@@ -898,6 +904,11 @@ func drivenPaths(values map[string]any, inputs []string, base map[string]map[str
 	bests := map[string]best{}
 	for _, l := range inputLeaves(values, inputs) {
 		alts := perturbations(l.value)
+		if l.value == nil {
+			if back, isList := readBack[strings.Join(l.path, ".")].([]any); isList && len(back) == 0 {
+				alts = append(alts, back)
+			}
+		}
 		for i := 0; i < len(alts); i++ {
 			raw := deepCopy(values)
 			set(raw, l.path, alts[i])
@@ -1003,7 +1014,9 @@ func perturbations(v any) []any {
 // renamedEntries is a copy of list with the name of every entry that has one
 // changed, which moves every leaf of an entry keyed by its name (identity: an
 // entry with an id is keyed by the id, and its leaves stay); false when no
-// entry has a name.
+// entry has a name. Each new name carries the entry's index, so entries that
+// shared a name, keyed by index (keys), get keys of their own and every leaf
+// moves.
 func renamedEntries(list []any) ([]any, bool) {
 	out := make([]any, len(list))
 	renamed := false
@@ -1018,7 +1031,7 @@ func renamedEntries(list []any) ([]any, bool) {
 			continue
 		}
 		entry := maps.Clone(m)
-		entry["name"] = name + "-x"
+		entry["name"] = name + "-x" + strconv.Itoa(i)
 		out[i], renamed = entry, true
 	}
 	return out, renamed
