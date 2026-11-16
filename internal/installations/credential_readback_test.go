@@ -28,13 +28,13 @@ func TestAgentManagerCredentialReadBack(t *testing.T) {
 		want  map[string]any
 	}{
 		// #nosec G101 -- public form URL template, no credential value
-		{"installation form", "agent-manager:\n  credentials:\n    platformUIURL: https://portal.acme.test/models/{namespace}/credentials/{operation}\n", map[string]any{
-			inputAgentManagerExchange:                false,
-			inputOrganizationsCommit:                 false,
-			"agentManager.credentials.platformUIURL": "https://portal.acme.test/models/{namespace}/credentials/{operation}",
+		{"credential form", "agent-manager:\n  credentials:\n    uiURL: https://portal.acme.test/models/{namespace}/credentials/{operation}\n", map[string]any{
+			inputAgentManagerExchange:        false,
+			inputOrganizationsCommit:         false,
+			"agentManager.credentials.uiURL": "https://portal.acme.test/models/{namespace}/credentials/{operation}",
 		}},
 		// #nosec G101 -- route configuration and public URLs, no credential value
-		{"grant exchange and organization form", "agent-manager:\n  github:\n    enabled: true\n    tokenExchange:\n      tokenEndpoint: https://muster.rowan.acme.test/oauth/token\n  credentials:\n    uiURL: https://portal.acme.test/credentials/{operation}\n", map[string]any{
+		{"grant exchange and credential form", "agent-manager:\n  github:\n    enabled: true\n    tokenExchange:\n      tokenEndpoint: https://muster.rowan.acme.test/oauth/token\n  credentials:\n    uiURL: https://portal.acme.test/credentials/{operation}\n", map[string]any{
 			inputAgentManagerExchange:        true,
 			inputOrganizationsCommit:         false,
 			"agentManager.credentials.uiURL": "https://portal.acme.test/credentials/{operation}",
@@ -60,13 +60,13 @@ func TestAgentManagerCredentialReadBack(t *testing.T) {
 	}
 }
 
-func TestInstallationCredentialFormWithoutOrganizations(t *testing.T) {
+func TestCredentialFormWithoutOrganizations(t *testing.T) {
 	definition, found := FindCapability(AgentPlatform)
 	require.True(t, found)
 	input := map[string]any{
 		"organizations": map[string]any{keyEnabled: false},
 		"agentManager": map[string]any{keyCredentials: map[string]any{
-			"platformUIURL": "https://portal.acme.test/models/{namespace}/credentials/{operation}",
+			"uiURL": "https://portal.acme.test/models/{namespace}/credentials/{operation}",
 		}},
 	}
 	refused, err := definition.TypedWithoutSwitch(input, input)
