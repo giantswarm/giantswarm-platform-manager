@@ -66,6 +66,7 @@ func TestCredentialFormWithoutOrganizations(t *testing.T) {
 	require.True(t, found)
 	input := map[string]any{
 		"organizations": map[string]any{keyEnabled: false},
+		// #nosec G101 -- a URL template, no credential value
 		"agentManager": map[string]any{keyCredentials: map[string]any{
 			keyCredentialUI: "https://portal.acme.test/models/{namespace}/credentials/{operation}",
 		}},
