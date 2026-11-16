@@ -114,8 +114,8 @@ func (in *Input) platformTenantValues(m render.Map) render.Map {
 // (agent-platform.muster.organizations). The editors and the platform team
 // refuse a broad system group too (broadGroup): their binding grants
 // agent-platform:editor in kagent's namespace and, to the platform team, the
-// edit of muster's MCP servers and workflows. The users and the viewers take one; system:authenticated
-// is the chart's default there.
+// edit of muster's MCP servers and workflows. The users and the viewers
+// take one; system:authenticated is the chart's default there.
 func (in *Input) checkPlatformTenant() error {
 	t := in.PlatformTenant
 	for _, c := range []struct {
@@ -148,7 +148,11 @@ func (in *Input) checkPlatformTenant() error {
 				continue
 			}
 			if who := broadGroup(s); who != "" {
-				return refuse(fmt.Sprintf("entry %d of %s is the group %s, which is %s; an editor's binding grants them agent-platform:editor, so name the operators' own groups or users", i, describe(c.input), s.Name, who))
+				grant := "agent-platform:editor in kagent's namespace"
+				if c.input == inputPlatformTeam {
+					grant += " and the edit of muster's MCP servers and workflows"
+				}
+				return refuse(fmt.Sprintf("entry %d of %s is the group %s, which is %s; its binding would grant them %s, so name the operators' own groups or users", i, describe(c.input), s.Name, who, grant))
 			}
 		}
 	}

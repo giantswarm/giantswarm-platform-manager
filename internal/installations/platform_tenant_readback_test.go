@@ -11,12 +11,12 @@ import (
 
 // The platform tenant's inputs, by the chart paths they write.
 const (
-	inputPlatformEditors = "tenants.platform.editors"
-	inputPlatformTeam    = "tenants.platformTeam"
+	readBackEditors      = "tenants.platform.editors"
+	readBackPlatformTeam = "tenants.platformTeam"
 )
 
-// subject is an RBAC subject as the record carries it.
-func subject(apiGroup, kind, name, namespace string) map[string]any {
+// rbacSubject is an RBAC subject as the record carries it.
+func rbacSubject(apiGroup, kind, name, namespace string) map[string]any {
 	s := map[string]any{"kind": kind, "name": name}
 	if apiGroup != "" {
 		s["apiGroup"] = apiGroup
@@ -27,9 +27,9 @@ func subject(apiGroup, kind, name, namespace string) map[string]any {
 	return s
 }
 
-// group is a Group subject.
-func group(name string) map[string]any {
-	return subject("rbac.authorization.k8s.io", "Group", name, "")
+// rbacGroupSubject is a Group subject.
+func rbacGroupSubject(name string) map[string]any {
+	return rbacSubject("rbac.authorization.k8s.io", "Group", name, "")
 }
 
 // A reconcile types no input: on an installation whose configmap patch
@@ -42,14 +42,14 @@ func group(name string) map[string]any {
 func TestPlatformTenantSurvivesAReconcile(t *testing.T) {
 	for shape, want := range map[string]map[string]any{
 		"platform-tenant-retired": {
-			"tenants.platform.users": []any{}, inputPlatformEditors: []any{}, inputPlatformTeam: []any{},
-			"musterMcpServerViewers": []any{group("oidc:example-agent-users")},
+			"tenants.platform.users": []any{}, readBackEditors: []any{}, readBackPlatformTeam: []any{},
+			"musterMcpServerViewers": []any{rbacGroupSubject("oidc:example-agent-users")},
 		},
 		"platform-tenant-team": {
-			"tenants.platform.users": []any{}, inputPlatformEditors: []any{},
-			inputPlatformTeam: []any{group("oidc:example-platform-team")},
-			"musterMcpServerViewers": []any{group("oidc:example-agent-users"),
-				subject("", "ServiceAccount", "example-agent-runner", "example-agents")},
+			"tenants.platform.users": []any{}, readBackEditors: []any{},
+			readBackPlatformTeam: []any{rbacGroupSubject("oidc:example-platform-team")},
+			"musterMcpServerViewers": []any{rbacGroupSubject("oidc:example-agent-users"),
+				rbacSubject("", "ServiceAccount", "example-agent-runner", "example-agents")},
 		},
 	} {
 		t.Run(shape, func(t *testing.T) {
@@ -72,17 +72,18 @@ func TestPlatformTenantBroadGroupOnRecordIsRefused(t *testing.T) {
 		input, group string
 		edit         func(string) string
 	}{
-		{inputPlatformEditors, "system:serviceaccounts", func(p string) string {
+		{readBackEditors, "system:serviceaccounts", func(p string) string {
 			return strings.Replace(p, "    editors: []\n", "    editors:\n      - apiGroup: rbac.authorization.k8s.io\n        kind: Group\n        name: system:serviceaccounts\n", 1)
 		}},
-		{inputPlatformTeam, "system:authenticated", func(p string) string {
+		{readBackPlatformTeam, "system:authenticated", func(p string) string {
 			return strings.Replace(p, "name: oidc:example-platform-team", "name: system:authenticated", 1)
 		}},
 	} {
 		t.Run(c.input, func(t *testing.T) {
 			_, read, doc, _ := inputFromTheRecord(t, "platform-tenant-team", c.edit)
-			require.Equal(t, []any{group(c.group)}, read[c.input], "%s read back", c.input)
+			require.Equal(t, []any{rbacGroupSubject(c.group)}, read[c.input], "%s read back", c.input)
 			_, err := definition.Render(doc, nil, render.ModeCommit)
+			require.ErrorContains(t, err, "entry 0 of ")
 			require.ErrorContains(t, err, "("+c.input+") is the group "+c.group+",")
 		})
 	}
