@@ -1286,3 +1286,46 @@ func TestARefusedRenderKeepsAProbeFailureReRead(t *testing.T) {
 		t.Fatalf("the recovery: %v %s", isErr, text)
 	}
 }
+
+// The merge records the release each HelmRelease runs just before it: two
+// releases after the merge, before any watch — a chart-only upgrade, then
+// the merged values — leave Flux's history without the release that ran at
+// the merge, and the record still proves the merge.
+func TestMergeRecordsTheReleaseThatRunsAtTheMerge(t *testing.T) {
+	st := newStack(t)
+	out, _ := commitRowan(t, st)
+	name := out.Action.Name
+	if _, text, isErr := decide(t, st.mcpClient(t, carolToken), tools.ToolApproveAction, map[string]any{tools.ArgAction: name}); isErr {
+		t.Fatalf("approve: %s", text)
+	}
+	for _, pr := range st.remote.PullRequests() {
+		st.remote.SetChecks(pr.PullRequest, commit.ChecksSuccess)
+	}
+	admin := adminLive(t, st)
+	populateBeforeFlux(t, st.inst, *out.Action, rowan)
+	m, text, isErr := mergeCall(t, admin, name)
+	if isErr || m.Action == nil {
+		t.Fatalf("merge: %v %s", isErr, text)
+	}
+	a := *m.Action
+	release := fluxNamespace + "/" + platformRelease
+	bases := stageOf(&a, rowan).Baselines
+	if len(bases) != len(a.StagePullRequests(rowan)) {
+		t.Fatalf("one baseline per merged pull request: %+v", bases)
+	}
+	for _, b := range bases {
+		if b.Release != release || b.Version != 10 || b.ConfigDigest != valuesBefore {
+			t.Fatalf("the baselines the merge recorded: %+v", bases)
+		}
+	}
+
+	pr, merge := configsMerge(t, &a, rowan)
+	st.inst.followConfigs(fluxNamespace, pr.Repository)
+	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
+	st.inst.release(fluxNamespace, platformRelease, valuesBefore)
+	st.inst.release(fluxNamespace, platformRelease, valuesMerged)
+	w, text, isErr := watchCall(t, admin, name)
+	if isErr || w.State != actions.StateEnabled {
+		t.Fatalf("the merged values released: %v %s", isErr, text)
+	}
+}
