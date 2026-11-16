@@ -302,6 +302,9 @@ func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
 		if allMerged(a, st.Name) {
 			return nil, stageNotEnabled(a, *st)
 		}
+		// The releases running now, read before the stage's merges: Flux's
+		// history may have dropped them by the first watch.
+		running := t.runningReleases(ctx, a, st.Name)
 		// This stage's pull requests are merged now, in order, each once green.
 		for _, k := range a.StagePullRequests(st.Name) {
 			pr := status.PullRequests[k]
@@ -320,6 +323,7 @@ func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
 				// repository's tree again, whoever validated it last.
 				t.d.Files.Invalidate(pr.Repository)
 				status.PullRequests[k].State, status.PullRequests[k].MergedBy, status.PullRequests[k].MergedAt = actions.PullRequestMerged, id.Login, now()
+				recordRunning(st, pr, running)
 				res.Merged = append(res.Merged, status.PullRequests[k])
 				continue
 			case errors.Is(err, commit.ErrChecksPending):
