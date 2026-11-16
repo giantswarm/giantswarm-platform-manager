@@ -63,7 +63,8 @@ this order, writing nothing before the gate:
    record that a `customer-portal` plan would remove (`hubSections`), a `rotate` name the plan does not list,
    or a supplied secret left out of `secrets` (or one the plan does not ask for) refuses the commit before any
    write. The plan's own refusals — the dex-app on record, the release candidates dropped while one is ahead of
-   the stable release, the frozen values, the hub's portal, the registry the installation's muster still serves
+   the stable release, missing hub Dex Secret or resource manifests, frozen values, the hub's portal,
+   the registry the installation's muster still serves
    that a join as a target would drop (`join`, unless `forceJoin`), a running component the patch switches off
    (`switchOff`, unless `forceSwitchOff`) — are one list
    the commit, the wave's pre-check and the dry run's `commitRefused` share. Every file on record

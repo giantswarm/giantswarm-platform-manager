@@ -307,11 +307,12 @@ type Installation struct {
 	// release candidates dropped while one is ahead of the stable release; a
 	// generated value frozen where it cannot rotate; a section of the hub's
 	// Dev Portal the commit would remove); empty when a commit could go ahead.
-	CommitRefused    string            `json:"commitRefused,omitempty"`
-	Files            []File            `json:"files"`
-	Includes         []Include         `json:"includes"`
-	GeneratedSecrets []GeneratedSecret `json:"generatedSecrets"`
-	DeferredPairs    []DeferredPair    `json:"deferredPairs,omitempty"`
+	CommitRefused        string            `json:"commitRefused,omitempty"`
+	Files                []File            `json:"files"`
+	Includes             []Include         `json:"includes"`
+	GeneratedSecrets     []GeneratedSecret `json:"generatedSecrets"`
+	DeferredPairs        []DeferredPair    `json:"deferredPairs,omitempty"`
+	UnresolvedReferences []string          `json:"unresolvedReferences,omitempty"`
 	// SuppliedSecrets names, by field, the values the person supplies at
 	// commit: the secrets, and an input that lives only in an encrypted file
 	// (the portal's GitHub App id), which no read-back recovers — each in a
@@ -500,6 +501,7 @@ func (p Installation) markerOnRecord(opts Options) bool {
 // Build renders the inputs through opts' definition and answers the plan for
 // opts' installation. A refusal of the definition is the answer, not an error.
 func Build(ctx context.Context, opts Options) Installation {
+	recordRead := opts.Read
 	p := Installation{Name: opts.Installation.Name, Inputs: opts.Inputs,
 		Files: []File{}, Includes: []Include{}, GeneratedSecrets: []GeneratedSecret{}, SuppliedSecrets: []string{},
 		DexClients: []DexClient{}, CustomerActions: []CustomerAction{}, Probes: []Probe{}, Diff: map[Change]int{}}
@@ -545,7 +547,15 @@ func Build(ctx context.Context, opts Options) Installation {
 	if len(facts) > 0 {
 		files = append(files, recordRef(opts))
 	}
-	opts.Read = fetch(ctx, opts.Read, files).read
+	currentFiles := fetch(ctx, opts.Read, files)
+	opts.Read = currentFiles.read
+	uncachedRead := recordRead
+	recordRead = func(ctx context.Context, repository, path string) (string, error) {
+		if current, found := currentFiles.got[(fileRef{repository, path}).key()]; found {
+			return current.content, current.err
+		}
+		return uncachedRead(ctx, repository, path)
+	}
 	res, p.DeferredPairs, err = deferPairs(ctx, opts, res)
 	if err != nil {
 		p.Refused = err.Error()
@@ -704,6 +714,9 @@ func Build(ctx context.Context, opts Options) Installation {
 		if gs.Supplied {
 			p.SuppliedSecrets = append(p.SuppliedSecrets, gs.Name)
 		}
+	}
+	if opts.Installation.Name == opts.Hub.Name {
+		p.guardReferences(ctx, opts.Installation, res, recordRead)
 	}
 	return p
 }
