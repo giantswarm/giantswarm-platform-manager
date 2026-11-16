@@ -17,6 +17,7 @@ const (
 	inputAgentManagerExchange = "agentManager.github.tokenExchange.enabled"
 	inputAgentManagerCommit   = "agentManager.github.enabled"
 	keyCredentials            = "credentials"
+	keyCredentialUI           = "uiURL"
 )
 
 func TestAgentManagerCredentialReadBack(t *testing.T) {
@@ -66,7 +67,7 @@ func TestCredentialFormWithoutOrganizations(t *testing.T) {
 	input := map[string]any{
 		"organizations": map[string]any{keyEnabled: false},
 		"agentManager": map[string]any{keyCredentials: map[string]any{
-			"uiURL": "https://portal.acme.test/models/{namespace}/credentials/{operation}",
+			keyCredentialUI: "https://portal.acme.test/models/{namespace}/credentials/{operation}",
 		}},
 	}
 	refused, err := definition.TypedWithoutSwitch(input, input)
