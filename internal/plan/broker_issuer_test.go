@@ -27,7 +27,7 @@ func TestCredentialProviderAppsAreTheRenders(t *testing.T) {
 
 func TestCredentialBrokerIssuerAfterReadback(t *testing.T) {
 	const authenticatorAudience = "dex-k8s-authenticator"
-	const profile = "agent-manager:\n  githubTokenExchange:\n    endpoint: https://muster.example.com/oauth/token\nmuster:\n  muster:\n    oauth:\n      server:\n        trustedIssuers:\n          - issuer: https://dex.example.com\n            allowedAudiences: [backstage, dex-k8s-authenticator]\n"
+	const profile = "agent-manager:\n  github:\n    enabled: true\n    tokenExchange:\n      tokenEndpoint: https://muster.example.com/oauth/token\nmuster:\n  muster:\n    oauth:\n      server:\n        trustedIssuers:\n          - issuer: https://dex.example.com\n            allowedAudiences: [backstage, dex-k8s-authenticator]\n"
 	issuers := func(entries string) string {
 		return "muster:\n  muster:\n    oauth:\n      server:\n        trustedIssuers:\n" + entries
 	}

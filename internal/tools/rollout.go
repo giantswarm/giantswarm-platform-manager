@@ -2,7 +2,9 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"reflect"
 	"strings"
 	"time"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 	"github.com/giantswarm/giantswarm-platform-manager/render"
@@ -359,19 +362,42 @@ func changesValues(ctx context.Context, c *gh.Client, def installations.Capabili
 }
 
 // sameValues says whether the YAML documents of two blobs carry the same
-// values; a blob that is no YAML differs.
+// values (sameDocuments).
 func sameValues(ctx context.Context, c *gh.Client, owner, repo, before, after string) (bool, error) {
-	var docs [2]any
+	var content [2]string
 	for i, sha := range []string{before, after} {
-		content, err := gh.Blob(ctx, c, owner, repo, sha)
-		if err != nil {
+		var err error
+		if content[i], err = gh.Blob(ctx, c, owner, repo, sha); err != nil {
 			return false, err
 		}
-		if err := yaml.Unmarshal([]byte(content), &docs[i]); err != nil {
-			return false, nil
+	}
+	return sameDocuments(content[0], content[1]), nil
+}
+
+// sameDocuments says whether two YAML files carry the same values: every
+// document of each, in order, the same — a comment or the layout aside. An
+// empty document (a trailing separator, a comment alone) carries no values,
+// as kustomize and Helm read it, and is left out. A file that is no YAML
+// differs.
+func sameDocuments(before, after string) bool {
+	var docs [2][]any
+	for i, content := range []string{before, after} {
+		dec := yaml.NewDecoder(strings.NewReader(content))
+		for {
+			var doc any
+			err := dec.Decode(&doc)
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				return false
+			}
+			if doc != nil {
+				docs[i] = append(docs[i], doc)
+			}
 		}
 	}
-	return reflect.DeepEqual(docs[0], docs[1]), nil
+	return reflect.DeepEqual(docs[0], docs[1])
 }
 
 // objectLine names a check's object as the stage's message does: kind and
@@ -443,4 +469,65 @@ func waitLines(waits []rolloutWait) []string {
 		out = append(out, w.what)
 	}
 	return out
+}
+
+// runningReleases reads, as the person, the release each HelmRelease of
+// installation runs now: what recordRunning records for a merge made right
+// after. A read that fails or is not possible answers none, and the first
+// watch's recordBaselines then reads the history after the merge.
+func (t *Tools) runningReleases(ctx context.Context, a *actions.Action, installation string) []actions.ReleaseBaseline {
+	def, ok := installations.FindCapability(a.Spec.Capability)
+	if !ok {
+		return nil
+	}
+	inputs := a.InputsOnRecord(installation)
+	if inputs == nil {
+		return nil
+	}
+	token, id, err := t.forwarded(ctx, ToolMergeAction)
+	if err != nil {
+		return nil
+	}
+	cluster, err := t.d.Live.Cluster(ctx, token, id, installation)
+	if err == nil {
+		var checks []verify.Check
+		checks, err = verify.ReleaseHistories(ctx, verify.LiveOptions{Definition: def, Installation: installation,
+			Inputs: verify.Inputs{Source: "action " + a.Name, Values: inputs, Typed: a.Spec.Inputs}, Kept: a.KeptOnRecord(installation), Cluster: cluster, Person: id.String(), Rollout: true, Log: t.d.Log})
+		if err == nil {
+			var out []actions.ReleaseBaseline
+			for _, ch := range checks {
+				if r := runningRelease(ch); r != nil {
+					out = append(out, actions.ReleaseBaseline{Release: objectName(ch.Namespace, ch.Name), Version: r.Version, ConfigDigest: r.ConfigDigest, Deployed: r.Deployed})
+				}
+			}
+			return out
+		}
+	}
+	t.d.Log.Info("action_merge_baseline_skipped", identity.LogAttr(ctx), "action", a.Name, "installation", installation, "error", err)
+	return nil
+}
+
+// recordRunning records on stage st the releases running (runningReleases)
+// as the ones that ran at pr's merge, made right after they were read.
+func recordRunning(st *actions.InstallationRollout, pr actions.PullRequest, running []actions.ReleaseBaseline) {
+	merge := fmt.Sprintf("%s#%d", pr.Repository, pr.Number)
+	for _, b := range running {
+		if baselineOf(st, b.Release, merge) != nil {
+			continue
+		}
+		b.PullRequest = merge
+		st.Baselines = append(st.Baselines, b)
+	}
+}
+
+// runningRelease is the release ch's HelmRelease runs: the newest of its
+// history that was deployed, deployed or superseded since; nil when the
+// history keeps none.
+func runningRelease(ch verify.Check) *verify.Release {
+	for i, r := range ch.Releases {
+		if r.Deployed != nil && (r.Status == helmDeployed || r.Status == helmSuperseded) {
+			return &ch.Releases[i]
+		}
+	}
+	return nil
 }

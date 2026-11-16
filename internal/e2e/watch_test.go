@@ -338,6 +338,54 @@ func TestWatchActionCarriesTheRolloutToEnabled(t *testing.T) {
 	assertNoLeak(t, "the server's log", st.logs.String())
 }
 
+// A child release Ready on its spec from before the merge is not yet the
+// merged change (giantswarm-platform-manager#891, item 1): the meta chart's
+// release ran the merged values and rewrote the kagent HelmRelease's spec,
+// and until Flux reconciles it, its Ready=True speaks of the spec before.
+// mcp-kubernetes answers the HelmRelease without metadata.generation; the
+// watch reads it through the list filter, keeps the stage rolling out with
+// the child named, and carries it to enabled once Flux has reconciled it.
+func TestWatchActionWaitsForAChildReleaseFluxHasNotReconciled(t *testing.T) {
+	const child = "kagent"
+	st := newStack(t)
+	a, _ := rolledOut(t, st)
+	admin := adminLive(t, st)
+	st.inst.changeSpec(fluxNamespace, child)
+
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || w.Ready || w.State != actions.StateRollingOut || w.Action.Status.State != actions.StateRollingOut || w.Report != "" {
+		t.Fatalf("the child not reconciled: %v %s", isErr, text)
+	}
+	stale := "rolling: Flux has not reconciled the last change of the spec yet: Ready=True is from generation 1, before the HelmRelease's spec changed"
+	var kagent *actions.RolloutObject
+	for i := range w.Objects {
+		if w.Objects[i].Name == child {
+			kagent = &w.Objects[i]
+		}
+	}
+	if kagent == nil || kagent.Ready != "Unknown" || kagent.Message != stale {
+		t.Fatalf("the child: %+v", w.Objects)
+	}
+	if msg := stageOf(w.Action, rowan).Message; !strings.Contains(msg, fmt.Sprintf("not Ready: HelmRelease %s/%s (%s)", fluxNamespace, child, stale)) {
+		t.Fatalf("the stage's message: %q", msg)
+	}
+
+	st.inst.reconcile(fluxNamespace, child)
+	w, text, isErr = watchCall(t, admin, a.Name)
+	if isErr || !w.Ready || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled || w.Report == "" {
+		t.Fatalf("the child reconciled: %v %s", isErr, text)
+	}
+	reports := len(thread(t, st))
+
+	// A later upgrade of the parent rewrites the child again: the enabled
+	// stage keeps its state, with no new report, while Flux catches up.
+	st.inst.changeSpec(fluxNamespace, child)
+	w, text, isErr = watchCall(t, admin, a.Name)
+	if isErr || w.State != actions.StateEnabled || w.Report != "" || len(thread(t, st)) != reports || !strings.Contains(stageOf(w.Action, rowan).Message, "while Flux reconciles a change") {
+		t.Fatalf("an enabled stage while the child reconciles: %v %s", isErr, text)
+	}
+}
+
 // The model key is the customer's: the default ModelConfig not Accepted is
 // the one red dimension, so the stage — and the action — wait for the
 // customer, the report names the open action, the next stage of a wave would
@@ -1236,5 +1284,48 @@ func TestARefusedRenderKeepsAProbeFailureReRead(t *testing.T) {
 	w, text, isErr := watchCall(t, admin, a.Name)
 	if isErr || w.State != actions.StateEnabled || !strings.Contains(w.Report, "Recovered") || !strings.Contains(w.Report, edgeProbe) || strings.Contains(w.Report, refusedSwitch) {
 		t.Fatalf("the recovery: %v %s", isErr, text)
+	}
+}
+
+// The merge records the release each HelmRelease runs just before it: two
+// releases after the merge, before any watch — a chart-only upgrade, then
+// the merged values — leave Flux's history without the release that ran at
+// the merge, and the record still proves the merge.
+func TestMergeRecordsTheReleaseThatRunsAtTheMerge(t *testing.T) {
+	st := newStack(t)
+	out, _ := commitRowan(t, st)
+	name := out.Action.Name
+	if _, text, isErr := decide(t, st.mcpClient(t, carolToken), tools.ToolApproveAction, map[string]any{tools.ArgAction: name}); isErr {
+		t.Fatalf("approve: %s", text)
+	}
+	for _, pr := range st.remote.PullRequests() {
+		st.remote.SetChecks(pr.PullRequest, commit.ChecksSuccess)
+	}
+	admin := adminLive(t, st)
+	populateBeforeFlux(t, st.inst, *out.Action, rowan)
+	m, text, isErr := mergeCall(t, admin, name)
+	if isErr || m.Action == nil {
+		t.Fatalf("merge: %v %s", isErr, text)
+	}
+	a := *m.Action
+	release := fluxNamespace + "/" + platformRelease
+	bases := stageOf(&a, rowan).Baselines
+	if len(bases) != len(a.StagePullRequests(rowan)) {
+		t.Fatalf("one baseline per merged pull request: %+v", bases)
+	}
+	for _, b := range bases {
+		if b.Release != release || b.Version != 10 || b.ConfigDigest != valuesBefore {
+			t.Fatalf("the baselines the merge recorded: %+v", bases)
+		}
+	}
+
+	pr, merge := configsMerge(t, &a, rowan)
+	st.inst.followConfigs(fluxNamespace, pr.Repository)
+	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
+	st.inst.release(fluxNamespace, platformRelease, valuesBefore)
+	st.inst.release(fluxNamespace, platformRelease, valuesMerged)
+	w, text, isErr := watchCall(t, admin, name)
+	if isErr || w.State != actions.StateEnabled {
+		t.Fatalf("the merged values released: %v %s", isErr, text)
 	}
 }
