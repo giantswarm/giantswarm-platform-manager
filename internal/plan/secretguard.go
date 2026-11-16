@@ -29,6 +29,7 @@ type referenceGuard struct {
 	planned map[string]string
 	secrets map[string]bool
 	visited map[string]bool
+	unread  []string
 }
 
 func (p *Installation) guardReferences(ctx context.Context, installation installations.Installation, result *render.Result, read Reader) {
@@ -104,9 +105,14 @@ func (p *Installation) guardReferences(ctx context.Context, installation install
 			}
 		}
 		for _, name := range missing {
-			if !guard.secrets[name] {
-				p.UnresolvedReferences = append(p.UnresolvedReferences, fmt.Sprintf("Dex references Secret/%s in namespace giantswarm, but no matching Secret manifest is in this plan or the installation's recorded extras; add and include its Secret file first", name))
+			if guard.secrets[name] {
+				continue
 			}
+			if len(guard.unread) > 0 {
+				p.UnresolvedReferences = append(p.UnresolvedReferences, fmt.Sprintf("Dex references Secret/%s in namespace giantswarm, which is not in this plan, and the installation's recorded extras could not be read: %s", name, strings.Join(guard.unread, "; ")))
+				continue
+			}
+			p.UnresolvedReferences = append(p.UnresolvedReferences, fmt.Sprintf("Dex references Secret/%s in namespace giantswarm, but no matching Secret manifest is in this plan or the installation's recorded extras; add and include its Secret file first", name))
 		}
 	}
 	slices.Sort(p.UnresolvedReferences)
@@ -187,6 +193,9 @@ func (guard *referenceGuard) indexRecord(repository, file, namespace string) {
 		var err error
 		content, err = guard.read(guard.ctx, repository, file)
 		if err != nil {
+			if !errors.Is(err, gh.ErrNotFound) {
+				guard.unread = append(guard.unread, fmt.Sprintf("%s:%s: %v", repository, file, err))
+			}
 			return
 		}
 	}

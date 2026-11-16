@@ -29,7 +29,7 @@ func TestHubSecretReferencesHaveManifests(t *testing.T) {
 		{name: "wrong namespace", planned: map[string]string{secretPath: strings.ReplaceAll(secretManifest, "namespace: giantswarm", "namespace: other")}, want: missingManifest},
 		{name: "wrong kind", planned: map[string]string{secretPath: strings.ReplaceAll(secretManifest, "kind: Secret", "kind: ConfigMap")}, want: missingManifest},
 		{name: "Secret on another installation", planned: map[string]string{strings.ReplaceAll(secretPath, "hazel", "elsewhere"): secretManifest}, want: missingManifest},
-		{name: "unreadable record", readError: errors.New("forbidden"), want: missingManifest},
+		{name: "unreadable record", readError: errors.New("forbidden"), want: "recorded extras could not be read"},
 		{name: "missing resource", planned: map[string]string{secretPath: secretManifest, root: "resources: [missing-secret.yaml]\n"}, want: "whose file is neither in this plan nor on record"},
 		{name: "included resource in the plan", planned: map[string]string{secretPath: secretManifest, root: "resources: [secrets/client.yaml]\n"}},
 		{name: "resource on record", planned: map[string]string{secretPath: secretManifest, root: "resources: [other.yaml]\n"}, recorded: map[string]string{"management-clusters/hazel/extras/other.yaml": "kind: ConfigMap\nmetadata: {name: other}\n"}},
