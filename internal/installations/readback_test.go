@@ -721,3 +721,32 @@ func TestAgentPlatformReadsBackVersionHolds(t *testing.T) {
 		}
 	}
 }
+
+// A value read-back's places are its files of the installation with the
+// keys. A file read under a document in it is left out, the other file of
+// the same read-back kept; another kind, and an input with no read-back,
+// have none.
+func TestReadBackPlaces(t *testing.T) {
+	values := func(keys ...string) []ReadBackPlace {
+		return []ReadBackPlace{{Repository: "acme/mcs", Path: "management-clusters/rowan/values.yaml", Keys: keys}}
+	}
+	var files inputSchema
+	if err := json.Unmarshal([]byte(readBackFilesSchema), &files); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		s     *inputSchema
+		input string
+		want  []ReadBackPlace
+	}{
+		{readBackFixture(t), inputSupportURL, values("resources.[icon=LiveHelp].url")},
+		{&files, inputChatModel, values("aiChat.model")},
+		{readBackFixture(t), inputTunnelEnabled, nil},
+		{readBackFixture(t), "installation.name", nil},
+	} {
+		got, err := readBackPlaces(c.s, c.input, readBackInstallation)
+		if err != nil || !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: places %v (%v), want %v", c.input, got, err, c.want)
+		}
+	}
+}

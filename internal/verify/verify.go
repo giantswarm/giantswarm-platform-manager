@@ -551,7 +551,11 @@ func compare(ctx context.Context, opts Options, rms, migs plannedKeys) (*compari
 		_, other, err := build(ctx, opts, values, rs.recorded)
 		return other, err
 	})
-	resetLeaves(driven, resets, base, func(key string) string { return rs.got[key].content })
+	own, err := ownKeys(opts.Definition, opts.Installation, resets)
+	if err != nil {
+		return nil, p, err
+	}
+	resetLeaves(driven, resets, own, base, func(key string) string { return rs.got[key].content })
 	c := &comparison{files: map[string]*fileDiff{}, dexClients: p.DexClients}
 	hub := map[string]bool{}
 	for _, f := range rendered(p) {
@@ -954,22 +958,45 @@ func drivenPaths(values, readBack map[string]any, inputs []string, base map[stri
 
 // resetLeaves attributes to each of resets — an input typed null over an
 // empty list read back, whose read-back render was refused (drivenPaths) —
-// the one leaf its reset takes out: the input's own key, by its dotted path,
-// in a file the base render lacks it in and the record holds it as the empty
-// list. No other leaf is attributed: a wrong "by this input" would hide a
-// real drift. record answers a file's content on record by file key.
-func resetLeaves(driven map[string]string, resets []string, base map[string]map[string]string, record func(key string) string) {
+// the one leaf its reset takes out: its own key, among the "file#path"
+// leaves own names for it (the places it is read back from), where the base
+// render lacks it and the record holds it as the empty list. No other leaf
+// is attributed: a wrong "by this input" would hide a real drift. record
+// answers a file's content on record by file key.
+func resetLeaves(driven map[string]string, resets []string, own map[string][]string, base map[string]map[string]string, record func(key string) string) {
 	for _, input := range resets {
-		for key, flat := range base {
-			leaf := key + "#" + input
-			if _, rendered := flat[input]; rendered || driven[leaf] != "" {
+		for _, leaf := range own[input] {
+			key, path, _ := strings.Cut(leaf, "#")
+			flat, ok := base[key]
+			if !ok || driven[leaf] != "" {
 				continue
 			}
-			if flattenYAML(record(key))[input] == "[]" {
+			if _, rendered := flat[path]; rendered {
+				continue
+			}
+			if flattenYAML(record(key))[path] == "[]" {
 				driven[leaf] = input
 			}
 		}
 	}
+}
+
+// ownKeys are the "file#path" leaves each of inputs is read back from on
+// record of the installation (installations.Capability.ReadBackPlaces).
+func ownKeys(def installations.Capability, inst installations.Installation, inputs []string) (map[string][]string, error) {
+	out := map[string][]string{}
+	for _, input := range inputs {
+		places, err := def.ReadBackPlaces(input, inst)
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range places {
+			for _, k := range p.Keys {
+				out[input] = append(out[input], fileKey(p.Repository, p.Path)+"#"+k)
+			}
+		}
+	}
+	return out, nil
 }
 
 type leaf struct {

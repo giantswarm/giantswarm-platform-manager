@@ -829,9 +829,10 @@ func TestDrivenPathsTriesATypedNullWithItsValueReadBack(t *testing.T) {
 }
 
 // The render refuses the empty list read back (another input needs it to
-// hold an entry): the input is a reset, and only its own key — absent from
-// the render, the empty list on record — is attributed to it. A sibling
-// empty list on record, or the key on record with entries, stays drift.
+// hold an entry): the input is a reset, and only its own key — in the file it
+// is read back from, absent from the render, the empty list on record — is
+// attributed to it. A sibling empty list on record, or the same key empty in
+// another file, stays drift.
 func TestResetLeavesAttributeOnlyTheInputsOwnKey(t *testing.T) {
 	const users, leafKey, file, other = "tenants.platform.users", "users", "r:tenants", "r:other"
 	values := nullUsers(leafKey)
@@ -849,11 +850,12 @@ func TestResetLeavesAttributeOnlyTheInputsOwnKey(t *testing.T) {
 		t.Fatalf("driven %v resets %v, want users the one reset", driven, resets)
 	}
 	record := map[string]string{
-		file:  "heading: platform\ntenants:\n  platform:\n    users: []\n    byHand: []\n",
-		other: "kept: yes\ntenants:\n  platform:\n    users:\n    - someone\n",
+		file:  "heading: tenant\ntenants:\n  platform:\n    users: []\n    byHand: []\n",
+		other: "kept: yes\ntenants:\n  platform:\n    users: []\n",
 	}
-	resetLeaves(driven, resets, base, func(key string) string { return record[key] })
-	rendered := map[string]string{file: "heading: platform\n", other: "kept: yes\n"}
+	own := map[string][]string{users: {file + "#" + users}}
+	resetLeaves(driven, resets, own, base, func(key string) string { return record[key] })
+	rendered := map[string]string{file: "heading: tenant\n", other: "kept: yes\n"}
 	byPath := map[string]string{}
 	for _, key := range []string{file, other} {
 		diffs, _ := differences(key, rendered[key], record[key], driven)
@@ -864,10 +866,17 @@ func TestResetLeavesAttributeOnlyTheInputsOwnKey(t *testing.T) {
 	want := map[string]string{
 		file + "#" + users:                users,
 		file + "#tenants.platform.byHand": "",
-		other + "#" + users + "[someone]": "",
+		other + "#" + users:               "",
 	}
 	if !reflect.DeepEqual(byPath, want) {
 		t.Errorf("attributed %v, want %v", byPath, want)
+	}
+
+	delete(driven, file+"#"+users)
+	record[file] = "heading: tenant\ntenants:\n  platform:\n    users:\n    - someone\n"
+	resetLeaves(driven, resets, own, base, func(key string) string { return record[key] })
+	if len(driven) != 0 {
+		t.Errorf("the key on record with entries: %v, want nothing attributed", driven)
 	}
 }
 

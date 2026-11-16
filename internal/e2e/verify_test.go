@@ -556,18 +556,24 @@ func TestVerifyCapabilityNamesATypedNullWhoseReadBackIsRefused(t *testing.T) {
 	const users, byHand = "tenants.platform.users", "byHand"
 	putOnRecord(t, st, c, birch, map[string]any{tenantsKey: map[string]any{platformTenant: map[string]any{usersKey: []any{}}}})
 	addByHand(t, st, usersKey+": []", byHand+": []")
+	typed := func(list any) map[string]any {
+		return map[string]any{
+			organizationsKey: map[string]any{enabledKey: true},
+			tenantsKey:       map[string]any{platformTenant: map[string]any{usersKey: list}},
+		}
+	}
+	if res := verifyWith(t, c, birch, typed([]any{})); res.Refused == "" {
+		t.Fatal("the organizations on with the users empty are not refused: the case this test covers is gone")
+	}
 
-	res := verifyWith(t, c, birch, map[string]any{
-		organizationsKey: map[string]any{enabledKey: true},
-		tenantsKey:       map[string]any{platformTenant: map[string]any{usersKey: nil}},
-	})
+	res := verifyWith(t, c, birch, typed(nil))
 	if res.Refused != "" {
 		t.Fatalf("refused: %s", res.Refused)
 	}
 	var seenUsers, seenByHand bool
 	for _, diff := range allDifferences(res) {
 		switch {
-		case strings.HasSuffix(diff.Path, users):
+		case diff.Path == users:
 			seenUsers = true
 			if diff.Input != users {
 				t.Errorf("%s#%s is %q, want %s", diff.File, diff.Path, diff.Input, users)
