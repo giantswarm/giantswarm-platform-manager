@@ -86,7 +86,7 @@ func (in *Input) grantsGitHub() bool { return in.Installation.Hub || in.portalGi
 // brokers says whether muster runs the token broker: for the targets, or
 // for the hosted portal's GitHub.
 func (in *Input) brokers() bool {
-	return in.federationBrokers() || in.AgentManagerTokenExchange
+	return in.federationBrokers() || in.hasManagerGrantExchange()
 }
 
 func (in *Input) federationBrokers() bool {

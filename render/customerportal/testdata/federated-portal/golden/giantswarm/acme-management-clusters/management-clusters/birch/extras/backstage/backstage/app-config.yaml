@@ -84,7 +84,7 @@ data:
                   url: https://kubernetes-cedarwood.agent-platform.svc.cluster.local:8443
                   authProvider: oidc
                   oidcTokenProvider: oidc-cedarwood
-                  skipTLSVerify: true
+                  caFile: /app/tunnelport-spiffe-bundle/svid_bundle.pem
         auth:
           environment: production
           session:

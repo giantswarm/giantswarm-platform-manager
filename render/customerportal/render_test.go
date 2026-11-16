@@ -251,9 +251,9 @@ func TestExtraEnvVarsOwnership(t *testing.T) {
 	}{
 		{"platform and tunnel", "giantswarm-owned-with-platform", nil, nil, []map[string]any{avatars, ca}},
 		{"neither", "customer-portal", nil, nil, nil},
-		{"a sibling's platform alone", "federated-portal", nil, nil, []map[string]any{sibling}},
+		{"a sibling's platform and tunnel", "federated-portal", nil, nil, []map[string]any{sibling, ca}},
 		{"tunnel alone", "", tunnelOnly, portalSecrets, []map[string]any{ca}},
-		{"own and a sibling's platform", "", bothPlatforms, federatedSecrets, []map[string]any{ownAndSibling}},
+		{"own and a sibling's platform", "", bothPlatforms, federatedSecrets, []map[string]any{ownAndSibling, ca}},
 	} {
 		input, secrets := c.input, c.secrets
 		if c.shape != "" {
@@ -742,6 +742,11 @@ func TestRefusals(t *testing.T) {
 		{"sentry without its values", clone(func(m map[string]any) { m["plugins"].(map[string]any)["sentry"] = map[string]any{enabledKey: true} }), secrets, ErrEmptySecret, fieldSentryAppDSN},
 		{"providers without the installation's own", clone(func(m map[string]any) { m["installation"].(map[string]any)["providers"] = []any{"capv"} }), secrets, ErrInput, "installation.providers"},
 		{"federation lists the portal's own installation", clone(func(m map[string]any) { m["federation"] = federation(map[string]any{}, "maple") }), secrets, ErrInput, "federation.installations"},
+		{"private installation without the CA bundle", clone(func(m map[string]any) {
+			m["tunnel"] = map[string]any{enabledKey: false}
+			m["federation"] = federation(map[string]any{}, "alder")
+			m["federation"].(map[string]any)["installations"].([]any)[0].(map[string]any)["private"] = true
+		}), secrets, ErrInput, "tunnel.enabled"},
 		{"sign-in through an installation the portal does not show", clone(func(m map[string]any) {
 			m["federation"] = federation(map[string]any{"signInInstallation": "elm"}, "alder")
 		}), secrets, ErrInput, "federation.signInInstallation"},

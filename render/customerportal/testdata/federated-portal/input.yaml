@@ -36,7 +36,7 @@ input:
     flux: {enabled: false}
     sentry: {enabled: false}
   tunnel:
-    enabled: false
+    enabled: true
   federation:
     installations:
       - name: alder

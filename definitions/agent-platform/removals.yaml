@@ -39,9 +39,23 @@
 # given. It holds a removal that comes with a chart release the installation may not run yet.
 removals:
   # --- former inputs: migrations ---
+  - key: configmap:cluster-manager.githubTokenExchange
+    kind: migration
+    reason: "Moved: cluster-manager's grant exchange is cluster-manager.github.tokenExchange with audience cluster-manager"
+  - key: configmap:model-manager.githubTokenExchange
+    kind: migration
+    reason: "Moved: model-manager's grant exchange is model-manager.github.tokenExchange with audience model-manager"
+  - key: configmap:skill-manager.githubTokenExchange
+    kind: migration
+    reason: "Moved: skill-manager's grant exchange is skill-manager.github.tokenExchange with audience skill-manager and the existing skills App"
   - key: configmap:components.agent-sandbox
     kind: migration
     reason: "Removed: components.agent-sandbox switches the agent sandbox on here; the sandbox is retired from the fleet, nothing replaces it, and it stops on the one installation running it · M13"
+  - key: configmap:agent-manager.githubTokenExchange
+    kind: migration
+    reason: >-
+      Moved: agent-manager.githubTokenExchange fetches the person's grant of agent-manager's GitHub App from muster's broker here; the agent-manager
+      chart takes it as agent-manager.github.tokenExchange with github.enabled on, the broker target named agent-manager like the provider App
   # --- M43: the meta chart declares no model from 4.175.0 on ---
   # kagent's model provider and inlined ModelConfigs stay where the installation resolves an earlier chart (a
   # hold, the 3 line), where the definition still renders kagent.providers; from 4.175.0 on the chart refuses them.

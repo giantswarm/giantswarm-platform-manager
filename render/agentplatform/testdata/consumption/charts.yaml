@@ -7,7 +7,7 @@
 charts:
   - name: mcp-kubernetes
     registry: gsoci.azurecr.io/charts/giantswarm/mcp-kubernetes
-    version: 1.14.19
+    version: 1.14.20
   - name: mcp-prometheus
     registry: gsoci.azurecr.io/charts/giantswarm/mcp-prometheus
     version: 0.12.6
@@ -35,7 +35,7 @@ charts:
   - name: agent-platform
     line: "4"
     registry: gsoci.azurecr.io/charts/giantswarm/agent-platform
-    version: 4.179.2
+    version: 4.181.1
   # The meta chart hands its connectivity child the whole platform values, Secret
   # names included, so the test renders it too; it follows the meta chart's line.
   - name: agent-platform-connectivity
@@ -45,7 +45,7 @@ charts:
   - name: agent-platform-connectivity
     line: "4"
     registry: gsoci.azurecr.io/charts/giantswarm/agent-platform-connectivity
-    version: 4.179.2
+    version: 4.181.1
   # The meta chart's children that read the platform Secrets, at the newest
   # versions inside the ranges the meta chart declares for them — per line where
   # the lines' ranges differ. renovate-custom.json5 bumps the 4 line's children in
@@ -53,7 +53,7 @@ charts:
   # with the version to pin.
   - name: muster
     registry: gsoci.azurecr.io/charts/giantswarm/muster
-    version: 5.62.6
+    version: 5.63.10
   - name: kagent
     line: "3"
     registry: gsoci.azurecr.io/charts/giantswarm/kagent
@@ -69,12 +69,12 @@ charts:
   - name: agent-manager
     line: "4"
     registry: gsoci.azurecr.io/charts/giantswarm/agent-manager
-    version: 2.24.0
+    version: 3.0.3
   # The meta chart's children the policy offers Giant Swarm-owned installations,
   # on the 4 line.
   - name: klaus-gateway
     registry: gsoci.azurecr.io/charts/giantswarm/klaus-gateway
-    version: 4.16.34
+    version: 4.17.0
   - name: cluster-manager
     registry: gsoci.azurecr.io/charts/giantswarm/cluster-manager
     version: 0.34.2
@@ -99,7 +99,7 @@ charts:
   - name: agent-platform-operator
     line: "4"
     registry: gsoci.azurecr.io/charts/giantswarm/agent-platform-operator
-    version: 0.3.1
+    version: 0.4.0
   # The 4 line's serving slice (modelServing.enabled): the llm-d control plane and
   # the well-known LLMInferenceServiceConfigs, which the meta chart hands the same
   # platform values; its models Gateway renders in the connectivity chart.
