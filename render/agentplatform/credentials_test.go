@@ -309,18 +309,19 @@ func TestValidCredentialUI(t *testing.T) {
 		"https://portal.example.com:8443/orgs/{parent}/{organization}?operation={operation}": true,
 		insecureFormURL:     false,
 		missingOperationURL: false,
-		"https://user@portal.example.com/{operation}":              false,
-		"https://portal.example.com/{operation}#fragment":          false,
-		"https://portal.example.com/credentials{?operation}":       true,
-		"https://portal.example.com/orgs{/parent,operation}":       true,
-		"https://portal.example.com/credentials/{+operation}":      true,
-		"https://portal.example.com/a b/{operation}":               false,
-		"https://portal.example.com/a|b/{operation}":               false,
-		"https://portal.example.com/{operation}?again={operation}": false,
-		"https://portal.example.com/{operation}/{foo}":             false,
-		"https://{organization}.example.com/{operation}":           false,
-		"https://{namespace}.example.com/{operation}":              false,
-		namespaceFormURL: true,
+		"https://user@portal.example.com/{operation}":                                false,
+		"https://portal.example.com/{operation}#fragment":                            false,
+		"https://portal.example.com/credentials{?operation}":                         true,
+		"https://portal.example.com/orgs{/parent,operation}":                         true,
+		"https://portal.example.com/credentials/{+operation}":                        true,
+		"https://portal.example.com/a b/{operation}":                                 false,
+		"https://portal.example.com/a|b/{operation}":                                 false,
+		"https://portal.example.com/{operation}?again={operation}":                   false,
+		"https://portal.example.com/{operation}/{foo}":                               false,
+		"https://{organization}.example.com/{operation}":                             false,
+		"https://{namespace}.example.com/{operation}":                                false,
+		"HTTPS://portal.example.com/{operation}":                                     false,
+		namespaceFormURL:                                                             true,
 		"https://portal.example.com/{namespace}/{parent}/{organization}/{operation}": true,
 	} {
 		require.Equal(t, want, validCredentialUI(template), template)
@@ -398,6 +399,11 @@ func TestInstallationCredentialFormKeepsItsVersionFloors(t *testing.T) {
 			versions: map[string]any{keyComponents: map[string]any{componentAgentManager: ">=3.0.0 <4.0.0"}},
 			refused:  "agent-manager version floor of " + namespaceFormFloor,
 		},
+		"switch on, chart before the installation form": {
+			organizations: true,
+			versions:      map[string]any{keyChart: "4.180.2"},
+			refused:       "meta chart " + installationFormChart,
+		},
 		"switch on, agent-manager before the namespace variable": {
 			organizations: true,
 			versions:      map[string]any{keyComponents: map[string]any{componentAgentManager: ">=3.1.0-rc.10 <4.0.0-0"}},
@@ -425,6 +431,26 @@ func TestInstallationCredentialFormKeepsItsVersionFloors(t *testing.T) {
 				return
 			}
 			require.ErrorContains(t, err, tc.refused)
+		})
+	}
+}
+
+func TestCredentialFormWithoutOrganizationsRefusesOrganizationVariables(t *testing.T) {
+	for _, template := range []string{
+		"https://portal.example.com/{parent}/{namespace}/{operation}",
+		"https://portal.example.com/{organization}/{namespace}/{operation}",
+		"https://portal.example.com/c/{operation}{?namespace,organization}",
+	} {
+		t.Run(template, func(t *testing.T) {
+			input, _ := loadInput(t, shapeCredentialForm)
+			input[keyOrganizations] = map[string]any{keyEnabled: false}
+			input["agentManager"] = map[string]any{keyCredentials: map[string]any{keyCredentialUI: template}}
+			_, err := Parse(input)
+			require.ErrorContains(t, err, "no {parent} or {organization}")
+
+			input[keyOrganizations] = map[string]any{keyEnabled: true}
+			_, err = Parse(input)
+			require.NoError(t, err)
 		})
 	}
 }

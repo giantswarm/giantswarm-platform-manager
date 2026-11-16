@@ -82,10 +82,13 @@ func (in *Input) validateAgentManagerCredentials() error {
 	if ui := in.AgentManagerCredentialUI; ui != "" && !in.Organizations.Enabled && !namesCredentialNamespace(ui) {
 		return refuse("agentManager.credentials.uiURL requires one {namespace} expression without organizations.enabled: the installation's model links name the namespace; add {namespace} to agentManager.credentials.uiURL, or type it empty to remove the credential form")
 	}
-	if in.AgentManagerCredentialUI != "" && !in.Organizations.Enabled && !holdAdmits(in.Versions.Chart, installationFormChart) {
-		return refuse("agentManager.credentials.uiURL without organizations.enabled requires the meta chart " + installationFormChart + " or later, and versions.chart holds an earlier one")
+	if ui := in.AgentManagerCredentialUI; ui != "" && !in.Organizations.Enabled && usesOrganizationVariables(ui) {
+		return refuse("agentManager.credentials.uiURL allows no {parent} or {organization} expression without organizations.enabled: the installation's model links have no organization to fill them")
 	}
 	if usesCredentialNamespace(in.AgentManagerCredentialUI) {
+		if !holdAdmits(in.Versions.Chart, installationFormChart) {
+			return refuse("a {namespace} expression in agentManager.credentials.uiURL requires the meta chart " + installationFormChart + " or later, and versions.chart holds an earlier one")
+		}
 		if hold := in.Versions.Components[componentAgentManager]; hold != "" && !floorAtLeast(hold, namespaceFormFloor) {
 			return refuse("a {namespace} expression in agentManager.credentials.uiURL requires an agent-manager version floor of " + namespaceFormFloor + " or later")
 		}
@@ -124,7 +127,7 @@ func validCredentialUI(template string) bool {
 		return false
 	}
 	u, err := url.Parse(expanded)
-	return err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil && u.Fragment == "" &&
+	return err == nil && strings.HasPrefix(template, "https://") && u.Host != "" && u.User == nil && u.Fragment == "" &&
 		!strings.Contains(u.Host, credentialUIMarker) && strings.Count(expanded, credentialUIMarkers[credentialOperationVariable]) == 1
 }
 
@@ -133,6 +136,13 @@ func validCredentialUI(template string) bool {
 func namesCredentialNamespace(template string) bool {
 	expanded, ok := expandCredentialUI(template)
 	return ok && strings.Count(expanded, credentialUIMarkers[credentialNamespaceVariable]) == 1
+}
+
+// usesOrganizationVariables says whether template names {parent} or
+// {organization}, which expand empty for an installation model's link.
+func usesOrganizationVariables(template string) bool {
+	parsed, err := uritemplate.New(template)
+	return err == nil && (slices.Contains(parsed.Varnames(), "parent") || slices.Contains(parsed.Varnames(), "organization"))
 }
 
 // usesCredentialNamespace says whether template names the {namespace}
