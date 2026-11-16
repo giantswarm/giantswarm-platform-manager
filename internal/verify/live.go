@@ -575,7 +575,10 @@ func renderLive(opts LiveOptions) (*liveRender, error) {
 		if err != nil {
 			return nil, err
 		}
-		lv.driven = drivenPaths(opts.Inputs.Values, opts.Inputs.ReadBack, inputs, flat, func(values map[string]any) (map[string]map[string]string, error) {
+		// The resets' leaves are not attributed here: a leaf the render
+		// lacks is no live difference (executor.differences reads the
+		// rendered leaves only), so resetLeaves has nothing to name.
+		lv.driven, _ = drivenPaths(opts.Inputs.Values, opts.Inputs.ReadBack, inputs, flat, func(values map[string]any) (map[string]map[string]string, error) {
 			_, _, other, err := renderValues(opts.Definition, values, opts.DeferredPairs...)
 			return other, err
 		})
