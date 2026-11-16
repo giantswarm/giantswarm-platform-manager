@@ -700,19 +700,19 @@ func TestDrivenPathsPerturbsOnlyTheNamedInputs(t *testing.T) {
 	}
 	base, _ := render(values)
 
-	got := drivenPaths(values, []string{servingInput, "plugins.absent"}, base, render)
+	got := drivenPaths(values, nil, []string{servingInput, "plugins.absent"}, base, render)
 	if want := map[string]string{servingLeaf: servingInput}; !reflect.DeepEqual(got, want) {
 		t.Errorf("the person's choice: %v", got)
 	}
-	got = drivenPaths(values, []string{baseDomainInput, servingInput}, base, render)
+	got = drivenPaths(values, nil, []string{baseDomainInput, servingInput}, base, render)
 	if want := map[string]string{hostLeaf: baseDomainInput, titleLeaf: baseDomainInput, servingLeaf: servingInput}; !reflect.DeepEqual(got, want) {
 		t.Errorf("the base domain typed: %v", got)
 	}
-	got = drivenPaths(values, []string{"installation"}, base, render)
+	got = drivenPaths(values, nil, []string{"installation"}, base, render)
 	if want := map[string]string{hostLeaf: baseDomainInput, titleLeaf: baseDomainInput, repoLeaf: customerInput, "r:values#org": customerInput}; !reflect.DeepEqual(got, want) {
 		t.Errorf("a mapping's leaves: %v", got)
 	}
-	if got := drivenPaths(values, nil, base, render); len(got) != 0 {
+	if got := drivenPaths(values, nil, nil, base, render); len(got) != 0 {
 		t.Errorf("no input named: %v", got)
 	}
 }
@@ -742,7 +742,7 @@ func TestDrivenPathsRenamesAListThatCannotBeLeftOut(t *testing.T) {
 	}
 	base, _ := render(values)
 	renders = 0
-	got := drivenPaths(values, []string{viewers}, base, render)
+	got := drivenPaths(values, nil, []string{viewers}, base, render)
 	for _, leaf := range []string{"r:values#viewers[people].kind", "r:values#viewers[people].name"} {
 		if got[leaf] != viewers {
 			t.Errorf("refused out: %s is %q in %v", leaf, got[leaf], got)
@@ -753,9 +753,69 @@ func TestDrivenPathsRenamesAListThatCannotBeLeftOut(t *testing.T) {
 	}
 	delete(values, "users")
 	renders = 0
-	got = drivenPaths(values, []string{viewers}, base, render)
+	got = drivenPaths(values, nil, []string{viewers}, base, render)
 	if got["r:values#viewers[people].name"] != viewers || renders != 1 {
 		t.Errorf("left out: %v after %d renders, want the removal alone", got, renders)
+	}
+}
+
+// Two entries that share a name are keyed by index (keys); the rename gives
+// each a name of its own, so every leaf of both — kind and namespace too —
+// is the list's, and none reads as drift.
+func TestDrivenPathsRenamesEntriesThatShareAName(t *testing.T) {
+	const viewers, file, namespaceKey = "viewers", "r:viewers", "namespace"
+	runner := func(ns string) map[string]any {
+		return map[string]any{kindPath: "ServiceAccount", keyName: "runner", namespaceKey: ns}
+	}
+	values := map[string]any{viewers: []any{runner("team-a"), runner("team-b")}}
+	render := func(v map[string]any) (map[string]map[string]string, error) {
+		list, ok := v[viewers].([]any)
+		if !ok {
+			return nil, errors.New("no viewer")
+		}
+		flat := map[string]string{}
+		flatten(map[string]any{viewers: list}, "", flat)
+		return map[string]map[string]string{file: flat}, nil
+	}
+	base, _ := render(values)
+	if len(base[file]) != 6 {
+		t.Fatalf("the render: %v", base)
+	}
+	got := drivenPaths(values, nil, []string{viewers}, base, render)
+	for p := range base[file] {
+		if got[file+"#"+p] != viewers {
+			t.Errorf("%s is %q, want the list's input: %v", p, got[file+"#"+p], got)
+		}
+	}
+}
+
+// A recorded empty list typed null renders as left out: the leaf it removes
+// is the input's, tried with its value read back. A leaf no input moves is
+// still nobody's, and reads as drift.
+func TestDrivenPathsTriesATypedNullWithItsValueReadBack(t *testing.T) {
+	const users, leafKey, file, heading = "tenants.platform.users", "users", "r:tenants", "heading"
+	values := map[string]any{"tenants": map[string]any{"platform": map[string]any{leafKey: nil}}}
+	render := func(v map[string]any) (map[string]map[string]string, error) {
+		flat := map[string]string{heading: "platform"}
+		if u, ok := lookup(v, strings.Split(users, ".")); ok && u != nil {
+			flatten(map[string]any{leafKey: u}, "", flat)
+		}
+		return map[string]map[string]string{file: flat}, nil
+	}
+	base, _ := render(values)
+
+	got := drivenPaths(values, map[string]any{users: []any{}}, []string{users}, base, render)
+	diffs, _ := differences(file, "heading: platform\n", "users: []\nheading: platforms\n", got)
+	byPath := map[string]string{}
+	for _, d := range diffs {
+		byPath[d.Path] = d.Input
+	}
+	if want := map[string]string{leafKey: users, heading: ""}; !reflect.DeepEqual(byPath, want) {
+		t.Errorf("read back: %v, want users the input's and heading drift", byPath)
+	}
+
+	if got := drivenPaths(values, nil, []string{users}, base, render); len(got) != 0 {
+		t.Errorf("nothing read back: %v, want nothing attributed", got)
 	}
 }
 
