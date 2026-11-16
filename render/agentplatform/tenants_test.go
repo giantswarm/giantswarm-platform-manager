@@ -149,3 +149,58 @@ func TestPlatformTenantStands(t *testing.T) {
 		}
 	}
 }
+
+// TestPlatformTenantBroadGroups refuses a broad system group in the
+// editors and the platform team, naming the input, the entry and the group,
+// and keeps it in the users and the viewers, where system:authenticated is
+// the chart's default. A User named like a broad group, or a group whose
+// name only starts like one, is no broad group.
+func TestPlatformTenantBroadGroups(t *testing.T) {
+	editors := func(m map[string]any, list []any) {
+		m[keyTenants].(map[string]any)[keyPlatform].(map[string]any)["editors"] = list
+	}
+	platformTeam := func(m map[string]any, list []any) {
+		m[keyTenants].(map[string]any)["platformTeam"] = list
+	}
+	other := subject(rbacGroup, subjectGroup, "oidc:example-operators")
+	for _, group := range []string{"system:authenticated", "system:unauthenticated", "system:serviceaccounts", "system:serviceaccounts:example-agents"} {
+		for _, c := range []struct {
+			input string
+			set   func(m map[string]any, list []any)
+		}{
+			{inputPlatformEditors, editors},
+			{inputPlatformTeam, platformTeam},
+		} {
+			t.Run(c.input+" "+group, func(t *testing.T) {
+				input, secrets := loadInput(t, shapePlatformTenantRetired)
+				c.set(input, []any{other, subject("", subjectGroup, group)})
+				_, err := Render(input, secrets, render.ModeCommit)
+				if !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "entry 1 of ") || !strings.Contains(err.Error(), "("+c.input+") is the group "+group+",") {
+					t.Fatalf("got %v, want ErrInput naming entry 1 of %s and the group %s", err, c.input, group)
+				}
+			})
+		}
+	}
+	everyone := subject(rbacGroup, subjectGroup, "system:authenticated")
+	for _, c := range []struct {
+		name   string
+		mutate func(m map[string]any)
+	}{
+		{"the users take everyone", func(m map[string]any) { platformUsers(m, []any{everyone}) }},
+		{"the viewers take everyone", func(m map[string]any) { m[keyViewers] = []any{everyone} }},
+		{"an editor User named like the group", func(m map[string]any) {
+			editors(m, []any{subject(rbacGroup, subjectUser, "system:authenticated")})
+		}},
+		{"a platform-team group named past the prefix", func(m map[string]any) {
+			platformTeam(m, []any{subject(rbacGroup, subjectGroup, "system:serviceaccountsx")})
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			input, secrets := loadInput(t, shapePlatformTenantRetired)
+			c.mutate(input)
+			if _, err := Render(input, secrets, render.ModeCommit); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
