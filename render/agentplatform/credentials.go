@@ -38,6 +38,10 @@ const (
 	managerExchangeFloor  = "3.0.0-rc.10"
 	// The broker must release provider App grants and decode Basic credentials.
 	musterGrantFloor = "5.63.2"
+	// The first meta chart that renders uiURL without organizations, and the
+	// first agent-manager that starts with a {namespace} variable in it.
+	installationFormChart = "4.182.0-rc.1"
+	namespaceFormFloor    = "3.1.0-rc.11"
 )
 
 func (in *Input) validateAgentManagerCredentials() error {
@@ -77,6 +81,14 @@ func (in *Input) validateAgentManagerCredentials() error {
 	}
 	if ui := in.AgentManagerCredentialUI; ui != "" && !in.Organizations.Enabled && !namesCredentialNamespace(ui) {
 		return refuse("agentManager.credentials.uiURL requires one {namespace} expression without organizations.enabled: the installation's model links name the namespace; add {namespace} to agentManager.credentials.uiURL, or type it empty to remove the credential form")
+	}
+	if in.AgentManagerCredentialUI != "" && !in.Organizations.Enabled && !holdAdmits(in.Versions.Chart, installationFormChart) {
+		return refuse("agentManager.credentials.uiURL without organizations.enabled requires the meta chart " + installationFormChart + " or later, and versions.chart holds an earlier one")
+	}
+	if usesCredentialNamespace(in.AgentManagerCredentialUI) {
+		if hold := in.Versions.Components[componentAgentManager]; hold != "" && !floorAtLeast(hold, namespaceFormFloor) {
+			return refuse("a {namespace} expression in agentManager.credentials.uiURL requires an agent-manager version floor of " + namespaceFormFloor + " or later")
+		}
 	}
 	return nil
 }
@@ -121,6 +133,13 @@ func validCredentialUI(template string) bool {
 func namesCredentialNamespace(template string) bool {
 	expanded, ok := expandCredentialUI(template)
 	return ok && strings.Count(expanded, credentialUIMarkers[credentialNamespaceVariable]) == 1
+}
+
+// usesCredentialNamespace says whether template names the {namespace}
+// variable in any expression.
+func usesCredentialNamespace(template string) bool {
+	parsed, err := uritemplate.New(template)
+	return err == nil && slices.Contains(parsed.Varnames(), credentialNamespaceVariable)
 }
 
 // expandCredentialUI expands template with a marker for each variable; it

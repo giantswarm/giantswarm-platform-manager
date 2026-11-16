@@ -383,3 +383,56 @@ func configmapPatch(t *testing.T, result *render.Result, name string) map[string
 	t.Fatalf("no configmap patch rendered for %s", name)
 	return nil
 }
+
+func TestInstallationCredentialFormKeepsItsVersionFloors(t *testing.T) {
+	for name, tc := range map[string]struct {
+		organizations bool
+		versions      map[string]any
+		refused       string
+	}{
+		"switch off, chart before the installation form": {
+			versions: map[string]any{keyChart: "4.181.2"},
+			refused:  "meta chart " + installationFormChart,
+		},
+		"switch off, agent-manager before the namespace variable": {
+			versions: map[string]any{keyComponents: map[string]any{componentAgentManager: ">=3.0.0 <4.0.0"}},
+			refused:  "agent-manager version floor of " + namespaceFormFloor,
+		},
+		"switch on, agent-manager before the namespace variable": {
+			organizations: true,
+			versions:      map[string]any{keyComponents: map[string]any{componentAgentManager: ">=3.1.0-rc.10 <4.0.0-0"}},
+			refused:       "agent-manager version floor of " + namespaceFormFloor,
+		},
+		"switch off, both floors": {
+			versions: map[string]any{keyChart: ">=4.182.0-rc.1 <5.0.0-0", keyComponents: map[string]any{componentAgentManager: ">=3.1.0-rc.11 <4.0.0-0"}},
+		},
+		"switch off, both finals": {
+			versions: map[string]any{keyChart: "4.182.0", keyComponents: map[string]any{componentAgentManager: ">=3.1.0 <4.0.0"}},
+		},
+		"switch on, agent-manager floor": {
+			organizations: true,
+			versions:      map[string]any{keyComponents: map[string]any{componentAgentManager: ">=3.1.0 <4.0.0"}},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			input, _ := loadInput(t, shapeCredentialForm)
+			input[keyOrganizations] = map[string]any{keyEnabled: tc.organizations}
+			input["agentManager"] = map[string]any{keyCredentials: map[string]any{keyCredentialUI: namespaceFormURL}}
+			input["versions"] = tc.versions
+			_, err := Parse(input)
+			if tc.refused == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tc.refused)
+		})
+	}
+}
+
+func TestOrganizationOnlyCredentialFormNeedsNoNamespaceFloor(t *testing.T) {
+	input, _ := credentialInput(t, shapeGiantswarmSlackAppPub)
+	input["agentManager"].(map[string]any)[keyGitHub] = map[string]any{keyTokenExchange: map[string]any{keyEnabled: false}}
+	input["versions"] = map[string]any{keyComponents: map[string]any{componentAgentManager: ">=3.0.0 <4.0.0"}}
+	_, err := Parse(input)
+	require.NoError(t, err)
+}
