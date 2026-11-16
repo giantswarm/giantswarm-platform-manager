@@ -311,6 +311,7 @@ type Installation struct {
 	Files                []File            `json:"files"`
 	Includes             []Include         `json:"includes"`
 	GeneratedSecrets     []GeneratedSecret `json:"generatedSecrets"`
+	DeferredPairs        []DeferredPair    `json:"deferredPairs,omitempty"`
 	UnresolvedReferences []string          `json:"unresolvedReferences,omitempty"`
 	// SuppliedSecrets names, by field, the values the person supplies at
 	// commit: the secrets, and an input that lives only in an encrypted file
@@ -477,6 +478,9 @@ type Options struct {
 	// Installations are the registry's installations by name: where a
 	// generated value's peer (render.Peer) is on record.
 	Installations map[string]installations.Installation
+	// PlanInstallations names the installations rendered together. Nil keeps
+	// the full comparison without deferring pairs outside a commit's set.
+	PlanInstallations map[string]bool
 }
 
 // markerOnRecord says whether the capability is on record for the
@@ -551,6 +555,14 @@ func Build(ctx context.Context, opts Options) Installation {
 			return current.content, current.err
 		}
 		return uncachedRead(ctx, repository, path)
+	}
+	res, p.DeferredPairs, err = deferPairs(ctx, opts, res)
+	if err != nil {
+		p.Refused = err.Error()
+		return p
+	}
+	for _, deferred := range p.DeferredPairs {
+		delete(peers, deferred.Name)
 	}
 	generated := map[string]*GeneratedSecret{}
 	revisions := map[string]bool{} // the credentials revisions the render names

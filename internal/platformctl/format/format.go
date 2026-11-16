@@ -204,6 +204,12 @@ func (p *printer) installation(inst plan.Installation, features []verify.Feature
 	for _, inc := range inst.Includes {
 		p.f("  Includes: %s:%s %s %s (%s)\n", inc.Repository, inc.Path, inc.List, inc.Resource, inc.Change)
 	}
+	if len(inst.DeferredPairs) > 0 {
+		p.f("  Deferred pairs:\n")
+		for _, deferred := range inst.DeferredPairs {
+			p.f("    %s: %s (%s)\n", deferred.Name, deferred.Reason, strings.Join(deferred.Files, ", "))
+		}
+	}
 	if len(inst.GeneratedSecrets) > 0 {
 		p.f("  Generated at commit:\n")
 		for _, g := range inst.GeneratedSecrets {

@@ -24,6 +24,19 @@ type DryRun struct {
 	ByDesign int `json:"byDesign,omitempty"`
 }
 
+func deferredPairNames(plans []DryRun) map[string][]string {
+	var names map[string][]string
+	for _, planned := range plans {
+		for _, pair := range planned.DeferredPairs {
+			if names == nil {
+				names = map[string][]string{}
+			}
+			names[planned.Name] = append(names[planned.Name], pair.Name)
+		}
+	}
+	return names
+}
+
 // compare is the one computation verify_capability and the dry runs answer:
 // the inputs from the record, the read-back and the person's typed inputs;
 // the plan built once and read against the repositories as the caller; each
@@ -44,7 +57,7 @@ func (t *Tools) compare(ctx context.Context, env *planned, r installations.Repor
 	}
 	env.inputs[r.Name] = values
 	in := verify.Inputs{Source: verify.Source(len(back) > 0, len(typed) > 0), Values: values, ReadBack: back, Unset: unset, Typed: typed}
-	res := verify.Compare(ctx, verify.Options{Definition: def, Installation: r.Installation, Hub: env.hub, State: capabilityState(r, def.Name), Inputs: in, Read: read, Content: content, Probes: t.d.Probes, Rotate: rotate, ForceJoin: force.join, ForceSwitchOff: force.switchOff, Installations: env.byName})
+	res := verify.Compare(ctx, verify.Options{Definition: def, Installation: r.Installation, Hub: env.hub, State: capabilityState(r, def.Name), Inputs: in, Read: read, Content: content, Probes: t.d.Probes, Rotate: rotate, ForceJoin: force.join, ForceSwitchOff: force.switchOff, Installations: env.byName, PlanInstallations: env.planInstallations})
 	res.Caller = identity.Caller(ctx)
 	p := res.Plan()
 	switch {
