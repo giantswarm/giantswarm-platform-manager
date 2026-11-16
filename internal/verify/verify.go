@@ -547,10 +547,11 @@ func compare(ctx context.Context, opts Options, rms, migs plannedKeys) (*compari
 	if err != nil {
 		return nil, p, err
 	}
-	driven := drivenPaths(opts.Inputs.Values, opts.Inputs.ReadBack, inputs, base, func(values map[string]any) (map[string]map[string]string, error) {
+	driven, resets := drivenPaths(opts.Inputs.Values, opts.Inputs.ReadBack, inputs, base, func(values map[string]any) (map[string]map[string]string, error) {
 		_, other, err := build(ctx, opts, values, rs.recorded)
 		return other, err
 	})
+	resetLeaves(driven, resets, base, func(key string) string { return rs.got[key].content })
 	c := &comparison{files: map[string]*fileDiff{}, dexClients: p.DexClients}
 	hub := map[string]bool{}
 	for _, f := range rendered(p) {
@@ -895,17 +896,23 @@ func drivenInputs(def installations.Capability, in Inputs) ([]string, error) {
 // also tried with the empty list read back (readBack, by dotted key), so the
 // reset it renders is its. Only a typed null holds nil over a read-back
 // value, as the read-back is laid over every person input; any other value
-// read back is left alone.
-func drivenPaths(values, readBack map[string]any, inputs []string, base map[string]map[string]string, render flatRender) map[string]string {
+// read back is left alone. The render may refuse the empty list read back for
+// another input's sake (the organizations switched on in the same call, which
+// need a viewer of muster's MCP servers): such an input is among the resets,
+// by dotted key, whose own key resetLeaves attributes against the record.
+func drivenPaths(values, readBack map[string]any, inputs []string, base map[string]map[string]string, render flatRender) (map[string]string, []string) {
 	type best struct {
 		input string
 		n     int
 	}
 	bests := map[string]best{}
+	var resets []string
 	for _, l := range inputLeaves(values, inputs) {
 		alts := perturbations(l.value)
+		backAt := -1
 		if l.value == nil {
 			if back, isList := readBack[strings.Join(l.path, ".")].([]any); isList && len(back) == 0 {
+				backAt = len(alts)
 				alts = append(alts, back)
 			}
 		}
@@ -914,6 +921,9 @@ func drivenPaths(values, readBack map[string]any, inputs []string, base map[stri
 			set(raw, l.path, alts[i])
 			other, err := render(raw)
 			if err != nil {
+				if i == backAt {
+					resets = append(resets, strings.Join(l.path, "."))
+				}
 				// Leaving a list of named entries out is refused for
 				// another input's sake (muster's MCP-server viewers, which
 				// tenants.platform.users stand in for while they are
@@ -939,7 +949,27 @@ func drivenPaths(values, readBack map[string]any, inputs []string, base map[stri
 	for k, b := range bests {
 		out[k] = b.input
 	}
-	return out
+	return out, resets
+}
+
+// resetLeaves attributes to each of resets — an input typed null over an
+// empty list read back, whose read-back render was refused (drivenPaths) —
+// the one leaf its reset takes out: the input's own key, by its dotted path,
+// in a file the base render lacks it in and the record holds it as the empty
+// list. No other leaf is attributed: a wrong "by this input" would hide a
+// real drift. record answers a file's content on record by file key.
+func resetLeaves(driven map[string]string, resets []string, base map[string]map[string]string, record func(key string) string) {
+	for _, input := range resets {
+		for key, flat := range base {
+			leaf := key + "#" + input
+			if _, rendered := flat[input]; rendered || driven[leaf] != "" {
+				continue
+			}
+			if flattenYAML(record(key))[input] == "[]" {
+				driven[leaf] = input
+			}
+		}
+	}
 }
 
 type leaf struct {

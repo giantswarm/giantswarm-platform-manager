@@ -542,6 +542,75 @@ func TestVerifyCapabilityNamesATypedNullOverARecordedEmptyList(t *testing.T) {
 	}
 }
 
+// The platform tenant's users recorded empty and typed null in the call that
+// switches the organizations on, with muster's MCP-server viewers unset: the
+// render with the empty list read back is refused (the organizations need a
+// viewer), yet the users key the reset takes out is still the users' input.
+// A leaf changed by hand on record beside it — an empty list too, under the
+// same tenant — is nobody's, and stays drift.
+func TestVerifyCapabilityNamesATypedNullWhoseReadBackIsRefused(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	birchByHand(t, st, c, false)
+	const users, byHand = "tenants.platform.users", "byHand"
+	putOnRecord(t, st, c, birch, map[string]any{tenantsKey: map[string]any{platformTenant: map[string]any{usersKey: []any{}}}})
+	addByHand(t, st, usersKey+": []", byHand+": []")
+
+	res := verifyWith(t, c, birch, map[string]any{
+		organizationsKey: map[string]any{enabledKey: true},
+		tenantsKey:       map[string]any{platformTenant: map[string]any{usersKey: nil}},
+	})
+	if res.Refused != "" {
+		t.Fatalf("refused: %s", res.Refused)
+	}
+	var seenUsers, seenByHand bool
+	for _, diff := range allDifferences(res) {
+		switch {
+		case strings.HasSuffix(diff.Path, users):
+			seenUsers = true
+			if diff.Input != users {
+				t.Errorf("%s#%s is %q, want %s", diff.File, diff.Path, diff.Input, users)
+			}
+		case strings.Contains(diff.Path, byHand):
+			seenByHand = true
+			if diff.Input != "" || diff.Planned != "" {
+				t.Errorf("%s#%s is %q / %q, want drift", diff.File, diff.Path, diff.Input, diff.Planned)
+			}
+		}
+	}
+	if !seenUsers || !seenByHand {
+		t.Fatalf("the comparison shows the users' difference %t and the leaf by hand %t, want both", seenUsers, seenByHand)
+	}
+}
+
+// addByHand writes line beside the one line on record that is after, with
+// its indentation: a change by hand to the file that holds it.
+func addByHand(t *testing.T, st *stack, after, line string) {
+	t.Helper()
+	st.ghs.mu.Lock()
+	defer st.ghs.mu.Unlock()
+	var n int
+	for _, files := range st.ghs.files {
+		for path, content := range files {
+			lines := strings.Split(content, "\n")
+			for i, l := range lines {
+				if strings.TrimSpace(l) != after {
+					continue
+				}
+				n++
+				indent := l[:len(l)-len(strings.TrimLeft(l, " "))]
+				lines = slices.Insert(lines, i+1, indent+line)
+				files[path] = strings.Join(lines, "\n")
+				break
+			}
+		}
+	}
+	if n != 1 {
+		t.Fatalf("%d lines %q on record, want one", n, after)
+	}
+}
+
 // allDifferences are every difference of res, over its features and dimensions.
 func allDifferences(res verify.Result) []verify.Difference {
 	var out []verify.Difference
