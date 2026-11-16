@@ -2,6 +2,7 @@ package agentplatform
 
 import (
 	"fmt"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/util/validation"
 
@@ -110,7 +111,11 @@ func (in *Input) platformTenantValues(m render.Map) render.Map {
 // chart binds them in kagent's namespace only), a subject the API server
 // refuses in a RoleBinding, and, with the organizations on, no viewer of
 // muster's MCP servers: the meta chart fails the render then
-// (agent-platform.muster.organizations).
+// (agent-platform.muster.organizations). The editors and the platform team
+// refuse a broad system group too (broadGroup): their binding grants
+// agent-platform:editor in kagent's namespace and, to the platform team, the
+// edit of muster's MCP servers and workflows. The users and the viewers take one; system:authenticated
+// is the chart's default there.
 func (in *Input) checkPlatformTenant() error {
 	t := in.PlatformTenant
 	for _, c := range []struct {
@@ -139,6 +144,12 @@ func (in *Input) checkPlatformTenant() error {
 			if err := checkSubject(s); err != "" {
 				return refuse(fmt.Sprintf("entry %d of %s is a subject the API server refuses in a RoleBinding: %s", i, describe(c.input), err))
 			}
+			if c.input != inputPlatformEditors && c.input != inputPlatformTeam {
+				continue
+			}
+			if who := broadGroup(s); who != "" {
+				return refuse(fmt.Sprintf("entry %d of %s is the group %s, which is %s; an editor's binding grants them agent-platform:editor, so name the operators' own groups or users", i, describe(c.input), s.Name, who))
+			}
 		}
 	}
 	if in.Organizations.Enabled && len(in.musterViewers()) == 0 {
@@ -158,7 +169,7 @@ func (in *Input) musterViewers() []Subject {
 	case t.Users != nil:
 		return *t.Users
 	}
-	return []Subject{{APIGroup: rbacGroup, Kind: subjectGroup, Name: "system:authenticated"}}
+	return []Subject{{APIGroup: rbacGroup, Kind: subjectGroup, Name: groupAuthenticated}}
 }
 
 // emptyViewers says which empty list leaves muster's MCP servers without a
@@ -168,6 +179,35 @@ func (in *Input) emptyViewers() string {
 		return describe(inputMusterViewers) + " are an empty list"
 	}
 	return describe(inputPlatformUsers) + " are an empty list while " + describe(inputMusterViewers) + " are unset, so the users are the viewers; set " + inputMusterViewers + " first"
+}
+
+// The broad system groups: the API server puts every request, or every
+// ServiceAccount's, in one of them.
+const (
+	groupAuthenticated   = "system:authenticated"
+	groupUnauthenticated = "system:unauthenticated"
+	groupServiceAccounts = "system:serviceaccounts"
+)
+
+// broadGroup says who a broad system group is, for a Group subject that
+// names one (system:authenticated, system:unauthenticated,
+// system:serviceaccounts or system:serviceaccounts:<namespace>); empty for
+// any other subject.
+func broadGroup(s Subject) string {
+	if s.Kind != subjectGroup {
+		return ""
+	}
+	switch {
+	case s.Name == groupAuthenticated:
+		return "every signed-in person and every ServiceAccount"
+	case s.Name == groupUnauthenticated:
+		return "every request that is not signed in"
+	case s.Name == groupServiceAccounts:
+		return "every ServiceAccount of the cluster"
+	case strings.HasPrefix(s.Name, groupServiceAccounts+":"):
+		return "every ServiceAccount of the namespace " + strings.TrimPrefix(s.Name, groupServiceAccounts+":")
+	}
+	return ""
 }
 
 // checkSubject is what the API server refuses of a RoleBinding's subject
