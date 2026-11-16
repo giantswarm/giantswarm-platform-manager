@@ -817,6 +817,9 @@ func TestDrivenPathsTriesATypedNullWithItsValueReadBack(t *testing.T) {
 	if got := drivenPaths(values, nil, []string{users}, base, render); len(got) != 0 {
 		t.Errorf("nothing read back: %v, want nothing attributed", got)
 	}
+	if got := drivenPaths(values, map[string]any{users: []any{"someone"}}, []string{users}, base, render); len(got) != 0 {
+		t.Errorf("a list with entries read back: %v, want nothing attributed", got)
+	}
 }
 
 // The plan fetches its files from several goroutines at once; the cache

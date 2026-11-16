@@ -885,9 +885,12 @@ func drivenInputs(def installations.Capability, in Inputs) ([]string, error) {
 // its value changed — and the leaves whose render changes are its. A leaf
 // several inputs drive is attributed to the most specific one — the input
 // whose perturbation changes the fewest leaves. A rendered leaf none of them
-// moves is nobody's: drift when it is off the record. A leaf typed null,
-// which renders as left out, is also tried with its value read back
-// (readBack, by dotted key), so the reset it renders is its.
+// moves is nobody's: drift when it is off the record. A recorded empty list
+// typed null renders as left out, so leaving it out moves nothing: it is
+// also tried with the empty list read back (readBack, by dotted key), so the
+// reset it renders is its. Only a typed null holds nil over a read-back
+// value, as the read-back is laid over every person input; any other value
+// read back is left alone.
 func drivenPaths(values, readBack map[string]any, inputs []string, base map[string]map[string]string, render flatRender) map[string]string {
 	type best struct {
 		input string
@@ -897,7 +900,7 @@ func drivenPaths(values, readBack map[string]any, inputs []string, base map[stri
 	for _, l := range inputLeaves(values, inputs) {
 		alts := perturbations(l.value)
 		if l.value == nil {
-			if back := readBack[strings.Join(l.path, ".")]; back != nil {
+			if back, isList := readBack[strings.Join(l.path, ".")].([]any); isList && len(back) == 0 {
 				alts = append(alts, back)
 			}
 		}

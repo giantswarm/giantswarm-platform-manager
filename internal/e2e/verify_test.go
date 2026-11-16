@@ -473,6 +473,75 @@ func TestVerifyCapabilityNamesThePlatformTenantInputs(t *testing.T) {
 	}
 }
 
+// tenantsKey holds the tenants, platformTenant the platform tenant under it
+// and usersKey its users.
+const tenantsKey, platformTenant, usersKey = "tenants", "platform", "users"
+
+// Two of muster's MCP-server viewers that share a name — ServiceAccounts
+// runner in two namespaces — are keyed by index; with the organizations on
+// and the users empty, every leaf of both is still the viewers' input, the
+// kind and the namespace as much as the name.
+func TestVerifyCapabilityNamesViewersThatShareAName(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	birchByHand(t, st, c, false)
+
+	const viewers = "musterMcpServerViewers"
+	runner := func(namespace string) map[string]any {
+		return map[string]any{kindKey: "ServiceAccount", nameKey: "runner", namespaceKey: namespace}
+	}
+	res := verifyWith(t, c, birch, map[string]any{
+		organizationsKey: map[string]any{enabledKey: true},
+		viewers:          []any{runner("team-a"), runner("team-b")},
+		tenantsKey:       map[string]any{platformTenant: map[string]any{usersKey: []any{}}},
+	})
+	if res.Refused != "" {
+		t.Fatalf("refused: %s", res.Refused)
+	}
+	var n int
+	for _, diff := range allDifferences(res) {
+		if strings.HasPrefix(diff.Path, viewers) {
+			n++
+			if diff.Input != viewers {
+				t.Errorf("%s#%s is %q, want %s", diff.File, diff.Path, diff.Input, viewers)
+			}
+		}
+	}
+	if n < 6 {
+		t.Fatalf("%d differences under %s, want every leaf of both entries", n, viewers)
+	}
+}
+
+// The platform tenant's users recorded empty and typed null for a reset: the
+// render takes the key out, and the difference it makes is the users' input,
+// not drift.
+func TestVerifyCapabilityNamesATypedNullOverARecordedEmptyList(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	c := st.mcpClient(t, aliceToken)
+	birchByHand(t, st, c, false)
+	const users = "tenants.platform.users"
+	putOnRecord(t, st, c, birch, map[string]any{tenantsKey: map[string]any{platformTenant: map[string]any{usersKey: []any{}}}})
+
+	res := verifyWith(t, c, birch, map[string]any{tenantsKey: map[string]any{platformTenant: map[string]any{usersKey: nil}}})
+	if res.Refused != "" {
+		t.Fatalf("refused: %s", res.Refused)
+	}
+	var seen bool
+	for _, diff := range allDifferences(res) {
+		if strings.HasPrefix(diff.Path, users) {
+			seen = true
+			if diff.Input != users {
+				t.Errorf("%s#%s is %q, want %s", diff.File, diff.Path, diff.Input, users)
+			}
+		}
+	}
+	if !seen {
+		t.Fatalf("the comparison shows no difference under %s", users)
+	}
+}
+
 // allDifferences are every difference of res, over its features and dimensions.
 func allDifferences(res verify.Result) []verify.Difference {
 	var out []verify.Difference
