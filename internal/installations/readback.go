@@ -86,13 +86,16 @@ type schemaNode struct {
 // ConfigMap's values, a kustomization's patch) decodes it. Skip is a regular
 // expression a value read back is matched against: a match yields nothing —
 // the value the definition renders itself where the person chose nothing —
-// of a comment kind, the comment the definition writes itself.
+// of a comment kind, the comment the definition writes itself. Unless names
+// keys of the same file whose presence yields nothing: the key is then
+// another choice's render, not this one's.
 type readBackSpec struct {
 	Files  names  `json:"file"`
 	Keys   names  `json:"key"`
 	Kind   string `json:"kind"`
 	Prefix string `json:"prefix"`
 	Skip   string `json:"skip"`
+	Unless names  `json:"unless"`
 }
 
 // names is x-readback's file or key: one, or a list.
@@ -342,6 +345,15 @@ func readBack(ctx context.Context, read Reader, inst Installation, portalHost st
 			onRecord = true
 			if kind == ReadBackFile {
 				break
+			}
+			if len(rb.Unless) > 0 {
+				_, held, err := files.value(file, spec, rb.Unless)
+				if err != nil {
+					return err
+				}
+				if held {
+					return nil
+				}
 			}
 			switch kind {
 			case ReadBackComment:

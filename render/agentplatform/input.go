@@ -144,9 +144,17 @@ type Input struct {
 	// catalog (agentManager.skills): the repositories list_skills discovers
 	// and the Secrets private ones are read and booted with, read back from
 	// the configmap patch on record.
-	AgentManagerSkills        AgentManagerSkills
-	AgentManagerTokenExchange bool
-	AgentManagerCredentialUI  string
+	AgentManagerSkills AgentManagerSkills
+	// AgentManagerTokenExchange is the person's choice of agent-manager's
+	// commit mode with the person's GitHub grant fetched from muster's broker
+	// per call (agentManager.github.tokenExchange.enabled) in place of the
+	// pin, read back from the configmap patch on record.
+	AgentManagerTokenExchange   bool
+	AgentManagerCredentialUI    string
+	ClusterManagerTokenExchange bool
+	ModelManagerTokenExchange   bool
+	SkillManagerTokenExchange   bool
+	SkillManagerPrivateAccess   bool
 	// SkillManagerSources are the skill-manager's skill sources
 	// (skillManager.sources) as the person wrote them, read back from the
 	// configmap patch on record.
@@ -669,19 +677,21 @@ type document struct {
 	ClusterManager commitChoice `json:"clusterManager"`
 	ModelManager   commitChoice `json:"modelManager"`
 	AgentManager   struct {
-		commitChoice
-		Skills              AgentManagerSkills `json:"skills"`
-		GitHubTokenExchange struct {
-			Enabled bool `json:"enabled"`
-		} `json:"githubTokenExchange"`
+		GitHub struct {
+			Enabled       bool `json:"enabled"`
+			TokenExchange struct {
+				Enabled bool `json:"enabled"`
+			} `json:"tokenExchange"`
+		} `json:"github"`
+		Skills      AgentManagerSkills `json:"skills"`
 		Credentials struct {
 			UIURL string `json:"uiURL"`
 		} `json:"credentials"`
 	} `json:"agentManager"`
 	DefaultAgent DefaultAgent `json:"defaultAgent"`
 	SkillManager struct {
-		Sources []SkillSource `json:"sources"`
-		GitHub  githubApp     `json:"github"`
+		Sources []SkillSource       `json:"sources"`
+		GitHub  managerGitHubChoice `json:"github"`
 	} `json:"skillManager"`
 	KlausGateway struct {
 		Slack struct {
@@ -840,12 +850,16 @@ func (s AgentManagerSkills) set() bool {
 	return len(s.Repositories) > 0 || s.GitHub.App.SecretName != "" || s.GitAuthSecretName != "" || s.MintGitAuthSecret
 }
 
-// commitChoice is a manager's commit mode through its GitHub App: the one
-// choice clusterManager, modelManager and agentManager each carry.
 type commitChoice struct {
-	GitHub struct {
+	GitHub managerGitHubChoice `json:"github"`
+}
+
+type managerGitHubChoice struct {
+	githubApp
+	Enabled       bool `json:"enabled"`
+	TokenExchange struct {
 		Enabled bool `json:"enabled"`
-	} `json:"github"`
+	} `json:"tokenExchange"`
 }
 
 // Parse validates raw against the schema and resolves the inputs: the record
@@ -905,8 +919,12 @@ func Parse(raw any) (*Input, error) {
 		return nil, err
 	}
 	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, MCPBackends: d.NetworkPolicy.MCPBackends, LLMRateLimits: d.LLMRouting.RateLimits, LLMRateLimitsComment: d.LLMRouting.RateLimitsComment, SessionIdleTTL: d.Sessions.IdleTTL, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories, Hive: d.Hive,
-		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, SkillManagerSources: d.SkillManager.Sources, SkillManagerAppSecret: d.SkillManager.GitHub.App.SecretName, DefaultAgent: d.DefaultAgent, AgentManagerTokenExchange: d.AgentManager.GitHubTokenExchange.Enabled, AgentManagerCredentialUI: d.AgentManager.Credentials.UIURL, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, ContextBotNames: d.KlausGateway.Slack.ContextBotNames, ContextBotNamesComment: d.KlausGateway.Slack.ContextBotNamesComment, SlashCommand: d.KlausGateway.Slack.SlashCommand, SlashCommandComment: d.KlausGateway.Slack.SlashCommandComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
+		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, SkillManagerSources: d.SkillManager.Sources, SkillManagerAppSecret: d.SkillManager.GitHub.App.SecretName, DefaultAgent: d.DefaultAgent, AgentManagerTokenExchange: d.AgentManager.GitHub.TokenExchange.Enabled, AgentManagerCredentialUI: d.AgentManager.Credentials.UIURL, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, ContextBotNames: d.KlausGateway.Slack.ContextBotNames, ContextBotNamesComment: d.KlausGateway.Slack.ContextBotNamesComment, SlashCommand: d.KlausGateway.Slack.SlashCommand, SlashCommandComment: d.KlausGateway.Slack.SlashCommandComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
 		ReleaseCandidates: pol.releaseCandidates(d.Installation)}
+	in.ClusterManagerTokenExchange = d.ClusterManager.GitHub.TokenExchange.Enabled
+	in.ModelManagerTokenExchange = d.ModelManager.GitHub.TokenExchange.Enabled
+	in.SkillManagerTokenExchange = d.SkillManager.GitHub.TokenExchange.Enabled
+	in.SkillManagerPrivateAccess = d.SkillManager.GitHub.Enabled
 	if in.Components, err = pol.components(in.Installation); err != nil {
 		return nil, err
 	}
@@ -1058,6 +1076,9 @@ func (in *Input) checkRecord() error {
 	if err := in.validateAgentManagerCredentials(); err != nil {
 		return err
 	}
+	if err := in.validateAdditionalManagerGrants(); err != nil {
+		return err
+	}
 	if in.SessionIdleTTL != "" && in.Installation.ChartLine != lineFour {
 		return in.refuseOffLineFour("sessions.idleTTL")
 	}
@@ -1071,6 +1092,7 @@ func (in *Input) checkRecord() error {
 	}
 	if err := in.checkSkillManagerChart(componentAgentManager, in.agentManager(),
 		skillManagerChartChoice{len(in.SkillManagerSources) > 0, "skillManager.sources", "lists the sources of the skill-manager, which runs with the agent-manager", false},
+		skillManagerChartChoice{in.SkillManagerPrivateAccess, "skillManager.github.enabled", "checks private-source access in the skill-manager", false},
 		skillManagerChartChoice{in.SkillManagerAppSecret != "", "skillManager.github.app.secretName", "names the GitHub App of the skill-manager, which runs with the agent-manager", false}); err != nil {
 		return err
 	}
@@ -1285,14 +1307,34 @@ func namesPlatformSkills(url string) bool {
 	return strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(url, "/"), ".git"), "/") == platformSkillsRepository
 }
 
+// agentManagerViaSkillManagerChart is the first meta chart whose default
+// components.agent-manager.versionRange starts at agentManagerViaSkillManager
+// (giantswarm/agent-platform#1371), its first release candidate with it; its
+// release is 4.180.0. The default ranges of the releases: 4.179.0
+// ">=2.22.0 <3.0.0", 4.180.0 ">=2.24.0 <3.0.0", 4.181.0 ">=3.0.0 <4.0.0".
+const agentManagerViaSkillManagerChart = "4.180.0-rc.2"
+
+// agentManagerViaSkillManagerRelease is the release of
+// agentManagerViaSkillManagerChart, the one a refusal names.
+const agentManagerViaSkillManagerRelease = "4.180.0"
+
 // takesSkillsFromSkillManager says whether the agent-manager takes its skills
 // from the skill-manager, as the meta chart decides it
 // (agent-platform.agentManager.viaSkillManager): on a chart with the
 // skill-manager, the floor of components.agent-manager.versionRange at
-// agentManagerViaSkillManager or later. Only a hold sets that range here;
-// without one the chart's default (>=2.22.0) stands, below the floor.
+// agentManagerViaSkillManager or later. A versions.components.agent-manager
+// hold sets that range; without one the chart's default stands, which starts
+// there from agentManagerViaSkillManagerChart on, so a meta chart the
+// installation may resolve at or above it takes the skills from the
+// skill-manager.
 func (in *Input) takesSkillsFromSkillManager() bool {
-	return in.reachesSkillManagerChart() && componentFloorAtLeast(in.Versions.Components[componentAgentManager], agentManagerViaSkillManager)
+	if !in.reachesSkillManagerChart() {
+		return false
+	}
+	if hold := in.Versions.Components[componentAgentManager]; hold != "" {
+		return componentFloorAtLeast(hold, agentManagerViaSkillManager)
+	}
+	return holdAdmits(in.Versions.Chart, agentManagerViaSkillManagerChart)
 }
 
 // checkSkillSourceConflicts refuses a skill source naming the platform's own
@@ -1312,9 +1354,6 @@ func (in *Input) checkSkillSourceConflicts() error {
 			return refuse(fmt.Sprintf("%s entry %d (%s) names the platform's own skill repository, which the meta chart already lists read-only at its release; remove the entry", describe("skillManager.sources"), i, s.URL))
 		}
 	}
-	if len(in.AgentManagerSkills.Repositories) > 0 && in.takesSkillsFromSkillManager() {
-		return refuse(fmt.Sprintf("%s is set, and %s holds the agent-manager at %s or later, which takes its skills from the skill-manager, so the meta chart fails on the list; move it into skillManager.sources, or hold the agent-manager below %s", describe("agentManager.skills.repositories"), describe("versions.components.agent-manager"), agentManagerViaSkillManager, agentManagerViaSkillManager))
-	}
 	if in.reachesSkillManagerChart() {
 		for i, url := range in.AgentManagerSkills.Repositories {
 			if namesPlatformSkills(url) {
@@ -1322,8 +1361,14 @@ func (in *Input) checkSkillSourceConflicts() error {
 			}
 		}
 	}
+	if len(in.AgentManagerSkills.Repositories) > 0 && in.takesSkillsFromSkillManager() {
+		if in.Versions.Components[componentAgentManager] != "" {
+			return refuse(fmt.Sprintf("%s is set, and %s holds the agent-manager at %s or later, which takes its skills from the skill-manager, so the meta chart fails on the list; move it into skillManager.sources, or hold the agent-manager below %s", describe("agentManager.skills.repositories"), describe("versions.components.agent-manager"), agentManagerViaSkillManager, agentManagerViaSkillManager))
+		}
+		return refuse(fmt.Sprintf("%s is set, and the meta chart this installation gets is %s or later (from its candidate %s), whose default agent-manager range starts at %s, which takes its skills from the skill-manager, so the meta chart fails on the list; move the list to the skill-manager's sources, skillManager.sources, and empty %s in the same reconcile, or hold versions.chart below %s", describe("agentManager.skills.repositories"), agentManagerViaSkillManagerRelease, agentManagerViaSkillManagerChart, agentManagerViaSkillManager, describe("agentManager.skills.repositories"), agentManagerViaSkillManagerChart))
+	}
 	if len(in.SkillManagerSources) > 0 && len(in.AgentManagerSkills.Repositories) > 0 {
-		return refuse(fmt.Sprintf("%s and %s are both set. The meta chart takes both, but an agent-manager below %s (the meta chart's default range among them) then reads its own list and the skill-manager the sources, two lists that can differ; this definition keeps one list: move the agent-manager's list into skillManager.sources and empty it in the same reconcile", describe("skillManager.sources"), describe("agentManager.skills.repositories"), agentManagerViaSkillManager))
+		return refuse(fmt.Sprintf("%s and %s are both set. The meta chart takes both, but an agent-manager below %s (a hold, or the meta chart's default range before %s) then reads its own list and the skill-manager the sources, two lists that can differ; this definition keeps one list: move the agent-manager's list into skillManager.sources and empty it in the same reconcile", describe("skillManager.sources"), describe("agentManager.skills.repositories"), agentManagerViaSkillManager, agentManagerViaSkillManagerRelease))
 	}
 	return nil
 }

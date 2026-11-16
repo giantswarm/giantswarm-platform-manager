@@ -10,12 +10,14 @@ import (
 )
 
 const (
-	keyCredentialUI     = "uiURL"
-	formURL             = "https://portal.example.com/credentials/{operation}"
-	insecureFormURL     = "http://portal.example.com/{operation}"
-	missingOperationURL = "https://portal.example.com/credentials"
-	refusedUIURL        = "RFC 6570 URI template"
-	refusedManagerFloor = "floor of"
+	keyTokenExchange     = "tokenExchange"
+	keyCredentialUI      = "uiURL"
+	formURL              = "https://portal.example.com/credentials/{operation}"
+	insecureFormURL      = "http://portal.example.com/{operation}"
+	missingOperationURL  = "https://portal.example.com/credentials"
+	refusedUIURL         = "RFC 6570 URI template"
+	refusedManagerFloor  = "floor of"
+	refusedExchangeChart = "meta chart 4.181.0-rc.3"
 )
 
 func TestAgentManagerCredentialBroker(t *testing.T) {
@@ -27,20 +29,23 @@ func TestAgentManagerCredentialBroker(t *testing.T) {
 			result, err := Render(input, secrets, render.ModeCommit)
 			require.NoError(t, err)
 			broker := credentialValues(t, in.brokerValues())
-			require.Equal(t, []any{agentManagerBrokerAudience}, broker["clientAudiences"].(map[string]any)[componentAgentManager])
-			require.Equal(t, map[string]any{"grantIssuer": managerGrantIssuer}, broker["targets"].(map[string]any)[agentManagerBrokerAudience])
+			require.Equal(t, []any{managerProviderAppName}, broker["clientAudiences"].(map[string]any)[componentAgentManager])
+			require.Equal(t, map[string]any{"grantIssuer": managerGrantIssuer}, broker["targets"].(map[string]any)[managerProviderAppName])
 			for client, audiences := range broker["clientAudiences"].(map[string]any) {
 				if client != componentAgentManager {
-					require.NotContains(t, audiences, agentManagerBrokerAudience)
+					require.NotContains(t, audiences, managerProviderAppName)
 				}
 			}
 			manager := credentialValues(t, in.agentManagerValues())
-			require.Equal(t, map[string]any{keyEnabled: false}, manager[keyGitHub])
-			exchange := manager["githubTokenExchange"].(map[string]any)
-			require.Equal(t, componentAgentManager, exchange["clientID"])
-			require.Equal(t, agentManagerBrokerSecret, exchange["secretName"])
-			require.Equal(t, "https://"+in.host("muster")+"/oauth/token", exchange["endpoint"])
-			require.Equal(t, managerGrantIssuer, credentialValues(t, agentManagerProviderApp())["issuer"])
+			require.Equal(t, map[string]any{keyEnabled: true, keyTokenExchange: map[string]any{
+				"tokenEndpoint":  "https://" + in.host("muster") + "/oauth/token",
+				"audience":       managerProviderAppName,
+				"existingSecret": agentManagerBrokerSecret,
+			}}, manager[keyGitHub])
+			require.NotContains(t, manager, "githubTokenExchange")
+			app := credentialValues(t, agentManagerProviderApp())
+			require.Equal(t, managerGrantIssuer, app["issuer"])
+			require.Equal(t, managerProviderAppName, app["name"])
 			muster := credentialValues(t, in.musterValues())["muster"].(map[string]any)
 			require.Equal(t, true, muster["oauth"].(map[string]any)["mcpClient"].(map[string]any)[keyEnabled])
 			trusted := credentialValues(t, in.trustedIssuers()[0])
@@ -71,20 +76,32 @@ func TestAgentManagerCredentialInputsFailClosed(t *testing.T) {
 		change func(map[string]any)
 		want   string
 	}{
-		{"legacy pin", func(input map[string]any) {
-			input["agentManager"].(map[string]any)[keyGitHub] = map[string]any{keyEnabled: true}
-		}, "mutually exclusive"},
 		{"old manager", func(input map[string]any) {
 			input["versions"] = map[string]any{keyComponents: map[string]any{componentAgentManager: "2.21.0"}}
 		}, refusedManagerFloor},
 		{"old chart", func(input map[string]any) {
 			input["versions"] = map[string]any{keyChart: ">=4.176.0 <4.177.0"}
 		}, "meta chart"},
+		{"credential UI chart without grant exchange", func(input map[string]any) {
+			input["versions"] = map[string]any{keyChart: credentialChart}
+		}, refusedExchangeChart},
+		{"chart before grant exchange", func(input map[string]any) {
+			input["versions"] = map[string]any{keyChart: "4.181.0-rc.2"}
+		}, refusedExchangeChart},
+		{"chart range excluding grant exchange", func(input map[string]any) {
+			input["versions"] = map[string]any{keyChart: ">=4.177.0 <4.181.0"}
+		}, refusedExchangeChart},
 		{"release candidate manager", func(input map[string]any) {
 			input["versions"] = map[string]any{keyComponents: map[string]any{componentAgentManager: ">=2.22.0-rc.12 <3.0.0"}}
 		}, refusedManagerFloor},
 		{"old muster", func(input map[string]any) {
 			input["versions"] = map[string]any{keyComponents: map[string]any{componentMuster: ">=5.60.0 <6.0.0"}}
+		}, "muster version floor"},
+		{"manager before the values schema", func(input map[string]any) {
+			input["versions"] = map[string]any{keyComponents: map[string]any{componentAgentManager: ">=3.0.0-rc.9 <4.0.0-0"}}
+		}, "agent-manager version floor"},
+		{"broker before Basic credential decoding", func(input map[string]any) {
+			input["versions"] = map[string]any{keyComponents: map[string]any{componentMuster: ">=5.63.1 <6.0.0"}}
 		}, "muster version floor"},
 		{"client collision", func(input map[string]any) {
 			other, _ := loadInput(t, shapeHubPrivateTarget)
@@ -101,9 +118,9 @@ func TestAgentManagerCredentialInputsFailClosed(t *testing.T) {
 			for _, target := range federation["targets"].([]any) {
 				target.(map[string]any)["hubs"] = []any{portalCaseOwn, "graveler"}
 			}
-			federation["targets"].([]any)[0].(map[string]any)["installation"] = agentManagerBrokerAudience
+			federation["targets"].([]any)[0].(map[string]any)["installation"] = managerProviderAppName
 			input["installation"].(map[string]any)["federation"] = federation
-		}, "reserves the agent-manager-github broker target"},
+		}, "reserves the agent-manager broker target"},
 		{"insecure UI", func(input map[string]any) {
 			input["agentManager"].(map[string]any)["credentials"] = map[string]any{keyCredentialUI: insecureFormURL}
 		}, refusedUIURL},
@@ -130,11 +147,39 @@ func TestAgentManagerCredentialInputsFailClosed(t *testing.T) {
 	}
 }
 
+// The pinned commit mode chosen with the exchange renders the exchange: the
+// chart takes github.enabled with tokenExchange as the exchange, no pin.
+func TestAgentManagerExchangeWithCommitRendersTheExchange(t *testing.T) {
+	input, _ := credentialInput(t, shapeGiantswarmSlackAppPub)
+	input["agentManager"].(map[string]any)[keyGitHub].(map[string]any)[keyEnabled] = true
+	in, err := Parse(input)
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{keyEnabled: true, keyTokenExchange: map[string]any{
+		"tokenEndpoint":  "https://" + in.host("muster") + "/oauth/token",
+		"audience":       managerProviderAppName,
+		"existingSecret": agentManagerBrokerSecret,
+	}}, credentialValues(t, in.agentManagerValues())[keyGitHub])
+}
+
+// The exchange turned off renders no commit mode: the record of an exchange
+// reads back no pin (agent-manager.github.enabled is the exchange's render),
+// so the person's choices are the exchange off and the pin unset.
+func TestAgentManagerExchangeOffRendersNoPin(t *testing.T) {
+	input, _ := credentialInput(t, shapeGiantswarmSlackAppPub)
+	input["agentManager"].(map[string]any)[keyGitHub] = map[string]any{keyTokenExchange: map[string]any{keyEnabled: false}}
+	in, err := Parse(input)
+	require.NoError(t, err)
+	require.NotContains(t, credentialValues(t, in.agentManagerValues()), keyGitHub)
+}
+
 func TestAgentManagerCredentialHoldsAdmitted(t *testing.T) {
 	for name, versions := range map[string]any{
 		"no hold":            nil,
 		"chart range":        map[string]any{keyChart: chartRangeFour},
-		"manager and muster": map[string]any{keyComponents: map[string]any{componentAgentManager: ">=2.22.0 <3.0.0", componentMuster: ">=5.61.0 <6.0.0"}},
+		"chart release":      map[string]any{keyChart: "4.181.0-rc.3"},
+		"chart stable":       map[string]any{keyChart: "4.181.0"},
+		"chart grant range":  map[string]any{keyChart: ">=4.181.0-rc.3 <5.0.0-0"},
+		"manager and muster": map[string]any{keyComponents: map[string]any{componentAgentManager: ">=3.0.0-rc.10 <4.0.0-0", componentMuster: ">=5.63.2 <6.0.0"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			input, _ := credentialInput(t, shapeGiantswarmSlackAppPub)
@@ -155,6 +200,20 @@ func TestAgentManagerCredentialUIIsInputOnly(t *testing.T) {
 	require.NotContains(t, credentialValues(t, in.agentManagerValues()), "credentials")
 }
 
+func TestAgentManagerCredentialUIKeepsItsVersionFloor(t *testing.T) {
+	input, _ := credentialInput(t, shapeGiantswarmSlackAppPub)
+	input["agentManager"].(map[string]any)[keyGitHub] = map[string]any{keyTokenExchange: map[string]any{keyEnabled: false}}
+	input["versions"] = map[string]any{
+		keyChart: "4.177.0",
+		keyComponents: map[string]any{
+			componentAgentManager: ">=2.22.0 <3.0.0",
+			componentMuster:       ">=5.61.0 <6.0.0",
+		},
+	}
+	_, err := Parse(input)
+	require.NoError(t, err)
+}
+
 func credentialInput(t *testing.T, shape string) (map[string]any, map[string]string) {
 	t.Helper()
 	input, secrets := loadInput(t, shape)
@@ -164,8 +223,8 @@ func credentialInput(t *testing.T, shape string) (map[string]any, map[string]str
 		input["installation"].(map[string]any)["podCertificateRequest"] = true
 	}
 	input["agentManager"] = map[string]any{
-		"githubTokenExchange": map[string]any{keyEnabled: true},
-		"credentials":         map[string]any{keyCredentialUI: formURL},
+		keyGitHub:     map[string]any{keyTokenExchange: map[string]any{keyEnabled: true}},
+		"credentials": map[string]any{keyCredentialUI: formURL},
 	}
 	// The meta chart takes the credential form with the organizations only.
 	input[keyOrganizations] = map[string]any{keyEnabled: true}

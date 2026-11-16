@@ -232,8 +232,9 @@ func fixtures(g *fakeGitHub) {
 		installations.CollectionsKustomizationPath(hub): collectionsKustomization(platformDexApp),
 		extrasKustomizationPath(hub):                    extrasListingEverything,
 		// The hub's portal lists the hub itself: the platform's fragment joins the hub's portal tree as a Component.
-		"management-clusters/" + hub + "/extras/backstage/kustomization.yaml":           "# The portal's tree; the platform's fragment joins it as a Component.\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./backstage/\n",
-		"management-clusters/" + hub + "/extras/backstage/backstage/kustomization.yaml": hubPortalKustomization,
+		"management-clusters/" + hub + "/extras/backstage/kustomization.yaml":                      "# The portal's tree; the platform's fragment joins it as a Component.\napiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./backstage/\n",
+		"management-clusters/" + hub + "/extras/backstage/backstage/kustomization.yaml":            hubPortalKustomization,
+		"management-clusters/" + hub + "/extras/backstage/backstage/tunnelport-spiffe-bundle.yaml": "apiVersion: external-secrets.io/v1\nkind: ExternalSecret\nmetadata:\n  name: tunnelport-spiffe-bundle\n  namespace: backstage\n",
 		// The portal client's Secret on record, as the customer-portal definition renders it: the platform renders the client backstage.
 		installations.PortalClientSecretPath(hub): portalClientSecret,
 		// The portal's user secrets on record, encrypted whole: a reconcile keeps them and the client secret they share.

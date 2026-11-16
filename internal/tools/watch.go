@@ -21,8 +21,14 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
-// conditionTrue is a condition's status when it holds.
-const conditionTrue = "True"
+// conditionTrue is a condition's status when it holds; conditionUnknown the
+// status the watch puts on a Flux object whose condition is from before the
+// last change of its spec (verify.Unreconciled): what it says of the spec Flux
+// has not reconciled yet is not known.
+const (
+	conditionTrue    = "True"
+	conditionUnknown = "Unknown"
+)
 
 // ToolWatchAction is the second live tool: the rollout watch of an
 // action, as the person calling. The manager holds no token beyond a call, so
@@ -404,7 +410,7 @@ func rolloutObjects(res verify.Result) (objects []actions.RolloutObject, ready, 
 			}
 			for _, c := range d.Live.Checks {
 				kind, _, _ := strings.Cut(c.Resource, ".")
-				if c.Kind != string(render.HelmReleaseReady) && (c.Kind != string(render.Condition) || !isFluxKind(c.Resource)) {
+				if c.Kind != string(render.HelmReleaseReady) && (c.Kind != string(render.Condition) || !verify.FluxObject(c.Resource)) {
 					continue
 				}
 				obj := actions.RolloutObject{Kind: kind, Namespace: c.Namespace, Name: c.Name, Revision: c.Revision, Message: c.Message}
@@ -413,6 +419,9 @@ func rolloutObjects(res verify.Result) (objects []actions.RolloutObject, ready, 
 					obj.Ready = conditionTrue
 				case verify.Drifted:
 					obj.Ready = conditionStatus(c.Message)
+					if strings.HasPrefix(c.Message, verify.Unreconciled) {
+						obj.Ready = conditionUnknown
+					}
 				}
 				if obj.Ready != conditionTrue {
 					ready = false
@@ -423,12 +432,6 @@ func rolloutObjects(res verify.Result) (objects []actions.RolloutObject, ready, 
 		}
 	}
 	return objects, ready, failed
-}
-
-// isFluxKind says whether a probe's resource is a Flux HelmRelease or Kustomization.
-func isFluxKind(resource string) bool {
-	kind, group, _ := strings.Cut(resource, ".")
-	return (kind == "HelmRelease" || kind == "Kustomization") && (group == "" || strings.HasSuffix(group, "toolkit.fluxcd.io"))
 }
 
 // conditionStatus reads the status out of a condition check's message
@@ -489,7 +492,11 @@ func orNotRead(message string) string {
 // done: enabled when nothing is red; waiting for the customer when every red
 // dimension is one the customer's own action holds up; otherwise failed for
 // a stage that was rolling out or had failed already, drifted for one that
-// had reached a state.
+// had reached a state — unless only Flux objects Flux has not reconciled yet
+// are red (reconciling): a parent release's upgrade rewrites its children's
+// specs, by any change, and Flux catches up within minutes on its own, so an
+// enabled stage or one waiting for the customer keeps its state and gets no
+// new report.
 func decideStage(prev string, res verify.Result) (state, message string, red []string) {
 	red = redDimensions(res)
 	switch res.State {
@@ -497,11 +504,41 @@ func decideStage(prev string, res verify.Result) (state, message string, red []s
 		if prev == actions.StateRollingOut || prev == actions.StateFailed {
 			return actions.StateFailed, probeRed + strings.Join(red, "; "), red
 		}
+		if (prev == actions.StateEnabled || prev == actions.StateWaitingForCustomer) && reconciling(res) {
+			return prev, prev + " while Flux reconciles a change: " + strings.Join(red, "; "), red
+		}
 		return actions.StateDrifted, "drifted: " + strings.Join(red, "; "), red
 	case installations.StateWaitingForCustomer:
 		return actions.StateWaitingForCustomer, "the rollout is done and the customer's move is open: " + strings.Join(red, "; "), red
 	}
 	return actions.StateEnabled, "verified: " + summaryLine(res), nil
+}
+
+// reconciling says whether every red dimension of res is red only on Flux
+// objects whose condition is from before their spec's last change
+// (verify.Unreconciled), and one is.
+func reconciling(res verify.Result) bool {
+	found := false
+	for _, f := range res.Features {
+		for _, d := range f.Dimensions {
+			if d.Mark != verify.Drifted {
+				continue
+			}
+			if d.Live == nil {
+				return false
+			}
+			for _, c := range d.Live.Checks {
+				if c.Mark != verify.Drifted {
+					continue
+				}
+				if !strings.HasPrefix(c.Message, verify.Unreconciled) {
+					return false
+				}
+				found = true
+			}
+		}
+	}
+	return found
 }
 
 // verifyMoves says whether verify_installation's result moves a stage in

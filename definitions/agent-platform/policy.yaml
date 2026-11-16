@@ -61,8 +61,8 @@ chartLine:
 # hub's order, since the list is compared by index.
 klausGateway:
   installations:
-    gazelle: {defaultAgent: swarmgeist}
-    graveler: {defaultAgent: sre-agent}
+    gazelle: {defaultAgent: default-agent}
+    graveler: {defaultAgent: default-agent}
     glean: {defaultAgent: sre-agent}
   slack:
     channelMode: all

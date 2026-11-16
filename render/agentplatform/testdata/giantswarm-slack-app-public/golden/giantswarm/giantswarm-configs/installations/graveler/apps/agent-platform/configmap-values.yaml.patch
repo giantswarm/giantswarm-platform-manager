@@ -155,7 +155,7 @@ klausGateway:
       size: 64Mi
   a2a:
     enabled: true
-    defaultAgent: sre-agent
+    defaultAgent: default-agent
   reviews:
     enabled: true
     audience: klaus-gateway

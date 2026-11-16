@@ -838,12 +838,15 @@ func runReleaseCandidates(input map[string]any) map[string]any {
 
 // TestAgentManagerSkills renders the agent-manager's skill catalog from its
 // choices: only what is chosen is written, under the agent-manager's values
-// next to its commit mode; refused where the policy runs no agent-manager.
+// next to its commit mode; refused where the policy runs no agent-manager. The
+// repositories render with the agent-manager held below 2.24.0, which keeps
+// its own list.
 func TestAgentManagerSkills(t *testing.T) {
 	input, secrets := loadInput(t, shapeHubPrivateTarget)
 	input["agentManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: true}, keySkills: map[string]any{ //nolint:gosec // Secret names in a fixture, no credential
 		keyRepositories: []any{"https://github.com/acme/skills", "https://github.com/acme/skills-internal"},
 		keyGitHub:       appSecret(skillsApp), keyToken: skillsTok}}
+	input[keyVersions] = agentManagerBelowSkillManager
 	result, err := Render(input, secrets, render.ModeCommit)
 	if err != nil {
 		t.Fatal(err)
@@ -864,6 +867,7 @@ func TestAgentManagerSkills(t *testing.T) {
 
 	input, secrets = loadInput(t, shapeHubPrivateTarget)
 	input["agentManager"] = map[string]any{keySkills: map[string]any{keyRepositories: []any{"https://github.com/acme/skills"}}}
+	input[keyVersions] = agentManagerBelowSkillManager
 	result, err = Render(input, secrets, render.ModeCommit)
 	if err != nil {
 		t.Fatal(err)
@@ -1873,12 +1877,16 @@ func TestAgentManagerSkillRepositoriesAreURLs(t *testing.T) {
 }
 
 // TestAgentManagerSkillRepositoriesBeforeTheSkillManager renders the
-// agent-manager's skill repositories wherever it keeps its own list: the
-// chart's default range (>=2.22.0) and a hold below 2.24.0, on a chart with
-// the skill-manager too. It refuses them where a hold puts the agent-manager
-// at 2.24.0 or later (a candidate of it counted), which takes its skills from
-// the skill-manager and on which the meta chart fails, and an entry naming
-// the platform's own repository on a chart that lists it itself.
+// agent-manager's skill repositories wherever it keeps its own list: a hold
+// below 2.24.0, and a chart hold below 4.180.0 (its candidate that raised the
+// default range counted), whose default range (>=2.22.0 on 4.179.0) starts
+// below, on a chart with the skill-manager too. It refuses them where the
+// agent-manager takes its skills from the skill-manager and the meta chart
+// fails on the list: a hold puts the agent-manager at 2.24.0 or later (a
+// candidate of it counted), or no hold of it and a meta chart that may be
+// 4.180.0 or later, whose default range starts at 2.24.0 (3.0.0 on 4.181.0);
+// and an entry naming the platform's own repository on a chart that lists it
+// itself.
 func TestAgentManagerSkillRepositoriesBeforeTheSkillManager(t *testing.T) {
 	withRepositories := func(candidates bool, versions map[string]any, repositories ...any) (map[string]any, map[string]string) {
 		input, secrets := loadInput(t, shapeHubPrivateTarget)
@@ -1891,7 +1899,14 @@ func TestAgentManagerSkillRepositoriesBeforeTheSkillManager(t *testing.T) {
 		}
 		return input, secrets
 	}
-	for _, versions := range []map[string]any{nil, agentManagerBelowSkillManager, {keyComponents: map[string]any{componentAgentManager: ">=2.23.0 <3.0.0"}}, {keyChart: holdBelowSkillManager, keyComponents: map[string]any{componentAgentManager: holdAgentManagerViaSkillManager}}} {
+	for _, versions := range []map[string]any{
+		agentManagerBelowSkillManager,
+		{keyComponents: map[string]any{componentAgentManager: ">=2.23.0 <3.0.0"}},
+		{keyChart: holdBelowSkillManager, keyComponents: map[string]any{componentAgentManager: holdAgentManagerViaSkillManager}},
+		{keyChart: ">=4.179.0 <4.180.0"},
+		{keyChart: "4.180.0-rc.1"},
+		{keyChart: "~4.181.0", keyComponents: map[string]any{componentAgentManager: ">=2.22.0 <2.24.0"}},
+	} {
 		input, secrets := withRepositories(true, versions, acmeSkills)
 		if got := renderedPatch(t, input, secrets); !strings.Contains(got, "    repositories:\n      - "+acmeSkills+"\n") {
 			t.Errorf("the agent-manager keeps its own list (%v), and the patch carries no agent-manager repositories:\n%s", versions, got)
@@ -1911,12 +1926,26 @@ func TestAgentManagerSkillRepositoriesBeforeTheSkillManager(t *testing.T) {
 	atFloor, atFloorSecrets := withRepositories(true, map[string]any{keyComponents: map[string]any{componentAgentManager: holdAgentManagerViaSkillManager}}, acmeSkills)
 	candidate, candidateSecrets := withRepositories(true, map[string]any{keyComponents: map[string]any{componentAgentManager: ">=2.24.0-rc.6 <3.0.0"}}, acmeSkills)
 	platform, platformSecrets := withRepositories(true, nil, acmeSkills, platformSkillsRepository+".git")
+	noHold, noHoldSecrets := withRepositories(false, nil, acmeSkills)
+	noHoldCandidates, noHoldCandidatesSecrets := withRepositories(true, nil, acmeSkills)
+	chartRelease, chartReleaseSecrets := withRepositories(false, map[string]any{keyChart: "~4.180.0"}, acmeSkills)
+	chartCandidate, chartCandidateSecrets := withRepositories(true, map[string]any{keyChart: "4.180.0-rc.2"}, acmeSkills)
+	chartRange, chartRangeSecrets := withRepositories(false, map[string]any{keyChart: ">=4.179.0 <5.0.0"}, acmeSkills)
+	const chartRefusal = "the meta chart this installation gets is 4.180.0 or later"
 	requireRefusals(t, []refusalCase{
+		{"no hold, stable releases only", noHold, noHoldSecrets, chartRefusal},
+		{"no hold, release candidates", noHoldCandidates, noHoldCandidatesSecrets, chartRefusal},
+		{"the chart held on 4.180", chartRelease, chartReleaseSecrets, chartRefusal},
+		{"the chart held on the candidate that raised the range", chartCandidate, chartCandidateSecrets, chartRefusal},
+		{"the chart held on a range that admits 4.180.0", chartRange, chartRangeSecrets, chartRefusal},
 		{"the agent-manager held at the skill-manager's release", atFloor, atFloorSecrets, repositoriesInput},
 		{"the agent-manager held from a candidate of it", candidate, candidateSecrets, repositoriesInput},
 		{"the platform's own repository", platform, platformSecrets, repositoriesInput + " entry 1"},
 		{"the platform's own repository on stable releases only", stablePlatform, stablePlatformSecrets, repositoriesInput + " entry 0"},
 	})
+	if _, err := Render(noHold, noHoldSecrets, render.ModeCommit); err == nil || !strings.Contains(err.Error(), "move the list to the skill-manager's sources, skillManager.sources, and empty") {
+		t.Errorf("no hold: the refusal says not to move the list to skillManager.sources: %v", err)
+	}
 }
 
 // TestAgentModelsProbe lists, on the 4 line, the Agents of every namespace

@@ -11,6 +11,7 @@ import (
 // with, and verify_installation and watch_action parse that record again.
 var renamedInputs = []struct{ from, to string }{
 	{"agentManager.skills.appSecretName", "agentManager.skills.github.app.secretName"},
+	{"agentManager.githubTokenExchange.enabled", "agentManager.github.tokenExchange.enabled"},
 }
 
 // renameInputs moves each input given under its former name to its current
@@ -44,15 +45,28 @@ func renameInputs(encoded []byte) ([]byte, error) {
 	return json.Marshal(doc)
 }
 
-// take removes the value at the dotted path and returns it.
+// take removes the value at the dotted path and returns it, together with
+// the objects on the way that it leaves empty: a former object name is not
+// in the schema, so an empty one left behind would be refused.
 func take(doc map[string]any, path string) (any, bool) {
 	parent, key, ok := parentOf(doc, path, false)
 	if !ok {
 		return nil, false
 	}
 	v, ok := parent[key]
+	if !ok {
+		return nil, false
+	}
 	delete(parent, key)
-	return v, ok
+	for keys := strings.Split(path, "."); len(keys) > 1; {
+		keys = keys[:len(keys)-1]
+		p, k, _ := parentOf(doc, strings.Join(keys, "."), false)
+		if m, isMap := p[k].(map[string]any); !isMap || len(m) > 0 {
+			break
+		}
+		delete(p, k)
+	}
+	return v, true
 }
 
 // lookupPath returns the value at the dotted path.

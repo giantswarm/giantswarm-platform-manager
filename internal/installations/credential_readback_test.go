@@ -13,7 +13,10 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
-const inputAgentManagerExchange = "agentManager.githubTokenExchange.enabled"
+const (
+	inputAgentManagerExchange = "agentManager.github.tokenExchange.enabled"
+	inputAgentManagerCommit   = "agentManager.github.enabled"
+)
 
 func TestAgentManagerCredentialReadBack(t *testing.T) {
 	definition, found := FindCapability(AgentPlatform)
@@ -24,11 +27,20 @@ func TestAgentManagerCredentialReadBack(t *testing.T) {
 		want  map[string]any
 	}{
 		// #nosec G101 -- route configuration and public URLs, no credential value
-		{"enabled", "agent-manager:\n  github:\n    enabled: false\n  githubTokenExchange:\n    endpoint: https://muster.rowan.acme.test/oauth/token\n  credentials:\n    uiURL: https://portal.acme.test/credentials/{operation}\n", map[string]any{
-			"agentManager.github.enabled":    false,
+		{"enabled", "agent-manager:\n  github:\n    enabled: true\n    tokenExchange:\n      tokenEndpoint: https://muster.rowan.acme.test/oauth/token\n  credentials:\n    uiURL: https://portal.acme.test/credentials/{operation}\n", map[string]any{
 			inputAgentManagerExchange:        true,
 			inputOrganizationsCommit:         false,
 			"agentManager.credentials.uiURL": "https://portal.acme.test/credentials/{operation}",
+		}},
+		{"former key", "agent-manager:\n  github:\n    enabled: false\n  githubTokenExchange:\n    endpoint: https://muster.rowan.acme.test/oauth/token\n", map[string]any{
+			inputAgentManagerCommit:   false,
+			inputAgentManagerExchange: true,
+			inputOrganizationsCommit:  false,
+		}},
+		{"pin", "agent-manager:\n  github:\n    enabled: true\n", map[string]any{
+			inputAgentManagerCommit:   true,
+			inputAgentManagerExchange: false,
+			inputOrganizationsCommit:  false,
 		}},
 		{"absent", "{}\n", map[string]any{inputAgentManagerExchange: false, inputOrganizationsCommit: false}},
 	} {
@@ -36,7 +48,7 @@ func TestAgentManagerCredentialReadBack(t *testing.T) {
 			read := files(map[string]string{"acme/configs:" + definition.EnabledMarker("rowan"): test.patch})
 			got, err := definition.ReadBack(t.Context(), read, readBackInstallation, readBackName, nil)
 			require.NoError(t, err)
-			require.Equal(t, test.want, got)
+			require.Equal(t, managerGrantDefaults(test.want), got)
 		})
 	}
 }
