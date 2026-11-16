@@ -248,6 +248,23 @@ func TestCredentialFormWithoutOrganizationsNamesTheNamespace(t *testing.T) {
 	}
 }
 
+// An organization-only template on record (the credential-form golden's,
+// without {namespace}) with the switch typed off is refused, naming both ways
+// out: add {namespace}, or type the template empty.
+func TestOrganizationOnlyCredentialFormWithTheSwitchOffNamesBothWaysOut(t *testing.T) {
+	input, _ := loadInput(t, shapeCredentialForm)
+	template := input["agentManager"].(map[string]any)[keyCredentials].(map[string]any)[keyCredentialUI].(string)
+	require.False(t, namesCredentialNamespace(template), "the golden's template names {namespace}")
+	input[keyOrganizations] = map[string]any{keyEnabled: false}
+	_, err := Parse(input)
+	require.ErrorContains(t, err, "add {namespace} to agentManager.credentials.uiURL")
+	require.ErrorContains(t, err, "type it empty")
+
+	input["agentManager"] = map[string]any{keyCredentials: map[string]any{keyCredentialUI: ""}}
+	_, err = Parse(input)
+	require.NoError(t, err)
+}
+
 func TestAgentManagerCredentialUIKeepsItsVersionFloor(t *testing.T) {
 	input, _ := credentialInput(t, shapeGiantswarmSlackAppPub)
 	input["agentManager"].(map[string]any)[keyGitHub] = map[string]any{keyTokenExchange: map[string]any{keyEnabled: false}}

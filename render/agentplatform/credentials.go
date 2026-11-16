@@ -76,7 +76,7 @@ func (in *Input) validateAgentManagerCredentials() error {
 		return refuse("agentManager.credentials.uiURL requires an HTTPS RFC 6570 URI template with one {operation} expression in its path or query, using only {operation}, {namespace}, {parent} and {organization}, and no user information or fragment")
 	}
 	if ui := in.AgentManagerCredentialUI; ui != "" && !in.Organizations.Enabled && !namesCredentialNamespace(ui) {
-		return refuse("agentManager.credentials.uiURL requires one {namespace} expression without organizations.enabled: the installation's model links name the namespace")
+		return refuse("agentManager.credentials.uiURL requires one {namespace} expression without organizations.enabled: the installation's model links name the namespace; add {namespace} to agentManager.credentials.uiURL, or type it empty to remove the credential form")
 	}
 	return nil
 }
