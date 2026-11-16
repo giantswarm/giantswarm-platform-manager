@@ -1943,7 +1943,7 @@ func TestAgentManagerSkillRepositoriesBeforeTheSkillManager(t *testing.T) {
 		{"the platform's own repository", platform, platformSecrets, repositoriesInput + " entry 1"},
 		{"the platform's own repository on stable releases only", stablePlatform, stablePlatformSecrets, repositoriesInput + " entry 0"},
 	})
-	if _, err := Render(noHold, noHoldSecrets, render.ModeCommit); err == nil || !strings.Contains(err.Error(), "move the list to the skill-manager's sources, skillManager.sources") {
+	if _, err := Render(noHold, noHoldSecrets, render.ModeCommit); err == nil || !strings.Contains(err.Error(), "move the list to the skill-manager's sources, skillManager.sources, and empty") {
 		t.Errorf("no hold: the refusal says not to move the list to skillManager.sources: %v", err)
 	}
 }
