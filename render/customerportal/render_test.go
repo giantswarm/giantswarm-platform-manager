@@ -913,7 +913,8 @@ func with(secrets map[string]string, field, value string) map[string]string {
 // every leaf is base64 — the portal's own id decodes to the Dex client id,
 // a supplied credential to the value supplied — and the portal's own client
 // secret is the base64 declaration of the value the Dex client's Secret
-// carries raw, so the two sides agree on the secret.
+// carries raw, so the two sides agree on the secret, both declared as a Dex
+// client secret: 43 alphanumeric characters.
 func TestDexAuthCredentialsAreBase64ForTheChart(t *testing.T) {
 	for _, shape := range shapes {
 		t.Run(shape, func(t *testing.T) {
@@ -959,6 +960,11 @@ func TestDexAuthCredentialsAreBase64ForTheChart(t *testing.T) {
 			}
 			if encoded.Name != rawDecl.Name || own.ClientSecret == dexSide {
 				t.Errorf("the portal's client secret %q and the Dex client's %q must be one value at two placeholders", own.ClientSecret, dexSide)
+			}
+			for _, d := range []render.Generated{encoded, rawDecl} {
+				if d.Kind != render.Alphanumeric || d.Length != 43 {
+					t.Errorf("the portal's client secret at %s is declared %s/%d, want %s/43", d.Placeholder, d.Kind, d.Length, render.Alphanumeric)
+				}
 			}
 			for key, c := range values.Credentials {
 				if key == name {
