@@ -46,6 +46,9 @@ type Server struct {
 	// dexCA is where the chart reads the Secret with the CA of a Dex served
 	// with a certificate from the installation's private CA, under oauth.
 	dexCA dexCAValues
+	// privateDexKey is the oauth flag the chart reads for a Dex on private
+	// addresses; empty where the chart needs none.
+	privateDexKey string
 }
 
 // dexCAValues names the chart values of the Dex CA Secret: a chart that
@@ -96,8 +99,8 @@ var envOAuthKeys = oauthSecretKeys{dexClientSecret: "DEX_CLIENT_SECRET", encrypt
 // template registers with muster on every installation.
 var Servers = []Server{
 	{Name: "mcp-kubernetes", Group: "kubernetes", DexClient: "mcpKubernetes", DexSecretRef: true, oauthKeys: keyedOAuthKeys, valuesKey: "mcpKubernetes", ssoPrivateIPs: true},
-	{Name: "mcp-prometheus", Group: "prometheus", DexClient: "mcpPrometheus", DexSecretRef: true, oauthKeys: envOAuthKeys, valuesKey: "app", dexCA: dexCASecretName},
-	{Name: "mcp-capi", Group: "capi", DexClient: "mcpCapi", DexSecretRef: true, oauthKeys: keyedOAuthKeys},
+	{Name: "mcp-prometheus", Group: "prometheus", DexClient: "mcpPrometheus", DexSecretRef: true, oauthKeys: envOAuthKeys, valuesKey: "app", dexCA: dexCASecretName, privateDexKey: "allowPrivateIPJWKS"},
+	{Name: "mcp-capi", Group: "capi", DexClient: "mcpCapi", DexSecretRef: true, oauthKeys: keyedOAuthKeys, privateDexKey: "allowPrivateURLs"},
 }
 
 // valkeyAuthKey is the key of a server's valkey-auth Secret: the fleet base's
@@ -182,9 +185,9 @@ type Options struct {
 	// value per name across a pull request, and a wave commits several
 	// installations of one organisation into one.
 	Installation string
-	// PrivateURLs says Dex is reached on private addresses: the OAuth issuer
-	// URL and, where the chart has the flag, the SSO forwarded-token JWKS
-	// fetch may resolve to private IPs, in the server's user values.
+	// PrivateURLs says Dex is reached on private addresses: the server's user
+	// values set the flag its chart reads for that (Server.privateDexKey) and,
+	// where the chart has it, the SSO forwarded-token JWKS flag.
 	PrivateURLs bool
 	// PrivateIPs says the clients' metadata documents and redirect URIs are on
 	// private addresses too, where the chart has the flags (a private installation).
@@ -206,7 +209,9 @@ func (s Server) userValues(o Options) render.Map {
 	}
 	var oauth render.Map
 	if o.PrivateURLs {
-		oauth = append(oauth, e("allowPrivateURLs", true))
+		if s.privateDexKey != "" {
+			oauth = append(oauth, e(s.privateDexKey, true))
+		}
 		if s.ssoPrivateIPs {
 			oauth = append(oauth, e("sso", render.Map{e("allowPrivateIPs", true)}))
 			if o.PrivateIPs {
