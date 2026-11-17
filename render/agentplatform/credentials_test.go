@@ -464,3 +464,44 @@ func TestOrganizationOnlyCredentialFormNeedsNoNamespaceFloor(t *testing.T) {
 	_, err := Parse(input)
 	require.NoError(t, err)
 }
+
+// A hub's portal cannot reach the credential route of a private
+// installation (giantswarm/giantswarm-platform-manager#913): the credential
+// form golden's template, on the hub gopher's portal, is refused once the
+// installation is private, naming the installation, the hub and both
+// inputs. The same installation renders with the form on its own portal, and
+// the public golden renders with the form on the hub's portal.
+func TestCredentialFormOnAHubPortalOfAPrivateInstallation(t *testing.T) {
+	const ownPortal = "portal.jasper.example.io"
+	for _, test := range []struct {
+		name    string
+		private bool
+		uiURL   string
+		refused bool
+	}{
+		{name: "private on the hub's portal", private: true, uiURL: "https://portal.example.io/organizations/jasper/{parent}/{organization}/credentials/{operation}", refused: true},
+		{name: "private on the hub's portal, host in upper case", private: true, uiURL: "https://PORTAL.example.io/credentials/{operation}", refused: true},
+		{name: "private on its own portal", private: true, uiURL: "https://" + ownPortal + "/credentials/{operation}"},
+		{name: "public on the hub's portal", uiURL: "https://portal.example.io/organizations/jasper/{parent}/{organization}/credentials/{operation}"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input, secrets := loadInput(t, shapeCredentialForm)
+			installation := input["installation"].(map[string]any)
+			installation["private"] = test.private
+			installation["portals"] = append(installation["portals"].([]any), map[string]any{
+				"installation": "jasper", "customer": portalTenant, "domain": ownPortal, "chartLine": ">=2.1.0 <3.0.0",
+			})
+			input["agentManager"] = map[string]any{keyCredentials: map[string]any{keyCredentialUI: test.uiURL}}
+			result, err := Render(input, secrets, render.ModeCommit)
+			if test.refused {
+				for _, name := range []string{"jasper", "the hub gopher", "agentManager.credentials.uiURL", "installation.private", "cannot reach the credential route"} {
+					require.ErrorContains(t, err, name)
+				}
+				return
+			}
+			require.NoError(t, err)
+			manager := configmapPatch(t, result, "jasper")[componentAgentManager].(map[string]any)
+			require.Equal(t, map[string]any{keyCredentialUI: test.uiURL}, manager[keyCredentials])
+		})
+	}
+}
