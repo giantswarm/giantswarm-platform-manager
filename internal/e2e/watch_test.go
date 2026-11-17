@@ -16,16 +16,19 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/giantswarm/gitops-commit/commit"
 	"github.com/mark3labs/mcp-go/client"
+	"gopkg.in/yaml.v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 	"github.com/giantswarm/giantswarm-platform-manager/render"
@@ -142,7 +145,48 @@ func populateBeforeFlux(t *testing.T, inst *fakeInstallation, a actions.Action, 
 			}
 		}
 	}
-	inst.populate(t, installation, res, valuesFile)
+	inst.populate(t, installation, res, withKeptEntries(t, valuesFile, a.KeptOnRecord(installation)))
+}
+
+// withKeptEntries is valuesFile as the commit wrote it: the entries it kept
+// beside the render (plan.LiveKept) in their lists — a comma-joined list
+// gains the entry after the render's, a YAML list one more item. The
+// installation's values ConfigMap holds the merged file, so it carries them.
+func withKeptEntries(t *testing.T, valuesFile string, kept []plan.Kept) string {
+	t.Helper()
+	kept = plan.LiveKept(kept)
+	if len(kept) == 0 {
+		return valuesFile
+	}
+	var doc map[string]any
+	if err := yaml.Unmarshal([]byte(valuesFile), &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range kept {
+		parts := strings.Split(k.List, ".")
+		parent := doc
+		for _, p := range parts[:len(parts)-1] {
+			next, ok := parent[p].(map[string]any)
+			if !ok {
+				t.Fatalf("the values file carries no %s for the kept entry %s", k.List, k.Entry)
+			}
+			parent = next
+		}
+		leaf := parts[len(parts)-1]
+		switch list := parent[leaf].(type) {
+		case string:
+			parent[leaf] = list + "," + k.Entry
+		case []any:
+			parent[leaf] = append(list, k.Entry)
+		default:
+			t.Fatalf("the values file's %s is no list: %v", k.List, parent[leaf])
+		}
+	}
+	out, err := yaml.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
 }
 
 // fluxApplied has inst run the merge of installation's pull requests: the
@@ -1035,6 +1079,189 @@ func TestWatchActionFailsAMergeFluxNeverApplies(t *testing.T) {
 	}
 }
 
+// pastTheBound puts the merges of action a's pull requests an hour back on
+// its record: the stage's last merge longer ago than the rollout's bound.
+func pastTheBound(t *testing.T, st *stack, a *actions.Action) {
+	t.Helper()
+	status := a.Status
+	status.PullRequests = slices.Clone(status.PullRequests)
+	hourAgo := time.Now().Add(-time.Hour)
+	for k := range status.PullRequests {
+		status.PullRequests[k].MergedAt = &hourAgo
+	}
+	if _, err := actions.New(st.dyn, actionsNamespace).UpdateStatus(t.Context(), a, status); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// storedAction is action name as the cluster stores it, read without GitHub.
+func storedAction(t *testing.T, st *stack, name string) *actions.Action {
+	t.Helper()
+	a, err := actions.New(st.dyn, actionsNamespace).Get(t.Context(), name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a
+}
+
+// A Konfiguration on a commit GitHub does not know (giantswarm-platform-
+// manager#936, item 2) is read, not a failed read: the merge commit is
+// readable as the person, so the comparison's 404 is the applied commit's.
+// The stage waits naming the commit and fails on it past the bound; a
+// transient GitHub error on the way answers "call again" and is not counted,
+// past the bound too.
+func TestWatchActionCountsACommitGitHubDoesNotKnow(t *testing.T) {
+	st := newStack(t)
+	a, _ := mergedRowan(t, st)
+	admin := adminLive(t, st)
+	fluxBehind(t, st, st.inst, a, rowan)
+	pr, merge := configsMerge(t, &a, rowan)
+	unknown := strings.Repeat("ab", 20)
+	st.inst.applyConfigs(fluxNamespace, konfiguration, unknown)
+	waits := fmt.Sprintf("Konfiguration %s/%s applied %s, a commit GitHub does not know on %s, not %s#%d's merge %s", fluxNamespace, konfiguration, unknown[:12], pr.Repository, pr.Repository, pr.Number, merge[:12])
+
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || w.State != actions.StateRollingOut || !strings.Contains(stageOf(w.Action, rowan).Message, waits) {
+		t.Fatalf("within the bound: %v %s", isErr, text)
+	}
+	pastTheBound(t, st, w.Action)
+
+	st.ghs.failCompare(pr.Repository, true)
+	if _, text, isErr := watchCall(t, admin, a.Name); !isErr || !strings.Contains(text, "call again") {
+		t.Fatalf("a transient error past the bound: %v %s", isErr, text)
+	}
+	if got := storedAction(t, st, a.Name); got.Status.State != actions.StateRollingOut || stageOf(got, rowan).State != actions.StateRollingOut {
+		t.Fatalf("a transient error was counted: %s, stage %+v", got.Status.State, stageOf(got, rowan))
+	}
+	st.ghs.failCompare(pr.Repository, false)
+
+	w, text, isErr = watchCall(t, admin, a.Name)
+	if isErr || w.State != actions.StateFailed || w.Action.Status.State != actions.StateFailed {
+		t.Fatalf("past the bound: %v %s", isErr, text)
+	}
+	if msg := stageOf(w.Action, rowan).Message; !strings.HasPrefix(msg, "a probe is red: the installation is not proven to run the merged revision 30m0s after the last merge: ") || !strings.Contains(msg, waits) {
+		t.Fatalf("the stage's message: %q", msg)
+	}
+}
+
+// A repository the person may not read answers 404 to every read, the merge
+// commit's too (giantswarm-platform-manager#936, item 2): the merge is read
+// first, so the 404 is not taken for a commit GitHub does not know. Nothing
+// is decided and nothing counted — past the bound the stage stays rolling
+// out, never failed.
+func TestWatchActionCountsNothingTheConfigsRepositoryHidesFromThePerson(t *testing.T) {
+	st := newStack(t)
+	a, _ := mergedRowan(t, st)
+	admin := adminLive(t, st)
+	fluxBehind(t, st, st.inst, a, rowan)
+	pr, _ := configsMerge(t, &a, rowan)
+	pastTheBound(t, st, &a)
+	st.ghs.hide(pr.Repository)
+	if _, text, isErr := watchCall(t, admin, a.Name); !isErr || !strings.Contains(text, "call again") {
+		t.Fatalf("a repository the person may not read: %v %s", isErr, text)
+	}
+	if got := storedAction(t, st, a.Name); got.Status.State != actions.StateRollingOut || stageOf(got, rowan).State != actions.StateRollingOut {
+		t.Fatalf("a read the person may not make was counted: %s, stage %+v", got.Status.State, stageOf(got, rowan))
+	}
+}
+
+// A release after the merge with values of another digest is not yet the
+// merged change (giantswarm-platform-manager#936, item 1): Flux ran it on an
+// earlier change before the Konfiguration applied the merge, and the
+// ConfigMap the HelmRelease reads does not hold the merged values. The stage
+// waits for them; once the apply wrote them and Flux upgraded, it is enabled.
+func TestWatchActionWaitsForTheMergedValuesAfterAReleaseOfOthers(t *testing.T) {
+	const valuesEarlier = "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+	st := newStack(t)
+	a, _ := mergedRowan(t, st)
+	admin := adminLive(t, st)
+	fluxBehind(t, st, st.inst, a, rowan)
+	pr, merge := configsMerge(t, &a, rowan)
+	merged := ""
+	st.inst.edit("ConfigMap", fluxNamespace, platformValuesConfigMap, func(obj map[string]any) {
+		merged = obj[dataKey].(map[string]any)[platformValuesKey].(string)
+	})
+	st.inst.staleValues(t, fluxNamespace)
+	st.inst.release(fluxNamespace, platformRelease, valuesEarlier)
+	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
+
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || !w.Ready || w.State != actions.StateRollingOut || w.Action.Status.State != actions.StateRollingOut {
+		t.Fatalf("a release of other values: %v %s", isErr, text)
+	}
+	want := fmt.Sprintf("%s %s/%s runs release v11 since %s#%d's merge", helmReleaseKind, fluxNamespace, platformRelease, pr.Repository, pr.Number)
+	if msg := stageOf(w.Action, rowan).Message; !strings.Contains(msg, want) || !strings.Contains(msg, "and the values it reads are not the merged ones yet") {
+		t.Fatalf("the stage's message: %q", msg)
+	}
+
+	st.inst.edit("ConfigMap", fluxNamespace, platformValuesConfigMap, func(obj map[string]any) {
+		obj[dataKey].(map[string]any)[platformValuesKey] = merged
+	})
+	st.inst.release(fluxNamespace, platformRelease, valuesMerged)
+	if w, text, isErr = watchCall(t, admin, a.Name); isErr || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled {
+		t.Fatalf("the merged values released: %v %s", isErr, text)
+	}
+}
+
+// The stricter proof keeps no healthy stage rolling out where the values
+// carry an entry the commit kept beside the render (the risk of
+// giantswarm-platform-manager#936, item 1): an audience of the kagent UI the
+// installation trusts besides, in the values the HelmRelease reads and on
+// the oauth2-proxy's flag. Not on the action's record, the values are not
+// the merged ones and the stage waits; on record as kept, the drift check
+// lays it over the render, and the stage is enabled.
+func TestWatchActionEndsAStageWhoseValuesCarryAKeptEntry(t *testing.T) {
+	const (
+		handKept = "hand-kept"
+		flag     = "--oidc-extra-audience="
+	)
+	st := newStack(t)
+	a, _ := rolledOut(t, st)
+	admin := adminLive(t, st)
+	edited := 0
+	st.inst.edit("ConfigMap", fluxNamespace, platformValuesConfigMap, func(obj map[string]any) {
+		data := obj[dataKey].(map[string]any)
+		lines := strings.Split(data[platformValuesKey].(string), "\n")
+		for i, line := range lines {
+			if !strings.Contains(line, "oidc-extra-audience: ") {
+				continue
+			}
+			value, comment, _ := strings.Cut(line, " #")
+			lines[i], edited = value+","+handKept, edited+1
+			if comment != "" {
+				lines[i] += " #" + comment
+			}
+		}
+		data[platformValuesKey] = strings.Join(lines, "\n")
+	})
+	st.inst.edit("Deployment", kagentNamespace, "kagent-oauth2-proxy", func(obj map[string]any) {
+		containers := obj["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)["containers"].([]any)
+		args := containers[0].(map[string]any)["args"].([]any)
+		for i, arg := range args {
+			if s, _ := arg.(string); strings.HasPrefix(s, flag) {
+				args[i], edited = s+","+handKept, edited+1
+			}
+		}
+	})
+	if edited != 2 {
+		t.Fatalf("%d of the values' oidc-extra-audience and the oauth2-proxy's %s edited, want both", edited, flag)
+	}
+
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || w.State != actions.StateRollingOut || !strings.Contains(stageOf(w.Action, rowan).Message, "the values it reads are not the merged ones yet") {
+		t.Fatalf("an entry the record does not keep: %v %s", isErr, text)
+	}
+
+	kept := storedAction(t, st, a.Name)
+	kept.Spec.KeptByInstallation = map[string][]plan.Kept{rowan: {{List: plan.ListExtraAudience, Entry: handKept}}}
+	if _, err := st.dyn.Resource(actions.GVR).Namespace(actionsNamespace).Update(t.Context(), actions.Unstructured(*kept), metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if w, text, isErr = watchCall(t, admin, a.Name); isErr || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled {
+		t.Fatalf("the entry kept on record: %v %s", isErr, text)
+	}
+}
+
 // A one-installation action that failed on a probe reads enabled after a
 // green re-read: the result is rewritten, the report names the recovery.
 func TestWatchActionRecoversAFailedStage(t *testing.T) {
@@ -1400,11 +1627,13 @@ func TestWatchActionRecordsTheReleaseThatRanAtTheMergeOnAnError(t *testing.T) {
 		t.Fatalf("a merge as a person not connected to the installation recorded baselines: %+v", bases)
 	}
 	fluxBehind(t, st, st.inst, a, rowan)
-	_, merge := configsMerge(t, &a, rowan)
-	st.inst.applyConfigs(fluxNamespace, konfiguration, strings.Repeat("ab", 20))
+	pr, merge := configsMerge(t, &a, rowan)
+	st.inst.applyConfigs(fluxNamespace, konfiguration, st.ghs.commitByHand(pr.Repository, "README.md", "a later change\n"))
+	st.ghs.failCompare(pr.Repository, true)
 	if _, text, isErr := watchCall(t, admin, a.Name); !isErr || !strings.Contains(text, "call again") {
-		t.Fatalf("a commit GitHub does not know: %v %s", isErr, text)
+		t.Fatalf("GitHub's comparison failing: %v %s", isErr, text)
 	}
+	st.ghs.failCompare(pr.Repository, false)
 	recorded := func(step string) {
 		t.Helper()
 		got := getAction(t, aliceC, a.Name)
