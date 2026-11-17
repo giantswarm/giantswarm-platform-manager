@@ -215,7 +215,7 @@ func (r *Registry) inspect(ctx context.Context, c *gh.Client, inst Installation,
 		wg.Go(func() { pcr, pcrErr = readPodCertificateRequest(ctx, readAs(c), inst) })
 		wg.Go(func() {
 			if col, colErr = readCollections(ctx, readAt(c), inst); colErr == nil {
-				dex, dexErr = readDexAppVersion(ctx, readAt(c), inst, col)
+				dex, dexErr = readDexAppVersion(ctx, readAt(c), RegistryTags(registryClient), inst, col)
 			}
 		})
 		wg.Go(func() { pcs, pcsErr = readPortalClientSecret(ctx, c, inst) })

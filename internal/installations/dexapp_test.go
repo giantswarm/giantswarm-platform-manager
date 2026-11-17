@@ -62,7 +62,16 @@ func dexAppAt(t *testing.T, read refReader, inst Installation) (DexAppVersion, e
 	if err != nil {
 		return DexAppVersion{}, err
 	}
-	return readDexAppVersion(t.Context(), read, inst, col)
+	return readDexAppVersion(t.Context(), read, noTags(t), inst, col)
+}
+
+// noTags is a TagLister for records that name exact versions: a listing is
+// a test failure.
+func noTags(t *testing.T) TagLister {
+	return func(_ context.Context, ociURL string) ([]string, error) {
+		t.Errorf("listed the tags of %s for an exact version", ociURL)
+		return nil, errors.New("no listing expected")
+	}
 }
 
 // The dex-app on record is the installation's own pin where its collections
@@ -124,8 +133,8 @@ func TestDexAppVersionErrors(t *testing.T) {
 		{"a patch that does not decode", map[string]string{kustomization: collectionsFixture("main", "") + "patches:\n  - patch: \"[not\"\n"}, CollectionsKustomizationPath(fixtureInstallation)},
 		{"a kustomization without a remote base", map[string]string{kustomization: "resources:\n  - ./apps/\n"}, "names no remote base"},
 		{"a pin that is no semantic version", map[string]string{kustomization: collectionsFixture("main", "latest")}, `"latest" is no semantic version`},
-		{"a base without the App", map[string]string{kustomization: collectionsFixture("main", ""), baseAtMain: "kind: ConfigMap\nmetadata:\n  name: dex-app\n"}, "no App dex-app"},
-		{"a base App without a version", map[string]string{kustomization: collectionsFixture("main", ""), baseAtMain: "kind: App\nmetadata:\n  name: dex-app\nspec: {}\n"}, "sets no spec.version"},
+		{"a base without the App", map[string]string{kustomization: collectionsFixture("main", ""), baseAtMain: "kind: ConfigMap\nmetadata:\n  name: dex-app\n"}, "no App or OCIRepository dex-app"},
+		{"a base App without a version", map[string]string{kustomization: collectionsFixture("main", ""), baseAtMain: "kind: App\nmetadata:\n  name: dex-app\nspec: {}\n"}, "the App dex-app sets no version"},
 		{"a base version that is no semantic version", map[string]string{kustomization: collectionsFixture("main", ""), baseAtMain: dexAppManifest("latest")}, DexAppBasePath},
 	}
 	for _, c := range cases {
