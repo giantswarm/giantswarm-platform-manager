@@ -338,6 +338,8 @@ func TestNamesCredentialNamespace(t *testing.T) {
 		"https://portal.example.com/{namespace}/{namespace}/{operation}": false,
 		"https://portal.example.com/{namespace}":                         false,
 		"https://portal.example.com/{parent}/{organization}/{operation}": false,
+		// A prefix of the namespace opens no form, though the charts accept it.
+		"https://portal.example.com/{namespace:3}/{operation}": false,
 	} {
 		require.Equal(t, want, namesCredentialNamespace(template), template)
 	}
