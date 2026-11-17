@@ -30,7 +30,7 @@ func extrasKustomization(installation string) string {
 
 // plannedFiles are the files a write changes, per repository; a client
 // still unrevealed has no file yet, and a split patch (configs false) takes
-// no configs change.
+// no plaintext change, its encrypted patch changing for a connector list.
 func plannedFiles(o Options, r Report, configs bool) (mc, cfg []string) {
 	for _, c := range r.Clients {
 		m := c.Secret
@@ -47,7 +47,10 @@ func plannedFiles(o Options, r Report, configs bool) (mc, cfg []string) {
 		}
 	}
 	if configs {
-		cfg = []string{ConfigMapPatchPath(o.Installation), installations.DexSecretPatchPath(o.Installation)}
+		cfg = []string{ConfigMapPatchPath(o.Installation)}
+	}
+	if configs || len(r.Connectors) > 0 {
+		cfg = append(cfg, installations.DexSecretPatchPath(o.Installation))
 	}
 	return mc, cfg
 }
@@ -218,8 +221,10 @@ func listResource(o Options, m *Move) ([]string, error) {
 // MergePlaintext answers the plaintext dex-app patch current with every
 // client of the split and the peers: a built-in client's clientSecretRef,
 // an extra client's entry (replacing an entry of the same id, which the
-// encrypted list has shadowed so far) and each peer not listed yet. Every
-// other key and comment of current stays.
+// encrypted list has shadowed so far) and each peer not listed yet. The
+// extra clients keep the shape the patch carries them in, its renderer's: a
+// map keyed by id, or else a list. Every other key and comment of current
+// stays.
 func MergePlaintext(current []byte, clients []Client, peers []string) ([]byte, error) {
 	var doc yaml.Node
 	if len(current) > 0 {
@@ -235,14 +240,21 @@ func MergePlaintext(current []byte, clients []Client, peers []string) ([]byte, e
 		return nil, fmt.Errorf("the document is no mapping")
 	}
 	oidc := ensure(root, keyOIDC, yaml.MappingNode)
+	extrasAsMap := false
+	if extras := child(oidc, keyExtraClients); extras != nil && extras.Kind == yaml.MappingNode {
+		extrasAsMap = true
+	}
 	for _, c := range clients {
 		switch {
 		case c.BuiltIn != "" && c.Secret != nil:
 			client := ensure(ensure(oidc, keyStaticClients, yaml.MappingNode), c.BuiltIn, yaml.MappingNode)
 			set(client, keyClientRef, secretRefNode(c.Secret.Secret))
+		case c.Entry != nil && extrasAsMap:
+			set(ensure(oidc, keyExtraClients, yaml.MappingNode), c.Entry.ID, entryNode(*c.Entry))
 		case c.Entry != nil:
 			list := ensure(oidc, keyExtraClients, yaml.SequenceNode)
 			entry := entryNode(*c.Entry)
+			entry.Content = append([]*yaml.Node{str(keyID), str(c.Entry.ID)}, entry.Content...)
 			i := slices.IndexFunc(list.Content, func(n *yaml.Node) bool {
 				id := child(n, keyID)
 				return id != nil && id.Value == c.Entry.ID
@@ -267,11 +279,10 @@ func MergePlaintext(current []byte, clients []Client, peers []string) ([]byte, e
 	return encode(&doc)
 }
 
-// entryNode is an extra client's entry in the order the definitions render
-// one.
+// entryNode is an extra client's fields but its id, in the order the
+// definitions render them.
 func entryNode(e Entry) *yaml.Node {
 	n := &yaml.Node{Kind: yaml.MappingNode}
-	set(n, keyID, str(e.ID))
 	if e.Name != "" {
 		set(n, keyName, str(e.Name))
 	}

@@ -101,6 +101,9 @@ type fakeVault struct {
 	reveal bool
 	copies []string
 	unsets []string
+	rekeys []string
+	// noRekey answers Rekey as beekeeper does.
+	noRekey bool
 }
 
 func (*fakeVault) Name() string { return "fake" }
@@ -161,6 +164,42 @@ func (v *fakeVault) Unset(_ context.Context, file string, paths []string) error 
 		remove(v.plain[file], p)
 		v.unsets = append(v.unsets, p)
 	}
+	out, err := encode(&doc)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(file, out, 0o600)
+}
+
+// Rekey keys the decrypted list by its ids and the file's list, ENC[…]
+// values kept, by the same ids, as sops set writes it.
+func (v *fakeVault) Rekey(_ context.Context, file, path string) error {
+	if v.noRekey {
+		return ErrUnsupported
+	}
+	plain := lookup(v.plain[file], path)
+	if plain == nil || plain.Kind != yaml.SequenceNode {
+		return nil
+	}
+	data, err := os.ReadFile(filepath.Clean(file))
+	if err != nil {
+		return err
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return err
+	}
+	m, err := listAsMap(plain, path)
+	if err != nil {
+		return err
+	}
+	onDisk := &yaml.Node{Kind: yaml.MappingNode}
+	for i, item := range lookup(doc.Content[0], path).Content {
+		set(onDisk, child(plain.Content[i], keyID).Value, withoutKey(item, keyID))
+	}
+	*lookup(doc.Content[0], path) = *onDisk
+	*plain = *m
+	v.rekeys = append(v.rekeys, path)
 	out, err := encode(&doc)
 	if err != nil {
 		return err
@@ -270,7 +309,7 @@ func TestReadShapeSplit(t *testing.T) {
 }
 
 func TestDryRun(t *testing.T) {
-	o, v := checkouts(t, "3.2.5")
+	o, v := checkouts(t, "3.5.0")
 	r, err := Run(context.Background(), o)
 	if err != nil {
 		t.Fatal(err)
@@ -309,7 +348,7 @@ func TestDryRun(t *testing.T) {
 }
 
 func TestDryRunKeysOnly(t *testing.T) {
-	o, v := checkouts(t, "3.2.5")
+	o, v := checkouts(t, "3.5.0")
 	v.reveal = false
 	r, err := Run(context.Background(), o)
 	if err != nil {
@@ -325,7 +364,7 @@ func TestDryRunKeysOnly(t *testing.T) {
 }
 
 func TestWriteThenNoOp(t *testing.T) {
-	o, v := checkouts(t, "3.2.5")
+	o, v := checkouts(t, "3.5.0")
 	o.Write = true
 	r, err := Run(context.Background(), o)
 	if err != nil {
@@ -389,10 +428,13 @@ func TestWriteThenNoOp(t *testing.T) {
 			t.Errorf("the encrypted patch keeps %s:\n%s", gone, encrypted)
 		}
 	}
-	for _, kept := range []string{"connectors", "dexK8SAuthenticator", "sops:"} {
+	for _, kept := range []string{"connectors:\n      github:\n        connectorConfig: ENC[a]\n", "dexK8SAuthenticator", "sops:"} {
 		if !strings.Contains(string(encrypted), kept) {
-			t.Errorf("the encrypted patch lost %s:\n%s", kept, encrypted)
+			t.Errorf("the encrypted patch lost %q:\n%s", kept, encrypted)
 		}
+	}
+	if strings.Contains(string(encrypted), "ENC[b]") {
+		t.Errorf("the connector map keeps the id field:\n%s", encrypted)
 	}
 	extras, _ := os.ReadFile(filepath.Join(o.ManagementClusters, "management-clusters/puffin/extras/kustomization.yaml"))
 	dex, _ := os.ReadFile(filepath.Join(o.ManagementClusters, "management-clusters/puffin/extras/dex/kustomization.yaml"))
@@ -415,7 +457,7 @@ func TestWriteThenNoOp(t *testing.T) {
 }
 
 func TestWriteResumesAfterTheSecrets(t *testing.T) {
-	o, v := checkouts(t, "3.2.5")
+	o, v := checkouts(t, "3.5.0")
 	o.Write = true
 	if _, err := Run(context.Background(), o); err != nil {
 		t.Fatal(err)
@@ -441,7 +483,7 @@ func TestWriteResumesAfterTheSecrets(t *testing.T) {
 }
 
 func TestWriteRefusesAnotherValue(t *testing.T) {
-	o, v := checkouts(t, "3.2.5")
+	o, v := checkouts(t, "3.5.0")
 	dst := filepath.Join(o.ManagementClusters, "management-clusters/puffin/extras/agent-platform/secrets/dex-client-kagent-secret.yaml")
 	_ = os.WriteFile(dst, []byte("stringData:\n  secret: ENC[z]\n"), 0o600)
 	var doc yaml.Node
@@ -454,7 +496,7 @@ func TestWriteRefusesAnotherValue(t *testing.T) {
 }
 
 func TestWriteRefusesADifferentHubValue(t *testing.T) {
-	o, v := checkouts(t, "3.2.5")
+	o, v := checkouts(t, "3.5.0")
 	hubFile := filepath.Join(o.HubManagementClusters, "management-clusters/hubble/extras/agent-platform/secrets/puffin-token-exchange-credentials.yaml")
 	var doc yaml.Node
 	_ = yaml.Unmarshal([]byte("stringData:\n  client-secret: drifted-value\n"), &doc)
@@ -467,7 +509,7 @@ func TestWriteRefusesADifferentHubValue(t *testing.T) {
 func TestOldDexAppRefused(t *testing.T) {
 	o, _ := checkouts(t, "2.2.3")
 	_, err := Run(context.Background(), o)
-	if !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "pin dex-app 3.2.2 or later") ||
+	if !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "pin dex-app 3.5.0 or later") ||
 		!strings.Contains(err.Error(), "management-clusters/puffin/collections/kustomization.yaml") {
 		t.Fatalf("err %v, want the pin named", err)
 	}
@@ -487,6 +529,23 @@ func TestMergePlaintextKeepsOtherKeys(t *testing.T) {
 	}
 	if strings.Contains(string(out), "stale") {
 		t.Errorf("the shadowed entry stayed:\n%s", out)
+	}
+}
+
+// A plaintext patch whose renderer keeps the extra clients as a map keyed
+// by id gets each client under its id, an entry of the same id replaced.
+func TestMergePlaintextIntoAMap(t *testing.T) {
+	current := "oidc:\n  extraStaticClients:\n    kagent:\n      name: stale\n    other:\n      name: other\n"
+	out, err := MergePlaintext([]byte(current), []Client{
+		{Source: "x", Entry: &Entry{ID: kagent, Name: "kagent-ui", SecretRef: "dex-client-kagent"}}, //nolint:gosec // a Secret name, no credential
+		{Source: "y", Entry: &Entry{ID: "Grafana", Name: "grafana"}},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "oidc:\n  extraStaticClients:\n    kagent:\n      name: kagent-ui\n      secretRef:\n        name: dex-client-kagent\n        key: secret\n    other:\n      name: other\n    Grafana:\n      name: grafana\n"
+	if string(out) != want {
+		t.Errorf("merged:\n%s\nwant:\n%s", out, want)
 	}
 }
 
@@ -560,7 +619,7 @@ func assertChain(t *testing.T, o Options) {
 // --write writes them, and the platform's own clients keep going to
 // extras/dex there.
 func TestTokenExchangeClientGoesUnderThePlatformSecretsWithoutThePlatform(t *testing.T) {
-	o, _ := checkouts(t, "3.2.5")
+	o, _ := checkouts(t, "3.5.0")
 	withoutPlatform(t, o)
 	r, err := Run(context.Background(), o)
 	if err != nil {
@@ -602,7 +661,7 @@ func TestTokenExchangeClientGoesUnderThePlatformSecretsWithoutThePlatform(t *tes
 // The write renames the file, unlists it from extras/dex and lists it
 // through the chain, copying no value; a run after that has nothing to do.
 func TestAnEarlierSplitsTokenExchangeClientMovesOn(t *testing.T) {
-	o, v := checkouts(t, "3.2.5")
+	o, v := checkouts(t, "3.5.0")
 	withoutPlatform(t, o)
 	writeFile(t, filepath.Join(o.Configs, "installations/puffin/apps/dex-app/secret-values.yaml.patch"), earlierSplitPatch)
 	old := filepath.Join(o.ManagementClusters, dexDirOfPuffin+exchangeFile)
@@ -627,8 +686,8 @@ func TestAnEarlierSplitsTokenExchangeClientMovesOn(t *testing.T) {
 	if r.Pairing == nil || r.Pairing.State != StateEqual {
 		t.Errorf("pairing %+v, want equal, read from the file", r.Pairing)
 	}
-	if len(r.ConfigsFiles) != 0 {
-		t.Errorf("a split patch plans configs files: %v", r.ConfigsFiles)
+	if want := []string{"installations/puffin/apps/dex-app/secret-values.yaml.patch"}; !slices.Equal(r.ConfigsFiles, want) {
+		t.Errorf("a split patch plans configs files %v, want only its connector list's %v", r.ConfigsFiles, want)
 	}
 	for _, f := range []string{dexDirOfPuffin + exchangeFile, dexKustomization, secretsDir + exchangeFile, secretsDir + kustomizationFile, platformDir + kustomizationFile, extrasFile} {
 		if !slices.Contains(r.ManagementClustersFiles, f) {
@@ -647,6 +706,9 @@ func TestAnEarlierSplitsTokenExchangeClientMovesOn(t *testing.T) {
 	}
 	if len(v.copies) != 0 || len(v.unsets) != 0 {
 		t.Errorf("the move copied or unset: %v %v", v.copies, v.unsets)
+	}
+	if want := []string{"oidc.customer.connectors"}; !slices.Equal(v.rekeys, want) {
+		t.Errorf("rekeys %v, want %v", v.rekeys, want)
 	}
 	assertChain(t, o)
 	if exists(old) {
@@ -671,7 +733,7 @@ func TestAnEarlierSplitsTokenExchangeClientMovesOn(t *testing.T) {
 // moves on where it carries the inline value, and the split is refused
 // where it carries another.
 func TestAHalfWaySplitMovesTheEarlierFileOn(t *testing.T) {
-	o, v := checkouts(t, "3.2.5")
+	o, v := checkouts(t, "3.5.0")
 	withoutPlatform(t, o)
 	old := filepath.Join(o.ManagementClusters, dexDirOfPuffin+exchangeFile)
 	writeFile(t, old, exchangeSecret)
@@ -719,4 +781,164 @@ func TestKebab(t *testing.T) {
 			t.Errorf("kebab(%s) = %s, want %s", in, got, want)
 		}
 	}
+}
+
+// connectorOnlyPatch is a split patch whose login connectors are a list.
+const connectorOnlyPatch = "oidc:\n    giantswarm:\n        connectors:\n            - connectorConfig: ENC[a]\n              id: ENC[b]\n    customer:\n        connectors:\n            - connectorConfig: ENC[c]\n              id: ENC[d]\n            - connectorType: ENC[e]\n              id: ENC[f]\n    staticClients:\n        dexK8SAuthenticator:\n            clientSecret: ENC[g]\nsops:\n    mac: ENC[x]\n    unencrypted_suffix: _unencrypted\n"
+
+const connectorOnlyDecrypted = `oidc:
+  giantswarm:
+    connectors:
+      - connectorConfig: {clientSecret: staff-value}
+        id: staff-hub-oidc
+  customer:
+    connectors:
+      - connectorConfig: {clientSecret: corporate-value}
+        id: corporate
+      - connectorType: ldap
+        id: directory
+  staticClients:
+    dexK8SAuthenticator:
+      clientSecret: authenticator-value
+`
+
+func withConnectorOnlyPatch(t *testing.T, o Options, v *fakeVault) string {
+	t.Helper()
+	enc := filepath.Join(o.Configs, "installations/puffin/apps/dex-app/secret-values.yaml.patch")
+	writeFile(t, enc, connectorOnlyPatch)
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(connectorOnlyDecrypted), &doc); err != nil {
+		t.Fatal(err)
+	}
+	v.plain[enc] = doc.Content[0]
+	return enc
+}
+
+// A split patch whose login connectors are lists: the dry run names each
+// list and its ids, the write rewrites both owners' lists as maps keyed by
+// id with their values as they were and touches nothing else, and a run
+// after that has nothing to do.
+func TestConnectorListsBecomeMaps(t *testing.T) {
+	o, v := checkouts(t, "3.5.0")
+	enc := withConnectorOnlyPatch(t, o, v)
+	r, err := Run(context.Background(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []ConnectorList{
+		{Path: "oidc.giantswarm.connectors", Entries: 1, IDs: []string{"staff-hub-oidc"}},
+		{Path: "oidc.customer.connectors", Entries: 2, IDs: []string{"corporate", "directory"}},
+	}
+	if r.Done || len(r.Clients) != 0 || len(v.rekeys) != 0 || !reflectEqual(r.Connectors, want) {
+		t.Fatalf("report %+v, rekeys %v; want the two lists planned", r, v.rekeys)
+	}
+	if want := []string{"installations/puffin/apps/dex-app/secret-values.yaml.patch"}; !slices.Equal(r.ConfigsFiles, want) {
+		t.Errorf("configs files %v, want %v", r.ConfigsFiles, want)
+	}
+	var out bytes.Buffer
+	r.Print(&out)
+	for _, s := range []string{"oidc.giantswarm.connectors: staff-hub-oidc", "oidc.customer.connectors: corporate, directory"} {
+		if !strings.Contains(out.String(), s) {
+			t.Errorf("the report lacks %q:\n%s", s, out.String())
+		}
+	}
+	for _, value := range []string{"staff-value", "corporate-value", "authenticator-value", "ENC["} {
+		if strings.Contains(out.String(), value) {
+			t.Errorf("the report carries %q:\n%s", value, out.String())
+		}
+	}
+
+	o.Write = true
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"oidc.giantswarm.connectors", "oidc.customer.connectors"}; !slices.Equal(v.rekeys, want) || len(v.copies) != 0 || len(v.unsets) != 0 {
+		t.Errorf("rekeys %v, copies %v, unsets %v", v.rekeys, v.copies, v.unsets)
+	}
+	wantFile := "oidc:\n  giantswarm:\n    connectors:\n      staff-hub-oidc:\n        connectorConfig: ENC[a]\n  customer:\n    connectors:\n      corporate:\n        connectorConfig: ENC[c]\n      directory:\n        connectorType: ENC[e]\n  staticClients:\n    dexK8SAuthenticator:\n      clientSecret: ENC[g]\nsops:\n  mac: ENC[x]\n  unencrypted_suffix: _unencrypted\n"
+	if got := readFile(t, enc); got != wantFile {
+		t.Errorf("encrypted patch:\n%s\nwant:\n%s", got, wantFile)
+	}
+	if exists(filepath.Join(o.Configs, ConfigMapPatchPath(inst))) {
+		t.Error("the rewrite wrote the plaintext patch")
+	}
+	if again, err := Run(context.Background(), o); err != nil || !again.Done {
+		t.Fatalf("second run: %+v, %v", again, err)
+	}
+}
+
+// beekeeper cannot rewrite a list as a map: the dry run plans it, the write
+// is refused naming sops.
+func TestConnectorRewriteNeedsSOPS(t *testing.T) {
+	o, v := checkouts(t, "3.5.0")
+	withConnectorOnlyPatch(t, o, v)
+	v.noRekey = true
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatalf("dry run: %v", err)
+	}
+	o.Write = true
+	if _, err := Run(context.Background(), o); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("err %v, want unsupported", err)
+	}
+}
+
+func TestConnectorListWithARepeatedIDRefused(t *testing.T) {
+	o, v := checkouts(t, "3.5.0")
+	enc := withConnectorOnlyPatch(t, o, v)
+	lookup(v.plain[enc], "oidc.customer.connectors.1.id").Value = "corporate"
+	if _, err := Run(context.Background(), o); !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), `"corporate" is in the list twice`) {
+		t.Fatalf("err %v, want the repeated id refused", err)
+	}
+}
+
+func TestDexAppWithoutMapsRefused(t *testing.T) {
+	o, _ := checkouts(t, "3.4.0")
+	if _, err := Run(context.Background(), o); !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "reads no client or connector map: pin dex-app 3.5.0 or later") {
+		t.Fatalf("err %v, want the map floor named", err)
+	}
+}
+
+func TestReadShapeConnectors(t *testing.T) {
+	s, err := ReadShape([]byte(connectorOnlyPatch))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []ConnectorShape{{Owner: keyGiantswarm, Entries: 1}, {Owner: keyCustomer, Entries: 2}}
+	if !slices.Equal(s.Connectors, want) || !s.Split() {
+		t.Fatalf("shape %+v", s)
+	}
+	if s, err := ReadShape([]byte("oidc:\n    customer:\n        connectors:\n            corporate:\n                connectorType: ENC[a]\n")); err != nil || len(s.Connectors) != 0 {
+		t.Fatalf("a map: %+v, %v; want nothing to rewrite", s, err)
+	}
+	if _, err := ReadShape([]byte("oidc:\n    customer:\n        connectors:\n            - connectorType: ENC[a]\n")); err == nil || !strings.Contains(err.Error(), "oidc.customer.connectors.0: a connector without an id") {
+		t.Fatalf("err %v, want the entry without an id refused", err)
+	}
+}
+
+func TestListAsMapRefusals(t *testing.T) {
+	for in, want := range map[string]string{
+		"- id: a\n- id: a\n":               "oidc.extraStaticClients.0 and oidc.extraStaticClients.1 have the same id",
+		"- idEnv: CLIENT_ID\n":             "oidc.extraStaticClients.0: idEnv cannot be kept in a map",
+		"- name: no-id\n":                  "oidc.extraStaticClients.0.id: empty",
+		"- just-a-scalar\n":                "oidc.extraStaticClients.0: no mapping",
+		"- id: a\n  name: kept\n- id: b\n": "",
+	} {
+		var doc yaml.Node
+		if err := yaml.Unmarshal([]byte(in), &doc); err != nil {
+			t.Fatal(err)
+		}
+		m, err := listAsMap(doc.Content[0], pathExtraClients)
+		switch {
+		case want == "" && (err != nil || len(m.Content) != 4 || m.Content[0].Value != "a" || child(m.Content[1], keyID) != nil || child(m.Content[1], keyName) == nil):
+			t.Errorf("%q: %v, %v", in, m, err)
+		case want != "" && (err == nil || !strings.Contains(err.Error(), want)):
+			t.Errorf("%q: err %v, want %q", in, err, want)
+		}
+	}
+}
+
+func reflectEqual(a, b []ConnectorList) bool {
+	return slices.EqualFunc(a, b, func(x, y ConnectorList) bool {
+		return x.Path == y.Path && x.Entries == y.Entries && slices.Equal(x.IDs, y.IDs)
+	})
 }
