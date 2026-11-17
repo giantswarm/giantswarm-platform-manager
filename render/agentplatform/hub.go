@@ -266,7 +266,7 @@ func (in *Input) hubSecrets(add func(file string, f render.File)) {
 		f := render.Secret(t.credentialsSecret(), platformNamespace,
 			map[string]string{"muster.giantswarm.io/management-cluster": t.Installation, "muster.giantswarm.io/type": "token-exchange-credentials"},
 			render.ValueKey("client-id", client),
-			render.GeneratedKey("client-secret", exchangeSecretName(client), render.Base64, 32))
+			render.DexClientSecretKey("client-secret", exchangeSecretName(client)))
 		if t.rendersDexSide() {
 			// The target's own definition renders the Dex side of the client.
 			f = f.Peered(exchangeSecretName(client), render.Peer{Installation: t.Installation, Path: secretsPath(t.Installation, dexClientSecretFile(client))})
