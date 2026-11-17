@@ -48,7 +48,7 @@ func (p Installation) referencesDexSecrets() bool {
 
 // DexSecretRefusal says why a commit of p is refused for the encrypted Dex
 // values on record: p's Dex patch renders a list — oidc.extraStaticClients,
-// the authenticator's trustedPeers, the customer's connectors — that rec's
+// the authenticator's or muster's trustedPeers, the customer's connectors — that rec's
 // encrypted dex-app secret patch carries as well. app-operator merges the
 // config ConfigMap with the config Secret, and helm-controller its
 // valuesFrom, by replacing a list, never by appending, so the encrypted list
@@ -72,8 +72,12 @@ func (p Installation) DexSecretRefusal(rec *installations.Record) string {
 				lists, clients = append(lists, l), ids
 			}
 		case installations.DexTrustedPeers:
-			if ids := p.renderedTrustedPeers(); len(ids) > 0 {
-				lists, peers = append(lists, l), ids
+			if ids := p.renderedTrustedPeers(keyAuthenticator); len(ids) > 0 {
+				lists, peers = append(lists, l), append(peers, ids...)
+			}
+		case installations.DexMusterTrustedPeers:
+			if ids := p.renderedTrustedPeers(keyMuster); len(ids) > 0 {
+				lists, peers = append(lists, l), append(peers, ids...)
 			}
 		case installations.DexCustomerConnectors:
 			if len(p.DexConnectors) > 0 {
@@ -121,11 +125,11 @@ func (p Installation) extraDexClients() []string {
 	return ids
 }
 
-// renderedTrustedPeers are the authenticator's trusted peers the rendered
-// Dex patch declares.
-func (p Installation) renderedTrustedPeers() []string {
+// renderedTrustedPeers are the trusted peers the rendered Dex patch declares
+// for the built-in client under oidc.staticClients.<client>.
+func (p Installation) renderedTrustedPeers(client string) []string {
 	for _, c := range p.DexClients {
-		if c.Client == keyAuthenticator {
+		if c.Client == client {
 			return c.TrustedPeers
 		}
 	}

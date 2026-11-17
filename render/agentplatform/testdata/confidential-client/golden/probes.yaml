@@ -301,6 +301,26 @@
     pods: app.kubernetes.io/name=dex
     container: dex
     note: Dex reads the secret of client staging-gateway only when its container starts; one started before the Secret changed holds the old secret and the client's sign-ins fail until Dex restarts (dex-app 3.2.3 restarts it on the change)
+- id: live-dex-muster-trusted-peers
+  feature: identity
+  kind: HTTP
+  url: https://dex.heron.lakeside.example/auth?client_id=production-gateway&redirect_uri=https://gateway.runtime.example/oauth2/callback/00000000-0000-4000-8000-00000000000b&response_type=code&scope=openid+audience%3Aserver%3Aclient_id%3A00000000-0000-4000-8000-000000000003
+  expect:
+    statuses:
+      - 200
+      - 302
+    dexConnectorStep: true
+    note: Dex lets client production-gateway ask for the audience of 00000000-0000-4000-8000-000000000003 (audience:server:client_id:00000000-0000-4000-8000-000000000003) when 00000000-0000-4000-8000-000000000003 lists it in trustedPeers; otherwise the connector step redirects to https://gateway.runtime.example/oauth2/callback/00000000-0000-4000-8000-00000000000b with error=invalid_scope
+- id: live-dex-muster-trusted-peers
+  feature: identity
+  kind: HTTP
+  url: https://dex.heron.lakeside.example/auth?client_id=staging-gateway&redirect_uri=https://gateway.runtime.example/oauth2/callback/00000000-0000-4000-8000-00000000000c&response_type=code&scope=openid+audience%3Aserver%3Aclient_id%3A00000000-0000-4000-8000-000000000003
+  expect:
+    statuses:
+      - 200
+      - 302
+    dexConnectorStep: true
+    note: Dex lets client staging-gateway ask for the audience of 00000000-0000-4000-8000-000000000003 (audience:server:client_id:00000000-0000-4000-8000-000000000003) when 00000000-0000-4000-8000-000000000003 lists it in trustedPeers; otherwise the connector step redirects to https://gateway.runtime.example/oauth2/callback/00000000-0000-4000-8000-00000000000c with error=invalid_scope
 - id: live-muster-protected-resource
   feature: tool-access
   kind: HTTP

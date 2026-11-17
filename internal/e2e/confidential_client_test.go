@@ -19,18 +19,25 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/render/clustermcpservers"
 )
 
-// The confidential client the fixtures register on rowan.
+// The confidential client the fixtures register on rowan, and a peer of
+// muster's Dex client rowan keeps by hand.
 const (
 	gatewayID       = "gateway"
 	gatewayCallback = "https://gateway.runtime.test/oauth2/callback"
 	gatewaySecret   = "dex-client-" + gatewayID
+	handPeer        = "hand-peer"
 )
+
+// musterClientOnRecord is muster's entry of the Dex patch as the platform
+// renders it, without peers.
+const musterClientOnRecord = "    muster:\n      clientSecretRef:\n        name: dex-client-muster\n        key: secret\n"
 
 // registerConfidentialOnRowan lists a confidential registration ConfigMap
 // under rowan's extras/agent-platform/mcpclients/. byHand registers the
 // client the way an installation carries one before the manager renders it:
 // its Secret listed beside the ConfigMap, encrypted as the platform's own
-// Dex client Secrets are, the client in the Dex patch with its secretRef and
+// Dex client Secrets are, the client in the Dex patch with its secretRef,
+// among muster's trusted peers beside a peer of the installation's own, and
 // its id among muster's trusted audiences.
 func registerConfidentialOnRowan(t *testing.T, st *stack, byHand bool) {
 	t.Helper()
@@ -56,6 +63,10 @@ func registerConfidentialOnRowan(t *testing.T, st *stack, byHand bool) {
 		if !strings.Contains(dex, "  extraStaticClients:\n") {
 			t.Fatalf("rowan's Dex patch lists no extraStaticClients:\n%s", dex)
 		}
+		if !strings.Contains(dex, musterClientOnRecord) {
+			t.Fatalf("rowan's Dex patch lists no muster client:\n%s", dex)
+		}
+		dex = strings.Replace(dex, musterClientOnRecord, musterClientOnRecord+"      trustedPeers:\n        - "+handPeer+"\n        - "+gatewayID+"\n", 1)
 		st.ghs.addFile(acmeConfigs, dexPatch, strings.Replace(dex, "  extraStaticClients:\n", "  extraStaticClients:\n    - id: "+gatewayID+"\n      name: MCP gateway\n      redirectURIs:\n        - "+gatewayCallback+"\n      secretRef:\n        name: "+gatewaySecret+"\n        key: secret\n", 1))
 		platformPatch := "installations/" + rowan + "/apps/agent-platform/configmap-values.yaml.patch"
 		patch, _ := st.ghs.file(acmeConfigs, platformPatch)
@@ -110,9 +121,9 @@ func planFile(p plan.Installation, suffix string) (plan.File, bool) {
 
 // A confidential registration ConfigMap renders the Dex client with its
 // secretRef, the client's Secret in Dex's namespace with a value the commit
-// draws, and the client's id among muster's audiences, and no public
-// registration; the pull request with the Secret merges before the one with
-// the patch that references it.
+// draws, the client among the peers of muster's Dex client and its id among
+// muster's audiences, and no public registration; the pull request with the
+// Secret merges before the one with the patch that references it.
 func TestReconcileRendersAConfidentialClient(t *testing.T) {
 	st := newStack(t)
 	rolledOut(t, st)
@@ -122,6 +133,9 @@ func TestReconcileRendersAConfidentialClient(t *testing.T) {
 	dex, ok := planFile(p, "/apps/dex-app/configmap-values.yaml.patch")
 	if !ok || strings.Count(dex.Content, "- id: "+gatewayID+"\n") != 1 || !strings.Contains(dex.Content, "name: "+gatewaySecret+"\n") || !strings.Contains(dex.Content, gatewayCallback) {
 		t.Fatalf("the Dex patch:\n%s", dex.Content)
+	}
+	if !strings.Contains(dex.Content, musterClientOnRecord+"      trustedPeers:\n        - "+gatewayID+"\n") {
+		t.Errorf("muster's Dex client does not trust the client as a peer:\n%s", dex.Content)
 	}
 	secret, ok := planFile(p, "/extras/agent-platform/secrets/"+gatewaySecret+"-secret.yaml")
 	if !ok || secret.Change != plan.ChangeCreate || !strings.Contains(secret.Content, "namespace: giantswarm\n") {
@@ -151,8 +165,10 @@ func TestReconcileRendersAConfidentialClient(t *testing.T) {
 // An installation that carries the client by hand — its Secret under
 // mcpclients/, its Dex entry and its audience kept — is adopted by its
 // registration ConfigMap: the Secret is the render's in its file, its value
-// on record kept and nothing drawn anew, the Dex entry and the audience are
-// the rendered ones, once each, nothing of them kept beside the render.
+// on record kept and nothing drawn anew, the Dex entry, the peer and the
+// audience are the rendered ones, once each, nothing of them kept beside the
+// render; muster's other peer on record is the installation's own and stays
+// after the rendered one.
 func TestReconcileAdoptsAHandRegisteredConfidentialClient(t *testing.T) {
 	st := newStack(t)
 	rolledOut(t, st)
@@ -177,6 +193,10 @@ func TestReconcileAdoptsAHandRegisteredConfidentialClient(t *testing.T) {
 	if strings.Count(dex.Content, "- id: "+gatewayID+"\n") != 1 || strings.Contains(dex.Content, "MCP gateway") || slices.ContainsFunc(dex.Kept, func(k plan.Kept) bool { return k.Entry == gatewayID }) {
 		t.Errorf("the Dex patch, kept %v:\n%s", dex.Kept, dex.Content)
 	}
+	if !strings.Contains(dex.Content, musterClientOnRecord+"      trustedPeers:\n        - "+gatewayID+"\n        - "+handPeer+"\n") || strings.Count(dex.Content, "- "+gatewayID+"\n") != 1 ||
+		!slices.Contains(dex.Kept, plan.Kept{List: plan.ListMusterTrustedPeers, Entry: handPeer}) {
+		t.Errorf("muster's peers, kept %v:\n%s", dex.Kept, dex.Content)
+	}
 	patch, _ := planFile(p, "/apps/agent-platform/configmap-values.yaml.patch")
 	if strings.Count(patch.Content, "- "+gatewayID+"\n") != 1 || slices.ContainsFunc(patch.Kept, func(k plan.Kept) bool { return k.Entry == gatewayID }) {
 		t.Errorf("the platform patch, kept %v:\n%s", patch.Kept, patch.Content)
@@ -185,7 +205,8 @@ func TestReconcileAdoptsAHandRegisteredConfidentialClient(t *testing.T) {
 
 // The disable of the platform takes the confidential client out with it: the
 // Secret's file and the registration are deleted, the Dex patch loses the
-// client, and the platform patch with muster's audience goes whole.
+// client and muster's peer of it, and the platform patch with muster's
+// audience goes whole.
 func TestDisableRemovesAConfidentialClient(t *testing.T) {
 	st := newStack(t)
 	_, aliceC := rolledOut(t, st)
@@ -207,7 +228,11 @@ func TestDisableRemovesAConfidentialClient(t *testing.T) {
 		t.Error("the platform patch with muster's audience stays")
 	}
 	dexPatch := "installations/" + rowan + "/apps/dex-app/configmap-values.yaml.patch"
-	if i := slices.IndexFunc(dry.Plan.Files, func(f plan.Removal) bool { return f.Path == dexPatch }); i < 0 || strings.Contains(dry.Plan.Files[i].Content, gatewaySecret) {
+	i := slices.IndexFunc(dry.Plan.Files, func(f plan.Removal) bool { return f.Path == dexPatch })
+	if i < 0 || strings.Contains(dry.Plan.Files[i].Content, gatewaySecret) {
 		t.Fatalf("the confidential client stays in the Dex patch: %+v", dry.Plan.Files)
+	}
+	if strings.Contains(dry.Plan.Files[i].Content, "- "+gatewayID+"\n") {
+		t.Errorf("muster still trusts the confidential client as a peer:\n%s", dry.Plan.Files[i].Content)
 	}
 }

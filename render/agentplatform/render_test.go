@@ -551,6 +551,8 @@ func TestProbesAreLiveDimensions(t *testing.T) {
 			return shape == shapeRegisteredServers
 		case agentManagerRouteDimension:
 			return shape == shapeCredentialForm
+		case musterTrustedPeersDimension:
+			return shape == shapeConfidentialClient
 		}
 		return shape == shapePublicCustomer
 	}

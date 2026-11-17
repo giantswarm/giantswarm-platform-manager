@@ -105,7 +105,7 @@ type File struct {
 // the mapping the key is kept in (empty for the file's top level, oidc,
 // oidc.staticClients) and Entry the key — or List is oidc.extraStaticClients
 // and Entry the id of a client no definition declares. In the audience lists
-// (the dex patch's ListTrustedPeers, the platform patch's
+// (the dex patch's ListTrustedPeers and ListMusterTrustedPeers, the platform patch's
 // ListTrustedAudiences, ListExtraAudience and ListEdgeAudiences) List is the
 // list and Entry an id the installation trusts that the definition does not
 // render, kept after the definition's in that list alone. In teleport-fleet's

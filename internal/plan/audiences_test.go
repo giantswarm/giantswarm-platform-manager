@@ -163,6 +163,36 @@ func TestKeepDexPatchKeepsTheInstallationsOwnTrustedPeers(t *testing.T) {
 	}
 }
 
+// muster's trusted peers keep like the authenticator's: a peer on record the
+// definition does not render stays after the confidential clients it
+// renders, in muster's list alone, and a list on record is kept where the
+// render has no confidential client and so no list.
+func TestKeepDexPatchKeepsMustersOwnTrustedPeers(t *testing.T) {
+	const withPeers = "oidc:\n  staticClients:\n    muster:\n      clientSecretRef: {name: dex-client-muster, key: secret}\n      trustedPeers:\n        - production-gateway\n"
+	const withoutPeers = "oidc:\n  staticClients:\n    muster:\n      clientSecretRef: {name: dex-client-muster, key: secret}\n"
+	current := "oidc:\n  staticClients:\n    muster:\n      clientSecret: stale-inline-secret\n      trustedPeers:\n        - hand-peer\n        - production-gateway\n"
+	got, kept, err := keepDexPatch([]byte(withPeers), []byte(current))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(kept, []Kept{{ListMusterTrustedPeers, "hand-peer"}}) {
+		t.Fatalf("kept %v", kept)
+	}
+	if s := string(got); !strings.Contains(s, "trustedPeers:\n        - production-gateway\n        - hand-peer\n") || strings.Contains(s, "stale-inline-secret") || strings.Count(s, "production-gateway") != 1 {
+		t.Errorf("merged patch:\n%s", s)
+	}
+	got, kept, err = keepDexPatch([]byte(withoutPeers), []byte(current))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(kept, []Kept{{ListMusterTrustedPeers, "hand-peer"}, {ListMusterTrustedPeers, "production-gateway"}}) || !strings.Contains(string(got), "trustedPeers:\n        - hand-peer\n        - production-gateway\n") {
+		t.Errorf("kept %v:\n%s", kept, got)
+	}
+	if got, kept, err := keepDexPatch([]byte(withoutPeers), []byte("oidc:\n  staticClients:\n    muster:\n      trustedPeers: []\n")); err != nil || kept != nil || string(got) != withoutPeers {
+		t.Errorf("an empty list on record keeps nothing: %v, %v:\n%s", err, kept, got)
+	}
+}
+
 // muster's trusted issuers merge by issuer: an issuer on record keeps its
 // entry whole in place of the render's, an issuer the render lacks is kept
 // after the render's, and the render's own issuer the record lacks stands.

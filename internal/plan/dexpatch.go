@@ -32,9 +32,10 @@ const (
 // after the definition's, with their comments. A client or connector the
 // definition renders is the definition's whole: its entry replaces the
 // current one, so nothing stale inside it (an inline secret, an old issuer)
-// survives — but for the authenticator's trusted peers: a peer on record the
-// definition does not render is the installation's own and stays, after the
-// definition's (keepList). Nothing kept leaves rendered as it is.
+// survives — but for the authenticator's and muster's trusted peers: a peer
+// on record the definition does not render is the installation's own and
+// stays, after the definition's (keepList, keepPeers). Nothing kept leaves
+// rendered as it is.
 func keepDexPatch(rendered, current []byte) ([]byte, []Kept, error) {
 	_, cur, err := mapping(current)
 	if err != nil {
@@ -53,8 +54,11 @@ func keepDexPatch(rendered, current []byte) ([]byte, []Kept, error) {
 			switch {
 			case key == keyStaticClients && r.Kind == yaml.MappingNode && c.Kind == yaml.MappingNode:
 				keepKeys(r, c, listStaticClients, &kept, func(key string, r, c *yaml.Node) {
-					if key == keyAuthenticator {
+					switch key {
+					case keyAuthenticator:
 						keepList(entry(r, keyTrustedPeers), entry(c, keyTrustedPeers), ListTrustedPeers, &kept)
+					case keyMuster:
+						keepPeers(r, c, ListMusterTrustedPeers, &kept)
 					}
 				})
 			case key == keyExtraStaticClients && r.Kind == yaml.SequenceNode && c.Kind == yaml.SequenceNode:
@@ -73,6 +77,26 @@ func keepDexPatch(rendered, current []byte) ([]byte, []Kept, error) {
 	}
 	out, err := encode(doc)
 	return out, kept, err
+}
+
+// keepPeers keeps in the built-in client ren the trusted peers of the same
+// client on record, cur, that ren does not render, after ren's, each
+// recorded under list; ren gains the list where it renders none.
+func keepPeers(ren, cur *yaml.Node, list string, kept *[]Kept) {
+	peers := entry(cur, keyTrustedPeers)
+	if peers == nil || peers.Kind != yaml.SequenceNode || ren.Kind != yaml.MappingNode {
+		return
+	}
+	r := entry(ren, keyTrustedPeers)
+	if r != nil {
+		keepList(r, peers, list, kept)
+		return
+	}
+	r = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+	keepList(r, peers, list, kept)
+	if len(r.Content) > 0 {
+		ren.Content = append(ren.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: keyTrustedPeers}, r)
+	}
 }
 
 // keepKeys appends to the mapping ren every key of the mapping cur that ren

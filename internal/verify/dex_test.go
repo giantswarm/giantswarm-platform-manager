@@ -35,6 +35,19 @@ type fakeDex struct {
 	prefix     string              // the issuer's path
 	connectors []string            // in the picker's order
 	clients    map[string][]string // client id → its redirect URIs
+	peers      map[string][]string // client id → the clients it trusts as peers
+}
+
+// untrustedAudience is the first audience scope of q that names a client
+// whose peers lack q's client: the scope Dex refuses with invalid_scope.
+func (d fakeDex) untrustedAudience(q url.Values) string {
+	for _, scope := range strings.Fields(q.Get("scope")) {
+		peer, ok := strings.CutPrefix(scope, render.DexAudienceScopePrefix)
+		if ok && peer != q.Get("client_id") && !slices.Contains(d.peers[peer], q.Get("client_id")) {
+			return scope
+		}
+	}
+	return ""
 }
 
 // dexPicker is the picker page as Dex's login template renders it: the
@@ -63,6 +76,9 @@ func (d fakeDex) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid client_id", http.StatusNotFound)
 	case onConnector && !slices.Contains(d.clients[q.Get("client_id")], q.Get("redirect_uri")):
 		http.Error(w, "Unregistered redirect_uri", http.StatusBadRequest)
+	case onConnector && d.untrustedAudience(q) != "":
+		v := url.Values{"state": {q.Get("state")}, "error": {"invalid_scope"}, "error_description": {"Client can't request scope(s) [\"" + d.untrustedAudience(q) + "\"]"}}
+		http.Redirect(w, r, q.Get("redirect_uri")+"?"+v.Encode(), http.StatusSeeOther) // #nosec G710 -- a test double redirecting to the registered redirect URI, as Dex does
 	case onConnector && !slices.Contains(d.connectors, connector):
 		http.Error(w, "Requested resource does not exist", http.StatusBadRequest)
 	case onConnector && connector == connectorLocal:
@@ -139,6 +155,30 @@ func TestDexAuthProbesTakeTheConnectorStep(t *testing.T) {
 		}
 		if c.Mark != tc.mark || c.Message != want.Answer() {
 			t.Errorf("%s: live: mark %q, message %q, want %q %q", tc.name, c.Mark, c.Message, tc.mark, want.Answer())
+		}
+	}
+}
+
+// The peer probe asks for muster's audience: a client muster trusts as a
+// peer is as defined, one it does not is drifted with Dex's refusal — the
+// connector step's redirect to the client's redirect URI with invalid_scope.
+func TestDexPeerAuthProbeReadsTheScopeRefusal(t *testing.T) {
+	const gateway, callback = "gateway", "https://gateway.example.test/cb"
+	clients := map[string][]string{clientMuster: {"https://muster.example.test/oauth/callback"}, gateway: {callback}}
+	for _, tc := range []struct {
+		name    string
+		peers   map[string][]string
+		mark    Mark
+		message string
+	}{
+		{"muster trusts the client", map[string][]string{clientMuster: {gateway}}, AsDefined, ""},
+		{"muster trusts another client", map[string][]string{clientMuster: {"other"}}, Drifted,
+			`Dex refuses the request of client gateway with scope "openid audience:server:client_id:muster": invalid_scope (Client can't request scope(s) ["audience:server:client_id:muster"])`},
+	} {
+		host, client := tlsServing(t, fakeDex{connectors: []string{connectorGitHub}, clients: clients, peers: tc.peers})
+		c := liveHTTP(client, render.DexPeerAuthProbe("live-dex-muster-trusted-peers", featureIdentity, host, gateway, callback, clientMuster))
+		if c.Mark != tc.mark || (tc.message != "" && !strings.Contains(c.Message, tc.message)) {
+			t.Errorf("%s: mark %q, message %q", tc.name, c.Mark, c.Message)
 		}
 	}
 }

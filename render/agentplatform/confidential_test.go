@@ -63,6 +63,9 @@ func TestRenderConfidentialClient(t *testing.T) {
 	if strings.Contains(dex, publicURI) {
 		t.Errorf("the public client is a Dex client:\n%s", dex)
 	}
+	if !strings.Contains(dex, "    muster:\n      clientSecretRef:\n        name: dex-client-muster\n        key: secret\n      trustedPeers:\n        - "+freshClient+"\n        - "+adoptedClient+"\n    mcpKubernetes:") {
+		t.Errorf("muster's Dex client does not trust the confidential clients as peers:\n%s", dex)
+	}
 
 	secret := treeFile(t, r, "/extras/agent-platform/secrets/dex-client-"+freshClient+"-secret.yaml")
 	if !strings.Contains(secret, "name: dex-client-"+freshClient+"\n") || !strings.Contains(secret, "namespace: "+dexNamespace+"\n") || !strings.Contains(secret, "secret: "+render.Placeholder("heron-"+freshClient+"-dex-client-secret")) {
@@ -105,13 +108,41 @@ func TestRenderAdoptsAHandRegisteredClientsSecret(t *testing.T) {
 	}
 }
 
+// Without a confidential client muster's Dex client trusts no peer and no
+// peer probe is rendered.
+func TestRenderWithoutConfidentialClientsTrustsNoPeer(t *testing.T) {
+	r, err := renderConfidential(t, func(inst map[string]any) {
+		clients := inst["mcpClients"].([]any)
+		inst["mcpClients"] = clients[:1]
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dex := treeFile(t, r, "/apps/dex-app/configmap-values.yaml.patch"); strings.Contains(dex, "trustedPeers") {
+		t.Errorf("muster trusts a peer:\n%s", dex)
+	}
+	if slices.ContainsFunc(r.Probes, func(p render.Probe) bool { return p.ID == musterTrustedPeersDimension }) {
+		t.Error("a peer probe without a confidential client")
+	}
+}
+
 // verify holds the live Dex against every confidential client — Dex knows
-// the client at each of its redirect URIs and holds its current secret — and
-// muster's ConfigMap against the rendered audiences, the clients' among them.
+// the client at each of its redirect URIs, holds its current secret and lets
+// it ask for muster's audience — and muster's ConfigMap against the rendered
+// audiences, the clients' among them.
 func TestConfidentialClientProbes(t *testing.T) {
 	r, err := renderConfidential(t, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	const musterID = "00000000-0000-4000-8000-000000000003"
+	for _, c := range []struct{ id, uri string }{{freshClient, freshURI}, {adoptedClient, adoptedURI}} {
+		if !slices.ContainsFunc(r.Probes, func(p render.Probe) bool {
+			return p.ID == musterTrustedPeersDimension && p.Expect.DexConnectorStep &&
+				strings.Contains(p.URL, "client_id="+c.id+"&redirect_uri="+c.uri+"&") && strings.HasSuffix(p.URL, "&scope=openid+audience%3Aserver%3Aclient_id%3A"+musterID)
+		}) {
+			t.Errorf("%s: no probe asks Dex for muster's audience", c.id)
+		}
 	}
 	for _, c := range []struct{ id, uri string }{{freshClient, freshURI}, {adoptedClient, adoptedURI}} {
 		auth := slices.ContainsFunc(r.Probes, func(p render.Probe) bool {

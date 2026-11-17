@@ -1,6 +1,10 @@
 package render
 
-import "github.com/Masterminds/semver/v3"
+import (
+	"net/url"
+
+	"github.com/Masterminds/semver/v3"
+)
 
 // Dex as the dex-app chart runs it, where the definitions' probes look for it.
 const (
@@ -22,6 +26,27 @@ func DexAuthProbe(id, feature, dexHost, client, redirectURI string) Probe {
 		URL: "https://" + dexHost + "/auth?client_id=" + client + "&redirect_uri=" + redirectURI + "&response_type=code&scope=openid",
 		Expect: Expectation{Statuses: []int{200, 302}, DexConnectorStep: true,
 			Note: "Dex knows client " + client + " and its redirect URI when the connector its /auth answer names redirects to the identity provider or serves its login form; an unknown client answers 404, an unregistered redirect URI 400"}}
+}
+
+// DexAudienceScopePrefix starts the scope with which a client asks Dex for a
+// token whose audience is another client, its peer: the peer lists the
+// client in its trustedPeers, and Dex issues aud [<peer>, <client>] with azp
+// the client.
+const DexAudienceScopePrefix = "audience:server:client_id:"
+
+// DexAudienceScope is the scope that asks Dex for peer's audience.
+func DexAudienceScope(peer string) string { return DexAudienceScopePrefix + peer }
+
+// DexPeerAuthProbe is the live check that Dex lets client ask for peer's
+// audience: DexAuthProbe's request with the scopes openid and
+// DexAudienceScope(peer). Dex checks the scope on the connector step and
+// answers a client peer does not trust with a redirect to redirectURI that
+// carries error=invalid_scope.
+func DexPeerAuthProbe(id, feature, dexHost, client, redirectURI, peer string) Probe {
+	p := DexAuthProbe(id, feature, dexHost, client, redirectURI)
+	p.URL = "https://" + dexHost + "/auth?client_id=" + client + "&redirect_uri=" + redirectURI + "&response_type=code&scope=" + url.QueryEscape("openid "+DexAudienceScope(peer))
+	p.Expect.Note = "Dex lets client " + client + " ask for the audience of " + peer + " (" + DexAudienceScope(peer) + ") when " + peer + " lists it in trustedPeers; otherwise the connector step redirects to " + redirectURI + " with error=invalid_scope"
+	return p
 }
 
 // DexSecretLoadedProbe is the live check that Dex holds the current secret of

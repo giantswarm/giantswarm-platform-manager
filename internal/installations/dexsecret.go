@@ -13,7 +13,7 @@ import (
 // DexSecretPatchPath is where the installation's configs repository keeps the
 // dex-app secret patch: SOPS-encrypted values whose keys stay plaintext — the
 // hand-registered clients with their inline secrets, the authenticator's
-// trusted peers, the login connectors. The engine never decrypts it and never
+// and muster's trusted peers, the login connectors. The engine never decrypts it and never
 // writes it; it reads which lists it carries.
 func DexSecretPatchPath(name string) string {
 	return "installations/" + name + "/apps/dex-app/secret-values.yaml.patch"
@@ -26,6 +26,7 @@ func DexSecretPatchPath(name string) string {
 const (
 	DexExtraStaticClients = "oidc.extraStaticClients"
 	DexTrustedPeers       = "oidc.staticClients.dexK8SAuthenticator.trustedPeers"
+	DexMusterTrustedPeers = "oidc.staticClients.muster.trustedPeers"
 	DexCustomerConnectors = "oidc.customer.connectors"
 )
 
@@ -67,6 +68,9 @@ func dexSecretLists(patch string) ([]DexSecretList, error) {
 				DexK8SAuthenticator struct {
 					TrustedPeers []yaml.Node `yaml:"trustedPeers"`
 				} `yaml:"dexK8SAuthenticator"`
+				Muster struct {
+					TrustedPeers []yaml.Node `yaml:"trustedPeers"`
+				} `yaml:"muster"`
 			} `yaml:"staticClients"`
 			ExtraStaticClients []yaml.Node `yaml:"extraStaticClients"`
 			Customer           struct {
@@ -80,6 +84,9 @@ func dexSecretLists(patch string) ([]DexSecretList, error) {
 	var out []DexSecretList
 	if n := len(doc.OIDC.StaticClients.DexK8SAuthenticator.TrustedPeers); n > 0 {
 		out = append(out, DexSecretList{Path: DexTrustedPeers, Entries: n})
+	}
+	if n := len(doc.OIDC.StaticClients.Muster.TrustedPeers); n > 0 {
+		out = append(out, DexSecretList{Path: DexMusterTrustedPeers, Entries: n})
 	}
 	if n := len(doc.OIDC.ExtraStaticClients); n > 0 {
 		out = append(out, DexSecretList{Path: DexExtraStaticClients, Entries: n})

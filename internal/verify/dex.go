@@ -71,7 +71,7 @@ func (pr *prober) get(ctx context.Context, u string, dexConnectorStep bool) (rep
 	if err != nil {
 		return c, err
 	}
-	c.connector, c.fault = connector, dexRefusal(c.status, next.Query())
+	c.connector, c.fault = connector, dexRefusal(c.status, next.Query(), c.location)
 	return c, nil
 }
 
@@ -118,13 +118,26 @@ func dexPickerLink(auth *url.URL, page []byte) (*url.URL, string) {
 
 // dexRefusal is what a connector's answer says about the authorization
 // request q when Dex refused it: 404 is a client id Dex does not know, 400 a
-// redirect URI not registered for the client. Empty for any other answer.
-func dexRefusal(status int, q url.Values) string {
+// redirect URI not registered for the client, 303 to the redirect URI with
+// an error a request Dex refuses for the client (invalid_scope: a scope the
+// client may not ask for, an audience whose client does not trust it).
+// Empty for any other answer.
+func dexRefusal(status int, q url.Values, location string) string {
 	switch status {
 	case http.StatusNotFound:
 		return "Dex does not know client " + q.Get("client_id")
 	case http.StatusBadRequest:
 		return "Dex does not know redirect URI " + q.Get("redirect_uri") + " for client " + q.Get("client_id")
+	case http.StatusSeeOther:
+		u, err := url.Parse(location)
+		if err != nil || u.Query().Get("error") == "" {
+			return ""
+		}
+		refusal := "Dex refuses the request of client " + q.Get("client_id") + " with scope " + strconv.Quote(q.Get("scope")) + ": " + u.Query().Get("error")
+		if d := u.Query().Get("error_description"); d != "" {
+			refusal += " (" + d + ")"
+		}
+		return refusal
 	}
 	return ""
 }

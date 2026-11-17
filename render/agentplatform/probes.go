@@ -73,6 +73,12 @@ func (in *Input) probes() []render.Probe {
 	for _, c := range in.dexSecretClients() {
 		p = append(p, render.DexSecretLoadedProbe(dexSecretsLoadedDimension, featureIdentity, dexNamespace, c.secret, c.client))
 	}
+	for _, c := range in.confidentialClients() {
+		if len(c.RedirectURIs) == 0 {
+			continue
+		}
+		p = append(p, render.DexPeerAuthProbe(musterTrustedPeersDimension, featureIdentity, in.host("dex"), c.ClientID, c.RedirectURIs[0], in.Installation.MusterClientID))
+	}
 	if in.agentManagerRoute() {
 		// The credential form's path: the route answers a call without a
 		// token 401 at the gateway's JWT policy; without the route the
@@ -326,6 +332,11 @@ func (in *Input) dexRedirectClients() []dexRedirectClient {
 	}
 	return clients
 }
+
+// musterTrustedPeersDimension is the live dimension of muster's Dex client
+// trusting every confidential client as a peer: Dex lets the client ask for
+// muster's audience.
+const musterTrustedPeersDimension = "live-dex-muster-trusted-peers"
 
 // dexSecretsLoadedDimension is the live dimension of Dex holding the current
 // secret of every client whose secret it reads from a Secret.

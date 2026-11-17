@@ -297,6 +297,12 @@ removals:
       Removed: the authenticator's trusted peers in the encrypted Dex values; each moves to the plaintext list, where the plan keeps a peer of
       another owner after the platform's, then the list leaves the encrypted values — while it is there, the values merge takes it whole over the
       plaintext list, so the platform's peers would never reach the authenticator and the commit is held. Needs dex-app 3.2.2 · M1
+  - key: dex-secret:oidc.staticClients.muster.trustedPeers
+    kind: referenced-secret
+    reason: >-
+      Removed: muster's trusted peers in the encrypted Dex values; each moves to the plaintext list, where the plan keeps a peer of another owner
+      after the platform's confidential clients, then the list leaves the encrypted values — while it is there, the values merge takes it whole
+      over the plaintext list, so the confidential clients could never ask for muster's audience and the commit is held · M45
   - key: dex-secret:oidc.customer
     kind: not-platform
     reason: "Kept: oidc.customer holds this installation's own login connectors and their credentials; the platform reads nothing of them and leaves them in the encrypted Dex values as they are."

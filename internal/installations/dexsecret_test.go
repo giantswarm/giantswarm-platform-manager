@@ -52,6 +52,7 @@ func TestDexSecretListsFromTheRecord(t *testing.T) {
 		{"empty and absent lists", encryptedDexPatch(0, 0, ""), nil},
 		{"the connectors list", encryptedDexPatch(1, 0, "    customer:\n        connectorConfig: ENC[AES256_GCM,data:x,iv:x,tag:x,type:str]\n        connectors:\n            - id: ENC[AES256_GCM,data:x,iv:x,tag:x,type:str]\n"), []DexSecretList{{Path: DexTrustedPeers, Entries: 1}, {Path: DexCustomerConnectors, Entries: 1}}},
 		{"the login connector's own keys are no list", encryptedDexPatch(0, 0, "    customer:\n        connectorConfig: ENC[AES256_GCM,data:x,iv:x,tag:x,type:str]\n"), nil},
+		{"muster's peers", "oidc:\n    staticClients:\n        muster:\n            clientSecret: ENC[AES256_GCM,data:x,iv:x,tag:x,type:str]\n            trustedPeers:\n                - ENC[AES256_GCM,data:x,iv:x,tag:x,type:str]\n                - ENC[AES256_GCM,data:y,iv:x,tag:x,type:str]\nsops:\n    version: 3.11.0\n", []DexSecretList{{Path: DexMusterTrustedPeers, Entries: 2}}},
 		{"inline secrets alone", "oidc:\n    staticClients:\n        muster:\n            clientSecret: ENC[AES256_GCM,data:x,iv:x,tag:x,type:str]\nsops:\n    version: 3.11.0\n", nil},
 	}
 	for _, c := range cases {

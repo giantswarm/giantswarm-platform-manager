@@ -6,6 +6,9 @@ oidc:
       clientSecretRef:
         name: dex-client-muster
         key: secret
+      trustedPeers:
+        - production-gateway
+        - staging-gateway
     mcpKubernetes:
       clientSecretRef:
         name: dex-client-mcp-kubernetes

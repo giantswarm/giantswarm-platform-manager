@@ -140,12 +140,28 @@ func (in *Input) audiences() []string {
 // once — the client signs a person in at Dex and calls muster with the token.
 func (in *Input) musterAudiences() []string {
 	a := in.audiences()
-	for _, c := range in.confidentialClients() {
-		if !slices.Contains(a, c.ClientID) {
-			a = append(a, c.ClientID)
+	for _, id := range in.musterTrustedPeers() {
+		if !slices.Contains(a, id) {
+			a = append(a, id)
 		}
 	}
 	return a
+}
+
+// musterTrustedPeers are the Dex client ids muster's Dex client trusts as
+// peers (oidc.staticClients.muster.trustedPeers), in the registrations'
+// order: every registered confidential client's. A peer may ask Dex for
+// muster's audience with the scope render.DexAudienceScope(muster's client
+// id); Dex then issues the token with aud [<muster's id>, <the peer's id>]
+// and azp the peer's id.
+func (in *Input) musterTrustedPeers() []string {
+	var peers []string
+	for _, c := range in.confidentialClients() {
+		if !slices.Contains(peers, c.ClientID) {
+			peers = append(peers, c.ClientID)
+		}
+	}
+	return peers
 }
 
 // portalAudiences are the Dex client ids the platform trusts for the
@@ -567,9 +583,14 @@ func (in *Input) portalDexClient() render.Map {
 // owns it, so the portals' client is carried here, the entry the
 // customer-portal definition renders on an installation without the
 // platform, with every portal's redirect URI. The platform's client, the
-// chart's built-in muster, carries the one redirect URI the template sets.
+// chart's built-in muster, carries the one redirect URI the template sets
+// and trusts every confidential client as a peer (musterTrustedPeers).
 func (in *Input) dexPatch() render.Map {
-	static := render.Map{e("muster", render.Map{e("clientSecretRef", dexClientRef("muster"))})}
+	muster := render.Map{e("clientSecretRef", dexClientRef("muster"))}
+	if peers := in.musterTrustedPeers(); len(peers) > 0 {
+		muster = append(muster, e("trustedPeers", peers))
+	}
+	static := render.Map{e("muster", muster)}
 	for _, s := range servers {
 		if s.DexSecretRef {
 			static = append(static, e(s.DexClient, s.DexClientRef()))

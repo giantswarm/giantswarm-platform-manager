@@ -21,6 +21,10 @@ const (
 	ListExtraAudience    = "kagent.oauth2-proxy.extraArgs.oidc-extra-audience"
 	ListEdgeAudiences    = "agent-platform-mcps.agentgateway.jwt.extraProviders[*].audiences"
 	ListTrustedPeers     = listStaticClients + "." + keyAuthenticator + "." + keyTrustedPeers
+	// ListMusterTrustedPeers is muster's Dex client's list of the clients
+	// that may ask Dex for muster's audience: the render's confidential
+	// clients, the installation's own peers kept after them.
+	ListMusterTrustedPeers = listStaticClients + "." + keyMuster + "." + keyTrustedPeers
 	// ListAllowedCallers is the chat gateway's list of the platform workloads
 	// allowed to call its team reviews: the policy names the platform's own,
 	// an installation the other teams' that run there (the hub's sweeps).
@@ -31,6 +35,7 @@ const (
 	ListTrustedIssuers = "muster.muster.oauth.server.trustedIssuers"
 
 	keyAuthenticator    = "dexK8SAuthenticator"
+	keyMuster           = "muster"
 	keyTrustedPeers     = "trustedPeers"
 	keyIssuer           = "issuer"
 	keyAudiences        = "audiences"

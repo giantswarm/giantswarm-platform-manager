@@ -18,6 +18,11 @@
 #
 # The M numbers are the wave-1 migration list's (M1–M11) and continue removals.yaml's (M30…).
 migrations:
+  # --- M45 — a confidential MCP client may ask Dex for muster's audience ---
+  # muster's Dex client lists every registered confidential client in trustedPeers; the client asks for the
+  # scope audience:server:client_id:<muster's client id> and gets a token whose aud names muster and itself.
+  - key: dex-configmap:oidc.staticClients.muster.trustedPeers[<client>]
+    reason: "Added: muster's Dex client trusts the confidential MCP client <client> as a peer, so the client can ask Dex for a token whose audience names muster (the scope audience:server:client_id: with muster's client id) · M45"
   # --- M44 — a rotated muster credential rolls the skill-manager too ---
   # The meta chart runs the skill-manager beside the agent-manager from 4.179.0 on; it reads the platform
   # client's secret once at start, like the managers of M38.

@@ -26,6 +26,7 @@ heron: enabled
     live-kagent-api-protected: identity /api/agents answered 403 by oauth2-proxy
     live-kagent-login-redirect: identity /oauth2/start 302 to Dex with client_id=kagent
     live-dex-auth-per-client: identity Dex knows every rendered client and its redirect URI: the connector its /auth answer names answers 302 or its login form
+    live-dex-muster-trusted-peers: identity Dex lets every confidential client ask for muster's audience (scope audience:server:client_id:<muster's client id>): muster's client lists it in trustedPeers
     live-dex-client-secrets-loaded: identity Dex started after every referenced client Secret last changed its data, for every client of the dex patch with a secret reference
     live-oauth2-proxy-audience: identity no audience mismatch in oauth2-proxy's log
     live-oauth2-proxy-secret-and-flux-sa: secrets Secret kagent-oauth2-proxy-credentials and ServiceAccount kagent-flux
@@ -77,6 +78,7 @@ kestrel: enabled
     live-kagent-api-protected: identity /api/agents answered 403 by oauth2-proxy
     live-kagent-login-redirect: identity /oauth2/start 302 to Dex with client_id=kagent
     live-dex-auth-per-client: identity Dex knows every rendered client and its redirect URI: the connector its /auth answer names answers 302 or its login form
+    live-dex-muster-trusted-peers: identity Dex lets every confidential client ask for muster's audience (scope audience:server:client_id:<muster's client id>): muster's client lists it in trustedPeers
     live-dex-client-secrets-loaded: identity Dex started after every referenced client Secret last changed its data, for every client of the dex patch with a secret reference
     live-oauth2-proxy-audience: identity no audience mismatch in oauth2-proxy's log
     live-oauth2-proxy-secret-and-flux-sa: secrets Secret kagent-oauth2-proxy-credentials and ServiceAccount kagent-flux
