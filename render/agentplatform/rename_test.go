@@ -42,6 +42,32 @@ func TestFormerInputNameRendersAsTheCurrentOne(t *testing.T) {
 	require.ErrorContains(t, err, "agentManager.skills.github.app.secretName only")
 }
 
+func TestFormerTokenExchangeNameRendersAsTheCurrentOne(t *testing.T) {
+	render1 := func(manager map[string]any) (*render.Result, error) {
+		input, secrets := credentialInput(t, shapeGiantswarmSlackAppPub)
+		agentManager := input["agentManager"].(map[string]any)
+		delete(agentManager, keyGitHub)
+		for k, v := range manager {
+			agentManager[k] = v
+		}
+		return Render(input, secrets, render.ModeCommit)
+	}
+	on := map[string]any{keyEnabled: true}
+	current, err := render1(map[string]any{keyGitHub: map[string]any{keyTokenExchange: on}})
+	require.NoError(t, err)
+
+	for name, manager := range map[string]map[string]any{
+		"former name alone":      {"githubTokenExchange": on},
+		"both names, same value": {"githubTokenExchange": on, keyGitHub: map[string]any{keyTokenExchange: on}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := render1(manager)
+			require.NoError(t, err)
+			require.Equal(t, current.Files, got.Files)
+		})
+	}
+}
+
 // TestComponentInputsAreNamedAfterTheChartPath holds the convention of the
 // managers' inputs: an input rendered into one key of its component's values
 // carries that key's path under the component as its name.

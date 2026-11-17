@@ -27,7 +27,10 @@ const (
 const ManagerExchangeSubjectAudience = authenticatorClient
 
 const (
-	agentManagerBrokerSecret = "agent-manager-github-broker"
+	agentManagerBrokerSecret    = "agent-manager-github-broker"
+	keyCredentials              = "credentials"
+	credentialOperationVariable = "operation"
+	credentialNamespaceVariable = "namespace"
 	// Credential UI configuration is supported independently of grant exchange.
 	credentialChart       = "4.177.0"
 	managerOperationFloor = "2.22.0"
@@ -35,24 +38,14 @@ const (
 	managerExchangeFloor  = "3.0.0-rc.10"
 	// The broker must release provider App grants and decode Basic credentials.
 	musterGrantFloor = "5.63.2"
+	// The first meta chart that renders uiURL without organizations, and the
+	// first agent-manager that starts with a {namespace} variable in it.
+	installationFormChart = "4.182.0-rc.1"
+	namespaceFormFloor    = "3.1.0-rc.11"
 )
 
-// credentialUI is the credential form's address agent-manager links
-// (agentManager.credentials.uiURL), where it renders: with the
-// organizations on only. The meta chart refuses the form without the switch
-// (agent-manager links it beside its organization tools), so the schema's
-// x-requires refuses it typed with the switch off, and a value read back
-// with the switch off renders nothing: a person turns the switch off alone,
-// and the form goes with it.
-func (in *Input) credentialUI() string {
-	if !in.Organizations.Enabled {
-		return ""
-	}
-	return in.AgentManagerCredentialUI
-}
-
 func (in *Input) validateAgentManagerCredentials() error {
-	if !in.AgentManagerTokenExchange && in.credentialUI() == "" {
+	if !in.AgentManagerTokenExchange && !in.agentManagerRoute() {
 		return nil
 	}
 	if !in.agentManager() || in.Installation.ChartLine != lineFour {
@@ -83,8 +76,22 @@ func (in *Input) validateAgentManagerCredentials() error {
 			}
 		}
 	}
-	if ui := in.credentialUI(); ui != "" && !validCredentialUI(ui) {
-		return refuse("agentManager.credentials.uiURL requires an HTTPS RFC 6570 URI template with one {operation} expression in its path or query, using only {operation}, {parent} and {organization}, and no user information or fragment")
+	if ui := in.AgentManagerCredentialUI; ui != "" && !validCredentialUI(ui) {
+		return refuse("agentManager.credentials.uiURL requires an HTTPS RFC 6570 URI template with one {operation} expression in its path or query, using only {operation}, {namespace}, {parent} and {organization}, and no user information or fragment")
+	}
+	if ui := in.AgentManagerCredentialUI; ui != "" && !in.Organizations.Enabled && !namesCredentialNamespace(ui) {
+		return refuse("agentManager.credentials.uiURL requires one {namespace} expression without organizations.enabled: the installation's model links name the namespace; add {namespace} to agentManager.credentials.uiURL, or type it empty to remove the credential form")
+	}
+	if ui := in.AgentManagerCredentialUI; ui != "" && !in.Organizations.Enabled && usesOrganizationVariables(ui) {
+		return refuse("agentManager.credentials.uiURL allows no {parent} or {organization} expression without organizations.enabled: the installation's model links have no organization to fill them")
+	}
+	if usesCredentialNamespace(in.AgentManagerCredentialUI) {
+		if !holdAdmits(in.Versions.Chart, installationFormChart) {
+			return refuse("a {namespace} expression in agentManager.credentials.uiURL requires the meta chart " + installationFormChart + " or later, and versions.chart holds an earlier one")
+		}
+		if hold := in.Versions.Components[componentAgentManager]; hold != "" && !floorAtLeast(hold, namespaceFormFloor) {
+			return refuse("a {namespace} expression in agentManager.credentials.uiURL requires an agent-manager version floor of " + namespaceFormFloor + " or later")
+		}
 	}
 	return nil
 }
@@ -98,33 +105,71 @@ func floorAtLeast(hold, minimum string) bool {
 
 // credentialUIVariables are the variables agent-manager expands in the
 // credential UI template.
-var credentialUIVariables = []string{"operation", "parent", "organization"}
+var credentialUIVariables = []string{credentialOperationVariable, credentialNamespaceVariable, "parent", "organization"}
+
+// credentialUIMarker prefixes the value each template variable expands to
+// when a template is checked; credentialUIMarkers names one per variable.
+const credentialUIMarker = "credentialoperationplaceholder"
+
+var credentialUIMarkers = map[string]string{
+	credentialOperationVariable: credentialUIMarker + "o",
+	credentialNamespaceVariable: credentialUIMarker + "s",
+	"parent":                    credentialUIMarker + "p",
+	"organization":              credentialUIMarker + "n",
+}
 
 // validCredentialUI applies agent-manager's
 // organizations.ValidateCredentialUIURL (an RFC 6570 URI template), so a
 // template the definition accepts never stops the manager from starting.
 func validCredentialUI(template string) bool {
-	const marker = "credentialoperationplaceholder"
-	parsed, err := uritemplate.New(template)
-	if err != nil || !slices.Contains(parsed.Varnames(), "operation") {
-		return false
-	}
-	for _, name := range parsed.Varnames() {
-		if !slices.Contains(credentialUIVariables, name) {
-			return false
-		}
-	}
-	expanded, err := parsed.Expand(uritemplate.Values{
-		"operation":    uritemplate.String(marker + "o"),
-		"parent":       uritemplate.String(marker + "p"),
-		"organization": uritemplate.String(marker + "n"),
-	})
-	if err != nil {
+	expanded, ok := expandCredentialUI(template)
+	if !ok {
 		return false
 	}
 	u, err := url.Parse(expanded)
-	return err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil && u.Fragment == "" &&
-		!strings.Contains(u.Host, marker) && strings.Count(expanded, marker+"o") == 1
+	return err == nil && strings.HasPrefix(template, "https://") && u.Host != "" && u.User == nil && u.Fragment == "" &&
+		!strings.Contains(u.Host, credentialUIMarker) && strings.Count(expanded, credentialUIMarkers[credentialOperationVariable]) == 1
+}
+
+// namesCredentialNamespace says whether template expands {namespace} once:
+// an installation model's link names the namespace its form writes in.
+func namesCredentialNamespace(template string) bool {
+	expanded, ok := expandCredentialUI(template)
+	return ok && strings.Count(expanded, credentialUIMarkers[credentialNamespaceVariable]) == 1
+}
+
+// usesOrganizationVariables says whether template names {parent} or
+// {organization}, which expand empty for an installation model's link.
+func usesOrganizationVariables(template string) bool {
+	parsed, err := uritemplate.New(template)
+	return err == nil && (slices.Contains(parsed.Varnames(), "parent") || slices.Contains(parsed.Varnames(), "organization"))
+}
+
+// usesCredentialNamespace says whether template names the {namespace}
+// variable in any expression.
+func usesCredentialNamespace(template string) bool {
+	parsed, err := uritemplate.New(template)
+	return err == nil && slices.Contains(parsed.Varnames(), credentialNamespaceVariable)
+}
+
+// expandCredentialUI expands template with a marker for each variable; it
+// refuses a template without {operation} or with another variable.
+func expandCredentialUI(template string) (string, bool) {
+	parsed, err := uritemplate.New(template)
+	if err != nil || !slices.Contains(parsed.Varnames(), credentialOperationVariable) {
+		return "", false
+	}
+	for _, name := range parsed.Varnames() {
+		if !slices.Contains(credentialUIVariables, name) {
+			return "", false
+		}
+	}
+	values := uritemplate.Values{}
+	for name, value := range credentialUIMarkers {
+		values[name] = uritemplate.String(value)
+	}
+	expanded, err := parsed.Expand(values)
+	return expanded, err == nil
 }
 
 // jwtModeStrict is an agentgateway JWT policy's mode that answers a request
@@ -136,7 +181,7 @@ const jwtModeStrict = "Strict"
 // (agentManager.credentials.uiURL). The form's backend reaches the API as the
 // person at https://agentgateway.<base domain>/agent-manager, the route's
 // path, whichever installation hosts the portal (giantswarm/backstage#3435).
-func (in *Input) agentManagerRoute() bool { return in.credentialUI() != "" }
+func (in *Input) agentManagerRoute() bool { return in.AgentManagerCredentialUI != "" }
 
 // agentManagerRouteValues is the meta chart's agentManager block for the
 // route: on, behind a Strict JWT policy whose issuer is this installation's

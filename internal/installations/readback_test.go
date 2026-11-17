@@ -330,7 +330,7 @@ func TestDefaults(t *testing.T) {
 		"clusterManager": map[string]any{keyGitHub: map[string]any{keyEnabled: false, grantExchangeField: map[string]any{keyEnabled: false}}},
 		"modelManager":   map[string]any{keyGitHub: map[string]any{keyEnabled: false, grantExchangeField: map[string]any{keyEnabled: false}}},
 		"klausGateway":   map[string]any{"slack": map[string]any{"contextBotIDs": []any{}, "contextBotIDsComment": "", "contextBotNames": []any{}, "contextBotNamesComment": "", "slashCommand": "", "slashCommandComment": ""}},
-		"agentManager":   map[string]any{"credentials": map[string]any{"uiURL": ""}, keyGitHub: map[string]any{keyEnabled: false, grantExchangeField: map[string]any{keyEnabled: false}}, keySkills: map[string]any{keyRepositories: []any{}, keyGitHub: map[string]any{keyApp: map[string]any{"secretName": ""}}, "gitAuthSecretName": "", "mintGitAuthSecret": false}},
+		"agentManager":   map[string]any{keyCredentials: map[string]any{keyCredentialUI: ""}, keyGitHub: map[string]any{keyEnabled: false, grantExchangeField: map[string]any{keyEnabled: false}}, keySkills: map[string]any{keyRepositories: []any{}, keyGitHub: map[string]any{keyApp: map[string]any{"secretName": ""}}, "gitAuthSecretName": "", "mintGitAuthSecret": false}},
 		"defaultAgent":   map[string]any{keyEnabled: true, "modelConfig": ""},
 		"skillManager":   map[string]any{"sources": []any{}, keyGitHub: map[string]any{keyEnabled: false, grantExchangeField: map[string]any{keyEnabled: false}, keyApp: map[string]any{"secretName": ""}}},
 		"versions":       map[string]any{"chart": "", "components": holds, "reasons": map[string]any{"chart": "", "components": holds}}}
@@ -718,6 +718,35 @@ func TestAgentPlatformReadsBackVersionHolds(t *testing.T) {
 		}
 		if len(got) != 0 {
 			t.Errorf("read back %v from the line's range %s, want nothing", got, line)
+		}
+	}
+}
+
+// A value read-back's places are its files of the installation with the
+// keys. A file read under a document in it is left out, the other file of
+// the same read-back kept; another kind, and an input with no read-back,
+// have none.
+func TestReadBackPlaces(t *testing.T) {
+	values := func(keys ...string) []ReadBackPlace {
+		return []ReadBackPlace{{Repository: "acme/mcs", Path: "management-clusters/rowan/values.yaml", Keys: keys}}
+	}
+	var files inputSchema
+	if err := json.Unmarshal([]byte(readBackFilesSchema), &files); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		s     *inputSchema
+		input string
+		want  []ReadBackPlace
+	}{
+		{readBackFixture(t), inputSupportURL, values("resources.[icon=LiveHelp].url")},
+		{&files, inputChatModel, values("aiChat.model")},
+		{readBackFixture(t), inputTunnelEnabled, nil},
+		{readBackFixture(t), "installation.name", nil},
+	} {
+		got, err := readBackPlaces(c.s, c.input, readBackInstallation)
+		if err != nil || !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: places %v (%v), want %v", c.input, got, err, c.want)
 		}
 	}
 }
