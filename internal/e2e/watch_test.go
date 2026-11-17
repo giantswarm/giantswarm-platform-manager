@@ -577,6 +577,19 @@ func TestWatchActionFailsNamingTheProbe(t *testing.T) {
 func withoutMaxTokens(t *testing.T, st *stack, a actions.Action, record bool) {
 	t.Helper()
 	const line = "        maxTokens: 32000\n"
+	asOlderDefinition(t, st, a, record, func(content string) string { return strings.Replace(content, line, "", 1) })
+	st.inst.edit(helmReleaseKind, fluxNamespace, "kagent", func(obj map[string]any) {
+		config := obj["spec"].(map[string]any)["values"].(map[string]any)["providers"].(map[string]any)["anthropic"].(map[string]any)["config"].(map[string]any)
+		delete(config, "maxTokens")
+	})
+}
+
+// asOlderDefinition has rowan's values file read as edit leaves it: in the
+// meta chart's values ConfigMap, and — where record is true — on record and
+// in the commit the merge wrote, as an action committed on an older
+// definition wrote it.
+func asOlderDefinition(t *testing.T, st *stack, a actions.Action, record bool, edit func(string) string) {
+	t.Helper()
 	path := "installations/" + rowan + "/apps/" + a.Spec.Capability + "/" + valuesFileKey + ".patch"
 	found := false
 	for _, pr := range a.Status.PullRequests {
@@ -584,26 +597,22 @@ func withoutMaxTokens(t *testing.T, st *stack, a actions.Action, record bool) {
 		if !ok {
 			continue
 		}
-		without := strings.Replace(content, line, "", 1)
-		if without == content {
-			t.Fatalf("the record %s:%s carries no %q", pr.Repository, path, line)
+		older := edit(content)
+		if older == content {
+			t.Fatalf("the edit changes nothing of %s:%s", pr.Repository, path)
 		}
 		if record {
-			st.ghs.addFiles(pr.Repository, map[string]string{path: without})
-			st.ghs.rewriteAt(pr.Repository, cmp.Or(pr.MergeCommit, pr.HeadSHA), path, without)
+			st.ghs.addFiles(pr.Repository, map[string]string{path: older})
+			st.ghs.rewriteAt(pr.Repository, cmp.Or(pr.MergeCommit, pr.HeadSHA), path, older)
 		}
 		st.inst.edit("ConfigMap", fluxNamespace, konfiguration, func(obj map[string]any) {
-			obj["data"].(map[string]any)[valuesFileKey] = without
+			obj["data"].(map[string]any)[valuesFileKey] = older
 		})
 		found = true
 	}
 	if !found {
 		t.Fatalf("no repository of action %s holds %s", a.Name, path)
 	}
-	st.inst.edit(helmReleaseKind, fluxNamespace, "kagent", func(obj map[string]any) {
-		config := obj["spec"].(map[string]any)["values"].(map[string]any)["providers"].(map[string]any)["anthropic"].(map[string]any)["config"].(map[string]any)
-		delete(config, "maxTokens")
-	})
 }
 
 // A definition released between the action's commit and its watch renders a
@@ -664,6 +673,44 @@ func TestWatchActionReadsALaterMigrationAsPlanned(t *testing.T) {
 	li, _, _ := listInstallations(t, aliceC, map[string]any{tools.ArgInstallations: []any{rowan}})
 	if r := find(t, li, rowan); r.Capabilities[0].State != installations.StateEnabled {
 		t.Fatalf("list_installations: %+v", r.Capabilities[0])
+	}
+}
+
+// An entry a newer definition adds to a comma-joined list (M5: kagent in the
+// kagent UI's oidc-extra-audience) reads planned on the list's one leaf:
+// the merge wrote the list without it, the installation runs that list, and
+// the stage is enabled — the leaf the merge wrote holds the live value.
+func TestWatchActionReadsALaterEntryOfAJoinedListAsPlanned(t *testing.T) {
+	const flag = "--oidc-extra-audience="
+	st := newStack(t)
+	a, _ := rolledOut(t, st)
+	admin := adminLive(t, st)
+	withoutKagent := func(s string) string { return strings.Replace(s, ",kagent", "", 1) }
+	asOlderDefinition(t, st, a, true, func(content string) string {
+		lines := strings.Split(content, "\n")
+		for i, line := range lines {
+			if strings.Contains(line, "oidc-extra-audience: ") {
+				lines[i] = withoutKagent(line)
+			}
+		}
+		return strings.Join(lines, "\n")
+	})
+	edited := false
+	st.inst.edit("Deployment", kagentNamespace, "kagent-oauth2-proxy", func(obj map[string]any) {
+		args := obj["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)["containers"].([]any)[0].(map[string]any)["args"].([]any)
+		for i, arg := range args {
+			if s, _ := arg.(string); strings.HasPrefix(s, flag) && withoutKagent(s) != s {
+				args[i], edited = withoutKagent(s), true
+			}
+		}
+	})
+	if !edited {
+		t.Fatalf("the oauth2-proxy's %s names no kagent", flag)
+	}
+
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || !w.Ready || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled || w.Verify.Summary[verify.Planned] == 0 {
+		t.Fatalf("the list the merge wrote: %v %s", isErr, text)
 	}
 }
 

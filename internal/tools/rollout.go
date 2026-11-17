@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
@@ -212,7 +214,7 @@ func releaseWaits(ctx context.Context, c *gh.Client, def installations.Capabilit
 			waits = append(waits, rolloutWait{what: fmt.Sprintf("the values %s reads not read: %s", object, orNotRead(ch.Message)), unread: true})
 			continue
 		}
-		if w := releaseWait(object, pr, ch, base, readsMerged(ch, planned, after)); w.what != "" {
+		if w := releaseWait(object, pr, ch, base, readsMerged(def, ch, planned, after)); w.what != "" {
 			waits = append(waits, w)
 		}
 	}
@@ -365,24 +367,45 @@ func releaseWait(object string, pr actions.PullRequest, ch verify.Check, base *a
 
 // readsMerged says whether the drift check of the values a HelmRelease reads
 // (ch) finds the merged ones: as defined — the entries the commit kept laid
-// over the render (verify's withKept) — or planned where none of the planned
-// leaves (planned) is in the values file the merge wrote (after): a leaf a
-// newer definition renders and the action, committed on an older one, never
-// wrote. A planned leaf the merge did write is a merged value the
-// HelmRelease does not read. Differs by input and drifted are values off the
-// merged render; not checked is a read not made.
-func readsMerged(ch verify.Check, planned []verify.Difference, after string) bool {
+// over the render (verify's withKept) — or planned where, at each planned
+// leaf (planned), the live value is what the values file the merge wrote
+// (after) holds there (writtenAs): a leaf or an entry a newer definition
+// renders and the action, committed on an older one, never wrote. A planned
+// leaf whose live value is not the merge's is a merged value the HelmRelease
+// does not read. Differs by input and drifted are values off the merged
+// render; not checked is a read not made.
+func readsMerged(def installations.Capability, ch verify.Check, planned []verify.Difference, after string) bool {
 	switch ch.Mark {
 	case verify.AsDefined:
 		return true
 	case verify.Planned:
 		written := verify.ValuesLeaves(after)
 		for _, d := range planned {
-			if _, ok := written[d.Path]; ok {
+			if !writtenAs(def, written, d) {
 				return false
 			}
 		}
 		return len(planned) > 0
+	}
+	return false
+}
+
+// writtenAs says whether the live value of planned difference d is the one
+// the merge wrote at its path (written, the merged file's leaves): none for
+// a leaf the merge did not write, the same value otherwise — the same set
+// of entries for a list the plan merges as a comma-joined set.
+func writtenAs(def installations.Capability, written map[string]string, d verify.Difference) bool {
+	value, ok := written[d.Path]
+	switch {
+	case !ok:
+		return d.Current == ""
+	case value == d.Current:
+		return true
+	case plan.JoinedList(verify.ValuesSuffix(def.Name), d.Path):
+		want, got := plan.SplitJoined(value), plan.SplitJoined(d.Current)
+		slices.Sort(want)
+		slices.Sort(got)
+		return slices.Equal(want, got)
 	}
 	return false
 }
