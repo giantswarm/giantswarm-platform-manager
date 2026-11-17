@@ -818,7 +818,7 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 		r.Add(repo, dir+"/secrets/"+file, f)
 	}
 	oauthKeys := []render.SecretKey{
-		in.generated("dex-client-secret", "muster-dex-client-secret", render.Base64, 32),
+		render.DexClientSecretKey("dex-client-secret", in.generatedName("muster-dex-client-secret")),
 		in.generated("registration-token", "muster-registration-token", render.Base64, 32),
 		in.generated("oauth-encryption-key", "muster-oauth-encryption-key", render.Base64, 32),
 	}
@@ -841,7 +841,7 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 	if in.kagent() {
 		proxyKeys := []render.SecretKey{
 			render.ValueKey("client-id", "kagent"),
-			in.generated("client-secret", "kagent-dex-client-secret", render.Base64, 32),
+			render.DexClientSecretKey("client-secret", in.generatedName("kagent-dex-client-secret")),
 			in.generated("cookie-secret", "kagent-cookie-secret", render.Alphanumeric, 32),
 		}
 		kagentRevision := in.generatedName(kagentRevisionSecret)
