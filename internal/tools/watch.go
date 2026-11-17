@@ -167,22 +167,32 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 		DeferredPairs: a.Spec.DeferredPairs[st.Name],
 		Inputs:        verify.Inputs{Source: "action " + a.Name, Values: inputs, Typed: a.Spec.Inputs}, Kept: a.KeptOnRecord(st.Name), Cluster: cluster, Probes: t.d.Probes, Person: id.String(), AnonymousProbes: true, Rollout: true, Log: t.d.Log})
 	res.Caller = id.String()
+	prev := st.State
+	// The releases that ran at the merges, as this read saw them, go on
+	// record however the call ends: Flux drops them from the history once a
+	// later release succeeds after the next one.
+	recorded := len(st.Baselines)
+	if prev == actions.StateRollingOut || prev == actions.StateFailed {
+		recordBaselines(a, status, st, res)
+	}
 	// A refused render reads no Flux object and no probe: nothing moves the
 	// stage, and its message says why.
 	if res.Refused != "" {
 		return t.watchRefused(ctx, a, status, i, res, note)
 	}
 	objects, ready, failed := rolloutObjects(res)
-	prev := st.State
 	// Every object Ready is not yet the merged change: a stage that has not
 	// reached a state reads the proof that the installation runs it.
 	var waits []rolloutWait
-	if prev == actions.StateRollingOut || prev == actions.StateFailed {
-		recordBaselines(a, status, st, res)
-	}
 	if ready && !failed && (prev == actions.StateRollingOut || prev == actions.StateFailed) {
 		if waits, err = t.rolloutWaits(ctx, def, a, &status, st, res); err != nil {
-			return nil, fmt.Errorf("%s: whether %s runs the merged revision could not be read as you: %w; nothing is decided — call again", ToolWatchAction, st.Name, err)
+			err = fmt.Errorf("%s: whether %s runs the merged revision could not be read as you: %w; nothing is decided — call again", ToolWatchAction, st.Name, err)
+			if len(st.Baselines) > recorded {
+				if _, err2 := t.d.Actions.UpdateStatus(ctx, a, status); err2 != nil {
+					err = fmt.Errorf("%w; and the action could not record the releases that ran at the merges: %v", err, err2)
+				}
+			}
+			return nil, err
 		}
 	}
 	late := overdue(waits, lastMerge(a, status, st.Name))
