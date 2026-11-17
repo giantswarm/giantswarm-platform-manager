@@ -276,6 +276,9 @@ func (in *Input) render() (*render.Result, error) {
 		federation.Hubs = slices.DeleteFunc(slices.Clone(federation.Hubs), func(hub string) bool {
 			return slices.Contains(names, render.ExchangeSecretName(in.exchange().Client(hub)))
 		})
+		federation.Connectors = slices.DeleteFunc(slices.Clone(federation.Connectors), func(c render.HubConnector) bool {
+			return slices.Contains(names, render.FederationSecretName(c.Hub, name))
+		})
 		return filtered.render()
 	}
 	return r, nil

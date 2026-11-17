@@ -2,6 +2,7 @@ package agentplatform
 
 import (
 	"bytes"
+	"slices"
 
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
@@ -162,7 +163,7 @@ func exchangeSecretName(client string) string { return render.ExchangeSecretName
 func (in *Input) federationLogins() []Target {
 	var list []Target
 	for _, t := range in.Installation.Federation.Targets {
-		if t.rendersDexSide() && (t.first(in.Installation.Name) || !in.Connectors.FurtherByHand) {
+		if t.rendersDexSide() && (t.first(in.Installation.Name) || !in.Connectors.FurtherByHand) && !slices.Contains(in.withoutLogins, t.Installation) {
 			list = append(list, t)
 		}
 	}

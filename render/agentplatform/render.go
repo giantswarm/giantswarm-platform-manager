@@ -88,6 +88,15 @@ func (in *Input) render(secrets map[string]string) (*render.Result, error) {
 		federation.Targets = slices.DeleteFunc(slices.Clone(federation.Targets), func(target Target) bool {
 			return slices.Contains(names, exchangeSecretName(in.hubClient(target)))
 		})
+		filtered.withoutLogins = nil
+		for _, t := range federation.Targets {
+			if slices.Contains(names, render.FederationSecretName(in.Installation.Name, t.Installation)) {
+				filtered.withoutLogins = append(filtered.withoutLogins, t.Installation)
+			}
+		}
+		filtered.HubConnectors = slices.DeleteFunc(slices.Clone(in.HubConnectors), func(c render.FederatedConnector) bool {
+			return slices.Contains(names, render.FederationSecretName(c.Hub.Hub, in.Installation.Name))
+		})
 		return filtered.render(secrets)
 	}
 	return r, nil

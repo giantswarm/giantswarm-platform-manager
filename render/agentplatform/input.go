@@ -100,7 +100,10 @@ const (
 // registry and the repositories), the fleet policy (policy.yaml) applied to
 // it, and the choices a person makes. The renderer reads nothing else.
 type Input struct {
-	Installation Installation
+	// withoutLogins are the targets whose federation login pair a render
+	// without deferred pairs leaves out (render.Result.WithoutPairs).
+	withoutLogins []string
+	Installation  Installation
 	// ModelServing is the person's choice: the meta chart's serving slice.
 	ModelServing bool
 	// SingletonsCapacity is the person's choice: the Karpenter capacity the
