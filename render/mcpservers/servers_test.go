@@ -73,14 +73,15 @@ func TestChecksumValues(t *testing.T) {
 }
 
 // On an installation whose Dex is on private addresses, each server gets the
-// setting its chart still reads for that: mcp-prometheus lifts the guard on
-// its forwarded-token JWKS fetch, mcp-capi keeps allowPrivateURLs, and
-// mcp-kubernetes needs none (its Dex client reaches private addresses).
+// setting its chart still reads for that: mcp-prometheus and mcp-capi lift the
+// guard on their forwarded-token JWKS fetch, and mcp-kubernetes needs none (its
+// Dex client reaches private addresses).
 func TestPrivateURLsUserValues(t *testing.T) {
+	const deprecated = "allowPrivateURLs"
 	for name, want := range map[string]struct{ has, hasNot []string }{
-		"mcp-kubernetes": {has: []string{"sso:\n      allowPrivateIPs: true"}, hasNot: []string{"allowPrivateURLs"}},
-		mcpPrometheus:    {has: []string{"allowPrivateIPJWKS: true"}, hasNot: []string{"allowPrivateURLs"}},
-		"mcp-capi":       {has: []string{"allowPrivateURLs: true"}},
+		"mcp-kubernetes": {has: []string{"sso:\n      allowPrivateIPs: true"}, hasNot: []string{deprecated}},
+		mcpPrometheus:    {has: []string{"allowPrivateIPJWKS: true"}, hasNot: []string{deprecated}},
+		"mcp-capi":       {has: []string{"allowPrivateIPJWKS: true"}, hasNot: []string{deprecated}},
 	} {
 		var result render.Result
 		server(t, name).Extras(&result, "repo", "extras/"+name, Options{Installation: "x", PrivateURLs: true})
