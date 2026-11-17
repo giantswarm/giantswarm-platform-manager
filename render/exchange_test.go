@@ -11,6 +11,9 @@ import (
 // policy keeps by hand.
 const fleetOrganisation = "giantswarm"
 
+// customerOrganisation is an organisation the policy treats like any other.
+const customerOrganisation = "oakridge"
+
 // The policy names one connector per hub and organisation — the
 // organisation's plain name for its first hub into a target, the hub's own
 // for a further one and for every hub of a staff organisation — and renders
@@ -33,8 +36,8 @@ func TestFederatedConnectors(t *testing.T) {
 	hubs := []HubConnector{
 		{Hub: "gopher", Customer: fleetOrganisation, BaseDomain: "gopher.example.io", First: true},
 		{Hub: "warren", Customer: fleetOrganisation, BaseDomain: "warren.example.io"},
-		{Hub: "heron", Customer: "oakridge", BaseDomain: "heron.oakridge.example", First: true},
-		{Hub: "kestrel", Customer: "oakridge", BaseDomain: "kestrel.oakridge.example"},
+		{Hub: "heron", Customer: customerOrganisation, BaseDomain: "heron.oakridge.example", First: true},
+		{Hub: "kestrel", Customer: customerOrganisation, BaseDomain: "kestrel.oakridge.example"},
 	}
 	list, err := FederatedConnectors(names, hubs)
 	if err != nil {
@@ -88,8 +91,8 @@ func TestExchangeConnector(t *testing.T) {
 	}{
 		{true, fleetOrganisation, "giantswarm-simple-oidc"},
 		{false, fleetOrganisation, "giantswarm-gopher-oidc"},
-		{true, "oakridge", "oakridge-simple-oidc"},
-		{false, "oakridge", "oakridge-gopher-oidc"},
+		{true, customerOrganisation, "oakridge-simple-oidc"},
+		{false, customerOrganisation, "oakridge-gopher-oidc"},
 	} {
 		got, err := names.Exchange(tc.first, tc.customer, "gopher")
 		if err != nil || got != tc.want {

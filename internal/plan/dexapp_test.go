@@ -14,7 +14,7 @@ import (
 // plan without a referenced client.
 func TestDexAppRefusal(t *testing.T) {
 	const name, fleetDexApp = "maple", "2.2.3"
-	referenced := Installation{Name: name, DexClients: []DexClient{{ID: "muster", Client: "muster", SecretRef: "dex-client-muster"}}} // #nosec G101 -- a Secret name, not a value
+	referenced := Installation{Name: name, DexClients: []DexClient{{ID: musterKey, Client: musterKey, SecretRef: "dex-client-muster"}}} // #nosec G101 -- a Secret name, not a value
 	source := "fleet/management-cluster-bases:" + installations.DexAppBasePath
 	cases := []struct {
 		name    string
@@ -61,7 +61,7 @@ func TestDexAppRefusal(t *testing.T) {
 // connector, both maps keyed by id, is held where the dex-app on record is
 // older than 3.5.0, on either line; 3.5.0 and later commit.
 func TestDexAppRefusalForMaps(t *testing.T) {
-	const name = "maple"
+	const name, beforeMaps = "maple", "3.4.0"
 	source := "fleet/management-cluster-bases:" + installations.DexAppBasePath
 	extra := Installation{Name: name, DexClients: []DexClient{{ID: "kagent", SecretRef: "dex-client-kagent"}}} // #nosec G101 -- a Secret name, not a value
 	connector := Installation{Name: name, DexConnectors: []string{"oakridge-simple-oidc"}}
@@ -72,9 +72,9 @@ func TestDexAppRefusalForMaps(t *testing.T) {
 		version string
 		refused bool
 	}{
-		{"an extra client before maps", extra, "3.4.0", true},
-		{"a customer connector before maps", connector, "3.4.0", true},
-		{"a staff connector before maps", staff, "3.4.0", true},
+		{"an extra client before maps", extra, beforeMaps, true},
+		{"a customer connector before maps", connector, beforeMaps, true},
+		{"a staff connector before maps", staff, beforeMaps, true},
 		{"a pre-release of the version that takes maps", connector, "3.5.0-rc.8", true},
 		{"the 2.x line", extra, "2.4.1", true},
 		{"the version that takes maps", staff, "3.5.0", false},

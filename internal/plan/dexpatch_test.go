@@ -19,6 +19,9 @@ var renderedDexPatches = map[string]string{
 		"giantswarm", "oakridge-configs", "installations", "kestrel", "apps", "dex-app", "configmap-values.yaml.patch"),
 }
 
+// grafanaClient is the extra static client no definition declares.
+const grafanaClient = "grafana"
+
 // keyIngress is the installation's own ingress tuning at the patch's top level.
 const keyIngress = "ingress"
 
@@ -80,12 +83,12 @@ func TestKeepDexPatchKeepsOtherOwnersPartsUnderEitherDefinition(t *testing.T) {
 			// The platform's patch registers the fleet hub's connector under
 			// oidc.giantswarm.connectors: oidc.customer, the installation's
 			// login connector among it, stays whole beside it.
-			want := []Kept{{"", keyIngress}, {keyOIDC, keyCustomer}, {listStaticClients, "argocd"}, {listExtraClients, "grafana"}}
+			want := []Kept{{"", keyIngress}, {keyOIDC, keyCustomer}, {listStaticClients, "argocd"}, {listExtraClients, grafanaClient}}
 			if definition == "customer-portal" {
 				// The portal's definition renders no built-in client at all:
 				// the whole staticClients mapping is another owner's and
 				// stays as one key, the platform's stale client included.
-				want = []Kept{{"", keyIngress}, {keyOIDC, keyCustomer}, {keyOIDC, keyStaticClients}, {listExtraClients, "grafana"}}
+				want = []Kept{{"", keyIngress}, {keyOIDC, keyCustomer}, {keyOIDC, keyStaticClients}, {listExtraClients, grafanaClient}}
 			}
 			if len(kept) != len(want) {
 				t.Fatalf("kept %v, want %v", kept, want)
@@ -207,7 +210,7 @@ func TestKeepDexPatchKeepsOtherOwnersMapEntries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertKept(t, kept, []Kept{{listExtraClients, "grafana"}, {listStaffConnectors, "giantswarm-graveler-oidc"}})
+	assertKept(t, kept, []Kept{{listExtraClients, grafanaClient}, {listStaffConnectors, "giantswarm-graveler-oidc"}})
 	s := string(got)
 	for _, frag := range []string{"# hand-registered\n    grafana:\n      name: Grafana\n", "\n      giantswarm-graveler-oidc:\n        connectorType: oidc\n"} {
 		if !strings.Contains(s, frag) {

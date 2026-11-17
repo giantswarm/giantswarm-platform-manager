@@ -114,7 +114,7 @@ func keepByID(ren, cur *yaml.Node, list string, kept *[]Kept) {
 		case yaml.MappingNode:
 			key := e.key
 			if key == nil {
-				key = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: e.id, HeadComment: e.body.HeadComment}
+				key = &yaml.Node{Kind: yaml.ScalarNode, Tag: tagStr, Value: e.id, HeadComment: e.body.HeadComment}
 			}
 			ren.Content = append(ren.Content, key, withoutID(e.body))
 		case yaml.SequenceNode:
@@ -175,7 +175,7 @@ func withID(id string, body *yaml.Node) *yaml.Node {
 		return body
 	}
 	out := *withoutID(body)
-	out.Content = append([]*yaml.Node{{Kind: yaml.ScalarNode, Tag: "!!str", Value: keyClientID}, {Kind: yaml.ScalarNode, Tag: "!!str", Value: id}}, out.Content...)
+	out.Content = append([]*yaml.Node{{Kind: yaml.ScalarNode, Tag: tagStr, Value: keyClientID}, {Kind: yaml.ScalarNode, Tag: tagStr, Value: id}}, out.Content...)
 	return &out
 }
 
