@@ -276,7 +276,7 @@ func (s Server) Extras(result *render.Result, repo render.Repository, dir string
 	k.withRevision(s)
 	result.Add(repo, dir+"/kustomization.yaml", render.File{Content: append([]byte(o.Header), render.MustYAML(k)...)})
 	oauth := []render.SecretKey{
-		render.GeneratedKey(s.oauthKeys.dexClientSecret, valueName, render.Base64, 32),
+		render.DexClientSecretKey(s.oauthKeys.dexClientSecret, valueName),
 		render.GeneratedKey(s.oauthKeys.encryptionKey, generatedName("oauth-encryption-key"), render.Base64, 32),
 	}
 	oauth = append(oauth, render.GeneratedKey(s.oauthKeys.revision, revision, render.Alphanumeric, RevisionLength))

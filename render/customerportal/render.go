@@ -195,8 +195,7 @@ func (in *Input) portalFiles(r *render.Result, repo render.Repository, dir strin
 		r.Add(repo, dir+tunnelFile, render.File{Content: []byte(fileHeader + tunnelBundle)})
 		resources = append(resources, tunnelFile)
 	}
-	r.Add(repo, dir+dexClientFile, render.Secret(render.DexClientSecretName(render.PortalDexClientID), dexNamespace, nil,
-		render.GeneratedKey(render.DexSecretKey, in.Installation.Name+"-"+generatedDexClientSecret, render.Base64, 32)))
+	r.Add(repo, dir+dexClientFile, render.DexClientSecret(render.PortalDexClientID, in.Installation.Name+"-"+generatedDexClientSecret))
 	resources = append(resources, dexClientFile)
 
 	ociPatch := []render.Map{{e("op", "remove"), e("path", "/spec/ref/tag")}, {e("op", "add"), e("path", "/spec/ref/semver"), e("value", in.Chart.Line)}}
@@ -265,7 +264,7 @@ func chartData(name string, kind render.GeneratedKind, length int) render.Genera
 // chart's stringData: and stays as supplied.
 func (in *Input) userSecrets(secrets map[string]string) render.File {
 	session := chartData(generatedSessionSecret, render.Base64, 32)
-	client := chartData(in.Installation.Name+"-"+generatedDexClientSecret, render.Base64, 32)
+	client := chartData(in.Installation.Name+"-"+generatedDexClientSecret, render.DexClientSecretKind, render.DexClientSecretLength)
 	salt := chartData(generatedTelemetrySalt, render.Alphanumeric, 32)
 	credentials := render.Map{e(in.Installation.Name, dexCredentials(render.PortalDexClientID, client.Placeholder))}
 	for _, inst := range in.providerInstallations() {
