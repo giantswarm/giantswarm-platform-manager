@@ -106,6 +106,13 @@ type fakeVault struct {
 	noRekey bool
 }
 
+// grafanaID is a hand-registered client whose id is not lower case, and
+// customerConnectorsPath the customer's connectors list in the encrypted patch.
+const (
+	grafanaID              = "Grafana"
+	customerConnectorsPath = "oidc.customer.connectors"
+)
+
 func (*fakeVault) Name() string { return "fake" }
 
 func (v *fakeVault) Reveal(_ context.Context, file string, paths []string) (map[string]string, error) {
@@ -323,7 +330,7 @@ func TestDryRun(t *testing.T) {
 		kagent:                         "management-clusters/puffin/extras/agent-platform/secrets/dex-client-kagent-secret.yaml",
 		"muster-token-exchange-puffin": "management-clusters/puffin/extras/agent-platform/secrets/dex-client-muster-token-exchange-puffin-secret.yaml",
 		"backstage":                    "management-clusters/puffin/extras/backstage/backstage/dex-client-backstage-secret.enc.yaml",
-		"Grafana":                      "management-clusters/puffin/extras/dex/dex-client-grafana-secret.yaml",
+		grafanaID:                      "management-clusters/puffin/extras/dex/dex-client-grafana-secret.yaml",
 	}
 	for _, c := range r.Clients {
 		if c.Secret == nil || c.Secret.File != want[c.ID()] {
@@ -538,7 +545,7 @@ func TestMergePlaintextIntoAMap(t *testing.T) {
 	current := "oidc:\n  extraStaticClients:\n    kagent:\n      name: stale\n    other:\n      name: other\n"
 	out, err := MergePlaintext([]byte(current), []Client{
 		{Source: "x", Entry: &Entry{ID: kagent, Name: "kagent-ui", SecretRef: "dex-client-kagent"}}, //nolint:gosec // a Secret name, no credential
-		{Source: "y", Entry: &Entry{ID: "Grafana", Name: "grafana"}},
+		{Source: "y", Entry: &Entry{ID: grafanaID, Name: "grafana"}},
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -707,7 +714,7 @@ func TestAnEarlierSplitsTokenExchangeClientMovesOn(t *testing.T) {
 	if len(v.copies) != 0 || len(v.unsets) != 0 {
 		t.Errorf("the move copied or unset: %v %v", v.copies, v.unsets)
 	}
-	if want := []string{"oidc.customer.connectors"}; !slices.Equal(v.rekeys, want) {
+	if want := []string{customerConnectorsPath}; !slices.Equal(v.rekeys, want) {
 		t.Errorf("rekeys %v, want %v", v.rekeys, want)
 	}
 	assertChain(t, o)
@@ -767,7 +774,7 @@ func TestAHalfWaySplitMovesTheEarlierFileOn(t *testing.T) {
 }
 
 func TestClientOfFile(t *testing.T) {
-	for name, want := range map[string]string{"dex-client-muster-token-exchange-puffin-secret.yaml": exchangeClient, "dex-client-grafana-secret.yaml": "Grafana", "kustomization.yaml": "", "dex-client--secret.yaml": ""} {
+	for name, want := range map[string]string{"dex-client-muster-token-exchange-puffin-secret.yaml": exchangeClient, "dex-client-grafana-secret.yaml": grafanaID, "kustomization.yaml": "", "dex-client--secret.yaml": ""} {
 		got, ok := clientOfFile(name)
 		if want == "" && ok || want != "" && (!ok || !strings.EqualFold(got, want)) {
 			t.Errorf("clientOfFile(%s) = %q, %v; want %q", name, got, ok, want)
@@ -827,7 +834,7 @@ func TestConnectorListsBecomeMaps(t *testing.T) {
 	}
 	want := []ConnectorList{
 		{Path: "oidc.giantswarm.connectors", Entries: 1, IDs: []string{"staff-hub-oidc"}},
-		{Path: "oidc.customer.connectors", Entries: 2, IDs: []string{"corporate", "directory"}},
+		{Path: customerConnectorsPath, Entries: 2, IDs: []string{"corporate", "directory"}},
 	}
 	if r.Done || len(r.Clients) != 0 || len(v.rekeys) != 0 || !reflectEqual(r.Connectors, want) {
 		t.Fatalf("report %+v, rekeys %v; want the two lists planned", r, v.rekeys)
@@ -852,7 +859,7 @@ func TestConnectorListsBecomeMaps(t *testing.T) {
 	if _, err := Run(context.Background(), o); err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"oidc.giantswarm.connectors", "oidc.customer.connectors"}; !slices.Equal(v.rekeys, want) || len(v.copies) != 0 || len(v.unsets) != 0 {
+	if want := []string{"oidc.giantswarm.connectors", customerConnectorsPath}; !slices.Equal(v.rekeys, want) || len(v.copies) != 0 || len(v.unsets) != 0 {
 		t.Errorf("rekeys %v, copies %v, unsets %v", v.rekeys, v.copies, v.unsets)
 	}
 	wantFile := "oidc:\n  giantswarm:\n    connectors:\n      staff-hub-oidc:\n        connectorConfig: ENC[a]\n  customer:\n    connectors:\n      corporate:\n        connectorConfig: ENC[c]\n      directory:\n        connectorType: ENC[e]\n  staticClients:\n    dexK8SAuthenticator:\n      clientSecret: ENC[g]\nsops:\n  mac: ENC[x]\n  unencrypted_suffix: _unencrypted\n"
