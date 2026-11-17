@@ -750,3 +750,29 @@ func TestReadBackPlaces(t *testing.T) {
 		}
 	}
 }
+
+// A server's privateURLs reads back from the setting its chart reads for a
+// private Dex, and from allowPrivateURLs a record written before keeps.
+func TestClusterMCPServersReadsBackPrivateURLs(t *testing.T) {
+	def, _ := FindCapability(ClusterMCPServers)
+	const dir = "acme/mcs:management-clusters/rowan/extras/"
+	for _, tc := range []struct {
+		name  string
+		file  string
+		value string
+		input string
+	}{
+		{"mcp-prometheus JWKS flag", "mcp-prometheus", "app:\n  oauth:\n    allowPrivateIPJWKS: true\n", "servers.mcpPrometheus.privateURLs"},
+		{"mcp-prometheus record before", "mcp-prometheus", "app:\n  oauth:\n    allowPrivateURLs: true\n", "servers.mcpPrometheus.privateURLs"},
+		{"mcp-kubernetes SSO flag", "mcp-kubernetes", "mcpKubernetes:\n  oauth:\n    sso:\n      allowPrivateIPs: true\n", "servers.mcpKubernetes.privateURLs"},
+		{"mcp-kubernetes record before", "mcp-kubernetes", "mcpKubernetes:\n  oauth:\n    allowPrivateURLs: true\n", "servers.mcpKubernetes.privateURLs"},
+	} {
+		got, err := def.ReadBack(t.Context(), files(map[string]string{dir + tc.file + "/user-values.yaml": tc.value}), readBackInstallation, readBackName, nil)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if got[tc.input] != true {
+			t.Errorf("%s: read back %v, want %s true", tc.name, got, tc.input)
+		}
+	}
+}
