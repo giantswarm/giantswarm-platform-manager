@@ -51,13 +51,14 @@ type Record struct {
 	// agent-platform definition renders the client only then; read by
 	// readPortalClientSecret.
 	PortalClientSecret bool `json:"portalClientSecret"`
-	// DexAppVersion is the dex-app the installation runs — spec.version of
-	// the App dex-app: the installation's own pin in its collections
-	// kustomization, else the fleet's shared base at the ref the
-	// kustomization names (readDexAppVersion); empty when neither says.
+	// DexAppVersion is the exact chart version selected by the App or OCI
+	// source, collection components and installation pins; empty when unknown.
 	// DexAppSource is the file it was read from, repository:path.
 	DexAppVersion string `json:"dexAppVersion,omitempty"`
 	DexAppSource  string `json:"dexAppSource,omitempty"`
+	// DexAppVersionError prevents a version-dependent commit when the source
+	// cannot establish an exact chart version.
+	DexAppVersionError string `json:"dexAppVersionError,omitempty"`
 	// CollectionsStage is the stage the installation's app collection
 	// follows: the <stage> of the bases/collections/<provider>/stages/<stage>
 	// its collections kustomization names (collections.stage); empty when
@@ -280,6 +281,7 @@ func (r *Registry) inspect(ctx context.Context, c *gh.Client, inst Installation,
 		// still runs, with the error on the report.
 		if record != nil && recErr == nil {
 			if dexErr != nil {
+				record.DexAppVersionError = dexErr.Error()
 				rep.Errors = append(rep.Errors, dexErr.Error())
 			} else if dex.Version != "" {
 				record.DexAppVersion, record.DexAppSource = dex.Version, dex.Source()
