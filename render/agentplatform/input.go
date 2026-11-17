@@ -889,19 +889,7 @@ type managerGitHubChoice struct {
 // location, the Hive where the installation cannot serve it, the MCP backends' network policy or the LLM listener's rate limits on the 3 line, the rate limits or the session idle TTL where no kagent runs, the session idle TTL on the 3 line, the default agent turned off or its model override on the 3 line, where kagent and the agent-manager do not both run or with a chart hold below the release that ships it, the skill-manager's sources or GitHub App on the 3 line, where no agent-manager runs or with a chart hold below the release with the skill-manager, a source naming the platform's own skill repository, the agent-manager's skill repositories where it may take its skills from the skill-manager or beside the skill-manager's sources, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
 // is ErrInput too.
 func Parse(raw any) (*Input, error) {
-	schemaBytes, err := definitions.FS.ReadFile("agent-platform/schema.json")
-	if err != nil {
-		return nil, err
-	}
-	schemaDoc, err := jsonschema.UnmarshalJSON(bytes.NewReader(schemaBytes))
-	if err != nil {
-		return nil, fmt.Errorf("agent-platform: schema: %w", err)
-	}
-	compiler := jsonschema.NewCompiler()
-	if err := compiler.AddResource("schema.json", schemaDoc); err != nil {
-		return nil, fmt.Errorf("agent-platform: schema: %w", err)
-	}
-	schema, err := compiler.Compile("schema.json")
+	schema, err := render.DefinitionSchema("agent-platform/schema.json")
 	if err != nil {
 		return nil, fmt.Errorf("agent-platform: schema: %w", err)
 	}
