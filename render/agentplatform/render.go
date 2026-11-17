@@ -45,7 +45,10 @@ func Render(raw any, secrets map[string]string, _ render.Mode) (*render.Result, 
 	if err := in.check(secrets); err != nil {
 		return nil, err
 	}
+	return in.render(secrets)
+}
 
+func (in *Input) render(secrets map[string]string) (*render.Result, error) {
 	name := in.Installation.Name
 	configs := render.Repository("giantswarm/" + in.Installation.Customer + "-configs")
 	clusters := render.Repository("giantswarm/" + in.Installation.Customer + "-management-clusters")
@@ -76,6 +79,17 @@ func Render(raw any, secrets map[string]string, _ render.Mode) (*render.Result, 
 	in.tunnelValues(r)
 	r.Probes = in.probes()
 	r.Actions = in.actions()
+	r.WithoutPairs = func(names []string) (*render.Result, error) {
+		filtered := *in
+		federation := &filtered.Installation.Federation
+		federation.Hubs = slices.DeleteFunc(slices.Clone(federation.Hubs), func(hub string) bool {
+			return slices.Contains(names, render.ExchangeSecretName(in.exchange().Client(hub)))
+		})
+		federation.Targets = slices.DeleteFunc(slices.Clone(federation.Targets), func(target Target) bool {
+			return slices.Contains(names, exchangeSecretName(in.hubClient(target)))
+		})
+		return filtered.render(secrets)
+	}
 	return r, nil
 }
 
@@ -804,7 +818,7 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 		r.Add(repo, dir+"/secrets/"+file, f)
 	}
 	oauthKeys := []render.SecretKey{
-		in.generated("dex-client-secret", "muster-dex-client-secret", render.Base64, 32),
+		render.DexClientSecretKey("dex-client-secret", in.generatedName("muster-dex-client-secret")),
 		in.generated("registration-token", "muster-registration-token", render.Base64, 32),
 		in.generated("oauth-encryption-key", "muster-oauth-encryption-key", render.Base64, 32),
 	}
@@ -827,7 +841,7 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 	if in.kagent() {
 		proxyKeys := []render.SecretKey{
 			render.ValueKey("client-id", "kagent"),
-			in.generated("client-secret", "kagent-dex-client-secret", render.Base64, 32),
+			render.DexClientSecretKey("client-secret", in.generatedName("kagent-dex-client-secret")),
 			in.generated("cookie-secret", "kagent-cookie-secret", render.Alphanumeric, 32),
 		}
 		kagentRevision := in.generatedName(kagentRevisionSecret)

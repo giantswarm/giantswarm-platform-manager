@@ -354,6 +354,8 @@ type LiveOptions struct {
 	// waiting for the customer replace it.
 	State  installations.State
 	Inputs Inputs
+	// DeferredPairs are the generated pairs omitted by this Action's commit.
+	DeferredPairs []string
 	// Kept are the entries of the audience lists kept beside the render
 	// (plan.LiveKept): the Action's, which the commit wrote, or the handed-over
 	// inputs', which the files on record keep. The drift probes hold the live
@@ -547,7 +549,7 @@ const valuesKey = "values"
 
 // renderLive renders the inputs on record for the live comparison.
 func renderLive(opts LiveOptions) (*liveRender, error) {
-	res, in, flat, err := renderValues(opts.Definition, opts.Inputs.Values)
+	res, in, flat, err := renderValues(opts.Definition, opts.Inputs.Values, opts.DeferredPairs...)
 	if err != nil {
 		return nil, err
 	}
@@ -573,8 +575,11 @@ func renderLive(opts LiveOptions) (*liveRender, error) {
 		if err != nil {
 			return nil, err
 		}
-		lv.driven = drivenPaths(opts.Inputs.Values, inputs, flat, func(values map[string]any) (map[string]map[string]string, error) {
-			_, _, other, err := renderValues(opts.Definition, values)
+		// The resets' leaves are not attributed here: a leaf the render
+		// lacks is no live difference (executor.differences reads the
+		// rendered leaves only), so resetLeaves has nothing to name.
+		lv.driven, _ = drivenPaths(opts.Inputs.Values, opts.Inputs.ReadBack, inputs, flat, func(values map[string]any) (map[string]map[string]string, error) {
+			_, _, other, err := renderValues(opts.Definition, values, opts.DeferredPairs...)
 			return other, err
 		})
 	}
@@ -647,7 +652,7 @@ func plannedKeysOf(capability string, f facts) (rms, migs plannedKeys, err error
 
 // renderValues renders values and flattens the definition's values file
 // under valuesKey; a definition without one flattens nothing.
-func renderValues(def installations.Capability, values map[string]any) (*render.Result, render.Input, map[string]map[string]string, error) {
+func renderValues(def installations.Capability, values map[string]any, deferred ...string) (*render.Result, render.Input, map[string]map[string]string, error) {
 	in, err := def.Parse(values)
 	if err != nil {
 		return nil, nil, nil, err
@@ -655,6 +660,16 @@ func renderValues(def installations.Capability, values map[string]any) (*render.
 	res, err := def.Render(values, in.SuppliedMarkers(), render.ModeCompare)
 	if err != nil {
 		return nil, nil, nil, err
+	}
+	if len(deferred) > 0 {
+		pairs := make([]plan.DeferredPair, len(deferred))
+		for index, name := range deferred {
+			pairs[index].Name = name
+		}
+		res, err = (plan.Installation{DeferredPairs: pairs}).ApplyDeferrals(res)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 	}
 	suffix := ValuesSuffix(def.Name)
 	flat := map[string]map[string]string{}

@@ -62,7 +62,16 @@ func dexAppAt(t *testing.T, read refReader, inst Installation) (DexAppVersion, e
 	if err != nil {
 		return DexAppVersion{}, err
 	}
-	return readDexAppVersion(t.Context(), read, inst, col)
+	return readDexAppVersion(t.Context(), read, noTags(t), inst, col)
+}
+
+// noTags is a TagLister for records that name exact versions: a listing is
+// a test failure.
+func noTags(t *testing.T) TagLister {
+	return func(_ context.Context, ociURL string) ([]string, error) {
+		t.Errorf("listed the tags of %s for an exact version", ociURL)
+		return nil, errors.New("no listing expected")
+	}
 }
 
 // The dex-app on record is the installation's own pin where its collections

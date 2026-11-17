@@ -19,9 +19,13 @@ import (
 // DexAppBasePath holds the fleet's dex-app source and release manifests.
 const DexAppBasePath = "bases/collections/shared/base/dex-app.yaml"
 
-// dexAppName is the App every installation's Dex is installed from; kindApp
-// the kind of an App document.
+// dexAppName is what every installation's Dex is installed from; kindApp and
+// kindOCIRepository the kinds that carry its version.
 const dexAppName, kindApp, kindOCIRepository = "dex-app", "App", "OCIRepository"
+
+// dexAppChart is the dex-app chart a range resolves against when the record
+// names no OCIRepository URL.
+const dexAppChart = "oci://gsoci.azurecr.io/charts/giantswarm/dex-app"
 
 // CollectionsKustomizationPath is where the installation's management-clusters
 // repository composes its app collection: the fleet's base as a remote
@@ -31,9 +35,11 @@ func CollectionsKustomizationPath(name string) string {
 	return "management-clusters/" + name + "/collections/kustomization.yaml"
 }
 
-// DexAppVersion is the exact dex-app version and the file it was read from.
+// DexAppVersion is the exact dex-app version, a range resolved to the tag Flux
+// picks (Range keeps the range), and the file it was read from.
 type DexAppVersion struct {
 	Version    string
+	Range      string
 	Repository string
 	Path       string
 }
@@ -58,7 +64,7 @@ func readAt(c *gh.Client) refReader {
 
 // readDexAppVersion reads the base's dex-app source at the referenced ref,
 // with the installation's patches applied to that resource kind.
-func readDexAppVersion(ctx context.Context, read refReader, inst Installation, col collections) (DexAppVersion, error) {
+func readDexAppVersion(ctx context.Context, read refReader, tags TagLister, inst Installation, col collections) (DexAppVersion, error) {
 	if !col.found {
 		return DexAppVersion{}, nil
 	}
@@ -107,11 +113,48 @@ func readDexAppVersion(ctx context.Context, read refReader, inst Installation, c
 			v.Repository, v.Path = overlay.repository, overlay.path
 		}
 	}
-	v.Version, err = source.version()
+	ref, err := source.version()
 	if err != nil {
 		return DexAppVersion{}, fmt.Errorf("the dex-app on record: %s: %w", v.Source(), err)
 	}
-	return v, v.check()
+	return resolveDexApp(ctx, tags, ref, v.Repository, v.Path)
+}
+
+// resolveDexApp turns the version on record into the one the installation
+// runs: an exact version is itself; a range is the highest tag of ref.url
+// that satisfies it, prereleases only where the range names one, the tag
+// Flux's OCIRepository picks.
+func resolveDexApp(ctx context.Context, tags TagLister, ref dexAppRef, repository, path string) (DexAppVersion, error) {
+	v := DexAppVersion{Version: ref.version, Repository: repository, Path: path}
+	if _, err := semver.StrictNewVersion(strings.TrimPrefix(ref.version, "v")); err == nil || ref.exact {
+		return v, v.check()
+	}
+	constraint, err := semver.NewConstraint(ref.version)
+	if err != nil {
+		return v, v.check()
+	}
+	chart := ref.url
+	if chart == "" {
+		chart = dexAppChart
+	}
+	list, err := tags(ctx, chart)
+	if err != nil {
+		return DexAppVersion{}, fmt.Errorf("the dex-app on record: %s in %s: the tags of %s for %q: %w", path, repository, chart, ref.version, err)
+	}
+	var best *semver.Version
+	for _, tag := range list {
+		candidate, err := semver.NewVersion(tag)
+		if err != nil || !constraint.Check(candidate) {
+			continue
+		}
+		if best == nil || candidate.GreaterThan(best) {
+			best = candidate
+		}
+	}
+	if best == nil {
+		return DexAppVersion{}, fmt.Errorf("the dex-app on record: %s in %s: no tag of %s satisfies %q", path, repository, chart, ref.version)
+	}
+	return DexAppVersion{Version: best.Original(), Range: ref.version, Repository: repository, Path: path}, nil
 }
 
 // DexAppVersionIn reads the dex-app installation name runs from kustomization,
@@ -127,7 +170,7 @@ func DexAppVersionIn(ctx context.Context, read func(ctx context.Context, reposit
 		return DexAppVersion{}, fmt.Errorf("the dex-app on record: %s in %s: decode: %w", CollectionsKustomizationPath(name), repository, err)
 	}
 	inst := Installation{Name: name, Repositories: Repositories{ManagementClusters: repository}}
-	return readDexAppVersion(ctx, read, inst, collections{found: true, kustomization: k})
+	return readDexAppVersion(ctx, read, RegistryTags(registryClient), inst, collections{found: true, kustomization: k})
 }
 
 // check refuses a version that is no semantic version: the record says
@@ -260,7 +303,7 @@ func (source *dexApp) patch(patch, targetKind, targetName string) (bool, error) 
 				}
 			case "/spec/ref":
 				if source.Kind == kindOCIRepository {
-					source.Spec.Ref = dexAppRef{}
+					source.Spec.Ref = ociRef{}
 					destination = &source.Spec.Ref
 				}
 			case "/spec/ref/tag", "/spec/ref/semver", "/spec/ref/digest":
@@ -317,7 +360,7 @@ func (source *dexApp) patch(patch, targetKind, targetName string) (bool, error) 
 		}
 		if source.Kind == kindOCIRepository {
 			if reference, found := nodeAt(doc, []string{specKey, "ref"}); found && reference.Tag == nullTag {
-				source.Spec.Ref = dexAppRef{}
+				source.Spec.Ref = ociRef{}
 				return true, nil
 			}
 			for key, value := range spec.Ref {
@@ -343,18 +386,19 @@ type dexApp struct {
 		Namespace string `yaml:"namespace"`
 	} `yaml:"metadata"`
 	Spec struct {
-		Version string    `yaml:"version"`
-		Ref     dexAppRef `yaml:"ref"`
+		Version string `yaml:"version"`
+		URL     string `yaml:"url"`
+		Ref     ociRef `yaml:"ref"`
 	} `yaml:"spec"`
 }
 
-type dexAppRef struct {
+type ociRef struct {
 	Tag    string `yaml:"tag"`
 	Semver string `yaml:"semver"`
 	Digest string `yaml:"digest"`
 }
 
-func (reference *dexAppRef) field(key string) *string {
+func (reference *ociRef) field(key string) *string {
 	switch key {
 	case "tag":
 		return &reference.Tag
@@ -367,20 +411,36 @@ func (reference *dexAppRef) field(key string) *string {
 	}
 }
 
-func (source dexApp) version() (string, error) {
+// dexAppRef is the version a source gives dex-app: exact (an App's
+// spec.version, an OCIRepository's tag) or a semver that may be a range, and
+// the chart's OCI URL a range resolves against.
+type dexAppRef struct {
+	version string
+	exact   bool
+	url     string
+}
+
+// version reads dex-app's version from the source after its patches: the
+// App's spec.version, or the OCIRepository's ref in Flux's precedence, digest
+// over semver over tag. A digest names no version Dex features can be
+// compared against.
+func (source dexApp) version() (dexAppRef, error) {
 	if source.Kind == kindApp {
 		if source.Spec.Version == "" {
-			return "", fmt.Errorf("the App %s sets no spec.version", dexAppName)
+			return dexAppRef{}, fmt.Errorf("the App %s sets no spec.version", dexAppName)
 		}
-		return source.Spec.Version, nil
+		return dexAppRef{version: source.Spec.Version}, nil
 	}
-	if source.Spec.Ref.Digest != "" || source.Spec.Ref.Semver != "" {
-		return "", fmt.Errorf("the OCIRepository %s selects a digest or semver constraint, not an exact version; pin spec.ref.tag and clear spec.ref.digest and spec.ref.semver before comparing Dex features", dexAppName)
+	ref := source.Spec.Ref
+	switch {
+	case ref.Digest != "":
+		return dexAppRef{}, fmt.Errorf("the OCIRepository %s selects a digest, not a version; pin spec.ref.tag or spec.ref.semver and clear spec.ref.digest before comparing Dex features", dexAppName)
+	case ref.Semver != "":
+		return dexAppRef{version: ref.Semver, url: source.Spec.URL}, nil
+	case ref.Tag != "":
+		return dexAppRef{version: ref.Tag, exact: true, url: source.Spec.URL}, nil
 	}
-	if source.Spec.Ref.Tag == "" {
-		return "", fmt.Errorf("the OCIRepository %s sets no spec.ref.tag", dexAppName)
-	}
-	return source.Spec.Ref.Tag, nil
+	return dexAppRef{}, fmt.Errorf("the OCIRepository %s sets no spec.ref.tag or spec.ref.semver", dexAppName)
 }
 
 func dexAppSource(manifest string) (dexApp, error) {

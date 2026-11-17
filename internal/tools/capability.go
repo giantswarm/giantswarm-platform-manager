@@ -61,11 +61,12 @@ type CapabilityResult struct {
 // planned is what the render leaves behind for the commit: the caller's
 // client, the hub, the reports and the effective inputs per installation.
 type planned struct {
-	c       *gh.Client
-	hub     installations.Installation
-	byName  map[string]installations.Installation
-	reports map[string]installations.Report
-	inputs  map[string]map[string]any
+	c                 *gh.Client
+	hub               installations.Installation
+	byName            map[string]installations.Installation
+	reports           map[string]installations.Report
+	inputs            map[string]map[string]any
+	planInstallations map[string]bool
 }
 
 // commitNext says what mode commit does with a dry run, word for word.
@@ -217,6 +218,12 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 	out := CapabilityResult{Caller: identity.Caller(ctx), Tool: tool, Capability: def.Name, Hub: reg.Hub, DryRun: true, RenderedBy: t.renderedBy(),
 		Order: []string{}, Installations: []DryRun{}, PullRequests: []plan.PullRequest{}, Skipped: []Skipped{}, Commit: commitNext}
 	env := &planned{c: c, hub: hub, byName: byName, reports: map[string]installations.Report{}, inputs: map[string]map[string]any{}}
+	env.planInstallations = map[string]bool{}
+	for _, report := range reports {
+		if _, skip := skipped(report, def.Name, report.Name == one); !skip {
+			env.planInstallations[report.Name] = true
+		}
+	}
 	for _, r := range waveOrder(reports, hub) {
 		env.reports[r.Name] = r
 		if skip, ok := skipped(r, def.Name, r.Name == one); ok {
