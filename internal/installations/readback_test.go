@@ -766,6 +766,8 @@ func TestClusterMCPServersReadsBackPrivateURLs(t *testing.T) {
 		{"mcp-prometheus record before", "mcp-prometheus", "app:\n  oauth:\n    allowPrivateURLs: true\n", "servers.mcpPrometheus.privateURLs"},
 		{"mcp-kubernetes SSO flag", "mcp-kubernetes", "mcpKubernetes:\n  oauth:\n    sso:\n      allowPrivateIPs: true\n", "servers.mcpKubernetes.privateURLs"},
 		{"mcp-kubernetes record before", "mcp-kubernetes", "mcpKubernetes:\n  oauth:\n    allowPrivateURLs: true\n", "servers.mcpKubernetes.privateURLs"},
+		{"mcp-capi JWKS flag", "mcp-capi", "oauth:\n  allowPrivateIPJWKS: true\n", "servers.mcpCapi.privateURLs"},
+		{"mcp-capi record before", "mcp-capi", "oauth:\n  allowPrivateURLs: true\n", "servers.mcpCapi.privateURLs"},
 	} {
 		got, err := def.ReadBack(t.Context(), files(map[string]string{dir + tc.file + "/user-values.yaml": tc.value}), readBackInstallation, readBackName, nil)
 		if err != nil {

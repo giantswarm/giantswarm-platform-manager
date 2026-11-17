@@ -100,7 +100,7 @@ var envOAuthKeys = oauthSecretKeys{dexClientSecret: "DEX_CLIENT_SECRET", encrypt
 var Servers = []Server{
 	{Name: "mcp-kubernetes", Group: "kubernetes", DexClient: "mcpKubernetes", DexSecretRef: true, oauthKeys: keyedOAuthKeys, valuesKey: "mcpKubernetes", ssoPrivateIPs: true},
 	{Name: "mcp-prometheus", Group: "prometheus", DexClient: "mcpPrometheus", DexSecretRef: true, oauthKeys: envOAuthKeys, valuesKey: "app", dexCA: dexCASecretName, privateDexKey: "allowPrivateIPJWKS"},
-	{Name: "mcp-capi", Group: "capi", DexClient: "mcpCapi", DexSecretRef: true, oauthKeys: keyedOAuthKeys, privateDexKey: "allowPrivateURLs"},
+	{Name: "mcp-capi", Group: "capi", DexClient: "mcpCapi", DexSecretRef: true, oauthKeys: keyedOAuthKeys, privateDexKey: "allowPrivateIPJWKS"},
 }
 
 // valkeyAuthKey is the key of a server's valkey-auth Secret: the fleet base's
