@@ -11,6 +11,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// listedDexApp and latestDexApp are dex-app releases the tag lists carry; latestDexApp is the highest stable one.
+const (
+	oldestDexApp = "3.4.9"
+	listedDexApp = "3.4.24"
+	latestDexApp = "3.4.25"
+)
+
 // ociDexApp is the base's dex-app as a Flux OCIRepository with ref and the
 // HelmRelease that installs it.
 func ociDexApp(ref string) string {
@@ -34,7 +41,7 @@ func TestDexAppVersionFromAnOCIRepository(t *testing.T) {
 	inst := Installation{Name: fixtureInstallation, Repositories: Repositories{ManagementClusters: fixtureMCs}}
 	kustomization := fixtureMCs + ":" + CollectionsKustomizationPath(fixtureInstallation)
 	baseAtMain := fixtureBases + "@main:" + DexAppBasePath
-	tags := []string{"3.4.9", "3.4.24", "3.4.25-r5aa25357t20261116141604h1932a47", "3.4.25", "3.5.0-rc.1", "not-a-version", "2.2.3"}
+	tags := []string{oldestDexApp, listedDexApp, "3.4.25-r5aa25357t20261116141604h1932a47", latestDexApp, "3.5.0-rc.1", "not-a-version", "2.2.3"}
 	semverPin := "resources:\n  - https://github.com/" + fixtureBases + "//bases/collections/shared/base?ref=main\npatches:\n  - target:\n      kind: OCIRepository\n      name: dex-app\n    patch: |\n      - op: replace\n        path: /spec/ref/semver\n        value: \">=3.4.0 <3.4.25\"\n"
 	cases := []struct {
 		name   string
@@ -43,17 +50,17 @@ func TestDexAppVersionFromAnOCIRepository(t *testing.T) {
 		listed []string
 	}{
 		{"an exact tag", map[string]string{kustomization: collectionsFixture("main", ""), baseAtMain: ociDexApp("tag: 3.4.24")},
-			DexAppVersion{Version: "3.4.24", Repository: fixtureBases, Path: DexAppBasePath}, nil},
+			DexAppVersion{Version: listedDexApp, Repository: fixtureBases, Path: DexAppBasePath}, nil},
 		{"an exact semver", map[string]string{kustomization: collectionsFixture("main", ""), baseAtMain: ociDexApp("semver: 3.4.24")},
-			DexAppVersion{Version: "3.4.24", Repository: fixtureBases, Path: DexAppBasePath}, nil},
+			DexAppVersion{Version: listedDexApp, Repository: fixtureBases, Path: DexAppBasePath}, nil},
 		{"every stable release (x.x.x)", map[string]string{kustomization: collectionsFixture("main", ""), baseAtMain: ociDexApp("semver: x.x.x")},
-			DexAppVersion{Version: "3.4.25", Range: "x.x.x", Repository: fixtureBases, Path: DexAppBasePath}, []string{"oci://gsoci.azurecr.io/charts/giantswarm/dex-app"}},
+			DexAppVersion{Version: latestDexApp, Range: "x.x.x", Repository: fixtureBases, Path: DexAppBasePath}, []string{dexAppChart}},
 		{"a bounded range", map[string]string{kustomization: collectionsFixture("main", ""), baseAtMain: ociDexApp("semver: '>=3.4.0 <3.5.0'")},
-			DexAppVersion{Version: "3.4.25", Range: ">=3.4.0 <3.5.0", Repository: fixtureBases, Path: DexAppBasePath}, []string{"oci://gsoci.azurecr.io/charts/giantswarm/dex-app"}},
+			DexAppVersion{Version: latestDexApp, Range: ">=3.4.0 <3.5.0", Repository: fixtureBases, Path: DexAppBasePath}, []string{dexAppChart}},
 		{"a range that asks for prereleases", map[string]string{kustomization: collectionsFixture("main", ""), baseAtMain: ociDexApp("semver: '>=3.5.0-0'")},
-			DexAppVersion{Version: "3.5.0-rc.1", Range: ">=3.5.0-0", Repository: fixtureBases, Path: DexAppBasePath}, []string{"oci://gsoci.azurecr.io/charts/giantswarm/dex-app"}},
+			DexAppVersion{Version: "3.5.0-rc.1", Range: ">=3.5.0-0", Repository: fixtureBases, Path: DexAppBasePath}, []string{dexAppChart}},
 		{"an installation's range pin on the OCIRepository", map[string]string{kustomization: semverPin, baseAtMain: ociDexApp("semver: x.x.x")},
-			DexAppVersion{Version: "3.4.24", Range: ">=3.4.0 <3.4.25", Repository: fixtureMCs, Path: CollectionsKustomizationPath(fixtureInstallation)}, []string{dexAppChart}},
+			DexAppVersion{Version: listedDexApp, Range: ">=3.4.0 <3.4.25", Repository: fixtureMCs, Path: CollectionsKustomizationPath(fixtureInstallation)}, []string{dexAppChart}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -117,7 +124,7 @@ func TestRegistryTags(t *testing.T) {
 			w.Header().Set("Link", `</v2/charts/giantswarm/dex-app/tags/list?last=3.4.24&n=100>; rel="next"`)
 			_, _ = w.Write([]byte(`{"tags":["3.4.9","3.4.24"]}`))
 		default:
-			require.Equal(t, "3.4.24", r.URL.Query().Get("last"))
+			require.Equal(t, listedDexApp, r.URL.Query().Get("last"))
 			_, _ = w.Write([]byte(`{"tags":["3.4.25"]}`))
 		}
 	}))
@@ -125,7 +132,7 @@ func TestRegistryTags(t *testing.T) {
 	host := strings.TrimPrefix(srv.URL, "https://")
 	tags, err := registryTags(srv.Client(), "https")(t.Context(), "oci://"+host+"/charts/giantswarm/dex-app")
 	require.NoError(t, err)
-	require.Equal(t, []string{"3.4.9", "3.4.24", "3.4.25"}, tags)
+	require.Equal(t, []string{oldestDexApp, listedDexApp, latestDexApp}, tags)
 
 	_, err = registryTags(srv.Client(), "https")(t.Context(), "https://"+host+"/charts/giantswarm/dex-app")
 	require.ErrorContains(t, err, "is no oci://<registry>/<repository> URL")
