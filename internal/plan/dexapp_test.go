@@ -14,7 +14,7 @@ import (
 // plan without a referenced client.
 func TestDexAppRefusal(t *testing.T) {
 	const name, fleetDexApp = "maple", "2.2.3"
-	referenced := Installation{Name: name, DexClients: []DexClient{{ID: "backstage", SecretRef: "dex-client-backstage"}}} // #nosec G101 -- a Secret name, not a value
+	referenced := Installation{Name: name, DexClients: []DexClient{{ID: "muster", Client: "muster", SecretRef: "dex-client-muster"}}} // #nosec G101 -- a Secret name, not a value
 	source := "fleet/management-cluster-bases:" + installations.DexAppBasePath
 	cases := []struct {
 		name    string
@@ -35,7 +35,7 @@ func TestDexAppRefusal(t *testing.T) {
 		{"no version on record", referenced, &installations.Record{}, false},
 		{"no record", referenced, nil, false},
 		{"a version that is no semantic version", referenced, &installations.Record{DexAppVersion: "latest", DexAppSource: source}, false},
-		{"no referenced client in the plan", Installation{Name: name, DexClients: []DexClient{{ID: "kagent", Public: true}}}, &installations.Record{DexAppVersion: fleetDexApp, DexAppSource: source}, false},
+		{"no referenced client in the plan", Installation{Name: name, DexClients: []DexClient{{ID: "authenticator", Client: "dexK8SAuthenticator"}}}, &installations.Record{DexAppVersion: fleetDexApp, DexAppSource: source}, false},
 		{"no Dex patch in the plan", Installation{Name: name}, &installations.Record{DexAppVersion: fleetDexApp, DexAppSource: source}, false},
 	}
 	for _, c := range cases {
@@ -54,6 +54,44 @@ func TestDexAppRefusal(t *testing.T) {
 		if strings.Contains(got, "  ") {
 			t.Errorf("%s: %q", c.name, got)
 		}
+	}
+}
+
+// A plan whose Dex patch declares an extra static client or a hub's
+// connector, both maps keyed by id, is held where the dex-app on record is
+// older than 3.5.0, on either line; 3.5.0 and later commit.
+func TestDexAppRefusalForMaps(t *testing.T) {
+	const name = "maple"
+	source := "fleet/management-cluster-bases:" + installations.DexAppBasePath
+	extra := Installation{Name: name, DexClients: []DexClient{{ID: "kagent", SecretRef: "dex-client-kagent"}}} // #nosec G101 -- a Secret name, not a value
+	connector := Installation{Name: name, DexConnectors: []string{"oakridge-simple-oidc"}}
+	staff := Installation{Name: name, DexStaffConnectors: []string{"giantswarm-gopher-oidc"}}
+	cases := []struct {
+		name    string
+		plan    Installation
+		version string
+		refused bool
+	}{
+		{"an extra client before maps", extra, "3.4.0", true},
+		{"a customer connector before maps", connector, "3.4.0", true},
+		{"a staff connector before maps", staff, "3.4.0", true},
+		{"a pre-release of the version that takes maps", connector, "3.5.0-rc.8", true},
+		{"the 2.x line", extra, "2.4.1", true},
+		{"the version that takes maps", staff, "3.5.0", false},
+		{"a later version", extra, "v3.6.0", false},
+	}
+	for _, c := range cases {
+		got := c.plan.DexAppRefusal(&installations.Record{DexAppVersion: c.version, DexAppSource: source})
+		if (got != "") != c.refused {
+			t.Errorf("%s: %q, want refused %v", c.name, got, c.refused)
+			continue
+		}
+		if c.refused && !strings.Contains(got, "the Dex clients and connectors keyed by id need dex-app 3.5.0 or later; pin it in management-clusters/"+name+"/collections/kustomization.yaml first") {
+			t.Errorf("%s: %q", c.name, got)
+		}
+	}
+	if got := connector.DexAppRefusal(&installations.Record{DexAppVersionError: "no tag satisfies"}); !strings.Contains(got, "need a proven chart version") {
+		t.Errorf("an unresolved version holds the commit: %q", got)
 	}
 }
 

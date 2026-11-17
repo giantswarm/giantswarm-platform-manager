@@ -53,8 +53,8 @@ func TestRenderConfidentialClient(t *testing.T) {
 	}
 	dex := treeFile(t, r, "/apps/dex-app/configmap-values.yaml.patch")
 	for _, want := range []string{
-		"    - id: " + freshClient + "\n      name: " + freshClient + "\n      redirectURIs:\n        - " + freshURI + "\n      secretRef:\n        name: dex-client-" + freshClient + "\n        key: secret\n",
-		"    - id: " + adoptedClient + "\n      name: " + adoptedClient + "\n      redirectURIs:\n        - " + adoptedURI + "\n      secretRef:\n        name: dex-client-" + adoptedClient + "\n        key: secret\n",
+		"    " + freshClient + ":\n      name: " + freshClient + "\n      redirectURIs:\n        - " + freshURI + "\n      secretRef:\n        name: dex-client-" + freshClient + "\n        key: secret\n",
+		"    " + adoptedClient + ":\n      name: " + adoptedClient + "\n      redirectURIs:\n        - " + adoptedURI + "\n      secretRef:\n        name: dex-client-" + adoptedClient + "\n        key: secret\n",
 	} {
 		if !strings.Contains(dex, want) {
 			t.Errorf("the dex patch lacks\n%s\nin\n%s", want, dex)

@@ -264,21 +264,10 @@ func (in *Input) render() (*render.Result, error) {
 		r.Include(clusters, extras+"kustomization.yaml", "./"+platformDir+"/")
 		// The hubs' brokers ask Dex for the cluster tokens through their clients.
 		static = append(static, render.Entry{Key: "dexK8SAuthenticator", Value: render.Map{{Key: "trustedPeers", Value: in.exchange().TrustedPeers()}}})
-		oidc = render.Map{{Key: "staticClients", Value: static}, {Key: "extraStaticClients", Value: in.exchange().DexClients()}}
+		oidc = render.Map{{Key: "staticClients", Value: static}, {Key: "extraStaticClients", Value: render.ClientsByID(in.exchange().DexClients())}}
 	}
-	var env []render.Map
-	if len(connectors) > 0 {
-		entries := make([]render.Map, 0, len(connectors))
-		for _, c := range connectors {
-			entries = append(entries, c.Entry(in.Installation.BaseDomain))
-			env = append(env, render.ConnectorEnvVars(c.ID)...)
-		}
-		oidc = append(oidc, render.Entry{Key: "customer", Value: render.Map{{Key: "connectors", Value: entries}}})
-	}
+	oidc = append(oidc, render.ConnectorsByOwner(connectors, name, in.Installation.BaseDomain)...)
 	dex := render.Map{{Key: "oidc", Value: oidc}}
-	if len(env) > 0 {
-		dex = append(dex, render.Entry{Key: "dex", Value: render.Map{{Key: "envVars", Value: env}}})
-	}
 	r.Add(configs, "installations/"+name+"/apps/dex-app/configmap-values.yaml.patch", render.File{Content: append([]byte(fileHeader), render.MustYAML(dex)...)})
 	r.Probes = in.probes(connectors)
 	r.WithoutPairs = func(names []string) (*render.Result, error) {
@@ -293,7 +282,7 @@ func (in *Input) render() (*render.Result, error) {
 }
 
 // exchangeConnectors are the connectors the installation's Dex registers for
-// the hubs that broker into it, under oidc.customer next to the
+// the hubs that broker into it, under their owner next to the
 // installation's own login connectors, which the plan keeps: the
 // agent-platform policy's names over each hub's record, the one rule the
 // hub names the connector by in its broker (render.ConnectorPolicy). A policy

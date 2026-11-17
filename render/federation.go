@@ -1,18 +1,12 @@
 package render
 
-import (
-	"regexp"
-	"strings"
-)
-
 // The federation login: a person signs in to a target's Dex through the
 // connector the target registers for a hub, an OIDC authorization-code login
 // at the hub's Dex. The target's Dex is the hub's client: the hub's Dex
 // registers one client per target, redirecting to the target's Dex callback,
-// and the target's connector presents that client. Its id and secret reach the
-// connector through Dex's environment expansion of the connector config, from
-// a Secret in Dex's namespace the target's dex-app values project into Dex's
-// environment, so no secret sits in the plaintext values. One generated value
+// and the target's connector presents that client: its id in the connector's
+// config, its secret from a Secret in Dex's namespace the connector's
+// clientSecretRef names, so no secret sits in the plaintext values. One generated value
 // is the client's secret on both sides: the hub renders its Dex-side Secret,
 // the target's own definition the connector's, each naming the other (Peer).
 // The token exchange through the connector verifies the subject token against
@@ -63,59 +57,29 @@ const (
 	kindSecret   = "Secret"
 )
 
-// The keys of a connector Secret.
-const (
-	connectorClientIDKey     = "client-id"
-	connectorClientSecretKey = "client-secret"
-)
+// connectorClientSecretKey is the key of a connector Secret.
+const connectorClientSecretKey = "client-secret"
 
-var envUnsafe = regexp.MustCompile(`[^A-Za-z0-9]`)
-
-// connectorEnv is the prefix of connector's variables in Dex's environment,
-// apart from the DEX_CLIENT_SECRET_ variables dex-app sets for the static
-// clients' referenced secrets.
-func connectorEnv(connector string) string {
-	return "DEX_CONNECTOR_" + strings.ToUpper(envUnsafe.ReplaceAllString(connector, "_"))
+// ConnectorSecretRef is the connector's clientSecretRef in the dex-app
+// values: dex-app sets a variable of Dex's environment from the key and
+// writes the connector's clientSecret as that variable.
+func ConnectorSecretRef(connector string) Map {
+	return Map{{Key: keyName, Value: ConnectorSecretName(connector)}, {Key: "key", Value: connectorClientSecretKey}}
 }
 
-// ConnectorClientIDEnv and ConnectorClientSecretEnv are the variables Dex's
-// connector config expands to the hub client's id and secret.
-func ConnectorClientIDEnv(connector string) string { return connectorEnv(connector) + "_CLIENT_ID" }
-func ConnectorClientSecretEnv(connector string) string {
-	return connectorEnv(connector) + "_CLIENT_SECRET"
-}
-
-// ConnectorEnvVars are the entries of the dex-app values' dex.envVars that
-// project connector's Secret into Dex's environment. Optional: a Dex whose
-// Secret is not there yet starts, its connector without a client, so the
-// token exchange through it still works and the login fails.
-func ConnectorEnvVars(connector string) []Map {
-	ref := func(env, key string) Map {
-		return Map{{Key: keyName, Value: env}, {Key: "valueFrom", Value: Map{{Key: "secretKeyRef", Value: Map{
-			{Key: keyName, Value: ConnectorSecretName(connector)}, {Key: "key", Value: key}, {Key: "optional", Value: true}}}}}}
+// FederationConnectorConfig is the config of the connector the target's Dex
+// at targetBaseDomain registers for the hub at hubBaseDomain: an oidc
+// connector trusting the hub's Dex as the issuer and taking the groups its
+// tokens carry, the hub's login client for target, and the target's callback.
+// The client's secret is the entry's clientSecretRef.
+func FederationConnectorConfig(hubBaseDomain, target, targetBaseDomain string) Map {
+	return Map{
+		{Key: "issuer", Value: "https://dex." + hubBaseDomain},
+		{Key: "insecureEnableGroups", Value: true},
+		{Key: "clientID", Value: FederationClient(target)},
+		{Key: "redirectURI", Value: FederationRedirectURI(targetBaseDomain)},
+		{Key: "scopes", Value: federationScopes},
 	}
-	return []Map{
-		ref(ConnectorClientIDEnv(connector), connectorClientIDKey),
-		ref(ConnectorClientSecretEnv(connector), connectorClientSecretKey),
-	}
-}
-
-// FederationConnectorConfig is the config of the connector a target's Dex
-// registers for the hub at hubBaseDomain: an oidc connector trusting the
-// hub's Dex as the issuer and taking the groups its tokens carry, the hub's
-// client for the target through the environment, and the target's callback.
-func FederationConnectorConfig(connector, hubBaseDomain, targetBaseDomain string) string {
-	var b strings.Builder
-	b.WriteString("issuer: https://dex." + hubBaseDomain + "\n")
-	b.WriteString("insecureEnableGroups: true\n")
-	b.WriteString("clientID: $" + ConnectorClientIDEnv(connector) + "\n")
-	b.WriteString("clientSecret: $" + ConnectorClientSecretEnv(connector) + "\n")
-	b.WriteString("redirectURI: " + FederationRedirectURI(targetBaseDomain) + "\n")
-	b.WriteString("scopes:\n")
-	for _, s := range federationScopes {
-		b.WriteString("  - " + s + "\n")
-	}
-	return b.String()
 }
 
 // ConnectorSecret is the target's Secret of connector in Dex's namespace: the
@@ -124,7 +88,6 @@ func FederationConnectorConfig(connector, hubBaseDomain, targetBaseDomain string
 func ConnectorSecret(connector, hub, target string) (string, File) {
 	value := FederationSecretName(hub, target)
 	f := Secret(ConnectorSecretName(connector), DexNamespace, nil,
-		ValueKey(connectorClientIDKey, FederationClient(target)),
 		GeneratedKey(connectorClientSecretKey, value, Base64, 32)).
 		Peered(value, Peer{Installation: hub, Path: PlatformSecretsPath(hub, DexClientSecretFile(FederationClient(target)))})
 	return ConnectorSecretFile(connector), f

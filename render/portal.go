@@ -154,6 +154,26 @@ func ExtraStaticClient(id, name string, rest ...Entry) Map {
 	return append(Map{{Key: "id", Value: id}, {Key: keyName, Value: name}}, rest...)
 }
 
+// ClientsByID is the dex-app values' oidc.extraStaticClients map of clients:
+// each entry keyed by its id, without the id, so the entries of several
+// values sources merge by client id. Entries come in the given order.
+func ClientsByID(clients []Map) Map {
+	out := make(Map, 0, len(clients))
+	for _, c := range clients {
+		var id string
+		body := make(Map, 0, len(c))
+		for _, e := range c {
+			if e.Key == "id" {
+				id, _ = e.Value.(string)
+				continue
+			}
+			body = append(body, e)
+		}
+		out = append(out, Entry{Key: id, Value: body})
+	}
+	return out
+}
+
 // PortalPlatformComponent is the entry the portal's extras/backstage/kustomization.yaml
 // lists under components for the platform's directory.
 func PortalPlatformComponent() string { return "./" + PortalPlatformDir + "/" }

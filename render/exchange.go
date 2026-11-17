@@ -39,13 +39,27 @@ type HubConnector struct {
 // names of the connector a target's Dex registers for a hub, as Go templates
 // over the hub's record ({{ .Customer }}, {{ .Name }}) — First for the
 // target's first hub of the organisation, Further for every further one —
-// and FurtherByHand, the organisations whose further hubs' connectors are kept
-// by hand on the targets, so no definition renders them.
+// and the organisations the policy treats apart:
+//   - Staff: Dex registers their hubs' connectors under oidc.giantswarm, each
+//     named by Further, since dex-operator registers First there.
+//   - FurtherByHand: their further hubs' connectors are kept by hand on the
+//     targets, so no definition renders them.
+//   - ExchangeThrough: the connector their first hub's broker exchanges tokens
+//     through, where it is not the rendered one. A connector's id is part of
+//     every Dex subject issued through it.
 type ConnectorNames struct {
-	First         string   `yaml:"first"`
-	Further       string   `yaml:"further"`
-	FurtherByHand []string `yaml:"furtherByHand"`
+	First           string            `yaml:"first"`
+	Further         string            `yaml:"further"`
+	Staff           []string          `yaml:"staff"`
+	FurtherByHand   []string          `yaml:"furtherByHand"`
+	ExchangeThrough map[string]string `yaml:"exchangeThrough"`
 }
+
+// The dex-app values' connector owners: oidc.<owner>.connectors.
+const (
+	OwnerGiantswarm = "giantswarm"
+	OwnerCustomer   = "customer"
+)
 
 // ErrConnectorPolicy is a federation.connector entry of the policy that
 // cannot name a connector: a template that does not parse, names a field the
@@ -77,10 +91,11 @@ type hubRecord struct{ Customer, Name string }
 
 // Name is the connector a target's Dex registers for the hub hub of the
 // organisation customer: the organisation's plain name where the hub is the
-// first of the organisation's hubs into the target, the hub's own otherwise.
+// first of the organisation's hubs into the target, the hub's own otherwise
+// and for every hub of a staff organisation.
 func (n ConnectorNames) Name(first bool, customer, hub string) (string, error) {
 	key, text := "federation.connector.further", n.Further
-	if first {
+	if first && !slices.Contains(n.Staff, customer) {
 		key, text = "federation.connector.first", n.First
 	}
 	return PolicyTemplate(key, text, hubRecord{Customer: customer, Name: hub})
@@ -92,6 +107,25 @@ func (n ConnectorNames) Name(first bool, customer, hub string) (string, error) {
 // furtherByHand, which is kept by hand on the target.
 func (n ConnectorNames) Rendered(customer string, first bool) bool {
 	return first || !slices.Contains(n.FurtherByHand, customer)
+}
+
+// Exchange is the connector the broker of the hub hub of the organisation
+// customer exchanges tokens through at a target's Dex: the rendered one
+// (Name), or for the organisation's first hub the one ExchangeThrough names.
+func (n ConnectorNames) Exchange(first bool, customer, hub string) (string, error) {
+	if id := n.ExchangeThrough[customer]; first && id != "" {
+		return id, nil
+	}
+	return n.Name(first, customer, hub)
+}
+
+// Owner is the dex-app values' owner a target's Dex registers the connector
+// of a hub of the organisation customer under.
+func (n ConnectorNames) Owner(customer string) string {
+	if slices.Contains(n.Staff, customer) {
+		return OwnerGiantswarm
+	}
+	return OwnerCustomer
 }
 
 // PolicyTemplate renders one of the policy's Go templates over data; a
@@ -116,8 +150,9 @@ func PolicyTemplate(key, text string, data any) (string, error) {
 // brokers into it, as a definition renders it: the policy's name and the
 // hub's record.
 type FederatedConnector struct {
-	ID  string
-	Hub HubConnector
+	ID    string
+	Owner string
+	Hub   HubConnector
 }
 
 // FederatedConnectors are the connectors a target's Dex registers for its
@@ -133,22 +168,44 @@ func FederatedConnectors(names ConnectorNames, hubs []HubConnector) ([]Federated
 		if err != nil {
 			return nil, err
 		}
-		list = append(list, FederatedConnector{ID: id, Hub: h})
+		list = append(list, FederatedConnector{ID: id, Owner: names.Owner(h.Customer), Hub: h})
 	}
 	return list, nil
 }
 
 // Entry is the connector's entry of the dex-app values'
-// oidc.customer.connectors on the target at targetBaseDomain: an oidc
-// connector trusting the hub's Dex as the issuer, with the hub's client for
-// the login (FederationConnectorConfig). The plan keeps every other entry of
-// oidc.customer, the installation's own login connectors among them, as
-// another owner's.
-func (c FederatedConnector) Entry(targetBaseDomain string) Map {
+// oidc.<Owner>.connectors map on the target installation at
+// targetBaseDomain, keyed by ID: an oidc connector trusting the hub's Dex as
+// the issuer and taking the groups its tokens carry, presenting the hub's
+// login client for the target, whose secret the chart reads from the
+// connector Secret (clientSecretRef). The plan keeps every other entry under
+// the owner, the installation's own login connectors among them, as another
+// owner's.
+func (c FederatedConnector) Entry(target, targetBaseDomain string) Map {
 	return Map{
-		{Key: "id", Value: c.ID},
 		{Key: "connectorType", Value: "oidc"},
-		{Key: "connectorName", Value: c.Hub.Hub + " token exchange"},
-		{Key: "connectorConfig", Value: FederationConnectorConfig(c.ID, c.Hub.BaseDomain, targetBaseDomain)},
+		{Key: "connectorName", Value: c.Hub.Hub},
+		{Key: "config", Value: FederationConnectorConfig(c.Hub.BaseDomain, target, targetBaseDomain)},
+		{Key: "clientSecretRef", Value: ConnectorSecretRef(c.ID)},
 	}
+}
+
+// ConnectorsByOwner are the entries of the dex-app values' oidc mapping that
+// carry connectors on the target installation at targetBaseDomain:
+// <owner>.connectors, a map keyed by id, for each owner in the order it first
+// occurs.
+func ConnectorsByOwner(connectors []FederatedConnector, target, targetBaseDomain string) Map {
+	var owners []string
+	byOwner := map[string]Map{}
+	for _, c := range connectors {
+		if _, ok := byOwner[c.Owner]; !ok {
+			owners = append(owners, c.Owner)
+		}
+		byOwner[c.Owner] = append(byOwner[c.Owner], Entry{Key: c.ID, Value: c.Entry(target, targetBaseDomain)})
+	}
+	out := make(Map, 0, len(owners))
+	for _, owner := range owners {
+		out = append(out, Entry{Key: owner, Value: Map{{Key: "connectors", Value: byOwner[owner]}}})
+	}
+	return out
 }

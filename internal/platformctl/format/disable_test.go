@@ -91,9 +91,9 @@ func TestDisableDryRunGolden(t *testing.T) {
 	mc := "giantswarm/oakridge-management-clusters:management-clusters/" + name + "/extras/"
 	dex := "giantswarm/oakridge-configs:installations/" + name + "/apps/dex-app/configmap-values.yaml.patch"
 	files[dex] = "ingress:\n  largeHeaderBuffers: true\n" + strings.Replace(strings.Replace(files[dex], "  extraStaticClients:\n", "  extraStaticClients:\n"+
-		"    - id: own-tool\n      name: own-tool\n      secretRef:\n        name: dex-client-own-tool\n        key: secret\n"+
-		"    - id: gateway\n      name: MCP gateway\n      secretRef:\n        name: dex-client-gateway\n        key: secret\n"+
-		"    - id: portal-login\n      name: Former portal login\n      redirectURIs:\n        - https://portal.kestrel.oakridge.example/api/auth/oidc/handler/frame\n", 1),
+		"    own-tool:\n      name: own-tool\n      secretRef:\n        name: dex-client-own-tool\n        key: secret\n"+
+		"    gateway:\n      name: MCP gateway\n      secretRef:\n        name: dex-client-gateway\n        key: secret\n"+
+		"    portal-login:\n      name: Former portal login\n      redirectURIs:\n        - https://portal.kestrel.oakridge.example/api/auth/oidc/handler/frame\n", 1),
 		"        - muster-token-exchange-kestrel\n", "        - muster-token-exchange-kestrel\n        - gateway\n", 1)
 	files[mc+"agent-platform/kustomization.yaml"] += "  - ./mcpclients\n"
 	files[mc+"agent-platform/mcpclients/kustomization.yaml"] = "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - gateway.yaml\n  - dex-client-gateway.yaml\n  - shared-ca.yaml\n"

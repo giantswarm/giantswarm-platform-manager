@@ -19,9 +19,15 @@ import (
 // break Dex. The 2.x line carries it from render.DexAppLine2.
 const DexAppReferencedSecrets = "3.2.2"
 
+// DexAppConnectorMaps is the first dex-app that takes oidc.extraStaticClients
+// and oidc.<owner>.connectors as maps keyed by id, the shape the definitions
+// render them in, and a connector's clientSecretRef.
+const DexAppConnectorMaps = "3.5.0"
+
 // DexAppRefusal says why a commit of p is refused for the dex-app on record:
 // p's Dex patch declares a client with a referenced Secret and rec's dex-app
-// is older than DexAppReferencedSecrets. Empty where nothing refuses — no
+// is older than DexAppReferencedSecrets, or an extra static client or a
+// hub's connector and rec's dex-app is older than DexAppConnectorMaps. Empty where nothing refuses — no
 // such client, no source on record, or a dex-app that takes them
 // (render.DexAppTakes). An unreadable source or unresolved selector holds a
 // version-dependent commit. The comparison still runs.
@@ -31,6 +37,9 @@ func (p Installation) DexAppRefusal(rec *installations.Record) string {
 	}
 	if p.referencesDexSecrets() && rec.DexAppVersionError != "" {
 		return "the referenced Dex client secrets need a proven chart version: " + rec.DexAppVersionError
+	}
+	if p.rendersDexMaps() && rec.DexAppVersionError != "" {
+		return "the Dex clients and connectors keyed by id need a proven chart version: " + rec.DexAppVersionError
 	}
 	if rec.DexAppVersion == "" {
 		return ""
@@ -43,7 +52,17 @@ func (p Installation) DexAppRefusal(rec *installations.Record) string {
 		return fmt.Sprintf("dex-app %s on record (%s): the referenced Dex client secrets need %s; pin it in %s first",
 			rec.DexAppVersion, rec.DexAppSource, render.DexAppNeeds(DexAppReferencedSecrets), installations.CollectionsKustomizationPath(p.Name))
 	}
+	if p.rendersDexMaps() && !render.DexAppTakes(v, DexAppConnectorMaps) {
+		return fmt.Sprintf("dex-app %s on record (%s): the Dex clients and connectors keyed by id need %s; pin it in %s first",
+			rec.DexAppVersion, rec.DexAppSource, render.DexAppNeeds(DexAppConnectorMaps), installations.CollectionsKustomizationPath(p.Name))
+	}
 	return ""
+}
+
+// rendersDexMaps says whether p's Dex patch declares an extra static client
+// or a hub's connector, which the definitions render as maps keyed by id.
+func (p Installation) rendersDexMaps() bool {
+	return len(p.extraDexClients()) > 0 || len(p.DexConnectors) > 0 || len(p.DexStaffConnectors) > 0
 }
 
 // referencesDexSecrets says whether the rendered Dex patch declares a client
@@ -53,9 +72,9 @@ func (p Installation) referencesDexSecrets() bool {
 }
 
 // DexSecretRefusal says why a commit of p is refused for the encrypted Dex
-// values on record: p's Dex patch renders a list — oidc.extraStaticClients,
-// the authenticator's trustedPeers, the customer's connectors — that rec's
-// encrypted dex-app secret patch carries as well. app-operator merges the
+// values on record: p's Dex patch renders a key — oidc.extraStaticClients,
+// the authenticator's trustedPeers, the connectors of either owner — that
+// rec's encrypted dex-app secret patch carries as a list. app-operator merges the
 // config ConfigMap with the config Secret, and helm-controller its
 // valuesFrom, by replacing a list, never by appending, so the encrypted list
 // would stand and the rendered clients, peers or connectors never reach Dex.
@@ -83,7 +102,11 @@ func (p Installation) DexSecretRefusal(rec *installations.Record) string {
 			}
 		case installations.DexCustomerConnectors:
 			if len(p.DexConnectors) > 0 {
-				lists, connectors = append(lists, l), p.DexConnectors
+				lists, connectors = append(lists, l), append(connectors, p.DexConnectors...)
+			}
+		case installations.DexStaffConnectors:
+			if len(p.DexStaffConnectors) > 0 {
+				lists, connectors = append(lists, l), append(connectors, p.DexStaffConnectors...)
 			}
 		}
 	}

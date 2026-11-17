@@ -23,14 +23,14 @@ oidc:
         - backstage
         - muster-token-exchange-warren
   extraStaticClients:
-    - id: kagent
+    kagent:
       name: kagent-ui
       secretRef:
         name: dex-client-kagent
         key: secret
       redirectURIs:
         - https://kagent.warren.example.io/oauth2/callback
-    - id: backstage
+    backstage:
       name: Dev Portal
       redirectURIs:
         - https://portal.gopher.example.io/api/auth/oidc-warren/handler/frame
@@ -38,12 +38,12 @@ oidc:
       secretRef:
         name: dex-client-backstage
         key: secret
-    - id: muster-token-exchange-warren
+    muster-token-exchange-warren:
       name: gopher token exchange
       secretRef:
         name: dex-client-muster-token-exchange-warren
         key: secret
-    - id: federation-vole
+    federation-vole:
       name: vole federation login
       redirectURIs:
         - https://dex.vole.example.io/callback

@@ -24,14 +24,14 @@ oidc:
         - muster-token-exchange-plover
         - muster-token-exchange-plover-heron
   extraStaticClients:
-    - id: kagent
+    kagent:
       name: kagent-ui
       secretRef:
         name: dex-client-kagent
         key: secret
       redirectURIs:
         - https://kagent.plover.oakridge.example/oauth2/callback
-    - id: backstage
+    backstage:
       name: Dev Portal
       redirectURIs:
         - https://portal.kestrel.oakridge.example/api/auth/oidc-plover/handler/frame
@@ -39,69 +39,49 @@ oidc:
       secretRef:
         name: dex-client-backstage
         key: secret
-    - id: muster-token-exchange-plover
+    muster-token-exchange-plover:
       name: gopher token exchange
       secretRef:
         name: dex-client-muster-token-exchange-plover
         key: secret
-    - id: muster-token-exchange-plover-heron
+    muster-token-exchange-plover-heron:
       name: heron token exchange
       secretRef:
         name: dex-client-muster-token-exchange-plover-heron
         key: secret
-  customer:
+  giantswarm:
     connectors:
-      - id: giantswarm-simple-oidc
+      giantswarm-gopher-oidc:
         connectorType: oidc
-        connectorName: gopher token exchange
-        connectorConfig: |
+        connectorName: gopher
+        config:
           issuer: https://dex.gopher.example.io
           insecureEnableGroups: true
-          clientID: $DEX_CONNECTOR_GIANTSWARM_SIMPLE_OIDC_CLIENT_ID
-          clientSecret: $DEX_CONNECTOR_GIANTSWARM_SIMPLE_OIDC_CLIENT_SECRET
+          clientID: federation-plover
           redirectURI: https://dex.plover.oakridge.example/callback
           scopes:
             - openid
             - profile
             - email
             - groups
-      - id: oakridge-simple-oidc
+        clientSecretRef:
+          name: dex-connector-giantswarm-gopher-oidc
+          key: client-secret
+  customer:
+    connectors:
+      oakridge-simple-oidc:
         connectorType: oidc
-        connectorName: heron token exchange
-        connectorConfig: |
+        connectorName: heron
+        config:
           issuer: https://dex.heron.oakridge.example
           insecureEnableGroups: true
-          clientID: $DEX_CONNECTOR_OAKRIDGE_SIMPLE_OIDC_CLIENT_ID
-          clientSecret: $DEX_CONNECTOR_OAKRIDGE_SIMPLE_OIDC_CLIENT_SECRET
+          clientID: federation-plover
           redirectURI: https://dex.plover.oakridge.example/callback
           scopes:
             - openid
             - profile
             - email
             - groups
-dex:
-  envVars:
-    - name: DEX_CONNECTOR_GIANTSWARM_SIMPLE_OIDC_CLIENT_ID
-      valueFrom:
-        secretKeyRef:
-          name: dex-connector-giantswarm-simple-oidc
-          key: client-id
-          optional: true
-    - name: DEX_CONNECTOR_GIANTSWARM_SIMPLE_OIDC_CLIENT_SECRET
-      valueFrom:
-        secretKeyRef:
-          name: dex-connector-giantswarm-simple-oidc
-          key: client-secret
-          optional: true
-    - name: DEX_CONNECTOR_OAKRIDGE_SIMPLE_OIDC_CLIENT_ID
-      valueFrom:
-        secretKeyRef:
-          name: dex-connector-oakridge-simple-oidc
-          key: client-id
-          optional: true
-    - name: DEX_CONNECTOR_OAKRIDGE_SIMPLE_OIDC_CLIENT_SECRET
-      valueFrom:
-        secretKeyRef:
+        clientSecretRef:
           name: dex-connector-oakridge-simple-oidc
           key: client-secret
-          optional: true

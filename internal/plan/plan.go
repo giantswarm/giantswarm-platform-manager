@@ -354,12 +354,14 @@ type Installation struct {
 	// where it switches nothing off (SwitchOffRefusal).
 	SwitchOff  *SwitchOff  `json:"switchOff,omitempty"`
 	DexClients []DexClient `json:"dexClients"`
-	// DexConnectors are the ids of the token-exchange connectors the
-	// rendered Dex patch declares under oidc.customer.connectors
+	// DexConnectors and DexStaffConnectors are the ids of the hubs'
+	// connectors the rendered Dex patch declares under
+	// oidc.customer.connectors and oidc.giantswarm.connectors
 	// (DexSecretRefusal).
-	DexConnectors   []string         `json:"dexConnectors,omitempty"`
-	CustomerActions []CustomerAction `json:"customerActions"`
-	Probes          []Probe          `json:"probes"`
+	DexConnectors      []string         `json:"dexConnectors,omitempty"`
+	DexStaffConnectors []string         `json:"dexStaffConnectors,omitempty"`
+	CustomerActions    []CustomerAction `json:"customerActions"`
+	Probes             []Probe          `json:"probes"`
 	// Diff counts the files by change; an empty diff is every file unchanged.
 	Diff map[Change]int `json:"diff"`
 }
@@ -669,7 +671,7 @@ func Build(ctx context.Context, opts Options) Installation {
 			}
 			p.Files = append(p.Files, pf)
 			if strings.HasSuffix(path, dexPatchFile) {
-				p.DexClients, p.DexConnectors = DexClients(f.Content, in), DexConnectors(f.Content)
+				p.DexClients, p.DexConnectors, p.DexStaffConnectors = DexClients(f.Content, in), DexConnectors(f.Content), DexStaffConnectors(f.Content)
 			}
 			if strings.HasSuffix(path, platformPatchFile) && pf.Change == ChangeUpdate {
 				p.DropsPrereleases = dropsPrereleases(current, content)
@@ -987,48 +989,43 @@ func customerActions(installation string, in render.Input) []CustomerAction {
 	return out
 }
 
-// DexConnectors reads the ids of the token-exchange connectors the rendered
-// dex patch declares under oidc.customer.connectors; nil where it declares
-// none or does not parse.
-func DexConnectors(patch []byte) []string {
+// DexConnectors reads the ids of the hubs' connectors the rendered dex
+// patch declares under oidc.customer.connectors, a map keyed by id or a
+// list; nil where it declares none or does not parse.
+func DexConnectors(patch []byte) []string { return dexConnectorsOf(patch, keyCustomer) }
+
+// DexStaffConnectors reads the same under oidc.giantswarm.connectors.
+func DexStaffConnectors(patch []byte) []string { return dexConnectorsOf(patch, keyGiantswarm) }
+
+func dexConnectorsOf(patch []byte, owner string) []string {
 	var doc struct {
-		OIDC struct {
-			Customer struct {
-				Connectors []struct {
-					ID string `yaml:"id"`
-				} `yaml:"connectors"`
-			} `yaml:"customer"`
+		OIDC map[string]struct {
+			Connectors yaml.Node `yaml:"connectors"`
 		} `yaml:"oidc"`
 	}
 	if err := yaml.Unmarshal(patch, &doc); err != nil {
 		return nil
 	}
-	var ids []string
-	for _, c := range doc.OIDC.Customer.Connectors {
-		if c.ID != "" {
-			ids = append(ids, c.ID)
-		}
+	o, ok := doc.OIDC[owner]
+	if !ok {
+		return nil
 	}
+	var ids []string
+	_ = render.EachByID(&o.Connectors, func(id string, _ *yaml.Node) error {
+		ids = append(ids, id)
+		return nil
+	})
 	return ids
 }
 
 // DexClients reads the clients of the rendered dex patch: the built-in
 // clients by the chart's key, with the id the input knows, and the extra
-// static clients as declared.
+// static clients as declared, a map keyed by id or a list.
 func DexClients(patch []byte, in render.Input) []DexClient {
 	var doc struct {
 		OIDC struct {
 			StaticClients      yaml.Node `yaml:"staticClients"`
-			ExtraStaticClients []struct {
-				ID           string   `yaml:"id"`
-				Name         string   `yaml:"name"`
-				Public       bool     `yaml:"public"`
-				RedirectURIs []string `yaml:"redirectURIs"`
-				TrustedPeers []string `yaml:"trustedPeers"`
-				SecretRef    struct {
-					Name string `yaml:"name"`
-				} `yaml:"secretRef"`
-			} `yaml:"extraStaticClients"`
+			ExtraStaticClients yaml.Node `yaml:"extraStaticClients"`
 		} `yaml:"oidc"`
 	}
 	if err := yaml.Unmarshal(patch, &doc); err != nil {
@@ -1047,9 +1044,20 @@ func DexClients(patch []byte, in render.Input) []DexClient {
 		key := doc.OIDC.StaticClients.Content[i].Value
 		out = append(out, DexClient{ID: in.BuiltInDexClientID(key), Client: key, SecretRef: body.ClientSecretRef.Name, RedirectURIs: body.RedirectURIs, TrustedPeers: body.TrustedPeers})
 	}
-	for _, c := range doc.OIDC.ExtraStaticClients {
-		out = append(out, DexClient{ID: c.ID, Name: c.Name, Public: c.Public, SecretRef: c.SecretRef.Name, RedirectURIs: c.RedirectURIs, TrustedPeers: c.TrustedPeers})
-	}
+	_ = render.EachByID(&doc.OIDC.ExtraStaticClients, func(id string, n *yaml.Node) error {
+		var c struct {
+			Name         string   `yaml:"name"`
+			Public       bool     `yaml:"public"`
+			RedirectURIs []string `yaml:"redirectURIs"`
+			TrustedPeers []string `yaml:"trustedPeers"`
+			SecretRef    struct {
+				Name string `yaml:"name"`
+			} `yaml:"secretRef"`
+		}
+		_ = n.Decode(&c)
+		out = append(out, DexClient{ID: id, Name: c.Name, Public: c.Public, SecretRef: c.SecretRef.Name, RedirectURIs: c.RedirectURIs, TrustedPeers: c.TrustedPeers})
+		return nil
+	})
 	return out
 }
 

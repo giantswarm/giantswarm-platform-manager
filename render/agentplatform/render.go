@@ -559,9 +559,11 @@ func (in *Input) portalDexClient() render.Map {
 
 // dexPatch is installations/<name>/apps/dex-app/configmap-values.yaml.patch:
 // the platform's clients in plaintext, every secret a reference to a Secret
-// in Dex's namespace, and the token-exchange connectors of the hubs that
-// broker into the installation (render.ExchangeConnectors), among the
-// installation's own connectors under oidc.customer, which the plan keeps.
+// in Dex's namespace, and the connectors of the hubs that broker into the
+// installation (render.FederatedConnectors) under their owner, among the
+// installation's own connectors there, which the plan keeps. Clients and
+// connectors are maps keyed by id, so other values sources' entries merge
+// with them.
 // It never touches the encrypted secret patch. The patch is one file with
 // one owner: on an installation with the platform enabled this definition
 // owns it, so the portals' client is carried here, the entry the
@@ -600,20 +602,10 @@ func (in *Input) dexPatch() render.Map {
 	}
 	oidc := render.Map{e("staticClients", static)}
 	if len(extra) > 0 {
-		oidc = append(oidc, e("extraStaticClients", extra))
+		oidc = append(oidc, e("extraStaticClients", render.ClientsByID(extra)))
 	}
-	patch := render.Map{}
-	if len(in.HubConnectors) > 0 {
-		connectors := make([]render.Map, 0, len(in.HubConnectors))
-		var env []render.Map
-		for _, c := range in.HubConnectors {
-			connectors = append(connectors, c.Entry(in.Installation.BaseDomain))
-			env = append(env, render.ConnectorEnvVars(c.ID)...)
-		}
-		oidc = append(oidc, e("customer", render.Map{e("connectors", connectors)}))
-		patch = append(patch, e("dex", render.Map{e("envVars", env)}))
-	}
-	return append(render.Map{e("oidc", oidc)}, patch...)
+	oidc = append(oidc, render.ConnectorsByOwner(in.HubConnectors, in.Installation.Name, in.Installation.BaseDomain)...)
+	return render.Map{e("oidc", oidc)}
 }
 
 // musterRevision says whether the installation's meta chart hands muster's

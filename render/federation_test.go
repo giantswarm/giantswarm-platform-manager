@@ -29,7 +29,7 @@ func TestFederationSecretsPeerEachOther(t *testing.T) {
 		t.Errorf("the target side's peer: %+v", g.Peer)
 	}
 	content := string(target.Content)
-	for _, want := range []string{"name: dex-connector-giantswarm-simple-oidc", "namespace: giantswarm", "client-id: federation-plover"} {
+	for _, want := range []string{"name: dex-connector-giantswarm-simple-oidc", "namespace: giantswarm", "client-secret: "} {
 		if !strings.Contains(content, want) {
 			t.Errorf("the connector Secret lacks %q:\n%s", want, content)
 		}
@@ -37,22 +37,23 @@ func TestFederationSecretsPeerEachOther(t *testing.T) {
 }
 
 // The hub's client for a target redirects to the target's Dex callback alone
-// and reads its secret from a referenced Secret; the target's Dex reads the
-// client's id and secret from its environment, projected from the
-// connector Secret, optional so a Dex without the Secret yet still starts.
-func TestFederationClientAndEnvironment(t *testing.T) {
+// and reads its secret from a referenced Secret.
+func TestFederationClient(t *testing.T) {
 	want := "id: federation-plover\nname: plover federation login\nredirectURIs:\n  - https://dex.plover.oakridge.example/callback\nsecretRef:\n  name: dex-client-federation-plover\n  key: secret\n"
 	if got := string(MustYAML(HubFederationClient("plover", "plover.oakridge.example"))); got != want {
 		t.Errorf("the hub's client:\n%s\nwant:\n%s", got, want)
 	}
-	env := string(MustYAML(ConnectorEnvVars("giantswarm-simple-oidc")))
-	for _, want := range []string{
-		"name: DEX_CONNECTOR_GIANTSWARM_SIMPLE_OIDC_CLIENT_ID", "key: client-id",
-		"name: DEX_CONNECTOR_GIANTSWARM_SIMPLE_OIDC_CLIENT_SECRET", "key: client-secret",
-		"name: dex-connector-giantswarm-simple-oidc", "optional: true",
-	} {
-		if !strings.Contains(env, want) {
-			t.Errorf("the environment lacks %q:\n%s", want, env)
-		}
+}
+
+// The extraStaticClients map keys each client by its id, which leaves the
+// entry, in the given order.
+func TestClientsByID(t *testing.T) {
+	got := string(MustYAML(ClientsByID([]Map{
+		HubFederationClient("plover", "plover.oakridge.example"),
+		ExtraStaticClient("kagent", "kagent-ui"),
+	})))
+	want := "federation-plover:\n  name: plover federation login\n  redirectURIs:\n    - https://dex.plover.oakridge.example/callback\n  secretRef:\n    name: dex-client-federation-plover\n    key: secret\nkagent:\n  name: kagent-ui\n"
+	if got != want {
+		t.Errorf("the clients:\n%s\nwant:\n%s", got, want)
 	}
 }

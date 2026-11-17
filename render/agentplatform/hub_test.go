@@ -245,7 +245,7 @@ func TestTokenExchangeClientIsTheFleets(t *testing.T) {
 	patch := string(warren["giantswarm/giantswarm-configs/installations/warren/apps/dex-app/configmap-values.yaml.patch"])
 	for _, want := range []string{
 		"        - muster-token-exchange-warren\n",
-		"    - id: muster-token-exchange-warren\n      name: gopher token exchange\n      secretRef:\n        name: dex-client-muster-token-exchange-warren\n        key: secret\n",
+		"    muster-token-exchange-warren:\n      name: gopher token exchange\n      secretRef:\n        name: dex-client-muster-token-exchange-warren\n        key: secret\n",
 	} {
 		if !strings.Contains(patch, want) {
 			t.Errorf("warren's dex patch lacks %q:\n%s", want, patch)
@@ -267,7 +267,7 @@ func TestTokenExchangeClientIsTheFleets(t *testing.T) {
 	patch = string(two["giantswarm/giantswarm-configs/installations/warren/apps/dex-app/configmap-values.yaml.patch"])
 	for _, want := range []string{
 		"        - muster-token-exchange-warren\n        - muster-token-exchange-warren-aspen\n",
-		"    - id: muster-token-exchange-warren-aspen\n      name: aspen token exchange\n      secretRef:\n        name: dex-client-muster-token-exchange-warren-aspen\n",
+		"    muster-token-exchange-warren-aspen:\n      name: aspen token exchange\n      secretRef:\n        name: dex-client-muster-token-exchange-warren-aspen\n",
 	} {
 		if !strings.Contains(patch, want) {
 			t.Errorf("a target of two hubs lacks %q:\n%s", want, patch)
@@ -461,8 +461,10 @@ func lookup(m render.Map, key string) any {
 
 // A target's Dex registers the connector the hub names, for every hub but a
 // further one of an organisation that keeps those by hand, each with the
-// hub's login client for the target: the connector's client id and secret
-// from Dex's environment, projected from the connector Secret. The hub's
+// hub's login client for the target: the client's id in the connector's
+// config, its secret referenced from the connector Secret. A staff
+// organisation's connector goes under oidc.giantswarm, named after the hub,
+// next to the one dex-operator registers. The hub's
 // Dex registers the login client for every target whose Dex renders its
 // connector, redirecting to the target's Dex callback, and none for a
 // target where it is a further hub kept by hand.
@@ -480,26 +482,28 @@ func TestTargetRegistersTheConnectorTheHubNames(t *testing.T) {
 	}
 	sibling := patch(render1(shapeCustomerSibling), "oakridge", "plover", "dex-app")
 	for _, want := range []string{
-		"      - id: giantswarm-simple-oidc\n        connectorType: oidc\n        connectorName: gopher token exchange\n        connectorConfig: |\n          issuer: https://dex.gopher.example.io\n          insecureEnableGroups: true\n          clientID: $DEX_CONNECTOR_GIANTSWARM_SIMPLE_OIDC_CLIENT_ID\n",
-		"      - id: oakridge-simple-oidc\n        connectorType: oidc\n        connectorName: heron token exchange\n        connectorConfig: |\n          issuer: https://dex.heron.oakridge.example\n          insecureEnableGroups: true\n          clientID: $DEX_CONNECTOR_OAKRIDGE_SIMPLE_OIDC_CLIENT_ID\n          clientSecret: $DEX_CONNECTOR_OAKRIDGE_SIMPLE_OIDC_CLIENT_SECRET\n          redirectURI: https://dex.plover.oakridge.example/callback\n",
-		"dex:\n  envVars:\n    - name: DEX_CONNECTOR_GIANTSWARM_SIMPLE_OIDC_CLIENT_ID\n",
-		"    - name: DEX_CONNECTOR_OAKRIDGE_SIMPLE_OIDC_CLIENT_SECRET\n      valueFrom:\n        secretKeyRef:\n          name: dex-connector-oakridge-simple-oidc\n          key: client-secret\n          optional: true\n",
+		"  giantswarm:\n    connectors:\n      giantswarm-gopher-oidc:\n        connectorType: oidc\n        connectorName: gopher\n        config:\n          issuer: https://dex.gopher.example.io\n          insecureEnableGroups: true\n          clientID: federation-plover\n",
+		"  customer:\n    connectors:\n      oakridge-simple-oidc:\n        connectorType: oidc\n        connectorName: heron\n        config:\n          issuer: https://dex.heron.oakridge.example\n          insecureEnableGroups: true\n          clientID: federation-plover\n          redirectURI: https://dex.plover.oakridge.example/callback\n",
+		"        clientSecretRef:\n          name: dex-connector-oakridge-simple-oidc\n          key: client-secret\n",
 	} {
 		if !strings.Contains(sibling, want) {
 			t.Errorf("the sibling's Dex lacks\n%s\nin\n%s", want, sibling)
 		}
+	}
+	if strings.Contains(sibling, "envVars") || strings.Contains(sibling, "giantswarm-simple-oidc") {
+		t.Errorf("the sibling's Dex neither projects the clients itself nor registers the connector dex-operator owns:\n%s", sibling)
 	}
 	hubTree := render1(shapeMultiClusterAggregator)
 	hub := patch(hubTree, "oakridge", "heron", "agent-platform")
 	if !strings.Contains(hub, "            plover:\n              dexTokenEndpoint: https://dex.plover.oakridge.example/token\n              connectorId: oakridge-simple-oidc\n") {
 		t.Errorf("the hub names the connector the sibling registers:\n%s", hub)
 	}
-	if hubDex := patch(hubTree, "oakridge", "heron", "dex-app"); !strings.Contains(hubDex, "    - id: federation-plover\n      name: plover federation login\n      redirectURIs:\n        - https://dex.plover.oakridge.example/callback\n      secretRef:\n        name: dex-client-federation-plover\n") {
+	if hubDex := patch(hubTree, "oakridge", "heron", "dex-app"); !strings.Contains(hubDex, "    federation-plover:\n      name: plover federation login\n      redirectURIs:\n        - https://dex.plover.oakridge.example/callback\n      secretRef:\n        name: dex-client-federation-plover\n") {
 		t.Errorf("the hub's Dex registers the sibling's login client:\n%s", hubDex)
 	}
 	second := render1(shapeSecondHub)
 	secondDex := patch(second, "giantswarm", "warren", "dex-app")
-	if strings.Contains(secondDex, "federation-marmot") || !strings.Contains(secondDex, "id: federation-vole") {
+	if strings.Contains(secondDex, "federation-marmot") || !strings.Contains(secondDex, "    federation-vole:\n") {
 		t.Errorf("a further hub kept by hand registers no login client for marmot, the only hub one for vole:\n%s", secondDex)
 	}
 	if _, ok := second["giantswarm/giantswarm-management-clusters/management-clusters/warren/extras/agent-platform/secrets/dex-client-federation-marmot-secret.yaml"]; ok {

@@ -355,10 +355,11 @@ func (in *Input) dexSecretClients() []dexSecretClient {
 			out = append(out, dexSecretClient{client: c.Key, secret: mapValue(ref, "name").(string)})
 		}
 	}
-	extra, _ := mapValue(oidc, "extraStaticClients").([]render.Map)
+	extra, _ := mapValue(oidc, "extraStaticClients").(render.Map)
 	for _, c := range extra {
-		if ref, ok := mapValue(c, "secretRef").(render.Map); ok {
-			out = append(out, dexSecretClient{client: mapValue(c, "id").(string), secret: mapValue(ref, "name").(string)})
+		body, _ := c.Value.(render.Map)
+		if ref, ok := mapValue(body, "secretRef").(render.Map); ok {
+			out = append(out, dexSecretClient{client: c.Key, secret: mapValue(ref, "name").(string)})
 		}
 	}
 	return out

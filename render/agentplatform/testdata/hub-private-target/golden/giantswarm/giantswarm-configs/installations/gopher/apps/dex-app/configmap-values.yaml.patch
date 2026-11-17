@@ -22,28 +22,28 @@ oidc:
       trustedPeers:
         - backstage
   extraStaticClients:
-    - id: kagent
+    kagent:
       name: kagent-ui
       secretRef:
         name: dex-client-kagent
         key: secret
       redirectURIs:
         - https://kagent.gopher.example.io/oauth2/callback
-    - id: backstage
+    backstage:
       name: Dev Portal
       redirectURIs:
         - https://portal.gopher.example.io/api/auth/oidc-gopher/handler/frame
       secretRef:
         name: dex-client-backstage
         key: secret
-    - id: federation-burrow
+    federation-burrow:
       name: burrow federation login
       redirectURIs:
         - https://dex.burrow.example.io/callback
       secretRef:
         name: dex-client-federation-burrow
         key: secret
-    - id: federation-marmot
+    federation-marmot:
       name: marmot federation login
       redirectURIs:
         - https://dex.marmot.example.io/callback

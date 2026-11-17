@@ -23,14 +23,14 @@ oidc:
         - backstage
         - muster-token-exchange-gopher
   extraStaticClients:
-    - id: kagent
+    kagent:
       name: kagent-ui
       secretRef:
         name: dex-client-kagent
         key: secret
       redirectURIs:
         - https://kagent.gopher.example.io/oauth2/callback
-    - id: backstage
+    backstage:
       name: Dev Portal
       redirectURIs:
         - https://portal.aspen.example.io/api/auth/oidc-gopher/handler/frame
@@ -38,7 +38,7 @@ oidc:
       secretRef:
         name: dex-client-backstage
         key: secret
-    - id: muster-token-exchange-gopher
+    muster-token-exchange-gopher:
       name: aspen token exchange
       secretRef:
         name: dex-client-muster-token-exchange-gopher

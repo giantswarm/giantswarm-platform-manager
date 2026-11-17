@@ -111,7 +111,7 @@
               "x-source": "registry",
               "x-feature": "identity",
               "x-renders": [
-                "dex-configmap:oidc.customer.connectors[*] (<customer>-simple-oidc, <customer>-<hub>-oidc)"
+                "dex-configmap:oidc.<owner>.connectors.<connector> (<customer>-simple-oidc, <customer>-<hub>-oidc)"
               ],
               "description": "The hubs that broker into this installation, each with the facts the token-exchange connector its Dex registers for the hub is rendered from: the hub's name, its owning organisation, its base domain — the hub's Dex, https://dex.<baseDomain>, is the connector's issuer — and whether it is the first of its organisation's hubs into this installation. The connector is an oidc connector trusting that issuer, under oidc.customer.connectors next to the installation's own login connectors, which the plan keeps; its name is the agent-platform policy's federation.connector.first (<customer>-simple-oidc) for the first hub and federation.connector.further (<customer>-<hub>-oidc) for every further one — the name the hub renders into its broker target and identity provider for this installation, so the two sides agree. A further hub of an organisation under that policy's federation.connector.furtherByHand renders none: the installation keeps its connector by hand. Each connector presents the login client the hub's Dex registers for this installation, so a person signs in through it as well as exchanges a token.",
               "items": {
@@ -133,7 +133,7 @@
               "x-source": "registry",
               "x-feature": "identity",
               "x-renders": [
-                "dex-configmap:oidc.extraStaticClients[*] (muster-token-exchange-<name>, muster-token-exchange-<name>-<hub>)",
+                "dex-configmap:oidc.extraStaticClients.<id> (muster-token-exchange-<name>, muster-token-exchange-<name>-<hub>)",
                 "dex-configmap:oidc.staticClients.dexK8SAuthenticator.trustedPeers",
                 "extras:agent-platform/kustomization.yaml",
                 "extras:agent-platform/secrets/kustomization.yaml",
@@ -148,7 +148,7 @@
               "x-source": "registry",
               "x-feature": "identity",
               "x-renders": [
-                "dex-configmap:oidc.extraStaticClients[*] (muster-token-exchange-<name>)",
+                "dex-configmap:oidc.extraStaticClients.<id> (muster-token-exchange-<name>)",
                 "dex-configmap:oidc.staticClients.dexK8SAuthenticator.trustedPeers",
                 "extras:agent-platform/secrets/dex-client-muster-token-exchange-<name>-secret.yaml"
               ],

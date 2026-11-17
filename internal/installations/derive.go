@@ -368,24 +368,31 @@ func portalClientID(ctx context.Context, c *gh.Client, host Installation, domain
 func dexClientByRedirectURI(data, uri string) (string, error) {
 	var patch struct {
 		OIDC struct {
-			ExtraStaticClients []struct {
-				ID           string   `yaml:"id"`
-				RedirectURIs []string `yaml:"redirectURIs"`
-			} `yaml:"extraStaticClients"`
+			ExtraStaticClients yaml.Node `yaml:"extraStaticClients"`
 		} `yaml:"oidc"`
 	}
 	if err := yaml.Unmarshal([]byte(data), &patch); err != nil {
 		return "", err
 	}
-	id := ""
-	for _, client := range patch.OIDC.ExtraStaticClients {
-		if !slices.Contains(client.RedirectURIs, uri) {
-			continue
+	own, id := "", ""
+	err := render.EachByID(&patch.OIDC.ExtraStaticClients, func(clientID string, n *yaml.Node) error {
+		var client struct {
+			RedirectURIs []string `yaml:"redirectURIs"`
 		}
-		if client.ID != render.PortalDexClientID {
-			return client.ID, nil
+		if err := n.Decode(&client); err != nil || !slices.Contains(client.RedirectURIs, uri) {
+			return err
 		}
-		id = client.ID
+		if clientID != render.PortalDexClientID && own == "" {
+			own = clientID
+		}
+		id = clientID
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	if own != "" {
+		return own, nil
 	}
 	return id, nil
 }

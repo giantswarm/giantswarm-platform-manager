@@ -10,6 +10,8 @@
 #   referenced-secret   an inline credential in the encrypted Dex values that a Secret in the cluster replaces;
 #                       dex-app reads the reference and ignores the inline value next to it, which a person
 #                       deletes from the encrypted values (the definition decrypts nothing)
+#   migration           a value the installation carries in a shape the definition no longer renders; the
+#                       render carries the same entries in the new shape
 #   retired             a key of a generated Secret the definition no longer writes and nothing reads; the plan
 #                       leaves it on record, since dropping it alone would rewrite the Secret and draw every value
 #                       it holds anew, and it goes with the Secret's next rotation
@@ -34,3 +36,15 @@ removals:
     reason: >-
       Removed: the mcp-<name> server's credentials carry a copy of its Valkey password (VALKEY_PASSWORD) that nothing reads, since the
       server takes the password from its Valkey's Secret; it stays until the next rotation of the server's credentials rewrites them without it.
+  - key: dex-configmap:oidc.extraStaticClients[*]
+    kind: migration
+    reason: >-
+      Changed: the Dex clients are a list on the installation today; they become a map keyed by client id, so the clients other values sources
+      register merge with these by id instead of one list replacing the other, and an entry another owner registered moves into the map as it is.
+      Needs dex-app 3.5.0 · M46
+  - key: dex-configmap:oidc.customer.connectors[*]
+    kind: migration
+    reason: >-
+      Changed: the connectors are a list on the installation today; they become a map keyed by connector id, so the installation's own login
+      connectors and the hubs' connectors merge by id instead of one list replacing the other, and the installation's entries move into the map
+      as they are. Needs dex-app 3.5.0 · M46
