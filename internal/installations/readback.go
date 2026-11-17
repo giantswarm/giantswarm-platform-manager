@@ -206,6 +206,48 @@ func (c Capability) Defaults() (map[string]any, error) {
 	})
 }
 
+// ReadBackPlace is a file of an installation an input's value is read back
+// from, and the dotted keys in it the value is read under.
+type ReadBackPlace struct {
+	Repository string
+	Path       string
+	Keys       []string
+}
+
+// ReadBackPlaces are the places on record of inst that input's value is read
+// back from (its x-readback of the value kind), in the schema's order. A file
+// whose keys are read under a document in it, or that the portal's host
+// places, is left out: its keys are not the file's own paths. Nothing for
+// an input with no such read-back.
+func (c Capability) ReadBackPlaces(input string, inst Installation) ([]ReadBackPlace, error) {
+	s, err := c.inputSchema()
+	if err != nil {
+		return nil, err
+	}
+	return readBackPlaces(s, input, inst)
+}
+
+func readBackPlaces(s *inputSchema, input string, inst Installation) ([]ReadBackPlace, error) {
+	files := newReadBackFiles(context.Background(), nil, inst, "")
+	var out []ReadBackPlace
+	err := s.leaves(func(path string, leaf schemaNode) error {
+		rb := leaf.ReadBack
+		if path != input || rb == nil || rb.Kind != "" && rb.Kind != ReadBackValue {
+			return nil
+		}
+		for _, file := range rb.Files {
+			spec, ok := s.Files[file]
+			if !ok || spec.Document != "" || strings.Contains(spec.Path, portalHostPlaceholder) {
+				continue
+			}
+			repo, p := files.location(spec)
+			out = append(out, ReadBackPlace{Repository: repo, Path: p, Keys: rb.Keys})
+		}
+		return nil
+	})
+	return out, err
+}
+
 // PersonInputs are the inputs the person chooses: the schema's leaves
 // marked x-source person, by dotted key, sorted.
 func (c Capability) PersonInputs() ([]string, error) {

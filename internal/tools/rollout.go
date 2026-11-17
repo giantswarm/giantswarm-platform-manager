@@ -13,6 +13,7 @@ import (
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 	"github.com/giantswarm/giantswarm-platform-manager/render"
@@ -468,4 +469,71 @@ func waitLines(waits []rolloutWait) []string {
 		out = append(out, w.what)
 	}
 	return out
+}
+
+// runningReleases reads, as the person, the release each HelmRelease of
+// installation runs now: what recordRunning records for a merge made right
+// after. A HelmRelease the definition renders and the installation does not
+// have runs none: version 0, no digest — a first install's history may have
+// lost its v1 by the first watch (installedAfter). Only the apiserver's
+// NotFound says so; a read that fails or is not possible answers none, and
+// the first watch's recordBaselines then reads the history after the merge.
+func (t *Tools) runningReleases(ctx context.Context, a *actions.Action, installation string) []actions.ReleaseBaseline {
+	def, ok := installations.FindCapability(a.Spec.Capability)
+	if !ok {
+		return nil
+	}
+	inputs := a.InputsOnRecord(installation)
+	if inputs == nil {
+		return nil
+	}
+	token, id, err := t.forwarded(ctx, ToolMergeAction)
+	if err != nil {
+		return nil
+	}
+	cluster, err := t.d.Live.Cluster(ctx, token, id, installation)
+	if err == nil {
+		var read, absent []verify.Check
+		read, absent, err = verify.ReleaseHistories(ctx, verify.LiveOptions{Definition: def, Installation: installation,
+			Inputs: verify.Inputs{Source: "action " + a.Name, Values: inputs, Typed: a.Spec.Inputs}, Kept: a.KeptOnRecord(installation), Cluster: cluster, Person: id.String(), Rollout: true, Log: t.d.Log})
+		if err == nil {
+			var out []actions.ReleaseBaseline
+			for _, ch := range read {
+				if r := runningRelease(ch); r != nil {
+					out = append(out, actions.ReleaseBaseline{Release: objectName(ch.Namespace, ch.Name), Version: r.Version, ConfigDigest: r.ConfigDigest, Deployed: r.Deployed})
+				}
+			}
+			for _, ch := range absent {
+				out = append(out, actions.ReleaseBaseline{Release: objectName(ch.Namespace, ch.Name)})
+			}
+			return out
+		}
+	}
+	t.d.Log.Info("action_merge_baseline_skipped", identity.LogAttr(ctx), "action", a.Name, "installation", installation, "error", err)
+	return nil
+}
+
+// recordRunning records on stage st the releases running (runningReleases)
+// as the ones that ran at pr's merge, made right after they were read.
+func recordRunning(st *actions.InstallationRollout, pr actions.PullRequest, running []actions.ReleaseBaseline) {
+	merge := fmt.Sprintf("%s#%d", pr.Repository, pr.Number)
+	for _, b := range running {
+		if baselineOf(st, b.Release, merge) != nil {
+			continue
+		}
+		b.PullRequest = merge
+		st.Baselines = append(st.Baselines, b)
+	}
+}
+
+// runningRelease is the release ch's HelmRelease runs: the newest of its
+// history that was deployed, deployed or superseded since; nil when the
+// history keeps none.
+func runningRelease(ch verify.Check) *verify.Release {
+	for i, r := range ch.Releases {
+		if r.Deployed != nil && (r.Status == helmDeployed || r.Status == helmSuperseded) {
+			return &ch.Releases[i]
+		}
+	}
+	return nil
 }

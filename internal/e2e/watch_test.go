@@ -1286,3 +1286,153 @@ func TestARefusedRenderKeepsAProbeFailureReRead(t *testing.T) {
 		t.Fatalf("the recovery: %v %s", isErr, text)
 	}
 }
+
+// mergedRowanAsAdmin commits the enablement of rowan as alice and has carol
+// approve; then fills the installation as the inputs on record render it,
+// before any merge, lets prepare change it, and merges as the live admin:
+// merge_action reads the releases running right before the merge as the
+// person who merges.
+func mergedRowanAsAdmin(t *testing.T, st *stack, prepare func()) (actions.Action, *client.Client) {
+	t.Helper()
+	out, _ := commitRowan(t, st)
+	name := out.Action.Name
+	if _, text, isErr := decide(t, st.mcpClient(t, carolToken), tools.ToolApproveAction, map[string]any{tools.ArgAction: name}); isErr {
+		t.Fatalf("approve: %s", text)
+	}
+	for _, pr := range st.remote.PullRequests() {
+		st.remote.SetChecks(pr.PullRequest, commit.ChecksSuccess)
+	}
+	admin := adminLive(t, st)
+	populateBeforeFlux(t, st.inst, *out.Action, rowan)
+	prepare()
+	m, text, isErr := mergeCall(t, admin, name)
+	if isErr || m.Action == nil || m.Action.Status.State != actions.StateRollingOut {
+		t.Fatalf("merge: %v %s", isErr, text)
+	}
+	return *m.Action, admin
+}
+
+// The merge records the release each HelmRelease runs just before it: two
+// releases after the merge, before any watch — a chart-only upgrade, then
+// the merged values — leave Flux's history without the release that ran at
+// the merge, and the record still proves the merge.
+func TestMergeRecordsTheReleaseThatRunsAtTheMerge(t *testing.T) {
+	st := newStack(t)
+	a, admin := mergedRowanAsAdmin(t, st, func() {})
+	release := fluxNamespace + "/" + platformRelease
+	bases := stageOf(&a, rowan).Baselines
+	if len(bases) != len(a.StagePullRequests(rowan)) {
+		t.Fatalf("one baseline per merged pull request: %+v", bases)
+	}
+	for _, b := range bases {
+		if b.Release != release || b.Version != 10 || b.ConfigDigest != valuesBefore {
+			t.Fatalf("the baselines the merge recorded: %+v", bases)
+		}
+	}
+
+	pr, merge := configsMerge(t, &a, rowan)
+	st.inst.followConfigs(fluxNamespace, pr.Repository)
+	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
+	st.inst.release(fluxNamespace, platformRelease, valuesBefore)
+	st.inst.release(fluxNamespace, platformRelease, valuesMerged)
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || w.State != actions.StateEnabled {
+		t.Fatalf("the merged values released: %v %s", isErr, text)
+	}
+}
+
+// A merge that finds no HelmRelease records that no release ran at it: a
+// first install, then two upgrades before any watch, leave Flux's history
+// without the install's v1 (installedAfter has nothing to read), and the
+// record still proves the merge once the merged values run.
+func TestMergeRecordsNoReleaseForAFirstInstall(t *testing.T) {
+	st := newStack(t)
+	var hr map[string]any
+	a, admin := mergedRowanAsAdmin(t, st, func() {
+		hr = st.inst.take(helmReleaseKind, fluxNamespace, platformRelease)
+	})
+	release := fluxNamespace + "/" + platformRelease
+	bases := stageOf(&a, rowan).Baselines
+	if len(bases) != len(a.StagePullRequests(rowan)) {
+		t.Fatalf("one baseline per merged pull request: %+v", bases)
+	}
+	for _, b := range bases {
+		if b.Release != release || b.Version != 0 || b.ConfigDigest != "" || b.Deployed != nil {
+			t.Fatalf("the baselines the merge recorded: %+v", bases)
+		}
+	}
+
+	pr, merge := configsMerge(t, &a, rowan)
+	st.inst.followConfigs(fluxNamespace, pr.Repository)
+	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
+	st.inst.install(hr, valuesMerged)
+	st.inst.releaseAt(fluxNamespace, platformRelease, valuesMerged, time.Now().Add(2*time.Second))
+	st.inst.releaseAt(fluxNamespace, platformRelease, valuesMerged, time.Now().Add(3*time.Second))
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || !w.Ready || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled {
+		t.Fatalf("a first install, then two upgrades: %v %s", isErr, text)
+	}
+}
+
+// A HelmRelease the merging person may not read is not missing: the merge
+// records nothing for it, so no later release is taken for a first install.
+func TestMergeRecordsNothingForAnUnreadHelmRelease(t *testing.T) {
+	st := newStack(t)
+	a, _ := mergedRowanAsAdmin(t, st, func() {
+		st.inst.take(helmReleaseKind, fluxNamespace, platformRelease)
+		st.inst.forbid(helmReleaseKind, fluxNamespace, platformRelease)
+	})
+	if bases := stageOf(&a, rowan).Baselines; len(bases) != 0 {
+		t.Fatalf("the merge recorded baselines of a HelmRelease it could not read: %+v", bases)
+	}
+}
+
+// A watch that sees the release that ran at the merge records it also when
+// it ends without a decision — GitHub not answering whether the
+// Konfiguration's commit contains the merge — and a refused render after it
+// keeps the record: two chart-only releases leave Flux's history without
+// it, and the record still proves the merge.
+func TestWatchActionRecordsTheReleaseThatRanAtTheMergeOnAnError(t *testing.T) {
+	st := newStack(t)
+	a, aliceC := mergedRowan(t, st)
+	admin := adminLive(t, st)
+	if bases := stageOf(&a, rowan).Baselines; len(bases) != 0 {
+		t.Fatalf("a merge as a person not connected to the installation recorded baselines: %+v", bases)
+	}
+	fluxBehind(t, st, st.inst, a, rowan)
+	_, merge := configsMerge(t, &a, rowan)
+	st.inst.applyConfigs(fluxNamespace, konfiguration, strings.Repeat("ab", 20))
+	if _, text, isErr := watchCall(t, admin, a.Name); !isErr || !strings.Contains(text, "call again") {
+		t.Fatalf("a commit GitHub does not know: %v %s", isErr, text)
+	}
+	recorded := func(step string) {
+		t.Helper()
+		got := getAction(t, aliceC, a.Name)
+		bases := stageOf(&got, rowan).Baselines
+		if len(bases) != len(a.StagePullRequests(rowan)) {
+			t.Fatalf("%s: one baseline per merged pull request: %+v", step, bases)
+		}
+		for _, b := range bases {
+			if b.Release != fluxNamespace+"/"+platformRelease || b.Version != 10 || b.ConfigDigest != valuesBefore {
+				t.Fatalf("%s: the baselines on record: %+v", step, bases)
+			}
+		}
+	}
+	recorded("after the watch that ended with an error")
+
+	storedAsRefused(t, st, a.Name, rowan)
+	if w, text, isErr := watchCall(t, admin, a.Name); isErr || w.Verify == nil || w.Verify.Refused == "" {
+		t.Fatalf("the refused render: %v %s", isErr, text)
+	}
+	recorded("after the refused render")
+	storeOrganizationsSwitch(t, st, a.Name, rowan, false)
+
+	st.inst.applyConfigs(fluxNamespace, konfiguration, merge)
+	st.inst.release(fluxNamespace, platformRelease, valuesBefore)
+	st.inst.release(fluxNamespace, platformRelease, valuesBefore)
+	st.inst.release(fluxNamespace, platformRelease, valuesMerged)
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled {
+		t.Fatalf("the merged values released: %v %s", isErr, text)
+	}
+}

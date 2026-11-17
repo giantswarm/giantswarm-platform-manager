@@ -252,10 +252,12 @@ type Include struct {
 
 // Result is what a definition renders for one installation.
 type Result struct {
-	Files    Fileset
-	Includes []Include
-	Probes   []Probe  // what the verify slice checks on the running installation, in order
-	Actions  []Action // what a person outside the platform team still has to do
+	// WithoutPairs renders without the named generated pairs and their consumers.
+	WithoutPairs func(names []string) (*Result, error) `json:"-" yaml:"-"`
+	Files        Fileset
+	Includes     []Include
+	Probes       []Probe  // what the verify slice checks on the running installation, in order
+	Actions      []Action // what a person outside the platform team still has to do
 	// Revisions maps a generated value to the credentials revision its
 	// consumers roll on, both by generated name: the revision is a generated
 	// value of its own that the pod templates of every workload reading the

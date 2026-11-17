@@ -16,6 +16,8 @@ import (
 const (
 	inputAgentManagerExchange = "agentManager.github.tokenExchange.enabled"
 	inputAgentManagerCommit   = "agentManager.github.enabled"
+	keyCredentials            = "credentials"
+	keyCredentialUI           = "uiURL"
 )
 
 func TestAgentManagerCredentialReadBack(t *testing.T) {
@@ -26,8 +28,14 @@ func TestAgentManagerCredentialReadBack(t *testing.T) {
 		patch string
 		want  map[string]any
 	}{
+		// #nosec G101 -- public form URL template, no credential value
+		{"credential form", "agent-manager:\n  credentials:\n    uiURL: https://portal.acme.test/models/{namespace}/credentials/{operation}\n", map[string]any{
+			inputAgentManagerExchange:        false,
+			inputOrganizationsCommit:         false,
+			"agentManager.credentials.uiURL": "https://portal.acme.test/models/{namespace}/credentials/{operation}",
+		}},
 		// #nosec G101 -- route configuration and public URLs, no credential value
-		{"enabled", "agent-manager:\n  github:\n    enabled: true\n    tokenExchange:\n      tokenEndpoint: https://muster.rowan.acme.test/oauth/token\n  credentials:\n    uiURL: https://portal.acme.test/credentials/{operation}\n", map[string]any{
+		{"grant exchange and credential form", "agent-manager:\n  github:\n    enabled: true\n    tokenExchange:\n      tokenEndpoint: https://muster.rowan.acme.test/oauth/token\n  credentials:\n    uiURL: https://portal.acme.test/credentials/{operation}\n", map[string]any{
 			inputAgentManagerExchange:        true,
 			inputOrganizationsCommit:         false,
 			"agentManager.credentials.uiURL": "https://portal.acme.test/credentials/{operation}",
@@ -51,6 +59,21 @@ func TestAgentManagerCredentialReadBack(t *testing.T) {
 			require.Equal(t, managerGrantDefaults(test.want), got)
 		})
 	}
+}
+
+func TestCredentialFormWithoutOrganizations(t *testing.T) {
+	definition, found := FindCapability(AgentPlatform)
+	require.True(t, found)
+	input := map[string]any{
+		"organizations": map[string]any{keyEnabled: false},
+		// #nosec G101 -- a URL template, no credential value
+		"agentManager": map[string]any{keyCredentials: map[string]any{
+			keyCredentialUI: "https://portal.acme.test/models/{namespace}/credentials/{operation}",
+		}},
+	}
+	refused, err := definition.TypedWithoutSwitch(input, input)
+	require.NoError(t, err)
+	require.Empty(t, refused)
 }
 
 // A reconcile types no input: the plan reads the person's choices back from
@@ -79,6 +102,19 @@ func renderGoldenFromTheRecord(t *testing.T, shapeName string) (patch string, re
 	t.Helper()
 	definition, found := FindCapability(AgentPlatform)
 	require.True(t, found)
+	patch, read, input, marker := inputFromTheRecord(t, shapeName, nil)
+	result, err := definition.Render(input, nil, render.ModeCommit)
+	require.NoError(t, err)
+	return patch, read, string(result.Tree()[filepath.Join("giantswarm", "giantswarm-configs", marker)])
+}
+
+// inputFromTheRecord reads a shape's golden configmap patch back as the
+// installation's record, after edit where it is not nil, and returns the
+// patch, what was read and the input document a reconcile renders.
+func inputFromTheRecord(t *testing.T, shapeName string, edit func(string) string) (patch string, read, input map[string]any, marker string) {
+	t.Helper()
+	definition, found := FindCapability(AgentPlatform)
+	require.True(t, found)
 	shape := os.DirFS(filepath.Join("../../render/agentplatform/testdata", shapeName))
 	raw, err := fs.ReadFile(shape, "input.yaml")
 	require.NoError(t, err)
@@ -88,15 +124,19 @@ func renderGoldenFromTheRecord(t *testing.T, shapeName string) (patch string, re
 	require.NoError(t, yaml.Unmarshal(raw, &doc))
 	record := doc.Input["installation"].(map[string]any)
 	name := record["name"].(string)
-	marker := definition.EnabledMarker(name)
+	marker = definition.EnabledMarker(name)
 	golden, err := fs.ReadFile(shape, "golden/giantswarm/giantswarm-configs/"+marker)
 	require.NoError(t, err)
+	patch = string(golden)
+	if edit != nil {
+		patch = edit(patch)
+	}
 
 	inst := Installation{Name: name, BaseDomain: record["baseDomain"].(string), Repositories: Repositories{Configs: "giantswarm/giantswarm-configs", ManagementClusters: "giantswarm/giantswarm-management-clusters"}}
-	read, err = definition.ReadBack(t.Context(), files(map[string]string{inst.Repositories.Configs + ":" + marker: string(golden)}), inst, "", nil)
+	read, err = definition.ReadBack(t.Context(), files(map[string]string{inst.Repositories.Configs + ":" + marker: patch}), inst, "", nil)
 	require.NoError(t, err)
 
-	input := map[string]any{"installation": record}
+	input = map[string]any{"installation": record}
 	for key, value := range read {
 		node := input
 		steps := strings.Split(key, ".")
@@ -108,7 +148,5 @@ func renderGoldenFromTheRecord(t *testing.T, shapeName string) (patch string, re
 		}
 		node[steps[len(steps)-1]] = value
 	}
-	result, err := definition.Render(input, nil, render.ModeCommit)
-	require.NoError(t, err)
-	return string(golden), read, string(result.Tree()[filepath.Join("giantswarm", "giantswarm-configs", marker)])
+	return patch, read, input, marker
 }

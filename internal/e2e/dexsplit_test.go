@@ -177,9 +177,9 @@ func TestClusterMCPServersReadsASplitTokenExchangeClientAsKept(t *testing.T) {
 		dexsplit.Ref{File: encrypted, Path: "oidc.staticClients.dexK8SAuthenticator.trustedPeers.0"}.String(): client,
 		dexsplit.Ref{File: filepath.Join(hubMC, hubPath), Path: "stringData.client-secret"}.String():          "pair-fixture-value",
 	}}
-	r, err := dexsplit.Run(context.Background(), dexsplit.Options{Installation: alder, Configs: configs, ManagementClusters: mcs, Hub: hub, HubManagementClusters: hubMC, Vault: v, Write: true,
+	r, err := dexsplit.Run(t.Context(), dexsplit.Options{Installation: alder, Configs: configs, ManagementClusters: mcs, Hub: hub, HubManagementClusters: hubMC, Vault: v, Write: true,
 		ReadBase: func(context.Context, string, string, string) (string, error) {
-			return "", errors.New("pinned: no base read")
+			return dexAppApp(fleetDexApp), nil
 		}})
 	if err != nil {
 		t.Fatal(err)

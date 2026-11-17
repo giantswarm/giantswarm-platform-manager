@@ -21,6 +21,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // The fleet's repository the tunnelport values live in, as the definition
@@ -108,24 +109,23 @@ func reconcileAndMerge(t *testing.T, st *stack, aliceC, carolC *client.Client, i
 	return dry.PullRequests, m.Merged
 }
 
-// rowan is enabled by hand without a hub; a reconcile that makes hazel its
-// hub would create the Dex side of hazel's token-exchange client, whose value
-// is one with hazel's credentials Secret for rowan — a file of hazel's plan,
-// not on record. The commit draws a value per installation, so the pair would
-// disagree: the reconcile is refused before any write, naming hazel's file.
-// (The merge order a referenced Dex client's Secret sets is
-// TestBuildOrdersTheReferencedClient's.)
+// An existing Dex-side credential cannot rotate while the peer is outside
+// the plan and absent from the record. The refusal precedes every write.
 func TestCommitRefusesOneSideOfAnExchangePair(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	sopsFixtures(t, st.ghs)
 	aliceC := st.mcpClient(t, aliceToken)
 	putOnRecord(t, st, aliceC, rowan, minimalInputs(nil))
+	client := render.TokenExchangeClient(rowan, hub, true)
+	value := render.ExchangeSecretName(client)
+	secret := strings.ReplaceAll(string(render.DexClientSecret(client, value).Content), render.Placeholder(value), enc("pair")) + sopsBlockOf
+	st.ghs.addFile(acmeMCs, render.PlatformSecretsPath(rowan, render.DexClientSecretFile(client)), secret)
 	seedRemote(t, st)
 	inputs := minimalInputs(map[string]any{argInstallation: map[string]any{federationKey: map[string]any{hubsKey: []any{hub}, "registryHub": hub, targetsKey: []any{}}}})
 	hubFile := hubMCs + ":management-clusters/" + hub + "/extras/agent-platform/secrets/" + rowan + "-token-exchange-credentials.yaml"
 
-	dry, text, isErr := dryRun(t, aliceC, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: inputs})
+	dry, text, isErr := dryRun(t, aliceC, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: inputs, tools.ArgRotate: []string{value}})
 	if isErr {
 		t.Fatal(text)
 	}
@@ -133,7 +133,7 @@ func TestCommitRefusesOneSideOfAnExchangePair(t *testing.T) {
 		t.Fatalf("commitRefused %q", p.CommitRefused)
 	}
 	calls := len(st.calls())
-	if _, text, isErr := commitCall(t, aliceC, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: inputs}); !isErr || !strings.Contains(text, hubFile) || !strings.Contains(text, "nothing is committed") {
+	if _, text, isErr := commitCall(t, aliceC, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: inputs, tools.ArgRotate: []string{value}}); !isErr || !strings.Contains(text, hubFile) || !strings.Contains(text, "nothing is committed") {
 		t.Fatalf("commit: %v %s", isErr, text)
 	}
 	if got := st.calls(); len(got) != calls || len(st.remote.PullRequests()) != 0 {

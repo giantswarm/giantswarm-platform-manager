@@ -1017,6 +1017,9 @@ func describe(field string) string { return render.Describe("agent-platform", fi
 // checkRecord refuses a record the definition cannot render as it stands:
 // one sentence naming the fact, what is wrong with it and what supplies it.
 func (in *Input) checkRecord() error {
+	if !readableHold(in.Versions.Chart) {
+		return refuse(fmt.Sprintf("%s is %q, which is neither a version nor a semver range; Flux cannot resolve the meta chart from it", describe("versions.chart"), in.Versions.Chart))
+	}
 	fed := in.Installation.Federation
 	if len(fed.Targets) > 0 && fed.BrokerClientID == "" {
 		return refuse(describe("installation.federation.brokerClientId") + " is not on record; a hub's broker client is registered once and read back from its patch")
@@ -1309,14 +1312,34 @@ func namesPlatformSkills(url string) bool {
 	return strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(url, "/"), ".git"), "/") == platformSkillsRepository
 }
 
+// agentManagerViaSkillManagerChart is the first meta chart whose default
+// components.agent-manager.versionRange starts at agentManagerViaSkillManager
+// (giantswarm/agent-platform#1371), its first release candidate with it; its
+// release is 4.180.0. The default ranges of the releases: 4.179.0
+// ">=2.22.0 <3.0.0", 4.180.0 ">=2.24.0 <3.0.0", 4.181.0 ">=3.0.0 <4.0.0".
+const agentManagerViaSkillManagerChart = "4.180.0-rc.2"
+
+// agentManagerViaSkillManagerRelease is the release of
+// agentManagerViaSkillManagerChart, the one a refusal names.
+const agentManagerViaSkillManagerRelease = "4.180.0"
+
 // takesSkillsFromSkillManager says whether the agent-manager takes its skills
 // from the skill-manager, as the meta chart decides it
 // (agent-platform.agentManager.viaSkillManager): on a chart with the
 // skill-manager, the floor of components.agent-manager.versionRange at
-// agentManagerViaSkillManager or later. Only a hold sets that range here;
-// without one the chart's default (>=2.22.0) stands, below the floor.
+// agentManagerViaSkillManager or later. A versions.components.agent-manager
+// hold sets that range; without one the chart's default stands, which starts
+// there from agentManagerViaSkillManagerChart on, so a meta chart the
+// installation may resolve at or above it takes the skills from the
+// skill-manager.
 func (in *Input) takesSkillsFromSkillManager() bool {
-	return in.reachesSkillManagerChart() && componentFloorAtLeast(in.Versions.Components[componentAgentManager], agentManagerViaSkillManager)
+	if !in.reachesSkillManagerChart() {
+		return false
+	}
+	if hold := in.Versions.Components[componentAgentManager]; hold != "" {
+		return componentFloorAtLeast(hold, agentManagerViaSkillManager)
+	}
+	return holdAdmits(in.Versions.Chart, agentManagerViaSkillManagerChart)
 }
 
 // checkSkillSourceConflicts refuses a skill source naming the platform's own
@@ -1336,9 +1359,6 @@ func (in *Input) checkSkillSourceConflicts() error {
 			return refuse(fmt.Sprintf("%s entry %d (%s) names the platform's own skill repository, which the meta chart already lists read-only at its release; remove the entry", describe("skillManager.sources"), i, s.URL))
 		}
 	}
-	if len(in.AgentManagerSkills.Repositories) > 0 && in.takesSkillsFromSkillManager() {
-		return refuse(fmt.Sprintf("%s is set, and %s holds the agent-manager at %s or later, which takes its skills from the skill-manager, so the meta chart fails on the list; move it into skillManager.sources, or hold the agent-manager below %s", describe("agentManager.skills.repositories"), describe("versions.components.agent-manager"), agentManagerViaSkillManager, agentManagerViaSkillManager))
-	}
 	if in.reachesSkillManagerChart() {
 		for i, url := range in.AgentManagerSkills.Repositories {
 			if namesPlatformSkills(url) {
@@ -1346,8 +1366,14 @@ func (in *Input) checkSkillSourceConflicts() error {
 			}
 		}
 	}
+	if len(in.AgentManagerSkills.Repositories) > 0 && in.takesSkillsFromSkillManager() {
+		if in.Versions.Components[componentAgentManager] != "" {
+			return refuse(fmt.Sprintf("%s is set, and %s holds the agent-manager at %s or later, which takes its skills from the skill-manager, so the meta chart fails on the list; move it into skillManager.sources, or hold the agent-manager below %s", describe("agentManager.skills.repositories"), describe("versions.components.agent-manager"), agentManagerViaSkillManager, agentManagerViaSkillManager))
+		}
+		return refuse(fmt.Sprintf("%s is set, and the meta chart this installation gets is %s or later (from its candidate %s), whose default agent-manager range starts at %s, which takes its skills from the skill-manager, so the meta chart fails on the list; move the list to the skill-manager's sources, skillManager.sources, and empty %s in the same reconcile, or hold versions.chart below %s", describe("agentManager.skills.repositories"), agentManagerViaSkillManagerRelease, agentManagerViaSkillManagerChart, agentManagerViaSkillManager, describe("agentManager.skills.repositories"), agentManagerViaSkillManagerChart))
+	}
 	if len(in.SkillManagerSources) > 0 && len(in.AgentManagerSkills.Repositories) > 0 {
-		return refuse(fmt.Sprintf("%s and %s are both set. The meta chart takes both, but an agent-manager below %s (the meta chart's default range among them) then reads its own list and the skill-manager the sources, two lists that can differ; this definition keeps one list: move the agent-manager's list into skillManager.sources and empty it in the same reconcile", describe("skillManager.sources"), describe("agentManager.skills.repositories"), agentManagerViaSkillManager))
+		return refuse(fmt.Sprintf("%s and %s are both set. The meta chart takes both, but an agent-manager below %s (a hold, or the meta chart's default range before %s) then reads its own list and the skill-manager the sources, two lists that can differ; this definition keeps one list: move the agent-manager's list into skillManager.sources and empty it in the same reconcile", describe("skillManager.sources"), describe("agentManager.skills.repositories"), agentManagerViaSkillManager, agentManagerViaSkillManagerRelease))
 	}
 	return nil
 }
@@ -1396,12 +1422,25 @@ func (in *Input) declaresModels() bool {
 	return !holdAdmits(in.Versions.Chart, modelFreeChart)
 }
 
+// readableHold says whether hold is empty, a version, or a semver range.
+func readableHold(hold string) bool {
+	if hold == "" {
+		return true
+	}
+	if _, err := semverlib.StrictNewVersion(strings.TrimPrefix(hold, "v")); err == nil {
+		return true
+	}
+	_, err := semverlib.NewConstraint(hold)
+	return err == nil
+}
+
 // holdAdmits says whether a version hold lets Flux resolve a release at or
-// above floor: no hold, an exact version at or above it, a constraint that
-// admits a version at or above it, or one the definition cannot read, which
-// Flux reports itself. A constraint is checked at the floor, its release, a
-// far later release, and each version it names and the patch after that one
-// at or above the floor, so a range bounded above the floor admits too.
+// above floor: no hold, an exact version at or above it, or a constraint that
+// admits a version at or above it on the floor's major line. Releases exist
+// only on that line, so a constraint is checked at the floor, its release,
+// the line's far end, and each version on the line it names and the patch
+// after that one, so a range bounded above the floor admits too. A hold that
+// is neither a version nor a constraint admits nothing.
 func holdAdmits(hold, floor string) bool {
 	if hold == "" {
 		return true
@@ -1412,10 +1451,11 @@ func holdAdmits(hold, floor string) bool {
 	}
 	c, err := semverlib.NewConstraint(hold)
 	if err != nil {
-		return true
+		return false
 	}
 	release, _ := min.SetPrerelease("")
-	candidates := []*semverlib.Version{min, &release, semverlib.MustParse("999999.0.0")}
+	lineEnd := semverlib.New(min.Major(), 999999, 0, "", "")
+	candidates := []*semverlib.Version{min, &release, lineEnd}
 	for _, named := range constraintVersion.FindAllString(hold, -1) {
 		v, err := semverlib.NewVersion(named)
 		if err != nil {
@@ -1425,7 +1465,7 @@ func holdAdmits(hold, floor string) bool {
 		candidates = append(candidates, v, &next)
 	}
 	for _, v := range candidates {
-		if !v.LessThan(min) && c.Check(v) {
+		if v.Major() == min.Major() && !v.LessThan(min) && c.Check(v) {
 			return true
 		}
 	}

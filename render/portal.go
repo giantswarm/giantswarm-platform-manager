@@ -100,10 +100,25 @@ func DexClientSecretFile(component string) string {
 	return DexClientSecretName(component) + "-secret.yaml"
 }
 
+// DexClientSecretKind and DexClientSecretLength are the shape of every Dex
+// client secret: [A-Za-z0-9] reads the same whether or not a client
+// form-encodes it for client_secret_basic, which Dex decodes (RFC 6749
+// §2.3.1); 43 characters carry about 256 bits.
+const (
+	DexClientSecretKind   = Alphanumeric
+	DexClientSecretLength = 43
+)
+
+// DexClientSecretKey is the key of a Secret that carries the Dex client
+// secret valueName, on the Dex side or the workload's.
+func DexClientSecretKey(key, valueName string) SecretKey {
+	return GeneratedKey(key, valueName, DexClientSecretKind, DexClientSecretLength)
+}
+
 // DexClientSecret renders the Dex-side Secret of a client whose secret is the
 // generated value valueName, shared with the workload's own Secret.
 func DexClientSecret(component, valueName string) File {
-	return Secret(DexClientSecretName(component), DexNamespace, nil, GeneratedKey(DexSecretKey, valueName, Base64, 32))
+	return Secret(DexClientSecretName(component), DexNamespace, nil, DexClientSecretKey(DexSecretKey, valueName))
 }
 
 // DexClientSecretRef is a client's secret reference in the dex-app configmap
