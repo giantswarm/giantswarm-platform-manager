@@ -11,11 +11,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// listedDexApp and latestDexApp are dex-app releases the tag lists carry; latestDexApp is the highest stable one.
+// listedDexApp, latestDexApp and rcDexApp are dex-app releases the tag lists carry; latestDexApp is the highest stable one.
 const (
 	oldestDexApp = "3.4.9"
 	listedDexApp = "3.4.24"
 	latestDexApp = "3.4.25"
+	rcDexApp     = "3.5.0-rc.1"
 )
 
 // ociDexApp is the base's dex-app as a Flux OCIRepository with ref and the
@@ -49,7 +50,7 @@ func TestDexAppVersionFromAnOCIRepository(t *testing.T) {
 	inst := Installation{Name: fixtureInstallation, Repositories: Repositories{ManagementClusters: fixtureMCs}}
 	kustomization := fixtureMCs + ":" + CollectionsKustomizationPath(fixtureInstallation)
 	baseAtMain := fixtureBases + "@main:" + DexAppBasePath
-	tags := []string{oldestDexApp, listedDexApp, "3.4.25-r5aa25357t20261116141604h1932a47", latestDexApp, "3.5.0-rc.1", "not-a-version", "2.2.3"}
+	tags := []string{oldestDexApp, listedDexApp, "3.4.25-r5aa25357t20261116141604h1932a47", latestDexApp, rcDexApp, "not-a-version", "2.2.3"}
 	semverPin := "resources:\n  - https://github.com/" + fixtureBases + "//bases/collections/shared/base?ref=main\npatches:\n  - target:\n      kind: OCIRepository\n      name: dex-app\n    patch: |\n      - op: replace\n        path: /spec/ref/semver\n        value: \">=3.4.0 <3.4.25\"\n"
 	cases := []struct {
 		name   string
@@ -66,7 +67,7 @@ func TestDexAppVersionFromAnOCIRepository(t *testing.T) {
 		{"a bounded range", map[string]string{kustomization: collectionsFixture("main", ""), baseAtMain: ociDexApp("semver: '>=3.4.0 <3.5.0'")},
 			DexAppVersion{Version: latestDexApp, Range: ">=3.4.0 <3.5.0", Repository: fixtureBases, Path: DexAppBasePath}, []string{dexAppChart}},
 		{"a range that asks for prereleases", map[string]string{kustomization: collectionsFixture("main", ""), baseAtMain: ociDexApp("semver: '>=3.5.0-0'")},
-			DexAppVersion{Version: "3.5.0-rc.1", Range: ">=3.5.0-0", Repository: fixtureBases, Path: DexAppBasePath}, []string{dexAppChart}},
+			DexAppVersion{Version: rcDexApp, Range: ">=3.5.0-0", Repository: fixtureBases, Path: DexAppBasePath}, []string{dexAppChart}},
 		{"an installation's range pin on the OCIRepository", map[string]string{kustomization: semverPin, baseAtMain: ociDexApp("semver: x.x.x")},
 			DexAppVersion{Version: listedDexApp, Range: ">=3.4.0 <3.4.25", Repository: fixtureMCs, Path: CollectionsKustomizationPath(fixtureInstallation)}, []string{dexAppChart}},
 	}
