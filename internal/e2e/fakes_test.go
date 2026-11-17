@@ -457,6 +457,19 @@ func (g *fakeGitHub) rewriteBefore(repo, sha, path, content string) {
 	}
 }
 
+// rewriteAt has path of owner/repo carry content in commit sha: the history
+// as if the commit had written the file so.
+func (g *fakeGitHub) rewriteAt(repo, sha, path, content string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for i := range g.history[repo] {
+		if g.history[repo][i].sha == sha {
+			g.history[repo][i].tree = maps.Clone(g.history[repo][i].tree)
+			g.history[repo][i].tree[path] = content
+		}
+	}
+}
+
 // fileAt is path of owner/repo in commit sha.
 func (g *fakeGitHub) fileAt(repo, sha, path string) string {
 	g.mu.Lock()

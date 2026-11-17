@@ -569,11 +569,12 @@ func TestWatchActionFailsNamingTheProbe(t *testing.T) {
 }
 
 // withoutMaxTokens takes M34's leaf out of rowan the way an action committed
-// on the definition before M34 left it: the values file on record and the
-// live values — the meta chart's ConfigMap and kagent's HelmRelease — lack
+// on the definition before M34 left it: the live values — the meta chart's
+// ConfigMap and kagent's HelmRelease — lack
 // kagent.providers.anthropic.config.maxTokens, which the definition of this
-// version renders.
-func withoutMaxTokens(t *testing.T, st *stack, a actions.Action) {
+// version renders, and so do the values file on record and the one the
+// merge wrote where record is true.
+func withoutMaxTokens(t *testing.T, st *stack, a actions.Action, record bool) {
 	t.Helper()
 	const line = "        maxTokens: 32000\n"
 	path := "installations/" + rowan + "/apps/" + a.Spec.Capability + "/" + valuesFileKey + ".patch"
@@ -587,7 +588,10 @@ func withoutMaxTokens(t *testing.T, st *stack, a actions.Action) {
 		if without == content {
 			t.Fatalf("the record %s:%s carries no %q", pr.Repository, path, line)
 		}
-		st.ghs.addFiles(pr.Repository, map[string]string{path: without})
+		if record {
+			st.ghs.addFiles(pr.Repository, map[string]string{path: without})
+			st.ghs.rewriteAt(pr.Repository, cmp.Or(pr.MergeCommit, pr.HeadSHA), path, without)
+		}
 		st.inst.edit("ConfigMap", fluxNamespace, konfiguration, func(obj map[string]any) {
 			obj["data"].(map[string]any)[valuesFileKey] = without
 		})
@@ -614,7 +618,7 @@ func TestWatchActionReadsALaterMigrationAsPlanned(t *testing.T) {
 	st := newStack(t)
 	a, aliceC := rolledOut(t, st)
 	admin := adminLive(t, st)
-	withoutMaxTokens(t, st, a)
+	withoutMaxTokens(t, st, a, true)
 
 	w, text, isErr := watchCall(t, admin, a.Name)
 	if isErr || !w.Ready || w.State != actions.StateEnabled || len(w.Red) != 0 || len(w.Planned) != 2 ||
@@ -660,6 +664,26 @@ func TestWatchActionReadsALaterMigrationAsPlanned(t *testing.T) {
 	li, _, _ := listInstallations(t, aliceC, map[string]any{tools.ArgInstallations: []any{rowan}})
 	if r := find(t, li, rowan); r.Capabilities[0].State != installations.StateEnabled {
 		t.Fatalf("list_installations: %+v", r.Capabilities[0])
+	}
+}
+
+// A leaf a newer definition plans to change reads planned in the drift
+// check whether the action wrote it or not; the merge wrote it here, so
+// values that lack it are not the merged ones (giantswarm-platform-manager
+// #936, item 1): the stage waits for them, never enabled on the planned
+// mark alone.
+func TestWatchActionWaitsForAPlannedLeafTheMergeWrote(t *testing.T) {
+	st := newStack(t)
+	a, _ := rolledOut(t, st)
+	admin := adminLive(t, st)
+	withoutMaxTokens(t, st, a, false)
+
+	w, text, isErr := watchCall(t, admin, a.Name)
+	if isErr || !w.Ready || w.State != actions.StateRollingOut || w.Action.Status.State != actions.StateRollingOut || w.Verify.Summary[verify.Planned] == 0 {
+		t.Fatalf("the merged leaf missing live: %v %s", isErr, text)
+	}
+	if msg := stageOf(w.Action, rowan).Message; !strings.Contains(msg, "and the values it reads are not the merged ones yet") {
+		t.Fatalf("the stage's message: %q", msg)
 	}
 }
 
@@ -1118,7 +1142,7 @@ func TestWatchActionCountsACommitGitHubDoesNotKnow(t *testing.T) {
 	pr, merge := configsMerge(t, &a, rowan)
 	unknown := strings.Repeat("ab", 20)
 	st.inst.applyConfigs(fluxNamespace, konfiguration, unknown)
-	waits := fmt.Sprintf("Konfiguration %s/%s applied %s, a commit GitHub does not know on %s, not %s#%d's merge %s", fluxNamespace, konfiguration, unknown[:12], pr.Repository, pr.Repository, pr.Number, merge[:12])
+	waits := fmt.Sprintf("Konfiguration %s/%s applied %s, a commit GitHub cannot compare on %s with %s#%d's merge %s", fluxNamespace, konfiguration, unknown[:12], pr.Repository, pr.Repository, pr.Number, merge[:12])
 
 	w, text, isErr := watchCall(t, admin, a.Name)
 	if isErr || w.State != actions.StateRollingOut || !strings.Contains(stageOf(w.Action, rowan).Message, waits) {
