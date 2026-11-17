@@ -20,9 +20,11 @@ docker-build: build-linux-amd64 ## Build a local dev image (TAG=giantswarm-platf
 # dump naming it before CI kills the step silently. internal/e2e runs for
 # minutes and only with E2E=1, so test-e2e runs it on its own, verbose and with
 # a timeout of its own; its command-line -timeout wins over GOFLAGS. It takes
-# about 4 minutes on an idle machine and 10 to 11 on a loaded one (a CI
-# executor, a laptop at load 15): 30m keeps a loaded run inside it, and -v
-# keeps CI's no-output limit from ending it.
+# about 4 minutes on a laptop (226s for 177 tests, November 2026), where it
+# took 13 when each render compiled its schema again; a CI executor runs it
+# about 2.3 times slower than that laptop (1775s against 793s for the same
+# tests). 30m keeps a loaded run inside it with a margin, and -v keeps CI's
+# no-output limit from ending it.
 UNIT_TEST_TIMEOUT ?= 5m
 E2E_TEST_TIMEOUT ?= 30m
 
