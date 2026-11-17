@@ -468,16 +468,15 @@
     "agentManager": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Two choices: the agent-manager's commit mode and its skill catalog.",
+      "description": "The agent-manager's credential forms, commit mode and skill catalog.",
       "properties": {
         "credentials": {
           "type": "object", "additionalProperties": false,
           "properties": {"uiURL": {
             "type": "string", "default": "", "x-source": "person",
             "x-readback": {"file": "configmap", "key": "agent-manager.credentials.uiURL"},
-            "x-requires": "organizations.enabled",
             "x-feature": "runtime", "x-renders": ["configmap:agent-manager.credentials.uiURL", "configmap:agentManager.route", "configmap:gateway.jwksEgress"],
-            "description": "Client-owned HTTPS RFC 6570 URI template for the credential UI with one {operation} expression in its path or query, using only {operation}, {parent} and {organization}; meta chart 4.177.0 or later with agentPlatformOrganizations.enabled. Never derived. Set, it also exposes agent-manager's REST API at https://agentgateway.<baseDomain>/agent-manager (agentManager.route) behind a Strict JWT policy with this installation's Dex as the issuer, the path the form's backend reaches agent-manager on as the person. Written only with organizations.enabled, which the meta chart requires for it, so turning the switch off takes the form and the route along; typed other than empty with the switch off, it is refused. Read back from the configmap patch on record."
+            "description": "Client-owned HTTPS RFC 6570 URI template for the credential UI of organization and installation models, with one {operation} expression in its path or query, using only {operation}, {namespace}, {parent} and {organization}, and no user information or fragment; one {namespace} expression and no {parent} or {organization} are required without organizations.enabled; a {namespace} expression requires the meta chart 4.182.0-rc.1 and agent-manager 3.1.0-rc.11 or later. Never derived. Set, it exposes agent-manager's REST API at https://agentgateway.<baseDomain>/agent-manager (agentManager.route) behind a Strict JWT policy with this installation's Dex as the issuer, the path the form's backend reaches agent-manager on as the person. Read back from the configmap patch on record."
           }}
         },
         "skills": {
@@ -492,7 +491,7 @@
               "x-readback": {"file": "configmap", "key": "agent-manager.skills.repositories"},
               "x-feature": "runtime",
               "x-renders": ["configmap:agent-manager.skills.repositories"],
-              "description": "The GitHub repositories agent-manager's list_skills discovers skills in (agent-manager.skills.repositories), the catalog meta agents create agents from. None, the key is not written and the chart's default (giantswarm/agent-skills) stands. Refused beside skillManager.sources (the meta chart takes both, but this definition keeps one list: move it into skillManager.sources and empty it in the same reconcile), where a versions.components.agent-manager hold puts the agent-manager at 2.24.0 or later (it then takes its skills from the skill-manager, and the meta chart fails on the list), and, from the release with the skill-manager on, an entry naming the platform's own repository. Read back from the configmap patch on record."
+              "description": "The GitHub repositories agent-manager's list_skills discovers skills in (agent-manager.skills.repositories), the catalog meta agents create agents from. None, the key is not written and the chart's default (giantswarm/agent-skills) stands. Refused beside skillManager.sources (the meta chart takes both, but this definition keeps one list: move it into skillManager.sources and empty it in the same reconcile), where the agent-manager's version range starts at 2.24.0 or later (it then takes its skills from the skill-manager, and the meta chart fails on the list): a versions.components.agent-manager hold at 2.24.0 or later, or, with no such hold, a meta chart the installation gets at 4.180.0 or later, whose default range starts there; the refusal names the release and says to move the list to skillManager.sources, and a versions.chart hold below 4.180.0 or an agent-manager hold below 2.24.0 keeps the list (the meta chart's default agent-manager range of each release: 4.179.0 >=2.22.0 <3.0.0, 4.180.0 >=2.24.0 <3.0.0, 4.181.0 >=3.0.0 <4.0.0), and, from the release with the skill-manager on, an entry naming the platform's own repository. Read back from the configmap patch on record."
             },
             "github": {
               "type": "object",
@@ -654,7 +653,7 @@
           "x-readback": {"file": "configmap", "key": "defaultAgent.modelConfig"},
           "x-feature": "runtime",
           "x-renders": ["configmap:defaultAgent.modelConfig"],
-          "description": "The ModelConfig in kagent the default agent answers with (defaultAgent.modelConfig). Empty, the key is not written and the agent gets a model by itself only where the agent-manager's version range (components.agent-manager.versionRange: a versions.components.agent-manager hold, else the meta chart's default, >=2.22.0 on 4.179.0) starts at 2.24.0 or later: the meta chart then has agent-manager set the installation's default model once, while the agent has none, and never re-point it. Anywhere else, set it, or the agent has no model and kagent reports it not ready (Compatible=False, kagent ModelConfig is required). Set it to pin or change the model. The 4 chart line only, where the fleet policy runs kagent and the agent-manager, with no versions.chart hold below the release with the default agent (4.179.0). Read back from the configmap patch on record."
+          "description": "The ModelConfig in kagent the default agent answers with (defaultAgent.modelConfig). Empty, the key is not written and the agent gets a model by itself only where the agent-manager's version range (components.agent-manager.versionRange: a versions.components.agent-manager hold, else the meta chart's default: 4.179.0 >=2.22.0 <3.0.0, 4.180.0 >=2.24.0 <3.0.0, 4.181.0 >=3.0.0 <4.0.0) starts at 2.24.0 or later: the meta chart then has agent-manager set the installation's default model once, while the agent has none, and never re-point it. Anywhere else, set it, or the agent has no model and kagent reports it not ready (Compatible=False, kagent ModelConfig is required). Set it to pin or change the model. The 4 chart line only, where the fleet policy runs kagent and the agent-manager, with no versions.chart hold below the release with the default agent (4.179.0). Read back from the configmap patch on record."
         }
       }
     },
@@ -870,7 +869,7 @@
               "x-readback": {"file": "configmap", "key": "tenants.platform.editors"},
               "x-feature": "tool-access",
               "x-renders": ["configmap:tenants.platform.editors"],
-              "description": "The platform's operators (tenants.platform.editors): RBAC subjects bound to agent-platform:editor in the kagent namespace. Unset, the chart's default: the Giant Swarm admin groups. Empty ([]), the binding renders only for tenants.platformTeam, and not at all without it. Where the fleet policy runs kagent, on the 4 chart line; a hold of the meta chart below 4.132.0-rc.1 is refused."
+              "description": "The platform's operators (tenants.platform.editors): RBAC subjects bound to agent-platform:editor in the kagent namespace. Unset, the chart's default: the Giant Swarm admin groups. Empty ([]), the binding renders only for tenants.platformTeam, and not at all without it. A broad system group (system:authenticated, system:unauthenticated, system:serviceaccounts or system:serviceaccounts:<namespace>) is refused, typed or read back. Where the fleet policy runs kagent, on the 4 chart line; a hold of the meta chart below 4.132.0-rc.1 is refused."
             }
           }
         },
@@ -882,7 +881,7 @@
           "x-readback": {"file": "configmap", "key": "tenants.platformTeam"},
           "x-feature": "tool-access",
           "x-renders": ["configmap:tenants.platformTeam"],
-          "description": "The customer's platform team (tenants.platformTeam): RBAC subjects bound to agent-platform:editor in the kagent namespace beside tenants.platform.editors, and added to muster's mcpserver-editor and workflow-editor subjects. Unset, the chart's default: none. With tenants.platform.editors empty, the agent-platform:editor binding stays for the platform team alone. The 4 chart line only; a hold of the meta chart below 4.132.0-rc.1 is refused."
+          "description": "The customer's platform team (tenants.platformTeam): RBAC subjects bound to agent-platform:editor in the kagent namespace beside tenants.platform.editors, and added to muster's mcpserver-editor and workflow-editor subjects. Unset, the chart's default: none. With tenants.platform.editors empty, the agent-platform:editor binding stays for the platform team alone. A broad system group (system:authenticated, system:unauthenticated, system:serviceaccounts or system:serviceaccounts:<namespace>) is refused, typed or read back. The 4 chart line only; a hold of the meta chart below 4.132.0-rc.1 is refused."
         }
       }
     },

@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -275,27 +276,31 @@ type Result struct {
 	// The plan's view, from the one build the comparison ran: what a commit
 	// would write for this installation (the dry run's entry, regrouped).
 	// CommitRefused says why a commit of this plan would be refused.
-	CommitRefused    string                 `json:"commitRefused,omitempty"`
-	MissingFacts     *plan.MissingFacts     `json:"missingFacts,omitempty"`
-	Files            []plan.File            `json:"files"`
-	Includes         []plan.Include         `json:"includes"`
-	Diff             map[plan.Change]int    `json:"diff"`
-	PullRequests     []plan.PullRequest     `json:"pullRequests"`
-	GeneratedSecrets []plan.GeneratedSecret `json:"generatedSecrets"`
-	SuppliedSecrets  []string               `json:"suppliedSecrets"`
-	SuppliedOnRecord []string               `json:"suppliedOnRecord,omitempty"`
-	HubSections      []string               `json:"hubSections,omitempty"`
-	DropsPrereleases bool                   `json:"dropsPrereleases,omitempty"`
-	Join             *plan.Join             `json:"join,omitempty"`
-	SwitchOff        *plan.SwitchOff        `json:"switchOff,omitempty"`
-	DexClients       []plan.DexClient       `json:"dexClients"`
-	CustomerActions  []plan.CustomerAction  `json:"customerActions"`
-	Probes           []plan.Probe           `json:"probes"`
+	CommitRefused        string                 `json:"commitRefused,omitempty"`
+	MissingFacts         *plan.MissingFacts     `json:"missingFacts,omitempty"`
+	Files                []plan.File            `json:"files"`
+	Includes             []plan.Include         `json:"includes"`
+	Diff                 map[plan.Change]int    `json:"diff"`
+	PullRequests         []plan.PullRequest     `json:"pullRequests"`
+	GeneratedSecrets     []plan.GeneratedSecret `json:"generatedSecrets"`
+	DeferredPairs        []plan.DeferredPair    `json:"deferredPairs,omitempty"`
+	UnresolvedReferences []string               `json:"unresolvedReferences,omitempty"`
+	SuppliedSecrets      []string               `json:"suppliedSecrets"`
+	SuppliedOnRecord     []string               `json:"suppliedOnRecord,omitempty"`
+	HubSections          []string               `json:"hubSections,omitempty"`
+	DropsPrereleases     bool                   `json:"dropsPrereleases,omitempty"`
+	Join                 *plan.Join             `json:"join,omitempty"`
+	SwitchOff            *plan.SwitchOff        `json:"switchOff,omitempty"`
+	DexClients           []plan.DexClient       `json:"dexClients"`
+	CustomerActions      []plan.CustomerAction  `json:"customerActions"`
+	Probes               []plan.Probe           `json:"probes"`
 }
 
 // view takes the plan's view into the result; the files' content, rendered
 // and on record, only when asked for.
 func (r *Result) view(p plan.Installation, content bool) {
+	r.DeferredPairs = p.DeferredPairs
+	r.UnresolvedReferences = p.UnresolvedReferences
 	r.Files, r.Includes, r.Diff = p.Files, p.Includes, p.Diff
 	r.GeneratedSecrets, r.SuppliedSecrets, r.SuppliedOnRecord, r.HubSections = p.GeneratedSecrets, p.SuppliedSecrets, p.SuppliedOnRecord, p.HubSections
 	r.DropsPrereleases, r.Join, r.SwitchOff = p.DropsPrereleases, p.Join, p.SwitchOff
@@ -314,7 +319,7 @@ func (r *Result) view(p plan.Installation, content bool) {
 // write, without the marks.
 func (r Result) Plan() plan.Installation {
 	return plan.Installation{Name: r.Installation, State: r.State, Inputs: r.Inputs.Values, MissingInputs: r.Inputs.Missing, Refused: r.Refused, CommitRefused: r.CommitRefused, MissingFacts: r.MissingFacts,
-		Files: r.Files, Includes: r.Includes, Diff: r.Diff, GeneratedSecrets: r.GeneratedSecrets, SuppliedSecrets: r.SuppliedSecrets, SuppliedOnRecord: r.SuppliedOnRecord,
+		Files: r.Files, Includes: r.Includes, Diff: r.Diff, GeneratedSecrets: r.GeneratedSecrets, DeferredPairs: r.DeferredPairs, UnresolvedReferences: r.UnresolvedReferences, SuppliedSecrets: r.SuppliedSecrets, SuppliedOnRecord: r.SuppliedOnRecord,
 		HubSections: r.HubSections, DropsPrereleases: r.DropsPrereleases, Join: r.Join, SwitchOff: r.SwitchOff, DexClients: r.DexClients, CustomerActions: r.CustomerActions, Probes: r.Probes}
 }
 
@@ -338,7 +343,8 @@ type Options struct {
 	// ForceSwitchOff: the switch-off was asked for with its warning known (plan.Options.ForceSwitchOff).
 	ForceSwitchOff bool
 	// Installations are the registry's installations by name (plan.Options.Installations).
-	Installations map[string]installations.Installation
+	Installations     map[string]installations.Installation
+	PlanInstallations map[string]bool
 }
 
 // Compare answers the verify of opts' installation.
@@ -541,10 +547,15 @@ func compare(ctx context.Context, opts Options, rms, migs plannedKeys) (*compari
 	if err != nil {
 		return nil, p, err
 	}
-	driven := drivenPaths(opts.Inputs.Values, inputs, base, func(values map[string]any) (map[string]map[string]string, error) {
+	driven, resets := drivenPaths(opts.Inputs.Values, opts.Inputs.ReadBack, inputs, base, func(values map[string]any) (map[string]map[string]string, error) {
 		_, other, err := build(ctx, opts, values, rs.recorded)
 		return other, err
 	})
+	own, err := ownKeys(opts.Definition, opts.Installation, resets)
+	if err != nil {
+		return nil, p, err
+	}
+	resetLeaves(driven, resets, own, base, func(key string) string { return rs.got[key].content })
 	c := &comparison{files: map[string]*fileDiff{}, dexClients: p.DexClients}
 	hub := map[string]bool{}
 	for _, f := range rendered(p) {
@@ -629,7 +640,7 @@ func droppedReason(path string) string {
 // with the files the definition renders flattened to their leaves by key.
 // The definition's refusal is the error.
 func build(ctx context.Context, opts Options, values map[string]any, read plan.Reader) (plan.Installation, map[string]map[string]string, error) {
-	p := plan.Build(ctx, plan.Options{Definition: opts.Definition, Installation: opts.Installation, Hub: opts.Hub, Inputs: values, Content: true, Read: read, Rotate: opts.Rotate, ForceJoin: opts.ForceJoin, ForceSwitchOff: opts.ForceSwitchOff, Installations: opts.Installations})
+	p := plan.Build(ctx, plan.Options{Definition: opts.Definition, Installation: opts.Installation, Hub: opts.Hub, Inputs: values, Content: true, Read: read, Rotate: opts.Rotate, ForceJoin: opts.ForceJoin, ForceSwitchOff: opts.ForceSwitchOff, Installations: opts.Installations, PlanInstallations: opts.PlanInstallations})
 	if p.Refused != "" {
 		return p, nil, errors.New(p.Refused)
 	}
@@ -884,20 +895,39 @@ func drivenInputs(def installations.Capability, in Inputs) ([]string, error) {
 // its value changed — and the leaves whose render changes are its. A leaf
 // several inputs drive is attributed to the most specific one — the input
 // whose perturbation changes the fewest leaves. A rendered leaf none of them
-// moves is nobody's: drift when it is off the record.
-func drivenPaths(values map[string]any, inputs []string, base map[string]map[string]string, render flatRender) map[string]string {
+// moves is nobody's: drift when it is off the record. A recorded empty list
+// typed null renders as left out, so leaving it out moves nothing: it is
+// also tried with the empty list read back (readBack, by dotted key), so the
+// reset it renders is its. Only a typed null holds nil over a read-back
+// value, as the read-back is laid over every person input; any other value
+// read back is left alone. The render may refuse the empty list read back for
+// another input's sake (the organizations switched on in the same call, which
+// need a viewer of muster's MCP servers): such an input is among the resets,
+// by dotted key, whose own key resetLeaves attributes against the record.
+func drivenPaths(values, readBack map[string]any, inputs []string, base map[string]map[string]string, render flatRender) (map[string]string, []string) {
 	type best struct {
 		input string
 		n     int
 	}
 	bests := map[string]best{}
+	var resets []string
 	for _, l := range inputLeaves(values, inputs) {
 		alts := perturbations(l.value)
+		backAt := -1
+		if l.value == nil {
+			if back, isList := readBack[strings.Join(l.path, ".")].([]any); isList && len(back) == 0 {
+				backAt = len(alts)
+				alts = append(alts, back)
+			}
+		}
 		for i := 0; i < len(alts); i++ {
 			raw := deepCopy(values)
 			set(raw, l.path, alts[i])
 			other, err := render(raw)
 			if err != nil {
+				if i == backAt {
+					resets = append(resets, strings.Join(l.path, "."))
+				}
 				// Leaving a list of named entries out is refused for
 				// another input's sake (muster's MCP-server viewers, which
 				// tenants.platform.users stand in for while they are
@@ -923,7 +953,50 @@ func drivenPaths(values map[string]any, inputs []string, base map[string]map[str
 	for k, b := range bests {
 		out[k] = b.input
 	}
-	return out
+	return out, resets
+}
+
+// resetLeaves attributes to each of resets — an input typed null over an
+// empty list read back, whose read-back render was refused (drivenPaths) —
+// the one leaf its reset takes out: its own key, among the "file#path"
+// leaves own names for it (the places it is read back from), where the base
+// render lacks it and the record holds it as the empty list. No other leaf
+// is attributed: a wrong "by this input" would hide a real drift. record
+// answers a file's content on record by file key.
+func resetLeaves(driven map[string]string, resets []string, own map[string][]string, base map[string]map[string]string, record func(key string) string) {
+	for _, input := range resets {
+		for _, leaf := range own[input] {
+			key, path, _ := strings.Cut(leaf, "#")
+			flat, ok := base[key]
+			if !ok || driven[leaf] != "" {
+				continue
+			}
+			if _, rendered := flat[path]; rendered {
+				continue
+			}
+			if flattenYAML(record(key))[path] == "[]" {
+				driven[leaf] = input
+			}
+		}
+	}
+}
+
+// ownKeys are the "file#path" leaves each of inputs is read back from on
+// record of the installation (installations.Capability.ReadBackPlaces).
+func ownKeys(def installations.Capability, inst installations.Installation, inputs []string) (map[string][]string, error) {
+	out := map[string][]string{}
+	for _, input := range inputs {
+		places, err := def.ReadBackPlaces(input, inst)
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range places {
+			for _, k := range p.Keys {
+				out[input] = append(out[input], fileKey(p.Repository, p.Path)+"#"+k)
+			}
+		}
+	}
+	return out, nil
 }
 
 type leaf struct {
@@ -998,7 +1071,9 @@ func perturbations(v any) []any {
 // renamedEntries is a copy of list with the name of every entry that has one
 // changed, which moves every leaf of an entry keyed by its name (identity: an
 // entry with an id is keyed by the id, and its leaves stay); false when no
-// entry has a name.
+// entry has a name. Each new name carries the entry's index, so entries that
+// shared a name, keyed by index (keys), get keys of their own and every leaf
+// moves.
 func renamedEntries(list []any) ([]any, bool) {
 	out := make([]any, len(list))
 	renamed := false
@@ -1013,7 +1088,7 @@ func renamedEntries(list []any) ([]any, bool) {
 			continue
 		}
 		entry := maps.Clone(m)
-		entry["name"] = name + "-x"
+		entry["name"] = name + "-x" + strconv.Itoa(i)
 		out[i], renamed = entry, true
 	}
 	return out, renamed

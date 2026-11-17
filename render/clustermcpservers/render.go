@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -230,6 +231,10 @@ func Render(raw any, secrets map[string]string, _ render.Mode) (*render.Result, 
 	if err := in.check(secrets); err != nil {
 		return nil, err
 	}
+	return in.render()
+}
+
+func (in *Input) render() (*render.Result, error) {
 	name := in.Installation.Name
 	configs := render.Repository("giantswarm/" + in.Installation.Customer + "-configs")
 	clusters := render.Repository("giantswarm/" + in.Installation.Customer + "-management-clusters")
@@ -267,6 +272,14 @@ func Render(raw any, secrets map[string]string, _ render.Mode) (*render.Result, 
 	dex := render.Map{{Key: "oidc", Value: oidc}}
 	r.Add(configs, "installations/"+name+"/apps/dex-app/configmap-values.yaml.patch", render.File{Content: append([]byte(fileHeader), render.MustYAML(dex)...)})
 	r.Probes = in.probes()
+	r.WithoutPairs = func(names []string) (*render.Result, error) {
+		filtered := *in
+		federation := &filtered.Installation.Federation
+		federation.Hubs = slices.DeleteFunc(slices.Clone(federation.Hubs), func(hub string) bool {
+			return slices.Contains(names, render.ExchangeSecretName(in.exchange().Client(hub)))
+		})
+		return filtered.render()
+	}
 	return r, nil
 }
 
