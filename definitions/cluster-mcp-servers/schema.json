@@ -182,12 +182,12 @@
             "privateURLs": {
               "type": "boolean",
               "default": false,
-              "description": "Dex is reached on private addresses: mcp-kubernetes's OAuth issuer URL may resolve to a private IP, and so may its SSO forwarded-token JWKS fetch, in the server's user values.",
+              "description": "Dex is reached on private addresses: mcp-kubernetes's SSO forwarded-token JWKS fetch may resolve to a private IP, in the server's user values. Its Dex client reaches private addresses without a setting.",
               "x-source": "person",
               "x-feature": "servers",
               "x-readback": {
                 "file": "mcp-kubernetes:user-values",
-                "key": "mcpKubernetes.oauth.allowPrivateURLs"
+                "key": ["mcpKubernetes.oauth.sso.allowPrivateIPs", "mcpKubernetes.oauth.allowPrivateURLs"]
               },
               "x-renders": [
                 "extras:mcp-kubernetes/user-values.yaml",
@@ -245,12 +245,12 @@
             "privateURLs": {
               "type": "boolean",
               "default": false,
-              "description": "Dex is reached on private addresses: mcp-prometheus's OAuth issuer URL may resolve to a private IP, in the server's user values.",
+              "description": "Dex is reached on private addresses: mcp-prometheus's forwarded-token JWKS fetch may resolve to a private IP (app.oauth.allowPrivateIPJWKS), in the server's user values. Its Dex client reaches private addresses without a setting.",
               "x-source": "person",
               "x-feature": "servers",
               "x-readback": {
                 "file": "mcp-prometheus:user-values",
-                "key": "app.oauth.allowPrivateURLs"
+                "key": ["app.oauth.allowPrivateIPJWKS", "app.oauth.allowPrivateURLs"]
               },
               "x-renders": [
                 "extras:mcp-prometheus/user-values.yaml",
@@ -294,12 +294,12 @@
             "privateURLs": {
               "type": "boolean",
               "default": false,
-              "description": "Dex is reached on private addresses: mcp-capi's OAuth issuer URL may resolve to a private IP, in the server's user values.",
+              "description": "Dex is reached on private addresses: mcp-capi's forwarded-token JWKS fetch may resolve to a private IP (oauth.allowPrivateIPJWKS), in the server's user values. Its Dex client reaches private addresses without a setting.",
               "x-source": "person",
               "x-feature": "servers",
               "x-readback": {
                 "file": "mcp-capi:user-values",
-                "key": "oauth.allowPrivateURLs"
+                "key": ["oauth.allowPrivateIPJWKS", "oauth.allowPrivateURLs"]
               },
               "x-renders": [
                 "extras:mcp-capi/user-values.yaml",

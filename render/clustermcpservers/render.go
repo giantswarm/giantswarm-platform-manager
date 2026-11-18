@@ -24,7 +24,6 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
-	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 	"github.com/giantswarm/giantswarm-platform-manager/render/mcpservers"
 )
@@ -133,19 +132,7 @@ func (s Servers) of(server mcpservers.Server) Server {
 
 // Parse reads the decoded input document against the schema.
 func Parse(raw any) (*Input, error) {
-	schemaBytes, err := definitions.FS.ReadFile(Capability + "/schema.json")
-	if err != nil {
-		return nil, err
-	}
-	schemaDoc, err := jsonschema.UnmarshalJSON(bytes.NewReader(schemaBytes))
-	if err != nil {
-		return nil, fmt.Errorf("%s: schema: %w", Capability, err)
-	}
-	compiler := jsonschema.NewCompiler()
-	if err := compiler.AddResource("schema.json", schemaDoc); err != nil {
-		return nil, fmt.Errorf("%s: schema: %w", Capability, err)
-	}
-	schema, err := compiler.Compile("schema.json")
+	schema, err := render.DefinitionSchema(Capability + "/schema.json")
 	if err != nil {
 		return nil, fmt.Errorf("%s: schema: %w", Capability, err)
 	}

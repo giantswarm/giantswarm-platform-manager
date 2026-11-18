@@ -876,19 +876,7 @@ type managerGitHubChoice struct {
 // location, the Hive where the installation cannot serve it, the MCP backends' network policy or the LLM listener's rate limits on the 3 line, the rate limits or the session idle TTL where no kagent runs, the session idle TTL on the 3 line, the default agent turned off or its model override on the 3 line, where kagent and the agent-manager do not both run or with a chart hold below the release that ships it, the skill-manager's sources or GitHub App on the 3 line, where no agent-manager runs or with a chart hold below the release with the skill-manager, a source naming the platform's own skill repository, the agent-manager's skill repositories where it may take its skills from the skill-manager or beside the skill-manager's sources, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
 // is ErrInput too.
 func Parse(raw any) (*Input, error) {
-	schemaBytes, err := definitions.FS.ReadFile("agent-platform/schema.json")
-	if err != nil {
-		return nil, err
-	}
-	schemaDoc, err := jsonschema.UnmarshalJSON(bytes.NewReader(schemaBytes))
-	if err != nil {
-		return nil, fmt.Errorf("agent-platform: schema: %w", err)
-	}
-	compiler := jsonschema.NewCompiler()
-	if err := compiler.AddResource("schema.json", schemaDoc); err != nil {
-		return nil, fmt.Errorf("agent-platform: schema: %w", err)
-	}
-	schema, err := compiler.Compile("schema.json")
+	schema, err := render.DefinitionSchema("agent-platform/schema.json")
 	if err != nil {
 		return nil, fmt.Errorf("agent-platform: schema: %w", err)
 	}
@@ -1015,6 +1003,9 @@ func describe(field string) string { return render.Describe("agent-platform", fi
 // checkRecord refuses a record the definition cannot render as it stands:
 // one sentence naming the fact, what is wrong with it and what supplies it.
 func (in *Input) checkRecord() error {
+	if !readableHold(in.Versions.Chart) {
+		return refuse(fmt.Sprintf("%s is %q, which is neither a version nor a semver range; Flux cannot resolve the meta chart from it", describe("versions.chart"), in.Versions.Chart))
+	}
 	fed := in.Installation.Federation
 	if len(fed.Targets) > 0 && fed.BrokerClientID == "" {
 		return refuse(describe("installation.federation.brokerClientId") + " is not on record; a hub's broker client is registered once and read back from its patch")
@@ -1417,12 +1408,25 @@ func (in *Input) declaresModels() bool {
 	return !holdAdmits(in.Versions.Chart, modelFreeChart)
 }
 
+// readableHold says whether hold is empty, a version, or a semver range.
+func readableHold(hold string) bool {
+	if hold == "" {
+		return true
+	}
+	if _, err := semverlib.StrictNewVersion(strings.TrimPrefix(hold, "v")); err == nil {
+		return true
+	}
+	_, err := semverlib.NewConstraint(hold)
+	return err == nil
+}
+
 // holdAdmits says whether a version hold lets Flux resolve a release at or
-// above floor: no hold, an exact version at or above it, a constraint that
-// admits a version at or above it, or one the definition cannot read, which
-// Flux reports itself. A constraint is checked at the floor, its release, a
-// far later release, and each version it names and the patch after that one
-// at or above the floor, so a range bounded above the floor admits too.
+// above floor: no hold, an exact version at or above it, or a constraint that
+// admits a version at or above it on the floor's major line. Releases exist
+// only on that line, so a constraint is checked at the floor, its release,
+// the line's far end, and each version on the line it names and the patch
+// after that one, so a range bounded above the floor admits too. A hold that
+// is neither a version nor a constraint admits nothing.
 func holdAdmits(hold, floor string) bool {
 	if hold == "" {
 		return true
@@ -1433,10 +1437,11 @@ func holdAdmits(hold, floor string) bool {
 	}
 	c, err := semverlib.NewConstraint(hold)
 	if err != nil {
-		return true
+		return false
 	}
 	release, _ := min.SetPrerelease("")
-	candidates := []*semverlib.Version{min, &release, semverlib.MustParse("999999.0.0")}
+	lineEnd := semverlib.New(min.Major(), 999999, 0, "", "")
+	candidates := []*semverlib.Version{min, &release, lineEnd}
 	for _, named := range constraintVersion.FindAllString(hold, -1) {
 		v, err := semverlib.NewVersion(named)
 		if err != nil {
@@ -1446,7 +1451,7 @@ func holdAdmits(hold, floor string) bool {
 		candidates = append(candidates, v, &next)
 	}
 	for _, v := range candidates {
-		if !v.LessThan(min) && c.Check(v) {
+		if v.Major() == min.Major() && !v.LessThan(min) && c.Check(v) {
 			return true
 		}
 	}

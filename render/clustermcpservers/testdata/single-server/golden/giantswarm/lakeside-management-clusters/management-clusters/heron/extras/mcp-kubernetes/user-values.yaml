@@ -2,6 +2,5 @@
 # the next reconcile writes it again from the installation's inputs.
 mcpKubernetes:
   oauth:
-    allowPrivateURLs: true
     sso:
       allowPrivateIPs: true

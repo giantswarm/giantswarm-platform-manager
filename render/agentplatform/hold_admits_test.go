@@ -27,12 +27,25 @@ func TestHoldAdmits(t *testing.T) {
 		{"~4.178.0", true},
 		{"4.178.x", true},
 		{"~4.174.0", false},
-		{"not a constraint", true},
+		{"^4.170.0", true},
+		{">=4.170.0", true},
+		{">=4.170.0 <4.174.0 || >=5.0.0", false},
+		{">=4.178.0 <4.179.0 || >=5.0.0", true},
+		{">=5.0.0", false},
+		{"not a constraint", false},
 	} {
 		t.Run(c.hold, func(t *testing.T) {
 			require.Equal(t, c.want, holdAdmits(c.hold, floor))
 		})
 	}
+}
+
+func TestUnreadableChartHoldIsRefused(t *testing.T) {
+	input, _ := loadInput(t, shapeGiantswarmSlackAppPub)
+	input[keyVersions] = map[string]any{keyChart: "not-a-version"}
+	_, err := Parse(input)
+	require.ErrorContains(t, err, "versions.chart")
+	require.ErrorContains(t, err, "neither a version nor a semver range")
 }
 
 func TestBoundedHoldAboveTheModelFreeChartDeclaresNoModels(t *testing.T) {
