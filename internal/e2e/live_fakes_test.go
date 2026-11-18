@@ -591,16 +591,18 @@ func (f *fakeInstallation) relabelValues(namespace string, at time.Time) {
 }
 
 // staleValues has the meta chart's values ConfigMap in namespace hold values
-// other than the rendered ones: rowan's hosts under another domain.
+// other than the rendered ones: rowan's domain and hosts under another one —
+// global.domain among them, a leaf no newer definition plans to change, so
+// the drift check reads the values as off the render, not as planned.
 func (f *fakeInstallation) staleValues(t *testing.T, namespace string) {
 	t.Helper()
 	f.edit("ConfigMap", namespace, platformValuesConfigMap, func(obj map[string]any) {
 		data := obj[dataKey].(map[string]any)
 		values := data[platformValuesKey].(string)
-		if !strings.Contains(values, ".rowan.acme.test") {
-			t.Fatalf("the values ConfigMap names no host of rowan")
+		if !strings.Contains(values, "domain: rowan.acme.test\n") {
+			t.Fatalf("the values ConfigMap names not rowan's domain")
 		}
-		data[platformValuesKey] = strings.ReplaceAll(values, ".rowan.acme.test", ".stale.acme.test")
+		data[platformValuesKey] = strings.ReplaceAll(values, "rowan.acme.test", "stale.acme.test")
 	})
 }
 

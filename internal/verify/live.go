@@ -624,6 +624,12 @@ func hasPrefixKey(m map[string]string, prefix string) bool {
 // file that declares the Dex clients.
 const dexPatchSuffix = "/apps/dex-app/configmap-values.yaml.patch"
 
+// ValuesLeaves are the leaves of a values file's content by the paths the
+// differences of a live drift check name them with.
+func ValuesLeaves(content string) map[string]string {
+	return flattenYAML(content)
+}
+
 // ValuesSuffix ends the path of the capability's rendered values file, the
 // one the drift probes hold the live values against.
 func ValuesSuffix(capability string) string {
