@@ -8,6 +8,8 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
+const mcpPrometheus = "mcp-prometheus"
+
 func server(t *testing.T, name string) Server {
 	t.Helper()
 	i := slices.IndexFunc(Servers, func(s Server) bool { return s.Name == name })
@@ -44,7 +46,7 @@ func TestOAuthSecretCarriesNoValkeyPassword(t *testing.T) {
 			t.Errorf("%s: %s rolls with revision %q", s.Name, password, got)
 		}
 		var want []string
-		if s.Name == "mcp-prometheus" {
+		if s.Name == mcpPrometheus {
 			want = []string{"stringData.VALKEY_PASSWORD"}
 		}
 		if !slices.Equal(oauth.Retired, want) {
@@ -61,11 +63,38 @@ func TestOAuthSecretCarriesNoValkeyPassword(t *testing.T) {
 func TestChecksumValues(t *testing.T) {
 	for name, want := range map[string][]string{
 		"mcp-kubernetes": {"mcpKubernetes.oauth.existingSecretChecksum", "mcpKubernetes.oauth.storage.valkey.existingSecretChecksum"},
-		"mcp-prometheus": {"app.oauth.existingSecretChecksum"},
+		mcpPrometheus:    {"app.oauth.existingSecretChecksum"},
 		"mcp-capi":       {"oauth.existingSecretChecksum", "oauth.storage.valkey.existingSecretChecksum"},
 	} {
 		if got := server(t, name).ChecksumValues(); !slices.Equal(got, want) {
 			t.Errorf("%s: checksum values %v, want %v", name, got, want)
+		}
+	}
+}
+
+// On an installation whose Dex is on private addresses, each server gets the
+// setting its chart still reads for that: mcp-prometheus and mcp-capi lift the
+// guard on their forwarded-token JWKS fetch, and mcp-kubernetes needs none (its
+// Dex client reaches private addresses).
+func TestPrivateURLsUserValues(t *testing.T) {
+	const deprecated = "allowPrivateURLs"
+	for name, want := range map[string]struct{ has, hasNot []string }{
+		"mcp-kubernetes": {has: []string{"sso:\n      allowPrivateIPs: true"}, hasNot: []string{deprecated}},
+		mcpPrometheus:    {has: []string{"allowPrivateIPJWKS: true"}, hasNot: []string{deprecated}},
+		"mcp-capi":       {has: []string{"allowPrivateIPJWKS: true"}, hasNot: []string{deprecated}},
+	} {
+		var result render.Result
+		server(t, name).Extras(&result, "repo", "extras/"+name, Options{Installation: "x", PrivateURLs: true})
+		values := string(result.Files["repo"]["extras/"+name+"/user-values.yaml"].Content)
+		for _, s := range want.has {
+			if !strings.Contains(values, s) {
+				t.Errorf("%s: user values lack %q:\n%s", name, s, values)
+			}
+		}
+		for _, s := range want.hasNot {
+			if strings.Contains(values, s) {
+				t.Errorf("%s: user values carry %q:\n%s", name, s, values)
+			}
 		}
 	}
 }

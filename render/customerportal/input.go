@@ -258,15 +258,7 @@ func Parse(raw any) (*Input, error) {
 	if err != nil {
 		return nil, err
 	}
-	schemaDoc, err := jsonschema.UnmarshalJSON(bytes.NewReader(schemaBytes))
-	if err != nil {
-		return nil, fmt.Errorf("customer-portal: schema: %w", err)
-	}
-	compiler := jsonschema.NewCompiler()
-	if err := compiler.AddResource("schema.json", schemaDoc); err != nil {
-		return nil, fmt.Errorf("customer-portal: schema: %w", err)
-	}
-	schema, err := compiler.Compile("schema.json")
+	schema, err := render.DefinitionSchema("customer-portal/schema.json")
 	if err != nil {
 		return nil, fmt.Errorf("customer-portal: schema: %w", err)
 	}
