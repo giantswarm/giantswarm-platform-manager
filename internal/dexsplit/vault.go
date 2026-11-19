@@ -39,6 +39,10 @@ type Vault interface {
 	Unset(ctx context.Context, file string, paths []string) error
 	// Equal says whether two values are equal.
 	Equal(ctx context.Context, a, b Ref) (bool, error)
+	// Rekey rewrites the list at path of a SOPS file as a map keyed by each
+	// entry's id (listAsMap), every value encrypted again under the file's
+	// own rules; a map there already is left as it is.
+	Rekey(ctx context.Context, file, path string) error
 }
 
 // ErrUnsupported is an operation a vault does not offer.
@@ -180,6 +184,39 @@ func (v sopsVault) Equal(ctx context.Context, a, b Ref) (bool, error) {
 	return subtle.ConstantTimeCompare([]byte(va), []byte(vb)) == 1, nil
 }
 
+// Rekey decrypts the file in this process, builds the map and hands it to
+// sops set on stdin, so no value reaches a process listing.
+func (v sopsVault) Rekey(ctx context.Context, file, path string) error {
+	doc, err := v.decrypt(ctx, file)
+	if err != nil {
+		return err
+	}
+	list := lookup(doc, path)
+	if list == nil || list.Kind == yaml.MappingNode {
+		return nil
+	}
+	if list.Kind != yaml.SequenceNode {
+		return fmt.Errorf("%s#%s: no list", file, path)
+	}
+	m, err := listAsMap(list, path)
+	if err != nil {
+		return fmt.Errorf("%s: %w", file, err)
+	}
+	var value any
+	if err := m.Decode(&value); err != nil {
+		return fmt.Errorf("%s#%s: %w", file, path, err)
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Errorf("%s#%s: %w", file, path, err)
+	}
+	args := append(append([]string{"set"}, sopsTypes...), "--value-stdin", filepath.Base(file), sopsIndex(path))
+	if _, err := v.run(ctx, filepath.Dir(file), encoded, "sops", args...); err != nil {
+		return commandError("sops set "+file+" "+path, err)
+	}
+	return nil
+}
+
 // sopsIndex is a dotted path in sops' index syntax: ["a"][0]["b"].
 func sopsIndex(path string) string {
 	var b strings.Builder
@@ -301,6 +338,12 @@ func (v beekeeperVault) Equal(ctx context.Context, a, b Ref) (bool, error) {
 		return false, nil
 	}
 	return false, commandError("beekeeper secret compare "+a.String()+" "+b.String(), err)
+}
+
+// Rekey is not offered: beekeeper moves one scalar into a path, which keeps
+// neither a value's type nor a list's place while its key changes shape.
+func (beekeeperVault) Rekey(_ context.Context, file, path string) error {
+	return fmt.Errorf("%s#%s as a map: %w; run the split with --vault %s", file, path, ErrUnsupported, VaultSOPS)
 }
 
 // commandError words a failed command with the last line of its stderr:

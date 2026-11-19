@@ -19,9 +19,11 @@ import (
 // break Dex. The 2.x line carries it from render.DexAppLine2.
 const DexAppReferencedSecrets = "3.2.2"
 
-// DexAppConnectorMaps is the first dex-app that takes oidc.extraStaticClients
-// and oidc.<owner>.connectors as maps keyed by id, the shape the definitions
-// render them in, and a connector's clientSecretRef.
+// DexAppConnectorMaps is the first dex-app that reads oidc.<owner>.connectors
+// and oidc.extraStaticClients as maps keyed by id, so the values sources of
+// one installation merge their entries instead of one list replacing another.
+// The 2.x line does not carry it. The definitions render them so, and a
+// connector's clientSecretRef.
 const DexAppConnectorMaps = "3.5.0"
 
 // DexAppRefusal says why a commit of p is refused for the dex-app on record:

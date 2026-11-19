@@ -61,7 +61,9 @@ func readDexSecretLists(ctx context.Context, read Reader, inst Installation) ([]
 }
 
 // dexSecretLists reads the lists of the encrypted patch's document, in the
-// order the plaintext patch renders them.
+// order the plaintext patch renders them. Clients or connectors kept as a map
+// keyed by id merge with the plaintext ones entry by entry, so a map is no
+// such list.
 func dexSecretLists(patch string) ([]DexSecretList, error) {
 	var doc struct {
 		OIDC struct {

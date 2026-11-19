@@ -483,9 +483,12 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
      `./agent-platform/`), so a reconcile after the split reads the pair's value as kept. A client
      an earlier split put under `extras/dex/` moves on to that path, unchanged, and is unlisted there.
   2. **configs:** after `flux-extras` has applied those Secrets. The plaintext `configmap-values.yaml.patch`
-     lists every client with `clientSecretRef`/`secretRef` and the `trustedPeers`. The encrypted patch
-     loses the lists and the moved secrets and keeps the rest, such as the authenticator's own secret
-     and the login connectors.
+     carries every client with `clientSecretRef`/`secretRef` (`oidc.extraStaticClients` in the shape the
+     patch already has, a map keyed by client id or a list) and the `trustedPeers`. The encrypted patch loses the client lists and the moved
+     secrets and keeps the rest, such as the authenticator's own secret and the login connectors. Each
+     `oidc.<owner>.connectors` list there becomes a map keyed by connector id, its values encrypted
+     again (`--vault sops` only), so connectors another values source sets under the same owner merge
+     with them instead of being replaced.
 
   Ids, names, redirect URIs, `public` flags, peers and values never change. Without `--write` the
   command is a dry run, and it prints only key paths, files and the configuration fields the plaintext
@@ -495,10 +498,10 @@ cosign bundle) next to the image and the chart. It has no logic of its own:
   - the token-exchange pairing
   - the files per repository
 
-  A split installation reports nothing to do, and a re-run after `--write` changes nothing. A run
-  that stopped half-way is completed by the next: a Secret already present with the same value stays,
-  one with another value is refused. An unknown dex-app version or one without referenced-client support
-  is refused. `--hub` and `--hub-management-clusters` compare the
+  A split installation without a connector list reports nothing to do, and a re-run after `--write`
+  changes nothing. A run that stopped half-way is completed by the next: a Secret already present with
+  the same value stays, one with another value is refused. An unknown dex-app version, or one older
+  than 3.5.0 (the first to read client and connector maps), is refused with the pin to add. `--hub` and `--hub-management-clusters` compare the
   `muster-token-exchange-<mc>` value with the hub's `<mc>-token-exchange-credentials`, which must stay
   one value; `--write` refuses when they differ.
 
