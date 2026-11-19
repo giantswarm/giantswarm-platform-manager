@@ -58,6 +58,11 @@ spec:
                 capability:
                   description: The capability acted on.
                   type: string
+                capabilityByInstallation:
+                  description: Per installation of a wave, the definition that rendered it where it is not capability — a hub on the agent platform whose shared values a cluster-mcp-servers wave draws with its targets, or the reverse.
+                  type: object
+                  additionalProperties:
+                    type: string
                 kind:
                   description: enable, reconcile or disable.
                   type: string

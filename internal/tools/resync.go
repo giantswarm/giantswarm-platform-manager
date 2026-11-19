@@ -265,7 +265,7 @@ func (t *Tools) revertedStages(ctx context.Context, c *gh.Client, a *actions.Act
 		if len(a.StagePullRequests(st.Name)) == 0 || !allMerged(a, st.Name) {
 			continue
 		}
-		marker := markerOf(a, def, st.Name)
+		marker := markerOf(a, stageDef(a, st.Name, def), st.Name)
 		repository, path, ok := strings.Cut(marker, ":")
 		if !ok {
 			continue
@@ -287,6 +287,15 @@ func (t *Tools) revertedStages(ctx context.Context, c *gh.Client, a *actions.Act
 		}
 	}
 	return gone, kept, errs
+}
+
+// stageDef is the definition that rendered installation's stage of a, def
+// where this version has none by that name.
+func stageDef(a *actions.Action, installation string, def installations.Capability) installations.Capability {
+	if d, ok := installations.FindCapability(a.CapabilityOf(installation)); ok {
+		return d
+	}
+	return def
 }
 
 // markerOf is the marker of installation's stage: the one recorded at
@@ -317,20 +326,23 @@ func remove(status *actions.Status, a *actions.Action, def installations.Capabil
 	status.Rollout = stagesOf(a)
 	var where []string
 	status.Orphans = nil
+	pruned := true
 	for _, g := range gone {
+		d := stageDef(a, g.installation, def)
+		pruned = pruned && d.Prunes
 		if i := stageIndex(status.Rollout, g.installation); i >= 0 {
 			st := &status.Rollout.Installations[i]
 			st.State, st.Message = actions.StateRemoved, fmt.Sprintf("%s is gone from the default branch of %s again", g.path, g.repository)
 		}
 		where = append(where, fmt.Sprintf("%s (%s in %s)", g.installation, g.path, g.repository))
-		if !def.Prunes {
-			status.Orphans = append(status.Orphans, orphansOf(def, g.installation, a.InputsOnRecord(g.installation))...)
+		if !d.Prunes {
+			status.Orphans = append(status.Orphans, orphansOf(d, g.installation, a.InputsOnRecord(g.installation))...)
 		}
 	}
 	msg := "the fileset is gone from the default branch again: " + strings.Join(where, ", ")
 	text := fmt.Sprintf("The fileset of *%s* is gone from the default branch again: the action is removed.", strings.Join(installationsOf(gone), "*, *"))
 	switch {
-	case def.Prunes:
+	case pruned:
 		msg += "; Flux prunes what the tree applied"
 		text += " Flux prunes what the tree applied."
 	case len(status.Orphans) > 0:

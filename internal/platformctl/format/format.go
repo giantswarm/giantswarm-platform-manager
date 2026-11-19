@@ -423,6 +423,11 @@ func Action(w io.Writer, a actions.Action) error {
 	p := &printer{w: w}
 	p.f("Action %s in %s, created %s\n", a.Name, dash(a.Namespace), a.CreatedAt.Format(time.RFC3339))
 	p.f("Kind: %s   Capability: %s   Actor: %s\n", a.Spec.Kind, a.Spec.Capability, dash(a.Spec.Actor.Login))
+	for _, n := range a.Spec.Installations {
+		if c := a.CapabilityOf(n); c != a.Spec.Capability {
+			p.f("  %s renders with %s, to draw the values it shares with the others once\n", n, c)
+		}
+	}
 	p.f("Installations: %s\n", strings.Join(a.Spec.Installations, ", "))
 	p.f("State: %s\n", dash(a.Status.State))
 	if len(a.Status.PullRequests) > 0 {

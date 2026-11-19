@@ -155,6 +155,7 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 		return out, err
 	}
 	st := &status.Rollout.Installations[i]
+	def = stageDef(a, st.Name, def)
 	inputs := a.InputsOnRecord(st.Name)
 	if inputs == nil {
 		return nil, fmt.Errorf("%s: action %s holds no inputs on record for %s: nothing to render its probes from", ToolWatchAction, a.Name, st.Name)
