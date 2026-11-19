@@ -128,7 +128,7 @@ func newStack(t *testing.T, options ...func(*tools.Deps)) *stack {
 		dex: newFakeDex(t), inst: newFakeInstallation(), pulls: map[string]pullFacts{}}
 	st.ghs.pull = st.pullState
 	st.muster = newFakeMuster(t, st.inst, rowan)
-	lc, err := live.New(live.Config{Issuer: st.dex.issuer, Audiences: []string{liveAudience, liveRequiredAudience}, JWKSURL: st.dex.issuer + "/keys", AllowPrivateIPJWKS: true, CAFile: st.dex.caFile, //nolint:staticcheck // SA1019: the fake Dex serves on loopback
+	lc, err := live.New(live.Config{Issuer: st.dex.issuer, Audiences: []string{liveAudience, liveRequiredAudience}, JWKSURL: st.dex.issuer + "/keys", HTTPClient: st.dex.Client(),
 		MusterURL: st.muster.URL + "/mcp", KubernetesFamily: kubernetesFamily, KubernetesInstanceArg: instanceArg, KubernetesMember: memberTemplate, Version: testVersion}, log)
 	if err != nil {
 		t.Fatal(err)

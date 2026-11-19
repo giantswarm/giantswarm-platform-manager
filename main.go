@@ -115,8 +115,12 @@ func run(ctx context.Context, o *options, log *slog.Logger) error {
 		deps.AuthorizationServer = o.oauthAuthorizationServer
 	}
 	if o.liveEnabled {
+		hc, err := live.NewHTTPClient(o.liveIssuer, o.liveJWKSURL, o.liveCAFile)
+		if err != nil {
+			return err
+		}
 		lc, err := live.New(live.Config{Issuer: o.liveIssuer, Audiences: live.ParseAudiences(o.liveAudiences), JWKSURL: o.liveJWKSURL,
-			CAFile: o.liveCAFile, MusterURL: o.musterURL, KubernetesFamily: o.liveKubernetesFamily, KubernetesInstanceArg: o.liveKubernetesInstanceArg, KubernetesMember: o.liveKubernetesMember, Version: deps.Version}, log)
+			HTTPClient: hc, MusterURL: o.musterURL, KubernetesFamily: o.liveKubernetesFamily, KubernetesInstanceArg: o.liveKubernetesInstanceArg, KubernetesMember: o.liveKubernetesMember, Version: deps.Version}, log)
 		if err != nil {
 			return err
 		}

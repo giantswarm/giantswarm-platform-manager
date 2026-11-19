@@ -12,12 +12,9 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
-	"encoding/pem"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -85,7 +82,6 @@ type fakeDex struct {
 	key    *rsa.PrivateKey
 	kid    string
 	issuer string
-	caFile string
 }
 
 func newFakeDex(t *testing.T) *fakeDex {
@@ -105,10 +101,6 @@ func newFakeDex(t *testing.T) *fakeDex {
 	d.Server = httptest.NewTLSServer(mux)
 	t.Cleanup(d.Close)
 	d.issuer = d.URL + "/dex"
-	d.caFile = filepath.Join(t.TempDir(), "ca.crt")
-	if err := os.WriteFile(d.caFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: d.Certificate().Raw}), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	return d
 }
 
