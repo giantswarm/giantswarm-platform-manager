@@ -97,7 +97,9 @@ this order, writing nothing before the gate:
    (`vaultCopies`): the pair's values only, by key — supplied from the peer's file, or carried into a file
    that lacks them; a pair both sides of which the wave creates is drawn once and copies nothing.
    A new pair absent on both sides is deferred when its peer is outside the set (`deferredPairs`),
-   including its Secret references and kustomization entries. A carry
+   including its Secret references, kustomization entries and probes. The action records the generated
+   values each installation's commit rendered (`generatedByInstallation`); its rollout verification
+   defers any pair a later definition added, so it probes only the pairs the commit wrote. A carry
    of any other generated value the record holds is listed outside it and the wave refuses it by name:
    the installation's own reconcile carries it, so a cut-over commit never carries a credential its author
    did not mean to move.

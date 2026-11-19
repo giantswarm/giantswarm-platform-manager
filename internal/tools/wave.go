@@ -99,6 +99,7 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 	spec := actions.Spec{Actor: actions.Actor{Login: id.Login, ID: id.ID, Email: id.Email}, Capability: out.Capability, Installations: res.Order, Inputs: typed, Kind: actions.KindReconcile, Skipped: res.Skipped,
 		InputsByInstallation: map[string]map[string]any{}, AccountEngineers: accountEngineers(env, res.Order...), AccountEngineerOf: accountEngineerOf(env, res.Order...), Reason: reason, Changes: map[string][]string{}, Markers: markersOf(def, env, res.Order...), Rotate: rotateArg(args)}
 	spec.DeferredPairs = deferredPairNames(out.Installations)
+	spec.GeneratedByInstallation = generatedNames(out.Installations)
 	for _, p := range targets {
 		spec.InputsByInstallation[p.Name] = p.Inputs
 		spec.Changes[p.Name] = plan.Summary(p)

@@ -150,6 +150,7 @@ func (t *Tools) verifyLive(ctx context.Context, args map[string]any) (any, error
 			if given == nil {
 				opts.Inputs = verify.Inputs{Source: "action " + record.Name, Values: in, Typed: record.Spec.Inputs}
 				opts.Kept = record.KeptOnRecord(name)
+				liveRecord(&opts, *record, name)
 			}
 			// The state the result starts from is the action's final word —
 			// not the state a previous verify recorded over it, and not the
