@@ -3,6 +3,9 @@ package live
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"slices"
 	"strings"
@@ -10,7 +13,9 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/giantswarm/mcp-oauth/providers/oidc"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/stretchr/testify/require"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 )
@@ -121,10 +126,10 @@ func TestConfigValidateNamesTheMissingField(t *testing.T) {
 
 // A key set is read over TLS only: a plain-http JWKS URL is refused when the
 // configuration is read, naming the requirement, and never on the tokens; an
-// https one — a private Service name included — is what the allowance is for.
+// https one on a private Service name is accepted.
 func TestConfigValidateRefusesAPlainHTTPKeySet(t *testing.T) {
 	cfg := Config{Issuer: "https://dex.example.test/dex", Audiences: []string{platformClient}, MusterURL: "http://muster:8090/mcp", KubernetesFamily: "kubernetes",
-		JWKSURL: "https://dex.dex.svc.cluster.local:5556/dex/keys", AllowPrivateIPJWKS: true}
+		JWKSURL: "https://dex.dex.svc.cluster.local:5556/dex/keys"}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("an https key set on a private name: %v", err)
 	}
@@ -263,4 +268,34 @@ func TestCallPacedRetriesARateLimitRefusal(t *testing.T) {
 			t.Fatalf("callPaced = %v after %d calls; want the answer at once", res, calls)
 		}
 	})
+}
+
+// The hosts allowed a private address are the issuer's and the JWKS URL's,
+// without ports and without repeats.
+func TestPrivateIPHostsAreTheIssuerAndTheKeySet(t *testing.T) {
+	cfg := Config{Issuer: "https://localhost:32000/dex", JWKSURL: "https://dex.dex.svc.cluster.local:5556/dex/keys"}
+	require.Equal(t, []string{"localhost", "dex.dex.svc.cluster.local"}, cfg.privateIPHosts())
+
+	cfg = Config{Issuer: "https://dex.example.test/dex", JWKSURL: "https://dex.example.test/dex/keys"}
+	require.Equal(t, []string{"dex.example.test"}, cfg.privateIPHosts())
+
+	cfg = Config{Issuer: "https://dex.example.test/dex"}
+	require.Equal(t, []string{"dex.example.test"}, cfg.privateIPHosts())
+}
+
+// A listed host never reaches loopback: a key set served on 127.0.0.1 is
+// refused by the SSRF guard though its host is the JWKS URL's.
+func TestVerifyRefusesALoopbackKeySet(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"keys":[]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c, err := New(Config{Issuer: "https://dex.example.test/dex", Audiences: []string{platformClient}, JWKSURL: srv.URL + "/keys",
+		MusterURL: "http://muster:8090/mcp", KubernetesFamily: "kubernetes"}, slog.New(slog.DiscardHandler))
+	require.NoError(t, err)
+	t.Cleanup(c.Close)
+
+	_, err = c.Verify(t.Context(), "header.payload.signature")
+	require.ErrorIs(t, err, oidc.ErrRestrictedAddress)
 }

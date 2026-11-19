@@ -25,6 +25,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -54,11 +55,16 @@ type Config struct {
 	// JWKSURL is the issuer's key set, an https URL; empty reads it from the
 	// issuer's OpenID discovery document. The key set is read over TLS only
 	// (the JWKS client refuses anything else on every fetch), so a plain-http
-	// URL is refused here, at start-up, instead of on every token.
+	// URL is refused here, at start-up, instead of on every token. The
+	// issuer's host and this URL's host may resolve to an RFC 1918 or
+	// RFC 4193 address (an in-cluster Dex); every other host, and loopback
+	// or link-local for these, stays refused by the SSRF guard.
 	JWKSURL string
-	// AllowPrivateIPJWKS lets the issuer's discovery document or its key set
-	// be read from a private address (an in-cluster Dex): the SSRF guard's
-	// allowance, not the transport's.
+	// AllowPrivateIPJWKS lifts the SSRF guard for every host the discovery
+	// document and the key set are read from, loopback included.
+	//
+	// Deprecated: the issuer's host and the JWKS URL's host may resolve to a
+	// private address without it; only a key set served on loopback needs it.
 	AllowPrivateIPJWKS bool
 	// CAFile is a PEM bundle the issuer's certificate chains to; empty is
 	// the system trust.
@@ -124,10 +130,22 @@ func (c Config) Validate() error {
 	}
 	if c.JWKSURL != "" {
 		if u, err := url.Parse(c.JWKSURL); err != nil || u.Host == "" || u.Scheme != "https" {
-			return fmt.Errorf("live: JWKS URL must be an absolute https:// URL, got %q: the key set is read over TLS only — name an in-cluster identity provider by the Service name its certificate carries, with the private-IP allowance for the address and the CA file for its CA", c.JWKSURL)
+			return fmt.Errorf("live: JWKS URL must be an absolute https:// URL, got %q: the key set is read over TLS only — name an in-cluster identity provider by the Service name its certificate carries, with the CA file for its CA", c.JWKSURL)
 		}
 	}
 	return nil
+}
+
+// privateIPHosts are the hosts the discovery document and the key set may be
+// read from at a private address: the issuer's and the JWKS URL's.
+func (c Config) privateIPHosts() []string {
+	var hosts []string
+	for _, raw := range []string{c.Issuer, c.JWKSURL} {
+		if u, err := url.Parse(raw); err == nil && u.Hostname() != "" && !slices.Contains(hosts, u.Hostname()) {
+			hosts = append(hosts, u.Hostname())
+		}
+	}
+	return hosts
 }
 
 // audiences is the configured list, normalized.
@@ -190,20 +208,19 @@ func New(cfg Config, log *slog.Logger) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("live: %w", err)
 	}
-	var hc *http.Client
+	hosts := cfg.privateIPHosts()
+	hc := oidc.NewHostScopedPrivateIPHTTPClient(hosts, oidc.DefaultHTTPTimeout, pool)
 	if cfg.AllowPrivateIPJWKS {
-		hc = oidc.NewPrivateIPAllowedHTTPClient(oidc.DefaultHTTPTimeout, pool)
-	} else {
-		hc = oidc.NewSSRFSafeHTTPClient(oidc.DefaultHTTPTimeout, pool)
+		hc = oidc.NewDefaultDialHTTPClient(oidc.DefaultHTTPTimeout, pool)
 	}
 	c := &Client{cfg: cfg, log: log, http: hc, jwksURL: cfg.JWKSURL, sessions: map[string]*session{},
-		jwks: oidc.NewJWKSClientWithOptions(oidc.JWKSClientOptions{HTTPClient: hc, AllowPrivateIP: cfg.AllowPrivateIPJWKS, RootCAs: pool, Logger: log})}
+		jwks: oidc.NewJWKSClientWithOptions(oidc.JWKSClientOptions{HTTPClient: hc, AllowPrivateIP: cfg.AllowPrivateIPJWKS, AllowPrivateIPHosts: hosts, RootCAs: pool, Logger: log})}
 	if cfg.KubernetesInstanceArg != "" {
 		if c.member, err = memberTemplate(cfg.KubernetesMember); err != nil {
 			return nil, err
 		}
 	}
-	log.Info("live reads enabled", "issuer", cfg.Issuer, "audiences", cfg.Audiences, "jwks", cfg.JWKSURL, "muster", cfg.MusterURL, "kubernetesFamily", cfg.KubernetesFamily, "instanceArg", cfg.KubernetesInstanceArg, "member", cfg.KubernetesMember)
+	log.Info("live reads enabled", "issuer", cfg.Issuer, "audiences", cfg.Audiences, "jwks", cfg.JWKSURL, "privateIPHosts", hosts, "muster", cfg.MusterURL, "kubernetesFamily", cfg.KubernetesFamily, "instanceArg", cfg.KubernetesInstanceArg, "member", cfg.KubernetesMember)
 	return c, nil
 }
 

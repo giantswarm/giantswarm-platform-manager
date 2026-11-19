@@ -201,10 +201,22 @@ func TestLiveRequiresOAuth(t *testing.T) {
 // render, naming the allowances that exist, not at the first token.
 func TestLiveRefusesAPlainHTTPKeySet(t *testing.T) {
 	_, msg := render(t, "-f", filepath.Join("../../tests", "lab-oauth-values.yaml"), "--set", "live.jwksURL=http://dex.dex.svc.cluster.local:5556/dex/keys")
-	for _, want := range []string{"live.jwksURL must be an https:// URL", "http://dex.dex.svc.cluster.local:5556/dex/keys", "live.allowPrivateIPJWKS", "live.caSecret"} {
+	for _, want := range []string{"live.jwksURL must be an https:// URL", "http://dex.dex.svc.cluster.local:5556/dex/keys", "live.caSecret"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("the refusal does not name %q: %q", want, msg)
 		}
+	}
+}
+
+// live.allowPrivateIPJWKS is deprecated and still rendered, so the server
+// can warn that it has no effect.
+func TestLiveAllowPrivateIPJWKSStillRenders(t *testing.T) {
+	objects, msg := render(t, "-f", filepath.Join("../../tests", "lab-oauth-values.yaml"))
+	if msg != "" {
+		t.Fatalf("render refused: %s", msg)
+	}
+	if got := env(t, objects, "LIVE_ALLOW_PRIVATE_IP_JWKS"); got != "true" {
+		t.Errorf("LIVE_ALLOW_PRIVATE_IP_JWKS = %v, want true", got)
 	}
 }
 
