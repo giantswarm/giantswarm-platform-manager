@@ -3,6 +3,7 @@ package agentplatform
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -64,6 +65,30 @@ func TestFormerTokenExchangeNameRendersAsTheCurrentOne(t *testing.T) {
 			got, err := render1(manager)
 			require.NoError(t, err)
 			require.Equal(t, current.Files, got.Files)
+		})
+	}
+}
+
+func TestDroppedPinInputsRenderAsWithout(t *testing.T) {
+	render1 := func(pin any) (*render.Result, error) {
+		input, secrets := credentialInput(t, shapeGiantswarmSlackAppPub)
+		if pin != nil {
+			github := input["agentManager"].(map[string]any)[keyGitHub].(map[string]any)
+			github[keyEnabled] = pin
+			for _, manager := range managerGrantCases {
+				input[manager.input] = map[string]any{keyGitHub: map[string]any{keyEnabled: pin}}
+			}
+		}
+		return Render(input, secrets, render.ModeCommit)
+	}
+	without, err := render1(nil)
+	require.NoError(t, err)
+
+	for _, pin := range []bool{true, false} {
+		t.Run(fmt.Sprintf("pin %t", pin), func(t *testing.T) {
+			got, err := render1(pin)
+			require.NoError(t, err)
+			require.Equal(t, without.Files, got.Files)
 		})
 	}
 }

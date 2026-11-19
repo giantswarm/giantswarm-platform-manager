@@ -201,7 +201,7 @@ func addHandWritten(t *testing.T, st *stack, ap, dexPatch string) {
 	if !ok || !strings.Contains(dex, "  extraStaticClients:\n") {
 		t.Fatalf("rowan's Dex patch lists no extraStaticClients:\n%s", dex)
 	}
-	st.ghs.addFile(acmeConfigs, dexPatch, strings.Replace(dex, "  extraStaticClients:\n", "  extraStaticClients:\n    - id: gateway\n      name: MCP gateway\n      secretRef:\n        name: dex-client-gateway\n        key: secret\n", 1))
+	st.ghs.addFile(acmeConfigs, dexPatch, strings.Replace(dex, "  extraStaticClients:\n", "  extraStaticClients:\n    gateway:\n      name: MCP gateway\n      secretRef:\n        name: dex-client-gateway\n        key: secret\n", 1))
 }
 
 // fleetBasesRepo is the fleet's bases repository the definition's

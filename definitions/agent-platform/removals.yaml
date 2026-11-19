@@ -302,6 +302,18 @@ removals:
     reason: "Kept: oidc.customer holds this installation's own login connectors and their credentials; the platform reads nothing of them and leaves them in the encrypted Dex values as they are."
 
   # --- dex-app configmap-values.yaml.patch ---
+  - key: dex-configmap:oidc.extraStaticClients[*]
+    kind: migration
+    reason: >-
+      Changed: the Dex clients are a list on the installation today; they become a map keyed by client id, so the clients other values sources
+      register merge with these by id instead of one list replacing the other, and an entry another owner registered moves into the map as it is.
+      Needs dex-app 3.5.0 · M46
+  - key: dex-configmap:oidc.customer.connectors[*]
+    kind: migration
+    reason: >-
+      Changed: the connectors are a list on the installation today; they become a map keyed by connector id, so the installation's own login
+      connectors and the hubs' connectors merge by id instead of one list replacing the other, and the installation's entries move into the map
+      as they are. Needs dex-app 3.5.0 · M46
   - key: dex-configmap:oidc.customer
     kind: not-platform
     reason: "Kept: oidc.customer holds this installation's own login connectors; the platform leaves them on the Dex values as they are and registers the token-exchange connector of every customer hub that brokers into this installation beside them."

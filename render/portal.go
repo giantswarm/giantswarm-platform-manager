@@ -124,7 +124,7 @@ func DexClientSecret(component, valueName string) File {
 // DexClientSecretRef is a client's secret reference in the dex-app configmap
 // patch: the Secret in Dex's namespace that carries it and the key.
 func DexClientSecretRef(component string) Map {
-	return Map{{Key: "name", Value: DexClientSecretName(component)}, {Key: "key", Value: DexSecretKey}}
+	return Map{{Key: keyName, Value: DexClientSecretName(component)}, {Key: "key", Value: DexSecretKey}}
 }
 
 // PortalAuthProvider is the portal's sign-in provider on an installation's
@@ -144,14 +144,34 @@ func PortalRedirectURI(domain, installation string) string {
 func PortalDexClient(domain, installation string) Map {
 	return ExtraStaticClient(PortalDexClientID, PortalDexClientName,
 		Entry{Key: "redirectURIs", Value: []string{PortalRedirectURI(domain, installation)}},
-		Entry{Key: "secretRef", Value: DexClientSecretRef(PortalDexClientID)})
+		Entry{Key: keySecretRef, Value: DexClientSecretRef(PortalDexClientID)})
 }
 
 // ExtraStaticClient is an entry of the dex-app configmap patch's
 // oidc.extraStaticClients: the client's id and name, then what the client
 // carries beside them (its redirect URIs, its secret reference).
 func ExtraStaticClient(id, name string, rest ...Entry) Map {
-	return append(Map{{Key: "id", Value: id}, {Key: "name", Value: name}}, rest...)
+	return append(Map{{Key: "id", Value: id}, {Key: keyName, Value: name}}, rest...)
+}
+
+// ClientsByID is the dex-app values' oidc.extraStaticClients map of clients:
+// each entry keyed by its id, without the id, so the entries of several
+// values sources merge by client id. Entries come in the given order.
+func ClientsByID(clients []Map) Map {
+	out := make(Map, 0, len(clients))
+	for _, c := range clients {
+		var id string
+		body := make(Map, 0, len(c))
+		for _, e := range c {
+			if e.Key == "id" {
+				id, _ = e.Value.(string)
+				continue
+			}
+			body = append(body, e)
+		}
+		out = append(out, Entry{Key: id, Value: body})
+	}
+	return out
 }
 
 // PortalPlatformComponent is the entry the portal's extras/backstage/kustomization.yaml

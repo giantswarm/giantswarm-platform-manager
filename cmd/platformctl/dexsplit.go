@@ -32,21 +32,25 @@ manager refuses the commit. The split writes:
     side, with the kustomization chain to it; one an earlier split put under extras/dex/ moves on
     there unchanged
   configs (merge after flux-extras applied the Secrets): the plaintext configmap-values.yaml.patch
-    lists every client with clientSecretRef or secretRef and the trustedPeers; the encrypted patch
-    drops the lists and the moved secrets and keeps the rest (the authenticator's own secret, the
-    login connectors)
+    carries every client with clientSecretRef or secretRef, oidc.extraStaticClients in the shape the
+    patch has them (a map keyed by client id, or a list), and the trustedPeers; the encrypted patch drops the client lists and the moved secrets
+    and keeps the rest (the authenticator's own secret, the login connectors), each connector list
+    rewritten as a map keyed by connector id with its values encrypted again (--vault sops only), so
+    another values source's connectors under the same owner merge with them
 
 Ids, names, redirect URIs, public flags, peers and values never change. Without --write the command
 is the dry run: per client the source key path, the destination file and Secret, the plaintext
 entry, what the encrypted patch keeps, the token-exchange pairing and the files per repository. A
-split installation answers that nothing is to do. dex-app older than 3.2.2 is refused with the pin
-to add.
+split installation without a connector list answers that nothing is to do. dex-app older than 3.5.0
+is refused with the pin to add.
 
 --vault sops (a person): the local sops decrypts with the person's age identity and encrypts under
-the nearest .sops.yaml. --vault beekeeper (an agent, beekeeper 0.114.0 or newer): beekeeper secret copy moves each value,
+the nearest .sops.yaml; sops set rewrites a connector list as a map, the values handed on stdin.
+--vault beekeeper (an agent, beekeeper 0.114.0 or newer): beekeeper secret copy moves each value,
 beekeeper secret compare checks equality and beekeeper secret unset drops the moved keys, no secret
 reaching the caller; beekeeper secret reveal answers the configuration fields once its classifier
-finds no secret in them. --hub and --hub-management-clusters compare the
+finds no secret in them; a connector list it cannot rewrite, so --write refuses one under
+beekeeper. --hub and --hub-management-clusters compare the
 token-exchange client's value with the hub's <mc>-token-exchange-credentials, which must stay one
 value; --write refuses when they differ.`
 

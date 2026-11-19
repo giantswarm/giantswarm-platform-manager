@@ -22,17 +22,31 @@ oidc:
       trustedPeers:
         - backstage
   extraStaticClients:
-    - id: kagent
+    kagent:
       name: kagent-ui
       secretRef:
         name: dex-client-kagent
         key: secret
       redirectURIs:
         - https://kagent.heron.oakridge.example/oauth2/callback
-    - id: backstage
+    backstage:
       name: Dev Portal
       redirectURIs:
         - https://portal.kestrel.oakridge.example/api/auth/oidc-heron/handler/frame
       secretRef:
         name: dex-client-backstage
+        key: secret
+    federation-kestrel:
+      name: kestrel federation login
+      redirectURIs:
+        - https://dex.kestrel.oakridge.example/callback
+      secretRef:
+        name: dex-client-federation-kestrel
+        key: secret
+    federation-plover:
+      name: plover federation login
+      redirectURIs:
+        - https://dex.plover.oakridge.example/callback
+      secretRef:
+        name: dex-client-federation-plover
         key: secret

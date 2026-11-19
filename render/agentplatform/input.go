@@ -100,7 +100,10 @@ const (
 // registry and the repositories), the fleet policy (policy.yaml) applied to
 // it, and the choices a person makes. The renderer reads nothing else.
 type Input struct {
-	Installation Installation
+	// withoutLogins are the targets whose federation login pair a render
+	// without deferred pairs leaves out (render.Result.WithoutPairs).
+	withoutLogins []string
+	Installation  Installation
 	// ModelServing is the person's choice: the meta chart's serving slice.
 	ModelServing bool
 	// SingletonsCapacity is the person's choice: the Karpenter capacity the
@@ -131,30 +134,21 @@ type Input struct {
 	// Hive is the person's choice of the portal's Hive section (hive.*), in
 	// the platform's portal section (hive.go).
 	Hive Hive
-	// ClusterManagerCommit is the person's choice: the cluster-manager's
-	// commit mode through its GitHub App (clusterManager.github.enabled), read
-	// back from the configmap patch on record.
-	ClusterManagerCommit bool
-	// ModelManagerCommit and AgentManagerCommit are the person's choices of
-	// the model-manager's and the agent-manager's commit mode through their
-	// GitHub Apps (modelManager.github.enabled, agentManager.github.enabled),
-	// read back from the configmap patch on record.
-	ModelManagerCommit, AgentManagerCommit bool
 	// AgentManagerSkills is the person's choice of agent-manager's skill
 	// catalog (agentManager.skills): the repositories list_skills discovers
 	// and the Secrets private ones are read and booted with, read back from
 	// the configmap patch on record.
 	AgentManagerSkills AgentManagerSkills
-	// AgentManagerTokenExchange is the person's choice of agent-manager's
-	// commit mode with the person's GitHub grant fetched from muster's broker
-	// per call (agentManager.github.tokenExchange.enabled) in place of the
-	// pin, read back from the configmap patch on record.
+	// AgentManagerTokenExchange, ClusterManagerTokenExchange,
+	// ModelManagerTokenExchange and SkillManagerTokenExchange are the person's
+	// choices of each manager's GitHub access with the person's grant fetched
+	// from muster's broker per call (<manager>.github.tokenExchange.enabled),
+	// read back from the configmap patch on record.
 	AgentManagerTokenExchange   bool
 	AgentManagerCredentialUI    string
 	ClusterManagerTokenExchange bool
 	ModelManagerTokenExchange   bool
 	SkillManagerTokenExchange   bool
-	SkillManagerPrivateAccess   bool
 	// SkillManagerSources are the skill-manager's skill sources
 	// (skillManager.sources) as the person wrote them, read back from the
 	// configmap patch on record.
@@ -213,10 +207,9 @@ type Input struct {
 	Connectors Connectors
 	// HubConnectors are the connectors this installation's Dex registers for
 	// the hubs that broker into it (installation.federation.connectors), the
-	// policy's names over each hub's record, in the dex-app values' shape
-	// (render.ExchangeConnectors); none for a hub whose connector the
-	// fleet's Dex base registers.
-	HubConnectors []render.Map
+	// policy's names over each hub's record (render.FederatedConnectors);
+	// none for a further hub whose connector is kept by hand.
+	HubConnectors []render.FederatedConnector
 	// Teleport is the Teleport cluster a tunnel joins.
 	Teleport Teleport
 	// SourceInterval is the poll interval of every OCIRepository the
@@ -264,6 +257,13 @@ type Connectors struct {
 	// Further is the connector of every further hub of the same
 	// organisation, named after the hub.
 	Further string
+	// FurtherByHand says a target keeps Further by hand: no definition
+	// renders it, so this hub renders no login client for it either.
+	FurtherByHand bool
+	// Exchange is the connector this hub's broker exchanges tokens through
+	// at a target whose first hub of the organisation it is: First, unless
+	// the policy's exchangeThrough names another one.
+	Exchange string
 }
 
 // Installation is the record; see the schema for each field.
@@ -636,14 +636,18 @@ func (p *policy) connectors(inst Installation) (Connectors, error) {
 	if err != nil {
 		return Connectors{}, fmt.Errorf("%w: %w", ErrPolicy, err)
 	}
-	return Connectors{First: first, Further: further}, nil
+	exchange, err := p.Federation.Connector.Exchange(true, inst.Customer, inst.Name)
+	if err != nil {
+		return Connectors{}, fmt.Errorf("%w: %w", ErrPolicy, err)
+	}
+	return Connectors{First: first, Further: further, FurtherByHand: !p.Federation.Connector.Rendered(inst.Customer, false), Exchange: exchange}, nil
 }
 
 // hubConnectors renders the connectors this installation's Dex registers
 // for the hubs that broker into it, the policy's names over each hub's
 // record. A template that cannot name one is ErrPolicy.
-func (p *policy) hubConnectors(inst Installation) ([]render.Map, error) {
-	list, err := render.ExchangeConnectors(p.Federation.Connector, inst.Federation.Connectors)
+func (p *policy) hubConnectors(inst Installation) ([]render.FederatedConnector, error) {
+	list, err := render.FederatedConnectors(p.Federation.Connector, inst.Federation.Connectors)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrPolicy, err)
 	}
@@ -678,7 +682,6 @@ type document struct {
 	ModelManager   commitChoice `json:"modelManager"`
 	AgentManager   struct {
 		GitHub struct {
-			Enabled       bool `json:"enabled"`
 			TokenExchange struct {
 				Enabled bool `json:"enabled"`
 			} `json:"tokenExchange"`
@@ -856,7 +859,6 @@ type commitChoice struct {
 
 type managerGitHubChoice struct {
 	githubApp
-	Enabled       bool `json:"enabled"`
 	TokenExchange struct {
 		Enabled bool `json:"enabled"`
 	} `json:"tokenExchange"`
@@ -907,12 +909,11 @@ func Parse(raw any) (*Input, error) {
 		return nil, err
 	}
 	in := &Input{Installation: d.Installation, ModelServing: d.ModelServing.Enabled, SingletonsCapacity: d.Scheduling.SingletonsCapacity, MCPBackends: d.NetworkPolicy.MCPBackends, LLMRateLimits: d.LLMRouting.RateLimits, LLMRateLimitsComment: d.LLMRouting.RateLimitsComment, SessionIdleTTL: d.Sessions.IdleTTL, AIChat: d.AIChat, SkillRepositories: d.Skills.Repositories, Hive: d.Hive,
-		ClusterManagerCommit: d.ClusterManager.GitHub.Enabled, ModelManagerCommit: d.ModelManager.GitHub.Enabled, AgentManagerCommit: d.AgentManager.GitHub.Enabled, AgentManagerSkills: d.AgentManager.Skills, SkillManagerSources: d.SkillManager.Sources, SkillManagerAppSecret: d.SkillManager.GitHub.App.SecretName, DefaultAgent: d.DefaultAgent, AgentManagerTokenExchange: d.AgentManager.GitHub.TokenExchange.Enabled, AgentManagerCredentialUI: d.AgentManager.Credentials.UIURL, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, ContextBotNames: d.KlausGateway.Slack.ContextBotNames, ContextBotNamesComment: d.KlausGateway.Slack.ContextBotNamesComment, SlashCommand: d.KlausGateway.Slack.SlashCommand, SlashCommandComment: d.KlausGateway.Slack.SlashCommandComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
+		AgentManagerSkills: d.AgentManager.Skills, SkillManagerSources: d.SkillManager.Sources, SkillManagerAppSecret: d.SkillManager.GitHub.App.SecretName, DefaultAgent: d.DefaultAgent, AgentManagerTokenExchange: d.AgentManager.GitHub.TokenExchange.Enabled, AgentManagerCredentialUI: d.AgentManager.Credentials.UIURL, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, ContextBotNames: d.KlausGateway.Slack.ContextBotNames, ContextBotNamesComment: d.KlausGateway.Slack.ContextBotNamesComment, SlashCommand: d.KlausGateway.Slack.SlashCommand, SlashCommandComment: d.KlausGateway.Slack.SlashCommandComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
 		ReleaseCandidates: pol.releaseCandidates(d.Installation)}
 	in.ClusterManagerTokenExchange = d.ClusterManager.GitHub.TokenExchange.Enabled
 	in.ModelManagerTokenExchange = d.ModelManager.GitHub.TokenExchange.Enabled
 	in.SkillManagerTokenExchange = d.SkillManager.GitHub.TokenExchange.Enabled
-	in.SkillManagerPrivateAccess = d.SkillManager.GitHub.Enabled
 	if in.Components, err = pol.components(in.Installation); err != nil {
 		return nil, err
 	}
@@ -1058,12 +1059,6 @@ func (in *Input) checkRecord() error {
 	if err := in.checkHive(); err != nil {
 		return err
 	}
-	if in.ClusterManagerCommit && !in.clusterManager() {
-		return refuse(fmt.Sprintf("%s asks for the cluster-manager's commit mode, and the fleet policy runs no cluster-manager on %s's installations", describe("clusterManager.github.enabled"), in.Installation.Customer))
-	}
-	if in.AgentManagerCommit && !in.agentManager() {
-		return refuse(fmt.Sprintf("%s asks for the agent-manager's commit mode, and the fleet policy runs no agent-manager on %s's installations", describe("agentManager.github.enabled"), in.Installation.Customer))
-	}
 	if err := in.validateAgentManagerCredentials(); err != nil {
 		return err
 	}
@@ -1083,7 +1078,6 @@ func (in *Input) checkRecord() error {
 	}
 	if err := in.checkSkillManagerChart(componentAgentManager, in.agentManager(),
 		skillManagerChartChoice{len(in.SkillManagerSources) > 0, "skillManager.sources", "lists the sources of the skill-manager, which runs with the agent-manager", false},
-		skillManagerChartChoice{in.SkillManagerPrivateAccess, "skillManager.github.enabled", "checks private-source access in the skill-manager", false},
 		skillManagerChartChoice{in.SkillManagerAppSecret != "", "skillManager.github.app.secretName", "names the GitHub App of the skill-manager, which runs with the agent-manager", false}); err != nil {
 		return err
 	}
@@ -1112,9 +1106,6 @@ func (in *Input) checkRecord() error {
 		if skills.GitHub.App.SecretName == "" {
 			return refuse(describe("agentManager.skills.mintGitAuthSecret") + " mints the skills GitHub App's installation token, and " + describe("agentManager.skills.github.app.secretName") + " names no App")
 		}
-	}
-	if in.ModelManagerCommit && !in.modelManager() {
-		return refuse(describe("modelManager.github.enabled") + " asks for the model-manager's commit mode, and the model-manager runs on the platform's 4 chart line only; agentPlatform.kagentApiV2: true in the installation's config.yaml.patch selects 4")
 	}
 	if in.AIChat.Enabled && in.AIChat.Model == "" {
 		return refuse(describe("aiChat.model") + " is empty; the chat answers with one model, and the schema's default stands where none is typed")
@@ -1150,6 +1141,17 @@ func apiGroup(resource string) string    { _, g, _ := strings.Cut(resource, ".")
 func (in *Input) connector(t Target) string {
 	if t.first(in.Installation.Name) {
 		return in.Connectors.First
+	}
+	return in.Connectors.Further
+}
+
+// exchangeConnector is the connector this hub's broker and identity
+// providers exchange tokens through at t's Dex: the one t registers for this
+// hub (connector), or Connectors.Exchange where this is t's first hub of the
+// organisation.
+func (in *Input) exchangeConnector(t Target) string {
+	if t.first(in.Installation.Name) {
+		return in.Connectors.Exchange
 	}
 	return in.Connectors.Further
 }

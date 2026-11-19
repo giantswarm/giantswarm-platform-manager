@@ -51,7 +51,4 @@ input:
           hubs: [gopher]
   modelServing:
     enabled: true
-  clusterManager:
-    github:
-      enabled: true
 secrets: {}
