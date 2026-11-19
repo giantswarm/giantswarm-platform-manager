@@ -527,8 +527,8 @@ func TestVerifyPrintsUnreachableByDesignApart(t *testing.T) {
 		t.Fatal(err)
 	}
 	contains(t, buf.String(),
-		"Summary: 1 as defined, 1 unreachable from the manager by design (private installation)",
-		"Identity: as defined (1 as defined, 1 unreachable from the manager by design (private installation))",
+		"Summary: 1 as defined, 1 not read from the manager by design (private or browse-only installation)",
+		"Identity: as defined (1 as defined, 1 not read from the manager by design (private or browse-only installation))",
 		"[not checked] dex-auth-request (probe: dex) — "+reason,
 		"unreachable "+dexAuthURL+" — Client.Timeout exceeded")
 	if strings.Contains(buf.String(), "FAIL") || strings.Contains(buf.String(), "1 not checked") {
@@ -545,5 +545,5 @@ func TestPlanComparisonNamesByDesign(t *testing.T) {
 	if err := Plan(&buf, r, false); err != nil {
 		t.Fatal(err)
 	}
-	contains(t, buf.String(), "Comparison: 68 as defined, 18 not checked, 7 unreachable from the manager by design (private installation)")
+	contains(t, buf.String(), "Comparison: 68 as defined, 18 not checked, 7 not read from the manager by design (private or browse-only installation)")
 }

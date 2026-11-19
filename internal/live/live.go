@@ -534,6 +534,10 @@ var (
 	// could not find the requested resource" are refusals of the read, not
 	// an object that does not exist.
 	objectNotFoundRe = regexp.MustCompile(`"[^"]+" not found`)
+	// noServerRe is muster's refusal of a family's tool for a member it does
+	// not register for the session (`tool x_kubernetes_get is not available
+	// on server "rowan-mcp-kubernetes" (available: …)`).
+	noServerRe = regexp.MustCompile(`^tool \S+ is not available on server "([^"]+)"`)
 )
 
 // classify maps a tool's refusal to the verify's errors: muster's
@@ -546,6 +550,9 @@ var (
 func classify(text string) error {
 	if tl := tooLarge(text); tl != nil {
 		return tl
+	}
+	if m := noServerRe.FindStringSubmatch(text); m != nil {
+		return &verify.NoServer{Server: m[1]}
 	}
 	switch {
 	case toolNotFoundText(text):

@@ -45,6 +45,14 @@ func TestClassifyMapsRefusals(t *testing.T) {
 			t.Errorf("%q: %#v", text, err)
 		}
 	}
+	// muster's family member it does not register for the session: a refusal
+	// of the read naming the server, never an object that does not exist.
+	err = classify(`tool x_kubernetes_get is not available on server "elver-mcp-kubernetes" (available: alba-mcp-kubernetes, gazelle-mcp-kubernetes)`)
+	var noServer *verify.NoServer
+	if !errors.As(err, &noServer) || noServer.Server != "elver-mcp-kubernetes" || errors.Is(err, verify.ErrNotFound) || toolNotFoundText(err.Error()) ||
+		err.Error() != `muster registers no server "elver-mcp-kubernetes" for this session` {
+		t.Errorf("a member muster does not register: %#v", err)
+	}
 	if !toolNotFound(nil, errors.New("tool not found: x_kubernetes_get")) || !toolNotFound(mcp.NewToolResultError("tool not found: x_kubernetes_get"), nil) || toolNotFound(mcp.NewToolResultError(`pods "x" not found`), nil) || toolNotFound(mcp.NewToolResultText("ok"), nil) {
 		t.Error("toolNotFound reads the call's error and the result's text")
 	}

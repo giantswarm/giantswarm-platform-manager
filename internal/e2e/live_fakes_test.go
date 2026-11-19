@@ -870,6 +870,14 @@ func (m *fakeMuster) serve(installation string, inst *fakeInstallation) {
 	m.insts[installation] = inst
 }
 
+// unserve removes an installation from behind the family: muster no longer
+// registers its server.
+func (m *fakeMuster) unserve(installation string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.insts, installation)
+}
+
 func (m *fakeMuster) installation(name string) (*fakeInstallation, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -32,6 +32,8 @@ func liveResult(state installations.State, dims ...verify.Dimension) verify.Resu
 	return verify.Result{State: state, Features: []verify.Feature{{ID: "runtime", Dimensions: dims}}, Summary: map[verify.Mark]int{verify.AsDefined: 3}}
 }
 
+const extrasKustomization = "extras"
+
 // The rollout picture is the readiness checks of the live result: a
 // HelmRelease Ready is True with its revision, one not Ready carries the
 // condition's status and message, one the person could not read claims
@@ -40,14 +42,14 @@ func TestRolloutObjectsReadTheFluxChecks(t *testing.T) {
 	res := liveResult(installations.StateEnabled, verify.Dimension{ID: dimReleases, Kind: definitions.KindLive, Live: &verify.LiveResult{Checks: []verify.Check{
 		{Kind: string(render.HelmReleaseReady), Namespace: fluxNS, Resource: helmRelease, Name: installations.AgentPlatform, Mark: verify.AsDefined, Message: isReady, Revision: "4.44.1"},
 		{Kind: string(render.HelmReleaseReady), Namespace: fluxNS, Resource: helmRelease, Name: musterName, Mark: verify.Drifted, Message: notReady},
-		{Kind: string(render.Condition), Namespace: fluxNS, Resource: "Kustomization.kustomize.toolkit.fluxcd.io", Name: "extras", Mark: verify.NotChecked, Message: "forbidden for viewer: kustomizations is forbidden", Revision: "main@sha1:abc"},
+		{Kind: string(render.Condition), Namespace: fluxNS, Resource: "Kustomization.kustomize.toolkit.fluxcd.io", Name: extrasKustomization, Mark: verify.NotChecked, Message: "forbidden for viewer: kustomizations is forbidden", Revision: "main@sha1:abc"},
 		{Kind: string(render.Condition), Namespace: kagentNS, Resource: "Deployment", Name: "kagent-ui", Mark: verify.AsDefined, Message: "Available=True"},
 	}}})
 	objects, ready, failed := rolloutObjects(res)
 	want := []actions.RolloutObject{
 		{Kind: helmRelease, Namespace: fluxNS, Name: installations.AgentPlatform, Ready: "True", Revision: "4.44.1", Message: isReady},
 		{Kind: helmRelease, Namespace: fluxNS, Name: musterName, Ready: "False", Message: notReady},
-		{Kind: "Kustomization", Namespace: fluxNS, Name: "extras", Revision: "main@sha1:abc", Message: "forbidden for viewer: kustomizations is forbidden"},
+		{Kind: "Kustomization", Namespace: fluxNS, Name: extrasKustomization, Revision: "main@sha1:abc", Message: "forbidden for viewer: kustomizations is forbidden"},
 	}
 	if ready || failed || !reflect.DeepEqual(objects, want) {
 		t.Errorf("ready %v failed %v objects %+v", ready, failed, objects)
@@ -62,6 +64,35 @@ func TestRolloutObjectsReadTheFluxChecks(t *testing.T) {
 		{Kind: string(render.HelmReleaseReady), Resource: helmRelease, Name: "backstage", Mark: verify.Drifted, Failed: true,
 			Message: "Ready=False: Helm rollback succeeded; Released=False (UpgradeFailed): context deadline exceeded"}}}})); ready || !failed {
 		t.Errorf("a failed release: ready %v failed %v", ready, failed)
+	}
+}
+
+// An installation the hub keeps to browsing is never read through muster:
+// its Flux objects not checked by design are no object of the rollout and no
+// proof it waits for, so the stage is decided on the rest; a server muster
+// lacks for any other reason leaves the object unread and the stage rolling
+// out.
+func TestRolloutLeavesOutWhatIsNotCheckedByDesign(t *testing.T) {
+	browsing := verify.Check{Kind: string(render.HelmReleaseReady), Namespace: fluxNS, Resource: helmRelease, Name: installations.AgentPlatform, Mark: verify.NotChecked, Message: verify.ReasonBrowseOnly}
+	source := verify.Check{Kind: string(render.SourceFollowed), Namespace: fluxNS, Resource: "Kustomization.kustomize.toolkit.fluxcd.io", Name: extrasKustomization, Mark: verify.NotChecked, Message: verify.ReasonBrowseOnly}
+	res := liveResult(installations.StateEnabled, verify.Dimension{ID: dimReleases, Kind: definitions.KindLive, Mark: verify.NotChecked, ByDesign: true, Live: &verify.LiveResult{Checks: []verify.Check{browsing, source}}})
+	if objects, ready, failed := rolloutObjects(res); !ready || failed || len(objects) != 0 {
+		t.Errorf("browse-only: ready %v failed %v objects %+v", ready, failed, objects)
+	}
+	if checks := liveChecks(res); len(checks) != 0 {
+		t.Errorf("browse-only checks hold the proof: %+v", checks)
+	}
+	if state, message, red := decideStage(actions.StateRollingOut, res); state != actions.StateEnabled || len(red) != 0 {
+		t.Errorf("browse-only: %s %q %v", state, message, red)
+	}
+	missing := browsing
+	missing.Message = verify.NoServerPrefix + `"birch-mcp-kubernetes" for this session`
+	res = liveResult(installations.StateEnabled, verify.Dimension{ID: dimReleases, Kind: definitions.KindLive, Mark: verify.NotChecked, Live: &verify.LiveResult{Checks: []verify.Check{missing}}})
+	if objects, ready, _ := rolloutObjects(res); ready || len(objects) != 1 || objects[0].Ready != "" || objects[0].Message != missing.Message {
+		t.Errorf("a missing server: ready %v objects %+v", ready, objects)
+	}
+	if checks := liveChecks(res); len(checks) != 1 {
+		t.Errorf("a missing server's check left the proof: %+v", checks)
 	}
 }
 

@@ -624,6 +624,15 @@ func (p *policy) browseOnly(targets []Target) {
 	}
 }
 
+// BrowseOnly says whether the policy keeps installation to browsing
+// (federation.browseOnly): the hub registers none of its MCP servers in
+// muster, so nothing reads it through them. False when the policy does not
+// load, which refuses every render as well.
+func BrowseOnly(installation string) bool {
+	p, err := loadPolicy()
+	return err == nil && slices.Contains(p.Federation.BrowseOnly, installation)
+}
+
 // connectors renders the hub's connector names from the record: what a
 // target's Dex registers for this hub as its first, and as a further, hub of
 // the organisation. A template that cannot name one is ErrPolicy.

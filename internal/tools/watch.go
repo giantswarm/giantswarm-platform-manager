@@ -19,6 +19,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 	"github.com/giantswarm/giantswarm-platform-manager/render"
+	"github.com/giantswarm/giantswarm-platform-manager/render/agentplatform"
 )
 
 // conditionTrue is a condition's status when it holds; conditionUnknown the
@@ -165,7 +166,7 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 		return nil, fmt.Errorf("%s: %w", ToolWatchAction, err)
 	}
 	opts := verify.LiveOptions{Definition: def, Installation: st.Name, State: settledState(st.State),
-		Inputs: verify.Inputs{Source: "action " + a.Name, Values: inputs, Typed: a.Spec.Inputs}, Kept: a.KeptOnRecord(st.Name), Cluster: cluster, Probes: t.d.Probes, Person: id.String(), AnonymousProbes: true, Rollout: true, Log: t.d.Log}
+		Inputs: verify.Inputs{Source: "action " + a.Name, Values: inputs, Typed: a.Spec.Inputs}, Kept: a.KeptOnRecord(st.Name), Cluster: cluster, Probes: t.d.Probes, Person: id.String(), AnonymousProbes: true, Rollout: true, BrowseOnly: agentplatform.BrowseOnly(st.Name), Log: t.d.Log}
 	liveRecord(&opts, *a, st.Name)
 	res := verify.CompareLive(ctx, opts)
 	res.Caller = id.String()
@@ -424,6 +425,9 @@ func rolloutObjects(res verify.Result) (objects []actions.RolloutObject, ready, 
 			for _, c := range d.Live.Checks {
 				kind, _, _ := strings.Cut(c.Resource, ".")
 				if c.Kind != string(render.HelmReleaseReady) && (c.Kind != string(render.Condition) || !verify.FluxObject(c.Resource)) {
+					continue
+				}
+				if verify.NotCheckedByDesign(c) {
 					continue
 				}
 				obj := actions.RolloutObject{Kind: kind, Namespace: c.Namespace, Name: c.Name, Revision: c.Revision, Message: c.Message}
