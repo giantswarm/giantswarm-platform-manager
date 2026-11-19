@@ -47,7 +47,7 @@ func TestClassifyMapsRefusals(t *testing.T) {
 	}
 	// muster's family member it does not register for the session: a refusal
 	// of the read naming the server, never an object that does not exist.
-	err = classify(`tool x_kubernetes_get is not available on server "elver-mcp-kubernetes" (available: alba-mcp-kubernetes, gazelle-mcp-kubernetes)`)
+	err = classify(`Tool execution failed: tool x_kubernetes_get is not available on server "elver-mcp-kubernetes" (available: alba-mcp-kubernetes, gazelle-mcp-kubernetes)`)
 	var noServer *verify.NoServer
 	if !errors.As(err, &noServer) || noServer.Server != "elver-mcp-kubernetes" || errors.Is(err, verify.ErrNotFound) || toolNotFoundText(err.Error()) ||
 		err.Error() != `muster registers no server "elver-mcp-kubernetes" for this session` {

@@ -537,7 +537,7 @@ var (
 	// noServerRe is muster's refusal of a family's tool for a member it does
 	// not register for the session (`tool x_kubernetes_get is not available
 	// on server "rowan-mcp-kubernetes" (available: …)`).
-	noServerRe = regexp.MustCompile(`^tool \S+ is not available on server "([^"]+)"`)
+	noServerRe = regexp.MustCompile(`tool \S+ is not available on server "([^"]+)"`)
 )
 
 // classify maps a tool's refusal to the verify's errors: muster's

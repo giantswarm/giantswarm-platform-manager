@@ -920,7 +920,7 @@ func (m *fakeMuster) kubernetes(op string) mustertest.Tool {
 		mc := strings.TrimSuffix(server, "-mcp-kubernetes")
 		inst, ok := m.installation(mc)
 		if !ok || mc == server {
-			return mcp.NewToolResultError(fmt.Sprintf("tool x_%s_%s is not available on server %q (available: %s)", kubernetesFamily, op, server, strings.Join(m.members(), ", ")))
+			return mcp.NewToolResultError(fmt.Sprintf("Tool execution failed: tool x_%s_%s is not available on server %q (available: %s)", kubernetesFamily, op, server, strings.Join(m.members(), ", ")))
 		}
 		if person == liveStranger {
 			return mcp.NewToolResultError(fmt.Sprintf(authRequiredText, server, server))
