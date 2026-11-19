@@ -76,6 +76,7 @@ const (
 	platformClient = "agent-platform"
 	testMusterURL  = "http://muster:8090/mcp"
 	testIssuer     = "https://dex.example.test/dex"
+	testFamily     = "kubernetes"
 )
 
 func TestListArgsNameTheNamespaceOrEvery(t *testing.T) {
@@ -102,7 +103,7 @@ func TestGenerationArgsMatchTheObjectAtTheGeneration(t *testing.T) {
 }
 
 func TestConfigValidateNamesTheMissingField(t *testing.T) {
-	cfg := Config{Issuer: testIssuer, Audiences: []string{platformClient}, MusterURL: testMusterURL, KubernetesFamily: "kubernetes"}
+	cfg := Config{Issuer: testIssuer, Audiences: []string{platformClient}, MusterURL: testMusterURL, KubernetesFamily: testFamily}
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +136,7 @@ func TestConfigValidateNamesTheMissingField(t *testing.T) {
 // configuration is read, naming the requirement, and never on the tokens; an
 // https one on a private Service name is accepted.
 func TestConfigValidateRefusesAPlainHTTPKeySet(t *testing.T) {
-	cfg := Config{Issuer: testIssuer, Audiences: []string{platformClient}, MusterURL: testMusterURL, KubernetesFamily: "kubernetes",
+	cfg := Config{Issuer: testIssuer, Audiences: []string{platformClient}, MusterURL: testMusterURL, KubernetesFamily: testFamily,
 		JWKSURL: "https://dex.dex.svc.cluster.local:5556/dex/keys"}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("an https key set on a private name: %v", err)
@@ -298,7 +299,7 @@ func TestVerifyRefusesALoopbackKeySet(t *testing.T) {
 	hc, err := NewHTTPClient(testIssuer, jwksURL, "")
 	require.NoError(t, err)
 	c, err := New(Config{Issuer: testIssuer, Audiences: []string{platformClient}, JWKSURL: jwksURL, HTTPClient: hc,
-		MusterURL: testMusterURL, KubernetesFamily: "kubernetes"}, slog.New(slog.DiscardHandler))
+		MusterURL: testMusterURL, KubernetesFamily: testFamily}, slog.New(slog.DiscardHandler))
 	require.NoError(t, err)
 	t.Cleanup(c.Close)
 
@@ -309,7 +310,7 @@ func TestVerifyRefusesALoopbackKeySet(t *testing.T) {
 // New refuses a configuration without the client that reads the key set.
 func TestNewRequiresAnHTTPClient(t *testing.T) {
 	_, err := New(Config{Issuer: testIssuer, Audiences: []string{platformClient},
-		MusterURL: testMusterURL, KubernetesFamily: "kubernetes"}, slog.New(slog.DiscardHandler))
+		MusterURL: testMusterURL, KubernetesFamily: testFamily}, slog.New(slog.DiscardHandler))
 	require.ErrorContains(t, err, "HTTP client")
 }
 
