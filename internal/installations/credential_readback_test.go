@@ -15,7 +15,6 @@ import (
 
 const (
 	inputAgentManagerExchange = "agentManager.github.tokenExchange.enabled"
-	inputAgentManagerCommit   = "agentManager.github.enabled"
 	keyCredentials            = "credentials"
 	keyCredentialUI           = "uiURL"
 )
@@ -41,12 +40,12 @@ func TestAgentManagerCredentialReadBack(t *testing.T) {
 			"agentManager.credentials.uiURL": "https://portal.acme.test/credentials/{operation}",
 		}},
 		{"former key", "agent-manager:\n  github:\n    enabled: false\n  githubTokenExchange:\n    endpoint: https://muster.rowan.acme.test/oauth/token\n", map[string]any{
-			inputAgentManagerCommit:   false,
 			inputAgentManagerExchange: true,
 			inputOrganizationsCommit:  false,
 		}},
-		{"pin", "agent-manager:\n  github:\n    enabled: true\n", map[string]any{
-			inputAgentManagerCommit:   true,
+		// The former pin on record reads back as commit mode off: no input
+		// renders the pin.
+		{"former pin", "agent-manager:\n  github:\n    enabled: true\n", map[string]any{
 			inputAgentManagerExchange: false,
 			inputOrganizationsCommit:  false,
 		}},

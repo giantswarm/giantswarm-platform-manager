@@ -56,7 +56,7 @@ func registerConfidentialOnRowan(t *testing.T, st *stack, byHand bool) {
 		if !strings.Contains(dex, "  extraStaticClients:\n") {
 			t.Fatalf("rowan's Dex patch lists no extraStaticClients:\n%s", dex)
 		}
-		st.ghs.addFile(acmeConfigs, dexPatch, strings.Replace(dex, "  extraStaticClients:\n", "  extraStaticClients:\n    - id: "+gatewayID+"\n      name: MCP gateway\n      redirectURIs:\n        - "+gatewayCallback+"\n      secretRef:\n        name: "+gatewaySecret+"\n        key: secret\n", 1))
+		st.ghs.addFile(acmeConfigs, dexPatch, strings.Replace(dex, "  extraStaticClients:\n", "  extraStaticClients:\n    "+gatewayID+":\n      name: MCP gateway\n      redirectURIs:\n        - "+gatewayCallback+"\n      secretRef:\n        name: "+gatewaySecret+"\n        key: secret\n", 1))
 		platformPatch := "installations/" + rowan + "/apps/agent-platform/configmap-values.yaml.patch"
 		patch, _ := st.ghs.file(acmeConfigs, platformPatch)
 		st.ghs.addFile(acmeConfigs, platformPatch, withListEntry(t, patch, "trustedAudiences:", gatewayID))
@@ -120,7 +120,7 @@ func TestReconcileRendersAConfidentialClient(t *testing.T) {
 	out, p := reconcileRowanDryRun(t, st)
 
 	dex, ok := planFile(p, "/apps/dex-app/configmap-values.yaml.patch")
-	if !ok || strings.Count(dex.Content, "- id: "+gatewayID+"\n") != 1 || !strings.Contains(dex.Content, "name: "+gatewaySecret+"\n") || !strings.Contains(dex.Content, gatewayCallback) {
+	if !ok || strings.Count(dex.Content, "\n    "+gatewayID+":\n") != 1 || !strings.Contains(dex.Content, "name: "+gatewaySecret+"\n") || !strings.Contains(dex.Content, gatewayCallback) {
 		t.Fatalf("the Dex patch:\n%s", dex.Content)
 	}
 	secret, ok := planFile(p, "/extras/agent-platform/secrets/"+gatewaySecret+"-secret.yaml")
@@ -174,7 +174,7 @@ func TestReconcileAdoptsAHandRegisteredConfidentialClient(t *testing.T) {
 		t.Errorf("the adopted Secret's file: %s rewritten %v", f.Change, f.Rewritten)
 	}
 	dex, _ := planFile(p, "/apps/dex-app/configmap-values.yaml.patch")
-	if strings.Count(dex.Content, "- id: "+gatewayID+"\n") != 1 || strings.Contains(dex.Content, "MCP gateway") || slices.ContainsFunc(dex.Kept, func(k plan.Kept) bool { return k.Entry == gatewayID }) {
+	if strings.Count(dex.Content, "\n    "+gatewayID+":\n") != 1 || strings.Contains(dex.Content, "MCP gateway") || slices.ContainsFunc(dex.Kept, func(k plan.Kept) bool { return k.Entry == gatewayID }) {
 		t.Errorf("the Dex patch, kept %v:\n%s", dex.Kept, dex.Content)
 	}
 	patch, _ := planFile(p, "/apps/agent-platform/configmap-values.yaml.patch")

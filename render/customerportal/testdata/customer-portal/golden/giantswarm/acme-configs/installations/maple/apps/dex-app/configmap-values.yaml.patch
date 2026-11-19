@@ -2,7 +2,7 @@
 # the next reconcile writes it again from the installation's inputs.
 oidc:
   extraStaticClients:
-    - id: backstage
+    backstage:
       name: Dev Portal
       redirectURIs:
         - https://portal.maple.acme.example.test/api/auth/oidc-maple/handler/frame

@@ -14,15 +14,32 @@ var renamedInputs = []struct{ from, to string }{
 	{"agentManager.githubTokenExchange.enabled", "agentManager.github.tokenExchange.enabled"},
 }
 
+// droppedInputs are former inputs no current input replaces: the managers'
+// GitHub App pin, which the exchange (<manager>.github.tokenExchange.enabled)
+// superseded. Superseded actions still record them, and verify_installation
+// and watch_action parse those records again, so the input is dropped
+// whatever its value rather than refused.
+var droppedInputs = []string{
+	"agentManager.github.enabled",
+	"clusterManager.github.enabled",
+	"modelManager.github.enabled",
+	"skillManager.github.enabled",
+}
+
 // renameInputs moves each input given under its former name to its current
-// one. The same input under both names with different values is refused: no
-// name wins silently.
+// one and drops each input in droppedInputs. The same input under both names
+// with different values is refused: no name wins silently.
 func renameInputs(encoded []byte) ([]byte, error) {
 	var doc map[string]any
 	if err := json.Unmarshal(encoded, &doc); err != nil || doc == nil {
 		return encoded, nil //nolint:nilerr // not an object: the schema reports it
 	}
 	moved := false
+	for _, path := range droppedInputs {
+		if _, ok := take(doc, path); ok {
+			moved = true
+		}
+	}
 	for _, r := range renamedInputs {
 		old, ok := take(doc, r.from)
 		if !ok {

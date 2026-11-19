@@ -36,13 +36,12 @@ func TestManagerGrantReadBack(t *testing.T) {
 		for _, scenario := range []struct {
 			name, values string
 			exchange     bool
-			pin          *bool
 		}{
-			{"on demand", "  github:\n    enabled: true\n    tokenExchange:\n      tokenEndpoint: https://muster.rowan.acme.test/oauth/token\n", true, nil},
-			{"former key", "  githubTokenExchange:\n    endpoint: https://muster.rowan.acme.test/oauth/token\n", true, nil},
-			{"legacy access", "  github:\n    enabled: true\n", false, new(true)},
-			{"empty exchange", "  github:\n    enabled: true\n    tokenExchange: {}\n", false, nil},
-			{"not configured", "{}\n", false, nil},
+			{"on demand", "  github:\n    enabled: true\n    tokenExchange:\n      tokenEndpoint: https://muster.rowan.acme.test/oauth/token\n", true},
+			{"former key", "  githubTokenExchange:\n    endpoint: https://muster.rowan.acme.test/oauth/token\n", true},
+			{"former pin", "  github:\n    enabled: true\n", false},
+			{"empty exchange", "  github:\n    enabled: true\n    tokenExchange: {}\n", false},
+			{"not configured", "{}\n", false},
 		} {
 			t.Run(manager.component+"/"+scenario.name, func(t *testing.T) {
 				patch := fmt.Sprintf("%s:\n%s", manager.component, scenario.values)
@@ -53,12 +52,7 @@ func TestManagerGrantReadBack(t *testing.T) {
 				got, err := definition.ReadBack(t.Context(), read, readBackInstallation, readBackName, nil)
 				require.NoError(t, err)
 				require.Equal(t, scenario.exchange, got[manager.input+".github.tokenExchange.enabled"])
-				pin := manager.input + ".github.enabled"
-				if scenario.pin == nil {
-					require.NotContains(t, got, pin)
-				} else {
-					require.Equal(t, *scenario.pin, got[pin])
-				}
+				require.NotContains(t, got, manager.input+".github.enabled")
 			})
 		}
 	}

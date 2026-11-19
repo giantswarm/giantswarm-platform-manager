@@ -195,3 +195,51 @@ func TestBeekeeperVaultUnset(t *testing.T) {
 		t.Errorf("unset %q in %s (%d calls), want %q in /c", got, c.dir, len(*calls), want)
 	}
 }
+
+func TestSOPSVaultRekey(t *testing.T) {
+	decrypted := "oidc:\n  customer:\n    connectors:\n      - id: corporate\n        connectorType: oidc\n        connectorConfig: |\n          clientSecret: the-value\n      - id: hub-exchange\n        connectorType: oidc\n        insecure: true\n"
+	run, calls := recorder(func(argv []string) ([]byte, error) {
+		if argv[1] == "decrypt" {
+			return []byte(decrypted), nil
+		}
+		return nil, nil
+	})
+	v, _ := NewVault(VaultSOPS, run)
+	if err := v.Rekey(context.Background(), "/r/p.yaml.patch", "oidc.customer.connectors"); err != nil {
+		t.Fatal(err)
+	}
+	if len(*calls) != 2 {
+		t.Fatalf("calls %v, want decrypt and set", *calls)
+	}
+	c := (*calls)[1]
+	want := `sops set --input-type yaml --output-type yaml --value-stdin p.yaml.patch ["oidc"]["customer"]["connectors"]`
+	if strings.Join(c.argv, " ") != want || c.dir != "/r" {
+		t.Errorf("set %q in %s, want %q in /r", strings.Join(c.argv, " "), c.dir, want)
+	}
+	if strings.Contains(strings.Join(c.argv, " "), "the-value") {
+		t.Error("the value is an argument")
+	}
+	wantValue := `{"corporate":{"connectorConfig":"clientSecret: the-value\n","connectorType":"oidc"},"hub-exchange":{"connectorType":"oidc","insecure":true}}`
+	if c.stdin != wantValue {
+		t.Errorf("stdin %s, want %s", c.stdin, wantValue)
+	}
+}
+
+func TestSOPSVaultRekeyLeavesAMap(t *testing.T) {
+	run, calls := recorder(func([]string) ([]byte, error) {
+		return []byte("oidc:\n  customer:\n    connectors:\n      corporate:\n        connectorType: oidc\n"), nil
+	})
+	v, _ := NewVault(VaultSOPS, run)
+	if err := v.Rekey(context.Background(), "/r/p.yaml.patch", "oidc.customer.connectors"); err != nil || len(*calls) != 1 {
+		t.Fatalf("err %v, calls %v: want the map left as it is", err, *calls)
+	}
+}
+
+func TestBeekeeperVaultRekeyUnsupported(t *testing.T) {
+	run, calls := recorder(func([]string) ([]byte, error) { return nil, nil })
+	v, _ := NewVault(VaultBeekeeper, run)
+	err := v.Rekey(context.Background(), "/r/p.yaml.patch", "oidc.customer.connectors")
+	if !errors.Is(err, ErrUnsupported) || !strings.Contains(err.Error(), "--vault sops") || len(*calls) != 0 {
+		t.Fatalf("err %v, calls %v: want unsupported naming sops", err, *calls)
+	}
+}

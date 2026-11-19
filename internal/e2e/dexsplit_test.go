@@ -98,6 +98,11 @@ func unsetPath(n *yaml.Node, path []string) {
 	}
 }
 
+// Rekey is not reached: the fixture patch carries no connector list.
+func (*splitVault) Rekey(_ context.Context, file, path string) error {
+	return errors.New("no connector list to rewrite at " + file + "#" + path)
+}
+
 func (v *splitVault) Equal(_ context.Context, a, b dexsplit.Ref) (bool, error) {
 	va, ok := v.values[a.String()]
 	if !ok {
@@ -157,7 +162,7 @@ func TestClusterMCPServersReadsASplitTokenExchangeClientAsKept(t *testing.T) {
 	portal := strings.Replace(portalConfig(hub, alder, birch), "        gs:\n", "        gs:\n          clusterTokenBroker:\n            tokenUrl: https://muster."+hub+".example.test/token\n", 1)
 	st.ghs.addFile(hubMCs, installations.PortalConfigPath(hub), portal)
 	st.ghs.addFile(acmeMCs, installations.ClusterMCPServersMarker(alder), "resources:\n  - https://github.com/giantswarm/management-cluster-bases/extras/mcp-kubernetes?ref=main\n")
-	st.ghs.addFile(acmeMCs, installations.CollectionsKustomizationPath(alder), collectionsKustomization(clustermcpservers.DexAppRotation))
+	st.ghs.addFile(acmeMCs, installations.CollectionsKustomizationPath(alder), collectionsKustomization(plan.DexAppConnectorMaps))
 	st.ghs.addFile(acmeMCs, extrasKustomizationPath(alder), "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ./mcp-kubernetes/\n")
 	client := render.TokenExchangeClient(alder, hub, true)
 	name := render.ExchangeSecretName(client)

@@ -19,21 +19,21 @@ oidc:
         name: dex-client-mcp-capi
         key: secret
   extraStaticClients:
-    - id: kagent
+    kagent:
       name: kagent-ui
       secretRef:
         name: dex-client-kagent
         key: secret
       redirectURIs:
         - https://kagent.heron.lakeside.example/oauth2/callback
-    - id: production-gateway
+    production-gateway:
       name: production-gateway
       redirectURIs:
         - https://gateway.runtime.example/oauth2/callback/00000000-0000-4000-8000-00000000000b
       secretRef:
         name: dex-client-production-gateway
         key: secret
-    - id: staging-gateway
+    staging-gateway:
       name: staging-gateway
       redirectURIs:
         - https://gateway.runtime.example/oauth2/callback/00000000-0000-4000-8000-00000000000c

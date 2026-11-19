@@ -46,7 +46,7 @@
           "type": "boolean",
           "description": "The agent-platform capability is enabled on this installation. Then the portal's extras/backstage/kustomization.yaml lists the agent-platform definition's Component (./agent-platform/), that definition owns the installation's dex-app configmap patch and carries the portal's Dex client in it, this definition renders no dex patch, and the user values carry the installation's avatars host (https://avatars.<baseDomain>) first in BACKSTAGE_AVATARS_IMG_SRC of backstage.extraEnvVars, the CSP image source the shared base's csp.imgSrc reads (its default is 'self'), followed space-separated by the avatars host of every federated installation that runs the platform (federation.installations[*].agentPlatform); the variable is not set where no installation the portal shows runs the platform. backstage.extraEnvVars is one list Helm replaces wholesale across the HelmRelease's values sources, so the user values own it whole and the Component sets none.",
           "x-source": "registry", "x-feature": "agent-platform-section",
-          "x-renders": ["backstage:kustomization:components[*]", "backstage:user-values:backstage.extraEnvVars[*]", "dex-configmap:oidc.extraStaticClients[*]"]
+          "x-renders": ["backstage:kustomization:components[*]", "backstage:user-values:backstage.extraEnvVars[*]", "dex-configmap:oidc.extraStaticClients.<id>"]
         },
         "test": {
           "type": "boolean", "default": false,
@@ -65,7 +65,7 @@
           "type": "string", "format": "hostname",
           "description": "The portal's hostname: its route, its base URLs, CORS origin and the Dex client's redirect URI.",
           "x-source": "person", "x-feature": "portal",
-          "x-readback": {"file": "backstage:app-config", "key": "app.baseUrl", "kind": "host"}, "x-renders": ["backstage:app-config:app.baseUrl", "backstage:app-config:backend.baseUrl", "backstage:app-config:backend.cors.origin", "backstage:user-values:route.hostnames[*]", "dex-configmap:oidc.extraStaticClients[*].redirectURIs[*]"]
+          "x-readback": {"file": "backstage:app-config", "key": "app.baseUrl", "kind": "host"}, "x-renders": ["backstage:app-config:app.baseUrl", "backstage:app-config:backend.baseUrl", "backstage:app-config:backend.cors.origin", "backstage:user-values:route.hostnames[*]", "dex-configmap:oidc.extraStaticClients.<id>.redirectURIs[*]"]
         },
         "title": {"type": "string", "default": "Dev Portal", "description": "The portal's title.", "x-source": "person", "x-feature": "portal", "x-readback": {"file": "backstage:app-config", "key": "app.title"}, "x-renders": ["backstage:app-config:app.title"]},
         "organization": {"type": "string", "description": "The organisation's name as the portal shows it.", "x-source": "person", "x-feature": "portal", "x-readback": {"file": "backstage:app-config", "key": "organization.name"}, "x-renders": ["backstage:app-config:organization.name"]},
