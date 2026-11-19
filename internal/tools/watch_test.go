@@ -32,6 +32,8 @@ func liveResult(state installations.State, dims ...verify.Dimension) verify.Resu
 	return verify.Result{State: state, Features: []verify.Feature{{ID: "runtime", Dimensions: dims}}, Summary: map[verify.Mark]int{verify.AsDefined: 3}}
 }
 
+const extrasKustomization = "extras"
+
 // The rollout picture is the readiness checks of the live result: a
 // HelmRelease Ready is True with its revision, one not Ready carries the
 // condition's status and message, one the person could not read claims
@@ -40,14 +42,14 @@ func TestRolloutObjectsReadTheFluxChecks(t *testing.T) {
 	res := liveResult(installations.StateEnabled, verify.Dimension{ID: dimReleases, Kind: definitions.KindLive, Live: &verify.LiveResult{Checks: []verify.Check{
 		{Kind: string(render.HelmReleaseReady), Namespace: fluxNS, Resource: helmRelease, Name: installations.AgentPlatform, Mark: verify.AsDefined, Message: isReady, Revision: "4.44.1"},
 		{Kind: string(render.HelmReleaseReady), Namespace: fluxNS, Resource: helmRelease, Name: musterName, Mark: verify.Drifted, Message: notReady},
-		{Kind: string(render.Condition), Namespace: fluxNS, Resource: "Kustomization.kustomize.toolkit.fluxcd.io", Name: "extras", Mark: verify.NotChecked, Message: "forbidden for viewer: kustomizations is forbidden", Revision: "main@sha1:abc"},
+		{Kind: string(render.Condition), Namespace: fluxNS, Resource: "Kustomization.kustomize.toolkit.fluxcd.io", Name: extrasKustomization, Mark: verify.NotChecked, Message: "forbidden for viewer: kustomizations is forbidden", Revision: "main@sha1:abc"},
 		{Kind: string(render.Condition), Namespace: kagentNS, Resource: "Deployment", Name: "kagent-ui", Mark: verify.AsDefined, Message: "Available=True"},
 	}}})
 	objects, ready, failed := rolloutObjects(res)
 	want := []actions.RolloutObject{
 		{Kind: helmRelease, Namespace: fluxNS, Name: installations.AgentPlatform, Ready: "True", Revision: "4.44.1", Message: isReady},
 		{Kind: helmRelease, Namespace: fluxNS, Name: musterName, Ready: "False", Message: notReady},
-		{Kind: "Kustomization", Namespace: fluxNS, Name: "extras", Revision: "main@sha1:abc", Message: "forbidden for viewer: kustomizations is forbidden"},
+		{Kind: "Kustomization", Namespace: fluxNS, Name: extrasKustomization, Revision: "main@sha1:abc", Message: "forbidden for viewer: kustomizations is forbidden"},
 	}
 	if ready || failed || !reflect.DeepEqual(objects, want) {
 		t.Errorf("ready %v failed %v objects %+v", ready, failed, objects)
@@ -72,7 +74,7 @@ func TestRolloutObjectsReadTheFluxChecks(t *testing.T) {
 // out.
 func TestRolloutLeavesOutWhatIsNotCheckedByDesign(t *testing.T) {
 	browsing := verify.Check{Kind: string(render.HelmReleaseReady), Namespace: fluxNS, Resource: helmRelease, Name: installations.AgentPlatform, Mark: verify.NotChecked, Message: verify.ReasonBrowseOnly}
-	source := verify.Check{Kind: string(render.SourceFollowed), Namespace: fluxNS, Resource: "Kustomization.kustomize.toolkit.fluxcd.io", Name: "extras", Mark: verify.NotChecked, Message: verify.ReasonBrowseOnly}
+	source := verify.Check{Kind: string(render.SourceFollowed), Namespace: fluxNS, Resource: "Kustomization.kustomize.toolkit.fluxcd.io", Name: extrasKustomization, Mark: verify.NotChecked, Message: verify.ReasonBrowseOnly}
 	res := liveResult(installations.StateEnabled, verify.Dimension{ID: dimReleases, Kind: definitions.KindLive, Mark: verify.NotChecked, ByDesign: true, Live: &verify.LiveResult{Checks: []verify.Check{browsing, source}}})
 	if objects, ready, failed := rolloutObjects(res); !ready || failed || len(objects) != 0 {
 		t.Errorf("browse-only: ready %v failed %v objects %+v", ready, failed, objects)

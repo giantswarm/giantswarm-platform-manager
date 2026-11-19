@@ -935,7 +935,7 @@ func TestLiveReadsAreBounded(t *testing.T) {
 // server named and a gap.
 func TestNoServerIsByDesignOnABrowseOnlyInstallation(t *testing.T) {
 	const server = "elver-mcp-kubernetes"
-	probe := render.Probe{ID: "live-releases", Kind: render.HelmReleaseReady, Namespace: testNamespace, Resource: kindHelmRelease, Name: "kagent"}
+	probe := render.Probe{ID: "live-releases", Kind: render.HelmReleaseReady, Namespace: testNamespace, Resource: kindHelmRelease, Name: "agent-platform"}
 	dim := definitions.Dimension{ID: probe.ID, Kind: definitions.KindLive}
 	cluster := &recordingCluster{err: &NoServer{Server: server}}
 	browsing := &executor{opts: LiveOptions{Cluster: cluster, Installation: "elver", BrowseOnly: true}, lv: &liveRender{probes: []render.Probe{probe}}}
