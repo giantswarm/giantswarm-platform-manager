@@ -85,22 +85,32 @@ func confidentialDexClient(c RegisteredClient) render.Map {
 // secret, drawn once and read by the client's operator from the cluster.
 func confidentialSecretName(c RegisteredClient) string { return c.ClientID + "-dex-client-secret" }
 
-// exchangeTokenEndpointHosts are the hosts of the Dexes the registered
-// servers exchange the person's token at, each once: muster's token-exchange
-// client lets them resolve to a private address
+// exchangeTokenEndpointHosts are the hosts of the Dexes muster exchanges the
+// person's token at, each once: the registered servers' Dexes, then each
+// private federation target's Dex through its tunnel Service. muster's
+// token-exchange client lets them resolve to a private address
 // (muster.muster.oauth.mcpClient.tokenExchange.allowPrivateIPTokenEndpointHosts),
-// as a workload cluster's Dex behind an internal load balancer does.
+// as a workload cluster's Dex behind an internal load balancer and a tunnel
+// Service do; with muster's extraCaFile, an unlisted host would leave every
+// token endpoint without the private-address guard.
 func (in *Input) exchangeTokenEndpointHosts() []string {
 	var hosts []string
-	for _, s := range in.Installation.MCPServers {
-		if s.Auth != authExchange {
-			continue
-		}
-		u, err := url.Parse(s.DexTokenEndpoint)
+	add := func(endpoint string) {
+		u, err := url.Parse(endpoint)
 		if err != nil || u.Hostname() == "" || slices.Contains(hosts, u.Hostname()) {
-			continue
+			return
 		}
 		hosts = append(hosts, u.Hostname())
+	}
+	for _, s := range in.Installation.MCPServers {
+		if s.Auth == authExchange {
+			add(s.DexTokenEndpoint)
+		}
+	}
+	for _, t := range in.Installation.Federation.Targets {
+		if t.Private && !t.BrowseOnly {
+			add(t.dexTokenEndpoint())
+		}
 	}
 	return hosts
 }
