@@ -59,6 +59,9 @@ type Report struct {
 	Drop      []string `json:"drop,omitempty"`
 	Keep      []string `json:"keep,omitempty"`
 	Pairing   *Pairing `json:"pairing,omitempty"`
+	// Connectors are the connector lists the encrypted patch keeps, each
+	// rewritten as a map keyed by connector id.
+	Connectors []ConnectorList `json:"connectors,omitempty"`
 	// Files are the files the split writes, or wrote, per repository: the
 	// management-clusters change merges first, the configs change after
 	// flux-extras applied its Secrets.
@@ -99,6 +102,14 @@ type Entry struct {
 	LogoURL      string   `json:"logoURL,omitempty"`
 	// SecretRef is the Secret the entry references.
 	SecretRef string `json:"secretRef,omitempty"`
+}
+
+// ConnectorList is one owner's connector list in the encrypted patch.
+type ConnectorList struct {
+	Path    string `json:"path"`
+	Entries int    `json:"entries"`
+	// IDs are the connectors' ids, the map's keys; nil while unrevealed.
+	IDs []string `json:"ids,omitempty"`
 }
 
 // Move is one inline secret moving to its Secret.
@@ -185,26 +196,32 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	}
 	r.Keep = shape.Keep
 	split := shape.Split()
+	var paths []string
 	if split {
 		// The patch is split; a token-exchange client an earlier split put
 		// under extras/dex still moves on, its id read from its file.
 		r.Clients = movedOn(o)
-		if len(r.Clients) == 0 {
+		if len(r.Clients) == 0 && len(shape.Connectors) == 0 {
 			r.Done = true
 			return r, nil
 		}
-		r.Revealed = true
 	} else {
 		r.Drop, r.PeerCount = shape.Drop, shape.Peers
-		revealed, err := o.Vault.Reveal(ctx, encrypted, revealPaths(shape))
+		paths = revealPaths(shape)
+	}
+	paths = append(paths, connectorIDPaths(shape)...)
+	revealed := map[string]string{}
+	r.Revealed = true
+	if len(paths) > 0 {
+		revealed, err = o.Vault.Reveal(ctx, encrypted, paths)
 		switch {
 		case errors.Is(err, ErrUnsupported) && !o.Write:
-			r.Unrevealed = err.Error()
+			r.Unrevealed, r.Revealed, revealed = err.Error(), false, nil
 		case err != nil:
 			return r, err
-		default:
-			r.Revealed = true
 		}
+	}
+	if !split {
 		if r.Clients, err = clients(o, shape, revealed); err != nil {
 			return r, err
 		}
@@ -213,6 +230,9 @@ func Run(ctx context.Context, o Options) (Report, error) {
 				r.Peers = append(r.Peers, v)
 			}
 		}
+	}
+	if r.Connectors, err = connectorLists(shape, revealed); err != nil {
+		return r, err
 	}
 	if err := checkMoves(ctx, o, encrypted, &r); err != nil {
 		return r, err
@@ -228,14 +248,67 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	if err := writeSecrets(ctx, o, encrypted, &r); err != nil {
 		return r, err
 	}
-	if split {
-		return r, nil
+	if !split {
+		if err := writeConfigs(ctx, o, encrypted, &r); err != nil {
+			return r, err
+		}
 	}
-	return r, writeConfigs(ctx, o, encrypted, &r)
+	return r, rekey(ctx, o, encrypted, &r)
 }
 
-// dexAppGate refuses a dex-app that cannot read a referenced client Secret,
-// naming the pin to add.
+// connectorIDPaths are the ids of the shape's connector lists, revealed to
+// become the maps' keys.
+func connectorIDPaths(s Shape) []string {
+	var out []string
+	for _, c := range s.Connectors {
+		for i := range c.Entries {
+			out = append(out, c.IDPath(i))
+		}
+	}
+	return out
+}
+
+// connectorLists are the shape's connector lists with their ids where
+// revealed; an empty id or one two entries share is refused.
+func connectorLists(s Shape, revealed map[string]string) ([]ConnectorList, error) {
+	var out []ConnectorList
+	for _, c := range s.Connectors {
+		l := ConnectorList{Path: c.Path(), Entries: c.Entries}
+		if revealed != nil {
+			seen := map[string]bool{}
+			for i := range c.Entries {
+				id := revealed[c.IDPath(i)]
+				switch {
+				case id == "":
+					return nil, refused("%s: empty", c.IDPath(i))
+				case seen[id]:
+					return nil, refused("%s: the id %q is in the list twice; settle it by hand", c.Path(), id)
+				}
+				seen[id] = true
+				l.IDs = append(l.IDs, id)
+			}
+		}
+		out = append(out, l)
+	}
+	return out, nil
+}
+
+// rekey rewrites each connector list of the encrypted patch as a map keyed
+// by connector id.
+func rekey(ctx context.Context, o Options, encrypted string, r *Report) error {
+	for _, l := range r.Connectors {
+		if err := o.Vault.Rekey(ctx, encrypted, l.Path); err != nil {
+			return err
+		}
+	}
+	if len(r.Connectors) > 0 {
+		r.ConfigsFiles = appendNew(r.ConfigsFiles, installations.DexSecretPatchPath(o.Installation))
+	}
+	return nil
+}
+
+// dexAppGate refuses a dex-app that cannot read a referenced client Secret
+// or a map of clients or connectors, naming the pin to add.
 func dexAppGate(ctx context.Context, o Options, r *Report) error {
 	path := installations.CollectionsKustomizationPath(o.Installation)
 	data, err := os.ReadFile(filepath.Clean(filepath.Join(o.ManagementClusters, path)))
@@ -254,10 +327,10 @@ func dexAppGate(ctx context.Context, o Options, r *Report) error {
 	if err != nil {
 		return err
 	}
-	if !render.DexAppTakes(sv, plan.DexAppReferencedSecrets) {
-		return refused("dex-app %s (%s) reads no referenced client Secret: pin %s in %s first "+
+	if !render.DexAppTakes(sv, plan.DexAppConnectorMaps) {
+		return refused("dex-app %s (%s) reads no client or connector map: pin %s in %s first "+
 			"(a patch on the App dex-app: op replace, path /spec/version)", v.Version, v.Source(),
-			render.DexAppNeeds(plan.DexAppReferencedSecrets), path)
+			render.DexAppNeeds(plan.DexAppConnectorMaps), path)
 	}
 	return nil
 }

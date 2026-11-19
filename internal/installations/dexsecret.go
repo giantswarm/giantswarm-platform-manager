@@ -59,18 +59,20 @@ func readDexSecretLists(ctx context.Context, read Reader, inst Installation) ([]
 }
 
 // dexSecretLists reads the lists of the encrypted patch's document, in the
-// order the plaintext patch renders them.
+// order the plaintext patch renders them. Clients or connectors kept as a map
+// keyed by id merge with the plaintext ones entry by entry, so a map is no
+// such list.
 func dexSecretLists(patch string) ([]DexSecretList, error) {
 	var doc struct {
 		OIDC struct {
 			StaticClients struct {
 				DexK8SAuthenticator struct {
-					TrustedPeers []yaml.Node `yaml:"trustedPeers"`
+					TrustedPeers yaml.Node `yaml:"trustedPeers"`
 				} `yaml:"dexK8SAuthenticator"`
 			} `yaml:"staticClients"`
-			ExtraStaticClients []yaml.Node `yaml:"extraStaticClients"`
+			ExtraStaticClients yaml.Node `yaml:"extraStaticClients"`
 			Customer           struct {
-				Connectors []yaml.Node `yaml:"connectors"`
+				Connectors yaml.Node `yaml:"connectors"`
 			} `yaml:"customer"`
 		} `yaml:"oidc"`
 	}
@@ -78,14 +80,17 @@ func dexSecretLists(patch string) ([]DexSecretList, error) {
 		return nil, fmt.Errorf("decode: %w", err)
 	}
 	var out []DexSecretList
-	if n := len(doc.OIDC.StaticClients.DexK8SAuthenticator.TrustedPeers); n > 0 {
-		out = append(out, DexSecretList{Path: DexTrustedPeers, Entries: n})
-	}
-	if n := len(doc.OIDC.ExtraStaticClients); n > 0 {
-		out = append(out, DexSecretList{Path: DexExtraStaticClients, Entries: n})
-	}
-	if n := len(doc.OIDC.Customer.Connectors); n > 0 {
-		out = append(out, DexSecretList{Path: DexCustomerConnectors, Entries: n})
+	for _, l := range []struct {
+		path string
+		node yaml.Node
+	}{
+		{DexTrustedPeers, doc.OIDC.StaticClients.DexK8SAuthenticator.TrustedPeers},
+		{DexExtraStaticClients, doc.OIDC.ExtraStaticClients},
+		{DexCustomerConnectors, doc.OIDC.Customer.Connectors},
+	} {
+		if l.node.Kind == yaml.SequenceNode && len(l.node.Content) > 0 {
+			out = append(out, DexSecretList{Path: l.path, Entries: len(l.node.Content)})
+		}
 	}
 	return out, nil
 }
