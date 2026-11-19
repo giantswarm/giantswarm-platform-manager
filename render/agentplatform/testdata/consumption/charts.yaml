@@ -23,7 +23,7 @@ charts:
   # clientSecretRef, the version the definition targets.
   - name: dex-app
     registry: gsoci.azurecr.io/charts/giantswarm/dex-app
-    version: 3.5.0
+    version: 3.5.2
   # The meta chart on both of its lines — a shape renders at the line its record
   # selects (installation.chartLine): the 3 line, which the fleet base caps <4.0.0,
   # and the 4 line, which pins itself. renovate-custom.json5 keeps each pin on its
@@ -53,7 +53,7 @@ charts:
   # with the version to pin.
   - name: muster
     registry: gsoci.azurecr.io/charts/giantswarm/muster
-    version: 5.63.20
+    version: 5.63.24
   - name: kagent
     line: "3"
     registry: gsoci.azurecr.io/charts/giantswarm/kagent
