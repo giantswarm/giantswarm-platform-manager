@@ -282,7 +282,7 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 	for _, r := range ordered {
 		other, own := drawn[r.Name]
 		p, rendered := byPlan[r.Name]
-		if !own && !(rendered && defersWith(p, drawn)) {
+		if !own && (!rendered || !defersWith(p, drawn)) {
 			continue
 		}
 		with := def

@@ -8,26 +8,28 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 )
 
+const hubName, targetName = "gazelle", "garm"
+
 func TestCapabilityOfTakesTheStagesOwnDefinition(t *testing.T) {
-	a := Action{Spec: Spec{Capability: installations.ClusterMCPServers, Installations: []string{"gazelle", "garm"},
-		CapabilityByInstallation: map[string]string{"gazelle": installations.AgentPlatform}}}
-	require.Equal(t, installations.AgentPlatform, a.CapabilityOf("gazelle"))
-	require.Equal(t, installations.ClusterMCPServers, a.CapabilityOf("garm"))
-	require.Equal(t, installations.ClusterMCPServers, Action{Spec: Spec{Capability: installations.ClusterMCPServers}}.CapabilityOf("garm"))
+	a := Action{Spec: Spec{Capability: installations.ClusterMCPServers, Installations: []string{hubName, targetName},
+		CapabilityByInstallation: map[string]string{hubName: installations.AgentPlatform}}}
+	require.Equal(t, installations.AgentPlatform, a.CapabilityOf(hubName))
+	require.Equal(t, installations.ClusterMCPServers, a.CapabilityOf(targetName))
+	require.Equal(t, installations.ClusterMCPServers, Action{Spec: Spec{Capability: installations.ClusterMCPServers}}.CapabilityOf(targetName))
 }
 
 func TestFilterMatchesTheStagesOwnDefinition(t *testing.T) {
-	mixed := Action{Spec: Spec{Capability: installations.ClusterMCPServers, Installations: []string{"gazelle", "garm"},
-		CapabilityByInstallation: map[string]string{"gazelle": installations.AgentPlatform}}}
+	mixed := Action{Spec: Spec{Capability: installations.ClusterMCPServers, Installations: []string{hubName, targetName},
+		CapabilityByInstallation: map[string]string{hubName: installations.AgentPlatform}}}
 	for _, tc := range []struct {
 		name string
 		f    Filter
 		want bool
 	}{
-		{"hub by its own definition", Filter{Installation: "gazelle", Capability: installations.AgentPlatform}, true},
-		{"hub by the action's definition", Filter{Installation: "gazelle", Capability: installations.ClusterMCPServers}, false},
-		{"target by the action's definition", Filter{Installation: "garm", Capability: installations.ClusterMCPServers}, true},
-		{"target by the hub's definition", Filter{Installation: "garm", Capability: installations.AgentPlatform}, false},
+		{"hub by its own definition", Filter{Installation: hubName, Capability: installations.AgentPlatform}, true},
+		{"hub by the action's definition", Filter{Installation: hubName, Capability: installations.ClusterMCPServers}, false},
+		{"target by the action's definition", Filter{Installation: targetName, Capability: installations.ClusterMCPServers}, true},
+		{"target by the hub's definition", Filter{Installation: targetName, Capability: installations.AgentPlatform}, false},
 		{"any stage's definition", Filter{Capability: installations.AgentPlatform}, true},
 		{"the action's definition", Filter{Capability: installations.ClusterMCPServers}, true},
 		{"another definition", Filter{Capability: installations.CustomerPortal}, false},
