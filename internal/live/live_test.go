@@ -69,7 +69,10 @@ func TestKindArgsSplitKindAndGroup(t *testing.T) {
 }
 
 // platformClient is the audience of the platform's own OAuth client.
-const platformClient = "agent-platform"
+const (
+	platformClient = "agent-platform"
+	testMusterURL  = "http://muster:8090/mcp"
+)
 
 func TestListArgsNameTheNamespaceOrEvery(t *testing.T) {
 	one := listArgs("kagent", "ModelConfig.api.kagent.dev", "", verify.Readiness)
@@ -95,7 +98,7 @@ func TestGenerationArgsMatchTheObjectAtTheGeneration(t *testing.T) {
 }
 
 func TestConfigValidateNamesTheMissingField(t *testing.T) {
-	cfg := Config{Issuer: "https://dex.example.test/dex", Audiences: []string{platformClient}, MusterURL: "http://muster:8090/mcp", KubernetesFamily: "kubernetes"}
+	cfg := Config{Issuer: "https://dex.example.test/dex", Audiences: []string{platformClient}, MusterURL: testMusterURL, KubernetesFamily: "kubernetes"}
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +131,7 @@ func TestConfigValidateNamesTheMissingField(t *testing.T) {
 // configuration is read, naming the requirement, and never on the tokens; an
 // https one on a private Service name is accepted.
 func TestConfigValidateRefusesAPlainHTTPKeySet(t *testing.T) {
-	cfg := Config{Issuer: "https://dex.example.test/dex", Audiences: []string{platformClient}, MusterURL: "http://muster:8090/mcp", KubernetesFamily: "kubernetes",
+	cfg := Config{Issuer: "https://dex.example.test/dex", Audiences: []string{platformClient}, MusterURL: testMusterURL, KubernetesFamily: "kubernetes",
 		JWKSURL: "https://dex.dex.svc.cluster.local:5556/dex/keys"}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("an https key set on a private name: %v", err)
@@ -292,7 +295,7 @@ func TestVerifyRefusesALoopbackKeySet(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	c, err := New(Config{Issuer: "https://dex.example.test/dex", Audiences: []string{platformClient}, JWKSURL: srv.URL + "/keys",
-		MusterURL: "http://muster:8090/mcp", KubernetesFamily: "kubernetes"}, slog.New(slog.DiscardHandler))
+		MusterURL: testMusterURL, KubernetesFamily: "kubernetes"}, slog.New(slog.DiscardHandler))
 	require.NoError(t, err)
 	t.Cleanup(c.Close)
 
