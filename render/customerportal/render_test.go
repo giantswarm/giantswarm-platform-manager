@@ -173,7 +173,7 @@ func TestDexClientOwnership(t *testing.T) {
 	if !ok {
 		t.Fatal("no dex patch without the platform")
 	}
-	if got, want := portalEntry(t, patch.Content), roundTrip(t, render.PortalDexClient("portal.maple.acme.example.test", "maple")); !reflect.DeepEqual(got, want) {
+	if got, want := portalEntry(t, patch.Content), roundTrip(t, render.ClientsByID([]render.Map{render.PortalDexClient("portal.maple.acme.example.test", "maple")})[0].Value); !reflect.DeepEqual(got, want) {
 		t.Errorf("the dex patch carries %v, want %v", got, want)
 	}
 
@@ -201,7 +201,7 @@ func TestDexClientOwnership(t *testing.T) {
 			}
 		}
 	}
-	if got, want := portalEntry(t, apPatch), roundTrip(t, render.PortalDexClient("portal.hazel.example.test", "hazel")); !reflect.DeepEqual(got, want) {
+	if got, want := portalEntry(t, apPatch), roundTrip(t, render.ClientsByID([]render.Map{render.PortalDexClient("portal.hazel.example.test", "hazel")})[0].Value); !reflect.DeepEqual(got, want) {
 		t.Errorf("the agent-platform definition's dex patch carries %v, want %v", got, want)
 	}
 	// And the Component entry is the agent-platform definition's alone: it
@@ -328,18 +328,17 @@ func portalEntry(t *testing.T, patch []byte) any {
 	t.Helper()
 	var doc struct {
 		OIDC struct {
-			Extra []map[string]any `yaml:"extraStaticClients"`
+			Extra map[string]map[string]any `yaml:"extraStaticClients"`
 		} `yaml:"oidc"`
 	}
 	if err := yaml.Unmarshal(patch, &doc); err != nil {
 		t.Fatal(err)
 	}
-	for _, c := range doc.OIDC.Extra {
-		if c["id"] == render.PortalDexClientID {
-			return c
-		}
+	c, ok := doc.OIDC.Extra[render.PortalDexClientID]
+	if !ok {
+		return nil
 	}
-	return nil
+	return c
 }
 
 // roundTrip is v as the same decoder returns it.

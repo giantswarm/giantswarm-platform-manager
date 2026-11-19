@@ -349,7 +349,7 @@ func (in *Input) pluginKeys() render.File {
 // an installation without the platform: the portal's client, its secret a
 // reference to the Secret in Dex's namespace.
 func (in *Input) dexPatch() render.Map {
-	return render.Map{e("oidc", render.Map{e("extraStaticClients", []render.Map{render.PortalDexClient(in.Portal.Domain, in.Installation.Name)})})}
+	return render.Map{e("oidc", render.Map{e("extraStaticClients", render.ClientsByID([]render.Map{render.PortalDexClient(in.Portal.Domain, in.Installation.Name)}))})}
 }
 
 // userValues is user-values-backstage: the portal's route on the

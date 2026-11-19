@@ -2,6 +2,7 @@ package agentplatform
 
 import (
 	"bytes"
+	"slices"
 
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
@@ -154,6 +155,21 @@ func credentialsSecretName(target string) string { return render.ExchangeCredent
 // its peer (render.Peer).
 func exchangeSecretName(client string) string { return render.ExchangeSecretName(client) }
 
+// federationLogins are the targets whose Dex signs people in through this
+// hub, each with a login client on this hub's Dex: those whose own definition
+// renders the Dex side, and so the connector for this hub with the client's
+// Secret (render.FederatedConnectors), but where this is a further hub whose
+// connector the target keeps by hand.
+func (in *Input) federationLogins() []Target {
+	var list []Target
+	for _, t := range in.Installation.Federation.Targets {
+		if t.rendersDexSide() && (t.first(in.Installation.Name) || !in.Connectors.FurtherByHand) && !slices.Contains(in.withoutLogins, t.Installation) {
+			list = append(list, t)
+		}
+	}
+	return list
+}
+
 // rendersDexSide says whether the target's own definition renders the Dex
 // side of this hub's client there, in the target's agent-platform Secrets:
 // the agent platform's where the platform is on record, cluster-mcp-servers'
@@ -185,7 +201,7 @@ func (in *Input) brokerValues() render.Map {
 		if t.Private {
 			entry = append(entry, e("expectedIssuer", t.issuer()))
 		}
-		entry = append(entry, e("connectorId", in.connector(t)), e("scopes", brokerScopes),
+		entry = append(entry, e("connectorId", in.exchangeConnector(t)), e("scopes", brokerScopes),
 			e("clientCredentialsSecretRef", render.Map{e("name", t.credentialsSecret())}))
 		targets = append(targets, e(t.Installation, entry))
 	}
@@ -227,7 +243,7 @@ func (in *Input) identityProviders() render.Map {
 		if t.Private {
 			entry = append(entry, e("expectedIssuer", t.issuer()))
 		}
-		entry = append(entry, e("connectorId", in.connector(t)), e("scopes", providerScopes),
+		entry = append(entry, e("connectorId", in.exchangeConnector(t)), e("scopes", providerScopes),
 			e("credentialsSecret", render.Map{e("name", t.credentialsSecret()),
 				e("clientIdKey", "client-id"), e("clientSecretKey", "client-secret")}))
 		providers = append(providers, e(t.Installation, entry))

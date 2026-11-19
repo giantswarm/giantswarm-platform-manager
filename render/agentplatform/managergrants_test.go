@@ -97,7 +97,6 @@ func TestAdditionalManagerExchangeValues(t *testing.T) {
 		t.Run(manager.component, func(t *testing.T) {
 			input, secrets := managerGrantInput(t, 1<<index, false)
 			input["versions"].(map[string]any)[keyChart] = "4.181.0-rc.3"
-			input[manager.input].(map[string]any)[keyGitHub].(map[string]any)[keyEnabled] = true
 			result, err := Render(input, secrets, render.ModeCommit)
 			require.NoError(t, err)
 			var patch map[string]any
@@ -192,12 +191,19 @@ func TestSkillManagerGrantRequiresInstallationApp(t *testing.T) {
 	require.ErrorContains(t, err, "skillManager.github.app.secretName")
 }
 
-func TestSkillManagerLegacyAccessRequiresSupportedChart(t *testing.T) {
-	input, _ := managerGrantInput(t, 0, false)
-	input["skillManager"] = map[string]any{keyGitHub: map[string]any{keyEnabled: true}}
-	input["versions"].(map[string]any)[keyChart] = "4.178.0"
-	_, err := Parse(input)
-	require.ErrorContains(t, err, "skillManager.github.enabled")
+// The cluster-manager's exchange opens GitHub's API in its egress, for the
+// broker-released grant's GET /user and the pull request; off, it does not.
+func TestClusterManagerExchangeOpensGitHubEgress(t *testing.T) {
+	for _, on := range []bool{true, false} {
+		t.Run(fmt.Sprintf("exchange %t", on), func(t *testing.T) {
+			input, _ := managerGrantInput(t, 1, false)
+			input["clusterManager"].(map[string]any)[keyGitHub].(map[string]any)[keyTokenExchange].(map[string]any)[keyEnabled] = on
+			resolved, err := Parse(input)
+			require.NoError(t, err)
+			egress := string(render.MustYAML(resolved.clusterManagerNetworkPolicy()))
+			require.Equal(t, on, strings.Contains(egress, "matchName: api.github.com"), egress)
+		})
+	}
 }
 
 func TestAdditionalManagerExchangeOffRemovesBrokerAccess(t *testing.T) {

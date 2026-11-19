@@ -330,17 +330,16 @@ func dexExchange(t *testing.T, content []byte, client string) string {
 					TrustedPeers []string `yaml:"trustedPeers"`
 				} `yaml:"dexK8SAuthenticator"`
 			} `yaml:"staticClients"`
-			Extra []map[string]any `yaml:"extraStaticClients"`
+			Extra map[string]map[string]any `yaml:"extraStaticClients"`
 		} `yaml:"oidc"`
 	}
 	if err := yaml.Unmarshal(content, &patch); err != nil {
 		t.Fatal(err)
 	}
-	for _, c := range patch.OIDC.Extra {
-		if c["id"] == client {
-			entry, _ := yaml.Marshal(c)
-			return string(entry) + "trustedPeer: " + strconv.FormatBool(slices.Contains(patch.OIDC.StaticClients.Authenticator.TrustedPeers, client)) + "\n"
-		}
+	c, ok := patch.OIDC.Extra[client]
+	if !ok {
+		return ""
 	}
-	return ""
+	entry, _ := yaml.Marshal(c)
+	return string(entry) + "trustedPeer: " + strconv.FormatBool(slices.Contains(patch.OIDC.StaticClients.Authenticator.TrustedPeers, client)) + "\n"
 }

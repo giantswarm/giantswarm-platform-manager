@@ -10,8 +10,9 @@ import (
 
 // Print writes the report for a person: per client where its secret comes
 // from and goes, and its plaintext entry; the peers; what the encrypted
-// patch drops and keeps; the token-exchange pairing; the files per
-// repository in the order they merge. No value appears in it.
+// patch drops and keeps, and the connector lists it rewrites as maps; the
+// token-exchange pairing; the files per repository in the order they merge.
+// No value appears in it.
 func (r Report) Print(w io.Writer) {
 	mode := "dry run"
 	if r.Write {
@@ -20,10 +21,10 @@ func (r Report) Print(w io.Writer) {
 	p := func(format string, a ...any) { _, _ = fmt.Fprintf(w, format, a...) }
 	p("dex-split %s (%s, vault %s)\n", r.Installation, mode, r.Vault)
 	if r.DexApp != "" {
-		p("dex-app %s (%s): reads referenced client Secrets\n", r.DexApp, r.DexAppSource)
+		p("dex-app %s (%s): reads referenced client Secrets and maps of clients and connectors\n", r.DexApp, r.DexAppSource)
 	}
 	if r.Done {
-		p("\nNothing to do: %s carries no client list and no inline client secret.\n", installations.DexSecretPatchPath(r.Installation))
+		p("\nNothing to do: %s carries no client list, no inline client secret and no connector list.\n", installations.DexSecretPatchPath(r.Installation))
 		if len(r.Keep) > 0 {
 			p("It keeps: %s\n", strings.Join(r.Keep, ", "))
 		}
@@ -32,7 +33,9 @@ func (r Report) Print(w io.Writer) {
 	if !r.Revealed {
 		p("Keys only: %s. Clients are named by key path; ids, names, redirect URIs and peers show with --vault sops.\n", r.Unrevealed)
 	}
-	p("\nClients (%d):\n", len(r.Clients))
+	if len(r.Clients) > 0 {
+		p("\nClients (%d):\n", len(r.Clients))
+	}
 	for _, c := range r.Clients {
 		kind := "extra static client"
 		if c.BuiltIn != "" {
@@ -65,8 +68,20 @@ func (r Report) Print(w io.Writer) {
 		}
 		p("\nTrusted peers to %s (plaintext): %s\n", pathPeers, peers)
 	}
-	p("\nThe encrypted patch drops: %s\n", strings.Join(r.Drop, ", "))
+	if len(r.Drop) > 0 {
+		p("\nThe encrypted patch drops: %s\n", strings.Join(r.Drop, ", "))
+	}
 	p("It keeps: %s\n", strings.Join(r.Keep, ", "))
+	if len(r.Connectors) > 0 {
+		p("\nConnector lists the encrypted patch keeps as maps keyed by id (values stay encrypted):\n")
+		for _, l := range r.Connectors {
+			ids := fmt.Sprintf("%d entries, ids unrevealed", l.Entries)
+			if len(l.IDs) > 0 {
+				ids = strings.Join(l.IDs, ", ")
+			}
+			p("  %s: %s\n", l.Path, ids)
+		}
+	}
 	switch pr := r.Pairing; {
 	case pr != nil:
 		p("\nToken exchange: %s pairs with the hub's %s: %s", pr.Client, pr.HubRef, pr.State)

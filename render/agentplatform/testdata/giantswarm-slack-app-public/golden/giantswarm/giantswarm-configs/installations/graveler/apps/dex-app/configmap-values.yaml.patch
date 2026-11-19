@@ -23,21 +23,21 @@ oidc:
         - backstage
         - muster-token-exchange-graveler
   extraStaticClients:
-    - id: kagent
+    kagent:
       name: kagent-ui
       secretRef:
         name: dex-client-kagent
         key: secret
       redirectURIs:
         - https://kagent.graveler.example.io/oauth2/callback
-    - id: backstage
+    backstage:
       name: Dev Portal
       redirectURIs:
         - https://portal.example.io/api/auth/oidc-graveler/handler/frame
       secretRef:
         name: dex-client-backstage
         key: secret
-    - id: muster-token-exchange-graveler
+    muster-token-exchange-graveler:
       name: gopher token exchange
       secretRef:
         name: dex-client-muster-token-exchange-graveler

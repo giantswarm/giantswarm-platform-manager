@@ -1,11 +1,12 @@
 // Package dexsplit moves an installation's Dex clients out of the encrypted
 // dex-app values into the shape the definitions render: one SOPS Secret per
-// client secret, referenced from the plaintext dex-app patch, which lists
-// every client and the authenticator's trusted peers. The encrypted patch
-// keeps what is still secret and no list.
+// client secret, referenced from the plaintext dex-app patch, which carries
+// every client, keyed by id, and the authenticator's trusted peers. The
+// encrypted patch keeps what is still secret and no list: its login
+// connectors become maps keyed by id.
 //
-// app-operator merges the encrypted values over the plaintext ones, a list
-// replacing a list wholesale, so while the encrypted patch carries
+// app-operator and Flux merge the encrypted values over the plaintext ones, a
+// list replacing a list (or a map) wholesale, so while the encrypted patch carries
 // oidc.extraStaticClients or the authenticator's trustedPeers, no client the
 // definitions render reaches Dex and the manager refuses the commit
 // (plan.DexSecretRefusal). The manager decrypts nothing; this is the laptop
@@ -27,6 +28,10 @@ import (
 // The dex-app value keys the split reads and writes.
 const (
 	keyOIDC          = "oidc"
+	keyGiantswarm    = "giantswarm"
+	keyCustomer      = "customer"
+	keyConnectors    = "connectors"
+	keyIDEnv         = "idEnv"
 	keyStaticClients = "staticClients"
 	keyExtraClients  = "extraStaticClients"
 	keyAuthenticator = "dexK8SAuthenticator"
@@ -73,7 +78,24 @@ type Shape struct {
 	// Keep are the key paths the encrypted patch keeps: a leaf, or a list
 	// with its entry count.
 	Keep []string
+	// Connectors are the connector lists the encrypted patch keeps, each
+	// rewritten as a map keyed by connector id.
+	Connectors []ConnectorShape
 }
+
+// ConnectorShape is one owner's connector list in the encrypted patch.
+type ConnectorShape struct {
+	Owner   string
+	Entries int
+}
+
+// Path is the list's key path in the encrypted patch.
+func (c ConnectorShape) Path() string { return connectorsPath(c.Owner) }
+
+// IDPath is the key path of the id of the list's entry i.
+func (c ConnectorShape) IDPath(i int) string { return c.Path() + "." + strconv.Itoa(i) + "." + keyID }
+
+func connectorsPath(owner string) string { return keyOIDC + "." + owner + "." + keyConnectors }
 
 // ExtraShape is one extra static client as the encrypted list shows it.
 type ExtraShape struct {
@@ -89,7 +111,7 @@ type ExtraShape struct {
 // Path is the client's key path in the encrypted patch.
 func (e ExtraShape) Path() string { return pathExtraClients + "." + strconv.Itoa(e.Index) }
 
-// Split says whether the shape has anything to move.
+// Split says whether the shape has no client to move.
 func (s Shape) Split() bool { return len(s.Drop) == 0 }
 
 // ReadShape reads the shape of an encrypted dex-app patch from its plaintext
@@ -139,6 +161,15 @@ func ReadShape(patch []byte) (Shape, error) {
 			drop = append(drop, k)
 		}
 	}
+	for _, owner := range []string{keyGiantswarm, keyCustomer} {
+		c, err := readConnectors(root, owner)
+		if err != nil {
+			return Shape{}, err
+		}
+		if c != nil {
+			s.Connectors = append(s.Connectors, *c)
+		}
+	}
 	if len(drop) == 0 {
 		s.Keep = leaves(root, "")
 		return s, nil
@@ -149,6 +180,26 @@ func ReadShape(patch []byte) (Shape, error) {
 	}
 	s.Keep = keptLeaves(root, "", s.Drop)
 	return s, nil
+}
+
+// readConnectors reads one owner's connector list; nil where the owner has
+// none or has them as a map already. An entry without an id is refused: a
+// map has no key for it.
+func readConnectors(root *yaml.Node, owner string) (*ConnectorShape, error) {
+	list := lookup(root, connectorsPath(owner))
+	if list == nil || list.Kind != yaml.SequenceNode || len(list.Content) == 0 {
+		return nil, nil
+	}
+	c := &ConnectorShape{Owner: owner, Entries: len(list.Content)}
+	for i, item := range list.Content {
+		if item.Kind != yaml.MappingNode {
+			return nil, fmt.Errorf("%s.%d: no mapping", c.Path(), i)
+		}
+		if child(item, keyID) == nil {
+			return nil, fmt.Errorf("%s.%d: a connector without an id", c.Path(), i)
+		}
+	}
+	return c, nil
 }
 
 // readExtra reads one extra static client's keys.

@@ -1,7 +1,6 @@
 package agentplatform
 
 import (
-	"fmt"
 	"net/url"
 	"slices"
 	"strings"
@@ -86,50 +85,12 @@ func (in *Input) validateAgentManagerCredentials() error {
 	if ui := in.AgentManagerCredentialUI; ui != "" && !in.Organizations.Enabled && usesOrganizationVariables(ui) {
 		return refuse("agentManager.credentials.uiURL allows no {parent} or {organization} expression without organizations.enabled: the installation's model links have no organization to fill them")
 	}
-	if portal := in.remoteCredentialForm(); portal != nil {
-		host := "the installation " + portal.Installation
-		if slices.Contains(in.Installation.Federation.Hubs, portal.Installation) {
-			host = "the hub " + portal.Installation
-		}
-		return refuse(fmt.Sprintf("agentManager.credentials.uiURL points at %s, the portal of %s, and installation.private says %s is private: a portal on another installation cannot reach the credential route of a private installation (its backend calls https://agentgateway.%s/agent-manager on the private ingress directly, not through the hub's tunnel); point agentManager.credentials.uiURL at %s's own portal, or type it empty to remove the credential form",
-			portal.Domain, host, in.Installation.Name, in.Installation.BaseDomain, in.Installation.Name))
-	}
 	if usesCredentialNamespace(in.AgentManagerCredentialUI) {
 		if !holdAdmits(in.Versions.Chart, installationFormChart) {
 			return refuse("a {namespace} expression in agentManager.credentials.uiURL requires the meta chart " + installationFormChart + " or later, and versions.chart holds an earlier one")
 		}
 		if hold := in.Versions.Components[componentAgentManager]; hold != "" && !floorAtLeast(hold, namespaceFormFloor) {
 			return refuse("a {namespace} expression in agentManager.credentials.uiURL requires an agent-manager version floor of " + namespaceFormFloor + " or later")
-		}
-	}
-	return nil
-}
-
-// remoteCredentialForm is the portal on another installation the credential
-// form address of a private installation points at: a portal on record for
-// the installation, hosted on another installation (a hub's, or a sibling's,
-// whatever muster brokers its tokens), whose hostname is the expanded
-// template's host. Nil for a public installation, a form on its own portal
-// or on a host that is no portal on record. The portal's backend reaches agent-manager at
-// https://agentgateway.<base domain>/agent-manager, which on a private
-// installation only the installation's own network reaches
-// (giantswarm/giantswarm-platform-manager#913).
-func (in *Input) remoteCredentialForm() *PortalRef {
-	if !in.Installation.Private || in.AgentManagerCredentialUI == "" {
-		return nil
-	}
-	expanded, ok := expandCredentialUI(in.AgentManagerCredentialUI)
-	if !ok {
-		return nil
-	}
-	u, err := url.Parse(expanded)
-	if err != nil {
-		return nil
-	}
-	for i := range in.Installation.Portals {
-		p := &in.Installation.Portals[i]
-		if p.Installation != in.Installation.Name && strings.EqualFold(p.Domain, u.Hostname()) {
-			return p
 		}
 	}
 	return nil

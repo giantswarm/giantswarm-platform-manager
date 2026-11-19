@@ -73,6 +73,9 @@ func (in *Input) probes() []render.Probe {
 	for _, c := range in.dexSecretClients() {
 		p = append(p, render.DexSecretLoadedProbe(dexSecretsLoadedDimension, featureIdentity, dexNamespace, c.secret, c.client))
 	}
+	for _, c := range in.HubConnectors {
+		p = append(p, render.DexConnectorSecretLoadedProbe(dexSecretsLoadedDimension, featureIdentity, dexNamespace, render.ConnectorSecretName(c.ID), c.ID))
+	}
 	if in.agentManagerRoute() {
 		// The credential form's path: the route answers a call without a
 		// token 401 at the gateway's JWT policy; without the route the
@@ -352,10 +355,11 @@ func (in *Input) dexSecretClients() []dexSecretClient {
 			out = append(out, dexSecretClient{client: c.Key, secret: mapValue(ref, "name").(string)})
 		}
 	}
-	extra, _ := mapValue(oidc, "extraStaticClients").([]render.Map)
+	extra, _ := mapValue(oidc, "extraStaticClients").(render.Map)
 	for _, c := range extra {
-		if ref, ok := mapValue(c, "secretRef").(render.Map); ok {
-			out = append(out, dexSecretClient{client: mapValue(c, "id").(string), secret: mapValue(ref, "name").(string)})
+		body, _ := c.Value.(render.Map)
+		if ref, ok := mapValue(body, "secretRef").(render.Map); ok {
+			out = append(out, dexSecretClient{client: c.Key, secret: mapValue(ref, "name").(string)})
 		}
 	}
 	return out

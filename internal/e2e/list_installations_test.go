@@ -39,10 +39,11 @@ const (
 )
 
 // The fleet's dex-app: the base's pin, before the referenced Dex client
-// secrets, and the version the installations that run the platform pin.
+// secrets, and the version the installations that run the platform pin, the
+// first to take the clients and connectors as maps keyed by id.
 const (
 	fleetDexApp    = "2.2.3"
-	platformDexApp = "3.2.2"
+	platformDexApp = "3.5.0"
 )
 
 // collectionsKustomization renders an installation's collections

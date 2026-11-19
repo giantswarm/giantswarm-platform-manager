@@ -18,6 +18,22 @@
 #
 # The M numbers are the wave-1 migration list's (M1–M11) and continue removals.yaml's (M30…).
 migrations:
+  # --- M45 — a person signs in to a target's Dex through the connector of a hub that brokers into it ---
+  # The connector was a token exchange alone, with no client of its own, so a login through it (muster's
+  # same-person check sends the browser there) failed at the hub's Dex. The hub's Dex registers a login client
+  # per target; the target's connector names it and references its secret, one generated secret on both
+  # sides. A staff organisation's connector goes under oidc.giantswarm, named after the hub, since
+  # dex-operator registers <organisation>-simple-oidc there.
+  - key: dex-configmap:oidc.extraStaticClients.federation-<name>
+    reason: "Added: Dex registers the login client federation-<name>, through which the <name> installation's Dex signs a person in at this hub's Dex, with its secret read from a Secret in Dex's namespace and the <name> Dex callback as its one redirect URI · M45"
+  - key: extras:agent-platform/secrets/dex-client-federation-<name>-secret.yaml
+    reason: "Added: the login client federation-<name> reads its secret from a Secret in Dex's namespace, one generated value with the <name> installation's connector Secret, so the login is on record on both sides · M45"
+  - key: extras:agent-platform/secrets/kustomization.yaml resources[dex-client-federation-<name>-secret.yaml]
+    reason: "Added: the secrets kustomization lists the login client federation-<name>'s Secret, so it is applied with the rest · M45"
+  - key: extras:agent-platform/secrets/dex-connector-<connector>-secret.yaml
+    reason: "Added: the connector <connector> gets the hub's login client for this installation, its id and secret in a Secret in Dex's namespace, one generated value with the hub's Secret of the client, which the connector's clientSecretRef names, so a person can sign in through the connector as well as exchange a token · M45"
+  - key: extras:agent-platform/secrets/kustomization.yaml resources[dex-connector-<connector>-secret.yaml]
+    reason: "Added: the secrets kustomization lists the connector <connector>'s Secret, so it is applied with the rest · M45"
   # --- M44 — a rotated muster credential rolls the skill-manager too ---
   # The meta chart runs the skill-manager beside the agent-manager from 4.179.0 on; it reads the platform
   # client's secret once at start, like the managers of M38.
@@ -29,12 +45,12 @@ migrations:
   # renders it from the record's private fact like the sibling flags.
   - key: configmap:muster.muster.oauth.server.dex.allowPrivateIPOIDC
     reason: "Added: on a private installation muster reads Dex's OIDC discovery document from a private address (dex.allowPrivateIPOIDC), rendered from the installation's record like allowPrivateIPRedirectURIs; the shared default derives it from managementCluster.private, which is false on an installation whose ingress alone sits on private addresses · M42"
-  # --- M41 — Dex registers the token-exchange connector of every customer hub that brokers into the installation ---
-  # The hub names the connector in its broker targets and identity providers; the fleet's Dex base
-  # registers the Giant Swarm hubs' giantswarm-simple-oidc on every installation, a customer hub's was
-  # written by hand under another name or not at all.
-  - key: dex-configmap:oidc.customer.connectors[<connector>]
-    reason: "Added: Dex gets the connector <connector>, an oidc connector trusting a hub's Dex as the issuer, through which that hub's muster exchanges a person's token for one this installation accepts · M41"
+  # --- M41 — Dex registers the connector of every hub that brokers into the installation ---
+  # The hub names the connector in its broker targets and identity providers; a customer hub's was written
+  # by hand under another name or not at all. A staff organisation's hub gets its own connector under
+  # oidc.giantswarm, named after the hub, beside the giantswarm-simple-oidc dex-operator registers there.
+  - key: dex-configmap:oidc.<owner>.connectors.<connector>
+    reason: "Added: Dex gets the connector <connector>, an oidc connector trusting a hub's Dex as the issuer, through which that hub's muster exchanges a person's token for one this installation accepts and a person signs in through the hub · M41"
   # --- M40 — muster's SSRF guard for a client's metadata document is lifted for agentgateway's host alone ---
   # The chat gateway's client_id is a metadata document on agentgateway's hostname, which resolves to the
   # internal load balancer on a private installation; the bool lifted the guard for every host.
@@ -102,7 +118,7 @@ migrations:
   # --- M32 — a spoke's Dex carries the hub's token-exchange client, its secret referenced; the hub's federation files ---
   # The client's id is the fleet's, muster-token-exchange-<installation> for the registry's hub and
   # muster-token-exchange-<installation>-<hub> for every other hub: the id the hub's credentials Secret presents.
-  - key: dex-configmap:oidc.extraStaticClients[muster-token-exchange-<name>]
+  - key: dex-configmap:oidc.extraStaticClients.muster-token-exchange-<name>
     reason: "Added: Dex gets the client muster-token-exchange-<name>, a hub's token-exchange client in this installation's Dex under the id the hub's credentials present, through which the hub's muster exchanges a person's token for one this installation accepts · M32"
   - key: dex-configmap:oidc.staticClients.dexK8SAuthenticator.trustedPeers[muster-token-exchange-<name>]
     reason: "Added: the dex-k8s-authenticator client trusts the hub's token-exchange client muster-token-exchange-<name> as a peer, so a token the hub exchanges can carry this installation's cluster audience · M32"
@@ -124,7 +140,7 @@ migrations:
     reason: "Added: the token-exchange target <name> in muster points at its credentials Secret (clientCredentialsSecretRef) instead of carrying an inline secret · M32"
 
   # --- M5 — kagent's UI gets its own Dex client and audience ---
-  - key: dex-configmap:oidc.extraStaticClients[kagent]
+  - key: dex-configmap:oidc.extraStaticClients.kagent
     reason: "Added: Dex gets a client named kagent for the kagent UI, which signed in through another client's id until now · M5"
   - key: extras:agent-platform/secrets/dex-client-kagent-secret.yaml
     reason: "Added: the kagent Dex client's secret is the Secret dex-client-kagent-secret under extras/agent-platform/secrets · M5"
@@ -144,7 +160,7 @@ migrations:
     reason: "Added: the kagent UI's oauth2-proxy accepts tokens issued for the dex-k8s-authenticator client · M5"
 
   # --- M30 — the portals' Dex client is named backstage ---
-  - key: dex-configmap:oidc.extraStaticClients[backstage]
+  - key: dex-configmap:oidc.extraStaticClients.backstage
     reason: "Added: Dex gets a client named backstage for the Dev Portal and every customer portal, which signed in through an installation-specific client id until now · M30"
   - key: dex-configmap:oidc.staticClients.dexK8SAuthenticator.trustedPeers[backstage]
     reason: "Added: the dex-k8s-authenticator client trusts the backstage client as a peer, so a portal session can obtain a kubectl token · M30"
@@ -156,7 +172,7 @@ migrations:
   # --- M1 — a Dex client's secret becomes a referenced Secret (dex-app 3.2.2 or later) ---
   - key: dex-configmap:oidc.staticClients.<name>.clientSecretRef
     reason: "Added: the Dex client <name> reads its secret from a Secret in the cluster instead of the encrypted values patch. Needs dex-app 3.2.2 · M1"
-  - key: dex-configmap:oidc.extraStaticClients[*].secretRef
+  - key: dex-configmap:oidc.extraStaticClients.<id>.secretRef
     reason: "Added: the extra Dex client reads its secret from a Secret in the cluster (secretRef) instead of the encrypted values patch. Needs dex-app 3.2.2 · M1"
   - key: extras:agent-platform/secrets/dex-client-<name>-secret.yaml
     reason: "Added: the <name> Dex client's secret is its own Secret under extras/agent-platform/secrets, shared with the client that presents it. Needs dex-app 3.2.2 · M1"

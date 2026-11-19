@@ -149,24 +149,9 @@ func TestAgentManagerCredentialInputsFailClosed(t *testing.T) {
 	}
 }
 
-// The pinned commit mode chosen with the exchange renders the exchange: the
-// chart takes github.enabled with tokenExchange as the exchange, no pin.
-func TestAgentManagerExchangeWithCommitRendersTheExchange(t *testing.T) {
-	input, _ := credentialInput(t, shapeGiantswarmSlackAppPub)
-	input["agentManager"].(map[string]any)[keyGitHub].(map[string]any)[keyEnabled] = true
-	in, err := Parse(input)
-	require.NoError(t, err)
-	require.Equal(t, map[string]any{keyEnabled: true, keyTokenExchange: map[string]any{
-		"tokenEndpoint":  "https://" + in.host("muster") + "/oauth/token",
-		"audience":       managerProviderAppName,
-		"existingSecret": agentManagerBrokerSecret,
-	}}, credentialValues(t, in.agentManagerValues())[keyGitHub])
-}
-
-// The exchange turned off renders no commit mode: the record of an exchange
-// reads back no pin (agent-manager.github.enabled is the exchange's render),
-// so the person's choices are the exchange off and the pin unset.
-func TestAgentManagerExchangeOffRendersNoPin(t *testing.T) {
+// The exchange turned off renders no commit mode: agent-manager's github
+// section is the exchange's render alone.
+func TestAgentManagerExchangeOffRendersNoCommitMode(t *testing.T) {
 	input, _ := credentialInput(t, shapeGiantswarmSlackAppPub)
 	input["agentManager"].(map[string]any)[keyGitHub] = map[string]any{keyTokenExchange: map[string]any{keyEnabled: false}}
 	in, err := Parse(input)
@@ -463,60 +448,4 @@ func TestOrganizationOnlyCredentialFormNeedsNoNamespaceFloor(t *testing.T) {
 	input["versions"] = map[string]any{keyComponents: map[string]any{componentAgentManager: ">=3.0.0 <4.0.0"}}
 	_, err := Parse(input)
 	require.NoError(t, err)
-}
-
-// A portal on another installation cannot reach the credential route of a
-// private installation (giantswarm/giantswarm-platform-manager#913): the
-// credential form golden's template, on the hub gopher's portal, is refused
-// once the installation is private, naming the installation, the portal's
-// host and both inputs — also where gopher brokers no tokens into it, and on
-// a sibling's portal. The same installation renders with the form on its own
-// portal, and the public golden renders with the form on the hub's portal.
-func TestCredentialFormOnAnotherInstallationsPortalOfAPrivateInstallation(t *testing.T) {
-	const (
-		ownPortal     = "portal.jasper.example.io"
-		siblingPortal = "portal.otter.example.io"
-		hubForm       = "https://portal.example.io/organizations/jasper/{parent}/{organization}/credentials/{operation}"
-	)
-	for _, test := range []struct {
-		name    string
-		private bool
-		noHubs  bool
-		uiURL   string
-		refused string
-	}{
-		{name: "private on the hub's portal", private: true, uiURL: hubForm, refused: "the hub gopher"},
-		{name: "private on the hub's portal, host in upper case", private: true, uiURL: "https://PORTAL.example.io/credentials/{operation}", refused: "the hub gopher"},
-		{name: "private on a portal whose host brokers no tokens into it", private: true, noHubs: true, uiURL: hubForm, refused: "the installation gopher"},
-		{name: "private on a sibling's portal", private: true, uiURL: "https://" + siblingPortal + "/credentials/{operation}", refused: "the installation otter"},
-		{name: "private on its own portal", private: true, uiURL: "https://" + ownPortal + "/credentials/{operation}"},
-		{name: "public on the hub's portal", uiURL: hubForm},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			input, secrets := loadInput(t, shapeCredentialForm)
-			installation := input["installation"].(map[string]any)
-			installation["private"] = test.private
-			portal := func(host, domain string) map[string]any {
-				return map[string]any{"installation": host, "customer": portalTenant, "domain": domain}
-			}
-			own, sibling := portal("jasper", ownPortal), portal("otter", siblingPortal)
-			own["chartLine"] = ">=2.1.0 <3.0.0"
-			sibling["handKept"] = true
-			installation["portals"] = append(installation["portals"].([]any), own, sibling)
-			if test.noHubs {
-				installation["federation"].(map[string]any)["hubs"] = []any{}
-			}
-			input["agentManager"] = map[string]any{keyCredentials: map[string]any{keyCredentialUI: test.uiURL}}
-			result, err := Render(input, secrets, render.ModeCommit)
-			if test.refused != "" {
-				for _, name := range []string{"jasper", test.refused, "agentManager.credentials.uiURL", "installation.private", "cannot reach the credential route"} {
-					require.ErrorContains(t, err, name)
-				}
-				return
-			}
-			require.NoError(t, err)
-			manager := configmapPatch(t, result, "jasper")[componentAgentManager].(map[string]any)
-			require.Equal(t, map[string]any{keyCredentialUI: test.uiURL}, manager[keyCredentials])
-		})
-	}
 }
