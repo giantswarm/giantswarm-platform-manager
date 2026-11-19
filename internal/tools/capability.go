@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -230,87 +231,81 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 	out := CapabilityResult{Caller: identity.Caller(ctx), Tool: tool, Capability: def.Name, Hub: reg.Hub, DryRun: true, RenderedBy: t.renderedBy(),
 		Order: []string{}, Installations: []DryRun{}, PullRequests: []plan.PullRequest{}, Skipped: []Skipped{}, Commit: commitNext}
 	env := &planned{c: c, hub: hub, byName: byName, reports: map[string]installations.Report{}, inputs: map[string]map[string]any{}, defs: map[string]installations.Capability{}}
-	// An installation named in the set that runs the other definition of
-	// its MCP servers takes part in the set's pairing: the values it shares
-	// with the others are not deferred, and it is rendered with its own
-	// definition where one of them is new on both sides.
-	others := map[string]installations.Capability{}
-	for _, r := range reports {
-		if other, ok := serversCapability(r, def); ok && slices.Contains(set, r.Name) {
-			others[r.Name] = other
-		}
-	}
 	env.planInstallations = map[string]bool{}
 	for _, report := range reports {
-		_, skip := skipped(report, def.Name, report.Name == one)
-		if _, other := others[report.Name]; !skip || other {
+		if _, skip := skipped(report, def.Name, report.Name == one); !skip {
 			env.planInstallations[report.Name] = true
 		}
 	}
 	ordered := waveOrder(reports, hub)
-	rank := map[string]int{}
-	for i, r := range ordered {
-		rank[r.Name] = i
-		env.reports[r.Name] = r
-	}
+	byPlan := map[string]DryRun{}
+	skips := map[string]Skipped{}
 	for _, r := range ordered {
-		if _, other := others[r.Name]; other {
-			continue
-		}
+		env.reports[r.Name] = r
 		if skip, ok := skipped(r, def.Name, r.Name == one); ok {
-			out.Skipped = append(out.Skipped, skip)
+			skips[r.Name] = skip
 			continue
 		}
 		res, err := t.compare(ctx, env, r, def, inputs, content, rotate, force)
 		if err != nil {
 			return nil, nil, err
 		}
-		out.Installations = append(out.Installations, dryRun(res))
+		byPlan[r.Name] = dryRun(res)
 	}
-	drawn := drawnWithOthers(out.Installations, others)
+	// A skipped installation named in the set that runs the other definition
+	// of the MCP servers, and that a plan defers a pair with, is rendered
+	// with its own definition: ShareDraws then draws the pair once for both
+	// sides instead of each side deferring its half.
+	drawn := map[string]installations.Capability{}
+	for _, p := range byPlan {
+		for _, d := range p.DeferredPairs {
+			if _, ok := skips[d.Installation]; !ok || !slices.Contains(set, d.Installation) {
+				continue
+			}
+			if other, ok := serversCapability(env.reports[d.Installation], def); ok {
+				drawn[d.Installation] = other
+			}
+		}
+	}
 	if len(drawn) > 0 && len(inputs) > 0 {
 		names := make([]string, 0, len(drawn))
-		for _, n := range drawn {
-			names = append(names, n+" ("+others[n].Name+")")
+		for _, n := range slices.Sorted(maps.Keys(drawn)) {
+			names = append(names, n+" ("+drawn[n].Name+")")
 		}
 		return nil, nil, fmt.Errorf("%s: the set renders %s with its own definition, to draw the values it shares with the others once; %s are %s's alone — reconcile the set without them, or each installation alone", tool, strings.Join(names, ", "), ArgInputs, def.Name)
 	}
+	for n, other := range drawn {
+		delete(skips, n)
+		env.planInstallations[n] = true
+		env.defs[n] = other
+	}
 	for _, r := range ordered {
-		other, ok := others[r.Name]
-		if !ok {
+		other, own := drawn[r.Name]
+		p, rendered := byPlan[r.Name]
+		if !own && !(rendered && defersWith(p, drawn)) {
 			continue
 		}
 		with := def
-		if slices.Contains(drawn, r.Name) {
+		if own {
 			with = other
-			env.defs[r.Name] = other
-		} else if skip, ok := skipped(r, def.Name, r.Name == one); ok {
-			out.Skipped = append(out.Skipped, skip)
-			continue
 		}
 		res, err := t.compare(ctx, env, r, with, inputs, content, rotate, force)
 		if err != nil {
 			return nil, nil, err
 		}
 		e := dryRun(res)
-		if with.Name != def.Name {
+		if own {
 			e.Capability = with.Name
 		}
-		out.Installations = append(out.Installations, e)
+		byPlan[r.Name] = e
 	}
-	// An installation rendered with its own definition goes first: the
-	// values it draws with the others are on its side before theirs.
-	slices.SortStableFunc(out.Installations, func(a, b DryRun) int {
-		if (a.Capability != "") != (b.Capability != "") {
-			if a.Capability != "" {
-				return -1
-			}
-			return 1
+	for _, r := range ordered {
+		if p, ok := byPlan[r.Name]; ok {
+			out.Installations = append(out.Installations, p)
+			out.Order = append(out.Order, r.Name)
+		} else if skip, ok := skips[r.Name]; ok {
+			out.Skipped = append(out.Skipped, skip)
 		}
-		return rank[a.Name] - rank[b.Name]
-	})
-	for _, e := range out.Installations {
-		out.Order = append(out.Order, e.Name)
 	}
 	if err := applyOrder(&out, stringSlice(args[ArgOrder])); err != nil {
 		return nil, nil, fmt.Errorf("%s: %w", tool, err)
@@ -456,20 +451,12 @@ func serversCapability(r installations.Report, def installations.Capability) (in
 	return installations.FindCapability(name)
 }
 
-// drawnWithOthers are the installations of others that a plan of entries
-// shares a value with that is new on both sides, sorted: rendered with their
-// own definition, the wave draws the value once for both.
-func drawnWithOthers(entries []DryRun, others map[string]installations.Capability) []string {
-	var names []string
-	for _, e := range entries {
-		for _, g := range e.GeneratedSecrets {
-			if _, ok := others[g.PeerInstallation]; ok && g.NewOnBothSides() && !slices.Contains(names, g.PeerInstallation) {
-				names = append(names, g.PeerInstallation)
-			}
-		}
-	}
-	slices.Sort(names)
-	return names
+// defersWith says whether p defers a pair with one of drawn.
+func defersWith(p DryRun, drawn map[string]installations.Capability) bool {
+	return slices.ContainsFunc(p.DeferredPairs, func(d plan.DeferredPair) bool {
+		_, ok := drawn[d.Installation]
+		return ok
+	})
 }
 
 // skipped says whether r is left out of the set: an installation named as

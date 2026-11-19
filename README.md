@@ -103,8 +103,8 @@ this order, writing nothing before the gate:
    A hub runs agent-platform and its targets without the platform run cluster-mcp-servers, so the two sides
    of their pairs belong to different definitions. An installation named in a set of either definition that
    runs the other one is rendered with its own (`capability` on its plan, `capabilityByInstallation` on the
-   action) when it shares a pair new on both sides with another installation of the set: the wave draws the
-   pair once and the installation goes first. Named without such a pair, it is skipped or refused as before.
+   action) when another plan of the set defers a pair with it: the wave draws the pair once for both sides,
+   in the usual wave order. Named without such a pair, it is skipped, or refused when it is the one installation.
    Typed `inputs` are refused for such a set, since they belong to one definition. A carry
    of any other generated value the record holds is listed outside it and the wave refuses it by name:
    the installation's own reconcile carries it, so a cut-over commit never carries a credential its author

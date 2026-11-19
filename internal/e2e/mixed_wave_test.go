@@ -149,3 +149,26 @@ func marker(capability, inst string) string {
 	def, _ := installations.FindCapability(capability)
 	return def.EnabledMarker(inst)
 }
+
+func TestMixedWaveDrawsTheReversePairFromTheAgentPlatform(t *testing.T) {
+	st, _ := mixedWaveStack(t)
+	c := st.mcpClient(t, aliceToken)
+	dry, text, isErr := dryRun(t, c, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallations: []string{hub, alder}, tools.ArgCapability: installations.AgentPlatform})
+	require.False(t, isErr, text)
+	require.Empty(t, dry.Skipped)
+	require.Equal(t, []string{hub, alder}, dry.Order)
+	capabilities := map[string]string{}
+	for _, e := range dry.Installations {
+		capabilities[e.Name] = e.Capability
+	}
+	require.Equal(t, map[string]string{hub: "", alder: clustermcpservers.Capability}, capabilities)
+	for _, name := range mixedWavePairs {
+		for _, side := range []struct{ inst, with string }{{hub, alder}, {alder, hub}} {
+			p := findPlan(t, dry, side.inst)
+			require.False(t, slices.ContainsFunc(p.DeferredPairs, func(d plan.DeferredPair) bool { return d.Name == name }), "%s defers %s", side.inst, name)
+			i := slices.IndexFunc(p.GeneratedSecrets, func(g plan.GeneratedSecret) bool { return g.Name == name })
+			require.GreaterOrEqual(t, i, 0, "%s renders no %s", side.inst, name)
+			require.Equal(t, side.with, p.GeneratedSecrets[i].DrawnWith)
+		}
+	}
+}

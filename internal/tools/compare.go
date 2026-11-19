@@ -27,7 +27,7 @@ type DryRun struct {
 	// Capability is the definition that rendered this plan where it is not
 	// the set's (CapabilityResult.Capability): the installation runs the
 	// other definition, and a value it shares with another installation of
-	// the set is drawn in this wave (serversCapability).
+	// the set is drawn in this wave.
 	Capability string `json:"capability,omitempty"`
 }
 
