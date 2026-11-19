@@ -65,6 +65,35 @@ func TestRolloutObjectsReadTheFluxChecks(t *testing.T) {
 	}
 }
 
+// An installation the hub keeps to browsing is never read through muster:
+// its Flux objects not checked by design are no object of the rollout and no
+// proof it waits for, so the stage is decided on the rest; a server muster
+// lacks for any other reason leaves the object unread and the stage rolling
+// out.
+func TestRolloutLeavesOutWhatIsNotCheckedByDesign(t *testing.T) {
+	browsing := verify.Check{Kind: string(render.HelmReleaseReady), Namespace: fluxNS, Resource: helmRelease, Name: installations.AgentPlatform, Mark: verify.NotChecked, Message: verify.ReasonBrowseOnly}
+	source := verify.Check{Kind: string(render.SourceFollowed), Namespace: fluxNS, Resource: "Kustomization.kustomize.toolkit.fluxcd.io", Name: "extras", Mark: verify.NotChecked, Message: verify.ReasonBrowseOnly}
+	res := liveResult(installations.StateEnabled, verify.Dimension{ID: dimReleases, Kind: definitions.KindLive, Mark: verify.NotChecked, ByDesign: true, Live: &verify.LiveResult{Checks: []verify.Check{browsing, source}}})
+	if objects, ready, failed := rolloutObjects(res); !ready || failed || len(objects) != 0 {
+		t.Errorf("browse-only: ready %v failed %v objects %+v", ready, failed, objects)
+	}
+	if checks := liveChecks(res); len(checks) != 0 {
+		t.Errorf("browse-only checks hold the proof: %+v", checks)
+	}
+	if state, message, red := decideStage(actions.StateRollingOut, res); state != actions.StateEnabled || len(red) != 0 {
+		t.Errorf("browse-only: %s %q %v", state, message, red)
+	}
+	missing := browsing
+	missing.Message = verify.NoServerPrefix + `"birch-mcp-kubernetes" for this session`
+	res = liveResult(installations.StateEnabled, verify.Dimension{ID: dimReleases, Kind: definitions.KindLive, Mark: verify.NotChecked, Live: &verify.LiveResult{Checks: []verify.Check{missing}}})
+	if objects, ready, _ := rolloutObjects(res); ready || len(objects) != 1 || objects[0].Ready != "" || objects[0].Message != missing.Message {
+		t.Errorf("a missing server: ready %v objects %+v", ready, objects)
+	}
+	if checks := liveChecks(res); len(checks) != 1 {
+		t.Errorf("a missing server's check left the proof: %+v", checks)
+	}
+}
+
 // The decision from a live result: clean is enabled; drift held by the
 // customer's action is waiting for the customer; other drift fails a stage
 // rolling out and marks a stage that had reached a state drifted.

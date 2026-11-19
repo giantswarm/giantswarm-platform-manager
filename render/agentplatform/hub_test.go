@@ -517,3 +517,17 @@ func TestTargetRegistersTheConnectorTheHubNames(t *testing.T) {
 		t.Errorf("a connector of a hub that does not broker into the installation: %v", err)
 	}
 }
+
+// BrowseOnly answers the policy's federation.browseOnly by installation: the
+// watch reads the hub's muster registering none of the target's servers as
+// by design for those alone.
+func TestBrowseOnlyNamesThePolicysTargets(t *testing.T) {
+	if !BrowseOnly("elver") {
+		t.Error("elver is not browse-only")
+	}
+	for _, name := range []string{"gazelle", "finch", ""} {
+		if BrowseOnly(name) {
+			t.Errorf("%q is browse-only", name)
+		}
+	}
+}

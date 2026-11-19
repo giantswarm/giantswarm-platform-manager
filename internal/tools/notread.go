@@ -23,9 +23,23 @@ const (
 	// CauseNoAnswer: a read through muster did not answer within its bound,
 	// or the live verify's read budget was spent before it started.
 	CauseNoAnswer = "no_answer"
+	// CauseNoServer: muster registers no server of the installation's
+	// kubernetes family for the caller's session.
+	CauseNoServer = "no_server"
+	// CauseBrowseOnly: the hub keeps the installation to browsing and
+	// registers none of its servers in muster: not read by design.
+	CauseBrowseOnly = "browse_only"
 	// CauseOther: any other refusal, as it was said.
 	CauseOther = "other"
 )
+
+// browseOnlyFix is the fix of a browse-only installation's reads.
+const browseOnlyFix = "none needed: the hub registers none of a browse-only installation's servers in muster, so its objects are not read and the stage is decided on its merged pull requests; no gap"
+
+// noServerFix is the fix of a server muster does not register.
+func noServerFix(server string) string {
+	return fmt.Sprintf("muster on the hub registers no %s: connect the installation's kubernetes server to the hub's muster, then watch again", server)
+}
 
 // NotRead is one cause of reads the watch could not make, where it struck,
 // the checks it left unread and what makes them work: the muster server to
@@ -55,7 +69,7 @@ type NotRead struct {
 func (n NotRead) Line() string {
 	var where string
 	switch n.Cause {
-	case CauseAuthRequired:
+	case CauseAuthRequired, CauseNoServer:
 		where = " on muster server " + orInstallationServer(n.Server)
 	case CauseUnreachable:
 		where = " " + n.Host
@@ -171,6 +185,11 @@ func checkNotRead(c verify.Check, auth *verify.AuthRequired, server string) (str
 		}
 		n.Fix = signIn(n.Server)
 		return CauseAuthRequired + "|" + n.Server, n
+	case c.Message == verify.ReasonBrowseOnly:
+		return CauseBrowseOnly, NotRead{Cause: CauseBrowseOnly, Message: c.Message, Fix: browseOnlyFix}
+	case strings.HasPrefix(c.Message, verify.NoServerPrefix):
+		missing := strings.Trim(strings.TrimSuffix(strings.TrimPrefix(c.Message, verify.NoServerPrefix), " for this session"), `"`)
+		return CauseNoServer + "|" + missing, NotRead{Cause: CauseNoServer, Server: missing, Message: c.Message, Fix: noServerFix(missing)}
 	case c.URL != "" && strings.HasPrefix(c.Message, verify.ReasonUnreachable):
 		h := hostOf(c.URL)
 		return CauseUnreachable + "|" + h, NotRead{Cause: CauseUnreachable, Host: h, Message: orMessage(c.Detail, c.Message), Fix: routeFix(c.Message)}

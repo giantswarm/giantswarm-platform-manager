@@ -83,7 +83,7 @@ func ByDesignClause(n int) string {
 	if n == 0 {
 		return ""
 	}
-	return fmt.Sprintf("%d unreachable from the manager by design (private installation)", n)
+	return fmt.Sprintf("%d not read from the manager by design (private or browse-only installation)", n)
 }
 
 // The bounds of one comparison's HTTP probes. A private installation's Dex,
