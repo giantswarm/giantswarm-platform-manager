@@ -328,15 +328,13 @@ func (in *Input) configmapPatch() render.Map {
 	if len(in.SkillManagerSources) > 0 {
 		m = append(m, e("skillManager", render.Map{e("sources", in.SkillManagerSources)}))
 	}
-	if in.SkillManagerAppSecret != "" || in.SkillManagerTokenExchange || in.SkillManagerPrivateAccess {
+	if in.SkillManagerAppSecret != "" || in.SkillManagerTokenExchange {
 		github := render.Map{}
 		if in.SkillManagerAppSecret != "" {
 			github = append(github, e("app", render.Map{e("secretName", in.SkillManagerAppSecret)}))
 		}
 		if in.SkillManagerTokenExchange {
 			github = append(github, in.managerGrantValues(componentSkillManager)...)
-		} else if in.SkillManagerPrivateAccess {
-			github = append(github, e("enabled", true))
 		}
 		m = append(m, e(componentSkillManager, render.Map{e("github", github)}))
 	}

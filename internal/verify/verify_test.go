@@ -656,13 +656,12 @@ func doc(domain, customer string, serving bool) map[string]any {
 // x-source person leaves and every leaf typed for the call, a fact among
 // them. The record's facts are not among them.
 func TestDrivenInputsAreThePersonsAndTheTyped(t *testing.T) {
-	const skillsInput, commitInput = "skills.repositories", "clusterManager.github.enabled"
-	const agentCommitInput, modelCommitInput = "agentManager.github.enabled", "modelManager.github.enabled"
+	const skillsInput = "skills.repositories"
 	def, ok := installations.FindCapability(installations.AgentPlatform)
 	if !ok {
 		t.Fatal("no agent-platform definition")
 	}
-	agentInputs := []string{"agentManager.credentials.uiURL", agentCommitInput, "agentManager.github.tokenExchange.enabled", "agentManager.skills.gitAuthSecretName", "agentManager.skills.github.app.secretName", "agentManager.skills.mintGitAuthSecret", "agentManager.skills.repositories"}
+	agentInputs := []string{"agentManager.credentials.uiURL", "agentManager.github.tokenExchange.enabled", "agentManager.skills.gitAuthSecretName", "agentManager.skills.github.app.secretName", "agentManager.skills.mintGitAuthSecret", "agentManager.skills.repositories"}
 	chatInputs := []string{"aiChat.enabled", "aiChat.google.location", "aiChat.google.project", "aiChat.model", "aiChat.provider"}
 	hiveInputs := []string{"hive.enabled", "hive.magazine.repository", "hive.plans.repositories", "hive.roadmap.board", "hive.roadmap.teams"}
 	gatewayInputs := []string{"klausGateway.slack.contextBotIDs", "klausGateway.slack.contextBotIDsComment", "klausGateway.slack.contextBotNames", "klausGateway.slack.contextBotNamesComment", "klausGateway.slack.slashCommand", "klausGateway.slack.slashCommandComment"}
@@ -672,11 +671,11 @@ func TestDrivenInputsAreThePersonsAndTheTyped(t *testing.T) {
 	organizationsInputs := []string{"organizations.apiHostnames", "organizations.commit.enabled", "organizations.enabled", "organizations.portal.enabled"}
 	tenantInputs := []string{"tenants.platform.editors", "tenants.platform.users", "tenants.platformTeam"}
 	got, err := drivenInputs(def, Inputs{Values: doc("a.test", "acme", true)})
-	if err != nil || !reflect.DeepEqual(got, slices.Concat(agentInputs, chatInputs, []string{commitInput, "clusterManager.github.tokenExchange.enabled", "defaultAgent.enabled", "defaultAgent.modelConfig"}, hiveInputs, gatewayInputs, llmInputs, []string{modelCommitInput, "modelManager.github.tokenExchange.enabled", servingInput, "musterMcpServerViewers", "networkPolicy.mcpBackends"}, organizationsInputs, []string{"scheduling.singletonsCapacity", "sessions.idleTTL", "skillManager.github.app.secretName", "skillManager.github.enabled", "skillManager.github.tokenExchange.enabled", "skillManager.sources", skillsInput}, tenantInputs, versionInputs)) {
+	if err != nil || !reflect.DeepEqual(got, slices.Concat(agentInputs, chatInputs, []string{"clusterManager.github.tokenExchange.enabled", "defaultAgent.enabled", "defaultAgent.modelConfig"}, hiveInputs, gatewayInputs, llmInputs, []string{"modelManager.github.tokenExchange.enabled", servingInput, "musterMcpServerViewers", "networkPolicy.mcpBackends"}, organizationsInputs, []string{"scheduling.singletonsCapacity", "sessions.idleTTL", "skillManager.github.app.secretName", "skillManager.github.tokenExchange.enabled", "skillManager.sources", skillsInput}, tenantInputs, versionInputs)) {
 		t.Errorf("from the record: %v %v", got, err)
 	}
 	got, err = drivenInputs(def, Inputs{Values: doc("a.test", "acme", true), Typed: doc("b.test", "acme", false)})
-	if err != nil || !reflect.DeepEqual(got, slices.Concat(agentInputs, chatInputs, []string{commitInput, "clusterManager.github.tokenExchange.enabled", "defaultAgent.enabled", "defaultAgent.modelConfig"}, hiveInputs, []string{baseDomainInput, customerInput}, gatewayInputs, llmInputs, []string{modelCommitInput, "modelManager.github.tokenExchange.enabled", servingInput, "musterMcpServerViewers", "networkPolicy.mcpBackends"}, organizationsInputs, []string{"scheduling.singletonsCapacity", "sessions.idleTTL", "skillManager.github.app.secretName", "skillManager.github.enabled", "skillManager.github.tokenExchange.enabled", "skillManager.sources", skillsInput}, tenantInputs, versionInputs)) {
+	if err != nil || !reflect.DeepEqual(got, slices.Concat(agentInputs, chatInputs, []string{"clusterManager.github.tokenExchange.enabled", "defaultAgent.enabled", "defaultAgent.modelConfig"}, hiveInputs, []string{baseDomainInput, customerInput}, gatewayInputs, llmInputs, []string{"modelManager.github.tokenExchange.enabled", servingInput, "musterMcpServerViewers", "networkPolicy.mcpBackends"}, organizationsInputs, []string{"scheduling.singletonsCapacity", "sessions.idleTTL", "skillManager.github.app.secretName", "skillManager.github.tokenExchange.enabled", "skillManager.sources", skillsInput}, tenantInputs, versionInputs)) {
 		t.Errorf("with facts typed: %v %v", got, err)
 	}
 }

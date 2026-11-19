@@ -68,6 +68,30 @@ func TestFormerTokenExchangeNameRendersAsTheCurrentOne(t *testing.T) {
 	}
 }
 
+func TestDroppedPinInputsRenderAsWithout(t *testing.T) {
+	render1 := func(pin any) (*render.Result, error) {
+		input, secrets := credentialInput(t, shapeGiantswarmSlackAppPub)
+		if pin != nil {
+			github := input["agentManager"].(map[string]any)[keyGitHub].(map[string]any)
+			github[keyEnabled] = pin
+			for _, manager := range []string{"clusterManager", "modelManager", "skillManager"} {
+				input[manager] = map[string]any{keyGitHub: map[string]any{keyEnabled: pin}}
+			}
+		}
+		return Render(input, secrets, render.ModeCommit)
+	}
+	without, err := render1(nil)
+	require.NoError(t, err)
+
+	for name, pin := range map[string]any{"on": true, "off": false} {
+		t.Run(name, func(t *testing.T) {
+			got, err := render1(pin)
+			require.NoError(t, err)
+			require.Equal(t, without.Files, got.Files)
+		})
+	}
+}
+
 // TestComponentInputsAreNamedAfterTheChartPath holds the convention of the
 // managers' inputs: an input rendered into one key of its component's values
 // carries that key's path under the component as its name.
