@@ -118,7 +118,7 @@ func (t *Tools) lastActions(ctx context.Context, reports []installations.Report)
 			cs := &reports[i].Capabilities[j]
 			for k := range list {
 				a := &list[k]
-				if a.Spec.Capability != cs.Name || !a.Includes(reports[i].Name) {
+				if !a.Includes(reports[i].Name) || a.CapabilityOf(reports[i].Name) != cs.Name {
 					continue
 				}
 				if fresh, ok := synced[a.Name]; ok {

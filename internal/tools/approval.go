@@ -574,7 +574,7 @@ type stageMerge struct {
 // standupText is the standup notice: who did what where, why and what
 // changed. Both kinds, enable and reconcile, take -d for the past.
 func standupText(a *actions.Action, m stageMerge) string {
-	return fmt.Sprintf("*%s* %sd *%s* on *%s*.", m.by, a.Spec.Kind, a.Spec.Capability, m.stage) +
+	return fmt.Sprintf("*%s* %sd *%s* on *%s*.", m.by, a.Spec.Kind, a.CapabilityOf(m.stage), m.stage) +
 		whyAndWhat(a, "What changed", []string{m.stage})
 }
 
@@ -582,7 +582,7 @@ func standupText(a *actions.Action, m stageMerge) string {
 // a customer installation: who did what where, whose customer, why and what
 // changed.
 func appliedText(a *actions.Action, installation string) string {
-	return fmt.Sprintf("*%s* %sd *%s* on *%s* (account engineer %s): the change is applied and verified.", a.Spec.Actor.Login, a.Spec.Kind, a.Spec.Capability, installation, a.Spec.AccountEngineerOf[installation]) +
+	return fmt.Sprintf("*%s* %sd *%s* on *%s* (account engineer %s): the change is applied and verified.", a.Spec.Actor.Login, a.Spec.Kind, a.CapabilityOf(installation), installation, a.Spec.AccountEngineerOf[installation]) +
 		whyAndWhat(a, "What changed", []string{installation})
 }
 
@@ -652,6 +652,27 @@ func (t *Tools) postResult(ctx context.Context, a *actions.Action, text string) 
 	return ""
 }
 
+// capabilitiesOn names a's definitions with the installations each renders,
+// in the order of a's installations: "*cluster-mcp-servers* on *alder*" or,
+// for a wave that renders some with their own, "*agent-platform* on
+// *hazel* and *cluster-mcp-servers* on *alder*, *birch*".
+func capabilitiesOn(a *actions.Action) string {
+	var names []string
+	on := map[string][]string{}
+	for _, n := range a.Spec.Installations {
+		c := a.CapabilityOf(n)
+		if _, ok := on[c]; !ok {
+			names = append(names, c)
+		}
+		on[c] = append(on[c], n)
+	}
+	parts := make([]string, 0, len(names))
+	for _, c := range names {
+		parts = append(parts, fmt.Sprintf("*%s* on *%s*", c, strings.Join(on[c], ", ")))
+	}
+	return strings.Join(parts, " and ")
+}
+
 // reviewText is the review's mrkdwn, what a teammate judges the action by
 // from Slack alone: who asks to do what on which installation (whose
 // customer), why — the actor's reason — and what changes, a line per
@@ -660,7 +681,7 @@ func (t *Tools) postResult(ctx context.Context, a *actions.Action, text string) 
 // change in full; never a value.
 func reviewText(a *actions.Action) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "*%s* asks to %s *%s* on *%s*", a.Spec.Actor.Login, a.Spec.Kind, a.Spec.Capability, strings.Join(a.Spec.Installations, ", "))
+	fmt.Fprintf(&b, "*%s* asks to %s %s", a.Spec.Actor.Login, a.Spec.Kind, capabilitiesOn(a))
 	if a.Spec.Customer {
 		if len(a.Spec.Installations) > 1 {
 			b.WriteString(" (customer installations among them")

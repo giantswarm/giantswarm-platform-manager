@@ -56,6 +56,11 @@ type Action struct {
 type Spec struct {
 	Actor         Actor          `json:"actor"`
 	Capability    string         `json:"capability"`
+	// CapabilityByInstallation names the definition that rendered an
+	// installation of the wave where it is not Capability: the hub on the
+	// agent platform whose shared values a cluster-mcp-servers wave draws
+	// with its targets, or the reverse.
+	CapabilityByInstallation map[string]string `json:"capabilityByInstallation,omitempty"`
 	Installations []string       `json:"installations"`
 	Inputs        map[string]any `json:"inputs,omitempty"`
 	// InputsByInstallation are the inputs each installation was rendered
@@ -452,6 +457,14 @@ func Unstructured(a Action) *unstructured.Unstructured {
 // Includes says whether the action names installation.
 func (a Action) Includes(installation string) bool {
 	return slices.Contains(a.Spec.Installations, installation)
+}
+
+// CapabilityOf is the definition that rendered installation's stage.
+func (a Action) CapabilityOf(installation string) string {
+	if c, ok := a.Spec.CapabilityByInstallation[installation]; ok {
+		return c
+	}
+	return a.Spec.Capability
 }
 
 // KeptOnRecord are the entries of installation's audience lists the commit

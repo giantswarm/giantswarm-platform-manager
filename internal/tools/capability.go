@@ -67,6 +67,18 @@ type planned struct {
 	reports           map[string]installations.Report
 	inputs            map[string]map[string]any
 	planInstallations map[string]bool
+	// defs are the definitions that render installations of the set other
+	// than the set's own, by name (DryRun.Capability).
+	defs map[string]installations.Capability
+}
+
+// defOf is the definition that renders installation in env's set: its own
+// where the set renders it with another, def otherwise.
+func (env *planned) defOf(installation string, def installations.Capability) installations.Capability {
+	if d, ok := env.defs[installation]; ok {
+		return d
+	}
+	return def
 }
 
 // commitNext says what mode commit does with a dry run, word for word.
@@ -217,15 +229,34 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 	reports := reg.InspectAll(ctx, c, selected, caps, installations.Full)
 	out := CapabilityResult{Caller: identity.Caller(ctx), Tool: tool, Capability: def.Name, Hub: reg.Hub, DryRun: true, RenderedBy: t.renderedBy(),
 		Order: []string{}, Installations: []DryRun{}, PullRequests: []plan.PullRequest{}, Skipped: []Skipped{}, Commit: commitNext}
-	env := &planned{c: c, hub: hub, byName: byName, reports: map[string]installations.Report{}, inputs: map[string]map[string]any{}}
+	env := &planned{c: c, hub: hub, byName: byName, reports: map[string]installations.Report{}, inputs: map[string]map[string]any{}, defs: map[string]installations.Capability{}}
+	// An installation named in the set that runs the other definition of
+	// its MCP servers takes part in the set's pairing: the values it shares
+	// with the others are not deferred, and it is rendered with its own
+	// definition where one of them is new on both sides.
+	others := map[string]installations.Capability{}
+	for _, r := range reports {
+		if other, ok := serversCapability(r, def); ok && slices.Contains(set, r.Name) {
+			others[r.Name] = other
+		}
+	}
 	env.planInstallations = map[string]bool{}
 	for _, report := range reports {
-		if _, skip := skipped(report, def.Name, report.Name == one); !skip {
+		_, skip := skipped(report, def.Name, report.Name == one)
+		if _, other := others[report.Name]; !skip || other {
 			env.planInstallations[report.Name] = true
 		}
 	}
-	for _, r := range waveOrder(reports, hub) {
+	ordered := waveOrder(reports, hub)
+	rank := map[string]int{}
+	for i, r := range ordered {
+		rank[r.Name] = i
 		env.reports[r.Name] = r
+	}
+	for _, r := range ordered {
+		if _, other := others[r.Name]; other {
+			continue
+		}
 		if skip, ok := skipped(r, def.Name, r.Name == one); ok {
 			out.Skipped = append(out.Skipped, skip)
 			continue
@@ -234,8 +265,52 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 		if err != nil {
 			return nil, nil, err
 		}
-		out.Order = append(out.Order, r.Name)
 		out.Installations = append(out.Installations, dryRun(res))
+	}
+	drawn := drawnWithOthers(out.Installations, others)
+	if len(drawn) > 0 && len(inputs) > 0 {
+		names := make([]string, 0, len(drawn))
+		for _, n := range drawn {
+			names = append(names, n+" ("+others[n].Name+")")
+		}
+		return nil, nil, fmt.Errorf("%s: the set renders %s with its own definition, to draw the values it shares with the others once; %s are %s's alone — reconcile the set without them, or each installation alone", tool, strings.Join(names, ", "), ArgInputs, def.Name)
+	}
+	for _, r := range ordered {
+		other, ok := others[r.Name]
+		if !ok {
+			continue
+		}
+		with := def
+		if slices.Contains(drawn, r.Name) {
+			with = other
+			env.defs[r.Name] = other
+		} else if skip, ok := skipped(r, def.Name, r.Name == one); ok {
+			out.Skipped = append(out.Skipped, skip)
+			continue
+		}
+		res, err := t.compare(ctx, env, r, with, inputs, content, rotate, force)
+		if err != nil {
+			return nil, nil, err
+		}
+		e := dryRun(res)
+		if with.Name != def.Name {
+			e.Capability = with.Name
+		}
+		out.Installations = append(out.Installations, e)
+	}
+	// An installation rendered with its own definition goes first: the
+	// values it draws with the others are on its side before theirs.
+	slices.SortStableFunc(out.Installations, func(a, b DryRun) int {
+		if (a.Capability != "") != (b.Capability != "") {
+			if a.Capability != "" {
+				return -1
+			}
+			return 1
+		}
+		return rank[a.Name] - rank[b.Name]
+	})
+	for _, e := range out.Installations {
+		out.Order = append(out.Order, e.Name)
 	}
 	if err := applyOrder(&out, stringSlice(args[ArgOrder])); err != nil {
 		return nil, nil, fmt.Errorf("%s: %w", tool, err)
@@ -358,6 +433,43 @@ func (t *Tools) registry(ctx context.Context, c *gh.Client) (*installations.Regi
 		err = fmt.Errorf("%w — the registry is read as you through the App %s: the App must be installed on the repository (contents: read) and you must be able to read it", err, ToolPrefix)
 	}
 	return reg, err
+}
+
+// serversCapability is the definition that runs r's MCP servers where it is
+// not def and def is the other one: the agent platform where it is on
+// record, cluster-mcp-servers otherwise. The two render the same servers and
+// the two sides of the values a hub shares with its targets.
+func serversCapability(r installations.Report, def installations.Capability) (installations.Capability, bool) {
+	if def.Name != installations.AgentPlatform && def.Name != installations.ClusterMCPServers {
+		return installations.Capability{}, false
+	}
+	name := ""
+	switch {
+	case capabilityState(r, installations.AgentPlatform).OnRecord():
+		name = installations.AgentPlatform
+	case capabilityState(r, installations.ClusterMCPServers).OnRecord():
+		name = installations.ClusterMCPServers
+	}
+	if name == "" || name == def.Name {
+		return installations.Capability{}, false
+	}
+	return installations.FindCapability(name)
+}
+
+// drawnWithOthers are the installations of others that a plan of entries
+// shares a value with that is new on both sides, sorted: rendered with their
+// own definition, the wave draws the value once for both.
+func drawnWithOthers(entries []DryRun, others map[string]installations.Capability) []string {
+	var names []string
+	for _, e := range entries {
+		for _, g := range e.GeneratedSecrets {
+			if _, ok := others[g.PeerInstallation]; ok && g.NewOnBothSides() && !slices.Contains(names, g.PeerInstallation) {
+				names = append(names, g.PeerInstallation)
+			}
+		}
+	}
+	slices.Sort(names)
+	return names
 }
 
 // skipped says whether r is left out of the set: an installation named as

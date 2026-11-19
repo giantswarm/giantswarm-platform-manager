@@ -52,6 +52,13 @@ func (g GeneratedSecret) created() bool {
 	return !g.Kept && !g.Rotates && len(g.FrozenIn) == 0 && len(g.Carries) == 0
 }
 
+// NewOnBothSides says whether gs is a value this plan creates whose peer's
+// file is not on record either: one draw for both sides is the only way the
+// two agree (ShareDraws).
+func (g GeneratedSecret) NewOnBothSides() bool {
+	return g.peerAbsent && g.created()
+}
+
 // refuse settles gs against the peer's file. A value kept on both sides
 // stands. A value created here while the peer's file is on record is the
 // person's to supply: the manager decrypts nothing, so the value on record
@@ -65,7 +72,7 @@ func (g GeneratedSecret) created() bool {
 // the value drawn here never reaches the peer's file. A peer that cannot be
 // read is a refusal as well: nothing says the pair would agree.
 func (p peer) refuse(ctx context.Context, gs *GeneratedSecret, read Reader) {
-	gs.Peer = p.file()
+	gs.Peer, gs.PeerInstallation = p.file(), p.installation
 	if gs.Kept {
 		return
 	}
@@ -74,6 +81,7 @@ func (p peer) refuse(ctx context.Context, gs *GeneratedSecret, read Reader) {
 		_, err = read(ctx, p.ref.repository, p.ref.path)
 	}
 	created := gs.created()
+	gs.peerAbsent = errors.Is(err, gh.ErrNotFound)
 	if err == nil && created {
 		gs.Supplied = true
 		return

@@ -208,6 +208,10 @@ type GeneratedSecret struct {
 	// own plan, as "<repository>:<path>" (the path alone where the peer's
 	// repository is not on record): a value drawn here never reaches it.
 	Peer string `json:"peer,omitempty"`
+	// PeerInstallation is the installation that holds Peer.
+	PeerInstallation string `json:"peerInstallation,omitempty"`
+	// peerAbsent: the Peer's file is not on record.
+	peerAbsent bool
 	// Supplied: the Peer's file is on record and this side's files are new,
 	// so the value is the person's to supply at commit, copied from the
 	// record with their vault — SuppliedSecrets lists the name — and the

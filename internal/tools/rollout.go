@@ -559,7 +559,7 @@ func waitLines(waits []rolloutWait) []string {
 // NotFound says so; a read that fails or is not possible answers none, and
 // the first watch's recordBaselines then reads the history after the merge.
 func (t *Tools) runningReleases(ctx context.Context, a *actions.Action, installation string) []actions.ReleaseBaseline {
-	def, ok := installations.FindCapability(a.Spec.Capability)
+	def, ok := installations.FindCapability(a.CapabilityOf(installation))
 	if !ok {
 		return nil
 	}
