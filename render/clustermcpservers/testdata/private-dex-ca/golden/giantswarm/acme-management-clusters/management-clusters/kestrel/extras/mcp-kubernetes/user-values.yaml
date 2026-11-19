@@ -2,12 +2,6 @@
 # the next reconcile writes it again from the installation's inputs.
 mcpKubernetes:
   oauth:
-    sso:
-      allowPrivateIPs: true
-    cimd:
-      allowPrivateIPs: true
-    redirectURISecurity:
-      allowPrivateIPRedirectURIs: true
     dex:
       caSecret:
         name: mcp-kubernetes-dex-ca

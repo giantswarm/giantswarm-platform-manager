@@ -2,6 +2,5 @@
 # the next reconcile writes it again from the installation's inputs.
 app:
   oauth:
-    allowPrivateIPJWKS: true
     dexCASecret:
       name: mcp-prometheus-dex-ca
