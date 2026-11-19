@@ -118,10 +118,10 @@ func (g gone) unlistRemoved(ref fileRef, content []byte) ([]byte, error) {
 }
 
 // patchClient is one client of a Dex patch: an entry of extraStaticClients,
-// or of staticClients by its key.
+// a list or a map keyed by id, or of staticClients by its key.
 type patchClient struct {
 	list string // extraStaticClients or staticClients
-	key  string // the staticClients key; "" in extraStaticClients
+	key  string // the map key; "" in an extraStaticClients list
 	node *yaml.Node
 }
 
@@ -163,10 +163,19 @@ func (c patchClient) String() string {
 // trusted peers) is no client the disable could attribute.
 func clientsOf(oidc *yaml.Node) []patchClient {
 	var out []patchClient
-	if seq := entry(oidc, "extraStaticClients"); seq != nil && seq.Kind == yaml.SequenceNode {
-		for _, n := range seq.Content {
-			if n.Kind == yaml.MappingNode {
-				out = append(out, patchClient{list: "extraStaticClients", node: n})
+	if extra := entry(oidc, "extraStaticClients"); extra != nil {
+		switch extra.Kind {
+		case yaml.SequenceNode:
+			for _, n := range extra.Content {
+				if n.Kind == yaml.MappingNode {
+					out = append(out, patchClient{list: "extraStaticClients", node: n})
+				}
+			}
+		case yaml.MappingNode:
+			for i := 0; i+1 < len(extra.Content); i += 2 {
+				if extra.Content[i+1].Kind == yaml.MappingNode {
+					out = append(out, patchClient{list: "extraStaticClients", key: extra.Content[i].Value, node: extra.Content[i+1]})
+				}
 			}
 		}
 	}

@@ -14,17 +14,55 @@ oidc:
       clientSecretRef:
         name: dex-client-mcp-capi
         key: secret
+  giantswarm:
+    connectors:
+      giantswarm-gopher-oidc:
+        connectorType: oidc
+        connectorName: gopher
+        config:
+          issuer: https://dex.gopher.example.io
+          insecureEnableGroups: true
+          clientID: federation-osprey
+          redirectURI: https://dex.osprey.acme.example.test/callback
+          scopes:
+            - openid
+            - profile
+            - email
+            - groups
+        clientSecretRef:
+          name: dex-connector-giantswarm-gopher-oidc
+          key: client-secret
   customer:
     connectors:
-      - id: acme-simple-oidc
+      acme-simple-oidc:
         connectorType: oidc
-        connectorName: harrier token exchange
-        connectorConfig: |
+        connectorName: harrier
+        config:
           issuer: https://dex.harrier.acme.example.test
           insecureEnableGroups: true
-      - id: acme-kite-oidc
+          clientID: federation-osprey
+          redirectURI: https://dex.osprey.acme.example.test/callback
+          scopes:
+            - openid
+            - profile
+            - email
+            - groups
+        clientSecretRef:
+          name: dex-connector-acme-simple-oidc
+          key: client-secret
+      acme-kite-oidc:
         connectorType: oidc
-        connectorName: kite token exchange
-        connectorConfig: |
+        connectorName: kite
+        config:
           issuer: https://dex.kite.acme.example.test
           insecureEnableGroups: true
+          clientID: federation-osprey
+          redirectURI: https://dex.osprey.acme.example.test/callback
+          scopes:
+            - openid
+            - profile
+            - email
+            - groups
+        clientSecretRef:
+          name: dex-connector-acme-kite-oidc
+          key: client-secret

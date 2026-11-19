@@ -19,7 +19,7 @@ oidc:
         name: dex-client-mcp-capi
         key: secret
   extraStaticClients:
-    - id: kagent
+    kagent:
       name: kagent-ui
       secretRef:
         name: dex-client-kagent

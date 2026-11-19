@@ -88,6 +88,15 @@ func (in *Input) render(secrets map[string]string) (*render.Result, error) {
 		federation.Targets = slices.DeleteFunc(slices.Clone(federation.Targets), func(target Target) bool {
 			return slices.Contains(names, exchangeSecretName(in.hubClient(target)))
 		})
+		filtered.withoutLogins = nil
+		for _, t := range federation.Targets {
+			if slices.Contains(names, render.FederationSecretName(in.Installation.Name, t.Installation)) {
+				filtered.withoutLogins = append(filtered.withoutLogins, t.Installation)
+			}
+		}
+		filtered.HubConnectors = slices.DeleteFunc(slices.Clone(in.HubConnectors), func(c render.FederatedConnector) bool {
+			return slices.Contains(names, render.FederationSecretName(c.Hub.Hub, in.Installation.Name))
+		})
 		return filtered.render(secrets)
 	}
 	return r, nil
@@ -559,9 +568,11 @@ func (in *Input) portalDexClient() render.Map {
 
 // dexPatch is installations/<name>/apps/dex-app/configmap-values.yaml.patch:
 // the platform's clients in plaintext, every secret a reference to a Secret
-// in Dex's namespace, and the token-exchange connectors of the hubs that
-// broker into the installation (render.ExchangeConnectors), among the
-// installation's own connectors under oidc.customer, which the plan keeps.
+// in Dex's namespace, and the connectors of the hubs that broker into the
+// installation (render.FederatedConnectors) under their owner, among the
+// installation's own connectors there, which the plan keeps. Clients and
+// connectors are maps keyed by id, so other values sources' entries merge
+// with them.
 // It never touches the encrypted secret patch. The patch is one file with
 // one owner: on an installation with the platform enabled this definition
 // owns it, so the portals' client is carried here, the entry the
@@ -592,16 +603,17 @@ func (in *Input) dexPatch() render.Map {
 		extra = append(extra, in.portalDexClient())
 	}
 	extra = append(extra, in.exchange().DexClients()...)
+	for _, t := range in.federationLogins() {
+		extra = append(extra, render.HubFederationClient(t.Installation, t.BaseDomain))
+	}
 	for _, c := range in.confidentialClients() {
 		extra = append(extra, confidentialDexClient(c))
 	}
 	oidc := render.Map{e("staticClients", static)}
 	if len(extra) > 0 {
-		oidc = append(oidc, e("extraStaticClients", extra))
+		oidc = append(oidc, e("extraStaticClients", render.ClientsByID(extra)))
 	}
-	if len(in.HubConnectors) > 0 {
-		oidc = append(oidc, e("customer", render.Map{e("connectors", in.HubConnectors)}))
-	}
+	oidc = append(oidc, render.ConnectorsByOwner(in.HubConnectors, in.Installation.Name, in.Installation.BaseDomain)...)
 	return render.Map{e("oidc", oidc)}
 }
 
@@ -860,6 +872,14 @@ func (in *Input) platformExtras(r *render.Result, repo render.Repository, dir st
 	for _, hub := range in.Installation.Federation.Hubs {
 		// The hub's client in this Dex, peered with the hub's credentials Secret for this installation.
 		add(in.exchange().Secret(hub))
+	}
+	for _, c := range in.HubConnectors {
+		// The hub's login client for this Dex, peered with the hub's Dex-side Secret of the client.
+		add(render.ConnectorSecret(c.ID, c.Hub.Hub, in.Installation.Name))
+	}
+	for _, t := range in.federationLogins() {
+		// This hub's login client for t's Dex, peered with t's connector Secret.
+		add(render.HubFederationSecret(in.Installation.Name, t.Installation, in.connector(t)))
 	}
 	for _, c := range in.confidentialClients() {
 		f := dexClientSecret(c.ClientID, in.generatedName(confidentialSecretName(c)))

@@ -61,21 +61,20 @@ func readPortalClientSecret(ctx context.Context, c *gh.Client, inst Installation
 }
 
 // extraStaticClientIDs are the ids of a dex-app configmap patch's
-// oidc.extraStaticClients.
+// oidc.extraStaticClients, a map keyed by id or a list.
 func extraStaticClientIDs(data string) ([]string, error) {
 	var patch struct {
 		OIDC struct {
-			ExtraStaticClients []struct {
-				ID string `yaml:"id"`
-			} `yaml:"extraStaticClients"`
+			ExtraStaticClients yaml.Node `yaml:"extraStaticClients"`
 		} `yaml:"oidc"`
 	}
 	if err := yaml.Unmarshal([]byte(data), &patch); err != nil {
 		return nil, err
 	}
-	ids := make([]string, 0, len(patch.OIDC.ExtraStaticClients))
-	for _, client := range patch.OIDC.ExtraStaticClients {
-		ids = append(ids, client.ID)
-	}
-	return ids, nil
+	ids := []string{}
+	err := render.EachByID(&patch.OIDC.ExtraStaticClients, func(id string, _ *yaml.Node) error {
+		ids = append(ids, id)
+		return nil
+	})
+	return ids, err
 }

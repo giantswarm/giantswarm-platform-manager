@@ -241,47 +241,48 @@ func (in *Input) render() (*render.Result, error) {
 			static = append(static, render.Entry{Key: s.DexClient, Value: s.DexClientRef()})
 		}
 	}
-	oidc := render.Map{{Key: "staticClients", Value: static}}
-	if hubs := in.Installation.Federation.Hubs; len(hubs) > 0 {
-		in.exchangeExtras(r, clusters, extras+platformDir)
-		r.Include(clusters, extras+"kustomization.yaml", "./"+platformDir+"/")
-		// The hubs' brokers ask Dex for the cluster tokens through their clients.
-		static = append(static, render.Entry{Key: "dexK8SAuthenticator", Value: render.Map{{Key: "trustedPeers", Value: in.exchange().TrustedPeers()}}})
-		oidc = render.Map{{Key: "staticClients", Value: static}, {Key: "extraStaticClients", Value: in.exchange().DexClients()}}
-	}
 	connectors, err := in.exchangeConnectors()
 	if err != nil {
 		return nil, err
 	}
-	if len(connectors) > 0 {
-		oidc = append(oidc, render.Entry{Key: "customer", Value: render.Map{{Key: "connectors", Value: connectors}}})
+	oidc := render.Map{{Key: "staticClients", Value: static}}
+	if hubs := in.Installation.Federation.Hubs; len(hubs) > 0 {
+		in.exchangeExtras(r, clusters, extras+platformDir, connectors)
+		r.Include(clusters, extras+"kustomization.yaml", "./"+platformDir+"/")
+		// The hubs' brokers ask Dex for the cluster tokens through their clients.
+		static = append(static, render.Entry{Key: "dexK8SAuthenticator", Value: render.Map{{Key: "trustedPeers", Value: in.exchange().TrustedPeers()}}})
+		oidc = render.Map{{Key: "staticClients", Value: static}, {Key: "extraStaticClients", Value: render.ClientsByID(in.exchange().DexClients())}}
 	}
+	oidc = append(oidc, render.ConnectorsByOwner(connectors, name, in.Installation.BaseDomain)...)
 	dex := render.Map{{Key: "oidc", Value: oidc}}
 	r.Add(configs, "installations/"+name+"/apps/dex-app/configmap-values.yaml.patch", render.File{Content: append([]byte(fileHeader), render.MustYAML(dex)...)})
-	r.Probes = in.probes()
+	r.Probes = in.probes(connectors)
 	r.WithoutPairs = func(names []string) (*render.Result, error) {
 		filtered := *in
 		federation := &filtered.Installation.Federation
 		federation.Hubs = slices.DeleteFunc(slices.Clone(federation.Hubs), func(hub string) bool {
 			return slices.Contains(names, render.ExchangeSecretName(in.exchange().Client(hub)))
 		})
+		federation.Connectors = slices.DeleteFunc(slices.Clone(federation.Connectors), func(c render.HubConnector) bool {
+			return slices.Contains(names, render.FederationSecretName(c.Hub, name))
+		})
 		return filtered.render()
 	}
 	return r, nil
 }
 
-// exchangeConnectors are the token-exchange connectors the installation's
-// Dex registers for the hubs that broker into it, under oidc.customer next
-// to the installation's own login connectors, which the plan keeps: the
+// exchangeConnectors are the connectors the installation's Dex registers for
+// the hubs that broker into it, under their owner next to the
+// installation's own login connectors, which the plan keeps: the
 // agent-platform policy's names over each hub's record, the one rule the
 // hub names the connector by in its broker (render.ConnectorPolicy). A policy
 // that cannot name one is ErrPolicy.
-func (in *Input) exchangeConnectors() ([]render.Map, error) {
+func (in *Input) exchangeConnectors() ([]render.FederatedConnector, error) {
 	names, err := render.ConnectorPolicy()
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrPolicy, err)
 	}
-	list, err := render.ExchangeConnectors(names, in.Installation.Federation.Connectors)
+	list, err := render.FederatedConnectors(names, in.Installation.Federation.Connectors)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrPolicy, err)
 	}
@@ -292,16 +293,23 @@ func (in *Input) exchangeConnectors() ([]render.Map, error) {
 // installation without the platform: the kustomization listing its secrets
 // directory, that directory's kustomization, and the Dex-side Secret of
 // every hub's token-exchange client, each peered with the hub's credentials
-// Secret for this installation (render.ExchangeTarget.Secret). The files
+// Secret for this installation (render.ExchangeTarget.Secret), and the
+// Secret of every connector's login client, each peered with the hub's
+// Dex-side Secret of the client (render.ConnectorSecret). The files
 // and their paths are the agent-platform definition's for the same pairing:
 // a disable of the platform keeps them as this definition's, with the
 // value the hub holds the other side of, and an enable finds them on record.
-func (in *Input) exchangeExtras(r *render.Result, repo render.Repository, dir string) {
+func (in *Input) exchangeExtras(r *render.Result, repo render.Repository, dir string, connectors []render.FederatedConnector) {
 	r.Add(repo, dir+"/kustomization.yaml", render.File{Content: kustomization("./secrets")})
 	x := in.exchange()
-	files := make([]string, 0, len(x.Hubs))
+	files := make([]string, 0, len(x.Hubs)+len(connectors))
 	for _, hub := range x.Hubs {
 		file, f := x.Secret(hub)
+		files = append(files, file)
+		r.Add(repo, dir+"/secrets/"+file, f)
+	}
+	for _, c := range connectors {
+		file, f := render.ConnectorSecret(c.ID, c.Hub.Hub, in.Installation.Name)
 		files = append(files, file)
 		r.Add(repo, dir+"/secrets/"+file, f)
 	}
@@ -326,8 +334,9 @@ func kustomization(resources ...string) []byte {
 // its Valkey's HelmRelease Ready, the server's Deployment Available (a
 // HelmRelease stays Ready when its pods turn unready on rotated-away
 // credentials), and Dex started after every server's and every hub's
-// token-exchange client's Secret changed.
-func (in *Input) probes() []render.Probe {
+// token-exchange client's Secret and every hub connector's login client
+// Secret changed.
+func (in *Input) probes(connectors []render.FederatedConnector) []render.Probe {
 	var p []render.Probe
 	for _, s := range mcpservers.Servers {
 		if !in.Servers.of(s).runs() {
@@ -344,6 +353,9 @@ func (in *Input) probes() []render.Probe {
 	}
 	for _, client := range in.exchange().TrustedPeers() {
 		p = append(p, render.DexSecretLoadedProbe("live-dex-client-secrets-loaded", featureIdentity, render.DexNamespace, render.DexClientSecretName(client), client))
+	}
+	for _, c := range connectors {
+		p = append(p, render.DexConnectorSecretLoadedProbe("live-dex-client-secrets-loaded", featureIdentity, render.DexNamespace, render.ConnectorSecretName(c.ID), c.ID))
 	}
 	return p
 }
