@@ -163,9 +163,10 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", ToolWatchAction, err)
 	}
-	res := verify.CompareLive(ctx, verify.LiveOptions{Definition: def, Installation: st.Name, State: settledState(st.State),
-		DeferredPairs: a.Spec.DeferredPairs[st.Name],
-		Inputs:        verify.Inputs{Source: "action " + a.Name, Values: inputs, Typed: a.Spec.Inputs}, Kept: a.KeptOnRecord(st.Name), Cluster: cluster, Probes: t.d.Probes, Person: id.String(), AnonymousProbes: true, Rollout: true, Log: t.d.Log})
+	opts := verify.LiveOptions{Definition: def, Installation: st.Name, State: settledState(st.State),
+		Inputs: verify.Inputs{Source: "action " + a.Name, Values: inputs, Typed: a.Spec.Inputs}, Kept: a.KeptOnRecord(st.Name), Cluster: cluster, Probes: t.d.Probes, Person: id.String(), AnonymousProbes: true, Rollout: true, Log: t.d.Log}
+	liveRecord(&opts, *a, st.Name)
+	res := verify.CompareLive(ctx, opts)
 	res.Caller = id.String()
 	prev := st.State
 	// The releases that ran at the merges, as this read saw them, go on

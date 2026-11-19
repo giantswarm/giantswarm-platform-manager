@@ -3,10 +3,12 @@ package tools
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 
+	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
@@ -35,6 +37,32 @@ func deferredPairNames(plans []DryRun) map[string][]string {
 		}
 	}
 	return names
+}
+
+// generatedNames are the generated values each plan's render holds, by
+// installation, sorted.
+func generatedNames(plans []DryRun) map[string][]string {
+	var names map[string][]string
+	for _, planned := range plans {
+		for _, generated := range planned.GeneratedSecrets {
+			if names == nil {
+				names = map[string][]string{}
+			}
+			names[planned.Name] = append(names[planned.Name], generated.Name)
+		}
+	}
+	for _, list := range names {
+		sort.Strings(list)
+	}
+	return names
+}
+
+// liveRecord sets the render opts' live verify takes from action a for
+// installation: the pairs its commit deferred and the generated values it
+// rendered.
+func liveRecord(opts *verify.LiveOptions, a actions.Action, installation string) {
+	opts.DeferredPairs = a.Spec.DeferredPairs[installation]
+	opts.Generated = a.Spec.GeneratedByInstallation[installation]
 }
 
 // compare is the one computation verify_capability and the dry runs answer:

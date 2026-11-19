@@ -66,6 +66,10 @@ type Spec struct {
 	// DeferredPairs names the generated pairs omitted from each installation's
 	// commit render and its rollout verification.
 	DeferredPairs map[string][]string `json:"deferredPairs,omitempty"`
+	// GeneratedByInstallation names the generated values each installation's
+	// commit render holds, without the deferred pairs: the pairs its rollout
+	// verification probes. Names only, never a value.
+	GeneratedByInstallation map[string][]string `json:"generatedByInstallation,omitempty"`
 	// Kind is "enable", "reconcile" or "disable".
 	Kind string `json:"kind"`
 	// Customer marks a customer installation among the targets: the Account

@@ -116,6 +116,13 @@ spec:
                     type: array
                     items:
                       type: string
+                generatedByInstallation:
+                  description: Per installation, the generated values the commit render holds, without the deferred pairs; the rollout verification probes these pairs and defers any a later definition added. Names only, never a secret value.
+                  type: object
+                  additionalProperties:
+                    type: array
+                    items:
+                      type: string
                 keptByInstallation:
                   description: Per installation, the entries of the platform patch's audience lists the commit kept beside the render; the live probes hold the objects against the render with them. Ids only, never a secret value.
                   type: object
