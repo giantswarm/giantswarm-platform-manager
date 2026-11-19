@@ -46,6 +46,12 @@ type fakeGitHub struct {
 	mu        sync.Mutex
 	files     map[string]map[string]string // owner/repo → path → content
 	forbidden map[string]bool
+	// hidden holds the owner/repo GitHub answers with a 404 on every read,
+	// as it answers a person who may not see a private repository.
+	hidden map[string]bool
+	// failingCompare holds the owner/repo whose comparisons GitHub answers
+	// with a 502, as a transient error.
+	failingCompare map[string]bool
 	// failing holds the owner/repo:path whose blob GitHub answers with a
 	// 502, the rest of the repository readable.
 	failing map[string]bool
@@ -104,11 +110,13 @@ const (
 	badCredentials = "Bad credentials"
 	notAccessible  = "Resource not accessible by integration"
 	notFound       = "Not Found"
+	// serverError is GitHub's message of a transient 502.
+	serverError = "Server Error"
 )
 
 func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 	t.Helper()
-	g := &fakeGitHub{logins: logins, files: map[string]map[string]string{}, forbidden: map[string]bool{}, failing: map[string]bool{}, releases: map[string][]fakeRelease{}, failingReleases: map[string]bool{}, contentsCalls: map[string]int{}, treeCalls: map[string]int{}, treeChecks: map[string]int{},
+	g := &fakeGitHub{logins: logins, files: map[string]map[string]string{}, forbidden: map[string]bool{}, hidden: map[string]bool{}, failingCompare: map[string]bool{}, failing: map[string]bool{}, releases: map[string][]fakeRelease{}, failingReleases: map[string]bool{}, contentsCalls: map[string]int{}, treeCalls: map[string]int{}, treeChecks: map[string]int{},
 		history: map[string][]fakeCommit{}, commitCalls: map[string]int{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v3/user", func(w http.ResponseWriter, r *http.Request) {
@@ -131,7 +139,7 @@ func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 		switch {
 		case g.forbidden[repo]:
 			writeJSON(w, http.StatusForbidden, map[string]any{message: notAccessible})
-		case g.files[repo] == nil:
+		case g.files[repo] == nil || g.hidden[repo]:
 			writeJSON(w, http.StatusNotFound, map[string]any{message: notFound})
 		default:
 			writeJSON(w, http.StatusOK, map[string]any{"full_name": repo, "default_branch": defaultBranch})
@@ -161,7 +169,7 @@ func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 			return
 		}
 		files, ok := g.files[repo]
-		if !ok {
+		if !ok || g.hidden[repo] {
 			writeJSON(w, http.StatusNotFound, map[string]any{message: notFound})
 			return
 		}
@@ -195,7 +203,7 @@ func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 		var found *string
 		for p, content := range g.files[repo] {
 			if blobSHA(content) == r.PathValue("sha") && g.failing[repo+":"+p] {
-				writeJSON(w, http.StatusBadGateway, map[string]any{message: "Server Error"})
+				writeJSON(w, http.StatusBadGateway, map[string]any{message: serverError})
 				return
 			}
 			if blobSHA(content) == r.PathValue("sha") {
@@ -225,10 +233,14 @@ func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 		repo := r.PathValue("owner") + "/" + r.PathValue("repo")
 		number, _ := strconv.Atoi(r.PathValue("number"))
 		g.mu.Lock()
-		forbidden, pull := g.forbidden[repo], g.pull
+		forbidden, hidden, pull := g.forbidden[repo], g.hidden[repo], g.pull
 		g.mu.Unlock()
 		if forbidden {
 			writeJSON(w, http.StatusForbidden, map[string]any{message: notAccessible})
+			return
+		}
+		if hidden {
+			writeJSON(w, http.StatusNotFound, map[string]any{message: notFound})
 			return
 		}
 		var p fakePull
@@ -292,7 +304,7 @@ func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 		failing, list := g.failingReleases[repo], g.releases[repo]
 		g.mu.Unlock()
 		if failing {
-			writeJSON(w, http.StatusBadGateway, map[string]any{message: "Server Error"})
+			writeJSON(w, http.StatusBadGateway, map[string]any{message: serverError})
 			return
 		}
 		out := make([]map[string]any, 0, len(list))
@@ -332,6 +344,10 @@ func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 		base, head, _ := strings.Cut(r.PathValue("basehead"), "...")
 		g.mu.Lock()
 		defer g.mu.Unlock()
+		if g.failingCompare[repo] {
+			writeJSON(w, http.StatusBadGateway, map[string]any{message: serverError})
+			return
+		}
 		_, hasBase := g.commitLocked(repo, base)
 		_, hasHead := g.commitLocked(repo, head)
 		if !hasBase || !hasHead {
@@ -382,7 +398,7 @@ func (g *fakeGitHub) readable(w http.ResponseWriter, r *http.Request) (string, b
 	case g.forbidden[repo]:
 		writeJSON(w, http.StatusForbidden, map[string]any{message: notAccessible})
 		return "", false
-	case g.files[repo] == nil:
+	case g.files[repo] == nil || g.hidden[repo]:
 		writeJSON(w, http.StatusNotFound, map[string]any{message: notFound})
 		return "", false
 	}
@@ -435,6 +451,19 @@ func (g *fakeGitHub) rewriteBefore(repo, sha, path, content string) {
 	c, _ := g.commitLocked(repo, sha)
 	for i := range g.history[repo] {
 		if g.history[repo][i].sha == c.parent {
+			g.history[repo][i].tree = maps.Clone(g.history[repo][i].tree)
+			g.history[repo][i].tree[path] = content
+		}
+	}
+}
+
+// rewriteAt has path of owner/repo carry content in commit sha: the history
+// as if the commit had written the file so.
+func (g *fakeGitHub) rewriteAt(repo, sha, path, content string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for i := range g.history[repo] {
+		if g.history[repo][i].sha == sha {
 			g.history[repo][i].tree = maps.Clone(g.history[repo][i].tree)
 			g.history[repo][i].tree[path] = content
 		}
@@ -540,6 +569,22 @@ func (g *fakeGitHub) forbid(repo string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.forbidden[repo] = true
+}
+
+// hide makes every read of owner/repo a 404, as GitHub answers a person who
+// may not see a private repository.
+func (g *fakeGitHub) hide(repo string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.hidden[repo] = true
+}
+
+// failCompare makes every comparison of two commits of owner/repo a 502, as
+// a transient GitHub error answers it; failCompare(repo, false) ends it.
+func (g *fakeGitHub) failCompare(repo string, failing bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failingCompare[repo] = failing
 }
 
 // fakeRelease is one GitHub release of the fake.
