@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
@@ -81,7 +83,7 @@ func (t *Tools) rolloutWaits(ctx context.Context, def installations.Capability, 
 			}
 			waits = append(waits, w...)
 		case ch.Releases != nil:
-			w, err := releaseWaits(ctx, c, def, status.PullRequests, merged, ch, st)
+			w, err := releaseWaits(ctx, c, def, status.PullRequests, merged, ch, plannedOf(res, ch), st)
 			if err != nil {
 				return nil, err
 			}
@@ -89,6 +91,24 @@ func (t *Tools) rolloutWaits(ctx context.Context, def installations.Capability, 
 		}
 	}
 	return waits, nil
+}
+
+// plannedOf are the planned differences (verify.Planned) the live
+// dimensions of res name on ch's object: the leaves of the values a
+// HelmRelease reads that a newer definition plans to change.
+func plannedOf(res verify.Result, ch verify.Check) []verify.Difference {
+	object := ch.Resource + " " + objectName(ch.Namespace, ch.Name)
+	var out []verify.Difference
+	for _, f := range res.Features {
+		for _, d := range f.Dimensions {
+			for _, diff := range d.Differences {
+				if d.Live != nil && diff.Object == object && diff.Planned != "" {
+					out = append(out, diff)
+				}
+			}
+		}
+	}
+	return out
 }
 
 // liveChecks are every check of the live dimensions of res.
@@ -108,7 +128,8 @@ func liveChecks(res verify.Result) []verify.Check {
 // merge commit of each merged pull request of the repository its
 // GitRepository follows: the revision is the merge or one after it, read
 // from GitHub when it is not the merge itself. A Konfiguration not read
-// waits as unread.
+// waits as unread; one on a commit GitHub cannot compare with the merge
+// waits, counted.
 func sourceWaits(ctx context.Context, c *gh.Client, prs []actions.PullRequest, merged []int, ch verify.Check) ([]rolloutWait, error) {
 	object := objectLine(ch)
 	if ch.Mark == verify.NotChecked && ch.Source == "" {
@@ -131,6 +152,18 @@ func sourceWaits(ctx context.Context, c *gh.Client, prs []actions.PullRequest, m
 			return nil, err
 		}
 		in, err := gh.Contains(ctx, c, owner, repo, pr.MergeCommit, applied)
+		if errors.Is(err, gh.ErrNotFound) {
+			// The merge commit is read first, as the person, by the revert
+			// check of this watch (watchReverts): a person who may not read
+			// the repository is answered there, nothing decided, nothing
+			// counted. Past it, GitHub knows the merge, and a 404 of the
+			// comparison is the applied commit's — one GitHub does not know,
+			// or one with no history in common with the merge: deterministic,
+			// and counted against the bound, so such a Konfiguration does not
+			// keep the stage rolling out for good.
+			waits = append(waits, rolloutWait{what: fmt.Sprintf("%s applied %s, a commit GitHub cannot compare on %s with %s#%d's merge %s", object, shortSHA(applied), pr.Repository, pr.Repository, pr.Number, shortSHA(pr.MergeCommit))})
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -150,13 +183,14 @@ func sourceWaits(ctx context.Context, c *gh.Client, prs []actions.PullRequest, m
 // HelmRelease through a ConfigMap of its valuesFrom: its generation stays as
 // it was and Flux upgrades it on its interval, so the digest of the newest
 // release is what tells the new values from the old. A pull request that
-// changed no values file asks nothing of the release.
-func releaseWaits(ctx context.Context, c *gh.Client, def installations.Capability, prs []actions.PullRequest, merged []int, ch verify.Check, st *actions.InstallationRollout) ([]rolloutWait, error) {
+// changed no values file asks nothing of the release. planned are ch's
+// planned differences (plannedOf).
+func releaseWaits(ctx context.Context, c *gh.Client, def installations.Capability, prs []actions.PullRequest, merged []int, ch verify.Check, planned []verify.Difference, st *actions.InstallationRollout) ([]rolloutWait, error) {
 	object := objectLine(ch)
 	var waits []rolloutWait
 	for _, k := range merged {
 		pr := prs[k]
-		changed, err := changesValues(ctx, c, def, pr)
+		changed, after, err := changesValues(ctx, c, def, pr)
 		if err != nil {
 			return nil, err
 		}
@@ -180,8 +214,8 @@ func releaseWaits(ctx context.Context, c *gh.Client, def installations.Capabilit
 			waits = append(waits, rolloutWait{what: fmt.Sprintf("the values %s reads not read: %s", object, orNotRead(ch.Message)), unread: true})
 			continue
 		}
-		if w := releaseWait(object, pr, ch, base); w != "" {
-			waits = append(waits, rolloutWait{what: w})
+		if w := releaseWait(object, pr, ch, base, readsMerged(def, ch, planned, after)); w.what != "" {
+			waits = append(waits, w)
 		}
 	}
 	return waits, nil
@@ -282,19 +316,23 @@ func installedAfter(ch verify.Check, mergedAt time.Time) bool {
 }
 
 // releaseWait is what the release history says of pr's merge against base,
-// the release that ran at the merge: "" only when the newest release runs,
-// was deployed after the merge's second and carries values of another digest
-// than base. Without a base the values that ran at the merge are not known,
-// and nothing proves the newest release's are new. A base of version 0 says
-// no release ran at the merge, so there is no digest to tell old values by:
-// the newest release proves the merge where the values it reads hold the
-// merged ones (ch's drift check of the whole values is as defined). A first
-// release Helm installed from values read before the merged ones were
-// written — seconds before, when one apply creates the HelmRelease and
-// writes its values, up to one HelmRelease interval when another applier
-// writes them later — reads as proven too; it runs them until Flux's next
-// upgrade, a race accepted as rare and self-correcting.
-func releaseWait(object string, pr actions.PullRequest, ch verify.Check, base *actions.ReleaseBaseline) string {
+// the release that ran at the merge: none only when the newest release runs,
+// was deployed after the merge's second, carries values of another digest
+// than base, and the values the HelmRelease reads are the merged ones
+// (readsMerged). Without a base the values that ran at the merge are not
+// known, and nothing proves the newest release's are new. A base of version
+// 0 says no release ran at the merge, so there is no digest to tell old
+// values by: the values the HelmRelease reads alone prove it. Another digest
+// alone is no proof either: a release Flux ran after the merge and before
+// the Konfiguration applied it, on values of an earlier change, has one.
+// Values that are what the HelmRelease reads only since that release — the
+// apply came after it and Flux has not upgraded since — read as proven: Flux
+// upgrades on its next interval, a race accepted as rare and
+// self-correcting, as for a first release Helm installed from values read
+// before the merged ones were written. Whether the values are the merged
+// ones is merged (readsMerged); values the person may not read wait as
+// unread: the bound does not count them.
+func releaseWait(object string, pr actions.PullRequest, ch verify.Check, base *actions.ReleaseBaseline, merged bool) rolloutWait {
 	newest := ch.Releases[0]
 	var mergedAt time.Time
 	if pr.MergedAt != nil {
@@ -305,73 +343,115 @@ func releaseWait(object string, pr actions.PullRequest, ch verify.Check, base *a
 		merge += " at " + mergedAt.UTC().Format(time.RFC3339)
 	}
 	if newest.Status != helmDeployed || newest.Deployed == nil {
-		return fmt.Sprintf("%s: release v%d is %s, no release runs since %s", object, newest.Version, orNotRead(newest.Status), merge)
+		return rolloutWait{what: fmt.Sprintf("%s: release v%d is %s, no release runs since %s", object, newest.Version, orNotRead(newest.Status), merge)}
 	}
 	if !newest.Deployed.After(mergedAt) {
-		return fmt.Sprintf("%s runs release v%d, deployed at %s, before %s", object, newest.Version, newest.Deployed.UTC().Format(time.RFC3339), merge)
+		return rolloutWait{what: fmt.Sprintf("%s runs release v%d, deployed at %s, before %s", object, newest.Version, newest.Deployed.UTC().Format(time.RFC3339), merge)}
 	}
 	if base == nil {
-		return fmt.Sprintf("%s runs release v%d since %s, and the release that ran at the merge is neither in its history nor on record: whether its values are new is not known", object, newest.Version, merge)
+		return rolloutWait{what: fmt.Sprintf("%s runs release v%d since %s, and the release that ran at the merge is neither in its history nor on record: whether its values are new is not known", object, newest.Version, merge)}
 	}
-	if base.Version == 0 {
-		if ch.Mark != verify.AsDefined {
-			return fmt.Sprintf("%s runs release v%d, its first since the merge, and the values it reads are not the merged ones yet", object, newest.Version)
+	if base.Version != 0 && newest.ConfigDigest == base.ConfigDigest {
+		return rolloutWait{what: fmt.Sprintf("%s runs release v%d with the values of release v%d from before %s", object, newest.Version, base.Version, merge)}
+	}
+	switch {
+	case merged:
+		return rolloutWait{}
+	case ch.Mark == verify.NotChecked:
+		return rolloutWait{what: fmt.Sprintf("the values %s reads not read: %s", object, orNotRead(ch.Message)), unread: true}
+	case base.Version == 0:
+		return rolloutWait{what: fmt.Sprintf("%s runs release v%d, its first since the merge, and the values it reads are not the merged ones yet", object, newest.Version)}
+	}
+	return rolloutWait{what: fmt.Sprintf("%s runs release v%d since %s, and the values it reads are not the merged ones yet", object, newest.Version, merge)}
+}
+
+// readsMerged says whether the drift check of the values a HelmRelease reads
+// (ch) finds the merged ones: as defined — the entries the commit kept laid
+// over the render (verify's withKept) — or planned where, at each planned
+// leaf (planned), the live value is what the values file the merge wrote
+// (after) holds there (writtenAs): a leaf or an entry a newer definition
+// renders and the action, committed on an older one, never wrote. A planned
+// leaf whose live value is not the merge's is a merged value the HelmRelease
+// does not read. Differs by input and drifted are values off the merged
+// render; not checked is a read not made.
+func readsMerged(def installations.Capability, ch verify.Check, planned []verify.Difference, after string) bool {
+	switch ch.Mark {
+	case verify.AsDefined:
+		return true
+	case verify.Planned:
+		written := verify.ValuesLeaves(after)
+		for _, d := range planned {
+			if !writtenAs(def, written, d) {
+				return false
+			}
 		}
-		return ""
+		return len(planned) > 0
 	}
-	if newest.ConfigDigest == base.ConfigDigest {
-		return fmt.Sprintf("%s runs release v%d with the values of release v%d from before %s", object, newest.Version, base.Version, merge)
+	return false
+}
+
+// writtenAs says whether the live value of planned difference d is the one
+// the merge wrote at its path (written, the merged file's leaves): none for
+// a leaf the merge did not write, the same value otherwise — the same set
+// of entries for a list the plan merges as a comma-joined set.
+func writtenAs(def installations.Capability, written map[string]string, d verify.Difference) bool {
+	value, ok := written[d.Path]
+	switch {
+	case !ok:
+		return d.Current == ""
+	case value == d.Current:
+		return true
+	case plan.JoinedList(verify.ValuesSuffix(def.Name), d.Path):
+		want, got := plan.SplitJoined(value), plan.SplitJoined(d.Current)
+		slices.Sort(want)
+		slices.Sort(got)
+		return slices.Equal(want, got)
 	}
-	return ""
+	return false
 }
 
 // changesValues says whether pr's merge changed the values of the
 // capability's rendered values file, read as the person (gh.ChangeOf and
-// the blobs, cached): a file added or removed does, and a changed one does
+// the blobs, cached), and what the file holds after the merge ("" when the
+// merge removed it): a file added or removed does, and a changed one does
 // when its YAML before and after differs. A file rewritten with the same
 // values — a comment or the layout — composes the same values, and Flux
 // runs no release for it.
-func changesValues(ctx context.Context, c *gh.Client, def installations.Capability, pr actions.PullRequest) (bool, error) {
+func changesValues(ctx context.Context, c *gh.Client, def installations.Capability, pr actions.PullRequest) (bool, string, error) {
 	if pr.MergeCommit == "" {
-		return false, fmt.Errorf("%s#%d: GitHub names no merge commit", pr.Repository, pr.Number)
+		return false, "", fmt.Errorf("%s#%d: GitHub names no merge commit", pr.Repository, pr.Number)
 	}
 	owner, repo, err := gh.SplitRepo(pr.Repository)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 	change, err := gh.ChangeOf(ctx, c, owner, repo, pr.MergeCommit)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 	for _, f := range change.Files {
 		if !strings.HasSuffix(f.Path, verify.ValuesSuffix(def.Name)) {
 			continue
 		}
-		if f.Before == "" || f.Blob == "" {
-			return true, nil
+		if f.Blob == "" {
+			return true, "", nil
 		}
-		same, err := sameValues(ctx, c, owner, repo, f.Before, f.Blob)
+		after, err := gh.Blob(ctx, c, owner, repo, f.Blob)
 		if err != nil {
-			return false, err
+			return false, "", err
 		}
-		if !same {
-			return true, nil
+		if f.Before == "" {
+			return true, after, nil
 		}
-	}
-	return false, nil
-}
-
-// sameValues says whether the YAML documents of two blobs carry the same
-// values (sameDocuments).
-func sameValues(ctx context.Context, c *gh.Client, owner, repo, before, after string) (bool, error) {
-	var content [2]string
-	for i, sha := range []string{before, after} {
-		var err error
-		if content[i], err = gh.Blob(ctx, c, owner, repo, sha); err != nil {
-			return false, err
+		before, err := gh.Blob(ctx, c, owner, repo, f.Before)
+		if err != nil {
+			return false, "", err
+		}
+		if !sameDocuments(before, after) {
+			return true, after, nil
 		}
 	}
-	return sameDocuments(content[0], content[1]), nil
+	return false, "", nil
 }
 
 // sameDocuments says whether two YAML files carry the same values: every
