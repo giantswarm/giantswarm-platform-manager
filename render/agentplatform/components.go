@@ -111,18 +111,10 @@ func (in *Input) componentValues(m render.Map) render.Map {
 	if in.modelManager() {
 		if in.ModelManagerTokenExchange {
 			m = append(m, e(componentModelManager, render.Map{e("github", in.managerGrantValues(componentModelManager))}))
-		} else if in.ModelManagerCommit {
-			m = append(m, e(componentModelManager, render.Map{githubEnabled()}))
 		}
 	}
 	return m
 }
-
-// githubEnabled is a manager chart's commit mode: registered with muster
-// pinned to the manager's GitHub App, the pull request opened as the person,
-// with the App's OAuth client from the installation's own Secret
-// (giantswarm-<manager>-oauth-client, the chart's default, not rendered).
-func githubEnabled() render.Entry { return e("github", render.Map{e("enabled", true)}) }
 
 // agentManagerValues is the agent-manager's section where it runs: on the 3
 // line its OAuth section, and with the person's choice its commit mode. Its
@@ -140,14 +132,11 @@ func (in *Input) agentManagerValues() render.Map {
 		m = append(m, e("skills", skills))
 	}
 	m = append(m, in.organizationsAgentManager()...)
-	switch {
-	case in.AgentManagerTokenExchange:
+	if in.AgentManagerTokenExchange {
 		m = append(m, e("github", render.Map{e("enabled", true), e("tokenExchange", render.Map{
 			e("tokenEndpoint", "https://"+in.host("muster")+"/oauth/token"),
 			e("audience", managerProviderAppName), e("existingSecret", agentManagerBrokerSecret),
 		})}))
-	case in.AgentManagerCommit:
-		m = append(m, githubEnabled())
 	}
 	if ui := in.AgentManagerCredentialUI; ui != "" {
 		m = append(m, e(keyCredentials, render.Map{e("uiURL", ui)}))
@@ -260,11 +249,9 @@ func (in *Input) managerOAuth(path string) render.Map {
 // clusterManagerValues names the installation the manager runs on, on the 3
 // line its OAuth section — the 4 line derives issuer, client and secret from
 // global.identity where set, else from muster's login, and the base URL from
-// the domain — and
-// with the person's choice its commit mode: the chart registers with muster
-// pinned to its GitHub App and opens a node pool's pull request as the person,
-// with the App's OAuth client from the installation's own Secret
-// (giantswarm-cluster-manager-oauth-client, the chart's default, not rendered).
+// the domain — and with the person's choice its commit mode: the person's
+// grant of its GitHub App fetched per commit from muster's broker, the node
+// pool's pull request opened as the person.
 func (in *Input) clusterManagerValues() render.Map {
 	m := render.Map{e("installation", render.Map{e("name", in.Installation.Name)})}
 	if in.Installation.ChartLine == lineThree {
@@ -272,8 +259,6 @@ func (in *Input) clusterManagerValues() render.Map {
 	}
 	if in.ClusterManagerTokenExchange {
 		m = append(m, e("github", in.managerGrantValues(componentClusterManager)))
-	} else if in.ClusterManagerCommit {
-		m = append(m, githubEnabled())
 	}
 	return m
 }
@@ -299,7 +284,7 @@ func (in *Input) clusterManagerNetworkPolicy() render.Map {
 		m = append(m, e("workloadClusters", render.Map{e("provider", preset)}))
 	}
 	egress := slices.Clone(clusterManagerEgress)
-	if in.ClusterManagerCommit || in.ClusterManagerTokenExchange {
+	if in.ClusterManagerTokenExchange {
 		egress = append(egress, clusterManagerGitHub)
 	}
 	return append(m, e("egress", render.Map{e("fqdns", egress)}))

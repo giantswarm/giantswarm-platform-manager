@@ -417,18 +417,17 @@ func TestReconcileCapabilityDryRunOverTheSet(t *testing.T) {
 	}
 }
 
-// A hub whose organisation runs the cluster-manager carries its commit mode
-// and its workload-cluster egress by provider by hand: a reconcile plans the
-// patch with them as they are — commit mode read back from the patch on
-// record, the egress the provider's preset — and the comparison finds no
-// difference in them.
+// A hub whose organisation runs the cluster-manager carries its
+// workload-cluster egress by provider by hand: a reconcile plans the patch
+// with it as it is, the egress the provider's preset, and the comparison finds
+// no difference in it.
 func TestReconcileKeepsTheClusterManagerSettingsOnRecord(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	catalog, _ := st.ghs.file(registryRepo, registryPath)
 	st.ghs.addFile(registryRepo, registryPath, strings.Replace(catalog, "name: "+hub+"\n    labels:\n        giantswarm.io/customer: example\n", "name: "+hub+"\n    labels:\n        giantswarm.io/customer: giantswarm\n", 1))
-	const settings = "cluster-manager:\n  installation:\n    name: " + hub + "\n  github:\n    enabled: true\n" +
-		"clusterManager:\n  networkPolicy:\n    workloadClusters:\n      provider: aws\n    egress:\n      fqdns:\n        - matchName: gsoci.azurecr.io\n        - matchPattern: '*.blob.core.windows.net'\n        - matchName: api.github.com\n"
+	const settings = "cluster-manager:\n  installation:\n    name: " + hub + "\n" +
+		"clusterManager:\n  networkPolicy:\n    workloadClusters:\n      provider: aws\n    egress:\n      fqdns:\n        - matchName: gsoci.azurecr.io\n        - matchPattern: '*.blob.core.windows.net'\n"
 	marker := installations.Capabilities()[0].EnabledMarker(hub)
 	patch, _ := st.ghs.file(hubConfigs, marker)
 	st.ghs.addFile(hubConfigs, marker, patch+settings)
@@ -438,9 +437,6 @@ func TestReconcileKeepsTheClusterManagerSettingsOnRecord(t *testing.T) {
 		t.Fatal(text)
 	}
 	hazel := findPlan(t, out, hub)
-	if cm, _ := hazel.Inputs["clusterManager"].(map[string]any); cm == nil || cm["github"].(map[string]any)[enabledKey] != true {
-		t.Fatalf("hazel's commit mode is not read back: %v", hazel.Inputs["clusterManager"])
-	}
 	i := slices.IndexFunc(hazel.Files, func(f plan.File) bool { return f.Path == marker })
 	if i < 0 || !strings.Contains(hazel.Files[i].Content, settings) {
 		t.Fatalf("hazel's patch does not plan the settings on record:\n%+v", hazel.Files)

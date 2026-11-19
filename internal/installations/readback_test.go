@@ -327,12 +327,12 @@ func TestDefaults(t *testing.T) {
 		"scheduling": map[string]any{"singletonsCapacity": "any"}, "networkPolicy": map[string]any{"mcpBackends": map[string]any{}}, "llmRouting": map[string]any{"rateLimits": []any{}, "rateLimitsComment": ""}, "sessions": map[string]any{"idleTTL": ""}, keySkills: map[string]any{keyRepositories: []any{}},
 		"hive": map[string]any{keyEnabled: false, "plans": map[string]any{keyRepositories: []any{}}, "magazine": map[string]any{"repository": ""},
 			boardRoadmap: map[string]any{"board": boardRoadmap, "teams": []any{}}},
-		"clusterManager": map[string]any{keyGitHub: map[string]any{keyEnabled: false, grantExchangeField: map[string]any{keyEnabled: false}}},
-		"modelManager":   map[string]any{keyGitHub: map[string]any{keyEnabled: false, grantExchangeField: map[string]any{keyEnabled: false}}},
+		"clusterManager": map[string]any{keyGitHub: map[string]any{grantExchangeField: map[string]any{keyEnabled: false}}},
+		"modelManager":   map[string]any{keyGitHub: map[string]any{grantExchangeField: map[string]any{keyEnabled: false}}},
 		"klausGateway":   map[string]any{"slack": map[string]any{"contextBotIDs": []any{}, "contextBotIDsComment": "", "contextBotNames": []any{}, "contextBotNamesComment": "", "slashCommand": "", "slashCommandComment": ""}},
-		"agentManager":   map[string]any{keyCredentials: map[string]any{keyCredentialUI: ""}, keyGitHub: map[string]any{keyEnabled: false, grantExchangeField: map[string]any{keyEnabled: false}}, keySkills: map[string]any{keyRepositories: []any{}, keyGitHub: map[string]any{keyApp: map[string]any{"secretName": ""}}, "gitAuthSecretName": "", "mintGitAuthSecret": false}},
+		"agentManager":   map[string]any{keyCredentials: map[string]any{keyCredentialUI: ""}, keyGitHub: map[string]any{grantExchangeField: map[string]any{keyEnabled: false}}, keySkills: map[string]any{keyRepositories: []any{}, keyGitHub: map[string]any{keyApp: map[string]any{"secretName": ""}}, "gitAuthSecretName": "", "mintGitAuthSecret": false}},
 		"defaultAgent":   map[string]any{keyEnabled: true, "modelConfig": ""},
-		"skillManager":   map[string]any{"sources": []any{}, keyGitHub: map[string]any{keyEnabled: false, grantExchangeField: map[string]any{keyEnabled: false}, keyApp: map[string]any{"secretName": ""}}},
+		"skillManager":   map[string]any{"sources": []any{}, keyGitHub: map[string]any{grantExchangeField: map[string]any{keyEnabled: false}, keyApp: map[string]any{"secretName": ""}}},
 		"versions":       map[string]any{"chart": "", "components": holds, "reasons": map[string]any{"chart": "", "components": holds}}}
 
 	want["organizations"] = map[string]any{keyEnabled: false, "apiHostnames": []any{}, "commit": map[string]any{keyEnabled: false}, "portal": map[string]any{keyEnabled: false}}
@@ -501,10 +501,10 @@ func TestAgentPlatformReadsBackSingletonsCapacity(t *testing.T) {
 	}
 }
 
-// The agent-platform definition reads the cluster-manager's commit mode back
-// from the configmap patch on record: on where the manager's values carry it,
-// nothing where they do not, so the default stands.
-func TestAgentPlatformReadsBackClusterManagerCommit(t *testing.T) {
+// The agent-platform definition reads the managers' choices back from the
+// configmap patch on record; the former GitHub App pin reads back nothing, so
+// the defaults stand.
+func TestAgentPlatformReadsBackManagerChoices(t *testing.T) {
 	def, _ := FindCapability(AgentPlatform)
 	for _, tc := range []struct {
 		name  string
@@ -512,9 +512,9 @@ func TestAgentPlatformReadsBackClusterManagerCommit(t *testing.T) {
 		want  map[string]any
 	}{
 		{"agent-manager boot Secret minted from the App", "agent-manager:\n  skills:\n    github:\n      app:\n        secretName: acme-skills-app\n    mintGitAuthSecret: true\n", map[string]any{"agentManager.skills.github.app.secretName": "acme-skills-app", "agentManager.skills.mintGitAuthSecret": true}}, //nolint:gosec // a Secret's name in a fixture, no credential
-		{"commit mode on", "cluster-manager:\n  installation:\n    name: rowan\n  github:\n    enabled: true\n", map[string]any{"clusterManager.github.enabled": true}},
+		{"the former cluster-manager pin", "cluster-manager:\n  installation:\n    name: rowan\n  github:\n    enabled: true\n", map[string]any{}},
 		{"commit mode not on record", "cluster-manager:\n  installation:\n    name: rowan\n", map[string]any{}},
-		{"model-manager and agent-manager commit mode on", "agent-manager:\n  github:\n    enabled: true\nmodel-manager:\n  github:\n    enabled: true\n", map[string]any{"modelManager.github.enabled": true, inputAgentManagerCommit: true}},
+		{"the former model-manager and agent-manager pins", "agent-manager:\n  github:\n    enabled: true\nmodel-manager:\n  github:\n    enabled: true\n", map[string]any{}},
 		{"the default agent on, written by hand", "components:\n  default-agent:\n    enabled: true\n", map[string]any{"defaultAgent.enabled": true}},
 		{"the default agent off with a model override", "components:\n  default-agent:\n    enabled: false\ndefaultAgent:\n  modelConfig: claude-sonnet\n", map[string]any{"defaultAgent.enabled": false, "defaultAgent.modelConfig": "claude-sonnet"}},
 		{"skill-manager sources with ref, path and readOnly", "skillManager:\n  sources:\n    - https://github.com/acme/skills\n    - url: https://github.com/acme/platform\n      ref: v4.200.0\n      path: skills\n      readOnly: false\n", map[string]any{"skillManager.sources": []any{"https://github.com/acme/skills", map[string]any{"url": "https://github.com/acme/platform", "ref": "v4.200.0", "path": "skills", "readOnly": false}}}},

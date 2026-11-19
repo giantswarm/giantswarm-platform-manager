@@ -149,24 +149,9 @@ func TestAgentManagerCredentialInputsFailClosed(t *testing.T) {
 	}
 }
 
-// The pinned commit mode chosen with the exchange renders the exchange: the
-// chart takes github.enabled with tokenExchange as the exchange, no pin.
-func TestAgentManagerExchangeWithCommitRendersTheExchange(t *testing.T) {
-	input, _ := credentialInput(t, shapeGiantswarmSlackAppPub)
-	input["agentManager"].(map[string]any)[keyGitHub].(map[string]any)[keyEnabled] = true
-	in, err := Parse(input)
-	require.NoError(t, err)
-	require.Equal(t, map[string]any{keyEnabled: true, keyTokenExchange: map[string]any{
-		"tokenEndpoint":  "https://" + in.host("muster") + "/oauth/token",
-		"audience":       managerProviderAppName,
-		"existingSecret": agentManagerBrokerSecret,
-	}}, credentialValues(t, in.agentManagerValues())[keyGitHub])
-}
-
-// The exchange turned off renders no commit mode: the record of an exchange
-// reads back no pin (agent-manager.github.enabled is the exchange's render),
-// so the person's choices are the exchange off and the pin unset.
-func TestAgentManagerExchangeOffRendersNoPin(t *testing.T) {
+// The exchange turned off renders no commit mode: agent-manager's github
+// section is the exchange's render alone.
+func TestAgentManagerExchangeOffRendersNoCommitMode(t *testing.T) {
 	input, _ := credentialInput(t, shapeGiantswarmSlackAppPub)
 	input["agentManager"].(map[string]any)[keyGitHub] = map[string]any{keyTokenExchange: map[string]any{keyEnabled: false}}
 	in, err := Parse(input)

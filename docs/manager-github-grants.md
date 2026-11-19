@@ -15,7 +15,7 @@ GPM generates `<manager>-github-broker` in `agent-platform`, with `client-id` an
 
 Skill-manager reuses the read-only `giantswarm-agent-skills` App. Its installation credential remains `skillManager.github.app.secretName`, for example `giantswarm-agent-skills-app`, alongside its separate OAuth client reference. Listings withhold private sources without requesting consent; reading or pinning a private skill can request the person's grant.
 
-The rendered `github.enabled` accompanies `github.tokenExchange`. Readback suppresses the legacy GitHub choice when the exchange object is present, so turning exchange off does not restore a pin. Former top-level `githubTokenExchange` values are read as migration inputs and removed from the rendered values.
+The rendered `github.enabled` accompanies `github.tokenExchange`; turning the exchange off removes the manager's `github` block, so commit mode is off. No input renders the GitHub App pin, and a former `<manager>.github.enabled` input is dropped when a request or a recorded action is read. Former top-level `githubTokenExchange` values are read as migration inputs and removed from the rendered values.
 
 Start with `platformctl installation reconcile <installation> agent-platform --dry-run` and the manager's exchange input and version hold. Review the entire diff and preserve an explicit range below agent-manager 3.x until its old values are migrated together with the version selection. Production rollout under giantswarm/giantswarm#39239 requires the real-App lab proof and confirmation of each installation dry run.
 
