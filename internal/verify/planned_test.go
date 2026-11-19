@@ -529,11 +529,12 @@ func TestEveryRemovalKeyNamesAPath(t *testing.T) {
 	}
 }
 
-// What the registrations on record render — muster's exchange client allowed
-// a private address, the public-registration allowlist — and the keep switch
-// of the move are no removal's: rendered where a registration asks for it,
-// drift where it is written by hand without one. muster's mcpClient
-// token-exchange block holds nothing else, so no migration names it.
+// What the registrations on record render — the registered exchange servers'
+// Dex hosts muster's exchange client may reach on a private address, the
+// public-registration allowlist — and the keep switch of the move are no
+// removal's: rendered where a registration asks for it, drift where it is
+// written by hand without one. The blanket flag the host list replaces is a
+// planned removal.
 func TestRegistrationLeavesAreNotPlanned(t *testing.T) {
 	rs, err := definitions.Removals(installations.AgentPlatform)
 	if err != nil {
@@ -543,12 +544,15 @@ func TestRegistrationLeavesAreNotPlanned(t *testing.T) {
 	patch := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
 	for _, path := range []string{
 		"agent-platform-mcps.defaults.keep",
-		"muster.muster.oauth.mcpClient.tokenExchange.allowPrivateIP",
+		"muster.muster.oauth.mcpClient.tokenExchange.allowPrivateIPTokenEndpointHosts[0]",
 		"muster.muster.oauth.server.trustedPublicRegistrationRedirectURIs[0]",
 	} {
 		if got := keys.reason(patch, path); got != "" {
 			t.Errorf("%s: planned %q, want drift", path, got)
 		}
+	}
+	if got := keys.reason(patch, "muster.muster.oauth.mcpClient.tokenExchange.allowPrivateIP"); !strings.HasSuffix(got, "· M46") {
+		t.Errorf("tokenExchange.allowPrivateIP: planned %q, want the M46 removal", got)
 	}
 }
 

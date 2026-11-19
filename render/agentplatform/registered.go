@@ -2,6 +2,7 @@ package agentplatform
 
 import (
 	"fmt"
+	"net/url"
 	"slices"
 
 	"github.com/giantswarm/giantswarm-platform-manager/render"
@@ -84,19 +85,24 @@ func confidentialDexClient(c RegisteredClient) render.Map {
 // secret, drawn once and read by the client's operator from the cluster.
 func confidentialSecretName(c RegisteredClient) string { return c.ClientID + "-dex-client-secret" }
 
-// registeredExchange says whether a registered server exchanges the person's
-// token at a Dex of its own. muster's token-exchange client then reaches that
-// Dex: a workload cluster's, behind an internal load balancer, resolves to a
-// private address, which the client's guard refuses unless allowed
-// (muster.muster.oauth.mcpClient.tokenExchange.allowPrivateIP). The endpoint
-// the guard is lifted for is on record, in the object.
-func (in *Input) registeredExchange() bool {
+// exchangeTokenEndpointHosts are the hosts of the Dexes the registered
+// servers exchange the person's token at, each once: muster's token-exchange
+// client lets them resolve to a private address
+// (muster.muster.oauth.mcpClient.tokenExchange.allowPrivateIPTokenEndpointHosts),
+// as a workload cluster's Dex behind an internal load balancer does.
+func (in *Input) exchangeTokenEndpointHosts() []string {
+	var hosts []string
 	for _, s := range in.Installation.MCPServers {
-		if s.Auth == authExchange {
-			return true
+		if s.Auth != authExchange {
+			continue
 		}
+		u, err := url.Parse(s.DexTokenEndpoint)
+		if err != nil || u.Hostname() == "" || slices.Contains(hosts, u.Hostname()) {
+			continue
+		}
+		hosts = append(hosts, u.Hostname())
 	}
-	return false
+	return hosts
 }
 
 // clientRedirectURIs are the redirect URIs of every registered public

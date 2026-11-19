@@ -184,11 +184,6 @@ func (t Target) rendersDexSide() bool { return t.AgentPlatform || t.ClusterMCPSe
 // exchange.
 func (in *Input) brokerValues() render.Map {
 	m := render.Map{}
-	if in.hasPrivateTarget() {
-		// A tunnelled target's token endpoint resolves to a ClusterIP; the broker's
-		// SSRF guard would refuse it.
-		m = append(m, e("allowPrivateIP", true))
-	}
 	names := make([]string, 0, len(in.Installation.Federation.Targets)+1)
 	targets := render.Map{}
 	if in.federationBrokers() && in.grantsGitHub() {

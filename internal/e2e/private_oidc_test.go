@@ -1,8 +1,9 @@
 package e2e
 
 // A reconcile of an installation reached through the hub's tunnel whose
-// record declares the management cluster public: its Dex sits on the same
-// private ingress, so muster's allowPrivateIPOIDC must stay true.
+// record declares the management cluster public: muster's blanket
+// private-address flag on record is a planned removal, and the render lists
+// agentgateway's host instead.
 
 import (
 	"strings"
@@ -13,22 +14,22 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 )
 
-// allowPrivateIPOIDCPath is the flag's path in the agent-platform patch, and
-// allowPrivateIPOIDCOn the line a rendered or hand-written patch carries.
+// allowPrivateIPOIDCPath is the blanket flag's path in the agent-platform
+// patch, allowPrivateIPOIDCOn the line a hand-written patch carries, and
+// redirectHostsOn the host list the render carries in its place.
 const (
 	allowPrivateIPOIDCPath = "muster.muster.oauth.server.dex.allowPrivateIPOIDC"
 	allowPrivateIPOIDCOn   = "allowPrivateIPOIDC: true"
+	redirectHostsOn        = "allowPrivateIPRedirectURIHosts:\n          - agentgateway.birch.acme.test"
 )
 
 // birch is reached through the hub's tunnel while its record says
 // managementCluster.private: false, and its patch on record carries muster's
-// allowPrivateIPOIDC by hand, as an installation whose Dex resolves to a
-// private ingress does, since the shared default derives the flag from the
-// record's managementCluster.private. The reconcile's dry run reads the flag
-// as defined — no planned removal, no drift, the rendered patch carries it —
-// and the committed reconcile writes it true, from the record's private
-// fact.
-func TestReconcileKeepsAllowPrivateIPOIDCOnAPrivateInstallation(t *testing.T) {
+// allowPrivateIPOIDC by hand. The reconcile's dry run plans the flag's
+// removal under its migration, the rendered patch lacks it and lists
+// agentgateway's host for private redirect URIs, from the record's private
+// fact, and the committed reconcile writes the same.
+func TestReconcileSwapsMusterPrivateFlagsForHosts(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	sopsFixtures(t, st.ghs)
@@ -53,17 +54,18 @@ func TestReconcileKeepsAllowPrivateIPOIDCOnAPrivateInstallation(t *testing.T) {
 	if inst, _ := entry.Inputs["installation"].(map[string]any); inst[argPrivate] != true {
 		t.Fatalf("birch is not private on the inputs: %v", entry.Inputs["installation"])
 	}
-	marks := verify.Result{Features: entry.Features}
-	if d := anyDimension(t, marks, "muster-dex-allow-private-ip-oidc"); d.Mark != verify.AsDefined || len(d.Differences) != 0 {
-		t.Errorf("muster-dex-allow-private-ip-oidc: %s %+v", d.Mark, d.Differences)
-	}
-	for _, diff := range allDifferences(marks) {
+	planned := false
+	for _, diff := range allDifferences(verify.Result{Features: entry.Features}) {
 		if diff.Path == allowPrivateIPOIDCPath {
-			t.Errorf("the flag differs: %+v", diff)
+			planned = strings.HasSuffix(diff.Planned, "· M46")
 		}
 	}
-	if content := fileOf(t, entry.Installation, acmeConfigs+":"+marker).Content; !strings.Contains(content, allowPrivateIPOIDCOn) {
-		t.Errorf("the rendered patch lacks %q:\n%s", allowPrivateIPOIDCOn, content)
+	if !planned {
+		t.Errorf("the flag's removal is not planned under M46: %+v", allDifferences(verify.Result{Features: entry.Features}))
+	}
+	content := fileOf(t, entry.Installation, acmeConfigs+":"+marker).Content
+	if strings.Contains(content, allowPrivateIPOIDCOn) || !strings.Contains(content, redirectHostsOn) {
+		t.Errorf("the rendered patch keeps %q or lacks %q:\n%s", allowPrivateIPOIDCOn, redirectHostsOn, content)
 	}
 
 	committed, text, isErr := commitCall(t, c, tools.ToolReconcileCapability, args())
@@ -71,7 +73,8 @@ func TestReconcileKeepsAllowPrivateIPOIDCOnAPrivateInstallation(t *testing.T) {
 		t.Fatal(text)
 	}
 	branch := branchPrefix + committed.Action.Name + "/" + birch
-	if content := string(st.remote.Files(repoOf(t, acmeConfigs), branch)[marker]); !strings.Contains(content, allowPrivateIPOIDCOn) {
-		t.Errorf("the committed patch lacks %q:\n%s", allowPrivateIPOIDCOn, content)
+	content = string(st.remote.Files(repoOf(t, acmeConfigs), branch)[marker])
+	if strings.Contains(content, allowPrivateIPOIDCOn) || !strings.Contains(content, redirectHostsOn) {
+		t.Errorf("the committed patch keeps %q or lacks %q:\n%s", allowPrivateIPOIDCOn, redirectHostsOn, content)
 	}
 }

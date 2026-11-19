@@ -1703,7 +1703,7 @@ func TestVerifyCapabilityRegistrationsOnRecord(t *testing.T) {
 	st.ghs.mu.Lock()
 	content := st.ghs.files[acmeConfigs][marker]
 	st.ghs.mu.Unlock()
-	for _, want := range []string{"allowPrivateIP: true", "trustedPublicRegistrationRedirectURIs:\n          - " + rowanClientCallback} {
+	for _, want := range []string{"allowPrivateIPTokenEndpointHosts:\n            - dex.pond.acme.test", "trustedPublicRegistrationRedirectURIs:\n          - " + rowanClientCallback} {
 		if !strings.Contains(content, want) {
 			t.Errorf("the patch on record lacks %q:\n%s", want, content)
 		}

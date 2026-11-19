@@ -96,7 +96,6 @@ muster:
           - kagent
           - backstage
         tokenExchangeBroker:
-          allowPrivateIP: true
           brokerClients:
             broker-client-id-placeholder:
               clientCredentialsSecretRef:
