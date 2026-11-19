@@ -3,6 +3,7 @@ package agentplatform
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -74,8 +75,8 @@ func TestDroppedPinInputsRenderAsWithout(t *testing.T) {
 		if pin != nil {
 			github := input["agentManager"].(map[string]any)[keyGitHub].(map[string]any)
 			github[keyEnabled] = pin
-			for _, manager := range []string{"clusterManager", "modelManager", "skillManager"} {
-				input[manager] = map[string]any{keyGitHub: map[string]any{keyEnabled: pin}}
+			for _, manager := range managerGrantCases {
+				input[manager.input] = map[string]any{keyGitHub: map[string]any{keyEnabled: pin}}
 			}
 		}
 		return Render(input, secrets, render.ModeCommit)
@@ -83,8 +84,8 @@ func TestDroppedPinInputsRenderAsWithout(t *testing.T) {
 	without, err := render1(nil)
 	require.NoError(t, err)
 
-	for name, pin := range map[string]any{"on": true, "off": false} {
-		t.Run(name, func(t *testing.T) {
+	for _, pin := range []bool{true, false} {
+		t.Run(fmt.Sprintf("pin %t", pin), func(t *testing.T) {
 			got, err := render1(pin)
 			require.NoError(t, err)
 			require.Equal(t, without.Files, got.Files)
