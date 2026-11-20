@@ -112,9 +112,9 @@ releaseCandidates:
 #   definition renders them nor the hub's login client: giantswarm's further hub is graveler, the Dev
 #   Portal's test hub, whose connectors on garm and glean are set up in each target's dex-operator
 #   credentials.
-# - `exchangeThrough`: the connector an organisation's first hub exchanges tokens through instead of
-#   the rendered one. A connector's id is part of every Dex subject issued through it, so the hub
-#   moves to the rendered connector once its people's grants and sessions are moved.
+# - `exchangeThrough`: an organisation's first hub's exchange connector, with a `default` and
+#   optional `targets` overrides keyed by installation. An empty override uses the rendered
+#   connector. A connector's id is part of every Dex subject issued through it.
 federation:
   connector:
     first: "{{ .Customer }}-simple-oidc"
@@ -122,7 +122,8 @@ federation:
     staff: [giantswarm]
     furtherByHand: [giantswarm]
     exchangeThrough:
-      giantswarm: giantswarm-simple-oidc
+      giantswarm:
+        default: giantswarm-simple-oidc
   teleport:
     clusterName: teleport.giantswarm.io
     proxyAddr: teleport.giantswarm.io:443
