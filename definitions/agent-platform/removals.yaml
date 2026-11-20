@@ -140,6 +140,11 @@ removals:
     reason: >-
       Kept: kagent's Harnesses (the runtimes an Agent names, Claude Code for the coding agents) are declared here; they stay until the definition
       renders them from an input or the shared defaults carry them
+  - key: configmap:kagent.substrateWorkerPool.template.resources
+    kind: kept
+    reason: >-
+      Kept: the shared Substrate worker budget is sized for this installation's actor limits and runtime overhead; it stays until the definition
+      renders worker resources from an input or the shared defaults derive that budget
   - key: configmap:muster.muster.oauth.server.dex.connectorId
     kind: kept
     reason: "Kept: muster's Dex login connector is pinned here; the shared defaults pick one connector for every Giant Swarm installation, which this installation's Dex may lack, so the pin stays until they choose per installation · M27"

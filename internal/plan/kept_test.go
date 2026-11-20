@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
@@ -278,4 +279,41 @@ func TestKeptPlatformKeysReadTheDefinition(t *testing.T) {
 			t.Errorf("a kept key is a plain path of mapping keys, got %q", k)
 		}
 	}
+}
+
+func TestWorkerResourceBudgetSurvivesReconciliation(t *testing.T) {
+	const workerPoolKey = "substrateWorkerPool"
+	current := []byte(`kagent:
+  substrateWorkerPool:
+    image: installation-image
+    template:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: "2"
+          memory: 3Gi
+      nodeSelector:
+        pool: installation-pool
+`)
+	output, kept, err := keepAudiences([]byte(renderedPlatformPatchLean), current)
+	require.NoError(t, err)
+	_, rendered, err := mapping(output)
+	require.NoError(t, err)
+	_, recorded, err := mapping(current)
+	require.NoError(t, err)
+	path := []string{kagentKey, workerPoolKey, "template", ListResources}
+	var recordedResources, renderedResources map[string]any
+	require.NoError(t, at(recorded, path...).Decode(&recordedResources))
+	require.NotNil(t, at(rendered, path...))
+	require.NoError(t, at(rendered, path...).Decode(&renderedResources))
+	require.Equal(t, recordedResources, renderedResources)
+	require.Contains(t, kept, Kept{List: "kagent.substrateWorkerPool.template", Entry: ListResources})
+	require.Nil(t, at(rendered, kagentKey, workerPoolKey, "image"))
+	require.Nil(t, at(rendered, kagentKey, workerPoolKey, "template", "nodeSelector"))
+
+	repeated, _, err := keepAudiences([]byte(renderedPlatformPatchLean), output)
+	require.NoError(t, err)
+	require.Equal(t, output, repeated)
 }
