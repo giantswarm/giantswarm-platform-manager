@@ -61,7 +61,7 @@ spec:
               value: {{ required "live.audiences must name at least one OAuth client (or muster.mcpServer.requiredAudiences one audience) with live.enabled" (include "giantswarm-platform-manager.liveAudiences" .) | quote }}
             {{- with .Values.live.jwksURL }}
             {{- if not (hasPrefix "https://" .) }}
-            {{- fail (printf "live.jwksURL must be an https:// URL, got %q: the key set is read over TLS only — name an in-cluster identity provider by the Service name its certificate carries, with live.allowPrivateIPJWKS for the private address and live.caSecret for its CA" .) }}
+            {{- fail (printf "live.jwksURL must be an https:// URL, got %q: the key set is read over TLS only — name an in-cluster identity provider by the Service name its certificate carries, with live.caSecret for its CA" .) }}
             {{- end }}
             - name: LIVE_JWKS_URL
               value: {{ . | quote }}

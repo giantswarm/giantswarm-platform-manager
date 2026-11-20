@@ -430,6 +430,29 @@ func TestWatchActionWaitsForAChildReleaseFluxHasNotReconciled(t *testing.T) {
 	}
 }
 
+// muster registering no server for an installation the policy does not keep
+// to browsing is a read refused, never green: the stage stays rolling out,
+// every object unread, the missing server named with what connects it.
+func TestWatchActionWaitsForAServerMusterDoesNotRegister(t *testing.T) {
+	st := newStack(t)
+	a, _ := rolledOut(t, st)
+	st.muster.unserve(rowan)
+	server := rowan + "-mcp-kubernetes"
+
+	w, text, isErr := watchCall(t, adminLive(t, st), a.Name)
+	if isErr || w.Ready || w.State != actions.StateRollingOut || w.Action.Status.State != actions.StateRollingOut || w.Report != "" || len(w.Objects) == 0 {
+		t.Fatalf("the watch: %v %s", isErr, text)
+	}
+	for _, o := range w.Objects {
+		if o.Ready != "" || !strings.Contains(o.Message, server) {
+			t.Fatalf("an object read without its server: %+v", o)
+		}
+	}
+	if len(w.NotRead) != 1 || w.NotRead[0].Cause != tools.CauseNoServer || w.NotRead[0].Server != server || !strings.Contains(w.Message, "no_server on muster server "+server) {
+		t.Fatalf("the missing server: %+v %s", w.NotRead, w.Message)
+	}
+}
+
 // The model key is the customer's: the default ModelConfig not Accepted is
 // the one red dimension, so the stage — and the action — wait for the
 // customer, the report names the open action, the next stage of a wave would

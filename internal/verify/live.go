@@ -110,6 +110,25 @@ const NotConnected = "not connected to the installation in muster"
 // ErrNotFound is an object the installation does not have.
 var ErrNotFound = errors.New("not found")
 
+// NoServer is muster refusing a read because it registers no server of the
+// kubernetes family for the installation in the person's session: a refusal
+// of the read, never an object the installation lacks.
+type NoServer struct {
+	Server string
+}
+
+func (e *NoServer) Error() string {
+	return fmt.Sprintf("%s%q for this session", NoServerPrefix, e.Server)
+}
+
+// NoServerPrefix opens the message of a check NoServer left unread.
+const NoServerPrefix = "muster registers no server "
+
+// ReasonBrowseOnly is the message of a check NoServer left unread on an
+// installation the hub keeps to browsing (LiveOptions.BrowseOnly): muster
+// never registers its servers, so no read is missing.
+const ReasonBrowseOnly = "not read by design: the installation is browse-only (policy federation.browseOnly) and the hub registers none of its servers in muster"
+
 // TooLarge is the installation's kubernetes tool refusing to answer a read
 // whole: mcp-kubernetes caps a tool's answer and answers response_too_large
 // in place of a truncated object or log. A result of how much the check
@@ -356,6 +375,11 @@ type LiveOptions struct {
 	Inputs Inputs
 	// DeferredPairs are the generated pairs omitted by this Action's commit.
 	DeferredPairs []string
+	// Generated are the generated values this Action's commit rendered, by
+	// name; nil where the record does not say. A paired value the render
+	// holds and Generated lacks is deferred as well: the probes read the
+	// pairs the commit wrote, not one a later definition added.
+	Generated []string
 	// Kept are the entries of the audience lists kept beside the render
 	// (plan.LiveKept): the Action's, which the commit wrote, or the handed-over
 	// inputs', which the files on record keep. The drift probes hold the live
@@ -377,6 +401,10 @@ type LiveOptions struct {
 	// (Check.Releases). The Konfiguration's source is kept either way
 	// (Check.Source).
 	Rollout bool
+	// BrowseOnly says the hub keeps the installation to browsing: a read
+	// muster refuses for want of its server is not checked by design
+	// (ReasonBrowseOnly).
+	BrowseOnly bool
 	// ReadTimeout and ReadBudget bound the reads through Cluster (ReadTimeout,
 	// ReadBudget); zero is the default.
 	ReadTimeout time.Duration
@@ -549,7 +577,7 @@ const valuesKey = "values"
 
 // renderLive renders the inputs on record for the live comparison.
 func renderLive(opts LiveOptions) (*liveRender, error) {
-	res, in, flat, err := renderValues(opts.Definition, opts.Inputs.Values, opts.DeferredPairs...)
+	res, in, flat, err := renderValues(opts.Definition, opts.Inputs.Values, opts.DeferredPairs, opts.Generated)
 	if err != nil {
 		return nil, err
 	}
@@ -579,7 +607,7 @@ func renderLive(opts LiveOptions) (*liveRender, error) {
 		// lacks is no live difference (executor.differences reads the
 		// rendered leaves only), so resetLeaves has nothing to name.
 		lv.driven, _ = drivenPaths(opts.Inputs.Values, opts.Inputs.ReadBack, inputs, flat, func(values map[string]any) (map[string]map[string]string, error) {
-			_, _, other, err := renderValues(opts.Definition, values, opts.DeferredPairs...)
+			_, _, other, err := renderValues(opts.Definition, values, opts.DeferredPairs, opts.Generated)
 			return other, err
 		})
 	}
@@ -656,9 +684,11 @@ func plannedKeysOf(capability string, f facts) (rms, migs plannedKeys, err error
 	return readRemovals(removals, f), readMigrations(migrations, f), nil
 }
 
-// renderValues renders values and flattens the definition's values file
-// under valuesKey; a definition without one flattens nothing.
-func renderValues(def installations.Capability, values map[string]any, deferred ...string) (*render.Result, render.Input, map[string]map[string]string, error) {
+// renderValues renders values without the deferred pairs and, where
+// generated is not nil, without the paired values it lacks, and flattens the
+// definition's values file under valuesKey; a definition without one
+// flattens nothing.
+func renderValues(def installations.Capability, values map[string]any, deferred, generated []string) (*render.Result, render.Input, map[string]map[string]string, error) {
 	in, err := def.Parse(values)
 	if err != nil {
 		return nil, nil, nil, err
@@ -666,6 +696,9 @@ func renderValues(def installations.Capability, values map[string]any, deferred 
 	res, err := def.Render(values, in.SuppliedMarkers(), render.ModeCompare)
 	if err != nil {
 		return nil, nil, nil, err
+	}
+	if generated != nil {
+		deferred = withUnrendered(res, deferred, generated)
 	}
 	if len(deferred) > 0 {
 		pairs := make([]plan.DeferredPair, len(deferred))
@@ -687,6 +720,23 @@ func renderValues(def installations.Capability, values map[string]any, deferred 
 		}
 	}
 	return res, in, flat, nil
+}
+
+// withUnrendered is deferred with every paired value of res that generated
+// does not name.
+func withUnrendered(res *render.Result, deferred, generated []string) []string {
+	deferred = slices.Clone(deferred)
+	for _, files := range res.Files {
+		for _, f := range files {
+			for _, g := range f.Generated {
+				if g.Peer != nil && !slices.Contains(generated, g.Name) && !slices.Contains(deferred, g.Name) {
+					deferred = append(deferred, g.Name)
+				}
+			}
+		}
+	}
+	sort.Strings(deferred)
+	return deferred
 }
 
 // inputString reads a string leaf of the inputs on record by path.
@@ -811,20 +861,27 @@ func checkRollUp(checks []Check) (Mark, string, string) {
 	return AsDefined, "", ""
 }
 
-// byDesign says every check not checked is so only because the manager does
-// not reach a private installation's host (ReasonPrivate), and one is.
+// byDesign says every check not checked is so only by design
+// (NotCheckedByDesign), and one is.
 func byDesign(checks []Check) bool {
 	found := false
 	for _, c := range checks {
 		if c.Mark != NotChecked {
 			continue
 		}
-		if !strings.HasPrefix(c.Message, ReasonPrivate) {
+		if !NotCheckedByDesign(c) {
 			return false
 		}
 		found = true
 	}
 	return found
+}
+
+// NotCheckedByDesign says whether c is not checked only because the manager
+// does not reach the installation by design: a private installation's host
+// (ReasonPrivate), a browse-only installation's objects (ReasonBrowseOnly).
+func NotCheckedByDesign(c Check) bool {
+	return c.Mark == NotChecked && (strings.HasPrefix(c.Message, ReasonPrivate) || c.Message == ReasonBrowseOnly)
 }
 
 // logCheck writes one line for a check of the installation's objects: the
@@ -890,10 +947,16 @@ func (x *executor) run(ctx context.Context, p render.Probe) (Check, []Difference
 	}
 	var forbidden *Forbidden
 	var auth *AuthRequired
+	var noServer *NoServer
 	switch {
 	case errors.As(err, &auth):
 		c.Mark, c.Message = NotChecked, NotConnected+": "+firstLine(auth.Message)
 		return c, nil, auth
+	case errors.As(err, &noServer):
+		c.Mark, c.Message = NotChecked, noServer.Error()
+		if x.opts.BrowseOnly {
+			c.Message = ReasonBrowseOnly
+		}
 	case errors.As(err, &forbidden):
 		c.Mark, c.Message = NotChecked, forbidden.Error()
 	case errors.Is(err, ErrNotFound):

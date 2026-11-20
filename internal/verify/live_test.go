@@ -928,3 +928,24 @@ func TestLiveReadsAreBounded(t *testing.T) {
 		}
 	})
 }
+
+// A read muster refuses because it registers no server for the installation
+// is not checked: by design on an installation the hub keeps to browsing,
+// whose servers it never registers, so no gap; on any other, the missing
+// server named and a gap.
+func TestNoServerIsByDesignOnABrowseOnlyInstallation(t *testing.T) {
+	const server = "elver-mcp-kubernetes"
+	probe := render.Probe{ID: "live-releases", Kind: render.HelmReleaseReady, Namespace: testNamespace, Resource: kindHelmRelease, Name: "agent-platform"}
+	dim := definitions.Dimension{ID: probe.ID, Kind: definitions.KindLive}
+	cluster := &recordingCluster{err: &NoServer{Server: server}}
+	browsing := &executor{opts: LiveOptions{Cluster: cluster, Installation: "elver", BrowseOnly: true}, lv: &liveRender{probes: []render.Probe{probe}}}
+	d := browsing.dimension(t.Context(), dim)
+	if d.Mark != NotChecked || d.Reason != ReasonBrowseOnly || !d.ByDesign || !NotCheckedByDesign(d.Live.Checks[0]) {
+		t.Errorf("browse-only: mark %q, reason %q, by design %t", d.Mark, d.Reason, d.ByDesign)
+	}
+	other := &executor{opts: LiveOptions{Cluster: cluster, Installation: "finch"}, lv: &liveRender{probes: []render.Probe{probe}}}
+	d = other.dimension(t.Context(), dim)
+	if d.Mark != NotChecked || d.ByDesign || NotCheckedByDesign(d.Live.Checks[0]) || !strings.HasPrefix(d.Reason, NoServerPrefix) || !strings.Contains(d.Reason, server) {
+		t.Errorf("not browse-only: mark %q, reason %q, by design %t", d.Mark, d.Reason, d.ByDesign)
+	}
+}

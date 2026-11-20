@@ -2,7 +2,13 @@ package live
 
 import (
 	"context"
+	"encoding/pem"
 	"errors"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -10,7 +16,9 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/giantswarm/mcp-oauth/providers/oidc"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/stretchr/testify/require"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 )
@@ -45,6 +53,14 @@ func TestClassifyMapsRefusals(t *testing.T) {
 			t.Errorf("%q: %#v", text, err)
 		}
 	}
+	// muster's family member it does not register for the session: a refusal
+	// of the read naming the server, never an object that does not exist.
+	err = classify(`Tool execution failed: tool x_kubernetes_get is not available on server "elver-mcp-kubernetes" (available: alba-mcp-kubernetes, gazelle-mcp-kubernetes)`)
+	var noServer *verify.NoServer
+	if !errors.As(err, &noServer) || noServer.Server != "elver-mcp-kubernetes" || errors.Is(err, verify.ErrNotFound) || toolNotFoundText(err.Error()) ||
+		err.Error() != `muster registers no server "elver-mcp-kubernetes" for this session` {
+		t.Errorf("a member muster does not register: %#v", err)
+	}
 	if !toolNotFound(nil, errors.New("tool not found: x_kubernetes_get")) || !toolNotFound(mcp.NewToolResultError("tool not found: x_kubernetes_get"), nil) || toolNotFound(mcp.NewToolResultError(`pods "x" not found`), nil) || toolNotFound(mcp.NewToolResultText("ok"), nil) {
 		t.Error("toolNotFound reads the call's error and the result's text")
 	}
@@ -64,7 +80,12 @@ func TestKindArgsSplitKindAndGroup(t *testing.T) {
 }
 
 // platformClient is the audience of the platform's own OAuth client.
-const platformClient = "agent-platform"
+const (
+	platformClient = "agent-platform"
+	testMusterURL  = "http://muster:8090/mcp"
+	testIssuer     = "https://dex.example.test/dex"
+	testFamily     = "kubernetes"
+)
 
 func TestListArgsNameTheNamespaceOrEvery(t *testing.T) {
 	one := listArgs("kagent", "ModelConfig.api.kagent.dev", "", verify.Readiness)
@@ -90,7 +111,7 @@ func TestGenerationArgsMatchTheObjectAtTheGeneration(t *testing.T) {
 }
 
 func TestConfigValidateNamesTheMissingField(t *testing.T) {
-	cfg := Config{Issuer: "https://dex.example.test/dex", Audiences: []string{platformClient}, MusterURL: "http://muster:8090/mcp", KubernetesFamily: "kubernetes"}
+	cfg := Config{Issuer: testIssuer, Audiences: []string{platformClient}, MusterURL: testMusterURL, KubernetesFamily: testFamily}
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -121,10 +142,10 @@ func TestConfigValidateNamesTheMissingField(t *testing.T) {
 
 // A key set is read over TLS only: a plain-http JWKS URL is refused when the
 // configuration is read, naming the requirement, and never on the tokens; an
-// https one — a private Service name included — is what the allowance is for.
+// https one on a private Service name is accepted.
 func TestConfigValidateRefusesAPlainHTTPKeySet(t *testing.T) {
-	cfg := Config{Issuer: "https://dex.example.test/dex", Audiences: []string{platformClient}, MusterURL: "http://muster:8090/mcp", KubernetesFamily: "kubernetes",
-		JWKSURL: "https://dex.dex.svc.cluster.local:5556/dex/keys", AllowPrivateIPJWKS: true}
+	cfg := Config{Issuer: testIssuer, Audiences: []string{platformClient}, MusterURL: testMusterURL, KubernetesFamily: testFamily,
+		JWKSURL: "https://dex.dex.svc.cluster.local:5556/dex/keys"}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("an https key set on a private name: %v", err)
 	}
@@ -263,4 +284,60 @@ func TestCallPacedRetriesARateLimitRefusal(t *testing.T) {
 			t.Fatalf("callPaced = %v after %d calls; want the answer at once", res, calls)
 		}
 	})
+}
+
+// The hosts allowed a private address are the issuer's and the JWKS URL's,
+// without ports and without repeats.
+func TestPrivateIPHostsAreTheIssuerAndTheKeySet(t *testing.T) {
+	require.Equal(t, []string{"localhost", "dex.dex.svc.cluster.local"}, privateIPHosts("https://localhost:32000/dex", "https://dex.dex.svc.cluster.local:5556/dex/keys"))
+	require.Equal(t, []string{"dex.example.test"}, privateIPHosts(testIssuer, "https://dex.example.test/dex/keys"))
+	require.Equal(t, []string{"dex.example.test"}, privateIPHosts(testIssuer, ""))
+}
+
+// A listed host never reaches loopback: through NewHTTPClient, a key set
+// served on 127.0.0.1 is refused by the SSRF guard though its host is the
+// JWKS URL's.
+func TestVerifyRefusesALoopbackKeySet(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"keys":[]}`))
+	}))
+	t.Cleanup(srv.Close)
+	jwksURL := srv.URL + "/keys"
+
+	hc, err := NewHTTPClient(testIssuer, jwksURL, "")
+	require.NoError(t, err)
+	c, err := New(Config{Issuer: testIssuer, Audiences: []string{platformClient}, JWKSURL: jwksURL, HTTPClient: hc,
+		MusterURL: testMusterURL, KubernetesFamily: testFamily}, slog.New(slog.DiscardHandler))
+	require.NoError(t, err)
+	t.Cleanup(c.Close)
+
+	_, err = c.Verify(t.Context(), "header.payload.signature")
+	require.ErrorIs(t, err, oidc.ErrRestrictedAddress)
+}
+
+// New refuses a configuration without the client that reads the key set.
+func TestNewRequiresAnHTTPClient(t *testing.T) {
+	_, err := New(Config{Issuer: testIssuer, Audiences: []string{platformClient},
+		MusterURL: testMusterURL, KubernetesFamily: testFamily}, slog.New(slog.DiscardHandler))
+	require.ErrorContains(t, err, "HTTP client")
+}
+
+// NewHTTPClient reads the CA file the issuer's certificate chains to and
+// refuses one without a certificate.
+func TestNewHTTPClientReadsTheCAFile(t *testing.T) {
+	srv := httptest.NewTLSServer(http.NotFoundHandler())
+	t.Cleanup(srv.Close)
+	dir := t.TempDir()
+	ca := filepath.Join(dir, "ca.crt")
+	require.NoError(t, os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw}), 0o600))
+	_, err := NewHTTPClient(testIssuer, "", ca)
+	require.NoError(t, err)
+
+	empty := filepath.Join(dir, "empty.crt")
+	require.NoError(t, os.WriteFile(empty, nil, 0o600))
+	_, err = NewHTTPClient(testIssuer, "", empty)
+	require.ErrorContains(t, err, "no CA certificate")
+
+	_, err = NewHTTPClient(testIssuer, "", filepath.Join(dir, "missing.crt"))
+	require.Error(t, err)
 }

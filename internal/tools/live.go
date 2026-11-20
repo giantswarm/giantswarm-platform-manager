@@ -16,6 +16,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/live"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
+	"github.com/giantswarm/giantswarm-platform-manager/render/agentplatform"
 )
 
 // ToolVerifyInstallation is the live verify: the definition's probes of the
@@ -135,7 +136,7 @@ func (t *Tools) verifyLive(ctx context.Context, args map[string]any) (any, error
 		return nil, err
 	}
 	start := time.Now()
-	opts := verify.LiveOptions{Definition: def, Installation: name, Inputs: verify.Inputs{Source: verify.SourceNone}, Probes: t.d.Probes, Person: id.String(), Log: t.d.Log}
+	opts := verify.LiveOptions{Definition: def, Installation: name, Inputs: verify.Inputs{Source: verify.SourceNone}, Probes: t.d.Probes, Person: id.String(), BrowseOnly: agentplatform.BrowseOnly(name), Log: t.d.Log}
 	given, err := givenInputs(args)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", ToolVerifyInstallation, err)
@@ -150,6 +151,7 @@ func (t *Tools) verifyLive(ctx context.Context, args map[string]any) (any, error
 			if given == nil {
 				opts.Inputs = verify.Inputs{Source: "action " + record.Name, Values: in, Typed: record.Spec.Inputs}
 				opts.Kept = record.KeptOnRecord(name)
+				liveRecord(&opts, *record, name)
 			}
 			// The state the result starts from is the action's final word —
 			// not the state a previous verify recorded over it, and not the

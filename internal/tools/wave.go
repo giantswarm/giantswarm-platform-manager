@@ -97,8 +97,19 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		return nil, fmt.Errorf("%s: %q is not a capability definition", tool, out.Capability)
 	}
 	spec := actions.Spec{Actor: actions.Actor{Login: id.Login, ID: id.ID, Email: id.Email}, Capability: out.Capability, Installations: res.Order, Inputs: typed, Kind: actions.KindReconcile, Skipped: res.Skipped,
-		InputsByInstallation: map[string]map[string]any{}, AccountEngineers: accountEngineers(env, res.Order...), AccountEngineerOf: accountEngineerOf(env, res.Order...), Reason: reason, Changes: map[string][]string{}, Markers: markersOf(def, env, res.Order...), Rotate: rotateArg(args)}
+		InputsByInstallation: map[string]map[string]any{}, AccountEngineers: accountEngineers(env, res.Order...), AccountEngineerOf: accountEngineerOf(env, res.Order...), Reason: reason, Changes: map[string][]string{}, Markers: map[string]string{}, Rotate: rotateArg(args)}
 	spec.DeferredPairs = deferredPairNames(out.Installations)
+	spec.GeneratedByInstallation = generatedNames(out.Installations)
+	for _, n := range res.Order {
+		d := env.defOf(n, def)
+		maps.Copy(spec.Markers, markersOf(d, env, n))
+		if d.Name != def.Name {
+			if spec.CapabilityByInstallation == nil {
+				spec.CapabilityByInstallation = map[string]string{}
+			}
+			spec.CapabilityByInstallation[n] = d.Name
+		}
+	}
 	for _, p := range targets {
 		spec.InputsByInstallation[p.Name] = p.Inputs
 		spec.Changes[p.Name] = plan.Summary(p)
@@ -147,7 +158,8 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		own := supplied[p.Name]
 		held := suppliedGenerated(p, own)
 		maps.Copy(held, values)
-		rendered, err := def.Render(env.inputs[p.Name], withMarkers(own, p.SuppliedOnRecord), render.ModeCommit)
+		d := env.defOf(p.Name, def)
+		rendered, err := d.Render(env.inputs[p.Name], withMarkers(own, p.SuppliedOnRecord), render.ModeCommit)
 		if err == nil {
 			rendered, err = p.ApplyDeferrals(rendered)
 		}
@@ -155,7 +167,7 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 			return nil, t.fail(ctx, tool, a, remote, prs, fmt.Errorf("%s: render: %w", p.Name, err))
 		}
 		planned := plan.PullRequests([]plan.Installation{p}, env.byName, env.hub)
-		title := prTitle(actions.KindReconcile, p.Name, out.Capability, a.Name, fmt.Sprintf("stage %d of %d", i+1, len(targets)))
+		title := prTitle(actions.KindReconcile, p.Name, d.Name, a.Name, fmt.Sprintf("stage %d of %d", i+1, len(targets)))
 		opened, _, err := t.openPullRequests(ctx, env, a, p, planned, rendered.Files, remote, title, prBody(a, p, planned)+waveBody(res.Order, res.Skipped), held)
 		prs = append(prs, opened...)
 		if err != nil {

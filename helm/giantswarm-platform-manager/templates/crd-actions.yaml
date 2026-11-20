@@ -58,6 +58,11 @@ spec:
                 capability:
                   description: The capability acted on.
                   type: string
+                capabilityByInstallation:
+                  description: Per installation of a wave, the definition that rendered it where it is not capability — a hub on the agent platform whose shared values a cluster-mcp-servers wave draws with its targets, or the reverse.
+                  type: object
+                  additionalProperties:
+                    type: string
                 kind:
                   description: enable, reconcile or disable.
                   type: string
@@ -111,6 +116,13 @@ spec:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
                 deferredPairs:
+                  type: object
+                  additionalProperties:
+                    type: array
+                    items:
+                      type: string
+                generatedByInstallation:
+                  description: Per installation, the generated values the commit render holds, without the deferred pairs; the rollout verification probes these pairs and defers any a later definition added. Names only, never a secret value.
                   type: object
                   additionalProperties:
                     type: array

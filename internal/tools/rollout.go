@@ -111,13 +111,20 @@ func plannedOf(res verify.Result, ch verify.Check) []verify.Difference {
 	return out
 }
 
-// liveChecks are every check of the live dimensions of res.
+// liveChecks are every check of the live dimensions of res but those not
+// checked by design (verify.NotCheckedByDesign): no read is missing there,
+// so the proof waits for none.
 func liveChecks(res verify.Result) []verify.Check {
 	var out []verify.Check
 	for _, f := range res.Features {
 		for _, d := range f.Dimensions {
-			if d.Live != nil {
-				out = append(out, d.Live.Checks...)
+			if d.Live == nil {
+				continue
+			}
+			for _, c := range d.Live.Checks {
+				if !verify.NotCheckedByDesign(c) {
+					out = append(out, c)
+				}
 			}
 		}
 	}
@@ -559,7 +566,7 @@ func waitLines(waits []rolloutWait) []string {
 // NotFound says so; a read that fails or is not possible answers none, and
 // the first watch's recordBaselines then reads the history after the merge.
 func (t *Tools) runningReleases(ctx context.Context, a *actions.Action, installation string) []actions.ReleaseBaseline {
-	def, ok := installations.FindCapability(a.Spec.Capability)
+	def, ok := installations.FindCapability(a.CapabilityOf(installation))
 	if !ok {
 		return nil
 	}
