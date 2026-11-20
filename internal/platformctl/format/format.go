@@ -222,11 +222,11 @@ func (p *printer) installation(inst plan.Installation, features []verify.Feature
 			case g.Rotates:
 				p.f("      rotates: %s (forced by %s%s) — a new value replaces the one on record in %s; both sides roll, the client is unusable between the two rollouts%s\n", g.Name, g.ForcedBy, cause(g.Cause), strings.Join(g.FrozenIn, ", "), signsOut(g.Name))
 			case g.Kept && len(g.Carries) > 0 && len(inst.VaultCopies) > 0 && g.Peer == "":
-				p.f("      kept: the value on record in %s stands; %s takes it, outside the pair this wave moves — not copied by the wave, the installation's own reconcile carries it\n", strings.Join(g.FrozenIn, ", "), carriesTo(g))
+				p.f("      kept: the value on record in %s stands; %s takes it, outside the pair this wave moves — not copied by the wave, the installation's own reconcile carries it%s\n", strings.Join(g.FrozenIn, ", "), carriesTo(g), pending(g, inst.Files))
 			case g.Kept && len(g.Carries) > 0:
-				p.f("      kept: the value on record in %s stands; %s — the manager decrypts nothing, and the commit is refused until it is on record\n", strings.Join(g.FrozenIn, ", "), carries(g))
+				p.f("      kept: the value on record in %s stands; %s — the manager decrypts nothing, and the commit is refused until it is on record%s\n", strings.Join(g.FrozenIn, ", "), carries(g), pending(g, inst.Files))
 			case g.Kept:
-				p.f("      kept: the value on record in %s stands, nothing is written\n", strings.Join(g.FrozenIn, ", "))
+				p.f("      kept: the value on record in %s stands, nothing is written%s\n", strings.Join(g.FrozenIn, ", "), pending(g, inst.Files))
 			case len(g.Carries) > 0:
 				p.f("      drawn by your vault: no file on record holds it; %s — the commit rewrites no encrypted file for one key, and is refused until it is on record%s\n", carries(g), pending(g, inst.Files))
 			case g.DrawnWith != "":
