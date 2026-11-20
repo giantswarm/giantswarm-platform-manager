@@ -861,16 +861,25 @@
           "type": "string",
           "default": "",
           "x-source": "person",
-          "x-readback": {"file": "extras:agent-platform/kustomization", "key": "patches.[target.kind=OCIRepository].patch.[path=/spec/ref/semver].value", "skip": "^>=\\d+\\.0\\.0(-0)? <\\d+\\.0\\.0(-0)?$"},
+          "x-readback": {"file": "extras:agent-platform/kustomization", "key": "patches.[target.kind=OCIRepository].patch.[path=/spec/ref/semver].value", "skip": "^>=(\\d+\\.0\\.0|4\\.185\\.0)(-0)? <\\d+\\.0\\.0(-0)?$"},
           "x-feature": "runtime",
           "x-renders": ["extras:agent-platform/kustomization.yaml patches[*]", "configmap:kagent.providers"],
-          "description": "A hold on the agent-platform meta chart: the version or range its OCIRepository follows, in place of the chart line's range (installation.chartLine). Empty, the line's range stands. A value that is neither a version nor a semver range is refused. A hold that resolves below 4.175.0, the first chart that declares no model (its release candidates count), keeps kagent's model provider (kagent.providers) in the configmap patch where kagent runs, and the patch's kagent.providers and kagent.modelConfigs on record with it. Read back from the OCIRepository patch of the extras kustomization on record; a whole major line's range there (>=4.0.0 <5.0.0, its release candidates' >=4.0.0-0 <5.0.0-0) is the line's own and reads back as no hold."
+          "description": "A hold on the agent-platform meta chart: the version or range its OCIRepository follows, in place of the chart line's range (installation.chartLine). Empty, the line's range stands. A value that is neither a version nor a semver range is refused. A hold that resolves below 4.175.0, the first chart that declares no model (its release candidates count), keeps kagent's model provider (kagent.providers) in the configmap patch where kagent runs, and the patch's kagent.providers and kagent.modelConfigs on record with it. Read back from the OCIRepository patch of the extras kustomization on record; a whole major line's range there (>=4.0.0 <5.0.0, its release candidates' >=4.0.0-0 <5.0.0-0) and the private-address floor ranges (>=4.185.0 <5.0.0 or >=4.185.0-0 <5.0.0-0) read back as no hold. Private installations require chart line 4 and a range admitting 4.185.0-rc.1 or later."
         },
         "components": {
           "type": "object",
           "additionalProperties": false,
           "description": "Holds on the meta chart's components, by component: each one's versionRange in the configmap patch.",
           "properties": {
+            "mcp-kubernetes": {
+              "type": "string",
+              "default": "",
+              "x-source": "person",
+              "x-readback": {"file": "configmap", "key": "components.mcp-kubernetes.versionRange"},
+              "x-feature": "runtime",
+              "x-renders": ["configmap:components.mcp-kubernetes.versionRange"],
+              "description": "A hold on the mcp-kubernetes chart, read back from the configmap patch so a reconcile preserves it. Empty, the meta chart's default applies. Private OAuth hosts require a range that admits 1.16.0 or later."
+            },
             "muster": {
               "type": "string",
               "default": "",
@@ -961,6 +970,7 @@
               "additionalProperties": false,
               "description": "The reasons of the holds on the meta chart's components, by component: the comment above each one's versionRange in the configmap patch.",
               "properties": {
+                "mcp-kubernetes": {"type": "string", "default": "", "x-source": "person", "x-readback": {"file": "configmap", "key": "components.mcp-kubernetes.versionRange", "kind": "comment", "skip": "^Held by the input versions\\."}, "x-feature": "runtime", "x-renders": ["configmap:components.mcp-kubernetes.versionRange"], "description": "The reason for holding the mcp-kubernetes chart, written above its versionRange."},
                 "muster": {
                   "type": "string",
                   "default": "",

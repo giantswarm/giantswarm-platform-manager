@@ -489,11 +489,6 @@ func (in *Input) musterValues() render.Map {
 	// metadata document (its client_id on that hostname), so it never fetches
 	// it. Dex needs no setting: muster lets its own issuer's host resolve
 	// privately.
-	// TODO(oauth-private-address, before merge): refuse a private installation whose
-	// versions.components.muster or mcp-kubernetes hold is below the first release
-	// that reads these keys (muster with giantswarm/muster#1880, mcp-kubernetes with
-	// giantswarm/mcp-kubernetes#860), and raise the agent-platform range to the
-	// release carrying both; older charts ignore the lists after the flags are gone.
 	if in.Installation.Private {
 		server = append(server, e("allowPrivateIPRedirectURIHosts", in.privateRedirectHosts()))
 		if in.klausGateway() {

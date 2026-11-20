@@ -1530,6 +1530,9 @@ func TestKagentProvidersFollowTheChart(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			input, secrets := loadInput(t, c.shape)
+			if c.shape == shapeHubPrivateTarget {
+				publicFederationTargets(input)
+			}
 			if c.hold != "" {
 				input["versions"] = map[string]any{keyChart: c.hold}
 			}
@@ -1608,6 +1611,9 @@ func requireRefusals(t *testing.T, cases []refusalCase) {
 func TestDefaultAgent(t *testing.T) {
 	withDefaultAgent := func(shape string, choice map[string]any) (map[string]any, map[string]string) {
 		input, secrets := loadInput(t, shape)
+		if shape == shapeHubPrivateTarget {
+			publicFederationTargets(input)
+		}
 		if choice != nil {
 			input["defaultAgent"] = choice
 		}
@@ -1677,6 +1683,7 @@ func TestSkillManagerSources(t *testing.T) {
 	withSources := func(shape string, sources ...any) (map[string]any, map[string]string) {
 		input, secrets := loadInput(t, shape)
 		if shape == shapeHubPrivateTarget {
+			publicFederationTargets(input)
 			runReleaseCandidates(input)
 		}
 		input["skillManager"] = map[string]any{keySources: sources}
@@ -1812,6 +1819,7 @@ func TestSkillManagerReadsMusterCredentials(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			input, secrets := loadInput(t, shapeHubPrivateTarget)
+			publicFederationTargets(input)
 			if c.hold != "" {
 				input[keyVersions] = map[string]any{keyChart: c.hold}
 			}
@@ -1859,6 +1867,7 @@ func TestAgentManagerSkillRepositoriesAreURLs(t *testing.T) {
 func TestAgentManagerSkillRepositoriesBeforeTheSkillManager(t *testing.T) {
 	withRepositories := func(candidates bool, versions map[string]any, repositories ...any) (map[string]any, map[string]string) {
 		input, secrets := loadInput(t, shapeHubPrivateTarget)
+		publicFederationTargets(input)
 		if candidates {
 			runReleaseCandidates(input)
 		}

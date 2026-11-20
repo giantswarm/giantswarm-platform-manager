@@ -109,9 +109,7 @@ type Server struct {
 	// Enabled is nil where neither the record nor the person says: a fresh
 	// enable runs every server.
 	Enabled *bool `json:"enabled"`
-	// PrivateURLs and PrivateIPs are read back from the server's former
-	// private-address flags and render nothing: the plan of an installation
-	// that carries a flag removes it.
+	// Deprecated private-address inputs are accepted for readback only.
 	PrivateURLs bool `json:"privateURLs"`
 	PrivateIPs  bool `json:"privateIPs"`
 	DexCA       bool `json:"dexCA"`

@@ -529,12 +529,6 @@ func TestEveryRemovalKeyNamesAPath(t *testing.T) {
 	}
 }
 
-// What the registrations on record render — the registered exchange servers'
-// Dex hosts muster's exchange client may reach on a private address, the
-// public-registration allowlist — and the keep switch of the move are no
-// removal's: rendered where a registration asks for it, drift where it is
-// written by hand without one. The blanket flag the host list replaces is a
-// planned removal.
 func TestRegistrationLeavesAreNotPlanned(t *testing.T) {
 	rs, err := definitions.Removals(installations.AgentPlatform)
 	if err != nil {

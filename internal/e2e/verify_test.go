@@ -366,6 +366,8 @@ func TestVerifyCapabilityPlannedJoinedAudience(t *testing.T) {
 func TestVerifyCapabilityFactOffTheRecordIsDrift(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
+	st.ghs.addFile(acmeConfigs, installations.ConfigPatchPath(rowan), "codename: rowan\nbase: acme.test\nagentPlatform:\n  kagentApiV2: true\n")
+	st.ghs.addFile(acmeMCs, installations.ClusterAppManifestPath(rowan), clusterAppManifest(rowan, "cluster-aws", "10.2.0", true))
 	c := st.mcpClient(t, aliceToken)
 	inRepos := kagentEnabled()
 	inRepos["installation"] = map[string]any{argPrivate: true}
@@ -389,6 +391,8 @@ func TestVerifyCapabilityFactOffTheRecordIsDrift(t *testing.T) {
 func TestVerifyCapabilityDiffersByInput(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
+	st.ghs.addFile(acmeConfigs, installations.ConfigPatchPath(rowan), "codename: rowan\nbase: acme.test\nagentPlatform:\n  kagentApiV2: true\n")
+	st.ghs.addFile(acmeMCs, installations.ClusterAppManifestPath(rowan), clusterAppManifest(rowan, "cluster-aws", "10.2.0", true))
 	c := st.mcpClient(t, aliceToken)
 	enableRowan(t, st, c, kagentEnabled(), kagentEnabled())
 

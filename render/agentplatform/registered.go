@@ -91,8 +91,8 @@ func confidentialSecretName(c RegisteredClient) string { return c.ClientID + "-d
 // token-exchange client lets them resolve to a private address
 // (muster.muster.oauth.mcpClient.tokenExchange.allowPrivateIPTokenEndpointHosts),
 // as a workload cluster's Dex behind an internal load balancer and a tunnel
-// Service do; with muster's extraCaFile, an unlisted host would leave every
-// token endpoint without the private-address guard.
+// Service do. An empty list with extraCaFile leaves the exchange client
+// without a private-address guard.
 func (in *Input) exchangeTokenEndpointHosts() []string {
 	var hosts []string
 	add := func(endpoint string) {

@@ -1,10 +1,5 @@
 package e2e
 
-// A reconcile of an installation reached through the hub's tunnel whose
-// record declares the management cluster public: muster's blanket
-// private-address flag on record is a planned removal, and the render lists
-// agentgateway's host instead.
-
 import (
 	"strings"
 	"testing"
@@ -14,26 +9,17 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 )
 
-// allowPrivateIPOIDCPath is the blanket flag's path in the agent-platform
-// patch, allowPrivateIPOIDCOn the line a hand-written patch carries, and
-// redirectHostsOn the host list the render carries in its place.
 const (
 	allowPrivateIPOIDCPath = "muster.muster.oauth.server.dex.allowPrivateIPOIDC"
 	allowPrivateIPOIDCOn   = "allowPrivateIPOIDC: true"
 	redirectHostsOn        = "allowPrivateIPRedirectURIHosts:\n          - agentgateway.birch.acme.test"
 )
 
-// birch is reached through the hub's tunnel while its record says
-// managementCluster.private: false, and its patch on record carries muster's
-// allowPrivateIPOIDC by hand. The reconcile's dry run plans the flag's
-// removal under its migration, the rendered patch lacks it and lists
-// agentgateway's host for private redirect URIs, from the record's private
-// fact, and the committed reconcile writes the same.
 func TestReconcileSwapsMusterPrivateFlagsForHosts(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	sopsFixtures(t, st.ghs)
-	st.ghs.addFile(acmeConfigs, installations.ConfigPatchPath(birch), "codename: birch\nbase: acme.test\nmanagementCluster:\n  private: false\n")
+	st.ghs.addFile(acmeConfigs, installations.ConfigPatchPath(birch), "codename: birch\nbase: acme.test\nmanagementCluster:\n  private: false\nagentPlatform:\n  kagentApiV2: true\n")
 	marker := installations.Capabilities()[0].EnabledMarker(birch)
 	st.ghs.addFile(acmeConfigs, marker, "muster:\n  muster:\n    oauth:\n      server:\n        dex:\n          "+allowPrivateIPOIDCOn+"\n")
 	seedRemote(t, st)
