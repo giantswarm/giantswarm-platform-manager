@@ -608,22 +608,26 @@ func renderLive(opts LiveOptions) (*liveRender, error) {
 		// rendered leaves only), so resetLeaves has nothing to name.
 		lv.driven, _ = drivenPaths(opts.Inputs.Values, opts.Inputs.ReadBack, inputs, flat, func(values map[string]any) (map[string]map[string]string, error) {
 			_, _, other, err := renderValues(opts.Definition, values, opts.DeferredPairs, opts.Generated)
+			withKept(other[valuesKey], opts.Kept, ValuesSuffix(opts.Definition.Name))
 			return other, err
 		})
 	}
 	return lv, nil
 }
 
-// withKept lays the entries the commit kept (plan.LiveKept) over the
-// flattened values file: a comma-joined list gains the id after the
-// render's, a list of ids its entry — the value the commit wrote and the
-// live objects carry. A list the render lacks gains nothing, as the commit
-// kept nothing there; an entry the render carries already is not repeated.
+// withKept restores recorded audience identifiers in rendered lists and
+// replaces issuer leaves with the committed list's digest. The digest checks
+// omitted permissions and extra issuers without storing configuration values.
 func withKept(values map[string]string, kept []plan.Kept, file string) {
 	if values == nil {
 		return
 	}
 	for _, k := range kept {
+		if issuerSnapshot(k) {
+			clearSubtree(values, k.List)
+			values[k.List] = k.Digest
+			continue
+		}
 		if plan.JoinedList(file, k.List) {
 			if v, ok := values[k.List]; ok && !slices.Contains(plan.SplitJoined(v), k.Entry) {
 				values[k.List] = v + "," + k.Entry
@@ -635,6 +639,18 @@ func withKept(values map[string]string, kept []plan.Kept, file string) {
 			continue
 		}
 		values[key] = k.Entry
+	}
+}
+
+func issuerSnapshot(kept plan.Kept) bool {
+	return kept.List == plan.ListTrustedIssuers && kept.Digest != ""
+}
+
+func clearSubtree(values map[string]string, path string) {
+	for key := range values {
+		if key == path || strings.HasPrefix(key, path+".") || strings.HasPrefix(key, path+"[") {
+			delete(values, key)
+		}
 	}
 }
 
@@ -1584,6 +1600,15 @@ func (x *executor) drift(ctx context.Context, c *Check, p render.Probe) ([]Diffe
 		}
 		flatLive := map[string]string{}
 		flatten(liveValue, "", flatLive)
+		for _, kept := range x.opts.Kept {
+			if issuerSnapshot(kept) && cmp.Rendered == kept.List {
+				digest, err := plan.ConfigurationDigest(liveValue)
+				if err != nil {
+					return nil, err
+				}
+				flatLive = map[string]string{"": digest}
+			}
+		}
 		diffs = append(diffs, x.differences(object, cmp.Rendered, rendered, flatLive)...)
 		if cmp.Exact {
 			for path, value := range flatLive {
@@ -1665,6 +1690,21 @@ func (x *executor) helmReleaseValues(ctx context.Context, namespace string, hr m
 	}
 	out := map[string]string{}
 	flatten(merged, "", out)
+	for _, kept := range x.opts.Kept {
+		if !issuerSnapshot(kept) {
+			continue
+		}
+		clearSubtree(out, kept.List)
+		value := dig(merged, strings.Split(kept.List, ".")...)
+		if value == nil {
+			continue
+		}
+		digest, err := plan.ConfigurationDigest(value)
+		if err != nil {
+			return nil, err
+		}
+		out[kept.List] = digest
+	}
 	return out, nil
 }
 

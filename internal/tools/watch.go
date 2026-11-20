@@ -157,6 +157,11 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 	}
 	st := &status.Rollout.Installations[i]
 	def = stageDef(a, st.Name, def)
+	if err := t.snapshotIssuers(ctx, a, &status, def, st.Name); err != nil {
+		return nil, fmt.Errorf("%s: read the committed issuer configuration for %s: %w; nothing is decided", ToolWatchAction, st.Name, err)
+	}
+	current := *a
+	current.Status = status
 	inputs := a.InputsOnRecord(st.Name)
 	if inputs == nil {
 		return nil, fmt.Errorf("%s: action %s holds no inputs on record for %s: nothing to render its probes from", ToolWatchAction, a.Name, st.Name)
@@ -166,7 +171,7 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 		return nil, fmt.Errorf("%s: %w", ToolWatchAction, err)
 	}
 	opts := verify.LiveOptions{Definition: def, Installation: st.Name, State: settledState(st.State),
-		Inputs: verify.Inputs{Source: "action " + a.Name, Values: inputs, Typed: a.Spec.Inputs}, Kept: a.KeptOnRecord(st.Name), Cluster: cluster, Probes: t.d.Probes, Person: id.String(), AnonymousProbes: true, Rollout: true, BrowseOnly: agentplatform.BrowseOnly(st.Name), Log: t.d.Log}
+		Inputs: verify.Inputs{Source: "action " + a.Name, Values: inputs, Typed: a.Spec.Inputs}, Kept: current.KeptOnRecord(st.Name), Cluster: cluster, Probes: t.d.Probes, Person: id.String(), AnonymousProbes: true, Rollout: true, BrowseOnly: agentplatform.BrowseOnly(st.Name), Log: t.d.Log}
 	liveRecord(&opts, *a, st.Name)
 	res := verify.CompareLive(ctx, opts)
 	res.Caller = id.String()

@@ -163,6 +163,9 @@ func withKeptEntries(t *testing.T, valuesFile string, kept []plan.Kept) string {
 		t.Fatal(err)
 	}
 	for _, k := range kept {
+		if k.Digest != "" {
+			continue
+		}
 		parts := strings.Split(k.List, ".")
 		parent := doc
 		for _, p := range parts[:len(parts)-1] {

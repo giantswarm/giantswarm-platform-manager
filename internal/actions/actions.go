@@ -112,11 +112,9 @@ type Spec struct {
 	// repository as "owner/repo:path" — what the resync reads to see the
 	// fileset gone again (a revert). Recorded at commit.
 	Markers map[string]string `json:"markers,omitempty"`
-	// KeptByInstallation are, per installation, the entries of the platform
-	// patch's audience lists the commit kept beside the render
-	// (plan.LiveKept): the live probes hold the objects against the value
-	// the commit wrote, render and kept entries, not the bare render.
-	// Recorded at commit; ids only, never a secret value.
+	// KeptByInstallation holds the audience identifiers and trusted-issuer
+	// digests of each installation's merged values for live verification.
+	// Recorded at commit; identifiers and hashes only.
 	KeptByInstallation map[string][]plan.Kept `json:"keptByInstallation,omitempty"`
 	// Skipped are the installations of the set a wave left out, and why:
 	// never a target, no pull request.
@@ -153,6 +151,9 @@ type Status struct {
 	Rollout  *Rollout  `json:"rollout,omitempty"`
 	Probes   []Probe   `json:"probes,omitempty"`
 	Result   *Result   `json:"result,omitempty"`
+	// KeptByInstallation holds snapshots read from committed values when spec
+	// carries none. Only identifiers and digests are stored.
+	KeptByInstallation map[string][]plan.Kept `json:"keptByInstallation,omitempty"`
 	// SyncedAt and SyncedBy say when the record last followed GitHub — the
 	// pull requests read, the markers of the merged stages read — and as
 	// whom: the resync runs with the token of the person reading the
@@ -476,10 +477,14 @@ func (a Action) CapabilityOf(installation string) string {
 	return a.Spec.Capability
 }
 
-// KeptOnRecord are the entries of installation's audience lists the commit
-// kept beside the render, nil when it kept none.
+// KeptOnRecord holds installation's audience identifiers and issuer digests,
+// including snapshots of committed values recorded by the rollout watch.
 func (a Action) KeptOnRecord(installation string) []plan.Kept {
-	return a.Spec.KeptByInstallation[installation]
+	kept := a.Spec.KeptByInstallation[installation]
+	if snapshot := a.Status.KeptByInstallation[installation]; len(snapshot) > 0 {
+		return append(slices.Clone(kept), snapshot...)
+	}
+	return kept
 }
 
 // InputsOnRecord are the inputs installation was rendered from, as the

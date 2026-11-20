@@ -68,7 +68,7 @@ func TestKeepTunnelportValuesEditsTheHubsEntriesInAndKeepsTheRest(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Kept{{listConsumers, "otter"}, {listTrustBundleTokens, "tunnelport-trust-bundle-token-otter"}, {listTunnels, "dex-gopher"}}
+	want := []Kept{{List: listConsumers, Entry: "otter"}, {List: listTrustBundleTokens, Entry: "tunnelport-trust-bundle-token-otter"}, {List: listTunnels, Entry: "dex-gopher"}}
 	if len(kept) != len(want) {
 		t.Fatalf("kept %v, want %v", kept, want)
 	}
@@ -182,7 +182,7 @@ func TestKeepTunnelportValuesKeepsTheOtherHubsTokensOfASharedTunnel(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []Kept{{listTunnelTokens("dex-burrow"), "dex-burrow-bot-token-otter"}}; len(kept) != 1 || kept[0] != want[0] {
+	if want := []Kept{{List: listTunnelTokens("dex-burrow"), Entry: "dex-burrow-bot-token-otter"}}; len(kept) != 1 || kept[0] != want[0] {
 		t.Errorf("kept %v, want %v", kept, want)
 	}
 	s := string(got)
@@ -273,7 +273,7 @@ func TestKeepTunnelportValuesPrunesTheHubsTokensOfTunnelsItNoLongerRenders(t *te
 	if !strings.Contains(s, "    - name: dex-burrow\n") {
 		t.Errorf("the rendered tunnel is gone:\n%s", s)
 	}
-	if want := (Kept{listTunnels, "mcp-prometheus-burrow"}); len(kept) != 1 || kept[0] != want {
+	if want := (Kept{List: listTunnels, Entry: "mcp-prometheus-burrow"}); len(kept) != 1 || kept[0] != want {
 		t.Errorf("kept %v, want %v", kept, want)
 	}
 }
