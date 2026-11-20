@@ -361,6 +361,8 @@ type Comparison struct {
 	Live     string `yaml:"live"`
 	Rendered string `yaml:"rendered"`
 	Prefix   string `yaml:"prefix,omitempty"`
+	// Exact also rejects live leaves absent from the rendered subtree.
+	Exact bool `yaml:"exact,omitempty"`
 }
 
 // Action is something outside the platform team's hands, rendered as a note

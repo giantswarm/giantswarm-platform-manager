@@ -116,6 +116,11 @@ releaseCandidates:
 #   optional `targets` overrides keyed by installation. An empty override uses the rendered
 #   connector. A connector's id is part of every Dex subject issued through it.
 federation:
+  # Per-installation browser login connectors. An absent entry keeps the local/shared
+  # setting; [] clears the list. A staff target's selected exchange connector
+  # must also appear in its browser login list.
+  identityCheckConnectors:
+    graveler: [giantswarm-ad, giantswarm-gazelle-oidc]
   connector:
     first: "{{ .Customer }}-simple-oidc"
     further: "{{ .Customer }}-{{ .Name }}-oidc"
@@ -124,6 +129,8 @@ federation:
     exchangeThrough:
       giantswarm:
         default: giantswarm-simple-oidc
+        targets:
+          graveler: ""
   teleport:
     clusterName: teleport.giantswarm.io
     proxyAddr: teleport.giantswarm.io:443

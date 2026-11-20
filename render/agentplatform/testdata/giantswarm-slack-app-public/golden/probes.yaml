@@ -397,7 +397,10 @@
   resource: ConfigMap
   name: muster-config
   expect:
-    note: the Dex connectorId is the rendered muster.muster.oauth.server.dex.connectorId
+    note: the Dex connectorId is the rendered muster.muster.oauth.server.dex.connectorId; identityCheckConnectors match the installation's policy selection
     compare:
       - live: data.config.yaml:aggregator.oauth.server.dex.connectorId
         rendered: muster.muster.oauth.server.dex.connectorId
+      - live: data.config.yaml:aggregator.oauth.server.dex.identityCheckConnectors
+        rendered: muster.muster.oauth.server.dex.identityCheckConnectors
+        exact: true

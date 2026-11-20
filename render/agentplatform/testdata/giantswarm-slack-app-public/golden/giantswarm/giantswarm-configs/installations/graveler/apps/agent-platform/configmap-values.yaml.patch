@@ -87,6 +87,10 @@ muster:
         storage:
           valkey:
             existingSecret: muster-valkey-credentials
+        dex:
+          identityCheckConnectors:
+            - giantswarm-ad
+            - giantswarm-gazelle-oidc
         trustedAudiences:
           - dex-k8s-authenticator
           - kagent

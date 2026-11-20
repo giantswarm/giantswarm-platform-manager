@@ -1576,12 +1576,22 @@ func (x *executor) drift(ctx context.Context, c *Check, p render.Probe) ([]Diffe
 		}
 		liveValue, ok := resolve(obj, cmp.Live, cmp.Prefix)
 		if !ok {
+			if cmp.Exact && len(rendered) == 1 && rendered[""] == "[]" {
+				continue
+			}
 			diffs = append(diffs, x.difference(object, cmp.Rendered, rendered[""], "", true))
 			continue
 		}
 		flatLive := map[string]string{}
 		flatten(liveValue, "", flatLive)
 		diffs = append(diffs, x.differences(object, cmp.Rendered, rendered, flatLive)...)
+		if cmp.Exact {
+			for path, value := range flatLive {
+				if _, present := rendered[path]; !present {
+					diffs = append(diffs, x.difference(object, join(cmp.Rendered, path), "", value, false))
+				}
+			}
+		}
 	}
 	switch {
 	case len(absent) == len(p.Expect.Compare) && len(absent) > 0:

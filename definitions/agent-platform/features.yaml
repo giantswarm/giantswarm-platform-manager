@@ -23,6 +23,7 @@ features:
     dimensions:
       - {id: oauth2-proxy-extra-audience, kind: configmap, key: kagent.oauth2-proxy.extraArgs.oidc-extra-audience}
       - {id: muster-dex-connector-id, kind: configmap, key: muster.muster.oauth.server.dex.connectorId}
+      - {id: muster-dex-identity-check-connectors, kind: configmap, key: muster.muster.oauth.server.dex.identityCheckConnectors}
       - {id: muster-dex-client-id, kind: configmap, key: muster.muster.oauth.server.dex.clientId}
       - {id: muster-dex-allow-private-ip-oidc, kind: configmap, key: muster.muster.oauth.server.dex.allowPrivateIPOIDC}
       - {id: muster-trusted-audiences, kind: configmap, key: muster.muster.oauth.server.trustedAudiences}
@@ -36,7 +37,7 @@ features:
       - {id: dex-other-oidc-keys, kind: dex-configmap, catchAll: true, key: every other key of the patch (oidc.* but staticClients and extraStaticClients and the hubs' connectors)}
       - {id: live-oauth2-proxy-extra-audience, kind: live, key: oauth2-proxy --oidc-extra-audience argument}
       - {id: live-muster-trusted-audiences, kind: live, key: muster ConfigMap trustedAudiences}
-      - {id: live-muster-connector-and-client-id, kind: live, key: "muster ConfigMap dex connectorId, where the definition renders one"}
+      - {id: live-muster-connector-and-client-id, kind: live, key: "muster ConfigMap dex connectorId and identityCheckConnectors, where the definition renders them"}
       - {id: live-kagent-api-protected, kind: live, key: /api/agents answered 403 by oauth2-proxy}
       - {id: live-kagent-login-redirect, kind: live, key: /oauth2/start 302 to Dex with client_id=kagent}
       - {id: live-dex-auth-per-client, kind: live, key: "Dex knows every rendered client and its redirect URI: the connector its /auth answer names answers 302 or its login form"}

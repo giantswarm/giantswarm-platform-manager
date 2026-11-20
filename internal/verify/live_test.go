@@ -245,6 +245,7 @@ const (
 	testNamespace     = "ns"
 	kindHelmRelease   = "HelmRelease"
 	kindDeployment    = "Deployment"
+	kindConfigMap     = "ConfigMap"
 	keySpec           = "spec"
 	keyStatus         = "status"
 	keyData           = "data"
@@ -385,9 +386,9 @@ func TestChecksAskForWhatTheyRead(t *testing.T) {
 	key := func(resource, name string) string { return resource + "/" + testNamespace + "/" + name }
 	cluster := &recordingCluster{
 		objects: map[string]map[string]any{
-			key(kindHelmRelease, testRelease): {keySpec: map[string]any{"valuesFrom": []any{map[string]any{"kind": "ConfigMap", "name": valuesKey}}, valuesKey: map[string]any{"kagent": map[string]any{"replicas": "2"}}},
+			key(kindHelmRelease, testRelease): {keySpec: map[string]any{"valuesFrom": []any{map[string]any{"kind": kindConfigMap, "name": valuesKey}}, valuesKey: map[string]any{"kagent": map[string]any{"replicas": "2"}}},
 				keyStatus: map[string]any{keyConditions: conditions(conditionReady)[keyConditions], keyApplied: "1.2.3"}},
-			key("ConfigMap", valuesKey):        {keyData: map[string]any{"values.yaml": "kagent:\n  replicas: \"2\"\n", "x": "2"}},
+			key(kindConfigMap, valuesKey):      {keyData: map[string]any{"values.yaml": "kagent:\n  replicas: \"2\"\n", "x": "2"}},
 			key(kindDeployment, proxyWorkload): {keySpec: map[string]any{"selector": map[string]any{"matchLabels": map[string]any{"app": proxyWorkload}}}, keyStatus: conditions("Available")},
 			key("Secret", "credential"):        {keyData: map[string]any{"k": "***"}},
 			key(kindSecret, "loaded"):          secretWrittenAt(written),

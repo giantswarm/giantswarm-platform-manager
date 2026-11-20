@@ -121,9 +121,13 @@ func (in *Input) probes() []render.Probe {
 	// connector id is rendered only when the installation pins a login
 	// connector — without one the verify says the render carries no value
 	// to hold the live one against.
-	return append(p, driftProbe("live-muster-connector-and-client-id", featureIdentity, platformNamespace, "ConfigMap", musterConfigMap,
-		"the Dex connectorId is the rendered muster.muster.oauth.server.dex.connectorId",
-		render.Comparison{Live: "data.config.yaml:aggregator.oauth.server.dex.connectorId", Rendered: "muster.muster.oauth.server.dex.connectorId"}))
+	comparisons := []render.Comparison{{Live: "data.config.yaml:aggregator.oauth.server.dex.connectorId", Rendered: "muster.muster.oauth.server.dex.connectorId"}}
+	note := "the Dex connectorId is the rendered muster.muster.oauth.server.dex.connectorId"
+	if in.IdentityCheckConnectors != nil {
+		comparisons = append(comparisons, render.Comparison{Live: "data.config.yaml:aggregator.oauth.server.dex.identityCheckConnectors", Rendered: "muster.muster.oauth.server.dex.identityCheckConnectors", Exact: true})
+		note += "; identityCheckConnectors match the installation's policy selection"
+	}
+	return append(p, driftProbe("live-muster-connector-and-client-id", featureIdentity, platformNamespace, "ConfigMap", musterConfigMap, note, comparisons...))
 }
 
 // A model is the installation's own: a ModelConfig with its key Secret,

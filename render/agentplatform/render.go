@@ -461,6 +461,10 @@ func (in *Input) musterValues() render.Map {
 		e("existingSecret", musterOAuthSecret),
 		e("storage", render.Map{e("valkey", render.Map{e("existingSecret", musterValkeySecret)})}),
 	}
+	dex := render.Map{}
+	if in.IdentityCheckConnectors != nil {
+		dex = append(dex, e("identityCheckConnectors", in.IdentityCheckConnectors))
+	}
 	// Dex and the chat gateway's client_id (a metadata document served on
 	// agentgateway's hostname) both resolve to the internal load balancer on
 	// a private installation: muster's SSRF guard is lifted for Dex's OIDC
@@ -476,10 +480,14 @@ func (in *Input) musterValues() render.Map {
 			client := render.ClientMetadata{ClientID: base + "/auth/slack/client.json", ClientName: "klaus-gateway", ClientURI: "https://github.com/giantswarm/klaus-gateway", RedirectURIs: []string{base + "/auth/slack/callback"}}
 			server = append(server, e("preRegisteredClientMetadata", []render.Map{client.Map()}))
 		}
+		dex = append(dex, e("allowPrivateIPOIDC", true))
 		server = append(server,
-			e("dex", render.Map{e("allowPrivateIPOIDC", true)}),
+			e("dex", dex),
 			e("allowPrivateIPClientMetadataHosts", []string{in.host("agentgateway")}),
 			e("allowPrivateIPRedirectURIs", true))
+	}
+	if !in.Installation.Private && len(dex) > 0 {
+		server = append(server, e("dex", dex))
 	}
 	server = append(server, e("trustedAudiences", in.musterAudiences()))
 	if in.portalGitHub() || in.hasManagerGrantExchange() {
