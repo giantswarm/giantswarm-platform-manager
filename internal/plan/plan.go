@@ -113,15 +113,21 @@ type File struct {
 // or tunnelport.tunnels and Entry the consumer or the entry's name — or List is
 // tunnelport.tunnels[<tunnel>].tokens and Entry another hub's token of a tunnel
 // this hub shares — kept in place: there the platform's entries are the ones
-// edited in.
+// edited in. A complete trusted-issuer list carries Digest instead of Entry:
+// live verification holds it against the merged configuration, including
+// permissions omitted from the record, without storing configuration values.
 type Kept struct {
-	List  string `json:"list"`
-	Entry string `json:"entry"`
+	List   string `json:"list"`
+	Entry  string `json:"entry"`
+	Digest string `json:"digest,omitempty"`
 }
 
 // String is the entry under the list or mapping it is kept in
 // (resources[github-oauth-client.yaml]); the entry alone at a file's top level.
 func (k Kept) String() string {
+	if k.Digest != "" {
+		return k.List + " (" + k.Digest + ")"
+	}
 	if k.List == "" {
 		return k.Entry
 	}
@@ -623,6 +629,14 @@ func Build(ctx context.Context, opts Options) Installation {
 					}
 				case s.theirs && errors.Is(err, gh.ErrNotFound):
 					err = errors.New("absent: a file other owners write is not created here")
+				}
+			}
+			if strings.HasSuffix(path, platformPatchFile) && (err == nil || errors.Is(err, gh.ErrNotFound)) {
+				snapshot, snapshotErr := TrustedIssuerSnapshot(content)
+				if snapshotErr != nil {
+					err = snapshotErr
+				} else {
+					pf.Kept = append(pf.Kept, snapshot...)
 				}
 			}
 			if opts.Content {

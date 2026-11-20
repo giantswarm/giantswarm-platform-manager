@@ -129,7 +129,7 @@ spec:
                     items:
                       type: string
                 keptByInstallation:
-                  description: Per installation, the entries of the platform patch's audience lists the commit kept beside the render; the live probes hold the objects against the render with them. Ids only, never a secret value.
+                  description: Per installation, the audience entries and complete trusted-issuer digests the commit records for live verification. Identifiers and hashes only.
                   type: object
                   additionalProperties:
                     type: array
@@ -138,6 +138,7 @@ spec:
                       properties:
                         list: {type: string}
                         entry: {type: string}
+                        digest: {type: string, pattern: '^sha256:[0-9a-f]{64}$'}
                 markers:
                   description: Per installation, the definition's enabled marker resolved to the installation's repository (owner/repo:path), whose absence from the default branch after the merge means the fileset was reverted.
                   type: object
@@ -145,6 +146,17 @@ spec:
             status:
               type: object
               properties:
+                keptByInstallation:
+                  description: Verification snapshots of legacy actions, read from committed values. Identifiers and hashes only.
+                  type: object
+                  additionalProperties:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        list: {type: string}
+                        entry: {type: string}
+                        digest: {type: string, pattern: '^sha256:[0-9a-f]{64}$'}
                 commit:
                   description: Pull request creation progress and remote writes whose outcome is unresolved.
                   type: object

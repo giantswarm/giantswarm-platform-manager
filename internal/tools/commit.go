@@ -937,13 +937,18 @@ func writeKept(b *strings.Builder, files []plan.File) {
 		if f.Change == plan.ChangeUnchanged || len(f.Kept) == 0 {
 			continue
 		}
+		entries := make([]string, 0, len(f.Kept))
+		for _, k := range f.Kept {
+			if k.Digest == "" {
+				entries = append(entries, k.String())
+			}
+		}
+		if len(entries) == 0 {
+			continue
+		}
 		if !header {
 			b.WriteString("\nEntries on record the definition does not render, kept beside it:\n")
 			header = true
-		}
-		entries := make([]string, 0, len(f.Kept))
-		for _, k := range f.Kept {
-			entries = append(entries, k.String())
 		}
 		fmt.Fprintf(b, "- %s: %s\n", f.Path, strings.Join(entries, ", "))
 	}

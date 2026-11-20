@@ -52,7 +52,7 @@ patches:
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Kept{{ListResources, "./tunnelport"}, {ListResources, "./agents"}, {ListResources, "./mcpservers"}, {ListComponents, "./observability"}}
+	want := []Kept{{List: ListResources, Entry: "./tunnelport"}, {List: ListResources, Entry: "./agents"}, {List: ListResources, Entry: "./mcpservers"}, {List: ListComponents, Entry: "./observability"}}
 	if len(kept) != len(want) {
 		t.Fatalf("kept %v, want %v", kept, want)
 	}
