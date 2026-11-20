@@ -264,6 +264,8 @@ type Connectors struct {
 	// at a target whose first hub of the organisation it is: First, unless
 	// the policy's exchangeThrough names another one.
 	Exchange string
+	// ExchangeTargets selects a first hub's exchange connector per installation.
+	ExchangeTargets map[string]string
 }
 
 // Installation is the record; see the schema for each field.
@@ -645,11 +647,19 @@ func (p *policy) connectors(inst Installation) (Connectors, error) {
 	if err != nil {
 		return Connectors{}, fmt.Errorf("%w: %w", ErrPolicy, err)
 	}
-	exchange, err := p.Federation.Connector.Exchange(true, inst.Customer, inst.Name)
+	exchange, err := p.Federation.Connector.Exchange(true, inst.Customer, inst.Name, "")
 	if err != nil {
 		return Connectors{}, fmt.Errorf("%w: %w", ErrPolicy, err)
 	}
-	return Connectors{First: first, Further: further, FurtherByHand: !p.Federation.Connector.Rendered(inst.Customer, false), Exchange: exchange}, nil
+	targets := make(map[string]string, len(inst.Federation.Targets))
+	for _, target := range inst.Federation.Targets {
+		connector, err := p.Federation.Connector.Exchange(true, inst.Customer, inst.Name, target.Installation)
+		if err != nil {
+			return Connectors{}, fmt.Errorf("%w: %w", ErrPolicy, err)
+		}
+		targets[target.Installation] = connector
+	}
+	return Connectors{First: first, Further: further, FurtherByHand: !p.Federation.Connector.Rendered(inst.Customer, false), Exchange: exchange, ExchangeTargets: targets}, nil
 }
 
 // hubConnectors renders the connectors this installation's Dex registers
@@ -1162,10 +1172,13 @@ func (in *Input) connector(t Target) string {
 
 // exchangeConnector is the connector this hub's broker and identity
 // providers exchange tokens through at t's Dex: the one t registers for this
-// hub (connector), or Connectors.Exchange where this is t's first hub of the
-// organisation.
+// hub (connector), or the target selection and default exchange connector
+// where this is t's first hub of the organisation.
 func (in *Input) exchangeConnector(t Target) string {
 	if t.first(in.Installation.Name) {
+		if connector, selected := in.Connectors.ExchangeTargets[t.Installation]; selected {
+			return connector
+		}
 		return in.Connectors.Exchange
 	}
 	return in.Connectors.Further

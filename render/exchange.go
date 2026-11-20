@@ -48,11 +48,18 @@ type HubConnector struct {
 //     through, where it is not the rendered one. A connector's id is part of
 //     every Dex subject issued through it.
 type ConnectorNames struct {
-	First           string            `yaml:"first"`
-	Further         string            `yaml:"further"`
-	Staff           []string          `yaml:"staff"`
-	FurtherByHand   []string          `yaml:"furtherByHand"`
-	ExchangeThrough map[string]string `yaml:"exchangeThrough"`
+	First           string                        `yaml:"first"`
+	Further         string                        `yaml:"further"`
+	Staff           []string                      `yaml:"staff"`
+	FurtherByHand   []string                      `yaml:"furtherByHand"`
+	ExchangeThrough map[string]ExchangeConnectors `yaml:"exchangeThrough"`
+}
+
+// ExchangeConnectors selects an organisation's first hub's exchange connector.
+// A target entry takes precedence over Default; an empty selection uses Name.
+type ExchangeConnectors struct {
+	Default string            `yaml:"default"`
+	Targets map[string]string `yaml:"targets"`
 }
 
 // The dex-app values' connector owners: oidc.<owner>.connectors.
@@ -111,10 +118,18 @@ func (n ConnectorNames) Rendered(customer string, first bool) bool {
 
 // Exchange is the connector the broker of the hub hub of the organisation
 // customer exchanges tokens through at a target's Dex: the rendered one
-// (Name), or for the organisation's first hub the one ExchangeThrough names.
-func (n ConnectorNames) Exchange(first bool, customer, hub string) (string, error) {
-	if id := n.ExchangeThrough[customer]; first && id != "" {
-		return id, nil
+// (Name), or for the organisation's first hub its target selection or default
+// from ExchangeThrough.
+func (n ConnectorNames) Exchange(first bool, customer, hub, target string) (string, error) {
+	if first {
+		selection := n.ExchangeThrough[customer]
+		id, selected := selection.Targets[target]
+		if !selected {
+			id = selection.Default
+		}
+		if id != "" {
+			return id, nil
+		}
 	}
 	return n.Name(first, customer, hub)
 }
