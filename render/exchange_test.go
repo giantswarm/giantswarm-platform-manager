@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // fleetOrganisation is the organisation whose further hubs' connectors the
@@ -13,6 +15,13 @@ const fleetOrganisation = "giantswarm"
 
 // customerOrganisation is an organisation the policy treats like any other.
 const customerOrganisation = "oakridge"
+
+const (
+	legacyExchangeConnector   = "giantswarm-simple-oidc"
+	renderedExchangeConnector = "giantswarm-gopher-oidc"
+	targetVole                = "vole"
+	customExchangeConnector   = "another-connector"
+)
 
 // The policy names one connector per hub and organisation — the
 // organisation's plain name for its first hub into a target, the hub's own
@@ -30,7 +39,7 @@ func TestFederatedConnectors(t *testing.T) {
 	}
 	if names.First != "{{ .Customer }}-simple-oidc" || names.Further != "{{ .Customer }}-{{ .Name }}-oidc" ||
 		!slices.Equal(names.Staff, []string{fleetOrganisation}) || !slices.Equal(names.FurtherByHand, []string{fleetOrganisation}) ||
-		names.ExchangeThrough[fleetOrganisation] != "giantswarm-simple-oidc" {
+		names.ExchangeThrough[fleetOrganisation].Default != legacyExchangeConnector {
 		t.Fatalf("the policy's federation.connector: %+v", names)
 	}
 	hubs := []HubConnector{
@@ -89,14 +98,43 @@ func TestExchangeConnector(t *testing.T) {
 		first          bool
 		customer, want string
 	}{
-		{true, fleetOrganisation, "giantswarm-simple-oidc"},
-		{false, fleetOrganisation, "giantswarm-gopher-oidc"},
+		{true, fleetOrganisation, legacyExchangeConnector},
+		{false, fleetOrganisation, renderedExchangeConnector},
 		{true, customerOrganisation, "oakridge-simple-oidc"},
 		{false, customerOrganisation, "oakridge-gopher-oidc"},
 	} {
-		got, err := names.Exchange(tc.first, tc.customer, "gopher")
+		got, err := names.Exchange(tc.first, tc.customer, "gopher", burrow)
 		if err != nil || got != tc.want {
 			t.Errorf("Exchange(%v, %s) = %s, %v; want %s", tc.first, tc.customer, got, err, tc.want)
 		}
 	}
+}
+
+func TestExchangeConnectorTargetSelection(t *testing.T) {
+	names, err := ConnectorPolicy()
+	require.NoError(t, err)
+	names.ExchangeThrough[fleetOrganisation] = ExchangeConnectors{
+		Default: legacyExchangeConnector,
+		Targets: map[string]string{burrow: "", targetVole: customExchangeConnector},
+	}
+	for _, testCase := range []struct {
+		name, customer, target, want string
+		first                        bool
+	}{
+		{"selected target", fleetOrganisation, burrow, renderedExchangeConnector, true},
+		{"explicit connector", fleetOrganisation, targetVole, customExchangeConnector, true},
+		{"unselected target", fleetOrganisation, "marmot", legacyExchangeConnector, true},
+		{"further hub", fleetOrganisation, targetVole, renderedExchangeConnector, false},
+		{"customer hub", customerOrganisation, burrow, "oakridge-simple-oidc", true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, err := names.Exchange(testCase.first, testCase.customer, "gopher", testCase.target)
+			require.NoError(t, err)
+			require.Equal(t, testCase.want, got)
+		})
+	}
+	delete(names.ExchangeThrough[fleetOrganisation].Targets, burrow)
+	rolledBack, err := names.Exchange(true, fleetOrganisation, "gopher", burrow)
+	require.NoError(t, err)
+	require.Equal(t, legacyExchangeConnector, rolledBack)
 }
