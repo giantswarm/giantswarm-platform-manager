@@ -471,6 +471,11 @@ func (in *Input) musterValues() render.Map {
 	// ingress alone is private, so the record's private fact renders it here
 	// like its siblings.
 	if in.Installation.Private {
+		if in.klausGateway() {
+			base := "https://" + in.host("agentgateway")
+			client := render.ClientMetadata{ClientID: base + "/auth/slack/client.json", ClientName: "klaus-gateway", ClientURI: "https://github.com/giantswarm/klaus-gateway", RedirectURIs: []string{base + "/auth/slack/callback"}}
+			server = append(server, e("preRegisteredClientMetadata", []render.Map{client.Map()}))
+		}
 		server = append(server,
 			e("dex", render.Map{e("allowPrivateIPOIDC", true)}),
 			e("allowPrivateIPClientMetadataHosts", []string{in.host("agentgateway")}),
