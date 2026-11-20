@@ -68,7 +68,7 @@ func parseFlags(args []string) (*options, error) {
 	f.StringVar(&o.liveIssuer, "live-issuer", envOr("LIVE_ISSUER", ""), "Issuer of the forwarded tokens: the platform identity provider (LIVE_ISSUER)")
 	f.StringVar(&o.liveAudiences, "live-audiences", envOr("LIVE_AUDIENCES", ""), "Audiences a forwarded token may carry, comma-separated: the OAuth clients people sign in with — the platform's own, a portal's — and the audiences the registration requires; a token is accepted when one of its audiences is listed (LIVE_AUDIENCES)")
 	f.StringVar(&o.liveJWKSURL, "live-jwks-url", envOr("LIVE_JWKS_URL", ""), "The issuer's key set, an https:// URL — the key set is read over TLS only; empty reads it from the issuer's discovery document (LIVE_JWKS_URL)")
-	f.BoolVar(&o.liveAllowPrivateIPJWKS, "live-allow-private-ip-jwks", envBool("LIVE_ALLOW_PRIVATE_IP_JWKS"), "Let the issuer's discovery document or its key set be read from a private address, an in-cluster identity provider — the SSRF guard's allowance; the URL stays https (LIVE_ALLOW_PRIVATE_IP_JWKS)")
+	f.BoolVar(&o.liveAllowPrivateIPJWKS, "live-allow-private-ip-jwks", envBool("LIVE_ALLOW_PRIVATE_IP_JWKS"), "Deprecated, no effect: the issuer's host and the JWKS URL's host may resolve to a private address without it (LIVE_ALLOW_PRIVATE_IP_JWKS)")
 	f.StringVar(&o.liveCAFile, "live-ca-file", envOr("LIVE_CA_FILE", ""), "PEM bundle the issuer's certificate chains to; empty is the system trust (LIVE_CA_FILE)")
 	f.StringVar(&o.musterURL, "muster-url", envOr("MUSTER_URL", ""), "muster's own MCP endpoint as reached from the pod: where a live read loops back to with the person's token (MUSTER_URL)")
 	f.StringVar(&o.liveKubernetesFamily, "live-kubernetes-family", envOr("LIVE_KUBERNETES_FAMILY", "kubernetes"), "The muster family, or singleton server, the installations' kubernetes tools are aggregated under: x_<family>_get, _list, _logs (LIVE_KUBERNETES_FAMILY)")
@@ -95,6 +95,7 @@ func main() {
 
 // run wires the components and serves until ctx is done.
 func run(ctx context.Context, o *options, log *slog.Logger) error {
+	warnDeprecated(o, log)
 	deps := tools.Deps{Version: version.String(), GitHubAPIURL: o.githubAPIURL, Files: gh.NewFiles(gh.DefaultFreshness), Log: log, Remote: tools.GitHubRemote(o.githubAPIURL),
 		Approvals: approvals.Config{GatewayURL: o.approvalsURL, Team: o.approvalsTeam, Channel: o.approvalsChannel, NoticeChannel: o.approvalsNoticeChannel, StandupChannel: o.approvalsStandupChannel, TokenFile: o.approvalsTokenFile},
 		Registry:  installations.Sources{Catalog: installations.Location{Repository: o.registryRepository, Path: o.registryPath}, Hub: o.hub}}
@@ -114,8 +115,12 @@ func run(ctx context.Context, o *options, log *slog.Logger) error {
 		deps.AuthorizationServer = o.oauthAuthorizationServer
 	}
 	if o.liveEnabled {
-		lc, err := live.New(live.Config{Issuer: o.liveIssuer, Audiences: live.ParseAudiences(o.liveAudiences), JWKSURL: o.liveJWKSURL, AllowPrivateIPJWKS: o.liveAllowPrivateIPJWKS,
-			CAFile: o.liveCAFile, MusterURL: o.musterURL, KubernetesFamily: o.liveKubernetesFamily, KubernetesInstanceArg: o.liveKubernetesInstanceArg, KubernetesMember: o.liveKubernetesMember, Version: deps.Version}, log)
+		hc, err := live.NewHTTPClient(o.liveIssuer, o.liveJWKSURL, o.liveCAFile)
+		if err != nil {
+			return err
+		}
+		lc, err := live.New(live.Config{Issuer: o.liveIssuer, Audiences: live.ParseAudiences(o.liveAudiences), JWKSURL: o.liveJWKSURL,
+			HTTPClient: hc, MusterURL: o.musterURL, KubernetesFamily: o.liveKubernetesFamily, KubernetesInstanceArg: o.liveKubernetesInstanceArg, KubernetesMember: o.liveKubernetesMember, Version: deps.Version}, log)
 		if err != nil {
 			return err
 		}
@@ -130,6 +135,13 @@ func run(ctx context.Context, o *options, log *slog.Logger) error {
 		"oauth", o.oauthEnabled, "authorizationServer", deps.AuthorizationServer, "live", o.liveEnabled, "approvals", o.approvalsURL != "", "approvalsChannel", o.approvalsChannel,
 		"registry", deps.Registry.Catalog.String(), "hub", o.hub, "actionsNamespace", o.actionsNamespace)
 	return srv.Run(ctx)
+}
+
+// warnDeprecated names each accepted setting that has no effect.
+func warnDeprecated(o *options, log *slog.Logger) {
+	if o.liveAllowPrivateIPJWKS {
+		log.Warn("--live-allow-private-ip-jwks (LIVE_ALLOW_PRIVATE_IP_JWKS) has no effect and will be removed: the issuer's host and the JWKS URL's host may resolve to a private address without it")
+	}
 }
 
 func envOr(key, def string) string {
