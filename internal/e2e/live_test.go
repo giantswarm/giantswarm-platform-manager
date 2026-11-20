@@ -491,7 +491,7 @@ func TestVerifyInstallationWithTheCustomersOwnModel(t *testing.T) {
 	fixtures(st.ghs)
 	alice := st.mcpClient(t, aliceToken)
 	enableRowanLive(t, st, alice, minimalInputs(nil))
-	setModelKeyStatus(st.inst, statusFalse, modelKeyMissing)
+	setAccepted(st.inst, statusFalse, modelKeyMissing)
 	st.inst.put("ModelConfig", kagentNamespace, "vertex-claude", conditionTrue(accepted))
 
 	res := verifyLive(t, st.liveClient(t, st.dex.token(t, liveAdmin, []string{liveAudience}, time.Hour)), rowan)

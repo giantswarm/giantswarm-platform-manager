@@ -322,7 +322,7 @@ func TestDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The holds and their reasons, by component: none by default.
-	holds := map[string]any{"muster": "", clusterMCPServersMarkerServer: "", "valkey": "", "kagent": "", "agent-manager": "", "klaus-gateway": "", grantClusterManager: "", grantModelManager: "", grantSkillManager: ""}
+	holds := map[string]any{"muster": "", "valkey": "", "kagent": "", "agent-manager": "", "klaus-gateway": "", grantClusterManager: "", grantModelManager: "", grantSkillManager: ""}
 	want := map[string]any{"modelServing": map[string]any{keyEnabled: false}, "aiChat": map[string]any{keyEnabled: false, "model": "claude-opus-5", keyProvider: "anthropic"},
 		"scheduling": map[string]any{"singletonsCapacity": "any"}, "networkPolicy": map[string]any{"mcpBackends": map[string]any{}}, "llmRouting": map[string]any{"rateLimits": []any{}, "rateLimitsComment": ""}, "sessions": map[string]any{"idleTTL": ""}, keySkills: map[string]any{keyRepositories: []any{}},
 		"hive": map[string]any{keyEnabled: false, "plans": map[string]any{keyRepositories: []any{}}, "magazine": map[string]any{"repository": ""},
@@ -689,7 +689,6 @@ func TestAgentPlatformReadsBackContextBots(t *testing.T) {
 func TestAgentPlatformReadsBackVersionHolds(t *testing.T) {
 	def, _ := FindCapability(AgentPlatform)
 	patch := "components:\n  agent-manager:\n    enabled: true\n    # Held on the running release.\n    versionRange: \"1.9.2\"\n  klaus-gateway:\n    enabled: true\n    # Held by the input versions.components.klaus-gateway: a reconcile keeps it; --input versions.components.klaus-gateway=<version> moves it, an empty value lifts it.\n    versionRange: \"4.0.0\"\n"
-	patch += "  mcp-kubernetes:\n    # Required private OAuth host lists.\n    versionRange: \"1.16.0\"\n"
 	const heldPatch = "      # Held on the running release until the next line lands here as one window\n      # (acme/platform#12); back to the range in that PR.\n      - op: replace\n        path: /spec/ref/semver\n        value: \"4.114.1\"\n"
 	kustomization := "patches:\n  - patch: |-\n      apiVersion: v1\n      kind: Secret\n    target:\n      kind: Secret\n      name: muster-credentials-revision\n" +
 		"  - patch: |-\n" + heldPatch + "    target:\n      kind: OCIRepository\n      name: agent-platform\n"
@@ -702,17 +701,15 @@ func TestAgentPlatformReadsBackVersionHolds(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]any{inputAgentManagerExchange: false, inputOrganizationsCommit: false, "versions.chart": "4.114.1", "versions.components.agent-manager": "1.9.2", "versions.components.klaus-gateway": "4.0.0",
-		"versions.reasons.chart":                     "Held on the running release until the next line lands here as one window\n(acme/platform#12); back to the range in that PR.",
-		"versions.reasons.components.agent-manager":  "Held on the running release.",
-		"versions.components.mcp-kubernetes":         "1.16.0",
-		"versions.reasons.components.mcp-kubernetes": "Required private OAuth host lists."}
+		"versions.reasons.chart":                    "Held on the running release until the next line lands here as one window\n(acme/platform#12); back to the range in that PR.",
+		"versions.reasons.components.agent-manager": "Held on the running release."}
 	want = managerGrantDefaults(want)
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("read back %v, want %v", got, want)
 	}
 
 	// The chart line's own range, release candidates or not, is no hold.
-	for _, line := range []string{">=4.0.0 <5.0.0", ">=4.0.0-0 <5.0.0-0", ">=4.185.0 <5.0.0", ">=4.185.0-0 <5.0.0-0"} {
+	for _, line := range []string{">=4.0.0 <5.0.0", ">=4.0.0-0 <5.0.0-0"} {
 		linePatch := "      - op: replace\n        path: /spec/ref/semver\n        value: \"" + line + "\"\n"
 		read = files(map[string]string{"acme/mcs:management-clusters/rowan/extras/agent-platform/kustomization.yaml": strings.ReplaceAll(kustomization, heldPatch, linePatch)})
 		got, err = def.ReadBack(t.Context(), read, readBackInstallation, readBackName, nil)

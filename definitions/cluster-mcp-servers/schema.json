@@ -182,15 +182,17 @@
             "privateURLs": {
               "type": "boolean",
               "default": false,
-              "description": "Deprecated, renders nothing: read back from mcp-kubernetes's former SSO private-address flag (oauth.sso.allowPrivateIPs), which the plan removes. mcp-kubernetes lets its own Dex's host resolve to a private address without a setting.",
-              "deprecated": true,
+              "description": "Dex is reached on private addresses: mcp-kubernetes's SSO forwarded-token JWKS fetch may resolve to a private IP, in the server's user values. Its Dex client reaches private addresses without a setting.",
               "x-source": "person",
               "x-feature": "servers",
               "x-readback": {
                 "file": "mcp-kubernetes:user-values",
                 "key": ["mcpKubernetes.oauth.sso.allowPrivateIPs", "mcpKubernetes.oauth.allowPrivateURLs"]
               },
-              "x-renders": []
+              "x-renders": [
+                "extras:mcp-kubernetes/user-values.yaml",
+                "extras:mcp-kubernetes/kustomization.yaml configMapGenerator"
+              ]
             },
             "dexCA": {
               "type": "boolean",
@@ -211,15 +213,16 @@
             "privateIPs": {
               "type": "boolean",
               "default": false,
-              "description": "Deprecated, renders nothing: read back from mcp-kubernetes's former blanket flags for client metadata documents and redirect URIs on private addresses (oauth.cimd.allowPrivateIPs, oauth.redirectURISecurity.allowPrivateIPRedirectURIs), which the plan removes. Without the agent platform no client of the installation's own sits on a private address.",
-              "deprecated": true,
+              "description": "The clients' metadata documents and redirect URIs are on private addresses too (a private installation): mcp-kubernetes's CIMD fetch and redirect URI checks allow private IPs.",
               "x-source": "person",
               "x-feature": "servers",
               "x-readback": {
                 "file": "mcp-kubernetes:user-values",
                 "key": "mcpKubernetes.oauth.cimd.allowPrivateIPs"
               },
-              "x-renders": []
+              "x-renders": [
+                "extras:mcp-kubernetes/user-values.yaml"
+              ]
             }
           }
         },
@@ -242,15 +245,17 @@
             "privateURLs": {
               "type": "boolean",
               "default": false,
-              "description": "Deprecated, renders nothing: read back from mcp-prometheus's former private-address flag (app.oauth.allowPrivateIPJWKS), which the plan removes. mcp-prometheus lets its own Dex's host resolve to a private address without a setting.",
-              "deprecated": true,
+              "description": "Dex is reached on private addresses: mcp-prometheus's forwarded-token JWKS fetch may resolve to a private IP (app.oauth.allowPrivateIPJWKS), in the server's user values. Its Dex client reaches private addresses without a setting.",
               "x-source": "person",
               "x-feature": "servers",
               "x-readback": {
                 "file": "mcp-prometheus:user-values",
                 "key": ["app.oauth.allowPrivateIPJWKS", "app.oauth.allowPrivateURLs"]
               },
-              "x-renders": []
+              "x-renders": [
+                "extras:mcp-prometheus/user-values.yaml",
+                "extras:mcp-prometheus/kustomization.yaml configMapGenerator"
+              ]
             },
             "dexCA": {
               "type": "boolean",
@@ -289,15 +294,17 @@
             "privateURLs": {
               "type": "boolean",
               "default": false,
-              "description": "Deprecated, renders nothing: read back from mcp-capi's former private-address flag (oauth.allowPrivateIPJWKS), which the plan removes. mcp-capi lets its own Dex's host resolve to a private address without a setting.",
-              "deprecated": true,
+              "description": "Dex is reached on private addresses: mcp-capi's forwarded-token JWKS fetch may resolve to a private IP (oauth.allowPrivateIPJWKS), in the server's user values. Its Dex client reaches private addresses without a setting.",
               "x-source": "person",
               "x-feature": "servers",
               "x-readback": {
                 "file": "mcp-capi:user-values",
                 "key": ["oauth.allowPrivateIPJWKS", "oauth.allowPrivateURLs"]
               },
-              "x-renders": []
+              "x-renders": [
+                "extras:mcp-capi/user-values.yaml",
+                "extras:mcp-capi/kustomization.yaml configMapGenerator"
+              ]
             },
             "dexCA": {
               "type": "boolean",

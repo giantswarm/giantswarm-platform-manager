@@ -1,8 +1,0 @@
-patches:
-  - target:
-      kind: OCIRepository
-      name: mcp-kubernetes
-    patch: |-
-      - op: replace
-        path: /spec/ref/semver
-        value: "1.16.0"

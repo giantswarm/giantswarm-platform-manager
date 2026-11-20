@@ -253,7 +253,6 @@ func fixtures(g *fakeGitHub) {
 	// The fleet's releases: rowan's release ships the chart before the gates' default.
 	g.addRepo(installations.ReleasesRepository, map[string]string{rowanReleaseManifest: releaseManifest(rowanRelease, "cluster-aws", "10.2.0")})
 	g.addRepo(acmeMCs, map[string]string{
-		installations.ClusterAppManifestPath(birch):         clusterAppManifest(birch, "cluster-aws", "10.2.0", true),
 		installations.CollectionsKustomizationPath(alder):   collectionsKustomization(""),
 		installations.CollectionsKustomizationPath(birch):   collectionsKustomization(platformDexApp),
 		extrasKustomizationPath(birch):                      extrasListingEverything,
@@ -265,7 +264,7 @@ func fixtures(g *fakeGitHub) {
 	})
 	g.addRepo(acmeConfigs, map[string]string{
 		installations.ConfigPatchPath(alder):   "codename: alder\nbase: acme.test\n",
-		installations.ConfigPatchPath(birch):   "codename: birch\nbase: acme.test\nagentPlatform:\n  kagentApiV2: true\n",
+		installations.ConfigPatchPath(birch):   "codename: birch\nbase: acme.test\n",
 		installations.ConfigPatchPath("rowan"): "codename: rowan\nbase: acme.test\nservices:\n  muster:\n    clientId: muster-rowan\ngatewayApi:\n  clusterIssuer: private-example\n",
 		// birch's muster trusts a client on record in that list only; its authenticator trusts a peer on record in that list only.
 		installations.Capabilities()[0].EnabledMarker(birch): "muster:\n  muster:\n    oauth:\n      server:\n        trustedAudiences:\n          - dex-k8s-authenticator\n          - " + birchPortalClientID + "\n",

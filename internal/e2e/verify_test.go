@@ -366,8 +366,6 @@ func TestVerifyCapabilityPlannedJoinedAudience(t *testing.T) {
 func TestVerifyCapabilityFactOffTheRecordIsDrift(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
-	st.ghs.addFile(acmeConfigs, installations.ConfigPatchPath(rowan), "codename: rowan\nbase: acme.test\nagentPlatform:\n  kagentApiV2: true\n")
-	st.ghs.addFile(acmeMCs, installations.ClusterAppManifestPath(rowan), clusterAppManifest(rowan, "cluster-aws", "10.2.0", true))
 	c := st.mcpClient(t, aliceToken)
 	inRepos := kagentEnabled()
 	inRepos["installation"] = map[string]any{argPrivate: true}
@@ -391,8 +389,6 @@ func TestVerifyCapabilityFactOffTheRecordIsDrift(t *testing.T) {
 func TestVerifyCapabilityDiffersByInput(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
-	st.ghs.addFile(acmeConfigs, installations.ConfigPatchPath(rowan), "codename: rowan\nbase: acme.test\nagentPlatform:\n  kagentApiV2: true\n")
-	st.ghs.addFile(acmeMCs, installations.ClusterAppManifestPath(rowan), clusterAppManifest(rowan, "cluster-aws", "10.2.0", true))
 	c := st.mcpClient(t, aliceToken)
 	enableRowan(t, st, c, kagentEnabled(), kagentEnabled())
 
@@ -1707,7 +1703,7 @@ func TestVerifyCapabilityRegistrationsOnRecord(t *testing.T) {
 	st.ghs.mu.Lock()
 	content := st.ghs.files[acmeConfigs][marker]
 	st.ghs.mu.Unlock()
-	for _, want := range []string{"allowPrivateIPTokenEndpointHosts:\n            - dex.pond.acme.test", "trustedPublicRegistrationRedirectURIs:\n          - " + rowanClientCallback} {
+	for _, want := range []string{"allowPrivateIP: true", "trustedPublicRegistrationRedirectURIs:\n          - " + rowanClientCallback} {
 		if !strings.Contains(content, want) {
 			t.Errorf("the patch on record lacks %q:\n%s", want, content)
 		}

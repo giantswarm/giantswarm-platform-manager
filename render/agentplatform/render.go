@@ -456,44 +456,30 @@ func (in *Input) postLoginRedirectAllowlist() []string {
 	return list
 }
 
-// privateRedirectHosts are the hosts muster accepts redirect URIs on that
-// resolve to a private address: agentgateway's, where the chat gateway's
-// callback is, then the registered public clients'.
-func (in *Input) privateRedirectHosts() []string {
-	hosts := []string{in.host("agentgateway")}
-	for _, h := range (render.ClientMetadata{RedirectURIs: in.clientRedirectURIs()}).RedirectHosts() {
-		if !slices.Contains(hosts, h) {
-			hosts = append(hosts, h)
-		}
-	}
-	return hosts
-}
-
-// klausGatewayClientMetadata is the document the chat gateway serves as
-// muster's OAuth client: on agentgateway's hostname, its callback beside it
-// (klausGateway.obo.callbackBaseUrl).
-func (in *Input) klausGatewayClientMetadata() render.ClientMetadata {
-	base := "https://" + in.host("agentgateway")
-	return render.ClientMetadata{ClientID: base + "/auth/slack/client.json", ClientName: "klaus-gateway",
-		ClientURI: "https://github.com/giantswarm/klaus-gateway", RedirectURIs: []string{base + "/auth/slack/callback"}}
-}
-
 func (in *Input) musterValues() render.Map {
 	server := render.Map{
 		e("existingSecret", musterOAuthSecret),
 		e("storage", render.Map{e("valkey", render.Map{e("existingSecret", musterValkeySecret)})}),
 	}
-	// On a private installation agentgateway's hostname resolves to the
-	// internal load balancer: muster accepts redirect URIs on it and on the
-	// registered clients' hosts alone, and pins the chat gateway's client
-	// metadata document (its client_id on that hostname), so it never fetches
-	// it. Dex needs no setting: muster lets its own issuer's host resolve
-	// privately.
+	// Dex and the chat gateway's client_id (a metadata document served on
+	// agentgateway's hostname) both resolve to the internal load balancer on
+	// a private installation: muster's SSRF guard is lifted for Dex's OIDC
+	// discovery (dex.allowPrivateIPOIDC) and for agentgateway's host alone
+	// (allowPrivateIPClientMetadataHosts, muster 5.35.0), every other private
+	// host keeps it. The shared defaults derive allowPrivateIPOIDC from
+	// managementCluster.private, which is false on an installation whose
+	// ingress alone is private, so the record's private fact renders it here
+	// like its siblings.
 	if in.Installation.Private {
-		server = append(server, e("allowPrivateIPRedirectURIHosts", in.privateRedirectHosts()))
 		if in.klausGateway() {
-			server = append(server, e("preRegisteredClientMetadata", []render.Map{in.klausGatewayClientMetadata().Map()}))
+			base := "https://" + in.host("agentgateway")
+			client := render.ClientMetadata{ClientID: base + "/auth/slack/client.json", ClientName: "klaus-gateway", ClientURI: "https://github.com/giantswarm/klaus-gateway", RedirectURIs: []string{base + "/auth/slack/callback"}}
+			server = append(server, e("preRegisteredClientMetadata", []render.Map{client.Map()}))
 		}
+		server = append(server,
+			e("dex", render.Map{e("allowPrivateIPOIDC", true)}),
+			e("allowPrivateIPClientMetadataHosts", []string{in.host("agentgateway")}),
+			e("allowPrivateIPRedirectURIs", true))
 	}
 	server = append(server, e("trustedAudiences", in.musterAudiences()))
 	if in.portalGitHub() || in.hasManagerGrantExchange() {
@@ -513,8 +499,8 @@ func (in *Input) musterValues() render.Map {
 	if in.klausGateway() && in.Gateway.OBO.Connectors {
 		mcpClient = append(mcpClient, e("postLoginRedirectAllowlist", in.postLoginRedirectAllowlist()))
 	}
-	if hosts := in.exchangeTokenEndpointHosts(); len(hosts) > 0 {
-		mcpClient = append(mcpClient, e("tokenExchange", render.Map{e("allowPrivateIPTokenEndpointHosts", hosts)}))
+	if in.registeredExchange() {
+		mcpClient = append(mcpClient, e("tokenExchange", render.Map{e("allowPrivateIP", true)}))
 	}
 	if len(mcpClient) > 0 {
 		oauth = append(oauth, e("mcpClient", mcpClient))
