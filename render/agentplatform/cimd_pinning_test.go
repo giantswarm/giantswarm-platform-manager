@@ -11,6 +11,24 @@ import (
 
 const privateRedirectPermission = "allowPrivateIPRedirectURIs: true"
 
+func TestPrivateClientPinsRequireCompatibleMuster(t *testing.T) {
+	for _, testCase := range []struct {
+		version    string
+		compatible bool
+	}{{"5.63.24", false}, {"5.64.0", true}} {
+		t.Run(testCase.version, func(t *testing.T) {
+			input, _ := loadInput(t, shapeGiantswarmSlackApp)
+			input["versions"] = map[string]any{"components": map[string]any{"muster": testCase.version}}
+			_, err := Parse(input)
+			if testCase.compatible {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, "versions.components.muster")
+			}
+		})
+	}
+}
+
 func TestPrivateClientPinsPreserveAddressPermissions(t *testing.T) {
 	input, secrets := loadInput(t, shapeGiantswarmSlackApp)
 	result, err := Render(input, secrets, render.ModeCommit)
