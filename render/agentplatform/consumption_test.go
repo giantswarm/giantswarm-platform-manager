@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,7 +28,7 @@ import (
 // TestRenderConsumption renders the charts that consume the definitions' files —
 // the fleet bases' HelmReleases over the emitted extras (kustomize build), the
 // portal's tree with backstage, the agent-platform meta chart and the children
-// it renders, dex-app — at the versions pinned in testdata/consumption/charts.yaml
+// it renders, dex-app, at the shared or shape-specific pins under testdata/consumption
 // (the meta chart on both of its lines, each shape at the line its record
 // selects), and checks every emitted Secret against what the rendered workloads read: a
 // Secret nobody reads, a key a chart reads that the Secret does not carry, a Dex
@@ -41,7 +42,14 @@ func TestRenderConsumption(t *testing.T) {
 	}
 	charts := &chartStore{dir: t.TempDir(), pins: loadPins(t)}
 	for _, shape := range consumptionShapes {
-		t.Run(shape.name, func(t *testing.T) { consume(t, shape, charts) })
+		t.Run(shape.name, func(t *testing.T) {
+			selected := charts
+			if shape.overlays != "" {
+				selected = &chartStore{dir: charts.dir, pins: maps.Clone(charts.pins)}
+				maps.Copy(selected.pins, loadPinsFile(t, filepath.Join(shape.overlays, "charts.yaml")))
+			}
+			consume(t, shape, selected)
+		})
 	}
 }
 
@@ -57,6 +65,7 @@ type consumptionShape struct {
 	name     string
 	platform string
 	portal   string
+	overlays string
 }
 
 // portalInputSuffix names a shape's portal input under testdata/consumption/.
@@ -65,7 +74,7 @@ const portalInputSuffix = ".portal.yaml"
 var consumptionShapes = []consumptionShape{
 	{name: shapePublicCustomer, platform: shapePublicCustomer, portal: shapePublicCustomer + portalInputSuffix},
 	{name: shapeGiantswarmOwned, platform: shapeGiantswarmOwned, portal: shapeGiantswarmOwned + portalInputSuffix},
-	{name: shapeGiantswarmSlackApp, platform: shapeGiantswarmSlackApp, portal: shapeGiantswarmSlackApp + portalInputSuffix},
+	{name: shapeGiantswarmSlackApp, platform: shapeGiantswarmSlackApp, portal: shapeGiantswarmSlackApp + portalInputSuffix, overlays: "oauth-canary"},
 	{name: "customer-portal", portal: "customer-portal" + portalInputSuffix},
 	// The organizations and agent-manager's credential form (meta chart
 	// 4.177.0 and later): signed into from the hub's hand-kept portal, or
@@ -118,7 +127,12 @@ func pinKey(chart, line string) string {
 
 func loadPins(t *testing.T) map[string]pin {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(consumptionDir, "charts.yaml"))
+	return loadPinsFile(t, "charts.yaml")
+}
+
+func loadPinsFile(t *testing.T, name string) map[string]pin {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(consumptionDir, name)) // #nosec G304 -- fixed fixture name from the test table
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,6 +313,7 @@ type consumption struct {
 	// is the agent-platform definition's input, nil for a portal-only shape.
 	installation string
 	platform     *Input
+	overlays     string
 	dir          string
 	charts       *chartStore
 	gaps         map[string]knownGap
@@ -342,7 +357,7 @@ func loadGaps(t *testing.T) map[string]knownGap {
 }
 
 func consume(t *testing.T, shape consumptionShape, charts *chartStore) {
-	c := &consumption{t: t, dir: t.TempDir(), charts: charts, gaps: loadGaps(t), emitted: map[string]emittedSecret{}}
+	c := &consumption{t: t, dir: t.TempDir(), charts: charts, gaps: loadGaps(t), emitted: map[string]emittedSecret{}, overlays: shape.overlays}
 	var portal *customerportal.Input
 	if shape.portal != "" {
 		portal = c.renderPortal(shape.portal)
@@ -614,6 +629,38 @@ func (c *consumption) include(inc render.Include) {
 // extras builds one emitted extras directory over the fleet base and renders
 // every HelmRelease it yields; the meta chart's children are rendered in turn.
 func (c *consumption) extras(dir string) {
+	if c.overlays != "" {
+		patchesPath := filepath.Join(consumptionDir, c.overlays, filepath.Base(dir)+".yaml")
+		patches, err := os.ReadFile(patchesPath) // #nosec G304 -- fixture path from the test table and rendered extras directory
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			c.t.Fatal(err)
+		}
+		if err == nil {
+			path := filepath.Join(dir, "kustomization.yaml")
+			raw, readError := os.ReadFile(path) // #nosec G304 -- path under the test's own tree
+			if readError != nil {
+				c.t.Fatal(readError)
+			}
+			var current map[string]any
+			var overlay struct {
+				Patches []any `yaml:"patches"`
+			}
+			if err := yaml.Unmarshal(raw, &current); err != nil {
+				c.t.Fatal(err)
+			}
+			if err := yaml.Unmarshal(patches, &overlay); err != nil {
+				c.t.Fatal(err)
+			}
+			current["patches"] = append(list(current["patches"]), overlay.Patches...)
+			content, marshalError := yaml.Marshal(current)
+			if marshalError != nil {
+				c.t.Fatal(marshalError)
+			}
+			if err := os.WriteFile(path, content, 0o600); err != nil {
+				c.t.Fatal(err)
+			}
+		}
+	}
 	c.build(decode(c.t, run(c.t, "kustomize", "build", dir)))
 }
 
