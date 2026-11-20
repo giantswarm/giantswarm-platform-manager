@@ -213,7 +213,9 @@ func (r *Registry) inspect(ctx context.Context, c *gh.Client, inst Installation,
 	)
 	if detail == Full {
 		wg.Go(func() { record, recErr = r.readRecord(ctx, c, owner, repo, inst) })
-		wg.Go(func() { pcr, pcrErr = readPodCertificateRequest(ctx, readAs(c), inst) })
+		wg.Go(func() {
+			pcr, pcrErr = readPodCertificateRequest(ctx, readAs(c), RegistryChartConfig(registryClient), inst)
+		})
 		wg.Go(func() {
 			if col, colErr = readCollections(ctx, readAt(c), inst); colErr == nil {
 				dex, dexErr = readDexAppVersion(ctx, readAt(c), RegistryTags(registryClient), inst, col)
@@ -243,7 +245,7 @@ func (r *Registry) inspect(ctx context.Context, c *gh.Client, inst Installation,
 		case recErr != nil:
 			rep.Errors = append(rep.Errors, recErr.Error())
 			rep.Readable = false
-		case pcrErr != nil && !errors.Is(pcrErr, ErrRelease):
+		case pcrErr != nil && !errors.Is(pcrErr, ErrRelease) && !errors.Is(pcrErr, ErrChart):
 			rep.Record = record
 			rep.Errors = append(rep.Errors, pcrErr.Error())
 			rep.Readable = false
@@ -269,10 +271,10 @@ func (r *Registry) inspect(ctx context.Context, c *gh.Client, inst Installation,
 				rep.Errors = append(rep.Errors, rcErr.Error())
 			}
 			if pcrErr != nil {
-				// The release the cluster App names is a fact of the record, not
-				// a condition of reading the installation: unreadable, the fact
-				// stays false and the comparison still runs, with the error on
-				// the report.
+				// The release a cluster App names, or the chart a HelmRelease
+				// takes, is a fact of the record, not a condition of reading
+				// the installation: unreadable, the fact stays false and the
+				// comparison still runs, with the error on the report.
 				rep.Errors = append(rep.Errors, pcrErr.Error())
 			}
 		}

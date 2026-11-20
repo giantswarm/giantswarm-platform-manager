@@ -298,7 +298,7 @@ const podCertificateRequestDimension = "live-pod-certificate-request"
 func (in *Input) podCertificateRequestProbe() render.Probe {
 	p := render.Probe{ID: podCertificateRequestDimension, Feature: featureRuntime, Kind: render.APIServed, Resource: PodCertificateRequestResource}
 	p.Expect = render.Expectation{Version: PodCertificateRequestVersion,
-		Note: "the record enables the feature gates " + strings.Join(PodCertificateRequestGates, ", ") + " (the cluster App's values, or its chart's default); the API is served once the control plane has rolled with them, and Agent Substrate's install waits for it"}
+		Note: "the record enables the feature gates " + strings.Join(PodCertificateRequestGates, ", ") + " (the cluster's values on record, or its chart's default); the API is served once the control plane has rolled with them, and Agent Substrate's install waits for it"}
 	return p
 }
 

@@ -116,8 +116,17 @@ func readFact(t *testing.T, manifest string, releases map[string]string) (bool, 
 	t.Helper()
 	repos := fakeRepos{testMCs: {testManifest: manifest}, ReleasesRepository: releases}
 	reads := map[string]int{}
-	got, err := readPodCertificateRequest(context.Background(), repos.reader(reads), mapleInst)
+	got, err := readPodCertificateRequest(context.Background(), repos.reader(reads), noCharts(t), mapleInst)
 	return got, reads, err
+}
+
+// noCharts is a ChartConfig a cluster App never asks: an App reads no chart
+// from a registry.
+func noCharts(t *testing.T) ChartConfig {
+	return func(_ context.Context, ociURL, ref string) ([]byte, error) {
+		t.Errorf("a cluster App read the chart %s %s", ociURL, ref)
+		return nil, errors.New("no registry")
+	}
 }
 
 // The record says the cluster serves PodCertificateRequest when every one of
@@ -166,7 +175,7 @@ func TestPodCertificateRequestFromTheClusterApp(t *testing.T) {
 		t.Error("a manifest that does not decode is an error, not a no")
 	}
 	repos := fakeRepos{}
-	if got, err := readPodCertificateRequest(context.Background(), repos.reader(map[string]int{}), mapleInst); err != nil || got {
+	if got, err := readPodCertificateRequest(context.Background(), repos.reader(map[string]int{}), noCharts(t), mapleInst); err != nil || got {
 		t.Errorf("an installation without the manifest says no: %v, %v", got, err)
 	}
 	if ClusterAppManifestPath("maple") != "management-clusters/maple/cluster-app-manifests.yaml" {
