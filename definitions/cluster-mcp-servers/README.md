@@ -21,8 +21,8 @@ Per running server, `management-clusters/<name>/extras/mcp-<server>/` of the man
 repository: the kustomization over the fleet base, the OAuth credentials and valkey-auth Secrets, the Dex
 client's Secret in Dex's namespace, the credentials revision Secret in the Flux namespace the server's and
 its Valkey's HelmReleases read into their charts' checksum values (a rotation of the server's credentials
-restarts both, a reconcile without one restarts nothing), and the user values where Dex is reached on private
-addresses or served with a certificate from the installation's private CA (the installation's own Secret
+restarts both, a reconcile without one restarts nothing), and the user values where Dex is served with a
+certificate from the installation's private CA (the installation's own Secret
 `mcp-<server>-dex-ca`, listed, never rendered). In the configs repository, each running server's Dex client
 as `clientSecretRef`, and the connector of every hub that brokers into the installation, an entry of the
 `oidc.customer.connectors` map keyed by id, or of `oidc.giantswarm.connectors` for an organisation under the

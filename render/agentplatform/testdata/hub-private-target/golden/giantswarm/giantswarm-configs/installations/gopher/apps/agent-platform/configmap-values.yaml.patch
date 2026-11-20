@@ -86,6 +86,10 @@ muster:
         name: tunnelport-spiffe-bundle
         key: svid_bundle.pem
     oauth:
+      mcpClient:
+        tokenExchange:
+          allowPrivateIPTokenEndpointHosts:
+            - dex-burrow.agent-platform.svc.cluster.local
       server:
         existingSecret: muster-oauth-credentials
         storage:
@@ -96,7 +100,6 @@ muster:
           - kagent
           - backstage
         tokenExchangeBroker:
-          allowPrivateIP: true
           brokerClients:
             broker-client-id-placeholder:
               clientCredentialsSecretRef:

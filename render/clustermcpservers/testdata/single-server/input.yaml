@@ -1,5 +1,6 @@
 # A management cluster that runs mcp-kubernetes alone, Dex on private
-# addresses. Invented names.
+# addresses, read back from the server's former flag: nothing renders for
+# it, no user values and no client metadata or redirect key. Invented names.
 input:
   installation:
     name: heron

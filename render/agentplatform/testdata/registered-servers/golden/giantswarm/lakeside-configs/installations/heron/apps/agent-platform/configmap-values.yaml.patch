@@ -60,7 +60,9 @@ muster:
     oauth:
       mcpClient:
         tokenExchange:
-          allowPrivateIP: true
+          allowPrivateIPTokenEndpointHosts:
+            - dex.pond.lakeside.example
+            - dex.marsh.lakeside.example
       server:
         existingSecret: muster-oauth-credentials
         storage:
