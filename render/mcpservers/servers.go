@@ -181,6 +181,7 @@ func (s Server) DexClientRef() render.Map {
 
 // Options are how one installation runs a server.
 type Options struct {
+	PrivateClient *render.ClientMetadata
 	// Installation names the generated values: the commit step draws one
 	// value per name across a pull request, and a wave commits several
 	// installations of one organisation into one.
@@ -204,10 +205,17 @@ type Options struct {
 // Dex on private addresses and, with the installation's private CA, the Secret
 // with that CA.
 func (s Server) userValues(o Options) render.Map {
-	if !o.PrivateURLs && !o.DexCA {
+	if !o.PrivateURLs && !o.DexCA && (o.PrivateClient == nil || !s.ssoPrivateIPs) {
 		return nil
 	}
 	var oauth render.Map
+	var cimd render.Map
+	if o.PrivateURLs && s.ssoPrivateIPs && o.PrivateIPs {
+		cimd = append(cimd, e("allowPrivateIPs", true))
+	}
+	if s.ssoPrivateIPs && o.PrivateClient != nil {
+		cimd = append(cimd, e("preRegisteredClientMetadata", []render.Map{o.PrivateClient.Map()}))
+	}
 	if o.PrivateURLs {
 		if s.privateDexKey != "" {
 			oauth = append(oauth, e(s.privateDexKey, true))
@@ -215,10 +223,12 @@ func (s Server) userValues(o Options) render.Map {
 		if s.ssoPrivateIPs {
 			oauth = append(oauth, e("sso", render.Map{e("allowPrivateIPs", true)}))
 			if o.PrivateIPs {
-				oauth = append(oauth, e("cimd", render.Map{e("allowPrivateIPs", true)}),
-					e("redirectURISecurity", render.Map{e("allowPrivateIPRedirectURIs", true)}))
+				oauth = append(oauth, e("cimd", cimd), e("redirectURISecurity", render.Map{e("allowPrivateIPRedirectURIs", true)}))
 			}
 		}
+	}
+	if len(cimd) > 0 && (!o.PrivateURLs || !s.ssoPrivateIPs || !o.PrivateIPs) {
+		oauth = append(oauth, e("cimd", cimd))
 	}
 	if o.DexCA {
 		switch s.dexCA {

@@ -21,7 +21,12 @@ const (
 // serverOptions are how this installation runs its servers: Dex on private
 // addresses and the clients' too on a private installation.
 func (in *Input) serverOptions() mcpservers.Options {
-	return mcpservers.Options{Installation: in.Installation.Name, PrivateURLs: in.Installation.Private, PrivateIPs: in.Installation.Private, Header: fileHeader}
+	options := mcpservers.Options{Installation: in.Installation.Name, PrivateURLs: in.Installation.Private, PrivateIPs: in.Installation.Private, Header: fileHeader}
+	if in.Installation.Private {
+		base := "https://" + in.host("muster")
+		options.PrivateClient = &render.ClientMetadata{ClientID: base + "/.well-known/oauth-client.json", ClientName: "Muster MCP Aggregator", ClientURI: "https://github.com/giantswarm/muster", RedirectURIs: []string{base + "/oauth/proxy/callback"}}
+	}
+	return options
 }
 
 const (
