@@ -14,9 +14,9 @@ package render
 // the login.
 
 // federationScopes are the scopes the connector requests at the hub's Dex:
-// groups, so a login carries the groups a token exchange through the same
-// connector takes from the subject token.
-var federationScopes = []string{"openid", "profile", "email", "groups"}
+// groups carry the caller's authorization, and offline_access gives the
+// connector a refresh token for sessions that outlive the hub's access token.
+var federationScopes = []string{"openid", "profile", "email", "groups", "offline_access"}
 
 // FederationClient is the id of the client a hub's Dex registers for target's
 // Dex: one per target on each hub's Dex.

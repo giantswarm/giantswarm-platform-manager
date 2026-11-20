@@ -61,7 +61,7 @@ func TestFederatedConnectors(t *testing.T) {
 	}
 	want := "connectorType: oidc\nconnectorName: kestrel\nconfig:\n" +
 		"  issuer: https://dex.kestrel.oakridge.example\n  insecureEnableGroups: true\n  clientID: federation-plover\n" +
-		"  redirectURI: https://dex.plover.oakridge.example/callback\n  scopes:\n    - openid\n    - profile\n    - email\n    - groups\n" +
+		"  redirectURI: https://dex.plover.oakridge.example/callback\n  scopes:\n    - openid\n    - profile\n    - email\n    - groups\n    - offline_access\n" +
 		"clientSecretRef:\n  name: dex-connector-oakridge-kestrel-oidc\n  key: client-secret\n"
 	if got := string(MustYAML(list[2].Entry("plover", "plover.oakridge.example"))); got != want {
 		t.Errorf("the entry:\n%s\nwant:\n%s", got, want)
