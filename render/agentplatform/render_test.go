@@ -1273,7 +1273,7 @@ func TestFactsAreTheProvidersOnTheFourLine(t *testing.T) {
 // managementCluster.private, which is false where the ingress alone is
 // private, so the definition's own fact decides it and a reconcile keeps it.
 func TestPrivateInstallationLiftsMusterGuards(t *testing.T) {
-	flags := []string{"dex:\n          allowPrivateIPOIDC: true", "allowPrivateIPClientMetadataHosts:\n          - agentgateway.", "allowPrivateIPRedirectURIs: true"}
+	flags := []string{"dex:\n          allowPrivateIPOIDC: true", "allowPrivateIPClientMetadataHosts:\n          - agentgateway.", privateRedirectPermission}
 	for shape, private := range map[string]bool{shapeGiantswarmSlackApp: true, shapeGiantswarmSlackAppPub: false} {
 		t.Run(shape, func(t *testing.T) {
 			input, secrets := loadInput(t, shape)

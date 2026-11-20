@@ -1133,7 +1133,13 @@ func (in *Input) checkRecord() error {
 	if err := in.checkOrganizations(); err != nil {
 		return err
 	}
-	return in.checkPlatformTenant()
+	if err := in.checkPlatformTenant(); err != nil {
+		return err
+	}
+	if in.Installation.Private && in.klausGateway() && !holdAdmits(in.Versions.Components[componentMuster], "5.64.0") {
+		return refuse(describe("versions.components.muster") + " excludes Muster 5.64.0 or later, required for the pinned gateway client document; move or lift the hold before applying the pins")
+	}
+	return nil
 }
 
 // apiResource and apiGroup split a probe's resource.group.

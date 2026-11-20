@@ -92,6 +92,18 @@ muster:
         storage:
           valkey:
             existingSecret: muster-valkey-credentials
+        preRegisteredClientMetadata:
+          - client_id: https://agentgateway.glean.example.io/auth/slack/client.json
+            client_name: klaus-gateway
+            client_uri: https://github.com/giantswarm/klaus-gateway
+            redirect_uris:
+              - https://agentgateway.glean.example.io/auth/slack/callback
+            grant_types:
+              - authorization_code
+              - refresh_token
+            response_types:
+              - code
+            token_endpoint_auth_method: none
         dex:
           allowPrivateIPOIDC: true
         allowPrivateIPClientMetadataHosts:
