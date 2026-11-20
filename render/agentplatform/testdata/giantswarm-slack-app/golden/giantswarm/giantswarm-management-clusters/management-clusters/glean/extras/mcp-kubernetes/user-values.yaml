@@ -2,10 +2,7 @@
 # the next reconcile writes it again from the installation's inputs.
 mcpKubernetes:
   oauth:
-    sso:
-      allowPrivateIPs: true
     cimd:
-      allowPrivateIPs: true
       preRegisteredClientMetadata:
         - client_id: https://muster.glean.example.io/.well-known/oauth-client.json
           client_name: Muster MCP Aggregator
@@ -19,4 +16,5 @@ mcpKubernetes:
             - code
           token_endpoint_auth_method: none
     redirectURISecurity:
-      allowPrivateIPRedirectURIs: true
+      privateIPHosts:
+        - muster.glean.example.io

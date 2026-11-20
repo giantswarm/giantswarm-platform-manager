@@ -11,7 +11,8 @@
 # wrote one, and its Slack app's slash command. Two in-cluster MCP backends sit behind
 # the platform's network policy: one muster alone reaches, one also served through the gateway in front
 # of it, a peer on its ports. The LLM listener carries two token buckets, one shared and one per
-# agent behind the Substrate egress, under a comment a person wrote.
+# agent behind the Substrate egress, under a comment a person wrote. The agent-manager reads GitHub with
+# the person's grant from muster's broker, which trusts the installation's own Dex on its private host.
 input:
   installation:
     name: glean
@@ -70,6 +71,10 @@ input:
     rateLimitsComment: |-
       Runaway guards, per data-plane replica and per minute. The second bucket is
       per agent: the kagent identity headers count only from the Substrate egress.
+  agentManager:
+    github:
+      tokenExchange:
+        enabled: true
   klausGateway:
     slack:
       contextBotIDs:

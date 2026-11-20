@@ -8,13 +8,6 @@ resources:
   - valkey-credentials.enc.yaml
   - credentials-revision.enc.yaml
   - dex-client-mcp-kubernetes-secret.yaml
-generatorOptions:
-  disableNameSuffixHash: true
-configMapGenerator:
-  - name: mcp-kubernetes-user-values
-    namespace: flux-giantswarm
-    files:
-      - values=user-values.yaml
 patches:
   - patch: |-
       apiVersion: v1
@@ -26,16 +19,6 @@ patches:
     target:
       kind: Secret
       name: mcp-kubernetes-credentials-revision
-  - patch: |-
-      - op: add
-        path: /spec/valuesFrom/-
-        value:
-          kind: ConfigMap
-          name: mcp-kubernetes-user-values
-          valuesKey: values
-    target:
-      kind: HelmRelease
-      name: mcp-kubernetes
   - patch: |-
       - op: add
         path: /spec/valuesFrom/-

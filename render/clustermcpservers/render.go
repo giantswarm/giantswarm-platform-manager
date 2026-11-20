@@ -108,10 +108,11 @@ type Servers struct {
 type Server struct {
 	// Enabled is nil where neither the record nor the person says: a fresh
 	// enable runs every server.
-	Enabled     *bool `json:"enabled"`
-	PrivateURLs bool  `json:"privateURLs"`
-	PrivateIPs  bool  `json:"privateIPs"`
-	DexCA       bool  `json:"dexCA"`
+	Enabled *bool `json:"enabled"`
+	// Deprecated private-address inputs are accepted for readback only.
+	PrivateURLs bool `json:"privateURLs"`
+	PrivateIPs  bool `json:"privateIPs"`
+	DexCA       bool `json:"dexCA"`
 }
 
 // runs says whether the server runs on the installation.
@@ -235,7 +236,7 @@ func (in *Input) render() (*render.Result, error) {
 			continue
 		}
 		s.Extras(r, clusters, extras+s.Name, mcpservers.Options{Installation: name,
-			PrivateURLs: server.PrivateURLs, PrivateIPs: server.PrivateIPs, DexCA: server.DexCA, Header: fileHeader})
+			DexCA: server.DexCA, Header: fileHeader})
 		r.Include(clusters, extras+"kustomization.yaml", "./"+s.Name+"/")
 		if s.DexSecretRef {
 			static = append(static, render.Entry{Key: s.DexClient, Value: s.DexClientRef()})

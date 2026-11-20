@@ -1265,15 +1265,13 @@ func TestFactsAreTheProvidersOnTheFourLine(t *testing.T) {
 	}
 }
 
-// TestPrivateInstallationLiftsMusterGuards renders muster's three
-// private-address flags together from the record's private fact — Dex's OIDC
-// discovery (dex.allowPrivateIPOIDC), the chat gateway's client_id on
-// agentgateway's host and private redirect URIs — and none of them on a
-// public installation. The shared default derives allowPrivateIPOIDC from
-// managementCluster.private, which is false where the ingress alone is
-// private, so the definition's own fact decides it and a reconcile keeps it.
-func TestPrivateInstallationLiftsMusterGuards(t *testing.T) {
-	flags := []string{"dex:\n          allowPrivateIPOIDC: true", "allowPrivateIPClientMetadataHosts:\n          - agentgateway.", privateRedirectPermission}
+// TestPrivateInstallationListsMusterHosts renders muster's private-address
+// hosts from the record's private fact — agentgateway's host for redirect
+// URIs and the chat gateway's pinned client metadata document — and neither
+// on a public installation. No blanket flag renders on either.
+func TestPrivateInstallationListsMusterHosts(t *testing.T) {
+	hosts := []string{"allowPrivateIPRedirectURIHosts:\n          - agentgateway.", "preRegisteredClientMetadata:\n          - client_id: https://agentgateway."}
+	flags := []string{"allowPrivateIPOIDC", "allowPrivateIPJWKS:", "allowPrivateIPClientMetadataHosts", "allowPrivateIPRedirectURIs", "allowPrivateIP:"}
 	for shape, private := range map[string]bool{shapeGiantswarmSlackApp: true, shapeGiantswarmSlackAppPub: false} {
 		t.Run(shape, func(t *testing.T) {
 			input, secrets := loadInput(t, shape)
@@ -1289,12 +1287,49 @@ func TestPrivateInstallationLiftsMusterGuards(t *testing.T) {
 				t.Fatal(err)
 			}
 			patch := platformPatch(t, result)
+			for _, host := range hosts {
+				if strings.Contains(patch, host) != private {
+					t.Errorf("%q rendered: %v, want %v:\n%s", host, !private, private, patch)
+				}
+			}
 			for _, flag := range flags {
-				if strings.Contains(patch, flag) != private {
-					t.Errorf("%q rendered: %v, want %v:\n%s", flag, !private, private, patch)
+				if strings.Contains(patch, flag) {
+					t.Errorf("%q rendered:\n%s", flag, patch)
 				}
 			}
 		})
+	}
+}
+
+// muster accepts private redirect URIs on agentgateway's host and on each
+// registered public client's host once; a confidential client registers
+// with Dex, not muster, and adds none.
+func TestPrivateRedirectHosts(t *testing.T) {
+	in := &Input{}
+	in.Installation.Name, in.Installation.BaseDomain = "x", "x.example.io"
+	in.Installation.MCPClients = []RegisteredClient{
+		{Name: "runtime", RedirectURIs: []string{"https://runtime.example.io/a", "https://agentgateway.x.example.io/b", "https://runtime.example.io/c"}},
+		{Name: "confidential", ClientID: "c", RedirectURIs: []string{"https://confidential.example.io/cb"}},
+	}
+	if got, want := in.privateRedirectHosts(), []string{"agentgateway.x.example.io", "runtime.example.io"}; !slices.Equal(got, want) {
+		t.Errorf("hosts %v, want %v", got, want)
+	}
+}
+
+// On a private installation the broker's trusted issuer lists its own Dex's
+// host for the key set fetch instead of lifting the guard for every host.
+func TestPrivateTrustedIssuerListsDexHost(t *testing.T) {
+	for _, private := range []bool{true, false} {
+		in := &Input{}
+		in.Installation.Name, in.Installation.BaseDomain, in.Installation.Private = "x", "x.example.io", private
+		entry := string(render.MustYAML(in.trustedIssuers()))
+		const want = "allowPrivateIPJWKSHosts:\n    - dex.x.example.io\n"
+		if strings.Contains(entry, want) != private {
+			t.Errorf("private %v: trusted issuer\n%s", private, entry)
+		}
+		if strings.Contains(entry, "allowPrivateIPJWKS:") {
+			t.Errorf("private %v: blanket flag rendered:\n%s", private, entry)
+		}
 	}
 }
 
@@ -1495,6 +1530,9 @@ func TestKagentProvidersFollowTheChart(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			input, secrets := loadInput(t, c.shape)
+			if c.shape == shapeHubPrivateTarget {
+				publicFederationTargets(input)
+			}
 			if c.hold != "" {
 				input["versions"] = map[string]any{keyChart: c.hold}
 			}
@@ -1573,6 +1611,9 @@ func requireRefusals(t *testing.T, cases []refusalCase) {
 func TestDefaultAgent(t *testing.T) {
 	withDefaultAgent := func(shape string, choice map[string]any) (map[string]any, map[string]string) {
 		input, secrets := loadInput(t, shape)
+		if shape == shapeHubPrivateTarget {
+			publicFederationTargets(input)
+		}
 		if choice != nil {
 			input["defaultAgent"] = choice
 		}
@@ -1642,6 +1683,7 @@ func TestSkillManagerSources(t *testing.T) {
 	withSources := func(shape string, sources ...any) (map[string]any, map[string]string) {
 		input, secrets := loadInput(t, shape)
 		if shape == shapeHubPrivateTarget {
+			publicFederationTargets(input)
 			runReleaseCandidates(input)
 		}
 		input["skillManager"] = map[string]any{keySources: sources}
@@ -1777,6 +1819,7 @@ func TestSkillManagerReadsMusterCredentials(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			input, secrets := loadInput(t, shapeHubPrivateTarget)
+			publicFederationTargets(input)
 			if c.hold != "" {
 				input[keyVersions] = map[string]any{keyChart: c.hold}
 			}
@@ -1824,6 +1867,7 @@ func TestAgentManagerSkillRepositoriesAreURLs(t *testing.T) {
 func TestAgentManagerSkillRepositoriesBeforeTheSkillManager(t *testing.T) {
 	withRepositories := func(candidates bool, versions map[string]any, repositories ...any) (map[string]any, map[string]string) {
 		input, secrets := loadInput(t, shapeHubPrivateTarget)
+		publicFederationTargets(input)
 		if candidates {
 			runReleaseCandidates(input)
 		}

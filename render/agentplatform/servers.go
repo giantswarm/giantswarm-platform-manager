@@ -18,15 +18,26 @@ const (
 	valkeyChecksumValue = mcpservers.ValkeyChecksumValue
 )
 
-// serverOptions are how this installation runs its servers: Dex on private
-// addresses and the clients' too on a private installation.
+// serverOptions are how this installation runs its servers: on a private
+// installation, muster's client metadata document and callback sit on a
+// private address, so the servers pin muster as a client.
 func (in *Input) serverOptions() mcpservers.Options {
-	options := mcpservers.Options{Installation: in.Installation.Name, PrivateURLs: in.Installation.Private, PrivateIPs: in.Installation.Private, Header: fileHeader}
+	o := mcpservers.Options{Installation: in.Installation.Name, Header: fileHeader}
 	if in.Installation.Private {
-		base := "https://" + in.host("muster")
-		options.PrivateClient = &render.ClientMetadata{ClientID: base + "/.well-known/oauth-client.json", ClientName: "Muster MCP Aggregator", ClientURI: "https://github.com/giantswarm/muster", RedirectURIs: []string{base + "/oauth/proxy/callback"}}
+		client := in.musterClientMetadata()
+		o.PrivateClient = &client
 	}
-	return options
+	return o
+}
+
+// musterClientMetadata is the document muster serves as an OAuth client of
+// the MCP servers it signs in to: at its public URL's default CIMD path, with
+// its default proxy callback (muster.oauth.mcpClient.publicUrl, which the
+// shared defaults set to muster's host).
+func (in *Input) musterClientMetadata() render.ClientMetadata {
+	base := "https://" + in.host("muster")
+	return render.ClientMetadata{ClientID: base + "/.well-known/oauth-client.json", ClientName: "Muster MCP Aggregator",
+		ClientURI: "https://github.com/giantswarm/muster", RedirectURIs: []string{base + "/oauth/proxy/callback"}}
 }
 
 const (

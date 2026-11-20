@@ -51,10 +51,19 @@ const (
 	customerActionsDone = "Customer actions done: model-key."
 )
 
-// setAccepted turns the default ModelConfig's Accepted condition.
-func setAccepted(inst *fakeInstallation, status, msg string) {
+func setModelKeyStatus(inst *fakeInstallation, status, msg string) {
 	inst.edit("ModelConfig", kagentNamespace, modelConfig, func(obj map[string]any) {
-		obj[statusKey] = map[string]any{conditionsKey: []any{map[string]any{typeKey: accepted, statusKey: status, message: msg}}}
+		conditionType := accepted
+		currentStatus, _ := obj[statusKey].(map[string]any)
+		conditions, _ := currentStatus[conditionsKey].([]any)
+		for _, value := range conditions {
+			condition, _ := value.(map[string]any)
+			if condition[typeKey] == "ResolvedRefs" {
+				conditionType = "ResolvedRefs"
+				break
+			}
+		}
+		obj[statusKey] = map[string]any{conditionsKey: []any{map[string]any{typeKey: conditionType, statusKey: status, message: msg}}}
 	})
 }
 
@@ -462,7 +471,7 @@ func TestWatchActionWaitsForTheCustomerThenFlips(t *testing.T) {
 	st := newStack(t)
 	a, aliceC := rolledOut(t, st)
 	admin := adminLive(t, st)
-	setAccepted(st.inst, statusFalse, modelKeyMissing)
+	setModelKeyStatus(st.inst, statusFalse, modelKeyMissing)
 
 	w, text, isErr := watchCall(t, admin, a.Name)
 	if isErr || !w.Ready || w.State != actions.StateWaitingForCustomer || len(w.Red) != 1 || !strings.Contains(w.Red[0], "live-model-configs") ||
@@ -490,7 +499,7 @@ func TestWatchActionWaitsForTheCustomerThenFlips(t *testing.T) {
 
 	// The key is in; the gateway refuses the report: the state moves, the
 	// answer says the thread was not told, the next call posts it.
-	setAccepted(st.inst, statusTrue, "ok")
+	setModelKeyStatus(st.inst, statusTrue, "ok")
 	st.gateway.setDown(true)
 	w, text, isErr = watchCall(t, admin, a.Name)
 	if isErr || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled || w.Action.Status.Result.State != actions.StateEnabled || !strings.Contains(w.Message, "could not be told") || stageOf(w.Action, rowan).ReportedAt != nil {
@@ -518,14 +527,14 @@ func TestVerifyInstallationFlipsWaitingToEnabled(t *testing.T) {
 	st := newStack(t)
 	a, aliceC := rolledOut(t, st)
 	admin := adminLive(t, st)
-	setAccepted(st.inst, statusFalse, modelKeyMissing)
+	setModelKeyStatus(st.inst, statusFalse, modelKeyMissing)
 	if w, text, isErr := watchCall(t, admin, a.Name); isErr || w.State != actions.StateWaitingForCustomer {
 		t.Fatalf("waiting: %v %s", isErr, text)
 	}
 	if res := verifyLive(t, admin, rowan); res.State != installations.StateWaitingForCustomer {
 		t.Fatalf("verify while waiting: %q", res.State)
 	}
-	setAccepted(st.inst, statusTrue, "ok")
+	setModelKeyStatus(st.inst, statusTrue, "ok")
 	if res := verifyLive(t, admin, rowan); res.State != installations.StateEnabled {
 		t.Fatalf("verify with the key in: %q", res.State)
 	}
@@ -1547,7 +1556,7 @@ func TestVerifyInstallationRefusedRenderKeepsTheWait(t *testing.T) {
 	st := newStack(t)
 	a, aliceC := rolledOut(t, st)
 	admin := adminLive(t, st)
-	setAccepted(st.inst, statusFalse, modelKeyMissing)
+	setModelKeyStatus(st.inst, statusFalse, modelKeyMissing)
 	if w, text, isErr := watchCall(t, admin, a.Name); isErr || w.State != actions.StateWaitingForCustomer {
 		t.Fatalf("waiting: %v %s", isErr, text)
 	}
@@ -1556,7 +1565,7 @@ func TestVerifyInstallationRefusedRenderKeepsTheWait(t *testing.T) {
 	if len(probes) == 0 {
 		t.Fatal("the watch recorded no probe")
 	}
-	setAccepted(st.inst, statusTrue, "ok")
+	setModelKeyStatus(st.inst, statusTrue, "ok")
 
 	refused := waiting.InputsOnRecord(rowan)
 	refused["organizations"].(map[string]any)[enabledKey] = true

@@ -28,7 +28,7 @@ import (
 // TestRenderConsumption renders the charts that consume the definitions' files —
 // the fleet bases' HelmReleases over the emitted extras (kustomize build), the
 // portal's tree with backstage, the agent-platform meta chart and the children
-// it renders, dex-app — at the versions pinned in testdata/consumption/charts.yaml
+// it renders, dex-app, at the shared or shape-specific pins under testdata/consumption
 // (the meta chart on both of its lines, each shape at the line its record
 // selects), and checks every emitted Secret against what the rendered workloads read: a
 // Secret nobody reads, a key a chart reads that the Secret does not carry, a Dex
