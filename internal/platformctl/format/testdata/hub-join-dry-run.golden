@@ -24,7 +24,7 @@ heron: enabled
   Probes:
     live-oauth2-proxy-extra-audience: identity oauth2-proxy --oidc-extra-audience argument
     live-muster-trusted-audiences: identity muster ConfigMap trustedAudiences
-    live-muster-connector-and-client-id: identity muster ConfigMap dex connectorId, where the definition renders one
+    live-muster-connector-and-client-id: identity muster ConfigMap dex connectorId and identityCheckConnectors, where the definition renders them
     live-kagent-api-protected: identity /api/agents answered 403 by oauth2-proxy
     live-kagent-login-redirect: identity /oauth2/start 302 to Dex with client_id=kagent
     live-dex-auth-per-client: identity Dex knows every rendered client and its redirect URI: the connector its /auth answer names answers 302 or its login form
@@ -75,7 +75,7 @@ kestrel: enabled
   Probes:
     live-oauth2-proxy-extra-audience: identity oauth2-proxy --oidc-extra-audience argument
     live-muster-trusted-audiences: identity muster ConfigMap trustedAudiences
-    live-muster-connector-and-client-id: identity muster ConfigMap dex connectorId, where the definition renders one
+    live-muster-connector-and-client-id: identity muster ConfigMap dex connectorId and identityCheckConnectors, where the definition renders them
     live-kagent-api-protected: identity /api/agents answered 403 by oauth2-proxy
     live-kagent-login-redirect: identity /oauth2/start 302 to Dex with client_id=kagent
     live-dex-auth-per-client: identity Dex knows every rendered client and its redirect URI: the connector its /auth answer names answers 302 or its login form

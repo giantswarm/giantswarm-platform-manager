@@ -210,6 +210,9 @@ type Input struct {
 	// policy's names over each hub's record (render.FederatedConnectors);
 	// none for a further hub whose connector is kept by hand.
 	HubConnectors []render.FederatedConnector
+	// IdentityCheckConnectors is nil unless this installation's browser login
+	// connectors are explicitly selected by the federation policy.
+	IdentityCheckConnectors []string
 	// Teleport is the Teleport cluster a tunnel joins.
 	Teleport Teleport
 	// SourceInterval is the poll interval of every OCIRepository the
@@ -499,9 +502,10 @@ type policy struct {
 		Customers []string `yaml:"customers"`
 	} `yaml:"releaseCandidates"`
 	Federation struct {
-		Connector  render.ConnectorNames `yaml:"connector"`
-		Teleport   Teleport              `yaml:"teleport"`
-		BrowseOnly []string              `yaml:"browseOnly"`
+		Connector               render.ConnectorNames `yaml:"connector"`
+		Teleport                Teleport              `yaml:"teleport"`
+		BrowseOnly              []string              `yaml:"browseOnly"`
+		IdentityCheckConnectors map[string][]string   `yaml:"identityCheckConnectors"`
 	} `yaml:"federation"`
 	Flux struct {
 		SourceInterval string `yaml:"sourceInterval"`
@@ -937,6 +941,9 @@ func Parse(raw any) (*Input, error) {
 		return nil, err
 	}
 	if in.Connectors, err = pol.connectors(in.Installation); err != nil {
+		return nil, err
+	}
+	if in.IdentityCheckConnectors, err = pol.identityCheckConnectors(in.Installation); err != nil {
 		return nil, err
 	}
 	if in.HubConnectors, err = pol.hubConnectors(in.Installation); err != nil {
