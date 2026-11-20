@@ -85,7 +85,7 @@ func TestIdentityCheckRenderPreservesPrivateOIDCAndCustomerLogins(t *testing.T) 
 			}
 			require.Equal(t, []render.Comparison{
 				{Live: "data.config.yaml:aggregator.oauth.server.dex.connectorId", Rendered: "muster.muster.oauth.server.dex.connectorId"},
-				{Live: "data.config.yaml:aggregator.oauth.server.dex.identityCheckConnectors", Rendered: "muster.muster.oauth.server.dex.identityCheckConnectors"},
+				{Live: "data.config.yaml:aggregator.oauth.server.dex.identityCheckConnectors", Rendered: "muster.muster.oauth.server.dex.identityCheckConnectors", Exact: true},
 			}, checks)
 		})
 	}
