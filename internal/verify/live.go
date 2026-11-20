@@ -110,6 +110,25 @@ const NotConnected = "not connected to the installation in muster"
 // ErrNotFound is an object the installation does not have.
 var ErrNotFound = errors.New("not found")
 
+// NoServer is muster refusing a read because it registers no server of the
+// kubernetes family for the installation in the person's session: a refusal
+// of the read, never an object the installation lacks.
+type NoServer struct {
+	Server string
+}
+
+func (e *NoServer) Error() string {
+	return fmt.Sprintf("%s%q for this session", NoServerPrefix, e.Server)
+}
+
+// NoServerPrefix opens the message of a check NoServer left unread.
+const NoServerPrefix = "muster registers no server "
+
+// ReasonBrowseOnly is the message of a check NoServer left unread on an
+// installation the hub keeps to browsing (LiveOptions.BrowseOnly): muster
+// never registers its servers, so no read is missing.
+const ReasonBrowseOnly = "not read by design: the installation is browse-only (policy federation.browseOnly) and the hub registers none of its servers in muster"
+
 // TooLarge is the installation's kubernetes tool refusing to answer a read
 // whole: mcp-kubernetes caps a tool's answer and answers response_too_large
 // in place of a truncated object or log. A result of how much the check
@@ -382,6 +401,10 @@ type LiveOptions struct {
 	// (Check.Releases). The Konfiguration's source is kept either way
 	// (Check.Source).
 	Rollout bool
+	// BrowseOnly says the hub keeps the installation to browsing: a read
+	// muster refuses for want of its server is not checked by design
+	// (ReasonBrowseOnly).
+	BrowseOnly bool
 	// ReadTimeout and ReadBudget bound the reads through Cluster (ReadTimeout,
 	// ReadBudget); zero is the default.
 	ReadTimeout time.Duration
@@ -838,20 +861,27 @@ func checkRollUp(checks []Check) (Mark, string, string) {
 	return AsDefined, "", ""
 }
 
-// byDesign says every check not checked is so only because the manager does
-// not reach a private installation's host (ReasonPrivate), and one is.
+// byDesign says every check not checked is so only by design
+// (NotCheckedByDesign), and one is.
 func byDesign(checks []Check) bool {
 	found := false
 	for _, c := range checks {
 		if c.Mark != NotChecked {
 			continue
 		}
-		if !strings.HasPrefix(c.Message, ReasonPrivate) {
+		if !NotCheckedByDesign(c) {
 			return false
 		}
 		found = true
 	}
 	return found
+}
+
+// NotCheckedByDesign says whether c is not checked only because the manager
+// does not reach the installation by design: a private installation's host
+// (ReasonPrivate), a browse-only installation's objects (ReasonBrowseOnly).
+func NotCheckedByDesign(c Check) bool {
+	return c.Mark == NotChecked && (strings.HasPrefix(c.Message, ReasonPrivate) || c.Message == ReasonBrowseOnly)
 }
 
 // logCheck writes one line for a check of the installation's objects: the
@@ -917,10 +947,16 @@ func (x *executor) run(ctx context.Context, p render.Probe) (Check, []Difference
 	}
 	var forbidden *Forbidden
 	var auth *AuthRequired
+	var noServer *NoServer
 	switch {
 	case errors.As(err, &auth):
 		c.Mark, c.Message = NotChecked, NotConnected+": "+firstLine(auth.Message)
 		return c, nil, auth
+	case errors.As(err, &noServer):
+		c.Mark, c.Message = NotChecked, noServer.Error()
+		if x.opts.BrowseOnly {
+			c.Message = ReasonBrowseOnly
+		}
 	case errors.As(err, &forbidden):
 		c.Mark, c.Message = NotChecked, forbidden.Error()
 	case errors.Is(err, ErrNotFound):

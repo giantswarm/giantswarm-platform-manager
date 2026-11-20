@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"time"
@@ -54,10 +55,15 @@ type Action struct {
 // Spec is what was asked: by whom, on which installations, which capability,
 // with which inputs. Written once by commit.
 type Spec struct {
-	Actor         Actor          `json:"actor"`
-	Capability    string         `json:"capability"`
-	Installations []string       `json:"installations"`
-	Inputs        map[string]any `json:"inputs,omitempty"`
+	Actor      Actor  `json:"actor"`
+	Capability string `json:"capability"`
+	// CapabilityByInstallation names the definition that rendered an
+	// installation of the wave where it is not Capability: the hub on the
+	// agent platform whose shared values a cluster-mcp-servers wave draws
+	// with its targets, or the reverse.
+	CapabilityByInstallation map[string]string `json:"capabilityByInstallation,omitempty"`
+	Installations            []string          `json:"installations"`
+	Inputs                   map[string]any    `json:"inputs,omitempty"`
 	// InputsByInstallation are the inputs each installation was rendered
 	// from at commit — the typed inputs over the facts on record — so a
 	// verify that has no GitHub token to re-read the facts (the live
@@ -396,11 +402,19 @@ func (c *Client) List(ctx context.Context, f Filter) ([]Action, error) {
 	return out, nil
 }
 
+// matches compares f.Capability with the definition that rendered
+// f.Installation's stage, or with any definition of a when f names no
+// installation.
 func (f Filter) matches(a Action) bool {
-	if f.Capability != "" && a.Spec.Capability != f.Capability {
+	switch {
+	case f.Installation != "" && !a.Includes(f.Installation):
 		return false
+	case f.Capability == "":
+		return true
+	case f.Installation != "":
+		return a.CapabilityOf(f.Installation) == f.Capability
 	}
-	return f.Installation == "" || a.Includes(f.Installation)
+	return a.Spec.Capability == f.Capability || slices.Contains(slices.Collect(maps.Values(a.Spec.CapabilityByInstallation)), f.Capability)
 }
 
 func fromUnstructured(u *unstructured.Unstructured) (*Action, error) {
@@ -452,6 +466,14 @@ func Unstructured(a Action) *unstructured.Unstructured {
 // Includes says whether the action names installation.
 func (a Action) Includes(installation string) bool {
 	return slices.Contains(a.Spec.Installations, installation)
+}
+
+// CapabilityOf is the definition that rendered installation's stage.
+func (a Action) CapabilityOf(installation string) string {
+	if c, ok := a.Spec.CapabilityByInstallation[installation]; ok {
+		return c
+	}
+	return a.Spec.Capability
 }
 
 // KeptOnRecord are the entries of installation's audience lists the commit

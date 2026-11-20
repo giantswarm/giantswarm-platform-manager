@@ -12,12 +12,9 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
-	"encoding/pem"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -85,7 +82,6 @@ type fakeDex struct {
 	key    *rsa.PrivateKey
 	kid    string
 	issuer string
-	caFile string
 }
 
 func newFakeDex(t *testing.T) *fakeDex {
@@ -105,10 +101,6 @@ func newFakeDex(t *testing.T) *fakeDex {
 	d.Server = httptest.NewTLSServer(mux)
 	t.Cleanup(d.Close)
 	d.issuer = d.URL + "/dex"
-	d.caFile = filepath.Join(t.TempDir(), "ca.crt")
-	if err := os.WriteFile(d.caFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: d.Certificate().Raw}), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	return d
 }
 
@@ -870,6 +862,14 @@ func (m *fakeMuster) serve(installation string, inst *fakeInstallation) {
 	m.insts[installation] = inst
 }
 
+// unserve removes an installation from behind the family: muster no longer
+// registers its server.
+func (m *fakeMuster) unserve(installation string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.insts, installation)
+}
+
 func (m *fakeMuster) installation(name string) (*fakeInstallation, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -912,7 +912,7 @@ func (m *fakeMuster) kubernetes(op string) mustertest.Tool {
 		mc := strings.TrimSuffix(server, "-mcp-kubernetes")
 		inst, ok := m.installation(mc)
 		if !ok || mc == server {
-			return mcp.NewToolResultError(fmt.Sprintf("tool x_%s_%s is not available on server %q (available: %s)", kubernetesFamily, op, server, strings.Join(m.members(), ", ")))
+			return mcp.NewToolResultError(fmt.Sprintf("Tool execution failed: tool x_%s_%s is not available on server %q (available: %s)", kubernetesFamily, op, server, strings.Join(m.members(), ", ")))
 		}
 		if person == liveStranger {
 			return mcp.NewToolResultError(fmt.Sprintf(authRequiredText, server, server))

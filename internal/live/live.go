@@ -25,6 +25,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -56,13 +57,10 @@ type Config struct {
 	// (the JWKS client refuses anything else on every fetch), so a plain-http
 	// URL is refused here, at start-up, instead of on every token.
 	JWKSURL string
-	// AllowPrivateIPJWKS lets the issuer's discovery document or its key set
-	// be read from a private address (an in-cluster Dex): the SSRF guard's
-	// allowance, not the transport's.
-	AllowPrivateIPJWKS bool
-	// CAFile is a PEM bundle the issuer's certificate chains to; empty is
-	// the system trust.
-	CAFile string
+	// HTTPClient reads the discovery document and the key set; required.
+	// NewHTTPClient builds the one that guards every address but the
+	// issuer's and the JWKS URL's hosts.
+	HTTPClient *http.Client
 	// MusterURL is muster's own MCP endpoint as reached from the pod: where
 	// the loop-back session goes.
 	MusterURL string
@@ -124,10 +122,35 @@ func (c Config) Validate() error {
 	}
 	if c.JWKSURL != "" {
 		if u, err := url.Parse(c.JWKSURL); err != nil || u.Host == "" || u.Scheme != "https" {
-			return fmt.Errorf("live: JWKS URL must be an absolute https:// URL, got %q: the key set is read over TLS only — name an in-cluster identity provider by the Service name its certificate carries, with the private-IP allowance for the address and the CA file for its CA", c.JWKSURL)
+			return fmt.Errorf("live: JWKS URL must be an absolute https:// URL, got %q: the key set is read over TLS only — name an in-cluster identity provider by the Service name its certificate carries, with the CA file for its CA", c.JWKSURL)
 		}
 	}
 	return nil
+}
+
+// NewHTTPClient is the client that reads the discovery document and the key
+// set: the issuer's host and the JWKS URL's host may resolve to an RFC 1918
+// or RFC 4193 address (an in-cluster Dex); every other host, and loopback or
+// link-local for these, stays refused by the SSRF guard. caFile is a PEM
+// bundle the issuer's certificate chains to; empty is the system trust.
+func NewHTTPClient(issuer, jwksURL, caFile string) (*http.Client, error) {
+	pool, err := rootCAs(caFile)
+	if err != nil {
+		return nil, fmt.Errorf("live: %w", err)
+	}
+	return oidc.NewHostScopedPrivateIPHTTPClient(privateIPHosts(issuer, jwksURL), oidc.DefaultHTTPTimeout, pool), nil
+}
+
+// privateIPHosts are the hosts the discovery document and the key set may be
+// read from at a private address: the issuer's and the JWKS URL's.
+func privateIPHosts(issuer, jwksURL string) []string {
+	var hosts []string
+	for _, raw := range []string{issuer, jwksURL} {
+		if u, err := url.Parse(raw); err == nil && u.Hostname() != "" && !slices.Contains(hosts, u.Hostname()) {
+			hosts = append(hosts, u.Hostname())
+		}
+	}
+	return hosts
 }
 
 // audiences is the configured list, normalized.
@@ -186,24 +209,19 @@ func New(cfg Config, log *slog.Logger) (*Client, error) {
 	if log == nil {
 		log = slog.Default()
 	}
-	pool, err := rootCAs(cfg.CAFile)
-	if err != nil {
-		return nil, fmt.Errorf("live: %w", err)
+	if cfg.HTTPClient == nil {
+		return nil, errors.New("live: an HTTP client for the discovery document and the key set is required")
 	}
-	var hc *http.Client
-	if cfg.AllowPrivateIPJWKS {
-		hc = oidc.NewPrivateIPAllowedHTTPClient(oidc.DefaultHTTPTimeout, pool)
-	} else {
-		hc = oidc.NewSSRFSafeHTTPClient(oidc.DefaultHTTPTimeout, pool)
-	}
-	c := &Client{cfg: cfg, log: log, http: hc, jwksURL: cfg.JWKSURL, sessions: map[string]*session{},
-		jwks: oidc.NewJWKSClientWithOptions(oidc.JWKSClientOptions{HTTPClient: hc, AllowPrivateIP: cfg.AllowPrivateIPJWKS, RootCAs: pool, Logger: log})}
+	hosts := privateIPHosts(cfg.Issuer, cfg.JWKSURL)
+	c := &Client{cfg: cfg, log: log, http: cfg.HTTPClient, jwksURL: cfg.JWKSURL, sessions: map[string]*session{},
+		jwks: oidc.NewJWKSClientWithOptions(oidc.JWKSClientOptions{HTTPClient: cfg.HTTPClient, AllowPrivateIPHosts: hosts, Logger: log})}
 	if cfg.KubernetesInstanceArg != "" {
+		var err error
 		if c.member, err = memberTemplate(cfg.KubernetesMember); err != nil {
 			return nil, err
 		}
 	}
-	log.Info("live reads enabled", "issuer", cfg.Issuer, "audiences", cfg.Audiences, "jwks", cfg.JWKSURL, "muster", cfg.MusterURL, "kubernetesFamily", cfg.KubernetesFamily, "instanceArg", cfg.KubernetesInstanceArg, "member", cfg.KubernetesMember)
+	log.Info("live reads enabled", "issuer", cfg.Issuer, "audiences", cfg.Audiences, "jwks", cfg.JWKSURL, "privateIPHosts", hosts, "muster", cfg.MusterURL, "kubernetesFamily", cfg.KubernetesFamily, "instanceArg", cfg.KubernetesInstanceArg, "member", cfg.KubernetesMember)
 	return c, nil
 }
 
@@ -534,6 +552,10 @@ var (
 	// could not find the requested resource" are refusals of the read, not
 	// an object that does not exist.
 	objectNotFoundRe = regexp.MustCompile(`"[^"]+" not found`)
+	// noServerRe is muster's refusal of a family's tool for a member it does
+	// not register for the session (`tool x_kubernetes_get is not available
+	// on server "rowan-mcp-kubernetes" (available: …)`).
+	noServerRe = regexp.MustCompile(`tool \S+ is not available on server "([^"]+)"`)
 )
 
 // classify maps a tool's refusal to the verify's errors: muster's
@@ -546,6 +568,9 @@ var (
 func classify(text string) error {
 	if tl := tooLarge(text); tl != nil {
 		return tl
+	}
+	if m := noServerRe.FindStringSubmatch(text); m != nil {
+		return &verify.NoServer{Server: m[1]}
 	}
 	switch {
 	case toolNotFoundText(text):

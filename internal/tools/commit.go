@@ -861,7 +861,7 @@ func prTitle(kind, installation, capability, action, detail string) string {
 // loses of the encrypted files on record it writes over — never a value.
 func prBody(a *actions.Action, p plan.Installation, prs []plan.PullRequest) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Action `%s`: %s %s on %s, opened by %s as the person.\n\n", a.Name, a.Spec.Kind, a.Spec.Capability, p.Name, ToolPrefix)
+	fmt.Fprintf(&b, "Action `%s`: %s %s on %s, opened by %s as the person.\n\n", a.Name, a.Spec.Kind, a.CapabilityOf(p.Name), p.Name, ToolPrefix)
 	if a.Spec.Reason != "" {
 		fmt.Fprintf(&b, "Why: %s\n\n", a.Spec.Reason)
 	}
