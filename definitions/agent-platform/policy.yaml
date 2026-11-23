@@ -137,6 +137,8 @@ federation:
           glippy: ""
           graveler: ""
           grouse: ""
+          leopard: ""
+          tamarin: ""
     # The name a target's login page shows for an organisation's hub connector; without one,
     # the hub's name. The parenthesis tells it apart from the target's own GitHub and Entra
     # connectors.
