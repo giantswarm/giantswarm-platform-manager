@@ -121,6 +121,7 @@ federation:
   # must also appear in its browser login list.
   identityCheckConnectors:
     graveler: [giantswarm-ad, giantswarm-gazelle-oidc]
+    glean: [giantswarm-ad, giantswarm-gazelle-oidc]
   connector:
     first: "{{ .Customer }}-simple-oidc"
     further: "{{ .Customer }}-{{ .Name }}-oidc"
@@ -131,6 +132,7 @@ federation:
         default: giantswarm-simple-oidc
         targets:
           graveler: ""
+          glean: ""
   teleport:
     clusterName: teleport.giantswarm.io
     proxyAddr: teleport.giantswarm.io:443

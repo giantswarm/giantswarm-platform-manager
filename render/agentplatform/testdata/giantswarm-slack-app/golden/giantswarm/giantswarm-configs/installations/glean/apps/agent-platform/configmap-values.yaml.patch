@@ -105,6 +105,9 @@ muster:
               - code
             token_endpoint_auth_method: none
         dex:
+          identityCheckConnectors:
+            - giantswarm-ad
+            - giantswarm-gazelle-oidc
           allowPrivateIPOIDC: true
         allowPrivateIPClientMetadataHosts:
           - agentgateway.glean.example.io
