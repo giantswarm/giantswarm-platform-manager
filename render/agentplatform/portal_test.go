@@ -691,3 +691,29 @@ func TestDexClientsReferenceSecretsOnRecord(t *testing.T) {
 		}
 	}
 }
+
+// Where a hub's connector reaches its Dex through the tunnel, the platform's
+// Dex patch mounts the tunnel's trust bundle into Dex beside the connector;
+// without one it mounts nothing.
+func TestDexPatchMountsTheTunnelBundle(t *testing.T) {
+	hub := render.FederatedConnector{ID: "giantswarm-simple-oidc", Owner: render.OwnerGiantswarm, Label: "Giant Swarm (central login)",
+		Hub: render.HubConnector{Hub: "heron", Customer: portalCaseOrg, BaseDomain: "heron.example.io", First: true, Tunnel: true}}
+	in := &Input{Installation: Installation{Name: portalCaseOwn, BaseDomain: portalCaseOwn + ".example.io", Customer: portalCaseOrg}, HubConnectors: []render.FederatedConnector{hub}}
+	dex, err := yaml.Marshal(in.dexPatch())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"issuer: https://dex-heron.giantswarm.svc.cluster.local:8443", "issuerAlias: https://dex.heron.example.io",
+		"\ndex:\n", "secretName: tunnelport-spiffe-bundle", "mountPath: /etc/dex-tunnelport"} {
+		if !strings.Contains(string(dex), want) {
+			t.Errorf("the dex patch lacks %q:\n%s", want, dex)
+		}
+	}
+	in.HubConnectors[0].Hub.Tunnel = false
+	if dex, err = yaml.Marshal(in.dexPatch()); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(dex), "\ndex:\n") || strings.Contains(string(dex), "tunnelport") {
+		t.Errorf("a direct connector mounts nothing:\n%s", dex)
+	}
+}

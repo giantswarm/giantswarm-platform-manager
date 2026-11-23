@@ -57,3 +57,45 @@ func TestClientsByID(t *testing.T) {
 		t.Errorf("the clients:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+// A target that reaches its hub's Dex through the hub's tunnel fetches
+// discovery, keys, tokens and user info from the tunnel's Service, keeps the
+// hub's public Dex as the tokens' issuer and verifies the tunnel against the
+// mounted SPIFFE bundle; Dex mounts the bundle's key alone, once for every
+// tunnelled hub, and nothing where no connector is tunnelled.
+func TestFederationConnectorThroughTheHubTunnel(t *testing.T) {
+	direct := FederatedConnector{ID: "giantswarm-simple-oidc", Owner: OwnerGiantswarm, Label: "Giant Swarm (central login)",
+		Hub: HubConnector{Hub: "heron", Customer: "giantswarm", BaseDomain: "heron.example.io", First: true}}
+	tunnelled := direct
+	tunnelled.Hub.Tunnel = true
+
+	want := "connectorType: oidc\nconnectorName: Giant Swarm (central login)\nconfig:\n" +
+		"  issuer: https://dex-heron.giantswarm.svc.cluster.local:8443\n" +
+		"  issuerAlias: https://dex.heron.example.io\n" +
+		"  providerDiscoveryOverrides:\n" +
+		"    tokenURL: https://dex-heron.giantswarm.svc.cluster.local:8443/token\n" +
+		"    jwksURL: https://dex-heron.giantswarm.svc.cluster.local:8443/keys\n" +
+		"    userInfoURL: https://dex-heron.giantswarm.svc.cluster.local:8443/userinfo\n" +
+		"  rootCAs:\n    - /etc/dex-tunnelport/svid_bundle.pem\n" +
+		"  insecureEnableGroups: true\n  clientID: federation-plover\n" +
+		"  redirectURI: https://dex.plover.example.io/callback\n  scopes:\n    - openid\n    - profile\n    - email\n    - groups\n    - offline_access\n" +
+		"clientSecretRef:\n  name: dex-connector-giantswarm-simple-oidc\n  key: client-secret\n"
+	if got := string(MustYAML(tunnelled.Entry("plover", "plover.example.io"))); got != want {
+		t.Errorf("the tunnelled entry:\n%s\nwant:\n%s", got, want)
+	}
+	if got := string(MustYAML(direct.Entry("plover", "plover.example.io"))); !strings.Contains(got, "  issuer: https://dex.heron.example.io\n") ||
+		strings.Contains(got, "issuerAlias") || strings.Contains(got, "rootCAs") || strings.Contains(got, "providerDiscoveryOverrides") {
+		t.Errorf("the direct entry trusts the hub's public Dex alone:\n%s", got)
+	}
+
+	wantMounts := "volumes:\n  - name: tunnelport-spiffe-bundle\n    secret:\n      secretName: tunnelport-spiffe-bundle\n      items:\n        - key: svid_bundle.pem\n          path: svid_bundle.pem\n" +
+		"volumeMounts:\n  - name: tunnelport-spiffe-bundle\n    mountPath: /etc/dex-tunnelport\n    readOnly: true\n"
+	other := tunnelled
+	other.ID, other.Hub.Hub = "giantswarm-warren-oidc", "warren"
+	if got := string(MustYAML(TunnelDexValues([]FederatedConnector{direct, tunnelled, other}))); got != wantMounts {
+		t.Errorf("the mounts:\n%s\nwant:\n%s", got, wantMounts)
+	}
+	if got := TunnelDexValues([]FederatedConnector{direct}); got != nil {
+		t.Errorf("no tunnelled connector mounts nothing: %v", got)
+	}
+}

@@ -111,7 +111,9 @@
               "x-source": "registry",
               "x-feature": "identity",
               "x-renders": [
-                "dex-configmap:oidc.<owner>.connectors.<connector> (<customer>-simple-oidc, <customer>-<hub>-oidc)"
+                "dex-configmap:oidc.<owner>.connectors.<connector> (<customer>-simple-oidc, <customer>-<hub>-oidc)",
+                "dex-configmap:dex.volumes",
+                "dex-configmap:dex.volumeMounts"
               ],
               "description": "The hubs that broker into this installation, each with the facts the token-exchange connector its Dex registers for the hub is rendered from: the hub's name, its owning organisation, its base domain — the hub's Dex, https://dex.<baseDomain>, is the connector's issuer — and whether it is the first of its organisation's hubs into this installation. The connector is an oidc connector trusting that issuer, under oidc.customer.connectors next to the installation's own login connectors, which the plan keeps; its name is the agent-platform policy's federation.connector.first (<customer>-simple-oidc) for the first hub and federation.connector.further (<customer>-<hub>-oidc) for every further one — the name the hub renders into its broker target and identity provider for this installation, so the two sides agree. A further hub of an organisation under that policy's federation.connector.furtherByHand renders none: the installation keeps its connector by hand. Each connector presents the login client the hub's Dex registers for this installation, so a person signs in through it as well as exchanges a token.",
               "items": {
@@ -122,7 +124,8 @@
                   "hub": {"type": "string", "minLength": 1, "description": "The hub's name."},
                   "customer": {"type": "string", "minLength": 1, "description": "The hub's owning organisation as the registry names it: the connector's prefix, and what the policy's furtherByHand is matched against."},
                   "baseDomain": {"type": "string", "minLength": 1, "description": "The hub's base domain from its record: its Dex, https://dex.<baseDomain>, is the connector's issuer."},
-                  "first": {"type": "boolean", "default": false, "description": "The hub is the first of its organisation's hubs that broker into this installation, so its connector carries the organisation's plain name; a further hub's carries the hub's own."}
+                  "first": {"type": "boolean", "default": false, "description": "The hub is the first of its organisation's hubs that broker into this installation, so its connector carries the organisation's plain name; a further hub's carries the hub's own."},
+                  "tunnel": {"type": "boolean", "default": false, "description": "This installation reaches the hub's Dex through a tunnel alone: its management-clusters repository runs the tunnelport RemoteApp dex-<hub> in the giantswarm namespace (management-clusters/<name>/extras/tunnelport/remoteapps.yaml). The connector then fetches discovery, keys, tokens and user info from https://dex-<hub>.giantswarm.svc.cluster.local:8443 (issuer and providerDiscoveryOverrides), keeps the hub's public Dex as the tokens' issuer (issuerAlias) and its authorization endpoint for the browser, and verifies the tunnel's certificate against the SPIFFE bundle svid_bundle.pem of the Secret tunnelport-spiffe-bundle, which Dex mounts (dex.volumes, dex.volumeMounts) and reads when it starts."}
                 }
               }
             },

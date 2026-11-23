@@ -1,5 +1,7 @@
 package render
 
+import "slices"
+
 // The federation login: a person signs in to a target's Dex through the
 // connector the target registers for a hub, an OIDC authorization-code login
 // at the hub's Dex. The target's Dex is the hub's client: the hub's Dex
@@ -53,6 +55,7 @@ func ConnectorSecretFile(connector string) string {
 // Keys and kinds the Dex values and Secrets share.
 const (
 	keyName      = "name"
+	keyKey       = "key"
 	keySecretRef = "secretRef"
 	kindSecret   = "Secret"
 )
@@ -64,21 +67,93 @@ const connectorClientSecretKey = "client-secret"
 // values: dex-app sets a variable of Dex's environment from the key and
 // writes the connector's clientSecret as that variable.
 func ConnectorSecretRef(connector string) Map {
-	return Map{{Key: keyName, Value: ConnectorSecretName(connector)}, {Key: "key", Value: connectorClientSecretKey}}
+	return Map{{Key: keyName, Value: ConnectorSecretName(connector)}, {Key: keyKey, Value: connectorClientSecretKey}}
 }
 
 // FederationConnectorConfig is the config of the connector the target's Dex
-// at targetBaseDomain registers for the hub at hubBaseDomain: an oidc
-// connector trusting the hub's Dex as the issuer and taking the groups its
+// at targetBaseDomain registers for hub: an oidc connector trusting the hub's
+// Dex, https://dex.<hub base domain>, as the issuer and taking the groups its
 // tokens carry, the hub's login client for target, and the target's callback.
 // The client's secret is the entry's clientSecretRef.
-func FederationConnectorConfig(hubBaseDomain, target, targetBaseDomain string) Map {
+//
+// A target that reaches the hub's Dex through its tunnel (HubConnector.Tunnel)
+// fetches discovery, keys, tokens and user info from the tunnel's Service and
+// trusts its certificate by the mounted SPIFFE bundle (TunnelDexValues); the
+// tokens' issuer stays the hub's public one (issuerAlias), and the person's
+// browser still signs in at the hub's public authorization endpoint, which
+// discovery names.
+func FederationConnectorConfig(hub HubConnector, target, targetBaseDomain string) Map {
+	issuer := "https://dex." + hub.BaseDomain
+	config := Map{{Key: "issuer", Value: issuer}}
+	if hub.Tunnel {
+		tunnel := HubTunnelURL(hub.Hub)
+		config = Map{
+			{Key: "issuer", Value: tunnel},
+			{Key: "issuerAlias", Value: issuer},
+			{Key: "providerDiscoveryOverrides", Value: Map{
+				{Key: "tokenURL", Value: tunnel + "/token"},
+				{Key: "jwksURL", Value: tunnel + "/keys"},
+				{Key: "userInfoURL", Value: tunnel + "/userinfo"},
+			}},
+			{Key: "rootCAs", Value: []string{tunnelBundleDir + "/" + tunnelBundleKey}},
+		}
+	}
+	return append(config,
+		Entry{Key: "insecureEnableGroups", Value: true},
+		Entry{Key: "clientID", Value: FederationClient(target)},
+		Entry{Key: "redirectURI", Value: FederationRedirectURI(targetBaseDomain)},
+		Entry{Key: "scopes", Value: federationScopes},
+	)
+}
+
+// HubTunnelApp is the tunnelport RemoteApp in the target's DexNamespace
+// through which the target reaches hub's Dex, and the Service it renders:
+// ghostunnel terminating TLS with the target's SPIFFE SVID in front of a
+// Teleport application tunnel to the hub's Dex.
+func HubTunnelApp(hub string) string { return "dex-" + hub }
+
+// HubTunnelURL is the base URL of hub's Dex through the target's tunnel.
+func HubTunnelURL(hub string) string {
+	return "https://" + HubTunnelApp(hub) + "." + DexNamespace + ".svc.cluster.local:" + hubTunnelPort
+}
+
+// hubTunnelPort is the TLS port of a tunnel's Service.
+const hubTunnelPort = "8443"
+
+// The SPIFFE trust bundle a tunnel's certificate verifies against: tbot keeps
+// it in a Secret in the tunnel's namespace, next to the SVID's private key,
+// so Dex mounts the bundle's key alone. Dex reads rootCAs when it opens the
+// connector, so a rotated bundle takes effect at Dex's next start.
+const (
+	tunnelBundleSecret = "tunnelport-spiffe-bundle" // #nosec G101 -- a Secret's name, not a value
+	tunnelBundleKey    = "svid_bundle.pem"
+	tunnelBundleVolume = "tunnelport-spiffe-bundle"
+	tunnelBundleDir    = "/etc/dex-tunnelport"
+)
+
+// TunnelDexValues is the dex-app values' dex mapping that mounts the tunnel's
+// trust bundle into Dex where one of connectors reaches its hub through a
+// tunnel: the dex subchart's volumes and volumeMounts, which the chart's
+// Deployment renders after its own. Nil where none does.
+func TunnelDexValues(connectors []FederatedConnector) Map {
+	if !slices.ContainsFunc(connectors, func(c FederatedConnector) bool { return c.Hub.Tunnel }) {
+		return nil
+	}
+	volume := Map{
+		{Key: keyName, Value: tunnelBundleVolume},
+		{Key: "secret", Value: Map{
+			{Key: "secretName", Value: tunnelBundleSecret},
+			{Key: "items", Value: []Map{{{Key: keyKey, Value: tunnelBundleKey}, {Key: "path", Value: tunnelBundleKey}}}},
+		}},
+	}
+	mount := Map{
+		{Key: keyName, Value: tunnelBundleVolume},
+		{Key: "mountPath", Value: tunnelBundleDir},
+		{Key: "readOnly", Value: true},
+	}
 	return Map{
-		{Key: "issuer", Value: "https://dex." + hubBaseDomain},
-		{Key: "insecureEnableGroups", Value: true},
-		{Key: "clientID", Value: FederationClient(target)},
-		{Key: "redirectURI", Value: FederationRedirectURI(targetBaseDomain)},
-		{Key: "scopes", Value: federationScopes},
+		{Key: "volumes", Value: []Map{volume}},
+		{Key: "volumeMounts", Value: []Map{mount}},
 	}
 }
 

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
@@ -461,4 +463,63 @@ func TestHubConnectorFacts(t *testing.T) {
 	if _, err := reg.hubConnector(t.Context(), nil, otherHub, nil, hubs); err == nil || !strings.Contains(err.Error(), "no configs repository") {
 		t.Errorf("a hub not inspected without a configs repository on record: %v", err)
 	}
+}
+
+// A target reaches a hub's Dex through a tunnel where its RemoteApps file
+// runs the RemoteApp dex-<hub> in the Dex namespace: a file like leopard's
+// names gazelle; a RemoteApp of another app, in another namespace, of
+// another kind or without a hub after the prefix names none, and a file
+// that does not parse is an error.
+func TestDexTunnels(t *testing.T) {
+	const leopard = `# RemoteApp CR for the gazelle Dex tunnel.
+apiVersion: access.giantswarm.io/v1alpha1
+kind: RemoteApp
+metadata:
+  name: dex-gazelle
+  namespace: giantswarm
+spec:
+  appName: dex-gazelle
+  port: 8080
+  tokenName: dex-gazelle-bot-token-leopard
+---
+apiVersion: access.giantswarm.io/v1alpha1
+kind: RemoteApp
+metadata:
+  name: kagent-gazelle
+  namespace: giantswarm
+---
+apiVersion: access.giantswarm.io/v1alpha1
+kind: RemoteApp
+metadata:
+  name: dex-glean
+  namespace: agent-platform
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dex-grouse
+  namespace: giantswarm
+---
+apiVersion: access.giantswarm.io/v1alpha1
+kind: RemoteApp
+metadata:
+  name: dex-
+  namespace: giantswarm
+---
+apiVersion: access.giantswarm.io/v1alpha1
+kind: RemoteApp
+metadata:
+  name: dex-graveler
+  namespace: giantswarm
+`
+	got, err := dexTunnels(leopard)
+	require.NoError(t, err)
+	require.Equal(t, []string{"gazelle", "graveler"}, got)
+
+	none, err := dexTunnels("")
+	require.NoError(t, err)
+	require.Empty(t, none)
+
+	_, err = dexTunnels("kind: [\n")
+	require.Error(t, err)
 }

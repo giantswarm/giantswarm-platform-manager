@@ -22,7 +22,7 @@ import (
 var update = flag.Bool("update", false, "rewrite the goldens from the render")
 
 // shapes are the testdata directories, each an input.yaml and its golden tree.
-var shapes = []string{"fleet", "private-dex-ca", "single-server", "hub-target"}
+var shapes = []string{"fleet", "private-dex-ca", "single-server", "hub-target", "tunnelled-hub"}
 
 func loadInput(t *testing.T, shape string) map[string]any {
 	t.Helper()

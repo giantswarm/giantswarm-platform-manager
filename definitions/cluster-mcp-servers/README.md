@@ -36,6 +36,18 @@ the connector's `config` and its secret referenced by `clientSecretRef` from the
 keys stay their owners'; a list of them on record joins the map under each entry's id. The clients and
 connectors are maps keyed by id, which needs dex-app 3.5.0.
 
+A hub whose Dex the installation reaches through a tunnel alone (`installation.federation.connectors[*].tunnel`:
+the installation's management-clusters repository runs the tunnelport RemoteApp `dex-<hub>` in the `giantswarm`
+namespace, `management-clusters/<name>/extras/tunnelport/remoteapps.yaml`) gets the same connector through
+the tunnel: `issuer` and `providerDiscoveryOverrides` (token, keys, user info) on
+`https://dex-<hub>.giantswarm.svc.cluster.local:8443`, `issuerAlias` the hub's public Dex, the tokens' issuer,
+whose authorization endpoint the browser still signs in at, and `rootCAs` the SPIFFE bundle `svid_bundle.pem` of
+the Secret `tunnelport-spiffe-bundle`, which the same patch mounts into Dex (`dex.volumes`, `dex.volumeMounts`,
+that one key alone: the Secret also holds the tunnel's private key). Dex reads the bundle when it opens the
+connector, so after a Teleport CA rotation Dex verifies the tunnel against the new bundle from its next start.
+Encrypted Dex values that carry `dex.volumes` or `dex.volumeMounts` as a list hold the commit, as they do for
+the clients and connectors.
+
 Per hub that exchanges tokens into the installation (`installation.federation.hubs`), its token-exchange
 client in that patch — `muster-token-exchange-<name>` for the registry's hub, `muster-token-exchange-<name>-<hub>`
 for every other, under `oidc.extraStaticClients` with its secret in a referenced Secret, and as a trusted

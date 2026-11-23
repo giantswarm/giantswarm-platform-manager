@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"slices"
 	"sort"
@@ -476,6 +477,10 @@ func (r *Registry) derive(ctx context.Context, c *gh.Client, reports []Report, p
 		// hubs' order; connErrs what could not be read of each.
 		connectors []render.HubConnector
 		connErrs   []error
+		// tunnels are the hubs whose Dex the installation reaches through
+		// a tunnel (hubTunnels); tunErr what could not be read of them.
+		tunnels []string
+		tunErr  error
 		// hosted is the portal hosted on the installation; platform the
 		// agent-platform marker of each of its entries.
 		hosted   *HostedPortal
@@ -527,6 +532,10 @@ func (r *Registry) derive(ctx context.Context, c *gh.Client, reports []Report, p
 			wg.Go(func() {
 				res.connectors[j], res.connErrs[j] = r.hubConnector(ctx, c, hub, byName[hub], hubs)
 			})
+		}
+		if len(hubs) > 0 {
+			inst := rep.Installation
+			wg.Go(func() { res.tunnels, res.tunErr = hubTunnels(ctx, c, inst) })
 		}
 		if len(targets) > 0 {
 			wg.Go(func() { res.broker, res.brkErr = brokerClientID(ctx, c, *rep) })
@@ -584,7 +593,12 @@ func (r *Registry) derive(ctx context.Context, c *gh.Client, reports []Report, p
 				rep.fail(fmt.Sprintf("federation hub %s: %v", hub, res.connErrs[j]))
 				continue
 			}
-			rep.Federation.Connectors = append(rep.Federation.Connectors, res.connectors[j])
+			connector := res.connectors[j]
+			connector.Tunnel = slices.Contains(res.tunnels, hub)
+			rep.Federation.Connectors = append(rep.Federation.Connectors, connector)
+		}
+		if res.tunErr != nil {
+			rep.fail(fmt.Sprintf("the tunnels to the hubs' Dex: %v", res.tunErr))
 		}
 		if len(res.targets) > 0 {
 			if res.brkErr != nil {
@@ -850,6 +864,71 @@ func targetServers(ctx context.Context, c *gh.Client, inst Installation) ([]stri
 		}
 	}
 	return servers, nil
+}
+
+// HubTunnelsPath is the file of an installation's management-clusters
+// repository that declares its tunnelport RemoteApps.
+func HubTunnelsPath(name string) string {
+	return "management-clusters/" + name + "/extras/tunnelport/remoteapps.yaml"
+}
+
+// hubTunnels are the hubs whose Dex inst reaches through a tunnel: every hub
+// its management-clusters repository runs a RemoteApp HubTunnelApp(hub) for
+// in the Dex namespace (dexTunnels). None without the file or without a
+// management-clusters repository on record.
+func hubTunnels(ctx context.Context, c *gh.Client, inst Installation) ([]string, error) {
+	if inst.Repositories.ManagementClusters == "" {
+		return nil, nil
+	}
+	owner, repo, err := gh.SplitRepo(inst.Repositories.ManagementClusters)
+	if err != nil {
+		return nil, err
+	}
+	path := HubTunnelsPath(inst.Name)
+	data, err := gh.ReadFile(ctx, c, owner, repo, path)
+	if errors.Is(err, gh.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	hubs, err := dexTunnels(data)
+	if err != nil {
+		return nil, fmt.Errorf("%s in %s: %w", path, inst.Repositories.ManagementClusters, err)
+	}
+	return hubs, nil
+}
+
+// dexTunnels are the hubs a RemoteApps file tunnels Dex to: the name of every
+// access.giantswarm.io RemoteApp in the Dex namespace past render.HubTunnelApp's
+// prefix, in the file's order.
+func dexTunnels(data string) ([]string, error) {
+	prefix := render.HubTunnelApp("")
+	var hubs []string
+	dec := yaml.NewDecoder(strings.NewReader(data))
+	for {
+		var doc struct {
+			APIVersion string `yaml:"apiVersion"`
+			Kind       string `yaml:"kind"`
+			Metadata   struct {
+				Name      string `yaml:"name"`
+				Namespace string `yaml:"namespace"`
+			} `yaml:"metadata"`
+		}
+		err := dec.Decode(&doc)
+		if errors.Is(err, io.EOF) {
+			return hubs, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		if doc.Kind != "RemoteApp" || !strings.HasPrefix(doc.APIVersion, "access.giantswarm.io/") || doc.Metadata.Namespace != render.DexNamespace {
+			continue
+		}
+		if hub, ok := strings.CutPrefix(doc.Metadata.Name, prefix); ok && hub != "" {
+			hubs = append(hubs, hub)
+		}
+	}
 }
 
 // proxied says whether a portal that hub brokers for proxies name's agent

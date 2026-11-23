@@ -255,6 +255,9 @@ func (in *Input) render() (*render.Result, error) {
 	}
 	oidc = append(oidc, render.ConnectorsByOwner(connectors, name, in.Installation.BaseDomain)...)
 	dex := render.Map{{Key: "oidc", Value: oidc}}
+	if mounts := render.TunnelDexValues(connectors); mounts != nil {
+		dex = append(dex, render.Entry{Key: "dex", Value: mounts})
+	}
 	r.Add(configs, "installations/"+name+"/apps/dex-app/configmap-values.yaml.patch", render.File{Content: append([]byte(fileHeader), render.MustYAML(dex)...)})
 	r.Probes = in.probes(connectors)
 	r.WithoutPairs = func(names []string) (*render.Result, error) {
