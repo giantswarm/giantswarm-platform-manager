@@ -12,7 +12,7 @@ input:
     agentPlatform: false
     federation:
       connectors:
-        - {hub: gopher, customer: giantswarm, baseDomain: gopher.example.io, first: true, tunnel: true}
+        - {hub: gopher, customer: giantswarm, baseDomain: gopher.example.io, first: true, tunnel: {service: dex-gopher, namespace: giantswarm, bundleSecret: tunnelport-spiffe-bundle}}
         - {hub: harrier, customer: acme, baseDomain: harrier.acme.example.test, first: true}
   servers:
     mcpKubernetes: {enabled: true}

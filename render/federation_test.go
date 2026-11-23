@@ -61,13 +61,15 @@ func TestClientsByID(t *testing.T) {
 // A target that reaches its hub's Dex through the hub's tunnel fetches
 // discovery, keys, tokens and user info from the tunnel's Service, keeps the
 // hub's public Dex as the tokens' issuer and verifies the tunnel against the
-// mounted SPIFFE bundle; Dex mounts the bundle's key alone, once for every
-// tunnelled hub, and nothing where no connector is tunnelled.
+// mounted SPIFFE bundle; Dex mounts the bundle's key alone, once per bundle
+// Secret whatever number of hubs share it, and nothing where no connector is
+// tunnelled.
 func TestFederationConnectorThroughTheHubTunnel(t *testing.T) {
+	const bundle = "tunnelport-spiffe-bundle" // #nosec G101 -- a Secret's name, not a value
 	direct := FederatedConnector{ID: "giantswarm-simple-oidc", Owner: OwnerGiantswarm, Label: "Giant Swarm (central login)",
-		Hub: HubConnector{Hub: "heron", Customer: "giantswarm", BaseDomain: "heron.example.io", First: true}}
+		Hub: HubConnector{Hub: "heron", Customer: OwnerGiantswarm, BaseDomain: "heron.example.io", First: true}}
 	tunnelled := direct
-	tunnelled.Hub.Tunnel = true
+	tunnelled.Hub.Tunnel = &HubTunnel{Service: "dex-heron", Namespace: DexNamespace, BundleSecret: bundle}
 
 	want := "connectorType: oidc\nconnectorName: Giant Swarm (central login)\nconfig:\n" +
 		"  issuer: https://dex-heron.giantswarm.svc.cluster.local:8443\n" +
@@ -76,7 +78,7 @@ func TestFederationConnectorThroughTheHubTunnel(t *testing.T) {
 		"    tokenURL: https://dex-heron.giantswarm.svc.cluster.local:8443/token\n" +
 		"    jwksURL: https://dex-heron.giantswarm.svc.cluster.local:8443/keys\n" +
 		"    userInfoURL: https://dex-heron.giantswarm.svc.cluster.local:8443/userinfo\n" +
-		"  rootCAs:\n    - /etc/dex-tunnelport/svid_bundle.pem\n" +
+		"  rootCAs:\n    - /etc/dex-tunnelport/tunnelport-spiffe-bundle/svid_bundle.pem\n" +
 		"  insecureEnableGroups: true\n  clientID: federation-plover\n" +
 		"  redirectURI: https://dex.plover.example.io/callback\n  scopes:\n    - openid\n    - profile\n    - email\n    - groups\n    - offline_access\n" +
 		"clientSecretRef:\n  name: dex-connector-giantswarm-simple-oidc\n  key: client-secret\n"
@@ -89,9 +91,10 @@ func TestFederationConnectorThroughTheHubTunnel(t *testing.T) {
 	}
 
 	wantMounts := "volumes:\n  - name: tunnelport-spiffe-bundle\n    secret:\n      secretName: tunnelport-spiffe-bundle\n      items:\n        - key: svid_bundle.pem\n          path: svid_bundle.pem\n" +
-		"volumeMounts:\n  - name: tunnelport-spiffe-bundle\n    mountPath: /etc/dex-tunnelport\n    readOnly: true\n"
+		"volumeMounts:\n  - name: tunnelport-spiffe-bundle\n    mountPath: /etc/dex-tunnelport/tunnelport-spiffe-bundle\n    readOnly: true\n"
 	other := tunnelled
 	other.ID, other.Hub.Hub = "giantswarm-warren-oidc", "warren"
+	other.Hub.Tunnel = &HubTunnel{Service: "dex-warren", Namespace: DexNamespace, BundleSecret: bundle}
 	if got := string(MustYAML(TunnelDexValues([]FederatedConnector{direct, tunnelled, other}))); got != wantMounts {
 		t.Errorf("the mounts:\n%s\nwant:\n%s", got, wantMounts)
 	}

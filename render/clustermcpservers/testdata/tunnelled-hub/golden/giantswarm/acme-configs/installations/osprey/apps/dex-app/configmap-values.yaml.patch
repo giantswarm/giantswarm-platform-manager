@@ -27,7 +27,7 @@ oidc:
             jwksURL: https://dex-gopher.giantswarm.svc.cluster.local:8443/keys
             userInfoURL: https://dex-gopher.giantswarm.svc.cluster.local:8443/userinfo
           rootCAs:
-            - /etc/dex-tunnelport/svid_bundle.pem
+            - /etc/dex-tunnelport/tunnelport-spiffe-bundle/svid_bundle.pem
           insecureEnableGroups: true
           clientID: federation-osprey
           redirectURI: https://dex.osprey.acme.example.test/callback
@@ -69,5 +69,5 @@ dex:
             path: svid_bundle.pem
   volumeMounts:
     - name: tunnelport-spiffe-bundle
-      mountPath: /etc/dex-tunnelport
+      mountPath: /etc/dex-tunnelport/tunnelport-spiffe-bundle
       readOnly: true

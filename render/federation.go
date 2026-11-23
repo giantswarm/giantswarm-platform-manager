@@ -76,17 +76,17 @@ func ConnectorSecretRef(connector string) Map {
 // tokens carry, the hub's login client for target, and the target's callback.
 // The client's secret is the entry's clientSecretRef.
 //
-// A target that reaches the hub's Dex through its tunnel (HubConnector.Tunnel)
+// A target that reaches the hub's Dex through a tunnel (HubConnector.Tunnel)
 // fetches discovery, keys, tokens and user info from the tunnel's Service and
-// trusts its certificate by the mounted SPIFFE bundle (TunnelDexValues); the
-// tokens' issuer stays the hub's public one (issuerAlias), and the person's
-// browser still signs in at the hub's public authorization endpoint, which
-// discovery names.
+// trusts its certificate by the tunnel's trust bundle, which TunnelDexValues
+// mounts; the tokens' issuer stays the hub's public one (issuerAlias), and the
+// person's browser still signs in at the hub's public authorization endpoint,
+// which discovery names.
 func FederationConnectorConfig(hub HubConnector, target, targetBaseDomain string) Map {
 	issuer := "https://dex." + hub.BaseDomain
 	config := Map{{Key: "issuer", Value: issuer}}
-	if hub.Tunnel {
-		tunnel := HubTunnelURL(hub.Hub)
+	if t := hub.Tunnel; t != nil {
+		tunnel := "https://" + TunnelHost(t.Service, t.Namespace)
 		config = Map{
 			{Key: "issuer", Value: tunnel},
 			{Key: "issuerAlias", Value: issuer},
@@ -95,7 +95,7 @@ func FederationConnectorConfig(hub HubConnector, target, targetBaseDomain string
 				{Key: "jwksURL", Value: tunnel + "/keys"},
 				{Key: "userInfoURL", Value: tunnel + "/userinfo"},
 			}},
-			{Key: "rootCAs", Value: []string{tunnelBundleDir + "/" + tunnelBundleKey}},
+			{Key: "rootCAs", Value: []string{tunnelBundleDir(t.BundleSecret) + "/" + TunnelBundleKey}},
 		}
 	}
 	return append(config,
@@ -106,55 +106,55 @@ func FederationConnectorConfig(hub HubConnector, target, targetBaseDomain string
 	)
 }
 
-// HubTunnelApp is the tunnelport RemoteApp in the target's DexNamespace
-// through which the target reaches hub's Dex, and the Service it renders:
-// ghostunnel terminating TLS with the target's SPIFFE SVID in front of a
-// Teleport application tunnel to the hub's Dex.
-func HubTunnelApp(hub string) string { return "dex-" + hub }
-
-// HubTunnelURL is the base URL of hub's Dex through the target's tunnel.
-func HubTunnelURL(hub string) string {
-	return "https://" + HubTunnelApp(hub) + "." + DexNamespace + ".svc.cluster.local:" + hubTunnelPort
+// HubTunnel is the tunnel through which an installation reaches a hub's Dex,
+// as teleport-fleet declares it and the installation's tunnelport release
+// runs it: the tunnel's Service in the installation's tunnelport namespace,
+// and the Secret its trust bundle is written to.
+type HubTunnel struct {
+	Service      string `json:"service"`
+	Namespace    string `json:"namespace"`
+	BundleSecret string `json:"bundleSecret"`
 }
 
-// hubTunnelPort is the TLS port of a tunnel's Service.
-const hubTunnelPort = "8443"
+// tunnelBundleRoot is where Dex mounts the tunnels' trust bundles, one
+// directory per bundle Secret.
+const tunnelBundleRoot = "/etc/dex-tunnelport"
 
-// The SPIFFE trust bundle a tunnel's certificate verifies against: tbot keeps
-// it in a Secret in the tunnel's namespace, next to the SVID's private key,
-// so Dex mounts the bundle's key alone. Dex reads rootCAs when it opens the
-// connector, so a rotated bundle takes effect at Dex's next start.
-const (
-	tunnelBundleSecret = "tunnelport-spiffe-bundle" // #nosec G101 -- a Secret's name, not a value
-	tunnelBundleKey    = "svid_bundle.pem"
-	tunnelBundleVolume = "tunnelport-spiffe-bundle"
-	tunnelBundleDir    = "/etc/dex-tunnelport"
-)
+func tunnelBundleDir(secret string) string { return tunnelBundleRoot + "/" + secret }
 
-// TunnelDexValues is the dex-app values' dex mapping that mounts the tunnel's
-// trust bundle into Dex where one of connectors reaches its hub through a
-// tunnel: the dex subchart's volumes and volumeMounts, which the chart's
-// Deployment renders after its own. Nil where none does.
+// TunnelDexValues is the dex-app values' dex mapping that mounts the trust
+// bundle of every tunnel connectors reach their hubs through into Dex: the
+// dex subchart's volumes and volumeMounts, which the chart's Deployment
+// renders after its own, one volume per bundle Secret named after it, holding
+// the bundle's key alone, since the Secret also holds the SVID's private key.
+// Dex reads rootCAs when it opens the connector, so a rotated bundle takes
+// effect at Dex's next start. Nil where no connector is tunnelled.
 func TunnelDexValues(connectors []FederatedConnector) Map {
-	if !slices.ContainsFunc(connectors, func(c FederatedConnector) bool { return c.Hub.Tunnel }) {
+	var volumes, mounts []Map
+	var seen []string
+	for _, c := range connectors {
+		t := c.Hub.Tunnel
+		if t == nil || slices.Contains(seen, t.BundleSecret) {
+			continue
+		}
+		seen = append(seen, t.BundleSecret)
+		volumes = append(volumes, Map{
+			{Key: keyName, Value: t.BundleSecret},
+			{Key: "secret", Value: Map{
+				{Key: "secretName", Value: t.BundleSecret},
+				{Key: "items", Value: []Map{{{Key: keyKey, Value: TunnelBundleKey}, {Key: "path", Value: TunnelBundleKey}}}},
+			}},
+		})
+		mounts = append(mounts, Map{
+			{Key: keyName, Value: t.BundleSecret},
+			{Key: "mountPath", Value: tunnelBundleDir(t.BundleSecret)},
+			{Key: "readOnly", Value: true},
+		})
+	}
+	if volumes == nil {
 		return nil
 	}
-	volume := Map{
-		{Key: keyName, Value: tunnelBundleVolume},
-		{Key: "secret", Value: Map{
-			{Key: "secretName", Value: tunnelBundleSecret},
-			{Key: "items", Value: []Map{{{Key: keyKey, Value: tunnelBundleKey}, {Key: "path", Value: tunnelBundleKey}}}},
-		}},
-	}
-	mount := Map{
-		{Key: keyName, Value: tunnelBundleVolume},
-		{Key: "mountPath", Value: tunnelBundleDir},
-		{Key: "readOnly", Value: true},
-	}
-	return Map{
-		{Key: "volumes", Value: []Map{volume}},
-		{Key: "volumeMounts", Value: []Map{mount}},
-	}
+	return Map{{Key: "volumes", Value: volumes}, {Key: "volumeMounts", Value: mounts}}
 }
 
 // ConnectorSecret is the target's Secret of connector in Dex's namespace: the

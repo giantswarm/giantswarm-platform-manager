@@ -183,5 +183,5 @@ func PortalPlatformComponent() string { return "./" + PortalPlatformDir + "/" }
 // kubernetes plugin reaches a private installation's API through it:
 // <app>-<installation>.agent-platform.svc.cluster.local:8443.
 func TunnelServiceHost(app, installation string) string {
-	return app + "-" + installation + ".agent-platform.svc.cluster.local:8443"
+	return TunnelHost(app+"-"+installation, "agent-platform")
 }

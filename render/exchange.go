@@ -33,9 +33,9 @@ type HubConnector struct {
 	Customer   string `json:"customer"`
 	BaseDomain string `json:"baseDomain"`
 	First      bool   `json:"first"`
-	// Tunnel says the installation reaches the hub's Dex through the
-	// tunnelport RemoteApp HubTunnelApp(Hub) in its Dex namespace alone.
-	Tunnel bool `json:"tunnel,omitempty"`
+	// Tunnel is the tunnel through which the installation reaches the hub's
+	// Dex; nil where it reaches the hub's public Dex.
+	Tunnel *HubTunnel `json:"tunnel,omitempty"`
 }
 
 // ConnectorNames are the agent-platform policy's federation.connector: the
