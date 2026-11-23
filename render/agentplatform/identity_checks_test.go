@@ -134,3 +134,30 @@ func TestPilotPolicyAlignsBrowserBrokerAndProviderConnectors(t *testing.T) {
 		})
 	}
 }
+
+func TestExchangeOnlyTargetsUseStaffConnector(t *testing.T) {
+	const staffHub = "gazelle"
+	const staffConnector = "giantswarm-gazelle-oidc"
+	policy, err := loadPolicy()
+	require.NoError(t, err)
+	for _, installation := range []string{"garm", "gerbil", "glippy", "grouse"} {
+		t.Run(installation, func(t *testing.T) {
+			browser, err := policy.identityCheckConnectors(Installation{Name: installation, Federation: Federation{Connectors: []render.HubConnector{
+				{Hub: staffHub, Customer: portalTenant, First: true},
+			}}})
+			require.NoError(t, err)
+			require.Nil(t, browser)
+			raw, _ := loadInput(t, shapeHubPrivateTarget)
+			hub, err := Parse(raw)
+			require.NoError(t, err)
+			hub.Installation.Name = staffHub
+			target := hub.Installation.Federation.Targets[0]
+			target.Installation, target.Hubs = installation, []string{staffHub}
+			hub.Installation.Federation.Targets = []Target{target}
+			hub.Connectors, err = policy.connectors(hub.Installation)
+			require.NoError(t, err)
+			require.Contains(t, string(render.MustYAML(hub.brokerValues())), "connectorId: "+staffConnector+"\n")
+			require.Contains(t, string(render.MustYAML(hub.identityProviders())), "connectorId: "+staffConnector+"\n")
+		})
+	}
+}
