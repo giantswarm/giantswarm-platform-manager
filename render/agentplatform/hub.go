@@ -24,7 +24,7 @@ const (
 	providerScopes = "openid profile email groups"
 	// tunnelPort is the port of every RemoteApp Service on the hub: ghostunnel
 	// terminates TLS there with the app's SVID.
-	tunnelPort = "8443"
+	tunnelPort = render.TunnelPort
 	// spiffeBundle is the trust-bundle Secret the tunnelport release writes
 	// and muster mounts to trust the tunnelled Services.
 	spiffeBundle = "tunnelport-spiffe-bundle"
@@ -73,7 +73,7 @@ func (t Target) tunnelledApps() []tunnelledApp {
 	// Dex runs two proxy pods: every token refresh of a user of the target
 	// passes it, and tunnelport's disruption budget keeps one of them serving
 	// while a node drains, so an eviction no longer answers a refresh with 503.
-	apps := []tunnelledApp{{name: "dex", port: 5556, replicas: 2}}
+	apps := []tunnelledApp{{name: render.DexTunnelApp, port: 5556, replicas: 2}}
 	for _, g := range t.groups() {
 		apps = append(apps, tunnelledApp{name: "mcp-" + g, port: 8080})
 	}
@@ -129,7 +129,7 @@ func (t Target) issuer() string { return "https://dex." + t.BaseDomain }
 // the tunnel for a private target.
 func (t Target) dexTokenEndpoint() string {
 	if t.Private {
-		return "https://" + t.tunnelHost("dex") + "/token"
+		return "https://" + t.tunnelHost(render.DexTunnelApp) + "/token"
 	}
 	return t.issuer() + "/token"
 }
@@ -227,7 +227,7 @@ func (in *Input) brokerValues() render.Map {
 // tunnelled Services' SVIDs with.
 func extraCaFile() render.Map {
 	return render.Map{e("path", "/etc/muster/ca/spiffe-bundle.pem"),
-		e("secret", render.Map{e("name", spiffeBundle), e("key", "svid_bundle.pem")})}
+		e("secret", render.Map{e("name", spiffeBundle), e("key", render.TunnelBundleKey)})}
 }
 
 // identityProviders is agent-platform-mcps.identityProviders: the exchange at

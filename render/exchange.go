@@ -33,6 +33,9 @@ type HubConnector struct {
 	Customer   string `json:"customer"`
 	BaseDomain string `json:"baseDomain"`
 	First      bool   `json:"first"`
+	// Tunnel is the tunnel through which the installation reaches the hub's
+	// Dex; nil where it reaches the hub's public Dex.
+	Tunnel *HubTunnel `json:"tunnel,omitempty"`
 }
 
 // ConnectorNames are the agent-platform policy's federation.connector: the
@@ -213,7 +216,7 @@ func (c FederatedConnector) Entry(target, targetBaseDomain string) Map {
 	return Map{
 		{Key: "connectorType", Value: "oidc"},
 		{Key: "connectorName", Value: c.Label},
-		{Key: "config", Value: FederationConnectorConfig(c.Hub.BaseDomain, target, targetBaseDomain)},
+		{Key: "config", Value: FederationConnectorConfig(c.Hub, target, targetBaseDomain)},
 		{Key: "clientSecretRef", Value: ConnectorSecretRef(c.ID)},
 	}
 }

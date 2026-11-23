@@ -476,12 +476,20 @@ func (r *Registry) derive(ctx context.Context, c *gh.Client, reports []Report, p
 		// hubs' order; connErrs what could not be read of each.
 		connectors []render.HubConnector
 		connErrs   []error
+		// tunnels are the tunnels through which the installation reaches
+		// its hubs' Dex, keyed by hub (hubTunnels); tunErr what could not be
+		// read of them.
+		tunnels map[string]render.HubTunnel
+		tunErr  error
 		// hosted is the portal hosted on the installation; platform the
 		// agent-platform marker of each of its entries.
 		hosted   *HostedPortal
 		platform []*markerRead
 	}
 	platform, _ := FindCapability(AgentPlatform)
+	// teleport-fleet's tunnels, read once and only where an installation
+	// has hubs whose Dex it may reach through one.
+	fleet := sync.OnceValues(func() (*fleetTunnels, error) { return readFleetTunnels(ctx, c) })
 	results := make([]derived, len(reports))
 	var wg sync.WaitGroup
 	// The agent-platform marker of every installation a portal's entries or
@@ -527,6 +535,10 @@ func (r *Registry) derive(ctx context.Context, c *gh.Client, reports []Report, p
 			wg.Go(func() {
 				res.connectors[j], res.connErrs[j] = r.hubConnector(ctx, c, hub, byName[hub], hubs)
 			})
+		}
+		if len(hubs) > 0 {
+			inst := rep.Installation
+			wg.Go(func() { res.tunnels, res.tunErr = hubTunnels(ctx, c, inst, hubs, fleet) })
 		}
 		if len(targets) > 0 {
 			wg.Go(func() { res.broker, res.brkErr = brokerClientID(ctx, c, *rep) })
@@ -584,7 +596,14 @@ func (r *Registry) derive(ctx context.Context, c *gh.Client, reports []Report, p
 				rep.fail(fmt.Sprintf("federation hub %s: %v", hub, res.connErrs[j]))
 				continue
 			}
-			rep.Federation.Connectors = append(rep.Federation.Connectors, res.connectors[j])
+			connector := res.connectors[j]
+			if t, ok := res.tunnels[hub]; ok {
+				connector.Tunnel = &t
+			}
+			rep.Federation.Connectors = append(rep.Federation.Connectors, connector)
+		}
+		if res.tunErr != nil {
+			rep.fail(fmt.Sprintf("the tunnels to the hubs' Dex: %v", res.tunErr))
 		}
 		if len(res.targets) > 0 {
 			if res.brkErr != nil {
