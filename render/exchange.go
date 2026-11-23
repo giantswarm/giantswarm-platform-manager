@@ -47,12 +47,15 @@ type HubConnector struct {
 //   - ExchangeThrough: the connector their first hub's broker exchanges tokens
 //     through, where it is not the rendered one. A connector's id is part of
 //     every Dex subject issued through it.
+//   - Labels: the name a target's login page shows for their hubs'
+//     connectors; an organisation without one shows the hub's name.
 type ConnectorNames struct {
 	First           string                        `yaml:"first"`
 	Further         string                        `yaml:"further"`
 	Staff           []string                      `yaml:"staff"`
 	FurtherByHand   []string                      `yaml:"furtherByHand"`
 	ExchangeThrough map[string]ExchangeConnectors `yaml:"exchangeThrough"`
+	Labels          map[string]string             `yaml:"labels"`
 }
 
 // ExchangeConnectors selects an organisation's first hub's exchange connector.
@@ -106,6 +109,15 @@ func (n ConnectorNames) Name(first bool, customer, hub string) (string, error) {
 		key, text = "federation.connector.first", n.First
 	}
 	return PolicyTemplate(key, text, hubRecord{Customer: customer, Name: hub})
+}
+
+// Label is the name a target's login page shows for the connector of the hub
+// hub of the organisation customer.
+func (n ConnectorNames) Label(customer, hub string) string {
+	if label := n.Labels[customer]; label != "" {
+		return label
+	}
+	return hub
 }
 
 // Rendered says whether a definition renders the connector of a hub of the
@@ -163,10 +175,11 @@ func PolicyTemplate(key, text string, data any) (string, error) {
 
 // FederatedConnector is a connector a target's Dex registers for a hub that
 // brokers into it, as a definition renders it: the policy's name and the
-// hub's record.
+// hub's record, and the name the target's login page shows for it.
 type FederatedConnector struct {
 	ID    string
 	Owner string
+	Label string
 	Hub   HubConnector
 }
 
@@ -183,7 +196,7 @@ func FederatedConnectors(names ConnectorNames, hubs []HubConnector) ([]Federated
 		if err != nil {
 			return nil, err
 		}
-		list = append(list, FederatedConnector{ID: id, Owner: names.Owner(h.Customer), Hub: h})
+		list = append(list, FederatedConnector{ID: id, Owner: names.Owner(h.Customer), Label: names.Label(h.Customer, h.Hub), Hub: h})
 	}
 	return list, nil
 }
@@ -199,7 +212,7 @@ func FederatedConnectors(names ConnectorNames, hubs []HubConnector) ([]Federated
 func (c FederatedConnector) Entry(target, targetBaseDomain string) Map {
 	return Map{
 		{Key: "connectorType", Value: "oidc"},
-		{Key: "connectorName", Value: c.Hub.Hub},
+		{Key: "connectorName", Value: c.Label},
 		{Key: "config", Value: FederationConnectorConfig(c.Hub.BaseDomain, target, targetBaseDomain)},
 		{Key: "clientSecretRef", Value: ConnectorSecretRef(c.ID)},
 	}

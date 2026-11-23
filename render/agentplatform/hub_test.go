@@ -482,7 +482,7 @@ func TestTargetRegistersTheConnectorTheHubNames(t *testing.T) {
 	}
 	sibling := patch(render1(shapeCustomerSibling), "oakridge", "plover", "dex-app")
 	for _, want := range []string{
-		"  giantswarm:\n    connectors:\n      giantswarm-gopher-oidc:\n        connectorType: oidc\n        connectorName: gopher\n        config:\n          issuer: https://dex.gopher.example.io\n          insecureEnableGroups: true\n          clientID: federation-plover\n",
+		"  giantswarm:\n    connectors:\n      giantswarm-gopher-oidc:\n        connectorType: oidc\n        connectorName: Giant Swarm (central login)\n        config:\n          issuer: https://dex.gopher.example.io\n          insecureEnableGroups: true\n          clientID: federation-plover\n",
 		"  customer:\n    connectors:\n      oakridge-simple-oidc:\n        connectorType: oidc\n        connectorName: heron\n        config:\n          issuer: https://dex.heron.oakridge.example\n          insecureEnableGroups: true\n          clientID: federation-plover\n          redirectURI: https://dex.plover.oakridge.example/callback\n",
 		"        clientSecretRef:\n          name: dex-connector-oakridge-simple-oidc\n          key: client-secret\n",
 	} {

@@ -133,6 +133,11 @@ federation:
         targets:
           graveler: ""
           glean: ""
+    # The name a target's login page shows for an organisation's hub connector; without one,
+    # the hub's name. The parenthesis tells it apart from the target's own GitHub and Entra
+    # connectors.
+    labels:
+      giantswarm: Giant Swarm (central login)
   teleport:
     clusterName: teleport.giantswarm.io
     proxyAddr: teleport.giantswarm.io:443
