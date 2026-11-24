@@ -393,7 +393,7 @@ func TestClusterSubchartHasPodCertificateRequest(t *testing.T) {
 	for _, c := range []struct {
 		version string
 		want    bool
-	}{{"8.3.0", true}, {"v8.3.1", true}, {"9.4.0", true}, {"8.2.0", false}, {"5.1.2", false}, {"latest", false}, {"", false}} {
+	}{{"8.3.0", true}, {"v8.3.1", true}, {"9.4.0", true}, {"8.2.0", false}, {"5.1.2", false}, {"main", false}, {"", false}} {
 		if got := ClusterSubchartHasPodCertificateRequest(c.version); got != c.want {
 			t.Errorf("cluster %s: %v, want %v", c.version, got, c.want)
 		}
