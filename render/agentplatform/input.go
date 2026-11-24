@@ -301,8 +301,8 @@ type Installation struct {
 	AgentPlatform bool `json:"agentPlatform"`
 	// PodCertificateRequest says the cluster serves certificates.k8s.io/v1beta1
 	// PodCertificateRequest, which Agent Substrate needs on the 4 line: the
-	// cluster App on record enables the feature gates, or its chart does by
-	// default (substrate.go).
+	// cluster on record (its App, or its Flux HelmRelease) enables the feature
+	// gates, or its chart does by default (substrate.go).
 	PodCertificateRequest bool `json:"podCertificateRequest"`
 	// PortalClientSecret says the portal client's Secret (dex-client-backstage
 	// in Dex's namespace) is on record: the customer-portal definition's file
@@ -1144,8 +1144,8 @@ func (in *Input) checkRecord() error {
 		}
 	}
 	if in.kagent() && in.Installation.ChartLine == lineFour && !in.Installation.PodCertificateRequest {
-		return refuse(fmt.Sprintf("%s does not say this cluster serves %s/%s %s, which kagent's Agent Substrate on the 4 chart line needs; enable the feature gates %s under cluster.internal.advancedConfiguration.{%s}.featureGates in the cluster App's values (management-clusters/%s/cluster-app-manifests.yaml), or run a cluster App chart that enables them by default (%s and later)",
-			describe("installation.podCertificateRequest"), apiGroup(PodCertificateRequestResource), PodCertificateRequestVersion, apiResource(PodCertificateRequestResource), strings.Join(PodCertificateRequestGates, ", "), strings.Join(PodCertificateRequestComponents, ","), in.Installation.Name, podCertificateRequestDefaults()))
+		return refuse(fmt.Sprintf("%s does not say this cluster serves %s/%s %s, which kagent's Agent Substrate on the 4 chart line needs; enable the feature gates %s under cluster.internal.advancedConfiguration.{%s}.featureGates in the cluster's values (management-clusters/%s/cluster-app-manifests.yaml), or run a cluster chart that enables them by default (%s %s and later: %s and later)",
+			describe("installation.podCertificateRequest"), apiGroup(PodCertificateRequestResource), PodCertificateRequestVersion, apiResource(PodCertificateRequestResource), strings.Join(PodCertificateRequestGates, ", "), strings.Join(PodCertificateRequestComponents, ","), in.Installation.Name, "giantswarm/"+ClusterSubchart, ClusterSubchartWithPodCertificateRequest, podCertificateRequestDefaults()))
 	}
 	if err := in.checkOrganizations(); err != nil {
 		return err

@@ -370,11 +370,12 @@ Per installation the manager then reads, as the caller:
   the meta chart line (`agentPlatform.kagentApiV2` selects `4`; an enable or a reconcile writes it there
   where the policy runs the organisation on the 4 line or grants it a line-4 component, and verify names a
   record off that line), `services.muster.clientId` — which,
-  with the registry's name, base domain, customer and provider, the cluster App on record in
-  `management-clusters/<name>/cluster-app-manifests.yaml` (whether the cluster serves
-  `PodCertificateRequest`, the 4 line's prerequisite: the feature gates in its values, or its chart's
-  default — the chart at the App's version, or at the version the release its values name lists for
-  it in `giantswarm/releases`) and the portals' app-configs (which portals sign people in, whose broker exchanges tokens
+  with the registry's name, base domain, customer and provider, the cluster on record in
+  `management-clusters/<name>/cluster-app-manifests.yaml`, a cluster App or a Flux HelmRelease (whether the
+  cluster serves `PodCertificateRequest`, the 4 line's prerequisite: the feature gates in its values, or its
+  chart's default — for an App the chart at the App's version, or at the version the release its values name
+  lists for it in `giantswarm/releases`; for a HelmRelease the `cluster` subchart of the chart its
+  OCIRepository points at) and the portals' app-configs (which portals sign people in, whose broker exchanges tokens
   into it, whether a portal reaches it through the tunnel: `private`), are the definitions'
   `installation.*` inputs: read, never typed;
 - the **enabled marker** of each capability: for `agent-platform`,
