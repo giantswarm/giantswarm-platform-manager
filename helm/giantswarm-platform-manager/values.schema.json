@@ -224,6 +224,22 @@
                             "description": "muster's own MCP endpoint as reached from the pod: where a live read loops back to with the person's token. Empty derives `http://muster.<namespace>.svc.cluster.local:8090/mcp` in the release namespace."
                         }
                     }
+                },
+                "requestStateSecret": {
+                    "type": "object",
+                    "description": "Existing Secret in the release namespace with the 32-byte key (base64 or hex) that seals the requestState of a muster sign-in `verify_installation` relays to a caller that declares URL mode elicitation, mounted as `OAUTH_REQUEST_STATE_KEY_FILE`; `previousKey` names the Secret's key holding the key before a rotation, mounted as `OAUTH_REQUEST_STATE_PREVIOUS_KEY_FILE`. Each server has its own key. Empty name: no key, and the sign-in stays in the result's not-read checks.",
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "type": "string"
+                        },
+                        "name": {
+                            "type": "string"
+                        },
+                        "previousKey": {
+                            "type": "string"
+                        }
+                    }
                 }
             }
         },

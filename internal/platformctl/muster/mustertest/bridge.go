@@ -63,14 +63,15 @@ var Registry = []string{Hub, "lab", "hazel"}
 
 // Bridge is an in-process bridge over the aggregator tools given by their
 // aggregator names.
-func Bridge(aggregator map[string]Tool) *mcpserver.MCPServer {
-	return BridgeRecording(aggregator, nil)
+func Bridge(aggregator map[string]Tool, opts ...mcpserver.ServerOption) *mcpserver.MCPServer {
+	return BridgeRecording(aggregator, nil, opts...)
 }
 
 // BridgeRecording is Bridge with every call_tool request's arguments
-// appended to calls as they arrived, the bridge's own included.
-func BridgeRecording(aggregator map[string]Tool, calls *[]map[string]any) *mcpserver.MCPServer {
-	s := mcpserver.NewMCPServer("muster", "test")
+// appended to calls as they arrived, the bridge's own included. opts
+// configure the bridge's MCP server.
+func BridgeRecording(aggregator map[string]Tool, calls *[]map[string]any, opts ...mcpserver.ServerOption) *mcpserver.MCPServer {
+	s := mcpserver.NewMCPServer("muster", "test", opts...)
 	s.AddTool(mcp.NewTool("call_tool",
 		mcp.WithString("name", mcp.Required()),
 		mcp.WithObject("arguments"),

@@ -33,6 +33,8 @@ import (
 	"time"
 
 	"github.com/giantswarm/mcp-oauth/providers/oidc"
+	"github.com/giantswarm/mcp-toolkit/urlelicitation"
+	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/aggregator"
@@ -273,7 +275,11 @@ func (c *Client) Verify(ctx context.Context, token string) (*identity.Identity, 
 	if claims.Subject == "" {
 		return nil, errors.New("the token names no subject")
 	}
-	return &identity.Identity{Subject: claims.Subject, Email: claims.Email}, nil
+	party := claims.AuthorizedParty
+	if party == "" && len(claims.Audience) == 1 {
+		party = claims.Audience[0]
+	}
+	return &identity.Identity{Subject: claims.Subject, Email: claims.Email, Issuer: claims.Issuer, Client: party}, nil
 }
 
 // keySet is the JWKS URL: configured, or read once from the issuer's
@@ -419,7 +425,13 @@ func (k *cluster) call(ctx context.Context, op string, args map[string]any) (str
 		args[k.c.cfg.KubernetesInstanceArg] = member
 	}
 	name := k.tool(op)
-	do := func() (*mcp.CallToolResult, error) { return k.s.s.Call(ctx, name, args) }
+	relay := relayFrom(ctx)
+	target := callTarget(name, args)
+	callCtx, roundTrip := ctx, mcp.MultiRoundTripParams{}
+	if relay != nil {
+		callCtx, roundTrip = client.WithRequestClientCapabilities(ctx, urlElicitation), relay.answer(target)
+	}
+	do := func() (*mcp.CallToolResult, error) { return k.s.s.Answer(callCtx, name, args, roundTrip) }
 	res, err := callPaced(ctx, do)
 	if toolNotFound(res, err) {
 		// muster does not list the tool for this session yet (the fan-out
@@ -432,6 +444,16 @@ func (k *cluster) call(ctx context.Context, op string, args map[string]any) (str
 	}
 	if err != nil {
 		return "", err
+	}
+	if res.NeedsInput() {
+		relayed, err := urlelicitation.FromInputRequired(res)
+		if err != nil {
+			return "", fmt.Errorf("muster: %s: %w", name, err)
+		}
+		if relay != nil {
+			relay.record(target, relayed)
+		}
+		return "", &verify.AuthRequired{Server: k.c.KubernetesServer(k.installation), URL: relayed.URL, Message: "auth_required: " + relayed.Message}
 	}
 	text := aggregator.TextOf(res)
 	if res.IsError {
