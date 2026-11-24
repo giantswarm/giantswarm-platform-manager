@@ -17,6 +17,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/approvals"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/live"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 )
 
@@ -72,7 +73,7 @@ func (t *Tools) registerApprovalTools(s *mcpserver.MCPServer) {
 			"The Action moves to rolling out and the review's thread is told; follow it with "+ToolWatchAction+". Before the approval it answers what the action waits for and posts the review if none is up. Pending checks stop the call: call again."),
 		mcp.WithIdempotentHintAnnotation(true), mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithString(ArgAction, mcp.Required(), mcp.Description("The Action's name.")),
-	), t.mergeAction)
+	), t.relaySignIns(t.mergeAction))
 }
 
 // musterTool is the call name of one of the manager's tools through muster:
@@ -305,6 +306,9 @@ func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
 		// The releases running now, read before the stage's merges: Flux's
 		// history may have dropped them by the first watch.
 		running := t.runningReleases(ctx, a, st.Name)
+		if err := live.Pending(ctx); err != nil {
+			return nil, err
+		}
 		// This stage's pull requests are merged now, in order, each once green.
 		for _, k := range a.StagePullRequests(st.Name) {
 			pr := status.PullRequests[k]

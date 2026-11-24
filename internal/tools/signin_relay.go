@@ -18,7 +18,9 @@ import (
 // sealing requestState for the person the forwarded ID token names.
 type SignInElicitor = urlelicitation.Elicitor[*providers.UserInfo]
 
-// relaySignIns runs a live tool's call on a live.Relay. A retry that answers
+// relaySignIns runs a live tool's call on a live.Relay. A tool with effects
+// (a post, a merge, a record) checks live.Pending after its reads and before
+// them, so a call that is relayed has changed nothing. A retry that answers
 // a relayed sign-in with decline or cancel runs nothing; accept goes to
 // muster's read on the retry. A call whose reads muster asked a sign-in for
 // answers with that sign-in, as urlelicitation answers the caller's protocol

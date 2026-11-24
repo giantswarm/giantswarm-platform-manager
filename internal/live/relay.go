@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/giantswarm/mcp-toolkit/urlelicitation"
@@ -50,6 +52,26 @@ func WithRelay(ctx context.Context, retry *urlelicitation.Retry) (context.Contex
 func relayFrom(ctx context.Context) *Relay {
 	r, _ := ctx.Value(relayKey{}).(*Relay)
 	return r
+}
+
+// ErrSignInPending stops a tool before its effects when muster asked one of
+// its reads for a sign-in the caller is asked for: the call runs again, as
+// a whole, on the caller's retry.
+var ErrSignInPending = errors.New("muster asked for a sign-in")
+
+// Pending returns ErrSignInPending, naming the sign-in, when a read on ctx
+// recorded one for the caller, and nil otherwise, also without a Relay: a
+// call that relays nothing goes on with what it could read.
+func Pending(ctx context.Context) error {
+	r := relayFrom(ctx)
+	if r == nil {
+		return nil
+	}
+	signIn := r.SignIn()
+	if signIn == nil {
+		return nil
+	}
+	return fmt.Errorf("%w; nothing was changed, call again once signed in: %s %s", ErrSignInPending, signIn.Relayed.Message, signIn.Relayed.URL)
 }
 
 // SignIn is the first sign-in muster asked for; nil when none.

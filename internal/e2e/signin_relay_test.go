@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/giantswarm/gitops-commit/commit"
 	"github.com/giantswarm/mcp-oauth/requeststate"
 	"github.com/giantswarm/mcp-oauth/security"
 	"github.com/giantswarm/mcp-toolkit/urlelicitation"
@@ -16,6 +17,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/require"
 
+	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
@@ -75,6 +77,18 @@ func relayAnswer(state string, action mcp.ElicitationResponseAction) mcp.MultiRo
 			ElicitationResponse: mcp.ElicitationResponse{Action: action},
 		})},
 	}
+}
+
+// tampered changes a character in the middle of state, where every bit is
+// part of the sealed bytes.
+func tampered(state string) string {
+	b := []byte(state)
+	if i := len(b) / 2; b[i] == 'A' {
+		b[i] = 'B'
+	} else {
+		b[i] = 'A'
+	}
+	return string(b)
 }
 
 func resultText(res *mcp.CallToolResult) string {
@@ -170,7 +184,7 @@ func TestVerifyInstallationRequestStateIsBoundToThePerson(t *testing.T) {
 	reads := len(st.muster.seen())
 
 	t.Run("tampered", func(t *testing.T) {
-		_, err := verifyAnswering(t, c, relayAnswer(state[:len(state)-2]+"AA", mcp.ElicitationResponseActionAccept))
+		_, err := verifyAnswering(t, c, relayAnswer(tampered(state), mcp.ElicitationResponseActionAccept))
 		require.ErrorContains(t, err, "invalid requestState")
 	})
 	t.Run("another person", func(t *testing.T) {
@@ -209,4 +223,74 @@ func TestVerifyInstallationLegacyURLCallerGetsURLElicitationRequired(t *testing.
 	require.ErrorAs(t, err, &required)
 	require.Len(t, required.Elicitations, 1)
 	require.Equal(t, musterSignInURL, required.Elicitations[0].URL)
+}
+
+func callAnswering(t *testing.T, c *client.Client, tool string, args map[string]any, roundTrip mcp.MultiRoundTripParams) (*mcp.CallToolResult, error) {
+	t.Helper()
+	req := mcp.CallToolRequest{}
+	req.Params.Name = tool
+	req.Params.Arguments = args
+	req.Params.MultiRoundTripParams = roundTrip
+	return c.CallTool(t.Context(), req)
+}
+
+func resultsPosted(st *stack) int {
+	n := 0
+	for _, r := range st.gateway.posted() {
+		n += len(r.Results)
+	}
+	return n
+}
+
+// A watch whose read muster asks a sign-in for relays it before it records
+// the stage or posts to the review's thread; the accepted retry watches.
+func TestWatchActionRelaysMustersSignInBeforeItsEffects(t *testing.T) {
+	st := newStack(t, withSignIns(t))
+	a, aliceC := rolledOut(t, st)
+	before := stageOf(new(getAction(t, aliceC, a.Name)), rowan)
+	posts := resultsPosted(st)
+	c := st.elicitingClient(t, st.dex.token(t, liveStranger, []string{liveAudience}, time.Hour), true, mcp.LATEST_PROTOCOL_VERSION)
+	args := map[string]any{tools.ArgAction: a.Name}
+
+	res, err := callAnswering(t, c, tools.ToolWatchAction, args, mcp.MultiRoundTripParams{})
+	require.NoError(t, err)
+	require.True(t, res.NeedsInput(), resultText(res))
+	require.Equal(t, musterSignInURL, res.InputRequests[urlelicitation.RelayKey].Elicitation.URL)
+	require.Equal(t, before, stageOf(new(getAction(t, aliceC, a.Name)), rowan))
+	require.Equal(t, posts, resultsPosted(st))
+
+	res, err = callAnswering(t, c, tools.ToolWatchAction, args, relayAnswer(res.RequestState, mcp.ElicitationResponseActionAccept))
+	require.NoError(t, err)
+	require.False(t, res.NeedsInput())
+	require.False(t, res.IsError, resultText(res))
+	require.NotNil(t, stageOf(new(getAction(t, aliceC, a.Name)), rowan).WatchedAt)
+}
+
+// A merge whose read of the running releases muster asks a sign-in for
+// relays it before any pull request is merged; the accepted retry merges.
+func TestMergeActionRelaysMustersSignInBeforeItMerges(t *testing.T) {
+	st := newStack(t, withSignIns(t))
+	out, aliceC := commitRowan(t, st)
+	name := out.Action.Name
+	if _, text, isErr := decide(t, st.mcpClient(t, carolToken), tools.ToolApproveAction, map[string]any{tools.ArgAction: name}); isErr {
+		t.Fatalf("approve: %s", text)
+	}
+	for _, pr := range st.remote.PullRequests() {
+		st.remote.SetChecks(pr.PullRequest, commit.ChecksSuccess)
+	}
+	st.muster.asksToSignIn(liveAdmin)
+	c := st.elicitingClient(t, st.dex.token(t, liveAdmin, []string{liveAudience}, time.Hour), true, mcp.LATEST_PROTOCOL_VERSION)
+	args := map[string]any{tools.ArgAction: name}
+
+	res, err := callAnswering(t, c, tools.ToolMergeAction, args, mcp.MultiRoundTripParams{})
+	require.NoError(t, err)
+	require.True(t, res.NeedsInput(), resultText(res))
+	for _, pr := range getAction(t, aliceC, name).Status.PullRequests {
+		require.NotEqual(t, actions.PullRequestMerged, pr.State, "%s#%d", pr.Repository, pr.Number)
+	}
+
+	res, err = callAnswering(t, c, tools.ToolMergeAction, args, relayAnswer(res.RequestState, mcp.ElicitationResponseActionAccept))
+	require.NoError(t, err)
+	require.False(t, res.IsError, resultText(res))
+	require.Equal(t, actions.StateRollingOut, getAction(t, aliceC, name).Status.State)
 }

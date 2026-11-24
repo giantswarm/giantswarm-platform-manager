@@ -796,9 +796,11 @@ type fakeMuster struct {
 	// sign-in an accepted answer completed.
 	signIns   []musterSignIn
 	connected map[string]bool
+	// signsIn is the person muster asks to sign in; liveStranger when empty.
+	signsIn string
 }
 
-// musterSignIn is one call_tool of liveStranger's that muster's sign-in
+// musterSignIn is one call_tool of a person not connected that muster's sign-in
 // decided: asked as URL elicitation, or answered.
 type musterSignIn struct {
 	Tool         string
@@ -807,7 +809,7 @@ type musterSignIn struct {
 	Answer       mcp.ElicitationResponseAction
 }
 
-// The sign-in muster asks liveStranger for as URL elicitation.
+// The sign-in muster asks a person not connected for as URL elicitation.
 const (
 	musterSignInKey   = "muster_sign_in"
 	musterSignInState = "muster-sign-in-state"
@@ -821,7 +823,7 @@ const (
 func (m *fakeMuster) signIn(next mcpserver.ToolHandlerFunc) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		person, _ := ctx.Value(personKey{}).(string)
-		if req.Params.Name != "call_tool" || person != liveStranger || m.isConnected(person) {
+		if req.Params.Name != "call_tool" || person != m.signInPerson() || m.isConnected(person) {
 			return next(ctx, req)
 		}
 		call := musterSignIn{Tool: req.GetString("name", ""), RequestState: req.Params.RequestState}
@@ -857,6 +859,22 @@ func (m *fakeMuster) record(call musterSignIn) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.signIns = append(m.signIns, call)
+}
+
+func (m *fakeMuster) signInPerson() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.signsIn == "" {
+		return liveStranger
+	}
+	return m.signsIn
+}
+
+// asksToSignIn makes muster ask person, not liveStranger, to sign in.
+func (m *fakeMuster) asksToSignIn(person string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.signsIn = person
 }
 
 func (m *fakeMuster) isConnected(person string) bool {
@@ -953,7 +971,7 @@ func (m *fakeMuster) kubernetes(op string) mustertest.Tool {
 		if !ok || mc == server {
 			return mcp.NewToolResultError(fmt.Sprintf("Tool execution failed: tool x_%s_%s is not available on server %q (available: %s)", kubernetesFamily, op, server, strings.Join(m.members(), ", ")))
 		}
-		if person == liveStranger && !m.isConnected(person) {
+		if person == m.signInPerson() && !m.isConnected(person) {
 			return mcp.NewToolResultError(fmt.Sprintf(authRequiredText, server, server))
 		}
 		if op == opAPIResources {
