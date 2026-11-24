@@ -131,6 +131,10 @@ federation:
       giantswarm:
         default: giantswarm-simple-oidc
         targets:
+          cedar: ""
+          enigma: ""
+          ferret: ""
+          finch: ""
           galaxy: ""
           garm: ""
           gerbil: ""
@@ -140,7 +144,9 @@ federation:
           grouse: ""
           jackal: ""
           leopard: ""
+          sardine: ""
           tamarin: ""
+          wallaby: ""
     # The name a target's login page shows for an organisation's hub connector; without one,
     # the hub's name. The parenthesis tells it apart from the target's own GitHub and Entra
     # connectors.
