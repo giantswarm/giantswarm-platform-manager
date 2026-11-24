@@ -364,10 +364,13 @@ type Installation struct {
 	// connectors the rendered Dex patch declares under
 	// oidc.customer.connectors and oidc.giantswarm.connectors
 	// (DexSecretRefusal).
-	DexConnectors      []string         `json:"dexConnectors,omitempty"`
-	DexStaffConnectors []string         `json:"dexStaffConnectors,omitempty"`
-	CustomerActions    []CustomerAction `json:"customerActions"`
-	Probes             []Probe          `json:"probes"`
+	DexConnectors      []string `json:"dexConnectors,omitempty"`
+	DexStaffConnectors []string `json:"dexStaffConnectors,omitempty"`
+	// DexVolumes are the names of the volumes the rendered Dex patch mounts
+	// into Dex under dex.volumes (DexSecretRefusal).
+	DexVolumes      []string         `json:"dexVolumes,omitempty"`
+	CustomerActions []CustomerAction `json:"customerActions"`
+	Probes          []Probe          `json:"probes"`
 	// Diff counts the files by change; an empty diff is every file unchanged.
 	Diff map[Change]int `json:"diff"`
 }
@@ -686,6 +689,7 @@ func Build(ctx context.Context, opts Options) Installation {
 			p.Files = append(p.Files, pf)
 			if strings.HasSuffix(path, dexPatchFile) {
 				p.DexClients, p.DexConnectors, p.DexStaffConnectors = DexClients(f.Content, in), DexConnectors(f.Content), DexStaffConnectors(f.Content)
+				p.DexVolumes = DexVolumes(f.Content)
 			}
 			if strings.HasSuffix(path, platformPatchFile) && pf.Change == ChangeUpdate {
 				p.DropsPrereleases = dropsPrereleases(current, content)
@@ -1010,6 +1014,26 @@ func DexConnectors(patch []byte) []string { return dexConnectorsOf(patch, keyCus
 
 // DexStaffConnectors reads the same under oidc.giantswarm.connectors.
 func DexStaffConnectors(patch []byte) []string { return dexConnectorsOf(patch, keyGiantswarm) }
+
+// DexVolumes reads the names of the volumes the rendered dex patch declares
+// under dex.volumes; nil where it declares none or does not parse.
+func DexVolumes(patch []byte) []string {
+	var doc struct {
+		Dex struct {
+			Volumes []struct {
+				Name string `yaml:"name"`
+			} `yaml:"volumes"`
+		} `yaml:"dex"`
+	}
+	if err := yaml.Unmarshal(patch, &doc); err != nil {
+		return nil
+	}
+	var names []string
+	for _, v := range doc.Dex.Volumes {
+		names = append(names, v.Name)
+	}
+	return names
+}
 
 func dexConnectorsOf(patch []byte, owner string) []string {
 	var doc struct {

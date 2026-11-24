@@ -625,7 +625,11 @@ func (in *Input) dexPatch() render.Map {
 		oidc = append(oidc, e("extraStaticClients", render.ClientsByID(extra)))
 	}
 	oidc = append(oidc, render.ConnectorsByOwner(in.HubConnectors, in.Installation.Name, in.Installation.BaseDomain)...)
-	return render.Map{e("oidc", oidc)}
+	patch := render.Map{e("oidc", oidc)}
+	if mounts := render.TunnelDexValues(in.HubConnectors); mounts != nil {
+		patch = append(patch, e("dex", mounts))
+	}
+	return patch
 }
 
 // musterRevision says whether the installation's meta chart hands muster's

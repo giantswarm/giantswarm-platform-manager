@@ -1286,7 +1286,7 @@ func TestFactsAreTheProvidersOnTheFourLine(t *testing.T) {
 // managementCluster.private, which is false where the ingress alone is
 // private, so the definition's own fact decides it and a reconcile keeps it.
 func TestPrivateInstallationLiftsMusterGuards(t *testing.T) {
-	flags := []string{"dex:\n          allowPrivateIPOIDC: true", "allowPrivateIPClientMetadataHosts:\n          - agentgateway.", privateRedirectPermission}
+	flags := []string{"allowPrivateIPClientMetadataHosts:\n          - agentgateway.", privateRedirectPermission}
 	for shape, private := range map[string]bool{shapeGiantswarmSlackApp: true, shapeGiantswarmSlackAppPub: false} {
 		t.Run(shape, func(t *testing.T) {
 			input, secrets := loadInput(t, shape)
@@ -1302,6 +1302,15 @@ func TestPrivateInstallationLiftsMusterGuards(t *testing.T) {
 				t.Fatal(err)
 			}
 			patch := platformPatch(t, result)
+			var values map[string]any
+			if err := yaml.Unmarshal([]byte(patch), &values); err != nil {
+				t.Fatal(err)
+			}
+			server := values["muster"].(map[string]any)["muster"].(map[string]any)["oauth"].(map[string]any)["server"].(map[string]any)
+			dex, _ := server["dex"].(map[string]any)
+			if allowed, _ := dex["allowPrivateIPOIDC"].(bool); allowed != private {
+				t.Errorf("dex.allowPrivateIPOIDC %v, want %v", allowed, private)
+			}
 			for _, flag := range flags {
 				if strings.Contains(patch, flag) != private {
 					t.Errorf("%q rendered: %v, want %v:\n%s", flag, !private, private, patch)

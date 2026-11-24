@@ -1,0 +1,73 @@
+# Rendered by giantswarm-platform-manager, cluster-mcp-servers definition. Do not edit by hand:
+# the next reconcile writes it again from the installation's inputs.
+oidc:
+  staticClients:
+    mcpKubernetes:
+      clientSecretRef:
+        name: dex-client-mcp-kubernetes
+        key: secret
+    mcpPrometheus:
+      clientSecretRef:
+        name: dex-client-mcp-prometheus
+        key: secret
+    mcpCapi:
+      clientSecretRef:
+        name: dex-client-mcp-capi
+        key: secret
+  giantswarm:
+    connectors:
+      giantswarm-gopher-oidc:
+        connectorType: oidc
+        connectorName: Giant Swarm (central login)
+        config:
+          issuer: https://dex-gopher.giantswarm.svc.cluster.local:8443
+          issuerAlias: https://dex.gopher.example.io
+          providerDiscoveryOverrides:
+            tokenURL: https://dex-gopher.giantswarm.svc.cluster.local:8443/token
+            jwksURL: https://dex-gopher.giantswarm.svc.cluster.local:8443/keys
+            userInfoURL: https://dex-gopher.giantswarm.svc.cluster.local:8443/userinfo
+          rootCAs:
+            - /etc/dex-tunnelport/tunnelport-spiffe-bundle/svid_bundle.pem
+          insecureEnableGroups: true
+          clientID: federation-osprey
+          redirectURI: https://dex.osprey.acme.example.test/callback
+          scopes:
+            - openid
+            - profile
+            - email
+            - groups
+            - offline_access
+        clientSecretRef:
+          name: dex-connector-giantswarm-gopher-oidc
+          key: client-secret
+  customer:
+    connectors:
+      acme-simple-oidc:
+        connectorType: oidc
+        connectorName: harrier
+        config:
+          issuer: https://dex.harrier.acme.example.test
+          insecureEnableGroups: true
+          clientID: federation-osprey
+          redirectURI: https://dex.osprey.acme.example.test/callback
+          scopes:
+            - openid
+            - profile
+            - email
+            - groups
+            - offline_access
+        clientSecretRef:
+          name: dex-connector-acme-simple-oidc
+          key: client-secret
+dex:
+  volumes:
+    - name: tunnelport-spiffe-bundle
+      secret:
+        secretName: tunnelport-spiffe-bundle
+        items:
+          - key: svid_bundle.pem
+            path: svid_bundle.pem
+  volumeMounts:
+    - name: tunnelport-spiffe-bundle
+      mountPath: /etc/dex-tunnelport/tunnelport-spiffe-bundle
+      readOnly: true

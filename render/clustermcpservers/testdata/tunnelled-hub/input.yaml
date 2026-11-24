@@ -1,0 +1,20 @@
+# A management cluster without the agent platform whose egress reaches the
+# fleet's hub ("gopher") through the tunnel alone: its connector trusts the
+# hub's Dex through the dex-gopher tunnel, Dex mounts the tunnel's trust
+# bundle, and the connector of its organisation's hub ("harrier") stays on
+# the public Dex. Invented names.
+input:
+  installation:
+    name: osprey
+    baseDomain: osprey.acme.example.test
+    customer: acme
+    dexAppVersion: 3.5.2
+    agentPlatform: false
+    federation:
+      connectors:
+        - {hub: gopher, customer: giantswarm, baseDomain: gopher.example.io, first: true, tunnel: {service: dex-gopher, namespace: giantswarm, bundleSecret: tunnelport-spiffe-bundle}}
+        - {hub: harrier, customer: acme, baseDomain: harrier.acme.example.test, first: true}
+  servers:
+    mcpKubernetes: {enabled: true}
+    mcpPrometheus: {enabled: true}
+    mcpCapi: {enabled: true}

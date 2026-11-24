@@ -75,7 +75,8 @@ func (p Installation) referencesDexSecrets() bool {
 
 // DexSecretRefusal says why a commit of p is refused for the encrypted Dex
 // values on record: p's Dex patch renders a key — oidc.extraStaticClients,
-// the authenticator's trustedPeers, the connectors of either owner — that
+// the authenticator's trustedPeers, the connectors of either owner, the
+// tunnel bundle's dex.volumes and dex.volumeMounts — that
 // rec's encrypted dex-app secret patch carries as a list. app-operator merges the
 // config ConfigMap with the config Secret, and helm-controller its
 // valuesFrom, by replacing a list, never by appending, so the encrypted list
@@ -91,7 +92,7 @@ func (p Installation) DexSecretRefusal(rec *installations.Record) string {
 		return ""
 	}
 	var lists []installations.DexSecretList
-	var clients, peers, connectors []string
+	var clients, peers, connectors, volumes []string
 	for _, l := range rec.DexSecretLists {
 		switch l.Path {
 		case installations.DexExtraStaticClients:
@@ -110,18 +111,22 @@ func (p Installation) DexSecretRefusal(rec *installations.Record) string {
 			if len(p.DexStaffConnectors) > 0 {
 				lists, connectors = append(lists, l), append(connectors, p.DexStaffConnectors...)
 			}
+		case installations.DexVolumes, installations.DexVolumeMounts:
+			if len(p.DexVolumes) > 0 {
+				lists, volumes = append(lists, l), p.DexVolumes
+			}
 		}
 	}
 	if len(lists) == 0 {
 		return ""
 	}
-	return DexSecretHold(rec.DexSecretSource, lists, clients, peers, connectors)
+	return DexSecretHold(rec.DexSecretSource, lists, clients, peers, connectors, volumes)
 }
 
 // DexSecretHold is the sentence the commit is held with: the encrypted file,
 // the lists it carries with their entries, and the rendered clients, trusted
-// peers and connectors those lists would shadow.
-func DexSecretHold(source string, lists []installations.DexSecretList, clients, peers, connectors []string) string {
+// peers, connectors and Dex volumes those lists would shadow.
+func DexSecretHold(source string, lists []installations.DexSecretList, clients, peers, connectors, volumes []string) string {
 	named := make([]string, len(lists))
 	for i, l := range lists {
 		named[i] = fmt.Sprintf("%s (%d entries)", l.Path, l.Entries)
@@ -136,7 +141,10 @@ func DexSecretHold(source string, lists []installations.DexSecretList, clients, 
 	if len(connectors) > 0 {
 		shadowed = append(shadowed, "connectors "+strings.Join(connectors, ", "))
 	}
-	return fmt.Sprintf("the encrypted Dex values on record (%s) carry %s, which the values merge takes whole over the plaintext patch, so the rendered %s would never reach Dex; carry every entry over by hand first — each client to its own Secret and a plaintext entry, each peer and each connector to the plaintext list — then drop the lists from the encrypted values",
+	if len(volumes) > 0 {
+		shadowed = append(shadowed, "Dex volumes "+strings.Join(volumes, ", "))
+	}
+	return fmt.Sprintf("the encrypted Dex values on record (%s) carry %s, which the values merge takes whole over the plaintext patch, so the rendered %s would never reach Dex; carry every entry over by hand first — each client to its own Secret and a plaintext entry, each peer, each connector, each volume and each mount to the plaintext list — then drop the lists from the encrypted values",
 		source, strings.Join(named, " and "), strings.Join(shadowed, " and "))
 }
 

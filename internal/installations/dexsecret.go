@@ -29,6 +29,8 @@ const (
 	DexTrustedPeers       = "oidc.staticClients.dexK8SAuthenticator.trustedPeers"
 	DexCustomerConnectors = "oidc.customer.connectors"
 	DexStaffConnectors    = "oidc.giantswarm.connectors"
+	DexVolumes            = "dex.volumes"
+	DexVolumeMounts       = "dex.volumeMounts"
 )
 
 // DexSecretList is one of those lists as the encrypted dex-app secret patch
@@ -66,6 +68,10 @@ func readDexSecretLists(ctx context.Context, read Reader, inst Installation) ([]
 // such list.
 func dexSecretLists(patch string) ([]DexSecretList, error) {
 	var doc struct {
+		Dex struct {
+			Volumes      yaml.Node `yaml:"volumes"`
+			VolumeMounts yaml.Node `yaml:"volumeMounts"`
+		} `yaml:"dex"`
 		OIDC struct {
 			StaticClients struct {
 				DexK8SAuthenticator struct {
@@ -93,6 +99,8 @@ func dexSecretLists(patch string) ([]DexSecretList, error) {
 		{DexExtraStaticClients, &doc.OIDC.ExtraStaticClients},
 		{DexStaffConnectors, &doc.OIDC.Giantswarm.Connectors},
 		{DexCustomerConnectors, &doc.OIDC.Customer.Connectors},
+		{DexVolumes, &doc.Dex.Volumes},
+		{DexVolumeMounts, &doc.Dex.VolumeMounts},
 	} {
 		if l.node.Kind == yaml.SequenceNode && len(l.node.Content) > 0 {
 			out = append(out, DexSecretList{Path: l.path, Entries: len(l.node.Content)})

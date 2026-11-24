@@ -66,6 +66,7 @@ func TestIdentityCheckRenderPreservesPrivateOIDCAndCustomerLogins(t *testing.T) 
 			raw, _ := loadInput(t, shape)
 			input, err := Parse(raw)
 			require.NoError(t, err)
+			input.IdentityCheckConnectors = nil
 			before := string(render.MustYAML(input.musterValues()))
 			require.NotContains(t, before, "identityCheckConnectors:")
 			input.IdentityCheckConnectors = []string{"customer-login", identityEntraConnector, "giantswarm-gazelle-oidc"}
@@ -97,4 +98,66 @@ func TestIdentityCheckRenderPreservesPrivateOIDCAndCustomerLogins(t *testing.T) 
 	require.NotNil(t, connectors)
 	input := &Input{IdentityCheckConnectors: connectors}
 	require.Contains(t, string(render.MustYAML(input.musterValues())), "identityCheckConnectors: []")
+}
+
+func TestPilotPolicyAlignsBrowserBrokerAndProviderConnectors(t *testing.T) {
+	const staffHub = "gazelle"
+	const staffConnector = "giantswarm-gazelle-oidc"
+	policy, err := loadPolicy()
+	require.NoError(t, err)
+	for _, installation := range []string{grantFixtureInstallation, "glean", "unselected-target"} {
+		t.Run(installation, func(t *testing.T) {
+			browser, err := policy.identityCheckConnectors(Installation{Name: installation, Federation: Federation{Connectors: []render.HubConnector{
+				{Hub: staffHub, Customer: portalTenant, First: true},
+			}}})
+			require.NoError(t, err)
+			expected := staffConnector
+			if installation == "unselected-target" {
+				expected = identityLegacyConnector
+				require.Nil(t, browser)
+			} else {
+				require.Contains(t, browser, identityEntraConnector)
+				require.Contains(t, browser, expected)
+				require.NotContains(t, browser, identityLegacyConnector)
+			}
+			raw, _ := loadInput(t, shapeHubPrivateTarget)
+			hub, err := Parse(raw)
+			require.NoError(t, err)
+			hub.Installation.Name = staffHub
+			target := hub.Installation.Federation.Targets[0]
+			target.Installation, target.Hubs = installation, []string{staffHub}
+			hub.Installation.Federation.Targets = []Target{target}
+			hub.Connectors, err = policy.connectors(hub.Installation)
+			require.NoError(t, err)
+			require.Contains(t, string(render.MustYAML(hub.brokerValues())), "connectorId: "+expected+"\n")
+			require.Contains(t, string(render.MustYAML(hub.identityProviders())), "connectorId: "+expected+"\n")
+		})
+	}
+}
+
+func TestExchangeOnlyTargetsUseStaffConnector(t *testing.T) {
+	const staffHub = "gazelle"
+	const staffConnector = "giantswarm-gazelle-oidc"
+	policy, err := loadPolicy()
+	require.NoError(t, err)
+	for _, installation := range []string{"galaxy", "garm", "gerbil", "glippy", "grouse", "jackal"} {
+		t.Run(installation, func(t *testing.T) {
+			browser, err := policy.identityCheckConnectors(Installation{Name: installation, Federation: Federation{Connectors: []render.HubConnector{
+				{Hub: staffHub, Customer: portalTenant, First: true},
+			}}})
+			require.NoError(t, err)
+			require.Nil(t, browser)
+			raw, _ := loadInput(t, shapeHubPrivateTarget)
+			hub, err := Parse(raw)
+			require.NoError(t, err)
+			hub.Installation.Name = staffHub
+			target := hub.Installation.Federation.Targets[0]
+			target.Installation, target.Hubs = installation, []string{staffHub}
+			hub.Installation.Federation.Targets = []Target{target}
+			hub.Connectors, err = policy.connectors(hub.Installation)
+			require.NoError(t, err)
+			require.Contains(t, string(render.MustYAML(hub.brokerValues())), "connectorId: "+staffConnector+"\n")
+			require.Contains(t, string(render.MustYAML(hub.identityProviders())), "connectorId: "+staffConnector+"\n")
+		})
+	}
 }
