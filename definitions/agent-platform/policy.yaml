@@ -132,6 +132,7 @@ federation:
         default: giantswarm-simple-oidc
         targets:
           agama: ""
+          alba: ""
           anemone: ""
           armadillo: ""
           avocet: ""
