@@ -702,12 +702,11 @@ func TestWatchActionReadsALaterMigrationAsPlanned(t *testing.T) {
 	}
 }
 
-// An entry a newer definition adds to a comma-joined list (M5: kagent in the
-// kagent UI's oidc-extra-audience) reads planned on the list's one leaf:
-// the merge wrote the list without it, the installation runs that list, and
-// the stage is enabled — the leaf the merge wrote holds the live value.
+// An entry a newer definition adds to a comma-joined list (M5: kagent in
+// oidc-extra-audience) reads planned on the list's one leaf: the merge wrote
+// the list without it, the installation runs that list, and the stage is
+// enabled — the leaf the merge wrote holds the live value.
 func TestWatchActionReadsALaterEntryOfAJoinedListAsPlanned(t *testing.T) {
-	const flag = "--oidc-extra-audience="
 	st := newStack(t)
 	a, _ := rolledOut(t, st)
 	admin := adminLive(t, st)
@@ -721,19 +720,6 @@ func TestWatchActionReadsALaterEntryOfAJoinedListAsPlanned(t *testing.T) {
 		}
 		return strings.Join(lines, "\n")
 	})
-	edited := false
-	st.inst.edit("Deployment", kagentNamespace, "kagent-oauth2-proxy", func(obj map[string]any) {
-		args := obj["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)["containers"].([]any)[0].(map[string]any)["args"].([]any)
-		for i, arg := range args {
-			if s, _ := arg.(string); strings.HasPrefix(s, flag) && withoutKagent(s) != s {
-				args[i], edited = withoutKagent(s), true
-			}
-		}
-	})
-	if !edited {
-		t.Fatalf("the oauth2-proxy's %s names no kagent", flag)
-	}
-
 	w, text, isErr := watchCall(t, admin, a.Name)
 	if isErr || !w.Ready || w.State != actions.StateEnabled || w.Action.Status.State != actions.StateEnabled || w.Verify.Summary[verify.Planned] == 0 {
 		t.Fatalf("the list the merge wrote: %v %s", isErr, text)
@@ -1303,15 +1289,12 @@ func TestWatchActionWaitsForTheMergedValuesAfterAReleaseOfOthers(t *testing.T) {
 // The stricter proof keeps no healthy stage rolling out where the values
 // carry an entry the commit kept beside the render (the risk of
 // giantswarm-platform-manager#936, item 1): an audience of the kagent UI the
-// installation trusts besides, in the values the HelmRelease reads and on
-// the oauth2-proxy's flag. Not on the action's record, the values are not
+// installation trusts besides, in the values the HelmRelease reads. Not on
+// the action's record, the values are not
 // the merged ones and the stage waits; on record as kept, the drift check
 // lays it over the render, and the stage is enabled.
 func TestWatchActionEndsAStageWhoseValuesCarryAKeptEntry(t *testing.T) {
-	const (
-		handKept = "hand-kept"
-		flag     = "--oidc-extra-audience="
-	)
+	const handKept = "hand-kept"
 	st := newStack(t)
 	a, _ := rolledOut(t, st)
 	admin := adminLive(t, st)
@@ -1331,17 +1314,8 @@ func TestWatchActionEndsAStageWhoseValuesCarryAKeptEntry(t *testing.T) {
 		}
 		data[platformValuesKey] = strings.Join(lines, "\n")
 	})
-	st.inst.edit("Deployment", kagentNamespace, "kagent-oauth2-proxy", func(obj map[string]any) {
-		containers := obj["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)["containers"].([]any)
-		args := containers[0].(map[string]any)["args"].([]any)
-		for i, arg := range args {
-			if s, _ := arg.(string); strings.HasPrefix(s, flag) {
-				args[i], edited = s+","+handKept, edited+1
-			}
-		}
-	})
-	if edited != 2 {
-		t.Fatalf("%d of the values' oidc-extra-audience and the oauth2-proxy's %s edited, want both", edited, flag)
+	if edited != 1 {
+		t.Fatalf("%d of the values' oidc-extra-audience edited, want one", edited)
 	}
 
 	w, text, isErr := watchCall(t, admin, a.Name)

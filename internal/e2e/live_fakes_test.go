@@ -249,13 +249,6 @@ func mergeMaps(base map[string]any, over any) map[string]any {
 	return base
 }
 
-// editLogs changes the pods' logs in place.
-func (f *fakeInstallation) editLogs(change func(logs map[string]string)) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	change(f.logs)
-}
-
 // edit changes one object in place.
 func (f *fakeInstallation) edit(kind, namespace, name string, change func(obj map[string]any)) {
 	f.mu.Lock()
@@ -410,17 +403,8 @@ func (f *fakeInstallation) populate(t *testing.T, installation string, res *rend
 				obj["data"] = data
 			}
 			f.put(kind, p.Namespace, p.Name, obj)
-		case render.LogAbsent, render.Drift:
-			if kind != "Deployment" && kind != "ConfigMap" {
-				continue
-			}
-			if kind == "Deployment" {
-				pod := p.Name + "-0"
-				f.put("Deployment", p.Namespace, p.Name, map[string]any{specKey: map[string]any{"selector": map[string]any{"matchLabels": map[string]any{"app": p.Name}},
-					"template": map[string]any{specKey: map[string]any{"containers": []any{map[string]any{"name": p.Name,
-						"args": []any{"--provider=oidc", "--oidc-extra-audience=" + fmt.Sprint(at("kagent.oauth2-proxy.extraArgs.oidc-extra-audience"))}}}}}}})
-				f.put("Pod", p.Namespace, pod, map[string]any{metadataKey: map[string]any{"labels": map[string]any{"app": p.Name}}, statusKey: map[string]any{"phase": "Running"}})
-				f.logs[p.Namespace+"/"+pod] = busyLog()
+		case render.Drift:
+			if kind != "ConfigMap" {
 				continue
 			}
 			server := at("muster.muster.oauth.server")
@@ -771,19 +755,6 @@ func lastLines(log string, n int) string {
 		lines = lines[len(lines)-n:]
 	}
 	return strings.Join(lines, "\n") + "\n"
-}
-
-// busyLog is the log of an oauth2-proxy that serves traffic: a thousand
-// request lines, then the lines its start writes — whole, over the response
-// cap; the last two hundred lines, well within it.
-func busyLog() string {
-	var b strings.Builder
-	for i := range 1000 {
-		fmt.Fprintf(&b, "10.244.%d.%d - alice@example.test [22/Sep/2026:05:%02d:%02d +0000] kagent.example.test GET - \"/api/agents?namespace=kagent&page=%d\" HTTP/1.1 \"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36\" 200 1532 0.012\n",
-			i/256, i%256, i/60%60, i%60, i)
-	}
-	b.WriteString("level=info msg=\"OAuthProxy configured\"\nlevel=info msg=\"listening on :4180\"\n")
-	return b.String()
 }
 
 // bulky makes a HelmRelease as large as the platform's meta chart release is

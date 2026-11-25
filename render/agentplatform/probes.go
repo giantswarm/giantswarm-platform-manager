@@ -18,9 +18,6 @@ const (
 const (
 	// fluxNamespace is where the installation's HelmReleases live.
 	fluxNamespace = "flux-giantswarm"
-	// oauth2ProxyDeployment is the kagent UI's oauth2-proxy, the workload that
-	// protects the UI and the API.
-	oauth2ProxyDeployment = "kagent-oauth2-proxy"
 	// musterConfigMap carries muster's server configuration as the chart renders it.
 	musterConfigMap = "muster-config"
 	// konfiguration renders the meta chart's values from the configs
@@ -34,10 +31,10 @@ const (
 // probes are the checks of the running installation, one or more per live
 // dimension of features.yaml, in the order the verify slice runs them: the
 // configuration on its source's revision, the releases, the workloads that
-// read muster's credentials, kagent's workloads, the Secrets, the model
-// configuration, the identity chain over HTTP, Dex holding every referenced
-// client secret, the tool access, the logs, and the drift of live values
-// against the render. Everything kagent's
+// read muster's credentials, kagent's workloads, the ServiceAccount kagent's
+// HelmRelease runs as, the model configuration, Dex answering and holding
+// every referenced client secret, the tool access, and the drift of live
+// values against the render. Everything kagent's
 // is probed only when kagent is enabled. Nothing here runs anything: a probe
 // is data.
 func (in *Input) probes() []render.Probe {
@@ -52,20 +49,11 @@ func (in *Input) probes() []render.Probe {
 		p = append(p, conditionProbe(platformWorkloadsDimension, featureRuntime, platformNamespace, "Deployment", c.deployment, "Available", conditionTrue))
 	}
 	if in.kagent() {
-		for _, name := range []string{"kagent-controller", "kagent-ui", oauth2ProxyDeployment} {
-			p = append(p, conditionProbe("live-kagent-workloads", featureRuntime, kagentNamespace, "Deployment", name, "Available", conditionTrue))
-		}
-		p = append(p, conditionProbe("live-kagent-workloads", featureRuntime, kagentNamespace, "Cluster.postgresql.cnpg.io", "kagent-pg", "Ready", conditionTrue))
-		credentials := resourceProbe("live-oauth2-proxy-secret-and-flux-sa", featureSecrets, render.ResourcePresent, kagentNamespace, "Secret", kagentOAuth2ProxySecret)
-		credentials.Expect.Keys = []string{"client-id", "client-secret", "cookie-secret"}
-		p = append(p, credentials,
-			resourceProbe("live-oauth2-proxy-secret-and-flux-sa", featureSecrets, render.ResourcePresent, kagentNamespace, "ServiceAccount", "kagent-flux"),
-			in.modelConfigProbe(),
-			httpProbe("live-kagent-api-protected", featureIdentity, "https://"+in.host("kagent")+"/api/agents", render.Expectation{Status: 403}),
-			httpProbe("live-kagent-login-redirect", featureIdentity, "https://"+in.host("kagent")+"/oauth2/start", render.Expectation{
-				Status: 302, LocationContains: "client_id=kagent",
-				Note: "the login redirects to Dex at https://" + in.host("dex") + "/auth as client kagent",
-			}))
+		p = append(p,
+			conditionProbe("live-kagent-workloads", featureRuntime, kagentNamespace, "Deployment", "kagent-controller", "Available", conditionTrue),
+			conditionProbe("live-kagent-workloads", featureRuntime, kagentNamespace, "Cluster.postgresql.cnpg.io", "kagent-pg", "Ready", conditionTrue),
+			resourceProbe("live-kagent-flux-sa", featureSecrets, render.ResourcePresent, kagentNamespace, "ServiceAccount", "kagent-flux"),
+			in.modelConfigProbe())
 	}
 	for _, c := range in.dexRedirectClients() {
 		p = append(p, render.DexAuthProbe("live-dex-auth-per-client", featureIdentity, in.host("dex"), c.id, c.redirectURI))
@@ -93,11 +81,6 @@ func (in *Input) probes() []render.Probe {
 	for _, s := range in.Installation.MCPServers {
 		p = append(p, registeredServerProbe(s))
 	}
-	if in.kagent() {
-		audience := resourceProbe("live-oauth2-proxy-audience", featureIdentity, render.LogAbsent, kagentNamespace, "Deployment", oauth2ProxyDeployment)
-		audience.Expect.Absent = "audience .* does not match"
-		p = append(p, audience)
-	}
 	if in.kagent() && in.Installation.ChartLine == lineFour {
 		p = append(p, agentModelsProbe(), in.podCertificateRequestProbe())
 	}
@@ -107,12 +90,6 @@ func (in *Input) probes() []render.Probe {
 		p = append(p, driftProbe("live-kagent-provider-values", featureRuntime, fluxNamespace, "HelmRelease", "kagent",
 			".spec.values.providers are the rendered kagent.providers (the meta chart forwards its kagent block flat)",
 			render.Comparison{Live: "spec.values.providers", Rendered: "kagent.providers"}))
-	}
-	if in.kagent() {
-		p = append(p,
-			driftProbe("live-oauth2-proxy-extra-audience", featureIdentity, kagentNamespace, "Deployment", oauth2ProxyDeployment,
-				"--oidc-extra-audience carries the rendered audiences",
-				render.Comparison{Live: "spec.template.spec.containers[0].args[args]", Prefix: "--oidc-extra-audience=", Rendered: "kagent.oauth2-proxy.extraArgs.oidc-extra-audience"}))
 	}
 	p = append(p, driftProbe("live-muster-trusted-audiences", featureIdentity, platformNamespace, "ConfigMap", musterConfigMap,
 		"trustedAudiences are the rendered muster.muster.oauth.server.trustedAudiences",
