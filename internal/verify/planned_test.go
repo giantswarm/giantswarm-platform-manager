@@ -640,3 +640,30 @@ func TestModelKeysAreTheM43Removal(t *testing.T) {
 		t.Errorf("tenants.organizations.enabled: reason %q", got)
 	}
 }
+
+// The hub's kagent tunnel to a private target, which the render no longer
+// carries, is the M47 removal on the hub's RemoteApps and on the target's
+// oauth2-proxy peer; the agentgateway tunnel beside it is nobody's removal.
+func TestKagentTunnelIsTheM47Removal(t *testing.T) {
+	rs, err := definitions.Removals(installations.AgentPlatform)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rms := readRemovals(rs, facts{factDomain: testDomain})
+	apps := &fileDiff{path: "management-clusters/x/extras/agent-platform/tunnelport/remoteapps.yaml", kind: definitions.KindExtras}
+	patch := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
+	for _, tc := range []struct {
+		fd         *fileDiff
+		path, says string
+	}{
+		{apps, "[RemoteApp/agent-platform/kagent-glean].spec.port", "the RemoteApp kagent-glean tunnels this hub to the glean installation's kagent UI"},
+		{patch, "kagent.oauth2ProxyIngress.additionalPeers[0].app", "the kagent UI's oauth2-proxy admits the Teleport agent"},
+	} {
+		if got := rms.reason(tc.fd, tc.path); !strings.Contains(got, tc.says) || !strings.HasSuffix(got, "· M47") {
+			t.Errorf("%s: reason %q, want one naming %q tagged M47", tc.path, got, tc.says)
+		}
+	}
+	if got := rms.reason(apps, "[RemoteApp/agent-platform/agentgateway-glean].spec.port"); got != "" {
+		t.Errorf("the agentgateway tunnel is planned %q, want none", got)
+	}
+}

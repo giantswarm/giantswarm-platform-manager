@@ -332,6 +332,12 @@ removals:
     reason: "Kept: the ingress block tunes this installation's own Dex ingress; the platform reads nothing of it and leaves it on the Dex values as it is."
 
   # --- management-clusters extras/agent-platform/ ---
+  - key: extras:agent-platform/tunnelport/remoteapps.yaml [RemoteApp/agent-platform/kagent-<target>]
+    kind: migration
+    reason: >-
+      Removed: the RemoteApp kagent-<target> tunnels this hub to the <target> installation's kagent UI behind oauth2-proxy (port 4180, probed at /ping);
+      the Dev Portal reaches <target>'s kagent controller through the agentgateway-<target> tunnel, and the hub's token of the tunnel leaves
+      teleport-fleet's values with it · M47
   - key: extras:agents
     kind: not-platform
     reason: "Kept: extras/agent-platform/agents holds the agents deployed on this installation; they are the installation's own workloads, which the platform neither writes nor removes."
