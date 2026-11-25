@@ -112,8 +112,10 @@ removals:
     kind: migration
     reason: "Removed: the chart's bundled promql-agent sample is switched on here; a sample agent an installation wants is an Agent object under extras · M24"
   - key: configmap:kagent.oauth2ProxyIngress
-    kind: kept
-    reason: "Kept: the kagent UI's oauth2-proxy ingress is written per installation here, the peer the Dev Portal's tunnel reaches the UI through; it stays until the shared defaults carry the rule for every private installation · M22"
+    kind: migration
+    reason: >-
+      Removed: the kagent UI's oauth2-proxy admits the Teleport agent here (oauth2ProxyIngress.additionalPeers), the peer of the hub's kagent
+      tunnel; the hub no longer renders that tunnel, since the Dev Portal reaches the kagent controller through the agentgateway tunnel · M47
   - key: configmap:postgres.storage
     kind: migration
     reason: "Removed: the platform Postgres storage class is written here; the shared defaults set it per cloud provider · M17"

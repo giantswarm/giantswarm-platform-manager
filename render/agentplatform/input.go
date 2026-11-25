@@ -394,8 +394,7 @@ type Target struct {
 	BaseDomain   string `json:"baseDomain"`
 	Private      bool   `json:"private"`
 	// PlatformProxied says the hub's portal proxies the target's agent
-	// platform: a private one is then also tunnelled to its kagent and its
-	// agentgateway.
+	// platform: a private one is then also tunnelled to its agentgateway.
 	PlatformProxied bool `json:"platformProxied"`
 	// Hubs are the hubs of this hub's organisation that broker into the
 	// target, this hub among them, in the registry's order: the first

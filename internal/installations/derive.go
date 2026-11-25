@@ -163,8 +163,8 @@ type FederatedTarget struct {
 	Private      bool   `json:"private"`
 	// PlatformProxied says the hub's portal proxies the target's agent
 	// platform (its app-config's agentPlatform.kagent.installations lists
-	// the target): a private target with it is also tunnelled to its kagent
-	// and its agentgateway.
+	// the target): a private target with it is also tunnelled to its
+	// agentgateway.
 	PlatformProxied bool `json:"platformProxied"`
 	// Hubs are the installations of the hub's organisation whose muster
 	// brokers into the target, the hub among them, in the order the
@@ -873,9 +873,9 @@ func targetServers(ctx context.Context, c *gh.Client, inst Installation) ([]stri
 
 // proxied says whether a portal that hub brokers for proxies name's agent
 // platform: its app-config's agentPlatform.kagent.installations lists name,
-// so the portal reaches name's kagent and agentgateway through the tunnel on
-// hub. A private target with it is tunnelled to both; one the portal reaches
-// through the kubernetes tunnel alone is not.
+// so the portal reaches name's kagent controller through the agentgateway
+// tunnel on hub. A private target with it is tunnelled to its agentgateway;
+// one the portal reaches through the kubernetes tunnel alone is not.
 func proxied(portals []Portal, hub, name string) bool {
 	return slices.ContainsFunc(portals, func(p Portal) bool { return p.Broker == hub && slices.Contains(p.PlatformProxied, name) })
 }
