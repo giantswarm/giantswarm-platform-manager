@@ -63,12 +63,13 @@ type tunnelledApp struct {
 
 // tunnelledApps are the target's Dex (the exchange endpoint), each federated
 // group's MCP server, on a target whose agent platform the hub's portal
-// proxies its kagent (the UI and API v1 behind oauth2-proxy, whose health route
-// is /ping) and its agentgateway (the kagent API v2 controller's gRPC listener,
-// whose health route is /healthz: GET / gets no HTTP answer there) — the portal
-// reaches both through the tunnel — and the API server the broker's tokens are
-// for. A browse-only target has no federated group and no proxied platform: its
-// Dex and its API server alone.
+// proxies its agentgateway (the kagent API v2 controller's gRPC listener,
+// whose health route is /healthz: GET / gets no HTTP answer there), which the
+// portal reaches through the tunnel, and the API server the broker's tokens
+// are for. No app reaches the target's kagent UI or its oauth2-proxy: the
+// portal speaks to the controller through the agentgateway alone. A
+// browse-only target has no federated group and no proxied platform: its Dex
+// and its API server alone.
 func (t Target) tunnelledApps() []tunnelledApp {
 	// Dex runs two proxy pods: every token refresh of a user of the target
 	// passes it, and tunnelport's disruption budget keeps one of them serving
@@ -78,7 +79,7 @@ func (t Target) tunnelledApps() []tunnelledApp {
 		apps = append(apps, tunnelledApp{name: "mcp-" + g, port: 8080})
 	}
 	if t.PlatformProxied {
-		apps = append(apps, tunnelledApp{name: "kagent", port: 4180, probe: "/ping"}, tunnelledApp{name: "agentgateway", port: 8080, probe: "/healthz"})
+		apps = append(apps, tunnelledApp{name: "agentgateway", port: 8080, probe: "/healthz"})
 	}
 	return append(apps, tunnelledApp{name: "kubernetes", port: 6443})
 }
@@ -358,10 +359,10 @@ func (in *Input) tunnelExtras(r *render.Result, repo render.Repository, dir stri
 	header := fileHeader + "# One RemoteApp per tunnelled app of every private target: a tbot + ghostunnel Deployment and a\n" +
 		"# Service named <app>-<target> on :" + tunnelPort + ", TLS terminated with the app's SVID. spec.port is the\n" +
 		"# tunnel's loopback port; the upstream port is the Teleport app's, advertised by the target. A target\n" +
-		"# whose agent platform the portal proxies is also tunnelled to its kagent and its agentgateway.\n"
+		"# whose agent platform the portal proxies is also tunnelled to its agentgateway.\n"
 	for _, t := range in.Installation.Federation.Targets {
 		if t.BrowseOnly {
-			header += "# " + t.Installation + " is browse-only (policy federation.browseOnly): no MCP server, kagent or agentgateway tunnel.\n"
+			header += "# " + t.Installation + " is browse-only (policy federation.browseOnly): no MCP server or agentgateway tunnel.\n"
 		}
 	}
 	r.Add(repo, dir+"/remoteapps.yaml", render.File{Content: append([]byte(header), bytes.Join(docs, []byte("---\n"))...)})

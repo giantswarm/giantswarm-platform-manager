@@ -12,6 +12,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // The patches of an invented installation the planned keys are tried on.
@@ -638,5 +639,38 @@ func TestModelKeysAreTheM43Removal(t *testing.T) {
 	}
 	if got := rms.reason(fd, "tenants.organizations.enabled"); !strings.HasPrefix(got, "Removed: tenants.organizations") {
 		t.Errorf("tenants.organizations.enabled: reason %q", got)
+	}
+}
+
+// The hub's kagent tunnel to a private target, which the render no longer
+// carries, is the M47 removal on the hub's RemoteApps, on teleport-fleet's
+// tunnelport values and on the target's oauth2-proxy peer; the agentgateway
+// tunnel beside it is nobody's removal.
+func TestKagentTunnelIsTheM47Removal(t *testing.T) {
+	rs, err := definitions.Removals(installations.AgentPlatform)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rms := readRemovals(rs, facts{factDomain: testDomain})
+	apps := &fileDiff{path: "management-clusters/x/extras/agent-platform/tunnelport/remoteapps.yaml", kind: definitions.KindExtras}
+	patch := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
+	tunnels := &fileDiff{path: render.TunnelportValuesPath, kind: definitions.KindExtras}
+	for _, tc := range []struct {
+		fd         *fileDiff
+		path, says string
+	}{
+		{apps, "[RemoteApp/agent-platform/kagent-glean].spec.port", "the RemoteApp kagent-glean tunnels this hub to the glean installation's kagent UI"},
+		{tunnels, "tunnelport.tunnels[kagent-glean].tokens[kagent-glean-bot-token].consumer", "teleport-fleet's tunnel kagent-glean carries this hub's token"},
+		{patch, "kagent.oauth2ProxyIngress.additionalPeers[0].app", "the kagent UI's oauth2-proxy admits the Teleport agent"},
+	} {
+		if got := rms.reason(tc.fd, tc.path); !strings.Contains(got, tc.says) || !strings.HasSuffix(got, "· M47") {
+			t.Errorf("%s: reason %q, want one naming %q tagged M47", tc.path, got, tc.says)
+		}
+	}
+	if got := rms.reason(apps, "[RemoteApp/agent-platform/agentgateway-glean].spec.port"); got != "" {
+		t.Errorf("the agentgateway RemoteApp is planned %q, want none", got)
+	}
+	if got := rms.reason(tunnels, "tunnelport.tunnels[agentgateway-glean].tokens[agentgateway-glean-bot-token].consumer"); got != "" {
+		t.Errorf("the agentgateway tunnel is planned %q, want none", got)
 	}
 }

@@ -55,9 +55,6 @@ const currentPlatformPatchKept = `kagent:
   modelConfigs:
     - name: anthropic-opus-5
       provider: Anthropic
-  oauth2ProxyIngress:
-    additionalPeers:
-      - app: teleport-kube-agent
   controller:
     nodeSelector:
       karpenter.sh/capacity-type: on-demand
@@ -118,7 +115,6 @@ func TestKeepAudiencesCarriesTheKeptKeysFromTheRecord(t *testing.T) {
 		"kagent.providers.anthropic.model",
 		"kagent.providers.annotations",
 		modelConfigsPath,
-		"kagent.oauth2ProxyIngress.additionalPeers",
 		"kagent.controller.nodeSelector",
 		"kagent.controller.volumes",
 		"kagent.harnesses",
@@ -152,7 +148,6 @@ func TestKeepAudiencesCarriesTheKeptKeysFromTheRecord(t *testing.T) {
 		{List: "kagent.providers.anthropic", Entry: "model"},
 		{List: providersPath, Entry: "annotations"},
 		{List: kagentKey, Entry: "modelConfigs"},
-		{List: kagentKey, Entry: "oauth2ProxyIngress"},
 		{List: musterKey, Entry: "resources"},
 		{List: "muster.muster.oauth.server.dex", Entry: "connectorId"},
 		{List: "muster.muster.oauth.server", Entry: "trustedIssuers"},
@@ -258,7 +253,7 @@ func TestKeepSubtreesLeavesTheRendersOwnKeyAndAPathThroughAScalar(t *testing.T) 
 }
 
 func TestKeptPlatformKeysReadTheDefinition(t *testing.T) {
-	for _, want := range []string{"muster.muster.oauth.server.trustedIssuers", "kagent.oauth2ProxyIngress", "muster.muster.oauth.server.dex.connectorId", "muster.muster.oauth.server.providerTokenRefreshThreshold", "kagent.controller.nodeSelector", "postgres.affinity", "postgres.databases", "kagent.controller.volumes", "kagent.harnesses", "components.toolchain-manager", "toolchain-manager", "kagent.controller.sessionToolImageEgressOrigins"} {
+	for _, want := range []string{"muster.muster.oauth.server.trustedIssuers", "muster.muster.oauth.server.dex.connectorId", "muster.muster.oauth.server.providerTokenRefreshThreshold", "kagent.controller.nodeSelector", "postgres.affinity", "postgres.databases", "kagent.controller.volumes", "kagent.harnesses", "components.toolchain-manager", "toolchain-manager", "kagent.controller.sessionToolImageEgressOrigins"} {
 		if !slices.Contains(keptPlatformKeys, want) {
 			t.Errorf("the agent-platform definition keeps %s; kept keys: %v", want, keptPlatformKeys)
 		}
