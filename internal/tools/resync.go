@@ -209,6 +209,13 @@ func (t *Tools) resync(ctx context.Context, c *gh.Client, id *identity.Identity,
 					approval := *approvalOf(&status)
 					approval.Decision, approval.DecidedBy, approval.At = actions.DecisionMergedWithoutApproval, by, now()
 					status.Approval = &approval
+					// The repositories' merge path let a governance change
+					// through without the team's decision: audited apart, since
+					// only their branch protection stood between one person
+					// and the change.
+					merged := fresh
+					merged.Status = status
+					t.auditGovernance(ctx, "governance_change_merged_without_approval", &merged)
 				}
 				posts = append(posts, fmt.Sprintf("Merged outside the manager by %s: %s. *%s* is rolling out — the rollout and the probes follow here.", by, prLinks(stagePRs(status.PullRequests, idx)), st.Name))
 				if noReview(&fresh) {

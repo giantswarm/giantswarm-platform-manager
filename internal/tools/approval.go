@@ -139,6 +139,7 @@ func (t *Tools) approve(ctx context.Context, args map[string]any) (any, error) {
 	}
 	if id.Login == a.Spec.Actor.Login {
 		t.d.Log.Info("action_approval_actor_refused", identity.LogAttr(ctx), "action", a.Name)
+		t.auditGovernance(ctx, "governance_change_self_approval_refused", a)
 		return nil, fmt.Errorf("%s: action %s is yours (%s): a second person of the team decides; Deny withdraws it", ToolApproveAction, a.Name, id.Login)
 	}
 	if a.Status.Approval != nil && a.Status.Approval.Decision != "" {
@@ -171,6 +172,7 @@ func (t *Tools) approve(ctx context.Context, args map[string]any) (any, error) {
 		return nil, fmt.Errorf("%s: the approving reviews are submitted and the action could not record the decision: %w", ToolApproveAction, err)
 	}
 	t.d.Log.Info("action_approved", identity.LogAttr(ctx), "action", a.Name, "pullRequests", len(a.Status.PullRequests))
+	t.auditGovernance(ctx, "governance_change_approved", a)
 	return Decision{Action: a, Message: fmt.Sprintf("%s approved action %s: approving reviews submitted on %d pull request(s) (%s); %s merges them as the actor with %s once the checks are green.",
 		id.Login, a.Name, len(a.Status.PullRequests), prList(a.Status.PullRequests), a.Spec.Actor.Login, ToolMergeAction)}, nil
 }
@@ -355,6 +357,9 @@ func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
 	}
 	res.Action = a
 	t.d.Log.Info("action_merge", identity.LogAttr(ctx), "action", a.Name, "state", a.Status.State, "merged", len(res.Merged), "waiting", res.Waiting, "stage", res.Stage)
+	if len(res.Merged) > 0 {
+		t.auditGovernance(ctx, "governance_change_merged", a)
+	}
 	if res.Waiting != "" {
 		res.Message = fmt.Sprintf("%d pull request(s) merged as %s (%s); the merge stopped at %s — call %s again once it is green.", len(res.Merged), id.Login, prList(res.Merged), res.Waiting, ToolMergeAction)
 		return res, nil
@@ -512,8 +517,9 @@ func (t *Tools) awaitApproval(ctx context.Context, a *actions.Action) (any, erro
 const reviewNotRequired = "every target is a test installation: no Team review, the merge is told to the team's standup channel"
 
 // requestApproval is the commit's last step: the review posted, or — every
-// target a test installation — recorded as not required and the action ready
-// to merge, nothing posted until the merge tells the standup channel.
+// target a test installation and the governance unchanged — recorded as not
+// required and the action ready to merge, nothing posted until the merge
+// tells the standup channel.
 func (t *Tools) requestApproval(ctx context.Context, a *actions.Action, tool string, test bool) (*actions.Action, error) {
 	latest, err := t.d.Actions.Get(ctx, a.Name)
 	if err != nil {
@@ -523,7 +529,9 @@ func (t *Tools) requestApproval(ctx context.Context, a *actions.Action, tool str
 		return nil, err
 	}
 	*a = *latest
-	if !test {
+	// A governance change is never one person's: the review stands on test
+	// installations too, whatever the caller says.
+	if !test || len(a.Spec.Governance) > 0 {
 		return t.askApproval(ctx, a, tool)
 	}
 	status := a.Status
@@ -702,6 +710,7 @@ func reviewText(a *actions.Action) string {
 	}
 	b.WriteString(skippedClause(a.Spec.Skipped))
 	b.WriteString(".")
+	b.WriteString(governanceText(a))
 	b.WriteString(whyAndWhat(a, "What changes", a.Spec.Installations))
 	return b.String()
 }

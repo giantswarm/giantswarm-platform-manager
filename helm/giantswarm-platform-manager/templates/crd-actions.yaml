@@ -143,6 +143,18 @@ spec:
                   description: Per installation, the definition's enabled marker resolved to the installation's repository (owner/repo:path), whose absence from the default branch after the merge means the fileset was reverted.
                   type: object
                   additionalProperties: {type: string}
+                governance:
+                  description: Per installation, the platform's governance the commit changes, old -> new with the changes that loosen it; such an action is approved by a second person, on test installations too. Values of governance and governedServers only, never a secret.
+                  type: object
+                  additionalProperties:
+                    type: object
+                    properties:
+                      lines:
+                        type: array
+                        items: {type: string}
+                      loosens:
+                        type: array
+                        items: {type: string}
             status:
               type: object
               properties:

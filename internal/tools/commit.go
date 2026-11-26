@@ -154,6 +154,12 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	}
 	spec.Change = changeSummary(p)
 	spec.Changes = map[string][]string{one: plan.Summary(p)}
+	if g, ok := plan.GovernanceOf(p); ok {
+		// One person never changes the governance alone: the Team review,
+		// on a test installation too.
+		spec.Governance = map[string]plan.GovernanceChange{one: g}
+		test = false
+	}
 	spec.KeptByInstallation = keptByInstallation(nil, p)
 	if n := p.Diff[plan.ChangeUnknown]; n > 0 {
 		return nil, fmt.Errorf("%s: %d file(s) of %s could not be compared against the repository as you (%s); nothing is committed blind", tool, n, one, unknownFiles(p))
@@ -201,6 +207,7 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 		return nil, t.fail(ctx, tool, a, remote, prs, err)
 	}
 	t.d.Log.Info(tool, identity.LogAttr(ctx), "action", a.Name, "installation", one, "state", a.Status.State, "pullRequests", len(prs))
+	t.auditGovernance(ctx, "governance_change_committed", a)
 	a, err = t.requestApproval(ctx, a, tool, test)
 	if err != nil {
 		return nil, fmt.Errorf("%w — the pull requests are open (%s) and the action pends approval; %s posts the review", err, prList(prs), ToolMergeAction)

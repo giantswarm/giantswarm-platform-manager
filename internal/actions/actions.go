@@ -119,6 +119,11 @@ type Spec struct {
 	// Skipped are the installations of the set a wave left out, and why:
 	// never a target, no pull request.
 	Skipped []Skipped `json:"skipped,omitempty"`
+	// Governance is, per installation, the platform's governance the commit
+	// changes (plan.GovernanceOf), old → new with what loosens: such an
+	// action is approved by a second person, on test installations too, and
+	// its approval and merge are audited. Recorded at commit.
+	Governance map[string]plan.GovernanceChange `json:"governance,omitempty"`
 }
 
 // Skipped is an installation of a wave's set that is not a target.

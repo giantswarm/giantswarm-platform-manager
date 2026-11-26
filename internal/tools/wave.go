@@ -110,10 +110,18 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 			spec.CapabilityByInstallation[n] = d.Name
 		}
 	}
+	governs := false
 	for _, p := range targets {
 		spec.InputsByInstallation[p.Name] = p.Inputs
 		spec.Changes[p.Name] = plan.Summary(p)
 		spec.KeptByInstallation = keptByInstallation(spec.KeptByInstallation, p)
+		if g, ok := plan.GovernanceOf(p); ok {
+			if spec.Governance == nil {
+				spec.Governance = map[string]plan.GovernanceChange{}
+			}
+			spec.Governance[p.Name] = g
+			governs = true
+		}
 	}
 	changes := make([]string, 0, len(targets))
 	var rotated []string
@@ -131,6 +139,9 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		rollout.Installations = append(rollout.Installations, actions.InstallationRollout{Name: p.Name, State: actions.StatePendingApproval, Message: fmt.Sprintf("stage %d of %d", i+1, len(targets))})
 	}
 	spec.Change = strings.Join(changes, "; ")
+	// One person never changes the governance alone: the Team review, on
+	// test installations too.
+	test = test && !governs
 	if err := t.standupRefusal(tool, test); err != nil {
 		return nil, err
 	}
@@ -180,6 +191,7 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		return nil, t.fail(ctx, tool, a, remote, prs, err)
 	}
 	t.d.Log.Info(tool, identity.LogAttr(ctx), "action", a.Name, "wave", strings.Join(res.Order, ","), "skipped", len(res.Skipped), "pullRequests", len(prs))
+	t.auditGovernance(ctx, "governance_change_committed", a)
 	a, err = t.requestApproval(ctx, a, tool, test)
 	if err != nil {
 		return nil, fmt.Errorf("%w — the pull requests are open (%s) and the action pends approval; %s posts the review", err, prList(prs), ToolMergeAction)

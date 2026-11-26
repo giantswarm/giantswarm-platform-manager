@@ -152,7 +152,8 @@ this order, writing nothing before the gate:
    and each resulting pull request before the next opens. Approval and merge wait until creation finishes.
    The Action stays in *pending approval*: the approval, the merge
    and the rollout follow. An action on Giant Swarm's test installations alone — the hub's customer's, not the
-   hub: the wave's first stage — needs no Team review: the approval is recorded *not required*, the Action reads *ready to merge*, the actor merges
+   hub: the wave's first stage — needs no Team review unless it changes the platform's governance
+   ([docs/governance.md](docs/governance.md)): the approval is recorded *not required*, the Action reads *ready to merge*, the actor merges
    with `merge_action` once green, and the merge is told to the team's standup channel — who, what, why and
    what changed (`approvals.standupChannel`; unset, such a commit is refused). The hub and every customer
    installation keep the review. A failure on the way moves the Action to *failed* and closes the pull requests
@@ -172,7 +173,8 @@ Slack alone: who asks to enable or reconcile which capability on which installat
 account engineer the catalog records), the reason quoted, and *what changes* — a line per component from
 the comparison (`spec.changes`, `plan.Summary`): a component created whole reads *new*, versions read old →
 new, list entries added and removed, a kustomization's patches by their target with the JSON patch
-operations they add, drop or change (op and path), values keys by path without their values, a Secret's keys
+operations they add, drop or change (op and path), values keys by path without their values — except the
+platform's governance, which reads first with its values old → new and what loosens it —, a Secret's keys
 added and removed, the credentials that rotate (the ones asked for marked *on request*) — with the pull requests as
 links; a wave whose installations change alike reads once, else per installation. The Account Engineers'
 channel (`approvals.noticeChannel`) never sees the review: once a stage on a customer installation reaches
