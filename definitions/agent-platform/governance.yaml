@@ -1,0 +1,52 @@
+# The governance the agent-platform definition writes against (Governing tool
+# calls, giantswarm/giantswarm#38902), copied from the releases that render and
+# read it and held to them by definitions' TestGovernanceMatchesMusterAndTheChart
+# (which reads sibling checkouts of muster and agent-platform where present).
+#
+# muster: the roles muster knows and the floors of each (muster
+# internal/api/governance.go, GovernanceRoles and roleFloors). A floor asks agents
+# in both modes; muster refuses to start on one listed as safe on a server of its
+# role, and the definition refuses a floor of any role on any safe list.
+muster:
+  roles: [agentManager, platformManager, connectorManager, sessionManager, modelManager, clusterManager, vmManager, workspaceManager, toolchainManager, skillManager, infrastructure]
+  floors:
+    agentManager: [set_agent_approval, set_organization_connector, add_organization_member, set_organization_model, set_organization_egress_policy, replace_organization_credential]
+    platformManager: [approve_action, merge_action]
+    connectorManager: [mcpserver_create, mcpserver_connect, mcpserver_set_approval]
+    toolchainManager: [approve_source]
+    modelManager: [add_backend]
+# chart: the meta chart's own governedServers by source (agent-platform
+# helm/agent-platform/values.yaml, top-level governedServers). A source's role is
+# what the server is: an override may not change it. The plan diffs an override
+# against these entries, so a first override reads old -> new.
+chart:
+  agent-manager:
+    role: agentManager
+    safe: [get_info, list_agents, get_agent, get_agent_status, validate_agent, list_model_configs, list_egress_policies, list_skills, list_sessions, get_session, get_session_turn, toolchain_users, list_organizations, get_organization, list_organization_members, list_organization_connectors]
+  kagent:
+    role: sessionManager
+    safe: [list_sessions, list_session_checkpoints, list_sandbox_templates, list_sandboxes, get_sandbox, get_sandbox_process, read_sandbox_outputs, read_sandbox_file]
+  model-manager:
+    role: modelManager
+    safe: [get_info, get_backend, list_backends, list_models, get_model, list_loaded_models, list_presets, search_models, check_fit, list_nodes, list_jobs, get_job]
+  cluster-manager:
+    role: clusterManager
+    safe: [get_info, list_clusters, list_releases, list_node_pools]
+  vm-manager:
+    role: vmManager
+    safe: [get_info, get_host, list_images, get_image, list_networks, get_network, list_vms, get_vm, get_vm_metrics, get_vm_attestation]
+  toolchain-manager:
+    role: toolchainManager
+    safe: [list_sources, list_toolchains, describe_toolchain, toolchain_build_status, search_packages]
+  workspace-manager:
+    role: workspaceManager
+    safe: [list_providers, list_owners, list_workspaces, get_workspace, list_repositories, preview_workspace]
+  skill-manager:
+    role: skillManager
+    safe: [list_skill_sources, list_skills, resolve_skills, get_skill, get_skill_file]
+  mcp-kubernetes:
+    role: infrastructure
+    safe: [logs, list_port_forward_sessions, context_list, context_get_current, can_i, api_resources, cluster_health, capi_list_clusters, capi_get_cluster, capi_resolve_cluster, capi_cluster_health, get, list, describe]
+  giantswarm-platform-manager:
+    role: platformManager
+    safe: [get_info, list_installations, list_actions, get_action, verify_capability]

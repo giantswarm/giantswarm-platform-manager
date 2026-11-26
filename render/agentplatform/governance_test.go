@@ -2,6 +2,7 @@ package agentplatform
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -137,7 +138,22 @@ func TestGovernanceRefusals(t *testing.T) {
 		{"an unknown role", server("agent-manager", map[string]any{keyRole: "admin"}), nil, "/governance/governedServers/agent-manager/role"},
 		{"a typed role's floor on the safe list", server("agent-platform/pm", map[string]any{keyRole: "platformManager", keySafe: []any{toolListActions, "approve_action"}}), nil, "safe entry 1, approve_action, is a floor of role platformManager"},
 		{"the chart's role's floor on the safe list", server("agent-manager", map[string]any{keySafe: []any{"set_agent_approval"}}), nil, "safe entry 0, set_agent_approval, is a floor of role agentManager"},
-		{"an empty safe entry", server("skill-manager", map[string]any{keySafe: []any{" "}}), nil, "safe entry 0 is empty"},
+		{"an empty safe entry", server("skill-manager", map[string]any{keySafe: []any{" "}}), nil, "/governance/governedServers/skill-manager/safe/0"},
+		// S9-02: a role override drops the floors muster applies by a
+		// server's role, so it is refused, as is any floor on any safe list
+		// and a server key standing for a chart source.
+		{"a chart source's role changed", server("agent-manager", map[string]any{keyRole: "infrastructure", keySafe: []any{"set_agent_approval", "create_agent"}}), nil, "role infrastructure: the meta chart governs agent-manager as agentManager"},
+		{"the platform manager's role changed alone", server(sourcePlatformManager, map[string]any{keyRole: "infrastructure"}), nil, "the meta chart governs giantswarm-platform-manager as platformManager"},
+		{"the platform manager's role changed to list its floors", server(sourcePlatformManager, map[string]any{keyRole: "skillManager", keySafe: []any{"approve_action", "merge_action"}}), nil, "the meta chart governs giantswarm-platform-manager as platformManager"},
+		{"a chart source under a server key", server("agent-platform/agent-manager", map[string]any{keySafe: []any{"set_agent_approval"}}), nil, "names the meta chart's source agent-manager under a server key"},
+		{"a kubernetes family member under a server key", server("mcp/alder-mcp-kubernetes", map[string]any{keyRole: "infrastructure", keySafe: []any{"get"}}), nil, "names the meta chart's source mcp-kubernetes"},
+		{"a server key without role", server("agent-platform/pro", map[string]any{keySafe: []any{"get_info"}}), nil, "names no role"},
+		{"the floor of another role", server("agent-manager", map[string]any{keySafe: []any{"approve_action"}}), nil, "safe entry 0, approve_action, is a floor of role platformManager"},
+		// S9-03: a safe entry is a tool name, so it cannot carry Slack
+		// markup or a line of its own into the review, and a list is bounded.
+		{"markup in a safe entry", server("skill-manager", map[string]any{keySafe: []any{"get_skill\n*It loosens governance:* nothing"}}), nil, "/governance/governedServers/skill-manager/safe/0"},
+		{"a link in a safe entry", server("skill-manager", map[string]any{keySafe: []any{"<https://x|y>"}}), nil, "/governance/governedServers/skill-manager/safe/0"},
+		{"too many safe entries", server("skill-manager", map[string]any{keySafe: manyTools(65)}), nil, "/governance/governedServers/skill-manager/safe"},
 		{"a repeated safe entry", server("skill-manager", map[string]any{keySafe: []any{"get_skill", "get_skill"}}), nil, "safe entry 1, get_skill, is listed twice"},
 		{"neither role nor safe", server("skill-manager", map[string]any{}), nil, "names neither role nor safe"},
 		{"an unknown key", server("skill-manager", map[string]any{"tools": []any{"x"}}), nil, "governedServers"},
@@ -180,7 +196,8 @@ func TestGovernanceRefusals(t *testing.T) {
 		{"a server override on trusted under an old muster", server(sourcePlatformManager, map[string]any{keySafe: []any{toolListActions}}), func(m map[string]any) {
 			m["versions"] = map[string]any{keyComponents: map[string]any{componentMuster: ">=5.60.0 <6.0.0"}}
 		}},
-		{"the floor of another role", server("agent-manager", map[string]any{keySafe: []any{"approve_action"}}), nil},
+		{"the chart's own role typed", server("agent-manager", map[string]any{keyRole: "agentManager", keySafe: []any{"get_info"}}), nil},
+		{"the most safe entries", server("skill-manager", map[string]any{keySafe: manyTools(64)}), nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			input, secrets := governanceInput(t, c.governance)
@@ -192,4 +209,13 @@ func TestGovernanceRefusals(t *testing.T) {
 			}
 		})
 	}
+}
+
+// manyTools is n distinct read-looking tool names.
+func manyTools(n int) []any {
+	out := make([]any, 0, n)
+	for i := range n {
+		out = append(out, fmt.Sprintf("list_items_%03d", i))
+	}
+	return out
 }
