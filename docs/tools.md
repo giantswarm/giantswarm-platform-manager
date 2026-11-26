@@ -79,6 +79,7 @@ Dry-run first: it names every file a commit deletes or edits, the files another 
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
     "capability": {
       "description": "The capability (default agent-platform); get_info lists the definitions and their input schemas.",
@@ -137,6 +138,7 @@ A set renders only the installations that have it on record, as reconcile_capabi
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
     "capability": {
       "description": "The capability (default agent-platform); get_info lists the definitions and their input schemas.",
@@ -349,6 +351,7 @@ A plan whose files are all unchanged means the installation matches the definiti
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
     "capability": {
       "description": "The capability (default agent-platform); get_info lists the definitions and their input schemas.",
