@@ -2,11 +2,14 @@ reconcile_capability dry run: agent-platform on hub hazel, as someone
 Order: rowan
 
 rowan: enabled
-  Files (2 update, 1 unchanged):
+  Files (2 update, 1 delete, 1 unchanged):
     CHANGE     REPOSITORY                           PATH
     update     giantswarm/acme-configs              installations/rowan/apps/agent-platform/configmap-values.yaml.patch
     update     giantswarm/acme-configs              installations/rowan/apps/agent-platform/secret-values.yaml.patch
     unchanged  giantswarm/acme-management-clusters  management-clusters/rowan/extras/agent-platform/kustomization.yaml
+    delete     giantswarm/acme-management-clusters  management-clusters/rowan/extras/agent-platform/secrets/old-credentials.yaml
+    management-clusters/rowan/extras/agent-platform/secrets/old-credentials.yaml goes: Removed: the old credentials' Secret is no longer read
+    management-clusters/rowan/extras/agent-platform/secrets/old-credentials.yaml is unlisted from management-clusters/rowan/extras/agent-platform/secrets/kustomization.yaml resources[old-credentials.yaml]
     Differs in giantswarm/acme-configs:installations/rowan/apps/agent-platform/configmap-values.yaml.patch:
       changed  data.values.gateway.host
       added    data.values.gateway.replicas
@@ -15,4 +18,7 @@ rowan: enabled
       changed  stringData.values.kagent.clientSecret  (secret)
   After the merge, delete on rowan in this order — the fleet's Kustomization over the tree does not prune what the change takes off the record:
     [ ] RemoteApp agent-platform/kagent-glean
+    [ ] Secret agent-platform/old-credentials
+  After the merge, delete on hazel in this order — the fleet's Kustomization over the tree does not prune what the change takes off the record:
+    [ ] ConfigMap agent-platform/agent-platform-stale-values
   Comparison: 1 drifted, 1 differs by input, 1 as defined

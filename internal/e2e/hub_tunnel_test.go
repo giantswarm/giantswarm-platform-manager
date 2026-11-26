@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/giantswarm/gitops-commit/commit"
 	"github.com/stretchr/testify/require"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
@@ -113,14 +114,54 @@ func TestReconcileListsTheRemoteAppItTakesOffTheRecord(t *testing.T) {
 	require.GreaterOrEqual(t, i, 0, text)
 	require.Equal(t, plan.ChangeUpdate, p.Files[i].Change, text)
 	require.NotContains(t, p.Files[i].Content, "kagent-"+alder, text)
-	want := plan.Object{Kind: "RemoteApp", Namespace: platformNamespace, Name: "kagent-" + alder}
+	want := plan.Object{Kind: "RemoteApp", Namespace: platformNamespace, Name: "kagent-" + alder, Repository: repo}
 	require.Equal(t, []plan.Object{want}, p.Checklist, text)
 
 	out, text, isErr := commitCall(t, c, tools.ToolReconcileCapability, args())
 	require.False(t, isErr, text)
 	require.NotNil(t, out.Action, text)
-	require.Equal(t, []actions.Orphan{{Installation: rowan, Kind: want.Kind, Namespace: want.Namespace, Name: want.Name}}, out.Action.Status.Orphans)
+	require.Equal(t, []actions.Orphan{{Installation: rowan, Kind: want.Kind, Namespace: want.Namespace, Name: want.Name, Stage: rowan, Repository: repo}}, out.Action.Status.Orphans)
 	prs := st.remote.PullRequests()
 	require.Len(t, prs, 1)
 	require.Contains(t, prs[0].Body, "- [ ] RemoteApp "+platformNamespace+"/kagent-"+alder+"\n")
+}
+
+// alder hosts acme's portal and lists rowan: rowan's reconcile writes the
+// platform's section into alder's tree. A document it removes from a file
+// there is on alder's cluster, not rowan's: the dry run lists it under alder,
+// and the committed action records it on alder as rowan's stage took it off
+// the record, its pull request saying where to delete it.
+func TestReconcileListsAnObjectOfASiblingPortalUnderItsHost(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	sopsFixtures(t, st.ghs)
+	st.ghs.addFile(acmeMCs, installations.PortalConfigPath(alder), portalConfig(alder, rowan))
+	st.ghs.addFile(acmeMCs, "management-clusters/"+alder+"/extras/backstage/backstage/kustomization.yaml", hubPortalKustomization)
+	c := st.mcpClient(t, aliceToken)
+	putOnRecord(t, st, c, rowan, minimalInputs(nil))
+	args := func() map[string]any {
+		return map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(nil)}
+	}
+
+	path := "management-clusters/" + alder + "/extras/backstage/agent-platform/values.yaml"
+	content, ok := st.ghs.repos()[acmeMCs][path]
+	require.True(t, ok, "rowan's section is not in alder's tree")
+	const staleKind, staleName = "ConfigMap", "agent-platform-stale-values"
+	const stale = "apiVersion: v1\nkind: " + staleKind + "\nmetadata:\n  name: " + staleName + "\n  namespace: flux-giantswarm\n"
+	st.ghs.addFile(acmeMCs, path, content+"---\n"+stale)
+	seedRemote(t, st)
+
+	dry, text, isErr := dryRun(t, c, tools.ToolReconcileCapability, args())
+	require.False(t, isErr, text)
+	want := plan.Object{Kind: staleKind, Namespace: "flux-giantswarm", Name: staleName, Installation: alder, Repository: acmeMCs}
+	require.Equal(t, []plan.Object{want}, findPlan(t, dry, rowan).Checklist, text)
+
+	out, text, isErr := commitCall(t, c, tools.ToolReconcileCapability, args())
+	require.False(t, isErr, text)
+	require.NotNil(t, out.Action, text)
+	require.Equal(t, []actions.Orphan{{Installation: alder, Kind: want.Kind, Namespace: want.Namespace, Name: want.Name, Stage: rowan, Repository: acmeMCs}}, out.Action.Status.Orphans)
+	prs := st.remote.PullRequests()
+	i := slices.IndexFunc(prs, func(pr commit.FakePullRequest) bool { return strings.Contains(pr.Body, staleName) })
+	require.GreaterOrEqual(t, i, 0)
+	require.Contains(t, prs[i].Body, "stay on "+alder+" until a person deletes them")
 }

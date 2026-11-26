@@ -775,7 +775,7 @@ func changeSummary(p plan.Installation) string {
 	if w := p.SwitchOff.Warning(); w != "" {
 		parts = append(parts, w)
 	}
-	for _, c := range []plan.Change{plan.ChangeCreate, plan.ChangeUpdate} {
+	for _, c := range []plan.Change{plan.ChangeCreate, plan.ChangeUpdate, plan.ChangeDelete} {
 		if n := p.Diff[c]; n > 0 {
 			parts = append(parts, fmt.Sprintf("%d file(s) to %s", n, c))
 		}

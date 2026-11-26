@@ -327,8 +327,7 @@ func remove(status *actions.Status, a *actions.Action, def installations.Capabil
 	}
 	status.Rollout = stagesOf(a)
 	var where []string
-	recorded := status.Orphans
-	status.Orphans = nil
+	status.Orphans = recordedOrphans(a, status.Orphans, gone)
 	pruned := true
 	for _, g := range gone {
 		d := stageDef(a, g.installation, def)
@@ -339,11 +338,6 @@ func remove(status *actions.Status, a *actions.Action, def installations.Capabil
 		}
 		where = append(where, fmt.Sprintf("%s (%s in %s)", g.installation, g.path, g.repository))
 		if !d.Prunes {
-			for _, o := range recorded {
-				if o.Installation == g.installation {
-					status.Orphans = appendOrphan(status.Orphans, o)
-				}
-			}
 			for _, o := range orphansOf(d, g.installation, a.InputsOnRecord(g.installation)) {
 				status.Orphans = appendOrphan(status.Orphans, o)
 			}
@@ -407,6 +401,34 @@ func disabled(status *actions.Status, a *actions.Action, def installations.Capab
 		text = text[:reportLimit] + "…"
 	}
 	return text
+}
+
+// recordedOrphans are the orphans a commit recorded (its checklist) that
+// stay once the action is removed: each whose stage's pull request in its
+// repository is merged — the objects are off the record and on the cluster
+// whatever the stage's other pull requests are — or, for a record without
+// the repository, whose stage has a pull request merged, or is gone. A stage
+// with nothing merged took nothing off the record and keeps none. The order
+// stays the commit's.
+func recordedOrphans(a *actions.Action, recorded []actions.Orphan, gone []revertedStage) []actions.Orphan {
+	var out []actions.Orphan
+	for _, o := range recorded {
+		stage := o.Stage
+		if stage == "" {
+			stage = o.Installation
+		}
+		merged := slices.ContainsFunc(gone, func(g revertedStage) bool { return g.installation == stage })
+		for _, k := range a.StagePullRequests(stage) {
+			pr := a.Status.PullRequests[k]
+			if pr.State == actions.PullRequestMerged && (o.Repository == "" || pr.Repository == o.Repository) {
+				merged = true
+			}
+		}
+		if merged {
+			out = appendOrphan(out, o)
+		}
+	}
+	return out
 }
 
 // appendOrphan appends o to orphans unless an orphan names the same object

@@ -33,6 +33,12 @@
 #   retired             a key of a generated Secret the definition no longer writes and nothing reads; the plan
 #                       leaves it on record, since dropping it alone would rewrite the Secret and draw every value
 #                       it holds anew, and it goes with the Secret's next rotation
+#   deleted-file        a whole file under the installation's extras/ the definition no longer renders, keyed
+#                       extras:<path under extras/> with no YAML path and no placeholder: a reconcile deletes it,
+#                       takes the entry that lists it out of the kustomization.yaml of its directory, and lists the
+#                       objects it declares for a person to delete after the merge (the Kustomization over extras/
+#                       does not prune); a file another capability on record renders stays. Without such a
+#                       removal a reconcile keeps every file on record
 #
 # keptWhile, on a removal of another kind, names a key path of the same file: while the render carries it, the plan
 # keeps the key from the record as it keeps one of kind kept; once the render lacks it, the key goes for the reason
