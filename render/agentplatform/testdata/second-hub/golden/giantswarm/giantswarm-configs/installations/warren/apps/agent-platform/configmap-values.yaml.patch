@@ -92,7 +92,7 @@ muster:
                 name: marmot-token-exchange-credentials
             vole:
               dexTokenEndpoint: https://dex.vole.example.io/token
-              connectorId: giantswarm-simple-oidc
+              connectorId: giantswarm-warren-oidc
               scopes: openid profile email groups audience:server:client_id:dex-k8s-authenticator
               clientCredentialsSecretRef:
                 name: vole-token-exchange-credentials
@@ -126,7 +126,7 @@ agent-platform-mcps:
         clientSecretKey: client-secret
     vole:
       tokenEndpoint: https://dex.vole.example.io/token
-      connectorId: giantswarm-simple-oidc
+      connectorId: giantswarm-warren-oidc
       scopes: openid profile email groups
       credentialsSecret:
         name: vole-token-exchange-credentials

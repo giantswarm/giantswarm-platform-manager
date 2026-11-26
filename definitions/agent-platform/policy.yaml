@@ -106,15 +106,17 @@ releaseCandidates:
 # an oidc connector trusting the hub's Dex as the issuer with the login client the hub's Dex
 # registers for the target, as an entry of the oidc.<owner>.connectors map next to the target's own
 # login connectors.
-# - `staff`: organisations whose hubs' connectors go under oidc.giantswarm, each named `further`:
-#   dex-operator registers `<organisation>-simple-oidc` there.
+# - `staff`: organisations whose hubs' connectors go under oidc.giantswarm, each named `further`,
+#   beside the connectors dex-operator registers there.
 # - `furtherByHand`: organisations whose further hubs' connectors the targets keep by hand, so no
 #   definition renders them nor the hub's login client: giantswarm's further hub is graveler, the Dev
 #   Portal's test hub, whose connectors on garm and glean are set up in each target's dex-operator
 #   credentials.
-# - `exchangeThrough`: an organisation's first hub's exchange connector, with a `default` and
-#   optional `targets` overrides keyed by installation. An empty override uses the rendered
-#   connector. A connector's id is part of every Dex subject issued through it.
+# - `exchangeThrough`: an organisation's first hub's exchange connector where it is not the
+#   rendered one, with a `default` and optional `targets` overrides keyed by installation; an
+#   empty selection uses the rendered connector. None is set: every hub exchanges through the
+#   connector the target registers for it. A connector's id is part of every Dex subject issued
+#   through it, so a selection only bridges a move of people's subjects.
 federation:
   # Per-installation browser login connectors. An absent entry keeps the local/shared
   # setting; [] clears the list. A staff target's selected exchange connector
@@ -127,34 +129,7 @@ federation:
     further: "{{ .Customer }}-{{ .Name }}-oidc"
     staff: [giantswarm]
     furtherByHand: [giantswarm]
-    exchangeThrough:
-      giantswarm:
-        default: giantswarm-simple-oidc
-        targets:
-          agama: ""
-          alba: ""
-          alligator: ""
-          anemone: ""
-          armadillo: ""
-          avocet: ""
-          cedar: ""
-          enigma: ""
-          ferret: ""
-          finch: ""
-          gaggle: ""
-          galaxy: ""
-          garm: ""
-          gerbil: ""
-          glean: ""
-          glippy: ""
-          graveler: ""
-          grizzly: ""
-          grouse: ""
-          jackal: ""
-          leopard: ""
-          sardine: ""
-          tamarin: ""
-          wallaby: ""
+    exchangeThrough: {}
     # The name a target's login page shows for an organisation's hub connector; without one,
     # the hub's name. The parenthesis tells it apart from the target's own GitHub and Entra
     # connectors.

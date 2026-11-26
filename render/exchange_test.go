@@ -39,7 +39,7 @@ func TestFederatedConnectors(t *testing.T) {
 	}
 	if names.First != "{{ .Customer }}-simple-oidc" || names.Further != "{{ .Customer }}-{{ .Name }}-oidc" ||
 		!slices.Equal(names.Staff, []string{fleetOrganisation}) || !slices.Equal(names.FurtherByHand, []string{fleetOrganisation}) ||
-		names.ExchangeThrough[fleetOrganisation].Default != legacyExchangeConnector {
+		len(names.ExchangeThrough) != 0 {
 		t.Fatalf("the policy's federation.connector: %+v", names)
 	}
 	hubs := []HubConnector{
@@ -86,9 +86,9 @@ func TestFederatedConnectors(t *testing.T) {
 	}
 }
 
-// A staff organisation's first hub exchanges tokens through the connector
-// exchangeThrough names until its people's subjects move; every other hub
-// through the connector the target registers for it.
+// With no exchangeThrough selection every hub, a staff organisation's first
+// hub included, exchanges tokens through the connector the target registers
+// for it.
 func TestExchangeConnector(t *testing.T) {
 	names, err := ConnectorPolicy()
 	if err != nil {
@@ -98,7 +98,7 @@ func TestExchangeConnector(t *testing.T) {
 		first          bool
 		customer, want string
 	}{
-		{true, fleetOrganisation, legacyExchangeConnector},
+		{true, fleetOrganisation, renderedExchangeConnector},
 		{false, fleetOrganisation, renderedExchangeConnector},
 		{true, customerOrganisation, "oakridge-simple-oidc"},
 		{false, customerOrganisation, "oakridge-gopher-oidc"},
