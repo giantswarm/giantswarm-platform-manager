@@ -7,13 +7,16 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
+	"github.com/giantswarm/giantswarm-platform-manager/render/agentplatform"
 )
 
 // checkout is a sibling repository's file: env names its checkout, else the
@@ -169,5 +172,26 @@ func TestGovernanceDataIsConsistent(t *testing.T) {
 	}
 	if _, ok := g.Chart["giantswarm-platform-manager"]; ok {
 		t.Error("the Platform Manager is the platform's governed server, not the chart's")
+	}
+}
+
+// governanceFloor reads the meta chart's governance floor, the muster
+// release from which it renders muster's governance configuration (empty
+// while unreleased).
+var governanceFloor = regexp.MustCompile(`define "agent-platform.muster.governanceFloor" -}}(.*?){{- end -}}`)
+
+// Review F1: once the meta chart renders the governance (its floor set),
+// the definition must render Giant Swarm's floors and governed server with
+// the same release: otherwise a chart and muster with the governance reach
+// an installation without the Platform Manager's floors, and agents approve
+// and merge its Actions unasked. The definition's gates must be set to the
+// chart's floor before the chart ships it.
+func TestGovernanceGatesFollowTheChart(t *testing.T) {
+	m := governanceFloor.FindSubmatch(checkout(t, "AGENT_PLATFORM_CHECKOUT", "agent-platform", "helm/agent-platform/templates/_helpers.tpl"))
+	if m == nil {
+		t.Fatal("the meta chart defines no agent-platform.muster.governanceFloor")
+	}
+	if floor := strings.TrimSpace(string(m[1])); floor != "" && (agentplatform.GovernanceChart == "" || agentplatform.GovernanceMuster != floor) {
+		t.Errorf("the meta chart renders the governance from muster %s, and the definition's gates are GovernanceChart %q, GovernanceMuster %q: set them in the release that precedes the chart's, or Giant Swarm installations run without the Platform Manager's floors", floor, agentplatform.GovernanceChart, agentplatform.GovernanceMuster)
 	}
 }

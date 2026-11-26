@@ -34,7 +34,7 @@ func TestGovernanceSurvivesAReconcile(t *testing.T) {
 	require.NoError(t, err)
 	again := string(result.Tree()["giantswarm/giantswarm-configs/"+marker])
 	require.Contains(t, again, "governance:\n  mode: governed\n  roleFloors:\n    platformManager:\n")
-	require.Contains(t, again, "  giantswarm-platform-manager:\n    role: platformManager\n")
+	require.Contains(t, again, "  giantswarm-platform-manager/giantswarm-platform-manager:\n    role: platformManager\n")
 	require.Contains(t, again, "  mcp-kubernetes: null\n  skill-manager:\n    safe:\n      - get_skill\n")
 	_, _, doc, _ = inputFromTheRecord(t, "platform-tenant-retired", func(string) string { return again })
 	result, err = definition.Render(doc, nil, render.ModeCommit)

@@ -245,8 +245,11 @@ func checkGovernedSource(source string, s *GovernedServer) string {
 		return fmt.Sprintf("names the meta chart's source %s under a server key; override it as %s, whose role the chart fixes", alias, alias)
 	}
 	g := definitions.Governance()
-	if _, ours := g.Platform.GovernedServers[source]; ours {
-		return "is Giant Swarm's own governed server, which the definition renders on every installation and no input changes"
+	for key := range g.Platform.GovernedServers {
+		// Any key naming the platform's server, in its namespace or another.
+		if source == key || source[strings.LastIndex(source, "/")+1:] == key[strings.LastIndex(key, "/")+1:] {
+			return "is Giant Swarm's own governed server (" + key + "), which the definition renders on every installation and no input changes"
+		}
 	}
 	if s == nil {
 		return ""

@@ -27,8 +27,11 @@ muster:
 platform:
   roleFloors:
     platformManager: [approve_action, merge_action]
+  # The Platform Manager's MCPServer is giantswarm-platform-manager in its release
+  # namespace, giantswarm-platform-manager, outside muster's (agent-platform): muster
+  # keys it namespace/name. A bare name would match no server.
   governedServers:
-    giantswarm-platform-manager:
+    giantswarm-platform-manager/giantswarm-platform-manager:
       role: platformManager
       safe: [get_info, list_installations, list_actions, get_action, verify_capability]
   connectorAdmins:

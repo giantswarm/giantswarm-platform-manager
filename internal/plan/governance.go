@@ -3,7 +3,6 @@ package plan
 import (
 	"encoding/json"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 
@@ -215,15 +214,12 @@ func effectiveMode(v any) string {
 }
 
 // roleFloorsOf are the role floors the meta chart's governance carries;
-// none written are the platform's (an earlier muster built them in, and the
-// definition renders them wherever the chart takes them), so writing them
-// changes nothing.
+// none written are none: neither the open-source chart nor muster carries
+// the platform's (decision #92), so a record without them has none, and
+// removing them loosens (review F2).
 func roleFloorsOf(v any) map[string][]string {
 	m, _ := v.(map[string]any)
-	floors, ok := m["roleFloors"].(map[string]any)
-	if !ok {
-		return maps.Clone(definitions.Governance().Platform.RoleFloors)
-	}
+	floors, _ := m["roleFloors"].(map[string]any)
 	out := map[string][]string{}
 	for role, tools := range floors {
 		list, _ := tools.([]any)
@@ -245,7 +241,9 @@ type server struct {
 // replaces), a null source not governed (nil).
 func effectiveServers(v any) map[string]*server {
 	out := map[string]*server{}
-	for source, s := range definitions.Governance().Servers() {
+	// The meta chart's own servers; the platform's are governed only where
+	// the values name them (review F2).
+	for source, s := range definitions.Governance().Chart {
 		out[source] = &server{role: s.Role, safe: slices.Clone(s.Safe)}
 	}
 	overrides, _ := v.(map[string]any)

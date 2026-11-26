@@ -22,14 +22,17 @@ const (
 	toolListActions       = "list_actions"
 	keySafe               = "safe"
 	sourcePlatformManager = "giantswarm-platform-manager"
-	toolGetInfo           = "get_info"
-	toolGetSkill          = "get_skill"
-	toolApproveAction     = "approve_action"
-	toolSetAgentApproval  = "set_agent_approval"
-	roleInfrastructure    = "infrastructure"
-	roleSkillManager      = "skillManager"
-	roleAgentManager      = "agentManager"
-	pathSkillSafe0        = "/governance/governedServers/skill-manager/safe/0"
+	// platformManagerKey is the Platform Manager's muster server key: its
+	// MCPServer in its own namespace, outside muster's.
+	platformManagerKey   = "giantswarm-platform-manager/giantswarm-platform-manager"
+	toolGetInfo          = "get_info"
+	toolGetSkill         = "get_skill"
+	toolApproveAction    = "approve_action"
+	toolSetAgentApproval = "set_agent_approval"
+	roleInfrastructure   = "infrastructure"
+	roleSkillManager     = "skillManager"
+	roleAgentManager     = "agentManager"
+	pathSkillSafe0       = "/governance/governedServers/skill-manager/safe/0"
 )
 
 // withGovernanceReleases takes the governance releases as cut for the test.
@@ -106,7 +109,7 @@ func TestGovernanceRendersAndSurvivesAReconcile(t *testing.T) {
 	patch := renderedPatch(t, input, secrets)
 	for _, want := range []string{
 		"\ngovernance:\n  mode: governed\n  roleFloors:\n    platformManager:\n      - approve_action\n      - merge_action\n",
-		"\ngovernedServers:\n  agent-platform/pro:\n    role: infrastructure\n    safe: []\n  giantswarm-platform-manager:\n    role: platformManager\n    safe:\n      - get_info\n      - list_installations\n      - list_actions\n      - get_action\n      - verify_capability\n  mcp-kubernetes: null\n  skill-manager:\n    safe:\n      - get_skill\n      - list_skills\n",
+		"\ngovernedServers:\n  agent-platform/pro:\n    role: infrastructure\n    safe: []\n  giantswarm-platform-manager/giantswarm-platform-manager:\n    role: platformManager\n    safe:\n      - get_info\n      - list_installations\n      - list_actions\n      - get_action\n      - verify_capability\n  mcp-kubernetes: null\n  skill-manager:\n    safe:\n      - get_skill\n      - list_skills\n",
 		"Changed only through an Action a second person approves",
 	} {
 		if !strings.Contains(patch, want) {
@@ -126,7 +129,7 @@ func TestGovernanceRendersAndSurvivesAReconcile(t *testing.T) {
 	if m := mode.(map[string]any); m[keyMode] != nil || m["roleFloors"] == nil {
 		t.Fatalf("trusted writes governance %v", mode)
 	}
-	if s := servers.(map[string]any); len(s) != 1 || s[sourcePlatformManager] == nil {
+	if s := servers.(map[string]any); len(s) != 1 || s[platformManagerKey] == nil {
 		t.Fatalf("trusted writes governedServers %v", servers)
 	}
 	if !strings.Contains(got, "\n  rbac:\n    mcpServerEditor:\n      subjects:\n        - apiGroup: rbac.authorization.k8s.io\n          kind: Group\n          name: giantswarm-ad:giantswarm-admins\n") ||
@@ -144,12 +147,18 @@ func TestPlatformGovernanceIsNoInput(t *testing.T) {
 	if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "is Giant Swarm's own governed server") {
 		t.Fatalf("an override of the platform's server: %v", err)
 	}
+	for _, key := range []string{platformManagerKey, "agent-platform/giantswarm-platform-manager"} {
+		input, secrets = governanceInput(t, map[string]any{keyGovernedServers: map[string]any{key: map[string]any{keyRole: roleInfrastructure, keySafe: []any{toolGetInfo}}}})
+		if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "is Giant Swarm's own governed server") {
+			t.Fatalf("an override of the platform's server as %s: %v", key, err)
+		}
+	}
 	input, secrets = governanceInput(t, map[string]any{keyGovernedServers: map[string]any{sourcePlatformManager: nil}})
 	if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) {
 		t.Fatalf("the platform's server dropped: %v", err)
 	}
 	ours := []any{toolGetInfo, "list_installations", toolListActions, "get_action", "verify_capability"}
-	input, secrets = governanceInput(t, map[string]any{keyGovernedServers: map[string]any{sourcePlatformManager: map[string]any{keyRole: "platformManager", keySafe: ours}}})
+	input, secrets = governanceInput(t, map[string]any{keyGovernedServers: map[string]any{platformManagerKey: map[string]any{keyRole: "platformManager", keySafe: ours}}})
 	if _, err := Render(input, secrets, render.ModeCommit); err != nil {
 		t.Fatalf("the platform's entry read back: %v", err)
 	}
