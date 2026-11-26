@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -103,6 +104,26 @@ func TestAppliedTextNamesTheAccountEngineer(t *testing.T) {
 		Installations: []string{rowan}, AccountEngineerOf: map[string]string{rowan: rtAda}, Changes: map[string][]string{rowan: {"mcp-kubernetes: rotates valkey-password (on request)"}}}}
 	want := "*alice* reconciled *cluster-mcp-servers* on *rowan* (account engineer Ada Example): the change is applied and verified.\n>*Why:* rotate after the leak\n*What changed*\n• mcp-kubernetes: rotates valkey-password (on request)"
 	if got := appliedText(a, rowan); got != want {
+		t.Errorf("got  %s\nwant %s", got, want)
+	}
+}
+
+// The summary is the review in one line — who, what, where — and a wave too
+// long for the gateway's line is counted instead of named.
+func TestReviewSummary(t *testing.T) {
+	actor := actions.Actor{Login: stAlice}
+	short := &actions.Action{Spec: actions.Spec{Actor: actor, Kind: actions.KindReconcile, Capability: installations.AgentPlatform,
+		Installations: []string{rtHub, rowan}, Customer: true, AccountEngineers: []string{rtAda}, Reason: "a reason\non two lines"}}
+	if got, want := reviewSummary(short), "*alice* to reconcile *agent-platform* on *gazelle, rowan*"; got != want {
+		t.Errorf("got  %s\nwant %s", got, want)
+	}
+
+	var many []string
+	for i := range 40 {
+		many = append(many, fmt.Sprintf("installation-%02d", i))
+	}
+	long := &actions.Action{Spec: actions.Spec{Actor: actor, Kind: actions.KindEnable, Capability: installations.AgentPlatform, Installations: many}}
+	if got, want := reviewSummary(long), "*alice* to enable 40 installations"; got != want {
 		t.Errorf("got  %s\nwant %s", got, want)
 	}
 }

@@ -102,6 +102,9 @@ func TestCommitPostsTheTeamReview(t *testing.T) {
 			t.Fatalf("review text lacks %q: %s", want, text)
 		}
 	}
+	if summary, _ := body["summary"].(string); summary != "*"+alice+"* to enable *"+a.Spec.Capability+"* on *"+rowan+"*" {
+		t.Fatalf("review summary: %q", summary)
+	}
 	if len(st.gateway.noticed()) != 0 {
 		t.Fatalf("the review was noticed: %+v", st.gateway.noticed())
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/giantswarm/gitops-commit/commit"
 	"github.com/giantswarm/gitops-commit/provenance"
@@ -616,7 +617,7 @@ func (t *Tools) askApproval(ctx context.Context, a *actions.Action, tool string)
 	if t.approvals == nil {
 		return nil, fmt.Errorf("%s: no approval channel is configured (chart approvals.gatewayURL); action %s cannot be approved and nothing is merged", tool, a.Name)
 	}
-	review := approvals.Review{Actor: a.Spec.Actor.Email, Text: reviewText(a),
+	review := approvals.Review{Actor: a.Spec.Actor.Email, Text: reviewText(a), Summary: reviewSummary(a),
 		Approve: approvals.Tool{Tool: musterTool(ToolApproveAction), Arguments: map[string]any{ArgAction: a.Name}},
 		Deny:    &approvals.Tool{Tool: musterTool(ToolDenyAction), Arguments: map[string]any{ArgAction: a.Name}}}
 	for _, pr := range a.Status.PullRequests {
@@ -704,6 +705,17 @@ func reviewText(a *actions.Action) string {
 	b.WriteString(".")
 	b.WriteString(whyAndWhat(a, "What changes", a.Spec.Installations))
 	return b.String()
+}
+
+// reviewSummary is the review in one line, what the channel keeps once the
+// review is decided: who, what, where. A wave too long for one line is
+// counted instead of named.
+func reviewSummary(a *actions.Action) string {
+	line := fmt.Sprintf("*%s* to %s %s", a.Spec.Actor.Login, a.Spec.Kind, capabilitiesOn(a))
+	if utf8.RuneCountInString(line) > approvals.SummaryMax {
+		line = fmt.Sprintf("*%s* to %s %d installations", a.Spec.Actor.Login, a.Spec.Kind, len(a.Spec.Installations))
+	}
+	return line
 }
 
 // whatMax bounds the what-changes lines of one message: Slack takes 3000
