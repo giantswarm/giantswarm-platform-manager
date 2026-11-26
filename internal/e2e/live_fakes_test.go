@@ -791,6 +791,103 @@ type fakeMuster struct {
 
 	mu    sync.Mutex
 	calls []musterCall
+	// signIns are the sign-ins muster asked as URL elicitation and the
+	// answers it got, oldest first; connected are the persons whose
+	// sign-in an accepted answer completed.
+	signIns   []musterSignIn
+	connected map[string]bool
+	// signsIn is the person muster asks to sign in; liveStranger when empty.
+	signsIn string
+}
+
+// musterSignIn is one call_tool of a person not connected that muster's sign-in
+// decided: asked as URL elicitation, or answered.
+type musterSignIn struct {
+	Tool         string
+	Args         map[string]any
+	RequestState string
+	Answer       mcp.ElicitationResponseAction
+}
+
+// The sign-in muster asks a person not connected for as URL elicitation.
+const (
+	musterSignInKey   = "muster_sign_in"
+	musterSignInState = "muster-sign-in-state"
+	musterSignInURL   = "https://muster.example.test/oauth/proxy/start?state=elicited"
+)
+
+// signIn is muster asking a person not connected to the installation for
+// the sign-in as URL elicitation, from 2026-07-28 when the call declares
+// it: an accepted answer with muster's requestState completes it and runs
+// the call; any other call goes on to auth_required.
+func (m *fakeMuster) signIn(next mcpserver.ToolHandlerFunc) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		person, _ := ctx.Value(personKey{}).(string)
+		if req.Params.Name != "call_tool" || person != m.signInPerson() || m.isConnected(person) {
+			return next(ctx, req)
+		}
+		call := musterSignIn{Tool: req.GetString("name", ""), RequestState: req.Params.RequestState}
+		call.Args, _ = req.GetArguments()["arguments"].(map[string]any)
+		answer := mcpserver.ElicitationResponse(req.Params.InputResponses, musterSignInKey)
+		info := mcpserver.RequestProtocolInfoFromContext(ctx)
+		declared := info != nil && info.ClientCapabilities != nil && info.ClientCapabilities.Elicitation != nil && info.ClientCapabilities.Elicitation.URL != nil
+		switch {
+		case answer != nil && req.Params.RequestState == musterSignInState:
+			call.Answer = answer.Action
+			m.record(call)
+			if answer.Action != mcp.ElicitationResponseActionAccept {
+				return mcp.NewToolResultError("The tool did not run: the person answered " + string(answer.Action) + " to signing in."), nil
+			}
+			m.mu.Lock()
+			m.connected[person] = true
+			m.mu.Unlock()
+			return next(ctx, req)
+		case declared:
+			m.record(call)
+			server, _ := call.Args[instanceArg].(string)
+			return mcpserver.NewInputRequestBuilder(musterSignInState).Elicit(musterSignInKey, mcp.ElicitationParams{
+				Mode:    mcp.ElicitationModeURL,
+				Message: "Sign in to " + server + " in muster.",
+				URL:     musterSignInURL,
+			}).ToolResult(), nil
+		}
+		return next(ctx, req)
+	}
+}
+
+func (m *fakeMuster) record(call musterSignIn) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.signIns = append(m.signIns, call)
+}
+
+func (m *fakeMuster) signInPerson() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.signsIn == "" {
+		return liveStranger
+	}
+	return m.signsIn
+}
+
+// asksToSignIn makes muster ask person, not liveStranger, to sign in.
+func (m *fakeMuster) asksToSignIn(person string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.signsIn = person
+}
+
+func (m *fakeMuster) isConnected(person string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.connected[person]
+}
+
+// asked are the sign-ins muster asked and answered, oldest first.
+func (m *fakeMuster) asked() []musterSignIn {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]musterSignIn{}, m.signIns...)
 }
 
 type personKey struct{}
@@ -801,12 +898,12 @@ const authRequiredText = "auth_required: server '%s' requires authentication bef
 
 func newFakeMuster(t *testing.T, inst *fakeInstallation, installation string) *fakeMuster {
 	t.Helper()
-	m := &fakeMuster{insts: map[string]*fakeInstallation{installation: inst}}
+	m := &fakeMuster{insts: map[string]*fakeInstallation{installation: inst}, connected: map[string]bool{}}
 	aggregated := map[string]mustertest.Tool{}
 	for _, op := range []string{opGet, opList, opAPIResources} {
 		aggregated["x_"+kubernetesFamily+"_"+op] = m.kubernetes(op)
 	}
-	bridge := mustertest.Bridge(aggregated)
+	bridge := mustertest.Bridge(aggregated, mcpserver.WithToolHandlerMiddleware(m.signIn))
 	m.Server = httptest.NewServer(mcpserver.NewStreamableHTTPServer(bridge, mcpserver.WithEndpointPath("/mcp"),
 		mcpserver.WithHTTPContextFunc(func(ctx context.Context, r *http.Request) context.Context {
 			return context.WithValue(ctx, personKey{}, personOf(bearer(r)))
@@ -874,7 +971,7 @@ func (m *fakeMuster) kubernetes(op string) mustertest.Tool {
 		if !ok || mc == server {
 			return mcp.NewToolResultError(fmt.Sprintf("Tool execution failed: tool x_%s_%s is not available on server %q (available: %s)", kubernetesFamily, op, server, strings.Join(m.members(), ", ")))
 		}
-		if person == liveStranger {
+		if person == m.signInPerson() && !m.isConnected(person) {
 			return mcp.NewToolResultError(fmt.Sprintf(authRequiredText, server, server))
 		}
 		if op == opAPIResources {

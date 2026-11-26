@@ -82,6 +82,16 @@ spec:
               value: {{ .Values.live.muster.kubernetesInstanceArg | quote }}
             - name: LIVE_KUBERNETES_MEMBER
               value: {{ .Values.live.muster.kubernetesMember | quote }}
+            {{- with .Values.live.requestStateSecret }}
+            {{- if .name }}
+            - name: OAUTH_REQUEST_STATE_KEY_FILE
+              value: /etc/giantswarm-platform-manager/request-state/{{ .key }}
+            {{- with .previousKey }}
+            - name: OAUTH_REQUEST_STATE_PREVIOUS_KEY_FILE
+              value: /etc/giantswarm-platform-manager/request-state/{{ . }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
             {{- end }}
             {{- with .Values.github.apiURL }}
             - name: GITHUB_API_URL
@@ -153,6 +163,11 @@ spec:
               mountPath: /etc/giantswarm-platform-manager/live-ca
               readOnly: true
             {{- end }}
+            {{- if and .Values.live.enabled .Values.live.requestStateSecret.name }}
+            - name: request-state
+              mountPath: /etc/giantswarm-platform-manager/request-state
+              readOnly: true
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
@@ -176,6 +191,22 @@ spec:
             items:
               - key: ca.crt
                 path: ca.crt
+        {{- end }}
+        {{- if .Values.live.enabled }}
+        {{- with .Values.live.requestStateSecret }}
+        {{- if .name }}
+        - name: request-state
+          secret:
+            secretName: {{ .name | quote }}
+            items:
+              - key: {{ .key }}
+                path: {{ .key }}
+              {{- with .previousKey }}
+              - key: {{ . }}
+                path: {{ . }}
+              {{- end }}
+        {{- end }}
+        {{- end }}
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

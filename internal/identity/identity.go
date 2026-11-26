@@ -34,6 +34,12 @@ type Identity struct {
 	// Subject is the ID token's sub for the live tools: the key the
 	// loop-back session is held under.
 	Subject string `json:"subject,omitempty"`
+	// Issuer is the forwarded ID token's issuer, for the live tools.
+	Issuer string `json:"-"`
+	// Client is the OAuth client the forwarded ID token was issued to, for
+	// the live tools: its azp, else its only audience; empty when it names
+	// no one client.
+	Client string `json:"-"`
 }
 
 // String is the caller as logged: the GitHub login, else the email, else
