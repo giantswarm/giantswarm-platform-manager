@@ -853,6 +853,48 @@
         }
       }
     },
+    "governance": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The platform's governance (Governing tool calls, giantswarm/giantswarm#38902): the mode and the servers muster governs with their safe lists, the meta chart's top-level governance and governedServers. Only admins change it, never an agent: a commit that changes either is an Action a second person approves, on Giant Swarm's test installations too, its review showing the change old -> new and naming what loosens. Refused while no meta chart release renders muster's governance configuration (the definition's GovernanceChart is unset until that release exists, giantswarm/giantswarm#38902 decision #89), off the 4 chart line and under a hold of the meta chart below that release. Read back from the configmap patch on record, so a reconcile keeps it.",
+      "properties": {
+        "mode": {
+          "title": "the platform's governance mode",
+          "type": "string",
+          "enum": ["trusted", "governed"],
+          "default": "trusted",
+          "x-source": "person",
+          "x-readback": {"file": "configmap", "key": "governance"},
+          "x-feature": "tool-access",
+          "x-renders": ["configmap:governance"],
+          "description": "The platform's governance mode (the meta chart's governance): trusted, the default and not written, lets agents run what the connectors' own settings allow; governed asks a person before an agent runs any tool of a governed server not on that server's safe list, and before any of muster's own tools but its reads. muster's floors ask in both modes. governed under a hold of muster below the release that reads the governance configuration is refused, since the meta chart refuses the render there. Read back from the configmap patch on record, so a reconcile keeps it; typed (--input governance.mode=governed), it replaces it."
+        },
+        "governedServers": {
+          "title": "the servers muster governs",
+          "type": ["object", "null"],
+          "default": {},
+          "propertyNames": {"minLength": 1},
+          "additionalProperties": {
+            "anyOf": [
+              {"type": "null"},
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "role": {"type": "string", "enum": ["agentManager", "platformManager", "connectorManager", "sessionManager", "modelManager", "clusterManager", "vmManager", "workspaceManager", "toolchainManager", "skillManager", "infrastructure"], "description": "The role whose floors hold on the source's servers in both modes; left out, the meta chart's role for the source stands."},
+                  "safe": {"type": "array", "items": {"type": "string"}, "description": "The source's own tool names agents call unasked on governed: reads only, never a floor of its role. It replaces the meta chart's list; left out, the chart's list stands."}
+                }
+              }
+            ]
+          },
+          "x-source": "person",
+          "x-readback": {"file": "configmap", "key": "governedServers"},
+          "x-feature": "tool-access",
+          "x-renders": ["configmap:governedServers"],
+          "description": "Overrides of the meta chart's governedServers, by source: a source the chart knows (agent-manager, kagent, model-manager, cluster-manager, vm-manager, toolchain-manager, workspace-manager, skill-manager, mcp-kubernetes, giantswarm-platform-manager) or a muster server key (<name>, <namespace>/<name>), each {role, safe} or null, which drops the source (muster governs nothing for it). Helm merges the maps: a source left out keeps the chart's entry, a role or safe list left out the chart's, a safe list typed replaces the chart's. Refused as muster refuses to start on it: an unknown role, a floor of the source's role on its safe list (typed, or the chart's role for the source), an empty or repeated safe entry, and an entry with neither role nor safe list. None, the default, the key is not written. Read back from the configmap patch on record, so a reconcile keeps it; typed (--input 'governance.governedServers={\"giantswarm-platform-manager\": {\"safe\": [\"get_info\"]}}'), it replaces it."
+        }
+      }
+    },
     "versions": {
       "type": "object",
       "additionalProperties": false,

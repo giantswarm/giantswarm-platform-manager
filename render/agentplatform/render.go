@@ -340,6 +340,7 @@ func (in *Input) configmapPatch() render.Map {
 	}
 	m = in.organizationsValues(m)
 	m = in.platformTenantValues(m)
+	m = in.governanceValues(m)
 	if len(in.MCPBackends) > 0 {
 		m = append(m, e("networkPolicy", render.Map{e("mcpBackends", in.mcpBackends())}))
 	}
