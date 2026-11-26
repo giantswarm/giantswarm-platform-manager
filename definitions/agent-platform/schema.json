@@ -864,9 +864,9 @@
           "enum": ["trusted", "governed"],
           "default": "trusted",
           "x-source": "person",
-          "x-readback": {"file": "configmap", "key": "governance"},
+          "x-readback": {"file": "configmap", "key": "governance.mode"},
           "x-feature": "tool-access",
-          "x-renders": ["configmap:governance"],
+          "x-renders": ["configmap:governance.mode"],
           "description": "The platform's governance mode (the meta chart's governance): trusted, the default and not written, lets agents run what the connectors' own settings allow; governed asks a person before an agent runs any tool of a governed server not on that server's safe list, and before any of muster's own tools but its reads. muster's floors ask in both modes. governed under a hold of muster below the release that reads the governance configuration is refused, since the meta chart refuses the render there. Read back from the configmap patch on record, so a reconcile keeps it; typed (--input governance.mode=governed), it replaces it."
         },
         "governedServers": {

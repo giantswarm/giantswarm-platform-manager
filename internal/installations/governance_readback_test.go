@@ -12,7 +12,7 @@ import (
 // governanceOnRecord appends the platform's governance to a configmap patch,
 // as a commit of governance.* writes it.
 func governanceOnRecord(patch string) string {
-	return patch + "governance: governed\ngovernedServers:\n  giantswarm-platform-manager:\n    safe:\n      - get_info\n  mcp-kubernetes: null\n"
+	return patch + "governance:\n  mode: governed\ngovernedServers:\n  skill-manager:\n    safe:\n      - get_skill\n  mcp-kubernetes: null\n"
 }
 
 // The governance on record is read back as governance.mode and
@@ -29,12 +29,13 @@ func TestGovernanceSurvivesAReconcile(t *testing.T) {
 
 	patch, read, doc, marker := inputFromTheRecord(t, "platform-tenant-retired", governanceOnRecord)
 	require.Equal(t, agentplatform.GovernanceGoverned, read["governance.mode"])
-	require.Equal(t, map[string]any{"giantswarm-platform-manager": map[string]any{"safe": []any{"get_info"}}, clusterMCPServersMarkerServer: nil}, read["governance.governedServers"])
+	require.Equal(t, map[string]any{"skill-manager": map[string]any{"safe": []any{"get_skill"}}, clusterMCPServersMarkerServer: nil}, read["governance.governedServers"])
 	result, err := definition.Render(doc, nil, render.ModeCommit)
 	require.NoError(t, err)
 	again := string(result.Tree()["giantswarm/giantswarm-configs/"+marker])
-	require.Contains(t, again, "governance: governed\n")
-	require.Contains(t, again, "  giantswarm-platform-manager:\n    safe:\n      - get_info\n  mcp-kubernetes: null\n")
+	require.Contains(t, again, "governance:\n  mode: governed\n  roleFloors:\n    platformManager:\n")
+	require.Contains(t, again, "  giantswarm-platform-manager:\n    role: platformManager\n")
+	require.Contains(t, again, "  mcp-kubernetes: null\n  skill-manager:\n    safe:\n      - get_skill\n")
 	_, _, doc, _ = inputFromTheRecord(t, "platform-tenant-retired", func(string) string { return again })
 	result, err = definition.Render(doc, nil, render.ModeCommit)
 	require.NoError(t, err)

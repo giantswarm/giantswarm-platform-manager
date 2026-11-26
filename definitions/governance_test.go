@@ -60,7 +60,7 @@ func musterGovernance(t *testing.T, src []byte) ([]string, map[string][]string) 
 					if lit, ok := n.Values[i].(*ast.BasicLit); ok && lit.Kind == token.STRING {
 						consts[name.Name] = value(lit)
 					}
-					if name.Name == "roleFloors" {
+					if name.Name == "roleFloors" || name.Name == "builtinRoleFloors" {
 						for _, el := range n.Values[i].(*ast.CompositeLit).Elts {
 							kv := el.(*ast.KeyValueExpr)
 							for _, tool := range kv.Value.(*ast.CompositeLit).Elts {
@@ -89,14 +89,23 @@ func musterGovernance(t *testing.T, src []byte) ([]string, map[string][]string) 
 }
 
 // The governance data the definition writes against matches the releases
-// it copies: muster's roles and every role's floors, and the meta chart's
-// own governedServers (role and safe list per source). A floor muster adds,
-// or a source the chart adds or reassigns, fails here before a reviewed
-// merge stops muster at start.
+// it copies: muster's built-in roles and floors, and the meta chart's own
+// governedServers. Giant Swarm's platform parts are no longer theirs
+// (decision #92): a muster or chart from before still carrying the Platform
+// Manager's role or entry is read without it, and must agree with ours. A
+// floor muster adds, or a source the chart adds or reassigns, fails here
+// before a reviewed merge stops muster at start.
 func TestGovernanceMatchesMusterAndTheChart(t *testing.T) {
 	g := definitions.Governance()
 	t.Run("muster", func(t *testing.T) {
 		roles, floors := musterGovernance(t, checkout(t, "MUSTER_CHECKOUT", "muster", "internal/api/governance.go"))
+		for role, ours := range g.Platform.RoleFloors {
+			if theirs, built := floors[role]; built && !reflect.DeepEqual(theirs, ours) {
+				t.Errorf("muster still builds in role %s with floors %v, the platform's are %v", role, theirs, ours)
+			}
+			delete(floors, role)
+			roles = slices.DeleteFunc(roles, func(r string) bool { return r == role })
+		}
 		if !slices.Equal(roles, g.Muster.Roles) {
 			t.Errorf("roles %v, muster's %v", g.Muster.Roles, roles)
 		}
@@ -116,18 +125,26 @@ func TestGovernanceMatchesMusterAndTheChart(t *testing.T) {
 				values.GovernedServers[source] = definitions.GovernedServer{Role: s.Role, Safe: []string{}}
 			}
 		}
+		for source, ours := range g.Platform.GovernedServers {
+			if theirs, ok := values.GovernedServers[source]; ok && !reflect.DeepEqual(theirs, ours) {
+				t.Errorf("the meta chart still ships %s as %v, the platform's is %v", source, theirs, ours)
+			}
+			delete(values.GovernedServers, source)
+		}
 		if !reflect.DeepEqual(values.GovernedServers, g.Chart) {
 			t.Errorf("chart %v, the meta chart's %v", g.Chart, values.GovernedServers)
 		}
 	})
 }
 
-// No floor is on the chart's safe lists, every source's role is muster's.
+// No floor is on a safe list the definition renders, every source's role
+// is one muster knows with the platform's role floors, the platform's role
+// floors name no built-in role, and the connector admins are groups.
 func TestGovernanceDataIsConsistent(t *testing.T) {
 	g := definitions.Governance()
-	for source, s := range g.Chart {
-		if !slices.Contains(g.Muster.Roles, s.Role) {
-			t.Errorf("%s: role %q is none of muster's", source, s.Role)
+	for source, s := range g.Servers() {
+		if !slices.Contains(g.Roles(), s.Role) {
+			t.Errorf("%s: role %q is none muster knows", source, s.Role)
 		}
 		for _, tool := range s.Safe {
 			if role := g.FloorRole(tool); role != "" {
@@ -139,5 +156,16 @@ func TestGovernanceDataIsConsistent(t *testing.T) {
 		if !slices.Contains(g.Muster.Roles, role) {
 			t.Errorf("floors of unknown role %s", role)
 		}
+	}
+	for role := range g.Platform.RoleFloors {
+		if slices.Contains(g.Muster.Roles, role) {
+			t.Errorf("the platform's role %s is one of muster's built-ins", role)
+		}
+	}
+	if len(g.Platform.ConnectorAdmins) == 0 || slices.ContainsFunc(g.Platform.ConnectorAdmins, func(s definitions.Subject) bool { return s.Kind != "Group" }) {
+		t.Errorf("connector admins: %+v", g.Platform.ConnectorAdmins)
+	}
+	if _, ok := g.Chart["giantswarm-platform-manager"]; ok {
+		t.Error("the Platform Manager is the platform's governed server, not the chart's")
 	}
 }

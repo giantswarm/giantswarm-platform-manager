@@ -3,18 +3,39 @@
 # read it and held to them by definitions' TestGovernanceMatchesMusterAndTheChart
 # (which reads sibling checkouts of muster and agent-platform where present).
 #
-# muster: the roles muster knows and the floors of each (muster
+# muster: the roles muster builds in and the floors of each (muster
 # internal/api/governance.go, GovernanceRoles and roleFloors). A floor asks agents
 # in both modes; muster refuses to start on one listed as safe on a server of its
 # role, and the definition refuses a floor of any role on any safe list.
 muster:
-  roles: [agentManager, platformManager, connectorManager, sessionManager, modelManager, clusterManager, vmManager, workspaceManager, toolchainManager, skillManager, infrastructure]
+  roles: [agentManager, connectorManager, sessionManager, modelManager, clusterManager, vmManager, workspaceManager, toolchainManager, skillManager, infrastructure]
   floors:
     agentManager: [set_agent_approval, set_organization_connector, add_organization_member, set_organization_model, set_organization_egress_policy, replace_organization_credential]
-    platformManager: [approve_action, merge_action]
     connectorManager: [mcpserver_create, mcpserver_connect, mcpserver_set_approval]
     toolchainManager: [approve_source]
     modelManager: [add_backend]
+# platform: Giant Swarm's own parts of the governance (decision #92: the open-source
+# charts and muster carry none), which the definition renders on every installation
+# whose meta chart takes the governance, fixed, never an input and never loosened by
+# one: muster's role floors of the Platform Manager (the chart's governance.roleFloors,
+# a union with muster's built-ins), the Platform Manager as a governed server with
+# its safe list (its reads; docs/governance.md), and the connector admins, the Giant
+# Swarm admin groups bound to muster's mcpserver-editor Role (the chart's
+# muster.rbac.mcpServerEditor.subjects; the meta chart appends tenants.platformTeam).
+platform:
+  roleFloors:
+    platformManager: [approve_action, merge_action]
+  governedServers:
+    giantswarm-platform-manager:
+      role: platformManager
+      safe: [get_info, list_installations, list_actions, get_action, verify_capability]
+  connectorAdmins:
+    - apiGroup: rbac.authorization.k8s.io
+      kind: Group
+      name: giantswarm-ad:giantswarm-admins
+    - apiGroup: rbac.authorization.k8s.io
+      kind: Group
+      name: giantswarm-github:giantswarm:giantswarm-admins
 # chart: the meta chart's own governedServers by source (agent-platform
 # helm/agent-platform/values.yaml, top-level governedServers). A source's role is
 # what the server is: an override may not change it. The plan diffs an override
@@ -47,6 +68,3 @@ chart:
   mcp-kubernetes:
     role: infrastructure
     safe: [logs, list_port_forward_sessions, context_list, context_get_current, can_i, api_resources, cluster_health, capi_list_clusters, capi_get_cluster, capi_resolve_cluster, capi_cluster_health, get, list, describe]
-  giantswarm-platform-manager:
-    role: platformManager
-    safe: [get_info, list_installations, list_actions, get_action, verify_capability]

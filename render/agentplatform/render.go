@@ -529,7 +529,11 @@ func (in *Input) musterValues() render.Map {
 	if in.hasPrivateTarget() {
 		muster = append(muster, e("extraCaFile", extraCaFile()))
 	}
-	return render.Map{e("muster", append(muster, e("oauth", oauth)))}
+	out := render.Map{e("muster", append(muster, e("oauth", oauth)))}
+	if admins := in.connectorAdmins(); admins != nil {
+		out = append(out, render.Entry{Key: "rbac", Value: admins, Comment: "Giant Swarm's connector admins: the admin groups bound to muster's\nmcpserver-editor Role (the meta chart appends the platform team)."})
+	}
+	return out
 }
 
 // dexClientRef is the referenced-Secret form of a Dex client secret.

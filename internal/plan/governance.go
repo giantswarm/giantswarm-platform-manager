@@ -3,6 +3,7 @@ package plan
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -189,6 +190,7 @@ func GovernanceBetween(old, next GovernanceSnapshot) GovernanceChange {
 	if om != nm {
 		g.add(fmt.Sprintf("mode %s → %s", om, nm), om == modeGoverned)
 	}
+	g.roleFloors(roleFloorsOf(old[keyGovernance]), roleFloorsOf(next[keyGovernance]))
 	g.servers(effectiveServers(old[keyGovernedServers]), effectiveServers(next[keyGovernedServers]))
 	if o, n := canonical(old[keyMusterGovernance]), canonical(next[keyMusterGovernance]); o != n {
 		g.add(fmt.Sprintf("muster.muster.governance %s → %s", short(o), short(n)), true)
@@ -200,11 +202,34 @@ func GovernanceBetween(old, next GovernanceSnapshot) GovernanceChange {
 	return g
 }
 
+// effectiveMode is the mode of the meta chart's governance: the string of
+// an earlier chart, or its mode key; absent is trusted.
 func effectiveMode(v any) string {
+	if m, ok := v.(map[string]any); ok {
+		v = m["mode"]
+	}
 	if v == nil {
 		return modeTrusted
 	}
 	return clean(fmt.Sprint(v))
+}
+
+// roleFloorsOf are the role floors the meta chart's governance carries;
+// none written are the platform's (an earlier muster built them in, and the
+// definition renders them wherever the chart takes them), so writing them
+// changes nothing.
+func roleFloorsOf(v any) map[string][]string {
+	m, _ := v.(map[string]any)
+	floors, ok := m["roleFloors"].(map[string]any)
+	if !ok {
+		return maps.Clone(definitions.Governance().Platform.RoleFloors)
+	}
+	out := map[string][]string{}
+	for role, tools := range floors {
+		list, _ := tools.([]any)
+		out[clean(role)] = strs(list)
+	}
+	return out
 }
 
 // server is a source as muster governs it: its role and safe list.
@@ -220,7 +245,7 @@ type server struct {
 // replaces), a null source not governed (nil).
 func effectiveServers(v any) map[string]*server {
 	out := map[string]*server{}
-	for source, s := range definitions.Governance().Chart {
+	for source, s := range definitions.Governance().Servers() {
 		out[source] = &server{role: s.Role, safe: slices.Clone(s.Safe)}
 	}
 	overrides, _ := v.(map[string]any)
@@ -253,9 +278,28 @@ func effectiveServers(v any) map[string]*server {
 	return out
 }
 
+// roleFloors compares the role floors the governance adds to muster's: a
+// floor that goes loosens, one that comes tightens.
+func (g *GovernanceChange) roleFloors(old, next map[string][]string) {
+	for _, role := range sortedKeys(old, next) {
+		added, removed := notIn(next[role], old[role]), notIn(old[role], next[role])
+		if len(added)+len(removed) == 0 {
+			continue
+		}
+		parts := make([]string, 0, len(added)+len(removed))
+		for _, t := range added {
+			parts = append(parts, "+"+clean(t))
+		}
+		for _, t := range removed {
+			parts = append(parts, "−"+clean(t))
+		}
+		g.add(fmt.Sprintf("roleFloors.%s %s", role, strings.Join(parts, " ")), len(removed) > 0)
+	}
+}
+
 // servers compares the governed servers by source.
 func (g *GovernanceChange) servers(old, next map[string]*server) {
-	chart := definitions.Governance().Chart
+	chart := definitions.Governance().Servers()
 	for _, source := range sortedKeys(old, next) {
 		o, n := old[source], next[source]
 		at := keyGovernedServers + "." + clean(source)

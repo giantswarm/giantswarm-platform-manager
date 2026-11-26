@@ -957,6 +957,7 @@ func Parse(raw any) (*Input, error) {
 	in.Organizations, in.organizationsPolicy = d.Organizations, pol.Organizations
 	in.PlatformTenant = PlatformTenant{Users: d.Tenants.Platform.Users, Editors: d.Tenants.Platform.Editors, PlatformTeam: d.Tenants.PlatformTeam, Viewers: d.MusterMcpServerViewers}
 	in.Governance = d.Governance
+	in.Governance.withoutPlatformServers()
 	in.selectLine(pol.targetLine(in.Installation))
 	if err := in.checkRecord(); err != nil {
 		return nil, err

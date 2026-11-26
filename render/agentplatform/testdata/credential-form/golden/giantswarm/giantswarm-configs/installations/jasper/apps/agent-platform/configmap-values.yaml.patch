@@ -73,6 +73,17 @@ muster:
         trustedAudiences:
           - dex-k8s-authenticator
           - kagent
+  # Giant Swarm's connector admins: the admin groups bound to muster's
+  # mcpserver-editor Role (the meta chart appends the platform team).
+  rbac:
+    mcpServerEditor:
+      subjects:
+        - apiGroup: rbac.authorization.k8s.io
+          kind: Group
+          name: giantswarm-ad:giantswarm-admins
+        - apiGroup: rbac.authorization.k8s.io
+          kind: Group
+          name: giantswarm-github:giantswarm:giantswarm-admins
 gateway:
   jwksEgress:
     enabled: true

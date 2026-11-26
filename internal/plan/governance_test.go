@@ -9,10 +9,11 @@ import (
 )
 
 const (
-	govInstallation = "lynx"
-	govPatch        = "giantswarm/acme-configs/installations/lynx/apps/agent-platform/configmap-values.yaml.patch"
-	govEmpty        = "global: {}\n"
-	govGoverned     = "governance: governed\n"
+	modeGovernedToTrusted = "mode governed → trusted"
+	govInstallation       = "lynx"
+	govPatch              = "giantswarm/acme-configs/installations/lynx/apps/agent-platform/configmap-values.yaml.patch"
+	govEmpty              = "global: {}\n"
+	govGoverned           = "governance: governed\n"
 )
 
 // govPlan is an installation whose agent-platform values move from current
@@ -44,7 +45,7 @@ func TestGovernanceChangeReadsOldToNewAndWhatLoosens(t *testing.T) {
 		lines, loosens []string
 	}{
 		{"trusted to governed tightens", govEmpty, "global: {}\ngovernance: governed\n", []string{"mode trusted → governed"}, nil},
-		{"governed to the chart's default loosens", govGoverned, govEmpty, []string{"mode governed → trusted"}, []string{"mode governed → trusted"}},
+		{"governed to the chart's default loosens", govGoverned, govEmpty, []string{modeGovernedToTrusted}, []string{modeGovernedToTrusted}},
 		{"a safe entry added and one removed", govEmpty, "governedServers:\n  giantswarm-platform-manager:\n    safe: [get_info, list_installations, get_action, verify_capability, create_thing, list_things]\n",
 			[]string{pm}, []string{"governedServers.giantswarm-platform-manager.safe +create_thing (named like a write) +list_things"}},
 		{"only a safe entry removed", "governedServers:\n  agent-manager:\n    safe: [get_info, list_agents]\n", "governedServers:\n  agent-manager:\n    safe: [get_info]\n",
@@ -139,7 +140,7 @@ func TestGovernanceDeleted(t *testing.T) {
 		t.Fatal(err)
 	}
 	g, ok := GovernanceDeleted(old)
-	if !ok || g.Lines[0] != governanceDeleted || !slices.Contains(g.Loosens, "mode governed → trusted") || len(g.Loosens) != len(g.Lines) {
+	if !ok || g.Lines[0] != governanceDeleted || !slices.Contains(g.Loosens, modeGovernedToTrusted) || len(g.Loosens) != len(g.Lines) {
 		t.Fatalf("a governed record deleted: %v %+v", ok, g)
 	}
 	if g, ok := GovernanceDeleted(GovernanceSnapshot{}); ok {
@@ -171,5 +172,23 @@ func TestMusterHoldBelowTheGovernanceRelease(t *testing.T) {
 	}
 	if g := GovernanceBetween(GovernanceSnapshot{}, hold(">=5.71.0 <6.0.0")); len(g.Lines) != 0 {
 		t.Fatalf("a hold above the gate: %+v", g)
+	}
+}
+
+// Decision #92: the meta chart's governance is a map with the mode and
+// Giant Swarm's role floors; a floor that goes loosens, and the Platform
+// Manager written explicitly is what the chart's default was (no change).
+func TestGovernanceMapWithRoleFloors(t *testing.T) {
+	const floors = "governance:\n  mode: governed\n  roleFloors:\n    platformManager: [approve_action, merge_action]\n"
+	if g, ok := GovernanceOf(govPlan(govGoverned, floors)); ok {
+		t.Fatalf("the string mode written as a map with the platform's floors: %+v", g)
+	}
+	g, ok := GovernanceOf(govPlan(floors, "governance:\n  roleFloors:\n    platformManager: [approve_action]\n"))
+	if !ok || !slices.Equal(g.Loosens, []string{modeGovernedToTrusted, "roleFloors.platformManager −merge_action"}) {
+		t.Fatalf("mode and a floor gone: %v %+v", ok, g)
+	}
+	explicit := "governedServers:\n  giantswarm-platform-manager:\n    role: platformManager\n    safe: [get_info, list_installations, list_actions, get_action, verify_capability]\n"
+	if g, ok := GovernanceOf(govPlan(govEmpty, explicit)); ok {
+		t.Fatalf("the platform's server written explicitly: %+v", g)
 	}
 }

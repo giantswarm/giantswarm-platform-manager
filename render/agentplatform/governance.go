@@ -79,7 +79,7 @@ var toolName = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
 // member <cluster>-mcp-kubernetes.
 func chartSourceAlias(key string) string {
 	name := key[strings.LastIndex(key, "/")+1:]
-	chart := definitions.Governance().Chart
+	chart := definitions.Governance().Servers()
 	if _, ok := chart[name]; ok && name != key {
 		return name
 	}
@@ -95,34 +95,90 @@ func (g Governance) governs() bool {
 	return g.Mode == GovernanceGoverned || len(g.GovernedServers) > 0
 }
 
-// governanceValues appends the chosen governance to the configmap patch:
-// governance: governed (trusted, the chart's default, is not written) and
-// the governedServers overrides by source, a dropped one as null.
-func (in *Input) governanceValues(m render.Map) render.Map {
-	g := in.Governance
-	if g.Mode == GovernanceGoverned {
-		m = append(m, render.Entry{Key: "governance", Value: GovernanceGoverned, Comment: "The platform's governance mode: the input governance.mode, read back so a\nreconcile keeps it. Changed only through an Action a second person approves."})
-	}
-	if len(g.GovernedServers) > 0 {
-		var servers render.Map
-		for _, source := range slices.Sorted(maps.Keys(g.GovernedServers)) {
-			s := g.GovernedServers[source]
-			if s == nil {
-				servers = append(servers, e(source, nil))
-				continue
-			}
-			var entry render.Map
-			if s.Role != "" {
-				entry = append(entry, e("role", s.Role))
-			}
-			if s.Safe != nil {
-				entry = append(entry, e("safe", slices.Clone(*s.Safe)))
-			}
-			servers = append(servers, e(source, entry))
+// governanceRenders says whether the installation's meta chart takes the
+// governance: the release is cut (GovernanceChart), the 4 line, no chart
+// hold below it. Only then are the platform's parts and any choice written.
+func (in *Input) governanceRenders() bool {
+	return GovernanceChart != "" && in.Installation.ChartLine == lineFour && holdAdmits(in.Versions.Chart, GovernanceChart)
+}
+
+// withoutPlatformServers drops from the chosen governedServers the
+// platform's own entries as the definition renders them: read back from the
+// record they are no choice, and the render writes them again. An entry for
+// a platform source that differs stays, and is refused (checkGovernedSource).
+func (g *Governance) withoutPlatformServers() {
+	for source, ours := range definitions.Governance().Platform.GovernedServers {
+		if s, ok := g.GovernedServers[source]; ok && s != nil && s.Role == ours.Role && s.Safe != nil && slices.Equal(*s.Safe, ours.Safe) {
+			delete(g.GovernedServers, source)
 		}
-		m = append(m, render.Entry{Key: "governedServers", Value: servers, Comment: "The servers muster governs, over the meta chart's: the input\ngovernance.governedServers, read back so a reconcile keeps it. Changed only\nthrough an Action a second person approves; null drops a source."})
 	}
-	return m
+}
+
+// governanceValues appends the governance to the configmap patch where the
+// meta chart takes it (governanceRenders): the meta chart's governance with
+// the platform's role floors (governance.roleFloors, Giant Swarm's own,
+// decision #92) and the chosen mode (governance.mode, written only as
+// governed), and governedServers with the platform's own servers and the
+// chosen overrides by source, a dropped one as null.
+func (in *Input) governanceValues(m render.Map) render.Map {
+	if !in.governanceRenders() {
+		return m
+	}
+	data := definitions.Governance()
+	g := in.Governance
+	var governance render.Map
+	if g.Mode == GovernanceGoverned {
+		governance = append(governance, e("mode", GovernanceGoverned))
+	}
+	floors := render.Map{}
+	for _, role := range slices.Sorted(maps.Keys(data.Platform.RoleFloors)) {
+		floors = append(floors, e(role, slices.Clone(data.Platform.RoleFloors[role])))
+	}
+	governance = append(governance, e("roleFloors", floors))
+	m = append(m, render.Entry{Key: "governance", Value: governance, Comment: "The platform's governance: Giant Swarm's role floors (roleFloors), rendered\nalways, and the input governance.mode, read back so a reconcile keeps it.\nChanged only through an Action a second person approves."})
+	servers := render.Map{}
+	sources := slices.Collect(maps.Keys(g.GovernedServers))
+	for source := range data.Platform.GovernedServers {
+		if !slices.Contains(sources, source) {
+			sources = append(sources, source)
+		}
+	}
+	slices.Sort(sources)
+	for _, source := range sources {
+		if ours, ok := data.Platform.GovernedServers[source]; ok {
+			servers = append(servers, e(source, render.Map{e("role", ours.Role), e("safe", slices.Clone(ours.Safe))}))
+			continue
+		}
+		s := g.GovernedServers[source]
+		if s == nil {
+			servers = append(servers, e(source, nil))
+			continue
+		}
+		var entry render.Map
+		if s.Role != "" {
+			entry = append(entry, e("role", s.Role))
+		}
+		if s.Safe != nil {
+			entry = append(entry, e("safe", slices.Clone(*s.Safe)))
+		}
+		servers = append(servers, e(source, entry))
+	}
+	return append(m, render.Entry{Key: "governedServers", Value: servers, Comment: "The servers muster governs, over the meta chart's: Giant Swarm's own\n(giantswarm-platform-manager), rendered always, and the input\ngovernance.governedServers, read back so a reconcile keeps it. Changed only\nthrough an Action a second person approves; null drops a source."})
+}
+
+// connectorAdmins are muster's connector admins, the Giant Swarm admin
+// groups bound to its mcpserver-editor Role (muster.rbac.mcpServerEditor:
+// the meta chart appends tenants.platformTeam), on the 4 line, every
+// installation: Giant Swarm's own (decision #92), never an input.
+func (in *Input) connectorAdmins() render.Map {
+	if in.Installation.ChartLine != lineFour {
+		return nil
+	}
+	var subjects []render.Map
+	for _, s := range definitions.Governance().Platform.ConnectorAdmins {
+		subjects = append(subjects, render.Map{e("apiGroup", s.APIGroup), e("kind", s.Kind), e("name", s.Name)})
+	}
+	return render.Map{e("mcpServerEditor", render.Map{e("subjects", subjects)})}
 }
 
 // checkGovernance refuses the governance the installation cannot run as
@@ -182,10 +238,13 @@ func checkGovernedSource(source string, s *GovernedServer) string {
 	if alias := chartSourceAlias(source); alias != "" {
 		return fmt.Sprintf("names the meta chart's source %s under a server key; override it as %s, whose role the chart fixes", alias, alias)
 	}
+	g := definitions.Governance()
+	if _, ours := g.Platform.GovernedServers[source]; ours {
+		return "is Giant Swarm's own governed server, which the definition renders on every installation and no input changes"
+	}
 	if s == nil {
 		return ""
 	}
-	g := definitions.Governance()
 	chart, known := g.Chart[source]
 	switch {
 	case known && s.Role != "" && s.Role != chart.Role:

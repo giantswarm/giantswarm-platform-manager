@@ -110,7 +110,7 @@ func TestGovernanceChangeOnATestInstallationNeedsASecondPerson(t *testing.T) {
 	if !ok || len(g.Lines) != 2 || len(g.Loosens) != 1 || g.Loosens[0] != droppedKubernetes {
 		t.Fatalf("the action's governance: %+v", a.Spec.Governance)
 	}
-	if after := a.Spec.GovernanceAfter[rowan]; !strings.Contains(after, `"governance":"governed"`) {
+	if after := a.Spec.GovernanceAfter[rowan]; !strings.Contains(after, `"mode":"governed"`) {
 		t.Fatalf("the governance the action leaves: %q", after)
 	}
 	posted := st.gateway.posted()
@@ -211,7 +211,7 @@ func TestDisableThenEnableOfAGovernedTestInstallationNeedsASecondPerson(t *testi
 	if d.Action.Status.State != actions.StatePendingApproval || d.Action.Status.Approval.ReviewID == "" || len(g.Lines) == 0 || !strings.Contains(g.Lines[0], "deleted with the platform") || !slices.Contains(g.Loosens, "mode governed → trusted") {
 		t.Fatalf("the disable of a governed test installation: %+v %+v", d.Action.Status.Approval, g)
 	}
-	if after := d.Action.Spec.GovernanceAfter[rowan]; !strings.Contains(after, `"governance":"governed"`) {
+	if after := d.Action.Spec.GovernanceAfter[rowan]; !strings.Contains(after, `"mode":"governed"`) {
 		t.Fatalf("the governance the disable records: %q", after)
 	}
 	requireLog(t, st, "governance_change_committed", "action="+d.Action.Name)
@@ -245,11 +245,11 @@ func TestGovernanceChangedOutsideTheManagerNeedsTheReview(t *testing.T) {
 	merged := approveAndMerge(t, st, out.Action.Name)
 	marker := installations.Capabilities()[0].EnabledMarker(rowan)
 	values, ok := st.ghs.file(acmeConfigs, marker)
-	if !ok || !strings.Contains(values, "\ngovernance: governed\n") {
+	if !ok || !strings.Contains(values, "\n  mode: governed\n") {
 		t.Fatalf("the governed values on record: %v\n%s", ok, values)
 	}
 	// Someone takes governed out in the repository, past the manager.
-	st.ghs.addFile(acmeConfigs, marker, strings.Replace(values, "\ngovernance: governed\n", "\n", 1))
+	st.ghs.addFile(acmeConfigs, marker, strings.Replace(values, "\n  mode: governed\n", "\n", 1))
 
 	// Typing governed again changes no governance against the reviewed
 	// action, yet the record moved: the review stands, the outside change
@@ -272,12 +272,12 @@ func TestGovernanceMergedBetweenThePlanAndTheBranchNeedsTheReview(t *testing.T) 
 	st := governedTestRowan(t)
 	aliceC := st.mcpClient(t, aliceToken)
 	marker := installations.Capabilities()[0].EnabledMarker(rowan)
-	st.beforeOpen = func() { st.ghs.addFile(acmeConfigs, marker, "governance: governed\n") }
+	st.beforeOpen = func() { st.ghs.addFile(acmeConfigs, marker, "governance:\n  mode: governed\n") }
 	out, text, isErr := commitCall(t, aliceC, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(nil)})
 	if isErr || out.Action == nil {
 		t.Fatalf("commit: %v %s", isErr, text)
 	}
-	if v, _ := st.ghs.file(acmeConfigs, marker); st.beforeOpen != nil || v != "governance: governed\n" {
+	if v, _ := st.ghs.file(acmeConfigs, marker); st.beforeOpen != nil || v != "governance:\n  mode: governed\n" {
 		t.Fatalf("the hook did not run: %q", v)
 	}
 	if out.Action.Status.Approval == nil || out.Action.Status.Approval.Decision == actions.DecisionNotRequired || out.Action.Status.Approval.ReviewID == "" {
@@ -308,7 +308,7 @@ func TestWaveLooseningGovernanceOnATestInstallationNeedsASecondPerson(t *testing
 	sopsFixtures(t, st.ghs)
 	rowanAsTestInstallation(t, st.ghs)
 	rowanOnLineFour(st.ghs)
-	st.ghs.addFile(acmeConfigs, installations.Capabilities()[0].EnabledMarker(rowan), "muster: {}\ngovernance: governed\n")
+	st.ghs.addFile(acmeConfigs, installations.Capabilities()[0].EnabledMarker(rowan), "muster: {}\ngovernance:\n  mode: governed\n")
 	seedRemote(t, st)
 	aliceC := st.mcpClient(t, aliceToken)
 	inputs := minimalInputs(map[string]any{keyGovernanceInput: map[string]any{keyMode: agentplatform.GovernanceTrusted}})
