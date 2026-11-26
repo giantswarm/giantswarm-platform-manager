@@ -27,17 +27,59 @@ loosens them (`definitions/agent-platform/governance.yaml`, `platform`):
 | Part | Renders | What it does |
 |---|---|---|
 | The Platform Manager's role floors | `governance.roleFloors: {platformManager: [approve_action, merge_action]}` | muster asks a person before an agent approves or merges an Action of this manager, in both modes; the manager cannot tell an agent from a person, since muster forwards the person's identity |
-| The Platform Manager as a governed server | `governedServers.giantswarm-platform-manager: {role: platformManager, safe: [...]}` | on `governed` every tool of this manager but its safe list asks agents; the floors hold in both modes |
+| The Platform Manager as a governed server | `governedServers.giantswarm-platform-manager/giantswarm-platform-manager: {role: platformManager, safe: [...]}`: muster's key for the MCPServer `giantswarm-platform-manager` in the manager's release namespace, `giantswarm-platform-manager`, outside muster's (`agent-platform`) | on `governed` every tool of this manager but its safe list asks agents; the floors hold in both modes |
 | The connector admins | `muster.rbac.mcpServerEditor.subjects`: the groups `giantswarm-ad:giantswarm-admins` and `giantswarm-github:giantswarm:giantswarm-admins` | whoever holds muster's `mcpserver-editor` Role edits every connector in muster's namespace, sets its tool approval and alone lets an agent run a tool the connector asks for; the meta chart appends `tenants.platformTeam` |
 
 The role floors and the governed server are written where the meta chart takes the governance (the release
 `GovernanceChart`, the 4 line, no chart hold below it); the connector admins on every installation on the 4 line,
 which every chart there takes, with the same groups as the workflow editors (`muster.rbac.workflowEditor.subjects`,
-muster's `workflow-editor` Role, who create, change and delete muster's workflows; decision #93). A `governance.governedServers` input for `giantswarm-platform-manager` is
-refused; read back from the record it is the platform's entry and is rendered again. A server key of an
-installation's own may take the role `platformManager`, which only adds its floors. muster from before decision
-#92 builds the same floors in, so the plan reads a governance without `roleFloors` as having the platform's:
-writing them changes nothing.
+muster's `workflow-editor` Role, who create, change and delete muster's workflows; decision #93). A
+`governance.governedServers` input naming the Platform Manager's server, under any key, is refused; read back from
+the record the platform's entry is rendered again. A server key of an installation's own may take the role
+`platformManager`, which only adds its floors.
+
+Neither muster nor the chart builds these parts in, so the plan reads a record without them as without them:
+removing `roleFloors` or the Platform Manager's entry out of band is a loosening governance change, and putting
+them on record the first time is a tightening one that asks the review once.
+
+### Release order
+
+The open-source chart and muster no longer govern the Platform Manager by themselves: a chart and muster that take
+the governance on an installation whose values lack these parts let agents approve and merge Actions unasked. So
+`GovernanceChart` and `GovernanceMuster` are set in the manager's release that precedes the chart release whose
+`agent-platform.muster.governanceFloor` is set, and every 4-line installation is reconciled before the chart's
+version range admits that release. `TestGovernanceGatesFollowTheChart` fails while the sibling agent-platform
+checkout sets the floor and the gates are not set to it. The drift tests skip without sibling checkouts; CI should
+set `AGENT_PLATFORM_CHECKOUT` and `MUSTER_CHECKOUT`.
+
+### Upgrading an installation by hand
+
+An installation the manager does not reconcile (one enabled by hand) carries the same parts in its agent-platform
+values when it moves to the chart with tool approval; the chart's own defaults are placeholder groups and no
+governed server of Giant Swarm's:
+
+```yaml
+muster:
+  rbac:
+    mcpServerEditor:
+      subjects:
+        - {apiGroup: rbac.authorization.k8s.io, kind: Group, name: giantswarm-ad:giantswarm-admins}
+        - {apiGroup: rbac.authorization.k8s.io, kind: Group, name: giantswarm-github:giantswarm:giantswarm-admins}
+    workflowEditor:
+      subjects:
+        - {apiGroup: rbac.authorization.k8s.io, kind: Group, name: giantswarm-ad:giantswarm-admins}
+        - {apiGroup: rbac.authorization.k8s.io, kind: Group, name: giantswarm-github:giantswarm:giantswarm-admins}
+governance:
+  roleFloors:
+    platformManager: [approve_action, merge_action]
+governedServers:
+  giantswarm-platform-manager/giantswarm-platform-manager:
+    role: platformManager
+    safe: [get_info, list_installations, list_actions, get_action, verify_capability]
+```
+
+Write `governance.mode: governed` where an installation wrote `governance: governed`. Keep the editor lists
+non-empty: muster's chart fails the upgrade on an empty list while its old `system:authenticated` binding exists.
 
 ## The inputs
 
