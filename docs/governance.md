@@ -6,57 +6,47 @@ changes it alone.
 
 ## What muster enforces
 
-muster asks a person before an agent runs a tool the platform governs. Its governance configuration, rendered by
-the agent-platform meta chart, has three parts:
+muster asks a person before an agent runs a tool the platform governs. The agent-platform meta chart renders its
+configuration:
 
-- the mode: `trusted` (the default) runs what the connectors' own settings allow; `governed` asks a person
-  before an agent runs any tool of a governed server that is not on that server's safe list, new and renamed
-  tools included, and before any of muster's own tools except its reads;
-- the role floors: tools that ask agents in both modes on a governed server of that role. muster builds in its
-  own roles' floors and takes more from the configuration (`governance.roleFloors`, a union: nothing removes a
-  built-in floor);
+- the mode: `trusted` (default) runs what the connectors' own settings allow; `governed` asks before any tool of
+  a governed server that is not on its safe list (new and renamed tools included) and before any of muster's own
+  tools except its reads;
+- the role floors: tools that ask agents in both modes on a governed server of that role (`governance.roleFloors`,
+  a union with muster's built-in floors);
 - the governed servers, each with a role and a safe list.
 
 ## Giant Swarm's own parts
 
-muster and the agent-platform chart are open source and carry nothing of Giant Swarm (decision #92 of the epic).
-This manager is Giant Swarm's, so the Giant Swarm flow lives here: the agent-platform definition renders these
-parts on every installation it manages, as fixed platform parts. They are no inputs, and no input changes or
-loosens them (`definitions/agent-platform/governance.yaml`, `platform`):
+muster and the chart are open source and carry nothing of Giant Swarm. The definition renders these parts on every
+installation as fixed platform parts, not inputs (`definitions/agent-platform/governance.yaml`, `platform`):
 
-| Part | Renders | What it does |
+| Part | Renders | Effect |
 |---|---|---|
-| The Platform Manager's role floors | `governance.roleFloors: {platformManager: [approve_action, merge_action]}` | muster asks a person before an agent approves or merges an Action of this manager, in both modes; the manager cannot tell an agent from a person, since muster forwards the person's identity |
-| The Platform Manager as a governed server | `governedServers.giantswarm-platform-manager/giantswarm-platform-manager: {role: platformManager, safe: [...]}`: muster's key for the MCPServer `giantswarm-platform-manager` in the manager's release namespace, `giantswarm-platform-manager`, outside muster's (`agent-platform`) | on `governed` every tool of this manager but its safe list asks agents; the floors hold in both modes |
-| The connector admins | `muster.rbac.mcpServerEditor.subjects`: the groups `giantswarm-ad:giantswarm-admins` and `giantswarm-github:giantswarm:giantswarm-admins` | whoever holds muster's `mcpserver-editor` Role edits every connector in muster's namespace, sets its tool approval and alone lets an agent run a tool the connector asks for; the meta chart appends `tenants.platformTeam` |
+| Platform Manager role floors | `governance.roleFloors: {platformManager: [approve_action, merge_action]}` | a person is asked before an agent approves or merges an Action, in both modes |
+| Platform Manager as governed server | `governedServers.giantswarm-platform-manager/giantswarm-platform-manager: {role: platformManager, safe: [...]}` | on `governed` every tool but the safe list asks agents |
+| Connector admins | `muster.rbac.mcpServerEditor.subjects`: groups `giantswarm-ad:giantswarm-admins`, `giantswarm-github:giantswarm:giantswarm-admins` | whoever holds muster's `mcpserver-editor` Role edits every connector and its tool approval; the meta chart appends `tenants.platformTeam` |
 
-The role floors and the governed server are written where the meta chart takes the governance (the release
-`GovernanceChart`, the 4 line, no chart hold below it); the connector admins on every installation on the 4 line,
-which every chart there takes, with the same groups as the workflow editors (`muster.rbac.workflowEditor.subjects`,
-muster's `workflow-editor` Role, who create, change and delete muster's workflows; decision #93). A
-`governance.governedServers` input naming the Platform Manager's server, under any key, is refused; read back from
-the record the platform's entry is rendered again. A server key of an installation's own may take the role
-`platformManager`, which only adds its floors.
-
-Neither muster nor the chart builds these parts in, so the plan reads a record without them as without them:
-removing `roleFloors` or the Platform Manager's entry out of band is a loosening governance change, and putting
-them on record the first time is a tightening one that asks the review once.
+The floors and the governed server are written where the meta chart takes governance (`GovernanceChart`, 4 line,
+no chart hold below it); the connector admins on every 4-line installation, with the same groups as workflow
+editors (`muster.rbac.workflowEditor.subjects`). A `governance.governedServers` input naming this manager's server
+is refused; an installation's own server key may take the role `platformManager`, which only adds floors. Removing
+`roleFloors` or the manager's entry out of band is a loosening change; recording them the first time is a
+tightening one that asks the review once.
 
 ### Release order
 
-The open-source chart and muster no longer govern the Platform Manager by themselves: a chart and muster that take
-the governance on an installation whose values lack these parts let agents approve and merge Actions unasked. So
-`GovernanceChart` and `GovernanceMuster` are set in the manager's release that precedes the chart release whose
-`agent-platform.muster.governanceFloor` is set, and every 4-line installation is reconciled before the chart's
-version range admits that release. `TestGovernanceGatesFollowTheChart` fails while the sibling agent-platform
-checkout sets the floor and the gates are not set to it. The drift tests skip without sibling checkouts; CI should
-set `AGENT_PLATFORM_CHECKOUT` and `MUSTER_CHECKOUT`.
+A chart and muster that take governance on an installation without these parts let agents approve and merge
+unasked. `GovernanceChart` and `GovernanceMuster` are set in the manager release that precedes the chart release
+whose `agent-platform.muster.governanceFloor` is set, and every 4-line installation is reconciled before the
+chart's version range admits it. `TestGovernanceGatesFollowTheChart` fails while the gates lag the sibling
+agent-platform checkout. The drift tests skip without sibling checkouts; CI sets `AGENT_PLATFORM_CHECKOUT` and
+`MUSTER_CHECKOUT`.
 
 ### Upgrading an installation by hand
 
-An installation the manager does not reconcile (one enabled by hand) carries the same parts in its agent-platform
-values when it moves to the chart with tool approval; the chart's own defaults are placeholder groups and no
-governed server of Giant Swarm's:
+An installation the manager does not reconcile carries the same parts in its agent-platform values when it moves
+to the chart with tool approval (the chart's defaults are placeholders):
 
 ```yaml
 muster:
@@ -81,133 +71,88 @@ governedServers:
 Write `governance.mode: governed` where an installation wrote `governance: governed`. Keep the editor lists
 non-empty: muster's chart fails the upgrade on an empty list while its old `system:authenticated` binding exists.
 
-## The inputs
+## Inputs
 
-The agent-platform definition takes the mode and the overrides of the governed servers as inputs. Both are read
-back from the configmap patch on record (`installations/<name>/apps/agent-platform/configmap-values.yaml.patch`),
-so a reconcile keeps them.
+Both are read back from the configmap patch on record
+(`installations/<name>/apps/agent-platform/configmap-values.yaml.patch`), so a reconcile keeps them.
 
 | Input | Renders | Default |
 |---|---|---|
-| `governance.mode` | the meta chart's `governance.mode`, written only as `governed` | `trusted`, the chart's default, not written |
-| `governance.governedServers` | the meta chart's top-level `governedServers`: overrides by source, each `{role, safe}` or `null` | none: the chart's servers and safe lists apply |
+| `governance.mode` | the meta chart's `governance.mode`, written only as `governed` | `trusted`, not written |
+| `governance.governedServers` | top-level `governedServers`: overrides by source, each `{role, safe}` or `null` | none: the chart's servers apply |
 
-A source is one the meta chart knows (`agent-manager`, `kagent`, `model-manager`, `cluster-manager`,
-`vm-manager`, `toolchain-manager`, `workspace-manager`, `skill-manager`, `mcp-kubernetes`) or a muster server key
-(`<name>` or `<namespace>/<name>`). Helm merges the maps:
-
-- a source you leave out keeps the chart's entry;
-- a role or safe list you leave out keeps the chart's;
-- a safe list you type replaces the chart's list;
-- `null` drops the source, and muster governs nothing for it.
+A source is one the chart knows (`agent-manager`, `kagent`, `model-manager`, `cluster-manager`, `vm-manager`,
+`toolchain-manager`, `workspace-manager`, `skill-manager`, `mcp-kubernetes`) or a muster server key (`<name>` or
+`<namespace>/<name>`). Helm merges the maps: an omitted source, role or safe list keeps the chart's; a typed safe
+list replaces it; `null` drops the source.
 
 ```sh
 --input governance.mode=governed
 --input 'governance.governedServers={"skill-manager": {"safe": ["list_skills", "get_skill"]}}'
 ```
 
-The definition refuses, typed or read back:
+Refused, typed or read back:
 
-- any governance choice while no meta chart release renders muster's governance configuration. `GovernanceChart`
-  in `render/agentplatform/governance.go` stays unset until that release is cut: a guessed version would write
-  keys a chart ignores, so an installation would read as governed while its muster is not (decision #89 of the
-  epic). Set it, and `GovernanceMuster`, when the releases exist.
-- an installation off the 4 chart line;
-- a `versions.chart` hold below `GovernanceChart`;
-- `governed` under a `versions.components.muster` hold below `GovernanceMuster`, where the meta chart fails the
-  render;
-- what muster refuses to start on, or what would drop floors past it:
-  - a role muster does not know (the schema);
-  - a role other than the meta chart's for one of its sources: muster applies a role's floors by the server's
-    role, so a server's role is what the server is and an override may not change it;
-  - a server key of its own without a role, or one naming a chart source under another key
-    (`<namespace>/agent-manager`, `<cluster>-mcp-kubernetes`);
-  - a floor of any role on any safe list, the platform's role floors included;
-  - any override of `giantswarm-platform-manager`, Giant Swarm's own;
-  - a safe entry that is no tool name (`^[A-Za-z0-9_.-]{1,128}$`), a repeated one, more than 64 per list;
-  - an entry with neither role nor safe list.
+- any governance choice while `GovernanceChart` (`render/agentplatform/governance.go`) is unset, an installation
+  off the 4 chart line, or a `versions.chart` hold below it;
+- `governed` under a `versions.components.muster` hold below `GovernanceMuster`;
+- what muster refuses to start on or what would drop floors: an unknown role; a role other than the chart's for
+  one of its sources; a server key without a role or naming a chart source under another key; a floor of any role
+  on a safe list; any override of `giantswarm-platform-manager`; a safe entry that is no tool name
+  (`^[A-Za-z0-9_.-]{1,128}$`) or repeated, or more than 64 per list; an entry with neither role nor safe list.
 
-muster's built-in roles and floors and the chart's own `governedServers` are copied into
-`definitions/agent-platform/governance.yaml` beside Giant Swarm's platform parts;
-`TestGovernanceMatchesMusterAndTheChart` compares them with sibling checkouts of muster and agent-platform where
-present (`MUSTER_CHECKOUT`, `AGENT_PLATFORM_CHECKOUT`). A muster or chart from before decision #92 that still
-carries the Platform Manager's role or entry must agree with the platform's.
+muster's built-in roles and floors and the chart's `governedServers` are copied into
+`definitions/agent-platform/governance.yaml`; `TestGovernanceMatchesMusterAndTheChart` compares them with sibling
+checkouts (`MUSTER_CHECKOUT`, `AGENT_PLATFORM_CHECKOUT`).
 
 ## What counts as a governance change
 
-The plan compares the effective governance on both sides: the mode (absent is `trusted`), the role floors (a
-floor that goes loosens), every server as muster governs it (a source the values leave alone is the chart's entry), muster's own `muster.muster.governance`, and,
-once `GovernanceMuster` is set, a `components.muster` hold below it, and who may loosen approvals: the platform
-team and the subjects of muster's editor bindings (absent editor subjects read as the Giant Swarm groups the
-definition renders). A change that leaves the effective
-governance as it is, such as an explicit `trusted` dropped, is none.
+The plan compares the effective governance on both sides: the mode (absent is `trusted`), role floors, every
+server as muster governs it, `muster.muster.governance`, a `components.muster` hold below `GovernanceMuster`, and
+who may loosen approvals (the platform team and the subjects of muster's editor bindings). A change that leaves
+the effective governance as it is, such as an explicit `trusted` dropped, is none.
 
-The plan compares the configs repository with what the team reviewed, kept per installation in a
-reviewed-governance record (decision #99): a `GovernanceRecord` in the manager's namespace, named after the
-installation, beside the Action records (`crd-governancerecords.yaml`). Only the manager's ServiceAccount may
-write it: RBAC grants no one else a right, and a ValidatingAdmissionPolicy (`actions.governanceRecordPolicy`, on by
-default, Kubernetes 1.30 or later) refuses a create, update or delete by any other identity, cluster admins and
-GitOps controllers included. It holds the reviewed governance (the snapshot of the governance values), the Action whose merge wrote it,
-the approver and the configs pull request's merged head. `merge_action` writes it, and nothing else does: when it
-merges an installation's stage of an Action that changes the governance there and that the team approved, the
-governance that Action's commit leaves becomes the record (`governance_record_written`).
+### The reviewed-governance record
 
-The merge is a compare-and-swap. Each Action records which record its plan compared with (`spec.governanceBase`:
-the writing action, its time and version, or `none`). `merge_action` merges a stage of an approved governance
-change only while the installation's record is still that one, and writes it with the same check: an approval
-given against an older record does not cover a newer review, so such a merge is refused
-(`governance_record_moved_since_plan`); the actor denies the action and commits the change again for a new
-review. An action that needs no
-review, one merged outside the manager, a revert and the Actions' order or states never change it.
+The plan compares the configs repository with what the team reviewed: a `GovernanceRecord` per installation in
+the manager's namespace (`governancerecords.platform-manager.giantswarm.io`). Only the manager's ServiceAccount
+writes it; a ValidatingAdmissionPolicy (`actions.governanceRecordPolicy`, default on, Kubernetes 1.30+) refuses
+every other identity, cluster admins and GitOps controllers included. `merge_action` writes it when it merges a
+stage of an approved governance change (`governance_record_written`).
 
-Every plan, the dry run and the commit included, compares the governance in the configs repository with the
-record, whether or not the plan writes the values file. A difference the record does not explain (an edit
-outside the manager, a revert by hand, an older action merged after a newer one) is an unreviewed change:
-
-- the plan shows the change against the record, led by a loosening line that names the reviewed action;
-- `governance_on_record_changed_outside` is logged;
-- the next commit asks the team's review, even when it types the governance back; a commit with nothing to write
-  answers "nothing to commit" and names the difference. The reviewed commit, once merged, is the record.
-
-A revert of a reviewed governance change that a read of the Action finds (the watch, or `deny_action`'s
-withdrawal) is audited (`governance_change_reverted`); the record keeps what was reviewed, so the next plan
-shows the revert.
-
-An installation without a record is fail closed: where its governance is in play (the values on record or what
-the commit leaves carry the meta chart's `governance`), every commit asks the team's review, led by "no reviewed
-governance is on record", until a reviewed commit is merged and becomes the record (`governance_unrecorded`). That
-review shows the governance the commit leaves whole, against the chart's defaults (an empty governance), with
-the loosening marks, so the team confirms what it can see. That is the migration of the
-installations from before the record: their first commit is reviewed. A record that cannot be read counts as
-none (`governance_record_unread`), and a record that could not be written after a merge is logged
-(`governance_record_not_written`) and leaves the next commit to ask the review again.
-
-A `disable_capability` that deletes values carrying a governance is a loosening governance change, the deleted
-governance being the reviewed one. Its record, once reviewed and merged, is the governance before the disable,
-marked `disabled`: an enable that brings the platform back is compared with it under its own line ("the platform
-comes back after the reviewed disable") and asks the review, and nothing is logged as changed outside.
-Between the plan and the pull requests the commit or wave reads the values on the default branch again: a
-governance merged in between is recorded as a loosening governance change of the action (`status.governance`),
-so the review shows it and only a member of the reviewers' team approves it (`governance_record_moved`).
+- **Compare-and-swap.** Each Action records the record it was planned against (`spec.governanceBase`).
+  `merge_action` merges only while the record is still that one (`governance_record_moved_since_plan`
+  otherwise): deny the action and commit again for a new review.
+- **Unreviewed difference.** Every plan, dry run included, compares the configs repository with the record. A
+  difference the record does not explain (edit outside the manager, revert by hand, older action merged late)
+  shows the change against the record led by a loosening line, logs `governance_on_record_changed_outside`, and
+  makes the next commit ask the review, even when it types the governance back.
+- **No record fails closed.** Where governance is in play, every commit asks the review ("no reviewed
+  governance is on record"), showing the governance whole against the chart's defaults, until a reviewed commit
+  merges (`governance_unrecorded`). A record that cannot be read counts as none (`governance_record_unread`); one
+  that could not be written is logged (`governance_record_not_written`) and the next commit asks again.
+- **Disable.** `disable_capability` that deletes governance is a loosening change; its record is the governance
+  before the disable, marked `disabled`, and a later enable is compared with it.
+- **Moved between plan and pull requests.** The commit re-reads the default branch; governance merged meanwhile
+  becomes a loosening change of the action (`status.governance`, `governance_record_moved`).
+- **Revert.** A revert of a reviewed change found by a read of the Action is audited
+  (`governance_change_reverted`); the record keeps what was reviewed.
 
 ## A second person approves every change
 
-A commit whose plan changes the governance is recorded with the change on the Action (`spec.governance`, per
-installation: `lines` old → new and `loosens`). The hub must store it; an Action CRD without the field is refused
-before any pull request opens. The change rules are:
+A plan that changes governance is recorded on the Action (`spec.governance`, per installation: `lines` old → new
+and `loosens`). The hub's Action CRD must have the field, or the commit is refused before any pull request opens.
 
-- such an action always asks for the Team review, also where every target is one of Giant Swarm's test
-  installations, which otherwise need none;
-- `approve_action` refuses the actor, by login and by GitHub id;
-- the approver must be an active member of the governance reviewers' team, a GitHub team the chart names
-  (`approvals.governanceTeam`, `org/team`), and a GitHub account of type `User`. The manager reads the membership
-  as the approver. When the team is unset or the membership cannot be read, nothing is approved;
-- `merge_action` merges nothing before that decision; a stage merged outside the manager decides nothing for
-  the stages after it;
-- an agent can propose such a change but never approve or merge it: muster asks a person before an agent's
-  `approve_action` and `merge_action`.
+- The action always asks the Team review, on Giant Swarm's test installations too.
+- `approve_action` refuses the actor, by login and GitHub id.
+- The approver must be an active member of `approvals.governanceTeam` (`org/team`) and a GitHub account of type
+  `User`; the manager reads the membership as the approver. Team unset or membership unreadable: nothing is
+  approved.
+- `merge_action` merges nothing before that decision; a stage merged outside the manager decides nothing for the
+  stages after it.
+- An agent can propose such a change but never approve or merge it.
 
-The review leads with the governance, before the reason, and with what loosens it before the change itself:
+The review leads with the governance, loosening lines first:
 
 ```text
 *Governance:* this changes the platform's governance; a second person approves it, on test installations too.
@@ -215,83 +160,54 @@ The review leads with the governance, before the reason, and with what loosens i
 • rowan: mode governed → trusted
 ```
 
-What loosens is never cut. A commit whose loosening lines do not fit in what Slack shows (1000 characters) is
-refused: split it. The change lines that follow are cut at 1400 characters, the configs pull request named for the
-rest. A change loosens governance, or may, when any of these hold:
+Loosening lines are never cut: a commit whose lines exceed Slack's 1000 characters is refused, so split it. The
+change lines are cut at 1400 characters with the configs pull request named. A change loosens governance, or may,
+when:
 
-- the mode leaves `governed`;
-- a role floor goes;
-- a source is no longer governed;
-- a role changes;
-- a safe entry is added, against the chart's list for a first override; one named like a write anywhere in its
-  name, camelCase words included (`kubernetes_delete`, `port_forward`, `drainNode`) or a floor of any role is marked;
+- the mode leaves `governed`, a role floor goes, a source is no longer governed, or a role changes;
+- a safe entry is added (against the chart's list for a first override); one named like a write anywhere in its
+  name, camelCase included (`kubernetes_delete`, `drainNode`), or a floor of any role is marked;
 - muster's own governance changes, or a muster hold drops below the release that enforces it;
-- who may loosen approvals widens: a subject added to `tenants.platformTeam` (which the meta chart adds to the
-  connector-admin and workflow-editor bindings) or to `muster.rbac.mcpServerEditor.subjects` or
-  `muster.rbac.workflowEditor.subjects` (decision #97); a subject removed tightens;
-- the record differs from what the last reviewed action left;
-- the agent-platform values cannot be read on either side.
-
-Values from the record are escaped for Slack: no value carries a line, markup or a link into the review.
+- who may loosen approvals widens: a subject added to `tenants.platformTeam`,
+  `muster.rbac.mcpServerEditor.subjects` or `muster.rbac.workflowEditor.subjects` (a removal tightens);
+- the record differs from what the last reviewed action left, or the values cannot be read on either side.
 
 ## Audit
 
-Each step logs one line per installation whose governance the action changes (`audit=true`). Every line carries
-the action, the installation, the actor, the caller, the decision and who decided it, the change and whether it
-loosens.
+One line per installation whose governance the action changes (`audit=true`), with the action, installation,
+actor, caller, decision, decider, change and whether it loosens.
 
 | Event | When |
 |---|---|
 | `governance_change_committed` | the commit, wave or disable opened the pull requests |
 | `governance_change_self_approval_refused` | the actor tried to approve their own change |
-| `governance_change_approval_refused` | the approver is no active member of the team, no person, or their membership could not be read |
-| `governance_change_approved` | a second person approved it; with the approver's login and id and how their membership was read |
-| `governance_change_merged` | `merge_action` merged a stage of it; with the pull requests and their heads |
-| `governance_change_merged_without_approval` | a pull request of it was merged outside the manager before the team approved, in any state of the action; read at the next read of the action |
+| `governance_change_approval_refused` | approver not an active team member, no person, or membership unreadable |
+| `governance_change_approved` | a second person approved (approver login and id, how membership was read) |
+| `governance_change_merged` | `merge_action` merged a stage (pull requests and heads) |
+| `governance_change_merged_without_approval` | a pull request merged outside the manager before approval; read at the next read of the action |
 | `governance_on_record_changed_outside` | a plan found the record's governance other than what the last reviewed action left |
-| `governance_record_moved` | the values on the default branch changed between the plan and the pull requests |
-| `governance_record_written` | `merge_action` merged an approved governance change: the installation's record now holds it |
-| `governance_record_not_written`, `governance_record_unread` | the record could not be written or read; the next commit asks the review |
-| `governance_unrecorded` | a plan found governance in play on an installation without a record |
-| `governance_change_reverted` | a read of the Action found a reviewed governance change reverted on the default branch |
+| `governance_record_moved` | the default branch changed between plan and pull requests |
+| `governance_record_written` | the installation's record now holds an approved change |
+| `governance_record_not_written`, `governance_record_unread` | the record could not be written or read |
+| `governance_unrecorded` | governance in play on an installation without a record |
+| `governance_change_reverted` | a reviewed change was found reverted on the default branch |
 
 ## What the manager does not cover
 
-These limits are outside the manager:
+- Write access to `giantswarm/<customer>-configs` can merge a values change outside the manager. Branch
+  protection there (enforced for admins, re-approval after a push, required CODEOWNERS review) is asked of the
+  owners; the manager detects the change at the next plan and asks the review then.
+- Kubernetes write rights on muster's HelmRelease or ConfigMap change the configuration directly.
+- A second GitHub account a person holds and the team lists counts as a second person: team membership is the
+  control.
 
-- someone with write access to `giantswarm/<customer>-configs` can merge a change to the values outside the
-  manager. Branch protection on those repositories (enforced for admins, re-approval after a new push, required
-  CODEOWNERS review) is asked of their owners. The manager does not prevent such a change. It detects it at the
-  next plan of the installation and asks the review then; a merge of one of its own Actions' pull requests
-  outside it is audited when the action is read next.
-- whoever holds Kubernetes write rights on muster's HelmRelease or ConfigMap can change the configuration
-  directly.
-- a second GitHub account that a person holds and that the team lists counts as a second person: team
-  membership is the control.
+## This manager's safe list
 
-## This manager's own safe list
+Tools agents call unasked on `governed`: `get_info`, `list_installations`, `list_actions`, `get_action` and
+`verify_capability` (read-only; the three list/get tools also refresh Action records from GitHub as the caller and
+decide nothing).
 
-The definition governs this manager (`giantswarm-platform-manager`, role `platformManager`, above). Its safe
-list, the tools agents call unasked on `governed`, is:
-
-| Tool | Why it is safe |
-|---|---|
-| `get_info` | who the caller is, the definitions and their schemas |
-| `list_installations` | the installations and their capability states, read as the caller |
-| `list_actions` | the Action records |
-| `get_action` | one Action record |
-| `verify_capability` | compares the repositories with a definition and writes nothing |
-
-`get_action`, `list_actions` and `list_installations` bring the Action records up to date with GitHub as the
-caller as they read them: an action can move to rolling out, failed or removed, and the facts are posted to its
-review thread or the team's standup channel. They follow what GitHub says and decide nothing.
-
-These tools stay asking:
-
-- `enable_capability`, `reconcile_capability` and `disable_capability` ask agents even for a dry run: muster
-  matches tool names, and the same tool commits with `mode: commit`. A separate plan tool would let agents
-  plan unasked.
-- `verify_installation` records its result on the Action.
-- `watch_action` moves stages and posts to the review thread.
-- `deny_action` closes pull requests.
-- `approve_action` and `merge_action` are floors and are never safe.
+Everything else asks, because muster matches tool names: `enable_capability`, `reconcile_capability` and
+`disable_capability` even for a dry run (the same tool commits with `mode: commit`), `verify_installation`
+(records its result), `watch_action` (moves stages, posts to review threads), `deny_action` (closes pull
+requests). `approve_action` and `merge_action` are floors, never safe.

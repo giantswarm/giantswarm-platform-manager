@@ -13,7 +13,7 @@
                 },
                 "governanceRecordPolicy": {
                     "type": "boolean",
-                    "description": "Render a ValidatingAdmissionPolicy and its binding that let only this release's ServiceAccount create, update or delete the reviewed-governance records (`governancerecords.platform-manager.giantswarm.io`, decision #99): a record written by anyone else would read as reviewed governance. Needs Kubernetes 1.30 or later."
+                    "description": "Render a ValidatingAdmissionPolicy and its binding that let only this release's ServiceAccount write the reviewed-governance records (`governancerecords.platform-manager.giantswarm.io`). Needs Kubernetes 1.30 or later."
                 },
                 "installCRD": {
                     "type": "boolean",
@@ -44,7 +44,7 @@
                 },
                 "governanceTeam": {
                     "type": "string",
-                    "description": "The GitHub team whose active members approve an action that changes an installation's governance (`org/team`): approve_action checks the approver's membership as the approver and refuses when it cannot read it. Empty: no governance change can be approved.",
+                    "description": "The GitHub team (`org/team`) whose active members approve an action that changes an installation's governance. Empty: none can be approved.",
                     "pattern": "^([A-Za-z0-9-]+/[A-Za-z0-9_.-]+)?$"
                 },
                 "noticeChannel": {
