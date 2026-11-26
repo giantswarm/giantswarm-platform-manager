@@ -124,6 +124,12 @@ type Spec struct {
 	// action is approved by a second person, on test installations too, and
 	// its approval and merge are audited. Recorded at commit.
 	Governance map[string]plan.GovernanceChange `json:"governance,omitempty"`
+	// GovernanceAfter is, per installation, the governance the commit leaves
+	// on record (plan.GovernanceSnapshot as JSON; a disable's is the
+	// governance before it): the next plan compares against the newest
+	// reviewed one, so a change made outside the manager, or a disable
+	// followed by an enable, is a governance change again. Values only.
+	GovernanceAfter map[string]string `json:"governanceAfter,omitempty"`
 }
 
 // Skipped is an installation of a wave's set that is not a target.

@@ -171,6 +171,13 @@ func (t *Tools) resync(ctx context.Context, c *gh.Client, id *identity.Identity,
 	// states as GitHub has them now.
 	fresh := *a
 	fresh.Status = status
+	// A pull request of a governance change merged outside merge_action
+	// without the team's approval, in any state of the action, whoever
+	// merged it: the repositories' merge path let it through, and only their
+	// branch protection stood between one person and the change.
+	if len(merged) > 0 && len(a.Spec.Governance) > 0 && (status.Approval == nil || status.Approval.Decision != actions.DecisionApproved) {
+		t.auditGovernanceStage(ctx, "governance_change_merged_without_approval", &fresh, mergedStage(&fresh, merged), merged)
+	}
 	var posts []string
 	// told is the stage an action that needs no review started outside
 	// merge_action: the standup channel hears of it as of a merge.
@@ -209,13 +216,6 @@ func (t *Tools) resync(ctx context.Context, c *gh.Client, id *identity.Identity,
 					approval := *approvalOf(&status)
 					approval.Decision, approval.DecidedBy, approval.At = actions.DecisionMergedWithoutApproval, by, now()
 					status.Approval = &approval
-					// The repositories' merge path let a governance change
-					// through without the team's decision: audited apart, since
-					// only their branch protection stood between one person
-					// and the change.
-					merged := fresh
-					merged.Status = status
-					t.auditGovernance(ctx, "governance_change_merged_without_approval", &merged)
 				}
 				posts = append(posts, fmt.Sprintf("Merged outside the manager by %s: %s. *%s* is rolling out — the rollout and the probes follow here.", by, prLinks(stagePRs(status.PullRequests, idx)), st.Name))
 				if noReview(&fresh) {

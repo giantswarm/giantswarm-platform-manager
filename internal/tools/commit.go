@@ -152,14 +152,23 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	if len(p.MissingInputs) > 0 {
 		return nil, fmt.Errorf("%s: %s: %s; nothing is committed", tool, one, missingInputs(p.MissingInputs))
 	}
-	spec.Change = changeSummary(p)
-	spec.Changes = map[string][]string{one: plan.Summary(p)}
-	if g, ok := plan.GovernanceOf(p); ok {
+	// The plan carries the governance it changes (capabilityPlan, against
+	// what the last reviewed action left).
+	g, after := p.Governance, governanceAfter(p)
+	if after != "" {
+		spec.GovernanceAfter = map[string]string{one: after}
+	}
+	if g != nil {
 		// One person never changes the governance alone: the Team review,
 		// on a test installation too.
-		spec.Governance = map[string]plan.GovernanceChange{one: g}
+		spec.Governance = map[string]plan.GovernanceChange{one: *g}
 		test = false
+		if err := governanceTooLarge(tool, &actions.Action{Spec: spec}); err != nil {
+			return nil, err
+		}
 	}
+	spec.Change = changeSummary(p)
+	spec.Changes = map[string][]string{one: plan.Summary(p)}
 	spec.KeptByInstallation = keptByInstallation(nil, p)
 	if n := p.Diff[plan.ChangeUnknown]; n > 0 {
 		return nil, fmt.Errorf("%s: %d file(s) of %s could not be compared against the repository as you (%s); nothing is committed blind", tool, n, one, unknownFiles(p))
@@ -186,12 +195,18 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	res := CommitResult{Caller: identity.Caller(ctx), Tool: tool, Capability: out.Capability, Hub: out.Hub, Installation: one, Plan: p, PullRequests: []actions.PullRequest{}}
 	if len(p.Files)-p.Diff[plan.ChangeUnchanged] == 0 {
 		res.Next = "every file is on record as the definition renders it: nothing to commit, no action recorded"
+		if g != nil {
+			res.Next += "; the governance on record is not what the last reviewed action left (" + strings.Join(g.Lines, "; ") + "): a reviewed change that types the governance confirms or reverts it"
+		}
 		return res, nil
 	}
 
 	a, err := t.record(ctx, spec, actions.Status{State: actions.StatePendingApproval, Rotated: p.Rotating(), Orphans: orphansFrom(one, p.Checklist), Commit: &actions.CommitStatus{}})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
+	}
+	if err := governanceStored(tool, spec.Governance, a); err != nil {
+		return nil, t.fail(ctx, tool, a, nil, nil, err)
 	}
 	remote, err := t.d.Remote(token)
 	if err != nil {
@@ -207,6 +222,15 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 		return nil, t.fail(ctx, tool, a, remote, prs, err)
 	}
 	t.d.Log.Info(tool, identity.LogAttr(ctx), "action", a.Name, "installation", one, "state", a.Status.State, "pullRequests", len(prs))
+	if test {
+		// The plan read the record moments ago and the branch was cut from
+		// the default branch since: a governance merged in between would be
+		// written over without anyone seeing it, so it asks the review.
+		if moved, what := t.governanceRecordMoved(ctx, p); moved {
+			t.d.Log.Warn("governance_record_moved", identity.LogAttr(ctx), "audit", true, "action", a.Name, "installation", one, "governance", what)
+			test = false
+		}
+	}
 	t.auditGovernance(ctx, "governance_change_committed", a)
 	a, err = t.requestApproval(ctx, a, tool, test)
 	if err != nil {

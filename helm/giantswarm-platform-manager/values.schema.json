@@ -38,6 +38,11 @@
                     "type": "string",
                     "description": "klaus-gateway's base URL as reached from the pod (for example `http://klaus-gateway.agent-platform.svc:8080`): the team-review endpoint an action's approval request goes to. Empty refuses `mode: commit` (nothing is committed that no one can approve); `get_info` reports `approvals.configured: false`. The requests carry the pod's projected ServiceAccount token in the gateway's audience; the gateway's `reviews.allowedCallers` must name this ServiceAccount."
                 },
+                "governanceTeam": {
+                    "type": "string",
+                    "description": "The GitHub team whose active members approve an action that changes an installation's governance (`org/team`): approve_action checks the approver's membership as the approver and refuses when it cannot read it. Empty: no governance change can be approved.",
+                    "pattern": "^([A-Za-z0-9-]+/[A-Za-z0-9_.-]+)?$"
+                },
                 "noticeChannel": {
                     "type": "string",
                     "description": "The channel told, without buttons, once an action's change is applied on a customer installation: who, what, why and the account engineer (the Account Engineers' channel ID); it never sees the review. Must differ from `channel`; empty sends no notice."

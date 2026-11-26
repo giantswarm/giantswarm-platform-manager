@@ -3,6 +3,7 @@ package tools
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -23,18 +24,15 @@ func governedAction() *actions.Action {
 }
 
 // The review of an action that changes the governance says so first, that a
-// second person approves it, the change old → new and what loosens it; one
-// that changes none says nothing of it.
+// second person approves it, then what loosens it and only then the change
+// old → new; one that changes none says nothing of it.
 func TestReviewTextLeadsWithTheGovernance(t *testing.T) {
 	text := reviewText(governedAction())
-	for _, want := range []string{
-		"\n*Governance:* this changes the platform's governance; a second person approves it, on test installations too.",
-		"\n• garm: mode trusted (the chart's default) → governed; governedServers.mcp-kubernetes the chart's entry → null (not governed)",
-		"\n*It loosens governance:* garm: governedServers.mcp-kubernetes the chart's entry → null (not governed)",
-	} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("the review carries no %q:\n%s", want, text)
-		}
+	head := "\n*Governance:* this changes the platform's governance; a second person approves it, on test installations too." +
+		"\n*It loosens governance:* garm: governedServers.mcp-kubernetes the chart's entry → null (not governed)" +
+		"\n• garm: mode trusted (the chart's default) → governed; governedServers.mcp-kubernetes the chart's entry → null (not governed)"
+	if !strings.Contains(text, head) {
+		t.Fatalf("the review carries no %q:\n%s", head, text)
 	}
 	if text := reviewText(&actions.Action{Spec: actions.Spec{Kind: actions.KindReconcile, Capability: installations.AgentPlatform, Installations: []string{rtGarm}}}); strings.Contains(text, "Governance") {
 		t.Fatalf("a review without a governance change names it:\n%s", text)
@@ -60,5 +58,72 @@ func TestGovernanceChangeIsAudited(t *testing.T) {
 	tl.auditGovernance(context.Background(), "governance_change_approved", &actions.Action{})
 	if buf.Len() != 0 {
 		t.Fatalf("an action without a governance change is audited: %s", buf.String())
+	}
+}
+
+// S9-03: what loosens comes first and is never cut, within what Slack shows
+// of a section, however long the rest of the change; the rest is cut with
+// the configs pull request named. A change whose loosening lines alone do
+// not fit is refused.
+func TestReviewTextKeepsWhatLoosensWhole(t *testing.T) {
+	var pad []string
+	for i := range 130 {
+		pad = append(pad, fmt.Sprintf("list_inventory_items_%03d", i))
+	}
+	current := "governance: governed\ngovernedServers:\n  agent-manager:\n    safe: [get_info]\n"
+	next := "governance: governed\ngovernedServers:\n  a-inventory:\n    role: infrastructure\n    safe: [" + strings.Join(pad, ", ") + "]\n  agent-manager:\n    safe: [get_info, create_agent, update_agent_access]\n"
+	p := plan.Installation{Name: rowan, Files: []plan.File{{Path: "installations/rowan/apps/agent-platform/configmap-values.yaml.patch", Change: plan.ChangeUpdate, Current: current, Content: next}}}
+	g, ok := plan.GovernanceOf(p)
+	if !ok {
+		t.Fatal("no change")
+	}
+	a := &actions.Action{Spec: actions.Spec{Actor: actions.Actor{Login: stAlice}, Kind: actions.KindReconcile, Capability: installations.AgentPlatform, Installations: []string{rowan}, Reason: "inventory server",
+		Governance: map[string]plan.GovernanceChange{rowan: g}, Changes: map[string][]string{rowan: plan.Summary(p)}},
+		Status: actions.Status{PullRequests: []actions.PullRequest{{Repository: "giantswarm/acme-configs", Number: 7, URL: "https://github.com/giantswarm/acme-configs/pull/7"}}}}
+	text := []rune("*Review for team*\n" + reviewText(a))
+	shown := string(text[:min(len(text), 3000)])
+	for _, want := range []string{"*It loosens governance:* rowan: governedServers.agent-manager.safe +create_agent (named like a write) +update_agent_access (named like a write)", "in full in the configs pull request: <https://github.com/giantswarm/acme-configs/pull/7|giantswarm/acme-configs#7>"} {
+		if !strings.Contains(shown, want) {
+			t.Fatalf("what Slack shows carries no %q:\n%s", want, shown)
+		}
+	}
+	if err := governanceTooLarge(ToolReconcileCapability, a); err != nil {
+		t.Fatalf("a change whose loosening lines fit: %v", err)
+	}
+	big := plan.GovernanceChange{Lines: []string{"x"}}
+	for i := range 60 {
+		big.Loosens = append(big.Loosens, fmt.Sprintf("governedServers.s%02d.safe +list_items", i))
+	}
+	if err := governanceTooLarge(ToolReconcileCapability, &actions.Action{Spec: actions.Spec{Governance: map[string]plan.GovernanceChange{rowan: big}}}); err == nil || !strings.Contains(err.Error(), "split it") {
+		t.Fatalf("a change whose loosening lines do not fit: %v", err)
+	}
+}
+
+// S9-07: a stage merged outside the manager decides nothing for a
+// governance change; for any other change it carries the stages after it.
+func TestMergedWithoutApprovalDecidesNoGovernanceChange(t *testing.T) {
+	a := governedAction()
+	a.Status.Approval = &actions.Approval{Decision: actions.DecisionMergedWithoutApproval}
+	if decided(a) {
+		t.Fatal("a governance change merged outside the manager counts as decided")
+	}
+	a.Spec.Governance = nil
+	if !decided(a) {
+		t.Fatal("a change merged outside the manager no longer carries its later stages")
+	}
+}
+
+// S9-15: an Action the hub stored without the governance it was created
+// with is refused.
+func TestGovernanceStoredOrRefused(t *testing.T) {
+	want := governedAction().Spec.Governance
+	if err := governanceStored(ToolEnableCapability, want, &actions.Action{}); err == nil || !strings.Contains(err.Error(), "lacks spec.governance") {
+		t.Fatalf("an action stored without its governance: %v", err)
+	}
+	if err := governanceStored(ToolEnableCapability, want, governedAction()); err != nil {
+		t.Fatal(err)
+	}
+	if err := governanceStored(ToolEnableCapability, nil, &actions.Action{}); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -333,6 +333,12 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 		if (slices.Contains(changed, e.Name) || len(e.VaultCopies) > 0) && e.Refused == "" && len(e.MissingInputs) == 0 {
 			e.CommitRefused = commitRefusal(e.Installation, env.reports[e.Name].Record)
 		}
+		// The governance a commit of the plan changes, against what the last
+		// reviewed action left: the dry run names it, and a record changed
+		// outside the manager, before anyone commits.
+		if content && e.Refused == "" && env.defOf(e.Name, def).Name == installations.AgentPlatform {
+			e.Governance, _ = t.governanceChange(ctx, e.Installation)
+		}
 	}
 	if unknown := unknownRotations(rotate, out.Installations); len(unknown) > 0 {
 		where := "no plan of the set lists"

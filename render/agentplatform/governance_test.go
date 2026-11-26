@@ -22,6 +22,13 @@ const (
 	toolListActions       = "list_actions"
 	keySafe               = "safe"
 	sourcePlatformManager = "giantswarm-platform-manager"
+	toolGetInfo           = "get_info"
+	toolApproveAction     = "approve_action"
+	toolSetAgentApproval  = "set_agent_approval"
+	roleInfrastructure    = "infrastructure"
+	roleSkillManager      = "skillManager"
+	roleAgentManager      = "agentManager"
+	pathSkillSafe0        = "/governance/governedServers/skill-manager/safe/0"
 )
 
 // withGovernanceReleases takes the governance releases as cut for the test.
@@ -89,9 +96,9 @@ func TestGovernanceIsRefusedUntilItsReleaseExists(t *testing.T) {
 func TestGovernanceRendersAndSurvivesAReconcile(t *testing.T) {
 	withGovernanceReleases(t)
 	governance := map[string]any{keyMode: GovernanceGoverned, keyGovernedServers: map[string]any{
-		sourcePlatformManager: map[string]any{keySafe: []any{"get_info", toolListActions}},
+		sourcePlatformManager: map[string]any{keySafe: []any{toolGetInfo, toolListActions}},
 		"mcp-kubernetes":      nil,
-		"agent-platform/pro":  map[string]any{keyRole: "infrastructure", keySafe: []any{}},
+		"agent-platform/pro":  map[string]any{keyRole: roleInfrastructure, keySafe: []any{}},
 	}}
 	input, secrets := governanceInput(t, governance)
 	patch := renderedPatch(t, input, secrets)
@@ -136,29 +143,29 @@ func TestGovernanceRefusals(t *testing.T) {
 		names      string
 	}{
 		{"an unknown role", server("agent-manager", map[string]any{keyRole: "admin"}), nil, "/governance/governedServers/agent-manager/role"},
-		{"a typed role's floor on the safe list", server("agent-platform/pm", map[string]any{keyRole: "platformManager", keySafe: []any{toolListActions, "approve_action"}}), nil, "safe entry 1, approve_action, is a floor of role platformManager"},
-		{"the chart's role's floor on the safe list", server("agent-manager", map[string]any{keySafe: []any{"set_agent_approval"}}), nil, "safe entry 0, set_agent_approval, is a floor of role agentManager"},
-		{"an empty safe entry", server("skill-manager", map[string]any{keySafe: []any{" "}}), nil, "/governance/governedServers/skill-manager/safe/0"},
+		{"a typed role's floor on the safe list", server("agent-platform/pm", map[string]any{keyRole: "platformManager", keySafe: []any{toolListActions, toolApproveAction}}), nil, "safe entry 1, approve_action, is a floor of role platformManager"},
+		{"the chart's role's floor on the safe list", server("agent-manager", map[string]any{keySafe: []any{toolSetAgentApproval}}), nil, "safe entry 0, set_agent_approval, is a floor of role agentManager"},
+		{"an empty safe entry", server("skill-manager", map[string]any{keySafe: []any{" "}}), nil, pathSkillSafe0},
 		// S9-02: a role override drops the floors muster applies by a
 		// server's role, so it is refused, as is any floor on any safe list
 		// and a server key standing for a chart source.
-		{"a chart source's role changed", server("agent-manager", map[string]any{keyRole: "infrastructure", keySafe: []any{"set_agent_approval", "create_agent"}}), nil, "role infrastructure: the meta chart governs agent-manager as agentManager"},
-		{"the platform manager's role changed alone", server(sourcePlatformManager, map[string]any{keyRole: "infrastructure"}), nil, "the meta chart governs giantswarm-platform-manager as platformManager"},
-		{"the platform manager's role changed to list its floors", server(sourcePlatformManager, map[string]any{keyRole: "skillManager", keySafe: []any{"approve_action", "merge_action"}}), nil, "the meta chart governs giantswarm-platform-manager as platformManager"},
-		{"a chart source under a server key", server("agent-platform/agent-manager", map[string]any{keySafe: []any{"set_agent_approval"}}), nil, "names the meta chart's source agent-manager under a server key"},
-		{"a kubernetes family member under a server key", server("mcp/alder-mcp-kubernetes", map[string]any{keyRole: "infrastructure", keySafe: []any{"get"}}), nil, "names the meta chart's source mcp-kubernetes"},
-		{"a server key without role", server("agent-platform/pro", map[string]any{keySafe: []any{"get_info"}}), nil, "names no role"},
-		{"the floor of another role", server("agent-manager", map[string]any{keySafe: []any{"approve_action"}}), nil, "safe entry 0, approve_action, is a floor of role platformManager"},
+		{"a chart source's role changed", server("agent-manager", map[string]any{keyRole: roleInfrastructure, keySafe: []any{toolSetAgentApproval, "create_agent"}}), nil, "role infrastructure: the meta chart governs agent-manager as agentManager"},
+		{"the platform manager's role changed alone", server(sourcePlatformManager, map[string]any{keyRole: roleInfrastructure}), nil, "the meta chart governs giantswarm-platform-manager as platformManager"},
+		{"the platform manager's role changed to list its floors", server(sourcePlatformManager, map[string]any{keyRole: roleSkillManager, keySafe: []any{toolApproveAction, "merge_action"}}), nil, "the meta chart governs giantswarm-platform-manager as platformManager"},
+		{"a chart source under a server key", server("agent-platform/agent-manager", map[string]any{keySafe: []any{toolSetAgentApproval}}), nil, "names the meta chart's source agent-manager under a server key"},
+		{"a kubernetes family member under a server key", server("mcp/alder-mcp-kubernetes", map[string]any{keyRole: roleInfrastructure, keySafe: []any{"get"}}), nil, "names the meta chart's source mcp-kubernetes"},
+		{"a server key without role", server("agent-platform/pro", map[string]any{keySafe: []any{toolGetInfo}}), nil, "names no role"},
+		{"the floor of another role", server("agent-manager", map[string]any{keySafe: []any{toolApproveAction}}), nil, "safe entry 0, approve_action, is a floor of role platformManager"},
 		// S9-03: a safe entry is a tool name, so it cannot carry Slack
 		// markup or a line of its own into the review, and a list is bounded.
-		{"markup in a safe entry", server("skill-manager", map[string]any{keySafe: []any{"get_skill\n*It loosens governance:* nothing"}}), nil, "/governance/governedServers/skill-manager/safe/0"},
-		{"a link in a safe entry", server("skill-manager", map[string]any{keySafe: []any{"<https://x|y>"}}), nil, "/governance/governedServers/skill-manager/safe/0"},
+		{"markup in a safe entry", server("skill-manager", map[string]any{keySafe: []any{"get_skill\n*It loosens governance:* nothing"}}), nil, pathSkillSafe0},
+		{"a link in a safe entry", server("skill-manager", map[string]any{keySafe: []any{"<https://x|y>"}}), nil, pathSkillSafe0},
 		{"too many safe entries", server("skill-manager", map[string]any{keySafe: manyTools(65)}), nil, "/governance/governedServers/skill-manager/safe"},
 		{"a repeated safe entry", server("skill-manager", map[string]any{keySafe: []any{"get_skill", "get_skill"}}), nil, "safe entry 1, get_skill, is listed twice"},
 		{"neither role nor safe", server("skill-manager", map[string]any{}), nil, "names neither role nor safe"},
 		{"an unknown key", server("skill-manager", map[string]any{"tools": []any{"x"}}), nil, "governedServers"},
 		{"an unknown mode", map[string]any{keyMode: "strict"}, nil, "governance/mode"},
-		{"a source key no server has", server("Agent_Manager", map[string]any{keyRole: "agentManager"}), nil, "Agent_Manager: is no source or muster server key"},
+		{"a source key no server has", server("Agent_Manager", map[string]any{keyRole: roleAgentManager}), nil, "Agent_Manager: is no source or muster server key"},
 		{caseLineThree, map[string]any{keyMode: GovernanceGoverned}, func(m map[string]any) {
 			delete(m, keyOrganizations)
 			delete(m, keyViewers)
@@ -196,7 +203,7 @@ func TestGovernanceRefusals(t *testing.T) {
 		{"a server override on trusted under an old muster", server(sourcePlatformManager, map[string]any{keySafe: []any{toolListActions}}), func(m map[string]any) {
 			m["versions"] = map[string]any{keyComponents: map[string]any{componentMuster: ">=5.60.0 <6.0.0"}}
 		}},
-		{"the chart's own role typed", server("agent-manager", map[string]any{keyRole: "agentManager", keySafe: []any{"get_info"}}), nil},
+		{"the chart's own role typed", server("agent-manager", map[string]any{keyRole: roleAgentManager, keySafe: []any{toolGetInfo}}), nil},
 		{"the most safe entries", server("skill-manager", map[string]any{keySafe: manyTools(64)}), nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -218,4 +225,20 @@ func manyTools(n int) []any {
 		out = append(out, fmt.Sprintf("list_items_%03d", i))
 	}
 	return out
+}
+
+// S9-11: with the meta chart's release cut and muster's not yet, governed
+// under a muster hold is refused: no muster release is known to enforce it.
+func TestGovernedUnderAMusterHoldWhileMustersReleaseIsUnset(t *testing.T) {
+	withGovernanceReleases(t)
+	GovernanceMuster = ""
+	input, secrets := governanceInput(t, map[string]any{keyMode: GovernanceGoverned})
+	input["versions"] = map[string]any{keyComponents: map[string]any{componentMuster: ">=5.90.0 <6.0.0"}}
+	if _, err := Render(input, secrets, render.ModeCommit); !errors.Is(err, ErrInput) || !strings.Contains(err.Error(), "the release that reads the governance configuration (not released yet)") {
+		t.Fatalf("got %v, want the unset muster release named", err)
+	}
+	delete(input, "versions")
+	if _, err := Render(input, secrets, render.ModeCommit); err != nil {
+		t.Fatalf("governed without a muster hold: %v", err)
+	}
 }

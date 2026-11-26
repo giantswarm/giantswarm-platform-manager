@@ -24,7 +24,7 @@ func checkout(t *testing.T, env, repo, path string) []byte {
 	if dir == "" {
 		dir = filepath.Join("..", "..", repo)
 	}
-	raw, err := os.ReadFile(filepath.Join(dir, path))
+	raw, err := os.ReadFile(filepath.Join(dir, path)) // #nosec G304 G703 -- a test reading a sibling checkout the developer names
 	if err != nil {
 		t.Skipf("no %s checkout (%s, or set %s): %v", repo, dir, env, err)
 	}

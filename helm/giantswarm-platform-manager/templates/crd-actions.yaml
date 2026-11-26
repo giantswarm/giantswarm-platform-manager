@@ -155,6 +155,10 @@ spec:
                       loosens:
                         type: array
                         items: {type: string}
+                governanceAfter:
+                  description: Per installation, the governance the commit leaves on record (a disable's is the governance before it), as JSON of the governance values; the next plan compares against the newest reviewed one. Values only, never a secret.
+                  type: object
+                  additionalProperties: {type: string}
             status:
               type: object
               properties:

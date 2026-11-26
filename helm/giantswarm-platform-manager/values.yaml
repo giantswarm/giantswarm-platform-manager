@@ -90,6 +90,11 @@ approvals:
   # `mode: commit` on test installations; the hub and customer installations
   # keep the review.
   standupChannel: ""
+  # -- The GitHub team whose active members approve an action that changes
+  # an installation's governance (`org/team`): approve_action checks the
+  # approver's membership as the approver and refuses when it cannot read
+  # it. Empty: no governance change can be approved.
+  governanceTeam: ""  # @schema pattern: ^([A-Za-z0-9-]+/[A-Za-z0-9_.-]+)?$
   # -- Audience of the projected ServiceAccount token the requests carry: the
   # gateway's TokenReview audience.
   audience: klaus-gateway

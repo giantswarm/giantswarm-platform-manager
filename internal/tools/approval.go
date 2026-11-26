@@ -137,10 +137,21 @@ func (t *Tools) approve(ctx context.Context, args map[string]any) (any, error) {
 	if noReview(a) {
 		return nil, fmt.Errorf("%s: action %s targets test installations alone and needs no review: %s merges it with %s", ToolApproveAction, a.Name, a.Spec.Actor.Login, ToolMergeAction)
 	}
-	if id.Login == a.Spec.Actor.Login {
+	// The actor by login, and by GitHub's id where both are known: a login
+	// can be renamed, the id stays.
+	if id.Login == a.Spec.Actor.Login || (id.ID != 0 && id.ID == a.Spec.Actor.ID) {
 		t.d.Log.Info("action_approval_actor_refused", identity.LogAttr(ctx), "action", a.Name)
 		t.auditGovernance(ctx, "governance_change_self_approval_refused", a)
 		return nil, fmt.Errorf("%s: action %s is yours (%s): a second person of the team decides; Deny withdraws it", ToolApproveAction, a.Name, id.Login)
+	}
+	membership := ""
+	if len(a.Spec.Governance) > 0 {
+		m, err := t.governanceReviewer(ctx, id)
+		if err != nil {
+			t.auditGovernance(ctx, "governance_change_approval_refused", a, "approver", id.Login, "reason", err.Error())
+			return nil, err
+		}
+		membership = m
 	}
 	if a.Status.Approval != nil && a.Status.Approval.Decision != "" {
 		return nil, fmt.Errorf("%s: action %s is already %s by %s", ToolApproveAction, a.Name, a.Status.Approval.Decision, a.Status.Approval.DecidedBy)
@@ -172,7 +183,7 @@ func (t *Tools) approve(ctx context.Context, args map[string]any) (any, error) {
 		return nil, fmt.Errorf("%s: the approving reviews are submitted and the action could not record the decision: %w", ToolApproveAction, err)
 	}
 	t.d.Log.Info("action_approved", identity.LogAttr(ctx), "action", a.Name, "pullRequests", len(a.Status.PullRequests))
-	t.auditGovernance(ctx, "governance_change_approved", a)
+	t.auditGovernance(ctx, "governance_change_approved", a, "approver", id.Login, "approverId", id.ID, "membership", membership)
 	return Decision{Action: a, Message: fmt.Sprintf("%s approved action %s: approving reviews submitted on %d pull request(s) (%s); %s merges them as the actor with %s once the checks are green.",
 		id.Login, a.Name, len(a.Status.PullRequests), prList(a.Status.PullRequests), a.Spec.Actor.Login, ToolMergeAction)}, nil
 }
@@ -358,7 +369,7 @@ func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
 	res.Action = a
 	t.d.Log.Info("action_merge", identity.LogAttr(ctx), "action", a.Name, "state", a.Status.State, "merged", len(res.Merged), "waiting", res.Waiting, "stage", res.Stage)
 	if len(res.Merged) > 0 {
-		t.auditGovernance(ctx, "governance_change_merged", a)
+		t.auditGovernanceStage(ctx, "governance_change_merged", a, mergedStage(a, res.Merged), res.Merged)
 	}
 	if res.Waiting != "" {
 		res.Message = fmt.Sprintf("%d pull request(s) merged as %s (%s); the merge stopped at %s — call %s again once it is green.", len(res.Merged), id.Login, prList(res.Merged), res.Waiting, ToolMergeAction)
@@ -377,18 +388,39 @@ func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
 	return res, nil
 }
 
+// mergedStage is the installation whose stage the merged pull requests
+// belong to.
+func mergedStage(a *actions.Action, merged []actions.PullRequest) string {
+	for _, n := range a.Spec.Installations {
+		for _, k := range a.StagePullRequests(n) {
+			pr := a.Status.PullRequests[k]
+			for _, m := range merged {
+				if m.Repository == pr.Repository && m.Number == pr.Number {
+					return n
+				}
+			}
+		}
+	}
+	return ""
+}
+
 // decided says whether the action's merge may go ahead: the team approved
 // it, it needs no review (test installations alone), or every pull request
 // of its stage in flight was merged outside the manager already — the
 // repositories' own merge path let it through, and the manager does not
 // second-guess it for the stages that follow.
+//
+// A governance change is decided by the team's approval alone: a stage
+// merged outside the manager does not carry the stages after it.
 func decided(a *actions.Action) bool {
 	if a.Status.Approval == nil {
 		return false
 	}
 	switch a.Status.Approval.Decision {
-	case actions.DecisionApproved, actions.DecisionMergedWithoutApproval, actions.DecisionNotRequired:
+	case actions.DecisionApproved, actions.DecisionNotRequired:
 		return true
+	case actions.DecisionMergedWithoutApproval:
+		return len(a.Spec.Governance) == 0
 	}
 	return false
 }

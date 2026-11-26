@@ -43,7 +43,13 @@ type fakeGitHub struct {
 	// has it; nil answers none.
 	pull func(repo string, number int) (fakePull, bool)
 
-	mu        sync.Mutex
+	mu sync.Mutex
+	// teams are the GitHub teams by org/slug, each login's membership state
+	// (active, pending); teamsFailing answers memberships with a 502.
+	teams        map[string]map[string]string
+	teamsFailing bool
+	// userTypes are the accounts' GitHub types where not User (Bot).
+	userTypes map[string]string
 	files     map[string]map[string]string // owner/repo → path → content
 	forbidden map[string]bool
 	// hidden holds the owner/repo GitHub answers with a 404 on every read,
@@ -101,6 +107,12 @@ const (
 	filenameKey = "filename"
 )
 
+// GitHub's keys of a team membership's state and an account's login.
+const (
+	ghState = "state"
+	ghLogin = "login"
+)
+
 // defaultBranch is every fixture repository's default branch.
 const defaultBranch = "main"
 
@@ -116,7 +128,7 @@ const (
 
 func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 	t.Helper()
-	g := &fakeGitHub{logins: logins, files: map[string]map[string]string{}, forbidden: map[string]bool{}, hidden: map[string]bool{}, failingCompare: map[string]bool{}, failing: map[string]bool{}, releases: map[string][]fakeRelease{}, failingReleases: map[string]bool{}, contentsCalls: map[string]int{}, treeCalls: map[string]int{}, treeChecks: map[string]int{},
+	g := &fakeGitHub{logins: logins, teams: map[string]map[string]string{}, userTypes: map[string]string{}, files: map[string]map[string]string{}, forbidden: map[string]bool{}, hidden: map[string]bool{}, failingCompare: map[string]bool{}, failing: map[string]bool{}, releases: map[string][]fakeRelease{}, failingReleases: map[string]bool{}, contentsCalls: map[string]int{}, treeCalls: map[string]int{}, treeChecks: map[string]int{},
 		history: map[string][]fakeCommit{}, commitCalls: map[string]int{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v3/user", func(w http.ResponseWriter, r *http.Request) {
@@ -126,7 +138,38 @@ func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{message: badCredentials})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"login": login, "id": userID(login), "email": login + "@example.test"})
+		writeJSON(w, http.StatusOK, map[string]any{ghLogin: login, "id": userID(login), "email": login + "@example.test"})
+	})
+	mux.HandleFunc("GET /api/v3/orgs/{org}/teams/{slug}/memberships/{user}", func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := g.logins[bearer(r)]; !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{message: badCredentials})
+			return
+		}
+		g.mu.Lock()
+		failing, state := g.teamsFailing, g.teams[r.PathValue("org")+"/"+r.PathValue("slug")][r.PathValue("user")]
+		g.mu.Unlock()
+		switch {
+		case failing:
+			writeJSON(w, http.StatusBadGateway, map[string]any{message: serverError})
+		case state == "":
+			writeJSON(w, http.StatusNotFound, map[string]any{message: notFound})
+		default:
+			writeJSON(w, http.StatusOK, map[string]any{ghState: state, "role": "member"})
+		}
+	})
+	mux.HandleFunc("GET /api/v3/users/{login}", func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := g.logins[bearer(r)]; !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{message: badCredentials})
+			return
+		}
+		login := r.PathValue("login")
+		g.mu.Lock()
+		kind := g.userTypes[login]
+		g.mu.Unlock()
+		if kind == "" {
+			kind = "User"
+		}
+		writeJSON(w, http.StatusOK, map[string]any{ghLogin: login, "id": userID(login), "type": kind})
 	})
 	mux.HandleFunc("GET /api/v3/repos/{owner}/{repo}", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := g.logins[bearer(r)]; !ok {
@@ -933,6 +976,19 @@ type asRemote struct {
 	commit.Remote
 	login string
 	st    *stack
+}
+
+// OpenPullRequest runs the stack's beforeOpen hook once, then opens: what
+// another person merges between a plan and its pull requests.
+func (r asRemote) OpenPullRequest(ctx context.Context, repo commit.Repository, head, base, title, body string) (commit.PullRequest, error) {
+	r.st.mu.Lock()
+	hook := r.st.beforeOpen
+	r.st.beforeOpen = nil
+	r.st.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	return r.Remote.OpenPullRequest(ctx, repo, head, base, title, body)
 }
 
 func (r asRemote) Approve(ctx context.Context, pr commit.PullRequest, body string) error {
