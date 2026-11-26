@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
@@ -170,4 +172,29 @@ func TestRemoveKeepsTheChecklistTheCommitRecorded(t *testing.T) {
 	if status.State != actions.StateRemoved || len(status.Orphans) == 0 || status.Orphans[0] != checklist {
 		t.Fatalf("state %s, orphans %+v", status.State, status.Orphans)
 	}
+}
+
+// A wave removed while one stage is only partly merged: kestrel's stage is
+// merged and gone again; heron's pull request that takes the RemoteApp off
+// the record is merged while its other pull request is still open; wren's
+// pull request is open. The removed action keeps heron's recorded orphan —
+// it is off the record and on the cluster — and none of wren's, which took
+// nothing off the record.
+func TestRemoveKeepsTheOrphansOfAPartlyMergedStage(t *testing.T) {
+	const heron, wren, heronMCs = "heron", "wren", "giantswarm/heron-management-clusters"
+	def, _ := installations.FindCapability(installations.AgentPlatform)
+	partly := actions.Orphan{Installation: heron, Kind: "RemoteApp", Namespace: installations.AgentPlatform, Name: "kagent-glean", Stage: heron, Repository: heronMCs}
+	open := actions.Orphan{Installation: wren, Kind: "Secret", Namespace: installations.AgentPlatform, Name: "old-credentials", Stage: wren, Repository: "giantswarm/wren-management-clusters"}
+	a := &actions.Action{Name: "reconcile-wave-abc123", Spec: actions.Spec{Kind: actions.KindReconcile, Capability: def.Name, Installations: []string{dTarget, heron, wren}},
+		Status: actions.Status{State: actions.StateRollingOut, Orphans: []actions.Orphan{partly, open}, PullRequests: []actions.PullRequest{
+			{Installation: dTarget, Repository: dConfigs, Number: 1, State: actions.PullRequestMerged},
+			{Installation: heron, Repository: heronMCs, Number: 2, State: actions.PullRequestMerged},
+			{Installation: heron, Repository: "giantswarm/heron-configs", Number: 3, State: actions.PullRequestOpen},
+			{Installation: wren, Repository: "giantswarm/wren-management-clusters", Number: 4, State: actions.PullRequestOpen},
+		}}}
+	status := a.Status
+	remove(&status, a, def, []revertedStage{{installation: dTarget, repository: dConfigs, path: def.EnabledMarker(dTarget)}})
+	require.Equal(t, actions.StateRemoved, status.State)
+	require.Contains(t, status.Orphans, partly)
+	require.NotContains(t, status.Orphans, open)
 }

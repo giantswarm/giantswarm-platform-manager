@@ -32,6 +32,13 @@ const (
 // plannedChange is a reconcile's dry run of rowan: the values patch differs
 // in two keys (one changed, one added) and drops a third, the Secret in one
 // encrypted key, the kustomization is unchanged.
+// oldCredentials is a file the reconcile deletes, listed in the
+// kustomization of its directory.
+const (
+	oldCredentialsKustomization = "management-clusters/rowan/extras/agent-platform/secrets/kustomization.yaml"
+	oldCredentials              = "management-clusters/rowan/extras/agent-platform/secrets/old-credentials.yaml"
+)
+
 func plannedChange() tools.CapabilityResult {
 	return tools.CapabilityResult{
 		Caller: someone, Tool: tools.ToolReconcileCapability, Capability: agentPlatform, Hub: hazel, DryRun: true,
@@ -40,15 +47,24 @@ func plannedChange() tools.CapabilityResult {
 			Summary: map[verify.Mark]int{verify.DiffersByInput: 1, verify.Drifted: 1, verify.AsDefined: 1},
 			Installation: plan.Installation{
 				Name: rowan, State: installations.StateEnabled,
-				Diff: map[plan.Change]int{plan.ChangeUpdate: 2, plan.ChangeUnchanged: 1},
+				Diff: map[plan.Change]int{plan.ChangeUpdate: 2, plan.ChangeUnchanged: 1, plan.ChangeDelete: 1},
 				Files: []plan.File{
 					{Repository: acmeConfigs, Path: valuesPatch, Change: plan.ChangeUpdate},
 					{Repository: acmeConfigs, Path: secretFile, Change: plan.ChangeUpdate},
 					{Repository: acmeMCs, Path: kustomization, Change: plan.ChangeUnchanged},
+					// A file the definition no longer renders, named by a
+					// removal of kind deleted-file.
+					{Repository: acmeMCs, Path: oldCredentials, Change: plan.ChangeDelete, Why: "Removed: the old credentials' Secret is no longer read",
+						ListedIn: []string{oldCredentialsKustomization + " resources[old-credentials.yaml]"}},
 				},
-				// A document the reconcile takes off the record that the
-				// fleet's Kustomization does not prune.
-				Checklist: plan.Checklist([]plan.Object{{Kind: "RemoteApp", Namespace: agentPlatform, Name: "kagent-glean"}}),
+				// The documents the reconcile takes off the record that the
+				// fleet's Kustomization does not prune: one on rowan, the
+				// deleted file's Secret, and one of a file in hazel's tree.
+				Checklist: plan.Checklist([]plan.Object{
+					{Kind: "RemoteApp", Namespace: agentPlatform, Name: "kagent-glean"},
+					{Kind: "ConfigMap", Namespace: agentPlatform, Name: "agent-platform-stale-values", Installation: hazel, Repository: acmeMCs},
+					{Kind: "Secret", Namespace: agentPlatform, Name: "old-credentials", Repository: acmeMCs},
+				}),
 			},
 			Features: []verify.Feature{
 				{ID: "gateway", Title: "Gateway", Mark: verify.DiffersByInput, Marks: map[verify.Mark]int{verify.DiffersByInput: 1}, Dimensions: []verify.Dimension{

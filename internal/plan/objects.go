@@ -23,6 +23,31 @@ type Object struct {
 	// Takes is what deleting the object takes with it besides itself, on a
 	// checklist line (Checklist); empty for an object that takes nothing.
 	Takes string `json:"takes,omitempty"`
+	// Installation, on a reconcile's checklist, is the installation the
+	// object is on where that is not the plan's own: its file is in another
+	// installation's tree (a portal host's extras/backstage/). Empty for the
+	// plan's own installation.
+	Installation string `json:"installation,omitempty"`
+	// Repository, on a reconcile's checklist, is the repository whose pull
+	// request takes the object off the record.
+	Repository string `json:"repository,omitempty"`
+}
+
+// on is the object on its installation: what names it on a checklist,
+// without what its deletion takes or the repository it leaves.
+func (o Object) on() Object {
+	return Object{Kind: o.Kind, Namespace: o.Namespace, Name: o.Name, Installation: o.Installation}
+}
+
+// identity is the object as a render names it: kind, namespace and name.
+func (o Object) identity() Object {
+	return Object{Kind: o.Kind, Namespace: o.Namespace, Name: o.Name}
+}
+
+// listed says whether the object goes on a checklist: a named object,
+// kustomize's own documents aside.
+func (o Object) listed() bool {
+	return o.Kind != "" && o.Name != "" && o.Kind != kustomizationKind && o.Kind != "Component"
 }
 
 // kustomizationKind is kustomize's own document: it lists objects and is
@@ -97,4 +122,38 @@ func manifests(content []byte) []Object {
 		}
 		out = append(out, Object{Kind: doc.Kind, Namespace: doc.Metadata.Namespace, Name: doc.Metadata.Name})
 	}
+}
+
+// InstallationChecklist is the part of a checklist on one installation.
+type InstallationChecklist struct {
+	Installation string
+	Objects      []Object
+}
+
+// ChecklistByInstallation splits a plan's checklist by the installation
+// each object is on — the plan's own (installation) first, then the others
+// in the checklist's order — each part in the checklist's order.
+func ChecklistByInstallation(installation string, checklist []Object) []InstallationChecklist {
+	var out []InstallationChecklist
+	add := func(on string, o Object) {
+		for i := range out {
+			if out[i].Installation == on {
+				out[i].Objects = append(out[i].Objects, o)
+				return
+			}
+		}
+		out = append(out, InstallationChecklist{Installation: on, Objects: []Object{o}})
+	}
+	for _, own := range []bool{true, false} {
+		for _, o := range checklist {
+			if (o.Installation == "" || o.Installation == installation) == own {
+				on := o.Installation
+				if own {
+					on = installation
+				}
+				add(on, o)
+			}
+		}
+	}
+	return out
 }

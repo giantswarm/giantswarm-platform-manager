@@ -495,11 +495,21 @@ func (t *Tools) openRemovals(ctx context.Context, c *gh.Client, a *actions.Actio
 	return prs, ctx.Err()
 }
 
-// orphansFrom is the checklist as the action's orphans on installation.
+// orphansFrom is the checklist of installation's stage as the action's
+// orphans: each on the installation it is on (installation's own, or the one
+// whose tree the plan took it out of); one a reconcile's plan takes off the
+// record names the stage and the repository whose pull request does.
 func orphansFrom(installation string, checklist []plan.Object) []actions.Orphan {
 	out := make([]actions.Orphan, 0, len(checklist))
 	for _, o := range checklist {
-		out = append(out, actions.Orphan{Installation: installation, Kind: o.Kind, Namespace: o.Namespace, Name: o.Name, Takes: o.Takes})
+		orphan := actions.Orphan{Installation: installation, Kind: o.Kind, Namespace: o.Namespace, Name: o.Name, Takes: o.Takes}
+		if o.Installation != "" {
+			orphan.Installation = o.Installation
+		}
+		if o.Repository != "" {
+			orphan.Stage, orphan.Repository = installation, o.Repository
+		}
+		out = append(out, orphan)
 	}
 	return out
 }

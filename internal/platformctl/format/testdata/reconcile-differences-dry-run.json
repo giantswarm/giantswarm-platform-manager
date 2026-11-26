@@ -31,6 +31,15 @@
           "repository": "giantswarm/acme-management-clusters",
           "path": "management-clusters/rowan/extras/agent-platform/kustomization.yaml",
           "change": "unchanged"
+        },
+        {
+          "repository": "giantswarm/acme-management-clusters",
+          "path": "management-clusters/rowan/extras/agent-platform/secrets/old-credentials.yaml",
+          "change": "delete",
+          "why": "Removed: the old credentials' Secret is no longer read",
+          "listedIn": [
+            "management-clusters/rowan/extras/agent-platform/secrets/kustomization.yaml resources[old-credentials.yaml]"
+          ]
         }
       ],
       "includes": null,
@@ -44,9 +53,23 @@
           "kind": "RemoteApp",
           "namespace": "agent-platform",
           "name": "kagent-glean"
+        },
+        {
+          "kind": "ConfigMap",
+          "namespace": "agent-platform",
+          "name": "agent-platform-stale-values",
+          "installation": "hazel",
+          "repository": "giantswarm/acme-management-clusters"
+        },
+        {
+          "kind": "Secret",
+          "namespace": "agent-platform",
+          "name": "old-credentials",
+          "repository": "giantswarm/acme-management-clusters"
         }
       ],
       "diff": {
+        "delete": 1,
         "unchanged": 1,
         "update": 2
       },

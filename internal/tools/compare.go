@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 
@@ -94,11 +95,17 @@ func (t *Tools) compare(ctx context.Context, env *planned, r installations.Repor
 	}
 	env.inputs[r.Name] = values
 	in := verify.Inputs{Source: verify.Source(len(back) > 0, len(typed) > 0), Values: values, ReadBack: back, Unset: unset, Typed: typed}
-	res := verify.Compare(ctx, verify.Options{Definition: def, Installation: r.Installation, Hub: env.hub, State: capabilityState(r, def.Name), Inputs: in, Read: read, Content: content, Probes: t.d.Probes, Rotate: rotate, ForceJoin: force.join, ForceSwitchOff: force.switchOff, Installations: env.byName, PlanInstallations: env.planInstallations})
+	// The other capabilities on record, rendered once and only when asked:
+	// a file the plan would delete that one of them renders stays, and what
+	// of the checklist they render stays on the cluster.
+	others := sync.OnceValues(func() ([]plan.Remaining, error) { return remainingOn(ctx, env, r, def) })
+	remaining := func(context.Context) ([]plan.Remaining, error) { return others() }
+	res := verify.Compare(ctx, verify.Options{Definition: def, Installation: r.Installation, Hub: env.hub, State: capabilityState(r, def.Name), Inputs: in, Read: read, Content: content, Probes: t.d.Probes, Rotate: rotate, ForceJoin: force.join, ForceSwitchOff: force.switchOff, Installations: env.byName, PlanInstallations: env.planInstallations,
+		Remaining: remaining})
 	res.Caller = identity.Caller(ctx)
 	if !checklist {
 		res.Checklist = nil
-	} else if res.Checklist, err = unprunedChecklist(ctx, env, r, def, res.Checklist); err != nil {
+	} else if res.Checklist, err = unprunedChecklist(ctx, env, r, def, res.Checklist, others); err != nil {
 		return nil, err
 	}
 	p := res.Plan()
@@ -116,16 +123,50 @@ func (t *Tools) compare(ctx context.Context, env *planned, r installations.Repor
 
 // unprunedChecklist is the plan's checklist by the disable's rule: the
 // objects the plan takes off the record (candidates, which no file of the
-// plan declares again) that no other capability on record renders, in
-// deletion order — none where the definition's Kustomization prunes. The
-// other capabilities are rendered only when there is a candidate; one whose
-// definition does not render the inputs on record refuses the comparison,
-// as the disable's does: what of the objects stays cannot be told. The other
-// definition of the MCP servers is none: the one reconciled renders them.
-func unprunedChecklist(ctx context.Context, env *planned, r installations.Report, def installations.Capability, candidates []plan.Object) ([]plan.Object, error) {
+// plan declares again) that no other capability on the installation they are
+// on renders, in deletion order — none where the definition's Kustomization
+// prunes. An object on r is held against the other capabilities on record
+// on r (own); one on another installation — its file is in that
+// installation's tree, a portal host's — against every capability on record
+// there. The capabilities are rendered only when there is a candidate; one
+// whose definition does not render the inputs on record refuses the
+// comparison, as the disable's does: what of the objects stays cannot be
+// told.
+func unprunedChecklist(ctx context.Context, env *planned, r installations.Report, def installations.Capability, candidates []plan.Object, own func() ([]plan.Remaining, error)) ([]plan.Object, error) {
 	if def.Prunes || len(candidates) == 0 {
 		return nil, nil
 	}
+	byInstallation := map[string][]plan.Object{}
+	var order []string
+	for _, o := range candidates {
+		if _, seen := byInstallation[o.Installation]; !seen {
+			order = append(order, o.Installation)
+		}
+		byInstallation[o.Installation] = append(byInstallation[o.Installation], o)
+	}
+	var out []plan.Object
+	for _, on := range order {
+		var remaining []plan.Remaining
+		var err error
+		if on == "" {
+			remaining, err = own()
+		} else {
+			remaining, err = remainingAt(ctx, env, on, def)
+		}
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, plan.Unpruned(byInstallation[on], remaining)...)
+	}
+	return plan.Checklist(out), nil
+}
+
+// remainingOn are the capabilities on record on r besides def, each rendered
+// from the inputs on record as it stays. The other definition of the MCP
+// servers is none: the one reconciled renders them. A definition that does
+// not render the inputs on record is the error: what of r stays cannot be
+// told.
+func remainingOn(ctx context.Context, env *planned, r installations.Report, def installations.Capability) ([]plan.Remaining, error) {
 	var remaining []plan.Remaining
 	for _, other := range installations.Capabilities() {
 		if other.Name == def.Name || !capabilityState(r, other.Name).OnRecord() || serversPair(def, other) {
@@ -133,11 +174,39 @@ func unprunedChecklist(ctx context.Context, env *planned, r installations.Report
 		}
 		_, rres, err := renderOnRecord(ctx, other, r, readAs(env.c), nil, env.byName)
 		if err != nil {
-			return nil, fmt.Errorf("%s stays on %s and its definition does not render the inputs on record (%w): which of the objects the %s plan takes off the record stay on the cluster cannot be told", other.Name, r.Name, err, def.Name)
+			return nil, fmt.Errorf("%s stays on %s and its definition does not render the inputs on record (%w): which of what the %s plan takes off the record stays cannot be told", other.Name, r.Name, err, def.Name)
 		}
 		remaining = append(remaining, plan.Remaining{Capability: other.Name, Result: rres})
 	}
-	return plan.Checklist(plan.Unpruned(candidates, remaining)), nil
+	return remaining, nil
+}
+
+// remainingAt are the capabilities on record on installation — another
+// installation than the one planned, whose tree the plan writes into — each
+// rendered from the inputs on record: every one of them stays. Of the two
+// definitions of its MCP servers, the agent platform's renders them.
+func remainingAt(ctx context.Context, env *planned, installation string, def installations.Capability) ([]plan.Remaining, error) {
+	r, err := env.report(ctx, installation)
+	if err != nil {
+		return nil, fmt.Errorf("the %s plan takes objects on %s off the record, and %s's record cannot be read as you (%w): which of them stay on the cluster cannot be told", def.Name, installation, installation, err)
+	}
+	agentPlatform, _ := installations.FindCapability(installations.AgentPlatform)
+	except := ""
+	if capabilityState(r, agentPlatform.Name).OnRecord() {
+		except = installations.ClusterMCPServers
+	}
+	var remaining []plan.Remaining
+	for _, other := range installations.Capabilities() {
+		if other.Name == except || !capabilityState(r, other.Name).OnRecord() {
+			continue
+		}
+		_, rres, err := renderOnRecord(ctx, other, r, readAs(env.c), nil, env.byName)
+		if err != nil {
+			return nil, fmt.Errorf("%s is on record on %s and its definition does not render the inputs on record (%w): which of the objects the %s plan takes off the record there stay on the cluster cannot be told", other.Name, installation, err, def.Name)
+		}
+		remaining = append(remaining, plan.Remaining{Capability: other.Name, Result: rres})
+	}
+	return remaining, nil
 }
 
 // serversPair says whether def and other are the two definitions of an

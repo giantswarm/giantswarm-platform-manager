@@ -71,6 +71,26 @@ type planned struct {
 	// defs are the definitions that render installations of the set other
 	// than the set's own, by name (DryRun.Capability).
 	defs map[string]installations.Capability
+	// inspect reads the report of an installation outside the set, as the
+	// caller; nil where only the set's reports are known.
+	inspect func(ctx context.Context, name string) (installations.Report, error)
+}
+
+// report is installation's report: the set's, else read once as the caller
+// (inspect) and kept.
+func (env *planned) report(ctx context.Context, name string) (installations.Report, error) {
+	if r, ok := env.reports[name]; ok {
+		return r, nil
+	}
+	if env.inspect == nil {
+		return installations.Report{}, fmt.Errorf("%s is not among the installations read", name)
+	}
+	r, err := env.inspect(ctx, name)
+	if err != nil {
+		return installations.Report{}, err
+	}
+	env.reports[name] = r
+	return r, nil
 }
 
 // defOf is the definition that renders installation in env's set: its own
@@ -158,7 +178,7 @@ func (t *Tools) reconcileCapabilityTool() WriteTool {
 	return WriteTool{Name: ToolReconcileCapability,
 		Summary: "Reconcile a capability over the installations that have it (empty: all): " + ToolEnableCapability + "'s plan, per installation.",
 		Details: "A plan whose files are all unchanged means the installation matches the definition. Installations without the capability are skipped and listed; a fresh enable is " + ToolEnableCapability + ". " +
-			"Each plan lists the objects it takes off the record that Flux does not prune (checklist); a commit records them.",
+			"A deleted-file removal deletes a file; a plan lists what Flux does not prune (checklist), a commit records it.",
 		Options: capabilityOptions(),
 		DryRun: func(ctx context.Context, args map[string]any) (any, error) {
 			return t.capabilityDryRun(ctx, ToolReconcileCapability, args)
@@ -232,6 +252,17 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 	out := CapabilityResult{Caller: identity.Caller(ctx), Tool: tool, Capability: def.Name, Hub: reg.Hub, DryRun: true, RenderedBy: t.renderedBy(),
 		Order: []string{}, Installations: []DryRun{}, PullRequests: []plan.PullRequest{}, Skipped: []Skipped{}, Commit: commitNext}
 	env := &planned{c: c, hub: hub, byName: byName, reports: map[string]installations.Report{}, inputs: map[string]map[string]any{}, defs: map[string]installations.Capability{}}
+	env.inspect = func(ctx context.Context, name string) (installations.Report, error) {
+		inst, ok := reg.Find(name)
+		if !ok {
+			return installations.Report{}, fmt.Errorf("%s is not in the registry", name)
+		}
+		r := reg.InspectAll(ctx, c, []installations.Installation{inst}, caps, installations.Full)[0]
+		if !r.Readable {
+			return installations.Report{}, errors.New(strings.Join(r.Errors, "; "))
+		}
+		return r, nil
+	}
 	env.planInstallations = map[string]bool{}
 	for _, report := range reports {
 		if _, skip := skipped(report, def.Name, report.Name == one); !skip {
