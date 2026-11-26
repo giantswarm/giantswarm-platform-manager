@@ -39,6 +39,13 @@
       "dexClients": null,
       "customerActions": null,
       "probes": null,
+      "checklist": [
+        {
+          "kind": "RemoteApp",
+          "namespace": "agent-platform",
+          "name": "kagent-glean"
+        }
+      ],
       "diff": {
         "unchanged": 1,
         "update": 2

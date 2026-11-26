@@ -78,8 +78,11 @@ func liveRecord(opts *verify.LiveOptions, a actions.Action, installation string)
 // verify_capability answers it as it is, a dry run regrouped as the plan's
 // entry (dryRun). content keeps the rendered files' content; rotate names the
 // generated values the plan rotates on request (a dry run's rotate);
-// force lets a commit proceed over the plan's warnings the person knows.
-func (t *Tools) compare(ctx context.Context, env *planned, r installations.Report, def installations.Capability, typed map[string]any, content bool, rotate []string, force forces) (*verify.Result, error) {
+// force lets a commit proceed over the plan's warnings the person knows;
+// checklist names, for a plan's dry run and commit, the objects it takes off
+// the record that stay on the cluster (unprunedChecklist) — a verify, which
+// commits nothing, names none and renders no other capability for it.
+func (t *Tools) compare(ctx context.Context, env *planned, r installations.Report, def installations.Capability, typed map[string]any, content bool, rotate []string, force forces, checklist bool) (*verify.Result, error) {
 	read := readAs(env.c)
 	values, back, err := mergeInputs(ctx, def, r, installations.Reader(read), typed, env.byName)
 	if err != nil {
@@ -93,7 +96,9 @@ func (t *Tools) compare(ctx context.Context, env *planned, r installations.Repor
 	in := verify.Inputs{Source: verify.Source(len(back) > 0, len(typed) > 0), Values: values, ReadBack: back, Unset: unset, Typed: typed}
 	res := verify.Compare(ctx, verify.Options{Definition: def, Installation: r.Installation, Hub: env.hub, State: capabilityState(r, def.Name), Inputs: in, Read: read, Content: content, Probes: t.d.Probes, Rotate: rotate, ForceJoin: force.join, ForceSwitchOff: force.switchOff, Installations: env.byName, PlanInstallations: env.planInstallations})
 	res.Caller = identity.Caller(ctx)
-	if res.Checklist, err = unprunedChecklist(ctx, env, r, def, res.Checklist); err != nil {
+	if !checklist {
+		res.Checklist = nil
+	} else if res.Checklist, err = unprunedChecklist(ctx, env, r, def, res.Checklist); err != nil {
 		return nil, err
 	}
 	p := res.Plan()

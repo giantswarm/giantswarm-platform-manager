@@ -247,7 +247,7 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 			skips[r.Name] = skip
 			continue
 		}
-		res, err := t.compare(ctx, env, r, def, inputs, content, rotate, force)
+		res, err := t.compare(ctx, env, r, def, inputs, content, rotate, force, true)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -290,7 +290,7 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 		if own {
 			with = other
 		}
-		res, err := t.compare(ctx, env, r, with, inputs, content, rotate, force)
+		res, err := t.compare(ctx, env, r, with, inputs, content, rotate, force, true)
 		if err != nil {
 			return nil, nil, err
 		}
