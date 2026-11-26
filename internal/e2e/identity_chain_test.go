@@ -131,7 +131,7 @@ func newStack(t *testing.T, options ...func(*tools.Deps)) *stack {
 		t.Fatal(err)
 	}
 	st := &stack{ghs: newFakeGitHub(t, logins), probes: newFakeProbes(t), remote: commit.NewFake(), logs: logs, gateway: newFakeGateway(t),
-		dyn: dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{actions.GVR: actions.Kind + "List"}),
+		dyn: dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{actions.GVR: actions.Kind + "List", actions.RecordGVR: actions.RecordKind + "List"}),
 		dex: newFakeDex(t), inst: newFakeInstallation(), pulls: map[string]pullFacts{}}
 	st.ghs.pull = st.pullState
 	// carol reviews governance changes; alice, the actor of the tests, too.

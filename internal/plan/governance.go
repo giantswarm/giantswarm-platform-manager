@@ -112,6 +112,15 @@ func ParseGovernanceSnapshot(s string) (GovernanceSnapshot, error) {
 	return out, nil
 }
 
+// InPlay says whether the values carry the meta chart's governance: the
+// definition renders it (with Giant Swarm's role floors) wherever the chart
+// takes it, so its presence marks an installation whose governance muster
+// enforces.
+func (s GovernanceSnapshot) InPlay() bool {
+	_, ok := s[keyGovernance]
+	return ok
+}
+
 // JSON is the snapshot as an Action records it, keys sorted.
 func (s GovernanceSnapshot) JSON() string {
 	b, _ := json.Marshal(map[string]any(s))

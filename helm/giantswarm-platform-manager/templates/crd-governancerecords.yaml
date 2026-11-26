@@ -1,0 +1,62 @@
+{{- if and .Values.actions.enabled .Values.actions.installCRD }}
+# The reviewed-governance record (Governing tool calls, decision #99): one per
+# installation, named after it, the governance the team last reviewed there.
+# Written only by the manager's merge_action when an approved governance
+# change is merged through the manager; every plan compares the configs
+# repository's governance with it. No person holds a right on it.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: governancerecords.platform-manager.giantswarm.io
+  labels:
+    {{- include "giantswarm-platform-manager.labels" . | nindent 4 }}
+spec:
+  group: platform-manager.giantswarm.io
+  scope: Namespaced
+  names:
+    kind: GovernanceRecord
+    listKind: GovernanceRecordList
+    plural: governancerecords
+    singular: governancerecord
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: Action
+          type: string
+          jsonPath: .spec.action
+        - name: Approved by
+          type: string
+          jsonPath: .spec.approvedBy
+        - name: Recorded
+          type: string
+          jsonPath: .spec.recordedAt
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [installation, governance, action, approvedBy, recordedAt]
+              properties:
+                installation:
+                  description: The installation the record is for (the object's name).
+                  type: string
+                governance:
+                  description: The reviewed governance, as JSON of the governance values (mode, role floors, governed servers, muster's own governance, the muster hold, the platform team and the editor subjects). Values only, never a secret.
+                  type: string
+                action:
+                  description: The Action whose merge wrote it.
+                  type: string
+                approvedBy:
+                  description: The team member who approved that Action.
+                  type: string
+                headSHA:
+                  description: The merged head of that Action's configs pull request.
+                  type: string
+                recordedAt:
+                  description: When it was written (RFC 3339).
+                  type: string
+{{- end }}

@@ -246,3 +246,15 @@ func TestWhoMayLoosenApprovalsIsGovernance(t *testing.T) {
 		t.Fatalf("a workflow editor added: %v %+v", ok, g)
 	}
 }
+
+// D-GO-31: a ServiceAccount subject is its namespace and name: the same
+// name in another namespace is another subject.
+func TestServiceAccountSubjectsKeepTheirNamespace(t *testing.T) {
+	sa := func(ns string) string {
+		return "tenants:\n  platformTeam:\n    - {kind: ServiceAccount, name: runner, namespace: " + ns + "}\n"
+	}
+	g, ok := GovernanceOf(govPlan(sa("team-a"), sa("team-b")))
+	if !ok || !slices.Equal(g.Loosens, []string{"tenants.platformTeam +ServiceAccount:team-b/runner −ServiceAccount:team-a/runner"}) {
+		t.Fatalf("a ServiceAccount moved to another namespace: %v %+v", ok, g)
+	}
+}

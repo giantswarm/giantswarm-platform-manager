@@ -7,13 +7,11 @@ import (
 	"maps"
 	"slices"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
-	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 )
 
@@ -23,95 +21,84 @@ import (
 // (spec.governance) and asks the team's review even where every target is a
 // test installation; approve_action refuses the actor and anyone who is not
 // an active member of the governance reviewers' team (approvals.governanceTeam),
-// and merge_action waits for that decision. Every Action records the
-// governance its commit leaves (spec.governanceAfter): the next plan compares
-// against it, so a disable followed by an enable, or a change made in the
-// configs repository directly, is a governance change again and needs the
-// review. Each step is audited (auditGovernance). Agents may propose such a
-// change and never approve or merge it: muster asks a person before an
-// agent's approve_action and merge_action (a floor of the platformManager
-// role).
+// and merge_action waits for that decision. What the team reviewed is kept
+// per installation in a reviewed-governance record (actions.GovernanceRecord,
+// decision #99), written only when merge_action merges an approved
+// governance change: every plan compares the configs repository's
+// governance with it, never with the Actions' order or states, so an edit
+// outside the manager, a revert by hand or an action merged out of order is
+// an unreviewed change the next commit asks the team to confirm or restore.
+// Each step is audited (auditGovernance). Agents may propose such a change
+// and never approve or merge it: muster asks a person before an agent's
+// approve_action and merge_action (a floor of the platformManager role).
 
-// baselineStates are the states of an Action whose stage is on record: its
-// pull requests merged, not taken back.
-var baselineStates = []string{actions.StateRollingOut, actions.StateWaitingForCustomer, actions.StateEnabled, actions.StateDrifted, actions.StateDisabled, actions.StateFailed}
-
-// governanceBaseline is the governance the newest reviewed action left on
-// installation: an agent-platform action whose stage there is merged and on
-// record, approved by the team or needing no review, with a recorded
-// governance. An action merged without the team's decision is skipped, so
-// what it left counts as changed outside the manager. None (false) before
-// the first action that records one, or without the records.
-func (t *Tools) governanceBaseline(ctx context.Context, installation string) (plan.GovernanceSnapshot, string, bool) {
-	if t.d.Actions == nil {
-		return nil, "", false
+// reviewedGovernance is installation's reviewed-governance record: the
+// governance the team last reviewed there, and the record. found is false
+// without one, or when it cannot be read or parsed (logged): fail closed,
+// the governance in play then asks the review.
+func (t *Tools) reviewedGovernance(ctx context.Context, installation string) (plan.GovernanceSnapshot, *actions.GovernanceRecord, bool) {
+	if t.d.Records == nil {
+		return nil, nil, false
 	}
-	list, err := t.d.Actions.List(ctx, actions.Filter{Installation: installation})
+	r, err := t.d.Records.GetRecord(ctx, installation)
 	if err != nil {
-		t.d.Log.Warn("governance_baseline_unread", identity.LogAttr(ctx), "installation", installation, "error", err.Error())
-		return nil, "", false
+		if !errors.Is(err, actions.ErrNotFound) {
+			t.d.Log.Warn("governance_record_unread", identity.LogAttr(ctx), "audit", true, "installation", installation, "error", err.Error())
+		}
+		return nil, nil, false
 	}
-	type candidate struct {
-		name     string
-		mergedAt time.Time
-		snap     plan.GovernanceSnapshot
+	snap, err := plan.ParseGovernanceSnapshot(r.Governance)
+	if err != nil {
+		t.d.Log.Warn("governance_record_unread", identity.LogAttr(ctx), "audit", true, "installation", installation, "error", err.Error())
+		return nil, nil, false
 	}
-	var found []candidate
-	for _, a := range list {
-		if a.CapabilityOf(installation) != installations.AgentPlatform || !slices.Contains(baselineStates, a.Status.State) || !allMerged(&a, installation) || len(a.StagePullRequests(installation)) == 0 {
-			continue
-		}
-		if a.Status.Approval == nil || (a.Status.Approval.Decision != actions.DecisionApproved && a.Status.Approval.Decision != actions.DecisionNotRequired) {
-			continue
-		}
-		// Only an action that recorded the governance it leaves is a
-		// baseline; one without (from before the field) carries none, and
-		// the one before it stands.
-		raw, ok := a.Spec.GovernanceAfter[installation]
-		if !ok {
-			continue
-		}
-		snap, err := plan.ParseGovernanceSnapshot(raw)
-		if err != nil {
-			continue
-		}
-		c := candidate{name: a.Name, mergedAt: a.CreatedAt, snap: snap}
-		for _, k := range a.StagePullRequests(installation) {
-			if at := a.Status.PullRequests[k].MergedAt; at != nil && at.After(c.mergedAt) {
-				c.mergedAt = *at
-			}
-		}
-		found = append(found, c)
-	}
-	if len(found) == 0 {
-		return nil, "", false
-	}
-	// The newest merge is the baseline. Actions merged within one second are
-	// told apart by name; where they left different governance it is logged.
-	slices.SortStableFunc(found, func(x, y candidate) int {
-		if c := y.mergedAt.Compare(x.mergedAt); c != 0 {
-			return c
-		}
-		return strings.Compare(y.name, x.name)
-	})
-	if len(found) > 1 && found[0].mergedAt.Equal(found[1].mergedAt) && len(plan.GovernanceBetween(found[0].snap, found[1].snap).Lines) > 0 {
-		t.d.Log.Warn("governance_baseline_ambiguous", identity.LogAttr(ctx), "installation", installation, "actions", found[0].name+","+found[1].name)
-	}
-	return found[0].snap, found[0].name, true
+	return snap, r, true
 }
 
-// governanceOutside is the line of a plan whose record differs from what
-// the last reviewed action left: the change is shown against that action.
-func governanceOutside(action string) string {
-	return "the governance on record differs from what action " + action + " left (changed outside the manager); the change is shown against " + action
+// governanceOutside is the line of a plan whose configs repository carries
+// another governance than the team reviewed: the change is shown against
+// the reviewed one.
+func governanceOutside(r *actions.GovernanceRecord) string {
+	return "the governance on record differs from what the team reviewed in action " + r.Action + " (changed outside the manager, reverted by hand or merged out of order); the change is shown against what was reviewed"
 }
 
-// governanceChange is the governance a commit of p changes, against what
-// the last reviewed action left where it is known, else against the record,
-// and the snapshot the commit leaves; nil for a plan that changes none or
-// writes no agent-platform values. A record that differs from the last
-// reviewed action's is logged (governance_on_record_changed_outside) and
-// shown, as a loosening line, ahead of the change.
+// governanceUnrecorded is the line of a plan whose governance is in play
+// on an installation without a reviewed-governance record: the team review
+// confirms it (fail closed; installations from before the record get one
+// with their first reviewed commit).
+func governanceUnrecorded(installation string) string {
+	return "no reviewed governance is on record for " + installation + ": the team review confirms the governance this commit leaves"
+}
+
+// against compares the configs repository's governance (current) and what
+// a commit leaves (next) with the reviewed record: a difference between the
+// record and current is logged as an unreviewed change and leads the
+// change, which is shown against the record; without a record, governance
+// in play leads with governanceUnrecorded. The lines from base to next
+// follow, base the record or current.
+func (t *Tools) against(ctx context.Context, installation string, current, next plan.GovernanceSnapshot) (plan.GovernanceChange, plan.GovernanceSnapshot) {
+	lead := ""
+	base := current
+	if reviewed, r, found := t.reviewedGovernance(ctx, installation); found {
+		if outside := plan.GovernanceBetween(reviewed, current); len(outside.Lines) > 0 {
+			t.d.Log.Warn("governance_on_record_changed_outside", identity.LogAttr(ctx), "audit", true, "installation", installation, "action", r.Action, "governance", strings.Join(outside.Lines, "; "))
+			lead, base = governanceOutside(r), reviewed
+		}
+	} else if current.InPlay() || next.InPlay() {
+		t.d.Log.Warn("governance_unrecorded", identity.LogAttr(ctx), "audit", true, "installation", installation)
+		lead = governanceUnrecorded(installation)
+	}
+	g := plan.GovernanceBetween(base, next)
+	if lead != "" {
+		g.Lines = append([]string{lead}, g.Lines...)
+		g.Loosens = append([]string{lead}, g.Loosens...)
+	}
+	return g, base
+}
+
+// governanceChange is the governance a commit of p changes, against the
+// reviewed record (against), and the snapshot the commit leaves; nil for a
+// plan that changes none or writes no agent-platform values.
 func (t *Tools) governanceChange(ctx context.Context, p plan.Installation) (*plan.GovernanceChange, string) {
 	current, next, ok, unreadable := plan.GovernanceFile(p)
 	if !ok {
@@ -121,16 +108,7 @@ func (t *Tools) governanceChange(ctx context.Context, p plan.Installation) (*pla
 		g := plan.GovernanceUnreadable()
 		return &g, ""
 	}
-	g := plan.GovernanceBetween(current, next)
-	if base, from, has := t.governanceBaseline(ctx, p.Name); has {
-		if outside := plan.GovernanceBetween(base, current); len(outside.Lines) > 0 {
-			t.d.Log.Warn("governance_on_record_changed_outside", identity.LogAttr(ctx), "audit", true, "installation", p.Name, "action", from, "governance", strings.Join(outside.Lines, "; "))
-			g = plan.GovernanceBetween(base, next)
-			line := governanceOutside(from)
-			g.Lines = append([]string{line}, g.Lines...)
-			g.Loosens = append([]string{line}, g.Loosens...)
-		}
-	}
+	g, _ := t.against(ctx, p.Name, current, next)
 	if len(g.Lines) == 0 {
 		return nil, next.JSON()
 	}
@@ -147,10 +125,11 @@ func governanceAfter(p plan.Installation) string {
 	return next.JSON()
 }
 
-// governanceOfDisable is the governance a disable removes with the values:
-// what the record carries (against the last reviewed action's where they
-// differ), and the snapshot the disable records as what it leaves — the
-// governance before it, so a later enable is compared with that.
+// governanceOfDisable is the governance a disable removes with the values
+// (against the reviewed record), and the snapshot the disable records as
+// what it leaves: the governance before it (the record where the values
+// differ from it), so a later enable is compared with that once the
+// reviewed disable is merged.
 func (t *Tools) governanceOfDisable(ctx context.Context, c *gh.Client, d plan.Disablement) (*plan.GovernanceChange, string, error) {
 	for _, f := range d.Files {
 		if f.Change != plan.ChangeDelete || !strings.HasSuffix(f.Path, "/apps/agent-platform/configmap-values.yaml.patch") {
@@ -169,23 +148,51 @@ func (t *Tools) governanceOfDisable(ctx context.Context, c *gh.Client, d plan.Di
 			g := plan.GovernanceUnreadable()
 			return &g, "", nil
 		}
-		old, outside := current, ""
-		if base, from, has := t.governanceBaseline(ctx, d.Name); has && len(plan.GovernanceBetween(base, current).Lines) > 0 {
-			t.d.Log.Warn("governance_on_record_changed_outside", identity.LogAttr(ctx), "audit", true, "installation", d.Name, "action", from)
-			old, outside = base, governanceOutside(from)
-		}
-		g, changes := plan.GovernanceDeleted(old)
-		if outside != "" {
-			g.Lines = append([]string{outside}, g.Lines...)
-			g.Loosens = append([]string{outside}, g.Loosens...)
+		lead, base := t.against(ctx, d.Name, current, current)
+		g, changes := plan.GovernanceDeleted(base)
+		if len(lead.Lines) > 0 {
+			g.Lines = append(slices.Clone(lead.Lines), g.Lines...)
+			g.Loosens = append(slices.Clone(lead.Loosens), g.Loosens...)
 			changes = true
 		}
 		if !changes {
-			return nil, old.JSON(), nil
+			return nil, base.JSON(), nil
 		}
-		return &g, old.JSON(), nil
+		return &g, base.JSON(), nil
 	}
 	return nil, "", nil
+}
+
+// recordReviewed writes installation's reviewed-governance record once
+// merge_action merged the stage of an approved governance change there: the
+// governance the action's commit leaves, the approver and the configs pull
+// request's merged head. Never for an action the team did not approve, or
+// one that changes no governance there. A write that fails is logged and
+// answered: the next plan then asks the review again (fail closed).
+func (t *Tools) recordReviewed(ctx context.Context, a *actions.Action, installation string) string {
+	if t.d.Records == nil || a.Status.Approval == nil || a.Status.Approval.Decision != actions.DecisionApproved {
+		return ""
+	}
+	if _, changes := actions.GovernanceOf(a)[installation]; !changes {
+		return ""
+	}
+	after, ok := a.Spec.GovernanceAfter[installation]
+	if !ok {
+		return ""
+	}
+	head := ""
+	for _, k := range a.StagePullRequests(installation) {
+		if pr := a.Status.PullRequests[k]; strings.HasSuffix(pr.Repository, "-configs") {
+			head = pr.HeadSHA
+		}
+	}
+	r := actions.GovernanceRecord{Installation: installation, Governance: after, Action: a.Name, ApprovedBy: a.Status.Approval.DecidedBy, HeadSHA: head}
+	if err := t.d.Records.PutRecord(ctx, r); err != nil {
+		t.d.Log.Warn("governance_record_not_written", identity.LogAttr(ctx), "audit", true, "action", a.Name, "installation", installation, "error", err.Error())
+		return fmt.Sprintf("(The reviewed governance of %s could not be recorded: %v; the next commit there asks the team's review again.)", installation, err)
+	}
+	t.d.Log.Info("governance_record_written", identity.LogAttr(ctx), "audit", true, "action", a.Name, "installation", installation, "approvedBy", r.ApprovedBy, "headSHA", head)
+	return ""
 }
 
 // governanceRecordMoved says whether the agent-platform values on the

@@ -196,7 +196,7 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	if len(p.Files)-p.Diff[plan.ChangeUnchanged] == 0 {
 		res.Next = "every file is on record as the definition renders it: nothing to commit, no action recorded"
 		if g != nil {
-			res.Next += "; the governance on record is not what the last reviewed action left (" + strings.Join(g.Lines, "; ") + "): a reviewed change that types the governance confirms or reverts it"
+			res.Next += "; the governance on record is not what the team reviewed (" + strings.Join(g.Lines, "; ") + "): a reviewed change that types the governance confirms or reverts it"
 		}
 		return res, nil
 	}

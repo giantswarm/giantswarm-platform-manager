@@ -87,6 +87,11 @@ type Deps struct {
 	// manager runs without the hub's API server, and get_action,
 	// list_actions and mode commit say so.
 	Actions actions.Store
+	// Records reads and writes the reviewed-governance records (decision
+	// #99); nil takes them from Actions where it keeps them too, and without
+	// either no reviewed governance is known (every governance in play asks
+	// the review).
+	Records actions.RecordStore
 	// Remote opens the git remote a commit lands on, with the caller's
 	// token: GitHub in production (GitHubRemote), gitops-commit's Fake in
 	// tests. nil refuses mode commit naming the configuration.
@@ -153,6 +158,9 @@ func New(d Deps) *Tools {
 	}
 	if d.Files == nil {
 		d.Files = gh.NewFiles(gh.DefaultFreshness)
+	}
+	if rs, ok := d.Actions.(actions.RecordStore); ok && d.Records == nil {
+		d.Records = rs
 	}
 	t := &Tools{d: d}
 	if d.Approvals.Configured() {

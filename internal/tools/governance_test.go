@@ -161,3 +161,59 @@ func TestGovernanceRecordMovedWhenTheValuesCannotBeRead(t *testing.T) {
 		t.Fatalf("an unreadable default branch: %v %q", moved, what)
 	}
 }
+
+// fakeRecords is an in-memory RecordStore.
+type fakeRecords struct{ put []actions.GovernanceRecord }
+
+func (f *fakeRecords) GetRecord(context.Context, string) (*actions.GovernanceRecord, error) {
+	return nil, actions.ErrNotFound
+}
+
+func (f *fakeRecords) PutRecord(_ context.Context, r actions.GovernanceRecord) error {
+	f.put = append(f.put, r)
+	return nil
+}
+
+// Decision #99: only a team-approved governance change writes the record;
+// an approved action without one, or one without the team's approval,
+// writes none.
+func TestOnlyAnApprovedGovernanceChangeIsRecorded(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		decision string
+		governs  bool
+		writes   bool
+	}{
+		{"approved with a governance change", actions.DecisionApproved, true, true},
+		{"approved without one", actions.DecisionApproved, false, false},
+		{"not required, with one", actions.DecisionNotRequired, true, false},
+		{"merged without approval, with one", actions.DecisionMergedWithoutApproval, true, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			records := &fakeRecords{}
+			tl := &Tools{d: Deps{Log: slog.New(slog.DiscardHandler), Records: records}}
+			a := governedAction()
+			a.Spec.Installations = []string{rowan}
+			a.Spec.Governance = map[string]plan.GovernanceChange{rowan: a.Spec.Governance[rtGarm]}
+			if !c.governs {
+				a.Spec.Governance = nil
+			}
+			a.Spec.GovernanceAfter = map[string]string{rowan: `{"governance":{"mode":"governed"}}`}
+			a.Status.Approval = &actions.Approval{Decision: c.decision, DecidedBy: "carol"}
+			tl.recordReviewed(context.Background(), a, rowan)
+			if (len(records.put) == 1) != c.writes {
+				t.Fatalf("records written: %+v", records.put)
+			}
+		})
+	}
+}
+
+// D-GO-31: decided reads the governance found after the commit too: a
+// stage merged outside the manager decides nothing for such an action.
+func TestMergedWithoutApprovalDecidesNoGovernanceFoundAfterTheCommit(t *testing.T) {
+	a := &actions.Action{Status: actions.Status{Approval: &actions.Approval{Decision: actions.DecisionMergedWithoutApproval},
+		Governance: map[string]plan.GovernanceChange{rowan: {Lines: []string{"moved"}, Loosens: []string{"moved"}}}}}
+	if decided(a) {
+		t.Fatal("a governance change found after the commit, merged outside the manager, counts as decided")
+	}
+}

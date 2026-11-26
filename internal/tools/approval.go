@@ -376,6 +376,11 @@ func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
 		return res, nil
 	}
 	res.Message = fmt.Sprintf("the pull requests of %s are merged as %s (%s); %s is rolling out — %s reads its rollout and runs the probes as you, and carries it to enabled%s.", res.Stage, id.Login, prList(res.Merged), res.Stage, ToolWatchAction, nextStage(a, res.Stage))
+	// The stage of an approved governance change is merged through the
+	// manager: what the team reviewed is the installation's record now.
+	if note := t.recordReviewed(ctx, a, res.Stage); note != "" {
+		res.Message += " " + note
+	}
 	if noReview(a) {
 		if note := t.tellStandup(ctx, a, stageMerge{by: id.Login, stage: res.Stage, pullRequests: res.Merged}); note != "" {
 			res.Message += " " + note

@@ -126,9 +126,9 @@ type Spec struct {
 	Governance map[string]plan.GovernanceChange `json:"governance,omitempty"`
 	// GovernanceAfter is, per installation, the governance the commit leaves
 	// on record (plan.GovernanceSnapshot as JSON; a disable's is the
-	// governance before it): the next plan compares against the newest
-	// reviewed one, so a change made outside the manager, or a disable
-	// followed by an enable, is a governance change again. Values only.
+	// governance before it): what merge_action writes to the installation's
+	// reviewed-governance record (GovernanceRecord) once the team approved a
+	// governance change of the action. Values only.
 	GovernanceAfter map[string]string `json:"governanceAfter,omitempty"`
 }
 

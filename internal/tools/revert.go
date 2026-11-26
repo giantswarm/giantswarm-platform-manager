@@ -211,6 +211,9 @@ func (t *Tools) watchReverts(ctx context.Context, a *actions.Action, status *act
 	if err != nil {
 		return nil, fmt.Errorf("%s: %s is reverted and the action could not record it: %w", ToolWatchAction, st.Name, err)
 	}
+	// A reviewed governance change taken back by hand: the record keeps
+	// what was reviewed, so the next plan shows the revert as unreviewed.
+	t.auditGovernance(ctx, "governance_change_reverted", a)
 	st = a.Status.Rollout.Installations[i]
 	out := &WatchResult{Action: a, Installation: st.Name, State: st.State, Objects: []actions.RolloutObject{}, Report: report,
 		Next: fmt.Sprintf("the actor (%s) withdraws the action with %s and the reason; a new action commits the change again", a.Spec.Actor.Login, ToolDenyAction)}
@@ -268,6 +271,7 @@ func (t *Tools) withdraw(ctx context.Context, a *actions.Action, id *identity.Id
 			return nil, fmt.Errorf("%s: action %s is %s and every pull request it merged is on the default branch as merged (read now as you): nothing was taken back — revert the pull requests on the default branch first, then withdraw the action", ToolDenyAction, a.Name, was)
 		}
 		posts = append(posts, markReverted(&status, a, found))
+		t.auditGovernance(ctx, "governance_change_reverted", a)
 	}
 	open := openPRs(status.PullRequests)
 	if len(open) > 0 {

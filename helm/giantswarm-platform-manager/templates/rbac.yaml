@@ -14,6 +14,11 @@ rules:
   - apiGroups: ["platform-manager.giantswarm.io"]
     resources: ["actions/status"]
     verbs: ["get", "update", "patch"]
+  # The reviewed-governance records, one per installation, written only by
+  # merge_action when an approved governance change is merged.
+  - apiGroups: ["platform-manager.giantswarm.io"]
+    resources: ["governancerecords"]
+    verbs: ["get", "list", "watch", "create", "update"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

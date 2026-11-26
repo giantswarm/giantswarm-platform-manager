@@ -235,6 +235,7 @@ func (t *Tools) resync(ctx context.Context, c *gh.Client, id *identity.Identity,
 			unread = append(unread, errs...)
 			if len(gone) > 0 && kept == 0 {
 				posts = append(posts, remove(&status, &fresh, def, gone))
+				t.auditGovernance(ctx, "governance_change_reverted", &fresh)
 			}
 		}
 	}
