@@ -174,7 +174,10 @@ the comparison (`spec.changes`, `plan.Summary`): a component created whole reads
 new, list entries added and removed, a kustomization's patches by their target with the JSON patch
 operations they add, drop or change (op and path), values keys by path without their values, a Secret's keys
 added and removed, the credentials that rotate (the ones asked for marked *on request*) — with the pull requests as
-links; a wave whose installations change alike reads once, else per installation. The Account Engineers'
+links; a wave whose installations change alike reads once, else per installation. Once a member approves or
+denies, the gateway shortens the message in the channel to one line — the outcome, the decider and the
+review's summary, *who* to do *what* (enable, reconcile or disable) with *which capability* on *which
+installations*, counted when there are too many to name — and moves the rest into the review's thread. The Account Engineers'
 channel (`approvals.noticeChannel`) never sees the review: once a stage on a customer installation reaches
 *enabled* — the watch or the live verify — it is told once, without buttons, who applied what where, why,
 what changed and the account engineer (`status.rollout.installations[].noticedAt`).
