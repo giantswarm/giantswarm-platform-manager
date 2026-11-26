@@ -12,7 +12,8 @@ import (
 // TestUnknownArgumentRefusedBeforeRender pins that a write tool refuses an
 // argument its schema does not name instead of dropping it: a reconcile
 // called with targets (not installations) would otherwise render the whole
-// fleet.
+// fleet. A named argument sent as null stays accepted, and the free-form
+// inputs object keeps any key.
 func TestUnknownArgumentRefusedBeforeRender(t *testing.T) {
 	tools := New(Deps{})
 	rendered := 0
@@ -47,7 +48,12 @@ func TestUnknownArgumentRefusedBeforeRender(t *testing.T) {
 	require.Contains(t, refused.Content[0].(mcp.TextContent).Text, "targets")
 	require.Zero(t, rendered)
 
-	accepted := call(map[string]any{"dryRun": true, "installations": []string{"alba"}, "inputs": map[string]any{"anyKey": true}})
+	accepted := call(map[string]any{"dryRun": true, "installations": []string{"alba"}, "rotate": nil, "inputs": map[string]any{"anyKey": true}})
 	require.False(t, accepted.IsError)
+	require.Equal(t, 1, rendered)
+
+	apply := call(map[string]any{"mode": "apply", "targets": []string{"alba"}})
+	require.True(t, apply.IsError)
+	require.Contains(t, apply.Content[0].(mcp.TextContent).Text, ApplyRefusal)
 	require.Equal(t, 1, rendered)
 }

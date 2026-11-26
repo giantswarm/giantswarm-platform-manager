@@ -28,7 +28,6 @@ Submits an approving review on every pull request of the action as you and recor
 
 ```json
 {
-  "additionalProperties": false,
   "properties": {
     "action": {
       "description": "The Action's name (the action id of the review).",
@@ -52,7 +51,6 @@ The Deny button of the Team review; any member may deny, the actor included, and
 
 ```json
 {
-  "additionalProperties": false,
   "properties": {
     "action": {
       "description": "The Action's name.",
@@ -229,7 +227,6 @@ The record follows GitHub, read as you: a pull request merged or closed outside 
 
 ```json
 {
-  "additionalProperties": false,
   "properties": {
     "name": {
       "description": "The Action's name.",
@@ -253,7 +250,6 @@ Call it first. Also the write tools, where the Action records live, and the iden
 
 ```json
 {
-  "additionalProperties": false,
   "properties": {},
   "required": [],
   "type": "object"
@@ -270,7 +266,6 @@ Each follows GitHub as get_action does.
 
 ```json
 {
-  "additionalProperties": false,
   "properties": {
     "capability": {
       "description": "Only actions of this capability.",
@@ -301,7 +296,6 @@ Read with your GitHub token now: an installation whose repositories you cannot r
 
 ```json
 {
-  "additionalProperties": false,
   "properties": {
     "customer": {
       "description": "Answer only for this customer's installations, as the catalog names the customer.",
@@ -334,7 +328,6 @@ The Action moves to rolling out and the review's thread is told; follow it with 
 
 ```json
 {
-  "additionalProperties": false,
   "properties": {
     "action": {
       "description": "The Action's name.",
@@ -447,7 +440,6 @@ Names every difference by file and path and the input that drives it, a planned 
 
 ```json
 {
-  "additionalProperties": false,
   "properties": {
     "capability": {
       "description": "The capability (default agent-platform); get_info lists the definitions and their input schemas.",
@@ -489,7 +481,6 @@ What you may read decides what is checked: an object you may not read is not che
 
 ```json
 {
-  "additionalProperties": false,
   "properties": {
     "capability": {
       "description": "The capability (default agent-platform); get_info lists the definitions and their input schemas.",
@@ -527,7 +518,6 @@ Reads Flux readiness through muster as you, runs probes and reports to the revie
 
 ```json
 {
-  "additionalProperties": false,
   "properties": {
     "action": {
       "description": "The Action's name.",
