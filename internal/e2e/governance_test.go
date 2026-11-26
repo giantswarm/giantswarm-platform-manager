@@ -92,6 +92,10 @@ func requireLog(t *testing.T, st *stack, parts ...string) {
 	t.Fatalf("no log line carries %q:\n%s", parts, st.logs.String())
 }
 
+// platformOnRecord is rowan's agent-platform values with Giant Swarm's own
+// governance parts on record, as an earlier commit wrote them.
+const platformOnRecord = "muster: {}\ngovernance:\n  roleFloors:\n    platformManager: [approve_action, merge_action]\ngovernedServers:\n  giantswarm-platform-manager/giantswarm-platform-manager:\n    role: platformManager\n    safe: [get_info, list_installations, list_actions, get_action, verify_capability]\n"
+
 const droppedKubernetes = "governedServers.mcp-kubernetes {role: infrastructure, 14 safe} → not governed (null)"
 
 func TestGovernanceChangeOnATestInstallationNeedsASecondPerson(t *testing.T) {
@@ -107,7 +111,7 @@ func TestGovernanceChangeOnATestInstallationNeedsASecondPerson(t *testing.T) {
 		t.Fatalf("a governance change on a test installation went without the review: %+v; next %q", a.Status.Approval, out.Next)
 	}
 	g, ok := a.Spec.Governance[rowan]
-	if !ok || len(g.Lines) != 2 || len(g.Loosens) != 1 || g.Loosens[0] != droppedKubernetes {
+	if !ok || len(g.Lines) != 4 || g.Lines[0] != "mode trusted → governed" || len(g.Loosens) != 1 || g.Loosens[0] != droppedKubernetes {
 		t.Fatalf("the action's governance: %+v", a.Spec.Governance)
 	}
 	if after := a.Spec.GovernanceAfter[rowan]; !strings.Contains(after, `"mode":"governed"`) {
@@ -272,12 +276,14 @@ func TestGovernanceMergedBetweenThePlanAndTheBranchNeedsTheReview(t *testing.T) 
 	st := governedTestRowan(t)
 	aliceC := st.mcpClient(t, aliceToken)
 	marker := installations.Capabilities()[0].EnabledMarker(rowan)
-	st.beforeOpen = func() { st.ghs.addFile(acmeConfigs, marker, "governance:\n  mode: governed\n") }
-	out, text, isErr := commitCall(t, aliceC, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(nil)})
+	st.ghs.addFile(acmeConfigs, marker, platformOnRecord)
+	moved := strings.Replace(platformOnRecord, "governance:\n", "governance:\n  mode: governed\n", 1)
+	st.beforeOpen = func() { st.ghs.addFile(acmeConfigs, marker, moved) }
+	out, text, isErr := commitCall(t, aliceC, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(nil)})
 	if isErr || out.Action == nil {
 		t.Fatalf("commit: %v %s", isErr, text)
 	}
-	if v, _ := st.ghs.file(acmeConfigs, marker); st.beforeOpen != nil || v != "governance:\n  mode: governed\n" {
+	if v, _ := st.ghs.file(acmeConfigs, marker); st.beforeOpen != nil || v != moved {
 		t.Fatalf("the hook did not run: %q", v)
 	}
 	if out.Action.Status.Approval == nil || out.Action.Status.Approval.Decision == actions.DecisionNotRequired || out.Action.Status.Approval.ReviewID == "" {
@@ -290,8 +296,9 @@ func TestGovernanceMergedBetweenThePlanAndTheBranchNeedsTheReview(t *testing.T) 
 // needs no review.
 func TestTestInstallationWithoutGovernanceChangeNeedsNoReview(t *testing.T) {
 	st := governedTestRowan(t)
+	st.ghs.addFile(acmeConfigs, installations.Capabilities()[0].EnabledMarker(rowan), platformOnRecord)
 	aliceC := st.mcpClient(t, aliceToken)
-	out, text, isErr := commitCall(t, aliceC, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(map[string]any{keyGovernanceInput: map[string]any{keyMode: agentplatform.GovernanceTrusted}})})
+	out, text, isErr := commitCall(t, aliceC, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(map[string]any{keyGovernanceInput: map[string]any{keyMode: agentplatform.GovernanceTrusted}})})
 	if isErr || out.Action == nil || out.Action.Status.Approval == nil || out.Action.Status.Approval.Decision != actions.DecisionNotRequired || len(out.Action.Spec.Governance) != 0 {
 		t.Fatalf("commit: %v %s", isErr, text)
 	}
