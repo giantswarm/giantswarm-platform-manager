@@ -32,7 +32,8 @@ loosens them (`definitions/agent-platform/governance.yaml`, `platform`):
 
 The role floors and the governed server are written where the meta chart takes the governance (the release
 `GovernanceChart`, the 4 line, no chart hold below it); the connector admins on every installation on the 4 line,
-which every chart there takes. A `governance.governedServers` input for `giantswarm-platform-manager` is
+which every chart there takes, with the same groups as the workflow editors (`muster.rbac.workflowEditor.subjects`,
+muster's `workflow-editor` Role, who create, change and delete muster's workflows; decision #93). A `governance.governedServers` input for `giantswarm-platform-manager` is
 refused; read back from the record it is the platform's entry and is rendered again. A server key of an
 installation's own may take the role `platformManager`, which only adds its floors. muster from before decision
 #92 builds the same floors in, so the plan reads a governance without `roleFloors` as having the platform's:

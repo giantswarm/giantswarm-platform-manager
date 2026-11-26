@@ -21,7 +21,9 @@ muster:
 # a union with muster's built-ins), the Platform Manager as a governed server with
 # its safe list (its reads; docs/governance.md), and the connector admins, the Giant
 # Swarm admin groups bound to muster's mcpserver-editor Role (the chart's
-# muster.rbac.mcpServerEditor.subjects; the meta chart appends tenants.platformTeam).
+# muster.rbac.mcpServerEditor.subjects), and the workflow editors, the same groups
+# bound to muster's workflow-editor Role (muster.rbac.workflowEditor.subjects; the
+# meta chart appends tenants.platformTeam to both).
 platform:
   roleFloors:
     platformManager: [approve_action, merge_action]
@@ -30,6 +32,13 @@ platform:
       role: platformManager
       safe: [get_info, list_installations, list_actions, get_action, verify_capability]
   connectorAdmins:
+    - apiGroup: rbac.authorization.k8s.io
+      kind: Group
+      name: giantswarm-ad:giantswarm-admins
+    - apiGroup: rbac.authorization.k8s.io
+      kind: Group
+      name: giantswarm-github:giantswarm:giantswarm-admins
+  workflowEditors:
     - apiGroup: rbac.authorization.k8s.io
       kind: Group
       name: giantswarm-ad:giantswarm-admins

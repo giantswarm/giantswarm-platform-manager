@@ -122,10 +122,19 @@ muster:
               scopes: openid profile email groups audience:server:client_id:dex-k8s-authenticator
               clientCredentialsSecretRef:
                 name: marmot-token-exchange-credentials
-  # Giant Swarm's connector admins: the admin groups bound to muster's
-  # mcpserver-editor Role (the meta chart appends the platform team).
+  # Giant Swarm's connector admins and workflow editors: the admin groups
+  # bound to muster's mcpserver-editor and workflow-editor Roles (the meta chart
+  # appends the platform team).
   rbac:
     mcpServerEditor:
+      subjects:
+        - apiGroup: rbac.authorization.k8s.io
+          kind: Group
+          name: giantswarm-ad:giantswarm-admins
+        - apiGroup: rbac.authorization.k8s.io
+          kind: Group
+          name: giantswarm-github:giantswarm:giantswarm-admins
+    workflowEditor:
       subjects:
         - apiGroup: rbac.authorization.k8s.io
           kind: Group

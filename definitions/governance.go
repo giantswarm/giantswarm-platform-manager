@@ -37,6 +37,7 @@ type GovernanceData struct {
 		RoleFloors      map[string][]string       `yaml:"roleFloors"`
 		GovernedServers map[string]GovernedServer `yaml:"governedServers"`
 		ConnectorAdmins []Subject                 `yaml:"connectorAdmins"`
+		WorkflowEditors []Subject                 `yaml:"workflowEditors"`
 	} `yaml:"platform"`
 	Chart map[string]GovernedServer `yaml:"chart"`
 }

@@ -531,7 +531,7 @@ func (in *Input) musterValues() render.Map {
 	}
 	out := render.Map{e("muster", append(muster, e("oauth", oauth)))}
 	if admins := in.connectorAdmins(); admins != nil {
-		out = append(out, render.Entry{Key: "rbac", Value: admins, Comment: "Giant Swarm's connector admins: the admin groups bound to muster's\nmcpserver-editor Role (the meta chart appends the platform team)."})
+		out = append(out, render.Entry{Key: "rbac", Value: admins, Comment: "Giant Swarm's connector admins and workflow editors: the admin groups\nbound to muster's mcpserver-editor and workflow-editor Roles (the meta chart\nappends the platform team)."})
 	}
 	return out
 }

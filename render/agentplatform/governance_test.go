@@ -129,7 +129,8 @@ func TestGovernanceRendersAndSurvivesAReconcile(t *testing.T) {
 	if s := servers.(map[string]any); len(s) != 1 || s[sourcePlatformManager] == nil {
 		t.Fatalf("trusted writes governedServers %v", servers)
 	}
-	if !strings.Contains(got, "\n  rbac:\n    mcpServerEditor:\n      subjects:\n        - apiGroup: rbac.authorization.k8s.io\n          kind: Group\n          name: giantswarm-ad:giantswarm-admins\n") {
+	if !strings.Contains(got, "\n  rbac:\n    mcpServerEditor:\n      subjects:\n        - apiGroup: rbac.authorization.k8s.io\n          kind: Group\n          name: giantswarm-ad:giantswarm-admins\n") ||
+		!strings.Contains(got, "\n    workflowEditor:\n      subjects:\n        - apiGroup: rbac.authorization.k8s.io\n          kind: Group\n          name: giantswarm-ad:giantswarm-admins\n") {
 		t.Fatalf("the connector admins are not rendered:\n%s", got)
 	}
 }

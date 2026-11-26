@@ -166,19 +166,25 @@ func (in *Input) governanceValues(m render.Map) render.Map {
 	return append(m, render.Entry{Key: "governedServers", Value: servers, Comment: "The servers muster governs, over the meta chart's: Giant Swarm's own\n(giantswarm-platform-manager), rendered always, and the input\ngovernance.governedServers, read back so a reconcile keeps it. Changed only\nthrough an Action a second person approves; null drops a source."})
 }
 
-// connectorAdmins are muster's connector admins, the Giant Swarm admin
-// groups bound to its mcpserver-editor Role (muster.rbac.mcpServerEditor:
-// the meta chart appends tenants.platformTeam), on the 4 line, every
-// installation: Giant Swarm's own (decision #92), never an input.
+// connectorAdmins are muster's editor bindings: the connector admins, the
+// Giant Swarm admin groups bound to its mcpserver-editor Role
+// (muster.rbac.mcpServerEditor), and the workflow editors, bound to its
+// workflow-editor Role (muster.rbac.workflowEditor); the meta chart appends
+// the platform team to both. On the 4 line, every installation: Giant
+// Swarm's own (decisions #92, #93), never an input.
 func (in *Input) connectorAdmins() render.Map {
 	if in.Installation.ChartLine != lineFour {
 		return nil
 	}
-	var subjects []render.Map
-	for _, s := range definitions.Governance().Platform.ConnectorAdmins {
-		subjects = append(subjects, render.Map{e("apiGroup", s.APIGroup), e("kind", s.Kind), e("name", s.Name)})
+	list := func(from []definitions.Subject) []render.Map {
+		var subjects []render.Map
+		for _, s := range from {
+			subjects = append(subjects, render.Map{e("apiGroup", s.APIGroup), e("kind", s.Kind), e("name", s.Name)})
+		}
+		return subjects
 	}
-	return render.Map{e("mcpServerEditor", render.Map{e("subjects", subjects)})}
+	p := definitions.Governance().Platform
+	return render.Map{e("mcpServerEditor", render.Map{e("subjects", list(p.ConnectorAdmins))}), e("workflowEditor", render.Map{e("subjects", list(p.WorkflowEditors))})}
 }
 
 // checkGovernance refuses the governance the installation cannot run as

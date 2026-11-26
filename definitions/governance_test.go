@@ -162,8 +162,10 @@ func TestGovernanceDataIsConsistent(t *testing.T) {
 			t.Errorf("the platform's role %s is one of muster's built-ins", role)
 		}
 	}
-	if len(g.Platform.ConnectorAdmins) == 0 || slices.ContainsFunc(g.Platform.ConnectorAdmins, func(s definitions.Subject) bool { return s.Kind != "Group" }) {
-		t.Errorf("connector admins: %+v", g.Platform.ConnectorAdmins)
+	for name, list := range map[string][]definitions.Subject{"connector admins": g.Platform.ConnectorAdmins, "workflow editors": g.Platform.WorkflowEditors} {
+		if len(list) == 0 || slices.ContainsFunc(list, func(s definitions.Subject) bool { return s.Kind != "Group" }) {
+			t.Errorf("%s: %+v", name, list)
+		}
 	}
 	if _, ok := g.Chart["giantswarm-platform-manager"]; ok {
 		t.Error("the Platform Manager is the platform's governed server, not the chart's")
