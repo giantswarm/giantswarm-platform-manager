@@ -78,7 +78,10 @@ func Summary(p Installation) []string {
 	if w := p.SwitchOff.Warning(); w != "" {
 		out = append(out, w)
 	}
-	if g, ok := GovernanceOf(p); ok {
+	switch g, ok := GovernanceOf(p); {
+	case p.Governance != nil:
+		out = append(out, p.Governance.Summary())
+	case ok:
 		out = append(out, g.Summary())
 	}
 	for _, name := range order {

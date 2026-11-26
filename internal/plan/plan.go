@@ -358,8 +358,14 @@ type Installation struct {
 	// agent-platform values patch switches off, with what depends on each:
 	// the warning the dry run prints first, apart from the drift lines; nil
 	// where it switches nothing off (SwitchOffRefusal).
-	SwitchOff  *SwitchOff  `json:"switchOff,omitempty"`
-	DexClients []DexClient `json:"dexClients"`
+	SwitchOff *SwitchOff `json:"switchOff,omitempty"`
+	// Governance is the platform's governance a commit of the plan changes,
+	// old → new, against the governance the last reviewed action left
+	// where the manager knows it, else the record (internal/tools sets it):
+	// a commit carrying one is approved by a second person, on test
+	// installations too.
+	Governance *GovernanceChange `json:"governance,omitempty"`
+	DexClients []DexClient       `json:"dexClients"`
 	// DexConnectors and DexStaffConnectors are the ids of the hubs'
 	// connectors the rendered Dex patch declares under
 	// oidc.customer.connectors and oidc.giantswarm.connectors
