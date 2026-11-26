@@ -42,8 +42,8 @@ const (
 	keyPlatformTeam    = "platformTeam"
 	keyConnectorAdmins = "connectorAdmins"
 	keyWorkflowEditors = "workflowEditors"
-	modeGoverned        = "governed"
-	modeTrusted         = "trusted"
+	modeGoverned       = "governed"
+	modeTrusted        = "trusted"
 )
 
 // governanceUnreadable is the line of a plan whose agent-platform values
