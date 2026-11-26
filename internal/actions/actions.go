@@ -130,6 +130,11 @@ type Spec struct {
 	// reviewed-governance record (GovernanceRecord) once the team approved a
 	// governance change of the action. Values only.
 	GovernanceAfter map[string]string `json:"governanceAfter,omitempty"`
+	// GovernanceBase is, per installation, the reviewed-governance record the
+	// plan compared with (RecordIdentity, "none" for none): merge_action
+	// merges a stage of an approved governance change, and writes the record,
+	// only while the installation's record is still that one.
+	GovernanceBase map[string]string `json:"governanceBase,omitempty"`
 }
 
 // Skipped is an installation of a wave's set that is not a target.

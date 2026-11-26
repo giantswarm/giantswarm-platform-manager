@@ -1,0 +1,35 @@
+{{- if and .Values.actions.enabled .Values.actions.governanceRecordPolicy }}
+# Only the manager writes the reviewed-governance records (decision #99): a
+# record written by anyone else would read as governance the team reviewed,
+# and a deleted one makes every commit ask the review again. RBAC grants the
+# writes to this ServiceAccount alone; this policy holds it against any other
+# identity that may write the group (cluster admins, GitOps controllers).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ include "giantswarm-platform-manager.fullname" . }}-governance-records
+  labels:
+    {{- include "giantswarm-platform-manager.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["platform-manager.giantswarm.io"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["governancerecords"]
+  validations:
+    - expression: request.userInfo.username == "system:serviceaccount:{{ .Release.Namespace }}:{{ include "giantswarm-platform-manager.serviceAccountName" . }}"
+      message: only the Platform Manager writes or deletes reviewed-governance records; a change of the governance is an Action the team reviews
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ include "giantswarm-platform-manager.fullname" . }}-governance-records
+  labels:
+    {{- include "giantswarm-platform-manager.labels" . | nindent 4 }}
+spec:
+  policyName: {{ include "giantswarm-platform-manager.fullname" . }}-governance-records
+  validationActions: [Deny]
+{{- end }}

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -143,7 +144,7 @@ func TestGovernanceStoredOrRefused(t *testing.T) {
 func TestGovernanceChangeOfUnreadableValues(t *testing.T) {
 	tl := &Tools{d: Deps{Log: slog.New(slog.DiscardHandler)}}
 	p := plan.Installation{Name: rowan, Files: []plan.File{{Path: rowanValues, Change: plan.ChangeUpdate, Current: "governance: [\n", Content: emptyValues}}}
-	g, after := tl.governanceChange(context.Background(), p)
+	g, after, _ := tl.governanceChange(context.Background(), p)
 	if g == nil || len(g.Loosens) != 1 || after != "" {
 		t.Fatalf("unreadable values: %+v %q", g, after)
 	}
@@ -162,14 +163,23 @@ func TestGovernanceRecordMovedWhenTheValuesCannotBeRead(t *testing.T) {
 	}
 }
 
-// fakeRecords is an in-memory RecordStore.
-type fakeRecords struct{ put []actions.GovernanceRecord }
-
-func (f *fakeRecords) GetRecord(context.Context, string) (*actions.GovernanceRecord, error) {
-	return nil, actions.ErrNotFound
+// fakeRecords is an in-memory RecordStore holding at most one record.
+type fakeRecords struct {
+	have *actions.GovernanceRecord
+	put  []actions.GovernanceRecord
 }
 
-func (f *fakeRecords) PutRecord(_ context.Context, r actions.GovernanceRecord) error {
+func (f *fakeRecords) GetRecord(context.Context, string) (*actions.GovernanceRecord, error) {
+	if f.have == nil {
+		return nil, actions.ErrNotFound
+	}
+	return f.have, nil
+}
+
+func (f *fakeRecords) PutRecord(_ context.Context, r actions.GovernanceRecord, expected string) error {
+	if actions.RecordIdentity(f.have) != expected {
+		return actions.ErrRecordMoved
+	}
 	f.put = append(f.put, r)
 	return nil
 }
@@ -183,11 +193,15 @@ func TestOnlyAnApprovedGovernanceChangeIsRecorded(t *testing.T) {
 		decision string
 		governs  bool
 		writes   bool
+		noAfter  bool
+		base     string
 	}{
-		{"approved with a governance change", actions.DecisionApproved, true, true},
-		{"approved without one", actions.DecisionApproved, false, false},
-		{"not required, with one", actions.DecisionNotRequired, true, false},
-		{"merged without approval, with one", actions.DecisionMergedWithoutApproval, true, false},
+		{"approved with a governance change", actions.DecisionApproved, true, true, false, actions.RecordNone},
+		{"approved without one", actions.DecisionApproved, false, false, false, actions.RecordNone},
+		{"not required, with one", actions.DecisionNotRequired, true, false, false, actions.RecordNone},
+		{"merged without approval, with one", actions.DecisionMergedWithoutApproval, true, false, false, actions.RecordNone},
+		{"approved without the governance it leaves", actions.DecisionApproved, true, false, true, actions.RecordNone},
+		{"approved over another record than its plan's", actions.DecisionApproved, true, false, false, "older@2026-11-26T00:00:00Z@1"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			records := &fakeRecords{}
@@ -199,6 +213,10 @@ func TestOnlyAnApprovedGovernanceChangeIsRecorded(t *testing.T) {
 				a.Spec.Governance = nil
 			}
 			a.Spec.GovernanceAfter = map[string]string{rowan: `{"governance":{"mode":"governed"}}`}
+			if c.noAfter {
+				a.Spec.GovernanceAfter = nil
+			}
+			a.Spec.GovernanceBase = map[string]string{rowan: c.base}
 			a.Status.Approval = &actions.Approval{Decision: c.decision, DecidedBy: "carol"}
 			tl.recordReviewed(context.Background(), a, rowan)
 			if (len(records.put) == 1) != c.writes {
@@ -215,5 +233,33 @@ func TestMergedWithoutApprovalDecidesNoGovernanceFoundAfterTheCommit(t *testing.
 		Governance: map[string]plan.GovernanceChange{rowan: {Lines: []string{"moved"}, Loosens: []string{"moved"}}}}}
 	if decided(a) {
 		t.Fatal("a governance change found after the commit, merged outside the manager, counts as decided")
+	}
+}
+
+// D-GO-34, D-GO-40: without a record (none, or one that does not parse),
+// governance in play on either side leads with the unrecorded line and is
+// shown whole against the chart's defaults, the platform's parts included.
+func TestWithoutARecordTheReviewShowsTheWholeGovernance(t *testing.T) {
+	const parts = "governance:\n  roleFloors:\n    platformManager: [approve_action, merge_action]\n"
+	for _, c := range []struct {
+		name          string
+		have          *actions.GovernanceRecord
+		current, next string
+	}{
+		{"no record", nil, parts, parts},
+		{"a record that does not parse", &actions.GovernanceRecord{Action: "x", Governance: "{"}, parts, parts},
+		{"only the values on record carry it", nil, parts, emptyValues},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			tl := &Tools{d: Deps{Log: slog.New(slog.DiscardHandler), Records: &fakeRecords{have: c.have}}}
+			p := plan.Installation{Name: rowan, Files: []plan.File{{Path: rowanValues, Change: plan.ChangeUpdate, Current: c.current, Content: c.next}}}
+			g, _, record := tl.governanceChange(context.Background(), p)
+			if g == nil || !strings.HasPrefix(g.Lines[0], "no reviewed governance is on record for rowan") || record != actions.RecordNone {
+				t.Fatalf("got %+v, record %q", g, record)
+			}
+			if c.next == parts && !slices.Contains(g.Lines, "roleFloors.platformManager +approve_action +merge_action") {
+				t.Fatalf("the governance confirmed is not shown whole: %+v", g)
+			}
+		})
 	}
 }

@@ -31,6 +31,7 @@ const (
 	keyMode            = "mode"
 	keyIdleTTL         = "idleTTL"
 	keySessions        = "sessions"
+	keyGovernedServers = "governedServers"
 )
 
 // withGovernanceReleases takes the meta chart and muster releases that
@@ -66,7 +67,7 @@ func governedTestRowan(t *testing.T) *stack {
 // governedInputs make rowan governed and drop mcp-kubernetes from the
 // governed servers.
 func governedInputs() map[string]any {
-	return minimalInputs(map[string]any{keyGovernanceInput: map[string]any{keyMode: agentplatform.GovernanceGoverned, "governedServers": map[string]any{"mcp-kubernetes": nil}}})
+	return minimalInputs(map[string]any{keyGovernanceInput: map[string]any{keyMode: agentplatform.GovernanceGoverned, keyGovernedServers: map[string]any{"mcp-kubernetes": nil}}})
 }
 
 // approveAndMerge has carol approve the action and alice merge it once green.
@@ -108,7 +109,7 @@ func seedRecord(t *testing.T, st *stack, values string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := actions.New(st.dyn, actionsNamespace).PutRecord(t.Context(), actions.GovernanceRecord{Installation: rowan, Governance: snap.JSON(), Action: "seeded", ApprovedBy: carol}); err != nil {
+	if err := actions.New(st.dyn, actionsNamespace).PutRecord(t.Context(), actions.GovernanceRecord{Installation: rowan, Governance: snap.JSON(), Action: "seeded", ApprovedBy: carol}, actions.RecordNone); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -543,7 +544,7 @@ func TestTheReviewedGovernanceIsRecordedAtTheMerge(t *testing.T) {
 	requireLog(t, st, "governance_record_written", "action="+merged.Name)
 
 	// A later change that needs no review leaves the record as it is.
-	next, text, isErr := commitCall(t, aliceC, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(map[string]any{keyGovernanceInput: map[string]any{keyMode: agentplatform.GovernanceGoverned, "governedServers": map[string]any{"mcp-kubernetes": nil}}, keySessions: map[string]any{keyIdleTTL: "2h"}})})
+	next, text, isErr := commitCall(t, aliceC, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(map[string]any{keyGovernanceInput: map[string]any{keyMode: agentplatform.GovernanceGoverned, keyGovernedServers: map[string]any{"mcp-kubernetes": nil}}, keySessions: map[string]any{keyIdleTTL: "2h"}})})
 	if isErr || next.Action == nil || next.Action.Status.Approval.Decision != actions.DecisionNotRequired {
 		t.Fatalf("a change without governance: %v %s", isErr, text)
 	}
@@ -645,4 +646,176 @@ func TestAHandRevertOfAReviewedGovernanceChangeAsksTheReview(t *testing.T) {
 	if again.Action.Status.Approval.Decision == actions.DecisionNotRequired || len(g.Lines) == 0 || !strings.Contains(g.Lines[0], "what the team reviewed in action "+reviewed.Name) {
 		t.Fatalf("a commit after a hand revert: %+v %+v", again.Action.Status.Approval, g)
 	}
+}
+
+// D-GO-33: an approved governance action parked while the team reviewed and
+// merged another one is not merged: its plan compared with a record that is
+// no longer the installation's, so its approval does not cover it. The
+// record stays the newer review's.
+func TestAStaleApprovedGovernanceActionIsNotMergedOverANewerRecord(t *testing.T) {
+	st := governedTestRowan(t)
+	aliceC, carolC := st.mcpClient(t, aliceToken), st.mcpClient(t, carolToken)
+	first, text, isErr := commitCall(t, aliceC, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(nil)})
+	if isErr || first.Action == nil {
+		t.Fatalf("first: %v %s", isErr, text)
+	}
+	approveAndMerge(t, st, first.Action.Name)
+	safe := map[string]any{keyGovernanceInput: map[string]any{keyGovernedServers: map[string]any{"skill-manager": map[string]any{"safe": []any{"list_skills"}}}}}
+	parked, text, isErr := commitCall(t, aliceC, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(safe)})
+	if isErr || parked.Action == nil || len(parked.Action.Spec.Governance) == 0 {
+		t.Fatalf("parked: %v %s", isErr, text)
+	}
+	if _, text, isErr := decide(t, carolC, tools.ToolApproveAction, map[string]any{tools.ArgAction: parked.Action.Name}); isErr {
+		t.Fatalf("approve parked: %s", text)
+	}
+	gov, text, isErr := commitCall(t, aliceC, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: governedInputs()})
+	if isErr || gov.Action == nil {
+		t.Fatalf("governed: %v %s", isErr, text)
+	}
+	newer := approveAndMerge(t, st, gov.Action.Name)
+	if _, text, isErr := mergeCall(t, aliceC, parked.Action.Name); !isErr || !strings.Contains(text, "changed since action "+parked.Action.Name+" was planned") {
+		t.Fatalf("the parked action's merge: %v %s", isErr, text)
+	}
+	requireLog(t, st, "governance_record_moved_since_plan", "action="+parked.Action.Name)
+	if r := record(t, st); r == nil || r.Action != newer.Name {
+		t.Fatalf("the record after the refused merge: %+v", r)
+	}
+}
+
+// D-GO-36: after a reviewed disable the record holds the governance from
+// before it; the enable that brings the platform back is compared with it
+// under its own line, and nothing is logged as changed outside.
+func TestAnEnableAfterAReviewedDisableIsNoOutsideChange(t *testing.T) {
+	st := governedTestRowan(t)
+	aliceC := st.mcpClient(t, aliceToken)
+	out, text, isErr := commitCall(t, aliceC, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: governedInputs()})
+	if isErr || out.Action == nil {
+		t.Fatalf("commit: %v %s", isErr, text)
+	}
+	approveAndMerge(t, st, out.Action.Name)
+	st.ghs.addFile(acmeMCs, installations.CollectionsKustomizationPath(rowan), collectionsKustomization(clustermcpservers.DexAppRotation))
+	st.ghs.addRepo(fleetBasesRepo, platformBaseFiles)
+	d, text, isErr := disableCall(t, aliceC, map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.AgentPlatform, tools.ArgMode: string(tools.ModeCommit), tools.ArgReason: commitReason})
+	if isErr || d.Action == nil {
+		t.Fatalf("disable: %v %s", isErr, text)
+	}
+	disabled := approveAndMerge(t, st, d.Action.Name)
+	if r := record(t, st); r == nil || !r.Disabled || r.Action != disabled.Name {
+		t.Fatalf("the record after the reviewed disable: %+v", r)
+	}
+	st.ghs.addFile(acmeMCs, installations.CollectionsKustomizationPath(rowan), collectionsKustomization(platformDexApp))
+	logs := len(st.logs.String())
+	again, text, isErr := commitCall(t, aliceC, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: governedInputs()})
+	if isErr || again.Action == nil {
+		t.Fatalf("enable again: %v %s", isErr, text)
+	}
+	g := again.Action.Spec.Governance[rowan]
+	if len(g.Lines) != 1 || !strings.HasPrefix(g.Lines[0], "the platform comes back after the reviewed disable "+disabled.Name) || again.Action.Status.Approval.Decision == actions.DecisionNotRequired {
+		t.Fatalf("the enable after the disable: %+v %+v", again.Action.Status.Approval, g)
+	}
+	if strings.Contains(st.logs.String()[logs:], "governance_on_record_changed_outside") {
+		t.Fatal("the enable after a reviewed disable logged an outside change")
+	}
+}
+
+// D-GO-40: a disable of values that differ from the record shows the
+// outside change and deletes the governance the team reviewed, not the
+// values on record.
+func TestADisableAfterAnOutsideEditIsComparedWithTheRecord(t *testing.T) {
+	st := governedTestRowan(t)
+	merged := governedThenTrustedOutside(t, st)
+	st.ghs.addFile(acmeMCs, installations.CollectionsKustomizationPath(rowan), collectionsKustomization(clustermcpservers.DexAppRotation))
+	st.ghs.addRepo(fleetBasesRepo, platformBaseFiles)
+	d, text, isErr := disableCall(t, st.mcpClient(t, aliceToken), map[string]any{tools.ArgInstallation: rowan, tools.ArgCapability: installations.AgentPlatform, tools.ArgMode: string(tools.ModeCommit), tools.ArgReason: commitReason})
+	if isErr || d.Action == nil {
+		t.Fatalf("disable: %v %s", isErr, text)
+	}
+	g := d.Action.Spec.Governance[rowan]
+	if len(g.Lines) == 0 || !strings.Contains(g.Lines[0], "what the team reviewed in action "+merged.Name) || !slices.Contains(g.Loosens, "mode governed → trusted") || !strings.Contains(d.Action.Spec.GovernanceAfter[rowan], `"mode":"governed"`) {
+		t.Fatalf("the disable after an outside edit: %+v after %q", g, d.Action.Spec.GovernanceAfter[rowan])
+	}
+	// What the disable deletes is the reviewed governance: governed goes
+	// with it, after the line that says the values are deleted.
+	deleted := slices.IndexFunc(g.Lines, func(l string) bool { return strings.Contains(l, "deleted with the platform") })
+	if deleted < 0 || !slices.Contains(g.Lines[deleted:], "mode governed → trusted") {
+		t.Fatalf("the disable deletes the values on record, not the reviewed governance: %+v", g.Lines)
+	}
+}
+
+// D-GO-40: the record is written when the stage is merged, not while the
+// merge waits on a check.
+func TestTheRecordWaitsForTheWholeStage(t *testing.T) {
+	st := governedTestRowan(t)
+	aliceC := st.mcpClient(t, aliceToken)
+	out, text, isErr := commitCall(t, aliceC, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: governedInputs()})
+	if isErr || out.Action == nil {
+		t.Fatalf("commit: %v %s", isErr, text)
+	}
+	if _, text, isErr := decide(t, st.mcpClient(t, carolToken), tools.ToolApproveAction, map[string]any{tools.ArgAction: out.Action.Name}); isErr {
+		t.Fatalf("approve: %s", text)
+	}
+	prs := st.remote.PullRequests()
+	st.remote.SetChecks(prs[0].PullRequest, commit.ChecksSuccess)
+	st.remote.SetChecks(prs[1].PullRequest, commit.ChecksPending)
+	if m, text, isErr := mergeCall(t, aliceC, out.Action.Name); isErr || m.Waiting == "" {
+		t.Fatalf("merge with a pending check: %v %s", isErr, text)
+	}
+	if r := record(t, st); r != nil {
+		t.Fatalf("a record while the stage waits: %+v", r)
+	}
+	st.remote.SetChecks(prs[1].PullRequest, commit.ChecksSuccess)
+	if _, text, isErr := mergeCall(t, aliceC, out.Action.Name); isErr {
+		t.Fatalf("merge: %s", text)
+	}
+	if r := record(t, st); r == nil || r.Action != out.Action.Name {
+		t.Fatalf("no record after the stage: %+v", r)
+	}
+}
+
+// D-GO-40: a reviewed governance change taken back by hand is audited
+// when its actor withdraws it, and when a read finds its fileset gone.
+func TestTheRevertOfAGovernanceChangeIsAuditedOnEveryPath(t *testing.T) {
+	t.Run("withdrawn", func(t *testing.T) {
+		st := governedTestRowan(t)
+		aliceC := st.mcpClient(t, aliceToken)
+		first, text, isErr := commitCall(t, aliceC, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(nil)})
+		if isErr || first.Action == nil {
+			t.Fatalf("first: %v %s", isErr, text)
+		}
+		approveAndMerge(t, st, first.Action.Name)
+		gov, text, isErr := commitCall(t, aliceC, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: governedInputs()})
+		if isErr || gov.Action == nil {
+			t.Fatalf("governed: %v %s", isErr, text)
+		}
+		reviewed := approveAndMerge(t, st, gov.Action.Name)
+		for _, pr := range st.remote.PullRequests() {
+			for _, mine := range reviewed.Status.PullRequests {
+				if pr.Merged && pr.URL == mine.URL {
+					st.revertOutside(t, pr.PullRequest, dave)
+				}
+			}
+		}
+		if _, text, isErr := decide(t, aliceC, tools.ToolDenyAction, map[string]any{tools.ArgAction: reviewed.Name, tools.ArgReason: "taken back"}); isErr {
+			t.Fatalf("withdraw: %s", text)
+		}
+		requireLog(t, st, "governance_change_reverted", "action="+reviewed.Name)
+	})
+	t.Run("fileset gone", func(t *testing.T) {
+		st := governedTestRowan(t)
+		aliceC := st.mcpClient(t, aliceToken)
+		out, text, isErr := commitCall(t, aliceC, tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: governedInputs()})
+		if isErr || out.Action == nil {
+			t.Fatalf("commit: %v %s", isErr, text)
+		}
+		merged := approveAndMerge(t, st, out.Action.Name)
+		for _, pr := range st.remote.PullRequests() {
+			if pr.Merged {
+				st.revertOutside(t, pr.PullRequest, dave)
+			}
+		}
+		if got := getAction(t, aliceC, merged.Name); got.Status.State != actions.StateRemoved {
+			t.Fatalf("the action after its fileset left: %s", got.Status.State)
+		}
+		requireLog(t, st, "governance_change_reverted", "action="+merged.Name)
+	})
 }

@@ -155,6 +155,10 @@ spec:
                       loosens:
                         type: array
                         items: {type: string}
+                governanceBase:
+                  description: Per installation, the reviewed-governance record the plan compared with (action@recordedAt@version, or none); merge_action merges a stage of an approved governance change, and writes the record, only while the installation's record is still that one.
+                  type: object
+                  additionalProperties: {type: string}
                 governanceAfter:
                   description: Per installation, the governance the commit leaves on record (a disable's is the governance before it), as JSON of the governance values; the next plan compares against the newest reviewed one. Values only, never a secret.
                   type: object

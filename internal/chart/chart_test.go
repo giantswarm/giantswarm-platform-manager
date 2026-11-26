@@ -2,6 +2,7 @@ package chart
 
 import (
 	"bytes"
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"reflect"
@@ -247,5 +248,41 @@ func TestRegistrationDisplayName(t *testing.T) {
 				t.Errorf("ui.giantswarm.io/display-name: %v, want %v (metadata.annotations: %v)", got, tc.want, annotations)
 			}
 		})
+	}
+}
+
+// D-GO-35: only the release's ServiceAccount writes or deletes the
+// reviewed-governance records: the policy names it and denies the rest;
+// switched off, neither the policy nor its binding renders.
+func TestOnlyTheManagerWritesGovernanceRecords(t *testing.T) {
+	objects, errText := render(t)
+	if objects == nil {
+		t.Fatal(errText)
+	}
+	var policy, binding map[string]any
+	for _, o := range objects {
+		switch o["kind"] {
+		case "ValidatingAdmissionPolicy":
+			policy = o
+		case "ValidatingAdmissionPolicyBinding":
+			binding = o
+		}
+	}
+	if policy == nil || binding == nil {
+		t.Fatalf("no admission policy for the governance records")
+	}
+	ops := fmt.Sprint(at(policy, "spec.matchConstraints.resourceRules"))
+	expr := fmt.Sprint(at(policy, "spec.validations"))
+	if !strings.Contains(ops, "governancerecords") || !strings.Contains(ops, "DELETE") || !strings.Contains(expr, `request.userInfo.username == "system:serviceaccount:default:giantswarm-platform-manager"`) || fmt.Sprint(at(binding, "spec.validationActions")) != "[Deny]" {
+		t.Fatalf("policy %v / %v, binding %v", ops, expr, at(binding, "spec.validationActions"))
+	}
+	off, errText := render(t, "--set", "actions.governanceRecordPolicy=false")
+	if off == nil {
+		t.Fatal(errText)
+	}
+	for _, o := range off {
+		if k := fmt.Sprint(o["kind"]); strings.HasPrefix(k, "ValidatingAdmissionPolicy") {
+			t.Fatalf("%s rendered with the policy off", k)
+		}
 	}
 }

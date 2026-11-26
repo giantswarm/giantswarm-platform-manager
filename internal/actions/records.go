@@ -2,6 +2,7 @@ package actions
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -42,14 +43,36 @@ type GovernanceRecord struct {
 	HeadSHA    string `json:"headSHA,omitempty"`
 	// RecordedAt is when it was written, RFC 3339.
 	RecordedAt string `json:"recordedAt"`
+	// Disabled: the Action that wrote it disabled the platform; Governance
+	// is the governance from before the disable, which an enable is
+	// compared with.
+	Disabled bool `json:"disabled,omitempty"`
 }
+
+// RecordNone is the identity of no record.
+const RecordNone = "none"
+
+// RecordIdentity names a record as a plan compared with it, for the merge's
+// compare-and-swap: the Action that wrote it, when, and its version; none
+// for no record.
+func RecordIdentity(r *GovernanceRecord) string {
+	if r == nil {
+		return RecordNone
+	}
+	return r.Action + "@" + r.RecordedAt + "@" + r.ResourceVersion
+}
+
+// ErrRecordMoved is a record that is no longer the one a plan compared with.
+var ErrRecordMoved = errors.New("the reviewed-governance record changed since the plan")
 
 // RecordStore reads and writes the reviewed-governance records.
 type RecordStore interface {
 	// GetRecord answers ErrNotFound for an installation without a record.
 	GetRecord(ctx context.Context, installation string) (*GovernanceRecord, error)
-	// PutRecord creates or replaces an installation's record.
-	PutRecord(ctx context.Context, r GovernanceRecord) error
+	// PutRecord creates or replaces an installation's record, only while the
+	// record is still the one named expected (RecordIdentity; RecordNone for
+	// none): otherwise ErrRecordMoved.
+	PutRecord(ctx context.Context, r GovernanceRecord, expected string) error
 }
 
 // GetRecord reads installation's reviewed-governance record.
@@ -70,7 +93,7 @@ func (c *Client) GetRecord(ctx context.Context, installation string) (*Governanc
 }
 
 // PutRecord creates installation's record, or replaces it.
-func (c *Client) PutRecord(ctx context.Context, r GovernanceRecord) error {
+func (c *Client) PutRecord(ctx context.Context, r GovernanceRecord, expected string) error {
 	if r.RecordedAt == "" {
 		r.RecordedAt = time.Now().UTC().Format(time.RFC3339)
 	}
@@ -84,12 +107,19 @@ func (c *Client) PutRecord(ctx context.Context, r GovernanceRecord) error {
 		"spec":     spec,
 	}}
 	res := c.c.Resource(RecordGVR).Namespace(c.ns)
-	old, err := res.Get(ctx, r.Installation, metav1.GetOptions{})
+	current, err := c.GetRecord(ctx, r.Installation)
 	switch {
-	case apierrors.IsNotFound(err):
+	case errors.Is(err, ErrNotFound):
+		if expected != RecordNone {
+			return fmt.Errorf("%w: %s has none now, the plan compared with %s", ErrRecordMoved, r.Installation, expected)
+		}
 		_, err = res.Create(ctx, u, metav1.CreateOptions{})
 	case err == nil:
-		u.SetResourceVersion(old.GetResourceVersion())
+		if RecordIdentity(current) != expected {
+			return fmt.Errorf("%w: %s holds %s now, the plan compared with %s", ErrRecordMoved, r.Installation, RecordIdentity(current), expected)
+		}
+		// The API server holds the version too: a write in between conflicts.
+		u.SetResourceVersion(current.ResourceVersion)
 		_, err = res.Update(ctx, u, metav1.UpdateOptions{})
 	}
 	if err != nil {

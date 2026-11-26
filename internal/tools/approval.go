@@ -315,6 +315,11 @@ func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
 		if allMerged(a, st.Name) {
 			return nil, stageNotEnabled(a, *st)
 		}
+		// An approved governance change merges only onto the record its plan
+		// compared with.
+		if err := t.governanceRecordCurrent(ctx, a, st.Name); err != nil {
+			return nil, err
+		}
 		// The releases running now, read before the stage's merges: Flux's
 		// history may have dropped them by the first watch.
 		running := t.runningReleases(ctx, a, st.Name)

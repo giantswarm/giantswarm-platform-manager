@@ -121,6 +121,12 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 			}
 			spec.GovernanceAfter[p.Name] = after
 		}
+		if p.GovernanceRecord != "" {
+			if spec.GovernanceBase == nil {
+				spec.GovernanceBase = map[string]string{}
+			}
+			spec.GovernanceBase[p.Name] = p.GovernanceRecord
+		}
 		if g != nil {
 			if spec.Governance == nil {
 				spec.Governance = map[string]plan.GovernanceChange{}

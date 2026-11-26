@@ -64,6 +64,12 @@ actions:
   # templates (so upgrades follow the chart). Off when the CRD is delivered
   # separately.
   installCRD: true
+  # -- Render a ValidatingAdmissionPolicy and its binding that let only this
+  # release's ServiceAccount create, update or delete the reviewed-governance
+  # records (`governancerecords.platform-manager.giantswarm.io`, decision #99):
+  # a record written by anyone else would read as reviewed governance. Needs
+  # Kubernetes 1.30 or later.
+  governanceRecordPolicy: true
 
 approvals:
   # -- klaus-gateway's base URL as reached from the pod (for example

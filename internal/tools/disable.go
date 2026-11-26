@@ -404,7 +404,7 @@ func (t *Tools) disableCommit(ctx context.Context, args map[string]any) (any, er
 	// Deleting governed values takes the governance away with the platform:
 	// a second person approves it, and the governance before the disable is
 	// what a later enable is compared with.
-	governance, after, err := t.governanceOfDisable(ctx, env.c, out.Plan)
+	governance, after, record, err := t.governanceOfDisable(ctx, env.c, out.Plan)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w; nothing is committed", tool, err)
 	}
@@ -420,6 +420,9 @@ func (t *Tools) disableCommit(ctx context.Context, args map[string]any) (any, er
 		Change: fmt.Sprintf("%d file(s) to delete, %d to update", deleted, updated), Changes: map[string][]string{one: disableSummary(out.Plan)}}
 	if after != "" {
 		spec.GovernanceAfter = map[string]string{one: after}
+	}
+	if record != "" {
+		spec.GovernanceBase = map[string]string{one: record}
 	}
 	if governance != nil {
 		spec.Governance = map[string]plan.GovernanceChange{one: *governance}

@@ -337,7 +337,7 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 		// reviewed action left: the dry run names it, and a record changed
 		// outside the manager, before anyone commits.
 		if content && e.Refused == "" && env.defOf(e.Name, def).Name == installations.AgentPlatform {
-			e.Governance, _ = t.governanceChange(ctx, e.Installation)
+			e.Governance, _, e.GovernanceRecord = t.governanceChange(ctx, e.Installation)
 		}
 	}
 	if unknown := unknownRotations(rotate, out.Installations); len(unknown) > 0 {

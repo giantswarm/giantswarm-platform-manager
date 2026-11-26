@@ -158,6 +158,9 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 	if after != "" {
 		spec.GovernanceAfter = map[string]string{one: after}
 	}
+	if p.GovernanceRecord != "" {
+		spec.GovernanceBase = map[string]string{one: p.GovernanceRecord}
+	}
 	if g != nil {
 		// One person never changes the governance alone: the Team review,
 		// on a test installation too.

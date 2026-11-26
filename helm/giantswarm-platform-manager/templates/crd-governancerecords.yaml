@@ -36,6 +36,9 @@ spec:
         openAPIV3Schema:
           type: object
           required: [spec]
+          x-kubernetes-validations:
+            - rule: self.spec.installation == self.metadata.name
+              message: spec.installation names the record's object
           properties:
             spec:
               type: object
@@ -59,4 +62,7 @@ spec:
                 recordedAt:
                   description: When it was written (RFC 3339).
                   type: string
+                disabled:
+                  description: The Action that wrote it disabled the platform; governance is the governance from before the disable, which an enable is compared with.
+                  type: boolean
 {{- end }}
