@@ -152,8 +152,8 @@ this order, writing nothing before the gate:
    and each resulting pull request before the next opens. Approval and merge wait until creation finishes.
    The Action stays in *pending approval*: the approval, the merge
    and the rollout follow. An action on Giant Swarm's test installations alone — the hub's customer's, not the
-   hub: the wave's first stage — needs no Team review unless it changes the platform's governance
-   ([docs/governance.md](docs/governance.md)): the approval is recorded *not required*, the Action reads *ready to merge*, the actor merges
+   hub: the wave's first stage — needs no Team review unless it changes the platform's governance, which an
+   active member of `approvals.governanceTeam` other than the actor approves ([docs/governance.md](docs/governance.md)): the approval is recorded *not required*, the Action reads *ready to merge*, the actor merges
    with `merge_action` once green, and the merge is told to the team's standup channel — who, what, why and
    what changed (`approvals.standupChannel`; unset, such a commit is refused). The hub and every customer
    installation keep the review. A failure on the way moves the Action to *failed* and closes the pull requests

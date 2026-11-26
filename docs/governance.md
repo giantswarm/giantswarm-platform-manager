@@ -49,56 +49,101 @@ The definition refuses, typed or read back:
 - a `versions.chart` hold below `GovernanceChart`;
 - `governed` under a `versions.components.muster` hold below `GovernanceMuster`, where the meta chart fails the
   render;
-- whatever muster refuses to start on:
+- what muster refuses to start on, or what would drop floors past it:
   - a role muster does not know (the schema);
-  - a floor of the source's role on its safe list (the typed role, else the chart's role for the source);
-  - an empty or repeated safe entry;
+  - a role other than the meta chart's for one of its sources: muster applies a role's floors by the server's
+    role, so a server's role is what the server is and an override may not change it;
+  - a server key of its own without a role, or one naming a chart source under another key
+    (`<namespace>/agent-manager`, `<cluster>-mcp-kubernetes`);
+  - a floor of any role on any safe list;
+  - a safe entry that is no tool name (`^[A-Za-z0-9_.-]{1,128}$`), a repeated one, more than 64 per list;
   - an entry with neither role nor safe list.
+
+muster's roles and floors and the chart's own `governedServers` are copied into
+`definitions/agent-platform/governance.yaml`; `TestGovernanceMatchesMusterAndTheChart` compares them with sibling
+checkouts of muster and agent-platform where present (`MUSTER_CHECKOUT`, `AGENT_PLATFORM_CHECKOUT`).
+
+## What counts as a governance change
+
+The plan compares the effective governance on both sides: the mode (absent is `trusted`), every server as muster
+governs it (a source the values leave alone is the chart's entry), muster's own `muster.muster.governance`, and,
+once `GovernanceMuster` is set, a `components.muster` hold below it. A change that leaves the effective
+governance as it is, such as an explicit `trusted` dropped, is none.
+
+The plan compares against what the last reviewed action left, not against the record alone. Every Action
+records the governance its commit leaves (`spec.governanceAfter`; a disable's is the governance before it). The
+newest agent-platform action on the installation whose stage is merged and on record, approved by the team or
+needing no review, is the baseline. When the record differs from it, the governance was changed outside the
+manager:
+
+- the plan, the dry run included, shows the change against the baseline, led by a loosening line that names the
+  action;
+- `governance_on_record_changed_outside` is logged;
+- the next commit asks the review, even when it types the governance back. A record that only a reviewed change
+  can confirm cannot be adopted by a commit with nothing to write: that commit answers "nothing to commit" and
+  names the difference.
+
+A `disable_capability` that deletes values carrying a governance is a loosening governance change. A later enable
+is compared with the governance before the disable, so bringing the platform back trusted asks the review too.
+Between the plan and the pull requests the commit reads the values on the default branch again: a governance
+merged in between asks the review (`governance_record_moved`).
 
 ## A second person approves every change
 
-A commit whose plan changes either key is recorded with the change on the Action (`spec.governance`, per
-installation: `lines` old → new and `loosens`). The change rules are:
+A commit whose plan changes the governance is recorded with the change on the Action (`spec.governance`, per
+installation: `lines` old → new and `loosens`). The hub must store it; an Action CRD without the field is refused
+before any pull request opens. The change rules are:
 
 - such an action always asks for the Team review, also where every target is one of Giant Swarm's test
   installations, which otherwise need none;
-- `approve_action` refuses the actor, as for every action, so a second person of the team decides;
-- `merge_action` merges nothing before that decision;
+- `approve_action` refuses the actor, by login and by GitHub id;
+- the approver must be an active member of the governance reviewers' team, a GitHub team the chart names
+  (`approvals.governanceTeam`, `org/team`), and a GitHub account of type `User`. The manager reads the membership
+  as the approver. When the team is unset or the membership cannot be read, nothing is approved;
+- `merge_action` merges nothing before that decision; a stage merged outside the manager decides nothing for
+  the stages after it;
 - an agent can propose such a change but never approve or merge it: muster asks a person before an agent's
   `approve_action` and `merge_action`.
 
-The review leads with the governance, before the reason:
+The review leads with the governance, before the reason, and with what loosens it before the change itself:
 
 ```text
 *Governance:* this changes the platform's governance; a second person approves it, on test installations too.
-• rowan: mode governed → trusted (the chart's default)
-*It loosens governance:* rowan: mode governed → trusted (the chart's default)
+*It loosens governance:* rowan: mode governed → trusted
+• rowan: mode governed → trusted
 ```
 
-The same change also reads in *What changes*, with its values, as its own line. A change loosens governance, or
-may, when any of these hold:
+What loosens is never cut. A commit whose loosening lines do not fit in what Slack shows (1000 characters) is
+refused: split it. The change lines that follow are cut at 1400 characters, the configs pull request named for the
+rest. A change loosens governance, or may, when any of these hold:
 
 - the mode leaves `governed`;
-- a source is dropped or put back to the chart's entry;
-- a role changes or is left to the chart's;
-- a safe entry is added (one named like a write, such as `create_…` or `set_…`, is marked);
-- a safe list is replaced or put back to the chart's.
+- a source is no longer governed;
+- a role changes;
+- a safe entry is added, against the chart's list for a first override; one named like a write anywhere in its
+  name (`kubernetes_delete`, `port_forward`) or a floor of any role is marked;
+- muster's own governance changes, or a muster hold drops below the release that enforces it;
+- the record differs from what the last reviewed action left;
+- the agent-platform values cannot be read on either side.
 
-The manager does not know the chart's own entries, so a change against them counts as loosening. If the
-agent-platform values cannot be read on either side, the plan counts it as a loosening change.
+Values from the record are escaped for Slack: no value carries a line, markup or a link into the review.
 
 ## Audit
 
-Each step logs one line per installation whose governance the action changes. Every line carries the action,
-the installation, the actor, the caller, the decision and who decided it, the change and whether it loosens.
+Each step logs one line per installation whose governance the action changes (`audit=true`). Every line carries
+the action, the installation, the actor, the caller, the decision and who decided it, the change and whether it
+loosens.
 
 | Event | When |
 |---|---|
-| `governance_change_committed` | the commit opened the pull requests |
+| `governance_change_committed` | the commit, wave or disable opened the pull requests |
 | `governance_change_self_approval_refused` | the actor tried to approve their own change |
-| `governance_change_approved` | a second person approved it |
-| `governance_change_merged` | `merge_action` merged pull requests of it |
-| `governance_change_merged_without_approval` | the pull requests were merged outside the manager before any decision; only the repositories' branch protection stood in the way |
+| `governance_change_approval_refused` | the approver is no active member of the team, no person, or their membership could not be read |
+| `governance_change_approved` | a second person approved it; with the approver's login and id and how their membership was read |
+| `governance_change_merged` | `merge_action` merged a stage of it; with the pull requests and their heads |
+| `governance_change_merged_without_approval` | a pull request of it was merged outside the manager before the team approved, in any state of the action; read at the next read of the action |
+| `governance_on_record_changed_outside` | a plan found the record's governance other than what the last reviewed action left |
+| `governance_record_moved` | the values on the default branch changed between the plan and the pull requests |
 
 ## What the manager does not cover
 
@@ -106,17 +151,18 @@ These limits are outside the manager:
 
 - someone with write access to `giantswarm/<customer>-configs` can merge a change to the values outside the
   manager. Branch protection on those repositories (enforced for admins, re-approval after a new push, required
-  CODEOWNERS review) is asked of their owners. The manager audits such a merge but cannot prevent it.
+  CODEOWNERS review) is asked of their owners. The manager does not prevent such a change. It detects it at the
+  next plan of the installation and asks the review then; a merge of one of its own Actions' pull requests
+  outside it is audited when the action is read next.
 - whoever holds Kubernetes write rights on muster's HelmRelease or ConfigMap can change the configuration
   directly.
-- `disable_capability` removes the whole platform, muster included, and keeps its own review rules: no agent
-  path is left to govern.
+- a second GitHub account that a person holds and that the team lists counts as a second person: team
+  membership is the control.
 
 ## This manager's own safe list
 
-The meta chart governs this manager (`giantswarm-platform-manager`, role `platformManager`) with an empty safe
-list, so on `governed` every tool but the floors asks agents. The tools that only read, and are proposed for its
-safe list, are:
+The meta chart governs this manager (`giantswarm-platform-manager`, role `platformManager`). Its safe list, the
+tools agents call unasked on `governed`, is:
 
 | Tool | Why it is safe |
 |---|---|
@@ -126,8 +172,9 @@ safe list, are:
 | `get_action` | one Action record |
 | `verify_capability` | compares the repositories with a definition and writes nothing |
 
-`get_action` and `list_actions` bring an Action's status up to date with GitHub as they read it. They change no
-decision.
+`get_action`, `list_actions` and `list_installations` bring the Action records up to date with GitHub as the
+caller as they read them: an action can move to rolling out, failed or removed, and the facts are posted to its
+review thread or the team's standup channel. They follow what GitHub says and decide nothing.
 
 These tools stay asking:
 
