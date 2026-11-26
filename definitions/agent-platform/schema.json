@@ -849,7 +849,7 @@
           "x-readback": {"file": "configmap", "key": "tenants.platformTeam"},
           "x-feature": "tool-access",
           "x-renders": ["configmap:tenants.platformTeam"],
-          "description": "The customer's platform team (tenants.platformTeam): RBAC subjects bound to agent-platform:editor in the kagent namespace beside tenants.platform.editors, and added to muster's mcpserver-editor and workflow-editor subjects. Unset, the chart's default: none. With tenants.platform.editors empty, the agent-platform:editor binding stays for the platform team alone. A broad system group (system:authenticated, system:unauthenticated, system:serviceaccounts or system:serviceaccounts:<namespace>) is refused, typed or read back. The 4 chart line only; a hold of the meta chart below 4.132.0-rc.1 is refused."
+          "description": "The customer's platform team (tenants.platformTeam): RBAC subjects bound to agent-platform:editor in the kagent namespace beside tenants.platform.editors, and added to muster's mcpserver-editor and workflow-editor subjects. Unset, the chart's default: none. With tenants.platform.editors empty, the agent-platform:editor binding stays for the platform team alone. A broad system group (system:authenticated, system:unauthenticated, system:serviceaccounts or system:serviceaccounts:<namespace>) is refused, typed or read back. A change is a governance change a second person approves, on test installations too: the platform team may loosen approvals. The 4 chart line only; a hold of the meta chart below 4.132.0-rc.1 is refused."
         }
       }
     },

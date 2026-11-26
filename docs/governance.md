@@ -137,7 +137,9 @@ carries the Platform Manager's role or entry must agree with the platform's.
 
 The plan compares the effective governance on both sides: the mode (absent is `trusted`), the role floors (a
 floor that goes loosens), every server as muster governs it (a source the values leave alone is the chart's entry), muster's own `muster.muster.governance`, and,
-once `GovernanceMuster` is set, a `components.muster` hold below it. A change that leaves the effective
+once `GovernanceMuster` is set, a `components.muster` hold below it, and who may loosen approvals: the platform
+team and the subjects of muster's editor bindings (absent editor subjects read as the Giant Swarm groups the
+definition renders). A change that leaves the effective
 governance as it is, such as an explicit `trusted` dropped, is none.
 
 The plan compares against what the last reviewed action left, not against the record alone. Every Action
@@ -196,8 +198,11 @@ rest. A change loosens governance, or may, when any of these hold:
 - a source is no longer governed;
 - a role changes;
 - a safe entry is added, against the chart's list for a first override; one named like a write anywhere in its
-  name (`kubernetes_delete`, `port_forward`) or a floor of any role is marked;
+  name, camelCase words included (`kubernetes_delete`, `port_forward`, `drainNode`) or a floor of any role is marked;
 - muster's own governance changes, or a muster hold drops below the release that enforces it;
+- who may loosen approvals widens: a subject added to `tenants.platformTeam` (which the meta chart adds to the
+  connector-admin and workflow-editor bindings) or to `muster.rbac.mcpServerEditor.subjects` or
+  `muster.rbac.workflowEditor.subjects` (decision #97); a subject removed tightens;
 - the record differs from what the last reviewed action left;
 - the agent-platform values cannot be read on either side.
 

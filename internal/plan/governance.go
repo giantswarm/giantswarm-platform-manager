@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/render/agentplatform"
@@ -35,6 +36,12 @@ const (
 	keyGovernedServers  = "governedServers"
 	keyMusterGovernance = "musterGovernance"
 	keyMusterHold       = "musterHold"
+	// Who may loosen approvals: the platform team, which the meta chart adds
+	// to muster's connector-admin and workflow-editor bindings, and those
+	// bindings' own subjects (decision #97).
+	keyPlatformTeam    = "platformTeam"
+	keyConnectorAdmins = "connectorAdmins"
+	keyWorkflowEditors = "workflowEditors"
 	modeGoverned        = "governed"
 	modeTrusted         = "trusted"
 )
@@ -79,6 +86,15 @@ func GovernanceSnapshotOf(content string) (GovernanceSnapshot, error) {
 		}
 		if v := dig(d, "components", "muster", "versionRange"); v != nil {
 			out[keyMusterHold] = v
+		}
+		if v := dig(d, "tenants", "platformTeam"); v != nil {
+			out[keyPlatformTeam] = v
+		}
+		if v := dig(d, "muster", "rbac", "mcpServerEditor", "subjects"); v != nil {
+			out[keyConnectorAdmins] = v
+		}
+		if v := dig(d, "muster", "rbac", "workflowEditor", "subjects"); v != nil {
+			out[keyWorkflowEditors] = v
 		}
 	}
 	return out, nil
@@ -207,6 +223,10 @@ func GovernanceBetween(old, next GovernanceSnapshot) GovernanceChange {
 	if o, n := canonical(old[keyMusterGovernance]), canonical(next[keyMusterGovernance]); o != n {
 		g.add(fmt.Sprintf("muster.muster.governance %s → %s", short(o), short(n)), true)
 	}
+	p := definitions.Governance().Platform
+	g.subjects("tenants.platformTeam", subjectsOf(old[keyPlatformTeam], nil), subjectsOf(next[keyPlatformTeam], nil))
+	g.subjects("muster.rbac.mcpServerEditor.subjects", subjectsOf(old[keyConnectorAdmins], p.ConnectorAdmins), subjectsOf(next[keyConnectorAdmins], p.ConnectorAdmins))
+	g.subjects("muster.rbac.workflowEditor.subjects", subjectsOf(old[keyWorkflowEditors], p.WorkflowEditors), subjectsOf(next[keyWorkflowEditors], p.WorkflowEditors))
 	oh, nh := fmt.Sprint(orEmpty(old[keyMusterHold])), fmt.Sprint(orEmpty(next[keyMusterHold]))
 	if oh != nh && (agentplatform.MusterHoldBelowGovernance(oh) || agentplatform.MusterHoldBelowGovernance(nh)) {
 		g.add(fmt.Sprintf("muster hold %s → %s (below muster %s, which enforces the governance)", quoteOr(oh, "none"), quoteOr(nh, "none"), agentplatform.GovernanceMuster), agentplatform.MusterHoldBelowGovernance(nh))
@@ -224,6 +244,47 @@ func effectiveMode(v any) string {
 		return modeTrusted
 	}
 	return clean(fmt.Sprint(v))
+}
+
+// subjectsOf are the RBAC subjects of a list as Kind:name (namespace/name
+// for a ServiceAccount); absent, the given default: none for the platform
+// team, the platform's groups for the editor bindings, which the definition
+// renders and the released charts bound by default.
+func subjectsOf(v any, absent []definitions.Subject) []string {
+	var out []string
+	list, ok := v.([]any)
+	if v == nil || !ok {
+		for _, s := range absent {
+			out = append(out, s.Kind+":"+s.Name)
+		}
+		return out
+	}
+	for _, e := range list {
+		m, _ := e.(map[string]any)
+		name := fmt.Sprint(m["name"])
+		if ns, ok := m["namespace"]; ok && ns != nil {
+			name = fmt.Sprint(ns) + "/" + name
+		}
+		out = append(out, clean(fmt.Sprint(m["kind"])+":"+name))
+	}
+	return out
+}
+
+// subjects compares who a binding names: a subject added widens who may
+// loosen approvals and loosens; one removed tightens.
+func (g *GovernanceChange) subjects(at string, old, next []string) {
+	added, removed := notIn(next, old), notIn(old, next)
+	if len(added)+len(removed) == 0 {
+		return
+	}
+	var parts []string
+	for _, s := range added {
+		parts = append(parts, "+"+s)
+	}
+	for _, s := range removed {
+		parts = append(parts, "−"+s)
+	}
+	g.add(at+" "+strings.Join(parts, " "), len(added) > 0)
 }
 
 // roleFloorsOf are the role floors the meta chart's governance carries;
@@ -407,18 +468,33 @@ func floorsIn(safe []string) bool {
 // writeVerbs are the words of a tool name that changes something: a safe
 // entry with one anywhere in its name is marked, so the second person looks
 // twice.
-var writeVerbs = []string{"add", "apply", "approve", "authorize", "cancel", "connect", "create", "delete", "deny", "deploy", "disable", "enable", "exec", "fork", "forward", "grant", "invoke", "kill", "merge", "patch", "push", "remove", "replace", "restart", "revoke", "rotate", "run", "scale", "set", "start", "stop", "sync", "update", "use", "write"}
+var writeVerbs = []string{"add", "apply", "approve", "authorize", "cancel", "connect", "cordon", "create", "delete", "deny", "deploy", "destroy", "disable", "drain", "edit", "enable", "evict", "exec", "fork", "forward", "grant", "install", "invoke", "kill", "label", "merge", "modify", "patch", "purge", "push", "remove", "replace", "reset", "restart", "revoke", "rollback", "rollout", "rotate", "run", "scale", "set", "start", "stop", "suspend", "sync", "taint", "terminate", "uncordon", "uninstall", "update", "upgrade", "use", "write"}
 
 func entryNote(tool string) string {
 	if role := definitions.Governance().FloorRole(tool); role != "" {
 		return " (a floor of " + role + ")"
 	}
-	for _, word := range strings.FieldsFunc(strings.ToLower(tool), func(r rune) bool { return r == '_' || r == '-' || r == '.' }) {
+	for _, word := range strings.FieldsFunc(strings.ToLower(splitCamel(tool)), func(r rune) bool { return r == '_' || r == '-' || r == '.' }) {
 		if slices.Contains(writeVerbs, word) {
 			return " (named like a write)"
 		}
 	}
 	return ""
+}
+
+// splitCamel puts an underscore before each upper-case letter that follows
+// a lower-case one or a digit: deleteNode reads delete_Node.
+func splitCamel(s string) string {
+	var b strings.Builder
+	var prev rune
+	for i, r := range s {
+		if i > 0 && unicode.IsUpper(r) && (unicode.IsLower(prev) || unicode.IsDigit(prev)) {
+			b.WriteRune('_')
+		}
+		b.WriteRune(r)
+		prev = r
+	}
+	return b.String()
 }
 
 // clean keeps a value from the values safe to show in Slack's markup: a

@@ -200,3 +200,49 @@ func TestGovernanceMapWithRoleFloors(t *testing.T) {
 		t.Fatalf("mode and a floor gone: %v %+v", ok, g)
 	}
 }
+
+// D-GO-20: the write mark reads every verb that changes a cluster, and the
+// words of a camelCase name.
+func TestWriteVerbsAreMarked(t *testing.T) {
+	for _, tool := range []string{"drain_node", "cordon_node", "edit_config", "upgrade_release", "install_chart", "uninstall_chart", "reset_password", "terminate_instance", "rollout_restart", "label_node", "evict_pod", "deleteNode", "createAgent", "kubernetesDrain"} {
+		if entryNote(tool) != " (named like a write)" {
+			t.Errorf("%s is not marked", tool)
+		}
+	}
+	for _, tool := range []string{"get_info", "listNodes", "describe"} {
+		if note := entryNote(tool); note != "" {
+			t.Errorf("%s is marked: %q", tool, note)
+		}
+	}
+}
+
+// D-GO-24: who may loosen approvals is governance: the platform team (added
+// to muster's connector-admin and workflow-editor bindings) and the editor
+// subjects themselves. Widening loosens, narrowing tightens; the Giant Swarm
+// groups written where nothing was are what the chart bound before (no
+// change).
+func TestWhoMayLoosenApprovalsIsGovernance(t *testing.T) {
+	const team = "tenants:\n  platformTeam:\n    - {apiGroup: rbac.authorization.k8s.io, kind: Group, name: oidc:platform-team}\n"
+	g, ok := GovernanceOf(govPlan(govEmpty, team))
+	if !ok || !slices.Equal(g.Loosens, []string{"tenants.platformTeam +Group:oidc:platform-team"}) {
+		t.Fatalf("a platform team added: %v %+v", ok, g)
+	}
+	g, ok = GovernanceOf(govPlan(team, govEmpty))
+	if !ok || len(g.Loosens) != 0 || !slices.Equal(g.Lines, []string{"tenants.platformTeam −Group:oidc:platform-team"}) {
+		t.Fatalf("a platform team removed: %v %+v", ok, g)
+	}
+	const ours = "muster:\n  rbac:\n    mcpServerEditor:\n      subjects:\n        - {apiGroup: rbac.authorization.k8s.io, kind: Group, name: giantswarm-ad:giantswarm-admins}\n        - {apiGroup: rbac.authorization.k8s.io, kind: Group, name: giantswarm-github:giantswarm:giantswarm-admins}\n"
+	if g, ok := GovernanceOf(govPlan(govEmpty, ours)); ok {
+		t.Fatalf("the platform's connector admins written: %+v", g)
+	}
+	wider := ours + "        - {apiGroup: rbac.authorization.k8s.io, kind: Group, name: system:authenticated}\n"
+	g, ok = GovernanceOf(govPlan(ours, wider))
+	if !ok || !slices.Equal(g.Loosens, []string{"muster.rbac.mcpServerEditor.subjects +Group:system:authenticated"}) {
+		t.Fatalf("a connector admin added: %v %+v", ok, g)
+	}
+	editors := "muster:\n  rbac:\n    workflowEditor:\n      subjects:\n        - {apiGroup: rbac.authorization.k8s.io, kind: User, name: mallory}\n"
+	g, ok = GovernanceOf(govPlan(govEmpty, editors))
+	if !ok || len(g.Loosens) != 1 || !strings.HasPrefix(g.Loosens[0], "muster.rbac.workflowEditor.subjects +User:mallory −Group:giantswarm-ad:giantswarm-admins") {
+		t.Fatalf("a workflow editor added: %v %+v", ok, g)
+	}
+}
