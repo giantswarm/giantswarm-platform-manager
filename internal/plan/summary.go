@@ -19,7 +19,9 @@ import (
 // entries added and removed, the keys of a Secret added and removed, and the
 // credentials that rotate (by name, the installation and component dropped).
 // The running components the plan switches off lead, as one warning line
-// (SwitchOff.Warning), so the summary never hides them among the rest.
+// (SwitchOff.Warning), so the summary never hides them among the rest; the
+// governance the plan changes follows, old → new with its values
+// (GovernanceOf), never among the agent-platform values' keys.
 // A file whose shape cannot be read reads "rewritten". Never a secret value:
 // a Secret's values and an encrypted file's leaves are not compared.
 func Summary(p Installation) []string {
@@ -75,6 +77,9 @@ func Summary(p Installation) []string {
 	var out []string
 	if w := p.SwitchOff.Warning(); w != "" {
 		out = append(out, w)
+	}
+	if g, ok := GovernanceOf(p); ok {
+		out = append(out, g.Summary())
 	}
 	for _, name := range order {
 		c := comps[name]
@@ -173,6 +178,10 @@ func fileChanges(f File) []string {
 		if !ok {
 			items = append(items, "adds "+id)
 			continue
+		}
+		if governanceFile(f.Path) {
+			// The governance reads on a line of its own, with its values.
+			old, d = withoutGovernance(old), withoutGovernance(d)
 		}
 		items = append(items, docChanges(id, old, d, secret || kindOf(d) == kindSecret)...)
 	}
@@ -600,5 +609,13 @@ func uniq(in []string) []string {
 			out = append(out, s)
 		}
 	}
+	return out
+}
+
+// withoutGovernance is a values document without the governance keys.
+func withoutGovernance(d map[string]any) map[string]any {
+	out := maps.Clone(d)
+	delete(out, keyGovernance)
+	delete(out, keyGovernedServers)
 	return out
 }
