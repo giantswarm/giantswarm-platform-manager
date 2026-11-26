@@ -183,6 +183,8 @@ func (t *Tools) person(token string) (*gh.Client, error) {
 func (t *Tools) MCPServer() *mcpserver.MCPServer {
 	s := mcpserver.NewMCPServer(ToolPrefix, t.d.Version,
 		mcpserver.WithToolCapabilities(false),
+		mcpserver.WithInputSchemaValidation(),
+		mcpserver.WithStrictInputSchemaDefault(),
 		brand.WithGiantSwarmIcon(),
 		mcpserver.WithInstructions("Giant Swarm's platform manager: enables, reconciles, disables and verifies platform capabilities on installations as the person calling. Call "+ToolGetInfo+" first. "+ToolListInstallations+" shows each capability's state per installation. "+ToolEnableCapability+", "+ToolReconcileCapability+" and "+ToolDisableCapability+" with dryRun: true answer the plan; mode commit opens pull requests to the installation's GitOps repositories as you, through an Action: the capability-owning team approves it in a Slack Team review ("+ToolApproveAction+", "+ToolDenyAction+"), the actor merges it ("+ToolMergeAction+") and "+ToolWatchAction+" follows the rollout. "+ToolVerifyCapability+" compares an installation's repositories with a definition, "+ToolVerifyInstallation+" the running installation through muster. "+ToolGetAction+" and "+ToolListActions+" read the Action records."),
 	)
