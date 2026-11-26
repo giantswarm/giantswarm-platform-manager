@@ -143,10 +143,13 @@ governance as it is, such as an explicit `trusted` dropped, is none.
 The plan compares against what the last reviewed action left, not against the record alone. Every Action
 records the governance its commit leaves (`spec.governanceAfter`; a disable's is the governance before it). The
 newest agent-platform action on the installation whose stage is merged and on record, approved by the team or
-needing no review, is the baseline. When the record differs from it, the governance was changed outside the
+needing no review, and that recorded the governance it leaves, is the baseline: an action without a snapshot
+(from before the field) is skipped and the one before it stands. Actions are ordered by their stage's merge;
+two merged in the same second are told apart by name and logged (`governance_baseline_ambiguous`). When the record differs from it, the governance was changed outside the
 manager:
 
-- the plan, the dry run included, shows the change against the baseline, led by a loosening line that names the
+- the plan, the dry run included, shows the change against the baseline, also when the plan writes the values
+  file as it is on record, led by a loosening line that names the
   action;
 - `governance_on_record_changed_outside` is logged;
 - the next commit asks the review, even when it types the governance back. A record that only a reviewed change
@@ -155,8 +158,9 @@ manager:
 
 A `disable_capability` that deletes values carrying a governance is a loosening governance change. A later enable
 is compared with the governance before the disable, so bringing the platform back trusted asks the review too.
-Between the plan and the pull requests the commit reads the values on the default branch again: a governance
-merged in between asks the review (`governance_record_moved`).
+Between the plan and the pull requests the commit or wave reads the values on the default branch again: a
+governance merged in between is recorded as a loosening governance change of the action (`status.governance`),
+so the review shows it and only a member of the reviewers' team approves it (`governance_record_moved`).
 
 ## A second person approves every change
 
@@ -215,6 +219,7 @@ loosens.
 | `governance_change_merged_without_approval` | a pull request of it was merged outside the manager before the team approved, in any state of the action; read at the next read of the action |
 | `governance_on_record_changed_outside` | a plan found the record's governance other than what the last reviewed action left |
 | `governance_record_moved` | the values on the default branch changed between the plan and the pull requests |
+| `governance_baseline_ambiguous` | two reviewed actions merged in the same second left different governance |
 
 ## What the manager does not cover
 
