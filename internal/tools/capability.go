@@ -157,7 +157,8 @@ func (t *Tools) enableCapabilityTool() WriteTool {
 func (t *Tools) reconcileCapabilityTool() WriteTool {
 	return WriteTool{Name: ToolReconcileCapability,
 		Summary: "Reconcile a capability over the installations that have it (empty: all): " + ToolEnableCapability + "'s plan, per installation.",
-		Details: "A plan whose files are all unchanged means the installation matches the definition. Installations without the capability are skipped and listed; a fresh enable is " + ToolEnableCapability + ".",
+		Details: "A plan whose files are all unchanged means the installation matches the definition. Installations without the capability are skipped and listed; a fresh enable is " + ToolEnableCapability + ". " +
+			"Each plan lists the objects it takes off the record that Flux does not prune (checklist); a commit records them.",
 		Options: capabilityOptions(),
 		DryRun: func(ctx context.Context, args map[string]any) (any, error) {
 			return t.capabilityDryRun(ctx, ToolReconcileCapability, args)

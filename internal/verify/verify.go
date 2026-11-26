@@ -299,6 +299,9 @@ type Result struct {
 	DexVolumes         []string              `json:"dexVolumes,omitempty"`
 	CustomerActions    []plan.CustomerAction `json:"customerActions"`
 	Probes             []plan.Probe          `json:"probes"`
+	// Checklist are the cluster objects the plan takes off the record that
+	// the fleet's Kustomization leaves on the cluster (plan.Installation).
+	Checklist []plan.Object `json:"checklist,omitempty"`
 }
 
 // view takes the plan's view into the result; the files' content, rendered
@@ -312,6 +315,7 @@ func (r *Result) view(p plan.Installation, content bool) {
 	r.DexClients, r.CustomerActions, r.Probes = p.DexClients, p.CustomerActions, p.Probes
 	r.DexConnectors, r.DexStaffConnectors, r.DexVolumes = p.DexConnectors, p.DexStaffConnectors, p.DexVolumes
 	r.MissingFacts = p.MissingFacts
+	r.Checklist = p.Checklist
 	if !content {
 		r.Files = make([]plan.File, len(p.Files))
 		for i, f := range p.Files {
@@ -327,7 +331,7 @@ func (r Result) Plan() plan.Installation {
 	return plan.Installation{Name: r.Installation, State: r.State, Inputs: r.Inputs.Values, MissingInputs: r.Inputs.Missing, Refused: r.Refused, CommitRefused: r.CommitRefused, MissingFacts: r.MissingFacts,
 		Files: r.Files, Includes: r.Includes, Diff: r.Diff, GeneratedSecrets: r.GeneratedSecrets, DeferredPairs: r.DeferredPairs, UnresolvedReferences: r.UnresolvedReferences, SuppliedSecrets: r.SuppliedSecrets, SuppliedOnRecord: r.SuppliedOnRecord,
 		HubSections: r.HubSections, DropsPrereleases: r.DropsPrereleases, Join: r.Join, SwitchOff: r.SwitchOff, DexClients: r.DexClients,
-		DexConnectors: r.DexConnectors, DexStaffConnectors: r.DexStaffConnectors, DexVolumes: r.DexVolumes, CustomerActions: r.CustomerActions, Probes: r.Probes}
+		DexConnectors: r.DexConnectors, DexStaffConnectors: r.DexStaffConnectors, DexVolumes: r.DexVolumes, CustomerActions: r.CustomerActions, Probes: r.Probes, Checklist: r.Checklist}
 }
 
 // Options shape one verify.

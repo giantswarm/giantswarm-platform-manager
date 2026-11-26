@@ -371,6 +371,14 @@ type Installation struct {
 	DexVolumes      []string         `json:"dexVolumes,omitempty"`
 	CustomerActions []CustomerAction `json:"customerActions"`
 	Probes          []Probe          `json:"probes"`
+	// Checklist are the cluster objects the plan takes off the record — the
+	// manifest of a document it removes from a file it writes — that the fleet's
+	// Kustomization leaves on the cluster, in deletion order (Checklist),
+	// as a disable's checklist names them; empty where the plan removes
+	// none. Build answers every object no file of the plan declares again;
+	// the comparison leaves out what another capability on record renders,
+	// and all of it where the definition's Kustomization prunes.
+	Checklist []Object `json:"checklist,omitempty"`
 	// Diff counts the files by change; an empty diff is every file unchanged.
 	Diff map[Change]int `json:"diff"`
 }
@@ -582,6 +590,7 @@ func Build(ctx context.Context, opts Options) Installation {
 	}
 	var holders []holder
 	held := map[string]int{} // a holder's file → its index in p.Files
+	var off offRecord
 	for _, repo := range SortedRepositories(res.Files) {
 		target := ResolveRepository(string(repo), opts.Installation, opts.Hub)
 		paths := make([]string, 0, len(res.Files[repo]))
@@ -686,6 +695,7 @@ func Build(ctx context.Context, opts Options) Installation {
 					suppliedIn[field] = append(suppliedIn[field], len(p.Files))
 				}
 			}
+			off.file(target, path, content, current, err == nil)
 			p.Files = append(p.Files, pf)
 			if strings.HasSuffix(path, dexPatchFile) {
 				p.DexClients, p.DexConnectors, p.DexStaffConnectors = DexClients(f.Content, in), DexConnectors(f.Content), DexStaffConnectors(f.Content)
@@ -698,6 +708,8 @@ func Build(ctx context.Context, opts Options) Installation {
 			}
 		}
 	}
+	// What the plan takes off the record and no file of it declares again.
+	p.Checklist = off.checklist()
 	// A file on record the commit writes whole is rewritten: one kept as it
 	// is that holds a rotating name is an update after all.
 	for file := range frozen(generated, holders, requestedRotations(opts.Rotate, generated, res.Revisions), p.markerOnRecord(opts), revisions) {

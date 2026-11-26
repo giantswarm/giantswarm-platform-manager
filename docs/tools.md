@@ -344,7 +344,7 @@ The Action moves to rolling out and the review's thread is told; follow it with 
 ```text
 Reconcile a capability over the installations that have it (empty: all): enable_capability's plan, per installation.
 
-A plan whose files are all unchanged means the installation matches the definition. Installations without the capability are skipped and listed; a fresh enable is enable_capability. Writes as you (your rights ∩ the App's): dryRun: true answers the plan and writes nothing; mode: "commit" opens the pull requests through an Action and its approval — wait for the answer.
+A plan whose files are all unchanged means the installation matches the definition. Installations without the capability are skipped and listed; a fresh enable is enable_capability. Each plan lists the objects it takes off the record that Flux does not prune (checklist); a commit records them. Writes as you (your rights ∩ the App's): dryRun: true answers the plan and writes nothing; mode: "commit" opens the pull requests through an Action and its approval — wait for the answer.
 ```
 
 ```json

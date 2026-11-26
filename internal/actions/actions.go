@@ -160,10 +160,13 @@ type Status struct {
 	// record, never with one of the manager's.
 	SyncedAt *time.Time `json:"syncedAt,omitempty"`
 	SyncedBy string     `json:"syncedBy,omitempty"`
-	// Orphans are, on a removed or disabled action whose definition's Kustomization
-	// does not prune, the objects the definition rendered on the
-	// installations that stay until a person deletes them; read from the
-	// render of the inputs on record, never from the cluster.
+	// Orphans are, where the definition's Kustomization does not prune, the
+	// objects that stay on the installations until a person deletes them:
+	// on a disable, its checklist; on an enable or a reconcile, the
+	// checklist of what its plan takes off the record, recorded at commit;
+	// on a removed action, every object the definition rendered. Read from
+	// the record and the render of the inputs on record, never from the
+	// cluster.
 	Orphans []Orphan `json:"orphans,omitempty"`
 	// Withdrawal is the actor's word on a merged action that failed or was
 	// reverted: who withdrew it, why and when (deny_action on a merged
@@ -191,16 +194,16 @@ type Withdrawal struct {
 	At     *time.Time `json:"at,omitempty"`
 }
 
-// Orphan is one object a revert left behind on an installation: the fleet's
+// Orphan is one object a change left behind on an installation: the fleet's
 // Kustomization over the tree does not prune, so the HelmRelease, the
-// Secrets and what else the fileset carried stay after the files are gone.
+// Secrets and what else the files carried stay after they are off the
+// record — by a revert, a disable, or a reconcile that removes them.
 type Orphan struct {
 	Installation string `json:"installation"`
 	Kind         string `json:"kind"`
 	Namespace    string `json:"namespace,omitempty"`
 	Name         string `json:"name"`
-	// Takes is what deleting the object takes with it, on a disable's
-	// checklist.
+	// Takes is what deleting the object takes with it, on a checklist.
 	Takes string `json:"takes,omitempty"`
 }
 

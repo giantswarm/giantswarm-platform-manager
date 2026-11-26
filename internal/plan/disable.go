@@ -794,6 +794,19 @@ func (d Disablement) Removes(repository, p string) bool {
 // capability renders: what the fleet's non-pruning Kustomization leaves on
 // the cluster once they are gone.
 func checklistOf(removed []render.File, remaining []Remaining) []Object {
+	var declared []Object
+	for _, f := range removed {
+		declared = append(declared, manifests(f.Content)...)
+	}
+	return Unpruned(declared, remaining)
+}
+
+// Unpruned are the objects among declared that no file of remaining
+// declares, kustomize's own documents aside, each once in declared's order:
+// what the fleet's non-pruning Kustomization leaves on the cluster once the
+// files that declared them are off the record. The disable's checklist and
+// a reconcile's take it alike.
+func Unpruned(declared []Object, remaining []Remaining) []Object {
 	stays := map[Object]bool{}
 	for _, r := range remaining {
 		for _, o := range Objects(&render.Result{Files: r.Result.Files}) {
@@ -801,11 +814,10 @@ func checklistOf(removed []render.File, remaining []Remaining) []Object {
 		}
 	}
 	var out []Object
-	for _, f := range removed {
-		for _, o := range manifests(f.Content) {
-			if o.Kind != "" && o.Name != "" && o.Kind != kustomizationKind && o.Kind != "Component" && !stays[o] && !slices.Contains(out, o) {
-				out = append(out, o)
-			}
+	for _, o := range declared {
+		o.Takes = ""
+		if o.Kind != "" && o.Name != "" && o.Kind != kustomizationKind && o.Kind != "Component" && !stays[o] && !slices.Contains(out, o) {
+			out = append(out, o)
 		}
 	}
 	return out
