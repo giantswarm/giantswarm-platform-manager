@@ -50,6 +50,9 @@ type fakeGitHub struct {
 	teamsFailing bool
 	// userTypes are the accounts' GitHub types where not User (Bot).
 	userTypes map[string]string
+	// ids are the accounts' GitHub ids where not userID's: a renamed login
+	// keeps its id.
+	ids       map[string]int64
 	files     map[string]map[string]string // owner/repo → path → content
 	forbidden map[string]bool
 	// hidden holds the owner/repo GitHub answers with a 404 on every read,
@@ -128,7 +131,7 @@ const (
 
 func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 	t.Helper()
-	g := &fakeGitHub{logins: logins, teams: map[string]map[string]string{}, userTypes: map[string]string{}, files: map[string]map[string]string{}, forbidden: map[string]bool{}, hidden: map[string]bool{}, failingCompare: map[string]bool{}, failing: map[string]bool{}, releases: map[string][]fakeRelease{}, failingReleases: map[string]bool{}, contentsCalls: map[string]int{}, treeCalls: map[string]int{}, treeChecks: map[string]int{},
+	g := &fakeGitHub{logins: logins, teams: map[string]map[string]string{}, userTypes: map[string]string{}, ids: map[string]int64{}, files: map[string]map[string]string{}, forbidden: map[string]bool{}, hidden: map[string]bool{}, failingCompare: map[string]bool{}, failing: map[string]bool{}, releases: map[string][]fakeRelease{}, failingReleases: map[string]bool{}, contentsCalls: map[string]int{}, treeCalls: map[string]int{}, treeChecks: map[string]int{},
 		history: map[string][]fakeCommit{}, commitCalls: map[string]int{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v3/user", func(w http.ResponseWriter, r *http.Request) {
@@ -138,7 +141,13 @@ func newFakeGitHub(t *testing.T, logins map[string]string) *fakeGitHub {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{message: badCredentials})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{ghLogin: login, "id": userID(login), "email": login + "@example.test"})
+		id := userID(login)
+		g.mu.Lock()
+		if renamed, ok := g.ids[login]; ok {
+			id = renamed
+		}
+		g.mu.Unlock()
+		writeJSON(w, http.StatusOK, map[string]any{ghLogin: login, "id": id, "email": login + "@example.test"})
 	})
 	mux.HandleFunc("GET /api/v3/orgs/{org}/teams/{slug}/memberships/{user}", func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := g.logins[bearer(r)]; !ok {

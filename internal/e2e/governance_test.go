@@ -129,6 +129,17 @@ func TestGovernanceChangeOnATestInstallationNeedsASecondPerson(t *testing.T) {
 		t.Fatalf("the actor's approve: %v %s", isErr, text)
 	}
 	requireLog(t, st, "governance_change_self_approval_refused", "action="+a.Name)
+	// S9-16: the actor under a new login is still the actor: GitHub's id
+	// stays.
+	const renamedToken = "alicia-token"
+	st.ghs.mu.Lock()
+	st.ghs.logins[renamedToken] = "alicia"
+	st.ghs.ids["alicia"] = userID(alice)
+	st.ghs.teams[governanceTeam]["alicia"] = memberActive
+	st.ghs.mu.Unlock()
+	if _, text, isErr := decide(t, st.mcpClient(t, renamedToken), tools.ToolApproveAction, map[string]any{tools.ArgAction: a.Name}); !isErr || !strings.Contains(text, "yours") {
+		t.Fatalf("the actor's approve under a new login: %v %s", isErr, text)
+	}
 	for _, pr := range st.remote.PullRequests() {
 		st.remote.SetChecks(pr.PullRequest, commit.ChecksSuccess)
 	}
@@ -203,6 +214,7 @@ func TestDisableThenEnableOfAGovernedTestInstallationNeedsASecondPerson(t *testi
 	if after := d.Action.Spec.GovernanceAfter[rowan]; !strings.Contains(after, `"governance":"governed"`) {
 		t.Fatalf("the governance the disable records: %q", after)
 	}
+	requireLog(t, st, "governance_change_committed", "action="+d.Action.Name)
 	approveAndMerge(t, st, d.Action.Name)
 	if got := getAction(t, aliceC, d.Action.Name); got.Status.State != actions.StateDisabled {
 		t.Fatalf("the disable after its merge: %s", got.Status.State)
@@ -315,6 +327,7 @@ func TestWaveLooseningGovernanceOnATestInstallationNeedsASecondPerson(t *testing
 	if posted := st.gateway.posted(); len(posted) != 1 || !strings.Contains(fmt.Sprint(posted[0].Body["text"]), "*It loosens governance:* rowan: mode governed → trusted") {
 		t.Fatalf("the review: %+v", posted)
 	}
+	requireLog(t, st, "governance_change_committed", "action="+a.Name)
 	if _, text, isErr := decide(t, aliceC, tools.ToolApproveAction, map[string]any{tools.ArgAction: a.Name}); !isErr || !strings.Contains(text, "yours") {
 		t.Fatalf("the actor's approve: %v %s", isErr, text)
 	}
