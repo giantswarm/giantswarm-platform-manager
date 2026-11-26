@@ -658,6 +658,28 @@ func (t *Tools) postResult(ctx context.Context, a *actions.Action, text string) 
 // for a wave that renders some with their own, "*agent-platform* on
 // *hazel* and *cluster-mcp-servers* on *alder*, *birch*".
 func capabilitiesOn(a *actions.Action) string {
+	names, on := byCapability(a)
+	parts := make([]string, 0, len(names))
+	for _, c := range names {
+		parts = append(parts, fmt.Sprintf("*%s* on *%s*", c, strings.Join(on[c], ", ")))
+	}
+	return strings.Join(parts, " and ")
+}
+
+// capabilitiesCounted is capabilitiesOn with each capability's installations
+// counted rather than named.
+func capabilitiesCounted(a *actions.Action) string {
+	names, on := byCapability(a)
+	parts := make([]string, 0, len(names))
+	for _, c := range names {
+		parts = append(parts, fmt.Sprintf("*%s* on %s", c, installationCount(len(on[c]))))
+	}
+	return strings.Join(parts, " and ")
+}
+
+// byCapability groups the action's installations by the capability each
+// gets, the capabilities in the order they first appear.
+func byCapability(a *actions.Action) ([]string, map[string][]string) {
 	var names []string
 	on := map[string][]string{}
 	for _, n := range a.Spec.Installations {
@@ -667,11 +689,14 @@ func capabilitiesOn(a *actions.Action) string {
 		}
 		on[c] = append(on[c], n)
 	}
-	parts := make([]string, 0, len(names))
-	for _, c := range names {
-		parts = append(parts, fmt.Sprintf("*%s* on *%s*", c, strings.Join(on[c], ", ")))
+	return names, on
+}
+
+func installationCount(n int) string {
+	if n == 1 {
+		return "1 installation"
 	}
-	return strings.Join(parts, " and ")
+	return fmt.Sprintf("%d installations", n)
 }
 
 // reviewText is the review's mrkdwn, what a teammate judges the action by
@@ -711,11 +736,12 @@ func reviewText(a *actions.Action) string {
 // review is decided: who, what, where. A wave too long for one line is
 // counted instead of named.
 func reviewSummary(a *actions.Action) string {
-	line := fmt.Sprintf("*%s* to %s %s", a.Spec.Actor.Login, a.Spec.Kind, capabilitiesOn(a))
-	if utf8.RuneCountInString(line) > approvals.SummaryMax {
-		line = fmt.Sprintf("*%s* to %s %d installations", a.Spec.Actor.Login, a.Spec.Kind, len(a.Spec.Installations))
+	for _, what := range []string{capabilitiesOn(a), capabilitiesCounted(a)} {
+		if line := fmt.Sprintf("*%s* to %s %s", a.Spec.Actor.Login, a.Spec.Kind, what); utf8.RuneCountInString(line) <= approvals.SummaryMax {
+			return line
+		}
 	}
-	return line
+	return fmt.Sprintf("*%s* to %s %s", a.Spec.Actor.Login, a.Spec.Kind, installationCount(len(a.Spec.Installations)))
 }
 
 // whatMax bounds the what-changes lines of one message: Slack takes 3000

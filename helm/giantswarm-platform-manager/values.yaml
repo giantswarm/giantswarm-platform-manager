@@ -72,7 +72,9 @@ approvals:
   # committed that no one can approve); `get_info` reports
   # `approvals.configured: false`. The requests carry the pod's projected
   # ServiceAccount token in the gateway's audience; the gateway's
-  # `reviews.allowedCallers` must name this ServiceAccount.
+  # `reviews.allowedCallers` must name this ServiceAccount. The gateway must be
+  # klaus-gateway v4.19.0 or newer: older ones refuse the review's `summary`
+  # field, so no review could be posted.
   gatewayURL: ""
   # -- The team whose members decide, as the gateway names it.
   team: ""

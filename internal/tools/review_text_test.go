@@ -108,8 +108,9 @@ func TestAppliedTextNamesTheAccountEngineer(t *testing.T) {
 	}
 }
 
-// The summary is the review in one line — who, what, where — and a wave too
-// long for the gateway's line is counted instead of named.
+// The summary is the review in one line — who, what, where. A wave too long
+// for the gateway's line counts its installations but keeps naming the
+// capabilities.
 func TestReviewSummary(t *testing.T) {
 	actor := actions.Actor{Login: stAlice}
 	short := &actions.Action{Spec: actions.Spec{Actor: actor, Kind: actions.KindReconcile, Capability: installations.AgentPlatform,
@@ -118,12 +119,21 @@ func TestReviewSummary(t *testing.T) {
 		t.Errorf("got  %s\nwant %s", got, want)
 	}
 
-	var many []string
-	for i := range 40 {
-		many = append(many, fmt.Sprintf("installation-%02d", i))
+	many := func(prefix string, n int) []string {
+		var names []string
+		for i := range n {
+			names = append(names, fmt.Sprintf("%s-%02d", prefix, i))
+		}
+		return names
 	}
-	long := &actions.Action{Spec: actions.Spec{Actor: actor, Kind: actions.KindEnable, Capability: installations.AgentPlatform, Installations: many}}
-	if got, want := reviewSummary(long), "*alice* to enable 40 installations"; got != want {
+	long := &actions.Action{Spec: actions.Spec{Actor: actor, Kind: actions.KindEnable, Capability: installations.AgentPlatform, Installations: many("installation", 40)}}
+	if got, want := reviewSummary(long), "*alice* to enable *agent-platform* on 40 installations"; got != want {
+		t.Errorf("got  %s\nwant %s", got, want)
+	}
+
+	mixed := &actions.Action{Spec: actions.Spec{Actor: actor, Kind: actions.KindReconcile, Capability: installations.AgentPlatform,
+		Installations: append(many("installation", 39), rowan), CapabilityByInstallation: map[string]string{rowan: "cluster-mcp-servers"}}}
+	if got, want := reviewSummary(mixed), "*alice* to reconcile *agent-platform* on 39 installations and *cluster-mcp-servers* on 1 installation"; got != want {
 		t.Errorf("got  %s\nwant %s", got, want)
 	}
 }
