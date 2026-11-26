@@ -9,6 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// strictArgsInstallation is the installation the calls name; nothing renders it.
+const strictArgsInstallation = "rowan"
+
 // TestUnknownArgumentRefusedBeforeRender pins that a write tool refuses an
 // argument its schema does not name instead of dropping it: a reconcile
 // called with targets (not installations) would otherwise render the whole
@@ -43,16 +46,16 @@ func TestUnknownArgumentRefusedBeforeRender(t *testing.T) {
 		return resp.Result
 	}
 
-	refused := call(map[string]any{"dryRun": true, "targets": []string{"alba"}})
+	refused := call(map[string]any{"dryRun": true, "targets": []string{strictArgsInstallation}})
 	require.True(t, refused.IsError)
 	require.Contains(t, refused.Content[0].(mcp.TextContent).Text, "targets")
 	require.Zero(t, rendered)
 
-	accepted := call(map[string]any{"dryRun": true, "installations": []string{"alba"}, "rotate": nil, "inputs": map[string]any{"anyKey": true}})
+	accepted := call(map[string]any{"dryRun": true, "installations": []string{strictArgsInstallation}, "rotate": nil, "inputs": map[string]any{"anyKey": true}})
 	require.False(t, accepted.IsError)
 	require.Equal(t, 1, rendered)
 
-	apply := call(map[string]any{"mode": "apply", "targets": []string{"alba"}})
+	apply := call(map[string]any{"mode": "apply", "targets": []string{strictArgsInstallation}})
 	require.True(t, apply.IsError)
 	require.Contains(t, apply.Content[0].(mcp.TextContent).Text, ApplyRefusal)
 	require.Equal(t, 1, rendered)
