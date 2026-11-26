@@ -222,14 +222,16 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 		return nil, t.fail(ctx, tool, a, remote, prs, err)
 	}
 	t.d.Log.Info(tool, identity.LogAttr(ctx), "action", a.Name, "installation", one, "state", a.Status.State, "pullRequests", len(prs))
-	if test {
-		// The plan read the record moments ago and the branch was cut from
-		// the default branch since: a governance merged in between would be
-		// written over without anyone seeing it, so it asks the review.
-		if moved, what := t.governanceRecordMoved(ctx, p); moved {
-			t.d.Log.Warn("governance_record_moved", identity.LogAttr(ctx), "audit", true, "action", a.Name, "installation", one, "governance", what)
-			test = false
+	// The plan read the record moments ago and the branch was cut from the
+	// default branch since: a governance merged in between would be written
+	// over without anyone seeing it, so it is recorded as a governance change
+	// of the action (status.governance): the review, its governance block and
+	// the reviewers' team check follow.
+	if moved, what := t.governanceRecordMoved(ctx, p); moved {
+		if a, err = t.recordMoved(ctx, a, one, what); err != nil {
+			return nil, t.fail(ctx, tool, a, remote, prs, err)
 		}
+		test = false
 	}
 	t.auditGovernance(ctx, "governance_change_committed", a)
 	a, err = t.requestApproval(ctx, a, tool, test)

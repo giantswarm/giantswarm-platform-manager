@@ -175,7 +175,7 @@ func (t *Tools) resync(ctx context.Context, c *gh.Client, id *identity.Identity,
 	// without the team's approval, in any state of the action, whoever
 	// merged it: the repositories' merge path let it through, and only their
 	// branch protection stood between one person and the change.
-	if len(merged) > 0 && len(a.Spec.Governance) > 0 && (status.Approval == nil || status.Approval.Decision != actions.DecisionApproved) {
+	if len(merged) > 0 && len(actions.GovernanceOf(a)) > 0 && (status.Approval == nil || status.Approval.Decision != actions.DecisionApproved) {
 		t.auditGovernanceStage(ctx, "governance_change_merged_without_approval", &fresh, mergedStage(&fresh, merged), merged)
 	}
 	var posts []string

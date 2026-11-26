@@ -145,7 +145,7 @@ func (t *Tools) approve(ctx context.Context, args map[string]any) (any, error) {
 		return nil, fmt.Errorf("%s: action %s is yours (%s): a second person of the team decides; Deny withdraws it", ToolApproveAction, a.Name, id.Login)
 	}
 	membership := ""
-	if len(a.Spec.Governance) > 0 {
+	if len(actions.GovernanceOf(a)) > 0 {
 		m, err := t.governanceReviewer(ctx, id)
 		if err != nil {
 			t.auditGovernance(ctx, "governance_change_approval_refused", a, "approver", id.Login, "reason", err.Error())
@@ -420,7 +420,7 @@ func decided(a *actions.Action) bool {
 	case actions.DecisionApproved, actions.DecisionNotRequired:
 		return true
 	case actions.DecisionMergedWithoutApproval:
-		return len(a.Spec.Governance) == 0
+		return len(actions.GovernanceOf(a)) == 0
 	}
 	return false
 }
@@ -563,7 +563,7 @@ func (t *Tools) requestApproval(ctx context.Context, a *actions.Action, tool str
 	*a = *latest
 	// A governance change is never one person's: the review stands on test
 	// installations too, whatever the caller says.
-	if !test || len(a.Spec.Governance) > 0 {
+	if !test || len(actions.GovernanceOf(a)) > 0 {
 		return t.askApproval(ctx, a, tool)
 	}
 	status := a.Status

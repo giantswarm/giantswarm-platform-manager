@@ -118,14 +118,27 @@ func dig(m map[string]any, keys ...string) any {
 // false when p does not create or update them. unreadable: a side does not
 // parse or the plan does not carry it (an answer of paths only), which is
 // never read as a file without governance.
+//
+// A file the plan leaves unchanged counts too, both sides the record: a
+// governance changed outside the manager is compared with what the last
+// reviewed action left whether or not this plan writes the file.
 func GovernanceFile(p Installation) (current, next GovernanceSnapshot, ok, unreadable bool) {
 	for _, f := range p.Files {
-		if !governanceFile(f.Path) || (f.Change != ChangeCreate && f.Change != ChangeUpdate) {
+		if !governanceFile(f.Path) || (f.Change != ChangeCreate && f.Change != ChangeUpdate && f.Change != ChangeUnchanged) {
 			continue
 		}
-		cur, err1 := GovernanceSnapshotOf(f.Current)
+		onRecord := f.Current
+		if f.Change == ChangeUnchanged && onRecord == "" {
+			if f.Content == "" {
+				// An answer of paths only: nothing to compare, and nothing
+				// it writes.
+				continue
+			}
+			onRecord = f.Content
+		}
+		cur, err1 := GovernanceSnapshotOf(onRecord)
 		nxt, err2 := GovernanceSnapshotOf(f.Content)
-		missing := f.Content == "" || (f.Change == ChangeUpdate && f.Current == "")
+		missing := f.Content == "" || (f.Change != ChangeCreate && onRecord == "")
 		return cur, nxt, true, err1 != nil || err2 != nil || missing
 	}
 	return nil, nil, false, false

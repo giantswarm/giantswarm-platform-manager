@@ -5,12 +5,22 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
+)
+
+// rowan's agent-platform values and an empty values document.
+const (
+	rowanValues = "installations/rowan/apps/agent-platform/configmap-values.yaml.patch"
+	emptyValues = "global: {}\n"
 )
 
 // governedAction is an action on garm whose commit makes the platform
@@ -72,7 +82,7 @@ func TestReviewTextKeepsWhatLoosensWhole(t *testing.T) {
 	}
 	current := "governance: governed\ngovernedServers:\n  agent-manager:\n    safe: [get_info]\n"
 	next := "governance: governed\ngovernedServers:\n  a-inventory:\n    role: infrastructure\n    safe: [" + strings.Join(pad, ", ") + "]\n  agent-manager:\n    safe: [get_info, create_agent, update_agent_access]\n"
-	p := plan.Installation{Name: rowan, Files: []plan.File{{Path: "installations/rowan/apps/agent-platform/configmap-values.yaml.patch", Change: plan.ChangeUpdate, Current: current, Content: next}}}
+	p := plan.Installation{Name: rowan, Files: []plan.File{{Path: rowanValues, Change: plan.ChangeUpdate, Current: current, Content: next}}}
 	g, ok := plan.GovernanceOf(p)
 	if !ok {
 		t.Fatal("no change")
@@ -125,5 +135,29 @@ func TestGovernanceStoredOrRefused(t *testing.T) {
 	}
 	if err := governanceStored(ToolEnableCapability, nil, &actions.Action{}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// D-GO-11: agent-platform values that do not parse are a loosening
+// governance change on the path commits use, never none.
+func TestGovernanceChangeOfUnreadableValues(t *testing.T) {
+	tl := &Tools{d: Deps{Log: slog.New(slog.DiscardHandler)}}
+	p := plan.Installation{Name: rowan, Files: []plan.File{{Path: rowanValues, Change: plan.ChangeUpdate, Current: "governance: [\n", Content: emptyValues}}}
+	g, after := tl.governanceChange(context.Background(), p)
+	if g == nil || len(g.Loosens) != 1 || after != "" {
+		t.Fatalf("unreadable values: %+v %q", g, after)
+	}
+}
+
+// D-GO-11: values on the default branch that cannot be read again count as
+// moved (fail closed).
+func TestGovernanceRecordMovedWhenTheValuesCannotBeRead(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusBadGateway) }))
+	t.Cleanup(srv.Close)
+	tl := &Tools{d: Deps{Log: slog.New(slog.DiscardHandler), GitHubAPIURL: srv.URL + "/api/v3", Files: gh.NewFiles(0)}}
+	p := plan.Installation{Name: rowan, Files: []plan.File{{Repository: "giantswarm/acme-configs", Path: rowanValues, Change: plan.ChangeUpdate, Current: emptyValues, Content: emptyValues}}}
+	ctx := identity.ContextWithToken(context.Background(), "token")
+	if moved, what := tl.governanceRecordMoved(ctx, p); !moved || !strings.Contains(what, "could not be read again") {
+		t.Fatalf("an unreadable default branch: %v %q", moved, what)
 	}
 }

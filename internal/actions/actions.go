@@ -183,6 +183,11 @@ type Status struct {
 	// reverted: who withdrew it, why and when (deny_action on a merged
 	// action). The review's thread carries the same.
 	Withdrawal *Withdrawal `json:"withdrawal,omitempty"`
+	// Governance is, per installation, a governance change found after the
+	// commit recorded the Action: the values on the default branch moved
+	// between the plan and the pull requests, which write over what was
+	// merged meanwhile. It counts as spec.governance does (GovernanceOf).
+	Governance map[string]plan.GovernanceChange `json:"governance,omitempty"`
 }
 
 // CommitStatus fences approval until creation finishes and retains uncertain remote writes.
@@ -682,4 +687,24 @@ func NewName(kind, installation string) (string, error) {
 		suffix[i] = alphabet[int(b)%len(alphabet)]
 	}
 	return kind + "-" + installation + "-" + string(suffix), nil
+}
+
+// GovernanceOf is, per installation, every governance change of a: what
+// the commit recorded (spec.governance) and what was found after it
+// (status.governance), the lines of both.
+func GovernanceOf(a *Action) map[string]plan.GovernanceChange {
+	if len(a.Status.Governance) == 0 {
+		return a.Spec.Governance
+	}
+	out := map[string]plan.GovernanceChange{}
+	for n, g := range a.Spec.Governance {
+		out[n] = g
+	}
+	for n, g := range a.Status.Governance {
+		have := out[n]
+		have.Lines = append(append([]string{}, have.Lines...), g.Lines...)
+		have.Loosens = append(append([]string{}, have.Loosens...), g.Loosens...)
+		out[n] = have
+	}
+	return out
 }

@@ -7,6 +7,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
@@ -50,6 +51,12 @@ func (t *Tools) governanceBaseline(ctx context.Context, installation string) (pl
 		t.d.Log.Warn("governance_baseline_unread", identity.LogAttr(ctx), "installation", installation, "error", err.Error())
 		return nil, "", false
 	}
+	type candidate struct {
+		name     string
+		mergedAt time.Time
+		snap     plan.GovernanceSnapshot
+	}
+	var found []candidate
 	for _, a := range list {
 		if a.CapabilityOf(installation) != installations.AgentPlatform || !slices.Contains(baselineStates, a.Status.State) || !allMerged(&a, installation) || len(a.StagePullRequests(installation)) == 0 {
 			continue
@@ -57,17 +64,40 @@ func (t *Tools) governanceBaseline(ctx context.Context, installation string) (pl
 		if a.Status.Approval == nil || (a.Status.Approval.Decision != actions.DecisionApproved && a.Status.Approval.Decision != actions.DecisionNotRequired) {
 			continue
 		}
+		// Only an action that recorded the governance it leaves is a
+		// baseline; one without (from before the field) carries none, and
+		// the one before it stands.
 		raw, ok := a.Spec.GovernanceAfter[installation]
 		if !ok {
-			return nil, "", false
+			continue
 		}
 		snap, err := plan.ParseGovernanceSnapshot(raw)
 		if err != nil {
-			return nil, "", false
+			continue
 		}
-		return snap, a.Name, true
+		c := candidate{name: a.Name, mergedAt: a.CreatedAt, snap: snap}
+		for _, k := range a.StagePullRequests(installation) {
+			if at := a.Status.PullRequests[k].MergedAt; at != nil && at.After(c.mergedAt) {
+				c.mergedAt = *at
+			}
+		}
+		found = append(found, c)
 	}
-	return nil, "", false
+	if len(found) == 0 {
+		return nil, "", false
+	}
+	// The newest merge is the baseline. Actions merged within one second are
+	// told apart by name; where they left different governance it is logged.
+	slices.SortStableFunc(found, func(x, y candidate) int {
+		if c := y.mergedAt.Compare(x.mergedAt); c != 0 {
+			return c
+		}
+		return strings.Compare(y.name, x.name)
+	})
+	if len(found) > 1 && found[0].mergedAt.Equal(found[1].mergedAt) && len(plan.GovernanceBetween(found[0].snap, found[1].snap).Lines) > 0 {
+		t.d.Log.Warn("governance_baseline_ambiguous", identity.LogAttr(ctx), "installation", installation, "actions", found[0].name+","+found[1].name)
+	}
+	return found[0].snap, found[0].name, true
 }
 
 // governanceOutside is the line of a plan whose record differs from what
@@ -200,6 +230,28 @@ func (t *Tools) governanceRecordMoved(ctx context.Context, p plan.Installation) 
 	return false, ""
 }
 
+// governanceMoved leads the change found when the values on the default
+// branch moved between the plan and the pull requests.
+const governanceMoved = "the governance on the default branch changed after the plan read it, and the pull requests write over it: "
+
+// recordMoved logs governance_record_moved and records what moved as a
+// loosening governance change of a on installation (status.governance).
+func (t *Tools) recordMoved(ctx context.Context, a *actions.Action, installation, what string) (*actions.Action, error) {
+	t.d.Log.Warn("governance_record_moved", identity.LogAttr(ctx), "audit", true, "action", a.Name, "installation", installation, "governance", what)
+	status := a.Status
+	status.Governance = maps.Clone(status.Governance)
+	if status.Governance == nil {
+		status.Governance = map[string]plan.GovernanceChange{}
+	}
+	line := governanceMoved + what
+	status.Governance[installation] = plan.GovernanceChange{Lines: []string{line}, Loosens: []string{line}}
+	out, err := t.d.Actions.UpdateStatus(ctx, a, status)
+	if err != nil {
+		return a, fmt.Errorf("the governance that moved under the plan could not be recorded on action %s: %w", a.Name, err)
+	}
+	return out, nil
+}
+
 // governanceReviewer refuses an approver of a governance change who is not
 // an active member of the governance reviewers' team (approvals.governanceTeam,
 // org/team), or not a person (a GitHub account of type User), read as the
@@ -250,7 +302,7 @@ const (
 func governanceLoosens(a *actions.Action) string {
 	var loosens []string
 	for _, n := range governedInstallations(a) {
-		if g := a.Spec.Governance[n]; len(g.Loosens) > 0 {
+		if g := actions.GovernanceOf(a)[n]; len(g.Loosens) > 0 {
 			loosens = append(loosens, n+": "+strings.Join(g.Loosens, "; "))
 		}
 	}
@@ -275,7 +327,7 @@ func governanceTooLarge(tool string, a *actions.Action) error {
 // cut at governanceReviewMax with the configs pull request named for the
 // rest. Empty for an action that changes none.
 func governanceText(a *actions.Action) string {
-	if len(a.Spec.Governance) == 0 {
+	if len(actions.GovernanceOf(a)) == 0 {
 		return ""
 	}
 	var b strings.Builder
@@ -283,7 +335,7 @@ func governanceText(a *actions.Action) string {
 	b.WriteString(governanceLoosens(a))
 	cut := 0
 	for _, n := range governedInstallations(a) {
-		line := "\n• " + n + ": " + strings.Join(a.Spec.Governance[n].Lines, "; ")
+		line := "\n• " + n + ": " + strings.Join(actions.GovernanceOf(a)[n].Lines, "; ")
 		if utf8.RuneCountInString(b.String())+utf8.RuneCountInString(line) > governanceReviewMax {
 			cut++
 			continue
@@ -316,11 +368,11 @@ func configsLinks(a *actions.Action) string {
 func governedInstallations(a *actions.Action) []string {
 	var out []string
 	for _, n := range a.Spec.Installations {
-		if _, ok := a.Spec.Governance[n]; ok {
+		if _, ok := actions.GovernanceOf(a)[n]; ok {
 			out = append(out, n)
 		}
 	}
-	for _, n := range slices.Sorted(maps.Keys(a.Spec.Governance)) {
+	for _, n := range slices.Sorted(maps.Keys(actions.GovernanceOf(a))) {
 		if !slices.Contains(out, n) {
 			out = append(out, n)
 		}
@@ -338,7 +390,7 @@ func (t *Tools) auditGovernance(ctx context.Context, event string, a *actions.Ac
 		decidedBy, decision = a.Status.Approval.DecidedBy, a.Status.Approval.Decision
 	}
 	for _, n := range governedInstallations(a) {
-		g := a.Spec.Governance[n]
+		g := actions.GovernanceOf(a)[n]
 		args := []any{identity.LogAttr(ctx), "audit", true, "action", a.Name, "installation", n, "actor", a.Spec.Actor.Login,
 			"decision", decision, "decidedBy", decidedBy, "governance", strings.Join(g.Lines, "; "), "loosens", len(g.Loosens) > 0}
 		t.d.Log.Info(event, append(args, extra...)...)
@@ -348,7 +400,7 @@ func (t *Tools) auditGovernance(ctx context.Context, event string, a *actions.Ac
 // auditGovernanceStage logs event for one installation of a, with the pull
 // requests of its stage and their heads: a merge is audited per stage.
 func (t *Tools) auditGovernanceStage(ctx context.Context, event string, a *actions.Action, installation string, prs []actions.PullRequest) {
-	g, ok := a.Spec.Governance[installation]
+	g, ok := actions.GovernanceOf(a)[installation]
 	if !ok {
 		return
 	}

@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/giantswarm/gitops-commit/commit"
 
@@ -364,4 +365,122 @@ func TestGovernanceMergedOutsideTheManagerIsAudited(t *testing.T) {
 		t.Fatalf("a merge outside the manager decided the governance change: %+v", got.Status.Approval)
 	}
 	requireLog(t, st, "governance_change_merged_without_approval", "action="+out.Action.Name, "pullRequests="+acmeConfigs)
+}
+
+// governedThenTrustedOutside commits rowan governed, has it approved and
+// merged, then takes governed out of the values in the repository directly.
+func governedThenTrustedOutside(t *testing.T, st *stack) actions.Action {
+	t.Helper()
+	out, text, isErr := commitCall(t, st.mcpClient(t, aliceToken), tools.ToolEnableCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: governedInputs()})
+	if isErr || out.Action == nil {
+		t.Fatalf("commit: %v %s", isErr, text)
+	}
+	merged := approveAndMerge(t, st, out.Action.Name)
+	marker := installations.Capabilities()[0].EnabledMarker(rowan)
+	values, _ := st.ghs.file(acmeConfigs, marker)
+	st.ghs.addFile(acmeConfigs, marker, strings.Replace(values, "\n  mode: governed\n", "\n", 1))
+	return merged
+}
+
+// D-GO-01: an outside edit is seen even when the next plan writes the
+// values file as it is on record: the dry run and the commit name it
+// against the last reviewed action, and it is logged; nothing is adopted.
+func TestGovernanceChangedOutsideIsSeenWhenTheValuesStayAsTheyAre(t *testing.T) {
+	st := governedTestRowan(t)
+	merged := governedThenTrustedOutside(t, st)
+	again, text, isErr := commitCall(t, st.mcpClient(t, aliceToken), tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(nil)})
+	if isErr {
+		t.Fatalf("reconcile: %s", text)
+	}
+	if again.Action != nil || !strings.Contains(again.Next, "is not what the last reviewed action left") || again.Plan.Governance == nil || !strings.HasPrefix(again.Plan.Governance.Lines[0], "the governance on record differs from what action "+merged.Name+" left") {
+		t.Fatalf("an outside edit with the values unchanged: action %v, next %q, governance %+v", again.Action != nil, again.Next, again.Plan.Governance)
+	}
+	requireLog(t, st, "governance_on_record_changed_outside", "action="+merged.Name)
+}
+
+// D-GO-02: an action that recorded no governance snapshot is no baseline:
+// the one before it stands, so after an outside edit a later commit still
+// asks the review.
+func TestAnActionWithoutASnapshotErasesNoBaseline(t *testing.T) {
+	st := governedTestRowan(t)
+	merged := governedThenTrustedOutside(t, st)
+	// A newer merged action that needed no review and recorded no snapshot.
+	store := actions.New(st.dyn, actionsNamespace)
+	later := merged
+	later.Name, later.ResourceVersion, later.CreatedAt = merged.Name+"-later", "", merged.CreatedAt.Add(time.Minute)
+	later.Spec.Governance, later.Spec.GovernanceAfter = nil, nil
+	stored, err := store.Create(t.Context(), later)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := merged.Status
+	status.Approval = &actions.Approval{Decision: actions.DecisionNotRequired}
+	if _, err := store.UpdateStatus(t.Context(), stored, status); err != nil {
+		t.Fatal(err)
+	}
+	last, text, isErr := commitCall(t, st.mcpClient(t, aliceToken), tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(map[string]any{"sessions": map[string]any{"idleTTL": "2h"}})})
+	if isErr || last.Action == nil {
+		t.Fatalf("reconcile: %v %s", isErr, text)
+	}
+	g := last.Action.Spec.Governance[rowan]
+	if last.Action.Status.Approval.Decision == actions.DecisionNotRequired || len(g.Lines) == 0 || !strings.Contains(g.Lines[0], "what action "+merged.Name+" left") {
+		t.Fatalf("a commit after a snapshot-less action: %+v %+v", last.Action.Status.Approval, g)
+	}
+}
+
+// D-GO-11: an action merged without the team's decision is no baseline:
+// what it left counts as changed outside.
+func TestAnActionMergedWithoutApprovalIsNoBaseline(t *testing.T) {
+	st := governedTestRowan(t)
+	merged := governedThenTrustedOutside(t, st)
+	store := actions.New(st.dyn, actionsNamespace)
+	later := merged
+	later.Name, later.ResourceVersion, later.CreatedAt = merged.Name+"-outside", "", merged.CreatedAt.Add(time.Minute)
+	later.Spec.GovernanceAfter = map[string]string{rowan: `{"governance":{"roleFloors":{"platformManager":["approve_action","merge_action"]}}}`}
+	stored, err := store.Create(t.Context(), later)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := merged.Status
+	status.Approval = &actions.Approval{Decision: actions.DecisionMergedWithoutApproval}
+	if _, err := store.UpdateStatus(t.Context(), stored, status); err != nil {
+		t.Fatal(err)
+	}
+	again, text, isErr := commitCall(t, st.mcpClient(t, aliceToken), tools.ToolReconcileCapability, map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: minimalInputs(nil)})
+	if isErr || again.Plan.Governance == nil || !strings.Contains(again.Plan.Governance.Lines[0], "what action "+merged.Name+" left") {
+		t.Fatalf("an action merged without approval as the baseline: %v %s", isErr, text)
+	}
+}
+
+// D-GO-07, D-GO-11: a governance merged between a wave's plan and its pull
+// requests is a governance change of the action: the review shows it and
+// only an active member of the reviewers' team approves it.
+func TestGovernanceMovedUnderAWaveIsAGovernanceChange(t *testing.T) {
+	st := governedTestRowan(t)
+	marker := installations.Capabilities()[0].EnabledMarker(rowan)
+	st.ghs.addFile(acmeConfigs, marker, platformOnRecord)
+	st.beforeOpen = func() {
+		st.ghs.addFile(acmeConfigs, marker, strings.Replace(platformOnRecord, "governance:\n", "governance:\n  mode: governed\n", 1))
+	}
+	aliceC := st.mcpClient(t, aliceToken)
+	text, isErr := call(t, aliceC, tools.ToolReconcileCapability, map[string]any{tools.ArgInstallations: []string{rowan}, tools.ArgInputs: minimalInputs(nil), tools.ArgReason: commitReason, tools.ArgMode: string(tools.ModeCommit)})
+	var w tools.WaveResult
+	if isErr || json.Unmarshal([]byte(text), &w) != nil || w.Action == nil {
+		t.Fatalf("wave commit: %v %s", isErr, text)
+	}
+	a := w.Action
+	g := a.Status.Governance[rowan]
+	if a.Status.Approval == nil || a.Status.Approval.ReviewID == "" || len(g.Loosens) != 1 || !strings.Contains(g.Loosens[0], "the governance on the default branch changed after the plan read it") {
+		t.Fatalf("a wave whose record moved: %+v %+v", a.Status.Approval, a.Status.Governance)
+	}
+	if posted := st.gateway.posted(); len(posted) != 1 || !strings.Contains(fmt.Sprint(posted[0].Body["text"]), "*It loosens governance:* rowan: the governance on the default branch changed") {
+		t.Fatalf("the review: %+v", posted)
+	}
+	requireLog(t, st, "governance_record_moved", "installation=rowan")
+	st.ghs.mu.Lock()
+	st.ghs.teams[governanceTeam][carol] = "pending"
+	st.ghs.mu.Unlock()
+	if _, text, isErr := decide(t, st.mcpClient(t, carolToken), tools.ToolApproveAction, map[string]any{tools.ArgAction: a.Name}); !isErr || !strings.Contains(text, "pending") {
+		t.Fatalf("an approve by a pending member: %v %s", isErr, text)
+	}
 }

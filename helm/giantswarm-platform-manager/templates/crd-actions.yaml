@@ -162,6 +162,18 @@ spec:
             status:
               type: object
               properties:
+                governance:
+                  description: Per installation, a governance change found after the commit recorded the Action (the values on the default branch moved between the plan and the pull requests); it counts as spec.governance does. Values only.
+                  type: object
+                  additionalProperties:
+                    type: object
+                    properties:
+                      lines:
+                        type: array
+                        items: {type: string}
+                      loosens:
+                        type: array
+                        items: {type: string}
                 keptByInstallation:
                   description: Verification snapshots of legacy actions, read from committed values. Identifiers and hashes only.
                   type: object

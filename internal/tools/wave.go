@@ -206,13 +206,12 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 	}
 	t.d.Log.Info(tool, identity.LogAttr(ctx), "action", a.Name, "wave", strings.Join(res.Order, ","), "skipped", len(res.Skipped), "pullRequests", len(prs))
 	for _, p := range targets {
-		if !test {
-			break
-		}
-		// A governance merged between a stage's plan and its branch asks the
-		// review (commit.go).
+		// A governance merged between a stage's plan and its branch is a
+		// governance change of the action (commit.go).
 		if moved, what := t.governanceRecordMoved(ctx, p); moved {
-			t.d.Log.Warn("governance_record_moved", identity.LogAttr(ctx), "audit", true, "action", a.Name, "installation", p.Name, "governance", what)
+			if a, err = t.recordMoved(ctx, a, p.Name, what); err != nil {
+				return nil, t.fail(ctx, tool, a, remote, prs, err)
+			}
 			test = false
 		}
 	}
