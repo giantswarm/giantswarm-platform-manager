@@ -64,7 +64,6 @@ const (
 const (
 	opGet          = "get"
 	opList         = "list"
-	opLogs         = "logs"
 	opAPIResources = "api_resources"
 )
 
@@ -139,12 +138,11 @@ func personOf(bearer string) string {
 	return claims.Email
 }
 
-// fakeInstallation is one installation's objects, pod logs and the APIs its
+// fakeInstallation is one installation's objects and the APIs its
 // apiserver serves.
 type fakeInstallation struct {
 	mu      sync.Mutex
 	objects map[string]map[string]any // kind|namespace|name, kind lowercased
-	logs    map[string]string         // namespace/pod
 	apis    []apiResource             // what discovery lists
 	// forbidden are the objects no person may read, by objectKey.
 	forbidden map[string]bool
@@ -162,7 +160,7 @@ type apiResource struct {
 }
 
 func newFakeInstallation() *fakeInstallation {
-	return &fakeInstallation{objects: map[string]map[string]any{}, logs: map[string]string{}, forbidden: map[string]bool{}}
+	return &fakeInstallation{objects: map[string]map[string]any{}, forbidden: map[string]bool{}}
 }
 
 // serveAPI makes discovery list the resource of the group at the version.
@@ -748,15 +746,6 @@ func deepCopy(obj map[string]any) map[string]any {
 	return out
 }
 
-// lastLines is a log's last n lines, as the apiserver answers tailLines.
-func lastLines(log string, n int) string {
-	lines := strings.Split(strings.TrimSuffix(log, "\n"), "\n")
-	if len(lines) > n {
-		lines = lines[len(lines)-n:]
-	}
-	return strings.Join(lines, "\n") + "\n"
-}
-
 // bulky makes a HelmRelease as large as the platform's meta chart release is
 // on the apiserver: the managed fields and the last-applied configuration of
 // the size the apiserver keeps for it, and Flux's history — over the response
@@ -814,7 +803,7 @@ func newFakeMuster(t *testing.T, inst *fakeInstallation, installation string) *f
 	t.Helper()
 	m := &fakeMuster{insts: map[string]*fakeInstallation{installation: inst}}
 	aggregated := map[string]mustertest.Tool{}
-	for _, op := range []string{opGet, opList, opLogs, opAPIResources} {
+	for _, op := range []string{opGet, opList, opAPIResources} {
 		aggregated["x_"+kubernetesFamily+"_"+op] = m.kubernetes(op)
 	}
 	bridge := mustertest.Bridge(aggregated)
@@ -922,23 +911,8 @@ func (m *fakeMuster) kubernetes(op string) mustertest.Tool {
 				items = append(items, shaped(obj, output))
 			}
 			return capped(document(map[string]any{"kind": strings.ToUpper(kind[:1]) + kind[1:] + "List", "items": items, "totalItems": len(items)}))
-		default:
-			pod, _ := args["podName"].(string)
-			tail := 100
-			if v, ok := args["tailLines"].(float64); ok {
-				if v < 1 || v > 1000 {
-					return mcp.NewToolResultError("tailLines must be between 1 and 1000")
-				}
-				tail = int(v)
-			}
-			inst.mu.Lock()
-			defer inst.mu.Unlock()
-			log, ok := inst.logs[namespace+"/"+pod]
-			if !ok {
-				return mcp.NewToolResultError(fmt.Sprintf("Failed to get logs: pods %q not found", pod))
-			}
-			return capped(mcp.NewToolResultText(lastLines(log, tail)))
 		}
+		return mcp.NewToolResultError("unknown operation " + op)
 	}
 }
 

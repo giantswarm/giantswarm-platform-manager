@@ -318,13 +318,16 @@ func markerOf(a *actions.Action, def installations.Capability, installation stri
 // remove moves status to removed for the stages gone — the fileset left the
 // default branch again — and, for a definition whose Kustomization does not
 // prune, records the objects it rendered on those installations that stay
-// until a person deletes them. It answers the text for the review's thread.
+// until a person deletes them, after the checklist the commit recorded (what
+// its plan took off the record, which the render no longer names). It
+// answers the text for the review's thread.
 func remove(status *actions.Status, a *actions.Action, def installations.Capability, gone []revertedStage) string {
 	if a.Spec.Kind == actions.KindDisable {
 		return disabled(status, a, def, gone)
 	}
 	status.Rollout = stagesOf(a)
 	var where []string
+	recorded := status.Orphans
 	status.Orphans = nil
 	pruned := true
 	for _, g := range gone {
@@ -336,7 +339,14 @@ func remove(status *actions.Status, a *actions.Action, def installations.Capabil
 		}
 		where = append(where, fmt.Sprintf("%s (%s in %s)", g.installation, g.path, g.repository))
 		if !d.Prunes {
-			status.Orphans = append(status.Orphans, orphansOf(d, g.installation, a.InputsOnRecord(g.installation))...)
+			for _, o := range recorded {
+				if o.Installation == g.installation {
+					status.Orphans = appendOrphan(status.Orphans, o)
+				}
+			}
+			for _, o := range orphansOf(d, g.installation, a.InputsOnRecord(g.installation)) {
+				status.Orphans = appendOrphan(status.Orphans, o)
+			}
 		}
 	}
 	msg := "the fileset is gone from the default branch again: " + strings.Join(where, ", ")
@@ -397,6 +407,17 @@ func disabled(status *actions.Status, a *actions.Action, def installations.Capab
 		text = text[:reportLimit] + "…"
 	}
 	return text
+}
+
+// appendOrphan appends o to orphans unless an orphan names the same object
+// on the same installation already.
+func appendOrphan(orphans []actions.Orphan, o actions.Orphan) []actions.Orphan {
+	for _, have := range orphans {
+		if have.Installation == o.Installation && have.Kind == o.Kind && have.Namespace == o.Namespace && have.Name == o.Name {
+			return orphans
+		}
+	}
+	return append(orphans, o)
 }
 
 func installationsOf(gone []revertedStage) []string {

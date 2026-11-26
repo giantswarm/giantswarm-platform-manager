@@ -46,6 +46,9 @@ func plannedChange() tools.CapabilityResult {
 					{Repository: acmeConfigs, Path: secretFile, Change: plan.ChangeUpdate},
 					{Repository: acmeMCs, Path: kustomization, Change: plan.ChangeUnchanged},
 				},
+				// A document the reconcile takes off the record that the
+				// fleet's Kustomization does not prune.
+				Checklist: plan.Checklist([]plan.Object{{Kind: "RemoteApp", Namespace: agentPlatform, Name: "kagent-glean"}}),
 			},
 			Features: []verify.Feature{
 				{ID: "gateway", Title: "Gateway", Mark: verify.DiffersByInput, Marks: map[verify.Mark]int{verify.DiffersByInput: 1}, Dimensions: []verify.Dimension{

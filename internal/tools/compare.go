@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -77,8 +78,11 @@ func liveRecord(opts *verify.LiveOptions, a actions.Action, installation string)
 // verify_capability answers it as it is, a dry run regrouped as the plan's
 // entry (dryRun). content keeps the rendered files' content; rotate names the
 // generated values the plan rotates on request (a dry run's rotate);
-// force lets a commit proceed over the plan's warnings the person knows.
-func (t *Tools) compare(ctx context.Context, env *planned, r installations.Report, def installations.Capability, typed map[string]any, content bool, rotate []string, force forces) (*verify.Result, error) {
+// force lets a commit proceed over the plan's warnings the person knows;
+// checklist names, for a plan's dry run and commit, the objects it takes off
+// the record that stay on the cluster (unprunedChecklist) — a verify, which
+// commits nothing, names none and renders no other capability for it.
+func (t *Tools) compare(ctx context.Context, env *planned, r installations.Report, def installations.Capability, typed map[string]any, content bool, rotate []string, force forces, checklist bool) (*verify.Result, error) {
 	read := readAs(env.c)
 	values, back, err := mergeInputs(ctx, def, r, installations.Reader(read), typed, env.byName)
 	if err != nil {
@@ -92,6 +96,11 @@ func (t *Tools) compare(ctx context.Context, env *planned, r installations.Repor
 	in := verify.Inputs{Source: verify.Source(len(back) > 0, len(typed) > 0), Values: values, ReadBack: back, Unset: unset, Typed: typed}
 	res := verify.Compare(ctx, verify.Options{Definition: def, Installation: r.Installation, Hub: env.hub, State: capabilityState(r, def.Name), Inputs: in, Read: read, Content: content, Probes: t.d.Probes, Rotate: rotate, ForceJoin: force.join, ForceSwitchOff: force.switchOff, Installations: env.byName, PlanInstallations: env.planInstallations})
 	res.Caller = identity.Caller(ctx)
+	if !checklist {
+		res.Checklist = nil
+	} else if res.Checklist, err = unprunedChecklist(ctx, env, r, def, res.Checklist); err != nil {
+		return nil, err
+	}
 	p := res.Plan()
 	switch {
 	case res.Refused != "":
@@ -103,6 +112,41 @@ func (t *Tools) compare(ctx context.Context, env *planned, r installations.Repor
 	}
 	res.PullRequests = plan.PullRequests([]plan.Installation{p}, env.byName, env.hub)
 	return &res, nil
+}
+
+// unprunedChecklist is the plan's checklist by the disable's rule: the
+// objects the plan takes off the record (candidates, which no file of the
+// plan declares again) that no other capability on record renders, in
+// deletion order — none where the definition's Kustomization prunes. The
+// other capabilities are rendered only when there is a candidate; one whose
+// definition does not render the inputs on record refuses the comparison,
+// as the disable's does: what of the objects stays cannot be told. The other
+// definition of the MCP servers is none: the one reconciled renders them.
+func unprunedChecklist(ctx context.Context, env *planned, r installations.Report, def installations.Capability, candidates []plan.Object) ([]plan.Object, error) {
+	if def.Prunes || len(candidates) == 0 {
+		return nil, nil
+	}
+	var remaining []plan.Remaining
+	for _, other := range installations.Capabilities() {
+		if other.Name == def.Name || !capabilityState(r, other.Name).OnRecord() || serversPair(def, other) {
+			continue
+		}
+		_, rres, err := renderOnRecord(ctx, other, r, readAs(env.c), nil, env.byName)
+		if err != nil {
+			return nil, fmt.Errorf("%s stays on %s and its definition does not render the inputs on record (%w): which of the objects the %s plan takes off the record stay on the cluster cannot be told", other.Name, r.Name, err, def.Name)
+		}
+		remaining = append(remaining, plan.Remaining{Capability: other.Name, Result: rres})
+	}
+	return plan.Checklist(plan.Unpruned(candidates, remaining)), nil
+}
+
+// serversPair says whether def and other are the two definitions of an
+// installation's MCP servers: the one reconciled renders them, and the
+// other renders nothing of its own beside it (its policy refuses the agent
+// platform's installation).
+func serversPair(def, other installations.Capability) bool {
+	pair := []string{installations.AgentPlatform, installations.ClusterMCPServers}
+	return slices.Contains(pair, def.Name) && slices.Contains(pair, other.Name)
 }
 
 // forces are the warnings of a dry run the person asked a commit to proceed

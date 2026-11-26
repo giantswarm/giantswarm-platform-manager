@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/tools"
@@ -77,4 +78,49 @@ func TestHubConnectorHeldByAnEncryptedConnectorsList(t *testing.T) {
 	dry, text, isErr := dryRun(t, c, tools.ToolReconcileCapability, args)
 	require.False(t, isErr, text)
 	require.Contains(t, findPlan(t, dry, alder).CommitRefused, "oidc.customer.connectors (1 entries)", text)
+}
+
+// A reconcile whose hub no longer renders a tunnelled app removes its
+// RemoteApp document from remoteapps.yaml; the fleet's Kustomization over the
+// extras tree does not prune, so the dry run lists the RemoteApp for a person
+// to delete after the merge, and the committed action and its pull request
+// carry the same checklist. A reconcile that removes nothing lists nothing.
+func TestReconcileListsTheRemoteAppItTakesOffTheRecord(t *testing.T) {
+	st := newStack(t)
+	fixtures(st.ghs)
+	sopsFixtures(t, st.ghs)
+	st.ghs.addRepo(teleportFleet, map[string]string{tunnelportValuesPath: tunnelportValuesBare})
+	c := st.mcpClient(t, aliceToken)
+	putOnRecord(t, st, c, rowan, federation(true))
+	args := func() map[string]any {
+		return map[string]any{tools.ArgInstallation: rowan, tools.ArgInputs: federation(true)}
+	}
+
+	dry, text, isErr := dryRun(t, c, tools.ToolReconcileCapability, args())
+	require.False(t, isErr, text)
+	require.Empty(t, findPlan(t, dry, rowan).Checklist, "a reconcile that removes nothing lists nothing")
+
+	repo, path, content := onRecord(t, st, "/tunnelport/remoteapps.yaml")
+	kagent := "apiVersion: access.giantswarm.io/v1alpha1\nkind: RemoteApp\nmetadata:\n  name: kagent-" + alder + "\n  namespace: " + platformNamespace +
+		"\nspec:\n  appName: kagent-" + alder + "\n  port: 4180\n  tokenName: kagent-" + alder + "-bot-token-" + rowan + "\n"
+	st.ghs.addFile(repo, path, content+"---\n"+kagent)
+	seedRemote(t, st)
+
+	dry, text, isErr = dryRun(t, c, tools.ToolReconcileCapability, args())
+	require.False(t, isErr, text)
+	p := findPlan(t, dry, rowan)
+	i := slices.IndexFunc(p.Files, func(f plan.File) bool { return f.Repository == repo && f.Path == path })
+	require.GreaterOrEqual(t, i, 0, text)
+	require.Equal(t, plan.ChangeUpdate, p.Files[i].Change, text)
+	require.NotContains(t, p.Files[i].Content, "kagent-"+alder, text)
+	want := plan.Object{Kind: "RemoteApp", Namespace: platformNamespace, Name: "kagent-" + alder}
+	require.Equal(t, []plan.Object{want}, p.Checklist, text)
+
+	out, text, isErr := commitCall(t, c, tools.ToolReconcileCapability, args())
+	require.False(t, isErr, text)
+	require.NotNil(t, out.Action, text)
+	require.Equal(t, []actions.Orphan{{Installation: rowan, Kind: want.Kind, Namespace: want.Namespace, Name: want.Name}}, out.Action.Status.Orphans)
+	prs := st.remote.PullRequests()
+	require.Len(t, prs, 1)
+	require.Contains(t, prs[0].Body, "- [ ] RemoteApp "+platformNamespace+"/kagent-"+alder+"\n")
 }

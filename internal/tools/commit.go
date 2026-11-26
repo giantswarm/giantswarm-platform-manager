@@ -183,7 +183,7 @@ func (t *Tools) capabilityCommit(ctx context.Context, tool string, args map[stri
 		return res, nil
 	}
 
-	a, err := t.record(ctx, spec, actions.Status{State: actions.StatePendingApproval, Rotated: p.Rotating(), Commit: &actions.CommitStatus{}})
+	a, err := t.record(ctx, spec, actions.Status{State: actions.StatePendingApproval, Rotated: p.Rotating(), Orphans: orphansFrom(one, p.Checklist), Commit: &actions.CommitStatus{}})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
 	}
@@ -857,8 +857,9 @@ func prTitle(kind, installation, capability, action, detail string) string {
 }
 
 // prBody is the text of every pull request of the action: the action id, the
-// installation, the files, the generated secrets by name and what the commit
-// loses of the encrypted files on record it writes over — never a value.
+// installation, the files, the generated secrets by name, what the commit
+// loses of the encrypted files on record it writes over — never a value — and
+// the objects it takes off the record that stay on the cluster (checklist).
 func prBody(a *actions.Action, p plan.Installation, prs []plan.PullRequest) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Action `%s`: %s %s on %s, opened by %s as the person.\n\n", a.Name, a.Spec.Kind, a.CapabilityOf(p.Name), p.Name, ToolPrefix)
@@ -900,6 +901,12 @@ func prBody(a *actions.Action, p plan.Installation, prs []plan.PullRequest) stri
 	}
 	writeLost(&b, p.Files)
 	writeKept(&b, p.Files)
+	if len(p.Checklist) > 0 {
+		b.WriteString("\nThe fleet's Kustomization over the tree does not prune: once merged, these objects the change takes off the record stay on the cluster until a person deletes them, in this order:\n")
+		for _, o := range p.Checklist {
+			fmt.Fprintf(&b, "- [ ] %s\n", o.Line())
+		}
+	}
 	b.WriteString("\nThe action waits for the team's approval; merge follows it in this order.\n")
 	return b.String()
 }

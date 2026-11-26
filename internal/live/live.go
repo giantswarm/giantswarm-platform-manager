@@ -66,7 +66,7 @@ type Config struct {
 	MusterURL string
 	// KubernetesFamily is the muster family (or singleton server name) the
 	// installations' kubernetes tools are aggregated under: the tools are
-	// x_<family>_get, _list, _logs and _api_resources. KubernetesInstanceArg is the family's
+	// x_<family>_get, _list and _api_resources. KubernetesInstanceArg is the family's
 	// argument that selects the member; empty for a singleton.
 	// KubernetesMember names the member that serves an installation, as
 	// muster names the server: a text/template over {{ .Installation }}
@@ -371,7 +371,6 @@ type cluster struct {
 const (
 	opGet          = "get"
 	opList         = "list"
-	opLogs         = "logs"
 	opAPIResources = "api_resources"
 )
 
@@ -734,11 +733,6 @@ func generationArgs(namespace, resource, name string, generation int64) map[stri
 	args["filter"] = map[string]any{"metadata.generation": strconv.FormatInt(generation, 10)}
 	args["limit"] = 1
 	return args
-}
-
-// Logs reads a pod's log, the last tail lines (mcp-kubernetes takes 1 to 1000).
-func (k *cluster) Logs(ctx context.Context, namespace, pod string, tail int) (string, error) {
-	return k.call(ctx, opLogs, map[string]any{"namespace": namespace, "podName": pod, "tailLines": tail})
 }
 
 // Serves discovers whether the apiserver serves the resource of the group at

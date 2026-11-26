@@ -156,3 +156,18 @@ func TestDisablePRTitle(t *testing.T) {
 		t.Fatalf("%q", got)
 	}
 }
+
+// A reconcile's checklist, recorded at commit, names objects its plan took
+// off the record and the render no longer names: once the fileset is gone
+// again, the removed action keeps them before the render's own objects.
+func TestRemoveKeepsTheChecklistTheCommitRecorded(t *testing.T) {
+	def, _ := installations.FindCapability(installations.AgentPlatform)
+	checklist := actions.Orphan{Installation: dTarget, Kind: "RemoteApp", Namespace: installations.AgentPlatform, Name: "kagent-glean"}
+	a := &actions.Action{Name: "reconcile-kestrel-abc123", Spec: actions.Spec{Kind: actions.KindReconcile, Capability: def.Name, Installations: []string{dTarget}},
+		Status: actions.Status{State: actions.StateEnabled, Orphans: []actions.Orphan{checklist}}}
+	status := a.Status
+	remove(&status, a, def, []revertedStage{{installation: dTarget, repository: dConfigs, path: def.EnabledMarker(dTarget)}})
+	if status.State != actions.StateRemoved || len(status.Orphans) == 0 || status.Orphans[0] != checklist {
+		t.Fatalf("state %s, orphans %+v", status.State, status.Orphans)
+	}
+}

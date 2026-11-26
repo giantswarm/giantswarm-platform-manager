@@ -252,6 +252,12 @@ func (p *printer) installation(inst plan.Installation, features []verify.Feature
 		}
 	}
 	p.customerActions(inst.CustomerActions)
+	if len(inst.Checklist) > 0 {
+		p.f("  After the merge, delete on %s in this order — the fleet's Kustomization over the tree does not prune what the change takes off the record:\n", inst.Name)
+		for _, o := range inst.Checklist {
+			p.f("    [ ] %s\n", o.Line())
+		}
+	}
 	if len(inst.Probes) > 0 {
 		p.f("  Probes:\n")
 		for _, pr := range inst.Probes {

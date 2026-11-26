@@ -143,7 +143,7 @@ live:
     # namespace.
     url: ""
     # -- The muster family the installations' kubernetes tools are aggregated
-    # under — the tools are `x_<family>_get`, `_list` and `_logs` — and the
+    # under — the tools are `x_<family>_get`, `_list` and `_api_resources` — and the
     # family's argument that selects the installation. The platform's
     # agent-platform-mcps chart registers every installation's mcp-kubernetes
     # under the family `kubernetes` with `management_cluster`; a lab with one

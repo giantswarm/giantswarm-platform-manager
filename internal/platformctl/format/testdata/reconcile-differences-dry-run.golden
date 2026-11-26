@@ -13,4 +13,6 @@ rowan: enabled
       removed  data.values.kagent.legacy
     Differs in giantswarm/acme-configs:installations/rowan/apps/agent-platform/secret-values.yaml.patch:
       changed  stringData.values.kagent.clientSecret  (secret)
+  After the merge, delete on rowan in this order — the fleet's Kustomization over the tree does not prune what the change takes off the record:
+    [ ] RemoteApp agent-platform/kagent-glean
   Comparison: 1 drifted, 1 differs by input, 1 as defined
