@@ -73,23 +73,24 @@ type planned struct {
 	defs map[string]installations.Capability
 	// inspect reads the report of an installation outside the set, as the
 	// caller; nil where only the set's reports are known.
-	inspect func(ctx context.Context, name string) (installations.Report, error)
+	inspect func(ctx context.Context, name string) installations.Report
 }
 
 // report is installation's report: the set's, else read once as the caller
-// (inspect) and kept.
+// (inspect) and kept. One that could not be read whole is the error: what is
+// on record there cannot be told.
 func (env *planned) report(ctx context.Context, name string) (installations.Report, error) {
-	if r, ok := env.reports[name]; ok {
-		return r, nil
+	r, ok := env.reports[name]
+	if !ok {
+		if env.inspect == nil {
+			return installations.Report{}, fmt.Errorf("%s is not among the installations read", name)
+		}
+		r = env.inspect(ctx, name)
+		env.reports[name] = r
 	}
-	if env.inspect == nil {
-		return installations.Report{}, fmt.Errorf("%s is not among the installations read", name)
+	if !r.Readable {
+		return installations.Report{}, fmt.Errorf("%s could not be read: %s", name, strings.Join(r.Errors, "; "))
 	}
-	r, err := env.inspect(ctx, name)
-	if err != nil {
-		return installations.Report{}, err
-	}
-	env.reports[name] = r
 	return r, nil
 }
 
@@ -252,16 +253,12 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 	out := CapabilityResult{Caller: identity.Caller(ctx), Tool: tool, Capability: def.Name, Hub: reg.Hub, DryRun: true, RenderedBy: t.renderedBy(),
 		Order: []string{}, Installations: []DryRun{}, PullRequests: []plan.PullRequest{}, Skipped: []Skipped{}, Commit: commitNext}
 	env := &planned{c: c, hub: hub, byName: byName, reports: map[string]installations.Report{}, inputs: map[string]map[string]any{}, defs: map[string]installations.Capability{}}
-	env.inspect = func(ctx context.Context, name string) (installations.Report, error) {
+	env.inspect = func(ctx context.Context, name string) installations.Report {
 		inst, ok := reg.Find(name)
 		if !ok {
-			return installations.Report{}, fmt.Errorf("%s is not in the registry", name)
+			return installations.Report{Installation: installations.Installation{Name: name}, Errors: []string{"not in the registry"}}
 		}
-		r := reg.InspectAll(ctx, c, []installations.Installation{inst}, caps, installations.Full)[0]
-		if !r.Readable {
-			return installations.Report{}, errors.New(strings.Join(r.Errors, "; "))
-		}
-		return r, nil
+		return reg.InspectAll(ctx, c, []installations.Installation{inst}, caps, installations.Full)[0]
 	}
 	env.planInstallations = map[string]bool{}
 	for _, report := range reports {

@@ -31,6 +31,12 @@
 #   off-value           a flag at the value it has when the key is absent; dropping it changes nothing
 #   deprecated-form     a key in a form its plugin has deprecated; the definition renders the same value in the form
 #                       the plugin documents
+#   deleted-file        a whole file under the installation's extras/ the definition no longer renders, keyed
+#                       extras:<path under extras/> with no YAML path and no placeholder: a reconcile deletes it,
+#                       takes the entry that lists it out of the kustomization.yaml of its directory, and lists the
+#                       objects it declares for a person to delete after the merge (the Kustomization over extras/
+#                       does not prune); a file another capability on record renders stays. Without such a
+#                       removal a reconcile keeps every file on record
 removals:
   # --- Backstage app-config.yaml: flags at their off value ---
   - key: "backstage:app-config:auth.experimentalClientIdMetadataDocuments"

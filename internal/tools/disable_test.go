@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -197,4 +198,21 @@ func TestRemoveKeepsTheOrphansOfAPartlyMergedStage(t *testing.T) {
 	require.Equal(t, actions.StateRemoved, status.State)
 	require.Contains(t, status.Orphans, partly)
 	require.NotContains(t, status.Orphans, open)
+}
+
+// An object a plan takes out of another installation's tree is held
+// against what is on record there; where that installation's record could
+// not be read — already among the set's reports, or read for the checklist —
+// which of its objects stay cannot be told, and the checklist is refused
+// rather than telling a person to delete what may still be rendered.
+func TestChecklistRefusesAnUnreadableOwner(t *testing.T) {
+	def, _ := installations.FindCapability(installations.AgentPlatform)
+	unreadable := installations.Report{Installation: installations.Installation{Name: "heron"}, Errors: []string{"the record does not parse"}}
+	for name, env := range map[string]*planned{
+		"in the set":  {reports: map[string]installations.Report{"heron": unreadable}},
+		"read for it": {reports: map[string]installations.Report{}, inspect: func(context.Context, string) installations.Report { return unreadable }},
+	} {
+		_, err := remainingAt(context.Background(), env, "heron", def)
+		require.ErrorContains(t, err, "the record does not parse", name)
+	}
 }

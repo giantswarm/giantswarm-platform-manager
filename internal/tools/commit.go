@@ -693,8 +693,9 @@ func targetsOf(ctx context.Context, c *gh.Client, p plan.Installation, rendered 
 		if err != nil {
 			return nil, err
 		}
-		if !tg.exists[inc.Path] {
-			tg.exists[inc.Path] = true
+		// One file per kustomization, however many includes land in it; a
+		// plain file, never one the record keeps (exists).
+		if !slices.ContainsFunc(tg.files, func(f sopsenc.File) bool { return f.Path == inc.Path }) {
 			tg.files = append(tg.files, sopsenc.File{Path: inc.Path, Content: []byte(pf.Content)})
 		}
 	}
