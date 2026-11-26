@@ -29,7 +29,7 @@ func TestGovernanceSurvivesAReconcile(t *testing.T) {
 
 	patch, read, doc, marker := inputFromTheRecord(t, "platform-tenant-retired", governanceOnRecord)
 	require.Equal(t, agentplatform.GovernanceGoverned, read["governance.mode"])
-	require.Equal(t, map[string]any{"giantswarm-platform-manager": map[string]any{"safe": []any{"get_info"}}, "mcp-kubernetes": nil}, read["governance.governedServers"])
+	require.Equal(t, map[string]any{"giantswarm-platform-manager": map[string]any{"safe": []any{"get_info"}}, clusterMCPServersMarkerServer: nil}, read["governance.governedServers"])
 	result, err := definition.Render(doc, nil, render.ModeCommit)
 	require.NoError(t, err)
 	again := string(result.Tree()["giantswarm/giantswarm-configs/"+marker])

@@ -6,7 +6,12 @@ import (
 	"testing"
 )
 
-const govPatch = "giantswarm/acme-configs/installations/jackal/apps/agent-platform/configmap-values.yaml.patch"
+const (
+	govInstallation = "lynx"
+	govPatch        = "giantswarm/acme-configs/installations/lynx/apps/agent-platform/configmap-values.yaml.patch"
+	govEmpty        = "global: {}\n"
+	govGoverned     = "governance: governed\n"
+)
 
 // govPlan is an installation whose agent-platform values move from current
 // to next.
@@ -19,7 +24,7 @@ func govPlan(current, next string) Installation {
 }
 
 func govPlanOf(change Change, current, next string) Installation {
-	return Installation{Name: "jackal", Files: []File{{Path: govPatch, Change: change, Current: current, Content: next}}}
+	return Installation{Name: govInstallation, Files: []File{{Path: govPatch, Change: change, Current: current, Content: next}}}
 }
 
 // The governance a plan changes reads old → new with its values, and every
@@ -34,9 +39,9 @@ func TestGovernanceChangeReadsOldToNewAndWhatLoosens(t *testing.T) {
 		current, next  string
 		lines, loosens []string
 	}{
-		{"trusted to governed tightens", "global: {}\n", "global: {}\ngovernance: governed\n",
+		{"trusted to governed tightens", govEmpty, "global: {}\ngovernance: governed\n",
 			[]string{"mode trusted (the chart's default) → governed"}, nil},
-		{"governed to the chart's default loosens", "governance: governed\n", "global: {}\n",
+		{"governed to the chart's default loosens", govGoverned, govEmpty,
 			[]string{"mode governed → trusted (the chart's default)"}, []string{"mode governed → trusted (the chart's default)"}},
 		{"a safe entry added and one removed", "governedServers:\n  giantswarm-platform-manager:\n    safe: [get_info, list_actions]\n",
 			"governedServers:\n  giantswarm-platform-manager:\n    safe: [get_info, create_thing, list_installations]\n",
@@ -44,20 +49,20 @@ func TestGovernanceChangeReadsOldToNewAndWhatLoosens(t *testing.T) {
 			[]string{"governedServers.giantswarm-platform-manager.safe +create_thing (named like a write) +list_installations"}},
 		{"only a safe entry removed", "governedServers:\n  agent-manager:\n    safe: [get_info, list_agents]\n", "governedServers:\n  agent-manager:\n    safe: [get_info]\n",
 			[]string{"governedServers.agent-manager.safe −list_agents"}, nil},
-		{"a source dropped", "governance: governed\n", "governance: governed\ngovernedServers:\n  mcp-kubernetes: null\n",
+		{"a source dropped", govGoverned, "governance: governed\ngovernedServers:\n  mcp-kubernetes: null\n",
 			[]string{"governedServers.mcp-kubernetes the chart's entry → null (not governed)"}, []string{"governedServers.mcp-kubernetes the chart's entry → null (not governed)"}},
-		{"a dropped source governed again", "governedServers:\n  mcp-kubernetes: null\n", "global: {}\n",
+		{"a dropped source governed again", "governedServers:\n  mcp-kubernetes: null\n", govEmpty,
 			[]string{"governedServers.mcp-kubernetes null (not governed) → the chart's entry"}, nil},
-		{"an override over the chart's entry", "global: {}\n", "governedServers:\n  kagent:\n    role: sessionManager\n    safe: [list_sessions]\n",
+		{"an override over the chart's entry", govEmpty, "governedServers:\n  kagent:\n    role: sessionManager\n    safe: [list_sessions]\n",
 			[]string{"governedServers.kagent the chart's entry → {role: sessionManager, safe: [list_sessions]}"},
 			[]string{"governedServers.kagent the chart's entry → {role: sessionManager, safe: [list_sessions]}"}},
 		{"a role changed", "governedServers:\n  x:\n    role: platformManager\n", "governedServers:\n  x:\n    role: infrastructure\n",
 			[]string{"governedServers.x.role platformManager → infrastructure"}, []string{"governedServers.x.role platformManager → infrastructure"}},
 		{"a safe list back to the chart's", "governedServers:\n  x:\n    role: infrastructure\n    safe: [a]\n", "governedServers:\n  x:\n    role: infrastructure\n",
 			[]string{"governedServers.x.safe [a] → the chart's list"}, []string{"governedServers.x.safe [a] → the chart's list"}},
-		{"a fresh enable with governed", "", "governance: governed\n",
+		{"a fresh enable with governed", "", govGoverned,
 			[]string{"mode trusted (the chart's default) → governed"}, nil},
-		{"values that do not parse are a change that loosens", "governance: [\n", "governance: governed\n",
+		{"values that do not parse are a change that loosens", "governance: [\n", govGoverned,
 			[]string{governanceUnreadable}, []string{governanceUnreadable}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -72,7 +77,7 @@ func TestGovernanceChangeReadsOldToNewAndWhatLoosens(t *testing.T) {
 	}
 	// An update whose side on record the plan does not carry (an answer of
 	// paths only) is no file without governance: it counts, as loosening.
-	for _, p := range []Installation{govPlanOf(ChangeUpdate, "", "global: {}\n"), govPlanOf(ChangeUpdate, "governance: governed\n", "")} {
+	for _, p := range []Installation{govPlanOf(ChangeUpdate, "", govEmpty), govPlanOf(ChangeUpdate, govGoverned, "")} {
 		if g, ok := GovernanceOf(p); !ok || !slices.Equal(g.Loosens, []string{governanceUnreadable}) {
 			t.Fatalf("an update without a side: %v %+v", ok, g)
 		}
@@ -84,9 +89,9 @@ func TestGovernanceChangeReadsOldToNewAndWhatLoosens(t *testing.T) {
 func TestNoGovernanceChange(t *testing.T) {
 	for _, p := range []Installation{
 		govPlan("governance: governed\nglobal: {domain: a}\n", "governance: governed\nglobal: {domain: b}\n"),
-		govPlan("", "global: {}\n"),
+		govPlan("", govEmpty),
 		{Files: []File{{Path: govPatch, Change: ChangeUnchanged}}},
-		{Files: []File{{Path: "giantswarm/acme-configs/installations/jackal/apps/dex-app/configmap-values.yaml.patch", Change: ChangeUpdate, Current: "a: 1\n", Content: "governance: governed\n"}}},
+		{Files: []File{{Path: "giantswarm/acme-configs/installations/jackal/apps/dex-app/configmap-values.yaml.patch", Change: ChangeUpdate, Current: "b: 2\n", Content: govGoverned}}},
 	} {
 		if g, ok := GovernanceOf(p); ok {
 			t.Fatalf("a governance change: %+v", g)

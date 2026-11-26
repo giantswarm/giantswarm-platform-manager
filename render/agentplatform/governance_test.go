@@ -12,9 +12,15 @@ import (
 
 // The governance releases the tests take as released.
 const (
-	testGovernanceChart  = "4.190.0"
-	testGovernanceMuster = "5.70.0"
-	keyGovernance        = "governance"
+	testGovernanceChart   = "4.190.0"
+	testGovernanceMuster  = "5.70.0"
+	keyGovernance         = "governance"
+	keyMode               = "mode"
+	keyGovernedServers    = "governedServers"
+	keyRole               = "role"
+	toolListActions       = "list_actions"
+	keySafe               = "safe"
+	sourcePlatformManager = "giantswarm-platform-manager"
 )
 
 // withGovernanceReleases takes the governance releases as cut for the test.
@@ -55,8 +61,8 @@ func TestGovernanceIsRefusedUntilItsReleaseExists(t *testing.T) {
 		governance map[string]any
 		names      string
 	}{
-		{"governed", map[string]any{"mode": GovernanceGoverned}, "(governance.mode) needs the meta chart release that renders muster's governance configuration, and none is released yet"},
-		{"a server override", map[string]any{"governedServers": map[string]any{"giantswarm-platform-manager": map[string]any{"safe": []any{"list_actions"}}}}, "(governance.governedServers) needs the meta chart release"},
+		{"governed", map[string]any{keyMode: GovernanceGoverned}, "(governance.mode) needs the meta chart release that renders muster's governance configuration, and none is released yet"},
+		{"a server override", map[string]any{keyGovernedServers: map[string]any{sourcePlatformManager: map[string]any{keySafe: []any{toolListActions}}}}, "(governance.governedServers) needs the meta chart release"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			input, secrets := governanceInput(t, c.governance)
@@ -66,7 +72,7 @@ func TestGovernanceIsRefusedUntilItsReleaseExists(t *testing.T) {
 			}
 		})
 	}
-	input, secrets := governanceInput(t, map[string]any{"mode": GovernanceTrusted})
+	input, secrets := governanceInput(t, map[string]any{keyMode: GovernanceTrusted})
 	mode, servers := governanceOf(t, renderedPatch(t, input, secrets))
 	if mode != nil || servers != nil {
 		t.Fatalf("trusted writes governance %v, governedServers %v", mode, servers)
@@ -81,10 +87,10 @@ func TestGovernanceIsRefusedUntilItsReleaseExists(t *testing.T) {
 // written.
 func TestGovernanceRendersAndSurvivesAReconcile(t *testing.T) {
 	withGovernanceReleases(t)
-	governance := map[string]any{"mode": GovernanceGoverned, "governedServers": map[string]any{
-		"giantswarm-platform-manager": map[string]any{"safe": []any{"get_info", "list_actions"}},
-		"mcp-kubernetes":              nil,
-		"agent-platform/pro":          map[string]any{"role": "infrastructure", "safe": []any{}},
+	governance := map[string]any{keyMode: GovernanceGoverned, keyGovernedServers: map[string]any{
+		sourcePlatformManager: map[string]any{keySafe: []any{"get_info", toolListActions}},
+		"mcp-kubernetes":      nil,
+		"agent-platform/pro":  map[string]any{keyRole: "infrastructure", keySafe: []any{}},
 	}}
 	input, secrets := governanceInput(t, governance)
 	patch := renderedPatch(t, input, secrets)
@@ -98,12 +104,12 @@ func TestGovernanceRendersAndSurvivesAReconcile(t *testing.T) {
 		}
 	}
 	mode, servers := governanceOf(t, patch)
-	again, secrets := governanceInput(t, map[string]any{"mode": mode, "governedServers": servers})
+	again, secrets := governanceInput(t, map[string]any{keyMode: mode, keyGovernedServers: servers})
 	if got := renderedPatch(t, again, secrets); got != patch {
 		t.Fatalf("read back and rendered again:\n%s\nwant\n%s", got, patch)
 	}
 
-	trusted, secrets := governanceInput(t, map[string]any{"mode": GovernanceTrusted})
+	trusted, secrets := governanceInput(t, map[string]any{keyMode: GovernanceTrusted})
 	if mode, _ := governanceOf(t, renderedPatch(t, trusted, secrets)); mode != nil {
 		t.Fatalf("trusted writes governance: %v", mode)
 	}
@@ -120,7 +126,7 @@ func TestGovernanceRendersAndSurvivesAReconcile(t *testing.T) {
 func TestGovernanceRefusals(t *testing.T) {
 	withGovernanceReleases(t)
 	server := func(source string, entry any) map[string]any {
-		return map[string]any{"governedServers": map[string]any{source: entry}}
+		return map[string]any{keyGovernedServers: map[string]any{source: entry}}
 	}
 	for _, c := range []struct {
 		name       string
@@ -128,26 +134,26 @@ func TestGovernanceRefusals(t *testing.T) {
 		mutate     func(m map[string]any)
 		names      string
 	}{
-		{"an unknown role", server("agent-manager", map[string]any{"role": "admin"}), nil, "/governance/governedServers/agent-manager/role"},
-		{"a typed role's floor on the safe list", server("agent-platform/pm", map[string]any{"role": "platformManager", "safe": []any{"list_actions", "approve_action"}}), nil, "safe entry 1, approve_action, is a floor of role platformManager"},
-		{"the chart's role's floor on the safe list", server("agent-manager", map[string]any{"safe": []any{"set_agent_approval"}}), nil, "safe entry 0, set_agent_approval, is a floor of role agentManager"},
-		{"an empty safe entry", server("skill-manager", map[string]any{"safe": []any{" "}}), nil, "safe entry 0 is empty"},
-		{"a repeated safe entry", server("skill-manager", map[string]any{"safe": []any{"get_skill", "get_skill"}}), nil, "safe entry 1, get_skill, is listed twice"},
+		{"an unknown role", server("agent-manager", map[string]any{keyRole: "admin"}), nil, "/governance/governedServers/agent-manager/role"},
+		{"a typed role's floor on the safe list", server("agent-platform/pm", map[string]any{keyRole: "platformManager", keySafe: []any{toolListActions, "approve_action"}}), nil, "safe entry 1, approve_action, is a floor of role platformManager"},
+		{"the chart's role's floor on the safe list", server("agent-manager", map[string]any{keySafe: []any{"set_agent_approval"}}), nil, "safe entry 0, set_agent_approval, is a floor of role agentManager"},
+		{"an empty safe entry", server("skill-manager", map[string]any{keySafe: []any{" "}}), nil, "safe entry 0 is empty"},
+		{"a repeated safe entry", server("skill-manager", map[string]any{keySafe: []any{"get_skill", "get_skill"}}), nil, "safe entry 1, get_skill, is listed twice"},
 		{"neither role nor safe", server("skill-manager", map[string]any{}), nil, "names neither role nor safe"},
 		{"an unknown key", server("skill-manager", map[string]any{"tools": []any{"x"}}), nil, "governedServers"},
-		{"an unknown mode", map[string]any{"mode": "strict"}, nil, "governance/mode"},
-		{"a source key no server has", server("Agent_Manager", map[string]any{"role": "agentManager"}), nil, "Agent_Manager: is no source or muster server key"},
-		{"the 3 line", map[string]any{"mode": GovernanceGoverned}, func(m map[string]any) {
+		{"an unknown mode", map[string]any{keyMode: "strict"}, nil, "governance/mode"},
+		{"a source key no server has", server("Agent_Manager", map[string]any{keyRole: "agentManager"}), nil, "Agent_Manager: is no source or muster server key"},
+		{caseLineThree, map[string]any{keyMode: GovernanceGoverned}, func(m map[string]any) {
 			delete(m, keyOrganizations)
 			delete(m, keyViewers)
 			delete(m, keyTenants)
 			m["installation"].(map[string]any)["customer"] = testOrganisation
 			m["installation"].(map[string]any)["chartLine"] = lineThree
 		}, "(governance.mode) is the 4 chart line's"},
-		{"a chart hold before the release", map[string]any{"mode": GovernanceGoverned}, func(m map[string]any) {
+		{"a chart hold before the release", map[string]any{keyMode: GovernanceGoverned}, func(m map[string]any) {
 			m["versions"] = map[string]any{keyChart: "4.189.0"}
 		}, "(governance.mode) needs the meta chart " + testGovernanceChart},
-		{"governed under a muster hold before its release", map[string]any{"mode": GovernanceGoverned}, func(m map[string]any) {
+		{"governed under a muster hold before its release", map[string]any{keyMode: GovernanceGoverned}, func(m map[string]any) {
 			m["versions"] = map[string]any{keyComponents: map[string]any{componentMuster: ">=5.69.0 <6.0.0"}}
 		}, "governed needs muster " + testGovernanceMuster},
 	} {
@@ -167,14 +173,14 @@ func TestGovernanceRefusals(t *testing.T) {
 		governance map[string]any
 		mutate     func(m map[string]any)
 	}{
-		{"a hold on the release", map[string]any{"mode": GovernanceGoverned}, func(m map[string]any) { m["versions"] = map[string]any{keyChart: testGovernanceChart} }},
-		{"a muster hold on its release", map[string]any{"mode": GovernanceGoverned}, func(m map[string]any) {
+		{"a chart hold on the release", map[string]any{keyMode: GovernanceGoverned}, func(m map[string]any) { m["versions"] = map[string]any{keyChart: testGovernanceChart} }},
+		{"a muster hold on its release", map[string]any{keyMode: GovernanceGoverned}, func(m map[string]any) {
 			m["versions"] = map[string]any{keyComponents: map[string]any{componentMuster: ">=" + testGovernanceMuster + " <6.0.0"}}
 		}},
-		{"a server override on trusted under an old muster", server("giantswarm-platform-manager", map[string]any{"safe": []any{"list_actions"}}), func(m map[string]any) {
+		{"a server override on trusted under an old muster", server(sourcePlatformManager, map[string]any{keySafe: []any{toolListActions}}), func(m map[string]any) {
 			m["versions"] = map[string]any{keyComponents: map[string]any{componentMuster: ">=5.60.0 <6.0.0"}}
 		}},
-		{"the floor of another role", server("agent-manager", map[string]any{"safe": []any{"approve_action"}}), nil},
+		{"the floor of another role", server("agent-manager", map[string]any{keySafe: []any{"approve_action"}}), nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			input, secrets := governanceInput(t, c.governance)

@@ -64,6 +64,9 @@ const (
 	inputGovernanceServers = "governance.governedServers"
 )
 
+// roleModelManager is the model-manager's governance role.
+const roleModelManager = "modelManager"
+
 // governanceRoleFloors are the floors of each role (muster's roleFloors): a
 // floor asks agents in both modes, and muster refuses to start on one listed
 // as safe on a server of its role.
@@ -72,14 +75,14 @@ var governanceRoleFloors = map[string][]string{
 	"platformManager":  {"approve_action", "merge_action"},
 	"connectorManager": {"mcpserver_create", "mcpserver_connect", "mcpserver_set_approval"},
 	"toolchainManager": {"approve_source"},
-	"modelManager":     {"add_backend"},
+	roleModelManager:   {"add_backend"},
 }
 
 // governanceSourceRoles are the roles the meta chart's own governedServers
 // give its sources; an override that names no role keeps it, so a safe
 // entry is checked against the floors of the role it ends up with.
 var governanceSourceRoles = map[string]string{
-	"agent-manager": "agentManager", "kagent": "sessionManager", "model-manager": "modelManager",
+	"agent-manager": "agentManager", "kagent": "sessionManager", "model-manager": roleModelManager,
 	"cluster-manager": "clusterManager", "vm-manager": "vmManager", "toolchain-manager": "toolchainManager",
 	"workspace-manager": "workspaceManager", "skill-manager": "skillManager", "mcp-kubernetes": "infrastructure",
 	"giantswarm-platform-manager": "platformManager",
