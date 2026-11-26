@@ -144,11 +144,20 @@ governance as it is, such as an explicit `trusted` dropped, is none.
 
 The plan compares the configs repository with what the team reviewed, kept per installation in a
 reviewed-governance record (decision #99): a `GovernanceRecord` in the manager's namespace, named after the
-installation, beside the Action records (`crd-governancerecords.yaml`; only the manager's ServiceAccount may write
-it). It holds the reviewed governance (the snapshot of the governance values), the Action whose merge wrote it,
+installation, beside the Action records (`crd-governancerecords.yaml`). Only the manager's ServiceAccount may
+write it: RBAC grants no one else a right, and a ValidatingAdmissionPolicy (`actions.governanceRecordPolicy`, on by
+default, Kubernetes 1.30 or later) refuses a create, update or delete by any other identity, cluster admins and
+GitOps controllers included. It holds the reviewed governance (the snapshot of the governance values), the Action whose merge wrote it,
 the approver and the configs pull request's merged head. `merge_action` writes it, and nothing else does: when it
 merges an installation's stage of an Action that changes the governance there and that the team approved, the
-governance that Action's commit leaves becomes the record (`governance_record_written`). An action that needs no
+governance that Action's commit leaves becomes the record (`governance_record_written`).
+
+The merge is a compare-and-swap. Each Action records which record its plan compared with (`spec.governanceBase`:
+the writing action, its time and version, or `none`). `merge_action` merges a stage of an approved governance
+change only while the installation's record is still that one, and writes it with the same check: an approval
+given against an older record does not cover a newer review, so such a merge is refused
+(`governance_record_moved_since_plan`); the actor denies the action and commits the change again for a new
+review. An action that needs no
 review, one merged outside the manager, a revert and the Actions' order or states never change it.
 
 Every plan, the dry run and the commit included, compares the governance in the configs repository with the
@@ -164,16 +173,19 @@ A revert of a reviewed governance change that a read of the Action finds (the wa
 withdrawal) is audited (`governance_change_reverted`); the record keeps what was reviewed, so the next plan
 shows the revert.
 
-An installation without a record is fail closed: where its governance is in play (the values carry the meta
-chart's `governance`), every commit asks the team's review, led by "no reviewed governance is on record", until a
-reviewed commit is merged and becomes the record (`governance_unrecorded`). That is the migration of the
+An installation without a record is fail closed: where its governance is in play (the values on record or what
+the commit leaves carry the meta chart's `governance`), every commit asks the team's review, led by "no reviewed
+governance is on record", until a reviewed commit is merged and becomes the record (`governance_unrecorded`). That
+review shows the governance the commit leaves whole, against the chart's defaults (an empty governance), with
+the loosening marks, so the team confirms what it can see. That is the migration of the
 installations from before the record: their first commit is reviewed. A record that cannot be read counts as
 none (`governance_record_unread`), and a record that could not be written after a merge is logged
 (`governance_record_not_written`) and leaves the next commit to ask the review again.
 
-A `disable_capability` that deletes values carrying a governance is a loosening governance change. Its record,
-once reviewed and merged, is the governance before the disable, so an enable that brings the platform back trusted
-asks the review too.
+A `disable_capability` that deletes values carrying a governance is a loosening governance change, the deleted
+governance being the reviewed one. Its record, once reviewed and merged, is the governance before the disable,
+marked `disabled`: an enable that brings the platform back is compared with it under its own line ("the platform
+comes back after the reviewed disable") and asks the review, and nothing is logged as changed outside.
 Between the plan and the pull requests the commit or wave reads the values on the default branch again: a
 governance merged in between is recorded as a loosening governance change of the action (`status.governance`),
 so the review shows it and only a member of the reviewers' team approves it (`governance_record_moved`).
