@@ -6,28 +6,52 @@ changes it alone.
 
 ## What muster enforces
 
-muster asks a person before an agent runs a tool the platform governs. Its governance configuration has two
-parts, both rendered by the agent-platform meta chart:
+muster asks a person before an agent runs a tool the platform governs. Its governance configuration, rendered by
+the agent-platform meta chart, has three parts:
 
 - the mode: `trusted` (the default) runs what the connectors' own settings allow; `governed` asks a person
   before an agent runs any tool of a governed server that is not on that server's safe list, new and renamed
   tools included, and before any of muster's own tools except its reads;
-- the governed servers, each with a role and a safe list. A role's floors ask agents in both modes, for
-  example this manager's `approve_action` and `merge_action` (role `platformManager`).
+- the role floors: tools that ask agents in both modes on a governed server of that role. muster builds in its
+  own roles' floors and takes more from the configuration (`governance.roleFloors`, a union: nothing removes a
+  built-in floor);
+- the governed servers, each with a role and a safe list.
+
+## Giant Swarm's own parts
+
+muster and the agent-platform chart are open source and carry nothing of Giant Swarm (decision #92 of the epic).
+This manager is Giant Swarm's, so the Giant Swarm flow lives here: the agent-platform definition renders these
+parts on every installation it manages, as fixed platform parts. They are no inputs, and no input changes or
+loosens them (`definitions/agent-platform/governance.yaml`, `platform`):
+
+| Part | Renders | What it does |
+|---|---|---|
+| The Platform Manager's role floors | `governance.roleFloors: {platformManager: [approve_action, merge_action]}` | muster asks a person before an agent approves or merges an Action of this manager, in both modes; the manager cannot tell an agent from a person, since muster forwards the person's identity |
+| The Platform Manager as a governed server | `governedServers.giantswarm-platform-manager: {role: platformManager, safe: [...]}` | on `governed` every tool of this manager but its safe list asks agents; the floors hold in both modes |
+| The connector admins | `muster.rbac.mcpServerEditor.subjects`: the groups `giantswarm-ad:giantswarm-admins` and `giantswarm-github:giantswarm:giantswarm-admins` | whoever holds muster's `mcpserver-editor` Role edits every connector in muster's namespace, sets its tool approval and alone lets an agent run a tool the connector asks for; the meta chart appends `tenants.platformTeam` |
+
+The role floors and the governed server are written where the meta chart takes the governance (the release
+`GovernanceChart`, the 4 line, no chart hold below it); the connector admins on every installation on the 4 line,
+which every chart there takes. A `governance.governedServers` input for `giantswarm-platform-manager` is
+refused; read back from the record it is the platform's entry and is rendered again. A server key of an
+installation's own may take the role `platformManager`, which only adds its floors. muster from before decision
+#92 builds the same floors in, so the plan reads a governance without `roleFloors` as having the platform's:
+writing them changes nothing.
 
 ## The inputs
 
-The agent-platform definition takes both as inputs. Both are read back from the configmap patch on record
-(`installations/<name>/apps/agent-platform/configmap-values.yaml.patch`), so a reconcile keeps them.
+The agent-platform definition takes the mode and the overrides of the governed servers as inputs. Both are read
+back from the configmap patch on record (`installations/<name>/apps/agent-platform/configmap-values.yaml.patch`),
+so a reconcile keeps them.
 
 | Input | Renders | Default |
 |---|---|---|
-| `governance.mode` | the meta chart's top-level `governance`, written only as `governed` | `trusted`, the chart's default, not written |
+| `governance.mode` | the meta chart's `governance.mode`, written only as `governed` | `trusted`, the chart's default, not written |
 | `governance.governedServers` | the meta chart's top-level `governedServers`: overrides by source, each `{role, safe}` or `null` | none: the chart's servers and safe lists apply |
 
 A source is one the meta chart knows (`agent-manager`, `kagent`, `model-manager`, `cluster-manager`,
-`vm-manager`, `toolchain-manager`, `workspace-manager`, `skill-manager`, `mcp-kubernetes`,
-`giantswarm-platform-manager`) or a muster server key (`<name>` or `<namespace>/<name>`). Helm merges the maps:
+`vm-manager`, `toolchain-manager`, `workspace-manager`, `skill-manager`, `mcp-kubernetes`) or a muster server key
+(`<name>` or `<namespace>/<name>`). Helm merges the maps:
 
 - a source you leave out keeps the chart's entry;
 - a role or safe list you leave out keeps the chart's;
@@ -36,7 +60,7 @@ A source is one the meta chart knows (`agent-manager`, `kagent`, `model-manager`
 
 ```sh
 --input governance.mode=governed
---input 'governance.governedServers={"giantswarm-platform-manager": {"safe": ["get_info", "list_installations"]}}'
+--input 'governance.governedServers={"skill-manager": {"safe": ["list_skills", "get_skill"]}}'
 ```
 
 The definition refuses, typed or read back:
@@ -55,18 +79,21 @@ The definition refuses, typed or read back:
     role, so a server's role is what the server is and an override may not change it;
   - a server key of its own without a role, or one naming a chart source under another key
     (`<namespace>/agent-manager`, `<cluster>-mcp-kubernetes`);
-  - a floor of any role on any safe list;
+  - a floor of any role on any safe list, the platform's role floors included;
+  - any override of `giantswarm-platform-manager`, Giant Swarm's own;
   - a safe entry that is no tool name (`^[A-Za-z0-9_.-]{1,128}$`), a repeated one, more than 64 per list;
   - an entry with neither role nor safe list.
 
-muster's roles and floors and the chart's own `governedServers` are copied into
-`definitions/agent-platform/governance.yaml`; `TestGovernanceMatchesMusterAndTheChart` compares them with sibling
-checkouts of muster and agent-platform where present (`MUSTER_CHECKOUT`, `AGENT_PLATFORM_CHECKOUT`).
+muster's built-in roles and floors and the chart's own `governedServers` are copied into
+`definitions/agent-platform/governance.yaml` beside Giant Swarm's platform parts;
+`TestGovernanceMatchesMusterAndTheChart` compares them with sibling checkouts of muster and agent-platform where
+present (`MUSTER_CHECKOUT`, `AGENT_PLATFORM_CHECKOUT`). A muster or chart from before decision #92 that still
+carries the Platform Manager's role or entry must agree with the platform's.
 
 ## What counts as a governance change
 
-The plan compares the effective governance on both sides: the mode (absent is `trusted`), every server as muster
-governs it (a source the values leave alone is the chart's entry), muster's own `muster.muster.governance`, and,
+The plan compares the effective governance on both sides: the mode (absent is `trusted`), the role floors (a
+floor that goes loosens), every server as muster governs it (a source the values leave alone is the chart's entry), muster's own `muster.muster.governance`, and,
 once `GovernanceMuster` is set, a `components.muster` hold below it. A change that leaves the effective
 governance as it is, such as an explicit `trusted` dropped, is none.
 
@@ -118,6 +145,7 @@ refused: split it. The change lines that follow are cut at 1400 characters, the 
 rest. A change loosens governance, or may, when any of these hold:
 
 - the mode leaves `governed`;
+- a role floor goes;
 - a source is no longer governed;
 - a role changes;
 - a safe entry is added, against the chart's list for a first override; one named like a write anywhere in its
@@ -161,8 +189,8 @@ These limits are outside the manager:
 
 ## This manager's own safe list
 
-The meta chart governs this manager (`giantswarm-platform-manager`, role `platformManager`). Its safe list, the
-tools agents call unasked on `governed`, is:
+The definition governs this manager (`giantswarm-platform-manager`, role `platformManager`, above). Its safe
+list, the tools agents call unasked on `governed`, is:
 
 | Tool | Why it is safe |
 |---|---|
