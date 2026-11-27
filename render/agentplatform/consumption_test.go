@@ -992,10 +992,14 @@ func (c *consumption) assertPrivateOAuthHosts() {
 				c.t.Fatal(err)
 			}
 			checked = true
-			if get(config, "oauth", "server", "dex", "allowPrivateIPOIDC") == true {
+			oauth := get(config, "aggregator", "oauth")
+			if oauth == nil {
+				c.t.Fatal("Muster configuration has no aggregator.oauth block")
+			}
+			if get(oauth, "server", "dex", "allowPrivateIPOIDC") == true {
 				c.t.Error("Muster inherits a blanket private OIDC permission")
 			}
-			hosts := list(get(config, "oauth", "mcpClient", "tokenExchange", "allowPrivateIPTokenEndpointHosts"))
+			hosts := list(get(oauth, "mcpClient", "tokenExchange", "allowPrivateIPTokenEndpointHosts"))
 			expected := c.platform.exchangeTokenEndpointHosts()
 			if len(hosts) != len(expected) {
 				c.t.Fatalf("Muster token endpoint hosts %v, want %v", hosts, expected)
