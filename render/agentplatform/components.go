@@ -70,7 +70,7 @@ func (in *Input) slackSecretKeys() []string {
 // componentSecretFields are the supplied secret values the components need:
 // the Slack app's credentials where the gateway runs.
 func (in *Input) componentSecretFields() []string {
-	if !in.klausGateway() {
+	if !in.slackGateway() {
 		return nil
 	}
 	var fields []string
@@ -171,11 +171,25 @@ func (in *Input) agentManagerSkills() render.Map {
 // Secrets referenced, A2A with the installation's default agent and team
 // reviews as the policy shapes them.
 func (in *Input) klausGatewayValues() render.Map {
+	if !in.slackGateway() {
+		return render.Map{
+			e("routing", render.Map{e("store", "valkey")}),
+			e("slack", render.Map{e("enabled", false)}),
+			e("obo", render.Map{e("enabled", false)}),
+			e("agentgatewayRoute", render.Map{e("enabled", true), e("hostname", in.host("agentgateway")), e("a2aServer", in.a2aRoute())}),
+		}
+	}
 	g := in.Gateway
 	mode := in.slackMode()
 	m := render.Map{e("routing", render.Map{e("store", "valkey")})}
 	if mode == slackEventsMode {
-		m = append(m, e("agentgatewayRoute", render.Map{e("enabled", true), e("hostname", in.host("agentgateway"))}))
+		route := render.Map{e("enabled", true), e("hostname", in.host("agentgateway"))}
+		if in.A2AEntry.Enabled {
+			route = append(route, e("a2aServer", in.a2aRoute()))
+		}
+		m = append(m, e("agentgatewayRoute", route))
+	} else if in.A2AEntry.Enabled {
+		m = append(m, e("agentgatewayRoute", render.Map{e("enabled", true), e("hostname", in.host("agentgateway")), e("a2aServer", in.a2aRoute())}))
 	}
 	slack := render.Map{e("enabled", true), e("mode", mode), e("secretName", klausGatewaySlackSecret),
 		e("dmMode", slackDMMode), e("channelMode", g.Slack.ChannelMode)}
@@ -293,7 +307,7 @@ func (in *Input) clusterManagerNetworkPolicy() render.Map {
 // componentSecrets adds the enabled components' Secrets to the platform
 // extras: the gateway's generated OBO keys and its supplied Slack credentials.
 func (in *Input) componentSecrets(add func(file string, f render.File), secrets map[string]string) {
-	if !in.klausGateway() {
+	if !in.slackGateway() {
 		return
 	}
 	add(klausGatewayOBOSecret+".yaml", render.Secret(klausGatewayOBOSecret, platformNamespace, teamLabels,

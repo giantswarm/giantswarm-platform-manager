@@ -661,6 +661,224 @@
       "additionalProperties": false,
       "description": "The chat gateway's choices, where the fleet policy runs it: the bots whose posts reach an agent's thread context, by ID and by Slack profile name.",
       "properties": {
+        "a2aServer": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "External application entry through upstream JWT authentication and token exchange. Permissions use the existing resource RBAC, including explicit cross-organization sharing.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "x-source": "person",
+              "x-feature": "runtime",
+              "x-readback": {
+                "file": "configmap",
+                "key": "klausGateway.agentgatewayRoute.a2aServer.enabled"
+              },
+              "x-renders": [
+                "configmap:klausGateway.agentgatewayRoute.a2aServer",
+                "dex-configmap:oidc"
+              ],
+              "description": "Enable the authenticated A2A entry. Requires explicit platform RBAC subjects, trusted issuers, staff connectors, and existing exchange Secret references."
+            },
+            "issuers": {
+              "type": "array",
+              "default": [],
+              "x-source": "person",
+              "x-feature": "runtime",
+              "x-requires": "klausGateway.a2aServer.enabled",
+              "description": "Trusted token issuers and their exact audiences, requesting clients and signing-key endpoints.",
+              "x-readback": {
+                "file": "configmap",
+                "key": "klausGateway.agentgatewayRoute.a2aServer.issuers"
+              },
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "issuer",
+                  "audience",
+                  "allowedClients",
+                  "connectorId",
+                  "jwks"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "issuer": {
+                    "type": "string",
+                    "pattern": "^https://"
+                  },
+                  "audience": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "connectorId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "allowedClients": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "jwks": {
+                    "type": "object",
+                    "required": [
+                      "host",
+                      "path"
+                    ],
+                    "properties": {
+                      "host": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "path": {
+                        "type": "string",
+                        "pattern": "^/"
+                      },
+                      "port": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 65535
+                      },
+                      "tls": {
+                        "type": "object",
+                        "properties": {
+                          "enabled": {
+                            "const": true
+                          },
+                          "caSecretName": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "card": {
+                    "type": "object",
+                    "properties": {
+                      "tokenUrl": {
+                        "type": "string"
+                      },
+                      "metadataUrl": {
+                        "type": "string"
+                      },
+                      "openIdConnectUrl": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                }
+              }
+            },
+            "staffConnectors": {
+              "type": "array",
+              "default": [],
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "x-source": "person",
+              "x-feature": "runtime",
+              "x-requires": "klausGateway.a2aServer.enabled",
+              "description": "Connectors permitted for staff and existing interactive clients; excludes the A2A exchange-only connectors.",
+              "x-readback": {
+                "file": "dex-configmap",
+                "key": "oidc.staticClients.muster.allowedConnectors"
+              }
+            },
+            "exchangeSecretRef": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "x-source": "person",
+                  "x-feature": "runtime",
+                  "x-requires": "klausGateway.a2aServer.enabled",
+                  "description": "Existing Secret name.",
+                  "x-readback": {
+                    "file": "configmap",
+                    "key": "klausGateway.agentgatewayRoute.a2aServer.exchange.secretName"
+                  }
+                },
+                "key": {
+                  "type": "string",
+                  "x-source": "person",
+                  "x-feature": "runtime",
+                  "x-requires": "klausGateway.a2aServer.enabled",
+                  "description": "Existing Secret key.",
+                  "x-readback": {
+                    "file": "configmap",
+                    "key": "klausGateway.agentgatewayRoute.a2aServer.exchange.secretKey"
+                  }
+                }
+              }
+            },
+            "applications": {
+              "type": "array",
+              "default": [],
+              "x-source": "person",
+              "x-feature": "runtime",
+              "x-requires": "klausGateway.a2aServer.enabled",
+              "description": "Application identities using client_credentials. The person creates their Dex Secret values; these identities do not represent end users.",
+              "x-readback": {
+                "file": "dex-configmap",
+                "key": "oidc.extraStaticClients",
+                "kind": "a2a-applications"
+              },
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "name",
+                  "secretRef"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "secretRef": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "name",
+                      "key"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "key": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "slack": {
           "type": "object",
           "additionalProperties": false,

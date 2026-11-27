@@ -641,6 +641,9 @@ func (in *Input) dexPatch() render.Map {
 	}
 	oidc = append(oidc, render.ConnectorsByOwner(in.HubConnectors, in.Installation.Name, in.Installation.BaseDomain)...)
 	patch := render.Map{e("oidc", oidc)}
+	if in.A2AEntry.Enabled {
+		in.a2aDexPatch(&patch)
+	}
 	if mounts := render.TunnelDexValues(in.HubConnectors); mounts != nil {
 		patch = append(patch, e("dex", mounts))
 	}

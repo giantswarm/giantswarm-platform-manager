@@ -101,6 +101,7 @@ const (
 // registry and the repositories), the fleet policy (policy.yaml) applied to
 // it, and the choices a person makes. The renderer reads nothing else.
 type Input struct {
+	A2AEntry A2AEntry
 	// withoutLogins are the targets whose federation login pair a render
 	// without deferred pairs leaves out (render.Result.WithoutPairs).
 	withoutLogins []string
@@ -720,7 +721,8 @@ type document struct {
 		GitHub  managerGitHubChoice `json:"github"`
 	} `json:"skillManager"`
 	KlausGateway struct {
-		Slack struct {
+		A2AServer A2AEntry `json:"a2aServer"`
+		Slack     struct {
 			ContextBotIDs          []ContextBot `json:"contextBotIDs"`
 			ContextBotIDsComment   string       `json:"contextBotIDsComment"`
 			ContextBotNames        []ContextBot `json:"contextBotNames"`
@@ -935,6 +937,8 @@ func Parse(raw any) (*Input, error) {
 		AgentManagerSkills: d.AgentManager.Skills, SkillManagerSources: d.SkillManager.Sources, SkillManagerAppSecret: d.SkillManager.GitHub.App.SecretName, DefaultAgent: d.DefaultAgent, AgentManagerTokenExchange: d.AgentManager.GitHub.TokenExchange.Enabled, AgentManagerCredentialUI: d.AgentManager.Credentials.UIURL, Versions: d.Versions, ContextBots: d.KlausGateway.Slack.ContextBotIDs, ContextBotsComment: d.KlausGateway.Slack.ContextBotIDsComment, ContextBotNames: d.KlausGateway.Slack.ContextBotNames, ContextBotNamesComment: d.KlausGateway.Slack.ContextBotNamesComment, SlashCommand: d.KlausGateway.Slack.SlashCommand, SlashCommandComment: d.KlausGateway.Slack.SlashCommandComment, Gateway: pol.gateway(d.Installation), Teleport: pol.Federation.Teleport, SourceInterval: pol.Flux.SourceInterval,
 		ReleaseCandidates: pol.releaseCandidates(d.Installation)}
 	in.ClusterManagerTokenExchange = d.ClusterManager.GitHub.TokenExchange.Enabled
+	in.A2AEntry = d.KlausGateway.A2AServer
+	slices.SortFunc(in.A2AEntry.Applications, func(left, right A2AApplication) int { return strings.Compare(left.ID, right.ID) })
 	in.ModelManagerTokenExchange = d.ModelManager.GitHub.TokenExchange.Enabled
 	in.SkillManagerTokenExchange = d.SkillManager.GitHub.TokenExchange.Enabled
 	if in.Components, err = pol.components(in.Installation); err != nil {
@@ -1030,6 +1034,9 @@ func describe(field string) string { return render.Describe("agent-platform", fi
 // checkRecord refuses a record the definition cannot render as it stands:
 // one sentence naming the fact, what is wrong with it and what supplies it.
 func (in *Input) checkRecord() error {
+	if err := in.checkA2AEntry(); err != nil {
+		return err
+	}
 	if !readableHold(in.Versions.Chart) {
 		return refuse(fmt.Sprintf("%s is %q, which is neither a version nor a semver range; Flux cannot resolve the meta chart from it", describe("versions.chart"), in.Versions.Chart))
 	}
@@ -1113,13 +1120,13 @@ func (in *Input) checkRecord() error {
 	if len(in.LLMRateLimits) > 0 && !in.kagent() {
 		return refuse(fmt.Sprintf("%s bound the LLM listener, and the fleet policy runs no kagent on %s's installations, so no listener is rendered", describe("llmRouting.rateLimits"), in.Installation.Customer))
 	}
-	if len(in.ContextBots) > 0 && !in.klausGateway() {
+	if len(in.ContextBots) > 0 && !in.slackGateway() {
 		return refuse(fmt.Sprintf("%s names the bots whose posts reach the chat gateway's thread context, and the fleet policy names no Slack app for %s, so no gateway runs there", describe("klausGateway.slack.contextBotIDs"), in.Installation.Name))
 	}
-	if len(in.ContextBotNames) > 0 && !in.klausGateway() {
+	if len(in.ContextBotNames) > 0 && !in.slackGateway() {
 		return refuse(fmt.Sprintf("%s names the bots whose posts reach the chat gateway's thread context, and the fleet policy names no Slack app for %s, so no gateway runs there", describe("klausGateway.slack.contextBotNames"), in.Installation.Name))
 	}
-	if in.SlashCommand != "" && !in.klausGateway() {
+	if in.SlashCommand != "" && !in.slackGateway() {
 		return refuse(fmt.Sprintf("%s names the slash command of the chat gateway's Slack app, and the fleet policy names no Slack app for %s, so no gateway runs there", describe("klausGateway.slack.slashCommand"), in.Installation.Name))
 	}
 	if in.AgentManagerSkills.set() && !in.agentManager() {
@@ -1195,7 +1202,8 @@ func (in *Input) hasPrivateTarget() bool {
 
 func (in *Input) kagent() bool         { return in.Components[componentKagent] }
 func (in *Input) agentManager() bool   { return in.Components[componentAgentManager] }
-func (in *Input) klausGateway() bool   { return in.Components[componentKlausGateway] }
+func (in *Input) klausGateway() bool   { return in.slackGateway() || in.A2AEntry.Enabled }
+func (in *Input) slackGateway() bool   { return in.Components[componentKlausGateway] }
 func (in *Input) clusterManager() bool { return in.Components[componentClusterManager] }
 func (in *Input) modelManager() bool   { return in.Installation.ChartLine == lineFour }
 

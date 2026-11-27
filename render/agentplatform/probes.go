@@ -72,6 +72,9 @@ func (in *Input) probes() []render.Probe {
 			Status: 401, Note: "agent-manager's REST API on the gateway refuses a call without the person's token",
 		}))
 	}
+	if in.A2AEntry.Enabled {
+		p = append(p, httpProbe("live-a2a-entry", featureRuntime, "https://"+in.host("agentgateway")+"/a2a", render.Expectation{Status: 401}))
+	}
 	p = append(p, httpProbe("live-muster-protected-resource", featureToolAccess, "https://"+in.host("muster")+"/.well-known/oauth-protected-resource", render.Expectation{
 		Status: 200, BodyContains: `"resource":"https://` + in.host("muster") + `/mcp"`,
 	}))
