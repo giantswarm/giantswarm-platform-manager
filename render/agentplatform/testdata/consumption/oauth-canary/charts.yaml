@@ -4,4 +4,4 @@ charts:
     version: 5.66.2
   - name: mcp-kubernetes
     registry: gsoci.azurecr.io/charts/giantswarm/mcp-kubernetes
-    version: 1.16.0
+    version: 1.17.3
