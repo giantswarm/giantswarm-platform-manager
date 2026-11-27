@@ -329,7 +329,7 @@ func TestDefaults(t *testing.T) {
 			boardRoadmap: map[string]any{"board": boardRoadmap, "teams": []any{}}},
 		"clusterManager": map[string]any{keyGitHub: map[string]any{grantExchangeField: map[string]any{keyEnabled: false}}},
 		"modelManager":   map[string]any{keyGitHub: map[string]any{grantExchangeField: map[string]any{keyEnabled: false}}},
-		"klausGateway":   map[string]any{"slack": map[string]any{"contextBotIDs": []any{}, "contextBotIDsComment": "", "contextBotNames": []any{}, "contextBotNamesComment": "", "slashCommand": "", "slashCommandComment": ""}},
+		"klausGateway":   map[string]any{"a2aServer": map[string]any{"enabled": false, "issuers": []any{}, "staffConnectors": []any{}, "applications": []any{}}, "slack": map[string]any{"contextBotIDs": []any{}, "contextBotIDsComment": "", "contextBotNames": []any{}, "contextBotNamesComment": "", "slashCommand": "", "slashCommandComment": ""}},
 		"agentManager":   map[string]any{keyCredentials: map[string]any{keyCredentialUI: ""}, keyGitHub: map[string]any{grantExchangeField: map[string]any{keyEnabled: false}}, keySkills: map[string]any{keyRepositories: []any{}, keyGitHub: map[string]any{keyApp: map[string]any{"secretName": ""}}, "gitAuthSecretName": "", "mintGitAuthSecret": false}},
 		"defaultAgent":   map[string]any{keyEnabled: true, "modelConfig": ""},
 		"skillManager":   map[string]any{"sources": []any{}, keyGitHub: map[string]any{grantExchangeField: map[string]any{keyEnabled: false}, keyApp: map[string]any{"secretName": ""}}},

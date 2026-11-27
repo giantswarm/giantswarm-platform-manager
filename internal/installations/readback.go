@@ -51,7 +51,8 @@ const (
 	// value and the comment on its line, the marker stripped: a list of
 	// {value, comment} (EntryValue, EntryComment), comment empty where the
 	// entry carries none.
-	ReadBackEntries = "entries"
+	ReadBackEntries         = "entries"
+	ReadBackA2AApplications = "a2a-applications"
 )
 
 // The fields of an entry an entries kind reads back: the scalar's value and
@@ -436,6 +437,14 @@ func readBack(ctx context.Context, read Reader, inst Installation, portalHost st
 			found = !skip.MatchString(fmt.Sprint(v))
 		}
 		switch kind {
+		case ReadBackA2AApplications:
+			if found {
+				applications, err := readA2AApplications(v)
+				if err != nil {
+					return fmt.Errorf("read back %s: %w", input, err)
+				}
+				out[input] = applications
+			}
 		case ReadBackValue, ReadBackHost, ReadBackComment, ReadBackEntries:
 			if found {
 				out[input] = v
