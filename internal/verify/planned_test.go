@@ -12,6 +12,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // The patches of an invented installation the planned keys are tried on.
@@ -92,7 +93,7 @@ func TestEveryMigrationKeyIsRendered(t *testing.T) {
 // what stands beside them — another client, the portal's own files, another
 // Component — is no migration's, and the removals come first as everywhere.
 func TestFleetAdditionsArePlanned(t *testing.T) {
-	const m5, m30, m32, m33 = "M5", "M30", "M32", "M33"
+	const m3, m5, m30, m32, m33 = "M3", "M5", "M30", "M32", "M33"
 	keys := func(capability string) (plannedKeys, plannedKeys) {
 		rs, err := definitions.Removals(capability)
 		if err != nil {
@@ -129,6 +130,14 @@ func TestFleetAdditionsArePlanned(t *testing.T) {
 		{"the portal's Dex client Secret", portalRms, portalMigs, portalFile("backstage/dex-client-backstage-secret.enc.yaml"), absent(""), "the Secret dex-client-backstage", m33},
 		{"a leaf of the user secrets", portalRms, portalMigs, portalFile("backstage/user-secrets.enc.yaml"), absent("stringData.values"), "Secret user-secrets-backstage", m33},
 		{"a leaf of the plugin keys", portalRms, portalMigs, portalFile("backstage/plugin-keys-secret.enc.yaml"), absent("apiVersion"), "Secret plugin-keys-backstage", m33},
+		{"the plugin key store's type", portalRms, portalMigs, portalFile("backstage/app-config.yaml"), absent("backend.auth.pluginKeyStore.type"), "backend.auth.pluginKeyStore", m33},
+		{"the plugin key store's signing key", portalRms, portalMigs, portalFile("backstage/app-config.yaml"), absent("backend.auth.pluginKeyStore.static.keys[0].privateKeyFile"), "backend.auth.pluginKeyStore", m33},
+		{"a changed plugin key store", portalRms, portalMigs, portalFile("backstage/app-config.yaml"), &Difference{Path: "backend.auth.pluginKeyStore.type", Current: "database", Rendered: "static"}, "", ""},
+		{"another backend auth key", portalRms, portalMigs, portalFile("backstage/app-config.yaml"), absent("backend.auth.other"), "", ""},
+		{"the avatars environment variable's name", portalRms, portalMigs, portalFile("backstage/user-values.yaml"), absent("backstage.extraEnvVars[BACKSTAGE_AVATARS_IMG_SRC].name"), "BACKSTAGE_AVATARS_IMG_SRC", m3},
+		{"the avatars environment variable's value", portalRms, portalMigs, portalFile("backstage/user-values.yaml"), absent("backstage.extraEnvVars[BACKSTAGE_AVATARS_IMG_SRC].value"), "BACKSTAGE_AVATARS_IMG_SRC", m3},
+		{"a changed avatars host", portalRms, portalMigs, portalFile("backstage/user-values.yaml"), &Difference{Path: "backstage.extraEnvVars[BACKSTAGE_AVATARS_IMG_SRC].value", Current: "https://avatars.other.example.test", Rendered: "https://avatars.x.example.test"}, "", ""},
+		{"another environment variable", portalRms, portalMigs, portalFile("backstage/user-values.yaml"), absent("backstage.extraEnvVars[OTHER].value"), "", ""},
 		{"the Dex client Secret's kustomization entry", portalRms, portalMigs, portalFile("backstage/kustomization.yaml"), absent("resources[dex-client-backstage-secret.enc.yaml]"), "lists the Secret dex-client-backstage", m33},
 		{"the user secrets' kustomization entry", portalRms, portalMigs, portalFile("backstage/kustomization.yaml"), absent("resources[user-secrets.enc.yaml]"), "lists the Secret user-secrets-backstage", m33},
 		{"the plugin keys' kustomization entry", portalRms, portalMigs, portalFile("backstage/kustomization.yaml"), absent("resources[plugin-keys-secret.enc.yaml]"), "lists the Secret plugin-keys-backstage", m33},
@@ -630,5 +639,38 @@ func TestModelKeysAreTheM43Removal(t *testing.T) {
 	}
 	if got := rms.reason(fd, "tenants.organizations.enabled"); !strings.HasPrefix(got, "Removed: tenants.organizations") {
 		t.Errorf("tenants.organizations.enabled: reason %q", got)
+	}
+}
+
+// The hub's kagent tunnel to a private target, which the render no longer
+// carries, is the M47 removal on the hub's RemoteApps, on teleport-fleet's
+// tunnelport values and on the target's oauth2-proxy peer; the agentgateway
+// tunnel beside it is nobody's removal.
+func TestKagentTunnelIsTheM47Removal(t *testing.T) {
+	rs, err := definitions.Removals(installations.AgentPlatform)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rms := readRemovals(rs, facts{factDomain: testDomain})
+	apps := &fileDiff{path: "management-clusters/x/extras/agent-platform/tunnelport/remoteapps.yaml", kind: definitions.KindExtras}
+	patch := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
+	tunnels := &fileDiff{path: render.TunnelportValuesPath, kind: definitions.KindExtras}
+	for _, tc := range []struct {
+		fd         *fileDiff
+		path, says string
+	}{
+		{apps, "[RemoteApp/agent-platform/kagent-glean].spec.port", "the RemoteApp kagent-glean tunnels this hub to the glean installation's kagent UI"},
+		{tunnels, "tunnelport.tunnels[kagent-glean].tokens[kagent-glean-bot-token].consumer", "teleport-fleet's tunnel kagent-glean carries this hub's token"},
+		{patch, "kagent.oauth2ProxyIngress.additionalPeers[0].app", "the kagent UI's oauth2-proxy admits the Teleport agent"},
+	} {
+		if got := rms.reason(tc.fd, tc.path); !strings.Contains(got, tc.says) || !strings.HasSuffix(got, "· M47") {
+			t.Errorf("%s: reason %q, want one naming %q tagged M47", tc.path, got, tc.says)
+		}
+	}
+	if got := rms.reason(apps, "[RemoteApp/agent-platform/agentgateway-glean].spec.port"); got != "" {
+		t.Errorf("the agentgateway RemoteApp is planned %q, want none", got)
+	}
+	if got := rms.reason(tunnels, "tunnelport.tunnels[agentgateway-glean].tokens[agentgateway-glean-bot-token].consumer"); got != "" {
+		t.Errorf("the agentgateway tunnel is planned %q, want none", got)
 	}
 }

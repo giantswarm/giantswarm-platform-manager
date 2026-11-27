@@ -72,7 +72,7 @@ func TestKeepAudiencesKeepsEachListsOwnEntriesAfterTheRenders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Kept{{ListTrustedAudiences, "local-dev-client"}, {ListTrustedAudiences, sharedID}, {ListExtraAudience, "extra-only"}, {ListExtraAudience, sharedID}, {ListEdgeAudiences, "edge-only"}}
+	want := []Kept{{List: ListTrustedAudiences, Entry: "local-dev-client"}, {List: ListTrustedAudiences, Entry: sharedID}, {List: ListExtraAudience, Entry: "extra-only"}, {List: ListExtraAudience, Entry: sharedID}, {List: ListEdgeAudiences, Entry: "edge-only"}}
 	if !slices.Equal(kept, want) {
 		t.Fatalf("kept %v, want %v", kept, want)
 	}
@@ -102,7 +102,7 @@ func TestKeepAudiencesMergesAHandWrittenListOfExtraAudiencesAsASet(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(kept, []Kept{{ListExtraAudience, "list-client"}}) || !strings.Contains(string(got), "oidc-extra-audience: dex-k8s-authenticator,kagent,portal-client,backstage,list-client # gitleaks:allow\n") {
+	if !slices.Equal(kept, []Kept{{List: ListExtraAudience, Entry: "list-client"}}) || !strings.Contains(string(got), "oidc-extra-audience: dex-k8s-authenticator,kagent,portal-client,backstage,list-client # gitleaks:allow\n") {
 		t.Errorf("kept %v:\n%s", kept, got)
 	}
 }
@@ -130,7 +130,7 @@ func TestKeepAudiencesKeepsNothingIntoAListTheRenderLacks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(kept, []Kept{{ListTrustedAudiences, "local-dev-client"}, {ListTrustedAudiences, "portal-client"}, {ListTrustedAudiences, sharedID}}) || strings.Contains(string(got), "kagent") || strings.Contains(string(got), "edge-only") {
+	if !slices.Equal(kept, []Kept{{List: ListTrustedAudiences, Entry: "local-dev-client"}, {List: ListTrustedAudiences, Entry: "portal-client"}, {List: ListTrustedAudiences, Entry: sharedID}}) || strings.Contains(string(got), "kagent") || strings.Contains(string(got), "edge-only") {
 		t.Errorf("kept %v:\n%s", kept, got)
 	}
 }
@@ -151,7 +151,7 @@ func TestKeepDexPatchKeepsTheInstallationsOwnTrustedPeers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(kept, []Kept{{ListTrustedPeers, "peer-only"}}) {
+	if !slices.Equal(kept, []Kept{{List: ListTrustedPeers, Entry: "peer-only"}}) {
 		t.Fatalf("kept %v", kept)
 	}
 	s := string(got)
@@ -179,7 +179,7 @@ func TestKeepAudiencesKeepsTheRecordsTrustedIssuersByIssuer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []Kept{{ListTrustedIssuers, "https://dex.otter.example"}, {ListTrustedIssuers, "https://irsa.otter.example"}}; !slices.Equal(kept, want) {
+	if want := []Kept{{List: ListTrustedIssuers, Entry: "https://dex.otter.example"}, {List: ListTrustedIssuers, Entry: "https://irsa.otter.example"}}; !slices.Equal(kept, want) {
 		t.Fatalf("kept %v, want %v", kept, want)
 	}
 	s := string(got)

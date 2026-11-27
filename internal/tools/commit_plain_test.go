@@ -9,6 +9,9 @@ import (
 	"github.com/giantswarm/gitops-commit/sopsenc"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // A repository without a .sops.yaml — teleport-fleet, whose tunnelport
@@ -42,5 +45,41 @@ func TestEncryptRefusesAGeneratedValueWithoutSopsConfig(t *testing.T) {
 	_, err := encrypt("giantswarm/teleport-fleet", tg)
 	if err == nil || !strings.Contains(err.Error(), SopsConfig) || !strings.Contains(err.Error(), "token.yaml") || !errors.Is(err, gh.ErrNotFound) {
 		t.Fatalf("a generated value without recipients is refused naming the file and %s, got %v", SopsConfig, err)
+	}
+}
+
+// The commit writes what the plan changes beyond the render: the file a
+// removal of kind deleted-file deletes, taken out of the tree, and the
+// kustomization on record it is unlisted from, written as the plan has it.
+// A rendered file and an include's kustomization take their own paths; an
+// unchanged file is not written.
+func TestCommitCarriesTheFilesThePlanDeletes(t *testing.T) {
+	const (
+		repo          = "acme/management-clusters"
+		dir           = "management-clusters/rowan/extras/agent-platform/secrets/"
+		kustomization = dir + "kustomization.yaml"
+		old           = dir + "old-credentials.yaml"
+		extras        = "management-clusters/rowan/extras/kustomization.yaml"
+	)
+	inst := installations.Installation{Name: "rowan", Customer: stAcme, Repositories: installations.Repositories{Configs: "acme/configs", ManagementClusters: repo}}
+	rendered := render.Fileset{"giantswarm/acme-management-clusters": {dir + "new-credentials.yaml": {}}}
+	p := plan.Installation{Name: "rowan", Files: []plan.File{
+		{Repository: repo, Path: dir + "new-credentials.yaml", Change: plan.ChangeUpdate},
+		{Repository: repo, Path: extras, Change: plan.ChangeUpdate},
+		{Repository: repo, Path: kustomization, Change: plan.ChangeUpdate, Content: "resources:\n  - new-credentials.yaml\n"},
+		{Repository: repo, Path: old, Change: plan.ChangeDelete},
+		{Repository: repo, Path: dir + "same.yaml", Change: plan.ChangeUnchanged},
+	}, Includes: []plan.Include{{Repository: repo, Path: extras, List: plan.ListResources, Resource: "./agent-platform/"}}}
+	got := unrendered(p, rendered, inst, installations.Installation{})
+	if len(got) != 2 || got[0].Path != kustomization || got[1].Path != old {
+		t.Fatalf("written beyond the render: %+v", got)
+	}
+	tg := &target{noSops: gh.ErrNotFound, exists: map[string]bool{}, files: []sopsenc.File{{Path: kustomization, Content: []byte(got[0].Content)}}, deletes: []string{old}}
+	out, err := encrypt(repo, tg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c, ok := out[old]; !ok || c != nil || string(out[kustomization]) != got[0].Content {
+		t.Errorf("the deleted file is not taken out of the tree, or the kustomization not written as planned: %q", out)
 	}
 }

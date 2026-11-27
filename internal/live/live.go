@@ -25,6 +25,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -32,6 +33,8 @@ import (
 	"time"
 
 	"github.com/giantswarm/mcp-oauth/providers/oidc"
+	"github.com/giantswarm/mcp-toolkit/urlelicitation"
+	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/aggregator"
@@ -56,19 +59,16 @@ type Config struct {
 	// (the JWKS client refuses anything else on every fetch), so a plain-http
 	// URL is refused here, at start-up, instead of on every token.
 	JWKSURL string
-	// AllowPrivateIPJWKS lets the issuer's discovery document or its key set
-	// be read from a private address (an in-cluster Dex): the SSRF guard's
-	// allowance, not the transport's.
-	AllowPrivateIPJWKS bool
-	// CAFile is a PEM bundle the issuer's certificate chains to; empty is
-	// the system trust.
-	CAFile string
+	// HTTPClient reads the discovery document and the key set; required.
+	// NewHTTPClient builds the one that guards every address but the
+	// issuer's and the JWKS URL's hosts.
+	HTTPClient *http.Client
 	// MusterURL is muster's own MCP endpoint as reached from the pod: where
 	// the loop-back session goes.
 	MusterURL string
 	// KubernetesFamily is the muster family (or singleton server name) the
 	// installations' kubernetes tools are aggregated under: the tools are
-	// x_<family>_get, _list, _logs and _api_resources. KubernetesInstanceArg is the family's
+	// x_<family>_get, _list and _api_resources. KubernetesInstanceArg is the family's
 	// argument that selects the member; empty for a singleton.
 	// KubernetesMember names the member that serves an installation, as
 	// muster names the server: a text/template over {{ .Installation }}
@@ -124,10 +124,35 @@ func (c Config) Validate() error {
 	}
 	if c.JWKSURL != "" {
 		if u, err := url.Parse(c.JWKSURL); err != nil || u.Host == "" || u.Scheme != "https" {
-			return fmt.Errorf("live: JWKS URL must be an absolute https:// URL, got %q: the key set is read over TLS only — name an in-cluster identity provider by the Service name its certificate carries, with the private-IP allowance for the address and the CA file for its CA", c.JWKSURL)
+			return fmt.Errorf("live: JWKS URL must be an absolute https:// URL, got %q: the key set is read over TLS only — name an in-cluster identity provider by the Service name its certificate carries, with the CA file for its CA", c.JWKSURL)
 		}
 	}
 	return nil
+}
+
+// NewHTTPClient is the client that reads the discovery document and the key
+// set: the issuer's host and the JWKS URL's host may resolve to an RFC 1918
+// or RFC 4193 address (an in-cluster Dex); every other host, and loopback or
+// link-local for these, stays refused by the SSRF guard. caFile is a PEM
+// bundle the issuer's certificate chains to; empty is the system trust.
+func NewHTTPClient(issuer, jwksURL, caFile string) (*http.Client, error) {
+	pool, err := rootCAs(caFile)
+	if err != nil {
+		return nil, fmt.Errorf("live: %w", err)
+	}
+	return oidc.NewHostScopedPrivateIPHTTPClient(privateIPHosts(issuer, jwksURL), oidc.DefaultHTTPTimeout, pool), nil
+}
+
+// privateIPHosts are the hosts the discovery document and the key set may be
+// read from at a private address: the issuer's and the JWKS URL's.
+func privateIPHosts(issuer, jwksURL string) []string {
+	var hosts []string
+	for _, raw := range []string{issuer, jwksURL} {
+		if u, err := url.Parse(raw); err == nil && u.Hostname() != "" && !slices.Contains(hosts, u.Hostname()) {
+			hosts = append(hosts, u.Hostname())
+		}
+	}
+	return hosts
 }
 
 // audiences is the configured list, normalized.
@@ -186,24 +211,19 @@ func New(cfg Config, log *slog.Logger) (*Client, error) {
 	if log == nil {
 		log = slog.Default()
 	}
-	pool, err := rootCAs(cfg.CAFile)
-	if err != nil {
-		return nil, fmt.Errorf("live: %w", err)
+	if cfg.HTTPClient == nil {
+		return nil, errors.New("live: an HTTP client for the discovery document and the key set is required")
 	}
-	var hc *http.Client
-	if cfg.AllowPrivateIPJWKS {
-		hc = oidc.NewPrivateIPAllowedHTTPClient(oidc.DefaultHTTPTimeout, pool)
-	} else {
-		hc = oidc.NewSSRFSafeHTTPClient(oidc.DefaultHTTPTimeout, pool)
-	}
-	c := &Client{cfg: cfg, log: log, http: hc, jwksURL: cfg.JWKSURL, sessions: map[string]*session{},
-		jwks: oidc.NewJWKSClientWithOptions(oidc.JWKSClientOptions{HTTPClient: hc, AllowPrivateIP: cfg.AllowPrivateIPJWKS, RootCAs: pool, Logger: log})}
+	hosts := privateIPHosts(cfg.Issuer, cfg.JWKSURL)
+	c := &Client{cfg: cfg, log: log, http: cfg.HTTPClient, jwksURL: cfg.JWKSURL, sessions: map[string]*session{},
+		jwks: oidc.NewJWKSClientWithOptions(oidc.JWKSClientOptions{HTTPClient: cfg.HTTPClient, AllowPrivateIPHosts: hosts, Logger: log})}
 	if cfg.KubernetesInstanceArg != "" {
+		var err error
 		if c.member, err = memberTemplate(cfg.KubernetesMember); err != nil {
 			return nil, err
 		}
 	}
-	log.Info("live reads enabled", "issuer", cfg.Issuer, "audiences", cfg.Audiences, "jwks", cfg.JWKSURL, "muster", cfg.MusterURL, "kubernetesFamily", cfg.KubernetesFamily, "instanceArg", cfg.KubernetesInstanceArg, "member", cfg.KubernetesMember)
+	log.Info("live reads enabled", "issuer", cfg.Issuer, "audiences", cfg.Audiences, "jwks", cfg.JWKSURL, "privateIPHosts", hosts, "muster", cfg.MusterURL, "kubernetesFamily", cfg.KubernetesFamily, "instanceArg", cfg.KubernetesInstanceArg, "member", cfg.KubernetesMember)
 	return c, nil
 }
 
@@ -255,7 +275,11 @@ func (c *Client) Verify(ctx context.Context, token string) (*identity.Identity, 
 	if claims.Subject == "" {
 		return nil, errors.New("the token names no subject")
 	}
-	return &identity.Identity{Subject: claims.Subject, Email: claims.Email}, nil
+	party := claims.AuthorizedParty
+	if party == "" && len(claims.Audience) == 1 {
+		party = claims.Audience[0]
+	}
+	return &identity.Identity{Subject: claims.Subject, Email: claims.Email, Issuer: claims.Issuer, Client: party}, nil
 }
 
 // keySet is the JWKS URL: configured, or read once from the issuer's
@@ -353,7 +377,6 @@ type cluster struct {
 const (
 	opGet          = "get"
 	opList         = "list"
-	opLogs         = "logs"
 	opAPIResources = "api_resources"
 )
 
@@ -402,7 +425,13 @@ func (k *cluster) call(ctx context.Context, op string, args map[string]any) (str
 		args[k.c.cfg.KubernetesInstanceArg] = member
 	}
 	name := k.tool(op)
-	do := func() (*mcp.CallToolResult, error) { return k.s.s.Call(ctx, name, args) }
+	relay := relayFrom(ctx)
+	target := callTarget(name, args)
+	callCtx, roundTrip := ctx, mcp.MultiRoundTripParams{}
+	if relay != nil {
+		callCtx, roundTrip = client.WithRequestClientCapabilities(ctx, urlElicitation), relay.answer(target)
+	}
+	do := func() (*mcp.CallToolResult, error) { return k.s.s.Answer(callCtx, name, args, roundTrip) }
 	res, err := callPaced(ctx, do)
 	if toolNotFound(res, err) {
 		// muster does not list the tool for this session yet (the fan-out
@@ -415,6 +444,16 @@ func (k *cluster) call(ctx context.Context, op string, args map[string]any) (str
 	}
 	if err != nil {
 		return "", err
+	}
+	if res.NeedsInput() {
+		relayed, err := urlelicitation.FromInputRequired(res)
+		if err != nil {
+			return "", fmt.Errorf("muster: %s: %w", name, err)
+		}
+		if relay != nil {
+			relay.record(target, relayed)
+		}
+		return "", &verify.AuthRequired{Server: k.c.KubernetesServer(k.installation), URL: relayed.URL, Message: "auth_required: " + relayed.Message}
 	}
 	text := aggregator.TextOf(res)
 	if res.IsError {
@@ -534,6 +573,10 @@ var (
 	// could not find the requested resource" are refusals of the read, not
 	// an object that does not exist.
 	objectNotFoundRe = regexp.MustCompile(`"[^"]+" not found`)
+	// noServerRe is muster's refusal of a family's tool for a member it does
+	// not register for the session (`tool x_kubernetes_get is not available
+	// on server "rowan-mcp-kubernetes" (available: …)`).
+	noServerRe = regexp.MustCompile(`tool \S+ is not available on server "([^"]+)"`)
 )
 
 // classify maps a tool's refusal to the verify's errors: muster's
@@ -546,6 +589,9 @@ var (
 func classify(text string) error {
 	if tl := tooLarge(text); tl != nil {
 		return tl
+	}
+	if m := noServerRe.FindStringSubmatch(text); m != nil {
+		return &verify.NoServer{Server: m[1]}
 	}
 	switch {
 	case toolNotFoundText(text):
@@ -709,11 +755,6 @@ func generationArgs(namespace, resource, name string, generation int64) map[stri
 	args["filter"] = map[string]any{"metadata.generation": strconv.FormatInt(generation, 10)}
 	args["limit"] = 1
 	return args
-}
-
-// Logs reads a pod's log, the last tail lines (mcp-kubernetes takes 1 to 1000).
-func (k *cluster) Logs(ctx context.Context, namespace, pod string, tail int) (string, error) {
-	return k.call(ctx, opLogs, map[string]any{"namespace": namespace, "podName": pod, "tailLines": tail})
 }
 
 // Serves discovers whether the apiserver serves the resource of the group at

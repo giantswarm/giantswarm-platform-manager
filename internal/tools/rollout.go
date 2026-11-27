@@ -111,13 +111,20 @@ func plannedOf(res verify.Result, ch verify.Check) []verify.Difference {
 	return out
 }
 
-// liveChecks are every check of the live dimensions of res.
+// liveChecks are every check of the live dimensions of res but those not
+// checked by design (verify.NotCheckedByDesign): no read is missing there,
+// so the proof waits for none.
 func liveChecks(res verify.Result) []verify.Check {
 	var out []verify.Check
 	for _, f := range res.Features {
 		for _, d := range f.Dimensions {
-			if d.Live != nil {
-				out = append(out, d.Live.Checks...)
+			if d.Live == nil {
+				continue
+			}
+			for _, c := range d.Live.Checks {
+				if !verify.NotCheckedByDesign(c) {
+					out = append(out, c)
+				}
 			}
 		}
 	}
@@ -190,7 +197,7 @@ func releaseWaits(ctx context.Context, c *gh.Client, def installations.Capabilit
 	var waits []rolloutWait
 	for _, k := range merged {
 		pr := prs[k]
-		changed, after, err := changesValues(ctx, c, def, pr)
+		changed, after, err := changesValues(ctx, c, def, st.Name, pr)
 		if err != nil {
 			return nil, err
 		}
@@ -417,7 +424,7 @@ func writtenAs(def installations.Capability, written map[string]string, d verify
 // when its YAML before and after differs. A file rewritten with the same
 // values — a comment or the layout — composes the same values, and Flux
 // runs no release for it.
-func changesValues(ctx context.Context, c *gh.Client, def installations.Capability, pr actions.PullRequest) (bool, string, error) {
+func changesValues(ctx context.Context, c *gh.Client, def installations.Capability, installation string, pr actions.PullRequest) (bool, string, error) {
 	if pr.MergeCommit == "" {
 		return false, "", fmt.Errorf("%s#%d: GitHub names no merge commit", pr.Repository, pr.Number)
 	}
@@ -430,7 +437,7 @@ func changesValues(ctx context.Context, c *gh.Client, def installations.Capabili
 		return false, "", err
 	}
 	for _, f := range change.Files {
-		if !strings.HasSuffix(f.Path, verify.ValuesSuffix(def.Name)) {
+		if f.Path != "installations/"+installation+verify.ValuesSuffix(def.Name) {
 			continue
 		}
 		if f.Blob == "" {
@@ -447,9 +454,7 @@ func changesValues(ctx context.Context, c *gh.Client, def installations.Capabili
 		if err != nil {
 			return false, "", err
 		}
-		if !sameDocuments(before, after) {
-			return true, after, nil
-		}
+		return !sameDocuments(before, after), after, nil
 	}
 	return false, "", nil
 }
@@ -559,7 +564,7 @@ func waitLines(waits []rolloutWait) []string {
 // NotFound says so; a read that fails or is not possible answers none, and
 // the first watch's recordBaselines then reads the history after the merge.
 func (t *Tools) runningReleases(ctx context.Context, a *actions.Action, installation string) []actions.ReleaseBaseline {
-	def, ok := installations.FindCapability(a.Spec.Capability)
+	def, ok := installations.FindCapability(a.CapabilityOf(installation))
 	if !ok {
 		return nil
 	}

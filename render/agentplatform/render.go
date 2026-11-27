@@ -461,6 +461,10 @@ func (in *Input) musterValues() render.Map {
 		e("existingSecret", musterOAuthSecret),
 		e("storage", render.Map{e("valkey", render.Map{e("existingSecret", musterValkeySecret)})}),
 	}
+	dex := render.Map{}
+	if in.IdentityCheckConnectors != nil {
+		dex = append(dex, e("identityCheckConnectors", in.IdentityCheckConnectors))
+	}
 	// Dex and the chat gateway's client_id (a metadata document served on
 	// agentgateway's hostname) both resolve to the internal load balancer on
 	// a private installation: muster's SSRF guard is lifted for Dex's OIDC
@@ -471,10 +475,19 @@ func (in *Input) musterValues() render.Map {
 	// ingress alone is private, so the record's private fact renders it here
 	// like its siblings.
 	if in.Installation.Private {
+		if in.klausGateway() {
+			base := "https://" + in.host("agentgateway")
+			client := render.ClientMetadata{ClientID: base + "/auth/slack/client.json", ClientName: "klaus-gateway", ClientURI: "https://github.com/giantswarm/klaus-gateway", RedirectURIs: []string{base + "/auth/slack/callback"}}
+			server = append(server, e("preRegisteredClientMetadata", []render.Map{client.Map()}))
+		}
+		dex = append(dex, e("allowPrivateIPOIDC", true))
 		server = append(server,
-			e("dex", render.Map{e("allowPrivateIPOIDC", true)}),
+			e("dex", dex),
 			e("allowPrivateIPClientMetadataHosts", []string{in.host("agentgateway")}),
 			e("allowPrivateIPRedirectURIs", true))
+	}
+	if !in.Installation.Private && len(dex) > 0 {
+		server = append(server, e("dex", dex))
 	}
 	server = append(server, e("trustedAudiences", in.musterAudiences()))
 	if in.portalGitHub() || in.hasManagerGrantExchange() {
@@ -612,7 +625,11 @@ func (in *Input) dexPatch() render.Map {
 		oidc = append(oidc, e("extraStaticClients", render.ClientsByID(extra)))
 	}
 	oidc = append(oidc, render.ConnectorsByOwner(in.HubConnectors, in.Installation.Name, in.Installation.BaseDomain)...)
-	return render.Map{e("oidc", oidc)}
+	patch := render.Map{e("oidc", oidc)}
+	if mounts := render.TunnelDexValues(in.HubConnectors); mounts != nil {
+		patch = append(patch, e("dex", mounts))
+	}
+	return patch
 }
 
 // musterRevision says whether the installation's meta chart hands muster's

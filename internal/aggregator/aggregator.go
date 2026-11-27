@@ -57,10 +57,14 @@ func Open(ctx context.Context, url string, bearer func() string, clientName, cli
 	if httpClient != nil {
 		opts = append(opts, transport.WithHTTPBasicClient(httpClient))
 	}
-	c, err := client.NewStreamableHttpClient(url, opts...)
+	t, err := transport.NewStreamableHTTP(url, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("muster at %s: %w", url, err)
 	}
+	// A server/discover slower than mcp-go's probe bound would fall back to
+	// the 2025-11-25 handshake, which carries no InputRequiredResult; ctx
+	// bounds it. An InputRequiredResult comes back to the caller, see Answer.
+	c := client.NewClient(t, client.WithDiscoverTimeout(-1), client.WithManualInputRoundTrips())
 	return New(ctx, c, clientName, clientVersion)
 }
 
@@ -126,7 +130,17 @@ func (s *Session) Close() error { return s.c.Close() }
 // call_tool's own refusal — a tool it does not know, a lost session — never
 // the tool's answer, which comes back as the result with IsError set.
 func (s *Session) Call(ctx context.Context, name string, args map[string]any) (*mcp.CallToolResult, error) {
+	return s.Answer(ctx, name, args, mcp.MultiRoundTripParams{})
+}
+
+// Answer is Call carrying roundTrip, the answer to an InputRequiredResult
+// muster gave the same call before. muster's InputRequiredResult, which it
+// answers a call whose context declares URL mode elicitation
+// (client.WithRequestClientCapabilities) with for a sign-in, comes back as
+// it is: the result's NeedsInput is true.
+func (s *Session) Answer(ctx context.Context, name string, args map[string]any, roundTrip mcp.MultiRoundTripParams) (*mcp.CallToolResult, error) {
 	req := mcp.CallToolRequest{}
+	req.Params.MultiRoundTripParams = roundTrip
 	req.Params.Name = MetaCallTool
 	meta := map[string]any{"name": name, "arguments": args}
 	if s.CallTimeout > 0 {
@@ -136,6 +150,9 @@ func (s *Session) Call(ctx context.Context, name string, args map[string]any) (*
 	res, err := s.c.CallTool(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
+	}
+	if res.NeedsInput() {
+		return res, nil
 	}
 	return unwrap(name, res)
 }

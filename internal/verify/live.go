@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -42,7 +41,6 @@ import (
 type Cluster interface {
 	Get(ctx context.Context, namespace, resource, name string, shape Shape) (map[string]any, error)
 	List(ctx context.Context, namespace, resource, labelSelector string, shape Shape) ([]map[string]any, error)
-	Logs(ctx context.Context, namespace, pod string, tail int) (string, error)
 	Serves(ctx context.Context, group, version, resource string) (bool, error)
 	AtGeneration(ctx context.Context, namespace, resource, name string, generation int64) (bool, error)
 }
@@ -75,14 +73,6 @@ const (
 	Manifest Shape = "manifest"
 )
 
-// LogTail is how many of a pod's last log lines an absence check reads: a
-// window that stays within what mcp-kubernetes answers on a busy workload,
-// where the tool's maximum of 1000 lines does not.
-const LogTail = 200
-
-// logTailNote is the sentence next to an absence check: how much of the log it reads.
-var logTailNote = fmt.Sprintf("the last %d lines of each pod's log are read", LogTail)
-
 // Forbidden is the apiserver refusing a read as the person: a result, never
 // a failure of the installation.
 type Forbidden struct {
@@ -110,9 +100,28 @@ const NotConnected = "not connected to the installation in muster"
 // ErrNotFound is an object the installation does not have.
 var ErrNotFound = errors.New("not found")
 
+// NoServer is muster refusing a read because it registers no server of the
+// kubernetes family for the installation in the person's session: a refusal
+// of the read, never an object the installation lacks.
+type NoServer struct {
+	Server string
+}
+
+func (e *NoServer) Error() string {
+	return fmt.Sprintf("%s%q for this session", NoServerPrefix, e.Server)
+}
+
+// NoServerPrefix opens the message of a check NoServer left unread.
+const NoServerPrefix = "muster registers no server "
+
+// ReasonBrowseOnly is the message of a check NoServer left unread on an
+// installation the hub keeps to browsing (LiveOptions.BrowseOnly): muster
+// never registers its servers, so no read is missing.
+const ReasonBrowseOnly = "not read by design: the installation is browse-only (policy federation.browseOnly) and the hub registers none of its servers in muster"
+
 // TooLarge is the installation's kubernetes tool refusing to answer a read
 // whole: mcp-kubernetes caps a tool's answer and answers response_too_large
-// in place of a truncated object or log. A result of how much the check
+// in place of a truncated object. A result of how much the check
 // asked for, never of the installation.
 type TooLarge struct {
 	Bytes int
@@ -120,7 +129,7 @@ type TooLarge struct {
 }
 
 func (e *TooLarge) Error() string {
-	return fmt.Sprintf("the object or log is larger than mcp-kubernetes answers (%s, the limit is %s): the check asks for too much", kib(e.Bytes), kib(e.Limit))
+	return fmt.Sprintf("the object is larger than mcp-kubernetes answers (%s, the limit is %s): the check asks for too much", kib(e.Bytes), kib(e.Limit))
 }
 
 // kib is n bytes in KiB, rounded.
@@ -144,7 +153,7 @@ const (
 // path to the installation — muster, the tunnel, its kubernetes tool, the
 // apiserver — never of the installation's objects.
 type Timeout struct {
-	// What names the read: the object, the pod's log, the discovery.
+	// What names the read: the object, the discovery.
 	What  string
 	After time.Duration
 }
@@ -236,15 +245,6 @@ func (r *reader) List(ctx context.Context, namespace, resource, labelSelector st
 	}
 	err := r.read(ctx, what, func(ctx context.Context) (err error) {
 		out, err = r.c.List(ctx, namespace, resource, labelSelector, shape)
-		return err
-	})
-	return out, err
-}
-
-func (r *reader) Logs(ctx context.Context, namespace, pod string, tail int) (string, error) {
-	var out string
-	err := r.read(ctx, "the log of pod "+namespace+"/"+pod, func(ctx context.Context) (err error) {
-		out, err = r.c.Logs(ctx, namespace, pod, tail)
 		return err
 	})
 	return out, err
@@ -356,6 +356,11 @@ type LiveOptions struct {
 	Inputs Inputs
 	// DeferredPairs are the generated pairs omitted by this Action's commit.
 	DeferredPairs []string
+	// Generated are the generated values this Action's commit rendered, by
+	// name; nil where the record does not say. A paired value the render
+	// holds and Generated lacks is deferred as well: the probes read the
+	// pairs the commit wrote, not one a later definition added.
+	Generated []string
 	// Kept are the entries of the audience lists kept beside the render
 	// (plan.LiveKept): the Action's, which the commit wrote, or the handed-over
 	// inputs', which the files on record keep. The drift probes hold the live
@@ -377,6 +382,10 @@ type LiveOptions struct {
 	// (Check.Releases). The Konfiguration's source is kept either way
 	// (Check.Source).
 	Rollout bool
+	// BrowseOnly says the hub keeps the installation to browsing: a read
+	// muster refuses for want of its server is not checked by design
+	// (ReasonBrowseOnly).
+	BrowseOnly bool
 	// ReadTimeout and ReadBudget bound the reads through Cluster (ReadTimeout,
 	// ReadBudget); zero is the default.
 	ReadTimeout time.Duration
@@ -549,7 +558,7 @@ const valuesKey = "values"
 
 // renderLive renders the inputs on record for the live comparison.
 func renderLive(opts LiveOptions) (*liveRender, error) {
-	res, in, flat, err := renderValues(opts.Definition, opts.Inputs.Values, opts.DeferredPairs...)
+	res, in, flat, err := renderValues(opts.Definition, opts.Inputs.Values, opts.DeferredPairs, opts.Generated)
 	if err != nil {
 		return nil, err
 	}
@@ -579,23 +588,27 @@ func renderLive(opts LiveOptions) (*liveRender, error) {
 		// lacks is no live difference (executor.differences reads the
 		// rendered leaves only), so resetLeaves has nothing to name.
 		lv.driven, _ = drivenPaths(opts.Inputs.Values, opts.Inputs.ReadBack, inputs, flat, func(values map[string]any) (map[string]map[string]string, error) {
-			_, _, other, err := renderValues(opts.Definition, values, opts.DeferredPairs...)
+			_, _, other, err := renderValues(opts.Definition, values, opts.DeferredPairs, opts.Generated)
+			withKept(other[valuesKey], opts.Kept, ValuesSuffix(opts.Definition.Name))
 			return other, err
 		})
 	}
 	return lv, nil
 }
 
-// withKept lays the entries the commit kept (plan.LiveKept) over the
-// flattened values file: a comma-joined list gains the id after the
-// render's, a list of ids its entry — the value the commit wrote and the
-// live objects carry. A list the render lacks gains nothing, as the commit
-// kept nothing there; an entry the render carries already is not repeated.
+// withKept restores recorded audience identifiers in rendered lists and
+// replaces issuer leaves with the committed list's digest. The digest checks
+// omitted permissions and extra issuers without storing configuration values.
 func withKept(values map[string]string, kept []plan.Kept, file string) {
 	if values == nil {
 		return
 	}
 	for _, k := range kept {
+		if issuerSnapshot(k) {
+			clearSubtree(values, k.List)
+			values[k.List] = k.Digest
+			continue
+		}
 		if plan.JoinedList(file, k.List) {
 			if v, ok := values[k.List]; ok && !slices.Contains(plan.SplitJoined(v), k.Entry) {
 				values[k.List] = v + "," + k.Entry
@@ -607,6 +620,18 @@ func withKept(values map[string]string, kept []plan.Kept, file string) {
 			continue
 		}
 		values[key] = k.Entry
+	}
+}
+
+func issuerSnapshot(kept plan.Kept) bool {
+	return kept.List == plan.ListTrustedIssuers && kept.Digest != ""
+}
+
+func clearSubtree(values map[string]string, path string) {
+	for key := range values {
+		if key == path || strings.HasPrefix(key, path+".") || strings.HasPrefix(key, path+"[") {
+			delete(values, key)
+		}
 	}
 }
 
@@ -656,9 +681,11 @@ func plannedKeysOf(capability string, f facts) (rms, migs plannedKeys, err error
 	return readRemovals(removals, f), readMigrations(migrations, f), nil
 }
 
-// renderValues renders values and flattens the definition's values file
-// under valuesKey; a definition without one flattens nothing.
-func renderValues(def installations.Capability, values map[string]any, deferred ...string) (*render.Result, render.Input, map[string]map[string]string, error) {
+// renderValues renders values without the deferred pairs and, where
+// generated is not nil, without the paired values it lacks, and flattens the
+// definition's values file under valuesKey; a definition without one
+// flattens nothing.
+func renderValues(def installations.Capability, values map[string]any, deferred, generated []string) (*render.Result, render.Input, map[string]map[string]string, error) {
 	in, err := def.Parse(values)
 	if err != nil {
 		return nil, nil, nil, err
@@ -666,6 +693,9 @@ func renderValues(def installations.Capability, values map[string]any, deferred 
 	res, err := def.Render(values, in.SuppliedMarkers(), render.ModeCompare)
 	if err != nil {
 		return nil, nil, nil, err
+	}
+	if generated != nil {
+		deferred = withUnrendered(res, deferred, generated)
 	}
 	if len(deferred) > 0 {
 		pairs := make([]plan.DeferredPair, len(deferred))
@@ -687,6 +717,23 @@ func renderValues(def installations.Capability, values map[string]any, deferred 
 		}
 	}
 	return res, in, flat, nil
+}
+
+// withUnrendered is deferred with every paired value of res that generated
+// does not name.
+func withUnrendered(res *render.Result, deferred, generated []string) []string {
+	deferred = slices.Clone(deferred)
+	for _, files := range res.Files {
+		for _, f := range files {
+			for _, g := range f.Generated {
+				if g.Peer != nil && !slices.Contains(generated, g.Name) && !slices.Contains(deferred, g.Name) {
+					deferred = append(deferred, g.Name)
+				}
+			}
+		}
+	}
+	sort.Strings(deferred)
+	return deferred
 }
 
 // inputString reads a string leaf of the inputs on record by path.
@@ -811,20 +858,27 @@ func checkRollUp(checks []Check) (Mark, string, string) {
 	return AsDefined, "", ""
 }
 
-// byDesign says every check not checked is so only because the manager does
-// not reach a private installation's host (ReasonPrivate), and one is.
+// byDesign says every check not checked is so only by design
+// (NotCheckedByDesign), and one is.
 func byDesign(checks []Check) bool {
 	found := false
 	for _, c := range checks {
 		if c.Mark != NotChecked {
 			continue
 		}
-		if !strings.HasPrefix(c.Message, ReasonPrivate) {
+		if !NotCheckedByDesign(c) {
 			return false
 		}
 		found = true
 	}
 	return found
+}
+
+// NotCheckedByDesign says whether c is not checked only because the manager
+// does not reach the installation by design: a private installation's host
+// (ReasonPrivate), a browse-only installation's objects (ReasonBrowseOnly).
+func NotCheckedByDesign(c Check) bool {
+	return c.Mark == NotChecked && (strings.HasPrefix(c.Message, ReasonPrivate) || c.Message == ReasonBrowseOnly)
 }
 
 // logCheck writes one line for a check of the installation's objects: the
@@ -870,8 +924,6 @@ func (x *executor) run(ctx context.Context, p render.Probe) (Check, []Difference
 		err = x.present(ctx, &c, p)
 	case render.PodsRunning:
 		err = x.podsRunning(ctx, &c, p)
-	case render.LogAbsent:
-		err = x.logAbsent(ctx, &c, p)
 	case render.Drift:
 		diffs, err = x.drift(ctx, &c, p)
 	case render.APIServed:
@@ -890,10 +942,16 @@ func (x *executor) run(ctx context.Context, p render.Probe) (Check, []Difference
 	}
 	var forbidden *Forbidden
 	var auth *AuthRequired
+	var noServer *NoServer
 	switch {
 	case errors.As(err, &auth):
 		c.Mark, c.Message = NotChecked, NotConnected+": "+firstLine(auth.Message)
 		return c, nil, auth
+	case errors.As(err, &noServer):
+		c.Mark, c.Message = NotChecked, noServer.Error()
+		if x.opts.BrowseOnly {
+			c.Message = ReasonBrowseOnly
+		}
 	case errors.As(err, &forbidden):
 		c.Mark, c.Message = NotChecked, forbidden.Error()
 	case errors.Is(err, ErrNotFound):
@@ -1401,48 +1459,6 @@ func short(commit string) string {
 	return commit
 }
 
-// logAbsent reads the last LogTail lines of the log of every pod of the
-// workload and looks for the pattern that must not appear; the check's note
-// says how much of the log was read.
-func (x *executor) logAbsent(ctx context.Context, c *Check, p render.Probe) error {
-	if c.Note != "" {
-		c.Note += "; "
-	}
-	c.Note += logTailNote
-	re, err := regexp.Compile(p.Expect.Absent)
-	if err != nil {
-		return fmt.Errorf("pattern %q: %w", p.Expect.Absent, err)
-	}
-	obj, err := x.cluster().Get(ctx, p.Namespace, p.Resource, p.Name, Readiness)
-	if err != nil {
-		return err
-	}
-	selector := selectorOf(obj)
-	if selector == "" {
-		return fmt.Errorf("%s %s/%s selects no pods (no spec.selector.matchLabels)", p.Resource, p.Namespace, p.Name)
-	}
-	pods, err := x.cluster().List(ctx, p.Namespace, "Pod", selector, Readiness)
-	if err != nil {
-		return err
-	}
-	if len(pods) == 0 {
-		c.Mark, c.Message = Drifted, "no pod matches "+selector
-		return nil
-	}
-	for _, pod := range pods {
-		log, err := x.cluster().Logs(ctx, p.Namespace, nameOf(pod), LogTail)
-		if err != nil {
-			return err
-		}
-		if m := re.FindString(log); m != "" {
-			c.Mark, c.Message = Drifted, nameOf(pod)+" logs "+strconv.Quote(m)
-			return nil
-		}
-	}
-	c.Mark, c.Message = AsDefined, fmt.Sprintf("%q in none of %d pod log(s), the last %d lines of each", p.Expect.Absent, len(pods), LogTail)
-	return nil
-}
-
 // answer sends the anonymous request of the HTTP probe p (get) and holds the
 // answer against the expectation, into c: not checked with ReasonUnreachable
 // (ReasonPrivate on a private installation) naming the host and the transport's error as the detail when there was none.
@@ -1513,12 +1529,31 @@ func (x *executor) drift(ctx context.Context, c *Check, p render.Probe) ([]Diffe
 		}
 		liveValue, ok := resolve(obj, cmp.Live, cmp.Prefix)
 		if !ok {
+			if cmp.Exact && len(rendered) == 1 && rendered[""] == "[]" {
+				continue
+			}
 			diffs = append(diffs, x.difference(object, cmp.Rendered, rendered[""], "", true))
 			continue
 		}
 		flatLive := map[string]string{}
 		flatten(liveValue, "", flatLive)
+		for _, kept := range x.opts.Kept {
+			if issuerSnapshot(kept) && cmp.Rendered == kept.List {
+				digest, err := plan.ConfigurationDigest(liveValue)
+				if err != nil {
+					return nil, err
+				}
+				flatLive = map[string]string{"": digest}
+			}
+		}
 		diffs = append(diffs, x.differences(object, cmp.Rendered, rendered, flatLive)...)
+		if cmp.Exact {
+			for path, value := range flatLive {
+				if _, present := rendered[path]; !present {
+					diffs = append(diffs, x.difference(object, join(cmp.Rendered, path), "", value, false))
+				}
+			}
+		}
 	}
 	switch {
 	case len(absent) == len(p.Expect.Compare) && len(absent) > 0:
@@ -1592,6 +1627,21 @@ func (x *executor) helmReleaseValues(ctx context.Context, namespace string, hr m
 	}
 	out := map[string]string{}
 	flatten(merged, "", out)
+	for _, kept := range x.opts.Kept {
+		if !issuerSnapshot(kept) {
+			continue
+		}
+		clearSubtree(out, kept.List)
+		value := dig(merged, strings.Split(kept.List, ".")...)
+		if value == nil {
+			continue
+		}
+		digest, err := plan.ConfigurationDigest(value)
+		if err != nil {
+			return nil, err
+		}
+		out[kept.List] = digest
+	}
 	return out, nil
 }
 
@@ -1787,17 +1837,6 @@ func createdOf(obj map[string]any) *time.Time {
 		return nil
 	}
 	return &t
-}
-
-// selectorOf is a workload's spec.selector.matchLabels as a label selector.
-func selectorOf(obj map[string]any) string {
-	labels, _ := dig(obj, "spec", "selector", "matchLabels").(map[string]any)
-	parts := make([]string, 0, len(labels))
-	for k, v := range labels {
-		parts = append(parts, fmt.Sprintf("%s=%v", k, v))
-	}
-	sort.Strings(parts)
-	return strings.Join(parts, ",")
 }
 
 func nameOf(obj map[string]any) string {

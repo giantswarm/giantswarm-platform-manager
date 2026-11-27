@@ -265,7 +265,7 @@ func (t *Tools) revertedStages(ctx context.Context, c *gh.Client, a *actions.Act
 		if len(a.StagePullRequests(st.Name)) == 0 || !allMerged(a, st.Name) {
 			continue
 		}
-		marker := markerOf(a, def, st.Name)
+		marker := markerOf(a, stageDef(a, st.Name, def), st.Name)
 		repository, path, ok := strings.Cut(marker, ":")
 		if !ok {
 			continue
@@ -289,6 +289,15 @@ func (t *Tools) revertedStages(ctx context.Context, c *gh.Client, a *actions.Act
 	return gone, kept, errs
 }
 
+// stageDef is the definition that rendered installation's stage of a, def
+// where this version has none by that name.
+func stageDef(a *actions.Action, installation string, def installations.Capability) installations.Capability {
+	if d, ok := installations.FindCapability(a.CapabilityOf(installation)); ok {
+		return d
+	}
+	return def
+}
+
 // markerOf is the marker of installation's stage: the one recorded at
 // commit, else — a record from before the markers were recorded — the
 // definition's marker in the stage's pull request whose repository is the
@@ -309,28 +318,35 @@ func markerOf(a *actions.Action, def installations.Capability, installation stri
 // remove moves status to removed for the stages gone — the fileset left the
 // default branch again — and, for a definition whose Kustomization does not
 // prune, records the objects it rendered on those installations that stay
-// until a person deletes them. It answers the text for the review's thread.
+// until a person deletes them, after the checklist the commit recorded (what
+// its plan took off the record, which the render no longer names). It
+// answers the text for the review's thread.
 func remove(status *actions.Status, a *actions.Action, def installations.Capability, gone []revertedStage) string {
 	if a.Spec.Kind == actions.KindDisable {
 		return disabled(status, a, def, gone)
 	}
 	status.Rollout = stagesOf(a)
 	var where []string
-	status.Orphans = nil
+	status.Orphans = recordedOrphans(a, status.Orphans, gone)
+	pruned := true
 	for _, g := range gone {
+		d := stageDef(a, g.installation, def)
+		pruned = pruned && d.Prunes
 		if i := stageIndex(status.Rollout, g.installation); i >= 0 {
 			st := &status.Rollout.Installations[i]
 			st.State, st.Message = actions.StateRemoved, fmt.Sprintf("%s is gone from the default branch of %s again", g.path, g.repository)
 		}
 		where = append(where, fmt.Sprintf("%s (%s in %s)", g.installation, g.path, g.repository))
-		if !def.Prunes {
-			status.Orphans = append(status.Orphans, orphansOf(def, g.installation, a.InputsOnRecord(g.installation))...)
+		if !d.Prunes {
+			for _, o := range orphansOf(d, g.installation, a.InputsOnRecord(g.installation)) {
+				status.Orphans = appendOrphan(status.Orphans, o)
+			}
 		}
 	}
 	msg := "the fileset is gone from the default branch again: " + strings.Join(where, ", ")
 	text := fmt.Sprintf("The fileset of *%s* is gone from the default branch again: the action is removed.", strings.Join(installationsOf(gone), "*, *"))
 	switch {
-	case def.Prunes:
+	case pruned:
 		msg += "; Flux prunes what the tree applied"
 		text += " Flux prunes what the tree applied."
 	case len(status.Orphans) > 0:
@@ -385,6 +401,45 @@ func disabled(status *actions.Status, a *actions.Action, def installations.Capab
 		text = text[:reportLimit] + "…"
 	}
 	return text
+}
+
+// recordedOrphans are the orphans a commit recorded (its checklist) that
+// stay once the action is removed: each whose stage's pull request in its
+// repository is merged — the objects are off the record and on the cluster
+// whatever the stage's other pull requests are — or, for a record without
+// the repository, whose stage has a pull request merged, or is gone. A stage
+// with nothing merged took nothing off the record and keeps none. The order
+// stays the commit's.
+func recordedOrphans(a *actions.Action, recorded []actions.Orphan, gone []revertedStage) []actions.Orphan {
+	var out []actions.Orphan
+	for _, o := range recorded {
+		stage := o.Stage
+		if stage == "" {
+			stage = o.Installation
+		}
+		merged := slices.ContainsFunc(gone, func(g revertedStage) bool { return g.installation == stage })
+		for _, k := range a.StagePullRequests(stage) {
+			pr := a.Status.PullRequests[k]
+			if pr.State == actions.PullRequestMerged && (o.Repository == "" || pr.Repository == o.Repository) {
+				merged = true
+			}
+		}
+		if merged {
+			out = appendOrphan(out, o)
+		}
+	}
+	return out
+}
+
+// appendOrphan appends o to orphans unless an orphan names the same object
+// on the same installation already.
+func appendOrphan(orphans []actions.Orphan, o actions.Orphan) []actions.Orphan {
+	for _, have := range orphans {
+		if have.Installation == o.Installation && have.Kind == o.Kind && have.Namespace == o.Namespace && have.Name == o.Name {
+			return orphans
+		}
+	}
+	return append(orphans, o)
 }
 
 func installationsOf(gone []revertedStage) []string {

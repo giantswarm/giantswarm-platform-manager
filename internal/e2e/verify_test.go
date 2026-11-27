@@ -677,7 +677,7 @@ func TestVerifyCapabilityFromTheRecord(t *testing.T) {
 	if d := dimension(t, identity, "dex-auth-request"); d.Reason == verify.ReasonNoRender {
 		t.Errorf("per-client probe: %+v", d)
 	}
-	if d := dimension(t, identity, "oauth2-proxy-gate"); d.Mark != verify.AsDefined {
+	if d := dimension(t, feature(t, res, "tool-access"), "muster-protected-resource-metadata"); d.Mark != verify.AsDefined {
 		t.Errorf("anonymous probe: %+v", d)
 	}
 }

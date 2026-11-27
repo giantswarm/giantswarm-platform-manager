@@ -128,7 +128,7 @@ func newStack(t *testing.T, options ...func(*tools.Deps)) *stack {
 		dex: newFakeDex(t), inst: newFakeInstallation(), pulls: map[string]pullFacts{}}
 	st.ghs.pull = st.pullState
 	st.muster = newFakeMuster(t, st.inst, rowan)
-	lc, err := live.New(live.Config{Issuer: st.dex.issuer, Audiences: []string{liveAudience, liveRequiredAudience}, JWKSURL: st.dex.issuer + "/keys", AllowPrivateIPJWKS: true, CAFile: st.dex.caFile,
+	lc, err := live.New(live.Config{Issuer: st.dex.issuer, Audiences: []string{liveAudience, liveRequiredAudience}, JWKSURL: st.dex.issuer + "/keys", HTTPClient: st.dex.Client(),
 		MusterURL: st.muster.URL + "/mcp", KubernetesFamily: kubernetesFamily, KubernetesInstanceArg: instanceArg, KubernetesMember: memberTemplate, Version: testVersion}, log)
 	if err != nil {
 		t.Fatal(err)
@@ -152,6 +152,7 @@ func newStack(t *testing.T, options ...func(*tools.Deps)) *stack {
 	}
 	ts := tools.New(dependencies)
 	ts.AddWrite(tools.WriteTool{Name: testWrite, Summary: "A fixture write.",
+		Options: []mcp.ToolOption{mcp.WithString(argInstallation)},
 		DryRun: func(_ context.Context, args map[string]any) (any, error) {
 			return map[string]any{"rendered": true, "args": args}, nil
 		},

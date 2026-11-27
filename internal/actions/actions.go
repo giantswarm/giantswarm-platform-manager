@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"time"
@@ -54,10 +55,15 @@ type Action struct {
 // Spec is what was asked: by whom, on which installations, which capability,
 // with which inputs. Written once by commit.
 type Spec struct {
-	Actor         Actor          `json:"actor"`
-	Capability    string         `json:"capability"`
-	Installations []string       `json:"installations"`
-	Inputs        map[string]any `json:"inputs,omitempty"`
+	Actor      Actor  `json:"actor"`
+	Capability string `json:"capability"`
+	// CapabilityByInstallation names the definition that rendered an
+	// installation of the wave where it is not Capability: the hub on the
+	// agent platform whose shared values a cluster-mcp-servers wave draws
+	// with its targets, or the reverse.
+	CapabilityByInstallation map[string]string `json:"capabilityByInstallation,omitempty"`
+	Installations            []string          `json:"installations"`
+	Inputs                   map[string]any    `json:"inputs,omitempty"`
 	// InputsByInstallation are the inputs each installation was rendered
 	// from at commit — the typed inputs over the facts on record — so a
 	// verify that has no GitHub token to re-read the facts (the live
@@ -66,6 +72,10 @@ type Spec struct {
 	// DeferredPairs names the generated pairs omitted from each installation's
 	// commit render and its rollout verification.
 	DeferredPairs map[string][]string `json:"deferredPairs,omitempty"`
+	// GeneratedByInstallation names the generated values each installation's
+	// commit render holds, without the deferred pairs: the pairs its rollout
+	// verification probes. Names only, never a value.
+	GeneratedByInstallation map[string][]string `json:"generatedByInstallation,omitempty"`
 	// Kind is "enable", "reconcile" or "disable".
 	Kind string `json:"kind"`
 	// Customer marks a customer installation among the targets: the Account
@@ -102,11 +112,9 @@ type Spec struct {
 	// repository as "owner/repo:path" — what the resync reads to see the
 	// fileset gone again (a revert). Recorded at commit.
 	Markers map[string]string `json:"markers,omitempty"`
-	// KeptByInstallation are, per installation, the entries of the platform
-	// patch's audience lists the commit kept beside the render
-	// (plan.LiveKept): the live probes hold the objects against the value
-	// the commit wrote, render and kept entries, not the bare render.
-	// Recorded at commit; ids only, never a secret value.
+	// KeptByInstallation holds the audience identifiers and trusted-issuer
+	// digests of each installation's merged values for live verification.
+	// Recorded at commit; identifiers and hashes only.
 	KeptByInstallation map[string][]plan.Kept `json:"keptByInstallation,omitempty"`
 	// Skipped are the installations of the set a wave left out, and why:
 	// never a target, no pull request.
@@ -143,16 +151,22 @@ type Status struct {
 	Rollout  *Rollout  `json:"rollout,omitempty"`
 	Probes   []Probe   `json:"probes,omitempty"`
 	Result   *Result   `json:"result,omitempty"`
+	// KeptByInstallation holds snapshots read from committed values when spec
+	// carries none. Only identifiers and digests are stored.
+	KeptByInstallation map[string][]plan.Kept `json:"keptByInstallation,omitempty"`
 	// SyncedAt and SyncedBy say when the record last followed GitHub — the
 	// pull requests read, the markers of the merged stages read — and as
 	// whom: the resync runs with the token of the person reading the
 	// record, never with one of the manager's.
 	SyncedAt *time.Time `json:"syncedAt,omitempty"`
 	SyncedBy string     `json:"syncedBy,omitempty"`
-	// Orphans are, on a removed or disabled action whose definition's Kustomization
-	// does not prune, the objects the definition rendered on the
-	// installations that stay until a person deletes them; read from the
-	// render of the inputs on record, never from the cluster.
+	// Orphans are, where the definition's Kustomization does not prune, the
+	// objects that stay on the installations until a person deletes them:
+	// on a disable, its checklist; on an enable or a reconcile, the
+	// checklist of what its plan takes off the record, recorded at commit;
+	// on a removed action, every object the definition rendered. Read from
+	// the record and the render of the inputs on record, never from the
+	// cluster.
 	Orphans []Orphan `json:"orphans,omitempty"`
 	// Withdrawal is the actor's word on a merged action that failed or was
 	// reverted: who withdrew it, why and when (deny_action on a merged
@@ -180,17 +194,25 @@ type Withdrawal struct {
 	At     *time.Time `json:"at,omitempty"`
 }
 
-// Orphan is one object a revert left behind on an installation: the fleet's
+// Orphan is one object a change left behind on an installation: the fleet's
 // Kustomization over the tree does not prune, so the HelmRelease, the
-// Secrets and what else the fileset carried stay after the files are gone.
+// Secrets and what else the files carried stay after they are off the
+// record — by a revert, a disable, or a reconcile that removes them.
 type Orphan struct {
 	Installation string `json:"installation"`
 	Kind         string `json:"kind"`
 	Namespace    string `json:"namespace,omitempty"`
 	Name         string `json:"name"`
-	// Takes is what deleting the object takes with it, on a disable's
-	// checklist.
+	// Takes is what deleting the object takes with it, on a checklist.
 	Takes string `json:"takes,omitempty"`
+	// Stage is the installation of the action whose commit recorded the
+	// object on a checklist; Installation is the one it is on, another where
+	// the stage's plan took it out of that installation's tree. Repository
+	// is the repository whose pull request of the stage takes it off the
+	// record: once that pull request is merged, the object stays on the
+	// cluster whatever the stage's other pull requests are.
+	Stage      string `json:"stage,omitempty"`
+	Repository string `json:"repository,omitempty"`
 }
 
 // PullRequest is one PR the action opened.
@@ -392,11 +414,19 @@ func (c *Client) List(ctx context.Context, f Filter) ([]Action, error) {
 	return out, nil
 }
 
+// matches compares f.Capability with the definition that rendered
+// f.Installation's stage, or with any definition of a when f names no
+// installation.
 func (f Filter) matches(a Action) bool {
-	if f.Capability != "" && a.Spec.Capability != f.Capability {
+	switch {
+	case f.Installation != "" && !a.Includes(f.Installation):
 		return false
+	case f.Capability == "":
+		return true
+	case f.Installation != "":
+		return a.CapabilityOf(f.Installation) == f.Capability
 	}
-	return f.Installation == "" || a.Includes(f.Installation)
+	return a.Spec.Capability == f.Capability || slices.Contains(slices.Collect(maps.Values(a.Spec.CapabilityByInstallation)), f.Capability)
 }
 
 func fromUnstructured(u *unstructured.Unstructured) (*Action, error) {
@@ -450,10 +480,22 @@ func (a Action) Includes(installation string) bool {
 	return slices.Contains(a.Spec.Installations, installation)
 }
 
-// KeptOnRecord are the entries of installation's audience lists the commit
-// kept beside the render, nil when it kept none.
+// CapabilityOf is the definition that rendered installation's stage.
+func (a Action) CapabilityOf(installation string) string {
+	if c, ok := a.Spec.CapabilityByInstallation[installation]; ok {
+		return c
+	}
+	return a.Spec.Capability
+}
+
+// KeptOnRecord holds installation's audience identifiers and issuer digests,
+// including snapshots of committed values recorded by the rollout watch.
 func (a Action) KeptOnRecord(installation string) []plan.Kept {
-	return a.Spec.KeptByInstallation[installation]
+	kept := a.Spec.KeptByInstallation[installation]
+	if snapshot := a.Status.KeptByInstallation[installation]; len(snapshot) > 0 {
+		return append(slices.Clone(kept), snapshot...)
+	}
+	return kept
 }
 
 // InputsOnRecord are the inputs installation was rendered from, as the

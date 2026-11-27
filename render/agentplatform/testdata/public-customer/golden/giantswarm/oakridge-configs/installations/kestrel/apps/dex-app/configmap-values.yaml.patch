@@ -47,7 +47,7 @@ oidc:
     connectors:
       giantswarm-gopher-oidc:
         connectorType: oidc
-        connectorName: gopher
+        connectorName: Giant Swarm (central login)
         config:
           issuer: https://dex.gopher.example.io
           insecureEnableGroups: true
@@ -58,6 +58,7 @@ oidc:
             - profile
             - email
             - groups
+            - offline_access
         clientSecretRef:
           name: dex-connector-giantswarm-gopher-oidc
           key: client-secret

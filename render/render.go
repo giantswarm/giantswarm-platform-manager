@@ -299,8 +299,6 @@ const (
 	AnyCondition ProbeKind = "AnyCondition"
 	// HTTP is a GET of URL, redirects not followed, answered as Expect says.
 	HTTP ProbeKind = "HTTP"
-	// LogAbsent is a workload whose log matches Expect.Absent nowhere.
-	LogAbsent ProbeKind = "LogAbsent"
 	// Drift is a live object whose values equal what the rendered files imply.
 	Drift ProbeKind = "Drift"
 	// APIServed is an API the installation's apiserver serves, found by
@@ -334,7 +332,6 @@ type Expectation struct {
 	DexConnectorStep bool     `yaml:"dexConnectorStep,omitempty"` // HTTP on Dex's /auth: the answer held to the expectation is the one of the connector /auth names, which validates the client and its redirect URI (DexAuthProbe)
 	Condition        string   `yaml:"condition,omitempty"`        // Condition: the type, e.g. Accepted, Ready
 	ConditionStatus  string   `yaml:"conditionStatus,omitempty"`  // Condition: True or False
-	Absent           string   `yaml:"absent,omitempty"`           // LogAbsent: a pattern that must not appear in the workload's log
 	Keys             []string `yaml:"keys,omitempty"`             // ResourcePresent on a Secret: the keys it carries
 	NotState         string   `yaml:"notState,omitempty"`         // ResourcePresent: a status.state the object must not report (an MCPServer's Failed)
 	Version          string   `yaml:"version,omitempty"`          // APIServed: the API version the resource is served at
@@ -361,6 +358,8 @@ type Comparison struct {
 	Live     string `yaml:"live"`
 	Rendered string `yaml:"rendered"`
 	Prefix   string `yaml:"prefix,omitempty"`
+	// Exact also rejects live leaves absent from the rendered subtree.
+	Exact bool `yaml:"exact,omitempty"`
 }
 
 // Action is something outside the platform team's hands, rendered as a note

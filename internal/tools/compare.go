@@ -3,10 +3,14 @@ package tools
 import (
 	"context"
 	"fmt"
+	"slices"
+	"sort"
 	"strings"
+	"sync"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 
+	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
@@ -22,6 +26,11 @@ type DryRun struct {
 	// ByDesign counts the dimensions not checked by design, which Summary
 	// leaves out (verify.Result.ByDesign).
 	ByDesign int `json:"byDesign,omitempty"`
+	// Capability is the definition that rendered this plan where it is not
+	// the set's (CapabilityResult.Capability): the installation runs the
+	// other definition, and a value it shares with another installation of
+	// the set is drawn in this wave.
+	Capability string `json:"capability,omitempty"`
 }
 
 func deferredPairNames(plans []DryRun) map[string][]string {
@@ -37,6 +46,32 @@ func deferredPairNames(plans []DryRun) map[string][]string {
 	return names
 }
 
+// generatedNames are the generated values each plan's render holds, by
+// installation, sorted.
+func generatedNames(plans []DryRun) map[string][]string {
+	var names map[string][]string
+	for _, planned := range plans {
+		for _, generated := range planned.GeneratedSecrets {
+			if names == nil {
+				names = map[string][]string{}
+			}
+			names[planned.Name] = append(names[planned.Name], generated.Name)
+		}
+	}
+	for _, list := range names {
+		sort.Strings(list)
+	}
+	return names
+}
+
+// liveRecord sets the render opts' live verify takes from action a for
+// installation: the pairs its commit deferred and the generated values it
+// rendered.
+func liveRecord(opts *verify.LiveOptions, a actions.Action, installation string) {
+	opts.DeferredPairs = a.Spec.DeferredPairs[installation]
+	opts.Generated = a.Spec.GeneratedByInstallation[installation]
+}
+
 // compare is the one computation verify_capability and the dry runs answer:
 // the inputs from the record, the read-back and the person's typed inputs;
 // the plan built once and read against the repositories as the caller; each
@@ -44,8 +79,11 @@ func deferredPairNames(plans []DryRun) map[string][]string {
 // verify_capability answers it as it is, a dry run regrouped as the plan's
 // entry (dryRun). content keeps the rendered files' content; rotate names the
 // generated values the plan rotates on request (a dry run's rotate);
-// force lets a commit proceed over the plan's warnings the person knows.
-func (t *Tools) compare(ctx context.Context, env *planned, r installations.Report, def installations.Capability, typed map[string]any, content bool, rotate []string, force forces) (*verify.Result, error) {
+// force lets a commit proceed over the plan's warnings the person knows;
+// checklist names, for a plan's dry run and commit, the objects it takes off
+// the record that stay on the cluster (unprunedChecklist) — a verify, which
+// commits nothing, names none and renders no other capability for it.
+func (t *Tools) compare(ctx context.Context, env *planned, r installations.Report, def installations.Capability, typed map[string]any, content bool, rotate []string, force forces, checklist bool) (*verify.Result, error) {
 	read := readAs(env.c)
 	values, back, err := mergeInputs(ctx, def, r, installations.Reader(read), typed, env.byName)
 	if err != nil {
@@ -57,8 +95,19 @@ func (t *Tools) compare(ctx context.Context, env *planned, r installations.Repor
 	}
 	env.inputs[r.Name] = values
 	in := verify.Inputs{Source: verify.Source(len(back) > 0, len(typed) > 0), Values: values, ReadBack: back, Unset: unset, Typed: typed}
-	res := verify.Compare(ctx, verify.Options{Definition: def, Installation: r.Installation, Hub: env.hub, State: capabilityState(r, def.Name), Inputs: in, Read: read, Content: content, Probes: t.d.Probes, Rotate: rotate, ForceJoin: force.join, ForceSwitchOff: force.switchOff, Installations: env.byName, PlanInstallations: env.planInstallations})
+	// The other capabilities on record, rendered once and only when asked:
+	// a file the plan would delete that one of them renders stays, and what
+	// of the checklist they render stays on the cluster.
+	others := sync.OnceValues(func() ([]plan.Remaining, error) { return remainingOn(ctx, env, r, def) })
+	remaining := func(context.Context) ([]plan.Remaining, error) { return others() }
+	res := verify.Compare(ctx, verify.Options{Definition: def, Installation: r.Installation, Hub: env.hub, State: capabilityState(r, def.Name), Inputs: in, Read: read, Content: content, Probes: t.d.Probes, Rotate: rotate, ForceJoin: force.join, ForceSwitchOff: force.switchOff, Installations: env.byName, PlanInstallations: env.planInstallations,
+		Remaining: remaining})
 	res.Caller = identity.Caller(ctx)
+	if !checklist {
+		res.Checklist = nil
+	} else if res.Checklist, err = unprunedChecklist(ctx, env, r, def, res.Checklist, others); err != nil {
+		return nil, err
+	}
 	p := res.Plan()
 	switch {
 	case res.Refused != "":
@@ -70,6 +119,103 @@ func (t *Tools) compare(ctx context.Context, env *planned, r installations.Repor
 	}
 	res.PullRequests = plan.PullRequests([]plan.Installation{p}, env.byName, env.hub)
 	return &res, nil
+}
+
+// unprunedChecklist is the plan's checklist by the disable's rule: the
+// objects the plan takes off the record (candidates, which no file of the
+// plan declares again) that no other capability on the installation they are
+// on renders, in deletion order — none where the definition's Kustomization
+// prunes. An object on r is held against the other capabilities on record
+// on r (own); one on another installation — its file is in that
+// installation's tree, a portal host's — against every capability on record
+// there. The capabilities are rendered only when there is a candidate; one
+// whose definition does not render the inputs on record refuses the
+// comparison, as the disable's does: what of the objects stays cannot be
+// told.
+func unprunedChecklist(ctx context.Context, env *planned, r installations.Report, def installations.Capability, candidates []plan.Object, own func() ([]plan.Remaining, error)) ([]plan.Object, error) {
+	if def.Prunes || len(candidates) == 0 {
+		return nil, nil
+	}
+	byInstallation := map[string][]plan.Object{}
+	var order []string
+	for _, o := range candidates {
+		if _, seen := byInstallation[o.Installation]; !seen {
+			order = append(order, o.Installation)
+		}
+		byInstallation[o.Installation] = append(byInstallation[o.Installation], o)
+	}
+	var out []plan.Object
+	for _, on := range order {
+		var remaining []plan.Remaining
+		var err error
+		if on == "" {
+			remaining, err = own()
+		} else {
+			remaining, err = remainingAt(ctx, env, on, def)
+		}
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, plan.Unpruned(byInstallation[on], remaining)...)
+	}
+	return plan.Checklist(out), nil
+}
+
+// remainingOn are the capabilities on record on r besides def, each rendered
+// from the inputs on record as it stays. The other definition of the MCP
+// servers is none: the one reconciled renders them. A definition that does
+// not render the inputs on record is the error: what of r stays cannot be
+// told.
+func remainingOn(ctx context.Context, env *planned, r installations.Report, def installations.Capability) ([]plan.Remaining, error) {
+	var remaining []plan.Remaining
+	for _, other := range installations.Capabilities() {
+		if other.Name == def.Name || !capabilityState(r, other.Name).OnRecord() || serversPair(def, other) {
+			continue
+		}
+		_, rres, err := renderOnRecord(ctx, other, r, readAs(env.c), nil, env.byName)
+		if err != nil {
+			return nil, fmt.Errorf("%s stays on %s and its definition does not render the inputs on record (%w): which of what the %s plan takes off the record stays cannot be told", other.Name, r.Name, err, def.Name)
+		}
+		remaining = append(remaining, plan.Remaining{Capability: other.Name, Result: rres})
+	}
+	return remaining, nil
+}
+
+// remainingAt are the capabilities on record on installation — another
+// installation than the one planned, whose tree the plan writes into — each
+// rendered from the inputs on record: every one of them stays. Of the two
+// definitions of its MCP servers, the agent platform's renders them.
+func remainingAt(ctx context.Context, env *planned, installation string, def installations.Capability) ([]plan.Remaining, error) {
+	r, err := env.report(ctx, installation)
+	if err != nil {
+		return nil, fmt.Errorf("the %s plan takes objects on %s off the record, and %s's record cannot be read as you (%w): which of them stay on the cluster cannot be told", def.Name, installation, installation, err)
+	}
+	agentPlatform, _ := installations.FindCapability(installations.AgentPlatform)
+	except := ""
+	if capabilityState(r, agentPlatform.Name).OnRecord() {
+		except = installations.ClusterMCPServers
+	}
+	var remaining []plan.Remaining
+	for _, other := range installations.Capabilities() {
+		if other.Name == except || !capabilityState(r, other.Name).OnRecord() {
+			continue
+		}
+		_, rres, err := renderOnRecord(ctx, other, r, readAs(env.c), nil, env.byName)
+		if err != nil {
+			return nil, fmt.Errorf("%s is on record on %s and its definition does not render the inputs on record (%w): which of the objects the %s plan takes off the record there stay on the cluster cannot be told", other.Name, installation, err, def.Name)
+		}
+		remaining = append(remaining, plan.Remaining{Capability: other.Name, Result: rres})
+	}
+	return remaining, nil
+}
+
+// serversPair says whether def and other are the two definitions of an
+// installation's MCP servers: the one reconciled renders them, and the
+// other renders nothing of its own beside it (its policy refuses the agent
+// platform's installation).
+func serversPair(def, other installations.Capability) bool {
+	pair := []string{installations.AgentPlatform, installations.ClusterMCPServers}
+	return slices.Contains(pair, def.Name) && slices.Contains(pair, other.Name)
 }
 
 // forces are the warnings of a dry run the person asked a commit to proceed

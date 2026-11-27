@@ -418,7 +418,7 @@ func TestByDesignIsNoGapInTheSummary(t *testing.T) {
 	if m.Summary[NotChecked] != 0 || m.ByDesign != 1 || m.Features[0].ByDesign != 1 {
 		t.Fatalf("merged: summary %v, by design %d", m.Summary, m.ByDesign)
 	}
-	if ByDesignClause(0) != "" || ByDesignClause(9) != "9 unreachable from the manager by design (private installation)" {
+	if ByDesignClause(0) != "" || ByDesignClause(9) != "9 not read from the manager by design (private or browse-only installation)" {
 		t.Fatalf("clause %q", ByDesignClause(9))
 	}
 }

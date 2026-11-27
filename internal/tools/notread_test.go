@@ -186,3 +186,25 @@ func TestNotReadByDesignOnAPrivateInstallation(t *testing.T) {
 		t.Errorf("the report counts dimensions not checked by design as a gap:\n%s", report)
 	}
 }
+
+// A browse-only installation's objects are not read by design, said once as
+// no gap; a server muster lacks on any other installation is named with what
+// connects it.
+func TestNotReadNamesBrowseOnlyAndAMissingServer(t *testing.T) {
+	browsing := verify.Dimension{ID: dimReleases, Kind: definitions.KindLive, Mark: verify.NotChecked, Reason: verify.ReasonBrowseOnly, ByDesign: true, Live: &verify.LiveResult{Checks: []verify.Check{
+		{Kind: string(render.HelmReleaseReady), Resource: helmRelease, Name: musterName, Mark: verify.NotChecked, Message: verify.ReasonBrowseOnly},
+		{Kind: string(render.HelmReleaseReady), Resource: helmRelease, Name: installations.AgentPlatform, Mark: verify.NotChecked, Message: verify.ReasonBrowseOnly},
+	}}}
+	got := notRead(liveResult(installations.StateEnabled, browsing), birchServer)
+	if len(got) != 1 || got[0].Cause != CauseBrowseOnly || got[0].Checks != 2 || got[0].Fix != browseOnlyFix || !strings.Contains(got[0].Line(), "no gap") {
+		t.Errorf("browse-only: %+v", got)
+	}
+	missing := verify.NoServerPrefix + `"` + birchServer + `" for this session`
+	absent := verify.Dimension{ID: dimReleases, Kind: definitions.KindLive, Mark: verify.NotChecked, Reason: missing, Live: &verify.LiveResult{Checks: []verify.Check{
+		{Kind: string(render.HelmReleaseReady), Resource: helmRelease, Name: musterName, Mark: verify.NotChecked, Message: missing},
+	}}}
+	got = notRead(liveResult(installations.StateEnabled, absent), birchServer)
+	if len(got) != 1 || got[0].Cause != CauseNoServer || got[0].Server != birchServer || !strings.Contains(got[0].Line(), birchServer) || strings.Contains(got[0].Fix, "no gap") {
+		t.Errorf("a missing server: %+v", got)
+	}
+}

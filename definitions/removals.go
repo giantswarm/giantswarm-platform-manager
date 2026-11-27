@@ -3,6 +3,8 @@ package definitions
 import (
 	"fmt"
 	"io/fs"
+	"path"
+	"slices"
 	"sort"
 	"strings"
 
@@ -55,6 +57,52 @@ const RemovalMigration = "migration"
 // its own: the customer-portal definition's agent-platform section, which
 // the agent-platform definition's Component carries.
 const RemovalOtherDefinition = "other-definition"
+
+// RemovalDeletedFile is the kind of a removal that is a whole file under the
+// installation's extras/ the definition no longer renders: a reconcile
+// deletes it, takes the entry that lists it out of the kustomization.yaml of
+// its directory, and lists the objects it declares for a person to delete —
+// the fleet's Kustomization over extras/ does not prune. Its key is
+// extras:<path under extras/>, a file and no YAML path, without
+// placeholders. Without such a removal a reconcile keeps every file on
+// record.
+const RemovalDeletedFile = "deleted-file"
+
+// DeletedFile is a removal of kind deleted-file: the file's path under the
+// installation's extras/ and why it goes.
+type DeletedFile struct {
+	Path, Reason string
+}
+
+// DeletedFiles are the removals of kind deleted-file among rs, in file
+// order.
+func DeletedFiles(rs []Removal) []DeletedFile {
+	var out []DeletedFile
+	for _, r := range rs {
+		if r.Kind == RemovalDeletedFile {
+			out = append(out, DeletedFile{Path: strings.TrimPrefix(r.Key, KindExtras+":"), Reason: r.Reason})
+		}
+	}
+	return out
+}
+
+// deletedFileKey says why a removal of kind deleted-file's key names no
+// single file under extras/, or "".
+func deletedFileKey(key string) string {
+	p, ok := strings.CutPrefix(key, KindExtras+":")
+	switch {
+	case !ok:
+		return "its key is extras:<path under extras/>"
+	case strings.ContainsAny(p, " <>"):
+		return "its key names one file: no YAML path, no placeholder"
+	case p == "" || strings.HasPrefix(p, "/") || slices.Contains(strings.Split(p, "/"), ".."),
+		!strings.HasSuffix(p, ".yaml") && !strings.HasSuffix(p, ".yml"):
+		return "its key names a YAML file under extras/"
+	case path.Base(p) == "kustomization.yaml":
+		return "a kustomization is no file it deletes"
+	}
+	return ""
+}
 
 // KeptKeys are the key paths of a capability's removals of kind kept under
 // the file prefix (KindConfigMap, …), the prefix cut off, in file order.
@@ -138,6 +186,9 @@ func Removals(capability string) ([]Removal, error) {
 	for i, r := range doc.Removals {
 		if r.Key == "" || r.Kind == "" || r.Reason == "" {
 			return nil, fmt.Errorf("%s/removals.yaml: removal %d (%q): key, kind and reason are required", capability, i, r.Key)
+		}
+		if why := deletedFileKey(r.Key); r.Kind == RemovalDeletedFile && why != "" {
+			return nil, fmt.Errorf("%s/removals.yaml: removal %d (%q) of kind %s: %s", capability, i, r.Key, RemovalDeletedFile, why)
 		}
 	}
 	return doc.Removals, nil

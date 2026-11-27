@@ -387,6 +387,19 @@ func TestPodCertificateRequestProbeAndChartTable(t *testing.T) {
 	}
 }
 
+// A chart deployed by a Flux HelmRelease enables the gates by default from the
+// cluster subchart's 8.3.0 on, whatever the chart that depends on it.
+func TestClusterSubchartHasPodCertificateRequest(t *testing.T) {
+	for _, c := range []struct {
+		version string
+		want    bool
+	}{{"8.3.0", true}, {"v8.3.1", true}, {"9.4.0", true}, {"8.2.0", false}, {"5.1.2", false}, {"main", false}, {"", false}} {
+		if got := ClusterSubchartHasPodCertificateRequest(c.version); got != c.want {
+			t.Errorf("cluster %s: %v, want %v", c.version, got, c.want)
+		}
+	}
+}
+
 func TestSecretFilesCarryNoValues(t *testing.T) {
 	for _, shape := range shapes {
 		input, secrets := loadInput(t, shape)
@@ -686,7 +699,7 @@ func TestRefusals(t *testing.T) {
 		{"a provider the chat does not run on", clone(func(m map[string]any) {
 			m["aiChat"] = map[string]any{keyEnabled: true, keyModel: "x", keyProvider: "openai"}
 		}), secrets, ErrInput, "provider"},
-		{"kagent on the 4 line where the record does not say the cluster serves PodCertificateRequest", noPodCertificateRequest, secrets, ErrInput, "installation.podCertificateRequest does not say this cluster serves certificates.k8s.io/v1beta1 podcertificaterequests, which kagent's Agent Substrate on the 4 chart line needs; enable the feature gates PodCertificateRequest, ClusterTrustBundle, ClusterTrustBundleProjection under cluster.internal.advancedConfiguration.{controlPlane.apiServer,controlPlane.controllerManager,kubelet}.featureGates in the cluster App's values (management-clusters/" + noPodCertificateRequest["installation"].(map[string]any)["name"].(string) + "/cluster-app-manifests.yaml), or run a cluster App chart that enables them by default (cluster-aws 10.3.0, cluster-azure 9.3.0, cluster-cloud-director 7.3.0 and later)"},
+		{"kagent on the 4 line where the record does not say the cluster serves PodCertificateRequest", noPodCertificateRequest, secrets, ErrInput, "installation.podCertificateRequest does not say this cluster serves certificates.k8s.io/v1beta1 podcertificaterequests, which kagent's Agent Substrate on the 4 chart line needs; enable the feature gates PodCertificateRequest, ClusterTrustBundle, ClusterTrustBundleProjection under cluster.internal.advancedConfiguration.{controlPlane.apiServer,controlPlane.controllerManager,kubelet}.featureGates in the cluster's values (management-clusters/" + noPodCertificateRequest["installation"].(map[string]any)["name"].(string) + "/cluster-app-manifests.yaml), or run a cluster chart that enables them by default (giantswarm/cluster 8.3.0 and later: cluster-aws 10.3.0, cluster-azure 9.3.0, cluster-cloud-director 7.3.0 and later)"},
 		{"context bots where no chat gateway runs", clone(func(m map[string]any) {
 			m["klausGateway"] = map[string]any{keySlack: map[string]any{"contextBotIDs": []any{map[string]any{"value": "U0000000001"}}}}
 		}), secrets, ErrInput, "klausGateway.slack.contextBotIDs"},
@@ -1273,7 +1286,7 @@ func TestFactsAreTheProvidersOnTheFourLine(t *testing.T) {
 // managementCluster.private, which is false where the ingress alone is
 // private, so the definition's own fact decides it and a reconcile keeps it.
 func TestPrivateInstallationLiftsMusterGuards(t *testing.T) {
-	flags := []string{"dex:\n          allowPrivateIPOIDC: true", "allowPrivateIPClientMetadataHosts:\n          - agentgateway.", "allowPrivateIPRedirectURIs: true"}
+	flags := []string{"allowPrivateIPClientMetadataHosts:\n          - agentgateway.", privateRedirectPermission}
 	for shape, private := range map[string]bool{shapeGiantswarmSlackApp: true, shapeGiantswarmSlackAppPub: false} {
 		t.Run(shape, func(t *testing.T) {
 			input, secrets := loadInput(t, shape)
@@ -1289,6 +1302,15 @@ func TestPrivateInstallationLiftsMusterGuards(t *testing.T) {
 				t.Fatal(err)
 			}
 			patch := platformPatch(t, result)
+			var values map[string]any
+			if err := yaml.Unmarshal([]byte(patch), &values); err != nil {
+				t.Fatal(err)
+			}
+			server := values["muster"].(map[string]any)["muster"].(map[string]any)["oauth"].(map[string]any)["server"].(map[string]any)
+			dex, _ := server["dex"].(map[string]any)
+			if allowed, _ := dex["allowPrivateIPOIDC"].(bool); allowed != private {
+				t.Errorf("dex.allowPrivateIPOIDC %v, want %v", allowed, private)
+			}
 			for _, flag := range flags {
 				if strings.Contains(patch, flag) != private {
 					t.Errorf("%q rendered: %v, want %v:\n%s", flag, !private, private, patch)

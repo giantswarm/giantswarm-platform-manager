@@ -43,12 +43,12 @@ const (
 // with the entries the commit kept (Kept), not against the bare render.
 var LiveLists = []string{ListTrustedAudiences, ListExtraAudience, ListAllowedCallers}
 
-// LiveKept are the entries of kept that the live objects carry beside the
-// render: those of the LiveLists, in kept's order. Never nil for none.
+// LiveKept holds the audience identifiers and complete issuer digests used
+// for live verification, in kept's order. Never nil for none.
 func LiveKept(kept []Kept) []Kept {
 	out := []Kept{}
 	for _, k := range kept {
-		if slices.Contains(LiveLists, k.List) {
+		if slices.Contains(LiveLists, k.List) || (k.List == ListTrustedIssuers && k.Digest != "") {
 			out = append(out, k)
 		}
 	}

@@ -176,9 +176,6 @@ func (c discoveryCluster) Get(context.Context, string, string, string, Shape) (m
 func (c discoveryCluster) List(context.Context, string, string, string, Shape) ([]map[string]any, error) {
 	return nil, errors.New("not read")
 }
-func (c discoveryCluster) Logs(context.Context, string, string, int) (string, error) {
-	return "", errors.New("not read")
-}
 func (c discoveryCluster) Serves(_ context.Context, group, version, resource string) (bool, error) {
 	return c.served[group+"/"+version+" "+resource], c.err
 }
@@ -245,6 +242,7 @@ const (
 	testNamespace     = "ns"
 	kindHelmRelease   = "HelmRelease"
 	kindDeployment    = "Deployment"
+	kindConfigMap     = "ConfigMap"
 	keySpec           = "spec"
 	keyStatus         = "status"
 	keyData           = "data"
@@ -267,16 +265,13 @@ const (
 	definitionNote    = "what a match means"
 )
 
-// recordingCluster serves the objects, the pods and the log it holds and
-// records how much each read asked for: the shape of every Get and List,
-// the tail of every Logs.
+// recordingCluster serves the objects and the pods it holds and records how
+// much each read asked for: the shape of every Get and List.
 type recordingCluster struct {
 	objects map[string]map[string]any // resource/namespace/name
 	pods    []map[string]any
-	log     string
 	err     error
 	shapes  []Shape
-	tails   []int
 	// generations are the generations each AtGeneration asked for;
 	// generationErr is its answer, where set.
 	generations   []int64
@@ -298,11 +293,6 @@ func (c *recordingCluster) Get(_ context.Context, namespace, resource, name stri
 func (c *recordingCluster) List(_ context.Context, _, _, _ string, shape Shape) ([]map[string]any, error) {
 	c.shapes = append(c.shapes, shape)
 	return c.pods, c.err
-}
-
-func (c *recordingCluster) Logs(_ context.Context, _, _ string, tail int) (string, error) {
-	c.tails = append(c.tails, tail)
-	return c.log, c.err
 }
 
 func (c *recordingCluster) Serves(context.Context, string, string, string) (bool, error) {
@@ -375,9 +365,7 @@ func TestAFluxConditionFromAnEarlierGenerationReadsRolling(t *testing.T) {
 // Every check asks for what it reads, so the answer stays within what
 // mcp-kubernetes relays: a readiness check for the object's Readiness shape
 // — the conditions and the revision are in it — a drift probe for its
-// Configuration, the ConfigMaps a HelmRelease reads its values from too, and
-// an absence check for the last LogTail lines of each pod's log, which its
-// note says next to the definition's sentence.
+// Configuration, the ConfigMaps a HelmRelease reads its values from too.
 func TestChecksAskForWhatTheyRead(t *testing.T) {
 	conditions := func(condition string) map[string]any {
 		return map[string]any{keyConditions: []any{map[string]any{keyType: condition, keyStatus: conditionTrue, keyMessage: "ok"}}}
@@ -385,9 +373,9 @@ func TestChecksAskForWhatTheyRead(t *testing.T) {
 	key := func(resource, name string) string { return resource + "/" + testNamespace + "/" + name }
 	cluster := &recordingCluster{
 		objects: map[string]map[string]any{
-			key(kindHelmRelease, testRelease): {keySpec: map[string]any{"valuesFrom": []any{map[string]any{"kind": "ConfigMap", "name": valuesKey}}, valuesKey: map[string]any{"kagent": map[string]any{"replicas": "2"}}},
+			key(kindHelmRelease, testRelease): {keySpec: map[string]any{"valuesFrom": []any{map[string]any{"kind": kindConfigMap, "name": valuesKey}}, valuesKey: map[string]any{"kagent": map[string]any{"replicas": "2"}}},
 				keyStatus: map[string]any{keyConditions: conditions(conditionReady)[keyConditions], keyApplied: "1.2.3"}},
-			key("ConfigMap", valuesKey):        {keyData: map[string]any{"values.yaml": "kagent:\n  replicas: \"2\"\n", "x": "2"}},
+			key(kindConfigMap, valuesKey):      {keyData: map[string]any{"values.yaml": "kagent:\n  replicas: \"2\"\n", "x": "2"}},
 			key(kindDeployment, proxyWorkload): {keySpec: map[string]any{"selector": map[string]any{"matchLabels": map[string]any{"app": proxyWorkload}}}, keyStatus: conditions("Available")},
 			key("Secret", "credential"):        {keyData: map[string]any{"k": "***"}},
 			key(kindSecret, "loaded"):          secretWrittenAt(written),
@@ -396,43 +384,32 @@ func TestChecksAskForWhatTheyRead(t *testing.T) {
 			key(gitRepositoryResource, "configs"): {keyStatus: map[string]any{"artifact": map[string]any{"revision": "main@sha1:abc"}}},
 		},
 		pods: []map[string]any{podStartedAt(proxyWorkload+"-0", proxyWorkload, started)},
-		log:  "level=info msg=\"listening\"\n",
 	}
 	x := &executor{opts: LiveOptions{Cluster: cluster}, lv: &liveRender{values: map[string]string{renderedLeaf: "2"}}}
 	for _, c := range []struct {
 		name   string
 		probe  render.Probe
 		shapes []Shape
-		tails  []int
-		note   string
 	}{
-		{"HelmReleaseReady", render.Probe{Kind: render.HelmReleaseReady, Namespace: testNamespace, Resource: kindHelmRelease, Name: testRelease}, []Shape{Readiness}, nil, ""},
-		{"Condition", render.Probe{Kind: render.Condition, Namespace: testNamespace, Resource: kindDeployment, Name: proxyWorkload, Expect: render.Expectation{Condition: "Available", ConditionStatus: conditionTrue}}, []Shape{Readiness}, nil, ""},
-		{"ResourcePresent", render.Probe{Kind: render.ResourcePresent, Namespace: testNamespace, Resource: "Secret", Name: "credential", Expect: render.Expectation{Keys: []string{"k"}}}, []Shape{Readiness}, nil, ""},
-		{"PodsRunning", render.Probe{Kind: render.PodsRunning, Namespace: testNamespace, Name: "app=" + proxyWorkload}, []Shape{Readiness}, nil, ""},
-		{"LogAbsent", render.Probe{Kind: render.LogAbsent, Namespace: testNamespace, Resource: kindDeployment, Name: proxyWorkload, Expect: render.Expectation{Absent: "does not match"}}, []Shape{Readiness, Readiness}, []int{LogTail}, logTailNote},
-		{"LogAbsent with the definition's note", render.Probe{Kind: render.LogAbsent, Namespace: testNamespace, Resource: kindDeployment, Name: proxyWorkload, Expect: render.Expectation{Absent: "does not match", Note: definitionNote}}, []Shape{Readiness, Readiness}, []int{LogTail}, definitionNote + "; " + logTailNote},
-		{"Drift of a HelmRelease's values", render.Probe{Kind: render.Drift, Namespace: testNamespace, Resource: kindHelmRelease, Name: testRelease}, []Shape{Configuration, Configuration}, nil, ""},
-		{"Drift of a place", render.Probe{Kind: render.Drift, Namespace: testNamespace, Resource: "ConfigMap", Name: valuesKey, Expect: render.Expectation{Compare: []render.Comparison{{Live: "data.x", Rendered: renderedLeaf}}}}, []Shape{Configuration}, nil, ""},
-		{"SourceFollowed", render.Probe{Kind: render.SourceFollowed, Namespace: testNamespace, Resource: kindKonfiguration, Name: "konfiguration"}, []Shape{Readiness, Readiness}, nil, ""},
-		{"SecretLoaded", render.Probe{Kind: render.SecretLoaded, Namespace: testNamespace, Resource: kindSecret, Name: "loaded", Expect: render.Expectation{Pods: "app=" + proxyWorkload, Container: proxyWorkload}}, []Shape{Manifest, Readiness}, nil, ""},
+		{"HelmReleaseReady", render.Probe{Kind: render.HelmReleaseReady, Namespace: testNamespace, Resource: kindHelmRelease, Name: testRelease}, []Shape{Readiness}},
+		{"Condition", render.Probe{Kind: render.Condition, Namespace: testNamespace, Resource: kindDeployment, Name: proxyWorkload, Expect: render.Expectation{Condition: "Available", ConditionStatus: conditionTrue}}, []Shape{Readiness}},
+		{"ResourcePresent", render.Probe{Kind: render.ResourcePresent, Namespace: testNamespace, Resource: "Secret", Name: "credential", Expect: render.Expectation{Keys: []string{"k"}}}, []Shape{Readiness}},
+		{"PodsRunning", render.Probe{Kind: render.PodsRunning, Namespace: testNamespace, Name: "app=" + proxyWorkload}, []Shape{Readiness}},
+		{"Drift of a HelmRelease's values", render.Probe{Kind: render.Drift, Namespace: testNamespace, Resource: kindHelmRelease, Name: testRelease}, []Shape{Configuration, Configuration}},
+		{"Drift of a place", render.Probe{Kind: render.Drift, Namespace: testNamespace, Resource: "ConfigMap", Name: valuesKey, Expect: render.Expectation{Compare: []render.Comparison{{Live: "data.x", Rendered: renderedLeaf}}}}, []Shape{Configuration}},
+		{"SourceFollowed", render.Probe{Kind: render.SourceFollowed, Namespace: testNamespace, Resource: kindKonfiguration, Name: "konfiguration"}, []Shape{Readiness, Readiness}},
+		{"SecretLoaded", render.Probe{Kind: render.SecretLoaded, Namespace: testNamespace, Resource: kindSecret, Name: "loaded", Expect: render.Expectation{Pods: "app=" + proxyWorkload, Container: proxyWorkload}}, []Shape{Manifest, Readiness}},
 	} {
-		cluster.shapes, cluster.tails = nil, nil
+		cluster.shapes = nil
 		check, diffs, auth := x.run(context.Background(), c.probe)
 		if check.Mark != AsDefined || len(diffs) != 0 || auth != nil {
 			t.Errorf("%s: %+v (diffs %d, auth %v)", c.name, check, len(diffs), auth)
 		}
-		if !reflect.DeepEqual(cluster.shapes, c.shapes) || !reflect.DeepEqual(cluster.tails, c.tails) {
-			t.Errorf("%s asked for %v and %v lines, want %v and %v", c.name, cluster.shapes, cluster.tails, c.shapes, c.tails)
-		}
-		if check.Note != c.note {
-			t.Errorf("%s: note %q, want %q", c.name, check.Note, c.note)
+		if !reflect.DeepEqual(cluster.shapes, c.shapes) {
+			t.Errorf("%s asked for %v, want %v", c.name, cluster.shapes, c.shapes)
 		}
 		if c.probe.Kind == render.HelmReleaseReady && check.Revision != "1.2.3" {
 			t.Errorf("%s: revision %q from the readiness shape", c.name, check.Revision)
-		}
-		if c.probe.Kind == render.LogAbsent && !strings.Contains(check.Message, "the last 200 lines") {
-			t.Errorf("%s: %q", c.name, check.Message)
 		}
 	}
 }
@@ -774,7 +751,7 @@ func TestTooLargeReadsNotCheckedInPlainWords(t *testing.T) {
 	cluster := &recordingCluster{err: &TooLarge{Bytes: 139264, Limit: 131072}}
 	x := &executor{opts: LiveOptions{Cluster: cluster}}
 	check, diffs, auth := x.run(context.Background(), render.Probe{Kind: render.HelmReleaseReady, Namespace: fluxGiantswarm, Resource: kindHelmRelease, Name: metaRelease})
-	const want = "the object or log is larger than mcp-kubernetes answers (136 KiB, the limit is 128 KiB): the check asks for too much"
+	const want = "the object is larger than mcp-kubernetes answers (136 KiB, the limit is 128 KiB): the check asks for too much"
 	if check.Mark != NotChecked || check.Message != want || check.Name != metaRelease || len(diffs) != 0 || auth != nil {
 		t.Errorf("%+v (diffs %d, auth %v)", check, len(diffs), auth)
 	}
@@ -927,4 +904,25 @@ func TestLiveReadsAreBounded(t *testing.T) {
 			}
 		}
 	})
+}
+
+// A read muster refuses because it registers no server for the installation
+// is not checked: by design on an installation the hub keeps to browsing,
+// whose servers it never registers, so no gap; on any other, the missing
+// server named and a gap.
+func TestNoServerIsByDesignOnABrowseOnlyInstallation(t *testing.T) {
+	const server = "elver-mcp-kubernetes"
+	probe := render.Probe{ID: "live-releases", Kind: render.HelmReleaseReady, Namespace: testNamespace, Resource: kindHelmRelease, Name: "agent-platform"}
+	dim := definitions.Dimension{ID: probe.ID, Kind: definitions.KindLive}
+	cluster := &recordingCluster{err: &NoServer{Server: server}}
+	browsing := &executor{opts: LiveOptions{Cluster: cluster, Installation: "elver", BrowseOnly: true}, lv: &liveRender{probes: []render.Probe{probe}}}
+	d := browsing.dimension(t.Context(), dim)
+	if d.Mark != NotChecked || d.Reason != ReasonBrowseOnly || !d.ByDesign || !NotCheckedByDesign(d.Live.Checks[0]) {
+		t.Errorf("browse-only: mark %q, reason %q, by design %t", d.Mark, d.Reason, d.ByDesign)
+	}
+	other := &executor{opts: LiveOptions{Cluster: cluster, Installation: "finch"}, lv: &liveRender{probes: []render.Probe{probe}}}
+	d = other.dimension(t.Context(), dim)
+	if d.Mark != NotChecked || d.ByDesign || NotCheckedByDesign(d.Live.Checks[0]) || !strings.HasPrefix(d.Reason, NoServerPrefix) || !strings.Contains(d.Reason, server) {
+		t.Errorf("not browse-only: mark %q, reason %q, by design %t", d.Mark, d.Reason, d.ByDesign)
+	}
 }

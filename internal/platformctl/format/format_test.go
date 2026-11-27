@@ -3,9 +3,12 @@ package format
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/giantswarm/giantswarm-platform-manager/definitions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
@@ -109,6 +112,57 @@ func TestPending(t *testing.T) {
 			}
 			if strings.Contains(got, "stand without it") || strings.Contains(got, "until a rotation") {
 				t.Errorf("a pending-write wording in %q", got)
+			}
+		})
+	}
+}
+
+func TestPlanKeptSecretPending(t *testing.T) {
+	const revisionName = "rowan-kagent-credentials-revision"
+	for _, testCase := range []struct {
+		name        string
+		carries     []plan.Carry
+		vaultCopies []plan.VaultCopy
+		want        string
+	}{
+		{name: "case 0: kept", want: "kept: the value on record in source.yaml stands, nothing is written"},
+		{
+			name:    "case 1: kept with carries",
+			carries: []plan.Carry{{From: "source.yaml#stringData.secret", To: "target.yaml#stringData.secret"}},
+			want:    "the manager decrypts nothing, and the commit is refused until it is on record",
+		},
+		{
+			name:        "case 2: kept outside the wave",
+			carries:     []plan.Carry{{From: "source.yaml#stringData.secret", To: "target.yaml#stringData.secret"}},
+			vaultCopies: []plan.VaultCopy{{}},
+			want:        "the installation's own reconcile carries it",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			for _, withPending := range []bool{false, true} {
+				t.Run(fmt.Sprintf("pending=%t", withPending), func(t *testing.T) {
+					secret := plan.GeneratedSecret{Name: revisionName, Kept: true, FrozenIn: []string{"source.yaml"}, Carries: testCase.carries}
+					want := testCase.want + "\n"
+					if withPending {
+						secret.PendingIn = []string{acmeConfigs + ":unchanged.yaml", acmeConfigs + ":rewritten.yaml"}
+						want = testCase.want + "; pendingIn, the files on record without its key: " + acmeConfigs + ":unchanged.yaml: no write, " + acmeConfigs + ":rewritten.yaml: written with " + revisionName + "\n"
+					}
+					result := tools.CapabilityResult{Installations: []tools.DryRun{{Installation: plan.Installation{
+						Name: rowan,
+						Files: []plan.File{
+							{Repository: acmeConfigs, Path: "unchanged.yaml", Change: plan.ChangeUnchanged},
+							{Repository: acmeConfigs, Path: "rewritten.yaml", Change: plan.ChangeUpdate, Rewritten: true},
+						},
+						GeneratedSecrets: []plan.GeneratedSecret{secret},
+						VaultCopies:      testCase.vaultCopies,
+					}}}}
+					var output bytes.Buffer
+					require.NoError(t, Plan(&output, result, false))
+					require.Contains(t, output.String(), want)
+					if !withPending {
+						require.NotContains(t, output.String(), "pendingIn")
+					}
+				})
 			}
 		})
 	}
@@ -527,8 +581,8 @@ func TestVerifyPrintsUnreachableByDesignApart(t *testing.T) {
 		t.Fatal(err)
 	}
 	contains(t, buf.String(),
-		"Summary: 1 as defined, 1 unreachable from the manager by design (private installation)",
-		"Identity: as defined (1 as defined, 1 unreachable from the manager by design (private installation))",
+		"Summary: 1 as defined, 1 not read from the manager by design (private or browse-only installation)",
+		"Identity: as defined (1 as defined, 1 not read from the manager by design (private or browse-only installation))",
 		"[not checked] dex-auth-request (probe: dex) — "+reason,
 		"unreachable "+dexAuthURL+" — Client.Timeout exceeded")
 	if strings.Contains(buf.String(), "FAIL") || strings.Contains(buf.String(), "1 not checked") {
@@ -545,5 +599,5 @@ func TestPlanComparisonNamesByDesign(t *testing.T) {
 	if err := Plan(&buf, r, false); err != nil {
 		t.Fatal(err)
 	}
-	contains(t, buf.String(), "Comparison: 68 as defined, 18 not checked, 7 unreachable from the manager by design (private installation)")
+	contains(t, buf.String(), "Comparison: 68 as defined, 18 not checked, 7 not read from the manager by design (private or browse-only installation)")
 }

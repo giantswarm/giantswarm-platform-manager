@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -103,6 +104,36 @@ func TestAppliedTextNamesTheAccountEngineer(t *testing.T) {
 		Installations: []string{rowan}, AccountEngineerOf: map[string]string{rowan: rtAda}, Changes: map[string][]string{rowan: {"mcp-kubernetes: rotates valkey-password (on request)"}}}}
 	want := "*alice* reconciled *cluster-mcp-servers* on *rowan* (account engineer Ada Example): the change is applied and verified.\n>*Why:* rotate after the leak\n*What changed*\n• mcp-kubernetes: rotates valkey-password (on request)"
 	if got := appliedText(a, rowan); got != want {
+		t.Errorf("got  %s\nwant %s", got, want)
+	}
+}
+
+// The summary is the review in one line — who, what, where. A wave too long
+// for the gateway's line counts its installations but keeps naming the
+// capabilities.
+func TestReviewSummary(t *testing.T) {
+	actor := actions.Actor{Login: stAlice}
+	short := &actions.Action{Spec: actions.Spec{Actor: actor, Kind: actions.KindReconcile, Capability: installations.AgentPlatform,
+		Installations: []string{rtHub, rowan}, Customer: true, AccountEngineers: []string{rtAda}, Reason: "a reason\non two lines"}}
+	if got, want := reviewSummary(short), "*alice* to reconcile *agent-platform* on *gazelle, rowan*"; got != want {
+		t.Errorf("got  %s\nwant %s", got, want)
+	}
+
+	many := func(prefix string, n int) []string {
+		var names []string
+		for i := range n {
+			names = append(names, fmt.Sprintf("%s-%02d", prefix, i))
+		}
+		return names
+	}
+	long := &actions.Action{Spec: actions.Spec{Actor: actor, Kind: actions.KindEnable, Capability: installations.AgentPlatform, Installations: many("installation", 40)}}
+	if got, want := reviewSummary(long), "*alice* to enable *agent-platform* on 40 installations"; got != want {
+		t.Errorf("got  %s\nwant %s", got, want)
+	}
+
+	mixed := &actions.Action{Spec: actions.Spec{Actor: actor, Kind: actions.KindReconcile, Capability: installations.AgentPlatform,
+		Installations: append(many("installation", 39), rowan), CapabilityByInstallation: map[string]string{rowan: "cluster-mcp-servers"}}}
+	if got, want := reviewSummary(mixed), "*alice* to reconcile *agent-platform* on 39 installations and *cluster-mcp-servers* on 1 installation"; got != want {
 		t.Errorf("got  %s\nwant %s", got, want)
 	}
 }

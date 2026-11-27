@@ -72,7 +72,9 @@ approvals:
   # committed that no one can approve); `get_info` reports
   # `approvals.configured: false`. The requests carry the pod's projected
   # ServiceAccount token in the gateway's audience; the gateway's
-  # `reviews.allowedCallers` must name this ServiceAccount.
+  # `reviews.allowedCallers` must name this ServiceAccount. The gateway must be
+  # klaus-gateway v4.19.0 or newer: older ones refuse the review's `summary`
+  # field, so no review could be posted.
   gatewayURL: ""
   # -- The team whose members decide, as the gateway names it.
   team: ""
@@ -125,17 +127,29 @@ live:
   # refused by the chart and at start-up, never fallen back from. An
   # in-cluster identity provider is named by the Service name its certificate
   # carries — `https://dex.dex.svc.cluster.local:5556/dex/keys` in a lab —
-  # with `allowPrivateIPJWKS` for the private address and `caSecret` for the
-  # CA the certificate chains to.
+  # with `caSecret` for the CA the certificate chains to. The issuer's host
+  # and this URL's host may resolve to a private address (RFC 1918, RFC 4193);
+  # loopback and link-local stay refused.
   jwksURL: ""
-  # -- Let the issuer's discovery document or the key set be read from a
-  # private address (an in-cluster identity provider's Service): the
-  # allowance of the SSRF guard, not of the transport — the URL stays
-  # `https://`.
+  # -- Deprecated, no effect: the issuer's host and the `jwksURL` host may
+  # resolve to a private address without it. Still accepted; the server logs
+  # a warning when it is set.
   allowPrivateIPJWKS: false
   # -- Secret in the release namespace with a PEM bundle under `ca.crt` the
   # issuer's certificate chains to (a lab CA); empty is the system trust.
   caSecret: ""
+  # -- Existing Secret in the release namespace with the 32-byte key (base64
+  # or hex) that seals the requestState of a muster sign-in
+  # `verify_installation` relays to a caller that declares URL mode
+  # elicitation, mounted as `OAUTH_REQUEST_STATE_KEY_FILE`; `previousKey`
+  # names the Secret's key holding the key before a rotation, mounted as
+  # `OAUTH_REQUEST_STATE_PREVIOUS_KEY_FILE`. Each server has its own key.
+  # Empty name: no key, and the sign-in stays in the result's not-read
+  # checks.
+  requestStateSecret:
+    name: ""
+    key: key
+    previousKey: ""
   muster:
     # -- muster's own MCP endpoint as reached from the pod: where a live read
     # loops back to with the person's token. Empty derives
@@ -143,7 +157,7 @@ live:
     # namespace.
     url: ""
     # -- The muster family the installations' kubernetes tools are aggregated
-    # under — the tools are `x_<family>_get`, `_list` and `_logs` — and the
+    # under — the tools are `x_<family>_get`, `_list` and `_api_resources` — and the
     # family's argument that selects the installation. The platform's
     # agent-platform-mcps chart registers every installation's mcp-kubernetes
     # under the family `kubernetes` with `management_cluster`; a lab with one

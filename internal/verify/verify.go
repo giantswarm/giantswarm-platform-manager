@@ -292,8 +292,16 @@ type Result struct {
 	Join                 *plan.Join             `json:"join,omitempty"`
 	SwitchOff            *plan.SwitchOff        `json:"switchOff,omitempty"`
 	DexClients           []plan.DexClient       `json:"dexClients"`
-	CustomerActions      []plan.CustomerAction  `json:"customerActions"`
-	Probes               []plan.Probe           `json:"probes"`
+	// DexConnectors, DexStaffConnectors and DexVolumes are the plan's
+	// (plan.Installation), which the commit refusal reads.
+	DexConnectors      []string              `json:"dexConnectors,omitempty"`
+	DexStaffConnectors []string              `json:"dexStaffConnectors,omitempty"`
+	DexVolumes         []string              `json:"dexVolumes,omitempty"`
+	CustomerActions    []plan.CustomerAction `json:"customerActions"`
+	Probes             []plan.Probe          `json:"probes"`
+	// Checklist are the cluster objects the plan takes off the record that
+	// the fleet's Kustomization leaves on the cluster (plan.Installation).
+	Checklist []plan.Object `json:"checklist,omitempty"`
 }
 
 // view takes the plan's view into the result; the files' content, rendered
@@ -305,7 +313,9 @@ func (r *Result) view(p plan.Installation, content bool) {
 	r.GeneratedSecrets, r.SuppliedSecrets, r.SuppliedOnRecord, r.HubSections = p.GeneratedSecrets, p.SuppliedSecrets, p.SuppliedOnRecord, p.HubSections
 	r.DropsPrereleases, r.Join, r.SwitchOff = p.DropsPrereleases, p.Join, p.SwitchOff
 	r.DexClients, r.CustomerActions, r.Probes = p.DexClients, p.CustomerActions, p.Probes
+	r.DexConnectors, r.DexStaffConnectors, r.DexVolumes = p.DexConnectors, p.DexStaffConnectors, p.DexVolumes
 	r.MissingFacts = p.MissingFacts
+	r.Checklist = p.Checklist
 	if !content {
 		r.Files = make([]plan.File, len(p.Files))
 		for i, f := range p.Files {
@@ -320,7 +330,8 @@ func (r *Result) view(p plan.Installation, content bool) {
 func (r Result) Plan() plan.Installation {
 	return plan.Installation{Name: r.Installation, State: r.State, Inputs: r.Inputs.Values, MissingInputs: r.Inputs.Missing, Refused: r.Refused, CommitRefused: r.CommitRefused, MissingFacts: r.MissingFacts,
 		Files: r.Files, Includes: r.Includes, Diff: r.Diff, GeneratedSecrets: r.GeneratedSecrets, DeferredPairs: r.DeferredPairs, UnresolvedReferences: r.UnresolvedReferences, SuppliedSecrets: r.SuppliedSecrets, SuppliedOnRecord: r.SuppliedOnRecord,
-		HubSections: r.HubSections, DropsPrereleases: r.DropsPrereleases, Join: r.Join, SwitchOff: r.SwitchOff, DexClients: r.DexClients, CustomerActions: r.CustomerActions, Probes: r.Probes}
+		HubSections: r.HubSections, DropsPrereleases: r.DropsPrereleases, Join: r.Join, SwitchOff: r.SwitchOff, DexClients: r.DexClients,
+		DexConnectors: r.DexConnectors, DexStaffConnectors: r.DexStaffConnectors, DexVolumes: r.DexVolumes, CustomerActions: r.CustomerActions, Probes: r.Probes, Checklist: r.Checklist}
 }
 
 // Options shape one verify.
@@ -345,6 +356,13 @@ type Options struct {
 	// Installations are the registry's installations by name (plan.Options.Installations).
 	Installations     map[string]installations.Installation
 	PlanInstallations map[string]bool
+	// Remaining renders the other capabilities on record on the installation
+	// (plan.Options.Remaining): a file the definition's removals name for
+	// deletion that one of them renders stays.
+	Remaining func(ctx context.Context) ([]plan.Remaining, error)
+	// deleted are the definition's removals of kind deleted-file
+	// (plan.Options.DeletedFiles), read by Compare.
+	deleted []definitions.DeletedFile
 }
 
 // Compare answers the verify of opts' installation.
@@ -373,6 +391,7 @@ func Compare(ctx context.Context, opts Options) Result {
 		r.Refused = err.Error()
 		return r
 	}
+	opts.deleted = definitions.DeletedFiles(rms)
 	// Without inputs nothing is rendered: the file dimensions read not
 	// checked, the anonymous probes still run.
 	var c *comparison
@@ -558,18 +577,26 @@ func compare(ctx context.Context, opts Options, rms, migs plannedKeys) (*compari
 	resetLeaves(driven, resets, own, base, func(key string) string { return rs.got[key].content })
 	c := &comparison{files: map[string]*fileDiff{}, dexClients: p.DexClients}
 	hub := map[string]bool{}
+	unlisted := unlistedEntries(p.Files)
 	for _, f := range rendered(p) {
 		key := fileKey(f.Repository, f.Path)
 		fd := &fileDiff{key: key, path: f.Path, kind: kindOf(f.Path), documents: flattenLines(f.Content).documents}
 		switch f.Change {
 		case plan.ChangeUnknown:
 			fd.unreadable = f.Error
+		case plan.ChangeDelete:
+			// A file the render no longer carries, deleted for the removal
+			// that names it: one planned difference, the file whole.
+			fd.diffs = []Difference{{File: key, Current: "on record", Planned: f.Why}}
 		case plan.ChangeCreate, plan.ChangeUpdate:
 			var docs map[string]bool
 			fd.diffs, docs = differences(key, f.Content, rs.got[key].content, driven)
 			maps.Copy(fd.documents, docs)
 			for i := range fd.diffs {
 				fd.diffs[i].Planned = planned(fd, &fd.diffs[i], rms, migs)
+				if fd.diffs[i].Planned == "" {
+					fd.diffs[i].Planned = unlisted[key][fd.diffs[i].Path]
+				}
 				if section := rms.hubSection(fd, &fd.diffs[i]); section != "" {
 					hub[section] = true
 				}
@@ -582,6 +609,30 @@ func compare(ctx context.Context, opts Options, rms, migs plannedKeys) (*compari
 	c.planned = plannedObjects(rendered(p), c.files, p.DexClients, func(key string) string { return rs.got[key].content })
 	shown(p.Files)
 	return c, p, nil
+}
+
+// unlistedEntries are, by kustomization file and YAML path (resources[<entry>]),
+// the reasons of the files the plan deletes whose entries it unlists there:
+// a planned difference of the kustomization, not drift.
+func unlistedEntries(files []plan.File) map[string]map[string]string {
+	out := map[string]map[string]string{}
+	for _, f := range files {
+		if f.Change != plan.ChangeDelete {
+			continue
+		}
+		for _, l := range f.ListedIn {
+			k, entry, ok := strings.Cut(l, " ")
+			if !ok {
+				continue
+			}
+			key := fileKey(f.Repository, k)
+			if out[key] == nil {
+				out[key] = map[string]string{}
+			}
+			out[key][entry] = f.Why
+		}
+	}
+	return out
 }
 
 // shown redacts the files of an encrypted record the way their differences
@@ -640,7 +691,8 @@ func droppedReason(path string) string {
 // with the files the definition renders flattened to their leaves by key.
 // The definition's refusal is the error.
 func build(ctx context.Context, opts Options, values map[string]any, read plan.Reader) (plan.Installation, map[string]map[string]string, error) {
-	p := plan.Build(ctx, plan.Options{Definition: opts.Definition, Installation: opts.Installation, Hub: opts.Hub, Inputs: values, Content: true, Read: read, Rotate: opts.Rotate, ForceJoin: opts.ForceJoin, ForceSwitchOff: opts.ForceSwitchOff, Installations: opts.Installations, PlanInstallations: opts.PlanInstallations})
+	p := plan.Build(ctx, plan.Options{Definition: opts.Definition, Installation: opts.Installation, Hub: opts.Hub, Inputs: values, Content: true, Read: read, Rotate: opts.Rotate, ForceJoin: opts.ForceJoin, ForceSwitchOff: opts.ForceSwitchOff, Installations: opts.Installations, PlanInstallations: opts.PlanInstallations,
+		DeletedFiles: opts.deleted, Remaining: opts.Remaining})
 	if p.Refused != "" {
 		return p, nil, errors.New(p.Refused)
 	}

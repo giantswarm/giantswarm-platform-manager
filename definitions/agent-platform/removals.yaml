@@ -33,6 +33,12 @@
 #   retired             a key of a generated Secret the definition no longer writes and nothing reads; the plan
 #                       leaves it on record, since dropping it alone would rewrite the Secret and draw every value
 #                       it holds anew, and it goes with the Secret's next rotation
+#   deleted-file        a whole file under the installation's extras/ the definition no longer renders, keyed
+#                       extras:<path under extras/> with no YAML path and no placeholder: a reconcile deletes it,
+#                       takes the entry that lists it out of the kustomization.yaml of its directory, and lists the
+#                       objects it declares for a person to delete after the merge (the Kustomization over extras/
+#                       does not prune); a file another capability on record renders stays. Without such a
+#                       removal a reconcile keeps every file on record
 #
 # keptWhile, on a removal of another kind, names a key path of the same file: while the render carries it, the plan
 # keeps the key from the record as it keeps one of kind kept; once the render lacks it, the key goes for the reason
@@ -112,8 +118,10 @@ removals:
     kind: migration
     reason: "Removed: the chart's bundled promql-agent sample is switched on here; a sample agent an installation wants is an Agent object under extras · M24"
   - key: configmap:kagent.oauth2ProxyIngress
-    kind: kept
-    reason: "Kept: the kagent UI's oauth2-proxy ingress is written per installation here, the peer the Dev Portal's tunnel reaches the UI through; it stays until the shared defaults carry the rule for every private installation · M22"
+    kind: migration
+    reason: >-
+      Removed: the kagent UI's oauth2-proxy admits the Teleport agent here (oauth2ProxyIngress.additionalPeers), the peer of the hub's kagent
+      tunnel; the hub no longer renders that tunnel, since the Dev Portal reaches the kagent controller through the agentgateway tunnel · M47
   - key: configmap:postgres.storage
     kind: migration
     reason: "Removed: the platform Postgres storage class is written here; the shared defaults set it per cloud provider · M17"
@@ -140,14 +148,19 @@ removals:
     reason: >-
       Kept: kagent's Harnesses (the runtimes an Agent names, Claude Code for the coding agents) are declared here; they stay until the definition
       renders them from an input or the shared defaults carry them
+  - key: configmap:kagent.substrateWorkerPool.template.resources
+    kind: kept
+    reason: >-
+      Kept: the shared Substrate worker budget is sized for this installation's actor limits and runtime overhead; it stays until the definition
+      renders worker resources from an input or the shared defaults derive that budget
   - key: configmap:muster.muster.oauth.server.dex.connectorId
     kind: kept
     reason: "Kept: muster's Dex login connector is pinned here; the shared defaults pick one connector for every Giant Swarm installation, which this installation's Dex may lack, so the pin stays until they choose per installation · M27"
   - key: configmap:muster.muster.oauth.server.dex.identityCheckConnectors
     kind: kept
     reason: >-
-      Kept: muster's sign-in check also accepts the Dex connectors listed here, so a portal session signed in through another connector
-      (the Microsoft fallback) matches its Dex subject; it stays until the shared defaults list the installation's own connectors
+      Kept where federation.identityCheckConnectors does not select this installation: muster's sign-in check needs the installation's
+      browser connectors. An explicit policy selection owns the complete list instead of the local override or shared defaults.
   - key: configmap:muster.muster.toolsetPresets
     kind: kept
     reason: >-
@@ -325,6 +338,17 @@ removals:
     reason: "Kept: the ingress block tunes this installation's own Dex ingress; the platform reads nothing of it and leaves it on the Dex values as it is."
 
   # --- management-clusters extras/agent-platform/ ---
+  - key: extras:agent-platform/tunnelport/remoteapps.yaml [RemoteApp/agent-platform/kagent-<target>]
+    kind: migration
+    reason: >-
+      Removed: the RemoteApp kagent-<target> tunnels this hub to the <target> installation's kagent UI behind oauth2-proxy (port 4180, probed at /ping);
+      the Dev Portal reaches <target>'s kagent controller through the agentgateway-<target> tunnel, and the hub's token of the tunnel leaves
+      teleport-fleet's values with it · M47
+  - key: extras:kubernetes/envs/prod/values.yaml tunnelport.tunnels[kagent-<target>]
+    kind: migration
+    reason: >-
+      Removed: teleport-fleet's tunnel kagent-<target> carries this hub's token for its tunnel to the <target> installation's kagent UI; the hub no
+      longer renders that tunnel, so its token leaves the tunnel, and the tunnel goes once no other hub's token is left · M47
   - key: extras:agents
     kind: not-platform
     reason: "Kept: extras/agent-platform/agents holds the agents deployed on this installation; they are the installation's own workloads, which the platform neither writes nor removes."

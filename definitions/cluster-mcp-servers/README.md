@@ -10,7 +10,7 @@ same pairing) reads it.
 | File | What it is |
 |---|---|
 | `schema.json` | JSON Schema (draft 2020-12, `additionalProperties: false`) of the inputs: the facts on record under `installation` — the hubs whose muster exchanges tokens into the installation and the registry's hub among them (`federation`) — and, per server, whether it runs and how it reaches Dex (`privateURLs`, `privateIPs`, `dexCA`). Whether a server runs is read from the record — its extras directory's kustomization — where the capability is on record; a fresh enable runs all three. The Dex settings are read back from the server's user values. |
-| `removals.yaml` | The servers' inline Dex client secrets in the encrypted Dex values: the client reads a referenced Secret instead, dex-app ignores the inline value next to it, and a person deletes it (the definition decrypts nothing). |
+| `removals.yaml` | The servers' inline Dex client secrets in the encrypted Dex values: the client reads a referenced Secret instead, dex-app ignores the inline value next to it, and a person deletes it (the definition decrypts nothing). A removal of kind `deleted-file` (`extras:<path under extras/>`) names a whole file the definition no longer renders: a reconcile deletes it, unlists it and lists its objects for a person to delete. |
 | `migrations.yaml` | What an installation whose servers were set up by hand lacks and the first reconcile adds: the credentials revision, the Dex client Secret, the kustomization's entries and patches, the reference in the Dex patch; and the hubs' token-exchange clients where they were registered by hand or the platform rendered them before it was disabled. |
 | `features.yaml` | The consistency features (servers, identity) and their dimensions. |
 | `probes.yaml` | The anonymous probe: Dex's discovery document. |
@@ -35,6 +35,21 @@ the connector's `config` and its secret referenced by `clientSecretRef` from the
 `installations/<name>/apps/dex-app/configmap-values.yaml.patch`, a file whose other clients, connectors and
 keys stay their owners'; a list of them on record joins the map under each entry's id. The clients and
 connectors are maps keyed by id, which needs dex-app 3.5.0.
+
+A hub whose Dex the installation reaches through a tunnel (`installation.federation.connectors[*].tunnel`)
+gets the same connector through that tunnel. teleport-fleet's tunnelport values declare it: a tunnel whose
+`appLabels` are `app: dex` and `cluster: <hub>` with a token whose consumer is the installation; its Service is
+the tunnel's name in the installation's `installNamespace` among the consumers, and its trust bundle is the
+Secret the installation's tunnelport release writes (`trustBundle.secretName` of
+`management-clusters/<name>/extras/tunnelport/helm-release.yaml`, which must install into Dex's namespace; a
+tunnel without that release on record fails the inspection). The connector fetches discovery, token, keys and
+user info from `https://<service>.<namespace>.svc.cluster.local:8443` (`issuer`, `providerDiscoveryOverrides`),
+keeps the hub's public Dex as `issuerAlias`, the tokens' issuer, whose authorization endpoint the browser still
+signs in at, and verifies the tunnel against the bundle's `svid_bundle.pem`, which the same patch mounts into
+Dex (`dex.volumes`, `dex.volumeMounts`, that one key alone: the Secret also holds the tunnel's private key). Dex
+reads the bundle when it opens the connector, so after a Teleport CA rotation Dex verifies the tunnel against the
+new bundle from its next start. Encrypted Dex values that carry `dex.volumes` or `dex.volumeMounts` as a list
+hold the commit, as they do for the clients and connectors.
 
 Per hub that exchanges tokens into the installation (`installation.federation.hubs`), its token-exchange
 client in that patch — `muster-token-exchange-<name>` for the registry's hub, `muster-token-exchange-<name>-<hub>`

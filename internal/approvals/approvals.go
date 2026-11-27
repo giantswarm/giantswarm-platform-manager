@@ -73,17 +73,23 @@ type Tool struct {
 	Arguments map[string]any `json:"arguments,omitempty"`
 }
 
-// Review is one approval request as POST /reviews takes it.
+// Review is one approval request as POST /reviews takes it. Summary is the
+// one line the gateway shortens the message to once the review is decided,
+// Text then moving into its thread; at most SummaryMax characters.
 type Review struct {
 	Team         string   `json:"team"`
 	Channel      string   `json:"channel"`
 	Text         string   `json:"text"`
+	Summary      string   `json:"summary,omitempty"`
 	Actor        string   `json:"actor,omitempty"`
 	PullRequests []string `json:"pullRequests,omitempty"`
 	Link         string   `json:"link,omitempty"`
 	Approve      Tool     `json:"approve"`
 	Deny         *Tool    `json:"deny,omitempty"`
 }
+
+// SummaryMax bounds a review's summary, as the gateway does.
+const SummaryMax = 300
 
 // Notice is a message that asks for nothing, as POST /notices takes it.
 type Notice struct {

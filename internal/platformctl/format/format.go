@@ -197,6 +197,12 @@ func (p *printer) installation(inst plan.Installation, features []verify.Feature
 			if len(f.Kept) > 0 {
 				p.f("    %s keeps what other owners added and the definition does not render: %s\n", f.Path, kept(f.Kept))
 			}
+			if f.Change == plan.ChangeDelete {
+				p.f("    %s goes: %s\n", f.Path, f.Why)
+				for _, l := range f.ListedIn {
+					p.f("    %s is unlisted from %s\n", f.Path, l)
+				}
+			}
 		}
 		p.differences(inst.Files, features)
 	}
@@ -222,11 +228,11 @@ func (p *printer) installation(inst plan.Installation, features []verify.Feature
 			case g.Rotates:
 				p.f("      rotates: %s (forced by %s%s) — a new value replaces the one on record in %s; both sides roll, the client is unusable between the two rollouts%s\n", g.Name, g.ForcedBy, cause(g.Cause), strings.Join(g.FrozenIn, ", "), signsOut(g.Name))
 			case g.Kept && len(g.Carries) > 0 && len(inst.VaultCopies) > 0 && g.Peer == "":
-				p.f("      kept: the value on record in %s stands; %s takes it, outside the pair this wave moves — not copied by the wave, the installation's own reconcile carries it\n", strings.Join(g.FrozenIn, ", "), carriesTo(g))
+				p.f("      kept: the value on record in %s stands; %s takes it, outside the pair this wave moves — not copied by the wave, the installation's own reconcile carries it%s\n", strings.Join(g.FrozenIn, ", "), carriesTo(g), pending(g, inst.Files))
 			case g.Kept && len(g.Carries) > 0:
-				p.f("      kept: the value on record in %s stands; %s — the manager decrypts nothing, and the commit is refused until it is on record\n", strings.Join(g.FrozenIn, ", "), carries(g))
+				p.f("      kept: the value on record in %s stands; %s — the manager decrypts nothing, and the commit is refused until it is on record%s\n", strings.Join(g.FrozenIn, ", "), carries(g), pending(g, inst.Files))
 			case g.Kept:
-				p.f("      kept: the value on record in %s stands, nothing is written\n", strings.Join(g.FrozenIn, ", "))
+				p.f("      kept: the value on record in %s stands, nothing is written%s\n", strings.Join(g.FrozenIn, ", "), pending(g, inst.Files))
 			case len(g.Carries) > 0:
 				p.f("      drawn by your vault: no file on record holds it; %s — the commit rewrites no encrypted file for one key, and is refused until it is on record%s\n", carries(g), pending(g, inst.Files))
 			case g.DrawnWith != "":
@@ -252,6 +258,12 @@ func (p *printer) installation(inst plan.Installation, features []verify.Feature
 		}
 	}
 	p.customerActions(inst.CustomerActions)
+	for _, on := range plan.ChecklistByInstallation(inst.Name, inst.Checklist) {
+		p.f("  After the merge, delete on %s in this order — the fleet's Kustomization over the tree does not prune what the change takes off the record:\n", on.Installation)
+		for _, o := range on.Objects {
+			p.f("    [ ] %s\n", o.Line())
+		}
+	}
 	if len(inst.Probes) > 0 {
 		p.f("  Probes:\n")
 		for _, pr := range inst.Probes {
@@ -407,7 +419,7 @@ func dexClient(c plan.DexClient) string {
 
 func diff(d map[plan.Change]int) string {
 	var parts []string
-	for _, c := range []plan.Change{plan.ChangeCreate, plan.ChangeUpdate, plan.ChangeUnchanged, plan.ChangeUnknown} {
+	for _, c := range []plan.Change{plan.ChangeCreate, plan.ChangeUpdate, plan.ChangeDelete, plan.ChangeUnchanged, plan.ChangeUnknown} {
 		if n := d[c]; n > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", n, c))
 		}
@@ -423,6 +435,11 @@ func Action(w io.Writer, a actions.Action) error {
 	p := &printer{w: w}
 	p.f("Action %s in %s, created %s\n", a.Name, dash(a.Namespace), a.CreatedAt.Format(time.RFC3339))
 	p.f("Kind: %s   Capability: %s   Actor: %s\n", a.Spec.Kind, a.Spec.Capability, dash(a.Spec.Actor.Login))
+	for _, n := range a.Spec.Installations {
+		if c := a.CapabilityOf(n); c != a.Spec.Capability {
+			p.f("  %s renders with %s, to draw the values it shares with the others once\n", n, c)
+		}
+	}
 	p.f("Installations: %s\n", strings.Join(a.Spec.Installations, ", "))
 	p.f("State: %s\n", dash(a.Status.State))
 	if len(a.Status.PullRequests) > 0 {

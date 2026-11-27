@@ -300,10 +300,7 @@ func TestVerifyInstallationAsDefined(t *testing.T) {
 	if d := dims[liveDrift]; d.Live == nil || len(d.Live.Checks) != 1 || d.Live.Checks[0].Resource != helmReleaseKind || len(d.Differences) != 0 {
 		t.Errorf("live-drift: %+v", d)
 	}
-	if d := dims["live-oauth2-proxy-audience"]; d.Live == nil || !strings.Contains(d.Live.Checks[0].Message, "pod log") {
-		t.Errorf("live-oauth2-proxy-audience read the logs: %+v", d)
-	}
-	if d := dims["live-kagent-login-redirect"]; d.Live == nil || d.Live.Checks[0].Message != "302" {
+	if d := dims["live-muster-protected-resource"]; d.Live == nil || d.Live.Checks[0].Message != "200" {
 		t.Errorf("the HTTP probe ran direct: %+v", d)
 	}
 	for _, f := range res.Features {
@@ -413,16 +410,17 @@ func TestVerifyInstallationForbiddenForTheViewer(t *testing.T) {
 
 	res := verifyLive(t, st.liveClient(t, st.dex.token(t, liveViewer, []string{liveAudience}, time.Hour)), rowan)
 	dims := liveDimensions(res)
-	d := dims["live-oauth2-proxy-secret-and-flux-sa"]
+	d := dims["live-dex-client-secrets-loaded"]
 	if d.Mark != verify.NotChecked || !strings.Contains(d.Reason, "forbidden for oidc:"+liveViewer) || d.Live == nil {
 		t.Fatalf("the Secret read: %+v", d)
 	}
-	seen := map[string]verify.Mark{}
 	for _, c := range d.Live.Checks {
-		seen[c.Resource] = c.Mark
+		if c.Mark != verify.NotChecked {
+			t.Errorf("a Secret check: %+v", c)
+		}
 	}
-	if seen["Secret"] != verify.NotChecked || seen["ServiceAccount"] != verify.AsDefined {
-		t.Errorf("checks: %+v", d.Live.Checks)
+	if sa := dims["live-kagent-flux-sa"]; sa.Mark != verify.AsDefined {
+		t.Errorf("the ServiceAccount read: %+v", sa)
 	}
 	if res.Summary[verify.Drifted] != 0 || dims["live-helmreleases-ready"].Mark != verify.AsDefined || res.State != installations.StateEnabled {
 		t.Errorf("state %q summary %v", res.State, res.Summary)
@@ -449,7 +447,7 @@ func TestVerifyInstallationRelaysAuthRequired(t *testing.T) {
 	if !strings.Contains(d.Reason, "not connected to the installation in muster") {
 		t.Errorf("reason %q", d.Reason)
 	}
-	if h := dims["live-kagent-api-protected"]; h.Mark != verify.AsDefined {
+	if h := dims["live-muster-protected-resource"]; h.Mark != verify.AsDefined {
 		t.Errorf("the anonymous probe still ran: %+v", h)
 	}
 	if res.Summary[verify.Drifted] != 0 || res.State != installations.StateEnabled {
@@ -603,10 +601,9 @@ func TestVerifyInstallationReadsRollingUntilPodCertificateRequestIsServed(t *tes
 
 // mcp-kubernetes caps a tool's answer at 128 KiB and refuses a larger one
 // whole, and muster relays the refusal: the meta chart's HelmRelease as the
-// apiserver holds it and a busy pod's last thousand lines are past the cap.
-// A check asks for what it reads — the slim output for a readiness check,
-// the normal output for a drift probe's values, the last two hundred lines
-// of a log — and the fixture, as bulky as the platform's objects, is read
+// apiserver holds it is past the cap. A check asks for what it reads — the
+// slim output for a readiness check, the normal output for a drift probe's
+// values — and the fixture, as bulky as the platform's objects, is read
 // within the cap; a read the cap still refuses is not checked with the
 // refusal in plain words while the checks that asked for less stand.
 func TestVerifyInstallationReadsWithinTheResponseCap(t *testing.T) {
@@ -618,47 +615,32 @@ func TestVerifyInstallationReadsWithinTheResponseCap(t *testing.T) {
 	if whole, _ := json.Marshal(hr); len(whole) <= responseLimit {
 		t.Fatalf("the fixture's HelmRelease is %d bytes whole, within the cap", len(whole))
 	}
-	st.inst.editLogs(func(logs map[string]string) {
-		for key, log := range logs {
-			if strings.HasPrefix(key, kagentNamespace+"/") && len(log) <= responseLimit {
-				t.Fatalf("the fixture's log %s is %d bytes whole, within the cap", key, len(log))
-			}
-		}
-	})
 
 	res := verifyLive(t, admin, rowan)
 	dims := liveDimensions(res)
-	for _, id := range []string{"live-helmreleases-ready", liveDrift, "live-oauth2-proxy-audience"} {
+	for _, id := range []string{"live-helmreleases-ready", liveDrift} {
 		if d := dims[id]; d.Mark != verify.AsDefined {
 			t.Errorf("%s: %s (%s)", id, d.Mark, d.Reason)
 		}
 	}
-	if d := dims["live-oauth2-proxy-audience"]; d.Live == nil || !strings.Contains(d.Live.Checks[0].Note, "the last 200 lines of each pod's log are read") || !strings.Contains(d.Live.Checks[0].Message, "the last 200 lines") {
-		t.Errorf("the absence check says how much it reads: %+v", d.Live)
-	}
 	// Every read asked for what its check reads: the meta chart's HelmRelease
 	// slim for its readiness and normal for its values, the ConfigMaps a
 	// drift probe compares normal, the Dex client Secrets whole for when
-	// their data changed, the other Secrets and the pods slim, a log's last
-	// LogTail lines; nothing else whole.
+	// their data changed, the other objects slim; nothing else whole.
 	outputs := map[string]map[string]bool{}
 	for _, c := range st.muster.seen() {
-		switch c.Tool {
-		case opGet, opList:
-			output, _ := c.Args["output"].(string)
-			key := fmt.Sprint(c.Args["resourceType"])
-			if c.Tool == opGet {
-				key += "/" + fmt.Sprint(c.Args[nameKey])
-			}
-			if outputs[key] == nil {
-				outputs[key] = map[string]bool{}
-			}
-			outputs[key][output] = true
-		case opLogs:
-			if tail, _ := c.Args["tailLines"].(float64); int(tail) != verify.LogTail {
-				t.Errorf("a log read of %v lines: %+v", tail, c)
-			}
+		if c.Tool != opGet && c.Tool != opList {
+			continue
 		}
+		output, _ := c.Args["output"].(string)
+		key := fmt.Sprint(c.Args["resourceType"])
+		if c.Tool == opGet {
+			key += "/" + fmt.Sprint(c.Args[nameKey])
+		}
+		if outputs[key] == nil {
+			outputs[key] = map[string]bool{}
+		}
+		outputs[key][output] = true
 	}
 	for key, seen := range outputs {
 		kind, _, _ := strings.Cut(key, "/")
@@ -668,8 +650,6 @@ func TestVerifyInstallationReadsWithinTheResponseCap(t *testing.T) {
 			want = map[string]bool{outputSlim: true, outputNormal: true}
 		case kind == "configmap":
 			want = map[string]bool{outputNormal: true}
-		case kind == "deployment" && key == "deployment/kagent-oauth2-proxy":
-			want = map[string]bool{outputSlim: true, outputNormal: true}
 		case strings.HasPrefix(key, "secret/"+render.DexClientSecretName("")):
 			want = map[string]bool{outputFull: true}
 		default:
@@ -683,26 +663,15 @@ func TestVerifyInstallationReadsWithinTheResponseCap(t *testing.T) {
 	// The values of the meta chart's HelmRelease past the cap even without
 	// the bookkeeping: the drift probe, which compares them, is not checked
 	// with the refusal in plain words; the readiness check, which asks for
-	// the object without them, stands. A log whose last two hundred lines
-	// are past the cap: the absence check says so the same way.
+	// the object without them, stands.
 	st.inst.edit(helmReleaseKind, fluxNamespace, platformRelease, func(obj map[string]any) {
 		values := obj["spec"].(map[string]any)["values"].(map[string]any)
 		values["padding"] = strings.Repeat("v", responseLimit)
 	})
-	st.inst.editLogs(func(logs map[string]string) {
-		for key := range logs {
-			if strings.HasPrefix(key, kagentNamespace+"/") {
-				logs[key] = strings.Repeat(strings.Repeat("x", 1024)+"\n", verify.LogTail)
-			}
-		}
-	})
 	res = verifyLive(t, admin, rowan)
 	dims = liveDimensions(res)
-	for _, id := range []string{liveDrift, "live-oauth2-proxy-audience"} {
-		d := dims[id]
-		if d.Mark != verify.NotChecked || !strings.Contains(d.Reason, "larger than mcp-kubernetes answers") || !strings.Contains(d.Reason, "the limit is 128 KiB") || strings.Contains(d.Reason, "response_too_large") {
-			t.Errorf("%s: %s (%s)", id, d.Mark, d.Reason)
-		}
+	if d := dims[liveDrift]; d.Mark != verify.NotChecked || !strings.Contains(d.Reason, "larger than mcp-kubernetes answers") || !strings.Contains(d.Reason, "the limit is 128 KiB") || strings.Contains(d.Reason, "response_too_large") {
+		t.Errorf("%s: %s (%s)", liveDrift, d.Mark, d.Reason)
 	}
 	if d := dims["live-helmreleases-ready"]; d.Mark != verify.AsDefined {
 		t.Errorf("live-helmreleases-ready without the values: %s (%s)", d.Mark, d.Reason)
@@ -748,39 +717,40 @@ func TestVerifyInstallationReadsRegisteredServers(t *testing.T) {
 }
 
 // An audience the files on record keep beside the render — the id a portal
-// the manager has no record of calls kagent with — reads as defined on the
-// kagent UI's flag when verify_installation is handed verify_capability's
-// inputs, which carry the kept entries; held against the bare render, the
-// same flag reads drifted.
+// the manager has no record of calls kagent with — reads as defined in the
+// values the meta chart's HelmRelease reads when verify_installation is
+// handed verify_capability's inputs, which carry the kept entries; held
+// against the bare render, the same values read drifted.
 func TestVerifyInstallationHoldsTheHandedOverKeptEntries(t *testing.T) {
-	const (
-		handKept  = "hand-kept"
-		flag      = "--oidc-extra-audience="
-		dimension = "live-oauth2-proxy-extra-audience"
-	)
+	const handKept = "hand-kept"
 	st := newStack(t)
 	fixtures(st.ghs)
 	alice := st.mcpClient(t, aliceToken)
 	enableRowanLive(t, st, alice, kagentEnabled())
 	edited := false
-	st.inst.edit("Deployment", kagentNamespace, "kagent-oauth2-proxy", func(obj map[string]any) {
-		containers := obj["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)["containers"].([]any)
-		args := containers[0].(map[string]any)["args"].([]any)
-		for i, a := range args {
-			if s, _ := a.(string); strings.HasPrefix(s, flag) {
-				args[i], edited = s+","+handKept, true
+	st.inst.edit("ConfigMap", fluxNamespace, platformValuesConfigMap, func(obj map[string]any) {
+		data := obj[dataKey].(map[string]any)
+		lines := strings.Split(data[platformValuesKey].(string), "\n")
+		for i, line := range lines {
+			if value, comment, ok := strings.Cut(line, "oidc-extra-audience: "); ok {
+				audiences, rest, _ := strings.Cut(comment, " #")
+				lines[i], edited = value+"oidc-extra-audience: "+audiences+","+handKept, true
+				if rest != "" {
+					lines[i] += " #" + rest
+				}
 			}
 		}
+		data[platformValuesKey] = strings.Join(lines, "\n")
 	})
 	if !edited {
-		t.Fatal("the oauth2-proxy Deployment carries no " + flag)
+		t.Fatal("the values carry no oidc-extra-audience")
 	}
 	admin := st.liveClient(t, st.dex.token(t, liveAdmin, []string{liveAudience}, time.Hour))
 	inputs := verifyWith(t, alice, rowan, nil).Inputs
 
 	live := func(in verify.Inputs) verify.Dimension {
 		t.Helper()
-		return liveDimensions(verifyLiveWith(t, admin, rowan, in))[dimension]
+		return liveDimensions(verifyLiveWith(t, admin, rowan, in))[liveDrift]
 	}
 	if d := live(inputs); d.Mark != verify.Drifted {
 		t.Errorf("against the bare render: %s (%s)", d.Mark, d.Reason)

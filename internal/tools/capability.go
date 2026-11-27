@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -67,6 +68,39 @@ type planned struct {
 	reports           map[string]installations.Report
 	inputs            map[string]map[string]any
 	planInstallations map[string]bool
+	// defs are the definitions that render installations of the set other
+	// than the set's own, by name (DryRun.Capability).
+	defs map[string]installations.Capability
+	// inspect reads the report of an installation outside the set, as the
+	// caller; nil where only the set's reports are known.
+	inspect func(ctx context.Context, name string) installations.Report
+}
+
+// report is installation's report: the set's, else read once as the caller
+// (inspect) and kept. One that could not be read whole is the error: what is
+// on record there cannot be told.
+func (env *planned) report(ctx context.Context, name string) (installations.Report, error) {
+	r, ok := env.reports[name]
+	if !ok {
+		if env.inspect == nil {
+			return installations.Report{}, fmt.Errorf("%s is not among the installations read", name)
+		}
+		r = env.inspect(ctx, name)
+		env.reports[name] = r
+	}
+	if !r.Readable {
+		return installations.Report{}, fmt.Errorf("%s could not be read: %s", name, strings.Join(r.Errors, "; "))
+	}
+	return r, nil
+}
+
+// defOf is the definition that renders installation in env's set: its own
+// where the set renders it with another, def otherwise.
+func (env *planned) defOf(installation string, def installations.Capability) installations.Capability {
+	if d, ok := env.defs[installation]; ok {
+		return d
+	}
+	return def
 }
 
 // commitNext says what mode commit does with a dry run, word for word.
@@ -144,7 +178,8 @@ func (t *Tools) enableCapabilityTool() WriteTool {
 func (t *Tools) reconcileCapabilityTool() WriteTool {
 	return WriteTool{Name: ToolReconcileCapability,
 		Summary: "Reconcile a capability over the installations that have it (empty: all): " + ToolEnableCapability + "'s plan, per installation.",
-		Details: "A plan whose files are all unchanged means the installation matches the definition. Installations without the capability are skipped and listed; a fresh enable is " + ToolEnableCapability + ".",
+		Details: "A plan whose files are all unchanged means the installation matches the definition. Installations without the capability are skipped and listed; a fresh enable is " + ToolEnableCapability + ". " +
+			"A deleted-file removal deletes a file; a plan lists what Flux does not prune (checklist), a commit records it.",
 		Options: capabilityOptions(),
 		DryRun: func(ctx context.Context, args map[string]any) (any, error) {
 			return t.capabilityDryRun(ctx, ToolReconcileCapability, args)
@@ -217,25 +252,89 @@ func (t *Tools) capabilityPlan(ctx context.Context, tool string, args map[string
 	reports := reg.InspectAll(ctx, c, selected, caps, installations.Full)
 	out := CapabilityResult{Caller: identity.Caller(ctx), Tool: tool, Capability: def.Name, Hub: reg.Hub, DryRun: true, RenderedBy: t.renderedBy(),
 		Order: []string{}, Installations: []DryRun{}, PullRequests: []plan.PullRequest{}, Skipped: []Skipped{}, Commit: commitNext}
-	env := &planned{c: c, hub: hub, byName: byName, reports: map[string]installations.Report{}, inputs: map[string]map[string]any{}}
+	env := &planned{c: c, hub: hub, byName: byName, reports: map[string]installations.Report{}, inputs: map[string]map[string]any{}, defs: map[string]installations.Capability{}}
+	env.inspect = func(ctx context.Context, name string) installations.Report {
+		inst, ok := reg.Find(name)
+		if !ok {
+			return installations.Report{Installation: installations.Installation{Name: name}, Errors: []string{"not in the registry"}}
+		}
+		return reg.InspectAll(ctx, c, []installations.Installation{inst}, caps, installations.Full)[0]
+	}
 	env.planInstallations = map[string]bool{}
 	for _, report := range reports {
 		if _, skip := skipped(report, def.Name, report.Name == one); !skip {
 			env.planInstallations[report.Name] = true
 		}
 	}
-	for _, r := range waveOrder(reports, hub) {
+	ordered := waveOrder(reports, hub)
+	byPlan := map[string]DryRun{}
+	skips := map[string]Skipped{}
+	for _, r := range ordered {
 		env.reports[r.Name] = r
 		if skip, ok := skipped(r, def.Name, r.Name == one); ok {
-			out.Skipped = append(out.Skipped, skip)
+			skips[r.Name] = skip
 			continue
 		}
-		res, err := t.compare(ctx, env, r, def, inputs, content, rotate, force)
+		res, err := t.compare(ctx, env, r, def, inputs, content, rotate, force, true)
 		if err != nil {
 			return nil, nil, err
 		}
-		out.Order = append(out.Order, r.Name)
-		out.Installations = append(out.Installations, dryRun(res))
+		byPlan[r.Name] = dryRun(res)
+	}
+	// A skipped installation named in the set that runs the other definition
+	// of the MCP servers, and that a plan defers a pair with, is rendered
+	// with its own definition: ShareDraws then draws the pair once for both
+	// sides instead of each side deferring its half.
+	drawn := map[string]installations.Capability{}
+	for _, p := range byPlan {
+		for _, d := range p.DeferredPairs {
+			if _, ok := skips[d.Installation]; !ok || !slices.Contains(set, d.Installation) {
+				continue
+			}
+			if other, ok := serversCapability(env.reports[d.Installation], def); ok {
+				drawn[d.Installation] = other
+			}
+		}
+	}
+	if len(drawn) > 0 && len(inputs) > 0 {
+		names := make([]string, 0, len(drawn))
+		for _, n := range slices.Sorted(maps.Keys(drawn)) {
+			names = append(names, n+" ("+drawn[n].Name+")")
+		}
+		return nil, nil, fmt.Errorf("%s: the set renders %s with its own definition, to draw the values it shares with the others once; %s are %s's alone — reconcile the set without them, or each installation alone", tool, strings.Join(names, ", "), ArgInputs, def.Name)
+	}
+	for n, other := range drawn {
+		delete(skips, n)
+		env.planInstallations[n] = true
+		env.defs[n] = other
+	}
+	for _, r := range ordered {
+		other, own := drawn[r.Name]
+		p, rendered := byPlan[r.Name]
+		if !own && (!rendered || !defersWith(p, drawn)) {
+			continue
+		}
+		with := def
+		if own {
+			with = other
+		}
+		res, err := t.compare(ctx, env, r, with, inputs, content, rotate, force, true)
+		if err != nil {
+			return nil, nil, err
+		}
+		e := dryRun(res)
+		if own {
+			e.Capability = with.Name
+		}
+		byPlan[r.Name] = e
+	}
+	for _, r := range ordered {
+		if p, ok := byPlan[r.Name]; ok {
+			out.Installations = append(out.Installations, p)
+			out.Order = append(out.Order, r.Name)
+		} else if skip, ok := skips[r.Name]; ok {
+			out.Skipped = append(out.Skipped, skip)
+		}
 	}
 	if err := applyOrder(&out, stringSlice(args[ArgOrder])); err != nil {
 		return nil, nil, fmt.Errorf("%s: %w", tool, err)
@@ -358,6 +457,35 @@ func (t *Tools) registry(ctx context.Context, c *gh.Client) (*installations.Regi
 		err = fmt.Errorf("%w — the registry is read as you through the App %s: the App must be installed on the repository (contents: read) and you must be able to read it", err, ToolPrefix)
 	}
 	return reg, err
+}
+
+// serversCapability is the definition that runs r's MCP servers where it is
+// not def and def is the other one: the agent platform where it is on
+// record, cluster-mcp-servers otherwise. The two render the same servers and
+// the two sides of the values a hub shares with its targets.
+func serversCapability(r installations.Report, def installations.Capability) (installations.Capability, bool) {
+	if def.Name != installations.AgentPlatform && def.Name != installations.ClusterMCPServers {
+		return installations.Capability{}, false
+	}
+	name := ""
+	switch {
+	case capabilityState(r, installations.AgentPlatform).OnRecord():
+		name = installations.AgentPlatform
+	case capabilityState(r, installations.ClusterMCPServers).OnRecord():
+		name = installations.ClusterMCPServers
+	}
+	if name == "" || name == def.Name {
+		return installations.Capability{}, false
+	}
+	return installations.FindCapability(name)
+}
+
+// defersWith says whether p defers a pair with one of drawn.
+func defersWith(p DryRun, drawn map[string]installations.Capability) bool {
+	return slices.ContainsFunc(p.DeferredPairs, func(d plan.DeferredPair) bool {
+		_, ok := drawn[d.Installation]
+		return ok
+	})
 }
 
 // skipped says whether r is left out of the set: an installation named as
