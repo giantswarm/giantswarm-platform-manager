@@ -84,7 +84,7 @@ func (t *Tools) registerWatchTool(s *mcpserver.MCPServer) {
 			"Reads Flux readiness through muster as you, runs probes and reports to the review thread. Stages reach enabled, waiting for the customer, or failed with the red probe named. Re-read failures after fixing them. Unread checks name their fix. The actor uses "+ToolMergeAction+" to advance past enabled stages or customer model waits. Watch merged stages before re-reading waits. A reverted action is withdrawn by its actor with "+ToolDenyAction+". Anyone signed in may watch."),
 		mcp.WithIdempotentHintAnnotation(true), mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithString(ArgAction, mcp.Required(), mcp.Description("The Action's name.")),
-	), t.relaySignIns(t.watchActionLive))
+	), t.relayURLElicitations(t.watchActionLive))
 }
 
 func (t *Tools) watchActionLive(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/giantswarm/gitops-commit/commit"
+	"github.com/giantswarm/mcp-oauth/providers"
 	"github.com/giantswarm/mcp-oauth/requeststate"
 	"github.com/giantswarm/mcp-oauth/security"
 	"github.com/giantswarm/mcp-toolkit/urlelicitation"
@@ -37,7 +38,46 @@ func withSignIns(t *testing.T) func(*tools.Deps) {
 		return errors.Is(err, requeststate.ErrExpired)
 	}))
 	require.NoError(t, err)
-	return func(d *tools.Deps) { d.SignIns = elicitor }
+	return func(d *tools.Deps) { d.URLElicitations = elicitor }
+}
+
+type failingSealer struct{}
+
+func (failingSealer) Seal(*providers.UserInfo, string, []byte, time.Duration) (string, error) {
+	return "", errors.New("sealing unavailable")
+}
+
+func (failingSealer) Open(*providers.UserInfo, string, string) ([]byte, error) {
+	return nil, errors.New("opening unavailable")
+}
+
+func TestSealingFailureFailsCall(t *testing.T) {
+	elicitor, err := urlelicitation.New(failingSealer{})
+	require.NoError(t, err)
+	st := newStack(t, func(deps *tools.Deps) { deps.URLElicitations = elicitor })
+	fixtures(st.ghs)
+	enableRowanLive(t, st, st.mcpClient(t, aliceToken), kagentEnabled())
+	stranger := st.dex.token(t, liveStranger, []string{liveAudience}, time.Hour)
+	caller := st.elicitingClient(t, stranger, true, mcp.LATEST_PROTOCOL_VERSION)
+	result, err := verifyAnswering(t, caller, mcp.MultiRoundTripParams{})
+	require.ErrorContains(t, err, "sealing unavailable")
+	require.Nil(t, result)
+}
+
+func TestDeclineWithoutURLCapabilityRunsNothing(t *testing.T) {
+	st := relayStack(t)
+	stranger := st.dex.token(t, liveStranger, []string{liveAudience}, time.Hour)
+	caller := st.elicitingClient(t, stranger, true, mcp.LATEST_PROTOCOL_VERSION)
+	result, err := verifyAnswering(t, caller, mcp.MultiRoundTripParams{})
+	require.NoError(t, err)
+	require.True(t, result.NeedsInput())
+	reads := len(st.muster.seen())
+	withoutURL := st.elicitingClient(t, stranger, false, mcp.LATEST_PROTOCOL_VERSION)
+	declined, err := verifyAnswering(t, withoutURL, relayAnswer(result.RequestState, mcp.ElicitationResponseActionDecline))
+	require.NoError(t, err)
+	require.True(t, declined.IsError)
+	require.Contains(t, resultText(declined), "decline")
+	require.Len(t, st.muster.seen(), reads)
 }
 
 // elicitingClient is liveClient for a caller that answers input requests
@@ -259,6 +299,15 @@ func TestWatchActionRelaysMustersSignInBeforeItsEffects(t *testing.T) {
 	require.Equal(t, before, stageOf(new(getAction(t, aliceC, a.Name)), rowan))
 	require.Equal(t, posts, resultsPosted(st))
 
+	withoutURL := st.elicitingClient(t, st.dex.token(t, liveStranger, []string{liveAudience}, time.Hour), false, mcp.LATEST_PROTOCOL_VERSION)
+	for _, action := range []mcp.ElicitationResponseAction{mcp.ElicitationResponseActionDecline, mcp.ElicitationResponseActionCancel} {
+		refused, err := callAnswering(t, withoutURL, tools.ToolWatchAction, args, relayAnswer(res.RequestState, action))
+		require.NoError(t, err)
+		require.True(t, refused.IsError)
+		require.Equal(t, before, stageOf(new(getAction(t, aliceC, a.Name)), rowan))
+		require.Equal(t, posts, resultsPosted(st))
+	}
+
 	res, err = callAnswering(t, c, tools.ToolWatchAction, args, relayAnswer(res.RequestState, mcp.ElicitationResponseActionAccept))
 	require.NoError(t, err)
 	require.False(t, res.NeedsInput())
@@ -287,6 +336,34 @@ func TestMergeActionRelaysMustersSignInBeforeItMerges(t *testing.T) {
 	require.True(t, res.NeedsInput(), resultText(res))
 	for _, pr := range getAction(t, aliceC, name).Status.PullRequests {
 		require.NotEqual(t, actions.PullRequestMerged, pr.State, "%s#%d", pr.Repository, pr.Number)
+	}
+
+	withoutURL := st.elicitingClient(t, st.dex.token(t, liveAdmin, []string{liveAudience}, time.Hour), false, mcp.LATEST_PROTOCOL_VERSION)
+	stateBefore := getAction(t, aliceC, name).Status.State
+	postsBefore := resultsPosted(st)
+	rerouted, err := callAnswering(t, c, tools.ToolDenyAction, map[string]any{tools.ArgAction: name, tools.ArgReason: "refused"}, relayAnswer(res.RequestState, mcp.ElicitationResponseActionDecline))
+	require.ErrorContains(t, err, "requestState is not supported")
+	require.Nil(t, rerouted)
+	require.Equal(t, stateBefore, getAction(t, aliceC, name).Status.State)
+	require.Equal(t, postsBefore, resultsPosted(st))
+	for _, pullRequest := range st.remote.PullRequests() {
+		require.False(t, pullRequest.Closed)
+		require.False(t, pullRequest.Merged)
+	}
+
+	missingAnswer, err := callAnswering(t, withoutURL, tools.ToolMergeAction, args, mcp.MultiRoundTripParams{RequestState: res.RequestState})
+	require.NoError(t, err)
+	require.True(t, missingAnswer.IsError)
+	for _, pullRequest := range st.remote.PullRequests() {
+		require.False(t, pullRequest.Merged)
+	}
+	for _, action := range []mcp.ElicitationResponseAction{mcp.ElicitationResponseActionDecline, mcp.ElicitationResponseActionCancel} {
+		refused, err := callAnswering(t, withoutURL, tools.ToolMergeAction, args, relayAnswer(res.RequestState, action))
+		require.NoError(t, err)
+		require.True(t, refused.IsError)
+		for _, pullRequest := range st.remote.PullRequests() {
+			require.False(t, pullRequest.Merged)
+		}
 	}
 
 	res, err = callAnswering(t, c, tools.ToolMergeAction, args, relayAnswer(res.RequestState, mcp.ElicitationResponseActionAccept))

@@ -426,7 +426,13 @@ func (k *cluster) call(ctx context.Context, op string, args map[string]any) (str
 	}
 	name := k.tool(op)
 	relay := relayFrom(ctx)
-	target := callTarget(name, args)
+	request := mcp.CallToolRequest{}
+	request.Params.Name = name
+	request.Params.Arguments = args
+	target, err := urlelicitation.RequestBinding(request)
+	if err != nil {
+		return "", err
+	}
 	callCtx, roundTrip := ctx, mcp.MultiRoundTripParams{}
 	if relay != nil {
 		callCtx, roundTrip = client.WithRequestClientCapabilities(ctx, urlElicitation), relay.answer(target)
@@ -453,7 +459,7 @@ func (k *cluster) call(ctx context.Context, op string, args map[string]any) (str
 		if relay != nil {
 			relay.record(target, relayed)
 		}
-		return "", &verify.AuthRequired{Server: k.c.KubernetesServer(k.installation), URL: relayed.URL, Message: "auth_required: " + relayed.Message}
+		return "", fmt.Errorf("muster requires URL input: %s Open %s and then retry", relayed.Message, relayed.URL)
 	}
 	text := aggregator.TextOf(res)
 	if res.IsError {
