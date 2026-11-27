@@ -317,7 +317,7 @@ spec:
                   format: date-time
                 syncedBy: {type: string}
                 orphans:
-                  description: On a removed action whose definition's Kustomization does not prune, the objects the definition rendered on the installations that stay until a person deletes them.
+                  description: Where the definition's Kustomization does not prune, the objects that stay on the installations until a person deletes them — a disable's checklist, the checklist of what an enable's or a reconcile's plan takes off the record (recorded at commit, each with the stage that recorded it and the repository whose pull request takes it off), and on a removed action the objects the definition rendered.
                   type: array
                   items:
                     type: object
@@ -328,6 +328,8 @@ spec:
                       namespace: {type: string}
                       name: {type: string}
                       takes: {type: string}
+                      stage: {type: string}
+                      repository: {type: string}
                 withdrawal:
                   description: The actor's withdrawal of a merged action that failed or was reverted — who, why and when; the review's thread carries the same.
                   type: object

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -72,11 +73,16 @@ func registerWrite(s *mcpserver.MCPServer, wt WriteTool) {
 		mcp.WithIdempotentHintAnnotation(true),
 	}
 	opts = append(opts, wt.Options...)
-	s.AddTool(mcp.NewTool(wt.Name, opts...), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	opts = append(opts, mcp.WithSchemaAdditionalProperties(false))
+	tool := mcp.NewTool(wt.Name, opts...)
+	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args := req.GetArguments()
 		dryRun, _ := args[ArgDryRun].(bool)
 		mode, _ := args[ArgMode].(string)
 		if err := checkMode(mode, dryRun); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		if err := checkArguments(tool, args); err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		delete(args, ArgDryRun)
@@ -92,6 +98,24 @@ func registerWrite(s *mcpserver.MCPServer, wt WriteTool) {
 		}
 		return result(wt.Commit(ctx, args))
 	})
+}
+
+// checkArguments refuses an argument the tool's schema does not name: a write
+// that dropped it would render a plan other than the one asked for (a set
+// named under a mistyped key renders every installation). A null value of a
+// named argument is the argument left out.
+func checkArguments(tool mcp.Tool, args map[string]any) error {
+	var unknown []string
+	for k := range args {
+		if _, ok := tool.InputSchema.Properties[k]; !ok {
+			unknown = append(unknown, k)
+		}
+	}
+	if len(unknown) == 0 {
+		return nil
+	}
+	slices.Sort(unknown)
+	return fmt.Errorf("%s does not take %s: nothing was rendered; %s lists every tool's arguments", tool.Name, strings.Join(unknown, ", "), ToolGetInfo)
 }
 
 // checkMode is the framework's guard: apply is refused, unknown modes are

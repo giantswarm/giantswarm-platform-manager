@@ -41,6 +41,10 @@ func Summary(p Installation) []string {
 		return c
 	}
 	for _, f := range p.Files {
+		if f.Change == ChangeDelete {
+			at(componentOf(f.Path)).items = append(at(componentOf(f.Path)).items, "removes "+path.Base(f.Path))
+			continue
+		}
 		if f.Change != ChangeCreate && f.Change != ChangeUpdate {
 			continue
 		}

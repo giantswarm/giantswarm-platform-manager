@@ -356,6 +356,13 @@ type Options struct {
 	// Installations are the registry's installations by name (plan.Options.Installations).
 	Installations     map[string]installations.Installation
 	PlanInstallations map[string]bool
+	// Remaining renders the other capabilities on record on the installation
+	// (plan.Options.Remaining): a file the definition's removals name for
+	// deletion that one of them renders stays.
+	Remaining func(ctx context.Context) ([]plan.Remaining, error)
+	// deleted are the definition's removals of kind deleted-file
+	// (plan.Options.DeletedFiles), read by Compare.
+	deleted []definitions.DeletedFile
 }
 
 // Compare answers the verify of opts' installation.
@@ -384,6 +391,7 @@ func Compare(ctx context.Context, opts Options) Result {
 		r.Refused = err.Error()
 		return r
 	}
+	opts.deleted = definitions.DeletedFiles(rms)
 	// Without inputs nothing is rendered: the file dimensions read not
 	// checked, the anonymous probes still run.
 	var c *comparison
@@ -569,18 +577,26 @@ func compare(ctx context.Context, opts Options, rms, migs plannedKeys) (*compari
 	resetLeaves(driven, resets, own, base, func(key string) string { return rs.got[key].content })
 	c := &comparison{files: map[string]*fileDiff{}, dexClients: p.DexClients}
 	hub := map[string]bool{}
+	unlisted := unlistedEntries(p.Files)
 	for _, f := range rendered(p) {
 		key := fileKey(f.Repository, f.Path)
 		fd := &fileDiff{key: key, path: f.Path, kind: kindOf(f.Path), documents: flattenLines(f.Content).documents}
 		switch f.Change {
 		case plan.ChangeUnknown:
 			fd.unreadable = f.Error
+		case plan.ChangeDelete:
+			// A file the render no longer carries, deleted for the removal
+			// that names it: one planned difference, the file whole.
+			fd.diffs = []Difference{{File: key, Current: "on record", Planned: f.Why}}
 		case plan.ChangeCreate, plan.ChangeUpdate:
 			var docs map[string]bool
 			fd.diffs, docs = differences(key, f.Content, rs.got[key].content, driven)
 			maps.Copy(fd.documents, docs)
 			for i := range fd.diffs {
 				fd.diffs[i].Planned = planned(fd, &fd.diffs[i], rms, migs)
+				if fd.diffs[i].Planned == "" {
+					fd.diffs[i].Planned = unlisted[key][fd.diffs[i].Path]
+				}
 				if section := rms.hubSection(fd, &fd.diffs[i]); section != "" {
 					hub[section] = true
 				}
@@ -593,6 +609,30 @@ func compare(ctx context.Context, opts Options, rms, migs plannedKeys) (*compari
 	c.planned = plannedObjects(rendered(p), c.files, p.DexClients, func(key string) string { return rs.got[key].content })
 	shown(p.Files)
 	return c, p, nil
+}
+
+// unlistedEntries are, by kustomization file and YAML path (resources[<entry>]),
+// the reasons of the files the plan deletes whose entries it unlists there:
+// a planned difference of the kustomization, not drift.
+func unlistedEntries(files []plan.File) map[string]map[string]string {
+	out := map[string]map[string]string{}
+	for _, f := range files {
+		if f.Change != plan.ChangeDelete {
+			continue
+		}
+		for _, l := range f.ListedIn {
+			k, entry, ok := strings.Cut(l, " ")
+			if !ok {
+				continue
+			}
+			key := fileKey(f.Repository, k)
+			if out[key] == nil {
+				out[key] = map[string]string{}
+			}
+			out[key][entry] = f.Why
+		}
+	}
+	return out
 }
 
 // shown redacts the files of an encrypted record the way their differences
@@ -651,7 +691,8 @@ func droppedReason(path string) string {
 // with the files the definition renders flattened to their leaves by key.
 // The definition's refusal is the error.
 func build(ctx context.Context, opts Options, values map[string]any, read plan.Reader) (plan.Installation, map[string]map[string]string, error) {
-	p := plan.Build(ctx, plan.Options{Definition: opts.Definition, Installation: opts.Installation, Hub: opts.Hub, Inputs: values, Content: true, Read: read, Rotate: opts.Rotate, ForceJoin: opts.ForceJoin, ForceSwitchOff: opts.ForceSwitchOff, Installations: opts.Installations, PlanInstallations: opts.PlanInstallations})
+	p := plan.Build(ctx, plan.Options{Definition: opts.Definition, Installation: opts.Installation, Hub: opts.Hub, Inputs: values, Content: true, Read: read, Rotate: opts.Rotate, ForceJoin: opts.ForceJoin, ForceSwitchOff: opts.ForceSwitchOff, Installations: opts.Installations, PlanInstallations: opts.PlanInstallations,
+		DeletedFiles: opts.deleted, Remaining: opts.Remaining})
 	if p.Refused != "" {
 		return p, nil, errors.New(p.Refused)
 	}

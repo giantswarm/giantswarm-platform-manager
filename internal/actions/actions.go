@@ -226,6 +226,14 @@ type Orphan struct {
 	Name         string `json:"name"`
 	// Takes is what deleting the object takes with it, on a checklist.
 	Takes string `json:"takes,omitempty"`
+	// Stage is the installation of the action whose commit recorded the
+	// object on a checklist; Installation is the one it is on, another where
+	// the stage's plan took it out of that installation's tree. Repository
+	// is the repository whose pull request of the stage takes it off the
+	// record: once that pull request is merged, the object stays on the
+	// cluster whatever the stage's other pull requests are.
+	Stage      string `json:"stage,omitempty"`
+	Repository string `json:"repository,omitempty"`
 }
 
 // PullRequest is one PR the action opened.

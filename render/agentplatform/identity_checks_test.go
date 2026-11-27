@@ -140,7 +140,7 @@ func TestExchangeOnlyTargetsUseStaffConnector(t *testing.T) {
 	const staffConnector = "giantswarm-gazelle-oidc"
 	policy, err := loadPolicy()
 	require.NoError(t, err)
-	for _, installation := range []string{"agama", "alba", "anemone", "armadillo", "avocet", "cedar", "enigma", "ferret", "finch", "gaggle", "galaxy", "garm", "gerbil", "glippy", "grizzly", "grouse", "jackal", "leopard", "sardine", "tamarin", "wallaby"} {
+	for _, installation := range []string{"agama", "alba", "alligator", "anemone", "armadillo", "avocet", "cedar", "enigma", "ferret", "finch", "gaggle", "galaxy", "garm", "gerbil", "glippy", "grizzly", "grouse", "jackal", "leopard", "sardine", "tamarin", "wallaby"} {
 		t.Run(installation, func(t *testing.T) {
 			browser, err := policy.identityCheckConnectors(Installation{Name: installation, Federation: Federation{Connectors: []render.HubConnector{
 				{Hub: staffHub, Customer: portalTenant, First: true},

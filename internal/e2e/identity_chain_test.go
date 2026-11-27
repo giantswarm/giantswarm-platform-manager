@@ -161,6 +161,7 @@ func newStack(t *testing.T, options ...func(*tools.Deps)) *stack {
 	}
 	ts := tools.New(dependencies)
 	ts.AddWrite(tools.WriteTool{Name: testWrite, Summary: "A fixture write.",
+		Options: []mcp.ToolOption{mcp.WithString(argInstallation)},
 		DryRun: func(_ context.Context, args map[string]any) (any, error) {
 			return map[string]any{"rendered": true, "args": args}, nil
 		},

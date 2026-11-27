@@ -104,6 +104,10 @@ type Deps struct {
 	// the live tools are not configured — they are not served, and
 	// get_info says so.
 	Live *live.Client
+	// SignIns relays the sign-in muster asks verify_installation's reads
+	// for to the tool's caller as URL mode elicitation; nil answers it in
+	// the result's not-read checks.
+	SignIns *SignInElicitor
 	// ResyncInterval is how old an Action's picture of GitHub may be before
 	// a read of the record reads its pull requests and markers again, as
 	// the reader; zero is DefaultResyncInterval.

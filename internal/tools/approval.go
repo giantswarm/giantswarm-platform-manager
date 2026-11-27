@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/giantswarm/gitops-commit/commit"
 	"github.com/giantswarm/gitops-commit/provenance"
@@ -17,6 +18,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/approvals"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/gh"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/live"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/plan"
 )
 
@@ -72,7 +74,7 @@ func (t *Tools) registerApprovalTools(s *mcpserver.MCPServer) {
 			"The Action moves to rolling out and the review's thread is told; follow it with "+ToolWatchAction+". Before the approval it answers what the action waits for and posts the review if none is up. Pending checks stop the call: call again."),
 		mcp.WithIdempotentHintAnnotation(true), mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithString(ArgAction, mcp.Required(), mcp.Description("The Action's name.")),
-	), t.mergeAction)
+	), t.relaySignIns(t.mergeAction))
 }
 
 // musterTool is the call name of one of the manager's tools through muster:
@@ -323,6 +325,9 @@ func (t *Tools) merge(ctx context.Context, args map[string]any) (any, error) {
 		// The releases running now, read before the stage's merges: Flux's
 		// history may have dropped them by the first watch.
 		running := t.runningReleases(ctx, a, st.Name)
+		if err := live.Pending(ctx); err != nil {
+			return nil, err
+		}
 		// This stage's pull requests are merged now, in order, each once green.
 		for _, k := range a.StagePullRequests(st.Name) {
 			pr := status.PullRequests[k]
@@ -666,7 +671,7 @@ func (t *Tools) askApproval(ctx context.Context, a *actions.Action, tool string)
 	if t.approvals == nil {
 		return nil, fmt.Errorf("%s: no approval channel is configured (chart approvals.gatewayURL); action %s cannot be approved and nothing is merged", tool, a.Name)
 	}
-	review := approvals.Review{Actor: a.Spec.Actor.Email, Text: reviewText(a),
+	review := approvals.Review{Actor: a.Spec.Actor.Email, Text: reviewText(a), Summary: reviewSummary(a),
 		Approve: approvals.Tool{Tool: musterTool(ToolApproveAction), Arguments: map[string]any{ArgAction: a.Name}},
 		Deny:    &approvals.Tool{Tool: musterTool(ToolDenyAction), Arguments: map[string]any{ArgAction: a.Name}}}
 	for _, pr := range a.Status.PullRequests {
@@ -707,6 +712,28 @@ func (t *Tools) postResult(ctx context.Context, a *actions.Action, text string) 
 // for a wave that renders some with their own, "*agent-platform* on
 // *hazel* and *cluster-mcp-servers* on *alder*, *birch*".
 func capabilitiesOn(a *actions.Action) string {
+	names, on := byCapability(a)
+	parts := make([]string, 0, len(names))
+	for _, c := range names {
+		parts = append(parts, fmt.Sprintf("*%s* on *%s*", c, strings.Join(on[c], ", ")))
+	}
+	return strings.Join(parts, " and ")
+}
+
+// capabilitiesCounted is capabilitiesOn with each capability's installations
+// counted rather than named.
+func capabilitiesCounted(a *actions.Action) string {
+	names, on := byCapability(a)
+	parts := make([]string, 0, len(names))
+	for _, c := range names {
+		parts = append(parts, fmt.Sprintf("*%s* on %s", c, installationCount(len(on[c]))))
+	}
+	return strings.Join(parts, " and ")
+}
+
+// byCapability groups the action's installations by the capability each
+// gets, the capabilities in the order they first appear.
+func byCapability(a *actions.Action) ([]string, map[string][]string) {
 	var names []string
 	on := map[string][]string{}
 	for _, n := range a.Spec.Installations {
@@ -716,11 +743,14 @@ func capabilitiesOn(a *actions.Action) string {
 		}
 		on[c] = append(on[c], n)
 	}
-	parts := make([]string, 0, len(names))
-	for _, c := range names {
-		parts = append(parts, fmt.Sprintf("*%s* on *%s*", c, strings.Join(on[c], ", ")))
+	return names, on
+}
+
+func installationCount(n int) string {
+	if n == 1 {
+		return "1 installation"
 	}
-	return strings.Join(parts, " and ")
+	return fmt.Sprintf("%d installations", n)
 }
 
 // reviewText is the review's mrkdwn, what a teammate judges the action by
@@ -755,6 +785,18 @@ func reviewText(a *actions.Action) string {
 	b.WriteString(governanceText(a))
 	b.WriteString(whyAndWhat(a, "What changes", a.Spec.Installations))
 	return b.String()
+}
+
+// reviewSummary is the review in one line, what the channel keeps once the
+// review is decided: who, what, where. A wave too long for one line is
+// counted instead of named.
+func reviewSummary(a *actions.Action) string {
+	for _, what := range []string{capabilitiesOn(a), capabilitiesCounted(a)} {
+		if line := fmt.Sprintf("*%s* to %s %s", a.Spec.Actor.Login, a.Spec.Kind, what); utf8.RuneCountInString(line) <= approvals.SummaryMax {
+			return line
+		}
+	}
+	return fmt.Sprintf("*%s* to %s %s", a.Spec.Actor.Login, a.Spec.Kind, installationCount(len(a.Spec.Installations)))
 }
 
 // whatMax bounds the what-changes lines of one message: Slack takes 3000
@@ -826,7 +868,7 @@ func changeSummary(p plan.Installation) string {
 	if w := p.SwitchOff.Warning(); w != "" {
 		parts = append(parts, w)
 	}
-	for _, c := range []plan.Change{plan.ChangeCreate, plan.ChangeUpdate} {
+	for _, c := range []plan.Change{plan.ChangeCreate, plan.ChangeUpdate, plan.ChangeDelete} {
 		if n := p.Diff[c]; n > 0 {
 			parts = append(parts, fmt.Sprintf("%d file(s) to %s", n, c))
 		}

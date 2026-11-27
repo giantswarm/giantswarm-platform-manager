@@ -604,6 +604,9 @@ type target struct {
 	noSops error
 	files  []sopsenc.File
 	exists map[string]bool
+	// deletes are the files the plan deletes (a removal of kind
+	// deleted-file): taken out of the tree.
+	deletes []string
 }
 
 // targetAt is repository's target, made on first use with its encrypter,
@@ -726,15 +729,63 @@ func targetsOf(ctx context.Context, c *gh.Client, p plan.Installation, rendered 
 		if err != nil {
 			return nil, err
 		}
-		if !tg.exists[inc.Path] {
-			tg.exists[inc.Path] = true
+		// One file per kustomization, however many includes land in it; a
+		// plain file, never one the record keeps (exists).
+		if !slices.ContainsFunc(tg.files, func(f sopsenc.File) bool { return f.Path == inc.Path }) {
 			tg.files = append(tg.files, sopsenc.File{Path: inc.Path, Content: []byte(pf.Content)})
 		}
+	}
+	// The files the plan deletes, and a kustomization on record it unlists
+	// one from that is neither rendered nor an include's: written as the plan
+	// has it, never an encrypted one.
+	for _, pf := range unrendered(p, rendered, inst, hub) {
+		tg, err := targetAt(ctx, c, out, pf.Repository)
+		if err != nil {
+			return nil, err
+		}
+		if pf.Change == plan.ChangeDelete {
+			tg.deletes = append(tg.deletes, pf.Path)
+			continue
+		}
+		if tg.isSecretFile(pf.Path) {
+			return nil, fmt.Errorf("%s:%s is encrypted by the repository's rules and the plan would edit it: the manager decrypts nothing; nothing is committed", pf.Repository, pf.Path)
+		}
+		tg.files = append(tg.files, sopsenc.File{Path: pf.Path, Content: []byte(pf.Content)})
 	}
 	for _, tg := range out {
 		sort.Slice(tg.files, func(i, j int) bool { return tg.files[i].Path < tg.files[j].Path })
 	}
 	return out, nil
+}
+
+// unrendered are the files of the plan to write that neither the render
+// nor an include names: a file it deletes (a removal of kind deleted-file),
+// and a kustomization on record it unlists one from.
+func unrendered(p plan.Installation, rendered render.Fileset, inst, hub installations.Installation) []plan.File {
+	var out []plan.File
+	for _, pf := range p.Files {
+		if pf.Change != plan.ChangeDelete && pf.Change != plan.ChangeUpdate {
+			continue
+		}
+		if pf.Change == plan.ChangeUpdate && slices.ContainsFunc(p.Includes, func(inc plan.Include) bool { return inc.Repository == pf.Repository && inc.Path == pf.Path }) {
+			continue
+		}
+		if !renderedAt(rendered, pf.Repository, pf.Path, inst, hub) {
+			out = append(out, pf)
+		}
+	}
+	return out
+}
+
+// renderedAt says whether the render names repository:path, its repository
+// resolved for the installation.
+func renderedAt(rendered render.Fileset, repository, path string, inst, hub installations.Installation) bool {
+	for repo, files := range rendered {
+		if _, ok := files[path]; ok && plan.ResolveRepository(string(repo), inst, hub) == repository {
+			return true
+		}
+	}
+	return false
 }
 
 // encrypt fills the generated values in and encrypts every secret file of
@@ -744,7 +795,7 @@ func targetsOf(ctx context.Context, c *gh.Client, p plan.Installation, rendered 
 // refused the target already): they pass through as they are.
 func encrypt(repository string, tg *target) (map[string][]byte, error) {
 	if tg.enc == nil {
-		out := make(map[string][]byte, len(tg.files))
+		out := make(map[string][]byte, len(tg.files)+len(tg.deletes))
 		for _, f := range tg.files {
 			if len(f.Generated) > 0 {
 				return nil, fmt.Errorf("%s: %s carries a generated value: %w", repository, f.Path, tg.noSops)
@@ -753,13 +804,25 @@ func encrypt(repository string, tg *target) (map[string][]byte, error) {
 				out[f.Path] = f.Content
 			}
 		}
-		return out, nil
+		return withDeletes(out, tg.deletes), nil
 	}
 	files, err := tg.enc.Encrypt(tg.files, func(path string) bool { return tg.exists[path] })
 	if err != nil {
 		return nil, fmt.Errorf("%s: encrypt: %w", repository, err)
 	}
-	return files, nil
+	return withDeletes(files, tg.deletes), nil
+}
+
+// withDeletes is files with each of deletes taken out of the tree: a nil
+// content is a deletion to the commit.
+func withDeletes(files map[string][]byte, deletes []string) map[string][]byte {
+	if files == nil && len(deletes) > 0 {
+		files = map[string][]byte{}
+	}
+	for _, p := range deletes {
+		files[p] = nil
+	}
+	return files
 }
 
 // The prefixes a generated and a supplied placeholder open with.
@@ -937,9 +1000,9 @@ func prBody(a *actions.Action, p plan.Installation, prs []plan.PullRequest) stri
 	}
 	writeLost(&b, p.Files)
 	writeKept(&b, p.Files)
-	if len(p.Checklist) > 0 {
-		b.WriteString("\nThe fleet's Kustomization over the tree does not prune: once merged, these objects the change takes off the record stay on the cluster until a person deletes them, in this order:\n")
-		for _, o := range p.Checklist {
+	for _, on := range plan.ChecklistByInstallation(p.Name, p.Checklist) {
+		fmt.Fprintf(&b, "\nThe fleet's Kustomization over the tree does not prune: once merged, these objects the change takes off the record stay on %s until a person deletes them, in this order:\n", on.Installation)
+		for _, o := range on.Objects {
 			fmt.Fprintf(&b, "- [ ] %s\n", o.Line())
 		}
 	}
