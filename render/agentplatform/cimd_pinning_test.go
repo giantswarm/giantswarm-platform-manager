@@ -29,7 +29,7 @@ func TestPrivateClientPinsRequireCompatibleMuster(t *testing.T) {
 	}
 }
 
-func TestPrivateClientPinsUseScopedPermissions(t *testing.T) {
+func TestPrivateClientPinsPreserveAddressPermissions(t *testing.T) {
 	input, secrets := loadInput(t, shapeGiantswarmSlackApp)
 	result, err := Render(input, secrets, render.ModeCommit)
 	require.NoError(t, err)
@@ -42,13 +42,13 @@ func TestPrivateClientPinsUseScopedPermissions(t *testing.T) {
 			kubernetes = string(content)
 		}
 	}
-	for _, setting := range []string{"preRegisteredClientMetadata:", "allowPrivateIPRedirectURIHosts:", "allowPrivateIPJWKSHosts:"} {
+	for _, setting := range []string{"preRegisteredClientMetadata:", privateRedirectPermission, "allowPrivateIPClientMetadataHosts:", "allowPrivateIPOIDC: true"} {
 		require.Contains(t, platform, setting)
 	}
-	for _, setting := range []string{"preRegisteredClientMetadata:", "privateIPHosts:"} {
+	for _, setting := range []string{"preRegisteredClientMetadata:", "allowPrivateIPs: true", privateRedirectPermission} {
 		require.Contains(t, kubernetes, setting)
 	}
 	require.NotContains(t, platform+kubernetes, "restrictClientMetadata: true")
-	require.NotContains(t, platform+kubernetes, privateRedirectPermission)
-	require.NotContains(t, kubernetes, "allowPrivateIPs: true")
+	require.NotContains(t, platform+kubernetes, "allowPrivateIPRedirectURIHosts:")
+	require.NotContains(t, kubernetes, "privateIPHosts:")
 }

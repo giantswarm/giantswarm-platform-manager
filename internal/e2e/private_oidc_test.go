@@ -12,15 +12,13 @@ import (
 const (
 	allowPrivateIPOIDCPath = "muster.muster.oauth.server.dex.allowPrivateIPOIDC"
 	allowPrivateIPOIDCOn   = "allowPrivateIPOIDC: true"
-	allowPrivateIPOIDCOff  = "allowPrivateIPOIDC: false"
-	redirectHostsOn        = "allowPrivateIPRedirectURIHosts:\n          - agentgateway.birch.acme.test"
 )
 
-func TestReconcileSwapsMusterPrivateFlagsForHosts(t *testing.T) {
+func TestReconcileKeepsAllowPrivateIPOIDCOnAPrivateInstallation(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
 	sopsFixtures(t, st.ghs)
-	st.ghs.addFile(acmeConfigs, installations.ConfigPatchPath(birch), "codename: birch\nbase: acme.test\nmanagementCluster:\n  private: false\nagentPlatform:\n  kagentApiV2: true\n")
+	st.ghs.addFile(acmeConfigs, installations.ConfigPatchPath(birch), "codename: birch\nbase: acme.test\nmanagementCluster:\n  private: false\n")
 	marker := installations.Capabilities()[0].EnabledMarker(birch)
 	st.ghs.addFile(acmeConfigs, marker, "muster:\n  muster:\n    oauth:\n      server:\n        dex:\n          "+allowPrivateIPOIDCOn+"\n")
 	seedRemote(t, st)
@@ -41,18 +39,17 @@ func TestReconcileSwapsMusterPrivateFlagsForHosts(t *testing.T) {
 	if inst, _ := entry.Inputs["installation"].(map[string]any); inst[argPrivate] != true {
 		t.Fatalf("birch is not private on the inputs: %v", entry.Inputs["installation"])
 	}
-	disabled := false
-	for _, diff := range allDifferences(verify.Result{Features: entry.Features}) {
+	marks := verify.Result{Features: entry.Features}
+	if d := anyDimension(t, marks, "muster-dex-allow-private-ip-oidc"); d.Mark != verify.AsDefined || len(d.Differences) != 0 {
+		t.Errorf("muster-dex-allow-private-ip-oidc: %s %+v", d.Mark, d.Differences)
+	}
+	for _, diff := range allDifferences(marks) {
 		if diff.Path == allowPrivateIPOIDCPath {
-			disabled = diff.Current == "true" && diff.Rendered == "false"
+			t.Errorf("the flag differs: %+v", diff)
 		}
 	}
-	if !disabled {
-		t.Errorf("the blanket OIDC permission is not explicitly disabled: %+v", allDifferences(verify.Result{Features: entry.Features}))
-	}
-	content := fileOf(t, entry.Installation, acmeConfigs+":"+marker).Content
-	if strings.Contains(content, allowPrivateIPOIDCOn) || !strings.Contains(content, allowPrivateIPOIDCOff) || !strings.Contains(content, redirectHostsOn) {
-		t.Errorf("the rendered patch keeps %q or lacks %q:\n%s", allowPrivateIPOIDCOn, redirectHostsOn, content)
+	if content := fileOf(t, entry.Installation, acmeConfigs+":"+marker).Content; !strings.Contains(content, allowPrivateIPOIDCOn) {
+		t.Errorf("the rendered patch lacks %q:\n%s", allowPrivateIPOIDCOn, content)
 	}
 
 	committed, text, isErr := commitCall(t, c, tools.ToolReconcileCapability, args())
@@ -60,8 +57,7 @@ func TestReconcileSwapsMusterPrivateFlagsForHosts(t *testing.T) {
 		t.Fatal(text)
 	}
 	branch := branchPrefix + committed.Action.Name + "/" + birch
-	content = string(st.remote.Files(repoOf(t, acmeConfigs), branch)[marker])
-	if strings.Contains(content, allowPrivateIPOIDCOn) || !strings.Contains(content, allowPrivateIPOIDCOff) || !strings.Contains(content, redirectHostsOn) {
-		t.Errorf("the committed patch keeps %q or lacks %q:\n%s", allowPrivateIPOIDCOn, redirectHostsOn, content)
+	if content := string(st.remote.Files(repoOf(t, acmeConfigs), branch)[marker]); !strings.Contains(content, allowPrivateIPOIDCOn) {
+		t.Errorf("the committed patch lacks %q:\n%s", allowPrivateIPOIDCOn, content)
 	}
 }

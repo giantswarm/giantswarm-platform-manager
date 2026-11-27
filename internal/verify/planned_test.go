@@ -547,15 +547,12 @@ func TestRegistrationLeavesAreNotPlanned(t *testing.T) {
 	patch := &fileDiff{path: testPlatformPatch, kind: definitions.KindConfigMap}
 	for _, path := range []string{
 		"agent-platform-mcps.defaults.keep",
-		"muster.muster.oauth.mcpClient.tokenExchange.allowPrivateIPTokenEndpointHosts[0]",
+		"muster.muster.oauth.mcpClient.tokenExchange.allowPrivateIP",
 		"muster.muster.oauth.server.trustedPublicRegistrationRedirectURIs[0]",
 	} {
 		if got := keys.reason(patch, path); got != "" {
 			t.Errorf("%s: planned %q, want drift", path, got)
 		}
-	}
-	if got := keys.reason(patch, "muster.muster.oauth.mcpClient.tokenExchange.allowPrivateIP"); !strings.HasSuffix(got, "· M46") {
-		t.Errorf("tokenExchange.allowPrivateIP: planned %q, want the M46 removal", got)
 	}
 }
 

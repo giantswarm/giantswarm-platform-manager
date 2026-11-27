@@ -38,15 +38,17 @@ type Server struct {
 	// under: mcp-kubernetes has its own, mcp-prometheus the fleet base's app,
 	// mcp-capi reads them at the root (empty).
 	valuesKey string
-	// pinsClients says whether the chart pins clients' metadata documents
-	// (oauth.cimd.preRegisteredClientMetadata) and lists the redirect hosts
-	// that may resolve to private addresses
-	// (oauth.redirectURISecurity.privateIPHosts).
-	pinsClients   bool
-	privateDexKey string
+	// ssoPrivateIPs says whether the chart has a separate flag for the SSO
+	// forwarded-token JWKS fetch reaching private addresses (oauth.sso.allowPrivateIPs)
+	// and the private-address flags of the clients' metadata documents and
+	// redirect URIs.
+	ssoPrivateIPs bool
 	// dexCA is where the chart reads the Secret with the CA of a Dex served
 	// with a certificate from the installation's private CA, under oauth.
 	dexCA dexCAValues
+	// privateDexKey is the oauth flag the chart reads for a Dex on private
+	// addresses; empty where the chart needs none.
+	privateDexKey string
 }
 
 // dexCAValues names the chart values of the Dex CA Secret: a chart that
@@ -96,7 +98,7 @@ var envOAuthKeys = oauthSecretKeys{dexClientSecret: "DEX_CLIENT_SECRET", encrypt
 // Servers are the management cluster's own MCP servers, the set the shared
 // template registers with muster on every installation.
 var Servers = []Server{
-	{Name: "mcp-kubernetes", Group: "kubernetes", DexClient: "mcpKubernetes", DexSecretRef: true, oauthKeys: keyedOAuthKeys, valuesKey: "mcpKubernetes", pinsClients: true},
+	{Name: "mcp-kubernetes", Group: "kubernetes", DexClient: "mcpKubernetes", DexSecretRef: true, oauthKeys: keyedOAuthKeys, valuesKey: "mcpKubernetes", ssoPrivateIPs: true},
 	{Name: "mcp-prometheus", Group: "prometheus", DexClient: "mcpPrometheus", DexSecretRef: true, oauthKeys: envOAuthKeys, valuesKey: "app", dexCA: dexCASecretName, privateDexKey: "allowPrivateIPJWKS"},
 	{Name: "mcp-capi", Group: "capi", DexClient: "mcpCapi", DexSecretRef: true, oauthKeys: keyedOAuthKeys, privateDexKey: "allowPrivateIPJWKS"},
 }
@@ -179,18 +181,18 @@ func (s Server) DexClientRef() render.Map {
 
 // Options are how one installation runs a server.
 type Options struct {
+	PrivateClient *render.ClientMetadata
 	// Installation names the generated values: the commit step draws one
 	// value per name across a pull request, and a wave commits several
 	// installations of one organisation into one.
 	Installation string
-	// PrivateURLs and PrivateIPs carry standalone servers' explicit Dex
-	// and client-address permissions.
+	// PrivateURLs says Dex is reached on private addresses: the server's user
+	// values set the flag its chart reads for that (Server.privateDexKey) and,
+	// where the chart has it, the SSO forwarded-token JWKS flag.
 	PrivateURLs bool
-	PrivateIPs  bool
-	// PrivateClient is a client on a private address the server signs in:
-	// where the chart takes it (Server.pinsClients), the user values pin its
-	// metadata document and list its redirect hosts.
-	PrivateClient *render.ClientMetadata
+	// PrivateIPs says the clients' metadata documents and redirect URIs are on
+	// private addresses too, where the chart has the flags (a private installation).
+	PrivateIPs bool
 	// DexCA says Dex is served with a certificate from the installation's
 	// private CA: the kustomization lists the installation's Dex CA Secret
 	// (DexCAFile) and the user values point the chart at it.
@@ -200,34 +202,33 @@ type Options struct {
 }
 
 // userValues are the server's user values, nil where the server needs none:
-// explicit standalone address permissions, a pinned client, and the Secret
-// with the installation's Dex CA.
+// Dex on private addresses and, with the installation's private CA, the Secret
+// with that CA.
 func (s Server) userValues(o Options) render.Map {
-	var oauth render.Map
-	if o.PrivateURLs && s.privateDexKey != "" {
-		oauth = append(oauth, e(s.privateDexKey, true))
+	if !o.PrivateURLs && !o.DexCA && (o.PrivateClient == nil || !s.ssoPrivateIPs) {
+		return nil
 	}
-	if s.pinsClients {
-		var cimd, redirects render.Map
-		if o.PrivateURLs {
+	var oauth render.Map
+	var cimd render.Map
+	if o.PrivateURLs && s.ssoPrivateIPs && o.PrivateIPs {
+		cimd = append(cimd, e("allowPrivateIPs", true))
+	}
+	if s.ssoPrivateIPs && o.PrivateClient != nil {
+		cimd = append(cimd, e("preRegisteredClientMetadata", []render.Map{o.PrivateClient.Map()}))
+	}
+	if o.PrivateURLs {
+		if s.privateDexKey != "" {
+			oauth = append(oauth, e(s.privateDexKey, true))
+		}
+		if s.ssoPrivateIPs {
 			oauth = append(oauth, e("sso", render.Map{e("allowPrivateIPs", true)}))
 			if o.PrivateIPs {
-				cimd = append(cimd, e("allowPrivateIPs", true))
-				redirects = render.Map{e("allowPrivateIPRedirectURIs", true)}
+				oauth = append(oauth, e("cimd", cimd), e("redirectURISecurity", render.Map{e("allowPrivateIPRedirectURIs", true)}))
 			}
 		}
-		if o.PrivateClient != nil {
-			cimd = append(cimd, e("preRegisteredClientMetadata", []render.Map{o.PrivateClient.Map()}))
-			if !o.PrivateURLs || !o.PrivateIPs {
-				redirects = render.Map{e("privateIPHosts", o.PrivateClient.RedirectHosts())}
-			}
-		}
-		if len(cimd) > 0 {
-			oauth = append(oauth, e("cimd", cimd))
-		}
-		if len(redirects) > 0 {
-			oauth = append(oauth, e("redirectURISecurity", redirects))
-		}
+	}
+	if len(cimd) > 0 && (!o.PrivateURLs || !s.ssoPrivateIPs || !o.PrivateIPs) {
+		oauth = append(oauth, e("cimd", cimd))
 	}
 	if o.DexCA {
 		switch s.dexCA {
@@ -236,9 +237,6 @@ func (s Server) userValues(o Options) render.Map {
 		case dexCASecretName:
 			oauth = append(oauth, e("dexCASecret", render.Map{e("name", s.dexCASecretName())}))
 		}
-	}
-	if len(oauth) == 0 {
-		return nil
 	}
 	values := render.Map{e("oauth", oauth)}
 	if s.valuesKey == "" {

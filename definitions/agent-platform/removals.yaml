@@ -238,33 +238,8 @@ removals:
   - key: configmap:muster.muster.oauth.server.allowPrivateIPClientMetadata
     kind: migration
     reason: >-
-      Removed: allowPrivateIPClientMetadata lifts muster's SSRF guard for a client's metadata document on every host; muster pins the
-      chat gateway's document instead (preRegisteredClientMetadata), served on agentgateway's hostname · M46
-  - key: configmap:muster.muster.oauth.server.allowPrivateIPClientMetadataHosts
-    kind: migration
-    reason: >-
-      Removed: allowPrivateIPClientMetadataHosts lets muster fetch the chat gateway's client metadata document from a private address;
-      muster pins the document instead (preRegisteredClientMetadata) and never fetches it · M46
-  - key: configmap:muster.muster.oauth.server.allowPrivateIPRedirectURIs
-    kind: migration
-    reason: >-
-      Removed: allowPrivateIPRedirectURIs lets a redirect URI resolve to a private address on every host; allowPrivateIPRedirectURIHosts
-      replaces it with agentgateway's hostname and the registered clients' hosts · M46
-  - key: configmap:muster.muster.oauth.server.trustedIssuers[*].allowPrivateIPJWKS
-    kind: migration
-    reason: >-
-      Removed: the trusted issuer's allowPrivateIPJWKS lets any key set host resolve to a private address; allowPrivateIPJWKSHosts
-      replaces it with this installation's Dex host · M46
-  - key: configmap:muster.muster.oauth.server.tokenExchangeBroker.allowPrivateIP
-    kind: migration
-    reason: >-
-      Removed: the broker's allowPrivateIP only lets a token endpoint be a private IP literal, and every target's endpoint is a
-      hostname, so it changes nothing · M46
-  - key: configmap:muster.muster.oauth.mcpClient.tokenExchange.allowPrivateIP
-    kind: migration
-    reason: >-
-      Removed: allowPrivateIP lifts the guard of muster's token-exchange client for every token endpoint;
-      allowPrivateIPTokenEndpointHosts replaces it with the registered exchange servers' Dex hosts · M46
+      Removed: allowPrivateIPClientMetadata lifts muster's SSRF guard for a client's metadata document on every host; the host-scoped
+      allowPrivateIPClientMetadataHosts replaces it with agentgateway's hostname alone, where the chat gateway serves its client_id · M40
   - key: configmap:gitops.forbidInlineSecrets
     kind: template
     reason: "Removed: gitops.forbidInlineSecrets is set here; the shared defaults set it to the same value for every installation."
@@ -390,51 +365,6 @@ removals:
       writes nothing there but a hand-registered confidential client's Secret, which it adopts in its file.
 
   # --- management-clusters extras/mcp-<name>/ ---
-  - key: extras:mcp-kubernetes/user-values.yaml mcpKubernetes.oauth.sso.allowPrivateIPs
-    kind: migration
-    reason: >-
-      Removed: sso.allowPrivateIPs lets mcp-kubernetes fetch any key set from a private address; it lets its own Dex's host resolve
-      privately without it · M46
-  - key: extras:mcp-kubernetes/user-values.yaml mcpKubernetes.oauth.cimd.allowPrivateIPs
-    kind: migration
-    reason: >-
-      Removed: cimd.allowPrivateIPs lets mcp-kubernetes fetch any client's metadata document from a private address; it pins muster's
-      document instead (cimd.preRegisteredClientMetadata) · M46
-  - key: extras:mcp-kubernetes/user-values.yaml mcpKubernetes.oauth.redirectURISecurity.allowPrivateIPRedirectURIs
-    kind: migration
-    reason: >-
-      Removed: allowPrivateIPRedirectURIs lets a redirect URI resolve to a private address on every host; redirectURISecurity.privateIPHosts
-      replaces it with muster's hostname · M46
-  - key: extras:mcp-prometheus/user-values.yaml
-    kind: migration
-    reason: >-
-      Removed: the mcp-prometheus server's user values carry allowPrivateIPJWKS alone, which lets it fetch any key set from a private
-      address; it lets its own Dex's host resolve privately without it · M46
-  - key: extras:mcp-prometheus/kustomization.yaml configMapGenerator
-    kind: migration
-    reason: >-
-      Removed: the mcp-prometheus server's user values, which carried allowPrivateIPJWKS alone, go, and with them the ConfigMap generated
-      from them · M46
-  - key: extras:mcp-prometheus/kustomization.yaml generatorOptions
-    kind: migration
-    reason: >-
-      Removed: the mcp-prometheus server's user values, which carried allowPrivateIPJWKS alone, go, and with them the generator's
-      options · M46
-  - key: extras:mcp-capi/user-values.yaml
-    kind: migration
-    reason: >-
-      Removed: the mcp-capi server's user values carry allowPrivateIPJWKS alone, which lets it fetch any key set from a private
-      address; it lets its own Dex's host resolve privately without it · M46
-  - key: extras:mcp-capi/kustomization.yaml configMapGenerator
-    kind: migration
-    reason: >-
-      Removed: the mcp-capi server's user values, which carried allowPrivateIPJWKS alone, go, and with them the ConfigMap generated
-      from them · M46
-  - key: extras:mcp-capi/kustomization.yaml generatorOptions
-    kind: migration
-    reason: >-
-      Removed: the mcp-capi server's user values, which carried allowPrivateIPJWKS alone, go, and with them the generator's
-      options · M46
   - key: extras:mcp-<name>/oauth-credentials.enc.yaml stringData.VALKEY_PASSWORD
     kind: retired
     reason: >-
