@@ -15,6 +15,7 @@ const a2aFixtureApplication = "application"
 func a2aEntryInput(t *testing.T) (map[string]any, map[string]string) {
 	t.Helper()
 	input, secrets := loadInput(t, shapeOrganizationsApply)
+	input["installation"].(map[string]any)["kubernetesUsernameClaim"] = "sub"
 	input["klausGateway"] = map[string]any{"a2aServer": map[string]any{
 		"enabled":           true,
 		"staffConnectors":   []any{"staff"},
@@ -81,6 +82,10 @@ func TestA2AEntryWithoutSlack(t *testing.T) {
 		require.Equal(t, []string{"staff"}, dex.OIDC.StaticClients[name].AllowedConnectors)
 	}
 	require.Contains(t, dex.OIDC.StaticClients[a2aAuthenticatorKey].TrustedPeers, a2aExchangeClient)
+	connector := mapValue(mapValue(mapValue(mapValue(parsed.dexPatch(), "oidc").(render.Map), "giantswarm").(render.Map), "connectors").(render.Map), a2aFixtureConnector).(render.Map)
+	connectorConfiguration := mapValue(connector, "config").(render.Map)
+	modifications := mapValue(connectorConfiguration, "claimModifications").(render.Map)
+	require.Equal(t, "a2a-outside:", mapValue(mapValue(modifications, "modifyGroupNames").(render.Map), "prefix"))
 }
 
 func TestA2AApplicationIdentity(t *testing.T) {
@@ -104,6 +109,8 @@ func TestA2AApplicationIdentity(t *testing.T) {
 		}
 	}
 	require.Equal(t, []string{a2aFixtureApplication}, mapValue(mapValue(clients, "klaus-gateway-app").(render.Map), "trustedPeers"))
+	connector := mapValue(mapValue(mapValue(oidc, "giantswarm").(render.Map), "connectors").(render.Map), a2aFixtureConnector).(render.Map)
+	require.Nil(t, mapValue(mapValue(connector, "config").(render.Map), "claimModifications"))
 }
 
 func TestA2AEntryRefusals(t *testing.T) {
@@ -113,6 +120,9 @@ func TestA2AEntryRefusals(t *testing.T) {
 		want   string
 	}{
 		{"implicit RBAC", func(input map[string]any) { delete(input, "tenants") }, "explicit RBAC"},
+		{"email usernames", func(input map[string]any) {
+			input["installation"].(map[string]any)["kubernetesUsernameClaim"] = "email"
+		}, "email usernames can collide"},
 		{"broad RBAC", func(input map[string]any) {
 			input["musterMcpServerViewers"] = []any{map[string]any{fieldKind: "Group", fieldName: "system:authenticated"}}
 		}, "broad system groups"},

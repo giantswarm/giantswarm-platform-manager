@@ -253,6 +253,11 @@ type clusterValues struct {
 		} `yaml:"release"`
 	} `yaml:"global"`
 	Cluster struct {
+		ControlPlane struct {
+			OIDC struct {
+				UsernameClaim string `yaml:"usernameClaim"`
+			} `yaml:"oidc"`
+		} `yaml:"controlPlane"`
 		Internal struct {
 			AdvancedConfiguration struct {
 				ControlPlane struct {

@@ -275,13 +275,14 @@ type Connectors struct {
 
 // Installation is the record; see the schema for each field.
 type Installation struct {
-	Name           string `json:"name"`
-	BaseDomain     string `json:"baseDomain"`
-	Customer       string `json:"customer"`
-	Provider       string `json:"provider"`
-	Private        bool   `json:"private"`
-	ChartLine      string `json:"chartLine"`
-	MusterClientID string `json:"musterClientId"`
+	KubernetesUsernameClaim string `json:"kubernetesUsernameClaim,omitempty"`
+	Name                    string `json:"name"`
+	BaseDomain              string `json:"baseDomain"`
+	Customer                string `json:"customer"`
+	Provider                string `json:"provider"`
+	Private                 bool   `json:"private"`
+	ChartLine               string `json:"chartLine"`
+	MusterClientID          string `json:"musterClientId"`
 	// ClusterIssuer is the cert-manager ClusterIssuer of the installation's
 	// Gateway API hosts, where the record says: the serving slice's models
 	// Gateway takes its certificate from it.

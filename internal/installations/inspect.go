@@ -21,10 +21,11 @@ func ConfigPatchPath(name string) string { return "installations/" + name + "/co
 // installation's config.yaml.patch's — in the shape of the definitions'
 // installation.* inputs: read, never typed.
 type Record struct {
-	Name       string `json:"name"`
-	BaseDomain string `json:"baseDomain,omitempty"`
-	Customer   string `json:"customer,omitempty"`
-	Provider   string `json:"provider,omitempty"`
+	KubernetesUsernameClaim string `json:"kubernetesUsernameClaim,omitempty"`
+	Name                    string `json:"name"`
+	BaseDomain              string `json:"baseDomain,omitempty"`
+	Customer                string `json:"customer,omitempty"`
+	Provider                string `json:"provider,omitempty"`
 	// Private: reached through Teleport — a portal on record reaches the
 	// installation's Kubernetes API through the tunnel on its host
 	// (kubernetes-<name>.agent-platform.svc.cluster.local); set by derive.
@@ -192,30 +193,33 @@ func (r *Registry) inspect(ctx context.Context, c *gh.Client, inst Installation,
 	}
 
 	var (
-		wg      sync.WaitGroup
-		record  *Record
-		recErr  error
-		pcr     bool
-		pcrErr  error
-		pcs     bool
-		pcsErr  error
-		col     collections
-		colErr  error
-		dex     DexAppVersion
-		dexErr  error
-		lists   []DexSecretList
-		listErr error
-		reg     Registered
-		regErr  error
-		rc      PlatformCandidate
-		rcErr   error
-		markers = make([]markerRead, len(caps))
+		wg            sync.WaitGroup
+		record        *Record
+		recErr        error
+		pcr           bool
+		pcrErr        error
+		usernameClaim string
+		usernameErr   error
+		pcs           bool
+		pcsErr        error
+		col           collections
+		colErr        error
+		dex           DexAppVersion
+		dexErr        error
+		lists         []DexSecretList
+		listErr       error
+		reg           Registered
+		regErr        error
+		rc            PlatformCandidate
+		rcErr         error
+		markers       = make([]markerRead, len(caps))
 	)
 	if detail == Full {
 		wg.Go(func() { record, recErr = r.readRecord(ctx, c, owner, repo, inst) })
 		wg.Go(func() {
 			pcr, pcrErr = readPodCertificateRequest(ctx, readAs(c), RegistryChartConfig(registryClient), inst)
 		})
+		wg.Go(func() { usernameClaim, usernameErr = readKubernetesUsernameClaim(ctx, readAs(c), inst) })
 		wg.Go(func() {
 			if col, colErr = readCollections(ctx, readAt(c), inst); colErr == nil {
 				dex, dexErr = readDexAppVersion(ctx, readAt(c), RegistryTags(registryClient), inst, col)
@@ -261,6 +265,10 @@ func (r *Registry) inspect(ctx context.Context, c *gh.Client, inst Installation,
 			rep.Readable = false
 		default:
 			record.PodCertificateRequest, record.PortalClientSecret = pcr, pcs
+			record.KubernetesUsernameClaim = usernameClaim
+			if usernameErr != nil {
+				rep.Errors = append(rep.Errors, usernameErr.Error())
+			}
 			record.CollectionsStage = col.stage()
 			record.PlatformCandidate, record.PlatformStable = rc.Candidate, rc.Stable
 			rep.Record = record

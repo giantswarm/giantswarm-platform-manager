@@ -81,6 +81,9 @@ func (in *Input) checkA2AEntry() error {
 	}
 	names, issuers, connectors := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, issuer := range entry.Issuers {
+		if issuer.Issuer != "https://"+in.host("dex") && in.Installation.KubernetesUsernameClaim != "sub" {
+			return refuse("outside A2A issuers require Kubernetes usernames derived from Dex sub; email usernames can collide with staff RBAC identities")
+		}
 		parsed, err := url.Parse(issuer.Issuer)
 		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
 			return refuse("klausGateway.a2aServer.issuers requires HTTPS issuer URLs without user information, queries or fragments")
@@ -162,9 +165,13 @@ func (in *Input) a2aDexPatch(patch *render.Map) {
 	connectorEntries, _ := mapValue(owner, "connectors").(render.Map)
 	for _, issuer := range in.A2AEntry.Issuers {
 		connectorIDs = append(connectorIDs, issuer.ConnectorID)
+		configuration := render.Map{e("issuer", issuer.Issuer), e("clientID", issuer.Audience), e("redirectURI", "https://"+in.host("dex")+"/callback"), e("insecureEnableGroups", true)}
+		if issuer.Issuer != "https://"+in.host("dex") {
+			configuration = append(configuration, e("claimModifications", render.Map{e("modifyGroupNames", render.Map{e("prefix", issuer.ConnectorID+":")})}))
+		}
 		connectorEntries = append(connectorEntries, e(issuer.ConnectorID, render.Map{
 			e("connectorType", "oidc"), e("connectorName", issuer.Name), e("grantTypes", []string{a2aExchangeGrant}),
-			e("config", render.Map{e("issuer", issuer.Issuer), e("clientID", issuer.Audience), e("redirectURI", "https://"+in.host("dex")+"/callback"), e("insecureEnableGroups", true)}),
+			e("config", configuration),
 		}))
 	}
 	extra = append(extra,

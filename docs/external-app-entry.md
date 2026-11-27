@@ -65,3 +65,13 @@ Customer backends use muster's backend OAuth flow and their own user access
 tokens. Platform bearer tokens must not be forwarded to customer backends.
 Independent security sign-off and an attributable customer operation remain
 rollout and acceptance requirements.
+
+Outside issuers require a Kubernetes OIDC username derived from Dex `sub`, read
+from the cluster's record. Email usernames can collide with a staff identity even
+when the external issuer has its own connector. The definition refuses an unknown
+or email-based mapping. It prefixes external groups through the upstream OIDC
+connector's `claimModifications.modifyGroupNames.prefix`, preserving groups from
+the installation's own Dex. Existing RBAC bindings must match these identities.
+Changing the API's username mapping and its bindings needs a separately reviewed
+migration; enabling this entry does not perform that migration. Live verification
+must also prove that tokens without an end-user identity are refused.
