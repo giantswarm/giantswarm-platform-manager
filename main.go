@@ -132,11 +132,11 @@ func run(ctx context.Context, o *options, log *slog.Logger) error {
 		}
 		defer lc.Close()
 		deps.Live = lc
-		if deps.SignIns, err = signInElicitor(); err != nil {
+		if deps.URLElicitations, err = urlElicitor(); err != nil {
 			return err
 		}
-		if deps.SignIns == nil {
-			log.Info("OAUTH_REQUEST_STATE_KEY is not set: muster's sign-ins stay in verify_installation's not-read checks, not relayed as URL elicitation")
+		if deps.URLElicitations == nil {
+			log.Info("OAUTH_REQUEST_STATE_KEY is not set: URL elicitation relay disabled: no request-state key configured")
 		}
 	}
 	srv, err := server.New(cfg, tools.New(deps).MCPServer(), log)
@@ -178,11 +178,11 @@ func envBool(key string) bool {
 	return err == nil && b
 }
 
-// signInElicitor relays muster's sign-ins to a tool's caller with
+// urlElicitor relays URL interactions requested by muster to a tool's caller with
 // requestState sealed by OAUTH_REQUEST_STATE_KEY (and, during a rotation,
 // OAUTH_REQUEST_STATE_PREVIOUS_KEY, each also as _FILE); nil when no key is
 // set.
-func signInElicitor() (*tools.SignInElicitor, error) {
+func urlElicitor() (*tools.URLElicitor, error) {
 	sealer, err := oauthconfig.NewRequestStateSealerFromEnv()
 	if err != nil {
 		return nil, fmt.Errorf("request state key: %w", err)

@@ -104,7 +104,7 @@ func (t *Tools) registerLiveTools(s *mcpserver.MCPServer) {
 		mcp.WithString(ArgInstallation, mcp.Required(), mcp.Description("The installation to verify, by name: the management cluster muster reads for you.")),
 		mcp.WithString(ArgCapability, mcp.Description(capabilityArgDescription), mcp.Enum(installations.CapabilityNames()...)),
 		mcp.WithObject(ArgInputs, mcp.Description("The inputs object of "+ToolVerifyCapability+"'s answer; default: the newest action's on record. Without either, live dimensions read not checked.")),
-	), t.relaySignIns(t.verifyInstallationLive))
+	), t.relayURLElicitations(t.verifyInstallationLive))
 }
 
 func (t *Tools) verifyInstallationLive(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

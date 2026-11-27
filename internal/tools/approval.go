@@ -74,7 +74,7 @@ func (t *Tools) registerApprovalTools(s *mcpserver.MCPServer) {
 			"The Action moves to rolling out and the review's thread is told; follow it with "+ToolWatchAction+". Before the approval it answers what the action waits for and posts the review if none is up. Pending checks stop the call: call again."),
 		mcp.WithIdempotentHintAnnotation(true), mcp.WithDestructiveHintAnnotation(true),
 		mcp.WithString(ArgAction, mcp.Required(), mcp.Description("The Action's name.")),
-	), t.relaySignIns(t.mergeAction))
+	), t.relayURLElicitations(t.mergeAction))
 }
 
 // musterTool is the call name of one of the manager's tools through muster:

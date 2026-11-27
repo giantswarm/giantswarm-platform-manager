@@ -791,11 +791,11 @@ type fakeMuster struct {
 
 	mu    sync.Mutex
 	calls []musterCall
-	// signIns are the sign-ins muster asked as URL elicitation and the
+	// urlElicitations are the sign-ins muster asked as URL elicitation and the
 	// answers it got, oldest first; connected are the persons whose
 	// sign-in an accepted answer completed.
-	signIns   []musterSignIn
-	connected map[string]bool
+	urlElicitations []musterSignIn
+	connected       map[string]bool
 	// signsIn is the person muster asks to sign in; liveStranger when empty.
 	signsIn string
 }
@@ -858,7 +858,7 @@ func (m *fakeMuster) signIn(next mcpserver.ToolHandlerFunc) mcpserver.ToolHandle
 func (m *fakeMuster) record(call musterSignIn) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.signIns = append(m.signIns, call)
+	m.urlElicitations = append(m.urlElicitations, call)
 }
 
 func (m *fakeMuster) signInPerson() string {
@@ -887,7 +887,7 @@ func (m *fakeMuster) isConnected(person string) bool {
 func (m *fakeMuster) asked() []musterSignIn {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return append([]musterSignIn{}, m.signIns...)
+	return append([]musterSignIn{}, m.urlElicitations...)
 }
 
 type personKey struct{}
