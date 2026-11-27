@@ -64,11 +64,12 @@ func ownFacts(inst installations.Installation) facts {
 // whose fact the installation lacks, is left out. A removal of kind kept is
 // no planned removal: the plan carries the key from the record into the
 // render, so the comparison finds it as defined — or, where it could not, as
-// the drift it is.
+// the drift it is. Nor is one of kind deleted-file: it names a file the
+// render does not carry, which the plan deletes (plan.File.Why).
 func readRemovals(rs []definitions.Removal, f facts) plannedKeys {
 	var out plannedKeys
 	for _, r := range rs {
-		if r.Kind == definitions.RemovalKept {
+		if r.Kind == definitions.RemovalKept || r.Kind == definitions.RemovalDeletedFile {
 			continue
 		}
 		if k, ok := parseKey(r.Key, r.Reason, f); ok {

@@ -12,12 +12,18 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"strconv"
 	"syscall"
+
+	"github.com/giantswarm/mcp-oauth/oauthconfig"
+	"github.com/giantswarm/mcp-oauth/requeststate"
+	"github.com/giantswarm/mcp-toolkit/urlelicitation"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/approvals"
@@ -71,7 +77,7 @@ func parseFlags(args []string) (*options, error) {
 	f.BoolVar(&o.liveAllowPrivateIPJWKS, "live-allow-private-ip-jwks", envBool("LIVE_ALLOW_PRIVATE_IP_JWKS"), "Deprecated, no effect: the issuer's host and the JWKS URL's host may resolve to a private address without it (LIVE_ALLOW_PRIVATE_IP_JWKS)")
 	f.StringVar(&o.liveCAFile, "live-ca-file", envOr("LIVE_CA_FILE", ""), "PEM bundle the issuer's certificate chains to; empty is the system trust (LIVE_CA_FILE)")
 	f.StringVar(&o.musterURL, "muster-url", envOr("MUSTER_URL", ""), "muster's own MCP endpoint as reached from the pod: where a live read loops back to with the person's token (MUSTER_URL)")
-	f.StringVar(&o.liveKubernetesFamily, "live-kubernetes-family", envOr("LIVE_KUBERNETES_FAMILY", "kubernetes"), "The muster family, or singleton server, the installations' kubernetes tools are aggregated under: x_<family>_get, _list, _logs (LIVE_KUBERNETES_FAMILY)")
+	f.StringVar(&o.liveKubernetesFamily, "live-kubernetes-family", envOr("LIVE_KUBERNETES_FAMILY", "kubernetes"), "The muster family, or singleton server, the installations' kubernetes tools are aggregated under: x_<family>_get, _list, _api_resources (LIVE_KUBERNETES_FAMILY)")
 	f.StringVar(&o.liveKubernetesInstanceArg, "live-kubernetes-instance-arg", envSet("LIVE_KUBERNETES_INSTANCE_ARG", "management_cluster"), "The family's argument that selects the member; empty for a singleton server, which takes no argument (LIVE_KUBERNETES_INSTANCE_ARG, an empty value counts)")
 	f.StringVar(&o.liveKubernetesMember, "live-kubernetes-member", envOr("LIVE_KUBERNETES_MEMBER", "{{ .Installation }}-mcp-kubernetes"), "The family member that serves an installation, by muster's server name: a template over {{ .Installation }} (LIVE_KUBERNETES_MEMBER)")
 	if err := f.Parse(args); err != nil {
@@ -126,6 +132,12 @@ func run(ctx context.Context, o *options, log *slog.Logger) error {
 		}
 		defer lc.Close()
 		deps.Live = lc
+		if deps.URLElicitations, err = urlElicitor(); err != nil {
+			return err
+		}
+		if deps.URLElicitations == nil {
+			log.Info("OAUTH_REQUEST_STATE_KEY is not set: URL elicitation relay disabled: no request-state key configured")
+		}
 	}
 	srv, err := server.New(cfg, tools.New(deps).MCPServer(), log)
 	if err != nil {
@@ -164,4 +176,21 @@ func envSet(key, def string) string {
 func envBool(key string) bool {
 	b, err := strconv.ParseBool(os.Getenv(key))
 	return err == nil && b
+}
+
+// urlElicitor relays URL interactions requested by muster to a tool's caller with
+// requestState sealed by OAUTH_REQUEST_STATE_KEY (and, during a rotation,
+// OAUTH_REQUEST_STATE_PREVIOUS_KEY, each also as _FILE); nil when no key is
+// set.
+func urlElicitor() (*tools.URLElicitor, error) {
+	sealer, err := oauthconfig.NewRequestStateSealerFromEnv()
+	if err != nil {
+		return nil, fmt.Errorf("request state key: %w", err)
+	}
+	if sealer == nil {
+		return nil, nil
+	}
+	return urlelicitation.New(sealer, urlelicitation.WithExpired(func(err error) bool {
+		return errors.Is(err, requeststate.ErrExpired)
+	}))
 }

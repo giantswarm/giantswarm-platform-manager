@@ -1,0 +1,22 @@
+# Portal hosted on the registered-servers fixture's installation.
+# Invented names; supplied values are dry-run markers.
+input:
+  installation:
+    name: heron
+    baseDomain: heron.lakeside.example
+    customer: lakeside
+    provider: capa
+    region: example-region-1
+    pipeline: stable
+    agentPlatform: true
+  portal:
+    domain: portal.heron.lakeside.example
+    organization: Lakeside
+    supportUrl: https://support.lakeside.example/
+  chart:
+    line: ">=2.1.0 <3.0.0"
+  plugins:
+    github:
+      enabled: true
+  tunnel:
+    enabled: false

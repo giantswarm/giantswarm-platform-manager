@@ -99,6 +99,8 @@ type Deps struct {
 	// the live tools are not configured — they are not served, and
 	// get_info says so.
 	Live *live.Client
+	// URLElicitations relays URL interactions requested by muster.
+	URLElicitations *URLElicitor
 	// ResyncInterval is how old an Action's picture of GitHub may be before
 	// a read of the record reads its pull requests and markers again, as
 	// the reader; zero is DefaultResyncInterval.
@@ -182,6 +184,7 @@ func (t *Tools) person(token string) (*gh.Client, error) {
 // MCPServer registers every tool on a new MCP server.
 func (t *Tools) MCPServer() *mcpserver.MCPServer {
 	s := mcpserver.NewMCPServer(ToolPrefix, t.d.Version,
+		mcpserver.WithToolHandlerMiddleware(rejectUnsupportedRequestState),
 		mcpserver.WithToolCapabilities(false),
 		brand.WithGiantSwarmIcon(),
 		mcpserver.WithInstructions("Giant Swarm's platform manager: enables, reconciles, disables and verifies platform capabilities on installations as the person calling. Call "+ToolGetInfo+" first. "+ToolListInstallations+" shows each capability's state per installation. "+ToolEnableCapability+", "+ToolReconcileCapability+" and "+ToolDisableCapability+" with dryRun: true answer the plan; mode commit opens pull requests to the installation's GitOps repositories as you, through an Action: the capability-owning team approves it in a Slack Team review ("+ToolApproveAction+", "+ToolDenyAction+"), the actor merges it ("+ToolMergeAction+") and "+ToolWatchAction+" follows the rollout. "+ToolVerifyCapability+" compares an installation's repositories with a definition, "+ToolVerifyInstallation+" the running installation through muster. "+ToolGetAction+" and "+ToolListActions+" read the Action records."),

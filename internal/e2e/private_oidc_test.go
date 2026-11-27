@@ -12,6 +12,7 @@ import (
 const (
 	allowPrivateIPOIDCPath = "muster.muster.oauth.server.dex.allowPrivateIPOIDC"
 	allowPrivateIPOIDCOn   = "allowPrivateIPOIDC: true"
+	allowPrivateIPOIDCOff  = "allowPrivateIPOIDC: false"
 	redirectHostsOn        = "allowPrivateIPRedirectURIHosts:\n          - agentgateway.birch.acme.test"
 )
 
@@ -40,17 +41,17 @@ func TestReconcileSwapsMusterPrivateFlagsForHosts(t *testing.T) {
 	if inst, _ := entry.Inputs["installation"].(map[string]any); inst[argPrivate] != true {
 		t.Fatalf("birch is not private on the inputs: %v", entry.Inputs["installation"])
 	}
-	planned := false
+	disabled := false
 	for _, diff := range allDifferences(verify.Result{Features: entry.Features}) {
 		if diff.Path == allowPrivateIPOIDCPath {
-			planned = strings.HasSuffix(diff.Planned, "· M46")
+			disabled = diff.Current == "true" && diff.Rendered == "false"
 		}
 	}
-	if !planned {
-		t.Errorf("the flag's removal is not planned under M46: %+v", allDifferences(verify.Result{Features: entry.Features}))
+	if !disabled {
+		t.Errorf("the blanket OIDC permission is not explicitly disabled: %+v", allDifferences(verify.Result{Features: entry.Features}))
 	}
 	content := fileOf(t, entry.Installation, acmeConfigs+":"+marker).Content
-	if strings.Contains(content, allowPrivateIPOIDCOn) || !strings.Contains(content, redirectHostsOn) {
+	if strings.Contains(content, allowPrivateIPOIDCOn) || !strings.Contains(content, allowPrivateIPOIDCOff) || !strings.Contains(content, redirectHostsOn) {
 		t.Errorf("the rendered patch keeps %q or lacks %q:\n%s", allowPrivateIPOIDCOn, redirectHostsOn, content)
 	}
 
@@ -60,7 +61,7 @@ func TestReconcileSwapsMusterPrivateFlagsForHosts(t *testing.T) {
 	}
 	branch := branchPrefix + committed.Action.Name + "/" + birch
 	content = string(st.remote.Files(repoOf(t, acmeConfigs), branch)[marker])
-	if strings.Contains(content, allowPrivateIPOIDCOn) || !strings.Contains(content, redirectHostsOn) {
+	if strings.Contains(content, allowPrivateIPOIDCOn) || !strings.Contains(content, allowPrivateIPOIDCOff) || !strings.Contains(content, redirectHostsOn) {
 		t.Errorf("the committed patch keeps %q or lacks %q:\n%s", allowPrivateIPOIDCOn, redirectHostsOn, content)
 	}
 }

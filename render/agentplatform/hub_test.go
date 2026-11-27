@@ -41,10 +41,12 @@ func TestHubBrokerGrantTarget(t *testing.T) {
 }
 
 // A private target whose agent platform the hub's portal proxies is also
-// tunnelled to its kagent (probed at /ping) and its agentgateway (probed at
-// /healthz, since its gRPC listener gives GET / no HTTP answer): a RemoteApp
-// each on the hub and a tunnel each among the hub's tunnelport entries; a
-// public target and a private one the portal does not proxy get neither.
+// tunnelled to its agentgateway (probed at /healthz, since its gRPC listener
+// gives GET / no HTTP answer): a RemoteApp on the hub and a tunnel among the
+// hub's tunnelport entries. No tunnel reaches its kagent UI's oauth2-proxy,
+// which the fleet turns off: a tunnel probing it would fire
+// TunnelPortTunnelUnreachable. A public target and a private one the portal
+// does not proxy get no agentgateway tunnel.
 func TestPrivatePlatformTargetTunnels(t *testing.T) {
 	input, secrets := loadInput(t, shapeHubPrivateTarget)
 	result, err := Render(input, secrets, render.ModeCommit)
@@ -55,7 +57,6 @@ func TestPrivatePlatformTargetTunnels(t *testing.T) {
 	remoteapps := string(tree["giantswarm/giantswarm-management-clusters/management-clusters/gopher/extras/agent-platform/tunnelport/remoteapps.yaml"])
 	tunnels := string(tree["giantswarm/teleport-fleet/kubernetes/envs/prod/values.yaml"])
 	for _, want := range []string{
-		"  name: kagent-burrow\n", "  appName: kagent-burrow\n  port: 4180\n  tokenName: kagent-burrow-bot-token\n  probe:\n    path: /ping\n",
 		"  name: agentgateway-burrow\n", "  appName: agentgateway-burrow\n  port: 8080\n  tokenName: agentgateway-burrow-bot-token\n  probe:\n    path: /healthz\n",
 	} {
 		if !strings.Contains(remoteapps, want) {
@@ -63,12 +64,14 @@ func TestPrivatePlatformTargetTunnels(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"    - name: kagent-burrow\n      appLabels:\n        app: kagent\n        cluster: burrow\n        customer: giantswarm\n      tokens:\n        - name: kagent-burrow-bot-token\n          consumer: gopher\n",
 		"    - name: agentgateway-burrow\n      appLabels:\n        app: agentgateway\n        cluster: burrow\n        customer: giantswarm\n      tokens:\n        - name: agentgateway-burrow-bot-token\n          consumer: gopher\n",
 	} {
 		if !strings.Contains(tunnels, want) {
 			t.Errorf("the tunnelport values lack %q:\n%s", want, tunnels)
 		}
+	}
+	if strings.Contains(remoteapps, "kagent-burrow") || strings.Contains(tunnels, "kagent-burrow") {
+		t.Errorf("burrow's kagent UI is tunnelled:\n%s\n%s", remoteapps, tunnels)
 	}
 	if strings.Contains(remoteapps, "marmot") || strings.Contains(tunnels, "marmot") {
 		t.Errorf("the public target marmot is tunnelled")
@@ -97,16 +100,16 @@ func TestConnectorPerHubAndTarget(t *testing.T) {
 	second := patch(shapeSecondHub, "giantswarm", "warren")
 	for _, want := range []string{
 		"            marmot:\n              dexTokenEndpoint: https://dex.marmot.example.io/token\n              connectorId: giantswarm-warren-oidc\n",
-		"            vole:\n              dexTokenEndpoint: https://dex.vole.example.io/token\n              connectorId: giantswarm-simple-oidc\n",
+		"            vole:\n              dexTokenEndpoint: https://dex.vole.example.io/token\n              connectorId: giantswarm-warren-oidc\n",
 		"    marmot:\n      tokenEndpoint: https://dex.marmot.example.io/token\n      connectorId: giantswarm-warren-oidc\n",
-		"    vole:\n      tokenEndpoint: https://dex.vole.example.io/token\n      connectorId: giantswarm-simple-oidc\n",
+		"    vole:\n      tokenEndpoint: https://dex.vole.example.io/token\n      connectorId: giantswarm-warren-oidc\n",
 	} {
 		if !strings.Contains(second, want) {
 			t.Errorf("the second hub's patch lacks %q:\n%s", want, second)
 		}
 	}
-	if first := patch(shapeHubPrivateTarget, "giantswarm", "gopher"); strings.Count(first, "connectorId: giantswarm-simple-oidc\n") != 4 || strings.Contains(first, "gopher-oidc") {
-		t.Errorf("the first hub names the plain connector for both targets, twice each:\n%s", first)
+	if first := patch(shapeHubPrivateTarget, "giantswarm", "gopher"); strings.Count(first, "connectorId: giantswarm-gopher-oidc\n") != 4 || strings.Contains(first, "simple-oidc") {
+		t.Errorf("the first hub names its own connector for both targets, twice each:\n%s", first)
 	}
 	// The aggregator's record with a target's hubs edited: none names this hub alone.
 	aggregator := func(hubs any) map[string]any {
@@ -482,7 +485,7 @@ func TestTargetRegistersTheConnectorTheHubNames(t *testing.T) {
 	}
 	sibling := patch(render1(shapeCustomerSibling), "oakridge", "plover", "dex-app")
 	for _, want := range []string{
-		"  giantswarm:\n    connectors:\n      giantswarm-gopher-oidc:\n        connectorType: oidc\n        connectorName: gopher\n        config:\n          issuer: https://dex.gopher.example.io\n          insecureEnableGroups: true\n          clientID: federation-plover\n",
+		"  giantswarm:\n    connectors:\n      giantswarm-gopher-oidc:\n        connectorType: oidc\n        connectorName: Giant Swarm (central login)\n        config:\n          issuer: https://dex.gopher.example.io\n          insecureEnableGroups: true\n          clientID: federation-plover\n",
 		"  customer:\n    connectors:\n      oakridge-simple-oidc:\n        connectorType: oidc\n        connectorName: heron\n        config:\n          issuer: https://dex.heron.oakridge.example\n          insecureEnableGroups: true\n          clientID: federation-plover\n          redirectURI: https://dex.plover.oakridge.example/callback\n",
 		"        clientSecretRef:\n          name: dex-connector-oakridge-simple-oidc\n          key: client-secret\n",
 	} {

@@ -33,6 +33,8 @@ func TestMain(m *testing.M) {
 		serveBridge(true)
 	case "sign-in":
 		serveBridge(false)
+	case dryRunResultBridge:
+		serveDryRunResultBridge()
 	default:
 		os.Exit(2)
 	}
@@ -112,7 +114,7 @@ func TestAManagerNotConnectedAsksForTheSignIn(t *testing.T) {
 // the empty set — every installation of the registry; a commit over one is
 // the action, over a set the wave.
 func TestReconcileTargetsThroughTheBridge(t *testing.T) {
-	reconcile := func(rest ...string) []string { return append([]string{"installation", "reconcile"}, rest...) }
+	reconcile := func(rest ...string) []string { return append([]string{installationCmd, reconcileCmd}, rest...) }
 	all := strings.Join(mustertest.Registry, ", ")
 	for _, c := range []struct {
 		args []string
@@ -200,7 +202,7 @@ func TestSetDryRunContentThroughTheBridge(t *testing.T) {
 func TestAnAnswerAboveTheLimitIsAnErrorNotAWait(t *testing.T) {
 	for _, args := range [][]string{
 		{installationCmd, "reconcile", "lab", mustertest.Oversized, agentPlatform, "--dry-run", "--content"},
-		{installationCmd, "enable", mustertest.Oversized, agentPlatform, "--dry-run", "--content"},
+		{installationCmd, enableCmd, mustertest.Oversized, agentPlatform, "--dry-run", "--content"},
 	} {
 		code, out, errs := bridge(t, "connected", append(args, "--timeout", "20s")...)
 		if code != exitError {

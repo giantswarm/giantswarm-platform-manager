@@ -111,7 +111,9 @@
               "x-source": "registry",
               "x-feature": "identity",
               "x-renders": [
-                "dex-configmap:oidc.<owner>.connectors.<connector> (<customer>-simple-oidc, <customer>-<hub>-oidc)"
+                "dex-configmap:oidc.<owner>.connectors.<connector> (<customer>-simple-oidc, <customer>-<hub>-oidc)",
+                "dex-configmap:dex.volumes",
+                "dex-configmap:dex.volumeMounts"
               ],
               "description": "The hubs that broker into this installation, each with the facts the token-exchange connector its Dex registers for the hub is rendered from: the hub's name, its owning organisation, its base domain — the hub's Dex, https://dex.<baseDomain>, is the connector's issuer — and whether it is the first of its organisation's hubs into this installation. The connector is an oidc connector trusting that issuer, under oidc.customer.connectors next to the installation's own login connectors, which the plan keeps; its name is the agent-platform policy's federation.connector.first (<customer>-simple-oidc) for the first hub and federation.connector.further (<customer>-<hub>-oidc) for every further one — the name the hub renders into its broker target and identity provider for this installation, so the two sides agree. A further hub of an organisation under that policy's federation.connector.furtherByHand renders none: the installation keeps its connector by hand. Each connector presents the login client the hub's Dex registers for this installation, so a person signs in through it as well as exchanges a token.",
               "items": {
@@ -122,7 +124,8 @@
                   "hub": {"type": "string", "minLength": 1, "description": "The hub's name."},
                   "customer": {"type": "string", "minLength": 1, "description": "The hub's owning organisation as the registry names it: the connector's prefix, and what the policy's furtherByHand is matched against."},
                   "baseDomain": {"type": "string", "minLength": 1, "description": "The hub's base domain from its record: its Dex, https://dex.<baseDomain>, is the connector's issuer."},
-                  "first": {"type": "boolean", "default": false, "description": "The hub is the first of its organisation's hubs that broker into this installation, so its connector carries the organisation's plain name; a further hub's carries the hub's own."}
+                  "first": {"type": "boolean", "default": false, "description": "The hub is the first of its organisation's hubs that broker into this installation, so its connector carries the organisation's plain name; a further hub's carries the hub's own."},
+                  "tunnel": {"type": "object", "additionalProperties": false, "required": ["service", "namespace", "bundleSecret"], "x-source": "registry", "description": "The tunnel through which this installation reaches the hub's Dex, absent where it reaches the hub's public Dex. teleport-fleet's tunnelport values (kubernetes/envs/prod/values.yaml) declare it: a tunnel whose appLabels are app dex and cluster <hub> with a token whose consumer is this installation. The connector then fetches discovery, keys, tokens and user info from https://<service>.<namespace>.svc.cluster.local:8443 (issuer and providerDiscoveryOverrides), keeps the hub's public Dex as the tokens' issuer (issuerAlias) and its authorization endpoint for the browser, and verifies the tunnel against svid_bundle.pem of bundleSecret, which Dex mounts (dex.volumes, dex.volumeMounts) and reads when it starts.", "properties": {"service": {"type": "string", "minLength": 1, "description": "The tunnel's Service: the tunnel's name in teleport-fleet."}, "namespace": {"type": "string", "minLength": 1, "description": "The Service's namespace: this installation's installNamespace among teleport-fleet's tunnelport consumers."}, "bundleSecret": {"type": "string", "minLength": 1, "description": "The Secret the trust bundle of this installation's tunnelport release is written to (trustBundle.secretName of management-clusters/<name>/extras/tunnelport/helm-release.yaml); the release installs into Dex's namespace."}}}
                 }
               }
             },
@@ -182,15 +185,17 @@
             "privateURLs": {
               "type": "boolean",
               "default": false,
-              "description": "Deprecated, renders nothing: read back from mcp-kubernetes's former SSO private-address flag (oauth.sso.allowPrivateIPs), which the plan removes. mcp-kubernetes lets its own Dex's host resolve to a private address without a setting.",
-              "deprecated": true,
+              "description": "Dex is reached on private addresses: mcp-kubernetes's SSO forwarded-token JWKS fetch may resolve to a private IP, in the server's user values. Its Dex client reaches private addresses without a setting.",
               "x-source": "person",
               "x-feature": "servers",
               "x-readback": {
                 "file": "mcp-kubernetes:user-values",
                 "key": ["mcpKubernetes.oauth.sso.allowPrivateIPs", "mcpKubernetes.oauth.allowPrivateURLs"]
               },
-              "x-renders": []
+              "x-renders": [
+                "extras:mcp-kubernetes/user-values.yaml",
+                "extras:mcp-kubernetes/kustomization.yaml configMapGenerator"
+              ]
             },
             "dexCA": {
               "type": "boolean",
@@ -211,15 +216,16 @@
             "privateIPs": {
               "type": "boolean",
               "default": false,
-              "description": "Deprecated, renders nothing: read back from mcp-kubernetes's former blanket flags for client metadata documents and redirect URIs on private addresses (oauth.cimd.allowPrivateIPs, oauth.redirectURISecurity.allowPrivateIPRedirectURIs), which the plan removes. Without the agent platform no client of the installation's own sits on a private address.",
-              "deprecated": true,
+              "description": "The clients' metadata documents and redirect URIs are on private addresses too (a private installation): mcp-kubernetes's CIMD fetch and redirect URI checks allow private IPs.",
               "x-source": "person",
               "x-feature": "servers",
               "x-readback": {
                 "file": "mcp-kubernetes:user-values",
                 "key": "mcpKubernetes.oauth.cimd.allowPrivateIPs"
               },
-              "x-renders": []
+              "x-renders": [
+                "extras:mcp-kubernetes/user-values.yaml"
+              ]
             }
           }
         },
@@ -242,15 +248,17 @@
             "privateURLs": {
               "type": "boolean",
               "default": false,
-              "description": "Deprecated, renders nothing: read back from mcp-prometheus's former private-address flag (app.oauth.allowPrivateIPJWKS), which the plan removes. mcp-prometheus lets its own Dex's host resolve to a private address without a setting.",
-              "deprecated": true,
+              "description": "Dex is reached on private addresses: mcp-prometheus's forwarded-token JWKS fetch may resolve to a private IP (app.oauth.allowPrivateIPJWKS), in the server's user values. Its Dex client reaches private addresses without a setting.",
               "x-source": "person",
               "x-feature": "servers",
               "x-readback": {
                 "file": "mcp-prometheus:user-values",
                 "key": ["app.oauth.allowPrivateIPJWKS", "app.oauth.allowPrivateURLs"]
               },
-              "x-renders": []
+              "x-renders": [
+                "extras:mcp-prometheus/user-values.yaml",
+                "extras:mcp-prometheus/kustomization.yaml configMapGenerator"
+              ]
             },
             "dexCA": {
               "type": "boolean",
@@ -289,15 +297,17 @@
             "privateURLs": {
               "type": "boolean",
               "default": false,
-              "description": "Deprecated, renders nothing: read back from mcp-capi's former private-address flag (oauth.allowPrivateIPJWKS), which the plan removes. mcp-capi lets its own Dex's host resolve to a private address without a setting.",
-              "deprecated": true,
+              "description": "Dex is reached on private addresses: mcp-capi's forwarded-token JWKS fetch may resolve to a private IP (oauth.allowPrivateIPJWKS), in the server's user values. Its Dex client reaches private addresses without a setting.",
               "x-source": "person",
               "x-feature": "servers",
               "x-readback": {
                 "file": "mcp-capi:user-values",
                 "key": ["oauth.allowPrivateIPJWKS", "oauth.allowPrivateURLs"]
               },
-              "x-renders": []
+              "x-renders": [
+                "extras:mcp-capi/user-values.yaml",
+                "extras:mcp-capi/kustomization.yaml configMapGenerator"
+              ]
             },
             "dexCA": {
               "type": "boolean",

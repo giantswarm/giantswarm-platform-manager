@@ -17,7 +17,7 @@ import (
 // server, the controller manager and every kubelet, and the meta chart refuses
 // its install at render time where the API is not served. The record says
 // whether the cluster has them (installation.podCertificateRequest, derived
-// from the cluster App on record); a 4-line record without them is refused at
+// from the cluster on record, an App or a Flux HelmRelease); a 4-line record without them is refused at
 // plan time (checkRecord), and the live probe reads the API (probes).
 
 // PodCertificateRequestAPI is the API Agent Substrate needs served, as the
@@ -49,6 +49,28 @@ var ClusterChartsWithPodCertificateRequest = map[string]string{
 	"cluster-aws":            "10.3.0",
 	"cluster-azure":          "9.3.0",
 	"cluster-cloud-director": "7.3.0",
+}
+
+// ClusterSubchart is the chart every provider cluster chart depends on for its
+// kubeadm configuration, and ClusterSubchartWithPodCertificateRequest the
+// first version of it that enables the three gates by default (cluster#1005).
+// A cluster deployed by a Flux HelmRelease is read through it: the chart the
+// OCIRepository points at names its version among its dependencies, whatever
+// the chart is called.
+const (
+	ClusterSubchart                          = "cluster"
+	ClusterSubchartWithPodCertificateRequest = "8.3.0"
+)
+
+// ClusterSubchartHasPodCertificateRequest says whether a chart that depends on
+// ClusterSubchart at that version enables the gates by default. False for a
+// version that is not a semantic version.
+func ClusterSubchartHasPodCertificateRequest(version string) bool {
+	v, err := semver.NewVersion(strings.TrimPrefix(version, "v"))
+	if err != nil {
+		return false
+	}
+	return !v.LessThan(semver.MustParse(ClusterSubchartWithPodCertificateRequest))
 }
 
 // ClusterChartHasPodCertificateRequest says whether a cluster App on that

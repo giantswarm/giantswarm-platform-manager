@@ -211,6 +211,9 @@ type Input struct {
 	// policy's names over each hub's record (render.FederatedConnectors);
 	// none for a further hub whose connector is kept by hand.
 	HubConnectors []render.FederatedConnector
+	// IdentityCheckConnectors is nil unless this installation's browser login
+	// connectors are explicitly selected by the federation policy.
+	IdentityCheckConnectors []string
 	// Teleport is the Teleport cluster a tunnel joins.
 	Teleport Teleport
 	// SourceInterval is the poll interval of every OCIRepository the
@@ -265,6 +268,8 @@ type Connectors struct {
 	// at a target whose first hub of the organisation it is: First, unless
 	// the policy's exchangeThrough names another one.
 	Exchange string
+	// ExchangeTargets selects a first hub's exchange connector per installation.
+	ExchangeTargets map[string]string
 }
 
 // Installation is the record; see the schema for each field.
@@ -297,8 +302,8 @@ type Installation struct {
 	AgentPlatform bool `json:"agentPlatform"`
 	// PodCertificateRequest says the cluster serves certificates.k8s.io/v1beta1
 	// PodCertificateRequest, which Agent Substrate needs on the 4 line: the
-	// cluster App on record enables the feature gates, or its chart does by
-	// default (substrate.go).
+	// cluster on record (its App, or its Flux HelmRelease) enables the feature
+	// gates, or its chart does by default (substrate.go).
 	PodCertificateRequest bool `json:"podCertificateRequest"`
 	// PortalClientSecret says the portal client's Secret (dex-client-backstage
 	// in Dex's namespace) is on record: the customer-portal definition's file
@@ -390,8 +395,7 @@ type Target struct {
 	BaseDomain   string `json:"baseDomain"`
 	Private      bool   `json:"private"`
 	// PlatformProxied says the hub's portal proxies the target's agent
-	// platform: a private one is then also tunnelled to its kagent and its
-	// agentgateway.
+	// platform: a private one is then also tunnelled to its agentgateway.
 	PlatformProxied bool `json:"platformProxied"`
 	// Hubs are the hubs of this hub's organisation that broker into the
 	// target, this hub among them, in the registry's order: the first
@@ -498,9 +502,10 @@ type policy struct {
 		Customers []string `yaml:"customers"`
 	} `yaml:"releaseCandidates"`
 	Federation struct {
-		Connector  render.ConnectorNames `yaml:"connector"`
-		Teleport   Teleport              `yaml:"teleport"`
-		BrowseOnly []string              `yaml:"browseOnly"`
+		Connector               render.ConnectorNames `yaml:"connector"`
+		Teleport                Teleport              `yaml:"teleport"`
+		BrowseOnly              []string              `yaml:"browseOnly"`
+		IdentityCheckConnectors map[string][]string   `yaml:"identityCheckConnectors"`
 	} `yaml:"federation"`
 	Flux struct {
 		SourceInterval string `yaml:"sourceInterval"`
@@ -646,11 +651,19 @@ func (p *policy) connectors(inst Installation) (Connectors, error) {
 	if err != nil {
 		return Connectors{}, fmt.Errorf("%w: %w", ErrPolicy, err)
 	}
-	exchange, err := p.Federation.Connector.Exchange(true, inst.Customer, inst.Name)
+	exchange, err := p.Federation.Connector.Exchange(true, inst.Customer, inst.Name, "")
 	if err != nil {
 		return Connectors{}, fmt.Errorf("%w: %w", ErrPolicy, err)
 	}
-	return Connectors{First: first, Further: further, FurtherByHand: !p.Federation.Connector.Rendered(inst.Customer, false), Exchange: exchange}, nil
+	targets := make(map[string]string, len(inst.Federation.Targets))
+	for _, target := range inst.Federation.Targets {
+		connector, err := p.Federation.Connector.Exchange(true, inst.Customer, inst.Name, target.Installation)
+		if err != nil {
+			return Connectors{}, fmt.Errorf("%w: %w", ErrPolicy, err)
+		}
+		targets[target.Installation] = connector
+	}
+	return Connectors{First: first, Further: further, FurtherByHand: !p.Federation.Connector.Rendered(inst.Customer, false), Exchange: exchange, ExchangeTargets: targets}, nil
 }
 
 // hubConnectors renders the connectors this installation's Dex registers
@@ -930,6 +943,9 @@ func Parse(raw any) (*Input, error) {
 	if in.Connectors, err = pol.connectors(in.Installation); err != nil {
 		return nil, err
 	}
+	if in.IdentityCheckConnectors, err = pol.identityCheckConnectors(in.Installation); err != nil {
+		return nil, err
+	}
 	if in.HubConnectors, err = pol.hubConnectors(in.Installation); err != nil {
 		return nil, err
 	}
@@ -1128,8 +1144,8 @@ func (in *Input) checkRecord() error {
 		}
 	}
 	if in.kagent() && in.Installation.ChartLine == lineFour && !in.Installation.PodCertificateRequest {
-		return refuse(fmt.Sprintf("%s does not say this cluster serves %s/%s %s, which kagent's Agent Substrate on the 4 chart line needs; enable the feature gates %s under cluster.internal.advancedConfiguration.{%s}.featureGates in the cluster App's values (management-clusters/%s/cluster-app-manifests.yaml), or run a cluster App chart that enables them by default (%s and later)",
-			describe("installation.podCertificateRequest"), apiGroup(PodCertificateRequestResource), PodCertificateRequestVersion, apiResource(PodCertificateRequestResource), strings.Join(PodCertificateRequestGates, ", "), strings.Join(PodCertificateRequestComponents, ","), in.Installation.Name, podCertificateRequestDefaults()))
+		return refuse(fmt.Sprintf("%s does not say this cluster serves %s/%s %s, which kagent's Agent Substrate on the 4 chart line needs; enable the feature gates %s under cluster.internal.advancedConfiguration.{%s}.featureGates in the cluster's values (management-clusters/%s/cluster-app-manifests.yaml), or run a cluster chart that enables them by default (%s %s and later: %s and later)",
+			describe("installation.podCertificateRequest"), apiGroup(PodCertificateRequestResource), PodCertificateRequestVersion, apiResource(PodCertificateRequestResource), strings.Join(PodCertificateRequestGates, ", "), strings.Join(PodCertificateRequestComponents, ","), in.Installation.Name, "giantswarm/"+ClusterSubchart, ClusterSubchartWithPodCertificateRequest, podCertificateRequestDefaults()))
 	}
 	if err := in.checkOrganizations(); err != nil {
 		return err
@@ -1160,10 +1176,13 @@ func (in *Input) connector(t Target) string {
 
 // exchangeConnector is the connector this hub's broker and identity
 // providers exchange tokens through at t's Dex: the one t registers for this
-// hub (connector), or Connectors.Exchange where this is t's first hub of the
-// organisation.
+// hub (connector), or the target selection and default exchange connector
+// where this is t's first hub of the organisation.
 func (in *Input) exchangeConnector(t Target) string {
 	if t.first(in.Installation.Name) {
+		if connector, selected := in.Connectors.ExchangeTargets[t.Installation]; selected {
+			return connector
+		}
 		return in.Connectors.Exchange
 	}
 	return in.Connectors.Further
@@ -1235,20 +1254,23 @@ func (in *Input) chartSemver() string {
 const privateAddressChart = "4.185.0"
 
 func (in *Input) needsPrivateAddressHosts() bool {
-	return in.Installation.Private || in.hasPrivateTarget()
+	return in.Installation.Private || len(in.exchangeTokenEndpointHosts()) > 0
 }
 
 func (in *Input) checkPrivateAddressVersions() error {
 	if !in.needsPrivateAddressHosts() {
 		return nil
 	}
-	if in.Installation.Private && (in.Installation.ChartLine != lineFour || !holdAdmits(in.Versions.Chart, privateAddressChart+"-rc.1")) {
+	if in.Installation.ChartLine != lineFour || !holdAdmits(in.Versions.Chart, privateAddressChart+"-rc.1") {
 		return refuse(fmt.Sprintf("private OAuth hosts need agent-platform %s or later, and %s on the %s chart line excludes it; move or lift the hold on a compatible chart line before replacing the private-address settings", privateAddressChart, describe("versions.chart"), in.Installation.ChartLine))
 	}
 	for _, component := range []struct{ name, floor string }{
 		{componentMuster, "5.64.0"},
 		{componentMCPKubernetes, "1.16.0"},
 	} {
+		if component.name == componentMCPKubernetes && !in.Installation.Private {
+			continue
+		}
 		if hold := in.Versions.Components[component.name]; !holdAdmits(hold, component.floor) {
 			return refuse(fmt.Sprintf("private OAuth hosts need %s %s or later, and %s holds it at %s; move or lift the hold before replacing the private-address settings", component.name, component.floor, describe("versions.components."+component.name), hold))
 		}

@@ -22,11 +22,11 @@ import (
 // reviews this file (CODEOWNERS).
 
 const (
-	teleportFleet = render.Repository("giantswarm/teleport-fleet")
+	teleportFleet = render.TeleportFleet
 	// tunnelportValues is the values file of teleport-fleet's production chart
 	// the tunnelport template reads; the definition's entries are edited into
 	// it, the file is never written whole.
-	tunnelportValues = "kubernetes/envs/prod/values.yaml"
+	tunnelportValues = render.TunnelportValuesPath
 	// teleportCustomerLabel is the customer label every app a Giant Swarm-managed
 	// installation advertises to Teleport carries — the operator's tenancy label,
 	// the same on an installation of any organisation — and, with app and

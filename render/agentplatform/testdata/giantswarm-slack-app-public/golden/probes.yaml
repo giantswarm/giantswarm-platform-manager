@@ -137,41 +137,12 @@
   feature: runtime
   kind: Condition
   namespace: kagent
-  resource: Deployment
-  name: kagent-ui
-  expect:
-    condition: Available
-    conditionStatus: "True"
-- id: live-kagent-workloads
-  feature: runtime
-  kind: Condition
-  namespace: kagent
-  resource: Deployment
-  name: kagent-oauth2-proxy
-  expect:
-    condition: Available
-    conditionStatus: "True"
-- id: live-kagent-workloads
-  feature: runtime
-  kind: Condition
-  namespace: kagent
   resource: Cluster.postgresql.cnpg.io
   name: kagent-pg
   expect:
     condition: Ready
     conditionStatus: "True"
-- id: live-oauth2-proxy-secret-and-flux-sa
-  feature: secrets
-  kind: ResourcePresent
-  namespace: kagent
-  resource: Secret
-  name: kagent-oauth2-proxy-credentials
-  expect:
-    keys:
-      - client-id
-      - client-secret
-      - cookie-secret
-- id: live-oauth2-proxy-secret-and-flux-sa
+- id: live-kagent-flux-sa
   feature: secrets
   kind: ResourcePresent
   namespace: kagent
@@ -186,20 +157,6 @@
     condition: ResolvedRefs
     conditionStatus: "True"
     note: 'waiting for the customer''s model: a ModelConfig in kagent with its key Secret in place'
-- id: live-kagent-api-protected
-  feature: identity
-  kind: HTTP
-  url: https://kagent.graveler.example.io/api/agents
-  expect:
-    status: 403
-- id: live-kagent-login-redirect
-  feature: identity
-  kind: HTTP
-  url: https://kagent.graveler.example.io/oauth2/start
-  expect:
-    status: 302
-    locationContains: client_id=kagent
-    note: the login redirects to Dex at https://dex.graveler.example.io/auth as client kagent
 - id: live-dex-auth-per-client
   feature: identity
   kind: HTTP
@@ -325,14 +282,6 @@
   namespace: agent-platform
   resource: MCPServer.muster.giantswarm.io
   name: graveler-mcp-capi
-- id: live-oauth2-proxy-audience
-  feature: identity
-  kind: LogAbsent
-  namespace: kagent
-  resource: Deployment
-  name: kagent-oauth2-proxy
-  expect:
-    absent: audience .* does not match
 - id: live-agent-models
   feature: runtime
   kind: NoneNames
@@ -347,7 +296,7 @@
   resource: podcertificaterequests.certificates.k8s.io
   expect:
     version: v1beta1
-    note: the record enables the feature gates PodCertificateRequest, ClusterTrustBundle, ClusterTrustBundleProjection (the cluster App's values, or its chart's default); the API is served once the control plane has rolled with them, and Agent Substrate's install waits for it
+    note: the record enables the feature gates PodCertificateRequest, ClusterTrustBundle, ClusterTrustBundleProjection (the cluster's values on record, or its chart's default); the API is served once the control plane has rolled with them, and Agent Substrate's install waits for it
 - id: live-drift
   feature: runtime
   kind: Drift
@@ -367,18 +316,6 @@
     compare:
       - live: spec.values.providers
         rendered: kagent.providers
-- id: live-oauth2-proxy-extra-audience
-  feature: identity
-  kind: Drift
-  namespace: kagent
-  resource: Deployment
-  name: kagent-oauth2-proxy
-  expect:
-    note: --oidc-extra-audience carries the rendered audiences
-    compare:
-      - live: spec.template.spec.containers[0].args[args]
-        rendered: kagent.oauth2-proxy.extraArgs.oidc-extra-audience
-        prefix: --oidc-extra-audience=
 - id: live-muster-trusted-audiences
   feature: identity
   kind: Drift
@@ -397,7 +334,10 @@
   resource: ConfigMap
   name: muster-config
   expect:
-    note: the Dex connectorId is the rendered muster.muster.oauth.server.dex.connectorId
+    note: the Dex connectorId is the rendered muster.muster.oauth.server.dex.connectorId; identityCheckConnectors match the installation's policy selection
     compare:
       - live: data.config.yaml:aggregator.oauth.server.dex.connectorId
         rendered: muster.muster.oauth.server.dex.connectorId
+      - live: data.config.yaml:aggregator.oauth.server.dex.identityCheckConnectors
+        rendered: muster.muster.oauth.server.dex.identityCheckConnectors
+        exact: true

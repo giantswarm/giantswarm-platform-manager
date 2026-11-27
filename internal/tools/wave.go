@@ -118,9 +118,11 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 	changes := make([]string, 0, len(targets))
 	var rotated []string
 	rollout := &actions.Rollout{Installations: make([]actions.InstallationRollout, 0, len(targets))}
+	var orphans []actions.Orphan
 	test := true
 	for i, p := range targets {
 		rotated = append(rotated, p.Rotating()...)
+		orphans = append(orphans, orphansFrom(p.Name, p.Checklist)...)
 		if env.byName[p.Name].Customer != env.hub.Customer {
 			spec.Customer = true
 		}
@@ -136,7 +138,7 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
 	}
-	a, err := t.d.Actions.Create(ctx, actions.Action{Name: name, Spec: spec, Status: actions.Status{State: actions.StatePendingApproval, Rollout: rollout, Rotated: rotated, Commit: &actions.CommitStatus{}}})
+	a, err := t.d.Actions.Create(ctx, actions.Action{Name: name, Spec: spec, Status: actions.Status{State: actions.StatePendingApproval, Rollout: rollout, Rotated: rotated, Orphans: orphans, Commit: &actions.CommitStatus{}}})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
 	}

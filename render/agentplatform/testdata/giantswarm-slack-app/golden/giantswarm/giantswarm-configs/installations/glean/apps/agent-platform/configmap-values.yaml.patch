@@ -101,6 +101,11 @@ muster:
         storage:
           valkey:
             existingSecret: muster-valkey-credentials
+        dex:
+          identityCheckConnectors:
+            - giantswarm-ad
+            - giantswarm-gazelle-oidc
+          allowPrivateIPOIDC: false
         allowPrivateIPRedirectURIHosts:
           - agentgateway.glean.example.io
         preRegisteredClientMetadata:

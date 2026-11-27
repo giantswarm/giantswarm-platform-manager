@@ -32,3 +32,9 @@ migrations:
     reason: "Added: the portal's kustomization lists the Secret plugin-keys-backstage, so it is applied with the portal · M33"
   - key: backstage:kustomization:spec.valuesFrom[plugin-keys-backstage]
     reason: "Added: the HelmRelease reads values from the Secret plugin-keys-backstage, a values source of the portal's kustomization patch after its ConfigMaps · M33"
+  - key: backstage:app-config:backend.auth.pluginKeyStore
+    reason: "Added: backend.auth.pluginKeyStore reads the static plugin-to-plugin signing keys mounted from the Secret plugin-keys-backstage instead of keeping keys in the backend's database · M33"
+
+  # M3: the portal's Agent Platform settings.
+  - key: backstage:user-values:backstage.extraEnvVars[BACKSTAGE_AVATARS_IMG_SRC]
+    reason: "Added: BACKSTAGE_AVATARS_IMG_SRC lists the avatars hosts of the installations the portal shows that run the Agent Platform, so its Content-Security-Policy allows their avatar images instead of only 'self' · M3"

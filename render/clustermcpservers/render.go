@@ -108,11 +108,10 @@ type Servers struct {
 type Server struct {
 	// Enabled is nil where neither the record nor the person says: a fresh
 	// enable runs every server.
-	Enabled *bool `json:"enabled"`
-	// Deprecated private-address inputs are accepted for readback only.
-	PrivateURLs bool `json:"privateURLs"`
-	PrivateIPs  bool `json:"privateIPs"`
-	DexCA       bool `json:"dexCA"`
+	Enabled     *bool `json:"enabled"`
+	PrivateURLs bool  `json:"privateURLs"`
+	PrivateIPs  bool  `json:"privateIPs"`
+	DexCA       bool  `json:"dexCA"`
 }
 
 // runs says whether the server runs on the installation.
@@ -236,7 +235,7 @@ func (in *Input) render() (*render.Result, error) {
 			continue
 		}
 		s.Extras(r, clusters, extras+s.Name, mcpservers.Options{Installation: name,
-			DexCA: server.DexCA, Header: fileHeader})
+			PrivateURLs: server.PrivateURLs, PrivateIPs: server.PrivateIPs, DexCA: server.DexCA, Header: fileHeader})
 		r.Include(clusters, extras+"kustomization.yaml", "./"+s.Name+"/")
 		if s.DexSecretRef {
 			static = append(static, render.Entry{Key: s.DexClient, Value: s.DexClientRef()})
@@ -256,6 +255,9 @@ func (in *Input) render() (*render.Result, error) {
 	}
 	oidc = append(oidc, render.ConnectorsByOwner(connectors, name, in.Installation.BaseDomain)...)
 	dex := render.Map{{Key: "oidc", Value: oidc}}
+	if mounts := render.TunnelDexValues(connectors); mounts != nil {
+		dex = append(dex, render.Entry{Key: "dex", Value: mounts})
+	}
 	r.Add(configs, "installations/"+name+"/apps/dex-app/configmap-values.yaml.patch", render.File{Content: append([]byte(fileHeader), render.MustYAML(dex)...)})
 	r.Probes = in.probes(connectors)
 	r.WithoutPairs = func(names []string) (*render.Result, error) {

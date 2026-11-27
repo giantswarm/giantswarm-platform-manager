@@ -197,6 +197,12 @@ func (p *printer) installation(inst plan.Installation, features []verify.Feature
 			if len(f.Kept) > 0 {
 				p.f("    %s keeps what other owners added and the definition does not render: %s\n", f.Path, kept(f.Kept))
 			}
+			if f.Change == plan.ChangeDelete {
+				p.f("    %s goes: %s\n", f.Path, f.Why)
+				for _, l := range f.ListedIn {
+					p.f("    %s is unlisted from %s\n", f.Path, l)
+				}
+			}
 		}
 		p.differences(inst.Files, features)
 	}
@@ -252,6 +258,12 @@ func (p *printer) installation(inst plan.Installation, features []verify.Feature
 		}
 	}
 	p.customerActions(inst.CustomerActions)
+	for _, on := range plan.ChecklistByInstallation(inst.Name, inst.Checklist) {
+		p.f("  After the merge, delete on %s in this order — the fleet's Kustomization over the tree does not prune what the change takes off the record:\n", on.Installation)
+		for _, o := range on.Objects {
+			p.f("    [ ] %s\n", o.Line())
+		}
+	}
 	if len(inst.Probes) > 0 {
 		p.f("  Probes:\n")
 		for _, pr := range inst.Probes {
@@ -407,7 +419,7 @@ func dexClient(c plan.DexClient) string {
 
 func diff(d map[plan.Change]int) string {
 	var parts []string
-	for _, c := range []plan.Change{plan.ChangeCreate, plan.ChangeUpdate, plan.ChangeUnchanged, plan.ChangeUnknown} {
+	for _, c := range []plan.Change{plan.ChangeCreate, plan.ChangeUpdate, plan.ChangeDelete, plan.ChangeUnchanged, plan.ChangeUnknown} {
 		if n := d[c]; n > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", n, c))
 		}

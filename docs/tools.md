@@ -79,6 +79,7 @@ Dry-run first: it names every file a commit deletes or edits, the files another 
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
     "capability": {
       "description": "The capability (default agent-platform); get_info lists the definitions and their input schemas.",
@@ -137,6 +138,7 @@ A set renders only the installations that have it on record, as reconcile_capabi
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
     "capability": {
       "description": "The capability (default agent-platform); get_info lists the definitions and their input schemas.",
@@ -344,11 +346,12 @@ The Action moves to rolling out and the review's thread is told; follow it with 
 ```text
 Reconcile a capability over the installations that have it (empty: all): enable_capability's plan, per installation.
 
-A plan whose files are all unchanged means the installation matches the definition. Installations without the capability are skipped and listed; a fresh enable is enable_capability. Writes as you (your rights ∩ the App's): dryRun: true answers the plan and writes nothing; mode: "commit" opens the pull requests through an Action and its approval — wait for the answer.
+A plan whose files are all unchanged means the installation matches the definition. Installations without the capability are skipped and listed; a fresh enable is enable_capability. A deleted-file removal deletes a file; a plan lists what Flux does not prune (checklist), a commit records it. Writes as you (your rights ∩ the App's): dryRun: true answers the plan and writes nothing; mode: "commit" opens the pull requests through an Action and its approval — wait for the answer.
 ```
 
 ```json
 {
+  "additionalProperties": false,
   "properties": {
     "capability": {
       "description": "The capability (default agent-platform); get_info lists the definitions and their input schemas.",

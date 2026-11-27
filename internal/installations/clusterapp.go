@@ -48,6 +48,12 @@ var releaseDirectories = map[string]string{
 // reason on the report, and the comparison still runs.
 var ErrRelease = errors.New("the release on record")
 
+// ErrChart is the chart a Flux HelmRelease on record takes from its
+// OCIRepository that could not be read: the OCIRepository is not on record,
+// follows a semver range, or the registry does not answer. Like ErrRelease, it
+// is a fact's error: the fact stays false with the reason on the report.
+var ErrChart = errors.New("the chart on record")
+
 // ReleasePath is the release.yaml of version in the releases directory of the
 // chart's provider; false for a chart without one.
 func ReleasePath(chart, version string) (string, bool) {
@@ -71,33 +77,48 @@ func readAs(c *gh.Client) Reader {
 }
 
 // readPodCertificateRequest reads whether inst's cluster serves
-// certificates.k8s.io/v1beta1 PodCertificateRequest, from the cluster App on
+// certificates.k8s.io/v1beta1 PodCertificateRequest, from the cluster on
 // record as the person: false for an installation without the manifest (the
 // record says nothing, so nothing says yes); a manifest that cannot be read
-// or parsed is an error of the report. Where the chart's default decides and
-// the values name a release, the version is the one the release lists for the
-// chart (ReleasesRepository), whatever version the App carries (a release-based
-// App's is empty or a placeholder); the App's own version decides only without
-// a release. A release that cannot be read or does not list the chart is
-// ErrRelease, the fact false.
-func readPodCertificateRequest(ctx context.Context, read Reader, inst Installation) (bool, error) {
+// or parsed is an error of the report. The cluster is a cluster App, or,
+// without one, a Flux HelmRelease with its OCIRepository.
+//
+// Where the chart's default decides for an App and the values name a
+// release, the version is the one the release lists for the chart
+// (ReleasesRepository), whatever version the App carries (a release-based
+// App's is empty or a placeholder); the App's own version decides only
+// without a release. A release that cannot be read or does not list the chart
+// is ErrRelease, the fact false.
+//
+// Where it decides for a HelmRelease, the chart the OCIRepository points at
+// is read from its registry (chart) and the version of the cluster subchart it
+// depends on decides, whatever the chart is called. A chart that cannot be
+// read is ErrChart, the fact false.
+func readPodCertificateRequest(ctx context.Context, read Reader, chart ChartConfig, inst Installation) (bool, error) {
 	path := ClusterAppManifestPath(inst.Name)
 	data, err := read(ctx, inst.Repositories.ManagementClusters, path)
 	if errors.Is(err, gh.ErrNotFound) {
 		return false, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("the cluster App on record: %w", err)
+		return false, fmt.Errorf("the cluster on record: %w", err)
 	}
 	app, err := parseClusterApp(data)
 	if err != nil {
-		return false, fmt.Errorf("the cluster App on record: %s in %s: %w", path, inst.Repositories.ManagementClusters, err)
+		return false, fmt.Errorf("the cluster on record: %s in %s: %w", path, inst.Repositories.ManagementClusters, err)
 	}
 	if app == nil || !app.listsEnableGates() {
 		return false, nil
 	}
 	if !app.readsChart() {
 		return true, nil
+	}
+	if app.helmRelease != "" {
+		version, err := app.source.clusterSubchartVersion(ctx, chart)
+		if err != nil {
+			return false, fmt.Errorf("%w: %s in %s: HelmRelease %s: %w", ErrChart, path, inst.Repositories.ManagementClusters, app.helmRelease, err)
+		}
+		return agentplatform.ClusterSubchartHasPodCertificateRequest(version), nil
 	}
 	version := app.version
 	if app.release != "" {
@@ -159,16 +180,53 @@ type clusterAppDocument struct {
 	} `yaml:"spec"`
 }
 
-// clusterConfigMap is a ConfigMap document of the manifest with the chart
-// values as YAML text.
+// clusterConfigMap is a ConfigMap document of the manifest: its data, the
+// chart values as YAML text under a key (values for a cluster App's).
 type clusterConfigMap struct {
-	Kind     string `yaml:"kind"`
-	Metadata struct {
-		Name string `yaml:"name"`
-	} `yaml:"metadata"`
-	Data struct {
-		Values string `yaml:"values"`
-	} `yaml:"data"`
+	Kind     string            `yaml:"kind"`
+	Metadata objectMeta        `yaml:"metadata"`
+	Data     map[string]string `yaml:"data"`
+}
+
+// objectMeta is the name and namespace of a manifest's document.
+type objectMeta struct {
+	Name      string `yaml:"name"`
+	Namespace string `yaml:"namespace"`
+}
+
+// helmReleaseDocument is a Flux HelmRelease document of the manifest: the
+// OCIRepository its chart comes from and its values, from the ConfigMaps and
+// Secrets valuesFrom names in order, then spec.values on top.
+type helmReleaseDocument struct {
+	Metadata objectMeta `yaml:"metadata"`
+	Spec     struct {
+		ChartRef struct {
+			Kind      string `yaml:"kind"`
+			Name      string `yaml:"name"`
+			Namespace string `yaml:"namespace"`
+		} `yaml:"chartRef"`
+		ValuesFrom []struct {
+			Kind       string `yaml:"kind"`
+			Name       string `yaml:"name"`
+			ValuesKey  string `yaml:"valuesKey"`
+			TargetPath string `yaml:"targetPath"`
+		} `yaml:"valuesFrom"`
+		Values map[string]any `yaml:"values"`
+	} `yaml:"spec"`
+}
+
+// ociRepositoryDocument is a Flux OCIRepository document of the manifest: the
+// chart's repository and the reference Flux pulls.
+type ociRepositoryDocument struct {
+	Metadata objectMeta `yaml:"metadata"`
+	Spec     struct {
+		URL string `yaml:"url"`
+		Ref struct {
+			Tag    string `yaml:"tag"`
+			SemVer string `yaml:"semver"`
+			Digest string `yaml:"digest"`
+		} `yaml:"ref"`
+	} `yaml:"spec"`
 }
 
 // featureGate is one entry of a component's featureGates list in the cluster
@@ -214,20 +272,32 @@ func (v clusterValues) components() []gated {
 	return []gated{ac.ControlPlane.APIServer, ac.ControlPlane.ControllerManager, ac.Kubelet}
 }
 
-// clusterApp is what the record says about the cluster: the chart, the
-// version the App carries (empty or a placeholder for a release-based App),
-// the release the values name (empty for an App pinned to a chart version)
-// and the values.
+// clusterApp is what the record says about the cluster. For a cluster App:
+// the chart, the version the App carries (empty or a placeholder for a
+// release-based App) and the release the values name (empty for an App
+// pinned to a chart version). For a Flux HelmRelease: its namespace/name and
+// the chart source its OCIRepository names. And the values either way.
 type clusterApp struct {
 	chart, version, release string
+	helmRelease             string
+	source                  chartSource
 	values                  clusterValues
 }
 
+// kindHelmRelease is the Flux kind a cluster on record is deployed by once it
+// is no App.
+const kindHelmRelease = "HelmRelease"
+
 // parseClusterApp reads the manifest: the App of a cluster chart with the
-// values of the ConfigMap it names. Nil without such an App.
+// values of the ConfigMap it names, or, without one, the first Flux
+// HelmRelease whose chart comes from an OCIRepository, with its values and
+// the chart source the OCIRepository names. Nil without either.
 func parseClusterApp(manifest string) (*clusterApp, error) {
 	var app *clusterAppDocument
+	var hr *helmReleaseDocument
 	configMaps := map[string]string{}
+	allConfigMaps := map[objectMeta]map[string]string{}
+	repositories := map[objectMeta]ociRepositoryDocument{}
 	dec := yaml.NewDecoder(strings.NewReader(manifest))
 	for {
 		var node yaml.Node
@@ -252,30 +322,116 @@ func parseClusterApp(manifest string) (*clusterApp, error) {
 			if strings.HasPrefix(a.Spec.Name, "cluster-") && app == nil {
 				app = &a
 			}
+		case kindHelmRelease:
+			var h helmReleaseDocument
+			if err := node.Decode(&h); err != nil {
+				return nil, fmt.Errorf("decode the HelmRelease: %w", err)
+			}
+			if h.Spec.ChartRef.Kind == kindOCIRepository && hr == nil {
+				hr = &h
+			}
+		case kindOCIRepository:
+			var o ociRepositoryDocument
+			if err := node.Decode(&o); err != nil {
+				return nil, fmt.Errorf("decode the OCIRepository: %w", err)
+			}
+			repositories[o.Metadata] = o
 		case "ConfigMap":
 			var cm clusterConfigMap
 			if err := node.Decode(&cm); err != nil {
 				return nil, fmt.Errorf("decode the ConfigMap: %w", err)
 			}
-			if cm.Data.Values != "" {
-				configMaps[cm.Metadata.Name] = cm.Data.Values
+			allConfigMaps[cm.Metadata] = cm.Data
+			if cm.Data["values"] != "" {
+				configMaps[cm.Metadata.Name] = cm.Data["values"]
 			}
 		}
 	}
-	if app == nil {
-		return nil, nil
+	switch {
+	case app != nil:
+		raw, ok := configMaps[app.Spec.UserConfig.ConfigMap.Name]
+		if !ok && len(configMaps) == 1 {
+			// The one ConfigMap with values, whatever the App names.
+			raw = slices.Collect(maps.Values(configMaps))[0]
+		}
+		a := &clusterApp{chart: app.Spec.Name, version: app.Spec.Version}
+		if err := yaml.Unmarshal([]byte(raw), &a.values); err != nil {
+			return nil, fmt.Errorf("decode the cluster App's values: %w", err)
+		}
+		a.release = a.values.Global.Release.Version
+		return a, nil
+	case hr != nil:
+		return parseHelmRelease(hr, allConfigMaps, repositories)
 	}
-	raw, ok := configMaps[app.Spec.UserConfig.ConfigMap.Name]
-	if !ok && len(configMaps) == 1 {
-		// The one ConfigMap with values, whatever the App names.
-		raw = slices.Collect(maps.Values(configMaps))[0]
+	return nil, nil
+}
+
+// parseHelmRelease reads a Flux HelmRelease of the manifest: its values merged
+// as Flux merges them — each valuesFrom ConfigMap in order, spec.values last,
+// maps merged key by key and lists replaced — and the chart source its
+// OCIRepository names. A ConfigMap the manifest does not hold and a valuesFrom
+// Secret are not read, nor is a targetPath entry, which sets one value
+// rather than a values document: the values on record are those the manifest
+// holds in plain text.
+func parseHelmRelease(hr *helmReleaseDocument, configMaps map[objectMeta]map[string]string, repositories map[objectMeta]ociRepositoryDocument) (*clusterApp, error) {
+	namespace := hr.Metadata.Namespace
+	merged := map[string]any{}
+	for _, from := range hr.Spec.ValuesFrom {
+		if from.Kind != "ConfigMap" || from.TargetPath != "" {
+			continue
+		}
+		data, ok := configMaps[objectMeta{Name: from.Name, Namespace: namespace}]
+		if !ok {
+			continue
+		}
+		key := from.ValuesKey
+		if key == "" {
+			key = "values.yaml"
+		}
+		var doc map[string]any
+		if err := yaml.Unmarshal([]byte(data[key]), &doc); err != nil {
+			return nil, fmt.Errorf("decode the HelmRelease's values from ConfigMap %s key %s: %w", from.Name, key, err)
+		}
+		mergeValues(merged, doc)
 	}
-	a := &clusterApp{chart: app.Spec.Name, version: app.Spec.Version}
-	if err := yaml.Unmarshal([]byte(raw), &a.values); err != nil {
-		return nil, fmt.Errorf("decode the cluster App's values: %w", err)
+	mergeValues(merged, hr.Spec.Values)
+	raw, err := yaml.Marshal(merged)
+	if err != nil {
+		return nil, fmt.Errorf("encode the HelmRelease's values: %w", err)
 	}
-	a.release = a.values.Global.Release.Version
+	a := &clusterApp{helmRelease: namespace + "/" + hr.Metadata.Name}
+	if err := yaml.Unmarshal(raw, &a.values); err != nil {
+		return nil, fmt.Errorf("decode the HelmRelease's values: %w", err)
+	}
+	ref := hr.Spec.ChartRef
+	if ref.Namespace == "" {
+		ref.Namespace = namespace
+	}
+	a.source = chartSource{repository: ref.Namespace + "/" + ref.Name}
+	if repo, ok := repositories[objectMeta{Name: ref.Name, Namespace: ref.Namespace}]; ok {
+		a.source.found = true
+		a.source.url = repo.Spec.URL
+		a.source.tag, a.source.semver, a.source.digest = repo.Spec.Ref.Tag, repo.Spec.Ref.SemVer, repo.Spec.Ref.Digest
+	}
 	return a, nil
+}
+
+// mergeValues merges src into dst as Helm and Flux merge values: a map into a
+// map key by key, anything else replacing what dst holds, lists included.
+func mergeValues(dst, src map[string]any) {
+	for k, v := range src {
+		if sub, ok := v.(map[string]any); ok {
+			if existing, ok := dst[k].(map[string]any); ok {
+				mergeValues(existing, sub)
+				continue
+			}
+			copied := map[string]any{}
+			mergeValues(copied, sub)
+			dst[k] = copied
+			continue
+		}
+		dst[k] = v
+	}
 }
 
 // listsEnableGates says whether every component whose featureGates list the

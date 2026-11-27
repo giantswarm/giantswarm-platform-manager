@@ -33,6 +33,8 @@ import (
 	"time"
 
 	"github.com/giantswarm/mcp-oauth/providers/oidc"
+	"github.com/giantswarm/mcp-toolkit/urlelicitation"
+	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/giantswarm/giantswarm-platform-manager/internal/aggregator"
@@ -66,7 +68,7 @@ type Config struct {
 	MusterURL string
 	// KubernetesFamily is the muster family (or singleton server name) the
 	// installations' kubernetes tools are aggregated under: the tools are
-	// x_<family>_get, _list, _logs and _api_resources. KubernetesInstanceArg is the family's
+	// x_<family>_get, _list and _api_resources. KubernetesInstanceArg is the family's
 	// argument that selects the member; empty for a singleton.
 	// KubernetesMember names the member that serves an installation, as
 	// muster names the server: a text/template over {{ .Installation }}
@@ -273,7 +275,11 @@ func (c *Client) Verify(ctx context.Context, token string) (*identity.Identity, 
 	if claims.Subject == "" {
 		return nil, errors.New("the token names no subject")
 	}
-	return &identity.Identity{Subject: claims.Subject, Email: claims.Email}, nil
+	party := claims.AuthorizedParty
+	if party == "" && len(claims.Audience) == 1 {
+		party = claims.Audience[0]
+	}
+	return &identity.Identity{Subject: claims.Subject, Email: claims.Email, Issuer: claims.Issuer, Client: party}, nil
 }
 
 // keySet is the JWKS URL: configured, or read once from the issuer's
@@ -371,7 +377,6 @@ type cluster struct {
 const (
 	opGet          = "get"
 	opList         = "list"
-	opLogs         = "logs"
 	opAPIResources = "api_resources"
 )
 
@@ -420,7 +425,19 @@ func (k *cluster) call(ctx context.Context, op string, args map[string]any) (str
 		args[k.c.cfg.KubernetesInstanceArg] = member
 	}
 	name := k.tool(op)
-	do := func() (*mcp.CallToolResult, error) { return k.s.s.Call(ctx, name, args) }
+	relay := relayFrom(ctx)
+	request := mcp.CallToolRequest{}
+	request.Params.Name = name
+	request.Params.Arguments = args
+	target, err := urlelicitation.RequestBinding(request)
+	if err != nil {
+		return "", err
+	}
+	callCtx, roundTrip := ctx, mcp.MultiRoundTripParams{}
+	if relay != nil {
+		callCtx, roundTrip = client.WithRequestClientCapabilities(ctx, urlElicitation), relay.answer(target)
+	}
+	do := func() (*mcp.CallToolResult, error) { return k.s.s.Answer(callCtx, name, args, roundTrip) }
 	res, err := callPaced(ctx, do)
 	if toolNotFound(res, err) {
 		// muster does not list the tool for this session yet (the fan-out
@@ -433,6 +450,16 @@ func (k *cluster) call(ctx context.Context, op string, args map[string]any) (str
 	}
 	if err != nil {
 		return "", err
+	}
+	if res.NeedsInput() {
+		relayed, err := urlelicitation.FromInputRequired(res)
+		if err != nil {
+			return "", fmt.Errorf("muster: %s: %w", name, err)
+		}
+		if relay != nil {
+			relay.record(target, relayed)
+		}
+		return "", fmt.Errorf("muster requires URL input: %s Open %s and then retry", relayed.Message, relayed.URL)
 	}
 	text := aggregator.TextOf(res)
 	if res.IsError {
@@ -734,11 +761,6 @@ func generationArgs(namespace, resource, name string, generation int64) map[stri
 	args["filter"] = map[string]any{"metadata.generation": strconv.FormatInt(generation, 10)}
 	args["limit"] = 1
 	return args
-}
-
-// Logs reads a pod's log, the last tail lines (mcp-kubernetes takes 1 to 1000).
-func (k *cluster) Logs(ctx context.Context, namespace, pod string, tail int) (string, error) {
-	return k.call(ctx, opLogs, map[string]any{"namespace": namespace, "podName": pod, "tailLines": tail})
 }
 
 // Serves discovers whether the apiserver serves the resource of the group at

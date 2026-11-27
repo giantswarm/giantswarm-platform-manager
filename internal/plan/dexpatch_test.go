@@ -83,12 +83,12 @@ func TestKeepDexPatchKeepsOtherOwnersPartsUnderEitherDefinition(t *testing.T) {
 			// The platform's patch registers the fleet hub's connector under
 			// oidc.giantswarm.connectors: oidc.customer, the installation's
 			// login connector among it, stays whole beside it.
-			want := []Kept{{"", keyIngress}, {keyOIDC, keyCustomer}, {listStaticClients, "argocd"}, {listExtraClients, grafanaClient}}
+			want := []Kept{{List: "", Entry: keyIngress}, {List: keyOIDC, Entry: keyCustomer}, {List: listStaticClients, Entry: "argocd"}, {List: listExtraClients, Entry: grafanaClient}}
 			if definition == "customer-portal" {
 				// The portal's definition renders no built-in client at all:
 				// the whole staticClients mapping is another owner's and
 				// stays as one key, the platform's stale client included.
-				want = []Kept{{"", keyIngress}, {keyOIDC, keyCustomer}, {keyOIDC, keyStaticClients}, {listExtraClients, grafanaClient}}
+				want = []Kept{{List: "", Entry: keyIngress}, {List: keyOIDC, Entry: keyCustomer}, {List: keyOIDC, Entry: keyStaticClients}, {List: listExtraClients, Entry: grafanaClient}}
 			}
 			if len(kept) != len(want) {
 				t.Fatalf("kept %v, want %v", kept, want)
@@ -184,7 +184,7 @@ func TestKeepDexPatchKeepsTheLoginConnectorBesideTheHubsConnectors(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Kept{{"", keyIngress}, {mapCustomer, "enabled"}, {mapCustomer, "connectorType"}, {mapCustomer, "connectorName"}, {listConnectors, "customer-simple-oidc"}, {listStaticClients, "argocd"}, {keyOIDC, keyExtraStaticClients}}
+	want := []Kept{{List: "", Entry: keyIngress}, {List: mapCustomer, Entry: "enabled"}, {List: mapCustomer, Entry: "connectorType"}, {List: mapCustomer, Entry: "connectorName"}, {List: listConnectors, Entry: "customer-simple-oidc"}, {List: listStaticClients, Entry: "argocd"}, {List: keyOIDC, Entry: keyExtraStaticClients}}
 	assertKept(t, kept, want)
 	s := string(got)
 	for _, frag := range []string{"# the organisation's directory", "connectorName: Example Directory", "\n      customer-simple-oidc:\n        connectorType: oidc\n", "issuer: https://dex.other.example.test", "issuer: https://dex.heron.oakridge.example", "connectorName: heron", "name: dex-client-argocd", "- id: grafana"} {
@@ -210,7 +210,7 @@ func TestKeepDexPatchKeepsOtherOwnersMapEntries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertKept(t, kept, []Kept{{listExtraClients, grafanaClient}, {listStaffConnectors, "giantswarm-graveler-oidc"}})
+	assertKept(t, kept, []Kept{{List: listExtraClients, Entry: grafanaClient}, {List: listStaffConnectors, Entry: "giantswarm-graveler-oidc"}})
 	s := string(got)
 	for _, frag := range []string{"# hand-registered\n    grafana:\n      name: Grafana\n", "\n      giantswarm-graveler-oidc:\n        connectorType: oidc\n"} {
 		if !strings.Contains(s, frag) {

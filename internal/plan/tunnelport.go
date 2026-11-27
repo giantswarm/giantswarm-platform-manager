@@ -6,6 +6,8 @@ import (
 	"reflect"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
 // The tunnelport values file of giantswarm/teleport-fleet is the one file the
@@ -23,7 +25,7 @@ import (
 
 const (
 	// tunnelportValuesFile is the values file of teleport-fleet's production chart.
-	tunnelportValuesFile = "kubernetes/envs/prod/values.yaml"
+	tunnelportValuesFile = render.TunnelportValuesPath
 	keyTunnelport        = "tunnelport"
 	keyConsumers         = "consumers"
 	keyTrustBundle       = "trustBundle"

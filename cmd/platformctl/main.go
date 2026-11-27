@@ -546,7 +546,7 @@ func (c *conn) call(tool string, args map[string]any, stdout, stderr io.Writer, 
 	if err != nil {
 		return fail(stderr, err)
 	}
-	return exitOK
+	return dryRunExitCode(tool, args, raw, stderr)
 }
 
 // callBoth is call over the two halves of a result, both tools of the one
@@ -596,7 +596,7 @@ func (c *conn) callBoth(tool, liveTool string, args map[string]any, liveArgs fun
 	if err != nil {
 		return fail(stderr, err)
 	}
-	return exitOK
+	return dryRunExitCode(tool, args, repo, stderr)
 }
 
 // decode reads the tool's document into the manager's own type.

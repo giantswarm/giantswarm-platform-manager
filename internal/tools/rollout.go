@@ -197,7 +197,7 @@ func releaseWaits(ctx context.Context, c *gh.Client, def installations.Capabilit
 	var waits []rolloutWait
 	for _, k := range merged {
 		pr := prs[k]
-		changed, after, err := changesValues(ctx, c, def, pr)
+		changed, after, err := changesValues(ctx, c, def, st.Name, pr)
 		if err != nil {
 			return nil, err
 		}
@@ -424,7 +424,7 @@ func writtenAs(def installations.Capability, written map[string]string, d verify
 // when its YAML before and after differs. A file rewritten with the same
 // values — a comment or the layout — composes the same values, and Flux
 // runs no release for it.
-func changesValues(ctx context.Context, c *gh.Client, def installations.Capability, pr actions.PullRequest) (bool, string, error) {
+func changesValues(ctx context.Context, c *gh.Client, def installations.Capability, installation string, pr actions.PullRequest) (bool, string, error) {
 	if pr.MergeCommit == "" {
 		return false, "", fmt.Errorf("%s#%d: GitHub names no merge commit", pr.Repository, pr.Number)
 	}
@@ -437,7 +437,7 @@ func changesValues(ctx context.Context, c *gh.Client, def installations.Capabili
 		return false, "", err
 	}
 	for _, f := range change.Files {
-		if !strings.HasSuffix(f.Path, verify.ValuesSuffix(def.Name)) {
+		if f.Path != "installations/"+installation+verify.ValuesSuffix(def.Name) {
 			continue
 		}
 		if f.Blob == "" {
@@ -454,9 +454,7 @@ func changesValues(ctx context.Context, c *gh.Client, def installations.Capabili
 		if err != nil {
 			return false, "", err
 		}
-		if !sameDocuments(before, after) {
-			return true, after, nil
-		}
+		return !sameDocuments(before, after), after, nil
 	}
 	return false, "", nil
 }

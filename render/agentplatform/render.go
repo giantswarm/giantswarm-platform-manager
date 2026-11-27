@@ -483,12 +483,21 @@ func (in *Input) musterValues() render.Map {
 		e("existingSecret", musterOAuthSecret),
 		e("storage", render.Map{e("valkey", render.Map{e("existingSecret", musterValkeySecret)})}),
 	}
+	dex := render.Map{}
+	if in.IdentityCheckConnectors != nil {
+		dex = append(dex, e("identityCheckConnectors", in.IdentityCheckConnectors))
+	}
+	if in.needsPrivateAddressHosts() {
+		dex = append(dex, e("allowPrivateIPOIDC", false))
+	}
+	if len(dex) > 0 {
+		server = append(server, e("dex", dex))
+	}
 	// On a private installation agentgateway's hostname resolves to the
 	// internal load balancer: muster accepts redirect URIs on it and on the
 	// registered clients' hosts alone, and pins the chat gateway's client
 	// metadata document (its client_id on that hostname), so it never fetches
-	// it. Dex needs no setting: muster lets its own issuer's host resolve
-	// privately.
+	// it. The configured Dex issuer's hostname remains reachable privately.
 	if in.Installation.Private {
 		server = append(server, e("allowPrivateIPRedirectURIHosts", in.privateRedirectHosts()))
 		if in.klausGateway() {
@@ -631,7 +640,11 @@ func (in *Input) dexPatch() render.Map {
 		oidc = append(oidc, e("extraStaticClients", render.ClientsByID(extra)))
 	}
 	oidc = append(oidc, render.ConnectorsByOwner(in.HubConnectors, in.Installation.Name, in.Installation.BaseDomain)...)
-	return render.Map{e("oidc", oidc)}
+	patch := render.Map{e("oidc", oidc)}
+	if mounts := render.TunnelDexValues(in.HubConnectors); mounts != nil {
+		patch = append(patch, e("dex", mounts))
+	}
+	return patch
 }
 
 // musterRevision says whether the installation's meta chart hands muster's

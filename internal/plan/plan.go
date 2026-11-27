@@ -96,7 +96,13 @@ type File struct {
 	// order they imply: the one that creates before the one that references.
 	Creates    []string `json:"creates,omitempty"`
 	References []string `json:"references,omitempty"`
-	Error      string   `json:"error,omitempty"`
+	// Why, on a file the plan deletes (change delete), is the reason of the
+	// definition's removal of kind deleted-file that names it: the render no
+	// longer carries it. ListedIn are the kustomization entries that named
+	// it, as "<kustomization> <list>[<entry>]": the plan unlists each.
+	Why      string   `json:"why,omitempty"`
+	ListedIn []string `json:"listedIn,omitempty"`
+	Error    string   `json:"error,omitempty"`
 }
 
 // Kept is one entry of a file with several owners that another owner carries;
@@ -113,15 +119,21 @@ type File struct {
 // or tunnelport.tunnels and Entry the consumer or the entry's name — or List is
 // tunnelport.tunnels[<tunnel>].tokens and Entry another hub's token of a tunnel
 // this hub shares — kept in place: there the platform's entries are the ones
-// edited in.
+// edited in. A complete trusted-issuer list carries Digest instead of Entry:
+// live verification holds it against the merged configuration, including
+// permissions omitted from the record, without storing configuration values.
 type Kept struct {
-	List  string `json:"list"`
-	Entry string `json:"entry"`
+	List   string `json:"list"`
+	Entry  string `json:"entry"`
+	Digest string `json:"digest,omitempty"`
 }
 
 // String is the entry under the list or mapping it is kept in
 // (resources[github-oauth-client.yaml]); the entry alone at a file's top level.
 func (k Kept) String() string {
+	if k.Digest != "" {
+		return k.List + " (" + k.Digest + ")"
+	}
 	if k.List == "" {
 		return k.Entry
 	}
@@ -358,10 +370,21 @@ type Installation struct {
 	// connectors the rendered Dex patch declares under
 	// oidc.customer.connectors and oidc.giantswarm.connectors
 	// (DexSecretRefusal).
-	DexConnectors      []string         `json:"dexConnectors,omitempty"`
-	DexStaffConnectors []string         `json:"dexStaffConnectors,omitempty"`
-	CustomerActions    []CustomerAction `json:"customerActions"`
-	Probes             []Probe          `json:"probes"`
+	DexConnectors      []string `json:"dexConnectors,omitempty"`
+	DexStaffConnectors []string `json:"dexStaffConnectors,omitempty"`
+	// DexVolumes are the names of the volumes the rendered Dex patch mounts
+	// into Dex under dex.volumes (DexSecretRefusal).
+	DexVolumes      []string         `json:"dexVolumes,omitempty"`
+	CustomerActions []CustomerAction `json:"customerActions"`
+	Probes          []Probe          `json:"probes"`
+	// Checklist are the cluster objects the plan takes off the record — the
+	// manifest of a document it removes from a file it writes — that the fleet's
+	// Kustomization leaves on the cluster, in deletion order (Checklist),
+	// as a disable's checklist names them; empty where the plan removes
+	// none. Build answers every object no file of the plan declares again;
+	// the comparison leaves out what another capability on record renders,
+	// and all of it where the definition's Kustomization prunes.
+	Checklist []Object `json:"checklist,omitempty"`
 	// Diff counts the files by change; an empty diff is every file unchanged.
 	Diff map[Change]int `json:"diff"`
 }
@@ -483,6 +506,15 @@ type Options struct {
 	// PlanInstallations names the installations rendered together. Nil keeps
 	// the full comparison without deferring pairs outside a commit's set.
 	PlanInstallations map[string]bool
+	// DeletedFiles are the definition's removals of kind deleted-file: a
+	// file of them on record under the installation's extras/ that the
+	// render does not carry is deleted (deleteFiles). Without one the plan
+	// keeps every file on record.
+	DeletedFiles []definitions.DeletedFile
+	// Remaining renders the other capabilities on record on the installation
+	// as they stay: a file of DeletedFiles one of them renders stays. Called
+	// only once such a file is on record; nil renders none.
+	Remaining func(ctx context.Context) ([]Remaining, error)
 }
 
 // markerOnRecord says whether the capability is on record for the
@@ -549,6 +581,9 @@ func Build(ctx context.Context, opts Options) Installation {
 	if len(facts) > 0 {
 		files = append(files, recordRef(opts))
 	}
+	for _, d := range deletedRefs(opts) {
+		files = append(files, d.ref, d.kustomization)
+	}
 	currentFiles := fetch(ctx, opts.Read, files)
 	opts.Read = currentFiles.read
 	uncachedRead := recordRead
@@ -573,6 +608,10 @@ func Build(ctx context.Context, opts Options) Installation {
 	}
 	var holders []holder
 	held := map[string]int{} // a holder's file → its index in p.Files
+	off := offRecord{installation: opts.Installation.Name}
+	// written are the files as the plan writes them, by fileRef key: what a
+	// deletion unlists its entry from.
+	written := map[string]string{}
 	for _, repo := range SortedRepositories(res.Files) {
 		target := ResolveRepository(string(repo), opts.Installation, opts.Hub)
 		paths := make([]string, 0, len(res.Files[repo]))
@@ -625,6 +664,14 @@ func Build(ctx context.Context, opts Options) Installation {
 					err = errors.New("absent: a file other owners write is not created here")
 				}
 			}
+			if strings.HasSuffix(path, platformPatchFile) && (err == nil || errors.Is(err, gh.ErrNotFound)) {
+				snapshot, snapshotErr := TrustedIssuerSnapshot(content)
+				if snapshotErr != nil {
+					err = snapshotErr
+				} else {
+					pf.Kept = append(pf.Kept, snapshot...)
+				}
+			}
 			if opts.Content {
 				pf.Content = content
 				if err == nil {
@@ -669,9 +716,14 @@ func Build(ctx context.Context, opts Options) Installation {
 					suppliedIn[field] = append(suppliedIn[field], len(p.Files))
 				}
 			}
+			off.file(target, path, content, current, err == nil)
+			if err == nil || errors.Is(err, gh.ErrNotFound) {
+				written[fileRef{target, path}.key()] = content
+			}
 			p.Files = append(p.Files, pf)
 			if strings.HasSuffix(path, dexPatchFile) {
 				p.DexClients, p.DexConnectors, p.DexStaffConnectors = DexClients(f.Content, in), DexConnectors(f.Content), DexStaffConnectors(f.Content)
+				p.DexVolumes = DexVolumes(f.Content)
 			}
 			if strings.HasSuffix(path, platformPatchFile) && pf.Change == ChangeUpdate {
 				p.DropsPrereleases = dropsPrereleases(current, content)
@@ -699,7 +751,10 @@ func Build(ctx context.Context, opts Options) Installation {
 	}
 	p.MissingFacts = missingFacts(ctx, opts.Read, recordRef(opts), facts)
 	p.SuppliedSecrets, p.SuppliedOnRecord = splitSupplied(supplied, suppliedIn, p.Files)
-	p.includes(ctx, opts, res.Includes)
+	p.includes(ctx, opts, res.Includes, written)
+	p.deleteFiles(ctx, opts, res, &off, written)
+	// What the plan takes off the record and no file of it declares again.
+	p.Checklist = off.checklist()
 	sort.SliceStable(p.Files, func(i, j int) bool {
 		if p.Files[i].Repository != p.Files[j].Repository {
 			return p.Files[i].Repository < p.Files[j].Repository
@@ -821,7 +876,7 @@ func change(current string, err error, rendered string) (Change, string, []Unsee
 // includes records every entry and files each kustomization they land in
 // among the Files, read once as the caller and edited with its entries in
 // order.
-func (p *Installation) includes(ctx context.Context, opts Options, incs []render.Include) {
+func (p *Installation) includes(ctx context.Context, opts Options, incs []render.Include, written map[string]string) {
 	byFile := map[string][]int{} // "<repository>:<path>" → indexes into p.Includes
 	var files []string
 	for _, inc := range incs {
@@ -838,7 +893,10 @@ func (p *Installation) includes(ctx context.Context, opts Options, incs []render
 	}
 	for _, key := range files {
 		entries := byFile[key]
-		f := p.kustomization(ctx, opts, p.Includes[entries[0]].Repository, p.Includes[entries[0]].Path, entries)
+		f, content := p.kustomization(ctx, opts, p.Includes[entries[0]].Repository, p.Includes[entries[0]].Path, entries)
+		if f.Change != ChangeUnknown {
+			written[key] = content
+		}
 		p.Diff[f.Change]++
 		p.Files = append(p.Files, f)
 	}
@@ -848,8 +906,9 @@ func (p *Installation) includes(ctx context.Context, opts Options, incs []render
 // lists the entries (indexes into Includes) in it: update when one was
 // added, unchanged when every one was listed, unknown when the file could
 // not be read — or is absent, because a kustomization other owners write is
-// never created here — and every entry takes the file's change then.
-func (p *Installation) kustomization(ctx context.Context, opts Options, repository, path string, entries []int) File {
+// never created here — and every entry takes the file's change then. It
+// answers the file and its content as the plan writes it.
+func (p *Installation) kustomization(ctx context.Context, opts Options, repository, path string, entries []int) (File, string) {
 	f := File{Repository: repository, Path: path, Change: ChangeUnchanged}
 	current, err := opts.Read(ctx, repository, path)
 	switch {
@@ -878,12 +937,12 @@ func (p *Installation) kustomization(ctx context.Context, opts Options, reposito
 		for _, i := range entries {
 			p.Includes[i].Change, p.Includes[i].Error = ChangeUnknown, f.Error
 		}
-		return f
+		return f, ""
 	}
 	if opts.Content {
 		f.Content, f.Current = string(content), current
 	}
-	return f
+	return f, string(content)
 }
 
 // ResolveRepository maps a repository as the definition names it
@@ -996,6 +1055,26 @@ func DexConnectors(patch []byte) []string { return dexConnectorsOf(patch, keyCus
 
 // DexStaffConnectors reads the same under oidc.giantswarm.connectors.
 func DexStaffConnectors(patch []byte) []string { return dexConnectorsOf(patch, keyGiantswarm) }
+
+// DexVolumes reads the names of the volumes the rendered dex patch declares
+// under dex.volumes; nil where it declares none or does not parse.
+func DexVolumes(patch []byte) []string {
+	var doc struct {
+		Dex struct {
+			Volumes []struct {
+				Name string `yaml:"name"`
+			} `yaml:"volumes"`
+		} `yaml:"dex"`
+	}
+	if err := yaml.Unmarshal(patch, &doc); err != nil {
+		return nil
+	}
+	var names []string
+	for _, v := range doc.Dex.Volumes {
+		names = append(names, v.Name)
+	}
+	return names
+}
 
 func dexConnectorsOf(patch []byte, owner string) []string {
 	var doc struct {

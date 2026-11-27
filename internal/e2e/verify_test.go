@@ -366,8 +366,7 @@ func TestVerifyCapabilityPlannedJoinedAudience(t *testing.T) {
 func TestVerifyCapabilityFactOffTheRecordIsDrift(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
-	st.ghs.addFile(acmeConfigs, installations.ConfigPatchPath(rowan), "codename: rowan\nbase: acme.test\nagentPlatform:\n  kagentApiV2: true\n")
-	st.ghs.addFile(acmeMCs, installations.ClusterAppManifestPath(rowan), clusterAppManifest(rowan, "cluster-aws", "10.2.0", true))
+	rowanOnLineFour(st)
 	c := st.mcpClient(t, aliceToken)
 	inRepos := kagentEnabled()
 	inRepos["installation"] = map[string]any{argPrivate: true}
@@ -391,8 +390,7 @@ func TestVerifyCapabilityFactOffTheRecordIsDrift(t *testing.T) {
 func TestVerifyCapabilityDiffersByInput(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
-	st.ghs.addFile(acmeConfigs, installations.ConfigPatchPath(rowan), "codename: rowan\nbase: acme.test\nagentPlatform:\n  kagentApiV2: true\n")
-	st.ghs.addFile(acmeMCs, installations.ClusterAppManifestPath(rowan), clusterAppManifest(rowan, "cluster-aws", "10.2.0", true))
+	rowanOnLineFour(st)
 	c := st.mcpClient(t, aliceToken)
 	enableRowan(t, st, c, kagentEnabled(), kagentEnabled())
 
@@ -681,7 +679,7 @@ func TestVerifyCapabilityFromTheRecord(t *testing.T) {
 	if d := dimension(t, identity, "dex-auth-request"); d.Reason == verify.ReasonNoRender {
 		t.Errorf("per-client probe: %+v", d)
 	}
-	if d := dimension(t, identity, "oauth2-proxy-gate"); d.Mark != verify.AsDefined {
+	if d := dimension(t, feature(t, res, "tool-access"), "muster-protected-resource-metadata"); d.Mark != verify.AsDefined {
 		t.Errorf("anonymous probe: %+v", d)
 	}
 }
@@ -901,6 +899,7 @@ func TestVerifyCapabilityKeepsTheKustomizationEntries(t *testing.T) {
 func TestVerifyCapabilityReadsDocumentsByObject(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
+	rowanOnLineFour(st)
 	c := st.mcpClient(t, aliceToken)
 	federated := federation(true)
 	enableRowan(t, st, c, federated, federated)
@@ -1661,6 +1660,7 @@ const (
 )
 
 func registerOnRowan(st *stack) {
+	rowanOnLineFour(st)
 	tree := "management-clusters/" + rowan + "/extras/agent-platform/"
 	kustomization := "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n"
 	st.ghs.addFiles(acmeMCs, map[string]string{

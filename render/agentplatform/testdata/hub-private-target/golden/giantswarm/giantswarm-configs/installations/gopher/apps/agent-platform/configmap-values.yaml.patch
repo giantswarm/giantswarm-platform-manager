@@ -95,6 +95,8 @@ muster:
         storage:
           valkey:
             existingSecret: muster-valkey-credentials
+        dex:
+          allowPrivateIPOIDC: false
         trustedAudiences:
           - dex-k8s-authenticator
           - kagent
@@ -115,13 +117,13 @@ muster:
             burrow:
               dexTokenEndpoint: https://dex-burrow.agent-platform.svc.cluster.local:8443/token
               expectedIssuer: https://dex.burrow.example.io
-              connectorId: giantswarm-simple-oidc
+              connectorId: giantswarm-gopher-oidc
               scopes: openid profile email groups audience:server:client_id:dex-k8s-authenticator
               clientCredentialsSecretRef:
                 name: burrow-token-exchange-credentials
             marmot:
               dexTokenEndpoint: https://dex.marmot.example.io/token
-              connectorId: giantswarm-simple-oidc
+              connectorId: giantswarm-gopher-oidc
               scopes: openid profile email groups audience:server:client_id:dex-k8s-authenticator
               clientCredentialsSecretRef:
                 name: marmot-token-exchange-credentials
@@ -148,7 +150,7 @@ agent-platform-mcps:
     burrow:
       tokenEndpoint: https://dex-burrow.agent-platform.svc.cluster.local:8443/token
       expectedIssuer: https://dex.burrow.example.io
-      connectorId: giantswarm-simple-oidc
+      connectorId: giantswarm-gopher-oidc
       scopes: openid profile email groups
       credentialsSecret:
         name: burrow-token-exchange-credentials
@@ -156,7 +158,7 @@ agent-platform-mcps:
         clientSecretKey: client-secret
     marmot:
       tokenEndpoint: https://dex.marmot.example.io/token
-      connectorId: giantswarm-simple-oidc
+      connectorId: giantswarm-gopher-oidc
       scopes: openid profile email groups
       credentialsSecret:
         name: marmot-token-exchange-credentials

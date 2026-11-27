@@ -794,18 +794,31 @@ func (d Disablement) Removes(repository, p string) bool {
 // capability renders: what the fleet's non-pruning Kustomization leaves on
 // the cluster once they are gone.
 func checklistOf(removed []render.File, remaining []Remaining) []Object {
+	var declared []Object
+	for _, f := range removed {
+		declared = append(declared, manifests(f.Content)...)
+	}
+	return Unpruned(declared, remaining)
+}
+
+// Unpruned are the objects among declared that no file of remaining
+// declares, kustomize's own documents aside, each once in declared's order:
+// what the fleet's non-pruning Kustomization leaves on the cluster once the
+// files that declared them are off the record. remaining are the renders of
+// the installation the declared objects are on. The disable's checklist and
+// a reconcile's take it alike.
+func Unpruned(declared []Object, remaining []Remaining) []Object {
 	stays := map[Object]bool{}
 	for _, r := range remaining {
 		for _, o := range Objects(&render.Result{Files: r.Result.Files}) {
-			stays[o] = true
+			stays[o.identity()] = true
 		}
 	}
 	var out []Object
-	for _, f := range removed {
-		for _, o := range manifests(f.Content) {
-			if o.Kind != "" && o.Name != "" && o.Kind != kustomizationKind && o.Kind != "Component" && !stays[o] && !slices.Contains(out, o) {
-				out = append(out, o)
-			}
+	for _, o := range declared {
+		o.Takes = ""
+		if o.listed() && !stays[o.identity()] && !slices.ContainsFunc(out, func(have Object) bool { return have.on() == o.on() }) {
+			out = append(out, o)
 		}
 	}
 	return out
@@ -858,10 +871,12 @@ func ObjectsIn(content []byte) []Object {
 // out and named on the Namespace's line. Every object carries what its
 // deletion takes with it (Takes).
 func Checklist(objects []Object) []Object {
-	inside := map[string][]string{}
+	// inside are, by installation and Namespace, the objects of the list in
+	// a Namespace of the list.
+	inside := map[[2]string][]string{}
 	for _, o := range objects {
 		if o.Kind == namespaceKind {
-			inside[o.Name] = []string{}
+			inside[[2]string{o.Installation, o.Name}] = []string{}
 		}
 	}
 	rank := func(o Object) int {
@@ -878,19 +893,19 @@ func Checklist(objects []Object) []Object {
 	var out []Object
 	for _, o := range objects {
 		o.Takes = ""
-		if names, ok := inside[o.Namespace]; ok && o.Kind != namespaceKind {
+		if names, ok := inside[[2]string{o.Installation, o.Namespace}]; ok && o.Kind != namespaceKind {
 			if n := o.Kind + " " + o.Name; !slices.Contains(names, n) {
-				inside[o.Namespace] = append(names, n)
+				inside[[2]string{o.Installation, o.Namespace}] = append(names, n)
 			}
 			continue
 		}
-		if !slices.Contains(out, o) {
+		if !slices.ContainsFunc(out, func(have Object) bool { return have.on() == o.on() }) {
 			out = append(out, o)
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return rank(out[i]) < rank(out[j]) })
 	for i := range out {
-		out[i].Takes = takes(out[i], inside[out[i].Name])
+		out[i].Takes = takes(out[i], inside[[2]string{out[i].Installation, out[i].Name}])
 	}
 	return out
 }

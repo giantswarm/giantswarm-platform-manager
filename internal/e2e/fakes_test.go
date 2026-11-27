@@ -756,12 +756,6 @@ func expectedAnswer(host string, r *http.Request) (int, string, string) {
 		return http.StatusFound, "/auth/" + fakeDexConnector + "?" + r.URL.RawQuery, ""
 	case strings.HasPrefix(host, "dex.") && r.URL.Path == "/auth/"+fakeDexConnector && r.URL.Query().Get("client_id") != "":
 		return http.StatusFound, "https://github.example/login/oauth/authorize", ""
-	case strings.HasPrefix(host, "kagent.") && r.URL.Path == "/api/agents":
-		return http.StatusForbidden, "", ""
-	case strings.HasPrefix(host, "kagent.") && r.URL.Path == "/oauth2/start":
-		return http.StatusFound, "https://dex." + strings.TrimPrefix(host, "kagent.") + "/auth?client_id=kagent&response_type=code", ""
-	case strings.HasPrefix(host, "kagent."):
-		return http.StatusFound, "", ""
 	case strings.HasPrefix(host, "portal.") && r.URL.Path == "/":
 		return http.StatusOK, "", ""
 	case strings.HasPrefix(host, "portal.") && strings.HasPrefix(r.URL.Path, "/api/auth/oidc-") && strings.HasSuffix(r.URL.Path, "/start"):

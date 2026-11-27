@@ -8,7 +8,10 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
-const mcpPrometheus = "mcp-prometheus"
+const (
+	mcpPrometheus = "mcp-prometheus"
+	mcpKubernetes = "mcp-kubernetes"
+)
 
 func server(t *testing.T, name string) Server {
 	t.Helper()
@@ -62,9 +65,9 @@ func TestOAuthSecretCarriesNoValkeyPassword(t *testing.T) {
 // mark carries.
 func TestChecksumValues(t *testing.T) {
 	for name, want := range map[string][]string{
-		"mcp-kubernetes": {"mcpKubernetes.oauth.existingSecretChecksum", "mcpKubernetes.oauth.storage.valkey.existingSecretChecksum"},
-		mcpPrometheus:    {"app.oauth.existingSecretChecksum"},
-		"mcp-capi":       {"oauth.existingSecretChecksum", "oauth.storage.valkey.existingSecretChecksum"},
+		mcpKubernetes: {"mcpKubernetes.oauth.existingSecretChecksum", "mcpKubernetes.oauth.storage.valkey.existingSecretChecksum"},
+		mcpPrometheus: {"app.oauth.existingSecretChecksum"},
+		"mcp-capi":    {"oauth.existingSecretChecksum", "oauth.storage.valkey.existingSecretChecksum"},
 	} {
 		if got := server(t, name).ChecksumValues(); !slices.Equal(got, want) {
 			t.Errorf("%s: checksum values %v, want %v", name, got, want)
@@ -103,7 +106,7 @@ func TestPrivateClientUserValues(t *testing.T) {
 			var result render.Result
 			s.Extras(&result, "repo", "extras/"+s.Name, o)
 			f, ok := result.Files["repo"]["extras/"+s.Name+"/user-values.yaml"]
-			if s.Name == "mcp-kubernetes" && o.PrivateClient != nil {
+			if s.Name == mcpKubernetes && o.PrivateClient != nil {
 				if got := string(f.Content); got != want {
 					t.Errorf("%s: user values\n%s\nwant\n%s", s.Name, got, want)
 				}
@@ -111,6 +114,29 @@ func TestPrivateClientUserValues(t *testing.T) {
 			}
 			if ok {
 				t.Errorf("%s (client %v): user values rendered:\n%s", s.Name, o.PrivateClient != nil, f.Content)
+			}
+		}
+	}
+}
+
+func TestPrivateURLsUserValues(t *testing.T) {
+	const deprecated = "allowPrivateURLs"
+	for name, want := range map[string]struct{ has, hasNot []string }{
+		mcpKubernetes: {has: []string{"sso:\n      allowPrivateIPs: true"}, hasNot: []string{deprecated}},
+		mcpPrometheus: {has: []string{"allowPrivateIPJWKS: true"}, hasNot: []string{deprecated}},
+		"mcp-capi":    {has: []string{"allowPrivateIPJWKS: true"}, hasNot: []string{deprecated}},
+	} {
+		var result render.Result
+		server(t, name).Extras(&result, "repo", "extras/"+name, Options{Installation: "x", PrivateURLs: true})
+		values := string(result.Files["repo"]["extras/"+name+"/user-values.yaml"].Content)
+		for _, s := range want.has {
+			if !strings.Contains(values, s) {
+				t.Errorf("%s: user values lack %q:\n%s", name, s, values)
+			}
+		}
+		for _, s := range want.hasNot {
+			if strings.Contains(values, s) {
+				t.Errorf("%s: user values carry %q:\n%s", name, s, values)
 			}
 		}
 	}

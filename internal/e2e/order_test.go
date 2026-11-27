@@ -150,6 +150,7 @@ func TestCommitRefusesOneSideOfAnExchangePair(t *testing.T) {
 func TestMergeOrderFollowsATunnelToken(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
+	rowanOnLineFour(st)
 	sopsFixtures(t, st.ghs)
 	st.ghs.addRepo(teleportFleet, map[string]string{tunnelportValuesPath: tunnelportValuesBare})
 	aliceC, carolC := st.mcpClient(t, aliceToken), st.mcpClient(t, carolToken)

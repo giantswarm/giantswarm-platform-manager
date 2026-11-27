@@ -17,6 +17,7 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/internal/actions"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/identity"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/installations"
+	"github.com/giantswarm/giantswarm-platform-manager/internal/live"
 	"github.com/giantswarm/giantswarm-platform-manager/internal/verify"
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 	"github.com/giantswarm/giantswarm-platform-manager/render/agentplatform"
@@ -83,7 +84,7 @@ func (t *Tools) registerWatchTool(s *mcpserver.MCPServer) {
 			"Reads Flux readiness through muster as you, runs probes and reports to the review thread. Stages reach enabled, waiting for the customer, or failed with the red probe named. Re-read failures after fixing them. Unread checks name their fix. The actor uses "+ToolMergeAction+" to advance past enabled stages or customer model waits. Watch merged stages before re-reading waits. A reverted action is withdrawn by its actor with "+ToolDenyAction+". Anyone signed in may watch."),
 		mcp.WithIdempotentHintAnnotation(true), mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithString(ArgAction, mcp.Required(), mcp.Description("The Action's name.")),
-	), t.watchActionLive)
+	), t.relayURLElicitations(t.watchActionLive))
 }
 
 func (t *Tools) watchActionLive(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -157,6 +158,11 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 	}
 	st := &status.Rollout.Installations[i]
 	def = stageDef(a, st.Name, def)
+	if err := t.snapshotIssuers(ctx, a, &status, def, st.Name); err != nil {
+		return nil, fmt.Errorf("%s: read the committed issuer configuration for %s: %w; nothing is decided", ToolWatchAction, st.Name, err)
+	}
+	current := *a
+	current.Status = status
 	inputs := a.InputsOnRecord(st.Name)
 	if inputs == nil {
 		return nil, fmt.Errorf("%s: action %s holds no inputs on record for %s: nothing to render its probes from", ToolWatchAction, a.Name, st.Name)
@@ -166,9 +172,12 @@ func (t *Tools) watch(ctx context.Context, args map[string]any) (any, error) {
 		return nil, fmt.Errorf("%s: %w", ToolWatchAction, err)
 	}
 	opts := verify.LiveOptions{Definition: def, Installation: st.Name, State: settledState(st.State),
-		Inputs: verify.Inputs{Source: "action " + a.Name, Values: inputs, Typed: a.Spec.Inputs}, Kept: a.KeptOnRecord(st.Name), Cluster: cluster, Probes: t.d.Probes, Person: id.String(), AnonymousProbes: true, Rollout: true, BrowseOnly: agentplatform.BrowseOnly(st.Name), Log: t.d.Log}
+		Inputs: verify.Inputs{Source: "action " + a.Name, Values: inputs, Typed: a.Spec.Inputs}, Kept: current.KeptOnRecord(st.Name), Cluster: cluster, Probes: t.d.Probes, Person: id.String(), AnonymousProbes: true, Rollout: true, BrowseOnly: agentplatform.BrowseOnly(st.Name), Log: t.d.Log}
 	liveRecord(&opts, *a, st.Name)
 	res := verify.CompareLive(ctx, opts)
+	if err := live.Pending(ctx); err != nil {
+		return nil, err
+	}
 	res.Caller = id.String()
 	prev := st.State
 	// The releases that ran at the merges, as this read saw them, go on

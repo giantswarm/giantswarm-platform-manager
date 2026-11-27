@@ -36,7 +36,7 @@
                 },
                 "gatewayURL": {
                     "type": "string",
-                    "description": "klaus-gateway's base URL as reached from the pod (for example `http://klaus-gateway.agent-platform.svc:8080`): the team-review endpoint an action's approval request goes to. Empty refuses `mode: commit` (nothing is committed that no one can approve); `get_info` reports `approvals.configured: false`. The requests carry the pod's projected ServiceAccount token in the gateway's audience; the gateway's `reviews.allowedCallers` must name this ServiceAccount."
+                    "description": "klaus-gateway's base URL as reached from the pod (for example `http://klaus-gateway.agent-platform.svc:8080`): the team-review endpoint an action's approval request goes to. Empty refuses `mode: commit` (nothing is committed that no one can approve); `get_info` reports `approvals.configured: false`. The requests carry the pod's projected ServiceAccount token in the gateway's audience; the gateway's `reviews.allowedCallers` must name this ServiceAccount. The gateway must be klaus-gateway v4.19.0 or newer: older ones refuse the review's `summary` field, so no review could be posted."
                 },
                 "noticeChannel": {
                     "type": "string",
@@ -209,7 +209,7 @@
                     "properties": {
                         "kubernetesFamily": {
                             "type": "string",
-                            "description": "The muster family the installations' kubernetes tools are aggregated under — the tools are `x_<family>_get`, `_list` and `_logs` — and the family's argument that selects the installation. The platform's agent-platform-mcps chart registers every installation's mcp-kubernetes under the family `kubernetes` with `management_cluster`; a lab with one singleton server names it (`mcp-kubernetes`) and leaves the argument empty."
+                            "description": "The muster family the installations' kubernetes tools are aggregated under — the tools are `x_<family>_get`, `_list` and `_api_resources` — and the family's argument that selects the installation. The platform's agent-platform-mcps chart registers every installation's mcp-kubernetes under the family `kubernetes` with `management_cluster`; a lab with one singleton server names it (`mcp-kubernetes`) and leaves the argument empty."
                         },
                         "kubernetesInstanceArg": {
                             "type": "string",
@@ -222,6 +222,22 @@
                         "url": {
                             "type": "string",
                             "description": "muster's own MCP endpoint as reached from the pod: where a live read loops back to with the person's token. Empty derives `http://muster.<namespace>.svc.cluster.local:8090/mcp` in the release namespace."
+                        }
+                    }
+                },
+                "requestStateSecret": {
+                    "type": "object",
+                    "description": "Existing Secret in the release namespace with the 32-byte key (base64 or hex) that seals the requestState of a muster sign-in `verify_installation` relays to a caller that declares URL mode elicitation, mounted as `OAUTH_REQUEST_STATE_KEY_FILE`; `previousKey` names the Secret's key holding the key before a rotation, mounted as `OAUTH_REQUEST_STATE_PREVIOUS_KEY_FILE`. Each server has its own key. Empty name: no key, and the sign-in stays in the result's not-read checks.",
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "type": "string"
+                        },
+                        "name": {
+                            "type": "string"
+                        },
+                        "previousKey": {
+                            "type": "string"
                         }
                     }
                 }

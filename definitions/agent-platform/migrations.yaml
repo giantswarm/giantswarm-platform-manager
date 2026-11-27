@@ -18,11 +18,13 @@
 #
 # The M numbers are the wave-1 migration list's (M1–M11) and continue removals.yaml's (M30…).
 migrations:
+  - key: configmap:muster.muster.oauth.server.dex.allowPrivateIPOIDC
+    reason: "Changed: dex.allowPrivateIPOIDC is false to override the shared default's blanket permission; muster's configured Dex issuer host still accepts private addresses · M46"
   # --- M46 — muster and mcp-kubernetes name the private hosts they accept instead of lifting the guard for every host ---
   # On a private installation agentgateway's and muster's hostnames resolve to the internal load balancer. The
   # chat gateway's and muster's client metadata documents are pinned, so they are never fetched, and the
-  # redirect, key set and token endpoint hosts are listed. Dex needs no setting: each server lets its own
-  # issuer's host resolve privately.
+  # redirect, key set and token endpoint hosts are listed. Each server permits its configured issuer's host
+  # to resolve privately.
   - key: configmap:muster.muster.oauth.server.allowPrivateIPRedirectURIHosts
     reason: "Added: on a private installation muster accepts a redirect URI that resolves to a private address on agentgateway's hostname and the registered clients' hosts alone (allowPrivateIPRedirectURIHosts), in place of allowPrivateIPRedirectURIs, which accepted one on every host · M46"
   - key: configmap:muster.muster.oauth.server.preRegisteredClientMetadata
@@ -30,7 +32,7 @@ migrations:
   - key: configmap:muster.muster.oauth.server.trustedIssuers[*].allowPrivateIPJWKSHosts
     reason: "Added: on a private installation muster's trusted issuer lets the key set of this installation's Dex alone resolve to a private address (allowPrivateIPJWKSHosts), in place of allowPrivateIPJWKS, which let any key set host do so · M46"
   - key: configmap:muster.muster.oauth.mcpClient.tokenExchange.allowPrivateIPTokenEndpointHosts
-    reason: "Added: muster's token-exchange client lets the Dexes of the registered exchange servers alone resolve to a private address (allowPrivateIPTokenEndpointHosts), in place of allowPrivateIP, which lifted the guard for every token endpoint · M46"
+    reason: "Added: muster's token-exchange client permits private addresses for the Dex hosts of registered exchange servers and private federation targets (allowPrivateIPTokenEndpointHosts), in place of allowPrivateIP, which lifted the guard for every token endpoint · M46"
   - key: extras:mcp-kubernetes/user-values.yaml mcpKubernetes.oauth.cimd.preRegisteredClientMetadata
     reason: "Added: on a private installation mcp-kubernetes pins muster's client metadata document and never fetches it, in place of cimd.allowPrivateIPs, which let it fetch any client's document from a private address · M46"
   - key: extras:mcp-kubernetes/user-values.yaml mcpKubernetes.oauth.redirectURISecurity.privateIPHosts
