@@ -60,12 +60,16 @@ muster:
     oauth:
       mcpClient:
         tokenExchange:
-          allowPrivateIP: true
+          allowPrivateIPTokenEndpointHosts:
+            - dex.pond.lakeside.example
+            - dex.marsh.lakeside.example
       server:
         existingSecret: muster-oauth-credentials
         storage:
           valkey:
             existingSecret: muster-valkey-credentials
+        dex:
+          allowPrivateIPOIDC: false
         trustedAudiences:
           - dex-k8s-authenticator
           - kagent

@@ -74,7 +74,7 @@ func (in *Input) trustedIssuers() []render.Map {
 	entry := render.Map{e("issuer", issuer), e("jwksUrl", issuer+"/keys"),
 		e("allowedAudiences", in.brokerSubjectAudiences()), e("subjectClaim", "email"), e("acceptedTypHeaders", []string{""})}
 	if in.Installation.Private {
-		entry = append(entry, e("allowPrivateIPJWKS", true))
+		entry = append(entry, e("allowPrivateIPJWKSHosts", []string{in.host("dex")}))
 	}
 	return []render.Map{entry}
 }

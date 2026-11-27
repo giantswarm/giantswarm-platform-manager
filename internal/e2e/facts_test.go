@@ -17,6 +17,11 @@ import (
 // umbrellaConfigs is willow's configs repository.
 const umbrellaConfigs = "example/umbrella-configs"
 
+func rowanOnLineFour(st *stack) {
+	st.ghs.addFile(acmeConfigs, installations.ConfigPatchPath(rowan), "codename: rowan\nbase: acme.test\nservices:\n  muster:\n    clientId: muster-rowan\ngatewayApi:\n  clusterIssuer: private-example\nagentPlatform:\n  kagentApiV2: true\n")
+	st.ghs.addFile(acmeMCs, installations.ClusterAppManifestPath(rowan), clusterAppManifest(rowan, "cluster-aws", "10.2.0", true))
+}
+
 // willowOnLineFour puts willow, a CAPZ installation without the capability,
 // on the 4 chart line with its cluster serving the pod certificates and its
 // extras kustomization on record, its record carrying azure.

@@ -28,7 +28,7 @@ import (
 // TestRenderConsumption renders the charts that consume the definitions' files —
 // the fleet bases' HelmReleases over the emitted extras (kustomize build), the
 // portal's tree with backstage, the agent-platform meta chart and the children
-// it renders, dex-app — at the versions pinned in testdata/consumption/charts.yaml
+// it renders, dex-app, at the shared or shape-specific pins under testdata/consumption
 // (the meta chart on both of its lines, each shape at the line its record
 // selects), and checks every emitted Secret against what the rendered workloads read: a
 // Secret nobody reads, a key a chart reads that the Secret does not carry, a Dex
@@ -75,6 +75,7 @@ var consumptionShapes = []consumptionShape{
 	{name: shapePublicCustomer, platform: shapePublicCustomer, portal: shapePublicCustomer + portalInputSuffix},
 	{name: shapeGiantswarmOwned, platform: shapeGiantswarmOwned, portal: shapeGiantswarmOwned + portalInputSuffix},
 	{name: shapeGiantswarmSlackApp, platform: shapeGiantswarmSlackApp, portal: shapeGiantswarmSlackApp + portalInputSuffix, overlays: "oauth-canary"},
+	{name: shapeRegisteredServers, platform: shapeRegisteredServers, portal: shapeRegisteredServers + portalInputSuffix, overlays: "oauth-canary"},
 	{name: "customer-portal", portal: "customer-portal" + portalInputSuffix},
 	// The organizations and agent-manager's credential form (meta chart
 	// 4.177.0 and later): signed into from the hub's hand-kept portal, or
@@ -420,6 +421,7 @@ func consume(t *testing.T, shape consumptionShape, charts *chartStore) {
 	c.assertKeys()
 	c.assertWholeSecrets()
 	if c.platform != nil {
+		c.assertPrivateOAuthHosts()
 		c.assertMusterConsumers()
 		c.assertKagentConsumers()
 		c.assertMCPBackends()
@@ -961,8 +963,57 @@ func (c *consumption) standIns(chart string) []string {
 		if byLine := filepath.Join(consumptionDir, chart+"."+c.platform.Installation.ChartLine+".values.yaml"); fileExists(byLine) {
 			files = append(files, byLine)
 		}
+		if chart == "agent-platform" && c.platform.Installation.Private {
+			files = append(files, c.writeValues("shared-private-oidc", []byte("muster:\n  muster:\n    oauth:\n      server:\n        dex:\n          allowPrivateIPOIDC: true\n")))
+		}
 	}
 	return files
+}
+
+func (c *consumption) assertPrivateOAuthHosts() {
+	if !c.platform.needsPrivateAddressHosts() {
+		return
+	}
+	checked := false
+	for _, release := range c.rendered {
+		if release.chart.Name != componentMuster {
+			continue
+		}
+		for _, object := range release.objects {
+			if object.kind() != kindConfigMap {
+				continue
+			}
+			text := str(get(object, "data", "config.yaml"))
+			if text == "" {
+				continue
+			}
+			var config map[string]any
+			if err := yaml.Unmarshal([]byte(text), &config); err != nil {
+				c.t.Fatal(err)
+			}
+			checked = true
+			oauth := get(config, "aggregator", "oauth")
+			if oauth == nil {
+				c.t.Fatal("Muster configuration has no aggregator.oauth block")
+			}
+			if get(oauth, "server", "dex", "allowPrivateIPOIDC") == true {
+				c.t.Error("Muster inherits a blanket private OIDC permission")
+			}
+			hosts := list(get(oauth, "mcpClient", "tokenExchange", "allowPrivateIPTokenEndpointHosts"))
+			expected := c.platform.exchangeTokenEndpointHosts()
+			if len(hosts) != len(expected) {
+				c.t.Fatalf("Muster token endpoint hosts %v, want %v", hosts, expected)
+			}
+			for index, host := range expected {
+				if hosts[index] != host {
+					c.t.Errorf("Muster token endpoint host %v, want %s", hosts[index], host)
+				}
+			}
+		}
+	}
+	if !checked {
+		c.t.Error("no rendered Muster configuration checked for private OAuth permissions")
+	}
 }
 
 func fileExists(path string) bool {

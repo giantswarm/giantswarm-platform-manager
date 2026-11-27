@@ -89,6 +89,7 @@ func TestHubConnectorHeldByAnEncryptedConnectorsList(t *testing.T) {
 func TestReconcileListsTheRemoteAppItTakesOffTheRecord(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
+	rowanOnLineFour(st)
 	sopsFixtures(t, st.ghs)
 	st.ghs.addRepo(teleportFleet, map[string]string{tunnelportValuesPath: tunnelportValuesBare})
 	c := st.mcpClient(t, aliceToken)

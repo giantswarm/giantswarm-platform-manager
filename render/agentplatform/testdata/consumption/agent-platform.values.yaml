@@ -26,3 +26,9 @@ components:
 kagent:
   oauth2-proxy:
     enabled: true
+muster:
+  muster:
+    oauth:
+      mcpClient:
+        enabled: true
+        publicUrl: https://muster.example.test

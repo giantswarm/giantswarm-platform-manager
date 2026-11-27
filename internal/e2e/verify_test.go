@@ -366,6 +366,7 @@ func TestVerifyCapabilityPlannedJoinedAudience(t *testing.T) {
 func TestVerifyCapabilityFactOffTheRecordIsDrift(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
+	rowanOnLineFour(st)
 	c := st.mcpClient(t, aliceToken)
 	inRepos := kagentEnabled()
 	inRepos["installation"] = map[string]any{argPrivate: true}
@@ -389,6 +390,7 @@ func TestVerifyCapabilityFactOffTheRecordIsDrift(t *testing.T) {
 func TestVerifyCapabilityDiffersByInput(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
+	rowanOnLineFour(st)
 	c := st.mcpClient(t, aliceToken)
 	enableRowan(t, st, c, kagentEnabled(), kagentEnabled())
 
@@ -897,6 +899,7 @@ func TestVerifyCapabilityKeepsTheKustomizationEntries(t *testing.T) {
 func TestVerifyCapabilityReadsDocumentsByObject(t *testing.T) {
 	st := newStack(t)
 	fixtures(st.ghs)
+	rowanOnLineFour(st)
 	c := st.mcpClient(t, aliceToken)
 	federated := federation(true)
 	enableRowan(t, st, c, federated, federated)
@@ -1657,6 +1660,7 @@ const (
 )
 
 func registerOnRowan(st *stack) {
+	rowanOnLineFour(st)
 	tree := "management-clusters/" + rowan + "/extras/agent-platform/"
 	kustomization := "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n"
 	st.ghs.addFiles(acmeMCs, map[string]string{
@@ -1703,7 +1707,7 @@ func TestVerifyCapabilityRegistrationsOnRecord(t *testing.T) {
 	st.ghs.mu.Lock()
 	content := st.ghs.files[acmeConfigs][marker]
 	st.ghs.mu.Unlock()
-	for _, want := range []string{"allowPrivateIP: true", "trustedPublicRegistrationRedirectURIs:\n          - " + rowanClientCallback} {
+	for _, want := range []string{"allowPrivateIPTokenEndpointHosts:\n            - dex.pond.acme.test", "trustedPublicRegistrationRedirectURIs:\n          - " + rowanClientCallback} {
 		if !strings.Contains(content, want) {
 			t.Errorf("the patch on record lacks %q:\n%s", want, content)
 		}

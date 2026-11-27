@@ -8,7 +8,10 @@ import (
 	"github.com/giantswarm/giantswarm-platform-manager/render"
 )
 
-const mcpPrometheus = "mcp-prometheus"
+const (
+	mcpPrometheus = "mcp-prometheus"
+	mcpKubernetes = "mcp-kubernetes"
+)
 
 func server(t *testing.T, name string) Server {
 	t.Helper()
@@ -62,9 +65,9 @@ func TestOAuthSecretCarriesNoValkeyPassword(t *testing.T) {
 // mark carries.
 func TestChecksumValues(t *testing.T) {
 	for name, want := range map[string][]string{
-		"mcp-kubernetes": {"mcpKubernetes.oauth.existingSecretChecksum", "mcpKubernetes.oauth.storage.valkey.existingSecretChecksum"},
-		mcpPrometheus:    {"app.oauth.existingSecretChecksum"},
-		"mcp-capi":       {"oauth.existingSecretChecksum", "oauth.storage.valkey.existingSecretChecksum"},
+		mcpKubernetes: {"mcpKubernetes.oauth.existingSecretChecksum", "mcpKubernetes.oauth.storage.valkey.existingSecretChecksum"},
+		mcpPrometheus: {"app.oauth.existingSecretChecksum"},
+		"mcp-capi":    {"oauth.existingSecretChecksum", "oauth.storage.valkey.existingSecretChecksum"},
 	} {
 		if got := server(t, name).ChecksumValues(); !slices.Equal(got, want) {
 			t.Errorf("%s: checksum values %v, want %v", name, got, want)
@@ -72,16 +75,56 @@ func TestChecksumValues(t *testing.T) {
 	}
 }
 
-// On an installation whose Dex is on private addresses, each server gets the
-// setting its chart still reads for that: mcp-prometheus and mcp-capi lift the
-// guard on their forwarded-token JWKS fetch, and mcp-kubernetes needs none (its
-// Dex client reaches private addresses).
+// A client on a private address is pinned by mcp-kubernetes alone, the
+// chart that takes pins: its document under oauth.cimd and its redirect host
+// under oauth.redirectURISecurity, with no private-address flag. The other
+// servers render no user values for it, nor does a server without one.
+func TestPrivateClientUserValues(t *testing.T) {
+	client := &render.ClientMetadata{ClientID: "https://muster.x.example.io/.well-known/oauth-client.json", ClientName: "Muster MCP Aggregator",
+		ClientURI: "https://github.com/giantswarm/muster", RedirectURIs: []string{"https://muster.x.example.io/oauth/proxy/callback"}}
+	const want = `mcpKubernetes:
+  oauth:
+    cimd:
+      preRegisteredClientMetadata:
+        - client_id: https://muster.x.example.io/.well-known/oauth-client.json
+          client_name: Muster MCP Aggregator
+          client_uri: https://github.com/giantswarm/muster
+          redirect_uris:
+            - https://muster.x.example.io/oauth/proxy/callback
+          grant_types:
+            - authorization_code
+            - refresh_token
+          response_types:
+            - code
+          token_endpoint_auth_method: none
+    redirectURISecurity:
+      privateIPHosts:
+        - muster.x.example.io
+`
+	for _, s := range Servers {
+		for _, o := range []Options{{Installation: "x", PrivateClient: client}, {Installation: "x"}} {
+			var result render.Result
+			s.Extras(&result, "repo", "extras/"+s.Name, o)
+			f, ok := result.Files["repo"]["extras/"+s.Name+"/user-values.yaml"]
+			if s.Name == mcpKubernetes && o.PrivateClient != nil {
+				if got := string(f.Content); got != want {
+					t.Errorf("%s: user values\n%s\nwant\n%s", s.Name, got, want)
+				}
+				continue
+			}
+			if ok {
+				t.Errorf("%s (client %v): user values rendered:\n%s", s.Name, o.PrivateClient != nil, f.Content)
+			}
+		}
+	}
+}
+
 func TestPrivateURLsUserValues(t *testing.T) {
 	const deprecated = "allowPrivateURLs"
 	for name, want := range map[string]struct{ has, hasNot []string }{
-		"mcp-kubernetes": {has: []string{"sso:\n      allowPrivateIPs: true"}, hasNot: []string{deprecated}},
-		mcpPrometheus:    {has: []string{"allowPrivateIPJWKS: true"}, hasNot: []string{deprecated}},
-		"mcp-capi":       {has: []string{"allowPrivateIPJWKS: true"}, hasNot: []string{deprecated}},
+		mcpKubernetes: {has: []string{"sso:\n      allowPrivateIPs: true"}, hasNot: []string{deprecated}},
+		mcpPrometheus: {has: []string{"allowPrivateIPJWKS: true"}, hasNot: []string{deprecated}},
+		"mcp-capi":    {has: []string{"allowPrivateIPJWKS: true"}, hasNot: []string{deprecated}},
 	} {
 		var result render.Result
 		server(t, name).Extras(&result, "repo", "extras/"+name, Options{Installation: "x", PrivateURLs: true})

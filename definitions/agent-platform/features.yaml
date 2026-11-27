@@ -95,9 +95,10 @@ features:
       - {id: platform-tenant-bindings, kind: configmap, key: "tenants / musterMcpServerViewers (who the platform tenant binds in the kagent namespace, and who lists muster's MCP servers)"}
       - {id: own-mcp-servers, kind: configmap, key: "agent-platform-mcps.mcpServers[http://<name>.svc:8080/mcp] / agent-platform-mcps.mcpServers[<scheme>://mcp-<name>.<domain>/mcp] (the installation's own: at the in-cluster Service, or on its own base domain)"}
       - {id: own-mcp-kubernetes-url, kind: configmap, key: "agent-platform-mcps.mcpServers[http://mcp-kubernetes.mcp-kubernetes.svc:8080/mcp].url"}
-      - {id: muster-private-exchange, kind: configmap, key: muster.muster.oauth.mcpClient.tokenExchange.allowPrivateIP}
-      - {id: muster-private-client-metadata-hosts, kind: configmap, key: muster.muster.oauth.server.allowPrivateIPClientMetadataHosts}
-      - {id: own-mcp-private-urls, kind: extras, key: mcp-<name>/user-values.yaml / mcp-<name>/kustomization.yaml configMapGenerator / generatorOptions (the private-address values and the ConfigMap the HelmRelease reads them from)}
+      - {id: muster-private-exchange, kind: configmap, key: muster.muster.oauth.mcpClient.tokenExchange.allowPrivateIPTokenEndpointHosts}
+      - {id: muster-pinned-clients, kind: configmap, key: muster.muster.oauth.server.preRegisteredClientMetadata}
+      - {id: muster-private-redirect-hosts, kind: configmap, key: muster.muster.oauth.server.allowPrivateIPRedirectURIHosts}
+      - {id: own-mcp-private-urls, kind: extras, key: mcp-<name>/user-values.yaml / mcp-<name>/kustomization.yaml configMapGenerator / generatorOptions (mcp-kubernetes's pin of muster's client metadata document and muster's redirect host on a private installation and the ConfigMap the HelmRelease reads them from)}
       - {id: own-mcp-credentials-revision, kind: extras, key: "mcp-<name>/credentials-revision.enc.yaml / mcp-<name>/kustomization.yaml patches / mcp-<name>/oauth-credentials.enc.yaml stringData.CREDENTIALS_REVISION / stringData.credentials-revision / mcp-<name>/valkey-credentials.enc.yaml stringData.revision (the credentials revision the server's and its Valkey's HelmReleases read into their charts' checksum values, so a rotation restarts both; the private-address values patch sits in the same list)"}
       - {id: own-mcp-directories, kind: extras, key: "mcp-<name>/ (each server's kustomization, Dex client and credential Secrets)"}
       - {id: live-own-mcp-servers, kind: live, key: MCPServer objects of the installation itself}
