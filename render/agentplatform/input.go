@@ -40,7 +40,6 @@ var (
 // which every installation runs, and the components beside them.
 const (
 	componentMuster         = "muster"
-	componentMCPKubernetes  = "mcp-kubernetes"
 	componentValkey         = "valkey"
 	componentKagent         = "kagent"
 	componentAgentManager   = "agent-manager"
@@ -1153,7 +1152,10 @@ func (in *Input) checkRecord() error {
 	if err := in.checkPlatformTenant(); err != nil {
 		return err
 	}
-	return in.checkPrivateAddressVersions()
+	if in.Installation.Private && in.klausGateway() && !holdAdmits(in.Versions.Components[componentMuster], "5.64.0") {
+		return refuse(describe("versions.components.muster") + " excludes Muster 5.64.0 or later, required for the pinned gateway client document; move or lift the hold before applying the pins")
+	}
+	return nil
 }
 
 // apiResource and apiGroup split a probe's resource.group.
@@ -1241,41 +1243,10 @@ func (in *Input) chartSemver() string {
 	if in.Installation.ChartLine != lineFour {
 		return ""
 	}
-	floor := "4.0.0"
-	if in.needsPrivateAddressHosts() {
-		floor = privateAddressChart
-	}
 	if in.ReleaseCandidates {
-		return ">=" + floor + "-0 <5.0.0-0"
+		return ">=4.0.0-0 <5.0.0-0"
 	}
-	return ">=" + floor + " <5.0.0"
-}
-
-const privateAddressChart = "4.185.0"
-
-func (in *Input) needsPrivateAddressHosts() bool {
-	return in.Installation.Private || len(in.exchangeTokenEndpointHosts()) > 0
-}
-
-func (in *Input) checkPrivateAddressVersions() error {
-	if !in.needsPrivateAddressHosts() {
-		return nil
-	}
-	if in.Installation.ChartLine != lineFour || !holdAdmits(in.Versions.Chart, privateAddressChart+"-rc.1") {
-		return refuse(fmt.Sprintf("private OAuth hosts need agent-platform %s or later, and %s on the %s chart line excludes it; move or lift the hold on a compatible chart line before replacing the private-address settings", privateAddressChart, describe("versions.chart"), in.Installation.ChartLine))
-	}
-	for _, component := range []struct{ name, floor string }{
-		{componentMuster, "5.64.0"},
-		{componentMCPKubernetes, "1.16.0"},
-	} {
-		if component.name == componentMCPKubernetes && !in.Installation.Private {
-			continue
-		}
-		if hold := in.Versions.Components[component.name]; !holdAdmits(hold, component.floor) {
-			return refuse(fmt.Sprintf("private OAuth hosts need %s %s or later, and %s holds it at %s; move or lift the hold before replacing the private-address settings", component.name, component.floor, describe("versions.components."+component.name), hold))
-		}
-	}
-	return nil
+	return ">=4.0.0 <5.0.0"
 }
 
 // releaseTag is render.ReleaseTagFilter compiled: the tags the filter admits.

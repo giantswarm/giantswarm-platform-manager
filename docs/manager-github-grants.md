@@ -11,8 +11,6 @@ Each manager can fetch the caller's GitHub App user grant from muster's RFC 8693
 
 The cluster-, model- and skill-manager inputs require an explicit `versions.components.<manager>` hold at or above the listed minimum. This selects an exchange-capable release over the meta chart's defaults. muster must be at least `5.63.2`; the meta chart must be at least `4.181.0-rc.3`, which includes the grant-broker connectivity changes in giantswarm/agent-platform#1375.
 
-Private installations require agent-platform `4.185.0` or later. Their version holds, and those of public hubs with private federation targets, must admit muster `5.64.0` and mcp-kubernetes `1.16.0` or later, which accept the private host lists and pinned client metadata. The renderer refuses incompatible holds before replacing the private-address settings. Direct clients remain supported because `restrictClientMetadata` stays off.
-
 GPM generates `<manager>-github-broker` in `agent-platform`, with `client-id` and `client-secret`. Both the manager and muster reference it. The OAuth client Secrets in the table belong to the existing Apps and must already be bound; GPM does not generate App credentials.
 
 Skill-manager reuses the read-only `giantswarm-agent-skills` App. Its installation credential remains `skillManager.github.app.secretName`, for example `giantswarm-agent-skills-app`, alongside its separate OAuth client reference. Listings withhold private sources without requesting consent; reading or pinning a private skill can request the person's grant.

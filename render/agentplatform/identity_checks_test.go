@@ -61,7 +61,7 @@ func TestIdentityCheckSelectionRequiresMatchingStaffExchange(t *testing.T) {
 	}
 }
 
-func TestIdentityCheckRenderPreservesScopedOIDCAndCustomerLogins(t *testing.T) {
+func TestIdentityCheckRenderPreservesPrivateOIDCAndCustomerLogins(t *testing.T) {
 	for _, shape := range []string{shapeGiantswarmOwned, shapeGiantswarmSlackApp, shapePublicCustomer} {
 		t.Run(shape, func(t *testing.T) {
 			raw, _ := loadInput(t, shape)
@@ -77,8 +77,7 @@ func TestIdentityCheckRenderPreservesScopedOIDCAndCustomerLogins(t *testing.T) {
 				require.Contains(t, after, "- "+connector+"\n")
 			}
 			require.Equal(t, 1, strings.Count(after, "dex:"))
-			require.NotContains(t, after, "allowPrivateIPOIDC: true")
-			require.Equal(t, input.Installation.Private, strings.Contains(after, "allowPrivateIPOIDC: false"))
+			require.Equal(t, input.Installation.Private, strings.Contains(after, "allowPrivateIPOIDC: true"))
 			require.NotContains(t, after, "connectorId:")
 			var checks []render.Comparison
 			for _, probe := range input.probes() {

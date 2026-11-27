@@ -81,17 +81,8 @@ kagent:
       oidc-extra-audience: dex-k8s-authenticator,kagent,backstage # gitleaks:allow
 muster:
   muster:
-    providerApps:
-      - name: agent-manager
-        issuer: https://github.com/apps/giantswarm-agent-manager
-        authorizationEndpoint: https://github.com/login/oauth/authorize
-        tokenEndpoint: https://github.com/login/oauth/access_token
-        expectedIssuer: https://github.com/login/oauth
-        clientCredentialsSecretRef:
-          name: giantswarm-agent-manager-oauth-client
     oauth:
       mcpClient:
-        enabled: true
         postLoginRedirectAllowlist:
           - https://agentgateway.glean.example.io/connectors/complete
           - https://portal.example.io/
@@ -101,13 +92,6 @@ muster:
         storage:
           valkey:
             existingSecret: muster-valkey-credentials
-        dex:
-          identityCheckConnectors:
-            - giantswarm-ad
-            - giantswarm-gazelle-oidc
-          allowPrivateIPOIDC: false
-        allowPrivateIPRedirectURIHosts:
-          - agentgateway.glean.example.io
         preRegisteredClientMetadata:
           - client_id: https://agentgateway.glean.example.io/auth/slack/client.json
             client_name: klaus-gateway
@@ -120,32 +104,18 @@ muster:
             response_types:
               - code
             token_endpoint_auth_method: none
+        dex:
+          identityCheckConnectors:
+            - giantswarm-ad
+            - giantswarm-gazelle-oidc
+          allowPrivateIPOIDC: true
+        allowPrivateIPClientMetadataHosts:
+          - agentgateway.glean.example.io
+        allowPrivateIPRedirectURIs: true
         trustedAudiences:
           - dex-k8s-authenticator
           - kagent
           - backstage
-        trustedIssuers:
-          - issuer: https://dex.glean.example.io
-            jwksUrl: https://dex.glean.example.io/keys
-            allowedAudiences:
-              - backstage
-              - dex-k8s-authenticator
-            subjectClaim: email
-            acceptedTypHeaders:
-              - ""
-            allowPrivateIPJWKSHosts:
-              - dex.glean.example.io
-        tokenExchangeBroker:
-          brokerClients:
-            agent-manager:
-              clientCredentialsSecretRef:
-                name: agent-manager-github-broker
-          clientAudiences:
-            agent-manager:
-              - agent-manager
-          targets:
-            agent-manager:
-              grantIssuer: https://github.com/apps/giantswarm-agent-manager
 gateway:
   jwksEgress:
     enabled: true
@@ -179,13 +149,6 @@ agent-platform-mcps:
                 port: 5556
               jwksPath: /keys
               cacheDuration: 5m
-agent-manager:
-  github:
-    enabled: true
-    tokenExchange:
-      tokenEndpoint: https://muster.glean.example.io/oauth/token
-      audience: agent-manager
-      existingSecret: agent-manager-github-broker
 klausGateway:
   routing:
     store: valkey
