@@ -1,6 +1,6 @@
 # Federation exchange connectors
 
-The agent-platform policy selects the connector a hub uses for both its token broker and its MCP identity providers. `federation.connector.exchangeThrough` is keyed by the hub's organisation. Each entry has a `default` connector and optional `targets` overrides keyed by installation. A target without an override uses the default. An empty selection uses the connector rendered for that hub. Further hubs always use their own rendered connector.
+The agent-platform policy selects the connector a hub uses for both its token broker and its MCP identity providers. `federation.connector.exchangeThrough` is keyed by the hub's organisation. Each entry has a `default` connector and optional `targets` overrides keyed by installation. A target without an override uses the default. An empty selection uses the connector rendered for that hub. Further hubs always use their own rendered connector. The policy currently selects nothing: every hub exchanges through the connector rendered for it. The examples below show a selection during a connector move.
 
 Policy selections take effect through a subsequent reviewed capability action on the hub and target.
 

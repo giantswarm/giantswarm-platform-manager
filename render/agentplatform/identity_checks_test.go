@@ -35,6 +35,7 @@ func TestIdentityCheckSelectionRequiresMatchingStaffExchange(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			policy, err := loadPolicy()
 			require.NoError(t, err)
+			policy.Federation.Connector.ExchangeThrough[portalTenant] = render.ExchangeConnectors{Default: identityLegacyConnector}
 			installation := Installation{Name: targetBurrow, Federation: Federation{Connectors: []render.HubConnector{
 				{Hub: portalCaseOwn, Customer: portalTenant, First: true},
 			}}}
@@ -113,7 +114,6 @@ func TestPilotPolicyAlignsBrowserBrokerAndProviderConnectors(t *testing.T) {
 			require.NoError(t, err)
 			expected := staffConnector
 			if installation == "unselected-target" {
-				expected = identityLegacyConnector
 				require.Nil(t, browser)
 			} else {
 				require.Contains(t, browser, identityEntraConnector)

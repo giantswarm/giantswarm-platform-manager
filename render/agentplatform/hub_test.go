@@ -100,16 +100,16 @@ func TestConnectorPerHubAndTarget(t *testing.T) {
 	second := patch(shapeSecondHub, "giantswarm", "warren")
 	for _, want := range []string{
 		"            marmot:\n              dexTokenEndpoint: https://dex.marmot.example.io/token\n              connectorId: giantswarm-warren-oidc\n",
-		"            vole:\n              dexTokenEndpoint: https://dex.vole.example.io/token\n              connectorId: giantswarm-simple-oidc\n",
+		"            vole:\n              dexTokenEndpoint: https://dex.vole.example.io/token\n              connectorId: giantswarm-warren-oidc\n",
 		"    marmot:\n      tokenEndpoint: https://dex.marmot.example.io/token\n      connectorId: giantswarm-warren-oidc\n",
-		"    vole:\n      tokenEndpoint: https://dex.vole.example.io/token\n      connectorId: giantswarm-simple-oidc\n",
+		"    vole:\n      tokenEndpoint: https://dex.vole.example.io/token\n      connectorId: giantswarm-warren-oidc\n",
 	} {
 		if !strings.Contains(second, want) {
 			t.Errorf("the second hub's patch lacks %q:\n%s", want, second)
 		}
 	}
-	if first := patch(shapeHubPrivateTarget, "giantswarm", "gopher"); strings.Count(first, "connectorId: giantswarm-simple-oidc\n") != 4 || strings.Contains(first, "gopher-oidc") {
-		t.Errorf("the first hub names the plain connector for both targets, twice each:\n%s", first)
+	if first := patch(shapeHubPrivateTarget, "giantswarm", "gopher"); strings.Count(first, "connectorId: giantswarm-gopher-oidc\n") != 4 || strings.Contains(first, "simple-oidc") {
+		t.Errorf("the first hub names its own connector for both targets, twice each:\n%s", first)
 	}
 	// The aggregator's record with a target's hubs edited: none names this hub alone.
 	aggregator := func(hubs any) map[string]any {
