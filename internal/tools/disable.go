@@ -401,6 +401,16 @@ func (t *Tools) disableCommit(ctx context.Context, args map[string]any) (any, er
 	def, _ := installations.FindCapability(out.Capability)
 	one := out.Installation
 	test := installations.TestInstallation(one, env.byName[one].Customer, env.hub)
+	// Deleting governed values takes the governance away with the platform:
+	// a second person approves it, and the governance before the disable is
+	// what a later enable is compared with.
+	governance, after, record, err := t.governanceOfDisable(ctx, env.c, out.Plan)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w; nothing is committed", tool, err)
+	}
+	if governance != nil {
+		test = false
+	}
 	if err := t.standupRefusal(tool, test); err != nil {
 		return nil, err
 	}
@@ -408,9 +418,25 @@ func (t *Tools) disableCommit(ctx context.Context, args map[string]any) (any, er
 	spec := actions.Spec{Actor: actions.Actor{Login: id.Login, ID: id.ID, Email: id.Email}, Capability: out.Capability, Installations: []string{one}, Inputs: env.inputs[one], Kind: actions.KindDisable,
 		InputsByInstallation: map[string]map[string]any{one: env.inputs[one]}, Customer: env.byName[one].Customer != env.hub.Customer, AccountEngineers: accountEngineers(env, one), AccountEngineerOf: accountEngineerOf(env, one), Reason: reason, Markers: markersOf(def, env, one),
 		Change: fmt.Sprintf("%d file(s) to delete, %d to update", deleted, updated), Changes: map[string][]string{one: disableSummary(out.Plan)}}
+	if after != "" {
+		spec.GovernanceAfter = map[string]string{one: after}
+	}
+	if record != "" {
+		spec.GovernanceBase = map[string]string{one: record}
+	}
+	if governance != nil {
+		spec.Governance = map[string]plan.GovernanceChange{one: *governance}
+		spec.Changes[one] = append([]string{governance.Summary()}, spec.Changes[one]...)
+		if err := governanceTooLarge(tool, &actions.Action{Spec: spec}); err != nil {
+			return nil, err
+		}
+	}
 	a, err := t.record(ctx, spec, actions.Status{State: actions.StatePendingApproval, Orphans: orphansFrom(one, out.Plan.Checklist), Commit: &actions.CommitStatus{}})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
+	}
+	if err := governanceStored(tool, spec.Governance, a); err != nil {
+		return nil, t.fail(ctx, tool, a, nil, nil, err)
 	}
 	remote, err := t.d.Remote(token)
 	if err != nil {
@@ -424,6 +450,7 @@ func (t *Tools) disableCommit(ctx context.Context, args map[string]any) (any, er
 		return nil, t.fail(ctx, tool, a, remote, prs, err)
 	}
 	t.d.Log.Info(tool, identity.LogAttr(ctx), "action", a.Name, "installation", one, "state", a.Status.State, "pullRequests", len(prs))
+	t.auditGovernance(ctx, "governance_change_committed", a)
 	a, err = t.requestApproval(ctx, a, tool, test)
 	if err != nil {
 		return nil, fmt.Errorf("%w — the pull requests are open (%s) and the action pends approval; %s posts the review", err, prList(prs), ToolMergeAction)

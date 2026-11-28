@@ -194,6 +194,10 @@ type Input struct {
 	// (musterMcpServerViewers), read back from the configmap patch on record
 	// so a reconcile keeps them (tenants.go).
 	PlatformTenant PlatformTenant
+	// Governance is the person's choice of the platform's governance mode
+	// and the servers muster governs (governance.*), read back from the
+	// configmap patch on record so a reconcile keeps it (governance.go).
+	Governance Governance
 	// Components are the components the policy gives the installation, by
 	// name: its organisation's list and, where the policy names a Slack app
 	// for the installation, the chat gateway.
@@ -737,7 +741,8 @@ type document struct {
 		} `json:"platform"`
 		PlatformTeam *[]Subject `json:"platformTeam"`
 	} `json:"tenants"`
-	Versions Versions `json:"versions"`
+	Governance Governance `json:"governance"`
+	Versions   Versions   `json:"versions"`
 }
 
 // MCPBackend is one in-cluster MCP backend the meta chart's network policy
@@ -897,7 +902,7 @@ type managerGitHubChoice struct {
 // the cluster does not serve PodCertificateRequest, the chat or skill
 // repositories on an installation whose organisation hosts no portal for
 // them, the chat without a model, or on Vertex without its Google project or
-// location, the Hive where the installation cannot serve it, the MCP backends' network policy or the LLM listener's rate limits on the 3 line, the rate limits or the session idle TTL where no kagent runs, the session idle TTL on the 3 line, the default agent turned off or its model override on the 3 line, where kagent and the agent-manager do not both run or with a chart hold below the release that ships it, the skill-manager's sources or GitHub App on the 3 line, where no agent-manager runs or with a chart hold below the release with the skill-manager, a source naming the platform's own skill repository, the agent-manager's skill repositories where it may take its skills from the skill-manager or beside the skill-manager's sources, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs)
+// location, the Hive where the installation cannot serve it, the MCP backends' network policy or the LLM listener's rate limits on the 3 line, the rate limits or the session idle TTL where no kagent runs, the session idle TTL on the 3 line, the default agent turned off or its model override on the 3 line, where kagent and the agent-manager do not both run or with a chart hold below the release that ships it, the skill-manager's sources or GitHub App on the 3 line, where no agent-manager runs or with a chart hold below the release with the skill-manager, a source naming the platform's own skill repository, the agent-manager's skill repositories where it may take its skills from the skill-manager or beside the skill-manager's sources, the cluster-manager's commit mode where no cluster-manager runs, context bots where no chat gateway runs, the governance where it cannot be enforced as chosen: checkGovernance)
 // is ErrInput too.
 func Parse(raw any) (*Input, error) {
 	schema, err := render.DefinitionSchema("agent-platform/schema.json")
@@ -951,6 +956,8 @@ func Parse(raw any) (*Input, error) {
 	pol.browseOnly(in.Installation.Federation.Targets)
 	in.Organizations, in.organizationsPolicy = d.Organizations, pol.Organizations
 	in.PlatformTenant = PlatformTenant{Users: d.Tenants.Platform.Users, Editors: d.Tenants.Platform.Editors, PlatformTeam: d.Tenants.PlatformTeam, Viewers: d.MusterMcpServerViewers}
+	in.Governance = d.Governance
+	in.Governance.withoutPlatformServers()
 	in.selectLine(pol.targetLine(in.Installation))
 	if err := in.checkRecord(); err != nil {
 		return nil, err
@@ -1150,6 +1157,9 @@ func (in *Input) checkRecord() error {
 		return err
 	}
 	if err := in.checkPlatformTenant(); err != nil {
+		return err
+	}
+	if err := in.checkGovernance(); err != nil {
 		return err
 	}
 	if in.Installation.Private && in.klausGateway() && !holdAdmits(in.Versions.Components[componentMuster], "5.64.0") {

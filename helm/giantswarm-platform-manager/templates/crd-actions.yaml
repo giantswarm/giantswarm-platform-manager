@@ -143,9 +143,41 @@ spec:
                   description: Per installation, the definition's enabled marker resolved to the installation's repository (owner/repo:path), whose absence from the default branch after the merge means the fileset was reverted.
                   type: object
                   additionalProperties: {type: string}
+                governance:
+                  description: Per installation, the platform's governance the commit changes, old -> new with the changes that loosen it; such an action is approved by a second person, on test installations too. Values of governance and governedServers only, never a secret.
+                  type: object
+                  additionalProperties:
+                    type: object
+                    properties:
+                      lines:
+                        type: array
+                        items: {type: string}
+                      loosens:
+                        type: array
+                        items: {type: string}
+                governanceBase:
+                  description: Per installation, the reviewed-governance record the plan compared with (action@recordedAt@version, or none); merge_action merges a stage of an approved governance change, and writes the record, only while the installation's record is still that one.
+                  type: object
+                  additionalProperties: {type: string}
+                governanceAfter:
+                  description: Per installation, the governance the commit leaves on record (a disable's is the governance before it), as JSON of the governance values; the next plan compares against the newest reviewed one. Values only, never a secret.
+                  type: object
+                  additionalProperties: {type: string}
             status:
               type: object
               properties:
+                governance:
+                  description: Per installation, a governance change found after the commit recorded the Action (the values on the default branch moved between the plan and the pull requests); it counts as spec.governance does. Values only.
+                  type: object
+                  additionalProperties:
+                    type: object
+                    properties:
+                      lines:
+                        type: array
+                        items: {type: string}
+                      loosens:
+                        type: array
+                        items: {type: string}
                 keptByInstallation:
                   description: Verification snapshots of legacy actions, read from committed values. Identifiers and hashes only.
                   type: object

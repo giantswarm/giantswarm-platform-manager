@@ -11,6 +11,10 @@
                     "type": "boolean",
                     "description": "Keep the Action records — one `Action` (`platform-manager.giantswarm.io/v1alpha1`) per enablement or reconcile a person commits: actor, installations, capability, inputs, pull requests, approval, rollout, probes, result — as custom resources in the release namespace, read and written with the pod's ServiceAccount (the CRD, a Role and its binding are rendered). Off: no ServiceAccount token is mounted, `get_action` and `list_actions` refuse with the reason and `get_info` reports `actions.configured: false`."
                 },
+                "governanceRecordPolicy": {
+                    "type": "boolean",
+                    "description": "Render a ValidatingAdmissionPolicy and its binding that let only this release's ServiceAccount write the reviewed-governance records (`governancerecords.platform-manager.giantswarm.io`). Needs Kubernetes 1.30 or later."
+                },
                 "installCRD": {
                     "type": "boolean",
                     "description": "Render the `actions.platform-manager.giantswarm.io` CRD from the chart's templates (so upgrades follow the chart). Off when the CRD is delivered separately."
@@ -37,6 +41,11 @@
                 "gatewayURL": {
                     "type": "string",
                     "description": "klaus-gateway's base URL as reached from the pod (for example `http://klaus-gateway.agent-platform.svc:8080`): the team-review endpoint an action's approval request goes to. Empty refuses `mode: commit` (nothing is committed that no one can approve); `get_info` reports `approvals.configured: false`. The requests carry the pod's projected ServiceAccount token in the gateway's audience; the gateway's `reviews.allowedCallers` must name this ServiceAccount. The gateway must be klaus-gateway v4.19.0 or newer: older ones refuse the review's `summary` field, so no review could be posted."
+                },
+                "governanceTeam": {
+                    "type": "string",
+                    "description": "The GitHub team (`org/team`) whose active members approve an action that changes an installation's governance. Empty: none can be approved.",
+                    "pattern": "^([A-Za-z0-9-]+/[A-Za-z0-9_.-]+)?$"
                 },
                 "noticeChannel": {
                     "type": "string",

@@ -49,7 +49,12 @@ const (
 	aliceToken = "alice-token"
 	bobToken   = "bob-token"
 	carol      = "carol"
-	carolToken = "carol-token"
+	// governanceTeam is the GitHub team whose active members approve a
+	// governance change.
+	governanceTeam = "example/platform-reviewers"
+	// memberActive is an active team membership's state.
+	memberActive = "active"
+	carolToken   = "carol-token"
 	// stranger has authorized the App and has no account on the
 	// installation.
 	stranger      = "stranger"
@@ -94,6 +99,8 @@ type stack struct {
 	// pulls are who merged or closed each pull request of the remote, and
 	// when — what the fake GitHub answers for it.
 	pulls map[string]pullFacts
+	// beforeOpen runs once, before the next pull request opens.
+	beforeOpen func()
 }
 
 // syncBuffer is a bytes.Buffer the server's log handler and the test share.
@@ -124,9 +131,11 @@ func newStack(t *testing.T, options ...func(*tools.Deps)) *stack {
 		t.Fatal(err)
 	}
 	st := &stack{ghs: newFakeGitHub(t, logins), probes: newFakeProbes(t), remote: commit.NewFake(), logs: logs, gateway: newFakeGateway(t),
-		dyn: dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{actions.GVR: actions.Kind + "List"}),
+		dyn: dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{actions.GVR: actions.Kind + "List", actions.RecordGVR: actions.RecordKind + "List"}),
 		dex: newFakeDex(t), inst: newFakeInstallation(), pulls: map[string]pullFacts{}}
 	st.ghs.pull = st.pullState
+	// carol reviews governance changes; alice, the actor of the tests, too.
+	st.ghs.teams[governanceTeam] = map[string]string{carol: memberActive, alice: memberActive}
 	st.muster = newFakeMuster(t, st.inst, rowan)
 	lc, err := live.New(live.Config{Issuer: st.dex.issuer, Audiences: []string{liveAudience, liveRequiredAudience}, JWKSURL: st.dex.issuer + "/keys", HTTPClient: st.dex.Client(),
 		MusterURL: st.muster.URL + "/mcp", KubernetesFamily: kubernetesFamily, KubernetesInstanceArg: instanceArg, KubernetesMember: memberTemplate, Version: testVersion}, log)
@@ -145,7 +154,7 @@ func newStack(t *testing.T, options ...func(*tools.Deps)) *stack {
 		Remote: func(token string) (commit.Remote, error) {
 			return asRemote{Remote: st.remote, login: logins[token], st: st}, nil
 		},
-		Approvals: approvals.Config{GatewayURL: st.gateway.URL, Team: reviewTeam, Channel: reviewChannel, NoticeChannel: noticeChannel, StandupChannel: standupChannel, TokenFile: tokenFile},
+		Approvals: approvals.Config{GatewayURL: st.gateway.URL, Team: reviewTeam, Channel: reviewChannel, NoticeChannel: noticeChannel, StandupChannel: standupChannel, GovernanceTeam: governanceTeam, TokenFile: tokenFile},
 		Registry:  registrySources}
 	for _, option := range options {
 		option(&dependencies)

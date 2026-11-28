@@ -336,6 +336,7 @@ func TestDefaults(t *testing.T) {
 		"versions":       map[string]any{"chart": "", "components": holds, "reasons": map[string]any{"chart": "", "components": holds}}}
 
 	want["organizations"] = map[string]any{keyEnabled: false, "apiHostnames": []any{}, "commit": map[string]any{keyEnabled: false}, "portal": map[string]any{keyEnabled: false}}
+	want["governance"] = map[string]any{"mode": "trusted", "governedServers": map[string]any{}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("defaults %v, want %v", got, want)
 	}

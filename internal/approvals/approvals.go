@@ -38,6 +38,10 @@ type Config struct {
 	// Giant Swarm's test installations needs no review and is told there,
 	// one sentence without buttons. Empty: such an action is refused.
 	StandupChannel string
+	// GovernanceTeam is the GitHub team (org/team) whose active members
+	// approve an action that changes an installation's governance; empty,
+	// no such action can be approved.
+	GovernanceTeam string
 	// TokenFile holds the projected ServiceAccount token (audience: the
 	// gateway's) the requests carry as the bearer.
 	TokenFile string
@@ -59,6 +63,9 @@ func (c Config) Validate() error {
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("approvals: a gateway URL is set and %s is not", strings.Join(sorted(missing), ", "))
+	}
+	if org, team, ok := strings.Cut(c.GovernanceTeam, "/"); c.GovernanceTeam != "" && (!ok || org == "" || team == "" || strings.Contains(team, "/")) {
+		return fmt.Errorf("approvals: governance team %q is no org/team", c.GovernanceTeam)
 	}
 	if c.NoticeChannel != "" && c.NoticeChannel == c.Channel {
 		return errors.New("approvals: the notice channel must differ from the review channel")

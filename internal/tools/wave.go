@@ -110,10 +110,35 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 			spec.CapabilityByInstallation[n] = d.Name
 		}
 	}
-	for _, p := range targets {
+	governs := false
+	for i := range targets {
+		p := &targets[i]
 		spec.InputsByInstallation[p.Name] = p.Inputs
-		spec.Changes[p.Name] = plan.Summary(p)
-		spec.KeptByInstallation = keptByInstallation(spec.KeptByInstallation, p)
+		g, after := p.Governance, governanceAfter(*p)
+		if after != "" {
+			if spec.GovernanceAfter == nil {
+				spec.GovernanceAfter = map[string]string{}
+			}
+			spec.GovernanceAfter[p.Name] = after
+		}
+		if p.GovernanceRecord != "" {
+			if spec.GovernanceBase == nil {
+				spec.GovernanceBase = map[string]string{}
+			}
+			spec.GovernanceBase[p.Name] = p.GovernanceRecord
+		}
+		if g != nil {
+			if spec.Governance == nil {
+				spec.Governance = map[string]plan.GovernanceChange{}
+			}
+			spec.Governance[p.Name] = *g
+			governs = true
+		}
+		spec.Changes[p.Name] = plan.Summary(*p)
+		spec.KeptByInstallation = keptByInstallation(spec.KeptByInstallation, *p)
+	}
+	if err := governanceTooLarge(tool, &actions.Action{Spec: spec}); err != nil {
+		return nil, err
 	}
 	changes := make([]string, 0, len(targets))
 	var rotated []string
@@ -131,6 +156,9 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		rollout.Installations = append(rollout.Installations, actions.InstallationRollout{Name: p.Name, State: actions.StatePendingApproval, Message: fmt.Sprintf("stage %d of %d", i+1, len(targets))})
 	}
 	spec.Change = strings.Join(changes, "; ")
+	// One person never changes the governance alone: the Team review, on
+	// test installations too.
+	test = test && !governs
 	if err := t.standupRefusal(tool, test); err != nil {
 		return nil, err
 	}
@@ -141,6 +169,9 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 	a, err := t.d.Actions.Create(ctx, actions.Action{Name: name, Spec: spec, Status: actions.Status{State: actions.StatePendingApproval, Rollout: rollout, Rotated: rotated, Orphans: orphans, Commit: &actions.CommitStatus{}}})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", tool, err)
+	}
+	if err := governanceStored(tool, spec.Governance, a); err != nil {
+		return nil, t.fail(ctx, tool, a, nil, nil, err)
 	}
 	remote, err := t.d.Remote(token)
 	if err != nil {
@@ -180,6 +211,17 @@ func (t *Tools) capabilityWave(ctx context.Context, tool string, args map[string
 		return nil, t.fail(ctx, tool, a, remote, prs, err)
 	}
 	t.d.Log.Info(tool, identity.LogAttr(ctx), "action", a.Name, "wave", strings.Join(res.Order, ","), "skipped", len(res.Skipped), "pullRequests", len(prs))
+	for _, p := range targets {
+		// A governance merged between a stage's plan and its branch is a
+		// governance change of the action (commit.go).
+		if moved, what := t.governanceRecordMoved(ctx, p); moved {
+			if a, err = t.recordMoved(ctx, a, p.Name, what); err != nil {
+				return nil, t.fail(ctx, tool, a, remote, prs, err)
+			}
+			test = false
+		}
+	}
+	t.auditGovernance(ctx, "governance_change_committed", a)
 	a, err = t.requestApproval(ctx, a, tool, test)
 	if err != nil {
 		return nil, fmt.Errorf("%w — the pull requests are open (%s) and the action pends approval; %s posts the review", err, prList(prs), ToolMergeAction)

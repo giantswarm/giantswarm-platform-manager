@@ -87,6 +87,11 @@ type Deps struct {
 	// manager runs without the hub's API server, and get_action,
 	// list_actions and mode commit say so.
 	Actions actions.Store
+	// Records reads and writes the reviewed-governance records (decision
+	// #99); nil takes them from Actions where it keeps them too, and without
+	// either no reviewed governance is known (every governance in play asks
+	// the review).
+	Records actions.RecordStore
 	// Remote opens the git remote a commit lands on, with the caller's
 	// token: GitHub in production (GitHubRemote), gitops-commit's Fake in
 	// tests. nil refuses mode commit naming the configuration.
@@ -155,6 +160,9 @@ func New(d Deps) *Tools {
 	}
 	if d.Files == nil {
 		d.Files = gh.NewFiles(gh.DefaultFreshness)
+	}
+	if rs, ok := d.Actions.(actions.RecordStore); ok && d.Records == nil {
+		d.Records = rs
 	}
 	t := &Tools{d: d}
 	if d.Approvals.Configured() {
@@ -285,6 +293,7 @@ type ApprovalsInfo struct {
 	Channel        string `json:"channel,omitempty"`
 	NoticeChannel  string `json:"noticeChannel,omitempty"`
 	StandupChannel string `json:"standupChannel,omitempty"`
+	GovernanceTeam string `json:"governanceTeam,omitempty"`
 }
 
 func (t *Tools) getInfo(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -302,7 +311,7 @@ func (t *Tools) getInfo(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallTo
 		GitHub:       GitHubInfo{APIURL: apiURL(t.d.GitHubAPIURL)},
 		Definitions:  defs,
 		Capabilities: Capabilities{Commit: true, Modes: []string{string(ModeCommit)}, ApplyRefused: true, WriteTools: names},
-		Approvals:    ApprovalsInfo{Configured: t.d.Approvals.Configured(), GatewayURL: t.d.Approvals.GatewayURL, Team: t.d.Approvals.Team, Channel: t.d.Approvals.Channel, NoticeChannel: t.d.Approvals.NoticeChannel, StandupChannel: t.d.Approvals.StandupChannel},
+		Approvals:    ApprovalsInfo{Configured: t.d.Approvals.Configured(), GatewayURL: t.d.Approvals.GatewayURL, Team: t.d.Approvals.Team, Channel: t.d.Approvals.Channel, NoticeChannel: t.d.Approvals.NoticeChannel, StandupChannel: t.d.Approvals.StandupChannel, GovernanceTeam: t.d.Approvals.GovernanceTeam},
 		Registry:     RegistryConfig{Catalog: t.d.Registry.Catalog, Hub: t.d.Registry.Hub, Configured: t.d.Registry.Hub != ""},
 		Actions:      t.actionsInfo(),
 		Live:         t.liveInfo(ctx),

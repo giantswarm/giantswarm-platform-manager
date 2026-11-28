@@ -64,6 +64,11 @@ actions:
   # templates (so upgrades follow the chart). Off when the CRD is delivered
   # separately.
   installCRD: true
+  # -- Render a ValidatingAdmissionPolicy and its binding that let only this
+  # release's ServiceAccount write the reviewed-governance records
+  # (`governancerecords.platform-manager.giantswarm.io`). Needs Kubernetes 1.30
+  # or later.
+  governanceRecordPolicy: true
 
 approvals:
   # -- klaus-gateway's base URL as reached from the pod (for example
@@ -92,6 +97,9 @@ approvals:
   # `mode: commit` on test installations; the hub and customer installations
   # keep the review.
   standupChannel: ""
+  # -- The GitHub team (`org/team`) whose active members approve an action that
+  # changes an installation's governance. Empty: none can be approved.
+  governanceTeam: ""  # @schema pattern: ^([A-Za-z0-9-]+/[A-Za-z0-9_.-]+)?$
   # -- Audience of the projected ServiceAccount token the requests carry: the
   # gateway's TokenReview audience.
   audience: klaus-gateway

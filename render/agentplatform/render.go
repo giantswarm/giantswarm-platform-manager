@@ -340,6 +340,7 @@ func (in *Input) configmapPatch() render.Map {
 	}
 	m = in.organizationsValues(m)
 	m = in.platformTenantValues(m)
+	m = in.governanceValues(m)
 	if len(in.MCPBackends) > 0 {
 		m = append(m, e("networkPolicy", render.Map{e("mcpBackends", in.mcpBackends())}))
 	}
@@ -521,7 +522,11 @@ func (in *Input) musterValues() render.Map {
 	if in.hasPrivateTarget() {
 		muster = append(muster, e("extraCaFile", extraCaFile()))
 	}
-	return render.Map{e("muster", append(muster, e("oauth", oauth)))}
+	out := render.Map{e("muster", append(muster, e("oauth", oauth)))}
+	if admins := in.connectorAdmins(); admins != nil {
+		out = append(out, render.Entry{Key: "rbac", Value: admins, Comment: "Giant Swarm's connector admins and workflow editors: the admin groups\nbound to muster's mcpserver-editor and workflow-editor Roles (the meta chart\nappends the platform team)."})
+	}
+	return out
 }
 
 // dexClientRef is the referenced-Secret form of a Dex client secret.

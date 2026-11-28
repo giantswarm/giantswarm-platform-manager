@@ -116,6 +116,26 @@ muster:
           - dex-k8s-authenticator
           - kagent
           - backstage
+  # Giant Swarm's connector admins and workflow editors: the admin groups
+  # bound to muster's mcpserver-editor and workflow-editor Roles (the meta chart
+  # appends the platform team).
+  rbac:
+    mcpServerEditor:
+      subjects:
+        - apiGroup: rbac.authorization.k8s.io
+          kind: Group
+          name: giantswarm-ad:giantswarm-admins
+        - apiGroup: rbac.authorization.k8s.io
+          kind: Group
+          name: giantswarm-github:giantswarm:giantswarm-admins
+    workflowEditor:
+      subjects:
+        - apiGroup: rbac.authorization.k8s.io
+          kind: Group
+          name: giantswarm-ad:giantswarm-admins
+        - apiGroup: rbac.authorization.k8s.io
+          kind: Group
+          name: giantswarm-github:giantswarm:giantswarm-admins
 gateway:
   jwksEgress:
     enabled: true

@@ -119,6 +119,22 @@ type Spec struct {
 	// Skipped are the installations of the set a wave left out, and why:
 	// never a target, no pull request.
 	Skipped []Skipped `json:"skipped,omitempty"`
+	// Governance is, per installation, the platform's governance the commit
+	// changes (plan.GovernanceOf), old → new with what loosens: such an
+	// action is approved by a second person, on test installations too, and
+	// its approval and merge are audited. Recorded at commit.
+	Governance map[string]plan.GovernanceChange `json:"governance,omitempty"`
+	// GovernanceAfter is, per installation, the governance the commit leaves
+	// on record (plan.GovernanceSnapshot as JSON; a disable's is the
+	// governance before it): what merge_action writes to the installation's
+	// reviewed-governance record (GovernanceRecord) once the team approved a
+	// governance change of the action. Values only.
+	GovernanceAfter map[string]string `json:"governanceAfter,omitempty"`
+	// GovernanceBase is, per installation, the reviewed-governance record the
+	// plan compared with (RecordIdentity, "none" for none): merge_action
+	// merges a stage of an approved governance change, and writes the record,
+	// only while the installation's record is still that one.
+	GovernanceBase map[string]string `json:"governanceBase,omitempty"`
 }
 
 // Skipped is an installation of a wave's set that is not a target.
@@ -172,6 +188,11 @@ type Status struct {
 	// reverted: who withdrew it, why and when (deny_action on a merged
 	// action). The review's thread carries the same.
 	Withdrawal *Withdrawal `json:"withdrawal,omitempty"`
+	// Governance is, per installation, a governance change found after the
+	// commit recorded the Action: the values on the default branch moved
+	// between the plan and the pull requests, which write over what was
+	// merged meanwhile. It counts as spec.governance does (GovernanceOf).
+	Governance map[string]plan.GovernanceChange `json:"governance,omitempty"`
 }
 
 // CommitStatus fences approval until creation finishes and retains uncertain remote writes.
@@ -679,4 +700,24 @@ func NewName(kind, installation string) (string, error) {
 		suffix[i] = alphabet[int(b)%len(alphabet)]
 	}
 	return kind + "-" + installation + "-" + string(suffix), nil
+}
+
+// GovernanceOf is, per installation, every governance change of a: what
+// the commit recorded (spec.governance) and what was found after it
+// (status.governance), the lines of both.
+func GovernanceOf(a *Action) map[string]plan.GovernanceChange {
+	if len(a.Status.Governance) == 0 {
+		return a.Spec.Governance
+	}
+	out := map[string]plan.GovernanceChange{}
+	for n, g := range a.Spec.Governance {
+		out[n] = g
+	}
+	for n, g := range a.Status.Governance {
+		have := out[n]
+		have.Lines = append(append([]string{}, have.Lines...), g.Lines...)
+		have.Loosens = append(append([]string{}, have.Loosens...), g.Loosens...)
+		out[n] = have
+	}
+	return out
 }
